@@ -8,12 +8,12 @@ import {
   refillThresholdEcdsaClientPresignaturePool,
   scheduleThresholdEcdsaClientPresignaturePoolRefill,
   signThresholdEcdsaDigestWithPool,
-} from '@/core/signingEngine/orchestration/walletOrigin/thresholdEcdsaCoordinator';
-import { Secp256k1Engine } from '@/core/signingEngine/signers/algorithms/secp256k1';
+} from '@/core/signingEngine/threshold/ecdsa/presignPool';
+import { Secp256k1Engine } from '@/core/signingEngine/flows/signEvmFamily/signers/secp256k1';
 import {
   thresholdEcdsaChainTargetFromChainFamily,
   toWalletSubjectId,
-} from '@/core/signingEngine/session/signingSession/ecdsaChainTarget';
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 const RELAYER_URL = 'https://relay.example';
 const ECDSA_THRESHOLD_KEY_ID = 'ecdsa-hss-test-key-1';

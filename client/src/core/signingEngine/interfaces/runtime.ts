@@ -1,9 +1,9 @@
 import type { UnifiedIndexedDBManager } from '../../indexedDB';
 import type { NearClient } from '../../rpcClients/near/NearClient';
 import type { NonceCoordinator } from '../nonce/NonceCoordinator';
-import type { TouchConfirmSigningSessionPort } from '../touchConfirm';
-import type { TouchIdPrompt } from '../signers/webauthn/prompt/touchIdPrompt';
-import type { UserPreferencesManager } from '../api/userPreferences';
+import type { UiConfirmSigningSessionPort } from '../uiConfirm/types';
+import type { TouchIdPrompt } from '../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
+import type { UserPreferencesManager } from '../session/userPreferences';
 import type { ThemeName, SeamsChainConfig } from '../../types/seams';
 import type {
   SignerWorkerKind,
@@ -29,7 +29,7 @@ export interface SigningRuntimeDeps {
   tempoExplorerUrl?: string;
   evmExplorerUrl?: string;
   relayerUrl: string;
-  touchConfirm?: TouchConfirmSigningSessionPort;
+  touchConfirm?: UiConfirmSigningSessionPort;
   requestWorkerOperation: <
     K extends SignerWorkerKind,
     T extends SignerWorkerOperationType<K>,

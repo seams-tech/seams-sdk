@@ -8,7 +8,13 @@ import {
   toOptionalNonEmptyString,
 } from '@/core/signingEngine/session/warmSigning/ecdsaProvisioner';
 import type { WarmSessionEnvelope } from '@/core/signingEngine/session/warmSigning/types';
-import { createThresholdEcdsaBootstrapFixture } from './helpers/warmSessionStore.fixtures';
+import {
+  createThresholdEcdsaBootstrapFixture,
+  testEcdsaChainTarget,
+} from './helpers/warmSessionStore.fixtures';
+
+const EVM_CHAIN_TARGET = testEcdsaChainTarget('evm');
+const TEMPO_CHAIN_TARGET = testEcdsaChainTarget('tempo');
 
 function createEnvelope(): WarmSessionEnvelope {
   const evmBootstrap = createThresholdEcdsaBootstrapFixture({
@@ -25,7 +31,7 @@ function createEnvelope(): WarmSessionEnvelope {
     sessionId: 'tempo-session',
     sessionAuthToken: 'jwt:tempo-session',
   });
-  return {
+  const envelope: WarmSessionEnvelope = {
     accountId: 'provisioning.testnet' as any,
     capabilities: {
       ed25519: {
@@ -38,7 +44,6 @@ function createEnvelope(): WarmSessionEnvelope {
       ecdsa: {
         evm: {
           capability: 'ecdsa',
-          chain: 'evm',
           record: {
             nearAccountId: 'provisioning.testnet',
             chain: 'evm',
@@ -48,11 +53,12 @@ function createEnvelope(): WarmSessionEnvelope {
             relayerUrl: evmBootstrap.thresholdEcdsaKeyRef.relayerUrl,
             relayerKeyId: evmBootstrap.keygen.relayerKeyId,
             clientVerifyingShareB64u: evmBootstrap.keygen.clientVerifyingShareB64u,
+            clientAdditiveShare32B64u:
+              evmBootstrap.thresholdEcdsaKeyRef.backendBinding?.clientAdditiveShare32B64u,
             participantIds: [1, 2],
           } as any,
           auth: {
             capability: 'ecdsa',
-            chain: 'evm',
             record: {} as any,
             thresholdSessionAuthToken: 'jwt:evm-session',
             thresholdSessionAuthTokenSource: 'ecdsa',
@@ -67,7 +73,6 @@ function createEnvelope(): WarmSessionEnvelope {
         },
         tempo: {
           capability: 'ecdsa',
-          chain: 'tempo',
           record: {
             nearAccountId: 'provisioning.testnet',
             chain: 'tempo',
@@ -77,11 +82,12 @@ function createEnvelope(): WarmSessionEnvelope {
             relayerUrl: tempoBootstrap.thresholdEcdsaKeyRef.relayerUrl,
             relayerKeyId: tempoBootstrap.keygen.relayerKeyId,
             clientVerifyingShareB64u: tempoBootstrap.keygen.clientVerifyingShareB64u,
+            clientAdditiveShare32B64u:
+              tempoBootstrap.thresholdEcdsaKeyRef.backendBinding?.clientAdditiveShare32B64u,
             participantIds: [1, 2],
           } as any,
           auth: {
             capability: 'ecdsa',
-            chain: 'tempo',
             record: {} as any,
             thresholdSessionAuthToken: 'jwt:tempo-session',
             thresholdSessionAuthTokenSource: 'ecdsa',
@@ -98,6 +104,9 @@ function createEnvelope(): WarmSessionEnvelope {
     },
     updatedAtMs: Date.now(),
   };
+  envelope.capabilities.ecdsa.evm.auth!.record = envelope.capabilities.ecdsa.evm.record!;
+  envelope.capabilities.ecdsa.tempo.auth!.record = envelope.capabilities.ecdsa.tempo.record!;
+  return envelope;
 }
 
 test.describe('warmSessionEcdsaProvisioning', () => {
@@ -114,7 +123,7 @@ test.describe('warmSessionEcdsaProvisioning', () => {
     expect(
       getMatchingReadyEcdsaCapability({
         warmSession: envelope,
-        chain: 'evm',
+        chainTarget: EVM_CHAIN_TARGET,
         keyRef,
         usesNeeded: 2,
       }),
@@ -123,7 +132,7 @@ test.describe('warmSessionEcdsaProvisioning', () => {
     expect(
       getMatchingReadyEcdsaCapability({
         warmSession: envelope,
-        chain: 'evm',
+        chainTarget: EVM_CHAIN_TARGET,
         keyRef: {
           ...keyRef,
           thresholdSessionId: 'wrong-session',
@@ -167,11 +176,11 @@ test.describe('warmSessionEcdsaProvisioning', () => {
     const envelope = createEnvelope();
     const candidates = getEcdsaCapabilityCandidates({
       warmSession: envelope,
-      chain: 'tempo',
+      chainTarget: TEMPO_CHAIN_TARGET,
     });
     const ordering = getPrimaryAndSecondaryEcdsaCapabilities({
       warmSession: envelope,
-      chain: 'tempo',
+      chainTarget: TEMPO_CHAIN_TARGET,
     });
 
     expect(candidates).toEqual([

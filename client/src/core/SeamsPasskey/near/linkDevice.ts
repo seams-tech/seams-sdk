@@ -22,9 +22,9 @@ import type { WalletIframeCoordinator } from '../walletIframeCoordinator';
 import { restoreLocalLoginState } from '../restoreLocalLoginState';
 import { linkDeviceWithScannedQRData as linkDeviceWithScannedQRDataDevice1 } from '../scanDevice';
 import { DEVICE_LINKING_CONFIG } from '../../../config';
-import { normalizeRegistrationCredential } from '../../signingEngine/signers/webauthn/credentials/helpers';
-import { redactCredentialExtensionOutputs } from '../../signingEngine/signers/webauthn/credentials';
-import { getPrfFirstB64uFromCredential } from '../../signingEngine/threshold/webauthn';
+import { normalizeRegistrationCredential } from '../../signingEngine/walletAuth/webauthn/credentials/helpers';
+import { redactCredentialExtensionOutputs } from '../../signingEngine/walletAuth/webauthn/credentials/credentialExtensions';
+import { getPrfFirstB64uFromCredential } from '../../signingEngine/threshold/crypto/webauthn';
 import { DEFAULT_WAIT_STATUS } from '../../types/rpc';
 import { ActionType, type ActionArgsWasm } from '../../types/actions';
 import type { WebAuthnRegistrationCredential } from '../../types/webauthn';
@@ -39,11 +39,11 @@ import {
 import {
   THRESHOLD_SESSION_POLICY_VERSION,
   generateThresholdSessionId,
-} from '../../signingEngine/threshold/session/sessionPolicy';
+} from '../../signingEngine/threshold/sessionPolicy';
 import {
   thresholdEcdsaChainTargetFromRequest,
   type ThresholdEcdsaChainTarget,
-} from '../../signingEngine/session/signingSession/ecdsaChainTarget';
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { listThresholdEcdsaProvisionTargets } from '../thresholdEcdsaProvisioning';
 import {
   persistLinkDeviceThresholdEcdsaBootstrap,

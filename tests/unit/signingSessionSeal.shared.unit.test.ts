@@ -36,6 +36,7 @@ test.describe('shared signing-session seal specs', () => {
       },
       sealedSecretB64u: 'sealed-k',
       curve: 'ecdsa',
+      subjectId: 'wallet-subject:alice',
       walletId: 'alice.testnet',
       userId: 'alice.testnet',
       signingRootId: 'root',
@@ -113,11 +114,23 @@ test.describe('shared signing-session seal specs', () => {
       emailOtpEcdsaRestoreInfoFields({
         ecdsaThresholdSessionId: 'ecdsa-session',
         ecdsaThresholdKeyId: 'ecdsa-key',
-        chain: 'evm',
+        chainTarget: {
+          kind: 'evm',
+          namespace: 'eip155',
+          chainId: 11155111,
+          networkSlug: 'sepolia',
+        },
         participantIds: [1, 3],
         relayerKeyId: 'relayer-key',
       }),
-    ).toEqual(['ecdsa-session', 'ecdsa-key', 'evm', 'evm-signing', '1,3', 'relayer-key']);
+    ).toEqual([
+      'ecdsa-session',
+      'ecdsa-key',
+      'evm:eip155:11155111',
+      'evm-signing',
+      '1,3',
+      'relayer-key',
+    ]);
     expect(
       emailOtpEd25519RestoreInfoFields({
         ed25519ThresholdSessionId: 'ed-session',

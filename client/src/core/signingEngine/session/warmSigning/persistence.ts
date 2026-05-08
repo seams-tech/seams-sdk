@@ -4,16 +4,18 @@ import type { AccountId } from '@/core/types/accountIds';
 import {
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   type ThresholdEd25519SessionRecord,
-  type ThresholdEd25519SessionStoreSource,
-  type ThresholdEcdsaEmailOtpAuthContext,
   upsertStoredThresholdEd25519SessionRecord,
-} from '../../api/thresholdLifecycle/thresholdSessionStore';
+} from '../persistence/records';
+import type {
+  ThresholdEcdsaEmailOtpAuthContext,
+  ThresholdEd25519SessionStoreSource,
+} from '../identity/laneIdentity';
 import {
   parseThresholdRuntimePolicyScopeFromJwt,
   type ThresholdRuntimePolicyScope,
-} from '../../threshold/session/sessionPolicy';
-import type { Ed25519SessionKind } from '../../threshold/session/ed25519SessionTypes';
-import { publishResolvedIdentity } from '../sealedSessionStore';
+  type ThresholdSessionKind,
+} from '../../threshold/sessionPolicy';
+import { publishResolvedIdentity } from '../persistence/sealedSessionStore';
 
 export type PersistWarmSessionEd25519CapabilityArgs = {
   nearAccountId: AccountId | string;
@@ -22,7 +24,7 @@ export type PersistWarmSessionEd25519CapabilityArgs = {
   relayerKeyId: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   participantIds?: number[];
-  sessionKind?: Ed25519SessionKind;
+  sessionKind?: ThresholdSessionKind;
   sessionId: string;
   walletSigningSessionId?: string;
   expiresAtMs: number;

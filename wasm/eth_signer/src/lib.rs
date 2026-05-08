@@ -1,4 +1,5 @@
 mod codec;
+mod cose;
 mod derive;
 mod ecdsa_hss;
 mod eip1559;
@@ -223,4 +224,9 @@ pub fn build_webauthn_p256_signature(
         pub_key_x32,
         pub_key_y32,
     )
+}
+
+#[wasm_bindgen]
+pub fn decode_cose_p256_public_key(cose_public_key: Vec<u8>) -> Result<Vec<u8>, JsValue> {
+    cose::decode_cose_p256_public_key(cose_public_key)
 }

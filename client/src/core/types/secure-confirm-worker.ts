@@ -6,9 +6,9 @@
  * - a small warm-session material store for threshold signing.
  */
 import type { SigningSessionPersistenceMode } from './seams';
-import type { ThresholdEcdsaChainTarget } from '../signingEngine/session/signingSession/ecdsaChainTarget';
+import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
-export interface TouchConfirmManagerConfig {
+export interface UiConfirmManagerConfig {
   workerUrl?: string;
   workerTimeout?: number;
   debug?: boolean;

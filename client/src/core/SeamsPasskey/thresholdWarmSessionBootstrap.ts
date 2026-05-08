@@ -17,17 +17,20 @@ import {
   getNearThresholdKeyMaterial,
   storeNearThresholdKeyMaterial,
 } from '../accountData/near/keyMaterial';
-import type { Ed25519SessionKind } from '../signingEngine/threshold/session/ed25519SessionTypes';
 import { persistWarmSessionEd25519Capability } from '../signingEngine/session/warmSigning/persistence';
-import { getPrfFirstB64uFromCredential } from '../signingEngine/threshold/webauthn';
-import { getStoredThresholdEd25519SessionRecordForAccount } from '../signingEngine/api/thresholdLifecycle/thresholdSessionStore';
+import { getPrfFirstB64uFromCredential } from '../signingEngine/threshold/crypto/webauthn';
+import {
+  getStoredThresholdEd25519SessionRecordForAccount,
+  persistStoredThresholdEd25519SessionClientBase,
+} from '../signingEngine/session/persistence/records';
 import {
   THRESHOLD_SESSION_POLICY_VERSION,
   generateThresholdSessionId,
   generateWalletSigningSessionId,
   normalizeThresholdRuntimePolicyScope,
   type ThresholdRuntimePolicyScope,
-} from '../signingEngine/threshold/session/sessionPolicy';
+  type ThresholdSessionKind,
+} from '../signingEngine/threshold/sessionPolicy';
 import type { PasskeyManagerContext } from './index';
 import {
   type CreateAccountAndRegisterThresholdEd25519Response,
@@ -41,7 +44,7 @@ import {
 import {
   THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
   THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
-} from '../signingEngine/orchestration/near/shared/ensureThresholdEd25519HssClientBase';
+} from '../signingEngine/threshold/ed25519/hssClientBase';
 import { resolveThresholdWarmSessionDefaults } from './thresholdWarmSessionDefaults';
 
 export const THRESHOLD_ED25519_SINGLE_KEY_HSS_KEY_VERSION_V1 = 'threshold-ed25519-hss-v1';
@@ -448,7 +451,7 @@ export async function persistRegisteredThresholdEd25519Session(args: {
     relayerUrl: args.relayerUrl,
     relayerKeyId: args.completedRegistration.registered.relayerKeyId,
     participantIds,
-    sessionKind: 'jwt' as Ed25519SessionKind,
+    sessionKind: 'jwt' as ThresholdSessionKind,
     sessionId,
     walletSigningSessionId,
     expiresAtMs,
@@ -539,14 +542,21 @@ export async function reconstructThresholdEd25519ClientBaseFromWarmSession(args:
       yClientB64u: prepared.yClientB64u,
       tauClientB64u: prepared.tauClientB64u,
     },
-    persistToThresholdSessionId: thresholdSessionId,
   });
   if (!completed.success || !completed.clientOutput?.xClientBaseB64u) {
     throw new Error(
       completed.error || 'Failed to reconstruct threshold Ed25519 single-key HSS client base',
     );
   }
-  return String(completed.clientOutput.xClientBaseB64u || '').trim();
+  const xClientBaseB64u = String(completed.clientOutput.xClientBaseB64u || '').trim();
+  const persisted = persistStoredThresholdEd25519SessionClientBase({
+    thresholdSessionId,
+    xClientBaseB64u,
+  });
+  if (!persisted) {
+    throw new Error('Failed to persist HSS client output to the threshold session store');
+  }
+  return xClientBaseB64u;
 }
 
 export async function prewarmThresholdEd25519ClientBaseFromCredential(args: {
@@ -647,7 +657,7 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
 }> {
   const sessionKind = String(args.session?.sessionKind || 'jwt')
     .trim()
-    .toLowerCase() as Ed25519SessionKind;
+    .toLowerCase() as ThresholdSessionKind;
   if (sessionKind !== 'jwt') {
     throw new Error('threshold-ed25519 bootstrap sessionKind must be jwt');
   }

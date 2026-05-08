@@ -9,12 +9,12 @@ import type { WorkerOperationContext } from '../signingEngine/workerManager/exec
 import {
   normalizeThresholdRuntimePolicyScope,
   type ThresholdRuntimePolicyScope,
-} from '../signingEngine/threshold/session/sessionPolicy';
+} from '../signingEngine/threshold/sessionPolicy';
 import {
   buildEmailOtpRoutePlan,
   resolveEmailOtpAuthLane,
   type EmailOtpRouteFamily,
-} from '../signingEngine/emailOtp/authLane';
+} from '../signingEngine/stepUpConfirmation/otpPrompt/authLane';
 
 type FetchLike = typeof fetch;
 

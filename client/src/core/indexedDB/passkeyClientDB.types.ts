@@ -1,6 +1,6 @@
 import type { AccountId } from '../types/accountIds';
 import type { ConfirmationConfig } from '../types/signer-worker';
-import type { ThresholdEcdsaChainTarget } from '../signingEngine/session/signingSession/ecdsaChainTarget';
+import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   SignerAuthMethod,
   SignerKind,

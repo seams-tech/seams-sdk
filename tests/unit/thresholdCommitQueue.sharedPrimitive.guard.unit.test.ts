@@ -12,14 +12,14 @@ function readRepoFile(relativePath: string): string {
 test.describe('threshold commit queue shared primitive guard', () => {
   test('ECDSA and Ed25519 queue wrappers both use the shared primitive', () => {
     const ecdsa = readRepoFile(
-      'client/src/core/signingEngine/api/thresholdLifecycle/thresholdEcdsaCommitQueue.ts',
+      'client/src/core/signingEngine/threshold/ecdsa/commitQueue.ts',
     );
     const ed25519 = readRepoFile(
-      'client/src/core/signingEngine/api/thresholdLifecycle/thresholdEd25519CommitQueue.ts',
+      'client/src/core/signingEngine/threshold/ed25519/commitQueue.ts',
     );
 
-    expect(ecdsa).toContain("from './thresholdCommitQueueShared'");
-    expect(ed25519).toContain("from './thresholdCommitQueueShared'");
+    expect(ecdsa).toContain("from '../commitQueueShared'");
+    expect(ed25519).toContain("from '../commitQueueShared'");
     expect(ecdsa).toContain('withThresholdCommitQueue({');
     expect(ed25519).toContain('withThresholdCommitQueue({');
     expect(ecdsa).toContain('clearThresholdCommitQueue(queueByKey);');
@@ -28,13 +28,13 @@ test.describe('threshold commit queue shared primitive guard', () => {
 
   test('curve key domains stay separate while remaining session-scoped', () => {
     const ecdsa = readRepoFile(
-      'client/src/core/signingEngine/api/thresholdLifecycle/thresholdEcdsaCommitQueue.ts',
+      'client/src/core/signingEngine/threshold/ecdsa/commitQueue.ts',
     );
     const ed25519 = readRepoFile(
-      'client/src/core/signingEngine/api/thresholdLifecycle/thresholdEd25519CommitQueue.ts',
+      'client/src/core/signingEngine/threshold/ed25519/commitQueue.ts',
     );
 
-    expect(ecdsa).toContain('return `session:${chain}:${thresholdSessionId}`;');
+    expect(ecdsa).toContain('return `session:${targetKey}:${thresholdSessionId}`;');
     expect(ed25519).toContain("return `session:ed25519:${thresholdSessionId}`;");
   });
 });

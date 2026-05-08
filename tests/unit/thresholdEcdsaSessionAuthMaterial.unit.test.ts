@@ -3,7 +3,7 @@ import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
   thresholdSessionStore:
-    '/sdk/esm/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore.js',
+    '/sdk/esm/core/signingEngine/session/persistence/records.js',
   warmSessionCapabilityReader:
     '/sdk/esm/core/signingEngine/session/warmSigning/capabilityReader.js',
 } as const;

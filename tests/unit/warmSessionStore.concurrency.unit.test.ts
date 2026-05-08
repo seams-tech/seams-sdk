@@ -73,7 +73,7 @@ test.describe('WarmSessionStore concurrency', () => {
           );
         },
       },
-      listThresholdEcdsaKeyRefsForLookup: () => [
+      listThresholdEcdsaKeyRefsForAccountTarget: () => [
         { source: 'manual-bootstrap', keyRef: staleBootstrap.thresholdEcdsaKeyRef },
       ],
       provisionThresholdEcdsaSession: async ({ nearAccountId, chainTarget }) => {
@@ -99,12 +99,14 @@ test.describe('WarmSessionStore concurrency', () => {
       chain: 'evm',
       usesNeeded: 1,
       sessionBudgetUses: 1,
+      clientRootShare32B64u: 'concurrent-client-root-share',
     });
     const readyPromiseB = store.ensureEcdsaCapabilityReady({
       nearAccountId: 'concurrent-ready.testnet',
       chain: 'evm',
       usesNeeded: 1,
       sessionBudgetUses: 1,
+      clientRootShare32B64u: 'concurrent-client-root-share',
     });
 
     await new Promise((resolve) => setTimeout(resolve, 0));

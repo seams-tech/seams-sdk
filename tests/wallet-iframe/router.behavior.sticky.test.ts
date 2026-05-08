@@ -6,11 +6,13 @@ import {
   waitFor,
   captureOverlay,
 } from './harness';
+import { nearAccountRefFromAccountId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 const WALLET_ORIGIN = 'https://wallet.example.localhost';
 const WALLET_SERVICE_ROUTE = '**://wallet.example.localhost/wallet-service*';
 const WAIT_FOR_SOURCE = `(${waitFor.toString()})`;
 const CAPTURE_OVERLAY_SOURCE = `(${captureOverlay.toString()})`;
+const STICKY_NEAR_ACCOUNT = nearAccountRefFromAccountId('sticky.testnet');
 
 const stickyResponseScript = String.raw`
       const originalAdoptPort = adoptPort;
@@ -166,8 +168,12 @@ test.describe('WalletIframeRouter – sticky overlay lifecycle', () => {
           });
           await router.init();
 
-          const stickyPromise = router.exportKeypairWithUI('sticky.testnet', {
-            chain: 'near',
+          const stickyPromise = router.exportKeypairWithUI({
+            kind: 'near',
+            nearAccount: STICKY_NEAR_ACCOUNT,
+            options: {
+              chain: 'near',
+            },
           });
 
           const shown = await waitFor(() => {
@@ -236,8 +242,12 @@ test.describe('WalletIframeRouter – sticky overlay lifecycle', () => {
           });
           await router.init();
 
-          await router.exportKeypairWithUI('sticky.testnet', {
-            chain: 'near',
+          await router.exportKeypairWithUI({
+            kind: 'near',
+            nearAccount: STICKY_NEAR_ACCOUNT,
+            options: {
+              chain: 'near',
+            },
           });
 
           // Simulate wallet-host export UI close cleanup (release sticky + hide),

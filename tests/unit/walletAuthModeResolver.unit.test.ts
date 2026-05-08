@@ -5,7 +5,7 @@ import {
   createWalletAuthModeResolver,
   resolveAccountAuthMetadataForSignerSource,
   WalletAuthModeResolutionError,
-} from '@/core/signingEngine/auth';
+} from '@/core/signingEngine/walletAuth';
 import {
   accountAuthFixtures,
   type AccountAuthFixture,

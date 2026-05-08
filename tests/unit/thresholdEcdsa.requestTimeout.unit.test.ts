@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { authorizeEcdsaWithSession } from '@/core/signingEngine/threshold/workflows/authorizeEcdsa';
-import { ecdsaPresignInit } from '@/core/signingEngine/threshold/workflows/signEcdsa';
+import { authorizeEcdsaWithSession } from '@/core/signingEngine/threshold/ecdsa/authorize';
+import { ecdsaPresignInit } from '@/core/signingEngine/threshold/ecdsa/sign';
 
 function createHangingAbortableFetch(): typeof fetch {
   return (async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {

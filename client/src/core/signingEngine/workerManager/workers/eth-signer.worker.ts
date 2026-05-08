@@ -1,6 +1,7 @@
 import init, {
   add_secp256k1_public_keys_33,
   compute_eip1559_tx_hash,
+  decode_cose_p256_public_key,
   derive_secp256k1_keypair_from_prf_second,
   encode_eip1559_signed_tx_from_signature65,
   init_eth_signer,
@@ -74,6 +75,13 @@ type EthSignerWorkerRequest =
         signatureDer: unknown;
         pubKeyX32: unknown;
         pubKeyY32: unknown;
+      };
+    }
+  | {
+      id: string;
+      type: 'decodeCoseP256PublicKey';
+      payload: {
+        cosePublicKey: unknown;
       };
     }
   | {
@@ -472,6 +480,15 @@ self.addEventListener('message', async (event: MessageEvent) => {
           toU8(msg.payload.pubKeyX32),
           toU8(msg.payload.pubKeyY32),
         ) as Uint8Array;
+        const ab = out.slice().buffer;
+        postOperationSucceeded(msg, ab, [ab]);
+        return;
+      }
+      case 'decodeCoseP256PublicKey': {
+        const out = decode_cose_p256_public_key(toU8(msg.payload.cosePublicKey)) as Uint8Array;
+        if (out.length !== 64) {
+          throw new Error(`decode_cose_p256_public_key must return 64 bytes (got ${out.length})`);
+        }
         const ab = out.slice().buffer;
         postOperationSucceeded(msg, ab, [ab]);
         return;

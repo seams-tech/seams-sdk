@@ -1,38 +1,39 @@
 import { expect, test } from '@playwright/test';
-import { injectImportMap } from '../setup/bootstrap';
-
-const IMPORT_PATHS = {
-  server: '/sdk/esm/server/index.js',
-} as const;
+import {
+  buildCanonicalSmartAccountDeploymentManifest,
+  type CanonicalSmartAccountDeploymentManifest,
+} from '../../server/src/core/smartAccountDeploymentManifest';
+import {
+  buildCanonicalEvmSmartAccountDeploymentPlan,
+} from '../../server/src/core/evmSmartAccountDeploymentPlan';
+import {
+  buildRecoveryAuthorityAuthorizationDigest,
+} from '../../server/src/core/recoveryAuthorityAuthorization';
+import {
+  syncCanonicalSmartAccountDeploymentManifest,
+} from '../../server/src/router/smartAccountDeploymentManifest';
 
 test.describe('smart-account deployment manifest builder', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/');
-    await injectImportMap(page);
-  });
-
-  test('derives undeployed owner manifest from canonical account signer state', async ({
-    page,
-  }) => {
-    const result = await page.evaluate(
-      async ({ paths }) => {
-        const {
-          buildCanonicalEvmSmartAccountDeploymentPlan,
-          buildCanonicalSmartAccountDeploymentManifest,
-          buildRecoveryAuthorityAuthorizationDigest,
-        } = await import(paths.server);
+  test('derives undeployed owner manifest from canonical account signer state', async () => {
+    const result = await (async () => {
         const manifest = buildCanonicalSmartAccountDeploymentManifest({
           recoverySubject: {
             version: 'smart_account_recovery_subject_v1',
             userId: 'alice.testnet',
             nearAccountId: 'alice.testnet',
-            chainIdKey: 'evm:11155111',
+            chainIdKey: 'evm:eip155:11155111',
             accountAddress: `0x${'11'.repeat(20)}`,
             createdAtMs: 1,
             updatedAtMs: 1,
             metadata: {
               chain: 'evm',
               chainId: 11155111,
+              chainTarget: {
+                kind: 'evm',
+                namespace: 'eip155',
+                chainId: 11155111,
+                networkSlug: 'sepolia',
+              },
               accountModel: 'erc4337',
               deployed: false,
               factory: `0x${'22'.repeat(20)}`,
@@ -46,7 +47,7 @@ test.describe('smart-account deployment manifest builder', () => {
             {
               version: 'account_signer_v1',
               userId: 'alice.testnet',
-              chainIdKey: 'evm:11155111',
+              chainIdKey: 'evm:eip155:11155111',
               accountAddress: `0x${'11'.repeat(20)}`,
               signerType: 'threshold',
               signerId: `0x${'aa'.repeat(20)}`,
@@ -57,7 +58,7 @@ test.describe('smart-account deployment manifest builder', () => {
             {
               version: 'account_signer_v1',
               userId: 'alice.testnet',
-              chainIdKey: 'evm:11155111',
+              chainIdKey: 'evm:eip155:11155111',
               accountAddress: `0x${'11'.repeat(20)}`,
               signerType: 'threshold',
               signerId: `0x${'bb'.repeat(20)}`,
@@ -68,7 +69,7 @@ test.describe('smart-account deployment manifest builder', () => {
             {
               version: 'account_signer_v1',
               userId: 'alice.testnet',
-              chainIdKey: 'evm:11155111',
+              chainIdKey: 'evm:eip155:11155111',
               accountAddress: `0x${'11'.repeat(20)}`,
               signerType: 'threshold',
               signerId: `0x${'cc'.repeat(20)}`,
@@ -96,12 +97,10 @@ test.describe('smart-account deployment manifest builder', () => {
           evmDeploymentPlan,
           recoveryAuthorizationNearAccountIdHash: authorization.payload.nearAccountIdHash,
         };
-      },
-      { paths: IMPORT_PATHS },
-    );
+    })();
 
     expect(result?.manifest?.version).toBe('smart_account_deployment_manifest_v1');
-    expect(result?.manifest?.chainIdKey).toBe('evm:11155111');
+    expect(result?.manifest?.chainIdKey).toBe('evm:eip155:11155111');
     expect(result?.manifest?.deployed).toBe(false);
     expect(result?.manifest?.ownerAddresses).toEqual([
       `0x${'aa'.repeat(20)}`,
@@ -122,32 +121,39 @@ test.describe('smart-account deployment manifest builder', () => {
     expect(result?.evmDeploymentPlan?.matchesAccountAddress).toBe(false);
   });
 
-  test('marks when the predicted factory address matches the canonical account address', async ({
-    page,
-  }) => {
-    const result = await page.evaluate(
-      async ({ paths }) => {
-        const { buildCanonicalEvmSmartAccountDeploymentPlan } = await import(paths.server);
-        const baseManifest = {
+  test('marks when the predicted factory address matches the canonical account address', async () => {
+    const result = await (async () => {
+        const baseManifest: CanonicalSmartAccountDeploymentManifest = {
           version: 'smart_account_deployment_manifest_v1',
-          chainIdKey: 'evm:11155111',
+          chainIdKey: 'evm:eip155:11155111',
+          chainTarget: {
+            kind: 'evm',
+            namespace: 'eip155',
+            chainId: 11155111,
+            networkSlug: 'sepolia',
+          },
           accountAddress: `0x${'11'.repeat(20)}`,
           nearAccountIdHash: `0x${'aa'.repeat(32)}`,
-          chain: 'evm',
-          chainId: 11155111,
           accountModel: 'erc4337',
           deployed: false,
           ownerAddresses: [`0x${'bb'.repeat(20)}`],
           activeOwnerAddresses: [`0x${'bb'.repeat(20)}`],
           pendingOwnerAddresses: [],
           owners: [],
+          undeployedSignerSet: {
+            version: 'undeployed_smart_account_signer_set_v1',
+            ownerAddresses: [`0x${'bb'.repeat(20)}`],
+            activeOwnerAddresses: [`0x${'bb'.repeat(20)}`],
+            pendingOwnerAddresses: [],
+            owners: [],
+          },
           materializedAtMs: 1234,
           source: 'canonical_account_signer',
           factory: `0x${'22'.repeat(20)}`,
           entryPoint: `0x${'33'.repeat(20)}`,
           recoveryAuthority: `0x${'44'.repeat(20)}`,
           salt: '0x1234',
-        } as const;
+        };
         const initialPlan = buildCanonicalEvmSmartAccountDeploymentPlan(baseManifest);
         const matchedPlan = initialPlan
           ? buildCanonicalEvmSmartAccountDeploymentPlan({
@@ -160,9 +166,7 @@ test.describe('smart-account deployment manifest builder', () => {
           initialPlan,
           matchedPlan,
         };
-      },
-      { paths: IMPORT_PATHS },
-    );
+    })();
 
     expect(result?.initialPlan?.predictedAddress).toMatch(/^0x[0-9a-f]{40}$/);
     expect(result?.initialPlan?.matchesAccountAddress).toBe(false);
@@ -170,28 +174,27 @@ test.describe('smart-account deployment manifest builder', () => {
     expect(result?.matchedPlan?.matchesAccountAddress).toBe(true);
   });
 
-  test('preserves canonical owner ordering in manifest owners and evm initData', async ({
-    page,
-  }) => {
-    const result = await page.evaluate(
-      async ({ paths }) => {
-        const {
-          buildCanonicalEvmSmartAccountDeploymentPlan,
-          buildCanonicalSmartAccountDeploymentManifest,
-        } = await import(paths.server);
+  test('preserves canonical owner ordering in manifest owners and evm initData', async () => {
+    const result = await (async () => {
 
         const manifest = buildCanonicalSmartAccountDeploymentManifest({
           recoverySubject: {
             version: 'smart_account_recovery_subject_v1',
             userId: 'alice.testnet',
             nearAccountId: 'alice.testnet',
-            chainIdKey: 'evm:11155111',
+            chainIdKey: 'evm:eip155:11155111',
             accountAddress: `0x${'11'.repeat(20)}`,
             createdAtMs: 1,
             updatedAtMs: 1,
             metadata: {
               chain: 'evm',
               chainId: 11155111,
+              chainTarget: {
+                kind: 'evm',
+                namespace: 'eip155',
+                chainId: 11155111,
+                networkSlug: 'sepolia',
+              },
               accountModel: 'erc4337',
               deployed: false,
               factory: `0x${'22'.repeat(20)}`,
@@ -204,7 +207,7 @@ test.describe('smart-account deployment manifest builder', () => {
             {
               version: 'account_signer_v1',
               userId: 'alice.testnet',
-              chainIdKey: 'evm:11155111',
+              chainIdKey: 'evm:eip155:11155111',
               accountAddress: `0x${'11'.repeat(20)}`,
               signerType: 'threshold',
               signerId: `0x${'dd'.repeat(20)}`,
@@ -216,7 +219,7 @@ test.describe('smart-account deployment manifest builder', () => {
             {
               version: 'account_signer_v1',
               userId: 'alice.testnet',
-              chainIdKey: 'evm:11155111',
+              chainIdKey: 'evm:eip155:11155111',
               accountAddress: `0x${'11'.repeat(20)}`,
               signerType: 'threshold',
               signerId: `0x${'cc'.repeat(20)}`,
@@ -228,7 +231,7 @@ test.describe('smart-account deployment manifest builder', () => {
             {
               version: 'account_signer_v1',
               userId: 'alice.testnet',
-              chainIdKey: 'evm:11155111',
+              chainIdKey: 'evm:eip155:11155111',
               accountAddress: `0x${'11'.repeat(20)}`,
               signerType: 'threshold',
               signerId: `0x${'bb'.repeat(20)}`,
@@ -240,7 +243,7 @@ test.describe('smart-account deployment manifest builder', () => {
             {
               version: 'account_signer_v1',
               userId: 'alice.testnet',
-              chainIdKey: 'evm:11155111',
+              chainIdKey: 'evm:eip155:11155111',
               accountAddress: `0x${'11'.repeat(20)}`,
               signerType: 'threshold',
               signerId: `0x${'aa'.repeat(20)}`,
@@ -278,9 +281,7 @@ test.describe('smart-account deployment manifest builder', () => {
             })) || null,
           initOwners: ownerWords,
         };
-      },
-      { paths: IMPORT_PATHS },
-    );
+    })();
 
     expect(result?.ownerAddresses).toEqual([
       `0x${'bb'.repeat(20)}`,
@@ -313,24 +314,26 @@ test.describe('smart-account deployment manifest builder', () => {
     expect(result?.initOwners).toEqual(result?.ownerAddresses);
   });
 
-  test('sync persists canonical evm deployment-plan metadata and clears stale non-evm plan state', async ({
-    page,
-  }) => {
-    const result = await page.evaluate(
-      async ({ paths }) => {
-        const { syncCanonicalSmartAccountDeploymentManifest } = await import(paths.server);
+  test('sync persists canonical evm deployment-plan metadata and clears stale non-evm plan state', async () => {
+    const result = await (async () => {
 
         const evmRecord = {
           version: 'smart_account_recovery_subject_v1',
           userId: 'alice.testnet',
           nearAccountId: 'alice.testnet',
-          chainIdKey: 'evm:11155111',
+          chainIdKey: 'evm:eip155:11155111',
           accountAddress: `0x${'11'.repeat(20)}`,
           createdAtMs: 1,
           updatedAtMs: 1,
           metadata: {
             chain: 'evm',
             chainId: 11155111,
+            chainTarget: {
+              kind: 'evm',
+              namespace: 'eip155',
+              chainId: 11155111,
+              networkSlug: 'sepolia',
+            },
             accountModel: 'erc4337',
             deployed: false,
             factory: `0x${'22'.repeat(20)}`,
@@ -352,7 +355,7 @@ test.describe('smart-account deployment manifest builder', () => {
                 {
                   version: 'account_signer_v1',
                   userId: 'alice.testnet',
-                  chainIdKey: 'evm:11155111',
+                  chainIdKey: 'evm:eip155:11155111',
                   accountAddress: `0x${'11'.repeat(20)}`,
                   signerType: 'threshold',
                   signerId: `0x${'aa'.repeat(20)}`,
@@ -380,6 +383,11 @@ test.describe('smart-account deployment manifest builder', () => {
           metadata: {
             chain: 'tempo',
             chainId: 42431,
+            chainTarget: {
+              kind: 'tempo',
+              chainId: 42431,
+              networkSlug: 'tempo-testnet',
+            },
             accountModel: 'tempo-native',
             deployed: false,
             evmDeploymentPlan: {
@@ -419,7 +427,7 @@ test.describe('smart-account deployment manifest builder', () => {
 
         await syncCanonicalSmartAccountDeploymentManifest({
           authService: evmService as any,
-          chainIdKey: 'evm:11155111',
+          chainIdKey: 'evm:eip155:11155111',
           accountAddress: `0x${'11'.repeat(20)}`,
           materializedAtMs: 4321,
         });
@@ -434,9 +442,7 @@ test.describe('smart-account deployment manifest builder', () => {
           evmMetadata: evmWrites[0]?.metadata,
           tempoMetadata: tempoWrites[0]?.metadata,
         };
-      },
-      { paths: IMPORT_PATHS },
-    );
+    })();
 
     const evmMetadata = result?.evmMetadata as any;
     const tempoMetadata = result?.tempoMetadata as any;

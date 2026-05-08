@@ -1,12 +1,12 @@
-import type { EvmSignedResult } from '../../signingEngine/chainAdaptors/evm/evmAdapter';
-import type { TempoSignedResult } from '../../signingEngine/chainAdaptors/tempo/tempoAdapter';
+import type { EvmSignedResult } from '../../signingEngine/chains/evm/evmAdapter';
+import type { TempoSignedResult } from '../../signingEngine/chains/tempo/tempoAdapter';
 import { toError } from '@shared/utils/errors';
 import { toAccountId } from '../../types/accountIds';
 import { routeWalletIframeOrLocal, type WalletIframeRouteDeps } from '../walletIframeRoute';
 import {
   thresholdEcdsaChainTargetFromRequest,
   toWalletSubjectId,
-} from '../../signingEngine/session/signingSession/ecdsaChainTarget';
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   ExecuteEvmFamilyTransactionArgs,
   ExecuteEvmFamilyTransactionResult,

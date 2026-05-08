@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { authorizeEcdsaWithSession } from '@/core/signingEngine/threshold/workflows/authorizeEcdsa';
+import { authorizeEcdsaWithSession } from '@/core/signingEngine/threshold/ecdsa/authorize';
 
 async function withMockedFetch<T>(mockFetch: typeof fetch, run: () => Promise<T>): Promise<T> {
   const originalFetch = globalThis.fetch;

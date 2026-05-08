@@ -7,17 +7,17 @@ import {
   ensureThresholdEd25519HssClientBase,
   THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
   THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
-} from '@/core/signingEngine/orchestration/near/shared/ensureThresholdEd25519HssClientBase';
+} from '@/core/signingEngine/threshold/ed25519/hssClientBase';
 import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmSigning/persistence';
 import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
-import { signTransactionsWithActions } from '@/core/signingEngine/orchestration/near/transactionsFlow';
+import { signTransactionsWithActions } from '@/core/signingEngine/flows/signNear/signTransactions';
 import { SigningEngine } from '@/core/signingEngine/SigningEngine';
 import {
   clearAllStoredThresholdEd25519SessionRecords,
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   persistStoredThresholdEd25519SessionClientBase,
   upsertStoredThresholdEd25519SessionRecord,
-} from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
+} from '@/core/signingEngine/session/persistence/records';
 import { ActionType, type TransactionInputWasm } from '@/core/types/actions';
 import { WorkerRequestType, WorkerResponseType } from '@/core/types/signer-worker';
 import {
@@ -25,7 +25,7 @@ import {
   openThresholdEd25519HssClientOutputWasm,
   prepareThresholdEd25519HssClientRequestWasm,
   prepareThresholdEd25519HssSessionWasm,
-} from '@/core/signingEngine/signers/wasm/hssClientSignerWasm';
+} from '@/core/signingEngine/threshold/crypto/hssClientSignerWasm';
 import {
   finalizeThresholdEd25519HssServerCeremonyWithRelayRegistration,
   prepareThresholdEd25519HssServerCeremonyWithRelayRegistration,
@@ -109,36 +109,70 @@ function buildTestWarmSigningAuth() {
     expiresAtMs,
     projectionVersion: 'test-ed25519-budget-projection',
   };
+  const signingAuthPlan = {
+    kind: 'warmSession',
+    method: 'passkey',
+    accountId: NEAR_ACCOUNT_ID,
+    intent: 'transaction_sign',
+    curve: 'ed25519',
+    sessionId: THRESHOLD_SESSION_ID,
+    retention: 'session',
+    expiresAtMs,
+    remainingUses: 5,
+  };
+  const signingLane = {
+    accountId: NEAR_ACCOUNT_ID,
+    authMethod: 'passkey',
+    curve: 'ed25519',
+    keyKind: 'threshold_ed25519',
+    chainFamily: 'near',
+    walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+    thresholdSessionId: THRESHOLD_SESSION_ID,
+    sessionOrigin: 'bootstrap',
+    storageSource: 'bootstrap',
+    retention: 'session',
+    activeSignerSlot: 1,
+    signingRootId: SIGNING_ROOT_ID,
+    signingRootVersion: RUNTIME_SCOPE.signingRootVersion,
+  };
+  const signingSessionPlan = {
+    kind: 'warm_session',
+    lane: signingLane,
+    keyRef: {
+      kind: 'cached',
+      thresholdSessionId: THRESHOLD_SESSION_ID,
+    },
+  };
+  const transactionOperation = {
+    intent: {
+      walletId: NEAR_ACCOUNT_ID,
+      curve: 'ed25519',
+      chain: 'near',
+      authSelectionPolicy: { kind: 'account_class', authMethod: 'passkey' },
+      operationUsesNeeded: 1,
+    },
+    lane: signingLane,
+    readiness: {
+      status: 'ready',
+      remainingUses: 5,
+      expiresAtMs,
+    },
+  };
   return {
     signingSessionCoordinator: new SigningSessionCoordinator({
       getStatus: async () => activeBudgetStatus,
       consumeUse: async () => activeBudgetStatus,
     }),
-    signingAuthPlan: {
-      kind: 'warm_session',
-      method: 'passkey',
-      accountId: NEAR_ACCOUNT_ID,
-      intent: 'transaction_sign',
-      curve: 'ed25519',
+    signingAuthPlan,
+    signingLane,
+    signingSessionPlan,
+    transactionOperation,
+    ed25519SigningBoundary: {
       sessionId: THRESHOLD_SESSION_ID,
-      retention: 'session',
-      expiresAtMs,
-      remainingUses: 5,
-    },
-    signingLane: {
-      accountId: NEAR_ACCOUNT_ID,
-      authMethod: 'passkey',
-      curve: 'ed25519',
-      keyKind: 'threshold_ed25519',
-      chainFamily: 'near',
-      walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
-      thresholdSessionId: THRESHOLD_SESSION_ID,
-      sessionOrigin: 'bootstrap',
-      storageSource: 'bootstrap',
-      retention: 'session',
-      activeSignerSlot: 1,
-      signingRootId: SIGNING_ROOT_ID,
-      signingRootVersion: RUNTIME_SCOPE.signingRootVersion,
+      signingSessionPlan,
+      signingAuthPlan,
+      signingLane,
+      initialBudgetAdmittedOperation: null,
     },
   } as any;
 }
@@ -720,12 +754,20 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
         } as any,
         thresholdSessionId: THRESHOLD_SESSION_ID,
         thresholdSessionAuthToken: THRESHOLD_SESSION_JWT,
+        signingRootId: SIGNING_ROOT_ID,
         relayerUrl: RELAYER_URL,
         relayerKeyId: RELAYER_KEY_ID,
         nearAccountId: NEAR_ACCOUNT_ID,
         keyVersion: CONTEXT.keyVersion,
         participantIds: [...CONTEXT.participantIds],
         prfFirstB64u: PRF_FIRST_B64U,
+        persistClientBase: (xClientBaseB64u: string) =>
+          Boolean(
+            persistStoredThresholdEd25519SessionClientBase({
+              thresholdSessionId: THRESHOLD_SESSION_ID,
+              xClientBaseB64u,
+            }),
+          ),
       });
 
       expect(String(xClientBaseB64u || '')).not.toBe('');
@@ -818,6 +860,12 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
               ok: false as const,
               code: 'not_found',
               message: 'warm-session status missing',
+            }),
+            claimWarmSessionMaterial: async () => ({
+              ok: true as const,
+              prfFirstB64u: PRF_FIRST_B64U,
+              remainingUses: 4,
+              expiresAtMs: Date.now() + 60_000,
             }),
             clearWarmSessionMaterial: async () => undefined,
             orchestrateSigningConfirmation: async () => ({
@@ -985,6 +1033,12 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
               ok: false as const,
               code: 'not_found',
               message: 'warm-session status missing',
+            }),
+            claimWarmSessionMaterial: async () => ({
+              ok: true as const,
+              prfFirstB64u: PRF_FIRST_B64U,
+              remainingUses: 4,
+              expiresAtMs: Date.now() + 60_000,
             }),
             clearWarmSessionMaterial: async () => undefined,
             orchestrateSigningConfirmation: async () => ({
@@ -1171,8 +1225,11 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
       )}`;
 
       const engine: any = Object.create(SigningEngine.prototype);
+      engine.seamsPasskeyConfigs = { network: { chains: [] } };
+      engine.thresholdEcdsaSessionByLane = new Map();
+      engine.thresholdEcdsaExportArtifactByLane = new Map();
 
-      engine.orchestrationDeps = {
+      engine.enginePorts = {
         privateKeyExportRecoveryDeps: {
           indexedDB: {
             ...makeIndexedDbThresholdDeps(expectedPublicKey),
@@ -1217,10 +1274,14 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
         },
       };
 
-      const result = await engine.exportKeypairWithUI(NEAR_ACCOUNT_ID as any, {
-        chain: 'near',
-        variant: 'drawer',
-      });
+      const result = await engine.exportKeypairWithUI({
+        kind: 'near',
+        nearAccount: { kind: 'named', accountId: NEAR_ACCOUNT_ID },
+        options: {
+          chain: 'near',
+          variant: 'drawer',
+        },
+      } as any);
 
       expect(result).toEqual({
         accountId: NEAR_ACCOUNT_ID,
@@ -1261,8 +1322,11 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
 
     try {
       const engine: any = Object.create(SigningEngine.prototype);
+      engine.seamsPasskeyConfigs = { network: { chains: [] } };
+      engine.thresholdEcdsaSessionByLane = new Map();
+      engine.thresholdEcdsaExportArtifactByLane = new Map();
 
-      engine.orchestrationDeps = {
+      engine.enginePorts = {
         privateKeyExportRecoveryDeps: {
           indexedDB: {
             ...makeIndexedDbThresholdDeps('ed25519:unused'),
@@ -1310,13 +1374,15 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
       };
 
       await expect(
-        engine.exportKeypairWithUI(NEAR_ACCOUNT_ID as any, {
-          chain: 'near',
-          variant: 'drawer',
-        }),
-      ).rejects.toThrow(
-        'NEAR Ed25519 export now requires the canonical single-key HSS export path',
-      );
+        engine.exportKeypairWithUI({
+          kind: 'near',
+          nearAccount: { kind: 'named', accountId: NEAR_ACCOUNT_ID },
+          options: {
+            chain: 'near',
+            variant: 'drawer',
+          },
+        } as any),
+      ).rejects.toThrow('[SigningEngine][ed25519-export] exact lane selection failed: no_candidate');
     } finally {
       clearAllStoredThresholdEd25519SessionRecords();
       restore();
@@ -1430,6 +1496,12 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
               code: 'not_found',
               message: 'warm-session status missing',
             }),
+            claimWarmSessionMaterial: async () => ({
+              ok: true as const,
+              prfFirstB64u: PRF_FIRST_B64U,
+              remainingUses: 4,
+              expiresAtMs: Date.now() + 60_000,
+            }),
             clearWarmSessionMaterial: async () => undefined,
             orchestrateSigningConfirmation: async () => ({
               intentDigest: 'intent-digest-b64u',
@@ -1490,7 +1562,10 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
       )}`;
 
       const engine: any = Object.create(SigningEngine.prototype);
-      engine.orchestrationDeps = {
+      engine.seamsPasskeyConfigs = { network: { chains: [] } };
+      engine.thresholdEcdsaSessionByLane = new Map();
+      engine.thresholdEcdsaExportArtifactByLane = new Map();
+      engine.enginePorts = {
         privateKeyExportRecoveryDeps: {
           indexedDB: {
             ...makeIndexedDbThresholdDeps(thresholdPublicKey),
@@ -1534,10 +1609,14 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
         },
       };
 
-      const exportResult = await engine.exportKeypairWithUI(NEAR_ACCOUNT_ID as any, {
-        chain: 'near',
-        variant: 'drawer',
-      });
+      const exportResult = await engine.exportKeypairWithUI({
+        kind: 'near',
+        nearAccount: { kind: 'named', accountId: NEAR_ACCOUNT_ID },
+        options: {
+          chain: 'near',
+          variant: 'drawer',
+        },
+      } as any);
 
       expect(exportResult).toEqual({
         accountId: NEAR_ACCOUNT_ID,
@@ -1635,12 +1714,20 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
         } as any,
         thresholdSessionId: THRESHOLD_SESSION_ID,
         thresholdSessionAuthToken: THRESHOLD_SESSION_JWT,
+        signingRootId: SIGNING_ROOT_ID,
         relayerUrl: RELAYER_URL,
         relayerKeyId: RELAYER_KEY_ID,
         nearAccountId: NEAR_ACCOUNT_ID,
         keyVersion: CONTEXT.keyVersion,
         participantIds: [...CONTEXT.participantIds],
         prfFirstB64u: PRF_FIRST_B64U,
+        persistClientBase: (xClientBaseB64u: string) =>
+          Boolean(
+            persistStoredThresholdEd25519SessionClientBase({
+              thresholdSessionId: THRESHOLD_SESSION_ID,
+              xClientBaseB64u,
+            }),
+          ),
       });
 
       expect(String(xClientBaseB64u || '')).not.toBe('');

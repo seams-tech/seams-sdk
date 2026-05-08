@@ -5,7 +5,14 @@ import {
   emailOtpRoutePath,
   resolveEmailOtpAuthLane,
   routeFamilyForAuthLane,
-} from '@/core/signingEngine/emailOtp/authLane';
+} from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
+import { thresholdEcdsaChainTargetFromChainFamily } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+
+const TEMPO_CHAIN_TARGET = thresholdEcdsaChainTargetFromChainFamily({
+  chain: 'tempo',
+  chainId: 42431,
+  networkSlug: 'tempo-testnet',
+});
 
 test.describe('Email OTP auth lane route planning', () => {
   test('plans fresh login and registration from app-session auth', () => {
@@ -55,7 +62,7 @@ test.describe('Email OTP auth lane route planning', () => {
       thresholdSessionId: 'threshold-session',
       walletSigningSessionId: 'wallet-signing-session',
       curve: 'ecdsa',
-      chain: 'tempo',
+      chainTarget: TEMPO_CHAIN_TARGET,
     });
     expect(routeFamilyForAuthLane({ authLane: authLane!, freshRouteFamily: 'login' })).toBe(
       'signing_session',
@@ -80,6 +87,7 @@ test.describe('Email OTP auth lane route planning', () => {
     const signingLane = resolveEmailOtpAuthLane({
       routeAuth: { kind: 'threshold_session', jwt: 'threshold-session-jwt' },
       thresholdSessionId: 'threshold-session',
+      walletSigningSessionId: 'wallet-signing-session',
       curve: 'ed25519',
     });
     const appLane = resolveEmailOtpAuthLane({ appSessionJwt: 'app-session-jwt' });

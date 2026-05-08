@@ -6,11 +6,24 @@ import {
   waitFor,
   captureOverlay,
 } from './harness';
+import {
+  nearAccountRefFromAccountId,
+  thresholdEcdsaChainTargetFromChainFamily,
+  toWalletSubjectId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 const WALLET_ORIGIN = 'https://wallet.example.localhost';
 const WALLET_SERVICE_ROUTE = '**://wallet.example.localhost/wallet-service*';
 const WAIT_FOR_SOURCE = `(${waitFor.toString()})`;
 const CAPTURE_OVERLAY_SOURCE = `(${captureOverlay.toString()})`;
+const EXPORT_FLOW_NEAR_ACCOUNT = nearAccountRefFromAccountId('export-flow.testnet');
+const ISOLATION_NEAR_ACCOUNT = nearAccountRefFromAccountId('isolation.testnet');
+const EXPORT_FLOW_SUBJECT_ID = toWalletSubjectId('export-flow.testnet');
+const EXPORT_FLOW_EVM_TARGET = thresholdEcdsaChainTargetFromChainFamily({
+  chain: 'evm',
+  chainId: 11155111,
+  networkSlug: 'sepolia',
+});
 
 const exportFlowScript = String.raw`
       const originalAdoptPort = adoptPort;
@@ -429,10 +442,14 @@ test.describe('wallet-origin export flow integration', () => {
           });
           await router.init();
 
-          const exportPromise = router.exportKeypairWithUI('export-flow.testnet', {
-            chain: 'near',
-            variant: 'drawer',
-            theme: 'light',
+          const exportPromise = router.exportKeypairWithUI({
+            kind: 'near',
+            nearAccount: EXPORT_FLOW_NEAR_ACCOUNT,
+            options: {
+              chain: 'near',
+              variant: 'drawer',
+              theme: 'light',
+            },
           });
 
           const shown = await waitFor(() => {
@@ -533,10 +550,15 @@ test.describe('wallet-origin export flow integration', () => {
           });
           await router.init();
 
-          const exportPromise = router.exportKeypairWithUI('export-flow.testnet', {
-            chain: 'evm',
-            variant: 'drawer',
-            theme: 'light',
+          const exportPromise = router.exportKeypairWithUI({
+            kind: 'ecdsa',
+            subjectId: EXPORT_FLOW_SUBJECT_ID,
+            walletSessionUserId: 'export-flow.testnet',
+            chainTarget: EXPORT_FLOW_EVM_TARGET,
+            options: {
+              variant: 'drawer',
+              theme: 'light',
+            },
           });
 
           const shown = await waitFor(() => {
@@ -640,10 +662,14 @@ test.describe('wallet-origin export flow integration', () => {
           });
           await router.init();
 
-          const exportPromise = router.exportKeypairWithUI('isolation.testnet', {
-            chain: 'near',
-            variant: 'drawer',
-            theme: 'dark',
+          const exportPromise = router.exportKeypairWithUI({
+            kind: 'near',
+            nearAccount: ISOLATION_NEAR_ACCOUNT,
+            options: {
+              chain: 'near',
+              variant: 'drawer',
+              theme: 'dark',
+            },
           });
           const shown = await waitFor(() => {
             const state = capture();

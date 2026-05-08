@@ -27,7 +27,7 @@ import { checkNearAccountExistsBestEffort } from '../rpcClients/near/rpcCalls';
 import {
   getPrfFirstB64uFromCredential,
   getPrfResultsFromCredential,
-} from '../signingEngine/signers/webauthn/credentials/credentialExtensions';
+} from '../signingEngine/walletAuth/webauthn/credentials/credentialExtensions';
 import { listConfiguredThresholdEcdsaPublicationTargets } from './thresholdEcdsaProvisioning';
 import { IndexedDBManager } from '../indexedDB';
 import { resolveNearAccountProfileContinuity } from '../accountData/near/accountProjection';
@@ -39,8 +39,8 @@ import { SIGNER_AUTH_METHODS, SIGNER_KINDS, SIGNER_SOURCES } from '@shared/utils
 import {
   toWalletSubjectId,
   type ThresholdEcdsaChainTarget,
-} from '../signingEngine/session/signingSession/ecdsaChainTarget';
-import type { ThresholdEcdsaSessionBootstrapResult } from '../signingEngine/orchestration/thresholdActivation';
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { ThresholdEcdsaSessionBootstrapResult } from '../signingEngine/threshold/ecdsa/activation';
 
 // Registration forces a visible, clickable confirmation for cross‑origin safety
 

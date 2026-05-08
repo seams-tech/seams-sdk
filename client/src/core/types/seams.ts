@@ -28,6 +28,15 @@ export type {
 export type SigningSessionPersistenceMode = 'none' | 'sealed_refresh_v1';
 export type EmailOtpAuthPolicy = SigningSessionPolicy;
 
+export type WalletAuthIntent =
+  | 'wallet_unlock'
+  | 'transaction_sign'
+  | 'ed25519_export'
+  | 'ecdsa_export'
+  | 'session_mint';
+
+export type WalletAuthCurve = 'ed25519' | 'ecdsa';
+
 export interface SigningSessionSealConfigInput {
   keyVersion?: string;
   shamirPrimeB64u?: string;

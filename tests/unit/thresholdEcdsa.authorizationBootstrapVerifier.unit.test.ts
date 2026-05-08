@@ -1,6 +1,17 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/base64';
-import { bootstrapEcdsaSession } from '@/core/signingEngine/threshold/workflows/bootstrapEcdsaSession';
+import { bootstrapEcdsaSession } from '@/core/signingEngine/threshold/ecdsa/bootstrapSession';
+import {
+  thresholdEcdsaChainTargetFromChainFamily,
+  toWalletSubjectId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+
+const TEST_SUBJECT_ID = toWalletSubjectId('alice.testnet');
+const TEST_CHAIN_TARGET = thresholdEcdsaChainTargetFromChainFamily({
+  chain: 'evm',
+  chainId: 11155111,
+  networkSlug: 'sepolia',
+});
 
 function jwtWithPayload(payload: Record<string, unknown>): string {
   const encode = (value: unknown): string =>
@@ -45,6 +56,8 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
         } as any,
         relayerUrl: 'https://relay.example',
         userId: 'alice.testnet',
+        subjectId: TEST_SUBJECT_ID,
+        chainTarget: TEST_CHAIN_TARGET,
         ecdsaThresholdKeyId: 'ecdsa-key-1',
         participantIds: [1, 2],
         sessionKind: 'jwt',
@@ -107,6 +120,8 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
         } as any,
         relayerUrl: 'https://relay.example',
         userId: 'alice.testnet',
+        subjectId: TEST_SUBJECT_ID,
+        chainTarget: TEST_CHAIN_TARGET,
         ecdsaThresholdKeyId: 'ecdsa-key-1',
         participantIds: [1, 2],
         sessionKind: 'jwt',

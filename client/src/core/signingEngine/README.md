@@ -1,130 +1,160 @@
 # Signing Architecture (`client/src/core/signingEngine`)
 
-This folder is the signing runtime for NEAR + Tempo/EVM flows.
+This folder is the SDK signing runtime for NEAR, EVM, and Tempo flows. The
+Refactor 33 layout is organized by call direction: public engine methods enter a
+single operation module, operation modules call state/session/confirmation/
+chain/threshold/worker modules, and child modules do not call back into
+flows or `SigningEngine`.
 
-## Top-Level Roles
+## Public Entrypoints
 
-- `api/`
-  - Internal composition/surface wiring used by `SigningEngine`.
-  - Coordinates session policy, worker context, touchConfirm, and engine dispatch.
-- `interfaces/`
-  - Shared signing contracts (`SigningIntent`, `SignRequest`, `Signer`) and runtime dependency interfaces.
-  - `interfaces/nearKeyOps`: NEAR key-ops contract consumed by `api/*` without importing `workerManager/*`.
-- `orchestration/`
-  - Generic runner (`executeSigningIntent`) and activation/deployment orchestration.
-- `signers/algorithms/`
-  - Algorithm-specific signing implementations (`ed25519`, `secp256k1`, `webauthnP256`).
-- `signers/wasm/`
-  - WASM-backed chain signing wrappers (`nearSignerWasm`, `hssClientSignerWasm`, `ethSignerWasm`, `tempoSignerWasm`).
-- `chainAdaptors/`
-  - Chain-specific intent builders and handlers (NEAR, Tempo, EVM helpers).
-- `touchConfirm/`
-  - User confirmation flow + WebAuthn credential collection.
-- `workerManager/`
-  - Unified worker architecture layer (host + runtime).
-  - `workerManager/workers/*`: worker runtime modules (`*.worker.ts`) and operation dispatch helpers.
-  - `workerManager/workerTransport`: canonical single transport (persistent worker per signer kind).
-  - `workerManager/nearKeyOps`: implementation of the `NearSigningKeyOps` interface used by `SignerWorkerManager.nearKeyOps`.
-- `threshold/`
-  - Threshold session, authorization, and signing workflows.
-- `signers/webauthn/`
-  - Passkey prompt and credential serialization helpers.
+- `index.ts`: public SDK signing-engine export surface.
+- `SigningEngine.ts`: product-level facade. Public methods should delegate to
+  one operation module within one hop.
+- `assembly/`: assembles runtime dependencies and operation ports for `SigningEngine`.
 
-## Module Call Graph (Compact)
+## Folder Roles
 
-### 1) High-level map
+- `flows/`: vertical signing, registration, recovery, and email-OTP
+  operation paths.
+- `flows/shared/`: shared operation state machine, command ports, and
+  confirmation command runner.
+- `session/`: selected lane identity, available lanes, record normalization,
+  restore, readiness, budget, sealed persistence, and warm-session state.
+- `sessionEmailOtp/`: Email OTP threshold-session provisioning, restoration,
+  and warm-session status coordination.
+- `stepUpConfirmation/`: confirmation contracts, email-OTP/passkey prompts, intent
+  digest preparation, and channel message contracts.
+- `chains/`: chain-specific payload, display, nonce, and WASM adaptor code.
+- `threshold/`: threshold protocol clients and protocol material handling.
+- `workers/` and `workerManager/`: worker operation dispatch, worker types, and
+  host-side worker transport.
+- `nonce/`: nonce reservation and lifecycle coordination.
+- `walletAuth/`: WebAuthn/passkey credential and auth-mode helpers.
+- `interfaces/`: shared public/runtime contracts and primitive cross-domain
+  signing identifiers such as ECDSA chain targets.
+
+Auth methods are symmetric at the prompt/auth-plan boundary:
+`stepUpConfirmation/passkeyPrompt` and `stepUpConfirmation/otpPrompt` own method
+prompt construction. Method session folders are introduced only for durable
+cross-operation lifecycle ownership, which is why Email OTP has
+`sessionEmailOtp/` and passkey currently has no `sessionPasskey/`.
+
+## Import Direction
+
+```mermaid
+flowchart TD
+  SP["SeamsPasskey / SDK"] --> SE["SigningEngine.ts"]
+  SE --> INIT["assembly/"]
+  SE --> OPS["flows/*"]
+  INIT --> SESSION["session/"]
+  INIT --> EMAILOTP["sessionEmailOtp/"]
+  INIT --> CONF["stepUpConfirmation/"]
+  INIT --> THRESHOLD["threshold/"]
+  INIT --> CHAINS["chains/"]
+  INIT --> WORKERS["workers/ + workerManager/"]
+  INIT --> AUTH["walletAuth/"]
+  INIT --> UI["uiConfirm/"]
+  INIT --> NONCE["nonce/"]
+  INIT --> IFACE["interfaces/"]
+  OPS --> SESSION
+  OPS --> EMAILOTP
+  OPS --> CONF
+  OPS --> THRESHOLD
+  OPS --> CHAINS
+  OPS --> WORKERS
+  OPS --> NONCE
+  CONF --> AUTH
+  CONF --> IFACE
+  UI --> CONF
+  UI --> AUTH
+```
+
+Rules enforced by Refactor 33 guards:
+
+- `flows/*` must not import `SigningEngine` or assembly construction.
+- Child folders must not import `flows/*`.
+- New broad internal `index.ts` barrels are blocked.
+- Deleted `api/`, `orchestration/`, `chainAdaptors/`, and `signers/` paths stay
+  deleted.
+
+## Operation Pipeline
+
+```mermaid
+sequenceDiagram
+  participant SDK as "SDK caller"
+  participant SE as "SigningEngine"
+  participant OP as "flows/*"
+  participant SS as "session/*"
+  participant CF as "stepUpConfirmation/*"
+  participant CH as "chains/*"
+  participant TH as "threshold/*"
+  participant WK as "workers/*"
+  participant NC as "nonce/*"
+
+  SDK->>SE: "sign / export / register"
+  SE->>OP: "delegate to operation"
+  OP->>SS: "select lane, restore, reserve budget"
+  OP->>CF: "confirm passkey or email OTP"
+  OP->>TH: "authorize/connect/sign threshold material"
+  OP->>CH: "build payload/display/final tx"
+  OP->>WK: "run signer/WASM worker command"
+  OP->>NC: "reserve/commit nonce when required"
+  OP-->>SE: "signed result"
+  SE-->>SDK: "SDK response"
+```
+
+## Key State Shapes
+
+- `SelectedLane` (`session/identity/laneIdentity.ts`): canonical selected
+  signing lane. Its object construction is owned by
+  `session/identity/laneIdentity.ts`.
+- `LaneCandidate` (`session/identity/laneIdentity.ts`): concrete candidate derived from
+  available lane or persisted session records before selection.
+- `SelectedSigningSessionPlanningLane` (`session/signingSession/types.ts`):
+  planning-layer extension for operation planning, storage source, retention,
+  and backing material context.
+- `ThresholdEcdsaSessionRecord` / `ThresholdEd25519SessionRecord`
+  (`session/persistence/records.ts`): persistence records normalized at
+  storage boundaries.
+- `ThresholdEcdsaChainTarget` (`interfaces/ecdsaChainTarget.ts`): neutral EVM
+  and Tempo chain target identity shared by session, prompt, threshold, and
+  operation modules.
+- `PreparedOperation`, `BudgetAdmittedOperation`, and `SignedOperation`
+  (`flows/shared/operationState.ts`): monotonic operation state-machine
+  states.
+
+## EVM/Tempo Signing
 
 ```mermaid
 flowchart LR
-  TP["SeamsPasskey"] --> SE["SigningEngine"]
-  SE --> ORCH["orchestration/executeSigningIntent"]
-  ORCH --> ENG["signers/algorithms/*"]
-  ENG --> CHAINS["chainAdaptors/*"]
-  SE --> SC["touchConfirm/*"]
-  CHAINS --> WORKERS["workerManager/workers/*"]
+  SE["SigningEngine.signEvm/signTempo"] --> OP["flows/signEvmFamily/signEvmFamily.ts"]
+  OP --> PREP["preparedSigning.ts"]
+  PREP --> SELECT["session/identity/selectLane.ts"]
+  SELECT --> ID["session/identity/laneIdentity.ts"]
+  OP --> AUTH["authPlanning.ts + stepUpConfirmation prompts"]
+  OP --> TH["threshold/ecdsa/*"]
+  OP --> CH["chains/evm + chains/tempo"]
+  OP --> NONCE["nonce/"]
+  OP --> FINAL["postSignFinalization.ts"]
 ```
 
-### 2) Signing execution pipeline
+EVM and Tempo share the ECDSA operation path. Chain differences are isolated in
+`chains/evm`, `chains/tempo`, nonce lifecycle modules, and final transaction
+encoding.
+
+## NEAR Signing
 
 ```mermaid
 flowchart LR
-  ADAPTER["Chain Adapter"] --> INTENT["SigningIntent"]
-  INTENT --> EXEC["executeSigningIntent"]
-  EXEC --> RESOLVE["resolveSignInput(req)"]
-  RESOLVE --> ENGINE["engine.sign(req, keyRef)"]
-  ENGINE --> FINALIZE["intent.finalize(signatures)"]
+  SE["SigningEngine.signNear*"] --> OP["flows/signNear/signNear.ts"]
+  OP --> TX["signTransactions.ts / signDelegate.ts / signNep413.ts"]
+  TX --> SELECT["session/identity/selectLane.ts"]
+  TX --> CONF["flows/shared/signingConfirmation.ts"]
+  TX --> TH["threshold/ed25519/*"]
+  TX --> CH["chains/near/*"]
+  TX --> WK["workers/near signer"]
 ```
 
-### 3) Worker transports
-
-```mermaid
-flowchart LR
-  NH["NEAR handlers"] --> SWM["SignerWorkerManager"]
-  SE["SigningEngine (NEAR key ops)"] --> SWM
-  SWM --> ST["WorkerTransport"]
-  SWM --> NKO["nearKeyOps"]
-  NKO --> ST
-  ST --> NSW["near-signer.worker"]
-  ST --> HSW["hss-client.worker"]
-  ST --> EWK["eth-signer.worker"]
-  ST --> TWK["tempo-signer.worker"]
-
-  WASM["ethSignerWasm / tempoSignerWasm"] --> EX["executeWorkerOperation"]
-  EX --> SWM
-```
-
-## Core Flows
-
-### 1) NEAR Signing (`transactionsWithActions`, `delegate`, `NEP-413`)
-
-1. `SigningEngine` creates a NEAR ed25519 sign request and calls `executeSigningIntent`.
-2. `NearEd25519Engine` routes by request kind to NEAR handlers.
-3. Handler performs:
-   - input normalization (`NearAdapter` for transactions),
-   - touchConfirm handshake (`touchConfirm.orchestrateSigningConfirmation(...)` via bridge port),
-   - signer worker call via `ctx.requestWorkerOperation(...)`.
-4. `SignerWorkerManager.requestWorkerOperation` sends NEAR signing requests to
-   `near-signer.worker` and Ed25519 HSS lifecycle/export requests to
-   `hss-client.worker`.
-5. Worker response returns signed payload back through handler -> engine -> `finalize`.
-
-### 2) Tempo Signing (`eip1559` / `tempoTransaction`)
-
-1. `SigningEngine.signTempo` imports:
-   - `signTempoWithTouchConfirm`,
-   - `Secp256k1Engine`,
-   - `WebAuthnP256Engine`.
-2. `TempoAdapter.buildIntent` computes signing digest/challenge using:
-   - `ethSignerWasm` (EIP-1559 hash/encoding),
-   - `tempoSignerWasm` (Tempo sender hash/encoding).
-3. `signTempoWithTouchConfirm` runs touchConfirm once for intent approval.
-4. `executeSigningIntent` dispatches to:
-   - `secp256k1` engine (local or threshold ECDSA path), or
-   - `webauthnP256` engine (serialized credential or browser WebAuthn call).
-5. Adapter `finalize` returns encoded raw tx hex.
-
-### 3) secp256k1 Threshold Path (inside `Secp256k1Engine`)
-
-1. Validate cached/session JWT and threshold key ref.
-2. Authorize digest with relayer (`authorizeEcdsaWithSession`).
-3. Dispense PRF.first from touchConfirm session cache.
-4. Derive client share in `ethSignerWasm`.
-5. Run distributed signing coordination (`thresholdEcdsaCoordinator`).
-6. Return 65-byte recoverable secp256k1 signature.
-
-### 4) Worker RPC Path (`ethSigner` / `tempoSigner`)
-
-1. Chain wasm wrapper (`ethSignerWasm` or `tempoSignerWasm`) calls `executeWorkerOperation(...)`.
-2. Helper dispatches via `SignerWorkerManager.requestWorkerOperation({ kind, request })` (runtime context is required).
-3. `WorkerTransport` keeps one persistent worker per signer kind (`nearSigner`, `ethSigner`, `tempoSigner`).
-4. Request/response is correlated by message `id`.
-5. Returned `ArrayBuffer` is decoded to `Uint8Array` in caller.
-
-## Practical Rule of Thumb
-
-- `SigningEngine` owns product-level orchestration.
-- `interfaces/` own shared runtime contracts.
-- `orchestration/` owns generic signing execution and activation/deployment orchestration.
-- `signers/algorithms/` own algorithm-level signing behavior.
-- `chainAdaptors/` own chain-specific intent shape and final serialization.
-- `workerManager/` owns both runtime transport and host worker orchestration.
+NEAR uses the same operation state-machine approach as EVM/Tempo, with Ed25519
+threshold material and NEAR-specific payload/display assembly.

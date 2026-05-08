@@ -6,7 +6,7 @@ const IMPORT_PATHS = {
   login: '/sdk/esm/core/SeamsPasskey/login.js',
   indexedDb: '/sdk/esm/core/indexedDB/index.js',
   thresholdSessionStore:
-    '/sdk/esm/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore.js',
+    '/sdk/esm/core/signingEngine/session/persistence/records.js',
 } as const;
 
 test.describe('threshold Ed25519 registration warm-session', () => {

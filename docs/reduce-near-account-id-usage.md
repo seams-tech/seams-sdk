@@ -210,7 +210,7 @@ identity.
 1. Build on the existing identity module before adding a new one.
    `WalletSubjectId`, `NearAccountRef`, `nearAccountRefFromAccountId(...)`, and
    `thresholdEcdsaChainTarget*` already live in
-   `client/src/core/signingEngine/session/signingSession/ecdsaChainTarget.ts`.
+   `client/src/core/signingEngine/interfaces/ecdsaChainTarget.ts`.
    Add `WalletId`, `WalletSessionRef`, and boundary constructors there or move
    the full set into one new identity module in a single commit.
 2. Convert public boundaries first. The largest fan-out starts in the SDK facade,
@@ -271,7 +271,7 @@ identity.
 
 1. Extend the existing identity surface. `WalletSubjectId`, `NearAccountRef`,
    and `nearAccountRefFromAccountId(...)` already exist in
-   `client/src/core/signingEngine/session/signingSession/ecdsaChainTarget.ts`.
+   `client/src/core/signingEngine/interfaces/ecdsaChainTarget.ts`.
 2. Add `WalletId`, `WalletSessionRef`, `NearCommandSubject`, and
    `EcdsaCommandSubject`.
 3. Add boundary constructors:
@@ -419,7 +419,7 @@ client/src/core/WalletIframe/client/router.ts
 client/src/core/WalletIframe/SeamsPasskeyIframe.ts
 client/src/core/WalletIframe/host/wallet-iframe-handlers.ts
 client/src/core/signingEngine/SigningEngine.ts
-client/src/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore.ts
+client/src/core/signingEngine/session/persistence/records.ts
 client/src/core/signingEngine/session/signingSession/**
 client/src/core/signingEngine/touchConfirm/**
 client/src/react/**
@@ -473,7 +473,7 @@ keeping NEAR transaction signing stable.
 Run these after each phase:
 
 ```sh
-pnpm -C tests exec playwright test ./unit/signingSessionCoordinator.architecture.guard.unit.test.ts --reporter=line
+pnpm -C tests exec playwright test ./unit/signingEngine.refactor33.guard.unit.test.ts --reporter=line
 pnpm -C tests exec playwright test ./unit/seamsPasskey.chainSigners.unit.test.ts --reporter=line
 pnpm -C tests exec playwright test ./unit/seamsPasskey.emailOtpIframe.unit.test.ts --reporter=line
 pnpm -w run type-check:sdk

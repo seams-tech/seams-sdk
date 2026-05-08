@@ -3,7 +3,7 @@ import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
   clientDB: '/sdk/esm/core/indexedDB/passkeyClientDB/manager.js',
-  deployment: '/sdk/esm/core/signingEngine/orchestration/ensureSmartAccountDeployed.js',
+  deployment: '/sdk/esm/core/signingEngine/flows/signEvmFamily/smartAccountDeploymentState.js',
 } as const;
 
 test.describe('smart-account deployment gate helper', () => {
@@ -38,7 +38,7 @@ test.describe('smart-account deployment gate helper', () => {
         });
         await dbm.upsertChainAccount({
           profileId: 'profile-smartacct-observe',
-          chainIdKey: 'evm:11155111',
+          chainIdKey: 'evm:eip155:11155111',
           accountAddress: '0xabc111',
           accountModel: 'erc4337',
           isPrimary: true,
@@ -48,14 +48,15 @@ test.describe('smart-account deployment gate helper', () => {
         const gate = await ensureSmartAccountDeployed({
           clientDB: dbm,
           nearAccountId: 'alice.testnet',
-          chain: 'evm',
-          chainIdCandidates: [11155111],
+          chainTargetCandidates: [
+            { kind: 'evm', namespace: 'eip155', chainId: 11155111, networkSlug: 'sepolia' },
+          ],
           accountModelCandidates: ['erc4337'],
           enforce: false,
         });
         const rows = await dbm.listChainAccountsByProfileAndChain(
           'profile-smartacct-observe',
-          'evm:11155111',
+          'evm:eip155:11155111',
         );
         const account = rows.find((row: any) => row.accountAddress === '0xabc111') || null;
 
@@ -113,8 +114,9 @@ test.describe('smart-account deployment gate helper', () => {
         const gate = await ensureSmartAccountDeployed({
           clientDB: dbm,
           nearAccountId: 'alice.testnet',
-          chain: 'tempo',
-          chainIdCandidates: [42431],
+          chainTargetCandidates: [
+            { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-testnet' },
+          ],
           accountModelCandidates: ['tempo-native'],
           enforce: true,
           deploy: async () => ({
@@ -172,7 +174,7 @@ test.describe('smart-account deployment gate helper', () => {
         });
         await dbm.upsertChainAccount({
           profileId: 'profile-smartacct-report',
-          chainIdKey: 'evm:11155111',
+          chainIdKey: 'evm:eip155:11155111',
           accountAddress: '0xabc333',
           accountModel: 'erc4337',
           isPrimary: true,
@@ -183,8 +185,9 @@ test.describe('smart-account deployment gate helper', () => {
         const gate = await ensureSmartAccountDeployed({
           clientDB: dbm,
           nearAccountId: 'alice.testnet',
-          chain: 'evm',
-          chainIdCandidates: [11155111],
+          chainTargetCandidates: [
+            { kind: 'evm', namespace: 'eip155', chainId: 11155111, networkSlug: 'sepolia' },
+          ],
           accountModelCandidates: ['erc4337'],
           enforce: true,
           deploy: async () => ({
@@ -208,8 +211,12 @@ test.describe('smart-account deployment gate helper', () => {
     expect(result.status).toBe('deployed');
     expect(result.deploymentTxHash).toBe('0xreporttxhash');
     expect(result.reported).toBeTruthy();
-    expect(result.reported?.['chain']).toBe('evm');
-    expect(result.reported?.['chainId']).toBe(11155111);
+    expect(result.reported?.['chainTarget']).toEqual({
+      kind: 'evm',
+      namespace: 'eip155',
+      chainId: 11155111,
+      networkSlug: 'sepolia',
+    });
     expect(result.reported?.['deploymentTxHash']).toBe('0xreporttxhash');
   });
 
@@ -240,7 +247,7 @@ test.describe('smart-account deployment gate helper', () => {
         });
         await dbm.upsertChainAccount({
           profileId: 'profile-smartacct-promote',
-          chainIdKey: 'evm:11155111',
+          chainIdKey: 'evm:eip155:11155111',
           accountAddress: `0x${'44'.repeat(20)}`,
           accountModel: 'erc4337',
           isPrimary: true,
@@ -248,7 +255,7 @@ test.describe('smart-account deployment gate helper', () => {
         });
         await dbm.upsertAccountSigner({
           profileId: 'profile-smartacct-promote',
-          chainIdKey: 'evm:11155111',
+          chainIdKey: 'evm:eip155:11155111',
           accountAddress: `0x${'44'.repeat(20)}`,
           signerId: `0x${'dd'.repeat(20)}`,
           signerSlot: 2,
@@ -267,8 +274,9 @@ test.describe('smart-account deployment gate helper', () => {
         const gate = await ensureSmartAccountDeployed({
           clientDB: dbm,
           nearAccountId: 'alice.testnet',
-          chain: 'evm',
-          chainIdCandidates: [11155111],
+          chainTargetCandidates: [
+            { kind: 'evm', namespace: 'eip155', chainId: 11155111, networkSlug: 'sepolia' },
+          ],
           accountModelCandidates: ['erc4337'],
           enforce: true,
           deploy: async () => ({
@@ -278,7 +286,7 @@ test.describe('smart-account deployment gate helper', () => {
         });
 
         const signer = await dbm.getAccountSigner({
-          chainIdKey: 'evm:11155111',
+          chainIdKey: 'evm:eip155:11155111',
           accountAddress: `0x${'44'.repeat(20)}`,
           signerId: `0x${'dd'.repeat(20)}`,
         });
@@ -334,7 +342,7 @@ test.describe('smart-account deployment gate helper', () => {
         });
         await dbm.upsertChainAccount({
           profileId: 'profile-smartacct-already',
-          chainIdKey: 'evm:11155111',
+          chainIdKey: 'evm:eip155:11155111',
           accountAddress: '0xabc333',
           accountModel: 'erc4337',
           isPrimary: true,
@@ -346,8 +354,9 @@ test.describe('smart-account deployment gate helper', () => {
         const gate = await ensureSmartAccountDeployed({
           clientDB: dbm,
           nearAccountId: 'alice.testnet',
-          chain: 'evm',
-          chainIdCandidates: [11155111],
+          chainTargetCandidates: [
+            { kind: 'evm', namespace: 'eip155', chainId: 11155111, networkSlug: 'sepolia' },
+          ],
           accountModelCandidates: ['erc4337'],
           enforce: true,
           deploy: async () => {
@@ -370,91 +379,6 @@ test.describe('smart-account deployment gate helper', () => {
     expect(result.deploymentTxHash).toBe('0xexistinghash');
     expect(result.attempts).toBe(0);
     expect(result.deployCalls).toBe(0);
-  });
-
-  test('enforce mode auto-heals missing evm row from tempo bootstrap metadata', async ({
-    page,
-  }) => {
-    const result = await page.evaluate(
-      async ({ paths }) => {
-        const { PasskeyClientDBManager } = await import(paths.clientDB);
-        const { ensureSmartAccountDeployed } = await import(paths.deployment);
-        const now = Date.now();
-        const dbm = new PasskeyClientDBManager();
-        dbm.setDbName(
-          `PasskeyClientDB-smartacct-autofill-${now}-${Math.random().toString(16).slice(2)}`,
-        );
-
-        await dbm.upsertProfile({
-          profileId: 'profile-smartacct-autofill',
-          defaultSignerSlot: 1,
-          passkeyCredential: { id: 'cred-autofill', rawId: 'raw-autofill' },
-        });
-        await dbm.upsertChainAccount({
-          profileId: 'profile-smartacct-autofill',
-          chainIdKey: 'near:testnet',
-          accountAddress: 'alice.testnet',
-          accountModel: 'near-native',
-          isPrimary: true,
-        });
-        await dbm.upsertChainAccount({
-          profileId: 'profile-smartacct-autofill',
-          chainIdKey: 'tempo:42431',
-          accountAddress: '0xabc666',
-          accountModel: 'tempo-native',
-          isPrimary: true,
-          counterfactualAddress: '0xabc666',
-          factory: '0xfac7ory',
-          entryPoint: '0xentry',
-          salt: '0xsalt',
-          deployed: false,
-        });
-
-        let deployInput: any = null;
-        const gate = await ensureSmartAccountDeployed({
-          clientDB: dbm,
-          nearAccountId: 'alice.testnet',
-          chain: 'evm',
-          chainIdCandidates: [11155111],
-          accountModelCandidates: ['erc4337'],
-          enforce: true,
-          deploy: async (input: any) => {
-            deployInput = {
-              chain: input.chain,
-              chainId: input.chainId,
-              accountModel: input.account.accountModel,
-              accountAddress: input.account.accountAddress,
-            };
-            return { ok: true, deploymentTxHash: '0xautofilltx' };
-          },
-        });
-
-        const rows = await dbm.listChainAccountsByProfileAndChain(
-          'profile-smartacct-autofill',
-          'evm:unknown',
-        );
-        const account = rows.find((row: any) => row.accountAddress === '0xabc666') || null;
-
-        return {
-          status: gate.status,
-          deploymentTxHash: gate.deploymentTxHash || null,
-          deployInput,
-          accountExists: !!account,
-          accountModel: account?.accountModel || null,
-          accountDeployed: typeof account?.deployed === 'boolean' ? account.deployed : null,
-        };
-      },
-      { paths: IMPORT_PATHS },
-    );
-
-    expect(result.status).toBe('deployed');
-    expect(result.deploymentTxHash).toBe('0xautofilltx');
-    expect(result.deployInput?.chain).toBe('evm');
-    expect(result.deployInput?.chainId).toBe(11155111);
-    expect(result.deployInput?.accountModel).toBe('erc4337');
-    expect(result.accountExists).toBe(true);
-    expect(result.accountModel).toBe('erc4337');
-    expect(result.accountDeployed).toBe(true);
   });
 
   test('transient deploy failure retries and succeeds in enforce mode', async ({ page }) => {
@@ -493,8 +417,9 @@ test.describe('smart-account deployment gate helper', () => {
         const gate = await ensureSmartAccountDeployed({
           clientDB: dbm,
           nearAccountId: 'alice.testnet',
-          chain: 'tempo',
-          chainIdCandidates: [42431],
+          chainTargetCandidates: [
+            { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-testnet' },
+          ],
           accountModelCandidates: ['tempo-native'],
           enforce: true,
           maxDeployAttempts: 2,
@@ -548,7 +473,7 @@ test.describe('smart-account deployment gate helper', () => {
         });
         await dbm.upsertChainAccount({
           profileId: 'profile-smartacct-fail',
-          chainIdKey: 'evm:11155111',
+          chainIdKey: 'evm:eip155:11155111',
           accountAddress: '0xabc555',
           accountModel: 'erc4337',
           isPrimary: true,
@@ -559,8 +484,9 @@ test.describe('smart-account deployment gate helper', () => {
           await ensureSmartAccountDeployed({
             clientDB: dbm,
             nearAccountId: 'alice.testnet',
-            chain: 'evm',
-            chainIdCandidates: [11155111],
+            chainTargetCandidates: [
+              { kind: 'evm', namespace: 'eip155', chainId: 11155111, networkSlug: 'sepolia' },
+            ],
             accountModelCandidates: ['erc4337'],
             enforce: true,
             maxDeployAttempts: 3,
@@ -608,7 +534,7 @@ test.describe('smart-account deployment gate helper', () => {
         });
         await dbm.upsertChainAccount({
           profileId: 'profile-smartacct-dedupe',
-          chainIdKey: 'evm:11155111',
+          chainIdKey: 'evm:eip155:11155111',
           accountAddress: '0xdedupe111',
           accountModel: 'erc4337',
           isPrimary: true,
@@ -637,8 +563,9 @@ test.describe('smart-account deployment gate helper', () => {
         const p1 = ensureSmartAccountDeployed({
           clientDB: dbm,
           nearAccountId: 'alice.testnet',
-          chain: 'evm',
-          chainIdCandidates: [11155111],
+          chainTargetCandidates: [
+            { kind: 'evm', namespace: 'eip155', chainId: 11155111, networkSlug: 'sepolia' },
+          ],
           accountModelCandidates: ['erc4337'],
           enforce: true,
           deploy,
@@ -647,8 +574,9 @@ test.describe('smart-account deployment gate helper', () => {
         const p2 = ensureSmartAccountDeployed({
           clientDB: dbm,
           nearAccountId: 'alice.testnet',
-          chain: 'evm',
-          chainIdCandidates: [11155111],
+          chainTargetCandidates: [
+            { kind: 'evm', namespace: 'eip155', chainId: 11155111, networkSlug: 'sepolia' },
+          ],
           accountModelCandidates: ['erc4337'],
           enforce: true,
           deploy,
@@ -659,7 +587,7 @@ test.describe('smart-account deployment gate helper', () => {
         const [r1, r2] = await Promise.all([p1, p2]);
         const rows = await dbm.listChainAccountsByProfileAndChain(
           'profile-smartacct-dedupe',
-          'evm:11155111',
+          'evm:eip155:11155111',
         );
         const account = rows.find((row: any) => row.accountAddress === '0xdedupe111') || null;
 
@@ -712,7 +640,7 @@ test.describe('smart-account deployment gate helper', () => {
         });
         await dbm.upsertChainAccount({
           profileId: 'profile-smartacct-dedupe-keys',
-          chainIdKey: 'evm:11155111',
+          chainIdKey: 'evm:eip155:11155111',
           accountAddress: '0xaaa111',
           accountModel: 'erc4337',
           isPrimary: true,
@@ -720,7 +648,7 @@ test.describe('smart-account deployment gate helper', () => {
         });
         await dbm.upsertChainAccount({
           profileId: 'profile-smartacct-dedupe-keys',
-          chainIdKey: 'evm:11155111',
+          chainIdKey: 'evm:eip155:11155111',
           accountAddress: '0xbbb222',
           accountModel: 'erc4337',
           isPrimary: false,
@@ -761,8 +689,9 @@ test.describe('smart-account deployment gate helper', () => {
         const p1 = ensureSmartAccountDeployed({
           clientDB: dbm,
           nearAccountId: 'alice.testnet',
-          chain: 'evm',
-          chainIdCandidates: [11155111],
+          chainTargetCandidates: [
+            { kind: 'evm', namespace: 'eip155', chainId: 11155111, networkSlug: 'sepolia' },
+          ],
           accountModelCandidates: ['erc4337'],
           enforce: true,
           deploy,
@@ -771,7 +700,7 @@ test.describe('smart-account deployment gate helper', () => {
 
         await dbm.upsertChainAccount({
           profileId: 'profile-smartacct-dedupe-keys',
-          chainIdKey: 'evm:11155111',
+          chainIdKey: 'evm:eip155:11155111',
           accountAddress: '0xaaa111',
           accountModel: 'erc4337',
           isPrimary: false,
@@ -779,7 +708,7 @@ test.describe('smart-account deployment gate helper', () => {
         });
         await dbm.upsertChainAccount({
           profileId: 'profile-smartacct-dedupe-keys',
-          chainIdKey: 'evm:11155111',
+          chainIdKey: 'evm:eip155:11155111',
           accountAddress: '0xbbb222',
           accountModel: 'erc4337',
           isPrimary: true,
@@ -789,8 +718,9 @@ test.describe('smart-account deployment gate helper', () => {
         const p2 = ensureSmartAccountDeployed({
           clientDB: dbm,
           nearAccountId: 'alice.testnet',
-          chain: 'evm',
-          chainIdCandidates: [11155111],
+          chainTargetCandidates: [
+            { kind: 'evm', namespace: 'eip155', chainId: 11155111, networkSlug: 'sepolia' },
+          ],
           accountModelCandidates: ['erc4337'],
           enforce: true,
           deploy,

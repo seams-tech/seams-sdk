@@ -1,14 +1,11 @@
 import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
 import type { SigningSessionPreparedBudgetIdentity } from './budget';
-import type {
-  SigningPlannerDecisionTraceEvent,
-  SigningSessionReadiness,
-} from './planner';
+import type { SigningPlannerDecisionTraceEvent, SigningSessionReadiness } from './planner';
 import type {
   SigningAuthMethod,
   SigningChainFamily,
   SigningCurve,
-  SigningLaneContext,
+  SelectedSigningSessionPlanningLane,
   SigningOperationContext,
   SigningSessionPlan,
 } from './types';
@@ -40,7 +37,7 @@ export type ThresholdSigningReadinessInput = {
 export type ThresholdSigningOperationCoordinator = {
   resolveAuthPlanFromReadiness(
     input: {
-      lane: SigningLaneContext;
+      lane: SelectedSigningSessionPlanningLane;
       readiness: SigningSessionReadiness;
       expiresAtMs?: number;
       remainingUses?: number;
@@ -58,13 +55,13 @@ export type ThresholdSigningOperationCoordinator = {
   }>;
   prepareBudgetIdentity(input: {
     nearAccountId: string;
-    lane: SigningLaneContext;
+    lane: SelectedSigningSessionPlanningLane;
     operationUsesNeeded?: number;
   }): Promise<SigningSessionPreparedBudgetIdentity>;
 };
 
 export type PreparedThresholdSigningOperation<
-  TLane extends SigningLaneContext = SigningLaneContext,
+  TLane extends SelectedSigningSessionPlanningLane = SelectedSigningSessionPlanningLane,
   TMetadata extends object = Record<string, never>,
 > = {
   intent: ThresholdSigningIntent;
@@ -75,28 +72,25 @@ export type PreparedThresholdSigningOperation<
   readiness: SigningSessionReadiness;
   expiresAtMs: number;
   remainingUses: number;
-  snapshotGeneration: number;
+  availableLanesGeneration: number;
   metadata: TMetadata;
 };
 
 export type ThresholdSigningLifecycleAdapter<
-  TLane extends SigningLaneContext = SigningLaneContext,
+  TLane extends SelectedSigningSessionPlanningLane = SelectedSigningSessionPlanningLane,
   TMetadata extends object = Record<string, never>,
 > = {
-  prepare(input: {
-    intent: ThresholdSigningIntent;
-    operation?: SigningOperationContext;
-  }): Promise<{
+  prepare(input: { intent: ThresholdSigningIntent; operation?: SigningOperationContext }): Promise<{
     lane: TLane;
     readiness: ThresholdSigningReadinessInput;
-    snapshotGeneration?: number;
+    availableLanesGeneration?: number;
     forceFreshAuth?: boolean;
     metadata?: TMetadata;
   }>;
 };
 
 export async function prepareThresholdSigningOperation<
-  TLane extends SigningLaneContext,
+  TLane extends SelectedSigningSessionPlanningLane,
   TMetadata extends object = Record<string, never>,
 >(args: {
   intent: ThresholdSigningIntent;
@@ -136,7 +130,7 @@ export async function prepareThresholdSigningOperation<
     readiness: resolved.readiness,
     expiresAtMs: resolved.expiresAtMs,
     remainingUses: resolved.remainingUses,
-    snapshotGeneration: Math.max(0, Math.floor(Number(lifecycle.snapshotGeneration) || 0)),
+    availableLanesGeneration: Math.max(0, Math.floor(Number(lifecycle.availableLanesGeneration) || 0)),
     metadata: (lifecycle.metadata || {}) as TMetadata,
   };
 }

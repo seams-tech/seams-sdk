@@ -2,10 +2,10 @@ import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  handle: '/sdk/esm/core/signingEngine/touchConfirm/handlers/handlePromptFromWorker.js',
-  types: '/sdk/esm/core/signingEngine/touchConfirm/shared/confirmTypes.js',
+  handle: '/sdk/esm/core/signingEngine/uiConfirm/handlers/handlePromptFromWorker.js',
+  types: '/sdk/esm/core/signingEngine/stepUpConfirmation/channel/confirmTypes.js',
   events: '/sdk/esm/core/WalletIframe/events.js',
-  localOnly: '/sdk/esm/core/signingEngine/touchConfirm/handlers/flows/localOnly.js',
+  localOnly: '/sdk/esm/core/signingEngine/uiConfirm/handlers/flows/localOnly.js',
   nonceCoordinator: '/sdk/esm/core/signingEngine/nonce/NonceCoordinator.js',
 } as const;
 
@@ -214,6 +214,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
           worker,
         );
         const response = workerMessages[0]?.data;
+        await new Promise((resolve) => setTimeout(resolve, 50));
         return { reserved, released, response };
       },
       { paths: IMPORT_PATHS },
@@ -410,6 +411,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
           worker,
         );
         const response = workerMessages[0]?.data;
+        await new Promise((resolve) => setTimeout(resolve, 50));
         return { reserved, released, response };
       },
       { paths: IMPORT_PATHS },
@@ -535,6 +537,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
           worker,
         );
         const response = workerMessages[0]?.data;
+        await new Promise((resolve) => setTimeout(resolve, 50));
         return { reserved, released, response };
       },
       { paths: IMPORT_PATHS },
@@ -1124,6 +1127,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
         );
 
         const response = workerMessages[0]?.data;
+        await new Promise((resolve) => setTimeout(resolve, 50));
         return { reserved, released, response };
       },
       { paths: IMPORT_PATHS },

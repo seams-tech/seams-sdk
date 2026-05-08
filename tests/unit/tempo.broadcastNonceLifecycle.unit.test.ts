@@ -5,7 +5,7 @@ import {
   reportTempoBroadcastRejected,
   reportTempoDroppedOrReplaced,
   reportTempoFinalized,
-} from '@/core/signingEngine/api/tempoSigning';
+} from '@/core/signingEngine/flows/signEvmFamily/signEvmFamily';
 
 const TEST_SENDER = `0x${'11'.repeat(20)}` as const;
 

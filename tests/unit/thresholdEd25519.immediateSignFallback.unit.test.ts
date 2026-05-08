@@ -1,14 +1,18 @@
 import { expect, test } from '@playwright/test';
-import { signTransactionsWithActions as signPreparedTransactionsWithActions } from '@/core/signingEngine/orchestration/near/transactionsFlow';
-import { connectEd25519Session } from '@/core/signingEngine/threshold/workflows/connectEd25519Session';
+import { signTransactionsWithActions as signPreparedTransactionsWithActions } from '@/core/signingEngine/flows/signNear/signTransactions';
+import { connectEd25519Session } from '@/core/signingEngine/threshold/ed25519/connectSession';
 import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmSigning/persistence';
 import {
   clearAllStoredThresholdEd25519SessionRecords,
   getStoredThresholdEd25519SessionRecordForAccount,
   markThresholdEd25519EmailOtpSessionConsumedForAccount,
-} from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
+} from '@/core/signingEngine/session/persistence/records';
 import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
-import { SigningSessionIds } from '@/core/signingEngine/session/signingSession/types';
+import {
+  SigningKeyRefIntentKind,
+  SigningSessionIds,
+  SigningSessionPlanKind,
+} from '@/core/signingEngine/session/signingSession/types';
 import { buildNearTransactionSigningLane } from '@/core/signingEngine/session/signingSession/lanes';
 import { ActionType } from '@/core/types/actions';
 import { SigningEventPhase, type SigningFlowEvent } from '@/core/types/sdkSentEvents';
@@ -220,6 +224,34 @@ async function signTransactionsWithActions(args: any) {
           expiresAtMs: Math.floor(Number(record?.expiresAtMs) || Date.now() + 60_000),
           remainingUses: Math.max(1, Math.floor(Number(record?.remainingUses) || 1)),
         });
+  const signingSessionPlan =
+    args.signingSessionPlan ??
+    (signingAuthPlan.kind === 'warmSession'
+      ? {
+          kind: SigningSessionPlanKind.WarmSession,
+          lane: signingLane,
+          keyRef: {
+            kind: SigningKeyRefIntentKind.Cached,
+            thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionId),
+          },
+        }
+      : signingAuthPlan.kind === 'emailOtpReauth'
+        ? {
+            kind: SigningSessionPlanKind.EmailOtpReauth,
+            lane: signingLane,
+            challenge: {
+              chainFamily: 'near',
+              lane: signingLane,
+            },
+          }
+        : {
+            kind: SigningSessionPlanKind.PasskeyReauth,
+            lane: signingLane,
+            reconnect: {
+              lane: signingLane,
+              thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionId),
+            },
+          });
   const transactionLane = {
     accountId: nearAccountId,
     authMethod,
@@ -269,6 +301,7 @@ async function signTransactionsWithActions(args: any) {
     args.ed25519SigningBoundary ||
     {
       sessionId: thresholdSessionId,
+      signingSessionPlan,
       signingAuthPlan,
       signingLane,
       initialBudgetAdmittedOperation:

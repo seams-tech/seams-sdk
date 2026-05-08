@@ -3,10 +3,10 @@ import { setupBasicPasskeyTest } from '../setup';
 import { createHash } from 'node:crypto';
 
 const IMPORT_PATHS = {
-  handle: '/sdk/esm/core/signingEngine/touchConfirm/handlers/handlePromptFromWorker.js',
-  types: '/sdk/esm/core/signingEngine/touchConfirm/shared/confirmTypes.js',
-  localOnly: '/sdk/esm/core/signingEngine/touchConfirm/handlers/flows/localOnly.js',
-  litRegistry: '/sdk/esm/core/signingEngine/touchConfirm/ui/registry.js',
+  handle: '/sdk/esm/core/signingEngine/uiConfirm/handlers/handlePromptFromWorker.js',
+  types: '/sdk/esm/core/signingEngine/stepUpConfirmation/channel/confirmTypes.js',
+  localOnly: '/sdk/esm/core/signingEngine/uiConfirm/handlers/flows/localOnly.js',
+  litRegistry: '/sdk/esm/core/signingEngine/uiConfirm/ui/registry.js',
   nonceCoordinator: '/sdk/esm/core/signingEngine/nonce/NonceCoordinator.js',
 } as const;
 

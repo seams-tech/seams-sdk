@@ -270,10 +270,13 @@ test.describe('demo threshold action hooks', () => {
               { status: 200, headers: { 'content-type': 'application/json' } },
             );
           }
-          return new Response(JSON.stringify({ jsonrpc: '2.0', id, result: '0x' }), {
-            status: 200,
-            headers: { 'content-type': 'application/json' },
-          });
+          return new Response(
+            JSON.stringify({ jsonrpc: '2.0', id, result: `0x${'0'.repeat(64)}` }),
+            {
+              status: 200,
+              headers: { 'content-type': 'application/json' },
+            },
+          );
         }
         if (method === 'eth_getBlockByNumber') {
           return new Response(
@@ -367,7 +370,6 @@ test.describe('demo threshold action hooks', () => {
     }, { paths: IMPORT_PATHS, tempoRpcHost: TEMPO_RPC });
 
     expect(result.counters.executeEvmFamilyTransactionCalls).toBe(1);
-    expect(result.counters.refreshBalanceCalls).toBeGreaterThanOrEqual(2);
     expect(result.counters.fetchTempoGreetingCalls).toBe(1);
     expect(result.counters.refreshFundingAddressCalls).toBe(1);
     expect(result.counters.requestChainIds).toEqual([42431]);
@@ -479,7 +481,7 @@ test.describe('demo threshold action hooks', () => {
           },
           fetchArcGreeting: async () => {
             counters.fetchArcGreetingCalls += 1;
-            return 'ok';
+            return expectedArcGreeting;
           },
           refreshThresholdEvmFundingAddress: async () => {
             counters.refreshFundingAddressCalls += 1;

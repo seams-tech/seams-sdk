@@ -5,15 +5,15 @@ import {
   thresholdEcdsaChainTargetFromRequest,
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
-  thresholdEcdsaLaneIdentitiesEqual,
+  thresholdEcdsaSessionRecordKeysEqual,
   thresholdEcdsaLaneKey,
   toWalletSubjectId,
-  type EcdsaLaneIdentity,
-} from '@/core/signingEngine/session/signingSession/ecdsaChainTarget';
+  type ThresholdEcdsaSessionRecordKey,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 const SUBJECT = toWalletSubjectId('wallet-subject-1');
 
-function makeLane(overrides: Partial<EcdsaLaneIdentity> = {}): EcdsaLaneIdentity {
+function makeLane(overrides: Partial<ThresholdEcdsaSessionRecordKey> = {}): ThresholdEcdsaSessionRecordKey {
   return {
     subjectId: SUBJECT,
     authMethod: 'email_otp',
@@ -135,8 +135,8 @@ test.describe('threshold ECDSA concrete chain targets', () => {
         'tsess-arc',
       ].join(':'),
     );
-    expect(thresholdEcdsaLaneIdentitiesEqual(arc, ethereum)).toBe(false);
-    expect(thresholdEcdsaLaneIdentitiesEqual(arc, otherKey)).toBe(false);
+    expect(thresholdEcdsaSessionRecordKeysEqual(arc, ethereum)).toBe(false);
+    expect(thresholdEcdsaSessionRecordKeysEqual(arc, otherKey)).toBe(false);
   });
 
   test('keeps multiple EVM networks with the same subject and key as separate lanes', () => {
@@ -159,7 +159,7 @@ test.describe('threshold ECDSA concrete chain targets', () => {
       ecdsaThresholdKeyId: 'ehss-shared',
     });
 
-    expect(thresholdEcdsaLaneIdentitiesEqual(megaEthTestnet, polygonMainnet)).toBe(false);
+    expect(thresholdEcdsaSessionRecordKeysEqual(megaEthTestnet, polygonMainnet)).toBe(false);
     expect(thresholdEcdsaLaneKey(megaEthTestnet)).toContain('evm%3Aeip155%3A6345');
     expect(thresholdEcdsaLaneKey(polygonMainnet)).toContain('evm%3Aeip155%3A137');
   });

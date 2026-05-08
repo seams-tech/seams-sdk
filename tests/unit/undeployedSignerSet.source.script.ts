@@ -1,10 +1,10 @@
 import { buildCanonicalSmartAccountDeploymentManifest } from '../../server/src/core/smartAccountDeploymentManifest.ts';
 import { syncCanonicalSmartAccountDeploymentManifest } from '../../server/src/router/smartAccountDeploymentManifest.ts';
-import { buildThresholdEcdsaBootstrapUndeployedSignerSet } from '../../client/src/core/signingEngine/api/thresholdLifecycle/thresholdEcdsaBootstrapPersistence.ts';
+import { buildThresholdEcdsaBootstrapUndeployedSignerSet } from '../../client/src/core/signingEngine/session/warmSigning/ecdsaBootstrapPersistence.ts';
 import {
   thresholdEcdsaChainTargetFromChainFamily,
   toWalletSubjectId,
-} from '../../client/src/core/signingEngine/session/signingSession/ecdsaChainTarget.ts';
+} from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget.ts';
 
 const accountAddress = `0x${'11'.repeat(20)}`;
 const userId = 'alice.testnet';

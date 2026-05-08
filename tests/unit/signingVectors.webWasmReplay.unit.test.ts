@@ -3,8 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const IMPORT_PATHS = {
-  ethSignerWasm: '/sdk/esm/core/signingEngine/signers/wasm/ethSignerWasm.js',
-  tempoSignerWasm: '/sdk/esm/core/signingEngine/signers/wasm/tempoSignerWasm.js',
+  ethSignerWasm: '/sdk/esm/core/signingEngine/chains/evm/ethSignerWasm.js',
+  tempoSignerWasm: '/sdk/esm/core/signingEngine/chains/tempo/tempoSignerWasm.js',
   signerGateway: '/sdk/esm/core/signingEngine/workerManager/workerTransport.js',
 } as const;
 

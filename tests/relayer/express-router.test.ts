@@ -3713,6 +3713,68 @@ test.describe('relayer router (express) – P0', () => {
     }
   });
 
+  test('POST /session/signing-budget/status: stale threshold session returns typed not_found', async () => {
+    const session = makeSessionAdapter({
+      parse: async () => ({
+        ok: true,
+        claims: {
+          sub: 'budget-stale.testnet',
+          walletId: 'budget-stale.testnet',
+          kind: 'threshold_ecdsa_session_v1',
+          sessionId: 'threshold-login-stale-express',
+          walletSigningSessionId: 'wsess-stale-express',
+          subjectId: 'budget-stale.testnet',
+          chainTarget: {
+            kind: 'evm',
+            namespace: 'eip155',
+            chainId: 5042002,
+            networkSlug: 'arc-testnet',
+          },
+          ecdsaThresholdKeyId: 'ecdsa-key-stale-express',
+          relayerKeyId: 'relayer-key-stale-express',
+          rpId: 'example.localhost',
+          thresholdExpiresAtMs: Date.now() + 60_000,
+          participantIds: [1, 2],
+        },
+      }),
+    });
+    const service = makeFakeAuthService();
+    const router = createRelayRouter(service, {
+      session,
+      signingSessionSeal: {
+        service: {
+          applyServerSeal: async () => ({ ok: false, code: 'unused', message: 'unused' }),
+          removeServerSeal: async () => ({ ok: false, code: 'unused', message: 'unused' }),
+        },
+        sessionPolicy: {
+          getSession: async () => null,
+          getSessionStatus: async () => null,
+        },
+      },
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/session/signing-budget/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer stale-token' },
+        body: JSON.stringify({
+          walletSigningSessionId: 'wsess-stale-express',
+          thresholdSessionId: 'threshold-login-stale-express',
+        }),
+      });
+      expect(res.status).toBe(200);
+      expect(res.json).toEqual({
+        ok: true,
+        walletSigningSessionId: 'wsess-stale-express',
+        thresholdSessionId: 'threshold-login-stale-express',
+        status: 'not_found',
+        statusCode: 'unauthorized',
+      });
+    } finally {
+      await srv.close();
+    }
+  });
+
   test('POST /session/refresh: unauthorized emits session.warm.expired webhook', async () => {
     const dispatched: Array<{ eventType: string; payload: Record<string, unknown> }> = [];
     const webhooks = createInMemoryConsoleWebhookService({

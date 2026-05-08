@@ -147,9 +147,9 @@ Phase 1 findings completed so far:
   - derive public key from base shares
   - build seed export artifact
 - active browser HSS lifecycle consumers are:
-  - [client/src/core/signingEngine/api/thresholdLifecycle/thresholdEd25519Lifecycle.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/signingEngine/api/thresholdLifecycle/thresholdEd25519Lifecycle.ts)
+  - [client/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts)
     for registration, ceremony completion, session ceremony, and export
-  - [client/src/core/signingEngine/orchestration/near/shared/ensureThresholdEd25519HssClientBase.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/signingEngine/orchestration/near/shared/ensureThresholdEd25519HssClientBase.ts)
+  - [client/src/core/signingEngine/threshold/ed25519/hssClientBase.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/signingEngine/threshold/ed25519/hssClientBase.ts)
     for lazy client-base reconstruction
   - [client/src/core/signingEngine/SigningEngine.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/signingEngine/SigningEngine.ts)
     for export

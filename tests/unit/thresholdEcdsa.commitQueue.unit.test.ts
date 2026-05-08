@@ -4,7 +4,7 @@ import {
   resolveThresholdEcdsaCommitQueueKey,
   type ThresholdEcdsaCommitQueueByKey,
   withThresholdEcdsaCommitQueue,
-} from '@/core/signingEngine/api/thresholdLifecycle/thresholdEcdsaCommitQueue';
+} from '@/core/signingEngine/threshold/ecdsa/commitQueue';
 
 function deferred<T = void>(): {
   promise: Promise<T>;
@@ -210,16 +210,16 @@ test.describe('threshold ECDSA commit queue gate', () => {
 test.describe('threshold ECDSA commit queue key resolver', () => {
   test('prefers session key when thresholdSessionId exists', async () => {
     const key = resolveThresholdEcdsaCommitQueueKey({
-      chain: 'tempo',
+      chainTarget: { kind: 'tempo', chainId: 1, networkSlug: 'tempo-1' },
       thresholdSessionId: 'tsess-abc',
     });
-    expect(key).toBe('session:tempo:tsess-abc');
+    expect(key).toBe('session:tempo:1:tsess-abc');
   });
 
   test('throws when thresholdSessionId is missing', async () => {
     expect(() =>
       resolveThresholdEcdsaCommitQueueKey({
-        chain: 'evm',
+        chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 1, networkSlug: 'evm-1' },
         thresholdSessionId: '',
       }),
     ).toThrow('[SigningEngine] threshold ECDSA commit queue requires non-empty thresholdSessionId');
@@ -227,7 +227,7 @@ test.describe('threshold ECDSA commit queue key resolver', () => {
 
   test('derivation is deterministic for identical inputs', async () => {
     const input = {
-      chain: 'tempo' as const,
+      chainTarget: { kind: 'tempo' as const, chainId: 1, networkSlug: 'tempo-1' },
       thresholdSessionId: 'tsess-abc',
     };
     const first = resolveThresholdEcdsaCommitQueueKey(input);

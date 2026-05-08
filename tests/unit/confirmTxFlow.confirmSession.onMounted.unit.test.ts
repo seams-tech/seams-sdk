@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest, sdkEsmPath } from '../setup';
 
 const IMPORT_PATHS = {
-  adapters: sdkEsmPath('core/signingEngine/touchConfirm/handlers/flows/adapters/adapters.js'),
+  adapters: sdkEsmPath('core/signingEngine/uiConfirm/handlers/flows/adapters/adapters.js'),
 } as const;
 
 test.describe('touchConfirm confirm session onMounted lifecycle', () => {

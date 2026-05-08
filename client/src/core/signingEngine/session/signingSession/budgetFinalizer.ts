@@ -6,23 +6,13 @@ import type {
   SigningSessionBudgetStatusAuth,
   SigningSessionBudgetZeroSpendReason,
 } from './budget';
-import {
-  buildWalletSigningSpendPlan,
-  isSigningSessionBudgetInFlightError,
-} from './budget';
+import { buildWalletSigningSpendPlan, isSigningSessionBudgetInFlightError } from './budget';
 import type {
-  BackingMaterialSessionId,
   SigningAuthMethod,
   SigningOperationContext,
-  SelectedSigningLaneContext,
+  SelectedSigningSessionPlanningLane,
   WalletSigningSpendPlan,
 } from './types';
-import {
-  selectedSigningLaneContextFromTransactionLane,
-  type TransactionLane,
-} from './transactionState';
-
-export type SigningSessionBudgetFinalizerLane = SelectedSigningLaneContext | TransactionLane;
 
 export type SigningSessionBudgetFinalizer = {
   spend?: WalletSigningSpendPlan;
@@ -36,17 +26,11 @@ export function createSigningSessionBudgetFinalizer(args: {
   budgetIdentity: SigningSessionPreparedBudgetIdentity;
   trustedStatusAuth?: SigningSessionBudgetStatusAuth;
   operation: SigningOperationContext;
-  lane: SigningSessionBudgetFinalizerLane;
-  backingMaterialSessionId?: BackingMaterialSessionId;
+  lane: SelectedSigningSessionPlanningLane;
   onRecordSuccessError?: (error: unknown, spend: WalletSigningSpendPlan) => void;
   onRecordZeroSpendError?: (error: unknown) => void;
 }): SigningSessionBudgetFinalizer {
-  const lane = normalizeBudgetFinalizerLane(args.lane);
-  const spend = buildWalletSigningSpendPlan(args.operation, lane, {
-    ...(args.backingMaterialSessionId
-      ? { backingMaterialSessionId: args.backingMaterialSessionId }
-      : {}),
-  });
+  const spend = buildWalletSigningSpendPlan(args.operation, args.lane);
   const budget = args.signingSessionBudget;
   if (args.budgetIdentity.walletSigningSessionId !== String(spend.walletSigningSessionId)) {
     throw new Error('[SigningSessionBudget] prepared budget identity does not match spend lane');
@@ -56,28 +40,31 @@ export function createSigningSessionBudgetFinalizer(args: {
     spend,
     async reserve() {
       if (!budget) return null;
-      return await reserveWithLocalContentionRetry(async () =>
-        await budget.reserve({
-          spend,
-          expectedBudgetProjectionVersion: args.budgetIdentity.projectionVersion,
-          ...(args.trustedStatusAuth ? { trustedStatusAuth: args.trustedStatusAuth } : {}),
-        }),
+      return await reserveWithLocalContentionRetry(
+        async () =>
+          await budget.reserve({
+            spend,
+            expectedBudgetProjectionVersion: args.budgetIdentity.projectionVersion,
+            ...(args.trustedStatusAuth ? { trustedStatusAuth: args.trustedStatusAuth } : {}),
+          }),
       );
     },
     async recordSuccess(input = {}) {
       if (!budget) return;
-      await budget.recordSuccess({
-        ...input,
-        spend,
-        expectedBudgetProjectionVersion: args.budgetIdentity.projectionVersion,
-        ...(args.trustedStatusAuth ? { trustedStatusAuth: args.trustedStatusAuth } : {}),
-      }).catch((error) => {
-        args.onRecordSuccessError?.(error, spend);
-        // Do not fail open here. A previous regression logged spend failures and
-        // still reported signing success, leaving the next operation to hit
-        // wallet signing-session not_found/exhausted errors unpredictably.
-        throw error;
-      });
+      await budget
+        .recordSuccess({
+          ...input,
+          spend,
+          expectedBudgetProjectionVersion: args.budgetIdentity.projectionVersion,
+          ...(args.trustedStatusAuth ? { trustedStatusAuth: args.trustedStatusAuth } : {}),
+        })
+        .catch((error) => {
+          args.onRecordSuccessError?.(error, spend);
+          // Do not fail open here. A previous regression logged spend failures and
+          // still reported signing success, leaving the next operation to hit
+          // wallet signing-session not_found/exhausted errors unpredictably.
+          throw error;
+        });
     },
     recordZeroSpend(error) {
       if (!budget) return;
@@ -95,15 +82,6 @@ export function createSigningSessionBudgetFinalizer(args: {
       }
     },
   };
-}
-
-function normalizeBudgetFinalizerLane(
-  lane: SigningSessionBudgetFinalizerLane,
-): SelectedSigningLaneContext {
-  if (!('keyKind' in lane)) {
-    return selectedSigningLaneContextFromTransactionLane(lane);
-  }
-  return lane;
 }
 
 async function reserveWithLocalContentionRetry(

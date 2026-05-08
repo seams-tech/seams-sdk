@@ -1078,8 +1078,25 @@ export async function handleSigningBudgetStatus(ctx: CloudflareRelayContext): Pr
   try {
     const body = (await readJson(ctx.request)) as Record<string, unknown>;
     const expectedWalletSigningSessionId = String(body.walletSigningSessionId || '').trim();
+    const expectedThresholdSessionId = String(body.thresholdSessionId || '').trim();
     const validated = await readAndValidateEmailOtpSigningSession(ctx);
-    if (!validated.ok) return validated.response;
+    if (!validated.ok) {
+      if (expectedWalletSigningSessionId && validated.response.status === 401) {
+        return json(
+          {
+            ok: true,
+            walletSigningSessionId: expectedWalletSigningSessionId,
+            ...(expectedThresholdSessionId
+              ? { thresholdSessionId: expectedThresholdSessionId }
+              : {}),
+            status: 'not_found',
+            statusCode: 'unauthorized',
+          },
+          { status: 200 },
+        );
+      }
+      return validated.response;
+    }
     if (
       expectedWalletSigningSessionId &&
       expectedWalletSigningSessionId !== validated.walletSigningSessionId

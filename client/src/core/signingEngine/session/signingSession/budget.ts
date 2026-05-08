@@ -3,12 +3,10 @@ import type { SigningSessionStatus } from '@/core/types/seams';
 import {
   normalizeWalletSigningSpendPlan,
   summarizeSigningLane,
-  type BackingMaterialSessionId,
-  type SigningLaneContext,
+  type SelectedSigningSessionPlanningLane,
   type SigningLaneSummary,
   type SigningOperationContext,
   type SigningOperationId,
-  type ThresholdSessionId,
   type WalletSigningSpendPlan,
 } from './types';
 import { budgetUnknownSigningSessionStatus } from './budgetProjection';
@@ -114,9 +112,7 @@ export type SigningSessionPreparedBudgetIdentity = {
 };
 
 export type SigningSessionBudget = {
-  reserve(
-    input: SigningSessionBudgetReserveInput,
-  ): Promise<SigningSessionBudgetReservation | null>;
+  reserve(input: SigningSessionBudgetReserveInput): Promise<SigningSessionBudgetReservation | null>;
   getAvailableStatus(input: {
     nearAccountId: AccountId | string;
     walletSigningSessionId: string;
@@ -210,9 +206,7 @@ export async function assertSigningSessionBudgetReservationAvailable(args: {
     );
   }
   if (status.status !== 'active') {
-    throw new Error(
-      `[SigningSessionBudget] wallet signing-session budget is ${status.status}`,
-    );
+    throw new Error(`[SigningSessionBudget] wallet signing-session budget is ${status.status}`);
   }
   const projectionVersion = String(status.projectionVersion || '').trim();
   if (!projectionVersion) {
@@ -372,11 +366,7 @@ export function normalizeStringList(values: readonly string[] | undefined): stri
 
 export function buildWalletSigningSpendPlan(
   operation: SigningOperationContext,
-  lane: SigningLaneContext,
-  refs: {
-    thresholdSessionId?: ThresholdSessionId;
-    backingMaterialSessionId?: BackingMaterialSessionId;
-  } = {},
+  lane: SelectedSigningSessionPlanningLane,
 ): WalletSigningSpendPlan {
   return {
     operationId: operation.operationId,
@@ -386,11 +376,8 @@ export function buildWalletSigningSpendPlan(
     nearAccountId: lane.accountId,
     walletSigningSessionId: lane.walletSigningSessionId,
     lane,
-    thresholdSessionIds: uniqueDefined([lane.thresholdSessionId, refs.thresholdSessionId]),
-    backingMaterialSessionIds: uniqueDefined([
-      lane.backingMaterialSessionId,
-      refs.backingMaterialSessionId,
-    ]),
+    thresholdSessionIds: uniqueDefined([lane.thresholdSessionId]),
+    backingMaterialSessionIds: uniqueDefined([lane.backingMaterialSessionId]),
     uses: 1,
     reason: operation.intent,
   };

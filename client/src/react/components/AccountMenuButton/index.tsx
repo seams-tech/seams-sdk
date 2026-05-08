@@ -25,7 +25,7 @@ import {
   nearAccountRefFromAccountId,
   thresholdEcdsaChainTargetFromConfig,
   toWalletSubjectId,
-} from '@/core/signingEngine/session/signingSession/ecdsaChainTarget';
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 function resolveDefaultPortalTarget(
   explicit: HTMLElement | ShadowRoot | null | undefined,

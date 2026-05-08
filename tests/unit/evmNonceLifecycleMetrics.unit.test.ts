@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  tempoSigningApi: '/sdk/esm/core/signingEngine/api/tempoSigning.js',
+  tempoSigningApi: '/sdk/esm/core/signingEngine/flows/signEvmFamily/signEvmFamily.js',
 } as const;
 
 test.describe('evm nonce lifecycle metrics', () => {
@@ -74,7 +74,7 @@ test.describe('evm nonce lifecycle metrics', () => {
 
     const accepted = result.find((entry: any) => entry?.metric === 'broadcast_accepted');
     expect(accepted).toBeTruthy();
-    expect(String(accepted?.chain || '')).toBe('evm');
+    expect(String(accepted?.chainTarget || '')).toBe('evm:eip155:11155111');
     expect(String(accepted?.networkKey || '')).toBe('arc-testnet');
     expect(String(accepted?.chainId || '')).toBe('11155111');
     expect(String(accepted?.sender || '')).toBe(`0x${'11'.repeat(20)}`);

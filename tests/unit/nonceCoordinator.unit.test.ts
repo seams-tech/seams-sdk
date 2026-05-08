@@ -15,6 +15,7 @@ import {
   SigningOperationIntent,
   SigningSessionIds,
 } from '@/core/signingEngine/session/signingSession/types';
+import { thresholdEcdsaChainTargetFromChainFamily } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 const TEST_SENDER = `0x${'22'.repeat(20)}` as const;
 
@@ -134,7 +135,7 @@ function createMemoryNonceLaneCoordinationStore(
 }
 
 function createEvmCoordinationRecord(
-  overrides?: Partial<NonceLaneCoordinationRecord>,
+  overrides?: Partial<Extract<NonceLaneCoordinationRecord, { family: 'evm' }>>,
 ): NonceLaneCoordinationRecord {
   const lane = createLane();
   return {
@@ -149,9 +150,12 @@ function createEvmCoordinationRecord(
       String(lane.nonceKey),
     ].join(':'),
     family: 'evm',
-    chain: lane.chain,
+    chainTarget: thresholdEcdsaChainTargetFromChainFamily({
+      chain: lane.chain,
+      chainId: lane.chainId,
+      networkSlug: lane.networkKey,
+    }),
     networkKey: lane.networkKey,
-    chainId: lane.chainId,
     sender: lane.sender,
     nonceKey: String(lane.nonceKey),
     accountId: lane.accountId,

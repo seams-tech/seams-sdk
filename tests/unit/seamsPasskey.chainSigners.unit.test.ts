@@ -3,9 +3,21 @@ import { EvmSigner } from '@/core/SeamsPasskey/evm';
 import { NearSigner } from '@/core/SeamsPasskey/near';
 import { TempoSigner } from '@/core/SeamsPasskey/tempo';
 import { createSigningFlowEvent, SigningEventPhase } from '@/core/types/sdkSentEvents';
+import { thresholdEcdsaChainTargetFromChainFamily, toWalletSubjectId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
+const TEST_SUBJECT_ID = toWalletSubjectId('alice.testnet');
 const allowThresholdEcdsaOperation = async () => undefined;
 const applyThresholdEcdsaPostSignPolicy = async () => undefined;
+const TEMPO_CHAIN_TARGET = thresholdEcdsaChainTargetFromChainFamily({
+  chain: 'tempo',
+  chainId: 42431,
+  networkSlug: 'tempo-testnet',
+});
+const EVM_CHAIN_TARGET = thresholdEcdsaChainTargetFromChainFamily({
+  chain: 'evm',
+  chainId: 5042002,
+  networkSlug: 'arc-testnet',
+});
 
 function createTestSigningEvent(
   phase: SigningEventPhase,
@@ -175,8 +187,10 @@ test.describe('SeamsPasskey chain signer modules', () => {
 
     const result = await signer.signTempo({
       nearAccountId: 'alice.testnet',
+      subjectId: TEST_SUBJECT_ID,
+      chainTarget: TEMPO_CHAIN_TARGET,
       request: {
-        chain: 'evm',
+        chain: 'tempo',
         kind: 'eip1559',
         senderSignatureAlgorithm: 'secp256k1',
         tx: {},
@@ -244,15 +258,15 @@ test.describe('SeamsPasskey chain signer modules', () => {
 
     await tempoSigner.bootstrapEcdsaSession({
       nearAccountId: 'alice.testnet',
-      options: { chain: 'evm', chainId: 5042002, relayerUrl: 'https://relay.example.test' },
+      options: { chainTarget: TEMPO_CHAIN_TARGET, relayerUrl: 'https://relay.example.test' },
     });
     await evmSigner.bootstrapEcdsaSession({
       nearAccountId: 'alice.testnet',
-      options: { chain: 'tempo', chainId: 42431, relayerUrl: 'https://relay.example.test' },
+      options: { chainTarget: EVM_CHAIN_TARGET, relayerUrl: 'https://relay.example.test' },
     });
 
-    expect(tempoCalls[0]?.options?.chain).toBe('tempo');
-    expect(evmCalls[0]?.options?.chain).toBe('evm');
+    expect(tempoCalls[0]?.options?.chainTarget).toEqual(TEMPO_CHAIN_TARGET);
+    expect(evmCalls[0]?.options?.chainTarget).toEqual(EVM_CHAIN_TARGET);
   });
 
   test('TempoSigner.reportBroadcastRejected forwards args in non-iframe mode', async () => {
@@ -483,7 +497,9 @@ test.describe('SeamsPasskey chain signer modules', () => {
       });
 
       const result = await signer.executeEvmFamilyTransaction({
-        nearAccountId: 'alice.testnet',
+      nearAccountId: 'alice.testnet',
+      subjectId: TEST_SUBJECT_ID,
+      chainTarget: TEMPO_CHAIN_TARGET,
         request: {
           chain: 'evm',
           kind: 'eip1559',
@@ -628,7 +644,9 @@ test.describe('SeamsPasskey chain signer modules', () => {
 
       await expect(
         signer.executeEvmFamilyTransaction({
-          nearAccountId: 'alice.testnet',
+      nearAccountId: 'alice.testnet',
+      subjectId: TEST_SUBJECT_ID,
+      chainTarget: TEMPO_CHAIN_TARGET,
           request: {
             chain: 'evm',
             kind: 'eip1559',
@@ -798,7 +816,9 @@ test.describe('SeamsPasskey chain signer modules', () => {
 
       await expect(
         signer.executeEvmFamilyTransaction({
-          nearAccountId: 'alice.testnet',
+      nearAccountId: 'alice.testnet',
+      subjectId: TEST_SUBJECT_ID,
+      chainTarget: TEMPO_CHAIN_TARGET,
           request: {
             chain: 'evm',
             kind: 'eip1559',
@@ -981,7 +1001,9 @@ test.describe('SeamsPasskey chain signer modules', () => {
 
       await expect(
         signer.executeEvmFamilyTransaction({
-          nearAccountId: 'alice.testnet',
+      nearAccountId: 'alice.testnet',
+      subjectId: TEST_SUBJECT_ID,
+      chainTarget: TEMPO_CHAIN_TARGET,
           request: {
             chain: 'evm',
             kind: 'eip1559',
@@ -1152,7 +1174,9 @@ test.describe('SeamsPasskey chain signer modules', () => {
 
       await expect(
         signer.executeEvmFamilyTransaction({
-          nearAccountId: 'alice.testnet',
+      nearAccountId: 'alice.testnet',
+      subjectId: TEST_SUBJECT_ID,
+      chainTarget: TEMPO_CHAIN_TARGET,
           request: {
             chain: 'evm',
             kind: 'eip1559',
@@ -1314,7 +1338,9 @@ test.describe('SeamsPasskey chain signer modules', () => {
 
       await expect(
         signer.executeEvmFamilyTransaction({
-          nearAccountId: 'alice.testnet',
+      nearAccountId: 'alice.testnet',
+      subjectId: TEST_SUBJECT_ID,
+      chainTarget: TEMPO_CHAIN_TARGET,
           request: {
             chain: 'evm',
             kind: 'eip1559',
@@ -1474,7 +1500,9 @@ test.describe('SeamsPasskey chain signer modules', () => {
 
       await expect(
         signer.executeEvmFamilyTransaction({
-          nearAccountId: 'alice.testnet',
+      nearAccountId: 'alice.testnet',
+      subjectId: TEST_SUBJECT_ID,
+      chainTarget: TEMPO_CHAIN_TARGET,
           request: {
             chain: 'evm',
             kind: 'eip1559',

@@ -1,5 +1,5 @@
 import type { PasskeyManagerContext } from './index';
-import { clampThresholdSessionPolicy } from '../signingEngine/threshold/session/sessionPolicy';
+import { clampThresholdSessionPolicy } from '../signingEngine/threshold/sessionPolicy';
 
 export function resolveThresholdWarmSessionDefaults(
   context: PasskeyManagerContext,

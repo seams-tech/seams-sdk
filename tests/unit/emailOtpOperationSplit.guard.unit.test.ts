@@ -12,9 +12,9 @@ function readRepoFile(relativePath: string): string {
 test.describe('Email OTP operation split guard', () => {
   test('transaction signing APIs cannot request export challenges', () => {
     const transactionApiFiles = [
-      'client/src/core/signingEngine/api/nearSigning.ts',
-      'client/src/core/signingEngine/api/evmSigning.ts',
-      'client/src/core/signingEngine/bootstrap/orchestrationDependencyFactory.ts',
+      'client/src/core/signingEngine/flows/signNear/signNear.ts',
+      'client/src/core/signingEngine/flows/signEvmFamily/authPlanning.ts',
+      'client/src/core/signingEngine/assembly/createPorts.ts',
     ];
     const forbidden = [
       'requestEmailOtpChallengeForSigning',
@@ -44,7 +44,7 @@ test.describe('Email OTP operation split guard', () => {
 
   test('Email OTP coordinator keeps export challenge issuance separate from signing challenge issuance', () => {
     const source = readRepoFile(
-      'client/src/core/signingEngine/emailOtp/EmailOtpThresholdSessionCoordinator.ts',
+      'client/src/core/signingEngine/sessionEmailOtp/EmailOtpThresholdSessionCoordinator.ts',
     );
     const forbidden = [
       'requestEmailOtpChallengeForSigning',
@@ -52,6 +52,9 @@ test.describe('Email OTP operation split guard', () => {
       'createPasskeyWalletAuthAdapter',
       'createWalletAuthModeResolver',
       'WalletAuthPolicyError',
+      'requestExportAuthorization',
+      'requestUserConfirmation',
+      'UserConfirmationType',
       "operation?: 'transaction_sign' | 'export_key'",
       'operation?: "transaction_sign" | "export_key"',
     ];
@@ -65,38 +68,39 @@ test.describe('Email OTP operation split guard', () => {
   });
 
   test('ECDSA fresh Email OTP decisions stay planner-owned, not pre-sign guard-owned', () => {
-    const source = readRepoFile('client/src/core/signingEngine/api/evmSigning.ts');
+    const source = readRepoFile('client/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts');
     const executorSource = readRepoFile(
-      'client/src/core/signingEngine/api/evmFamily/transactionExecutor.ts',
+      'client/src/core/signingEngine/flows/signEvmFamily/transactionExecutor.ts',
     );
     const retryIndex = source.indexOf('const retryWithFreshEmailOtpAuth');
     const executorIndex = source.indexOf('return await executeEvmFamilyTransactionSigning');
-    const evmSignIndex = executorSource.indexOf('const result = await signEvmWithTouchConfirm');
-    const tempoSignIndex = executorSource.indexOf('const result = await signTempoWithTouchConfirm');
+    const signIndex = executorSource.indexOf('const result = await signWithUiConfirm');
 
     expect(source).not.toContain('const assertEcdsaOperationAllowedForAttempt');
     expect(source).not.toContain('assertEcdsaOperationAllowedForSource');
     expect(executorSource).not.toContain('assertOperationAllowed');
     expect(retryIndex).toBeGreaterThanOrEqual(0);
     expect(executorIndex).toBeGreaterThan(retryIndex);
-    expect(evmSignIndex).toBeGreaterThanOrEqual(0);
-    expect(tempoSignIndex).toBeGreaterThanOrEqual(0);
+    expect(signIndex).toBeGreaterThanOrEqual(0);
   });
 
   test('ECDSA transaction signing selects an exact lane before material lookup', () => {
-    const source = readRepoFile('client/src/core/signingEngine/api/evmSigning.ts');
+    const source = readRepoFile('client/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts');
     const preparedSigningSource = readRepoFile(
-      'client/src/core/signingEngine/api/evmFamily/preparedSigning.ts',
+      'client/src/core/signingEngine/flows/signEvmFamily/preparedSigning.ts',
     );
     const accountAuthSource = readRepoFile(
-      'client/src/core/signingEngine/api/evmFamily/accountAuth.ts',
+      'client/src/core/signingEngine/walletAuth/accountAuth.ts',
     );
-    const lanesSource = readRepoFile('client/src/core/signingEngine/api/evmFamily/ecdsaLanes.ts');
+    const lanesSource = readRepoFile('client/src/core/signingEngine/flows/signEvmFamily/ecdsaLanes.ts');
     const selectionModule = readRepoFile(
-      'client/src/core/signingEngine/api/evmFamily/ecdsaSelection.ts',
+      'client/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.ts',
     );
     const store = readRepoFile(
-      'client/src/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore.ts',
+      'client/src/core/signingEngine/session/persistence/records.ts',
+    );
+    const identitySource = readRepoFile(
+      'client/src/core/signingEngine/session/identity/laneIdentity.ts',
     );
     const authResolver = accountAuthSource.indexOf(
       'export async function resolveEvmFamilyTransactionAccountAuth',
@@ -124,7 +128,7 @@ test.describe('Email OTP operation split guard', () => {
       preparedAccountAuthResolution,
     );
     const selectedAuthMethod = selectionModule.indexOf(
-      'const selectedAuthMethod = args.transactionLane?.authMethod || args.authMethod',
+      'const selectedAuthMethod = args.laneCandidate?.authMethod || args.authMethod',
       selectionModuleResolver,
     );
     const emailOtpCandidate = selectionModule.indexOf(
@@ -140,7 +144,7 @@ test.describe('Email OTP operation split guard', () => {
     expect(lanesSource).toContain(
       'export function tryGetPasskeyThresholdEcdsaSessionRecordForSigning',
     );
-    expect(store).toContain('THRESHOLD_ECDSA_PASSKEY_SESSION_STORE_SOURCES');
+    expect(identitySource).toContain('THRESHOLD_ECDSA_PASSKEY_SESSION_STORE_SOURCES');
     expect(selectionModule).toContain('pickUnambiguousEcdsaAuthRecord');
     expect(selectionSource).not.toContain('genericRecord');
     expect(selectionSource).not.toContain('genericKeyRef');
@@ -156,21 +160,24 @@ test.describe('Email OTP operation split guard', () => {
 
   test('Email OTP ECDSA helpers require the Email OTP source lane', () => {
     const store = readRepoFile(
-      'client/src/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore.ts',
+      'client/src/core/signingEngine/session/persistence/records.ts',
     );
-    const evmSigning = readRepoFile('client/src/core/signingEngine/api/evmSigning.ts');
+    const evmSigning = readRepoFile('client/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts');
     const authPlanning = readRepoFile(
-      'client/src/core/signingEngine/api/evmFamily/authPlanning.ts',
+      'client/src/core/signingEngine/flows/signEvmFamily/authPlanning.ts',
     );
-    const ecdsaLanes = readRepoFile('client/src/core/signingEngine/api/evmFamily/ecdsaLanes.ts');
+    const ecdsaLanes = readRepoFile('client/src/core/signingEngine/flows/signEvmFamily/ecdsaLanes.ts');
     const ecdsaSelection = readRepoFile(
-      'client/src/core/signingEngine/api/evmFamily/ecdsaSelection.ts',
+      'client/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.ts',
+    );
+    const preparedSigning = readRepoFile(
+      'client/src/core/signingEngine/flows/signEvmFamily/preparedSigning.ts',
     );
     const emailOtpCoordinator = readRepoFile(
-      'client/src/core/signingEngine/emailOtp/EmailOtpThresholdSessionCoordinator.ts',
+      'client/src/core/signingEngine/sessionEmailOtp/EmailOtpThresholdSessionCoordinator.ts',
     );
     const signingSessionReadiness = readRepoFile(
-      'client/src/core/signingEngine/session/signingSession/readiness.ts',
+      'client/src/core/signingEngine/session/availability/readiness.ts',
     );
     const warmSessionStatusReader = readRepoFile(
       'client/src/core/signingEngine/session/warmSigning/statusReader.ts',
@@ -179,9 +186,8 @@ test.describe('Email OTP operation split guard', () => {
     expect(store).toContain('getEmailOtpThresholdEcdsaSessionRecordForSigning');
     expect(store).toContain("source: 'email_otp'");
     expect(store).toContain('getPasskeyThresholdEcdsaSessionRecordForSigning');
-    const evmSigningDeps = evmSigning.slice(
-      evmSigning.indexOf('export type EvmFamilySigningDeps'),
-      evmSigning.indexOf('type SignEvmFamilyArgs'),
+    const evmSigningDeps = preparedSigning.slice(
+      preparedSigning.indexOf('export type PrepareEvmFamilyEcdsaSigningDeps'),
     );
     expect(evmSigningDeps).not.toContain('getThresholdEcdsaKeyRefForLookup');
     expect(evmSigningDeps).not.toContain('getThresholdEcdsaSessionRecordForLookup');
@@ -199,16 +205,17 @@ test.describe('Email OTP operation split guard', () => {
     expect(ecdsaSelection).toContain('source: SIGNER_AUTH_METHODS.emailOtp');
     expect(ecdsaSelection).toContain('PASSKEY_ECDSA_SIGNING_SOURCE_PRIORITY');
     expect(ecdsaSelection).toContain('listPasskeyEcdsaSigningCandidates');
-    expect(ecdsaSelection).toContain('snapshotCandidate?: EvmFamilyEcdsaConcreteSnapshotLane');
-    expect(ecdsaSelection).toContain('transactionLane?: EvmFamilyEcdsaTransactionLane');
-    expect(ecdsaSelection).toContain('assertTransactionLaneMatchesSnapshotCandidate');
-    expect(ecdsaSelection).toContain('ecdsaMaterialMatchesSnapshotCandidate');
+    expect(ecdsaSelection).toContain('laneCandidate?: EcdsaLaneCandidate');
+    expect(preparedSigning).toContain('assertSelectionMatchesLaneCandidate');
+    expect(ecdsaSelection).toContain('ecdsaMaterialMatchesLaneCandidate');
     expect(ecdsaSelection).toContain('requireExactEcdsaCandidateMaterial');
+    expect(ecdsaSelection).toContain('signingLaneFromExactLaneCandidate');
     expect(ecdsaSelection).toContain('source,');
     expect(ecdsaSelection).toContain(
       "const passkeySource = selectedPasskeyCandidate?.source || 'manual-bootstrap'",
     );
-    expect(emailOtpCoordinator).toContain("chain: candidateChain,\n          source: 'email_otp'");
+    expect(emailOtpCoordinator).toContain('primaryChain: expectedTarget,');
+    expect(emailOtpCoordinator).toContain("source: 'email_otp'");
     expect(warmSessionStatusReader).toContain(
       'if (args.source && candidate.source !== args.source) continue;',
     );
@@ -222,12 +229,11 @@ test.describe('Email OTP operation split guard', () => {
   });
 
   test('EVM-family ECDSA signing restores durable sealed sessions before lane selection', () => {
-    const evmSigning = readRepoFile('client/src/core/signingEngine/api/evmSigning.ts');
+    const evmSigning = readRepoFile('client/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts');
     const preparedSigning = readRepoFile(
-      'client/src/core/signingEngine/api/evmFamily/preparedSigning.ts',
+      'client/src/core/signingEngine/flows/signEvmFamily/preparedSigning.ts',
     );
-    const depsStart = evmSigning.indexOf('export type EvmFamilySigningDeps');
-    const attemptStart = evmSigning.indexOf('async function signEvmFamilyAttempt');
+    const depsStart = preparedSigning.indexOf('export type PrepareEvmFamilyEcdsaSigningDeps');
     const preparedStart = preparedSigning.indexOf(
       'export async function prepareEvmFamilyEcdsaSigningSession',
     );
@@ -240,13 +246,13 @@ test.describe('Email OTP operation split guard', () => {
       preparedStart,
     );
 
-    expect(evmSigning.slice(depsStart, attemptStart)).toContain(
+    expect(preparedSigning.slice(depsStart)).toContain(
       'restorePersistedSessionForSigning: (',
     );
-    expect(evmSigning.slice(depsStart, attemptStart)).toContain(
+    expect(preparedSigning.slice(depsStart)).toContain(
       "Extract<RestorePersistedSessionForSigningInput, { curve: 'ecdsa' }>",
     );
-    expect(evmSigning.slice(depsStart, attemptStart)).not.toContain(
+    expect(preparedSigning.slice(depsStart)).not.toContain(
       'restorePersistedEmailOtpSessionsForRead',
     );
     expect(evmSigning).toContain('prepareEvmFamilyEcdsaSigningSession({');
@@ -255,8 +261,12 @@ test.describe('Email OTP operation split guard', () => {
     const prepareBeforeSelection = preparedSigning.slice(preparedStart, selectionCall);
     expect(prepareBeforeSelection).toContain('const selectedLane = selectTransactionLane({');
     expect(prepareBeforeSelection).toContain('authMethod,');
-    expect(prepareBeforeSelection).toContain('walletSigningSessionId: snapshotCandidate.walletSigningSessionId');
-    expect(prepareBeforeSelection).toContain('thresholdSessionId: snapshotCandidate.thresholdSessionId');
+    expect(prepareBeforeSelection).toContain(
+      'walletSigningSessionId: laneCandidate.walletSigningSessionId',
+    );
+    expect(prepareBeforeSelection).toContain(
+      'thresholdSessionId: laneCandidate.thresholdSessionId',
+    );
     expect(prepareBeforeSelection).not.toContain("(['email_otp', 'passkey'] as const)");
   });
 });

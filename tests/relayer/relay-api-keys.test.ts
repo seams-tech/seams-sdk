@@ -705,8 +705,8 @@ test.describe('relay API key auth (express)', () => {
         smartAccountDeploy: async (request) => {
           deployCalls.push({
             nearAccountId: request.nearAccountId,
-            chain: request.chain,
-            chainId: request.chainId,
+            chain: request.chainTarget.kind,
+            chainId: request.chainTarget.chainId,
             accountAddress: request.accountAddress,
             accountModel: request.accountModel,
             deploymentManifest: request.deploymentManifest,
@@ -714,7 +714,7 @@ test.describe('relay API key auth (express)', () => {
           });
           return {
             ok: true,
-            deploymentTxHash: `0xdeploy-${request.chain}`,
+            deploymentTxHash: `0xdeploy-${request.chainTarget.kind}`,
           };
         },
       },
@@ -911,7 +911,7 @@ test.describe('relay API key auth (express)', () => {
       {
         apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
         smartAccountDeploy: async (request) => {
-          if (request.chain === 'tempo') {
+          if (request.chainTarget.kind === 'tempo') {
             return {
               ok: true,
               deploymentTxHash: '0xdeploy-tempo',
@@ -1428,8 +1428,8 @@ test.describe('relay API key auth (cloudflare)', () => {
         smartAccountDeploy: async (request) => {
           deployCalls.push({
             nearAccountId: request.nearAccountId,
-            chain: request.chain,
-            chainId: request.chainId,
+            chain: request.chainTarget.kind,
+            chainId: request.chainTarget.chainId,
             accountAddress: request.accountAddress,
             accountModel: request.accountModel,
             deploymentManifest: request.deploymentManifest,
@@ -1437,7 +1437,7 @@ test.describe('relay API key auth (cloudflare)', () => {
           });
           return {
             ok: true,
-            deploymentTxHash: `0xdeploy-${request.chain}`,
+            deploymentTxHash: `0xdeploy-${request.chainTarget.kind}`,
           };
         },
       },

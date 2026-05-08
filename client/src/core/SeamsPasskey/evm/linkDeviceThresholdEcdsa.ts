@@ -4,13 +4,13 @@ import type { UnifiedIndexedDBManager } from '../../indexedDB';
 import { buildNearAccountRefs } from '../../accountData/near/accountRefs';
 import { resolveProfileAccountContextFromCandidates } from '../../indexedDB/profileAccountProjection';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../signingEngine/interfaces/signing';
-import type { ThresholdEcdsaSessionBootstrapResult } from '../../signingEngine/orchestration/thresholdActivation';
+import type { ThresholdEcdsaSessionBootstrapResult } from '../../signingEngine/threshold/ecdsa/activation';
 import {
   thresholdEcdsaChainTargetKey,
   toWalletSubjectId,
   type ThresholdEcdsaChainTarget,
-} from '../../signingEngine/session/signingSession/ecdsaChainTarget';
-import type { ThresholdEcdsaSessionStoreSource } from '../../signingEngine/api/thresholdLifecycle/thresholdSessionStore';
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { ThresholdEcdsaSessionStoreSource } from '../../signingEngine/session/identity/laneIdentity';
 import type { AccountId } from '../../types/accountIds';
 import { toAccountId } from '../../types/accountIds';
 

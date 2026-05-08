@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const IMPORT_PATHS = {
-  signingSessionState: '/sdk/esm/core/signingEngine/api/session/signingSessionState.js',
+  signingSessionState: '/sdk/esm/core/signingEngine/session/warmSigning/prfCache.js',
 } as const;
 
 test.describe('signing session PRF cache utilities', () => {

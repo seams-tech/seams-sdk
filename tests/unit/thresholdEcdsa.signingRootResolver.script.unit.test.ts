@@ -65,6 +65,13 @@ const ECDSA_CONTEXT = {
   keyPurpose: 'wallet',
   keyVersion: 'v1',
 };
+const ECDSA_SUBJECT_ID = ECDSA_CONTEXT.nearAccountId;
+const ECDSA_CHAIN_TARGET = {
+  kind: 'evm',
+  namespace: 'eip155',
+  chainId: 11155111,
+  networkSlug: 'sepolia',
+} as const;
 
 function loadCorpus(): ThresholdPrfFixtureCorpus {
   return JSON.parse(readFileSync(FIXTURE_PATH, 'utf8')) as ThresholdPrfFixtureCorpus;
@@ -236,6 +243,7 @@ test('ECDSA HSS prepare uses signing-root resolver when configured and preserves
     if (!parsed.ok) throw new Error(parsed.message);
     const sealedShare = await sealSigningRootSecretShareWireV1({
       signingRootId: SIGNING_ROOT_ID,
+      signingRootVersion: SIGNING_ROOT_VERSION,
       shareId: share.id,
       kekId: KEK_ID,
       plaintextShareWire: parsed.value,
@@ -244,6 +252,7 @@ test('ECDSA HSS prepare uses signing-root resolver when configured and preserves
     parsed.value.fill(0);
     await store.putSealedSigningRootSecretShare({
       signingRootId: SIGNING_ROOT_ID,
+      signingRootVersion: SIGNING_ROOT_VERSION,
       shareId: share.id,
       kekId: KEK_ID,
       sealedShare,
@@ -263,6 +272,8 @@ test('ECDSA HSS prepare uses signing-root resolver when configured and preserves
   const sessionPolicy: ThresholdEcdsaHssPrepareRequest['sessionPolicy'] = {
     version: 'threshold_session_v1',
     userId: ECDSA_CONTEXT.nearAccountId,
+    subjectId: ECDSA_SUBJECT_ID,
+    chainTarget: ECDSA_CHAIN_TARGET,
     rpId: 'example.localhost',
     sessionId: 'ecdsa-session-1',
     runtimePolicyScope: {
@@ -278,7 +289,7 @@ test('ECDSA HSS prepare uses signing-root resolver when configured and preserves
 
   expect(service.hasSigningRootShareResolver()).toBe(true);
   const prepared = await service.ecdsaHss.prepare({
-    userId: ECDSA_CONTEXT.nearAccountId,
+    walletSessionUserId: ECDSA_CONTEXT.nearAccountId,
     rpId: 'example.localhost',
     operation: 'registration_bootstrap',
     keygenSessionId: 'keygen-session-1',
@@ -286,8 +297,8 @@ test('ECDSA HSS prepare uses signing-root resolver when configured and preserves
     webauthn_authentication: {} as ThresholdEcdsaHssPrepareRequest['webauthn_authentication'],
   });
 
-  expect(prepared.ok).toBe(true);
   if (!prepared.ok) throw new Error(prepared.message);
+  expect(prepared.ok).toBe(true);
   expect(prepared.ceremonyId).toBeTruthy();
   expect(prepared.preparedServerSessionB64u).toBeTruthy();
   expect(prepared.serverAssistInitB64u).toBeTruthy();
@@ -307,6 +318,7 @@ test('ECDSA first bootstrap uses signing-root resolver when configured and no se
     if (!parsed.ok) throw new Error(parsed.message);
     const sealedShare = await sealSigningRootSecretShareWireV1({
       signingRootId: SIGNING_ROOT_ID,
+      signingRootVersion: SIGNING_ROOT_VERSION,
       shareId: share.id,
       kekId: KEK_ID,
       plaintextShareWire: parsed.value,
@@ -315,6 +327,7 @@ test('ECDSA first bootstrap uses signing-root resolver when configured and no se
     parsed.value.fill(0);
     await store.putSealedSigningRootSecretShare({
       signingRootId: SIGNING_ROOT_ID,
+      signingRootVersion: SIGNING_ROOT_VERSION,
       shareId: share.id,
       kekId: KEK_ID,
       sealedShare,
@@ -340,6 +353,8 @@ test('ECDSA first bootstrap uses signing-root resolver when configured and no se
     sessionPolicy: {
       version: 'threshold_session_v1',
       userId: ECDSA_CONTEXT.nearAccountId,
+      subjectId: ECDSA_SUBJECT_ID,
+      chainTarget: ECDSA_CHAIN_TARGET,
       rpId: 'example.localhost',
       sessionId: 'ecdsa-bootstrap-session-1',
       runtimePolicyScope: {
@@ -354,8 +369,8 @@ test('ECDSA first bootstrap uses signing-root resolver when configured and no se
     },
   });
 
-  expect(bootstrapped.ok).toBe(true);
   if (!bootstrapped.ok) throw new Error(bootstrapped.message);
+  expect(bootstrapped.ok).toBe(true);
   expect(bootstrapped.ecdsaThresholdKeyId).toBeTruthy();
   expect(bootstrapped.thresholdEcdsaPublicKeyB64u).toBeTruthy();
   expect(bootstrapped.ethereumAddress).toMatch(/^0x[0-9a-f]{40}$/);
@@ -383,6 +398,8 @@ test('ECDSA self-host signing-root resolver supplies fixed project scope when se
   const sessionPolicy: ThresholdEcdsaHssPrepareRequest['sessionPolicy'] = {
     version: 'threshold_session_v1',
     userId: ECDSA_CONTEXT.nearAccountId,
+    subjectId: ECDSA_SUBJECT_ID,
+    chainTarget: ECDSA_CHAIN_TARGET,
     rpId: 'example.localhost',
     sessionId: 'ecdsa-self-host-session-1',
     participantIds: [1, 2],
@@ -391,7 +408,7 @@ test('ECDSA self-host signing-root resolver supplies fixed project scope when se
   };
 
   const prepared = await service.ecdsaHss.prepare({
-    userId: ECDSA_CONTEXT.nearAccountId,
+    walletSessionUserId: ECDSA_CONTEXT.nearAccountId,
     rpId: 'example.localhost',
     operation: 'registration_bootstrap',
     keygenSessionId: 'self-host-keygen-session-1',

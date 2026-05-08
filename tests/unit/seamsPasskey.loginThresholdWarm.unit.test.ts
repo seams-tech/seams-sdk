@@ -5,7 +5,7 @@ import { toAccountId } from '@/core/types/accountIds';
 import {
   clearAllStoredThresholdEd25519SessionRecords,
   upsertStoredThresholdEd25519SessionRecord,
-} from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
+} from '@/core/signingEngine/session/persistence/records';
 
 const ACCOUNT_ID = toAccountId('alice.testnet');
 const ECDSA_THRESHOLD_KEY_ID = 'ehss-login-1';
@@ -64,7 +64,7 @@ function createBaseContext(args?: {
         expiresAtMs: now + 60_000,
         ecdsaHssClientRootShare32B64u: ECDSA_CLIENT_ROOT_SHARE32_B64U,
       }),
-      listConcreteThresholdEcdsaSessionRecordsForSubject: () => [canonicalEcdsaRecord()],
+      listThresholdEcdsaSessionRecordsForSubject: () => [canonicalEcdsaRecord()],
       bootstrapEcdsaSession: async () => ({
         thresholdEcdsaKeyRef: {
           type: 'threshold-ecdsa-secp256k1',
@@ -416,7 +416,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     let capturedConnectArgs: Record<string, unknown> | null = null;
     const context = createBaseContext({
       signingEngine: {
-        listConcreteThresholdEcdsaSessionRecordsForSubject: () => [
+        listThresholdEcdsaSessionRecordsForSubject: () => [
           canonicalEcdsaRecord({
             thresholdSessionId: 'canonical-ecdsa-session-1',
             walletSigningSessionId: 'canonical-wallet-session-1',
@@ -458,7 +458,7 @@ test.describe('unlock threshold warm-session requirements', () => {
           bootstrapCalls += 1;
           throw new Error('should not be called for NEAR-only warm-up');
         },
-        listConcreteThresholdEcdsaSessionRecordsForSubject: () => [],
+        listThresholdEcdsaSessionRecordsForSubject: () => [],
       },
     });
 
@@ -782,7 +782,7 @@ test.describe('unlock threshold warm-session requirements', () => {
 
       const context = createBaseContext({
         signingEngine: {
-          listConcreteThresholdEcdsaSessionRecordsForSubject: () => [
+          listThresholdEcdsaSessionRecordsForSubject: () => [
             canonicalEcdsaRecord({
               thresholdSessionId: 'canonical-ecdsa-session-1',
               walletSigningSessionId: 'canonical-wallet-session-1',

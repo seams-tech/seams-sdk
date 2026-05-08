@@ -973,10 +973,10 @@ export async function runEmailOtpReloadPhase(
       };
       const readRuntimeDiagnostics = async (): Promise<Record<string, unknown>> => {
         const [thresholdStore, sealedStore] = await Promise.all([
-          import('/sdk/esm/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore.js').catch(
+          import('/sdk/esm/core/signingEngine/session/persistence/records.js').catch(
             () => null,
           ),
-          import('/sdk/esm/core/signingEngine/session/sealedSessionStore.js').catch(() => null),
+          import('/sdk/esm/core/signingEngine/session/persistence/sealedSessionStore.js').catch(() => null),
         ]);
         const ed25519Record =
           thresholdStore &&
@@ -1119,9 +1119,9 @@ export async function runEmailOtpReloadPhase(
             }
             const [{ createConfirmTxFlowAdapters }, { nonceLeaseToRef }, readinessRegistry] =
               await Promise.all([
-                import('/sdk/esm/core/signingEngine/touchConfirm/handlers/flows/adapters/adapters.js'),
+                import('/sdk/esm/core/signingEngine/uiConfirm/handlers/flows/adapters/adapters.js'),
                 import('/sdk/esm/core/signingEngine/nonce/NonceCoordinator.js'),
-                import('/sdk/esm/core/signingEngine/touchConfirm/confirmationReadinessRegistry.js').catch(
+                import('/sdk/esm/core/signingEngine/uiConfirm/confirmationReadinessRegistry.js').catch(
                   () => null,
                 ),
               ]);

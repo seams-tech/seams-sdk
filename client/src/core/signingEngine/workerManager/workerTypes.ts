@@ -5,14 +5,14 @@ import {
   WorkerRequestType,
 } from '@/core/types/signer-worker';
 import type { MultichainWorkerKind } from '@/core/walletRuntimePaths/multichainWorkers';
-import type { ThresholdEcdsaSessionBootstrapResult } from '../orchestration/thresholdActivation';
+import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
 import type {
   ThresholdEcdsaChainTarget,
   WalletSubjectId,
-} from '../session/signingSession/ecdsaChainTarget';
-import type { ThresholdRuntimePolicyScope } from '../threshold/session/sessionPolicy';
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import type { WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
-import type { EmailOtpRoutePlan } from '../emailOtp/authLane';
+import type { EmailOtpRoutePlan } from '../stepUpConfirmation/otpPrompt/authLane';
 
 /**
  * Control messages exchanged between worker shims and the main thread.
@@ -91,6 +91,10 @@ export interface EthSignerWorkerOperationMap {
       pubKeyX32: ArrayBuffer;
       pubKeyY32: ArrayBuffer;
     };
+    result: ArrayBuffer;
+  };
+  decodeCoseP256PublicKey: {
+    payload: { cosePublicKey: ArrayBuffer };
     result: ArrayBuffer;
   };
   thresholdEcdsaPresignSessionInit: {

@@ -39,6 +39,25 @@ function buildMinimalContext(input: {
         relayer: {
           url: input.relayUrl,
         },
+        chains: [
+          {
+            network: 'near-testnet',
+            rpcUrl: 'https://rpc.testnet.near.org',
+            explorerUrl: 'https://testnet.nearblocks.io',
+          },
+          {
+            network: 'tempo-testnet',
+            rpcUrl: 'https://tempo.example.test',
+            explorerUrl: 'https://tempo.example.test/explorer',
+            chainId: 42431,
+          },
+          {
+            network: 'ethereum-sepolia',
+            rpcUrl: 'https://sepolia.example.test',
+            explorerUrl: 'https://sepolia.etherscan.io',
+            chainId: 11155111,
+          },
+        ],
       },
       registration: input.managed
         ? {
@@ -160,7 +179,8 @@ test.describe('createAccountAndRegisterWithRelayServer registration bootstrap tr
               expiresAt: '2030-01-01T00:00:00.000Z',
               orgId: 'org_prod',
               projectId: 'proj_prod',
-              environmentId: 'env_prod',
+              envId: 'env_prod',
+              signingRootVersion: 'default',
               origin: 'https://app.example.test',
               mode: 'free',
             },

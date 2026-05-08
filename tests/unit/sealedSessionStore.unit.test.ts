@@ -3,7 +3,7 @@ import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
   indexedDB: '/sdk/esm/core/indexedDB/index.js',
-  sealedSessionStore: '/sdk/esm/core/signingEngine/session/sealedSessionStore.js',
+  sealedSessionStore: '/sdk/esm/core/signingEngine/session/persistence/sealedSessionStore.js',
 } as const;
 
 const ECDSA_RESTORE = {

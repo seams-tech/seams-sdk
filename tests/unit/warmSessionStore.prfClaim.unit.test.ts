@@ -3,7 +3,7 @@ import {
   createWarmSessionTestServices,
   createThresholdEcdsaBootstrapFixture,
   createThresholdEcdsaStoreFixture,
-  createWarmSessionTouchConfirmFixture,
+  createWarmSessionUiConfirmFixture,
   resetWarmSessionFixtureState,
   seedEd25519WarmSessionRecord,
   seedEcdsaWarmSessionRecord,
@@ -40,7 +40,7 @@ test.describe('WarmSessionStore PRF claim handling', () => {
       thresholdSessionAuthToken: 'jwt:unavailable-status-session',
     });
 
-    const { touchConfirm } = createWarmSessionTouchConfirmFixture({
+    const { touchConfirm } = createWarmSessionUiConfirmFixture({
       claimsBySessionId: {
         [warmRecord.thresholdSessionId]: {
           state: 'warm',
@@ -117,7 +117,7 @@ test.describe('WarmSessionStore PRF claim handling', () => {
       }),
     });
 
-    const fixture = createWarmSessionTouchConfirmFixture({
+    const fixture = createWarmSessionUiConfirmFixture({
       claimsBySessionId: {
         [record.thresholdSessionId]: {
           state: 'warm',
@@ -203,7 +203,7 @@ test.describe('WarmSessionStore PRF claim handling', () => {
         }),
       });
 
-      const { touchConfirm } = createWarmSessionTouchConfirmFixture({
+      const { touchConfirm } = createWarmSessionUiConfirmFixture({
         claimsBySessionId: {
           [record.thresholdSessionId]: {
             state: claimState,
@@ -328,7 +328,7 @@ test.describe('WarmSessionStore PRF claim handling', () => {
       }),
     });
 
-    const fixture = createWarmSessionTouchConfirmFixture({
+    const fixture = createWarmSessionUiConfirmFixture({
       claimsBySessionId: {
         [record.thresholdSessionId]: {
           state: 'warm',

@@ -1,4 +1,4 @@
-import type { SigningLaneContext, SigningLaneSummary } from './types';
+import type { SelectedSigningSessionPlanningLane, SigningLaneSummary } from './types';
 import { summarizeSigningLane } from './types';
 import type { SigningPlannerDecisionTraceEvent } from './planner';
 
@@ -20,7 +20,7 @@ export type SigningBoundaryTraceEvent = {
 
 export function emitSigningLaneResolutionTrace(
   scope: SigningSessionTraceScope,
-  lane: SigningLaneContext | null | undefined,
+  lane: SelectedSigningSessionPlanningLane | null | undefined,
   args: { reason?: string } = {},
 ): void {
   if (!lane || !isSigningSessionTraceEnabled()) return;
@@ -47,7 +47,7 @@ export function emitSigningBoundaryTrace(
 
 export function createSigningBoundaryTraceEvent(args: {
   event: SigningBoundaryTraceEvent['event'];
-  lane?: SigningLaneContext | null;
+  lane?: SelectedSigningSessionPlanningLane | null;
   readinessStatus?: string;
   sideEffect?: SigningBoundaryTraceEvent['sideEffect'];
   phase: SigningBoundaryTraceEvent['phase'];

@@ -1,9 +1,19 @@
 import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest, SDK_ESM_PATHS } from '../setup';
 import { buildWalletServiceHtml, registerWalletServiceRoute } from './harness';
+import {
+  thresholdEcdsaChainTargetFromChainFamily,
+  toWalletSubjectId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 const WALLET_ORIGIN = 'https://wallet.example.localhost';
 const WALLET_SERVICE_ROUTE = '**://wallet.example.localhost/wallet-service*';
+const ALICE_SUBJECT_ID = toWalletSubjectId('alice.testnet');
+const ALICE_EVM_CHAIN_TARGET = thresholdEcdsaChainTargetFromChainFamily({
+  chain: 'evm',
+  chainId: 11155111,
+  networkSlug: 'sepolia',
+});
 
 const signingProgressForwardingScript = String.raw`
   const originalAdoptPort = adoptPort;
@@ -116,6 +126,8 @@ test.describe('WalletIframeRouter signing progress forwarding', () => {
         const events: any[] = [];
         const signed = await router.signTempo({
           nearAccountId: 'alice.testnet',
+          subjectId: ALICE_SUBJECT_ID,
+          chainTarget: ALICE_EVM_CHAIN_TARGET,
           request: {
             chain: 'evm',
             kind: 'eip1559',

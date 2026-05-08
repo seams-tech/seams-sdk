@@ -103,9 +103,9 @@ import type {
   SeamsChainConfig,
   SeamsConfigsInput,
 } from '../../types/seams';
-import type { MultichainSigningRequest } from '../../signingEngine/chainAdaptors/tempo/types';
-import type { EvmSignedResult } from '../../signingEngine/chainAdaptors/evm/evmAdapter';
-import type { TempoSignedResult } from '../../signingEngine/chainAdaptors/tempo/tempoAdapter';
+import type { MultichainSigningRequest } from '../../signingEngine/chains/tempo/types';
+import type { EvmSignedResult } from '../../signingEngine/chains/evm/evmAdapter';
+import type { TempoSignedResult } from '../../signingEngine/chains/tempo/tempoAdapter';
 import type { NonceLeaseRef } from '../../signingEngine/nonce/NonceCoordinator';
 import type {
   ThresholdEcdsaLoginPrefillResult,
@@ -114,11 +114,11 @@ import type {
 import type {
   ThresholdEcdsaChainTarget,
   WalletSubjectId,
-} from '../../signingEngine/session/signingSession/ecdsaChainTarget';
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   ThresholdEd25519HssFinalizedReportEnvelope,
   ThresholdEd25519HssPreparedSessionEnvelope,
-} from '../../signingEngine/signers/wasm/hssClientSignerWasm';
+} from '../../signingEngine/threshold/crypto/hssClientSignerWasm';
 import type {
   LinkDeviceResult,
   StartDevice2LinkingFlowArgs,

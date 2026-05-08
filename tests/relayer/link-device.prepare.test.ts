@@ -76,6 +76,12 @@ function makePreparedLinkDeviceService() {
           chainIdKey: 'evm:11155111',
           chain: 'evm' as const,
           chainId: 11155111,
+          chainTarget: {
+            kind: 'evm' as const,
+            namespace: 'eip155' as const,
+            chainId: 11155111,
+            networkSlug: 'sepolia',
+          },
           accountAddress: `0x${'22'.repeat(20)}`,
           accountModel: 'erc4337' as const,
           factory: `0x${'33'.repeat(20)}`,

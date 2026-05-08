@@ -5,14 +5,21 @@ import {
   readThresholdSigningSessionReadiness,
   THRESHOLD_SESSION_EXHAUSTED_ERROR,
   THRESHOLD_SESSION_MISSING_ERROR,
-} from '@/core/signingEngine/orchestration/shared/thresholdSigningSessionReadiness';
-import { isThresholdSessionAuthUnavailableError } from '@/core/signingEngine/threshold/session/sessionPolicy';
+} from '@/core/signingEngine/session/warmSigning/thresholdSigningSessionReadiness';
+import { isThresholdSessionAuthUnavailableError } from '@/core/signingEngine/threshold/sessionPolicy';
+
+const EVM_CHAIN_TARGET = {
+  kind: 'evm',
+  namespace: 'eip155',
+  chainId: 1,
+  networkSlug: 'evm-1',
+} as const;
 
 test.describe('threshold signing session readiness', () => {
   test('asserts ready when warm session cache is available', async () => {
     const ready = await assertThresholdSigningSessionReady({
       nearAccountId: 'planner.testnet',
-      chain: 'evm',
+      chainTarget: EVM_CHAIN_TARGET,
       sessionId: 'session-1',
       usesNeeded: 2,
       signingSessionCoordinator: {
@@ -32,7 +39,7 @@ test.describe('threshold signing session readiness', () => {
     await expect(
       assertThresholdSigningSessionReady({
         nearAccountId: 'planner.testnet',
-        chain: 'evm',
+        chainTarget: EVM_CHAIN_TARGET,
         sessionId: '',
         signingSessionCoordinator: {
           assertEcdsaSigningSessionReady: async () => {
@@ -47,7 +54,7 @@ test.describe('threshold signing session readiness', () => {
     await expect(
       assertThresholdSigningSessionReady({
         nearAccountId: 'planner.testnet',
-        chain: 'evm',
+        chainTarget: EVM_CHAIN_TARGET,
         sessionId: 'session-1',
         usesNeeded: 3,
         signingSessionCoordinator: {
@@ -90,7 +97,7 @@ test.describe('threshold signing session readiness', () => {
     await expect(
       assertThresholdSigningSessionReady({
         nearAccountId: 'planner.testnet',
-        chain: 'evm',
+        chainTarget: EVM_CHAIN_TARGET,
         sessionId: 'session-1',
         signingSessionCoordinator: {
           assertEcdsaSigningSessionReady: async () => {

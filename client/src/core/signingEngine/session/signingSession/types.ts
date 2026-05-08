@@ -3,8 +3,8 @@ import type { SigningSessionRetention, WalletAuthMethod } from '@/core/types/sea
 import type {
   ThresholdEcdsaSessionStoreSource,
   ThresholdEd25519SessionStoreSource,
-} from '../../api/thresholdLifecycle/thresholdSessionStore';
-import type { ThresholdEcdsaChainTarget, WalletSubjectId } from './ecdsaChainTarget';
+} from '../identity/laneIdentity';
+import type { ThresholdEcdsaChainTarget, WalletSubjectId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export type Brand<TValue, TBrand extends string> = TValue & { readonly __brand: TBrand };
 
@@ -38,7 +38,7 @@ export const SigningOperationIntent = {
 export type SigningOperationIntent =
   (typeof SigningOperationIntent)[keyof typeof SigningOperationIntent];
 
-type BaseSigningLaneContext = {
+type BaseSigningSessionPlanningLane = {
   accountId: AccountId;
   authMethod: SigningAuthMethod;
   curve: SigningCurve;
@@ -53,7 +53,7 @@ type BaseSigningLaneContext = {
   activeSignerSlot?: number;
 };
 
-export type Ed25519SigningLaneContext = BaseSigningLaneContext & {
+export type Ed25519SigningSessionPlanningLane = BaseSigningSessionPlanningLane & {
   curve: 'ed25519';
   keyKind: 'threshold_ed25519';
   chainFamily: 'near';
@@ -65,7 +65,7 @@ export type Ed25519SigningLaneContext = BaseSigningLaneContext & {
   thresholdSessionId?: ThresholdEd25519SessionId;
 };
 
-export type EcdsaSigningLaneContext = BaseSigningLaneContext & {
+export type EcdsaSigningSessionPlanningLane = BaseSigningSessionPlanningLane & {
   curve: 'ecdsa';
   keyKind: 'threshold_ecdsa_secp256k1';
   chainFamily: ThresholdEcdsaChainTarget['kind'];
@@ -77,16 +77,9 @@ export type EcdsaSigningLaneContext = BaseSigningLaneContext & {
   thresholdSessionId: ThresholdEcdsaSessionId;
 };
 
-export type SigningLaneContext = Ed25519SigningLaneContext | EcdsaSigningLaneContext;
-
-export type SigningSessionRequestIdentity = {
-  accountId: AccountId;
-  authMethod: SigningAuthMethod;
-  curve: SigningCurve;
-  chainFamily: SigningChainFamily;
-  walletSigningSessionId?: WalletSigningSessionId;
-  thresholdSessionId?: ThresholdSessionId;
-};
+export type SigningSessionPlanningLane =
+  | Ed25519SigningSessionPlanningLane
+  | EcdsaSigningSessionPlanningLane;
 
 export type SelectedSigningLaneIdentity = {
   accountId: AccountId;
@@ -97,7 +90,8 @@ export type SelectedSigningLaneIdentity = {
   thresholdSessionId: ThresholdSessionId;
 };
 
-export type SelectedSigningLaneContext = SigningLaneContext & SelectedSigningLaneIdentity;
+export type SelectedSigningSessionPlanningLane =
+  SigningSessionPlanningLane & SelectedSigningLaneIdentity;
 
 export type ResolvedSigningSessionIdentity = SelectedSigningLaneIdentity & {
   keyKind: SigningKeyKind;
@@ -134,24 +128,6 @@ export type SigningOperationContext = {
   operationFingerprint?: SigningOperationFingerprint;
 };
 
-export type SigningLaneResolutionBlockedReason =
-  | 'missing_lane'
-  | 'auth_unavailable'
-  | 'policy_blocked';
-
-export type SigningLaneResolutionResult =
-  | {
-      kind: 'resolved';
-      lane: SigningLaneContext;
-    }
-  | {
-      kind: 'blocked';
-      reason: SigningLaneResolutionBlockedReason;
-      accountId?: AccountId;
-      authMethod?: SigningAuthMethod;
-      chainFamily?: SigningChainFamily;
-    };
-
 export const SigningKeyRefIntentKind = {
   Cached: 'cached',
   Reauth: 'reauth',
@@ -175,7 +151,7 @@ export type WalletSigningSpendPlan = {
   operationFingerprint?: SigningOperationFingerprint;
   nearAccountId: AccountId;
   walletSigningSessionId: WalletSigningSessionId;
-  lane: SigningLaneContext;
+  lane: SelectedSigningSessionPlanningLane;
   thresholdSessionIds: ThresholdSessionId[];
   backingMaterialSessionIds: BackingMaterialSessionId[];
   uses: 1;
@@ -185,12 +161,12 @@ export type WalletSigningSpendPlan = {
 export type EmailOtpChallengePlan = {
   challengeId?: EmailOtpChallengeId;
   chainFamily: SigningChainFamily;
-  lane: SigningLaneContext;
+  lane: SelectedSigningSessionPlanningLane;
 };
 
 export type PasskeyReconnectPlan = {
-  lane: SigningLaneContext;
-  thresholdSessionId?: ThresholdSessionId;
+  lane: SelectedSigningSessionPlanningLane;
+  thresholdSessionId: ThresholdSessionId;
 };
 
 export type SigningSessionNotReadyReason =
@@ -215,27 +191,27 @@ export type SigningSessionPlanKind =
 export type SigningSessionPlan =
   | {
       kind: typeof SigningSessionPlanKind.WarmSession;
-      lane: SigningLaneContext;
+      lane: SelectedSigningSessionPlanningLane;
       keyRef: SigningKeyRefIntent;
     }
   | {
       kind: typeof SigningSessionPlanKind.EmailOtpReauth;
-      lane: SigningLaneContext;
+      lane: SelectedSigningSessionPlanningLane;
       challenge: EmailOtpChallengePlan;
     }
   | {
       kind: typeof SigningSessionPlanKind.PasskeyReauth;
-      lane: SigningLaneContext;
+      lane: SelectedSigningSessionPlanningLane;
       reconnect: PasskeyReconnectPlan;
     }
   | {
       kind: typeof SigningSessionPlanKind.NotReady;
-      lane: SigningLaneContext;
+      lane: SelectedSigningSessionPlanningLane;
       reason: SigningSessionNotReadyReason;
     };
 
 export type SigningLaneSummary = Pick<
-  SigningLaneContext,
+  SigningSessionPlanningLane,
   | 'accountId'
   | 'authMethod'
   | 'curve'
@@ -286,7 +262,7 @@ export const SigningSessionIds = {
   },
 } as const;
 
-export function summarizeSigningLane(lane: SigningLaneContext): SigningLaneSummary {
+export function summarizeSigningLane(lane: SigningSessionPlanningLane): SigningLaneSummary {
   return {
     accountId: lane.accountId,
     authMethod: lane.authMethod,
@@ -304,10 +280,10 @@ function normalizeLaneIdentityField(value: unknown): string {
 }
 
 export function findSigningLaneIdentityMismatch(
-  a: SigningLaneContext,
-  b: SigningLaneContext,
+  a: SigningSessionPlanningLane,
+  b: SigningSessionPlanningLane,
 ): string | null {
-  const fields: Array<keyof SigningLaneContext> = [
+  const fields: Array<keyof SigningSessionPlanningLane> = [
     'accountId',
     'authMethod',
     'curve',
@@ -332,8 +308,8 @@ export function findSigningLaneIdentityMismatch(
 }
 
 export function assertSameSigningLaneIdentity(args: {
-  expected: SigningLaneContext;
-  actual: SigningLaneContext;
+  expected: SigningSessionPlanningLane;
+  actual: SigningSessionPlanningLane;
   context: string;
 }): void {
   const mismatch = findSigningLaneIdentityMismatch(args.expected, args.actual);

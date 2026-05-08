@@ -1,0 +1,107 @@
+import { IndexedDBManager } from '@/core/indexedDB';
+import type { EvmFamilySigningDeps } from '../../interfaces/operationDeps';
+import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
+import { createWarmSessionCapabilityReader } from '../../session/warmSigning/capabilityReader';
+import type { WarmSessionStatusResult } from '../../uiConfirm/types';
+import type { CreateSigningEnginePortsArgs } from './shared';
+
+export function createEvmFamilySigningDeps(args: {
+  createArgs: CreateSigningEnginePortsArgs;
+  signingSessionCoordinator: SigningSessionCoordinator;
+  getEmailOtpWarmSessionStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
+}): EvmFamilySigningDeps {
+  const { createArgs, signingSessionCoordinator, getEmailOtpWarmSessionStatus } = args;
+  return {
+    indexedDB: IndexedDBManager,
+    seamsPasskeyConfigs: createArgs.seamsPasskeyConfigs,
+    nonceCoordinator: createArgs.nonceCoordinator,
+    ensureSealedRefreshStartupParity: createArgs.ensureSealedRefreshStartupParity,
+    getSignerWorkerContext: () => createArgs.signerWorkerManager.getContext(),
+    getEmailOtpThresholdEcdsaKeyRefForSigning: ({ subjectId, chainTarget }) =>
+      createArgs.getEmailOtpThresholdEcdsaKeyRefForSigning({
+        subjectId,
+        chainTarget,
+      }),
+    getEmailOtpThresholdEcdsaSessionRecordForSigning: ({ subjectId, chainTarget }) =>
+      createArgs.getEmailOtpThresholdEcdsaSessionRecordForSigning({
+        subjectId,
+        chainTarget,
+      }),
+    getPasskeyThresholdEcdsaKeyRefForSigning: ({ subjectId, chainTarget, source }) =>
+      createArgs.getPasskeyThresholdEcdsaKeyRefForSigning({
+        subjectId,
+        chainTarget,
+        source,
+      }),
+    getPasskeyThresholdEcdsaSessionRecordForSigning: ({ subjectId, chainTarget, source }) =>
+      createArgs.getPasskeyThresholdEcdsaSessionRecordForSigning({
+        subjectId,
+        chainTarget,
+        source,
+      }),
+    listThresholdEcdsaSessionRecordsForSigning: ({ subjectId, chainTarget, source }) =>
+      createArgs.listThresholdEcdsaSessionRecordsForTarget({
+        subjectId,
+        chainTarget,
+        ...(source ? { source } : {}),
+      }),
+    listThresholdEcdsaKeyRefsForSigning: ({ subjectId, chainTarget, source }) =>
+      createArgs.listThresholdEcdsaKeyRefsForTarget({
+        subjectId,
+        chainTarget,
+        ...(source ? { source } : {}),
+      }),
+    getThresholdEcdsaSessionRecordByKey: (identity) =>
+      createArgs.getThresholdEcdsaSessionRecordByKey(identity),
+    getThresholdEcdsaKeyRefByKey: (identity) => createArgs.getThresholdEcdsaKeyRefByKey(identity),
+    requestEmailOtpTransactionSigningChallenge: ({ nearAccountId, chain, authLane }) =>
+      createArgs.requestEmailOtpTransactionSigningChallenge?.({
+        nearAccountId,
+        chain,
+        ...(authLane ? { authLane } : {}),
+      }) || Promise.reject(new Error('Email OTP signing challenge is not configured')),
+    resolveEmailOtpSigningSessionAuthLane: ({ thresholdSessionId, curve }) =>
+      createWarmSessionCapabilityReader({
+        touchConfirm: createArgs.touchConfirm,
+      }).resolveEmailOtpSigningSessionAuthLane({ thresholdSessionId, curve }),
+    loginWithEmailOtpEcdsaCapabilityForSigning: ({
+      nearAccountId,
+      subjectId,
+      chainTarget,
+      challengeId,
+      otpCode,
+      record,
+      authLane,
+    }) =>
+      createArgs.loginWithEmailOtpEcdsaCapabilityForSigning?.({
+        nearAccountId,
+        subjectId,
+        chainTarget,
+        challengeId,
+        otpCode,
+        record,
+        ...(authLane ? { authLane } : {}),
+      }) || Promise.reject(new Error('Email OTP signing bootstrap is not configured')),
+    restorePersistedSessionForSigning: (restoreArgs) =>
+      createArgs.restorePersistedSessionForSigning(restoreArgs),
+    readAvailableSigningLanesForSigning: (snapshotArgs) =>
+      createArgs.readAvailableSigningLanesForSigning(snapshotArgs),
+    markThresholdEcdsaEmailOtpSessionConsumedForAccount: ({
+      nearAccountId,
+      chainTarget,
+      uses,
+    }) =>
+      createArgs.markThresholdEcdsaEmailOtpSessionConsumedForAccount?.({
+        nearAccountId,
+        chainTarget,
+        uses,
+      }),
+    signingSessionCoordinator,
+    getEmailOtpWarmSessionStatus,
+    provisionThresholdEcdsaSession: (provisionArgs) =>
+      createArgs.provisionThresholdEcdsaSession(provisionArgs),
+    withThresholdEcdsaCommitQueue: (queueArgs) =>
+      createArgs.withThresholdEcdsaCommitQueue(queueArgs),
+    touchConfirm: createArgs.touchConfirm,
+  };
+}

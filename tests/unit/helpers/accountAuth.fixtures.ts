@@ -1,4 +1,4 @@
-import type { AccountAuthMetadata } from '@/core/signingEngine/auth';
+import type { AccountAuthMetadata } from '@/core/signingEngine/walletAuth';
 import type { WalletAuthMethod } from '@/core/types/seams';
 import type { SignerAuthMethod, SignerKind, SignerSource } from '@shared/utils/signerDomain';
 

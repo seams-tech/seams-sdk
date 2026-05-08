@@ -1,18 +1,19 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import { decodeJwtPayloadRecord } from '@shared/utils/sessionTokens';
-import type {
-  ThresholdEcdsaSessionRecord,
-  ThresholdEcdsaSessionStoreSource,
-} from '../../api/thresholdLifecycle/thresholdSessionStore';
+import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
+import type { ThresholdEcdsaSessionStoreSource } from '../identity/laneIdentity';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
-import type { ThresholdEcdsaSessionBootstrapResult } from '../../orchestration/thresholdActivation';
-import { formatEmailOtpSensitiveOperationError } from '../signingSession/postSignPolicy';
+import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
+import {
+  ecdsaPostSignPolicySessionFromRecord,
+  formatEmailOtpSensitiveOperationError,
+} from '../signingSession/postSignPolicy';
 import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
   type WalletSubjectId,
-} from '../signingSession/ecdsaChainTarget';
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   emitWarmSessionTransition,
   summarizeWarmSessionTransition,
@@ -20,10 +21,7 @@ import {
 } from './transitions';
 import { resolveWarmEcdsaBootstrapRequestFromSession } from './ecdsaBootstrapRequest';
 import { hasSufficientWarmClaim } from './readModel';
-import type {
-  WarmSessionEcdsaCapabilityState,
-  WarmSessionEnvelope,
-} from './types';
+import type { WarmSessionEcdsaCapabilityState, WarmSessionEnvelope } from './types';
 import type {
   ClaimWarmSessionPrfArgs,
   EnsureWarmEcdsaCapabilityReadyArgs,
@@ -210,9 +208,10 @@ function selectReconnectThresholdSessionAuthToken(args: {
     }),
   ].filter(Boolean) as ReconnectThresholdSessionAuthTokenIdentityMatch[];
 
-  const matched = thresholdSessionId && walletSigningSessionId
-    ? candidates.find((candidate) => candidate.kind === 'matched')
-    : null;
+  const matched =
+    thresholdSessionId && walletSigningSessionId
+      ? candidates.find((candidate) => candidate.kind === 'matched')
+      : null;
   if (matched?.kind === 'matched') {
     return { authToken: matched.authToken, source: matched.source, mismatches: [] };
   }
@@ -411,11 +410,10 @@ export async function provisionWarmEcdsaCapability(
   await args.beforeProvision?.();
   args.assertNotCancelled?.();
 
-  const provisioned =
-    await deps.provisionThresholdEcdsaSession({
-      ...args,
-      ...resolvedBootstrapRequest,
-    });
+  const provisioned = await deps.provisionThresholdEcdsaSession({
+    ...args,
+    ...resolvedBootstrapRequest,
+  });
 
   if (!provisioned) {
     throw new Error(
@@ -493,8 +491,7 @@ function keyRefMatchesRequestedReconnectIdentity(args: {
   }
   if (
     requestedWalletSigningSessionId &&
-    requestedWalletSigningSessionId !==
-      String(args.keyRef.walletSigningSessionId || '').trim()
+    requestedWalletSigningSessionId !== String(args.keyRef.walletSigningSessionId || '').trim()
   ) {
     return false;
   }
@@ -631,9 +628,15 @@ export async function ensureWarmEcdsaCapabilityReady(
         chainTarget,
       }).secondary.record;
   const secondaryEmailOtpRecord = secondaryRecord?.source === 'email_otp' ? secondaryRecord : null;
+  const reconnectPolicySession = reconnectRecord
+    ? ecdsaPostSignPolicySessionFromRecord(reconnectRecord)
+    : null;
+  const secondaryEmailOtpPolicySession = secondaryEmailOtpRecord
+    ? ecdsaPostSignPolicySessionFromRecord(secondaryEmailOtpRecord)
+    : null;
   if (
-    reconnectRecord?.source === 'email_otp' &&
-    reconnectRecord.emailOtpAuthContext?.retention === 'single_use'
+    reconnectPolicySession?.source === 'email_otp' &&
+    reconnectPolicySession.emailOtpRetention === 'single_use'
   ) {
     throw formatEmailOtpSensitiveOperationError({
       operationLabel: `${chain} signing`,
@@ -642,8 +645,8 @@ export async function ensureWarmEcdsaCapabilityReady(
   }
   if (
     !reconnectRecord &&
-    secondaryEmailOtpRecord?.emailOtpAuthContext?.retention === 'single_use' &&
-    Number(secondaryEmailOtpRecord.emailOtpAuthContext.consumedAtMs) > 0
+    secondaryEmailOtpPolicySession?.emailOtpRetention === 'single_use' &&
+    Number(secondaryEmailOtpPolicySession.emailOtpConsumedAtMs) > 0
   ) {
     throw formatEmailOtpSensitiveOperationError({
       operationLabel: `${chain} signing`,
@@ -663,10 +666,7 @@ export async function ensureWarmEcdsaCapabilityReady(
   let reconnectPromise = deps.reconnectInFlightByCapability.get(inflightKey);
   if (!reconnectPromise) {
     reconnectPromise = (async (): Promise<EnsureWarmEcdsaCapabilityReadyResult> => {
-      const reconnectUses = Math.max(
-        1,
-        Math.floor(Number(args.sessionBudgetUses) || 1),
-      );
+      const reconnectUses = Math.max(1, Math.floor(Number(args.sessionBudgetUses) || 1));
       const reconnectThresholdKeyId = toOptionalNonEmptyString(
         keyRef?.ecdsaThresholdKeyId || reconnectRecord?.ecdsaThresholdKeyId,
       );
@@ -756,7 +756,9 @@ export async function ensureWarmEcdsaCapabilityReady(
           : {}),
         ...(reconnectThresholdKeyId ? { ecdsaThresholdKeyId: reconnectThresholdKeyId } : {}),
         ...(reconnectParticipantIds ? { participantIds: reconnectParticipantIds } : {}),
-        ...(toOptionalNonEmptyString(keyRef?.thresholdSessionKind || reconnectRecord?.thresholdSessionKind)
+        ...(toOptionalNonEmptyString(
+          keyRef?.thresholdSessionKind || reconnectRecord?.thresholdSessionKind,
+        )
           ? {
               sessionKind: toOptionalNonEmptyString(
                 keyRef?.thresholdSessionKind || reconnectRecord?.thresholdSessionKind,
@@ -765,18 +767,22 @@ export async function ensureWarmEcdsaCapabilityReady(
           : {}),
         ...(reconnectThresholdSessionAuthToken
           ? {
-            thresholdSessionAuth: {
-              kind: 'threshold_session',
-              jwt: reconnectThresholdSessionAuthToken,
-            },
+              thresholdSessionAuth: {
+                kind: 'threshold_session',
+                jwt: reconnectThresholdSessionAuthToken,
+              },
             }
           : {}),
-        ...(args.clientRootShare32B64u ? { clientRootShare32B64u: args.clientRootShare32B64u } : {}),
+        ...(args.clientRootShare32B64u
+          ? { clientRootShare32B64u: args.clientRootShare32B64u }
+          : {}),
         ...(args.webauthnAuthentication
           ? { webauthnAuthentication: args.webauthnAuthentication }
           : {}),
         ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
-        ...(args.runtimeScopeBootstrap ? { runtimeScopeBootstrap: args.runtimeScopeBootstrap } : {}),
+        ...(args.runtimeScopeBootstrap
+          ? { runtimeScopeBootstrap: args.runtimeScopeBootstrap }
+          : {}),
         ...(args.operationIntent ? { operationIntent: args.operationIntent } : {}),
         ...(inheritedEmailOtpRecord?.emailOtpAuthContext
           ? { emailOtpAuthContext: inheritedEmailOtpRecord.emailOtpAuthContext }
@@ -870,7 +876,10 @@ export function getMatchingReadyEcdsaCapability(args: {
 
   const recordThresholdKeyId = String(capability.record?.ecdsaThresholdKeyId || '').trim();
   const keyRefThresholdKeyId = String(args.keyRef.ecdsaThresholdKeyId || '').trim();
-  if (!recordThresholdKeyId || (keyRefThresholdKeyId && recordThresholdKeyId !== keyRefThresholdKeyId)) {
+  if (
+    !recordThresholdKeyId ||
+    (keyRefThresholdKeyId && recordThresholdKeyId !== keyRefThresholdKeyId)
+  ) {
     return null;
   }
 
@@ -978,8 +987,8 @@ export function buildReusableEcdsaBootstrapResult(args: {
       ...(String(auth.thresholdSessionAuthToken || '').trim()
         ? { jwt: String(auth.thresholdSessionAuthToken || '').trim() }
         : {}),
-      expiresAtMs: prfClaim.expiresAtMs,
-      remainingUses: prfClaim.remainingUses,
+      expiresAtMs: Math.max(0, Math.floor(Number(prfClaim.expiresAtMs) || 0)),
+      remainingUses: Math.max(0, Math.floor(Number(prfClaim.remainingUses) || 0)),
       clientVerifyingShareB64u,
     },
   };

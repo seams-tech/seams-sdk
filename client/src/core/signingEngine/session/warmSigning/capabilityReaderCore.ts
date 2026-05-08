@@ -1,6 +1,6 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
-import type { EmailOtpAuthLane } from '../../emailOtp/authLane';
-import type { ThresholdSessionSealTransportAuthMaterial } from '../../api/thresholdLifecycle/thresholdSessionStore';
+import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
+import type { ThresholdSessionSealTransportAuthMaterial } from '../persistence/records';
 import {
   readWarmSessionCapabilityRecordsForAccount,
   readWarmSessionEcdsaRecordByThresholdSessionIdForTarget,
@@ -17,7 +17,7 @@ import {
   type WarmSessionReadPorts,
 } from './readModel';
 import { assertWarmSessionEnvelopeInvariant } from './types';
-import type { ThresholdEcdsaChainTarget } from '../signingSession/ecdsaChainTarget';
+import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   WarmSessionEcdsaAuthMaterial,
   WarmSessionEcdsaCapabilityState,
@@ -25,12 +25,12 @@ import type {
   WarmSessionEd25519CapabilityState,
   WarmSessionEnvelope,
 } from './types';
-import type { WarmSessionStatusReader } from './statusReader';
+import type { WarmSigningStatusReader } from './statusReader';
 
 export type WarmSessionCapabilityReaderCoreDeps = {
   touchConfirm?: WarmSessionReadPorts;
   statusReader: Pick<
-    WarmSessionStatusReader,
+    WarmSigningStatusReader,
     'readWalletScopedClaimsForRecords' | 'readEcdsaWarmSessionClaimForRecord'
   >;
   signingSessionSeal?: {

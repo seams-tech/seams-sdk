@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  deployment: '/sdk/esm/core/signingEngine/orchestration/smartAccountDeployment.js',
+  deployment: '/sdk/esm/core/signingEngine/flows/signEvmFamily/smartAccountDeployment.js',
 } as const;
 
 test.describe('smart-account deployment request assembly', () => {
@@ -101,11 +101,15 @@ test.describe('smart-account deployment request assembly', () => {
           } as any,
           {
             nearAccountId: 'alice.testnet' as any,
-            chain: 'evm',
-            chainId: 11155111,
+            chainTarget: {
+              kind: 'evm',
+              namespace: 'eip155',
+              chainId: 11155111,
+              networkSlug: 'sepolia',
+            },
             account: {
               profileId: 'profile-1',
-              chainIdKey: 'evm:11155111',
+              chainIdKey: 'evm:eip155:11155111',
               accountAddress: '0xabc111',
               accountModel: 'erc4337',
               isPrimary: true,
@@ -137,24 +141,20 @@ test.describe('smart-account deployment request assembly', () => {
       }),
     );
     expect(result.calls[1]?.url).toBe('https://relay.example.test/deploy-smart-account');
-    expect(result.calls[1]?.body).toEqual(
-      expect.objectContaining({
-        nearAccountId: 'alice.testnet',
-        chain: 'evm',
-        chainId: 11155111,
-        accountAddress: '0xabc111',
-        accountModel: 'erc4337',
-        deploymentManifest: expect.objectContaining({
-          counterfactualAddress: '0xabc111',
-          ownerAddresses: [`0x${'11'.repeat(20)}`],
-        }),
-        evmDeploymentPlan: expect.objectContaining({
-          predictedAddress: '0xabc111',
-          createAccountCalldata: '0xf8a59370deadbeef',
-        }),
-      }),
-    );
     const requestBody = result.calls[1]?.body as any;
+    expect(requestBody.nearAccountId).toBe('alice.testnet');
+    expect(requestBody.chainTarget).toEqual({
+      kind: 'evm',
+      namespace: 'eip155',
+      chainId: 11155111,
+      networkSlug: 'sepolia',
+    });
+    expect(requestBody.accountAddress).toBe('0xabc111');
+    expect(requestBody.accountModel).toBe('erc4337');
+    expect(requestBody.deploymentManifest.counterfactualAddress).toBe('0xabc111');
+    expect(requestBody.deploymentManifest.ownerAddresses).toEqual([`0x${'11'.repeat(20)}`]);
+    expect(requestBody.evmDeploymentPlan.predictedAddress).toBe('0xabc111');
+    expect(requestBody.evmDeploymentPlan.createAccountCalldata).toBe('0xf8a59370deadbeef');
     expect(requestBody?.factory).toBeUndefined();
     expect(requestBody?.entryPoint).toBeUndefined();
     expect(requestBody?.salt).toBeUndefined();

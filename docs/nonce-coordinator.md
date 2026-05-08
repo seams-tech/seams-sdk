@@ -1045,12 +1045,12 @@ nonce/session interaction.
 The split must also stay compatible with the signing-session restore refactor.
 Nonce code may consume pure prepared operation identity types such as
 `SigningOperationContext`, `SigningOperationId`, and operation fingerprints, but
-it must not restore signing sessions, resolve signing lanes, read signing
-snapshots, or spend wallet-session budget. Once the signing-session plan's
+it must not restore signing sessions, resolve signing lanes, read available
+signing lanes, or spend wallet-session budget. Once the signing-session plan's
 `prepareSigning(...)` boundary lands, transaction flows reserve nonce leases
 only after `prepareSigning(...)` has produced the prepared operation identity.
 Nonce reservation must use that prepared identity and must not trigger lane
-resolution, snapshot reads, sealed-session restore, or wallet-budget mutation.
+resolution, available-lane reads, sealed-session restore, or wallet-budget mutation.
 
 Public imports remain through one nonce boundary. Keep `NonceCoordinator.ts` as
 the public facade, or introduce a single `nonce/index.ts` facade, but do not make
@@ -1112,15 +1112,15 @@ are internal unless explicitly re-exported by that facade.
      `nonceLeaseState.ts`, and durable lease stores. Transaction code may use
      only the nonce facade.
    - Guards should reject nonce helper imports of signing-session restore,
-     snapshot-reader, sealed-session store, lane-resolution, or wallet-budget
+     available-signing-lanes, sealed-session store, lane-resolution, or wallet-budget
      mutation modules. The nonce package may import pure operation identity
      types only.
    - Guards should explicitly fail if nonce internals import
-     `session/restoreCoordinator`, `session/snapshotReader`,
+     `session/restoreCoordinator`, `session/availableSigningLanes`,
      `session/signingSession/budget`, sealed-session store mutation APIs, or
      signing-session lane resolution helpers.
    - Guards should reject nonce reservation paths that perform signing-session
-     restore, snapshot reads, lane resolution, or budget spending instead of
+     restore, available-lane reads, lane resolution, or budget spending instead of
      using an already prepared operation identity.
    - Guards should allow `NonceCoordinator.ts` to compose the helper modules.
    - Remove temporary guard exceptions once the split is complete.
@@ -1211,7 +1211,7 @@ boundaries, where they are normalized before nonce code runs.
 8. Old nonce-manager ownership paths are removed instead of kept as parallel
    legacy systems.
 9. Nonce reservation cannot happen before a prepared operation identity exists,
-   and nonce code cannot trigger signing-session restore, snapshot reads,
+   and nonce code cannot trigger signing-session restore, available-lane reads,
    signing-lane selection, or wallet-budget mutation.
 10. Every nonce lifecycle transition verifies both `operationId` and
     `operationFingerprint`.

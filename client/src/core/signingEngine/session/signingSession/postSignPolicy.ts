@@ -3,45 +3,84 @@ import {
   SENSITIVE_OPERATION_POLICIES,
   type SensitiveOperationPolicy,
 } from '@shared/utils/signerDomain';
-import type {
-  ThresholdEcdsaSessionRecord,
-  ThresholdEcdsaSessionStoreSource,
-} from '../../api/thresholdLifecycle/thresholdSessionStore';
-import { WalletAuthPolicyError } from '../../auth';
-import type { ThresholdEcdsaChainTarget } from './ecdsaChainTarget';
+import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
+import type { ThresholdEcdsaSessionStoreSource } from '../identity/laneIdentity';
+import { WalletAuthPolicyError } from '../../walletAuth';
+import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export type EcdsaPostSignPolicyMaterialClearer = (args: {
   record: ThresholdEcdsaSessionRecord;
   thresholdSessionId?: string;
 }) => Promise<void>;
 
-export async function applyEcdsaPostSignPolicy(args: {
+export type EcdsaPostSignPolicySession = {
   nearAccountId: AccountId;
   chainTarget: ThresholdEcdsaChainTarget;
-  thresholdSessionId?: string;
-  source?: ThresholdEcdsaSessionStoreSource;
-  selectedRecord?: ThresholdEcdsaSessionRecord | null;
-  secondaryRecord?: ThresholdEcdsaSessionRecord | null;
+  source: ThresholdEcdsaSessionStoreSource;
+  thresholdSessionId: string;
+  emailOtpRetention: 'session' | 'single_use' | null;
+  emailOtpConsumedAtMs: number | null;
+};
+
+export type EcdsaPostSignPolicyMaterial = {
+  session: EcdsaPostSignPolicySession;
+  clearEphemeralMaterial: () => Promise<void>;
+};
+
+export function ecdsaPostSignPolicySessionFromRecord(
+  record: ThresholdEcdsaSessionRecord,
+): EcdsaPostSignPolicySession {
+  const consumedAtMs = Math.floor(Number(record.emailOtpAuthContext?.consumedAtMs));
+  return {
+    nearAccountId: record.nearAccountId,
+    chainTarget: record.chainTarget,
+    source: record.source,
+    thresholdSessionId: String(record.thresholdSessionId || '').trim(),
+    emailOtpRetention: record.emailOtpAuthContext?.retention || null,
+    emailOtpConsumedAtMs: Number.isFinite(consumedAtMs) && consumedAtMs > 0 ? consumedAtMs : null,
+  };
+}
+
+export function ecdsaPostSignPolicyMaterialFromRecord(args: {
+  record: ThresholdEcdsaSessionRecord;
+  clearEcdsaEphemeralMaterial: EcdsaPostSignPolicyMaterialClearer;
+}): EcdsaPostSignPolicyMaterial {
+  const session = ecdsaPostSignPolicySessionFromRecord(args.record);
+  return {
+    session,
+    clearEphemeralMaterial: async () => {
+      await args.clearEcdsaEphemeralMaterial({
+        record: args.record,
+        ...(session.thresholdSessionId ? { thresholdSessionId: session.thresholdSessionId } : {}),
+      });
+    },
+  };
+}
+
+export async function applyEcdsaPostSignPolicy(args: {
+  thresholdSessionId: string | null;
+  source: ThresholdEcdsaSessionStoreSource | null;
+  selectedMaterial: EcdsaPostSignPolicyMaterial | null;
+  secondaryMaterial: EcdsaPostSignPolicyMaterial | null;
   markEmailOtpSessionConsumed?: (args: {
     nearAccountId: AccountId;
     chainTarget: ThresholdEcdsaChainTarget;
     uses?: number;
   }) => void;
-  clearEcdsaEphemeralMaterial: EcdsaPostSignPolicyMaterialClearer;
 }): Promise<void> {
-  const selectedRecord = args.selectedRecord || null;
-  const secondaryRecord = args.source ? null : args.secondaryRecord || null;
-  const effectiveEmailOtpRecord =
-    selectedRecord?.source === 'email_otp'
-      ? selectedRecord
-      : !args.source && secondaryRecord?.source === 'email_otp'
-        ? secondaryRecord
+  const selectedMaterial = args.selectedMaterial;
+  const secondaryMaterial = args.source ? null : args.secondaryMaterial;
+  const effectiveEmailOtpMaterial =
+    selectedMaterial?.session.source === 'email_otp'
+      ? selectedMaterial
+      : !args.source && secondaryMaterial?.session.source === 'email_otp'
+        ? secondaryMaterial
         : null;
-  if (!effectiveEmailOtpRecord) return;
+  if (!effectiveEmailOtpMaterial) return;
 
-  if (args.thresholdSessionId && selectedRecord?.source === 'email_otp') {
+  if (args.thresholdSessionId && selectedMaterial?.session.source === 'email_otp') {
     const expectedThresholdSessionId = String(args.thresholdSessionId || '').trim();
-    const actualThresholdSessionId = String(selectedRecord.thresholdSessionId || '').trim();
+    const actualThresholdSessionId = selectedMaterial.session.thresholdSessionId;
     if (
       expectedThresholdSessionId &&
       actualThresholdSessionId &&
@@ -51,18 +90,13 @@ export async function applyEcdsaPostSignPolicy(args: {
     }
   }
 
-  if (effectiveEmailOtpRecord.emailOtpAuthContext?.retention !== 'single_use') return;
+  if (effectiveEmailOtpMaterial.session.emailOtpRetention !== 'single_use') return;
   args.markEmailOtpSessionConsumed?.({
-    nearAccountId: effectiveEmailOtpRecord.nearAccountId,
-    chainTarget: effectiveEmailOtpRecord.chainTarget,
+    nearAccountId: effectiveEmailOtpMaterial.session.nearAccountId,
+    chainTarget: effectiveEmailOtpMaterial.session.chainTarget,
     uses: 1,
   });
-
-  const selectedThresholdSessionId = String(effectiveEmailOtpRecord.thresholdSessionId || '').trim();
-  await args.clearEcdsaEphemeralMaterial({
-    record: effectiveEmailOtpRecord,
-    ...(selectedThresholdSessionId ? { thresholdSessionId: selectedThresholdSessionId } : {}),
-  });
+  await effectiveEmailOtpMaterial.clearEphemeralMaterial();
 }
 
 export function formatEmailOtpSensitiveOperationError(args: {
@@ -88,24 +122,24 @@ export function formatEmailOtpSensitiveOperationError(args: {
 export function assertEcdsaOperationAllowed(args: {
   chainTarget: ThresholdEcdsaChainTarget;
   operationLabel: string;
-  thresholdSessionId?: string;
-  source?: ThresholdEcdsaSessionStoreSource;
-  selectedRecord?: ThresholdEcdsaSessionRecord | null;
-  secondaryRecord?: ThresholdEcdsaSessionRecord | null;
+  thresholdSessionId: string | null;
+  source: ThresholdEcdsaSessionStoreSource | null;
+  selectedSession: EcdsaPostSignPolicySession | null;
+  secondarySession: EcdsaPostSignPolicySession | null;
   sensitivePolicy?: SensitiveOperationPolicy;
 }): void {
-  const selectedRecord = args.selectedRecord || null;
-  const secondaryRecord = args.source ? null : args.secondaryRecord || null;
-  const effectiveRecord =
-    selectedRecord?.source === 'email_otp'
-      ? selectedRecord
-      : !args.source && secondaryRecord?.source === 'email_otp'
-        ? secondaryRecord
+  const selectedSession = args.selectedSession;
+  const secondarySession = args.source ? null : args.secondarySession;
+  const effectiveSession =
+    selectedSession?.source === 'email_otp'
+      ? selectedSession
+      : !args.source && secondarySession?.source === 'email_otp'
+        ? secondarySession
         : null;
-  if (!effectiveRecord) return;
+  if (!effectiveSession) return;
 
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();
-  const actualThresholdSessionId = String(effectiveRecord.thresholdSessionId || '').trim();
+  const actualThresholdSessionId = effectiveSession.thresholdSessionId;
   if (
     thresholdSessionId &&
     actualThresholdSessionId &&
@@ -114,8 +148,8 @@ export function assertEcdsaOperationAllowed(args: {
     return;
   }
   if (
-    effectiveRecord.emailOtpAuthContext?.retention === 'single_use' &&
-    Number(effectiveRecord.emailOtpAuthContext.consumedAtMs) > 0
+    effectiveSession.emailOtpRetention === 'single_use' &&
+    Number(effectiveSession.emailOtpConsumedAtMs) > 0
   ) {
     throw formatEmailOtpSensitiveOperationError({
       operationLabel: args.operationLabel,
@@ -125,7 +159,7 @@ export function assertEcdsaOperationAllowed(args: {
   const sensitivePolicy = args.sensitivePolicy || SENSITIVE_OPERATION_POLICIES.inheritSessionPolicy;
   if (sensitivePolicy === SENSITIVE_OPERATION_POLICIES.inheritSessionPolicy) return;
   if (sensitivePolicy === SENSITIVE_OPERATION_POLICIES.requireFreshSameMethod) {
-    if (effectiveRecord.emailOtpAuthContext?.retention === 'single_use') return;
+    if (effectiveSession.emailOtpRetention === 'single_use') return;
     throw formatEmailOtpSensitiveOperationError({
       operationLabel: args.operationLabel,
       mode: 'per_operation',

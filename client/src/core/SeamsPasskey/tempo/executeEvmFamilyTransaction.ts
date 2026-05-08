@@ -4,7 +4,7 @@ import type { SeamsChainConfig } from '@/core/types/seams';
 import {
   thresholdEcdsaChainTargetFromConfig,
   thresholdEcdsaChainTargetKey,
-} from '@/core/signingEngine/session/signingSession/ecdsaChainTarget';
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   ExecuteEvmFamilyTransactionArgs,
   ExecuteEvmFamilyTransactionResult,
@@ -17,8 +17,8 @@ import type {
   SignTempoArgs,
   TempoNonceLifecycleEvent,
 } from '../interfaces';
-import type { EvmSignedResult } from '@/core/signingEngine/chainAdaptors/evm/evmAdapter';
-import type { TempoSignedResult } from '@/core/signingEngine/chainAdaptors/tempo/tempoAdapter';
+import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
+import type { TempoSignedResult } from '@/core/signingEngine/chains/tempo/tempoAdapter';
 import {
   createSigningFlowEvent,
   SigningEventPhase,

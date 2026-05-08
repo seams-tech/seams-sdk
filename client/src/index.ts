@@ -56,7 +56,7 @@ export {
   encodeTempoUserTokensCalldata,
   decodeTempoUserTokenResult,
   buildTempoSetUserTokenCall,
-} from './core/signingEngine/chainAdaptors/tempo/feeToken';
+} from './core/signingEngine/chains/tempo/feeToken';
 
 // === Device Linking Types ===
 export {
@@ -108,12 +108,12 @@ export {
   nearAccountRefFromAccountId,
   thresholdEcdsaChainTargetFromConfig,
   toWalletSubjectId,
-} from './core/signingEngine/session/signingSession/ecdsaChainTarget';
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 export type {
   NearAccountRef,
   ThresholdEcdsaChainTarget,
   WalletSubjectId,
-} from './core/signingEngine/session/signingSession/ecdsaChainTarget';
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export type { SignNEP413MessageParams, SignNEP413MessageResult } from './core/SeamsPasskey/near';
 

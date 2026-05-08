@@ -271,10 +271,10 @@ async function runPasskeyEvmSign(
         };
         readRuntimeDiagnostics = async (): Promise<Record<string, unknown>> => {
           const thresholdStore = await import(
-            '/sdk/esm/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore.js'
+            '/sdk/esm/core/signingEngine/session/persistence/records.js'
           ).catch(() => null);
           const sealedStore = await import(
-            '/sdk/esm/core/signingEngine/session/sealedSessionStore.js'
+            '/sdk/esm/core/signingEngine/session/persistence/sealedSessionStore.js'
           ).catch(() => null);
           const ecdsaRecords =
             thresholdStore &&

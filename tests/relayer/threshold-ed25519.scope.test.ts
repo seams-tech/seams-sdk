@@ -28,7 +28,7 @@ import {
   deriveThresholdEd25519HssClientInputsWasm,
   prepareThresholdEd25519HssClientRequestWasm,
   prepareThresholdEd25519HssSessionWasm,
-} from '@/core/signingEngine/signers/wasm/hssClientSignerWasm';
+} from '@/core/signingEngine/threshold/crypto/hssClientSignerWasm';
 import {
   callCf,
   fetchJson,

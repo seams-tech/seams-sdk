@@ -2,8 +2,8 @@ import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  handle: '/sdk/esm/core/signingEngine/touchConfirm/handlers/handlePromptFromWorker.js',
-  types: '/sdk/esm/core/signingEngine/touchConfirm/shared/confirmTypes.js',
+  handle: '/sdk/esm/core/signingEngine/uiConfirm/handlers/handlePromptFromWorker.js',
+  types: '/sdk/esm/core/signingEngine/stepUpConfirmation/channel/confirmTypes.js',
   nonceCoordinator: '/sdk/esm/core/signingEngine/nonce/NonceCoordinator.js',
 } as const;
 

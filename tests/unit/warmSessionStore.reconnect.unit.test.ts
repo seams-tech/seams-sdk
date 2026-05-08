@@ -3,7 +3,7 @@ import {
   createWarmSessionTestServices,
   createThresholdEcdsaBootstrapFixture,
   createThresholdEcdsaStoreFixture,
-  createWarmSessionTouchConfirmFixture,
+  createWarmSessionUiConfirmFixture,
   resetWarmSessionFixtureState,
   seedEcdsaWarmSessionRecord,
 } from './helpers/warmSessionStore.fixtures';
@@ -26,7 +26,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
       source: 'login',
       bootstrap,
     });
-    const fixture = createWarmSessionTouchConfirmFixture({
+    const fixture = createWarmSessionUiConfirmFixture({
       claimsBySessionId: {
         [record.thresholdSessionId]: {
           state: 'warm',
@@ -39,7 +39,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
     let provisionCalls = 0;
     const store = createWarmSessionTestServices({
       touchConfirm: fixture.touchConfirm,
-      listThresholdEcdsaKeyRefsForLookup: () => [
+      listThresholdEcdsaKeyRefsForAccountTarget: () => [
         { source: 'login', keyRef: bootstrap.thresholdEcdsaKeyRef },
       ],
       provisionThresholdEcdsaSession: async () => {
@@ -63,7 +63,6 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
     });
     expect(ready.capability).toMatchObject({
       state: 'ready',
-      chain: 'evm',
     });
     expect(ready.capability.prfClaim).toMatchObject({
       state: 'warm',
@@ -88,7 +87,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
       source: 'login',
       bootstrap: staleBootstrap,
     });
-    const fixture = createWarmSessionTouchConfirmFixture({
+    const fixture = createWarmSessionUiConfirmFixture({
       claimsBySessionId: {
         [staleRecord.thresholdSessionId]: {
           state: 'missing',
@@ -99,7 +98,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
     let provisionCalls = 0;
     const store = createWarmSessionTestServices({
       touchConfirm: fixture.touchConfirm,
-      listThresholdEcdsaKeyRefsForLookup: () => [
+      listThresholdEcdsaKeyRefsForAccountTarget: () => [
         { source: 'login', keyRef: staleBootstrap.thresholdEcdsaKeyRef },
       ],
       provisionThresholdEcdsaSession: async ({ nearAccountId, chainTarget }) => {
@@ -131,6 +130,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
       chain: 'evm',
       usesNeeded: 1,
       sessionBudgetUses: 1,
+      clientRootShare32B64u: 'reconnect-client-root-share',
     });
 
     expect(provisionCalls).toBe(1);
@@ -141,7 +141,6 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
     });
     expect(ready.capability).toMatchObject({
       state: 'ready',
-      chain: 'evm',
     });
     expect(ready.capability.record).toMatchObject({
       thresholdSessionId: 'fresh-evm-session',

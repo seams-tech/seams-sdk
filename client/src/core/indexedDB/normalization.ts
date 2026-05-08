@@ -2,7 +2,7 @@ import { normalizeLowercaseString, normalizeOptionalNonEmptyString } from '@shar
 import {
   thresholdEcdsaChainTargetKey,
   type ThresholdEcdsaChainTarget,
-} from '../signingEngine/session/signingSession/ecdsaChainTarget';
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export function normalizeLastUserScope(scope: unknown): string | null {
   const normalized = normalizeOptionalNonEmptyString(scope);

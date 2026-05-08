@@ -8,8 +8,8 @@ import {
 import type { PasskeyManagerContext } from './index';
 import type { AccountId, WebAuthnAuthenticationCredential } from '../types';
 import { toAccountId } from '../types/accountIds';
-import { redactCredentialExtensionOutputs } from '../signingEngine/signers/webauthn/credentials';
-import type { WebAuthnAllowCredential } from '../signingEngine/signers/webauthn/credentials';
+import { redactCredentialExtensionOutputs } from '../signingEngine/walletAuth/webauthn/credentials/credentialExtensions';
+import type { WebAuthnAllowCredential } from '../signingEngine/walletAuth/webauthn/credentials/collectAuthenticationCredentialForChallengeB64u';
 import { base64UrlDecode } from '@shared/utils/base64';
 import { coerceSignerSlot } from '@shared/utils/signerSlot';
 import { errorMessage } from '@shared/utils/errors';
@@ -31,7 +31,7 @@ import {
   normalizeIndexedDbChainIdKey,
   toIndexedDbChainTargetKey,
 } from '../indexedDB/normalization';
-import { thresholdEcdsaChainTargetFromRequest } from '../signingEngine/session/signingSession/ecdsaChainTarget';
+import { thresholdEcdsaChainTargetFromRequest } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export interface SyncAccountResult {
   success: boolean;

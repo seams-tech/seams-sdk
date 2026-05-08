@@ -27,7 +27,7 @@
  */
 
 import { isObject } from '@shared/utils/validation';
-import { WebAuthnBridgeMessage } from '@/core/signingEngine/signers/webauthn/fallbacks';
+import { WebAuthnBridgeMessage } from '@/core/signingEngine/walletAuth/webauthn/fallbacks/safari-fallbacks';
 import { createWalletIframe, removeExistingOverlaysForOrigin } from './iframe-transport-dom';
 import { performHandshake, waitForBootHint, waitForLoad } from './iframe-transport-handshake';
 import { handleWebAuthnBridgeMessage } from './webauthn-bridge';

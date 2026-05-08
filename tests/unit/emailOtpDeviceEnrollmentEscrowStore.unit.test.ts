@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  store: '/sdk/esm/core/signingEngine/api/session/emailOtpDeviceEnrollmentEscrowStore.js',
+  store: '/sdk/esm/core/signingEngine/workerManager/workers/email-otp/deviceEnrollmentEscrowStore.js',
 } as const;
 
 test.describe('Email OTP device enrollment escrow store', () => {

@@ -34,39 +34,39 @@ import {
 import { getNearThresholdKeyMaterial } from '../accountData/near/keyMaterial';
 import type { ClientUserData } from '../accountData/near/types';
 import { exchangeSession, type SessionExchangeInput } from '../rpcClients/near/rpcCalls';
-import { parseSignerSlot } from '../signingEngine/signers/webauthn/device/signerSlot';
+import { parseSignerSlot } from '../signingEngine/walletAuth/webauthn/device/signerSlot';
 import {
   createEmailOtpWalletAuthAdapter,
   createPasskeyWalletAuthAdapter,
   createWalletAuthModeResolver,
   resolveAccountAuthMetadataForSignerSource,
-} from '../signingEngine/auth';
+} from '../signingEngine/walletAuth';
 import {
   clearAllStoredThresholdEd25519SessionRecords,
   getStoredThresholdEd25519SessionRecordForAccount,
   type ThresholdEcdsaSessionRecord,
-  type ThresholdEcdsaSessionStoreSource,
-} from '../signingEngine/api/thresholdLifecycle/thresholdSessionStore';
-import type { ThresholdRuntimePolicyScope } from '../signingEngine/threshold/session/sessionPolicy';
+} from '../signingEngine/session/persistence/records';
+import type { ThresholdEcdsaSessionStoreSource } from '../signingEngine/session/identity/laneIdentity';
+import type { ThresholdRuntimePolicyScope } from '../signingEngine/threshold/sessionPolicy';
 import { shouldRequireThresholdWarmSession } from './thresholdWarmSessionDefaults';
 import { prewarmThresholdEd25519ClientBaseFromCredential } from './thresholdWarmSessionBootstrap';
 import {
   listConfiguredThresholdEcdsaPublicationTargets,
 } from './thresholdEcdsaProvisioning';
 import type {
-  SigningSessionSnapshot,
-  SigningSessionSnapshotEcdsaLane,
-  SigningSessionSnapshotEd25519Lane,
-} from '../signingEngine/session/snapshotReader';
+  AvailableSigningLanes,
+  AvailableEcdsaSigningLane,
+  AvailableEd25519SigningLane,
+} from '../signingEngine/session/availability/availableSigningLanes';
 import {
-  ecdsaSnapshotLaneForTarget,
-  ecdsaSnapshotTargets,
-  isConcreteSigningSessionSnapshotLane,
-} from '../signingEngine/session/snapshotReader';
+  ecdsaAvailableLaneForTarget,
+  ecdsaAvailableLaneTargets,
+  isConcreteAvailableSigningLane,
+} from '../signingEngine/session/availability/availableSigningLanes';
 import {
   toWalletSubjectId,
   type WalletSubjectId,
-} from '../signingEngine/session/signingSession/ecdsaChainTarget';
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 type EmitUnlockEventInput = Omit<CreateUnlockFlowEventInput, 'accountId' | 'flowId'>;
 
@@ -913,7 +913,7 @@ async function primeThresholdLoginWarmSigners(args: {
           for (const target of listConfiguredThresholdEcdsaPublicationTargets(
             args.context.configs.network.chains,
           )) {
-            const sessionId = createThresholdLoginWarmSessionId('threshold-ecdsa-login');
+            const sessionId = warmState.sessionId || createThresholdLoginWarmSessionId('threshold-ecdsa-login');
             await args.signingEngine.bootstrapEcdsaSession({
               nearAccountId: args.nearAccountId,
               subjectId: toWalletSubjectId(args.nearAccountId),
@@ -1017,11 +1017,11 @@ function readThresholdEcdsaLoginMetadataRecords(
   nearAccountId: AccountId,
 ): ThresholdEcdsaSessionRecord[] {
   const signingEngine = context.signingEngine as {
-    listConcreteThresholdEcdsaSessionRecordsForSubject?: (args: {
+    listThresholdEcdsaSessionRecordsForSubject?: (args: {
       subjectId: WalletSubjectId;
     }) => ThresholdEcdsaSessionRecord[];
   };
-  if (typeof signingEngine.listConcreteThresholdEcdsaSessionRecordsForSubject !== 'function') {
+  if (typeof signingEngine.listThresholdEcdsaSessionRecordsForSubject !== 'function') {
     return [];
   }
 
@@ -1029,7 +1029,7 @@ function readThresholdEcdsaLoginMetadataRecords(
     THRESHOLD_ECDSA_LOGIN_METADATA_SOURCES,
   );
   return signingEngine
-    .listConcreteThresholdEcdsaSessionRecordsForSubject({
+    .listThresholdEcdsaSessionRecordsForSubject({
       subjectId: toWalletSubjectId(nearAccountId),
     })
     .filter((record) => allowedSources.has(record.source));
@@ -1140,15 +1140,15 @@ async function resolveCanonicalThresholdEcdsaWarmSessionContext(
   nearAccountId: AccountId,
 ): Promise<CanonicalThresholdEcdsaWarmSessionContext> {
   const typedSigningEngine = signingEngine as {
-    listConcreteThresholdEcdsaSessionRecordsForSubject?: (args: {
+    listThresholdEcdsaSessionRecordsForSubject?: (args: {
       subjectId: WalletSubjectId;
     }) => ThresholdEcdsaSessionRecord[];
   };
   const allowedSources = new Set<ThresholdEcdsaSessionStoreSource>(
     THRESHOLD_ECDSA_LOGIN_METADATA_SOURCES,
   );
-  if (typeof typedSigningEngine.listConcreteThresholdEcdsaSessionRecordsForSubject === 'function') {
-    for (const record of typedSigningEngine.listConcreteThresholdEcdsaSessionRecordsForSubject({
+  if (typeof typedSigningEngine.listThresholdEcdsaSessionRecordsForSubject === 'function') {
+    for (const record of typedSigningEngine.listThresholdEcdsaSessionRecordsForSubject({
       subjectId: toWalletSubjectId(nearAccountId),
     })) {
       if (!allowedSources.has(record.source)) continue;
@@ -1163,12 +1163,12 @@ async function resolveCanonicalThresholdEcdsaWarmSessionContext(
       }
     }
   }
-  const snapshot = await readSigningSessionSnapshotForUi(context, nearAccountId).catch(() => null);
+  const snapshot = await readAvailableSigningLanesForUi(context, nearAccountId).catch(() => null);
   const ecdsaThresholdKeyIds = new Set<string>();
   if (snapshot) {
-    for (const target of ecdsaSnapshotTargets(snapshot)) {
-      const lane = ecdsaSnapshotLaneForTarget(snapshot, target);
-      if (!isConcreteSigningSessionSnapshotLane(lane)) continue;
+    for (const target of ecdsaAvailableLaneTargets(snapshot)) {
+      const lane = ecdsaAvailableLaneForTarget(snapshot, target);
+      if (!isConcreteAvailableSigningLane(lane)) continue;
       const ecdsaThresholdKeyId = String(lane.ecdsaThresholdKeyId || '').trim();
       if (ecdsaThresholdKeyId) ecdsaThresholdKeyIds.add(ecdsaThresholdKeyId);
     }
@@ -1275,9 +1275,9 @@ async function resolveWarmSigningSessionStatusForUi(
   return selectSigningSessionStatusForUi(statuses);
 }
 
-type SigningSessionSnapshotLane =
-  | SigningSessionSnapshotEd25519Lane
-  | SigningSessionSnapshotEcdsaLane;
+type AvailableSigningLanesLane =
+  | AvailableEd25519SigningLane
+  | AvailableEcdsaSigningLane;
 
 function selectSigningSessionStatusForUi(
   statuses: readonly (SigningSessionStatus | null | undefined)[],
@@ -1296,9 +1296,9 @@ function selectSigningSessionStatusForUi(
 }
 
 function snapshotLaneToSigningSessionStatus(
-  lane: SigningSessionSnapshotLane,
+  lane: AvailableSigningLanesLane,
 ): SigningSessionStatus | null {
-  if (!isConcreteSigningSessionSnapshotLane(lane)) return null;
+  if (!isConcreteAvailableSigningLane(lane)) return null;
   const sessionId = String(lane.thresholdSessionId || '').trim();
   if (!sessionId) return null;
   if (
@@ -1335,28 +1335,28 @@ function snapshotLaneToSigningSessionStatus(
 }
 
 function snapshotToSigningSessionStatusForUi(
-  snapshot: SigningSessionSnapshot | null,
+  snapshot: AvailableSigningLanes | null,
 ): SigningSessionStatus | null {
   if (!snapshot) return null;
   return selectSigningSessionStatusForUi([
     snapshotLaneToSigningSessionStatus(snapshot.lanes.ed25519.near),
-    ...ecdsaSnapshotTargets(snapshot).map((target) =>
-      snapshotLaneToSigningSessionStatus(ecdsaSnapshotLaneForTarget(snapshot, target)),
+    ...ecdsaAvailableLaneTargets(snapshot).map((target) =>
+      snapshotLaneToSigningSessionStatus(ecdsaAvailableLaneForTarget(snapshot, target)),
     ),
   ]);
 }
 
-async function readSigningSessionSnapshotForUi(
+async function readAvailableSigningLanesForUi(
   context: PasskeyManagerContext,
   nearAccountId: AccountId,
-): Promise<SigningSessionSnapshot | null> {
+): Promise<AvailableSigningLanes | null> {
   const signingEngine = context.signingEngine as typeof context.signingEngine & {
-    readPersistedSigningSessionSnapshot?: typeof context.signingEngine.readPersistedSigningSessionSnapshot;
+    readPersistedAvailableSigningLanes?: typeof context.signingEngine.readPersistedAvailableSigningLanes;
   };
-  if (typeof signingEngine.readPersistedSigningSessionSnapshot !== 'function') {
+  if (typeof signingEngine.readPersistedAvailableSigningLanes !== 'function') {
     return null;
   }
-  return await signingEngine.readPersistedSigningSessionSnapshot({
+  return await signingEngine.readPersistedAvailableSigningLanes({
     walletId: nearAccountId,
     subjectId: toWalletSubjectId(nearAccountId),
   });
@@ -1367,7 +1367,7 @@ async function resolveSnapshotSigningSessionStatusForUi(
   nearAccountId: AccountId,
 ): Promise<SigningSessionStatus | null> {
   return snapshotToSigningSessionStatusForUi(
-    await readSigningSessionSnapshotForUi(context, nearAccountId),
+    await readAvailableSigningLanesForUi(context, nearAccountId),
   );
 }
 

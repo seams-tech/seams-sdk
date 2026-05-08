@@ -10,7 +10,7 @@ import {
   thresholdEcdsaChainTargetFromRequest,
   thresholdEcdsaChainTargetKey,
   type ThresholdEcdsaChainTarget,
-} from '../../signingEngine/session/signingSession/ecdsaChainTarget';
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 type PreparedLinkDeviceThresholdEcdsa = {
   clientAdditiveShare32B64u: string;

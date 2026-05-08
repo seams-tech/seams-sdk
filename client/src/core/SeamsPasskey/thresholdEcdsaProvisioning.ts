@@ -4,7 +4,7 @@ import {
   thresholdEcdsaChainTargetFromConfig,
   thresholdEcdsaChainTargetKey,
   type ThresholdEcdsaChainTarget,
-} from '../signingEngine/session/signingSession/ecdsaChainTarget';
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   EcdsaSignerProvisioningDefaults,
   EcdsaSignerProvisioningPolicy,

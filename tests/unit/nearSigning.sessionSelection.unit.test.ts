@@ -2,21 +2,21 @@ import { expect, test } from '@playwright/test';
 import { ActionType } from '@/core/types/actions';
 import { SigningEventPhase } from '@/core/types/sdkSentEvents';
 import { WorkerResponseType } from '@/core/types/signer-worker';
-import { signTransactionsWithActions } from '@/core/signingEngine/api/nearSigning';
+import { signTransactionsWithActions } from '@/core/signingEngine/flows/signNear/signNear';
 import {
   createNearSigningSessionCoordinator,
   buildNearThresholdSigningAuthPlan,
   resolveNearThresholdSigningAuthContext,
-} from '@/core/signingEngine/orchestration/near/shared/thresholdAuthMode';
+} from '@/core/signingEngine/flows/signNear/shared/thresholdAuthMode';
 import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
-import type { SigningSessionSnapshot } from '@/core/signingEngine/session/snapshotReader';
+import type { AvailableSigningLanes } from '@/core/signingEngine/session/availability/availableSigningLanes';
 import {
   thresholdEcdsaChainTargetFromChainFamily,
   thresholdEcdsaChainTargetKey,
-} from '@/core/signingEngine/session/signingSession/ecdsaChainTarget';
-import { SigningAuthPlanKind } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { SigningAuthPlanKind } from '@/core/signingEngine/stepUpConfirmation/types';
 import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmSigning/persistence';
-import { clearAllStoredThresholdEd25519SessionRecords } from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
+import { clearAllStoredThresholdEd25519SessionRecords } from '@/core/signingEngine/session/persistence/records';
 
 const TEST_ECDSA_CHAIN_TARGETS = {
   tempo: thresholdEcdsaChainTargetFromChainFamily({
@@ -31,10 +31,7 @@ const TEST_ECDSA_CHAIN_TARGETS = {
   }),
 };
 
-function emptyEcdsaSnapshotFields(): Pick<SigningSessionSnapshot, 'ecdsa'> & {
-  lanes: Pick<SigningSessionSnapshot['lanes'], 'ecdsa'>;
-  candidates: Pick<SigningSessionSnapshot['candidates'], 'ecdsa'>;
-} {
+function emptyEcdsaAvailableFields(): Pick<AvailableSigningLanes, 'ecdsa'> {
   const tempoLane = {
     curve: 'ecdsa' as const,
     chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
@@ -55,18 +52,6 @@ function emptyEcdsaSnapshotFields(): Pick<SigningSessionSnapshot, 'ecdsa'> & {
       candidatesByTarget: {
         [thresholdEcdsaChainTargetKey(TEST_ECDSA_CHAIN_TARGETS.tempo)]: [],
         [thresholdEcdsaChainTargetKey(TEST_ECDSA_CHAIN_TARGETS.evm)]: [],
-      },
-    },
-    lanes: {
-      ecdsa: {
-        tempo: tempoLane,
-        evm: evmLane,
-      },
-    },
-    candidates: {
-      ecdsa: {
-        tempo: [],
-        evm: [],
       },
     },
   };
@@ -95,14 +80,14 @@ class MemorySessionStorage implements Pick<
   }
 }
 
-function createNearEd25519Snapshot(args: {
+function createNearEd25519AvailableLanes(args: {
   nearAccountId: string;
   authMethod: 'email_otp' | 'passkey';
   walletSigningSessionId: string;
   thresholdSessionId: string;
   state?: 'ready' | 'restorable';
   source?: 'runtime_session_record' | 'durable_sealed_record';
-}): SigningSessionSnapshot {
+}): AvailableSigningLanes {
   const lane = {
     authMethod: args.authMethod,
     curve: 'ed25519' as const,
@@ -112,18 +97,16 @@ function createNearEd25519Snapshot(args: {
     thresholdSessionId: args.thresholdSessionId,
     source: args.source || 'runtime_session_record' as const,
   };
-  const ecdsa = emptyEcdsaSnapshotFields();
+  const ecdsa = emptyEcdsaAvailableFields();
   return {
     walletId: args.nearAccountId,
     generation: Date.now(),
     ecdsa: ecdsa.ecdsa,
     lanes: {
       ed25519: { near: lane },
-      ecdsa: ecdsa.lanes.ecdsa,
     },
     candidates: {
       ed25519: { near: [lane] },
-      ecdsa: ecdsa.candidates.ecdsa,
     },
   };
 }
@@ -222,8 +205,8 @@ test.describe('near signing session selection', () => {
             activeRemainingUses: 10,
           }),
           resolveThresholdEd25519SessionId: () => 'ed25519-session',
-          readSigningSessionSnapshotForSigning: async () =>
-            createNearEd25519Snapshot({
+          readAvailableSigningLanesForSigning: async () =>
+            createNearEd25519AvailableLanes({
               nearAccountId: 'alice.testnet',
               authMethod: 'passkey',
               walletSigningSessionId: 'wallet-signing-session',
@@ -412,8 +395,8 @@ test.describe('near signing session selection', () => {
             activeRemainingUses: 4,
           }),
           resolveThresholdEd25519SessionId: () => sessionId,
-          readSigningSessionSnapshotForSigning: async () =>
-            createNearEd25519Snapshot({
+          readAvailableSigningLanesForSigning: async () =>
+            createNearEd25519AvailableLanes({
               nearAccountId,
               authMethod: 'passkey',
               walletSigningSessionId,
@@ -609,8 +592,8 @@ test.describe('near signing session selection', () => {
             },
           }),
           resolveThresholdEd25519SessionId: () => staleSessionId,
-          readSigningSessionSnapshotForSigning: async () =>
-            createNearEd25519Snapshot({
+          readAvailableSigningLanesForSigning: async () =>
+            createNearEd25519AvailableLanes({
               nearAccountId,
               authMethod: 'email_otp',
               walletSigningSessionId,
@@ -858,10 +841,10 @@ test.describe('near signing session selection', () => {
             exhaustedThresholdSessionIds: [restoredSessionId],
           }),
           resolveAccountAuthMethodForSigning: async () => 'email_otp',
-          readSigningSessionSnapshotForSigning: async ({ authMethod }) => {
+          readAvailableSigningLanesForSigning: async ({ authMethod }) => {
             expect(authMethod === undefined || authMethod === null || authMethod === 'email_otp')
               .toBe(true);
-            const ecdsa = emptyEcdsaSnapshotFields();
+            const ecdsa = emptyEcdsaAvailableFields();
             return {
               walletId: nearAccountId,
               generation: Date.now(),
@@ -878,7 +861,6 @@ test.describe('near signing session selection', () => {
                     thresholdSessionId: restoredSessionId,
                   },
                 },
-                ecdsa: ecdsa.lanes.ecdsa,
               },
               candidates: {
                 ed25519: {
@@ -903,7 +885,6 @@ test.describe('near signing session selection', () => {
                     },
                   ],
                 },
-                ecdsa: ecdsa.candidates.ecdsa,
               },
             };
           },
@@ -1105,10 +1086,10 @@ test.describe('near signing session selection', () => {
           }),
           createSigningSessionId: () => 'unexpected-generated-session',
           resolveAccountAuthMethodForSigning: async () => 'email_otp',
-          readSigningSessionSnapshotForSigning: async ({ authMethod }) => {
+          readAvailableSigningLanesForSigning: async ({ authMethod }) => {
             expect(authMethod === undefined || authMethod === null || authMethod === 'email_otp')
               .toBe(true);
-            const ecdsa = emptyEcdsaSnapshotFields();
+            const ecdsa = emptyEcdsaAvailableFields();
             return {
               walletId: nearAccountId,
               generation: Date.now(),
@@ -1125,7 +1106,6 @@ test.describe('near signing session selection', () => {
                     thresholdSessionId: restoredSessionId,
                   },
                 },
-                ecdsa: ecdsa.lanes.ecdsa,
               },
               candidates: {
                 ed25519: {
@@ -1141,7 +1121,6 @@ test.describe('near signing session selection', () => {
                     },
                   ],
                 },
-                ecdsa: ecdsa.candidates.ecdsa,
               },
             };
           },
@@ -1303,7 +1282,7 @@ test.describe('near signing session selection', () => {
     }
   });
 
-  test('keeps Ed25519 snapshot selection on the current OTP runtime record when account auth points at passkey', async () => {
+  test('keeps Ed25519 available-lane selection on the current OTP runtime record when account auth points at passkey', async () => {
     const originalSessionStorage = (globalThis as { sessionStorage?: Storage }).sessionStorage;
     const originalFetch = globalThis.fetch;
     const sessionStorage = new MemorySessionStorage();
@@ -1368,9 +1347,9 @@ test.describe('near signing session selection', () => {
             activeRemainingUses: 1,
           }),
           resolveAccountAuthMethodForSigning: async () => 'passkey',
-          readSigningSessionSnapshotForSigning: async ({ authMethod }) => {
+          readAvailableSigningLanesForSigning: async ({ authMethod }) => {
             expect(authMethod).toBeUndefined();
-            const ecdsa = emptyEcdsaSnapshotFields();
+            const ecdsa = emptyEcdsaAvailableFields();
             return {
               walletId: nearAccountId,
               generation: Date.now(),
@@ -1387,7 +1366,6 @@ test.describe('near signing session selection', () => {
                     thresholdSessionId: otherDurableSessionId,
                   },
                 },
-                ecdsa: ecdsa.lanes.ecdsa,
               },
               candidates: {
                 ed25519: {
@@ -1421,7 +1399,6 @@ test.describe('near signing session selection', () => {
                     },
                   ],
                 },
-                ecdsa: ecdsa.candidates.ecdsa,
               },
             };
           },
@@ -1545,7 +1522,7 @@ test.describe('near signing session selection', () => {
     }
   });
 
-  test('does not use the account runtime record when the snapshot omits an exact Ed25519 lane', async () => {
+  test('does not use the account runtime record when available signing lanes omit an exact Ed25519 lane', async () => {
     const originalSessionStorage = (globalThis as { sessionStorage?: Storage }).sessionStorage;
     const sessionStorage = new MemorySessionStorage();
     (
@@ -1598,9 +1575,9 @@ test.describe('near signing session selection', () => {
             }),
             createSigningSessionId: () => 'unexpected-generated-session',
             resolveAccountAuthMethodForSigning: async () => 'email_otp',
-            readSigningSessionSnapshotForSigning: async ({ authMethod }) => {
+            readAvailableSigningLanesForSigning: async ({ authMethod }) => {
               expect(authMethod).toBeUndefined();
-              const ecdsa = emptyEcdsaSnapshotFields();
+              const ecdsa = emptyEcdsaAvailableFields();
               return {
                 walletId: nearAccountId,
                 generation: Date.now(),
@@ -1617,13 +1594,11 @@ test.describe('near signing session selection', () => {
                       thresholdSessionId: otherSessionId,
                     },
                   },
-                  ecdsa: ecdsa.lanes.ecdsa,
                 },
                 candidates: {
                   ed25519: {
                     near: [],
                   },
-                  ecdsa: ecdsa.candidates.ecdsa,
                 },
               };
             },
@@ -1807,8 +1782,8 @@ test.describe('near signing session selection', () => {
             activeRemainingUses: 1,
           }),
           resolveThresholdEd25519SessionId: () => staleSessionId,
-          readSigningSessionSnapshotForSigning: async () =>
-            createNearEd25519Snapshot({
+          readAvailableSigningLanesForSigning: async () =>
+            createNearEd25519AvailableLanes({
               nearAccountId,
               authMethod: 'email_otp',
               walletSigningSessionId,

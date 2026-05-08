@@ -1,10 +1,8 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
-import type {
-  ThresholdEcdsaSessionRecord,
-  ThresholdEcdsaSessionStoreSource,
-} from '../../api/thresholdLifecycle/thresholdSessionStore';
-import type { ThresholdEcdsaChainTarget } from '../signingSession/ecdsaChainTarget';
+import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
+import type { ThresholdEcdsaSessionStoreSource } from '../identity/laneIdentity';
+import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { getPrimaryAndSecondaryEcdsaCapabilities } from './ecdsaProvisioner';
 import type {
   ApplyWarmEcdsaPostSignPolicyArgs,
@@ -14,6 +12,8 @@ import type {
 import {
   applyEcdsaPostSignPolicy as applySigningEcdsaPostSignPolicy,
   assertEcdsaOperationAllowed as assertSigningEcdsaOperationAllowed,
+  ecdsaPostSignPolicyMaterialFromRecord,
+  ecdsaPostSignPolicySessionFromRecord,
 } from '../signingSession/postSignPolicy';
 
 export type WarmSessionPostSignPolicyAdapterDeps = {
@@ -61,14 +61,19 @@ export async function applyWarmSessionEcdsaPostSignPolicy(
     ...(args.source ? { source: args.source } : {}),
   });
   await applySigningEcdsaPostSignPolicy({
-    nearAccountId: accountId,
-    chainTarget: args.chainTarget,
-    ...(args.thresholdSessionId ? { thresholdSessionId: args.thresholdSessionId } : {}),
-    ...(args.source ? { source: args.source } : {}),
-    selectedRecord: args.selectedRecord,
-    ...(secondaryRecord ? { secondaryRecord } : {}),
+    thresholdSessionId: args.thresholdSessionId || null,
+    source: args.source || null,
+    selectedMaterial: ecdsaPostSignPolicyMaterialFromRecord({
+      record: args.selectedRecord,
+      clearEcdsaEphemeralMaterial: deps.clearEcdsaEphemeralMaterial,
+    }),
+    secondaryMaterial: secondaryRecord
+      ? ecdsaPostSignPolicyMaterialFromRecord({
+          record: secondaryRecord,
+          clearEcdsaEphemeralMaterial: deps.clearEcdsaEphemeralMaterial,
+        })
+      : null,
     markEmailOtpSessionConsumed: deps.markEmailOtpSessionConsumed,
-    clearEcdsaEphemeralMaterial: deps.clearEcdsaEphemeralMaterial,
   });
 }
 
@@ -95,10 +100,12 @@ export async function assertWarmSessionEcdsaOperationAllowed(
   assertSigningEcdsaOperationAllowed({
     chainTarget: args.chainTarget,
     operationLabel: args.operationLabel,
-    ...(args.thresholdSessionId ? { thresholdSessionId: args.thresholdSessionId } : {}),
-    ...(args.source ? { source: args.source } : {}),
-    ...(record ? { selectedRecord: record } : {}),
-    ...(secondaryRecord ? { secondaryRecord } : {}),
+    thresholdSessionId: args.thresholdSessionId || null,
+    source: args.source || null,
+    selectedSession: record ? ecdsaPostSignPolicySessionFromRecord(record) : null,
+    secondarySession: secondaryRecord
+      ? ecdsaPostSignPolicySessionFromRecord(secondaryRecord)
+      : null,
     ...(args.sensitivePolicy ? { sensitivePolicy: args.sensitivePolicy } : {}),
   });
 }

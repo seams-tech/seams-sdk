@@ -1,26 +1,15 @@
 import { expect, test } from '@playwright/test';
-import { injectImportMap } from '../setup/bootstrap';
-
-const IMPORT_PATHS = {
-  server: '/sdk/esm/server/index.js',
-} as const;
+import {
+  buildRegistrationSmartAccountRecords,
+} from '../../server/src/core/smartAccountRegistrationRecords';
+import { createAccountSignerStore } from '../../server/src/core/AccountSignerStore';
+import {
+  createSmartAccountRecoverySubjectStore,
+} from '../../server/src/core/SmartAccountRecoverySubjectStore';
 
 test.describe('smart-account registration canonical records', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/');
-    await injectImportMap(page);
-  });
-
-  test('builds canonical signer and recovery-subject records for smart-account targets', async ({
-    page,
-  }) => {
-    const result = await page.evaluate(async ({ paths }) => {
-      const {
-        buildRegistrationSmartAccountRecords,
-        createAccountSignerStore,
-        createSmartAccountRecoverySubjectStore,
-      } = await import(paths.server);
-
+  test('builds canonical signer and recovery-subject records for smart-account targets', async () => {
+    const result = await (async () => {
       const built = buildRegistrationSmartAccountRecords({
         userId: 'alice.testnet',
         nearAccountId: 'alice.testnet',
@@ -33,8 +22,12 @@ test.describe('smart-account registration canonical records', () => {
         participantIds: [1, 2],
         smartAccountTargets: [
           {
-            chain: 'evm',
-            chain_id: 11155111,
+            chainTarget: {
+              kind: 'evm',
+              namespace: 'eip155',
+              chainId: 11155111,
+              networkSlug: 'sepolia',
+            },
             factory: `0x${'bb'.repeat(20)}`,
             entry_point: `0x${'cc'.repeat(20)}`,
             recovery_authority: `0x${'dd'.repeat(20)}`,
@@ -42,8 +35,11 @@ test.describe('smart-account registration canonical records', () => {
             counterfactual_address: `0x${'11'.repeat(20)}`,
           },
           {
-            chain: 'tempo',
-            chain_id: 42431,
+            chainTarget: {
+              kind: 'tempo',
+              chainId: 42431,
+              networkSlug: 'tempo-testnet',
+            },
             counterfactual_address: `0x${'22'.repeat(20)}`,
           },
         ],
@@ -70,7 +66,7 @@ test.describe('smart-account registration canonical records', () => {
 
       const signersByUser = await signerStore.listByUserId('alice.testnet');
       const evmSigners = await signerStore.listByAccount({
-        chainIdKey: 'evm:11155111',
+        chainIdKey: 'evm:eip155:11155111',
         accountAddress: `0x${'11'.repeat(20)}`,
       });
       const recoverySubjects = await subjectStore.listByNearAccountId('alice.testnet');
@@ -82,7 +78,7 @@ test.describe('smart-account registration canonical records', () => {
         evmSigners,
         recoverySubjects,
       };
-    }, { paths: IMPORT_PATHS });
+    })();
 
     expect(result.builtSignerCount).toBe(2);
     expect(result.builtSubjectCount).toBe(2);
@@ -103,9 +99,8 @@ test.describe('smart-account registration canonical records', () => {
     expect(result.recoverySubjects[1]?.metadata?.accountModel).toBe('tempo-native');
   });
 
-  test('deduplicates repeated smart-account targets by chain account', async ({ page }) => {
-    const result = await page.evaluate(async ({ paths }) => {
-      const { buildRegistrationSmartAccountRecords } = await import(paths.server);
+  test('deduplicates repeated smart-account targets by chain account', async () => {
+    const result = await (async () => {
       return buildRegistrationSmartAccountRecords({
         userId: 'alice.testnet',
         nearAccountId: 'alice.testnet',
@@ -117,18 +112,26 @@ test.describe('smart-account registration canonical records', () => {
         thresholdOwnerAddress: `0x${'aa'.repeat(20)}`,
         smartAccountTargets: [
           {
-            chain: 'evm',
-            chain_id: 1,
+            chainTarget: {
+              kind: 'evm',
+              namespace: 'eip155',
+              chainId: 1,
+              networkSlug: 'mainnet',
+            },
             counterfactual_address: `0x${'11'.repeat(20)}`,
           },
           {
-            chain: 'evm',
-            chain_id: 1,
+            chainTarget: {
+              kind: 'evm',
+              namespace: 'eip155',
+              chainId: 1,
+              networkSlug: 'mainnet',
+            },
             counterfactual_address: `0x${'11'.repeat(20)}`,
           },
         ],
       });
-    }, { paths: IMPORT_PATHS });
+    })();
 
     expect(result.accountSigners).toHaveLength(1);
     expect(result.recoverySubjects).toHaveLength(1);

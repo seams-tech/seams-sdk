@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   exportEcdsaHssThresholdKeyArtifactWithUI,
   exportNearEd25519SeedArtifactWithUI,
-} from '@/core/signingEngine/api/recovery/privateKeyExportRecovery';
+} from '@/core/signingEngine/flows/recovery/privateKeyExportRecovery';
 
 test.describe('privateKeyExportRecovery method binding', () => {
   test('invokes requestExportPrivateKeysWithUi with single-key HSS seed export payload', async () => {
@@ -119,8 +119,13 @@ test.describe('privateKeyExportRecovery method binding', () => {
     expect(requestExportState.lastPayload).toMatchObject({
       nearAccountId: 'alice.testnet',
       signerSlot: 4,
-      chain: 'evm',
       artifactKind: 'ecdsa-hss-secp256k1-key-v1',
+      chainTarget: {
+        kind: 'evm',
+        namespace: 'eip155',
+        chainId: 5042002,
+        networkSlug: 'arc-testnet',
+      },
       publicKeyHex: `0x${'02'}${'11'.repeat(32)}`,
       privateKeyHex: `0x${'22'.repeat(32)}`,
       ethereumAddress: `0x${'33'.repeat(20)}`,

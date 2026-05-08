@@ -3229,6 +3229,68 @@ test.describe('relayer router (cloudflare) – P0', () => {
     expect(res.json?.code).toBe('unauthorized');
   });
 
+  test('POST /session/signing-budget/status: stale threshold session returns typed not_found', async () => {
+    const session = makeSessionAdapter({
+      parse: async () => ({
+        ok: true,
+        claims: {
+          sub: 'budget-stale-cf.testnet',
+          walletId: 'budget-stale-cf.testnet',
+          kind: 'threshold_ecdsa_session_v1',
+          sessionId: 'threshold-login-stale-cf',
+          walletSigningSessionId: 'wsess-stale-cf',
+          subjectId: 'budget-stale-cf.testnet',
+          chainTarget: {
+            kind: 'evm',
+            namespace: 'eip155',
+            chainId: 5042002,
+            networkSlug: 'arc-testnet',
+          },
+          ecdsaThresholdKeyId: 'ecdsa-key-stale-cf',
+          relayerKeyId: 'relayer-key-stale-cf',
+          rpId: 'example.localhost',
+          thresholdExpiresAtMs: Date.now() + 60_000,
+          participantIds: [1, 2],
+        },
+      }),
+    });
+    const service = makeFakeAuthService();
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      session,
+      signingSessionSeal: {
+        service: {
+          applyServerSeal: async () => ({ ok: false, code: 'unused', message: 'unused' }),
+          removeServerSeal: async () => ({ ok: false, code: 'unused', message: 'unused' }),
+        },
+        sessionPolicy: {
+          getSession: async () => null,
+          getSessionStatus: async () => null,
+        },
+      },
+    });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/session/signing-budget/status',
+      origin: 'https://example.localhost',
+      headers: { Authorization: 'Bearer stale-token' },
+      body: {
+        walletSigningSessionId: 'wsess-stale-cf',
+        thresholdSessionId: 'threshold-login-stale-cf',
+      },
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.json).toEqual({
+      ok: true,
+      walletSigningSessionId: 'wsess-stale-cf',
+      thresholdSessionId: 'threshold-login-stale-cf',
+      status: 'not_found',
+      statusCode: 'unauthorized',
+    });
+  });
+
   test('POST /session/refresh: unauthorized emits session.warm.expired webhook', async () => {
     const dispatched: Array<{ eventType: string; payload: Record<string, unknown> }> = [];
     const webhooks = createInMemoryConsoleWebhookService({

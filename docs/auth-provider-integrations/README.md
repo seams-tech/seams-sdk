@@ -41,7 +41,7 @@ Current issue: `/auth/*` mixes app-auth provider workflows with wallet runtime c
 ## Published Guides
 
 1. Better Auth: [better-auth.md](./better-auth.md)
-2. Auth0: [auth0.md](./auth0.md)
+2. Auth0: [auth0.md](./walletAuth0.md)
 3. Okta: [okta.md](./okta.md)
 4. Google OIDC: [google-oidc.md](./google-oidc.md)
 5. Clerk/Supabase/Firebase quickstarts: [quickstarts-clerk-supabase-firebase.md](./quickstarts-clerk-supabase-firebase.md)

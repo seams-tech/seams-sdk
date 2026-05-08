@@ -1,0 +1,231 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { expect, test } from '@playwright/test';
+import { evmFamilySigningTargetFromExplicitTarget } from '@/core/signingEngine/flows/signEvmFamily/types';
+import { readTrustedWalletSigningBudgetStatus } from '@/core/signingEngine/session/signingSession/budgetStatusReader';
+import { thresholdEcdsaChainTargetFromChainFamily } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  createThresholdEcdsaBootstrapFixture,
+  createThresholdEcdsaStoreFixture,
+  resetWarmSessionFixtureState,
+  seedEcdsaWarmSessionRecord,
+} from './helpers/warmSessionStore.fixtures';
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+
+test.describe('EVM-family request boundaries', () => {
+  test('allows EIP-1559 transaction encoding against a Tempo signing target', () => {
+    const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
+      chain: 'tempo',
+      chainId: 42431,
+      networkSlug: 'tempo-testnet',
+    });
+    const request = {
+      chain: 'evm',
+      kind: 'eip1559',
+      senderSignatureAlgorithm: 'secp256k1',
+      tx: {
+        chainId: 42431,
+        maxPriorityFeePerGas: 1n,
+        maxFeePerGas: 2n,
+        gasLimit: 21_000n,
+        to: `0x${'11'.repeat(20)}`,
+        value: 0n,
+        data: '0x',
+        accessList: [],
+      },
+    } as any;
+
+    expect(evmFamilySigningTargetFromExplicitTarget({ request, chainTarget })).toEqual(chainTarget);
+  });
+
+  test('derives Tempo family from concrete request kind when request.chain drifts', () => {
+    const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
+      chain: 'tempo',
+      chainId: 42431,
+      networkSlug: 'tempo-testnet',
+    });
+    const request = {
+      chain: 'evm',
+      kind: 'tempoTransaction',
+      senderSignatureAlgorithm: 'secp256k1',
+      tx: {
+        chainId: 42431,
+        maxPriorityFeePerGas: 1n,
+        maxFeePerGas: 2n,
+        gasLimit: 21_000n,
+        nonceKey: 1n,
+        calls: [{ to: `0x${'11'.repeat(20)}`, value: 0n }],
+      },
+    } as any;
+
+    expect(evmFamilySigningTargetFromExplicitTarget({ request, chainTarget })).toEqual(chainTarget);
+  });
+
+  test('routes Tempo EIP-1559 requests through the Tempo flow with the EVM encoder', () => {
+    const transactionExecutor = fs.readFileSync(
+      path.join(
+        repoRoot,
+        'client/src/core/signingEngine/flows/signEvmFamily/transactionExecutor.ts',
+      ),
+      'utf8',
+    );
+    expect(transactionExecutor).toContain(
+      "args.chainTarget.kind === 'evm' || args.request.kind === 'eip1559'",
+    );
+    expect(transactionExecutor).toContain(
+      "targetKind === 'tempo' ? loadSignTempoWithUiConfirm : loadSignEvmWithUiConfirm",
+    );
+
+    const signTempoWithUiConfirm = fs.readFileSync(
+      path.join(
+        repoRoot,
+        'client/src/core/signingEngine/flows/signEvmFamily/signTempoWithUiConfirm.ts',
+      ),
+      'utf8',
+    );
+    expect(signTempoWithUiConfirm).toContain("args.request.kind === 'eip1559'");
+    expect(signTempoWithUiConfirm).toContain('new EvmAdapter(workerCtx).buildIntent(request)');
+    expect(signTempoWithUiConfirm).toContain("targetKind: 'tempo'");
+  });
+});
+
+test.describe('Trusted wallet signing budget status', () => {
+  test('accepts typed not_found status without an HTTP auth failure', async () => {
+    const ecdsaSessions = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaSessions);
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (): Promise<Response> =>
+      new Response(
+        JSON.stringify({
+          ok: true,
+          walletSigningSessionId: 'wallet-session-missing',
+          thresholdSessionId: 'threshold-session-missing',
+          status: 'not_found',
+          statusCode: 'unauthorized',
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      )) as typeof fetch;
+
+    try {
+      const status = await readTrustedWalletSigningBudgetStatus(
+        { ecdsaSessions },
+        {
+          nearAccountId: 'budget-not-found.testnet',
+          walletSigningSessionId: 'wallet-session-missing',
+          targetThresholdSessionIds: ['threshold-session-missing'],
+          trustedStatusAuth: {
+            relayerUrl: 'https://relay.example',
+            thresholdSessionId: 'threshold-session-missing',
+            thresholdSessionAuthToken: 'stale-jwt',
+          },
+        },
+      );
+
+      expect(status).toEqual({
+        sessionId: 'wallet-session-missing',
+        status: 'not_found',
+        statusCode: 'unauthorized',
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('retries with exact stored session auth when caller-provided auth is stale', async () => {
+    const ecdsaSessions = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaSessions);
+    const bootstrap = createThresholdEcdsaBootstrapFixture({
+      nearAccountId: 'budget-fallback.testnet',
+      chain: 'evm',
+      sessionId: 'threshold-session-fresh',
+      walletSigningSessionId: 'wallet-session-fresh',
+      sessionAuthToken: 'fresh-jwt',
+      relayerUrl: 'https://relay.example',
+    });
+    seedEcdsaWarmSessionRecord(ecdsaSessions, {
+      nearAccountId: 'budget-fallback.testnet',
+      chain: 'evm',
+      source: 'login',
+      bootstrap,
+    });
+
+    const originalFetch = globalThis.fetch;
+    const calls: Array<{ authorization: string; thresholdSessionId: string }> = [];
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const headers = new Headers(init?.headers);
+      const authorization = String(headers.get('Authorization') || '');
+      const payload = JSON.parse(String(init?.body || '{}')) as {
+        thresholdSessionId?: string;
+      };
+      calls.push({
+        authorization,
+        thresholdSessionId: String(payload.thresholdSessionId || ''),
+      });
+      if (authorization === 'Bearer stale-jwt') {
+        return new Response(JSON.stringify({ ok: false, code: 'unauthorized' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (authorization === 'Bearer fresh-jwt') {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            status: 'active',
+            remainingUses: 3,
+            expiresAtMs: 1_777_777_777_000,
+            projectionVersion: 'projection-v1',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      }
+      return new Response(JSON.stringify({ ok: false, code: 'unexpected_auth' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }) as typeof fetch;
+
+    try {
+      const status = await readTrustedWalletSigningBudgetStatus(
+        { ecdsaSessions },
+        {
+          nearAccountId: 'budget-fallback.testnet',
+          walletSigningSessionId: 'wallet-session-fresh',
+          targetThresholdSessionIds: ['threshold-session-fresh'],
+          trustedStatusAuth: {
+            relayerUrl: 'https://relay.example',
+            thresholdSessionId: 'threshold-session-fresh',
+            thresholdSessionAuthToken: 'stale-jwt',
+          },
+        },
+      );
+
+      expect(status).toMatchObject({
+        sessionId: 'wallet-session-fresh',
+        status: 'active',
+        remainingUses: 3,
+        projectionVersion: 'projection-v1',
+      });
+      expect(calls).toEqual([
+        {
+          authorization: 'Bearer stale-jwt',
+          thresholdSessionId: 'threshold-session-fresh',
+        },
+        {
+          authorization: 'Bearer fresh-jwt',
+          thresholdSessionId: 'threshold-session-fresh',
+        },
+      ]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});

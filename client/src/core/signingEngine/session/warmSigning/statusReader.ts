@@ -1,22 +1,21 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
-import type { WarmSessionStatusResult } from '../../touchConfirm';
+import type { WarmSessionStatusResult } from '../../uiConfirm/types';
 import type {
-  ConcreteThresholdEcdsaSessionRecord,
   ThresholdEcdsaSessionRecord,
-  ThresholdEcdsaSessionStoreSource,
-} from '../../api/thresholdLifecycle/thresholdSessionStore';
+} from '../persistence/records';
+import type { ThresholdEcdsaSessionStoreSource } from '../identity/laneIdentity';
 import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
   toWalletSubjectId,
   type ThresholdEcdsaChainTarget,
   type WalletSubjectId,
-} from '../signingSession/ecdsaChainTarget';
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   readWalletScopedLaneClaimsForAccount as readWalletScopedLaneClaimsForAccountCore,
   resolveEmailOtpEcdsaWorkerSessionId,
-} from '../signingSession/readiness';
+} from '../availability/readiness';
 import {
   readWarmSessionCapabilityRecordsForAccount,
   readWarmSessionEd25519RecordByThresholdSessionId,
@@ -67,15 +66,15 @@ export type WarmSessionStatusReaderDeps = {
   touchConfirm?: Parameters<typeof readWarmSessionClaim>[0];
   readWalletScopedLaneClaimsForAccount?: typeof readWalletScopedLaneClaimsForAccountCore;
   getEmailOtpWarmSessionStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
-  listConcreteThresholdEcdsaSessionRecordsForSubject?: (args: {
+  listThresholdEcdsaSessionRecordsForSubject?: (args: {
     subjectId: WalletSubjectId;
-  }) => ConcreteThresholdEcdsaSessionRecord[];
+  }) => ThresholdEcdsaSessionRecord[];
   getThresholdEcdsaSessionRecordByThresholdSessionId?: (
     thresholdSessionId: string,
   ) => ThresholdEcdsaSessionRecord | null;
 };
 
-export type WarmSessionStatusReader = ThresholdWarmSessionStatusReader & {
+export type WarmSigningStatusReader = ThresholdWarmSessionStatusReader & {
   readEcdsaWarmSessionClaimForRecord: (
     record: ThresholdEcdsaSessionRecord,
   ) => Promise<WarmSessionPrfClaim | null>;
@@ -96,7 +95,7 @@ export type WarmSessionStatusReader = ThresholdWarmSessionStatusReader & {
 
 export function createWarmSessionStatusReader(
   deps: WarmSessionStatusReaderDeps,
-): WarmSessionStatusReader {
+): WarmSigningStatusReader {
   const readWalletScopedLaneClaimsForAccount =
     deps.readWalletScopedLaneClaimsForAccount || readWalletScopedLaneClaimsForAccountCore;
 
@@ -146,9 +145,9 @@ export function createWarmSessionStatusReader(
   }): WarmSessionEcdsaPolicyRecordHint[] {
     const chain = args.chainTarget.kind;
     const recordsBySession = new Map<string, WarmSessionEcdsaPolicyRecordHint>();
-    if (typeof deps.listConcreteThresholdEcdsaSessionRecordsForSubject === 'function') {
+    if (typeof deps.listThresholdEcdsaSessionRecordsForSubject === 'function') {
       const subjectId = toWalletSubjectId(args.nearAccountId);
-      for (const candidate of deps.listConcreteThresholdEcdsaSessionRecordsForSubject({
+      for (const candidate of deps.listThresholdEcdsaSessionRecordsForSubject({
         subjectId,
       })) {
         if (!thresholdEcdsaChainTargetsEqual(candidate.chainTarget, args.chainTarget)) continue;

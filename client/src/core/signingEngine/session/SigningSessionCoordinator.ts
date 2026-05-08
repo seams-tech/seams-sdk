@@ -1,9 +1,6 @@
 import type { AccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
-import {
-  deleteExactSealedSession,
-  updateExactSealedSessionPolicy,
-} from './sealedSessionStore';
+import { deleteExactSealedSession, updateExactSealedSessionPolicy } from './persistence/sealedSessionStore';
 import {
   createSigningPlannerDecisionTraceEvent,
   planSigningSession,
@@ -66,18 +63,14 @@ import {
   walletScopedClaimsForLanes,
   type WalletSigningSessionReadinessDeps,
   type WalletSigningSessionStatusOverride,
-} from './signingSession/readiness';
+} from './availability/readiness';
 import type {
-  SigningLaneContext,
+  SelectedSigningSessionPlanningLane,
   SigningOperationFingerprint,
   SigningOperationId,
   SigningOperationIntent,
   SigningSessionPlan,
 } from './signingSession/types';
-import {
-  selectedSigningLaneContextFromTransactionLane,
-  type TransactionLane,
-} from './signingSession/transactionState';
 import type { WarmSessionPrfClaim } from './warmSigning/types';
 
 export type { SigningSessionReadiness };
@@ -85,7 +78,7 @@ export type { SigningSessionReadiness };
 export type ResolveSigningSessionAuthPlanInput = SigningSessionPlannerInput;
 
 export type ResolveSigningSessionAuthPlanFromReadinessInput = {
-  lane: SigningLaneContext;
+  lane: SelectedSigningSessionPlanningLane;
   readiness: SigningSessionReadiness;
   expiresAtMs?: number;
   remainingUses?: number;
@@ -137,9 +130,9 @@ export type SigningSessionStatusState = {
 
 export type SigningSessionCoordinatorDeps = SigningSessionStatusDeps &
   SigningSessionBudgetDeps & {
-  onPlannerTrace?: (event: SigningPlannerDecisionTraceEvent) => void;
-  onWalletBudgetTrace?: SigningSessionBudgetDeps['onTrace'];
-};
+    onPlannerTrace?: (event: SigningPlannerDecisionTraceEvent) => void;
+    onWalletBudgetTrace?: SigningSessionBudgetDeps['onTrace'];
+  };
 
 type SigningSessionCoordinatorBudgetState = {
   successfulSpendsByOperationId: Map<
@@ -153,9 +146,7 @@ type SigningSessionCoordinatorBudgetState = {
   walletReservationQueues: Map<string, Promise<unknown>>;
 };
 
-export class SigningSessionCoordinator
-  implements SigningSessionStatusPort, SigningSessionBudget
-{
+export class SigningSessionCoordinator implements SigningSessionStatusPort, SigningSessionBudget {
   private readonly onPlannerTrace?: (event: SigningPlannerDecisionTraceEvent) => void;
   private readonly onWalletBudgetTrace?: SigningSessionBudgetDeps['onTrace'];
   private readonly walletBudgetStatusReader?: SigningSessionBudgetStatusReader;
@@ -173,8 +164,7 @@ export class SigningSessionCoordinator
       ...deps,
       updateExactSealedSessionPolicy:
         deps.updateExactSealedSessionPolicy || updateExactSealedSessionPolicy,
-      deleteExactSealedSession:
-        deps.deleteExactSealedSession || deleteExactSealedSession,
+      deleteExactSealedSession: deps.deleteExactSealedSession || deleteExactSealedSession,
     };
     this.walletSessionState = {
       statusOverrides: new Map(),
@@ -253,7 +243,9 @@ export class SigningSessionCoordinator
       });
     };
     const lanes = discoverLanesForAccount(this.walletSessionDeps, args.nearAccountId).filter(
-      (lane) => !walletSigningSessionIdFilter || lane.walletSigningSessionId === walletSigningSessionIdFilter,
+      (lane) =>
+        !walletSigningSessionIdFilter ||
+        lane.walletSigningSessionId === walletSigningSessionIdFilter,
     );
     if (!lanes.length) return await readDirectTargetStatus();
     const walletSigningSessionId = walletSigningSessionIdFilter || lanes[0].walletSigningSessionId;
@@ -265,10 +257,12 @@ export class SigningSessionCoordinator
         )
       : lanes;
     if (hasExplicitTarget && !statusLanes.length) {
-      return (await readDirectTargetStatus()) || {
-        sessionId: walletSigningSessionId,
-        status: 'not_found',
-      };
+      return (
+        (await readDirectTargetStatus()) || {
+          sessionId: walletSigningSessionId,
+          status: 'not_found',
+        }
+      );
     }
     const rawClaims = await readClaimsForLanes({
       deps: this.walletSessionDeps,
@@ -448,26 +442,22 @@ export class SigningSessionCoordinator
 
   async prepareBudgetIdentity(input: {
     nearAccountId: AccountId | string;
-    lane: SigningLaneContext | TransactionLane;
+    lane: SelectedSigningSessionPlanningLane;
     trustedStatusAuth?: SigningSessionBudgetStatusAuth;
     operationUsesNeeded?: number;
   }): Promise<SigningSessionPreparedBudgetIdentity> {
-    const lane =
-      !('keyKind' in input.lane)
-        ? selectedSigningLaneContextFromTransactionLane(input.lane)
-        : input.lane;
     const walletSigningSessionId = normalizeRequired(
-      lane.walletSigningSessionId,
+      input.lane.walletSigningSessionId,
       'walletSigningSessionId',
     );
     const status = await this.getAvailableStatus({
       nearAccountId: input.nearAccountId,
       walletSigningSessionId,
-      ...(lane.backingMaterialSessionId
-        ? { targetBackingMaterialSessionIds: [lane.backingMaterialSessionId] }
+      ...(input.lane.backingMaterialSessionId
+        ? { targetBackingMaterialSessionIds: [input.lane.backingMaterialSessionId] }
         : {}),
-      ...(lane.thresholdSessionId
-        ? { targetThresholdSessionIds: [lane.thresholdSessionId] }
+      ...(input.lane.thresholdSessionId
+        ? { targetThresholdSessionIds: [input.lane.thresholdSessionId] }
         : {}),
       ...(input.trustedStatusAuth ? { trustedStatusAuth: input.trustedStatusAuth } : {}),
     });
@@ -526,8 +516,7 @@ export class SigningSessionCoordinator
       // wallet budget states so restored lanes do not become false not_found.
       return budgetUnknownSigningSessionStatus({
         walletSigningSessionId,
-        reason:
-          status.status === 'unavailable' ? 'status_unavailable' : 'missing_trusted_status',
+        reason: status.status === 'unavailable' ? 'status_unavailable' : 'missing_trusted_status',
       });
     }
     const projectionVersion = String(status.projectionVersion || '').trim();
@@ -636,7 +625,12 @@ export class SigningSessionCoordinator
 
   private async applyWalletBudgetToReadiness(
     input: ResolveSigningSessionAuthPlanFromReadinessInput,
-  ): Promise<Pick<ResolveSigningSessionAuthPlanFromReadinessResult, 'readiness' | 'expiresAtMs' | 'remainingUses'>> {
+  ): Promise<
+    Pick<
+      ResolveSigningSessionAuthPlanFromReadinessResult,
+      'readiness' | 'expiresAtMs' | 'remainingUses'
+    >
+  > {
     const walletSigningSessionId = String(input.lane.walletSigningSessionId || '').trim();
     const walletBudgetStatus = walletSigningSessionId
       ? await this.getAvailableStatus({
@@ -749,7 +743,9 @@ export class SigningSessionCoordinator
       throw new Error('[SigningSessionBudget] wallet signing-session spend returned not_found');
     }
     if (status.status === 'budget_unknown') {
-      throw new Error('[SigningSessionBudget] wallet signing-session spend returned budget_unknown');
+      throw new Error(
+        '[SigningSessionBudget] wallet signing-session spend returned budget_unknown',
+      );
     }
     const statusSummary = status ? summarizeWalletSigningSessionStatus(status) : undefined;
     this.emitWalletBudgetTrace(
@@ -774,16 +770,16 @@ export class SigningSessionCoordinator
 function hasWalletSigningSessionReadinessDeps(deps: SigningSessionCoordinatorDeps): boolean {
   return Boolean(
     deps.touchConfirm ||
-      deps.listConcreteThresholdEcdsaSessionRecordsForSubject ||
-      deps.getEmailOtpWarmSessionStatus,
+    deps.listThresholdEcdsaSessionRecordsForSubject ||
+    deps.getEmailOtpWarmSessionStatus,
   );
 }
 
 function hasWalletSigningSessionConsumeDeps(deps: SigningSessionCoordinatorDeps): boolean {
   return Boolean(
     deps.consumeUse ||
-      deps.touchConfirm?.consumeWarmSessionUses ||
-      deps.consumeEmailOtpWarmSessionUses ||
-      deps.markThresholdEd25519EmailOtpSessionConsumedForAccount,
+    deps.touchConfirm?.consumeWarmSessionUses ||
+    deps.consumeEmailOtpWarmSessionUses ||
+    deps.markThresholdEd25519EmailOtpSessionConsumedForAccount,
   );
 }

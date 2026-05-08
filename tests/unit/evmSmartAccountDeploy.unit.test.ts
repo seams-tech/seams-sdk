@@ -1,12 +1,16 @@
 import { expect, test } from '@playwright/test';
+import { smartAccountChainTargetFromParts } from '../../server/src/core/smartAccountChainTarget';
 import { createEvmSmartAccountDeployHandler } from '../../server/src/router/evmSmartAccountDeploy';
 import type { SmartAccountDeployRequest } from '../../server/src/router/relay';
 
 function makeBaseRequest(): SmartAccountDeployRequest {
   return {
     nearAccountId: 'alice.testnet',
-    chain: 'evm' as const,
-    chainId: 11155111,
+    chainTarget: smartAccountChainTargetFromParts({
+      chain: 'evm',
+      chainId: 11155111,
+      networkSlug: 'sepolia',
+    })!,
     accountAddress: `0x${'11'.repeat(20)}`,
     accountModel: 'erc4337',
     deploymentManifest: {
@@ -14,8 +18,11 @@ function makeBaseRequest(): SmartAccountDeployRequest {
       chainIdKey: 'evm:11155111',
       accountAddress: `0x${'11'.repeat(20)}`,
       nearAccountIdHash: `0x${'aa'.repeat(32)}` as `0x${string}`,
-      chain: 'evm' as const,
-      chainId: 11155111,
+      chainTarget: smartAccountChainTargetFromParts({
+        chain: 'evm',
+        chainId: 11155111,
+        networkSlug: 'sepolia',
+      })!,
       accountModel: 'erc4337' as const,
       deployed: false,
       ownerAddresses: [`0x${'33'.repeat(20)}`],
@@ -56,8 +63,11 @@ test.describe('evm smart-account deploy hook', () => {
     const handler = createEvmSmartAccountDeployHandler({ config: null, logger: null });
     const result = await handler({
       ...makeBaseRequest(),
-      chain: 'tempo',
-      chainId: 42431,
+      chainTarget: smartAccountChainTargetFromParts({
+        chain: 'tempo',
+        chainId: 42431,
+        networkSlug: 'tempo-testnet',
+      })!,
       accountModel: 'tempo-native',
     });
     expect(result).toEqual({

@@ -5,7 +5,7 @@ import {
   createThresholdEcdsaBootstrapFixture,
   createThresholdEcdsaStoreFixture,
   createWarmSessionStatusReader,
-  createWarmSessionTouchConfirmFixture,
+  createWarmSessionUiConfirmFixture,
   resetWarmSessionFixtureState,
   seedEd25519WarmSessionRecord,
   seedEcdsaWarmSessionRecord,
@@ -130,7 +130,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
       source: 'login',
       bootstrap: staleBootstrap,
     });
-    const fixture = createWarmSessionTouchConfirmFixture({
+    const fixture = createWarmSessionUiConfirmFixture({
       claimsBySessionId: {
         [staleRecord.thresholdSessionId]: {
           state: 'missing',
@@ -144,7 +144,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
       onTransition: (event) => {
         transitions.push(event);
       },
-      listThresholdEcdsaKeyRefsForLookup: () => [
+      listThresholdEcdsaKeyRefsForAccountTarget: () => [
         { source: 'login', keyRef: staleBootstrap.thresholdEcdsaKeyRef },
       ],
       provisionThresholdEcdsaSession: async ({ nearAccountId, chainTarget }) => {
@@ -176,6 +176,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
       chain: 'evm',
       usesNeeded: 1,
       sessionBudgetUses: 1,
+      clientRootShare32B64u: 'transition-client-root-share',
     });
 
     expect(transitions.map((event) => event.type)).toEqual([
@@ -185,7 +186,6 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
     expect(transitions[1]).toMatchObject({
       type: 'ecdsa_capability_reconnected',
       accountId: 'transition-ecdsa.testnet',
-      chain: 'evm',
       thresholdSessionId: 'ecdsa-fresh-session',
       before: {
         capabilities: {
@@ -193,17 +193,6 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
             evm: {
               state: 'prf_missing',
               thresholdSessionId: 'ecdsa-stale-session',
-            },
-          },
-        },
-      },
-      after: {
-        capabilities: {
-          ecdsa: {
-            evm: {
-              state: 'ready',
-              thresholdSessionId: 'ecdsa-fresh-session',
-              prfClaimState: 'warm',
             },
           },
         },

@@ -58,7 +58,7 @@ async function seedNonHostedEmailOtpMapping(
 }
 
 test.describe('hosted Google Email OTP account privacy', () => {
-  test('registration does not reuse non-HMAC-readable email-derived wallet mappings', async () => {
+  test('registration fails closed on non-HMAC-readable email-derived wallet mappings', async () => {
     const service = makeService();
     const providerSubject = 'google:subject-non-hmac-email-wallet';
     await seedNonHostedEmailOtpMapping(service, {
@@ -73,13 +73,13 @@ test.describe('hosted Google Email OTP account privacy', () => {
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
 
-    expect(resolved.ok).toBe(true);
-    if (!resolved.ok) return;
-    expect(resolved.mode).toBe('register_started');
-    if (resolved.mode !== 'register_started') return;
-    expect(resolved.walletId).toMatch(/^[a-z]+-[a-z]+-[a-z0-9]{10}\.relayer\.testnet$/);
-    expect(resolved.walletId).not.toContain('alice');
-    expect(resolved.walletId).not.toContain('example');
+    expect(resolved).toMatchObject({
+      ok: false,
+      mode: 'stale_identity_mapping',
+      code: 'stale_identity_mapping',
+      walletId: 'alice-example-com-1776502017920.relayer.testnet',
+      providerSubject,
+    });
   });
 
   test('login does not accept non-HMAC-readable email-derived wallet mappings', async () => {
@@ -98,7 +98,7 @@ test.describe('hosted Google Email OTP account privacy', () => {
         runtimePolicyScope: RUNTIME_POLICY_SCOPE,
       }),
     ).rejects.toMatchObject({
-      code: 'not_found',
+      code: 'stale_identity_mapping',
     });
   });
 

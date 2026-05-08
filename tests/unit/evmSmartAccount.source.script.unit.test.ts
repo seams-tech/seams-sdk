@@ -78,6 +78,12 @@ test.describe('source-backed EVM smart-account verification', () => {
           metadata: {
             chain: 'evm',
             chainId: 11155111,
+            chainTarget: {
+              kind: 'evm',
+              namespace: 'eip155',
+              chainId: 11155111,
+              networkSlug: 'ethereum-sepolia',
+            },
             accountModel: 'erc4337',
             deployed: false,
             factory: ${JSON.stringify(`0x${'22'.repeat(20)}`)},
@@ -333,7 +339,7 @@ test.describe('source-backed EVM smart-account verification', () => {
             network: {
               chains: [
                 {
-                  network: 'evm-sepolia',
+                  network: 'ethereum-sepolia',
                   chainId: 11155111,
                   rpcUrl: 'https://rpc.evm.example.test',
                 },
@@ -382,7 +388,7 @@ test.describe('source-backed EVM smart-account verification', () => {
       });
 
       const baseInput = {
-        nearAccountId: 'alice.testnet',
+        ownerAccountId: 'alice.testnet',
         op: { id: 'op1' },
         signer: {
           signerId: ownerAddress,

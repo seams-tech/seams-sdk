@@ -4,7 +4,7 @@ import {
   createThresholdEcdsaHssHiddenEvalFinalizeMessage,
   encodeThresholdEcdsaHssHiddenEvalRequestMessage,
   parseThresholdEcdsaHssHiddenEvalServerResponseMessage,
-} from '@/core/signingEngine/threshold/workflows/thresholdEcdsaHssTransport';
+} from '@/core/signingEngine/threshold/ecdsa/hssTransport';
 import {
   computeThresholdEcdsaHssRequestDigestB64u,
   createOpaqueBase64Envelope,

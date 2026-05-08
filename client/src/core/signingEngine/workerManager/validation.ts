@@ -1,4 +1,4 @@
-import { normalizeRegistrationCredential } from '@/core/signingEngine/signers/webauthn/credentials/helpers';
+import { normalizeRegistrationCredential } from '@/core/signingEngine/walletAuth/webauthn/credentials/helpers';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
 import type { TransactionContext } from '@/core/types/rpc';
 import { isObject, assertString, ensureEd25519Prefix } from '@shared/utils/validation';

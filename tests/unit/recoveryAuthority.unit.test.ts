@@ -1,22 +1,15 @@
 import { expect, test } from '@playwright/test';
-import { injectImportMap } from '../setup/bootstrap';
-
-const IMPORT_PATHS = {
-  server: '/sdk/esm/server/index.js',
-} as const;
+import {
+  confirmSubmittedSmartAccountRecoveryExecutions,
+  createSponsoredRecoveryDeployedExecutor,
+  createSponsoredRecoverySubmittedConfirmer,
+  executePendingSmartAccountRecoveryExecutions,
+  retryFailedSmartAccountRecoveryExecutions,
+} from '../../server/src/core/recoveryAuthority';
 
 test.describe('recovery authority executor', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/');
-    await injectImportMap(page);
-  });
-
-  test('confirms undeployed recovery by activating the canonical signer immediately', async ({
-    page,
-  }) => {
-    const result = await page.evaluate(
-      async ({ paths }) => {
-        const { executePendingSmartAccountRecoveryExecutions } = await import(paths.server);
+  test('confirms undeployed recovery by activating the canonical signer immediately', async () => {
+    const result = await (async () => {
         const sessionUpdates: Array<Record<string, unknown>> = [];
         const signerWrites: Array<Record<string, unknown>> = [];
         const executionState = new Map<string, Record<string, unknown>>();
@@ -103,9 +96,7 @@ test.describe('recovery authority executor', () => {
           finalExecution: executionState.get(key),
           sessionUpdates,
         };
-      },
-      { paths: IMPORT_PATHS },
-    );
+    })();
 
     expect(result.executed.ok).toBe(true);
     expect((result.executed as any).result).toEqual({
@@ -124,12 +115,8 @@ test.describe('recovery authority executor', () => {
     expect(result.sessionUpdates.at(-1)?.status).toBe('completed');
   });
 
-  test('marks deployed recovery as submitted without activating the signer before confirmation', async ({
-    page,
-  }) => {
-    const result = await page.evaluate(
-      async ({ paths }) => {
-        const { executePendingSmartAccountRecoveryExecutions } = await import(paths.server);
+  test('marks deployed recovery as submitted without activating the signer before confirmation', async () => {
+    const result = await (async () => {
         const sessionUpdates: Array<Record<string, unknown>> = [];
         const signerWrites: Array<Record<string, unknown>> = [];
         const executionState = new Map<string, Record<string, unknown>>();
@@ -258,9 +245,7 @@ test.describe('recovery authority executor', () => {
           finalExecution: executionState.get(key),
           sessionUpdates,
         };
-      },
-      { paths: IMPORT_PATHS },
-    );
+    })();
 
     expect(result.executed.ok).toBe(true);
     expect((result.executed as any).result).toEqual({
@@ -283,12 +268,8 @@ test.describe('recovery authority executor', () => {
     expect(result.sessionUpdates.at(-1)?.status).toBe('evm_recovering');
   });
 
-  test('leaves deployed recovery pending when no deployed executor is configured', async ({
-    page,
-  }) => {
-    const result = await page.evaluate(
-      async ({ paths }) => {
-        const { executePendingSmartAccountRecoveryExecutions } = await import(paths.server);
+  test('leaves deployed recovery pending when no deployed executor is configured', async () => {
+    const result = await (async () => {
         const sessionUpdates: Array<Record<string, unknown>> = [];
         const executionState = new Map<string, Record<string, unknown>>();
         const pendingExecution = {
@@ -373,9 +354,7 @@ test.describe('recovery authority executor', () => {
           finalExecution: executionState.get(key),
           sessionUpdates,
         };
-      },
-      { paths: IMPORT_PATHS },
-    );
+    })();
 
     expect(result.executed.ok).toBe(true);
     expect((result.executed as any).result).toEqual({
@@ -389,12 +368,8 @@ test.describe('recovery authority executor', () => {
     expect(result.sessionUpdates).toEqual([]);
   });
 
-  test('requeues retryable failed recovery executions and reopens the session', async ({
-    page,
-  }) => {
-    const result = await page.evaluate(
-      async ({ paths }) => {
-        const { retryFailedSmartAccountRecoveryExecutions } = await import(paths.server);
+  test('requeues retryable failed recovery executions and reopens the session', async () => {
+    const result = await (async () => {
         const sessionUpdates: Array<Record<string, unknown>> = [];
         const executionState = new Map<string, Record<string, unknown>>();
         const failedExecution = {
@@ -517,9 +492,7 @@ test.describe('recovery authority executor', () => {
           finalExecution: executionState.get(key),
           sessionUpdates,
         };
-      },
-      { paths: IMPORT_PATHS },
-    );
+    })();
 
     expect(result.retried.ok).toBe(true);
     expect((result.retried as any).result).toEqual({
@@ -542,10 +515,8 @@ test.describe('recovery authority executor', () => {
     expect(result.sessionUpdates.at(-1)?.status).toBe('evm_recovering');
   });
 
-  test('keeps terminal failed recovery executions failed', async ({ page }) => {
-    const result = await page.evaluate(
-      async ({ paths }) => {
-        const { retryFailedSmartAccountRecoveryExecutions } = await import(paths.server);
+  test('keeps terminal failed recovery executions failed', async () => {
+    const result = await (async () => {
         const sessionUpdates: Array<Record<string, unknown>> = [];
         const executionState = new Map<string, Record<string, unknown>>();
         const failedExecution = {
@@ -628,9 +599,7 @@ test.describe('recovery authority executor', () => {
           finalExecution: executionState.get(key),
           sessionUpdates,
         };
-      },
-      { paths: IMPORT_PATHS },
-    );
+    })();
 
     expect(result.retried.ok).toBe(true);
     expect((result.retried as any).result).toEqual({
@@ -644,10 +613,8 @@ test.describe('recovery authority executor', () => {
     expect(result.sessionUpdates).toEqual([]);
   });
 
-  test('builds a sponsored addOwner call for deployed recovery execution', async ({ page }) => {
-    const result = await page.evaluate(
-      async ({ paths }) => {
-        const { createSponsoredRecoveryDeployedExecutor } = await import(paths.server);
+  test('builds a sponsored addOwner call for deployed recovery execution', async () => {
+    const result = await (async () => {
         const executedAdapters: Array<Record<string, unknown>> = [];
         const run = createSponsoredRecoveryDeployedExecutor({
           sponsorship: {
@@ -708,7 +675,7 @@ test.describe('recovery authority executor', () => {
             observabilityIngestion: null,
             webhooks: null,
           },
-          executeAdapter: async (adapter: any) => {
+          executeAdapter: (async (adapter: any) => {
             executedAdapters.push({
               executorKind: adapter.executorKind,
               meta: adapter.meta,
@@ -719,7 +686,7 @@ test.describe('recovery authority executor', () => {
               effectiveGasPrice: '67890',
               feeAmount: '42',
             };
-          },
+          }) as any,
           readBalanceSnapshot: async () => null,
           reserveSpendCap: async () => null,
           reservePrepaidBalance: async () => ({
@@ -728,9 +695,9 @@ test.describe('recovery authority executor', () => {
             estimatedPricingVersion: 'pricing_v1',
           }),
           settleSpendCap: async () => null,
-          recordExecution: async () => ({
+          recordExecution: (async () => ({
             id: 'scr_recovery_1',
-          }),
+          })) as any,
         });
 
         const execution = await run({
@@ -750,7 +717,9 @@ test.describe('recovery authority executor', () => {
               recoveryDeadlineEpochSeconds: 1_893_456_000,
               sponsorshipScope: {
                 orgId: 'org_recovery',
-                environmentId: 'env_recovery',
+                projectId: 'proj_recovery',
+                envId: 'env_recovery',
+                signingRootVersion: 'srv_recovery',
               },
             },
           },
@@ -761,9 +730,7 @@ test.describe('recovery authority executor', () => {
           execution,
           executedAdapters,
         };
-      },
-      { paths: IMPORT_PATHS },
-    );
+    })();
 
     expect(result.execution?.status).toBe('confirmed');
     expect(result.execution?.transactionHash).toBe(`0x${'aa'.repeat(32)}`);
@@ -776,13 +743,14 @@ test.describe('recovery authority executor', () => {
     expect(result.execution?.metadataPatch?.sponsoredGasUsed).toBe('12345');
     expect(result.execution?.metadataPatch?.sponsoredEffectiveGasPrice).toBe('67890');
     expect(result.execution?.metadataPatch?.sponsoredFeeAmount).toBe('42');
-    expect(result.execution?.metadataPatch?.recoverySpec?.version).toBe(
+    const recoverySpec = result.execution?.metadataPatch?.recoverySpec as any;
+    expect(recoverySpec?.version).toBe(
       'seams_evm_recovery_spec_v1',
     );
-    expect(result.execution?.metadataPatch?.recoverySpec?.newOwnerAddress).toBe(
+    expect(recoverySpec?.newOwnerAddress).toBe(
       `0x${'11'.repeat(20)}`,
     );
-    expect(result.execution?.metadataPatch?.recoverySpec?.call).toEqual(
+    expect(recoverySpec?.call).toEqual(
       expect.objectContaining({
         to: `0x${'22'.repeat(20)}`,
         gasLimit: '250000',
@@ -794,11 +762,11 @@ test.describe('recovery authority executor', () => {
       }),
     );
     expect(
-      String(result.execution?.metadataPatch?.recoverySpec?.call?.data || '').startsWith(
-        String(result.execution?.metadataPatch?.recoverySpec?.call?.selector || ''),
+      String(recoverySpec?.call?.data || '').startsWith(
+        String(recoverySpec?.call?.selector || ''),
       ),
     ).toBe(true);
-    expect(result.execution?.metadataPatch?.recoverySpec?.authorization).toEqual(
+    expect(recoverySpec?.authorization).toEqual(
       expect.objectContaining({
         version: 'recovery_authority_authorization_v1',
         contractMethod: 'verifyAndRecover',
@@ -823,12 +791,8 @@ test.describe('recovery authority executor', () => {
     ]);
   });
 
-  test('confirms submitted deployed recovery and activates the canonical signer after receipt confirmation', async ({
-    page,
-  }) => {
-    const result = await page.evaluate(
-      async ({ paths }) => {
-        const { confirmSubmittedSmartAccountRecoveryExecutions } = await import(paths.server);
+  test('confirms submitted deployed recovery and activates the canonical signer after receipt confirmation', async () => {
+    const result = await (async () => {
         const sessionUpdates: Array<Record<string, unknown>> = [];
         const signerWrites: Array<Record<string, unknown>> = [];
         const executionState = new Map<string, Record<string, unknown>>();
@@ -958,9 +922,7 @@ test.describe('recovery authority executor', () => {
           finalExecution: executionState.get(key),
           sessionUpdates,
         };
-      },
-      { paths: IMPORT_PATHS },
-    );
+    })();
 
     expect(result.executed.ok).toBe(true);
     expect((result.executed as any).result).toEqual({
@@ -983,12 +945,8 @@ test.describe('recovery authority executor', () => {
     expect(result.sessionUpdates.at(-1)?.status).toBe('completed');
   });
 
-  test('leaves submitted deployed recovery submitted when no confirmer is configured', async ({
-    page,
-  }) => {
-    const result = await page.evaluate(
-      async ({ paths }) => {
-        const { confirmSubmittedSmartAccountRecoveryExecutions } = await import(paths.server);
+  test('leaves submitted deployed recovery submitted when no confirmer is configured', async () => {
+    const result = await (async () => {
         const sessionUpdates: Array<Record<string, unknown>> = [];
         const executionState = new Map<string, Record<string, unknown>>();
         const submittedExecution = {
@@ -1068,9 +1026,7 @@ test.describe('recovery authority executor', () => {
           finalExecution: executionState.get(key),
           sessionUpdates,
         };
-      },
-      { paths: IMPORT_PATHS },
-    );
+    })();
 
     expect(result.executed.ok).toBe(true);
     expect((result.executed as any).result).toEqual({
@@ -1084,12 +1040,8 @@ test.describe('recovery authority executor', () => {
     expect(result.sessionUpdates).toEqual([]);
   });
 
-  test('keeps submitted sponsored recovery in submitted state when receipt confirmation times out', async ({
-    page,
-  }) => {
-    const result = await page.evaluate(
-      async ({ paths }) => {
-        const { createSponsoredRecoverySubmittedConfirmer } = await import(paths.server);
+  test('keeps submitted sponsored recovery in submitted state when receipt confirmation times out', async () => {
+    const result = await (async () => {
         const confirm = createSponsoredRecoverySubmittedConfirmer({
           config: {
             executorsByChain: new Map([
@@ -1141,9 +1093,7 @@ test.describe('recovery authority executor', () => {
           newOwnerAddress: `0x${'11'.repeat(20)}`,
           transactionHash: `0x${'aa'.repeat(32)}`,
         });
-      },
-      { paths: IMPORT_PATHS },
-    );
+    })();
 
     expect(result.status).toBe('submitted');
     expect(result.transactionHash).toBe(`0x${'aa'.repeat(32)}`);
@@ -1153,12 +1103,8 @@ test.describe('recovery authority executor', () => {
     expect(result.metadataPatch?.confirmationFinalizationBranch).toBe('timeout');
   });
 
-  test('confirms submitted sponsored recovery and records receipt fee metadata', async ({
-    page,
-  }) => {
-    const result = await page.evaluate(
-      async ({ paths }) => {
-        const { createSponsoredRecoverySubmittedConfirmer } = await import(paths.server);
+  test('confirms submitted sponsored recovery and records receipt fee metadata', async () => {
+    const result = await (async () => {
         const confirm = createSponsoredRecoverySubmittedConfirmer({
           config: {
             executorsByChain: new Map([
@@ -1202,9 +1148,7 @@ test.describe('recovery authority executor', () => {
           newOwnerAddress: `0x${'11'.repeat(20)}`,
           transactionHash: `0x${'aa'.repeat(32)}`,
         });
-      },
-      { paths: IMPORT_PATHS },
-    );
+    })();
 
     expect(result.status).toBe('confirmed');
     expect(result.transactionHash).toBe(`0x${'aa'.repeat(32)}`);

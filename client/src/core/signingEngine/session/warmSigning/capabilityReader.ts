@@ -1,4 +1,4 @@
-import type { WarmSessionStatusResult } from '../../touchConfirm';
+import type { WarmSessionStatusResult } from '../../uiConfirm/types';
 import {
   createWarmSessionCapabilityReaderCore,
   type WarmSessionCapabilityReaderCoreDeps,
@@ -35,8 +35,8 @@ export function createWarmSessionCapabilityReader(
   const statusReader = createWarmSessionStatusReader({
     touchConfirm: deps.touchConfirm,
     getEmailOtpWarmSessionStatus,
-    listConcreteThresholdEcdsaSessionRecordsForSubject:
-      deps.listConcreteThresholdEcdsaSessionRecordsForSubject,
+    listThresholdEcdsaSessionRecordsForSubject:
+      deps.listThresholdEcdsaSessionRecordsForSubject,
     getThresholdEcdsaSessionRecordByThresholdSessionId:
       deps.getThresholdEcdsaSessionRecordByThresholdSessionId,
   });

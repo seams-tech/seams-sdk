@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   bindEvmFamilyCallerProvidedOperationIdToFingerprint,
   createEvmFamilySigningOperationIds,
-} from '@/core/signingEngine/api/evmFamily/operationIds';
+} from '@/core/signingEngine/flows/signEvmFamily/operationIds';
 import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
 import { computeSigningOperationFingerprint } from '@/core/signingEngine/session/signingSession/operationFingerprint';
 import { SigningSessionIds } from '@/core/signingEngine/session/signingSession/types';

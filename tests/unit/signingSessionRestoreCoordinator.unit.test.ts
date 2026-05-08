@@ -1,10 +1,10 @@
 import { expect, test } from '@playwright/test';
-import type { SigningSessionSealedStoreRecord } from '@/core/signingEngine/session/sealedSessionStore';
+import type { SigningSessionSealedStoreRecord } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import {
   createSigningSessionRestoreCache,
   restorePersistedSessionsForAccountCommand,
   restorePersistedSessionForSigningCommand,
-} from '@/core/signingEngine/session/restoreCoordinator';
+} from '@/core/signingEngine/session/restore/restoreCoordinator';
 
 const TEST_ECDSA_CHAIN_TARGETS = {
   tempo: { kind: 'tempo' as const, chainId: 42431, networkSlug: 'tempo-moderato' },
@@ -169,7 +169,9 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
       authMethod: 'email_otp' as const,
       curve: 'ecdsa' as const,
       chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
-      reason: 'session_status' as const,
+      walletSigningSessionId: 'wsess-restore',
+      thresholdSessionId: 'tsess-restore',
+      reason: 'transaction' as const,
     };
     const ports = {
       cache,

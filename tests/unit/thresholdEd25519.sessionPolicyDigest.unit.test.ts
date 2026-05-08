@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { buildEd25519SessionPolicy } from '@/core/signingEngine/threshold/session/sessionPolicy';
+import { buildEd25519SessionPolicy } from '@/core/signingEngine/threshold/sessionPolicy';
 import { THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID } from '@server/core/ThresholdService/schemes/schemeIds';
 import { walletSigningBudgetSessionId } from '@server/core/ThresholdService/walletSigningBudget';
 import {

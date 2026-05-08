@@ -295,6 +295,19 @@ Signing may consume a prefetch only when the current command recomputes the same
 
 ## Implementation Phases
 
+### Phased Todo List
+
+Use this checklist as the progress tracker. The phase sections below keep the
+file ownership and detailed implementation notes.
+
+- [ ] Phase 1: Add threshold-signing preconnect and WASM resource warm-up.
+- [ ] Phase 2: Add Ed25519 intent keys and the in-memory prefetch registry.
+- [ ] Phase 3: Prefetch Ed25519 authorization and reuse matching `mpcSessionId`s.
+- [ ] Phase 4: Expose SDK and iframe prefetch APIs with boundary validation.
+- [ ] Phase 5: Add the React prefetch hook and stale-handle cancellation.
+- [ ] Phase 6: Extend exact-intent prefetch to EVM-family signing.
+- [ ] Phase 7: Keep server authorization on the bounded fast path and add timing diagnostics.
+
 ### Phase 1: Preconnect Fast Path
 
 Files:
@@ -474,4 +487,3 @@ Add timing marks for:
 
 Report metrics as debug diagnostics first. Product analytics can be added after
 the behavior is stable.
-

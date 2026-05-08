@@ -23,11 +23,11 @@ import type {
   ThresholdEcdsaLoginPrefillResult,
   ThresholdEcdsaSessionBootstrapResult,
 } from '../signingEngine/SigningEngine';
-import type { ThresholdEcdsaChainTarget } from '../signingEngine/session/signingSession/ecdsaChainTarget';
+import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   ThresholdEd25519HssFinalizedReportEnvelope,
   ThresholdEd25519HssPreparedSessionEnvelope,
-} from '../signingEngine/signers/wasm/hssClientSignerWasm';
+} from '../signingEngine/threshold/crypto/hssClientSignerWasm';
 import type { SignedTransaction, AccessKeyList } from '../rpcClients/near/NearClient';
 import type { PreferencesChangedPayload } from './shared/messages';
 import type {
@@ -73,8 +73,8 @@ import type { DelegateActionInput, SignedDelegate } from '../types/delegate';
 import { buildConfigsFromEnv } from '../config/defaultConfigs';
 import { cloneAuthenticatorOptions } from '../types/authenticatorOptions';
 import { configureIndexedDB } from '../indexedDB';
-import type { EvmSignedResult } from '../signingEngine/chainAdaptors/evm/evmAdapter';
-import type { TempoSignedResult } from '../signingEngine/chainAdaptors/tempo/tempoAdapter';
+import type { EvmSignedResult } from '../signingEngine/chains/evm/evmAdapter';
+import type { TempoSignedResult } from '../signingEngine/chains/tempo/tempoAdapter';
 import type {
   BootstrapThresholdEcdsaSessionArgs,
   ExecuteEvmFamilyTransactionArgs,

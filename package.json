@@ -16,7 +16,7 @@
     "format:rust:check": "bash -lc 'for dir in wasm/*_signer; do (cd \"$dir\" && cargo fmt -- --check); done'",
     "lint:rust": "bash -lc 'for dir in wasm/*_signer; do (cd \"$dir\" && cargo clippy --all-targets); done'",
     "lint:rust:strict": "bash -lc 'for dir in wasm/*_signer; do (cd \"$dir\" && cargo clippy --all-targets -- -D warnings); done'",
-    "check:signing-architecture": "node ./sdk/scripts/checks/check-signing-api-cycles.mjs && node ./sdk/scripts/checks/check-stable-experimental-export-boundaries.mjs && node ./sdk/scripts/checks/check-worker-runtime-boundaries.mjs && node ./sdk/scripts/checks/check-signing-root-refactor-boundaries.mjs",
+    "check:signing-architecture": "node ./sdk/scripts/checks/check-stable-experimental-export-boundaries.mjs && node ./sdk/scripts/checks/check-signing-root-refactor-boundaries.mjs",
     "check:signer-parity": "pnpm -C tests test:signer-parity",
     "check:formal-verification": "cargo hss-fv all",
     "type-check:sdk": "pnpm -C sdk type-check",

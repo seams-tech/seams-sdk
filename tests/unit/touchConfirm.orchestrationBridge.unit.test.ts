@@ -1,15 +1,15 @@
 import { expect, test } from '@playwright/test';
-import { orchestrateSigningConfirmation } from '@/core/signingEngine/touchConfirm/handlers/flowOrchestrator';
+import { orchestrateSigningConfirmation } from '@/core/signingEngine/uiConfirm/handlers/flowOrchestrator';
 import {
   PENDING_INTENT_DIGEST,
   clearIntentDigestPreparation,
   consumeIntentDigestPreparation,
-} from '@/core/signingEngine/touchConfirm/intentDigestPreparationRegistry';
+} from '@/core/signingEngine/stepUpConfirmation/intentDigestPreparation';
 import {
   getEmailOtpPrompt,
   getSigningAuthMode,
-} from '@/core/signingEngine/touchConfirm/handlers/flows/adapters/request';
-import type { SigningAuthPlan } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
+} from '@/core/signingEngine/uiConfirm/handlers/flows/adapters/request';
+import type { SigningAuthPlan } from '@/core/signingEngine/stepUpConfirmation/types';
 
 const passkeyPlan: SigningAuthPlan = {
   kind: 'passkeyReauth',

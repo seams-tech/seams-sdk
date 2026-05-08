@@ -10,17 +10,41 @@ import type {
   WasmSignedDelegate,
 } from '@/core/types/signer-worker';
 import type { SigningRuntimeDeps } from './runtime';
-import type { SigningAuthPlan } from '../touchConfirm/shared/confirmTypes';
+import type { SigningAuthPlan } from '../stepUpConfirmation/types';
 import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { SigningSessionCoordinator } from '../session/SigningSessionCoordinator';
-import type { SigningLaneContext, SigningOperationId } from '../session/signingSession/types';
-import type { ThresholdEd25519SessionRecord } from '../api/thresholdLifecycle/thresholdSessionStore';
+import type {
+  SigningOperationId,
+  SigningSessionPlan,
+} from '../session/signingSession/types';
+import type { NearTransactionSigningLane } from '../session/signingSession/lanes';
+import type { SelectedEd25519Lane } from '../session/identity/laneIdentity';
 import type {
   BudgetAdmittedOperation,
-  NearEd25519TransactionLane,
   PreparedTransactionOperation,
 } from '../session/signingSession/transactionState';
+
+type NearResolvedEd25519SessionAuth =
+  | {
+      sessionKind: 'jwt';
+      thresholdSessionAuthToken: string;
+    }
+  | {
+      sessionKind: 'cookie';
+      thresholdSessionAuthToken?: undefined;
+    };
+
+export type NearResolvedEd25519SigningSessionState = NearResolvedEd25519SessionAuth & {
+  thresholdSessionId: string;
+  walletSigningSessionId: string;
+  signingLane: NearTransactionSigningLane;
+  remainingUses: number;
+  xClientBaseB64u?: string;
+  signingRootId: string;
+  relayerUrl: string;
+  persistClientBase: (xClientBaseB64u: string) => boolean;
+};
 
 export type NearEmailOtpSigningHook = {
   prepare: () => Promise<{ challengeId: string; emailHint?: string }>;
@@ -28,7 +52,7 @@ export type NearEmailOtpSigningHook = {
   complete: (
     otpCode: string,
     challengeId?: string,
-  ) => Promise<{ sessionId: string; record?: ThresholdEd25519SessionRecord }>;
+  ) => Promise<{ sessionId: string; sessionState?: NearResolvedEd25519SigningSessionState }>;
 };
 
 export type NearEd25519WarmupHook = {
@@ -47,7 +71,7 @@ export type NearPasskeyEd25519ReconnectHook = {
     usesNeeded: number;
     sessionId?: string;
     walletSigningSessionId?: string;
-  }) => Promise<{ sessionId: string; record?: ThresholdEd25519SessionRecord }>;
+  }) => Promise<{ sessionId: string; sessionState?: NearResolvedEd25519SigningSessionState }>;
 };
 
 export type NearSigningSessionFinalizationHook = {
@@ -62,13 +86,13 @@ export type NearPreparedSigningSessionFinalizer = (args: {
   error?: unknown;
 }) => Promise<void>;
 
-export type NearEd25519TransactionAdmissionBoundary =
-  {
-    sessionId: string;
-    signingAuthPlan: SigningAuthPlan;
-    signingLane: SigningLaneContext;
-    initialBudgetAdmittedOperation: BudgetAdmittedOperation<NearEd25519TransactionLane> | null;
-  };
+export type NearEd25519TransactionAdmissionBoundary = {
+  sessionId: string;
+  signingSessionPlan: SigningSessionPlan;
+  signingAuthPlan: SigningAuthPlan;
+  signingLane: NearTransactionSigningLane;
+  initialBudgetAdmittedOperation: BudgetAdmittedOperation<SelectedEd25519Lane> | null;
+};
 
 export type NearEd25519TransactionSigningBoundary = NearEd25519TransactionAdmissionBoundary;
 
@@ -84,7 +108,7 @@ export type NearTransactionsWithActionsPayload = {
   emailOtpSigning?: NearEmailOtpSigningHook;
   signingOperationId?: SigningOperationId;
   signingSessionCoordinator: SigningSessionCoordinator;
-  transactionOperation: PreparedTransactionOperation<NearEd25519TransactionLane>;
+  transactionOperation: PreparedTransactionOperation<SelectedEd25519Lane>;
   ed25519SigningBoundary: NearEd25519TransactionSigningBoundary;
   finalizePreparedSigningSession?: NearPreparedSigningSessionFinalizer;
   ed25519Warmup?: NearEd25519WarmupHook;

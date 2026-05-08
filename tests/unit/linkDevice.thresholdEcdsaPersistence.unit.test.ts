@@ -6,6 +6,7 @@ const IMPORT_PATHS = {
   accountKeyMaterialDb: '/sdk/esm/core/indexedDB/accountKeyMaterialDB/manager.js',
   unifiedDb: '/sdk/esm/core/indexedDB/index.js',
   linkDeviceThresholdEcdsa: '/sdk/esm/core/SeamsPasskey/evm/linkDeviceThresholdEcdsa.js',
+  ecdsaChainTarget: '/sdk/esm/core/signingEngine/interfaces/ecdsaChainTarget.js',
 } as const;
 
 test.describe('link-device threshold-ecdsa persistence', () => {
@@ -23,8 +24,21 @@ test.describe('link-device threshold-ecdsa persistence', () => {
           const { persistLinkDeviceThresholdEcdsaBootstrap } = await import(
             paths.linkDeviceThresholdEcdsa
           );
+          const { thresholdEcdsaChainTargetFromChainFamily } = await import(
+            paths.ecdsaChainTarget
+          );
 
           const nearAccountId = 'alice.testnet';
+          const evmChainTarget = thresholdEcdsaChainTargetFromChainFamily({
+            chain: 'evm',
+            chainId: 11155111,
+            networkSlug: 'ethereum-sepolia',
+          });
+          const tempoChainTarget = thresholdEcdsaChainTargetFromChainFamily({
+            chain: 'tempo',
+            chainId: 42431,
+            networkSlug: 'tempo-testnet',
+          });
           const suffix =
             typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
               ? crypto.randomUUID()
@@ -79,12 +93,13 @@ test.describe('link-device threshold-ecdsa persistence', () => {
               chainAccountCalls.push(args);
               const context = await clientDB.resolveProfileAccountContext(nearAccountRef);
               if (!context?.profileId) throw new Error('missing near account context');
-              const chain = String(args.chain || '').trim();
+              const chainTarget = args.chainTarget as { kind?: string; chainId?: number };
+              const chain = String(chainTarget?.kind || '').trim();
               const smartAccount =
                 args.smartAccount && typeof args.smartAccount === 'object'
                   ? (args.smartAccount as Record<string, unknown>)
                   : {};
-              const chainId = Math.floor(Number(smartAccount.chainId));
+              const chainId = Math.floor(Number(chainTarget?.chainId || smartAccount.chainId));
               const accountAddress = String(
                 smartAccount.counterfactualAddress ||
                   ((args.bootstrap as any)?.keygen?.ethereumAddress as string) ||
@@ -120,6 +135,8 @@ test.describe('link-device threshold-ecdsa persistence', () => {
             credentialIdB64u: 'cred-b64u',
             thresholdEcdsa: {
               ecdsaThresholdKeyId: 'ehss-link-device-1',
+              signingRootId: 'project-test:env-test',
+              signingRootVersion: 'default',
               clientVerifyingShareB64u: 'client-share-b64u',
               clientAdditiveShare32B64u: 'client-additive-share-b64u',
               relayerKeyId: 'rk-evm',
@@ -130,6 +147,7 @@ test.describe('link-device threshold-ecdsa persistence', () => {
               session: {
                 sessionKind: 'jwt',
                 sessionId: 'ecdsa-session-1',
+                walletSigningSessionId: 'wallet-session-1',
                 expiresAtMs: Date.now() + 60_000,
                 participantIds: [1, 2],
                 remainingUses: 5,
@@ -141,6 +159,7 @@ test.describe('link-device threshold-ecdsa persistence', () => {
                 chainIdKey: 'evm:11155111',
                 chain: 'evm',
                 chainId: 11155111,
+                chainTarget: evmChainTarget,
                 accountAddress: `0x${'11'.repeat(20)}`,
                 accountModel: 'erc4337',
                 factory: `0x${'bb'.repeat(20)}`,
@@ -152,6 +171,7 @@ test.describe('link-device threshold-ecdsa persistence', () => {
                 chainIdKey: 'tempo:42431',
                 chain: 'tempo',
                 chainId: 42431,
+                chainTarget: tempoChainTarget,
                 accountAddress: `0x${'22'.repeat(20)}`,
                 accountModel: 'tempo-native',
                 counterfactualAddress: `0x${'22'.repeat(20)}`,

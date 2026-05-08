@@ -2,10 +2,10 @@ import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  touchConfirmManager: '/sdk/esm/core/signingEngine/touchConfirm/TouchConfirmManager.js',
+  touchConfirmManager: '/sdk/esm/core/signingEngine/uiConfirm/UiConfirmManager.js',
   thresholdSessionStore:
-    '/sdk/esm/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore.js',
-  sealedSessionStore: '/sdk/esm/core/signingEngine/session/sealedSessionStore.js',
+    '/sdk/esm/core/signingEngine/session/persistence/records.js',
+  sealedSessionStore: '/sdk/esm/core/signingEngine/session/persistence/sealedSessionStore.js',
 } as const;
 
 test.describe('UserConfirm worker router', () => {
@@ -19,7 +19,7 @@ test.describe('UserConfirm worker router', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
-        const manager = mod.createTouchConfirmManager({}, {
+        const manager = mod.createUiConfirmManager({}, {
           touchIdPrompt: {},
           nearClient: {},
           indexedDB: {},
@@ -108,7 +108,7 @@ test.describe('UserConfirm worker router', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
-        const manager = mod.createTouchConfirmManager({}, {
+        const manager = mod.createUiConfirmManager({}, {
           touchIdPrompt: {},
           nearClient: {},
           indexedDB: {},
@@ -173,7 +173,7 @@ test.describe('UserConfirm worker router', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
-        const manager = mod.createTouchConfirmManager({}, {
+        const manager = mod.createUiConfirmManager({}, {
           touchIdPrompt: {},
           nearClient: {},
           indexedDB: {},
@@ -286,7 +286,7 @@ test.describe('UserConfirm worker router', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
-        const manager = mod.createTouchConfirmManager({}, {
+        const manager = mod.createUiConfirmManager({}, {
           touchIdPrompt: {},
           nearClient: {},
           indexedDB: {},
@@ -370,7 +370,7 @@ test.describe('UserConfirm worker router', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
-        const manager = mod.createTouchConfirmManager({}, {
+        const manager = mod.createUiConfirmManager({}, {
           touchIdPrompt: {},
           nearClient: {},
           indexedDB: {},
@@ -435,7 +435,7 @@ test.describe('UserConfirm worker router', () => {
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
         const sealedStoreMod = await import(paths.sealedSessionStore);
-        const manager = mod.createTouchConfirmManager(
+        const manager = mod.createUiConfirmManager(
           {
             signingSessionPersistenceMode: 'sealed_refresh_v1',
           },
@@ -561,7 +561,7 @@ test.describe('UserConfirm worker router', () => {
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
         const sealedStoreMod = await import(paths.sealedSessionStore);
-        const manager = mod.createTouchConfirmManager(
+        const manager = mod.createUiConfirmManager(
           {
             signingSessionPersistenceMode: 'sealed_refresh_v1',
           },
@@ -728,7 +728,7 @@ test.describe('UserConfirm worker router', () => {
         const mod = await import(paths.touchConfirmManager);
         const sessionStoreMod = await import(paths.thresholdSessionStore);
         const sealedStoreMod = await import(paths.sealedSessionStore);
-        const manager = mod.createTouchConfirmManager(
+        const manager = mod.createUiConfirmManager(
           {
             signingSessionPersistenceMode: 'sealed_refresh_v1',
             signingSessionSealKeyVersion: 'kek-v-ed25519',
@@ -932,7 +932,7 @@ test.describe('UserConfirm worker router', () => {
           },
         });
 
-        const manager = mod.createTouchConfirmManager(
+        const manager = mod.createUiConfirmManager(
           {
             signingSessionPersistenceMode: 'sealed_refresh_v1',
           },
@@ -1059,7 +1059,7 @@ test.describe('UserConfirm worker router', () => {
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
         const sealedStoreMod = await import(paths.sealedSessionStore);
-        const manager = mod.createTouchConfirmManager(
+        const manager = mod.createUiConfirmManager(
           {
             signingSessionPersistenceMode: 'sealed_refresh_v1',
           },
@@ -1179,8 +1179,8 @@ test.describe('UserConfirm worker router', () => {
           nearContextFixture: {},
         } as any;
 
-        const managerA = mod.createTouchConfirmManager(baseConfig, baseContext);
-        const managerB = mod.createTouchConfirmManager(baseConfig, baseContext);
+        const managerA = mod.createUiConfirmManager(baseConfig, baseContext);
+        const managerB = mod.createUiConfirmManager(baseConfig, baseContext);
 
         const listenersA: Record<'message' | 'error', Array<(event: any) => void>> = {
           message: [],
@@ -1298,7 +1298,7 @@ test.describe('UserConfirm worker router', () => {
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
         const sealedStoreMod = await import(paths.sealedSessionStore);
-        const manager = mod.createTouchConfirmManager(
+        const manager = mod.createUiConfirmManager(
           {
             signingSessionPersistenceMode: 'sealed_refresh_v1',
           },
@@ -1454,8 +1454,8 @@ test.describe('UserConfirm worker router', () => {
           nearContextFixture: {},
         } as any;
 
-        const managerA = mod.createTouchConfirmManager(baseConfig, baseContext);
-        const managerB = mod.createTouchConfirmManager(baseConfig, baseContext);
+        const managerA = mod.createUiConfirmManager(baseConfig, baseContext);
+        const managerB = mod.createUiConfirmManager(baseConfig, baseContext);
 
         const listenersA: Record<'message' | 'error', Array<(event: any) => void>> = {
           message: [],
@@ -1617,7 +1617,7 @@ test.describe('UserConfirm worker router', () => {
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
         const sealedStoreMod = await import(paths.sealedSessionStore);
-        const manager = mod.createTouchConfirmManager(
+        const manager = mod.createUiConfirmManager(
           {
             signingSessionPersistenceMode: 'none',
           },
@@ -1724,7 +1724,7 @@ test.describe('UserConfirm worker router', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
-        const manager = mod.createTouchConfirmManager(
+        const manager = mod.createUiConfirmManager(
           {
             signingSessionPersistenceMode: 'none',
           },
@@ -1791,13 +1791,13 @@ test.describe('UserConfirm worker router', () => {
       ok: false,
       code: 'not_enabled',
       message:
-        '[TouchConfirm] signing-session seal and persist requires signingSessionPersistenceMode="sealed_refresh_v1"',
+        '[UiConfirm] signing-session seal and persist requires signingSessionPersistenceMode="sealed_refresh_v1"',
     });
     expect(result.rehydrated).toEqual({
       ok: false,
       code: 'not_enabled',
       message:
-        '[TouchConfirm] signing-session rehydrate requires signingSessionPersistenceMode="sealed_refresh_v1"',
+        '[UiConfirm] signing-session rehydrate requires signingSessionPersistenceMode="sealed_refresh_v1"',
     });
     expect(result.postedTypes).toEqual([]);
   });
@@ -1809,7 +1809,7 @@ test.describe('UserConfirm worker router', () => {
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
         const sealedStoreMod = await import(paths.sealedSessionStore);
-        const manager = mod.createTouchConfirmManager(
+        const manager = mod.createUiConfirmManager(
           {
             signingSessionPersistenceMode: 'sealed_refresh_v1',
           },
@@ -1935,7 +1935,7 @@ test.describe('UserConfirm worker router', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
-        const manager = mod.createTouchConfirmManager({}, {
+        const manager = mod.createUiConfirmManager({}, {
           touchIdPrompt: {},
           nearClient: {},
           indexedDB: {},
@@ -2032,7 +2032,7 @@ test.describe('UserConfirm worker router', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
-        const manager = mod.createTouchConfirmManager({}, {
+        const manager = mod.createUiConfirmManager({}, {
           touchIdPrompt: {},
           nearClient: {},
           indexedDB: {},

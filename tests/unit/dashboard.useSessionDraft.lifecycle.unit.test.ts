@@ -13,9 +13,14 @@ test.describe('useSessionDraft lifecycle behavior', () => {
     await page.goto('/dashboard/login');
 
     const result = await page.evaluate(async ({ paths }) => {
-      const reactMod: any = await import(paths.react);
       const reactDomClientMod: any = await import(paths.reactDomClient);
-      const reactDomMod: any = await import(paths.reactDom);
+      const reactEntry = performance
+        .getEntriesByType('resource')
+        .map((entry) => entry.name)
+        .find((name) => name.includes('/node_modules/.vite/deps/react.js?v='));
+      const reactQuery = reactEntry ? new URL(reactEntry).search : '';
+      const reactMod: any = await import(`${paths.react}${reactQuery}`);
+      const reactDomMod: any = await import(`${paths.reactDom}${reactQuery}`);
       const React = reactMod.default || reactMod;
       const ReactDOMClient = reactDomClientMod.default || reactDomClientMod;
       const ReactDOM = reactDomMod.default || reactDomMod;
@@ -188,9 +193,14 @@ test.describe('useSessionDraft lifecycle behavior', () => {
     await page.goto('/dashboard/login');
 
     const result = await page.evaluate(async ({ paths }) => {
-      const reactMod: any = await import(paths.react);
       const reactDomClientMod: any = await import(paths.reactDomClient);
-      const reactDomMod: any = await import(paths.reactDom);
+      const reactEntry = performance
+        .getEntriesByType('resource')
+        .map((entry) => entry.name)
+        .find((name) => name.includes('/node_modules/.vite/deps/react.js?v='));
+      const reactQuery = reactEntry ? new URL(reactEntry).search : '';
+      const reactMod: any = await import(`${paths.react}${reactQuery}`);
+      const reactDomMod: any = await import(`${paths.reactDom}${reactQuery}`);
       const React = reactMod.default || reactMod;
       const ReactDOMClient = reactDomClientMod.default || reactDomClientMod;
       const ReactDOM = reactDomMod.default || reactDomMod;

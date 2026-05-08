@@ -1,0 +1,200 @@
+import { enrollEmailOtpWallet } from '@/core/SeamsPasskey/emailOtp';
+import { toAccountId, type AccountId } from '@/core/types/accountIds';
+import type { EmailOtpAuthPolicy } from '@/core/types/seams';
+import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
+import type { WalletEmailOtpChannel, WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
+import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
+import type { EmailOtpBootstrapRecovery } from '../../stepUpConfirmation/otpPrompt/bootstrapRecovery';
+import type { ThresholdEcdsaSessionStoreDeps } from '../../session/persistence/records';
+import type {
+  ThresholdEcdsaChainTarget,
+  WalletSubjectId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
+import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
+import type { ThresholdEcdsaSmartAccountBootstrapInput } from '../../session/warmSigning/ecdsaBootstrapPersistence';
+import type { WarmSessionEcdsaCapabilityState } from '../../session/warmSigning/types';
+import type { EmailOtpWorkerProgressEvent } from '../../workerManager/workerTypes';
+import {
+  requestEmailOtpSigningSessionChallenge as requestEmailOtpSigningSessionChallengeValue,
+  refreshEmailOtpSigningSession as refreshEmailOtpSigningSessionValue,
+} from './emailOtpSigningSession';
+
+export type LoginWithEmailOtpEcdsaCapabilityInternalArgs = {
+  nearAccountId: AccountId | string;
+  subjectId: WalletSubjectId;
+  chainTarget: ThresholdEcdsaChainTarget;
+  emailOtpAuthPolicy?: EmailOtpAuthPolicy;
+  otpCode: string;
+  operation?: WalletEmailOtpLoginOperation;
+  shamirPrimeB64u?: string;
+  appSessionJwt?: string;
+  routeAuth?: AppOrThresholdSessionAuth;
+  ecdsaThresholdKeyId?: string;
+  participantIds?: number[];
+  sessionKind?: 'jwt' | 'cookie';
+  sessionId?: string;
+  walletSigningSessionId?: string;
+  ttlMs?: number;
+  remainingUses?: number;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
+  onProgress?: (progress: EmailOtpWorkerProgressEvent) => void;
+};
+
+export type LoginWithEmailOtpEcdsaCapabilityInternalResult = {
+  recovery: EmailOtpBootstrapRecovery;
+  bootstrap: ThresholdEcdsaSessionBootstrapResult;
+  warmCapability: WarmSessionEcdsaCapabilityState;
+};
+
+export type EnrollEmailOtpInternalArgs = {
+  nearAccountId: AccountId | string;
+  otpCode: string;
+  relayUrl?: string;
+  challengeId?: string;
+  shamirPrimeB64u?: string;
+  appSessionJwt?: string;
+  clientSecret32?: Uint8Array;
+  otpChannel?: WalletEmailOtpChannel;
+};
+
+export type EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs = {
+  nearAccountId: AccountId | string;
+  subjectId: WalletSubjectId;
+  chainTarget: ThresholdEcdsaChainTarget;
+  emailOtpAuthPolicy?: EmailOtpAuthPolicy;
+  otpCode: string;
+  relayUrl?: string;
+  challengeId?: string;
+  shamirPrimeB64u?: string;
+  appSessionJwt?: string;
+  routeAuth?: AppOrThresholdSessionAuth;
+  ecdsaThresholdKeyId?: string;
+  participantIds?: number[];
+  sessionKind?: 'jwt' | 'cookie';
+  sessionId?: string;
+  ttlMs?: number;
+  remainingUses?: number;
+  clientSecret32?: Uint8Array;
+  otpChannel?: WalletEmailOtpChannel;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
+  registrationAttemptId?: string;
+  onProgress?: (progress: EmailOtpWorkerProgressEvent) => void;
+};
+
+export type EnrollEmailOtpInternalResult = Awaited<ReturnType<typeof enrollEmailOtpWallet>>;
+
+export type EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalResult = {
+  enrollment: EnrollEmailOtpInternalResult;
+  bootstrap: ThresholdEcdsaSessionBootstrapResult;
+  warmCapability: WarmSessionEcdsaCapabilityState;
+};
+
+export type EmailOtpPublicDeps = {
+  ecdsaSessions: ThresholdEcdsaSessionStoreDeps;
+  relayerUrl: string;
+  shamirPrimeB64u: string;
+  getSignerWorkerContext: () => WorkerOperationContext;
+  emailOtpSessions: {
+    requestTransactionSigningChallenge: Parameters<
+      typeof requestEmailOtpSigningSessionChallengeValue
+    >[0]['emailOtpSessions']['requestTransactionSigningChallenge'];
+    loginWithEcdsaCapabilityInternal: (
+      args: LoginWithEmailOtpEcdsaCapabilityInternalArgs,
+    ) => Promise<LoginWithEmailOtpEcdsaCapabilityInternalResult>;
+    enrollAndLoginWithEcdsaCapabilityInternal: (
+      args: EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs,
+    ) => Promise<EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalResult>;
+  };
+};
+
+export async function loginWithEmailOtpEcdsaCapabilityInternal(
+  deps: EmailOtpPublicDeps,
+  args: LoginWithEmailOtpEcdsaCapabilityInternalArgs,
+): Promise<LoginWithEmailOtpEcdsaCapabilityInternalResult> {
+  return await deps.emailOtpSessions.loginWithEcdsaCapabilityInternal(args);
+}
+
+export async function requestEmailOtpSigningSessionChallenge(
+  deps: EmailOtpPublicDeps,
+  args: {
+    nearAccountId: AccountId | string;
+    subjectId: WalletSubjectId;
+    chainTarget: ThresholdEcdsaChainTarget;
+  },
+): Promise<{ challengeId: string; emailHint?: string }> {
+  return await requestEmailOtpSigningSessionChallengeValue(
+    {
+      ecdsaSessions: deps.ecdsaSessions,
+      emailOtpSessions: {
+        requestTransactionSigningChallenge: (challengeArgs) =>
+          deps.emailOtpSessions.requestTransactionSigningChallenge(challengeArgs),
+        loginWithEcdsaCapabilityInternal: (loginArgs) =>
+          deps.emailOtpSessions.loginWithEcdsaCapabilityInternal(loginArgs),
+      },
+    },
+    args,
+  );
+}
+
+export async function refreshEmailOtpSigningSession(
+  deps: EmailOtpPublicDeps,
+  args: {
+    nearAccountId: AccountId | string;
+    subjectId: WalletSubjectId;
+    chainTarget: ThresholdEcdsaChainTarget;
+    challengeId: string;
+    otpCode: string;
+    ttlMs?: number;
+    remainingUses?: number;
+  },
+): Promise<LoginWithEmailOtpEcdsaCapabilityInternalResult> {
+  return await refreshEmailOtpSigningSessionValue(
+    {
+      ecdsaSessions: deps.ecdsaSessions,
+      emailOtpSessions: {
+        requestTransactionSigningChallenge: (challengeArgs) =>
+          deps.emailOtpSessions.requestTransactionSigningChallenge(challengeArgs),
+        loginWithEcdsaCapabilityInternal: (loginArgs) =>
+          deps.emailOtpSessions.loginWithEcdsaCapabilityInternal(loginArgs),
+      },
+    },
+    args,
+  );
+}
+
+export async function enrollEmailOtpInternal(
+  deps: EmailOtpPublicDeps,
+  args: EnrollEmailOtpInternalArgs,
+): Promise<EnrollEmailOtpInternalResult> {
+  const nearAccountId = toAccountId(args.nearAccountId);
+  const relayUrl = String(args.relayUrl || deps.relayerUrl || '').trim();
+  if (!relayUrl) {
+    throw new Error('Missing relayer url (configs.network.relayer.url)');
+  }
+  const shamirPrimeB64u = String(args.shamirPrimeB64u || deps.shamirPrimeB64u || '').trim();
+  if (!shamirPrimeB64u) {
+    throw new Error('Missing shamir prime for Email OTP runtime');
+  }
+  return await enrollEmailOtpWallet({
+    relayUrl,
+    walletId: String(nearAccountId),
+    userId: String(nearAccountId),
+    challengeId: args.challengeId,
+    otpCode: args.otpCode,
+    shamirPrimeB64u,
+    workerCtx: deps.getSignerWorkerContext(),
+    appSessionJwt: args.appSessionJwt,
+    otpChannel: args.otpChannel,
+    ...(args.clientSecret32 ? { clientSecret32: args.clientSecret32 } : {}),
+  });
+}
+
+export async function enrollAndLoginWithEmailOtpEcdsaCapabilityInternal(
+  deps: EmailOtpPublicDeps,
+  args: EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs,
+): Promise<EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalResult> {
+  return await deps.emailOtpSessions.enrollAndLoginWithEcdsaCapabilityInternal(args);
+}

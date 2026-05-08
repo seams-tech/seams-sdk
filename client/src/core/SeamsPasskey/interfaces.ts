@@ -8,8 +8,8 @@ import type {
   NearAccountRef,
   ThresholdEcdsaChainTarget,
   WalletSubjectId,
-} from '../signingEngine/session/signingSession/ecdsaChainTarget';
-import type { ThresholdRuntimePolicyScope } from '../signingEngine/threshold/session/sessionPolicy';
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { ThresholdRuntimePolicyScope } from '../signingEngine/threshold/sessionPolicy';
 import type { WarmSessionEcdsaCapabilityState } from '../signingEngine/session/warmSigning/types';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 import type { NearClient, SignedTransaction } from '../rpcClients/near/NearClient';
@@ -52,13 +52,13 @@ import type {
 import type {
   ThresholdEd25519HssFinalizedReportEnvelope,
   ThresholdEd25519HssPreparedSessionEnvelope,
-} from '../signingEngine/signers/wasm/hssClientSignerWasm';
+} from '../signingEngine/threshold/crypto/hssClientSignerWasm';
 import type { AccountId } from '../types/accountIds';
 import type { ActionArgs, TransactionInput } from '../types/actions';
 import type { DelegateActionInput, SignedDelegate } from '../types/delegate';
-import type { MultichainSigningRequest } from '../signingEngine/chainAdaptors/tempo/types';
-import type { EvmSignedResult } from '../signingEngine/chainAdaptors/evm/evmAdapter';
-import type { TempoSignedResult } from '../signingEngine/chainAdaptors/tempo/tempoAdapter';
+import type { MultichainSigningRequest } from '../signingEngine/chains/tempo/types';
+import type { EvmSignedResult } from '../signingEngine/chains/evm/evmAdapter';
+import type { TempoSignedResult } from '../signingEngine/chains/tempo/tempoAdapter';
 import type { SignNEP413MessageParams, SignNEP413MessageResult } from './near/signNEP413';
 import type { SyncAccountResult } from './syncAccount';
 import type { EmailRecoveryFlowOptions } from '../types/emailRecovery';

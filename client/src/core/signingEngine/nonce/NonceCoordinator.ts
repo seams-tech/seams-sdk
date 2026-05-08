@@ -18,7 +18,9 @@ import type {
 import {
   thresholdEcdsaChainTargetFromChainFamily,
   type ThresholdEcdsaChainTarget,
-} from '../session/signingSession/ecdsaChainTarget';
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { NonceLeaseRef } from '../interfaces/nonceLease';
+export type { NonceLeaseRef } from '../interfaces/nonceLease';
 
 export const NonceLeaseState = {
   Reserved: 'reserved',
@@ -156,14 +158,6 @@ export type NonceLease = {
   state: NonceLeaseState;
   reservedAtMs: number;
   expiresAtMs: number;
-  batchId?: string;
-  txIndex?: number;
-};
-
-export type NonceLeaseRef = {
-  leaseId: string;
-  operationId: string;
-  nonce: string;
   batchId?: string;
   txIndex?: number;
 };

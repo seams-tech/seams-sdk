@@ -4,7 +4,7 @@ import type {
   NonceLaneCoordinationRecord,
   NonceLaneCoordinationStore,
 } from '../signingEngine/nonce/NonceCoordinator';
-import { thresholdEcdsaChainTargetFromRequest } from '../signingEngine/session/signingSession/ecdsaChainTarget';
+import { thresholdEcdsaChainTargetFromRequest } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 type IndexedDBNonceLaneCoordinationStoreDeps = {
   indexedDB: UnifiedIndexedDBManager;

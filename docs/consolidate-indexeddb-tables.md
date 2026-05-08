@@ -65,7 +65,7 @@ Current implementation snapshot:
    version 4 with:
    - `signing_session_seals_v1`
    - `signing_session_restore_leases_v1`
-5. `client/src/core/signingEngine/api/session/emailOtpDeviceEnrollmentEscrowStore.ts`
+5. `client/src/core/signingEngine/workerManager/workers/email-otp/deviceEnrollmentEscrowStore.ts`
    defines `seams_email_otp_device_enrollment_escrows_v1` at schema version 1
    with `email_otp_device_enrollment_escrows_v1`.
 6. `client/src/core/indexedDB/index.ts` still configures both `app` and `wallet`
@@ -75,9 +75,33 @@ Current implementation snapshot:
 7. `UnifiedIndexedDBManager` is still an adapter over `PasskeyClientDBManager`
    and `AccountKeyMaterialDBManager`; durable signing-session seals and Email OTP
    device enrollment escrows are opened through their own modules.
-8. Several unit tests still create CamelCase test databases such as
+8. Refactor 33 has moved most signing-engine callsites out of `api/`,
+   `orchestration/`, `chainAdaptors/`, and `signers/`. Use the Refactor 33
+   "Folder And Filename Change Reference" as the naming source of truth:
+   operation modules are `flows/*`, reusable wallet auth is `walletAuth/*`, and
+   construction/runtime wiring is `assembly/*`. Some intermediate working-tree
+   paths may still be named `operations/*`, `auth/*`, or `bootstrap/*` until
+   Refactor 33 fully lands.
+9. Several unit tests still create CamelCase test databases such as
    `PasskeyClientDB-*` and `PasskeyAccountKeyMaterial-*`. Those tests should be
    renamed or moved onto unified schema fixtures when this plan is implemented.
+
+Post-refactor 33 paths to revisit during the consolidation:
+
+1. `client/src/core/signingEngine/session/persistence/sealedSessionStore.ts` still opens
+   `seams_wallet_v1` directly for signing-session seals and restore leases.
+2. `client/src/core/signingEngine/workerManager/workers/email-otp/deviceEnrollmentEscrowStore.ts`
+   still opens `seams_email_otp_device_enrollment_escrows_v1` directly.
+3. `client/src/core/signingEngine/session/userPreferences.ts` still subscribes
+   to `IndexedDBManager.clientDB` events and reads profile state through the old
+   client DB surface.
+4. `client/src/core/signingEngine/flows/registration/accountLifecycle.ts`,
+   `flows/signEvmFamily/*`, `flows/signNear/*`, `flows/recovery/*`,
+   any remaining Email OTP flow helpers, `session/warmSigning/*`, `threshold/*`,
+   and `walletAuth/webauthn/*` still depend on `UnifiedIndexedDBManager`,
+   `clientDB`, or `accountKeyMaterialDB` ports.
+5. `sdk/rolldown.config.ts` still exposes the old IndexedDB managers and the
+   Email OTP escrow store as stable deep-import entries for tests/tools.
 
 ## Target Model
 
@@ -123,15 +147,42 @@ Canonical object stores:
 | `seams_email_otp_device_enrollment_escrows` | `email_otp_device_enrollment_escrows_v1` |
 
 Index names should also be snake_case. They do not need the `seams_` prefix
-because they are scoped under a Seams-prefixed object store:
+because they are scoped under a Seams-prefixed object store. The canonical index
+inventory is:
 
 ```ts
 'profile_id'
 'credential_id'
 'profile_id_credential_id'
 'profile_id_signer_slot'
+'updated_at'
+'chain_id_key'
 'chain_id_key_account_address'
+'profile_id_chain_id_key'
+'chain_id_key_account_address_status'
+'status'
+'next_attempt_at'
 'status_next_attempt_at'
+'idempotency_key'
+'lane_key'
+'account_id'
+'state'
+'expires_at_ms'
+'lane_state'
+'account_expires_at'
+'owner_id'
+'chain_id_key_key_kind'
+'public_key'
+'wallet_id'
+'user_id'
+'auth_method'
+'signing_root_id'
+'wallet_signing_root_auth_method'
+'ed25519_threshold_session_id'
+'ecdsa_threshold_session_id'
+'wallet_signing_session_id'
+'auth_subject_id'
+'enrollment_id'
 'wallet_auth_subject'
 'wallet_auth_subject_enrollment'
 ```
@@ -145,7 +196,8 @@ because they are scoped under a Seams-prefixed object store:
 5. Do not add version suffixes to object-store names.
 6. Tests may use unique database names, but test database names must also be
    snake_case and start with `seams_`, for example
-   `seams_test_wallet_<uuid>`.
+   `seams_test_wallet_<safe_suffix>`. Test helpers must normalize UUIDs by
+   replacing hyphens with underscores.
 7. All IndexedDB names must come from one constants module. No inline database or
    object-store string literals in runtime code.
 8. If local dev data breaks, delete old databases and recreate the account. Do
@@ -185,12 +237,17 @@ type SeamsWalletDbManager = {
 };
 
 type SeamsWalletRepositories = {
+  appState: AppStateRepository;
+  lastProfileState: LastProfileStateRepository;
   profiles: ProfileRepository;
   profileAuthenticators: ProfileAuthenticatorRepository;
   chainAccounts: ChainAccountRepository;
   accountSigners: AccountSignerRepository;
+  signerOpsOutbox: SignerOpsOutboxRepository;
+  recoveryEmails: RecoveryEmailRepository;
   keyMaterial: KeyMaterialRepository;
   signingSessionSeals: SigningSessionSealRepository;
+  signingSessionRestoreLeases: SigningSessionRestoreLeaseRepository;
   emailOtpDeviceEnrollmentEscrows: EmailOtpDeviceEnrollmentEscrowRepository;
   nonceLaneCoordination: NonceLaneCoordinationRepository;
 };
@@ -201,10 +258,19 @@ legacy database deletion. Repositories own object-store reads and writes.
 
 ## Implementation Plan
 
-### Phase 1. Inventory and Guard
+### Phase 1. Rescan, Constants, and Early Guards
 
 1. Add `client/src/core/indexedDB/schemaNames.ts`.
-2. Add an architecture guard that fails if runtime code contains:
+2. Add schema constants for:
+   - `SEAMS_WALLET_DB_NAME`
+   - `SEAMS_WALLET_DB_VERSION`
+   - `SEAMS_WALLET_STORES`
+   - `SEAMS_WALLET_INDEXES`
+   - `LEGACY_INDEXED_DB_NAMES`
+   - `createSeamsTestWalletDbName(...)`
+3. Add an architecture guard with an explicit temporary allowlist for legacy
+   modules that have not moved yet. The final guard must fail if runtime code
+   contains:
    - `PasskeyClientDB`
    - `PasskeyAccountKeyMaterial`
    - `seams_wallet_v1`
@@ -213,14 +279,19 @@ legacy database deletion. Repositories own object-store reads and writes.
    - `signing_session_restore_leases_v1`
    - `email_otp_device_enrollment_escrows_v1`
    - inline `indexedDB.open('<literal>')` outside the one DB manager
-3. Add a guard that all configured database and object-store names match:
+4. Add a guard that all configured database, object-store, and index names match:
 
 ```ts
 /^seams_[a-z0-9]+(?:_[a-z0-9]+)*$/
 ```
 
-4. Update test helpers so unique DB names are generated as
-   `seams_test_wallet_<suffix>`.
+5. Update test helpers so unique DB names are generated as
+   `seams_test_wallet_<safe_suffix>`.
+6. Record the current post-refactor 33 IndexedDB callsite inventory before
+   moving repositories. Use the canonical `flows/`, `session/`, `threshold/`,
+   `walletAuth/`, and worker-support paths from `docs/refactor-33.md` as the
+   starting inventory, accounting for any intermediate folder names still in the
+   working tree.
 
 ### Phase 2. Create the Unified Schema
 
@@ -236,8 +307,9 @@ legacy database deletion. Repositories own object-store reads and writes.
    - `seams_email_otp_device_enrollment_escrows`
 6. Keep all record schemas strict. Do not add compatibility reads for old object
    store names.
-7. Confirm `seams_wallet` is the only runtime database opened by the wallet
-   persistence path after this phase.
+7. Keep this phase focused on schema creation and repository construction. The
+   runtime will still open legacy databases until Phase 3 replaces the manager
+   assembly and direct stores.
 
 ### Phase 3. Replace Managers and Imports
 
@@ -245,17 +317,31 @@ legacy database deletion. Repositories own object-store reads and writes.
    ports.
 2. Delete `AccountKeyMaterialDBManager`; key material becomes a repository on
    the unified wallet DB.
-3. Move signing-session seal reads/writes from direct `indexedDB.open(...)` calls
-   into a `seams_signing_session_seals` repository on the unified wallet DB.
-4. Move Email OTP device enrollment escrow reads/writes from direct
-   `indexedDB.open(...)` calls into a
+3. Move signing-session seal reads/writes from
+   `client/src/core/signingEngine/session/persistence/sealedSessionStore.ts` into a
+   `seams_signing_session_seals` repository on the unified wallet DB.
+4. Move Email OTP device enrollment escrow reads/writes from
+   `client/src/core/signingEngine/workerManager/workers/email-otp/deviceEnrollmentEscrowStore.ts`
+   into a
    `seams_email_otp_device_enrollment_escrows` repository on the unified wallet
    DB.
 5. Replace `UnifiedIndexedDBManager` with a smaller assembly that exposes
    repositories, not separate database managers.
-6. Update signing, registration, profile, account projection, nonce, recovery,
-   and key-material callsites to use the new repositories.
+6. Update post-refactor 33 callsites to use the new repositories:
+   - `session/userPreferences.ts`
+   - `session/persistence/sealedSessionStore.ts`
+   - `session/warmSigning/*`
+   - `flows/registration/*`
+   - `flows/recovery/*`
+   - `flows/signEvmFamily/*`
+   - `flows/signNear/*`
+   - any remaining Email OTP flow helpers
+   - `threshold/*`
+   - `walletAuth/webauthn/*`
+   - `workerManager/workers/email-otp/*`
 7. Delete old manager files once no production import remains.
+8. Confirm `seams_wallet` is the only runtime database opened by the wallet
+   persistence path after this phase.
 
 ### Phase 4. Delete Legacy Local Databases
 
@@ -272,12 +358,14 @@ const LEGACY_INDEXED_DB_NAMES = [
 
 Rules:
 
-1. Delete these databases after the new `seams_wallet` manager is configured and
+1. Enable deletion only after runtime no longer opens the old managers or direct
+   one-off IndexedDB stores.
+2. Delete these databases after the new `seams_wallet` manager is configured and
    before new stores are opened.
-2. Do not parse or migrate records from these databases.
-3. If deletion is blocked by another open tab, log a development warning and
+3. Do not parse or migrate records from these databases.
+4. If deletion is blocked by another open tab, log a development warning and
    continue with the new database.
-4. Do not expose legacy database contents through status, snapshot, restore,
+5. Do not expose legacy database contents through status, snapshot, restore,
    transaction, or export paths.
 
 ### Phase 5. Tests
@@ -313,6 +401,10 @@ Existing tests to revisit during implementation:
    `seams_email_otp_device_enrollment_escrows_v1` and
    `email_otp_device_enrollment_escrows_v1`. Move it to the unified Email OTP
    escrow repository.
+5. `availableSigningLanes.*`, `touchConfirm.workerRouter.*`,
+   `thresholdEd25519.registrationWarmSession.*`, and post-refactor 33 operation
+   tests should use the repository assembly rather than the old
+   `clientDB`/`accountKeyMaterialDB` split.
 
 ### Phase 6. Manual Verification
 

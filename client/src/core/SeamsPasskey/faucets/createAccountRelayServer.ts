@@ -7,8 +7,8 @@ import { PasskeyManagerContext } from '..';
 import {
   serializeRegistrationCredential,
   normalizeRegistrationCredential,
-} from '../../signingEngine/signers/webauthn/credentials/helpers';
-import { redactCredentialExtensionOutputs } from '../../signingEngine/signers/webauthn/credentials';
+} from '../../signingEngine/walletAuth/webauthn/credentials/helpers';
+import { redactCredentialExtensionOutputs } from '../../signingEngine/walletAuth/webauthn/credentials/credentialExtensions';
 import type { WebAuthnRegistrationCredential } from '../../types/webauthn';
 import {
   cloneAuthenticatorOptions,
@@ -23,8 +23,8 @@ import type {
   ThresholdEd25519HssRespondForRegistrationResponse,
   ThresholdEd25519HssFinalizeForRegistrationResponse,
 } from '@server/core/types';
-import type { Ed25519SessionPolicy } from '../../signingEngine/threshold/session/sessionPolicy';
-import type { ThresholdRuntimePolicyScope } from '../../signingEngine/threshold/session/sessionPolicy';
+import type { Ed25519SessionPolicy } from '../../signingEngine/threshold/sessionPolicy';
+import type { ThresholdRuntimePolicyScope } from '../../signingEngine/threshold/sessionPolicy';
 import { isObject } from '@shared/utils/validation';
 import { errorMessage } from '@shared/utils/errors';
 import type { RegistrationErrorCode } from '../../types/seams';
@@ -32,7 +32,7 @@ import { listConfiguredThresholdEcdsaPublicationTargets } from '../thresholdEcds
 import {
   thresholdEcdsaChainTargetFromRequest,
   type ThresholdEcdsaChainTarget,
-} from '../../signingEngine/session/signingSession/ecdsaChainTarget';
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 function utf8Bytes(value: string): number {
   return new TextEncoder().encode(value).length;

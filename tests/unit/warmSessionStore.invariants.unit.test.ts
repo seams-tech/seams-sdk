@@ -27,7 +27,6 @@ function createEmptyEnvelope(): WarmSessionEnvelope {
       ecdsa: {
         evm: {
           capability: 'ecdsa',
-          chain: 'evm',
           record: null,
           auth: null,
           prfClaim: null,
@@ -35,7 +34,6 @@ function createEmptyEnvelope(): WarmSessionEnvelope {
         },
         tempo: {
           capability: 'ecdsa',
-          chain: 'tempo',
           record: null,
           auth: null,
           prfClaim: null,
@@ -106,19 +104,15 @@ test.describe('WarmSessionStore invariants', () => {
     const envelope = createEmptyEnvelope();
     envelope.capabilities.ecdsa.evm = {
       capability: 'ecdsa',
-      chain: 'evm',
       record: {
         nearAccountId: 'invariants.testnet',
-        chain: 'evm',
         thresholdSessionId: 'record-session',
         thresholdSessionKind: 'jwt',
       } as any,
       auth: {
         capability: 'ecdsa',
-        chain: 'evm',
         record: {
           nearAccountId: 'invariants.testnet',
-          chain: 'evm',
           thresholdSessionId: 'record-session',
           thresholdSessionKind: 'jwt',
         } as any,
@@ -172,17 +166,14 @@ test.describe('WarmSessionStore invariants', () => {
     const envelope = createEmptyEnvelope();
     const record = {
       nearAccountId: 'invariants.testnet',
-      chain: 'tempo',
       thresholdSessionId: 'tempo-bad-claim',
       thresholdSessionKind: 'cookie',
     } as any;
     envelope.capabilities.ecdsa.tempo = {
       capability: 'ecdsa',
-      chain: 'tempo',
       record,
       auth: {
         capability: 'ecdsa',
-        chain: 'tempo',
         record,
         thresholdSessionAuthTokenSource: 'none',
       },

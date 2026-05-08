@@ -4,7 +4,7 @@ import {
   resolveThresholdEd25519CommitQueueKey,
   withThresholdEd25519CommitQueue,
   type ThresholdEd25519CommitQueueByKey,
-} from '@/core/signingEngine/api/thresholdLifecycle/thresholdEd25519CommitQueue';
+} from '@/core/signingEngine/threshold/ed25519/commitQueue';
 
 function deferred<T = void>(): {
   promise: Promise<T>;

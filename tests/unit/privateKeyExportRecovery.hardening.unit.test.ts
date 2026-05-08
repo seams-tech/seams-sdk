@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 const IMPORT_PATHS = {
-  privateKeyExportRecovery: '/sdk/esm/core/signingEngine/api/recovery/privateKeyExportRecovery.js',
+  privateKeyExportRecovery: '/sdk/esm/core/signingEngine/flows/recovery/privateKeyExportRecovery.js',
 } as const;
 
 test.describe('private key export recovery hardening', () => {

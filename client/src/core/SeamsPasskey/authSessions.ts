@@ -4,7 +4,7 @@ import type {
   SigningEnginePublic,
   ThresholdEcdsaLoginPrefillResult,
 } from '../signingEngine/SigningEngine';
-import type { ThresholdEcdsaChainTarget } from '../signingEngine/session/signingSession/ecdsaChainTarget';
+import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { AccountId } from '../types/accountIds';
 import { toAccountId } from '../types/accountIds';
 import type { LoginHooksOptions } from '../types/sdkSentEvents';

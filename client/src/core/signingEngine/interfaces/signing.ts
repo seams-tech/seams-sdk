@@ -2,7 +2,8 @@ import type { WebAuthnAuthenticationCredential } from '../../types/webauthn';
 import type {
   ThresholdEcdsaChainTarget,
   WalletSubjectId,
-} from '../session/signingSession/ecdsaChainTarget';
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { EcdsaThresholdKeyId } from '../session/identity/laneIdentity';
 
 export type ChainNamespace = 'near' | 'evm' | 'tempo';
 
@@ -20,7 +21,7 @@ export type ThresholdEcdsaCanonicalExportArtifact = {
   ethereumAddress: string;
 };
 
-export type EcdsaThresholdKeyId = string;
+export type { EcdsaThresholdKeyId };
 
 export type ThresholdEcdsaClientAdditiveShareHandle = {
   kind: 'email_otp_worker_session';

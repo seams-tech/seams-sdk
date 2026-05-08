@@ -71,13 +71,13 @@ import type {
 import type {
   ThresholdEd25519HssFinalizedReportEnvelope,
   ThresholdEd25519HssPreparedSessionEnvelope,
-} from '../signingEngine/signers/wasm/hssClientSignerWasm';
+} from '../signingEngine/threshold/crypto/hssClientSignerWasm';
 import type { ThresholdEcdsaLoginPrefillResult } from '../signingEngine/SigningEngine';
 import {
   thresholdEcdsaChainTargetFromRequest,
   type ThresholdEcdsaChainTarget,
   type WalletSubjectId,
-} from '../signingEngine/session/signingSession/ecdsaChainTarget';
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EmailOtpWorkerProgressEvent } from '../signingEngine/workerManager/workerTypes';
 import { EmailRecoveryDomain } from './near/emailRecovery';
 import {

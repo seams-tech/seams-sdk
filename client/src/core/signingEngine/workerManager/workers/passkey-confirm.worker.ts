@@ -13,8 +13,8 @@ import type {
 import {
   thresholdEcdsaChainTargetFromRequest,
   type ThresholdEcdsaChainTarget,
-} from '@/core/signingEngine/session/signingSession/ecdsaChainTarget';
-import { bytesToHex } from '../../chainAdaptors/evm/bytes';
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { bytesToHex } from '../../chains/evm/bytes';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import { base64UrlDecode } from '@shared/utils/base64';
 import {
@@ -24,7 +24,7 @@ import {
   normalizeOptionalNonEmptyString,
   normalizePositiveInteger,
 } from '@shared/utils/normalize';
-import { awaitUserConfirmationV2 } from '../../touchConfirm/awaitUserConfirmation';
+import { awaitUserConfirmationV2 } from '../../uiConfirm/awaitUserConfirmation';
 import { getShamir3PassRuntime } from './shamir3pass/runtime';
 import {
   UserConfirmationType,
@@ -32,7 +32,7 @@ import {
   type ExportPrivateKeyDisplayEntry,
   type UserConfirmRequest,
   type UserConfirmDecision,
-} from '../../touchConfirm/shared/confirmTypes';
+} from '../../stepUpConfirmation/channel/confirmTypes';
 import initEthSigner, {
   derive_secp256k1_keypair_from_prf_second,
   init_eth_signer,

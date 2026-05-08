@@ -183,7 +183,12 @@ test.describe('passkey-confirm export flow worker', () => {
               payload: {
                 nearAccountId: 'alice.testnet',
                 signerSlot: 1,
-                chain: 'evm',
+                chainTarget: {
+                  kind: 'evm',
+                  namespace: 'eip155',
+                  chainId: 5042002,
+                  networkSlug: 'arc-testnet',
+                },
                 variant: 'drawer',
                 theme: 'dark',
               },
@@ -391,7 +396,12 @@ test.describe('passkey-confirm export flow worker', () => {
               payload: {
                 nearAccountId: 'alice.testnet',
                 signerSlot: 1,
-                chain: 'evm',
+                chainTarget: {
+                  kind: 'evm',
+                  namespace: 'eip155',
+                  chainId: 5042002,
+                  networkSlug: 'arc-testnet',
+                },
                 variant: 'drawer',
                 theme: 'dark',
               },
@@ -736,7 +746,12 @@ test.describe('passkey-confirm export flow worker', () => {
               payload: {
                 nearAccountId: 'alice.testnet',
                 signerSlot: 1,
-                chain: 'evm',
+                chainTarget: {
+                  kind: 'evm',
+                  namespace: 'eip155',
+                  chainId: 5042002,
+                  networkSlug: 'arc-testnet',
+                },
                 artifactKind: 'ecdsa-hss-secp256k1-key-v1',
                 publicKeyHex,
                 privateKeyHex,

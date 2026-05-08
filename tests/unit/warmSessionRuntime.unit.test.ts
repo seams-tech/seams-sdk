@@ -6,10 +6,13 @@ import {
 import {
   createThresholdEcdsaBootstrapFixture,
   createThresholdEcdsaStoreFixture,
-  createWarmSessionTouchConfirmFixture,
+  createWarmSessionUiConfirmFixture,
   resetWarmSessionFixtureState,
   seedEcdsaWarmSessionRecord,
+  testEcdsaChainTarget,
 } from './helpers/warmSessionStore.fixtures';
+
+const EVM_CHAIN_TARGET = testEcdsaChainTarget('evm');
 
 test.describe('warmSessionRuntime', () => {
   test('claims warm PRF material without a preparatory status read', async () => {
@@ -115,7 +118,7 @@ test.describe('warmSessionRuntime', () => {
         shamirPrimeB64u: 'AQAB',
       },
     });
-    const touchConfirmFixture = createWarmSessionTouchConfirmFixture({
+    const touchConfirmFixture = createWarmSessionUiConfirmFixture({
       claimsBySessionId: {
         [evmRecord.thresholdSessionId]: {
           state: 'warm',
@@ -136,12 +139,14 @@ test.describe('warmSessionRuntime', () => {
 
     await ensureEcdsaPrfSealPersisted({
       touchConfirm: touchConfirmFixture.touchConfirm,
+      chainTarget: EVM_CHAIN_TARGET,
       thresholdSessionId: evmRecord.thresholdSessionId,
       required: true,
       errorContext: 'test ECDSA seal persistence',
       sealPersistInFlightBySessionId: new Map(),
       resolveSealTransport: () => ({
         curve: 'ecdsa',
+        chainTarget: EVM_CHAIN_TARGET,
         relayerUrl: evmRecord.relayerUrl,
         thresholdSessionAuthToken: evmRecord.thresholdSessionAuthToken,
         thresholdSessionAuthTokenSource: 'ecdsa',
@@ -180,7 +185,7 @@ test.describe('warmSessionRuntime', () => {
       }),
     });
 
-    const fixture = createWarmSessionTouchConfirmFixture({
+    const fixture = createWarmSessionUiConfirmFixture({
       claimsBySessionId: {
         [record.thresholdSessionId]: {
           state: 'warm',
@@ -200,12 +205,14 @@ test.describe('warmSessionRuntime', () => {
     await expect(
       ensureEcdsaPrfSealPersisted({
         touchConfirm: fixture.touchConfirm,
+        chainTarget: EVM_CHAIN_TARGET,
         thresholdSessionId: record.thresholdSessionId,
         required: true,
         errorContext: 'threshold-ecdsa signing seal persistence',
         sealPersistInFlightBySessionId: new Map(),
         resolveSealTransport: () => ({
           curve: 'ecdsa',
+          chainTarget: EVM_CHAIN_TARGET,
           relayerUrl: 'https://relay.seal-error.example',
           thresholdSessionAuthToken: 'jwt:seal-error-session',
           thresholdSessionAuthTokenSource: 'ecdsa',

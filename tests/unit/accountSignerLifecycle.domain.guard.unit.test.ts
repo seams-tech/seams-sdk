@@ -86,7 +86,7 @@ test.describe('account signer lifecycle domain guard', () => {
       'client/src/core/SeamsPasskey/near/linkDevicePreparedEcdsa.ts',
       'client/src/core/SeamsPasskey/evm/linkDeviceThresholdEcdsa.ts',
       'client/src/core/signingEngine/SigningEngine.ts',
-      'client/src/core/signingEngine/api/registration/registrationAccountLifecycle.ts',
+      'client/src/core/signingEngine/flows/registration/accountLifecycle.ts',
     ];
     const forbidden = [
       /export\s+type\s+SignerKind\s*=\s*['"]threshold-ed25519['"]/,

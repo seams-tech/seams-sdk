@@ -1,7 +1,6 @@
 import type { SensitiveOperationPolicy } from '@/core/types/seams';
 import type {
-  BackingMaterialSessionId,
-  SigningLaneContext,
+  SelectedSigningSessionPlanningLane,
   SigningLaneSummary,
   SigningPlanSummary,
   SigningSessionNotReadyReason,
@@ -28,17 +27,15 @@ type TerminalNotReadyReason = Extract<
 export type SigningSessionReadiness =
   | {
       status: 'ready';
-      thresholdSessionId?: ThresholdSessionId;
-      backingMaterialSessionId?: BackingMaterialSessionId;
+      thresholdSessionId: ThresholdSessionId;
     }
   | {
       status: ReauthableNotReadyReason | TerminalNotReadyReason;
-      thresholdSessionId?: ThresholdSessionId;
-      backingMaterialSessionId?: BackingMaterialSessionId;
+      thresholdSessionId: ThresholdSessionId;
     };
 
 export type SigningSessionPlannerInput = {
-  lane: SigningLaneContext;
+  lane: SelectedSigningSessionPlanningLane;
   readiness: SigningSessionReadiness;
   forceFreshAuth?: boolean;
   sensitiveOperationPolicy?: SensitiveOperationPolicy | null;
@@ -65,7 +62,7 @@ export function planSigningSession(input: SigningSessionPlannerInput): SigningSe
     };
   }
 
-  const thresholdSessionId = readiness.thresholdSessionId || lane.thresholdSessionId;
+  const thresholdSessionId = readiness.thresholdSessionId;
   const forceFreshAuth =
     input.forceFreshAuth ||
     input.sensitiveOperationPolicy === 'require_fresh_same_method' ||

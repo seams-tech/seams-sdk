@@ -4,7 +4,7 @@ import {
   clearAllThresholdEcdsaClientPresignatures,
   resolveThresholdEcdsaPresignPoolPolicy,
   scheduleThresholdEcdsaClientPresignaturePoolRefill,
-} from '@/core/signingEngine/orchestration/walletOrigin/thresholdEcdsaCoordinator';
+} from '@/core/signingEngine/threshold/ecdsa/presignPool';
 
 test.describe('threshold ECDSA presign pool policy', () => {
   const ECDSA_THRESHOLD_KEY_ID = 'ecdsa-hss-test-key-1';

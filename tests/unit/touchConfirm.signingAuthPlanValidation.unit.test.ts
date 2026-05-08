@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { validateUserConfirmRequest } from '@/core/signingEngine/touchConfirm/handlers/flows/adapters/request';
-import { UserConfirmationType } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
+import { validateUserConfirmRequest } from '@/core/signingEngine/uiConfirm/handlers/flows/adapters/request';
+import { UserConfirmationType } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 
 function signIntentDigestRequest(payloadOverrides: Record<string, unknown>) {
   return {

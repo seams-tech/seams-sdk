@@ -1041,8 +1041,21 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
     try {
       const body = (req.body || {}) as Record<string, unknown>;
       const expectedWalletSigningSessionId = String(body.walletSigningSessionId || '').trim();
+      const expectedThresholdSessionId = String(body.thresholdSessionId || '').trim();
       const validated = await readAndValidateEmailOtpSigningSession(req.headers || {});
       if (!validated.ok) {
+        if (expectedWalletSigningSessionId && validated.status === 401) {
+          res.status(200).json({
+            ok: true,
+            walletSigningSessionId: expectedWalletSigningSessionId,
+            ...(expectedThresholdSessionId
+              ? { thresholdSessionId: expectedThresholdSessionId }
+              : {}),
+            status: 'not_found',
+            statusCode: 'unauthorized',
+          });
+          return;
+        }
         res.status(validated.status).json(validated.body);
         return;
       }

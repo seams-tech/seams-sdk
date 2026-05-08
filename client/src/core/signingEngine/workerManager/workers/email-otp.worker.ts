@@ -29,7 +29,7 @@ import {
   type ThresholdEcdsaHssRouteAuth,
 } from '@/core/rpcClients/relayer/thresholdEcdsa';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
-import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/orchestration/thresholdActivation';
+import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import {
   thresholdEcdsaChainTargetFromRequest,
   thresholdEcdsaChainTargetKey,
@@ -37,7 +37,7 @@ import {
   toWalletSubjectId,
   type ThresholdEcdsaChainTarget,
   type WalletSubjectId,
-} from '@/core/signingEngine/session/signingSession/ecdsaChainTarget';
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   clampThresholdSessionPolicy,
   DEFAULT_THRESHOLD_SESSION_POLICY,
@@ -47,12 +47,12 @@ import {
   parseThresholdRuntimePolicyScopeFromJwt,
   THRESHOLD_SESSION_POLICY_VERSION,
   type ThresholdRuntimePolicyScope,
-} from '@/core/signingEngine/threshold/session/sessionPolicy';
+} from '@/core/signingEngine/threshold/sessionPolicy';
 import {
   createThresholdEcdsaHssHiddenEvalFinalizeMessage,
   encodeThresholdEcdsaHssHiddenEvalRequestMessage,
   parseThresholdEcdsaHssHiddenEvalServerResponseMessage,
-} from '@/core/signingEngine/threshold/workflows/thresholdEcdsaHssTransport';
+} from '@/core/signingEngine/threshold/ecdsa/hssTransport';
 import initEthSigner, {
   init_eth_signer,
   secp256k1_private_key_32_to_public_key_33,
@@ -81,13 +81,13 @@ import {
   emailOtpRoutePath,
   normalizeEmailOtpRoutePlan,
   type EmailOtpRoutePlan,
-} from '../../emailOtp/authLane';
+} from '../../stepUpConfirmation/otpPrompt/authLane';
 import {
   deleteEmailOtpDeviceEnrollmentEscrowRecord,
   readEmailOtpDeviceEnrollmentEscrowRecord,
   readSingleEmailOtpDeviceEnrollmentEscrowRecordForWallet,
   writeEmailOtpDeviceEnrollmentEscrowRecord,
-} from '../../api/session/emailOtpDeviceEnrollmentEscrowStore';
+} from './email-otp/deviceEnrollmentEscrowStore';
 import {
   EMAIL_OTP_RECOVERY_WRAP_ALG,
   EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,

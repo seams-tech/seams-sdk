@@ -1,7 +1,7 @@
 import { toAccountId } from '../../types/accountIds';
 import type { EvmSignerCapability } from '..';
 import { routeWalletIframeOrLocal, type WalletIframeRouteDeps } from '../walletIframeRoute';
-import { toWalletSubjectId } from '../../signingEngine/session/signingSession/ecdsaChainTarget';
+import { toWalletSubjectId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 type ChainSignerDeps = {
   getContext: () => import('../index').PasskeyManagerContext;

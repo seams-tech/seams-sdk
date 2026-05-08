@@ -2,11 +2,12 @@ import { expect, test } from '@playwright/test';
 import {
   createWarmSessionTestServices,
   createThresholdEcdsaStoreFixture,
-  createWarmSessionTouchConfirmFixture,
+  createWarmSessionUiConfirmFixture,
   createWarmSessionStatusReader,
   resetWarmSessionFixtureState,
   seedEd25519WarmSessionRecord,
   seedEcdsaWarmSessionRecord,
+  testEcdsaChainTarget,
 } from './helpers/warmSessionStore.fixtures';
 
 test.describe('WarmSessionStore lifecycle', () => {
@@ -240,7 +241,10 @@ test.describe('WarmSessionStore lifecycle', () => {
     });
 
     expect(
-      store.resolveEcdsaSealTransportByThresholdSessionId(evmRecord.thresholdSessionId),
+      store.resolveEcdsaSealTransportByThresholdSessionId({
+        thresholdSessionId: evmRecord.thresholdSessionId,
+        chainTarget: testEcdsaChainTarget('evm'),
+      }),
     ).toMatchObject({
       curve: 'ecdsa',
       relayerUrl: evmRecord.relayerUrl,
@@ -263,7 +267,7 @@ test.describe('WarmSessionStore lifecycle', () => {
         shamirPrimeB64u: 'AQAB',
       },
     });
-    const touchConfirmFixture = createWarmSessionTouchConfirmFixture({
+    const touchConfirmFixture = createWarmSessionUiConfirmFixture({
       claimsBySessionId: {
         [evmRecord.thresholdSessionId]: {
           state: 'warm',

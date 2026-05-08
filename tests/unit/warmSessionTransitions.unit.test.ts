@@ -34,7 +34,6 @@ function createEnvelope(): WarmSessionEnvelope {
       ecdsa: {
         evm: {
           capability: 'ecdsa',
-          chain: 'evm',
           record: null,
           auth: null,
           prfClaim: null,
@@ -42,16 +41,13 @@ function createEnvelope(): WarmSessionEnvelope {
         },
         tempo: {
           capability: 'ecdsa',
-          chain: 'tempo',
           record: {
             nearAccountId: 'transition-summary.testnet',
-            chain: 'tempo',
             thresholdSessionId: 'tempo-session',
             thresholdSessionKind: 'cookie',
           } as any,
           auth: {
             capability: 'ecdsa',
-            chain: 'tempo',
             record: {} as any,
             thresholdSessionAuthTokenSource: 'none',
           },

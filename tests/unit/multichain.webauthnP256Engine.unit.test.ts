@@ -7,7 +7,7 @@ test.describe('WebAuthnP256Engine wasm boundary', () => {
     const engineSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../client/src/core/signingEngine/signers/algorithms/webauthnP256.ts',
+        '../client/src/core/signingEngine/flows/signEvmFamily/signers/webauthnP256.ts',
       ),
       'utf8',
     );
@@ -29,5 +29,27 @@ test.describe('WebAuthnP256Engine wasm boundary', () => {
 
     expect(workerSource).toContain("type: 'buildWebauthnP256Signature'");
     expect(workerSource).toContain('build_webauthn_p256_signature');
+  });
+
+  test('eth worker owns WebAuthn COSE P-256 key decoding', () => {
+    const workerSource = fs.readFileSync(
+      path.resolve(
+        process.cwd(),
+        '../client/src/core/signingEngine/workerManager/workers/eth-signer.worker.ts',
+      ),
+      'utf8',
+    );
+    const keyRefSource = fs.readFileSync(
+      path.resolve(
+        process.cwd(),
+        '../client/src/core/signingEngine/flows/signEvmFamily/webauthnP256KeyRef.ts',
+      ),
+      'utf8',
+    );
+
+    expect(workerSource).toContain("type: 'decodeCoseP256PublicKey'");
+    expect(workerSource).toContain('decode_cose_p256_public_key');
+    expect(keyRefSource).toContain('decodeCoseP256PublicKeyWasm');
+    expect(keyRefSource).not.toContain('coseP256PublicKeyToXY');
   });
 });

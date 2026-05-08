@@ -8,7 +8,7 @@ import type {
 } from '../../indexedDB/passkeyClientDB.types';
 import { IndexedDBManager } from '../../indexedDB';
 import { getNearAccountIdForProfile } from '../../accountData/near/accountProjection';
-import type { EvmContractAbi } from '../../signingEngine/chainAdaptors/evm/types';
+import type { EvmContractAbi } from '../../signingEngine/chains/evm/types';
 import { executeEvmFamilyTransactionLifecycle } from '../tempo/executeEvmFamilyTransaction';
 import { createEvmClient, parseRpcHexQuantity } from '../../rpcClients/evm/EvmClient';
 import type { SigningFlowEvent } from '../../types/sdkSentEvents';
@@ -20,7 +20,7 @@ import {
 import {
   thresholdEcdsaChainTargetFromChainFamily,
   toWalletSubjectId,
-} from '../../signingEngine/session/signingSession/ecdsaChainTarget';
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 const ADD_OWNER_SELECTOR = getSeamsSmartAccountMethodSelector('addOwner');
 const REMOVE_OWNER_SELECTOR = getSeamsSmartAccountMethodSelector('removeOwner');

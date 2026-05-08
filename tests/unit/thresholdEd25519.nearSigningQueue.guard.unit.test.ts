@@ -5,7 +5,7 @@ import { expect, test } from '@playwright/test';
 
 function readNearSigningSource(): string {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-  const filePath = path.join(repoRoot, 'client/src/core/signingEngine/api/nearSigning.ts');
+  const filePath = path.join(repoRoot, 'client/src/core/signingEngine/flows/signNear/signNear.ts');
   return fs.readFileSync(filePath, 'utf8');
 }
 
@@ -28,10 +28,10 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
   test('Email OTP NEAR signing waits for pending Ed25519 warm-up instead of falling through', () => {
     const nearSigning = readNearSigningSource();
     const transactionsFlow = readRepoSource(
-      'client/src/core/signingEngine/orchestration/near/transactionsFlow.ts',
+      'client/src/core/signingEngine/flows/signNear/signTransactions.ts',
     );
     const signingFlow = readRepoSource(
-      'client/src/core/signingEngine/touchConfirm/handlers/flows/signing.ts',
+      'client/src/core/signingEngine/uiConfirm/handlers/flows/signing.ts',
     );
 
     expect(nearSigning).toContain('isEmailOtpEd25519WarmupPending');
@@ -65,13 +65,13 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
   test('Email OTP NEAR cached client-base signing records wallet-session budget spend', () => {
     const nearSigning = readNearSigningSource();
     const transactionsFlow = readRepoSource(
-      'client/src/core/signingEngine/orchestration/near/transactionsFlow.ts',
+      'client/src/core/signingEngine/flows/signNear/signTransactions.ts',
     );
     const signingSessionCoordinator = readRepoSource(
       'client/src/core/signingEngine/session/SigningSessionCoordinator.ts',
     );
     const emailOtpCoordinator = readRepoSource(
-      'client/src/core/signingEngine/emailOtp/EmailOtpThresholdSessionCoordinator.ts',
+      'client/src/core/signingEngine/sessionEmailOtp/EmailOtpThresholdSessionCoordinator.ts',
     );
     const worker = readRepoSource(
       'client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
@@ -90,24 +90,24 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
   });
 
   test('Email OTP NEAR cached client-base signing consumes shared session budgets without PRF claim', () => {
-    const orchestrationDeps = readRepoSource(
-      'client/src/core/signingEngine/bootstrap/orchestrationDependencyFactory.ts',
+    const enginePorts = readRepoSource(
+      'client/src/core/signingEngine/assembly/createPorts.ts',
     );
-    const touchConfirmTypes = readRepoSource('client/src/core/signingEngine/touchConfirm/types.ts');
+    const touchConfirmTypes = readRepoSource('client/src/core/signingEngine/uiConfirm/types.ts');
     const touchConfirmManager = readRepoSource(
-      'client/src/core/signingEngine/touchConfirm/TouchConfirmManager.ts',
+      'client/src/core/signingEngine/uiConfirm/UiConfirmManager.ts',
     );
     const worker = readRepoSource(
       'client/src/core/signingEngine/workerManager/workers/passkey-confirm.worker.ts',
     );
     const signingSessionReadiness = readRepoSource(
-      'client/src/core/signingEngine/session/signingSession/readiness.ts',
+      'client/src/core/signingEngine/session/availability/readiness.ts',
     );
 
-    expect(orchestrationDeps).toContain('new SigningSessionCoordinator');
-    expect(orchestrationDeps).toContain('signingSessionCoordinator');
-    expect(orchestrationDeps).not.toContain('signingSessionBudget');
-    expect(orchestrationDeps).not.toContain('consumeWalletSigningSessionUse');
+    expect(enginePorts).toContain('new SigningSessionCoordinator');
+    expect(enginePorts).toContain('signingSessionCoordinator');
+    expect(enginePorts).not.toContain('signingSessionBudget');
+    expect(enginePorts).not.toContain('consumeWalletSigningSessionUse');
     expect(signingSessionReadiness).toContain('clientAdditiveShareHandle');
     expect(signingSessionReadiness).toContain('walletSigningSessionId');
     expect(touchConfirmTypes).toContain('WarmSessionMaterialConsumer');
@@ -119,9 +119,9 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
 
   test('transaction signing does not consume worker warm-session budgets directly', () => {
     const transactionsFlow = readRepoSource(
-      'client/src/core/signingEngine/orchestration/near/transactionsFlow.ts',
+      'client/src/core/signingEngine/flows/signNear/signTransactions.ts',
     );
-    const evmSigning = readRepoSource('client/src/core/signingEngine/api/evmSigning.ts');
+    const evmSigning = readRepoSource('client/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts');
 
     expect(transactionsFlow).toContain('signingSessionCoordinator');
     expect(transactionsFlow).not.toContain('consumeWalletSigningSessionUse');
@@ -133,7 +133,7 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
 
   test('export code cannot consume wallet signing-session budget', () => {
     const recovery = readRepoSource(
-      'client/src/core/signingEngine/api/recovery/privateKeyExportRecovery.ts',
+      'client/src/core/signingEngine/flows/recovery/privateKeyExportRecovery.ts',
     );
 
     expect(recovery).not.toContain('SigningSessionCoordinator');

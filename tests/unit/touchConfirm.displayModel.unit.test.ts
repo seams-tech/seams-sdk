@@ -2,10 +2,10 @@ import { expect, test } from '@playwright/test';
 import { encodeFunctionData, parseAbi } from 'viem';
 
 const IMPORT_PATHS = {
-  nearBuilder: '/sdk/esm/core/signingEngine/touchConfirm/displayFormat/nearTx.js',
-  evmBuilder: '/sdk/esm/core/signingEngine/touchConfirm/displayFormat/evmTx.js',
-  tempoBuilder: '/sdk/esm/core/signingEngine/touchConfirm/displayFormat/tempoTx.js',
-  txTreeUtils: '/sdk/esm/core/signingEngine/touchConfirm/ui/lit-components/TxTree/tx-tree-utils.js',
+  nearBuilder: '/sdk/esm/core/signingEngine/chains/near/display.js',
+  evmBuilder: '/sdk/esm/core/signingEngine/chains/evm/display/evmTx.js',
+  tempoBuilder: '/sdk/esm/core/signingEngine/chains/tempo/display.js',
+  txTreeUtils: '/sdk/esm/core/signingEngine/uiConfirm/ui/lit-components/TxTree/tx-tree-utils.js',
 } as const;
 
 const SMART_ACCOUNT_ABI = parseAbi([

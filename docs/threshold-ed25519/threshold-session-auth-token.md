@@ -189,35 +189,35 @@ signing.
 - `client/src/core/signingEngine/orchestration/near/shared/thresholdSessionAuth.ts`
   - resolves threshold session auth material from the selected Ed25519 record
 
-- `client/src/core/signingEngine/orchestration/near/transactionsFlow.ts`
+- `client/src/core/signingEngine/flows/signNear/signTransactions.ts`
   - carries the selected Ed25519 session state into transaction signing
 
-- `client/src/core/signingEngine/orchestration/near/delegateFlow.ts`
+- `client/src/core/signingEngine/flows/signNear/signDelegate.ts`
   - carries the same auth token for delegate signing
 
-- `client/src/core/signingEngine/orchestration/near/nep413Flow.ts`
+- `client/src/core/signingEngine/flows/signNear/signNep413.ts`
   - carries the same auth token for NEP-413 signing
 
 ### HSS Reconstruction And Repair
 
-- `client/src/core/signingEngine/orchestration/near/shared/ensureThresholdEd25519HssClientBase.ts`
+- `client/src/core/signingEngine/threshold/ed25519/hssClientBase.ts`
   - requires `thresholdSessionAuthToken` when single-key HSS reconstruction
     needs server participation
 
-- `client/src/core/signingEngine/api/thresholdLifecycle/thresholdEd25519Lifecycle.ts`
+- `client/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts`
   - sends the auth token to session-bound Ed25519 HSS server routes
 
-- `client/src/core/signingEngine/orchestration/near/shared/repairThresholdEd25519MissingRelayerKey.ts`
+- `client/src/core/signingEngine/threshold/ed25519/repairMissingRelayerKey.ts`
   - carries the token into relayer-key repair when the hot relayer-share cache
     is missing
 
 ### Session State And Persistence
 
-- `client/src/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore.ts`
+- `client/src/core/signingEngine/session/persistence/records.ts`
   - stores canonical threshold Ed25519 session records with
     `thresholdSessionAuthToken` for bearer-token sessions
 
-- `client/src/core/signingEngine/session/sealedSessionStore.ts`
+- `client/src/core/signingEngine/session/persistence/sealedSessionStore.ts`
   - preserves sealed refresh transport metadata that may include the token
 
 - `client/src/core/signingEngine/session/warmSigning/readModel.ts`

@@ -7,20 +7,20 @@ import {
 import {
   buildNearThresholdSigningAuthPlan,
   resolveNearThresholdSigningAuthContext,
-} from '@/core/signingEngine/orchestration/near/shared/thresholdAuthMode';
+} from '@/core/signingEngine/flows/signNear/shared/thresholdAuthMode';
 import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
-import { SigningAuthPlanKind } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
+import { SigningAuthPlanKind } from '@/core/signingEngine/stepUpConfirmation/types';
 import {
   createWarmSessionTestServices,
   createThresholdEcdsaBootstrapFixture,
   createThresholdEcdsaStoreFixture,
-  createWarmSessionTouchConfirmFixture,
+  createWarmSessionUiConfirmFixture,
   resetWarmSessionFixtureState,
   seedEd25519WarmSessionRecord,
   seedEcdsaWarmSessionRecord,
   testEcdsaChainTarget,
 } from './helpers/warmSessionStore.fixtures';
-import { toWalletSubjectId } from '@/core/signingEngine/session/signingSession/ecdsaChainTarget';
+import { toWalletSubjectId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 async function resolveNearThresholdSigningAuthForTest(args: Parameters<
   typeof resolveNearThresholdSigningAuthContext
@@ -53,7 +53,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
     });
 
     let provisionCalls = 0;
-    const { touchConfirm } = createWarmSessionTouchConfirmFixture({
+    const { touchConfirm } = createWarmSessionUiConfirmFixture({
       claimsBySessionId: {
         [record.thresholdSessionId]: {
           state: 'missing',
@@ -81,7 +81,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
         },
       }),
     ).rejects.toThrow(
-      'Missing warm PRF material for threshold-ecdsa authorization bootstrap (missing)',
+      'Missing warm PRF material for threshold-ecdsa restored-session bootstrap (missing)',
     );
     expect(provisionCalls).toBe(0);
   });
@@ -104,7 +104,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
       bootstrap: staleBootstrap,
     });
 
-    const fixture = createWarmSessionTouchConfirmFixture({
+    const fixture = createWarmSessionUiConfirmFixture({
       claimsBySessionId: {
         [staleRecord.thresholdSessionId]: {
           state: 'missing',
@@ -113,7 +113,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
     });
     const store = createWarmSessionTestServices({
       touchConfirm: fixture.touchConfirm,
-      listThresholdEcdsaKeyRefsForLookup: () => [
+      listThresholdEcdsaKeyRefsForAccountTarget: () => [
         { source: 'login', keyRef: staleBootstrap.thresholdEcdsaKeyRef },
       ],
       provisionThresholdEcdsaSession: async ({ nearAccountId, chainTarget }) => {
@@ -133,6 +133,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
         chain: 'evm',
         usesNeeded: 1,
         sessionBudgetUses: 1,
+        clientRootShare32B64u: 'reconnect-error-client-root-share',
       }),
     ).rejects.toThrow(
       '[WarmSessionStore] provisioned ECDSA capability was not persisted for reconnect-error.testnet (expected sessionId=reconnect-error-fresh-session, found=reconnect-error-stale-session)',
@@ -157,7 +158,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
       }),
     });
 
-    const fixture = createWarmSessionTouchConfirmFixture({
+    const fixture = createWarmSessionUiConfirmFixture({
       claimsBySessionId: {
         [record.thresholdSessionId]: {
           state: 'warm',
@@ -217,7 +218,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
     await expect(
       store.assertEcdsaSigningSessionReady({
         nearAccountId: 'signing-exhausted.testnet',
-        chain: 'evm',
+        chainTarget: testEcdsaChainTarget('evm'),
         thresholdSessionId: 'signing-exhausted-session',
         usesNeeded: 2,
       }),

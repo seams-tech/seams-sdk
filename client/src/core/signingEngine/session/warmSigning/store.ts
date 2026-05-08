@@ -7,8 +7,8 @@ import {
   listStoredThresholdEcdsaSessionRecordsForAccount,
   type ThresholdEcdsaSessionRecord,
   type ThresholdEd25519SessionRecord,
-} from '../../api/thresholdLifecycle/thresholdSessionStore';
-import type { ThresholdEcdsaChainTarget } from '../signingSession/ecdsaChainTarget';
+} from '../persistence/records';
+import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export type WarmSessionStoredCapabilityRecords = {
   ed25519: ThresholdEd25519SessionRecord | null;

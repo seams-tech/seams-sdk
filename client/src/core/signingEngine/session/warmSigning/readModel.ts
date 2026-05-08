@@ -7,8 +7,8 @@ import type {
   WarmSessionStatusBatchReader,
   WarmSessionStatusReader,
   WarmSessionStatusResult,
-} from '../../touchConfirm';
-import type { ThresholdSessionSealTransportAuthMaterial } from '../../api/thresholdLifecycle/thresholdSessionStore';
+} from '../../uiConfirm/types';
+import type { ThresholdSessionSealTransportAuthMaterial } from '../persistence/records';
 import type {
   WarmSessionEd25519AuthMaterial,
   WarmSessionEcdsaAuthMaterial,

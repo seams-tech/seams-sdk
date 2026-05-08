@@ -3,7 +3,7 @@ import { handleInfrastructureErrors } from '../setup';
 
 const IMPORT_PATHS = {
   nonceCoordinator: '/sdk/esm/core/signingEngine/nonce/NonceCoordinator.js',
-  nearAdapter: '/sdk/esm/core/signingEngine/touchConfirm/handlers/flows/adapters/adapters.js',
+  nearAdapter: '/sdk/esm/core/signingEngine/uiConfirm/handlers/flows/adapters/adapters.js',
 } as const;
 
 test.describe('touchConfirm near adapter – concurrency', () => {

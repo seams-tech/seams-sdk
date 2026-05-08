@@ -1,7 +1,7 @@
 import type { ToggleColorProps } from './Toggle';
 import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
 import type { LinkDeviceResult } from '@/core/types/linkDevice';
-import type { ThemeName } from '@/core/signingEngine/touchConfirm/ui/confirm-ui-types';
+import type { ThemeName } from '@/core/signingEngine/uiConfirm/ui/confirm-ui-types';
 
 export interface ProfileDimensions {
   width: number;

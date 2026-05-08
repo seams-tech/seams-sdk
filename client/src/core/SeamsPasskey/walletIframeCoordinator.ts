@@ -1,5 +1,5 @@
 import type { SigningEnginePublic } from '../signingEngine/SigningEngine';
-import type { UserPreferencesManager } from '../signingEngine/api/userPreferences';
+import type { UserPreferencesManager } from '../signingEngine/session/userPreferences';
 import type { AccountId } from '../types/accountIds';
 import { toAccountId } from '../types/accountIds';
 import type { ThemeName, SeamsConfigsReadonly } from '../types/seams';

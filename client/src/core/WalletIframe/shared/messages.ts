@@ -5,19 +5,19 @@ import { ActionArgs, TransactionInput } from '../../types';
 import { type DeviceLinkingQRData } from '../../types/linkDevice';
 import type { DelegateActionInput } from '../../types/delegate';
 import type { ConfirmationConfig } from '../../types/signer-worker';
-import type { MultichainSigningRequest } from '../../signingEngine/chainAdaptors/tempo/types';
-import type { EvmSignedResult } from '../../signingEngine/chainAdaptors/evm/evmAdapter';
-import type { TempoSignedResult } from '../../signingEngine/chainAdaptors/tempo/tempoAdapter';
+import type { MultichainSigningRequest } from '../../signingEngine/chains/tempo/types';
+import type { EvmSignedResult } from '../../signingEngine/chains/evm/evmAdapter';
+import type { TempoSignedResult } from '../../signingEngine/chains/tempo/tempoAdapter';
 import type {
   ThresholdEd25519HssFinalizedReportEnvelope,
   ThresholdEd25519HssPreparedSessionEnvelope,
-} from '../../signingEngine/signers/wasm/hssClientSignerWasm';
-import type { ThresholdRuntimePolicyScope } from '../../signingEngine/threshold/session/sessionPolicy';
+} from '../../signingEngine/threshold/crypto/hssClientSignerWasm';
+import type { ThresholdRuntimePolicyScope } from '../../signingEngine/threshold/sessionPolicy';
 import type {
   NearAccountRef,
   ThresholdEcdsaChainTarget,
   WalletSubjectId,
-} from '../../signingEngine/session/signingSession/ecdsaChainTarget';
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EmailOtpAuthPolicy, SeamsConfigsInput } from '../../types/seams';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';

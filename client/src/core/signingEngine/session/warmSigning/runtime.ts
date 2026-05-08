@@ -1,10 +1,10 @@
-import type { ThresholdSessionSealTransportAuthMaterial } from '../../api/thresholdLifecycle/thresholdSessionStore';
-import type { ThresholdEcdsaChainTarget } from '../signingSession/ecdsaChainTarget';
+import type { ThresholdSessionSealTransportAuthMaterial } from '../persistence/records';
+import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   WarmSessionSealPersister,
   WarmSessionMaterialClaimer,
   WarmSessionStatusReader,
-} from '../../touchConfirm';
+} from '../../uiConfirm/types';
 import {
   formatMissingWarmPrfMaterialError,
   formatWarmSessionClaimUnavailableError,

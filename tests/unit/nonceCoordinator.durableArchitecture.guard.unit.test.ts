@@ -31,7 +31,7 @@ test.describe('nonce coordinator durable architecture guards', () => {
   test('durable nonce leases live in the existing PasskeyClientDB schema', () => {
     const schema = readRepoSource('client/src/core/indexedDB/passkeyClientDB/schema.ts');
     const managerAssembly = readRepoSource(
-      'client/src/core/signingEngine/bootstrap/managerAssembly.ts',
+      'client/src/core/signingEngine/assembly/createManagers.ts',
     );
     const store = readRepoSource('client/src/core/indexedDB/nonceLaneCoordinationStore.ts');
 
@@ -50,11 +50,11 @@ test.describe('nonce coordinator durable architecture guards', () => {
 
   test('transaction signing flows do not import durable nonce storage directly', () => {
     const transactionFiles = [
-      'client/src/core/signingEngine/api/evmFamily/transactionExecutor.ts',
-      'client/src/core/signingEngine/orchestration/evm/evmSigningFlow.ts',
-      'client/src/core/signingEngine/orchestration/tempo/tempoSigningFlow.ts',
-      'client/src/core/signingEngine/orchestration/near/transactionsFlow.ts',
-      'client/src/core/signingEngine/api/nearSigning.ts',
+      'client/src/core/signingEngine/flows/signEvmFamily/transactionExecutor.ts',
+      'client/src/core/signingEngine/flows/signEvmFamily/signEvmWithUiConfirm.ts',
+      'client/src/core/signingEngine/flows/signEvmFamily/signTempoWithUiConfirm.ts',
+      'client/src/core/signingEngine/flows/signNear/signTransactions.ts',
+      'client/src/core/signingEngine/flows/signNear/signNear.ts',
     ];
 
     for (const relativePath of transactionFiles) {
@@ -85,7 +85,7 @@ test.describe('nonce coordinator durable architecture guards', () => {
 
   test('startup recovery is only invoked from startup or unlock boundaries', () => {
     const allowedCallers = new Set([
-      'client/src/core/signingEngine/bootstrap/managerAssembly.ts',
+      'client/src/core/signingEngine/assembly/createManagers.ts',
       'client/src/core/SeamsPasskey/login.ts',
       'client/src/core/signingEngine/nonce/NonceCoordinator.ts',
     ]);

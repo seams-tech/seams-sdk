@@ -4,7 +4,7 @@ import { setupBasicPasskeyTest, SDK_ESM_PATHS, sdkEsmPath } from '../setup';
 
 const IMPORT_PATHS = {
   confirmUi: SDK_ESM_PATHS.confirmUi,
-  evmBuilder: sdkEsmPath('core/signingEngine/touchConfirm/displayFormat/evmTx.js'),
+  evmBuilder: sdkEsmPath('core/signingEngine/chains/evm/display/evmTx.js'),
 } as const;
 
 test.describe('confirm-ui mountConfirmUI handle', () => {
@@ -17,7 +17,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
       async ({ paths }) => {
         const mod = await import(paths.confirmUi);
         const { mountConfirmUI } =
-          mod as typeof import('@/core/signingEngine/touchConfirm/ui/confirm-ui');
+          mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
 
         const ctx: any = {
           userPreferencesManager: {
@@ -109,7 +109,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
       async ({ paths }) => {
         const mod = await import(paths.confirmUi);
         const { mountConfirmUI } =
-          mod as typeof import('@/core/signingEngine/touchConfirm/ui/confirm-ui');
+          mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
 
         const ctx: any = {
           userPreferencesManager: {
@@ -254,7 +254,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
       async ({ paths, dataHexArg, abiArg }) => {
         const mod = await import(paths.confirmUi);
         const { mountConfirmUI } =
-          mod as typeof import('@/core/signingEngine/touchConfirm/ui/confirm-ui');
+          mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
 
         const ctx: any = {
           userPreferencesManager: {
@@ -383,7 +383,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
       async ({ paths }) => {
         const mod = await import(paths.confirmUi);
         const { mountConfirmUI } =
-          mod as typeof import('@/core/signingEngine/touchConfirm/ui/confirm-ui');
+          mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
 
         const ctx: any = {
           userPreferencesManager: {
@@ -516,7 +516,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
       async ({ paths }) => {
         const mod = await import(paths.confirmUi);
         const { mountConfirmUI } =
-          mod as typeof import('@/core/signingEngine/touchConfirm/ui/confirm-ui');
+          mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
 
         const ctx: any = {
           userPreferencesManager: {
@@ -601,7 +601,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
       async ({ paths }) => {
         const mod = await import(paths.confirmUi);
         const { mountConfirmUI } =
-          mod as typeof import('@/core/signingEngine/touchConfirm/ui/confirm-ui');
+          mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
 
         const ctx: any = {
           userPreferencesManager: {
@@ -692,7 +692,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
       async ({ paths }) => {
         const mod = await import(paths.confirmUi);
         const { mountConfirmUI } =
-          mod as typeof import('@/core/signingEngine/touchConfirm/ui/confirm-ui');
+          mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
 
         const ctx: any = {
           userPreferencesManager: {
@@ -825,7 +825,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
       async ({ paths }) => {
         const mod = await import(paths.confirmUi);
         const { mountConfirmUI } =
-          mod as typeof import('@/core/signingEngine/touchConfirm/ui/confirm-ui');
+          mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
 
         const ctx: any = {
           userPreferencesManager: {
@@ -906,7 +906,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
       async ({ paths }) => {
         const mod = await import(paths.confirmUi);
         const { mountConfirmUI } =
-          mod as typeof import('@/core/signingEngine/touchConfirm/ui/confirm-ui');
+          mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
 
         const ctx: any = {
           userPreferencesManager: {
@@ -1020,9 +1020,9 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
         const confirmUiMod = await import(paths.confirmUi);
         const evmBuilderMod = await import(paths.evmBuilder);
         const { mountConfirmUI } =
-          confirmUiMod as typeof import('@/core/signingEngine/touchConfirm/ui/confirm-ui');
+          confirmUiMod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
         const { buildEvmDisplayModel } =
-          evmBuilderMod as typeof import('@/core/signingEngine/touchConfirm/displayFormat/evmTx');
+          evmBuilderMod as typeof import('@/core/signingEngine/chains/evm/display/evmTx');
 
         const contractAddress = '0x1111111111111111111111111111111111111111' as const;
         const summary = { intentDigest: 'digest-explorer-chainid' } as any;
@@ -1139,7 +1139,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
       async ({ paths }) => {
         const mod = await import(paths.confirmUi);
         const { mountConfirmUI } =
-          mod as typeof import('@/core/signingEngine/touchConfirm/ui/confirm-ui');
+          mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
 
         const ctx: any = {
           userPreferencesManager: {
@@ -1214,7 +1214,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
       async ({ paths }) => {
         const mod = await import(paths.confirmUi);
         const { mountConfirmUI } =
-          mod as typeof import('@/core/signingEngine/touchConfirm/ui/confirm-ui');
+          mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
 
         const ctx: any = {
           userPreferencesManager: {
@@ -1266,7 +1266,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
       async ({ paths }) => {
         const mod = await import(paths.confirmUi);
         const { mountConfirmUI } =
-          mod as typeof import('@/core/signingEngine/touchConfirm/ui/confirm-ui');
+          mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
 
         const ctx: any = {
           userPreferencesManager: {

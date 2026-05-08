@@ -1885,6 +1885,14 @@ export function createRelayRouteDefinitions(
       'authService',
       'session',
     ]),
+    thresholdSessionRoute(
+      'session_signing_budget_status',
+      'POST',
+      '/session/signing-budget/status',
+      'Read wallet signing-session budget status',
+      'ed25519',
+      ['session'],
+    ),
     publicRoute(
       'wallet_unlock_challenge',
       'POST',

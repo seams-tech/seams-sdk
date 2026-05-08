@@ -3,26 +3,30 @@ import type { ThresholdEcdsaHssRouteAuth } from '@/core/rpcClients/relayer/thres
 import type { SigningSessionStatus } from '@/core/types/seams';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
-import type { ThresholdEcdsaSmartAccountBootstrapInput } from '../../api/thresholdLifecycle/thresholdEcdsaBootstrapPersistence';
+import type { ThresholdEcdsaSmartAccountBootstrapInput } from './ecdsaBootstrapPersistence';
 import type {
-  ThresholdEcdsaEmailOtpAuthContext,
   ThresholdEcdsaSessionAuthTokenSource,
   ThresholdEcdsaSessionRecord,
-  ThresholdEcdsaSessionStoreSource,
   ThresholdEd25519SessionRecord,
-  ThresholdEd25519SessionStoreSource,
   ThresholdSessionSealTransportAuthMaterial,
-} from '../../api/thresholdLifecycle/thresholdSessionStore';
-import type { EmailOtpAuthLane } from '../../emailOtp/authLane';
+} from '../persistence/records';
+import type {
+  ThresholdEcdsaEmailOtpAuthContext,
+  ThresholdEcdsaSessionStoreSource,
+  ThresholdEd25519SessionStoreSource,
+} from '../identity/laneIdentity';
+import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type {
   ThresholdEcdsaSessionBootstrapResult,
-} from '../../orchestration/thresholdActivation';
-import type { Ed25519SessionKind } from '../../threshold/session/ed25519SessionTypes';
-import type { ThresholdRuntimePolicyScope } from '../../threshold/session/sessionPolicy';
-import type { WarmSessionStatusResult } from '../../touchConfirm';
+} from '../../threshold/ecdsa/activation';
+import type {
+  ThresholdRuntimePolicyScope,
+  ThresholdSessionKind,
+} from '../../threshold/sessionPolicy';
+import type { WarmSessionStatusResult } from '../../uiConfirm/types';
 import type { SigningOperationIntent } from '../signingSession/types';
-import type { ThresholdEcdsaChainTarget, WalletSubjectId } from '../signingSession/ecdsaChainTarget';
+import type { ThresholdEcdsaChainTarget, WalletSubjectId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export type WarmSessionCapability = 'ed25519' | 'ecdsa';
 export type WarmSessionPrfClaimState = 'missing' | 'warm' | 'expired' | 'exhausted' | 'unavailable';
@@ -233,7 +237,7 @@ export type ProvisionWarmEd25519CapabilityArgs = {
     publishableKey: string;
   };
   participantIds?: number[];
-  sessionKind?: Ed25519SessionKind;
+  sessionKind?: ThresholdSessionKind;
   relayerUrl?: string;
   ttlMs?: number;
   remainingUses?: number;
@@ -250,6 +254,7 @@ export type ProvisionWarmEd25519CapabilityResult = {
   walletSigningSessionId?: string;
   expiresAtMs?: number;
   remainingUses?: number;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   jwt?: string;
   ecdsaHssClientRootShare32B64u?: string;
   code?: string;

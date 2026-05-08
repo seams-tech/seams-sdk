@@ -12,7 +12,7 @@ import { useEffect } from 'react';
  *   - Hosts tx confirmer and other wallet UI; should sit above normal app UI.
  *
  * - Tx confirmer inside iframe:
- *   - CSS: `core/signingEngine/touchConfirm/ui/lit-components/css/tx-confirmer.css`
+ *   - CSS: `core/signingEngine/uiConfirm/ui/lit-components/css/tx-confirmer.css`
  *   - Uses z-indices above the iframe itself (2147483647–2147483648).
  *
  * - Linked Devices modal:

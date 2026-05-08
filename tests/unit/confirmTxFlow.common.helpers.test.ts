@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  helpers: '/sdk/esm/core/signingEngine/touchConfirm/shared/confirmCommon.js',
+  helpers: '/sdk/esm/core/signingEngine/stepUpConfirmation/channel/confirmCommon.js',
 } as const;
 
 test.describe('confirmTxFlow common helpers', () => {
@@ -16,7 +16,7 @@ test.describe('confirmTxFlow common helpers', () => {
         const mod = await import(paths.helpers);
         // compile‑time type query, TypeScript requires module specifier to be a literal string
         const { sanitizeForPostMessage } =
-          mod as typeof import('@/core/signingEngine/touchConfirm/shared/confirmCommon');
+          mod as typeof import('@/core/signingEngine/stepUpConfirmation/channel/confirmCommon');
         const input = {
           confirmed: true,
           count: 2,
@@ -50,7 +50,7 @@ test.describe('confirmTxFlow common helpers', () => {
       async ({ paths }) => {
         const mod = await import(paths.helpers);
         const { sanitizeForPostMessage } =
-          mod as typeof import('@/core/signingEngine/touchConfirm/shared/confirmCommon');
+          mod as typeof import('@/core/signingEngine/stepUpConfirmation/channel/confirmCommon');
         const sanitized = sanitizeForPostMessage({
           confirmed: false,
           futureHandler: () => 'noop',
@@ -77,7 +77,7 @@ test.describe('confirmTxFlow common helpers', () => {
       async ({ paths }) => {
         const mod = await import(paths.helpers);
         const { parseTransactionSummary } =
-          mod as typeof import('@/core/signingEngine/touchConfirm/shared/confirmCommon');
+          mod as typeof import('@/core/signingEngine/stepUpConfirmation/channel/confirmCommon');
         const parsed = parseTransactionSummary('{"totalAmount":"10","method":"transfer"}');
         const fallback = parseTransactionSummary('{invalid json');
         const objectPass = parseTransactionSummary({ totalAmount: '5', method: 'stake' });

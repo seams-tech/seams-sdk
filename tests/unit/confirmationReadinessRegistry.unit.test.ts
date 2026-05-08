@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  registry: '/sdk/esm/core/signingEngine/touchConfirm/confirmationReadinessRegistry.js',
+  registry: '/sdk/esm/core/signingEngine/uiConfirm/confirmationReadinessRegistry.js',
 } as const;
 
 test.describe('confirmation readiness registry', () => {

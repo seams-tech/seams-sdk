@@ -462,7 +462,7 @@ Required validation:
 1. Signing-session architecture:
    [../signing-session-architecture/](../signing-session-architecture/).
 2. Route auth planes:
-   [../auth-gating-routes.md](../auth-gating-routes.md).
+   [../walletAuth-gating-routes.md](../walletAuth-gating-routes.md).
 3. Threshold session token naming:
    [../signing-session-architecture/threshold-session-auth-token.md](../signing-session-architecture/threshold-session-auth-token.md).
 4. Email OTP recovery codes UI:

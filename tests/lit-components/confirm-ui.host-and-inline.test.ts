@@ -30,7 +30,7 @@ test.describe('confirm-ui inline confirmer', () => {
         const mod = await import(paths.confirmUi);
         const events = await import(paths.events);
         const { awaitConfirmUIDecision } =
-          mod as typeof import('@/core/signingEngine/touchConfirm/ui/confirm-ui');
+          mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
         const buildCtxStub = (overrides: Record<string, unknown> = {}) => ({
           userPreferencesManager: {
             getCurrentUserAccountId: () => 'alice.testnet',
@@ -88,7 +88,7 @@ test.describe('confirm-ui inline confirmer', () => {
         const mod = await import(paths.confirmUi);
         const events = await import(paths.events);
         const { awaitConfirmUIDecision } =
-          mod as typeof import('@/core/signingEngine/touchConfirm/ui/confirm-ui');
+          mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
         const buildCtxStub = (overrides: Record<string, unknown> = {}) => ({
           userPreferencesManager: {
             getCurrentUserAccountId: () => 'alice.testnet',
@@ -155,7 +155,7 @@ test.describe('confirm-ui inline confirmer', () => {
         const waitFor = eval(waitForSource) as typeof harnessWaitFor;
         const mod = await import(paths.confirmUi);
         const { awaitConfirmUIDecision } =
-          mod as typeof import('@/core/signingEngine/touchConfirm/ui/confirm-ui');
+          mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
         const buildCtxStub = (overrides: Record<string, unknown> = {}) => ({
           userPreferencesManager: {
             getCurrentUserAccountId: () => 'alice.testnet',
@@ -211,7 +211,7 @@ test.describe('confirm-ui inline confirmer', () => {
         const waitFor = eval(waitForSource) as typeof harnessWaitFor;
         const mod = await import(paths.confirmUi);
         const { awaitConfirmUIDecision } =
-          mod as typeof import('@/core/signingEngine/touchConfirm/ui/confirm-ui');
+          mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
         const buildCtxStub = (overrides: Record<string, unknown> = {}) => ({
           userPreferencesManager: {
             getCurrentUserAccountId: () => 'alice.testnet',
@@ -264,7 +264,7 @@ test.describe('confirm-ui inline confirmer', () => {
         const mod = await import(paths.confirmUi);
         const events = await import(paths.events);
         const { awaitConfirmUIDecision } =
-          mod as typeof import('@/core/signingEngine/touchConfirm/ui/confirm-ui');
+          mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
         const buildCtxStub = (overrides: Record<string, unknown> = {}) => ({
           userPreferencesManager: {
             getCurrentUserAccountId: () => 'alice.testnet',
@@ -327,7 +327,7 @@ test.describe('confirm-ui inline confirmer', () => {
         const mod = await import(paths.confirmUi);
         const events = await import(paths.events);
         const { awaitConfirmUIDecision } =
-          mod as typeof import('@/core/signingEngine/touchConfirm/ui/confirm-ui');
+          mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
         const buildCtxStub = (overrides: Record<string, unknown> = {}) => ({
           userPreferencesManager: {
             getCurrentUserAccountId: () => 'alice.testnet',
@@ -388,7 +388,7 @@ test.describe('confirm-ui inline confirmer', () => {
         const mod = await import(paths.confirmUi);
         const events = await import(paths.events);
         const { awaitConfirmUIDecision } =
-          mod as typeof import('@/core/signingEngine/touchConfirm/ui/confirm-ui');
+          mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
         const buildCtxStub = (overrides: Record<string, unknown> = {}) => ({
           userPreferencesManager: {
             getCurrentUserAccountId: () => 'alice.testnet',
@@ -464,7 +464,7 @@ test.describe('confirm-ui inline confirmer', () => {
         const mod = await import(paths.confirmUi);
         const events = await import(paths.events);
         const { awaitConfirmUIDecision } =
-          mod as typeof import('@/core/signingEngine/touchConfirm/ui/confirm-ui');
+          mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
         const buildCtxStub = (overrides: Record<string, unknown> = {}) => ({
           userPreferencesManager: {
             getCurrentUserAccountId: () => 'alice.testnet',

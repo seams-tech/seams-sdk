@@ -17,7 +17,7 @@ import {
   createThresholdEcdsaHssHiddenEvalFinalizeMessage,
   encodeThresholdEcdsaHssHiddenEvalRequestMessage,
   parseThresholdEcdsaHssHiddenEvalServerResponseMessage,
-} from '@/core/signingEngine/threshold/workflows/thresholdEcdsaHssTransport';
+} from '@/core/signingEngine/threshold/ecdsa/hssTransport';
 import {
   ThresholdEcdsaPresignSession,
   threshold_ecdsa_compute_signature_share,

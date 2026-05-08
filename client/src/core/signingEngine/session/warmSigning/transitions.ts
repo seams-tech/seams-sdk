@@ -5,7 +5,7 @@ import type {
   WarmSessionEnvelope,
   WarmSessionPrfClaim,
 } from './types';
-import type { ThresholdEcdsaChainTarget } from '../signingSession/ecdsaChainTarget';
+import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export type WarmSessionTransitionCapabilitySnapshot = {
   state: WarmSessionEd25519CapabilityState['state'] | WarmSessionEcdsaCapabilityState['state'];

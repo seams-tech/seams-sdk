@@ -2,9 +2,22 @@ import { expect, test } from '@playwright/test';
 import {
   persistThresholdEcdsaBootstrapChainAccount,
   type ThresholdEcdsaBootstrapIndexedDbPort,
-} from '@/core/signingEngine/api/thresholdLifecycle/thresholdEcdsaBootstrapPersistence';
+} from '@/core/signingEngine/session/warmSigning/ecdsaBootstrapPersistence';
 
 type UpsertCall = Parameters<ThresholdEcdsaBootstrapIndexedDbPort['upsertChainAccount']>[0];
+
+const EVM_TARGET = {
+  kind: 'evm',
+  namespace: 'eip155',
+  chainId: 11155111,
+  networkSlug: 'sepolia',
+} as const;
+
+const TEMPO_TARGET = {
+  kind: 'tempo',
+  chainId: 42431,
+  networkSlug: 'tempo-testnet',
+} as const;
 
 function createIndexedDbPort(calls: UpsertCall[]): ThresholdEcdsaBootstrapIndexedDbPort {
   return {
@@ -41,7 +54,7 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
     await persistThresholdEcdsaBootstrapChainAccount({
       indexedDB: createIndexedDbPort(calls),
       nearAccountId: 'alice.testnet' as any,
-      chain: 'evm',
+      chainTarget: EVM_TARGET,
       bootstrap: {
         keygen: {
           chainId: 11155111,
@@ -54,10 +67,10 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
       } as any,
     });
 
-    expect(calls.length).toBe(2);
+    expect(calls.length).toBe(1);
 
     const primary = calls[0]!;
-    expect(primary.chainIdKey).toBe('evm:11155111');
+    expect(primary.chainIdKey).toBe('evm:eip155:11155111');
     expect(primary.accountModel).toBe('erc4337');
     expect(primary.deployed).toBe(false);
     expect(primary.deploymentTxHash).toBeNull();
@@ -76,22 +89,15 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
       ],
     });
 
-    const mirror = calls[1]!;
-    expect(mirror.chainIdKey).toBe('tempo:42431');
-    expect(mirror.accountModel).toBe('tempo-native');
-    expect(mirror.deployed).toBe(false);
-    expect(mirror.deploymentTxHash).toBeNull();
-    expect(mirror.lastDeploymentCheckAt).toBeNull();
-    expect(mirror.undeployedSignerSet).toEqual(primary.undeployedSignerSet);
   });
 
-  test('falls back to unknown chain id when bootstrap chain id is invalid', async () => {
+  test('uses requested chain target when bootstrap chain id is invalid', async () => {
     const calls: UpsertCall[] = [];
 
     await persistThresholdEcdsaBootstrapChainAccount({
       indexedDB: createIndexedDbPort(calls),
       nearAccountId: 'alice.testnet' as any,
-      chain: 'evm',
+      chainTarget: EVM_TARGET,
       bootstrap: {
         keygen: {
           chainId: 'invalid',
@@ -100,9 +106,8 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
       } as any,
     });
 
-    expect(calls.length).toBe(2);
-    expect(calls[0]?.chainIdKey).toBe('evm:unknown');
-    expect(calls[1]?.chainIdKey).toBe('tempo:42431');
+    expect(calls.length).toBe(1);
+    expect(calls[0]?.chainIdKey).toBe('evm:eip155:11155111');
   });
 
   test('persists deployed state when registration already deployed the smart account', async () => {
@@ -111,7 +116,7 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
     await persistThresholdEcdsaBootstrapChainAccount({
       indexedDB: createIndexedDbPort(calls),
       nearAccountId: 'alice.testnet' as any,
-      chain: 'tempo',
+      chainTarget: TEMPO_TARGET,
       bootstrap: {
         keygen: {
           chainId: 42431,
@@ -125,7 +130,7 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
       },
     });
 
-    expect(calls.length).toBe(2);
+    expect(calls.length).toBe(1);
 
     const primary = calls[0]!;
     expect(primary.chainIdKey).toBe('tempo:42431');
@@ -146,12 +151,6 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
       ],
     });
 
-    const mirror = calls[1]!;
-    expect(mirror.chainIdKey).toBe('evm:unknown');
-    expect(mirror.deployed).toBe(false);
-    expect(mirror.deploymentTxHash).toBeNull();
-    expect(mirror.lastDeploymentCheckAt).toBeNull();
-    expect(mirror.undeployedSignerSet).toEqual(primary.undeployedSignerSet);
   });
 
   test('Email OTP bootstrap creates NEAR profile/account projection without a passkey signer', async () => {
@@ -199,7 +198,7 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
     await persistThresholdEcdsaBootstrapChainAccount({
       indexedDB: port,
       nearAccountId: 'google-user.testnet' as any,
-      chain: 'tempo',
+      chainTarget: TEMPO_TARGET,
       ensureEmailOtpNearAccountMapping: true,
       bootstrap: {
         keygen: {
@@ -232,7 +231,6 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
     expect(calls.map((call) => call.chainIdKey)).toEqual([
       'near:testnet',
       'tempo:42431',
-      'evm:unknown',
     ]);
   });
 });

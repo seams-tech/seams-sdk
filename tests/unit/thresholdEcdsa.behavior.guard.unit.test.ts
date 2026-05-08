@@ -8,7 +8,7 @@ test.describe('threshold ECDSA behavior guard', () => {
     const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
     const secp256k1Path = path.join(
       repoRoot,
-      'client/src/core/signingEngine/signers/algorithms/secp256k1.ts',
+      'client/src/core/signingEngine/flows/signEvmFamily/signers/secp256k1.ts',
     );
     const secp256k1Content = fs.readFileSync(secp256k1Path, 'utf8');
     const schedulerCallCount =

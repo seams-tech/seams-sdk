@@ -7,12 +7,12 @@ import {
   type AppOrThresholdSessionAuth,
   type CookieSessionAuth,
 } from '@shared/utils/sessionTokens';
-import { redactCredentialExtensionOutputs } from '../../signingEngine/signers/webauthn/credentials';
-import type { ThresholdRuntimePolicyScope } from '../../signingEngine/threshold/session/sessionPolicy';
+import { redactCredentialExtensionOutputs } from '../../signingEngine/walletAuth/webauthn/credentials/credentialExtensions';
+import type { ThresholdRuntimePolicyScope } from '../../signingEngine/threshold/sessionPolicy';
 import type {
   ThresholdEcdsaChainTarget,
   WalletSubjectId,
-} from '../../signingEngine/session/signingSession/ecdsaChainTarget';
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 type ThresholdSessionPolicyV1 = {
   version: 'threshold_session_v1';
