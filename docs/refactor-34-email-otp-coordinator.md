@@ -108,8 +108,9 @@ That call graph makes the current `walletAuth/` name too broad after its policy
 and routing responsibilities move. Today it owns two separate concerns:
 
 1. Wallet/account auth policy and method routing:
-   `walletAuthModeResolver.ts`, `accountAuth.ts`, Email OTP/passkey auth-plan
-   types, and warm-session/passkey/Email OTP selection.
+   `walletAuthModeResolver.ts`, EVM-family account-auth selection in
+   `flows/signEvmFamily/accountAuth.ts`, Email OTP/passkey auth-plan types, and
+   warm-session/passkey/Email OTP selection.
 2. WebAuthn/passkey browser primitives:
    credential collection, credential normalization, Safari fallback behavior,
    signer-slot helpers, and COSE/P-256 decoding until the Rust/WASM move lands.
@@ -137,9 +138,10 @@ client/src/core/signingEngine/
 ```
 
 `stepUpConfirmation/methodSelection.ts` should absorb the generic auth-method
-routing and policy currently represented by `walletAuthModeResolver.ts` and
-`accountAuth.ts`. `webauthnAuth/` should contain only reusable WebAuthn/passkey
-browser primitives. After that split, `walletAuth/` should be deleted.
+routing and policy currently represented by `walletAuthModeResolver.ts` and the
+remaining account-auth helpers. `webauthnAuth/` should contain only reusable
+WebAuthn/passkey browser primitives. After that split, `walletAuth/` should be
+deleted.
 
 Target step-up graph:
 
@@ -421,7 +423,7 @@ step-up graph read as:
 
 - Move generic auth-method selection from `walletAuth/walletAuthModeResolver.ts`
   to `stepUpConfirmation/methodSelection.ts`.
-- Move EVM-family account-auth resolution from `walletAuth/accountAuth.ts` to
+- Move EVM-family account-auth resolution from `flows/signEvmFamily/accountAuth.ts` to
   the step-up adaptor layer or an operation-local helper if it remains
   EVM-family specific.
 - Move runner interfaces for passkey and Email OTP to

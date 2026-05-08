@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
-import { computeSigningOperationFingerprint } from '@/core/signingEngine/session/signingSession/operationFingerprint';
+import { computeSigningOperationFingerprint } from '@/core/signingEngine/session/planning/operationFingerprint';
 import { SigningSessionIds } from '@/core/signingEngine/session/signingSession/types';
 
 test.describe('SigningOperationIdPayloadBinding', () => {

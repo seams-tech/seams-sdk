@@ -3,7 +3,6 @@ import {
   type EmailOtpConfirmPrompt,
   type SigningAuthPlan,
 } from '@/core/signingEngine/stepUpConfirmation/types';
-import { WalletAuthPlanKind, type WalletAuthPlan } from '@/core/signingEngine/walletAuth';
 import {
   confirmSigningOperation,
   type ConfirmIntentDigestSigningOperationRequest,
@@ -98,40 +97,6 @@ export async function runSigningConfirmationCommand(args: {
   });
 }
 
-export function signingAuthPlanFromWalletAuthPlan(
-  plan: WalletAuthPlan,
-  emailOtpPrompt?: EmailOtpConfirmPrompt,
-): SigningAuthPlan {
-  if (plan.kind === WalletAuthPlanKind.WarmSession) {
-    return {
-      kind: SigningAuthPlanKind.WarmSession,
-      method: plan.method,
-      accountId: plan.accountId,
-      intent: plan.intent,
-      ...(plan.curve ? { curve: plan.curve } : {}),
-      ...(plan.signingRootId ? { signingRootId: plan.signingRootId } : {}),
-      sessionId: plan.sessionId,
-      ...(plan.retention !== undefined ? { retention: plan.retention } : {}),
-      expiresAtMs: plan.expiresAtMs,
-      remainingUses: plan.remainingUses,
-    };
-  }
-  if (plan.kind === WalletAuthPlanKind.EmailOtpReauth) {
-    if (!emailOtpPrompt) {
-      throw new Error('Email OTP signing auth plan requires an emailOtpPrompt');
-    }
-    return {
-      kind: SigningAuthPlanKind.EmailOtpReauth,
-      method: 'email_otp',
-      emailOtpPrompt,
-    };
-  }
-  return {
-    kind: SigningAuthPlanKind.PasskeyReauth,
-    method: 'passkey',
-  };
-}
-
 export function signingAuthPlanFromSigningSessionPlan(args: {
   plan: Exclude<SigningSessionPlan, { kind: typeof SigningSessionPlanKind.NotReady }>;
   accountId: string;
@@ -180,30 +145,10 @@ export function signingAuthPlanFromSigningSessionPlan(args: {
   };
 }
 
-export function emailOtpSigningAuthPlan(emailOtpPrompt: EmailOtpConfirmPrompt): SigningAuthPlan {
-  return {
-    kind: SigningAuthPlanKind.EmailOtpReauth,
-    method: 'email_otp',
-    emailOtpPrompt,
-  };
-}
-
-export function passkeySigningAuthPlan(): SigningAuthPlan {
-  return {
-    kind: SigningAuthPlanKind.PasskeyReauth,
-    method: 'passkey',
-  };
-}
-
 export type SigningConfirmationAuthInput =
   | {
       kind: 'signing_plan';
       signingAuthPlan: SigningAuthPlan;
-      emailOtpPrompt: EmailOtpConfirmPrompt | null;
-    }
-  | {
-      kind: 'wallet_plan';
-      walletAuthPlan: WalletAuthPlan;
       emailOtpPrompt: EmailOtpConfirmPrompt | null;
     }
   | {
@@ -226,25 +171,25 @@ export async function resolveSigningConfirmationAuth(args: SigningConfirmationAu
       confirmationAuthPayload: { signingAuthPlan },
     };
   }
-  if (args.kind === 'wallet_plan') {
-    const signingAuthPlan = signingAuthPlanFromWalletAuthPlan(
-      args.walletAuthPlan,
-      args.emailOtpPrompt || undefined,
-    );
-    return {
-      confirmationAuthPayload: { signingAuthPlan },
-    };
-  }
   if (args.kind === 'email_otp') {
-    const signingAuthPlan = emailOtpSigningAuthPlan(args.emailOtpPrompt);
     return {
-      confirmationAuthPayload: { signingAuthPlan },
+      confirmationAuthPayload: {
+        signingAuthPlan: {
+          kind: SigningAuthPlanKind.EmailOtpReauth,
+          method: 'email_otp',
+          emailOtpPrompt: args.emailOtpPrompt,
+        },
+      },
     };
   }
   if (args.kind === 'passkey') {
-    const signingAuthPlan = passkeySigningAuthPlan();
     return {
-      confirmationAuthPayload: { signingAuthPlan },
+      confirmationAuthPayload: {
+        signingAuthPlan: {
+          kind: SigningAuthPlanKind.PasskeyReauth,
+          method: 'passkey',
+        },
+      },
     };
   }
   const exhaustive: never = args;
@@ -252,7 +197,7 @@ export async function resolveSigningConfirmationAuth(args: SigningConfirmationAu
 }
 
 export function resolveSigningConfirmationAuthMethod(
-  authPlan: Pick<SigningAuthPlan, 'kind'> | WalletAuthPlan | undefined,
+  authPlan: Pick<SigningAuthPlan, 'kind'> | undefined,
   hasEmailOtpPrompt: boolean,
 ): WalletFlowAuthMethod {
   if (hasEmailOtpPrompt || authPlan?.kind === SigningAuthPlanKind.EmailOtpReauth) return 'email_otp';

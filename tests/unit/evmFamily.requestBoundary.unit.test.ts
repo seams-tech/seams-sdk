@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
 import { evmFamilySigningTargetFromExplicitTarget } from '@/core/signingEngine/flows/signEvmFamily/types';
-import { readTrustedWalletSigningBudgetStatus } from '@/core/signingEngine/session/signingSession/budgetStatusReader';
+import { readTrustedWalletSigningBudgetStatus } from '@/core/signingEngine/session/budget/budgetStatusReader';
 import { thresholdEcdsaChainTargetFromChainFamily } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   createThresholdEcdsaBootstrapFixture,

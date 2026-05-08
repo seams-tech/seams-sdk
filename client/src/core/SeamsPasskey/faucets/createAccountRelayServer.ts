@@ -7,8 +7,8 @@ import { PasskeyManagerContext } from '..';
 import {
   serializeRegistrationCredential,
   normalizeRegistrationCredential,
-} from '../../signingEngine/walletAuth/webauthn/credentials/helpers';
-import { redactCredentialExtensionOutputs } from '../../signingEngine/walletAuth/webauthn/credentials/credentialExtensions';
+} from '../../signingEngine/webauthnAuth/credentials/helpers';
+import { redactCredentialExtensionOutputs } from '../../signingEngine/webauthnAuth/credentials/credentialExtensions';
 import type { WebAuthnRegistrationCredential } from '../../types/webauthn';
 import {
   cloneAuthenticatorOptions,

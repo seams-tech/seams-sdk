@@ -10,7 +10,7 @@ import { getNearAccountId, getIntentDigest, getRegisterAccountPayload } from './
 import {
   isSerializedRegistrationCredential,
   serializeRegistrationCredentialWithPRF,
-} from '@/core/signingEngine/walletAuth/webauthn/credentials/helpers';
+} from '@/core/signingEngine/webauthnAuth/credentials/helpers';
 import { toError } from '@shared/utils/errors';
 import { createConfirmSession, createConfirmTxFlowAdapters } from './adapters/adapters';
 import type { ThemeName } from '@/core/types/seams';

@@ -1,4 +1,4 @@
-import type { AccountAuthMetadata } from '@/core/signingEngine/walletAuth';
+import type { AccountAuthMetadata } from '@/core/signingEngine/interfaces/accountAuthMetadata';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type { EcdsaLaneCandidate, ThresholdEcdsaSessionStoreSource } from '../../session/identity/laneIdentity';
@@ -12,7 +12,7 @@ import {
 import {
   resolveEvmFamilyTransactionAccountAuth,
   type EvmFamilyAccountMetadataDeps,
-} from '../../walletAuth/accountAuth';
+} from './accountAuth';
 import {
   buildEvmFamilyEcdsaSigningLaneContext,
   findExactEcdsaKeyRefForSelectedLane,

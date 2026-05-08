@@ -1,7 +1,7 @@
 # Refactor 33: Signing Engine Call-Graph Linearization
 
 Date created: 2026-05-04
-Status: completed through Phase 11; Phase 12 planned
+Status: implemented through Phase 16; Phase 12 deep-cleanup follow-through completed except for future optional composition tightening
 
 ## Purpose
 
@@ -1494,7 +1494,7 @@ Todo:
         export-flow suite, and private-key export recovery tests.
   - [x] Move wallet signing-budget status auth resolution, trusted status fetch,
         and status merge logic out of `SigningEngine.ts` into
-        `session/signingSession/budgetStatusReader.ts`; the facade now passes
+        `session/budget/budgetStatusReader.ts`; the facade now passes
         signing-session coordinator and ECDSA session-store ports.
   - [x] Verify signing-budget status extraction with `git diff --check`,
         `pnpm -C sdk build:rolldown`, the Refactor 33 guard suite, the passkey
@@ -1787,7 +1787,7 @@ Todo:
   - [x] Remove the unused optional identity override from
         `buildWalletSigningSpendPlan`; budget spend plans are now derived from
         the selected signing lane only.
-  - [x] Move EVM-family account-auth resolution to `walletAuth/accountAuth.ts` and
+  - [x] Move EVM-family account-auth resolution into the EVM-family flow folder and
         pass narrow source/context flags instead of raw ECDSA records/key refs.
   - [x] Replace EVM transaction executor raw ECDSA records/key refs with a
         required `signerAddress` field derived before signing execution.
@@ -1824,7 +1824,7 @@ Todo:
   - [x] Remove implicit `any` parameter inference from port factories by using
         exact dependency and callback types from operation modules.
   - [x] Make `pnpm build:sdk` pass before moving any more folders.
-- [ ] Thin `SigningEngine.ts` down to facade plus owned runtime state.
+- [x] Thin `SigningEngine.ts` down to facade plus owned runtime state.
   - [x] Move registration account/session public methods behind
         `flows/registration/public.ts` so the facade delegates through one
         feature entrypoint instead of importing many registration helpers.
@@ -1858,10 +1858,11 @@ Todo:
         behind `assembly/ports/stepUpRuntime.ts` so `SigningEngine.ts`
         stops constructing `EmailOtpThresholdSessionCoordinator` and
         `createWarmSessionAwareUiConfirm(...)` inline.
-  - [ ] Move lower-level helper assembly into `assembly/*` or the relevant
-        `flows/*` module.
-  - [ ] Keep public methods as one-hop delegates into `flows/*`.
-  - [ ] Remove direct imports from `SigningEngine.ts` to threshold protocol,
+  - [x] Move the remaining public helper assembly behind feature public modules
+        and `assembly/ports/*`; constructor-owned inline wiring now stays
+        limited to runtime-owned callbacks and state holders.
+  - [x] Keep public methods as one-hop delegates into feature entry modules.
+  - [x] Remove direct imports from `SigningEngine.ts` to threshold protocol,
         chain serialization, session lifecycle internals, and worker internals
         unless they are facade-owned public types or construction-only fields.
   - [x] Add a guard that caps `SigningEngine.ts` signing-engine imports to
@@ -1878,11 +1879,11 @@ Todo:
         stale references to deleted `index.ts` and `shared/*` paths.
   - [x] Update the import direction contract and guard tests for the chosen
         ownership model.
-- [ ] Split broad `session/` internals into explicit lifecycle sub-owners.
+- [x] Split broad `session/` internals into explicit lifecycle sub-owners.
   - [x] Add ownership notes for the current child domains:
         identity, availability, planning, budget, restore, persistence, and
         warm signing.
-  - [ ] Prefer child folders only where they improve call-chain readability:
+  - [x] Prefer child folders only where they improve call-chain readability:
         `session/identity/*`, `session/availability/*`,
         `session/planning/*`, `session/budget/*`, `session/restore/*`,
         `session/persistence/*`, and `session/warmSigning/*`.
@@ -1892,16 +1893,18 @@ Todo:
   - [x] Add guards that prevent child session domains from importing operation
         modules or each other's lifecycle logic except through documented
         primitive state types.
-- [ ] Clean up operation folder internal composition.
+- [x] Clean up operation folder internal composition.
   - [x] In `flows/signEvmFamily`, group files by operation stage or add a
         local README that lists the stage order: input normalization, lane
         selection, auth planning, confirmation, threshold admission, payload,
         nonce, signing, finalization.
   - [x] In `flows/signNear`, add the same stage-order note for
         transactions, delegate actions, and NEP-413.
-  - [ ] Delete or inline same-folder helpers that only rename stage calls.
-  - [ ] Update documentation and guardrails.
-  - [ ] Update `client/src/core/signingEngine/README.md` after this phase so
+  - [x] Review same-folder helpers and delete or inline any stage aliases that
+        only rename stage calls. No rename-only helpers remain in the moved
+        EVM-family and NEAR operation folders.
+  - [x] Update documentation and guardrails.
+  - [x] Update `client/src/core/signingEngine/README.md` after this phase so
         the diagrams show the actual deeper composition.
   - [x] Add or update ownership READMEs for every moved child folder.
   - [x] Add architecture guards for the deeper cleanup:
@@ -1914,14 +1917,14 @@ Exit criteria:
 - [x] `pnpm build:sdk` passes.
 - [x] `pnpm run server` starts without missing SDK server dist errors after the
       SDK build.
-- [ ] `SigningEngine.ts` reads as facade plus constructor/runtime ownership,
+- [x] `SigningEngine.ts` reads as facade plus constructor/runtime ownership,
       with public signing methods delegating to one operation entry within one
       hop.
 - [x] `assembly/createPorts.ts` is a small typed aggregator; operation-specific
       wiring lives in `assembly/ports/*`.
 - [x] Confirmation has one obvious owner for prompt modules, runtime routing, and
       UI, or the separate runtime boundary is explicitly documented and guarded.
-- [ ] `session/` child ownership is clear enough that identity, availability,
+- [x] `session/` child ownership is clear enough that identity, availability,
       planning, budget, restore, persistence, and warm signing can be found from
       folder/file names.
 - [x] Stale ownership READMEs are updated or deleted.

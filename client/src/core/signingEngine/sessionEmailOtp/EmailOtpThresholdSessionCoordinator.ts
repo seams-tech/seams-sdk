@@ -12,10 +12,7 @@ import type {
   ThresholdEcdsaSessionRecord,
   ThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
-import type {
-  ThresholdEcdsaEmailOtpAuthContext,
-  ThresholdEcdsaSessionStoreSource,
-} from '@/core/signingEngine/session/identity/laneIdentity';
+import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
 import {
   getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,

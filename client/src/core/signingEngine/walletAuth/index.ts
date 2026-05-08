@@ -1,5 +1,4 @@
 export type {
-  AccountAuthMetadata,
   EmailOtpWalletAuthProof,
   EmailOtpWalletAuthAdapter,
   EmailOtpWalletAuthPlan,
@@ -21,7 +20,6 @@ export {
   createEmailOtpWalletAuthAdapter,
   createPasskeyWalletAuthAdapter,
   createWalletAuthModeResolver,
-  resolveAccountAuthMetadataForSignerSource,
   WalletAuthPlanKind,
   WalletAuthModeResolutionError,
   WalletAuthPolicyError,

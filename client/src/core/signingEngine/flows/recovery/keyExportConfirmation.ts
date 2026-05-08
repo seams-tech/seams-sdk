@@ -4,11 +4,6 @@ import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { ThemeName, WalletAuthCurve, WalletAuthIntent } from '@/core/types/seams';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 import {
-  createEmailOtpWalletAuthAdapter,
-  createPasskeyWalletAuthAdapter,
-  createWalletAuthModeResolver,
-  resolveAccountAuthMetadataForSignerSource,
-  WalletAuthPlanKind,
   WalletAuthPolicyError,
 } from '../../walletAuth';
 import {
@@ -326,48 +321,6 @@ async function requestPasskeyExportAuthorization(
     request: Parameters<UiConfirmRuntimeBridgePort['requestUserConfirmation']>[0];
   },
 ): Promise<WebAuthnAuthenticationCredential> {
-  const resolver = createWalletAuthModeResolver({
-    passkey: createPasskeyWalletAuthAdapter({
-      challenge: async () => {
-        removeExportViewerHostIfPresent();
-        return await deps.touchConfirm.requestUserConfirmation(args.request);
-      },
-      complete: async ({ response }) => {
-        const decision = response as Awaited<
-          ReturnType<UiConfirmRuntimeBridgePort['requestUserConfirmation']>
-        >;
-        if (!decision.confirmed) {
-          throw new Error(decision.error || 'User cancelled export request');
-        }
-        return {
-          method: 'passkey',
-          webauthnAuthentication: decision.credential,
-        };
-      },
-    }),
-    emailOtp: createEmailOtpWalletAuthAdapter({
-      challenge: async () => {
-        throw createEmailOtpKeyExportRequiresPasskeyError();
-      },
-      complete: async () => {
-        throw createEmailOtpKeyExportRequiresPasskeyError();
-      },
-    }),
-  });
-  const plan = await resolver.resolveWalletAuthPlan({
-    accountId: args.nearAccountId,
-    accountAuth: resolveAccountAuthMetadataForSignerSource(),
-    intent: args.intent,
-    curve: args.curve,
-  });
-  if (plan.kind !== WalletAuthPlanKind.PasskeyReauth) {
-    throw new WalletAuthPolicyError({
-      code: 'passkey_step_up_required',
-      policy: 'export_requires_passkey',
-      intent: args.intent,
-      message: 'Export authorization requires passkey re-authentication',
-    });
-  }
   emitKeyExportEvent(args.onEvent, {
     phase: KeyExportEventPhase.STEP_02_AUTH_PASSKEY_PROMPT_STARTED,
     status: 'waiting_for_user',
@@ -377,8 +330,11 @@ async function requestPasskeyExportAuthorization(
     interaction: { kind: 'passkey_assert', overlay: 'show' },
     data: { intent: args.intent, curve: args.curve },
   });
-  const challenge = await plan.challenge();
-  const proof = await plan.complete(challenge);
+  removeExportViewerHostIfPresent();
+  const decision = await deps.touchConfirm.requestUserConfirmation(args.request);
+  if (!decision.confirmed) {
+    throw new Error(decision.error || 'User cancelled export request');
+  }
   emitKeyExportEvent(args.onEvent, {
     phase: KeyExportEventPhase.STEP_02_AUTH_PASSKEY_PROMPT_SUCCEEDED,
     status: 'succeeded',
@@ -388,7 +344,7 @@ async function requestPasskeyExportAuthorization(
     interaction: { kind: 'passkey_assert', overlay: 'hide' },
     data: { intent: args.intent, curve: args.curve },
   });
-  return proof.webauthnAuthentication as WebAuthnAuthenticationCredential;
+  return decision.credential as WebAuthnAuthenticationCredential;
 }
 
 export { isExportViewerSessionOpen, removeExportViewerHostIfPresent };

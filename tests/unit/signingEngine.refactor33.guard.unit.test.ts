@@ -18,6 +18,7 @@ const targetTopLevelFolders = [
   'workers',
   'nonce',
   'walletAuth',
+  'webauthnAuth',
 ] as const;
 const targetContractFolders = [
   'assembly',
@@ -27,6 +28,7 @@ const targetContractFolders = [
   'uiConfirm',
   'workers',
   'walletAuth',
+  'webauthnAuth',
 ] as const;
 
 const signingEngineAllowedImportPrefixes = [
@@ -42,7 +44,7 @@ const signingEngineAllowedImportPrefixes = [
   './threshold/sessionPolicy',
   './session/public',
   './session/userPreferences',
-  './session/signingSession/budgetStatusReader',
+  './session/budget/budgetStatusReader',
   './session/availability/persistedAvailableSigningLanes',
   './session/persistence/records',
   './session/identity/laneIdentity',
@@ -51,6 +53,7 @@ const signingEngineAllowedImportPrefixes = [
   './nonce/NonceCoordinator',
   './uiConfirm/',
   './walletAuth/',
+  './webauthnAuth/',
   './workerManager/',
 ] as const;
 
@@ -67,18 +70,21 @@ const currentTopLevelImportContract: Record<string, readonly string[]> = {
     'session',
     'threshold',
     'uiConfirm',
+    'webauthnAuth',
     'workerManager',
   ],
   'index.ts': ['SigningEngine.ts', 'walletAuth', 'interfaces'],
-  walletAuth: [],
+  walletAuth: ['interfaces'],
+  webauthnAuth: [],
   chains: ['interfaces', 'workerManager'],
-  stepUpConfirmation: ['walletAuth', 'interfaces'],
+  stepUpConfirmation: ['interfaces', 'webauthnAuth'],
   sessionEmailOtp: [
     'stepUpConfirmation',
     'interfaces',
     'session',
     'threshold',
     'uiConfirm',
+    'webauthnAuth',
     'workerManager',
   ],
   assembly: [
@@ -92,6 +98,7 @@ const currentTopLevelImportContract: Record<string, readonly string[]> = {
     'sessionEmailOtp',
     'threshold',
     'uiConfirm',
+    'webauthnAuth',
     'workerManager',
   ],
   interfaces: [
@@ -112,6 +119,7 @@ const currentTopLevelImportContract: Record<string, readonly string[]> = {
     'session',
     'threshold',
     'uiConfirm',
+    'webauthnAuth',
     'workerManager',
   ],
   session: [
@@ -122,19 +130,18 @@ const currentTopLevelImportContract: Record<string, readonly string[]> = {
     'uiConfirm',
     'workerManager',
   ],
-  threshold: ['walletAuth', 'chains', 'interfaces', 'session', 'workerManager'],
+  threshold: ['walletAuth', 'chains', 'interfaces', 'session', 'webauthnAuth', 'workerManager'],
   uiConfirm: [
-    'walletAuth',
     'chains',
     'stepUpConfirmation',
     'interfaces',
     'nonce',
     'session',
     'threshold',
+    'webauthnAuth',
     'workerManager',
   ],
   workerManager: [
-    'walletAuth',
     'chains',
     'stepUpConfirmation',
     'interfaces',
@@ -142,6 +149,7 @@ const currentTopLevelImportContract: Record<string, readonly string[]> = {
     'session',
     'threshold',
     'uiConfirm',
+    'webauthnAuth',
   ],
   workers: [],
 } as const;
@@ -167,7 +175,7 @@ const deletedSigningEngineFolders = [
   'client/src/core/signingEngine/signers/algorithms',
   'client/src/core/signingEngine/signers/wasm',
   'client/src/core/signingEngine/signers/webauthn',
-  'client/src/core/signingEngine/walletAuth/webauthn/cose',
+  'client/src/core/signingEngine/webauthnAuth/cose',
   'client/src/core/signingEngine/sessionsEmailOtp',
   'client/src/core/signingEngine/flows/emailOtp',
   'client/src/core/signingEngine/flows/passkey',
@@ -243,7 +251,6 @@ const deletedSigningEnginePaths = [
   'client/src/core/signingEngine/api/session/emailOtpDeviceEnrollmentEscrowStore.ts',
   'client/src/core/signingEngine/api/userPreferences.ts',
   'client/src/core/signingEngine/flows/signEvmFamily/runtimeCommandExecutor.ts',
-  'client/src/core/signingEngine/flows/signEvmFamily/accountAuth.ts',
   'client/src/core/signingEngine/chainAdaptors/near/index.ts',
   'client/src/core/signingEngine/chainAdaptors/near/nearAdapter.ts',
   'client/src/core/signingEngine/signers/algorithms/ed25519.ts',
@@ -257,7 +264,14 @@ const deletedSigningEnginePaths = [
   'client/src/core/signingEngine/flows/emailOtp/ed25519LocalMetadata.ts',
   'client/src/core/signingEngine/stepUpConfirmation/warmSessionUiConfirm.ts',
   'client/src/core/signingEngine/stepUpConfirmation/passkeyPrompt/webauthnKeyRef.ts',
-  'client/src/core/signingEngine/walletAuth/webauthn/cose/coseP256.ts',
+  'client/src/core/signingEngine/webauthnAuth/cose/coseP256.ts',
+  'client/src/core/signingEngine/session/signingSession/budget.ts',
+  'client/src/core/signingEngine/session/signingSession/budgetFinalizer.ts',
+  'client/src/core/signingEngine/session/signingSession/budgetProjection.ts',
+  'client/src/core/signingEngine/session/signingSession/budgetStatusReader.ts',
+  'client/src/core/signingEngine/session/signingSession/planner.ts',
+  'client/src/core/signingEngine/session/signingSession/operationFingerprint.ts',
+  'client/src/core/signingEngine/session/signingSession/operationIdBinding.ts',
   'client/src/core/signingEngine/chainAdaptors/evm/bytes.ts',
   'client/src/core/signingEngine/chainAdaptors/evm/evmAdapter.ts',
   'client/src/core/signingEngine/chainAdaptors/evm/index.ts',
@@ -483,34 +497,33 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
   test('registration facade methods delegate through flows registration public entrypoints', () => {
     const source = readRepoSource('client/src/core/signingEngine/SigningEngine.ts');
 
+    expect(source).toContain("from './flows/registration/public';");
+    expect(source).toContain('this.registrationPublic = createRegistrationPublicApi({');
+    expect(source).toContain('return this.registrationPublic.storeUserData(userData);');
     expect(source).toContain(
-      'return storeUserDataPublicValue(this.registrationPublicDeps(), userData);',
+      'return this.registrationPublic.requestRegistrationCredentialConfirmation(params);',
     );
     expect(source).toContain(
-      'return requestRegistrationCredentialConfirmationPublicValue(',
+      'return this.registrationPublic.getAuthenticationCredentialsSerialized(args);',
     );
     expect(source).toContain(
-      'return getAuthenticationCredentialsSerializedPublicValue(this.registrationPublicDeps(), args);',
-    );
-    expect(source).toContain(
-      'return extractRegistrationCosePublicKeyValue(',
+      'return this.registrationPublic.extractCosePublicKey(attestationObjectBase64url);',
     );
     expect(source).not.toContain('storeUserDataValue(');
-    expect(source).not.toContain('requestRegistrationCredentialConfirmationValue(');
+    expect(source).not.toContain('requestRegistrationCredentialConfirmationPublicValue(');
     expect(source).not.toContain('getAuthenticationCredentialsSerializedValue(');
   });
 
   test('recovery facade methods delegate through flows recovery public entrypoints', () => {
     const source = readRepoSource('client/src/core/signingEngine/SigningEngine.ts');
 
+    expect(source).toContain('this.recoveryPublic = createRecoveryPublicApi(recoveryPublicDeps);');
+    expect(source).toContain('return await this.recoveryPublic.exportKeypairWithUI(input);');
     expect(source).toContain(
-      'return await exportKeypairWithUIPublicValue(this.recoveryPublic, input);',
+      'return this.recoveryPublic.exportNearEd25519SeedArtifactWithUI(args);',
     );
     expect(source).toContain(
-      'return exportNearEd25519SeedArtifactWithUIPublicValue(this.recoveryPublic, args);',
-    );
-    expect(source).toContain(
-      'return await exportThresholdEd25519SeedFromHssReportPublicValue(this.recoveryPublic, args);',
+      'return await this.recoveryPublic.exportThresholdEd25519SeedFromHssReport(args);',
     );
     expect(source).not.toContain('const laneSelection: ExportLaneSelectionDeps');
     expect(source).not.toContain('const deps: ExportKeypairWithUIDeps');
@@ -525,7 +538,10 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     expect(source).toContain("type WarmSigningPorts,");
     expect(source).toContain("from './assembly/ports/warmSigning';");
     expect(source).toContain('this.warmSigning = createWarmSigningPorts({');
-    expect(source).toContain('this.warmSigningPublic = createWarmSigningPublicDeps({');
+    expect(source).toContain('const warmSigningPublicDeps = createWarmSigningPublicDeps({');
+    expect(source).toContain(
+      'this.warmSigningPublic = createWarmSigningPublicApi(warmSigningPublicDeps);',
+    );
     expect(source).not.toContain('createWarmSessionStatusOnlyUiConfirm(');
     expect(source).not.toContain('createWarmSessionCapabilityReader(');
     expect(source).not.toContain('createWarmSessionStatusReader(');
@@ -544,31 +560,31 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
 
     expect(source).toContain("from './session/warmSigning/public';");
     expect(source).toContain(
-      'return await connectEd25519SessionPublicValue(this.warmSigningPublic, args);',
+      'return await this.warmSigningPublic.connectEd25519Session(args);',
     );
     expect(source).toContain(
-      'return await bootstrapEcdsaSessionPublicValue(this.warmSigningPublic, args);',
+      'return await this.warmSigningPublic.bootstrapEcdsaSession(args);',
     );
     expect(source).toContain(
-      'return persistThresholdEcdsaBootstrapChainAccountPublicValue(this.warmSigningPublic, args);',
+      'return this.warmSigningPublic.persistThresholdEcdsaBootstrapChainAccount(args);',
     );
     expect(source).toContain(
-      'return getWarmThresholdEd25519SessionStatusPublicValue(this.warmSigningPublic, nearAccountId);',
+      'return this.warmSigningPublic.getWarmThresholdEd25519SessionStatus(nearAccountId);',
     );
     expect(source).toContain(
-      'return getWarmThresholdEcdsaSessionStatusPublicValue(',
+      'return this.warmSigningPublic.getWarmThresholdEcdsaSessionStatus(',
     );
     expect(source).toContain(
-      'return listWarmThresholdEcdsaSessionStatusesPublicValue(',
+      'return this.warmSigningPublic.listWarmThresholdEcdsaSessionStatuses(nearAccountId, chainTarget);',
     );
     expect(source).toContain(
-      'return await scheduleThresholdEcdsaLoginPresignPrefillPublicValue(',
+      'return await this.warmSigningPublic.scheduleThresholdEcdsaLoginPresignPrefill(args);',
     );
     expect(source).toContain(
-      'await hydrateSigningSessionPublicValue(this.warmSigningPublic, args);',
+      'await this.warmSigningPublic.hydrateSigningSession(args);',
     );
     expect(source).toContain(
-      'await clearWarmSigningSessionsPublicValue(this.warmSigningPublic, nearAccountId);',
+      'await this.warmSigningPublic.clearWarmSigningSessions(nearAccountId);',
     );
     expect(source).not.toContain('return await provisionWarmEd25519Capability(');
     expect(source).not.toContain('return await bootstrapWarmEcdsaCapability(');
@@ -604,10 +620,10 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
       'client/src/core/signingEngine/assembly/ports/recovery.ts',
     );
 
-    expect(source).toContain("type RecoveryPublicDeps,");
     expect(source).toContain("from './flows/recovery/public';");
     expect(source).toContain("import { createRecoveryPublicDeps } from './assembly/ports/recovery';");
-    expect(source).toContain('this.recoveryPublic = createRecoveryPublicDeps({');
+    expect(source).toContain('const recoveryPublicDeps = createRecoveryPublicDeps({');
+    expect(source).toContain('this.recoveryPublic = createRecoveryPublicApi(recoveryPublicDeps);');
     expect(recoveryAssembly).toContain('export function createRecoveryPublicDeps');
     expect(recoveryAssembly).toContain('readPersistedAvailableSigningLanes');
     expect(recoveryAssembly).toContain('readPersistedAvailableSigningLanesForTargets');
@@ -619,15 +635,16 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
       'client/src/core/signingEngine/assembly/ports/session.ts',
     );
 
-    expect(source).toContain('SessionPublicDeps');
+    expect(source).toContain('SessionPublicApi,');
     expect(source).toContain("from './session/public';");
     expect(source).toContain("import { createSessionPublicDeps } from './assembly/ports/session';");
-    expect(source).toContain('this.sessionPublic = createSessionPublicDeps({');
+    expect(source).toContain('const sessionPublicDeps = createSessionPublicDeps({');
+    expect(source).toContain('this.sessionPublic = createSessionPublicApi(sessionPublicDeps);');
     expect(source).toContain(
-      'return await restorePersistedSessionsForAccountPublicValue(this.sessionPublic, args);',
+      'return await this.sessionPublic.restorePersistedSessionsForAccount(args);',
     );
     expect(source).toContain(
-      'return await readPersistedAvailableSigningLanesPublicValue(this.sessionPublic, args);',
+      'return await this.sessionPublic.readPersistedAvailableSigningLanes(args);',
     );
     expect(source).not.toContain('this.emailOtpSessions.restorePersistedSessionsForAccount({');
     expect(source).not.toContain('this.touchConfirm.restorePersistedSessionsForAccount?.({');
@@ -647,18 +664,18 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     const clearAllMethod = extractMethodBlock(source, 'clearAllThresholdEcdsaSessionRecords(): void');
 
     expect(source).toContain(
-      'upsertThresholdEcdsaSessionFromBootstrapPublicValue(this.sessionPublic, args);',
+      'this.sessionPublic.upsertThresholdEcdsaSessionFromBootstrap(args);',
     );
     expect(source).toContain(
-      'return getThresholdEcdsaKeyRefForAccountTargetPublicValue(this.sessionPublic, args);',
+      'return this.sessionPublic.getThresholdEcdsaKeyRefForAccountTarget(args);',
     );
     expect(source).toContain(
-      'return listThresholdEcdsaSessionRecordsForSubjectPublicValue(this.sessionPublic, args);',
+      'return this.sessionPublic.listThresholdEcdsaSessionRecordsForSubject(args);',
     );
     expect(source).toContain(
-      'clearThresholdEcdsaSessionRecordForAccountPublicValue(this.sessionPublic, nearAccountId);',
+      'this.sessionPublic.clearThresholdEcdsaSessionRecordForAccount(nearAccountId);',
     );
-    expect(source).toContain('clearAllThresholdEcdsaSessionRecordsPublicValue(this.sessionPublic);');
+    expect(source).toContain('this.sessionPublic.clearAllThresholdEcdsaSessionRecords();');
     expect(upsertMethod).not.toContain('upsertThresholdEcdsaSessionFromBootstrapValue(');
     expect(keyRefMethod).not.toContain('getThresholdEcdsaKeyRefByIdentityValue(');
     expect(listMethod).not.toContain('getThresholdEcdsaSessionRecordForTargetValue(');
@@ -678,11 +695,13 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
 
     expect(source).toContain("from './threshold/ed25519/public';");
     expect(source).toContain(
-      'return deriveThresholdEd25519ClientVerifyingShareFromCredentialPublicValue(',
+      'return this.thresholdEd25519Public.deriveThresholdEd25519ClientVerifyingShareFromCredential(args);',
     );
-    expect(source).toContain('return prepareThresholdEd25519HssClientRequestPublicValue(');
     expect(source).toContain(
-      'return buildThresholdEd25519SeedExportArtifactFromHssReportPublicValue(',
+      'return this.thresholdEd25519Public.prepareThresholdEd25519HssClientRequest(args);',
+    );
+    expect(source).toContain(
+      'return this.thresholdEd25519Public.buildThresholdEd25519SeedExportArtifactFromHssReport(args);',
     );
     expect(source).not.toContain("from './threshold/ed25519/hssLifecycle';");
     expect(source).not.toContain("from './threshold/crypto/hssClientSignerWasm';");
@@ -703,21 +722,22 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
 
     expect(source).toContain("from './flows/signEvmFamily/emailOtpPublic';");
     expect(source).toContain("import { createEmailOtpPublicDeps } from './assembly/ports/emailOtp';");
-    expect(source).toContain('this.emailOtpPublic = createEmailOtpPublicDeps({');
+    expect(source).toContain('const emailOtpPublicDeps = createEmailOtpPublicDeps({');
+    expect(source).toContain('this.emailOtpPublic = createEmailOtpPublicApi(emailOtpPublicDeps);');
     expect(source).toContain(
-      'return await loginWithEmailOtpEcdsaCapabilityInternalPublicValue(this.emailOtpPublic, args);',
+      'return await this.emailOtpPublic.loginWithEmailOtpEcdsaCapabilityInternal(args);',
     );
     expect(source).toContain(
-      'return await requestEmailOtpSigningSessionChallengePublicValue(this.emailOtpPublic, args);',
+      'return await this.emailOtpPublic.requestEmailOtpSigningSessionChallenge(args);',
     );
     expect(source).toContain(
-      'return await refreshEmailOtpSigningSessionPublicValue(this.emailOtpPublic, args);',
+      'return await this.emailOtpPublic.refreshEmailOtpSigningSession(args);',
     );
     expect(source).toContain(
-      'return await enrollEmailOtpInternalPublicValue(this.emailOtpPublic, args);',
+      'return await this.emailOtpPublic.enrollEmailOtpInternal(args);',
     );
     expect(source).toContain(
-      'return await enrollAndLoginWithEmailOtpEcdsaCapabilityInternalPublicValue(',
+      'return await this.emailOtpPublic.enrollAndLoginWithEmailOtpEcdsaCapabilityInternal(args);',
     );
     expect(source).not.toContain("from './flows/signEvmFamily/emailOtpSigningSession';");
     expect(source).not.toContain("from '../SeamsPasskey/emailOtp';");
@@ -745,6 +765,8 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
       'client/src/core/signingEngine/session/restore/README.md',
       'client/src/core/signingEngine/session/warmSigning/README.md',
       'client/src/core/signingEngine/session/signingSession/README.md',
+      'client/src/core/signingEngine/session/budget/README.md',
+      'client/src/core/signingEngine/session/planning/README.md',
     ]) {
       const source = readRepoSource(relativePath);
       for (const heading of ['## Owns', '## May Import', '## Must Not Import', '## Entrypoints']) {
@@ -887,6 +909,8 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     const domains = [
       'client/src/core/signingEngine/session/identity',
       'client/src/core/signingEngine/session/availability',
+      'client/src/core/signingEngine/session/planning',
+      'client/src/core/signingEngine/session/budget',
       'client/src/core/signingEngine/session/persistence',
       'client/src/core/signingEngine/session/restore',
       'client/src/core/signingEngine/session/signingSession',
@@ -916,11 +940,13 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
   test('session child domains only use allowed sibling domains', () => {
     const allowedSiblingDomains: Record<string, readonly string[]> = {
       identity: ['availability', 'signingSession'],
-      availability: ['identity', 'persistence', 'signingSession', 'warmSigning'],
+      availability: ['identity', 'persistence', 'warmSigning', 'budget', 'planning'],
+      planning: ['signingSession'],
+      budget: ['persistence', 'signingSession'],
       persistence: ['identity'],
       restore: ['persistence'],
-      signingSession: ['identity', 'persistence'],
-      warmSigning: ['availability', 'identity', 'persistence', 'signingSession'],
+      signingSession: ['identity', 'persistence', 'budget', 'planning'],
+      warmSigning: ['availability', 'identity', 'persistence', 'signingSession', 'budget'],
     };
     const offenders: string[] = [];
 
@@ -1306,7 +1332,7 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     const offenders: string[] = [];
     for (const relativePath of listProductionTypeScriptFiles(signingEngineRoot)) {
       const source = readRepoSource(relativePath);
-      if (source.includes('walletAuth/webauthn/cose')) offenders.push(relativePath);
+      if (source.includes('webauthnAuth/cose')) offenders.push(relativePath);
       if (source.includes('coseP256PublicKeyToXY')) offenders.push(relativePath);
     }
 
@@ -1334,6 +1360,7 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
         'workerManager',
         'uiConfirm',
         'walletAuth',
+        'webauthnAuth',
         'interfaces',
         'nonce',
       ],
@@ -1348,25 +1375,26 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
         'interfaces',
         'uiConfirm',
         'walletAuth',
-        'signers',
+        'webauthnAuth',
         'workerManager',
       ],
       chains: ['workers', 'workerManager', 'session', 'signers', 'interfaces'],
       stepUpConfirmation: [
-        'walletAuth',
         'interfaces',
+        'webauthnAuth',
       ],
       uiConfirm: [
-        'walletAuth',
         'chains',
         'stepUpConfirmation',
         'interfaces',
         'nonce',
         'session',
         'threshold',
+        'webauthnAuth',
         'workerManager',
       ],
-      walletAuth: [],
+      walletAuth: ['interfaces'],
+      webauthnAuth: [],
       workers: [],
     };
 
@@ -1395,6 +1423,17 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
   test('auth prompt and UI runtime boundaries stay one-way', () => {
     const forbiddenByRoot: Record<string, readonly string[]> = {
       walletAuth: [
+        'stepUpConfirmation',
+        'uiConfirm',
+        'session',
+        'sessionEmailOtp',
+        'flows',
+        'threshold',
+        'chains',
+        'nonce',
+        'workerManager',
+      ],
+      webauthnAuth: [
         'stepUpConfirmation',
         'uiConfirm',
         'session',
@@ -1516,13 +1555,13 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
       'client/src/core/signingEngine/session/signingSession/types.ts',
     );
     const signingBudget = readRepoSource(
-      'client/src/core/signingEngine/session/signingSession/budget.ts',
+      'client/src/core/signingEngine/session/budget/budget.ts',
     );
     const operationState = readRepoSource(
       'client/src/core/signingEngine/flows/shared/operationState.ts',
     );
     const planner = readRepoSource(
-      'client/src/core/signingEngine/session/signingSession/planner.ts',
+      'client/src/core/signingEngine/session/planning/planner.ts',
     );
     const restoreCoordinator = readRepoSource(
       'client/src/core/signingEngine/session/restore/restoreCoordinator.ts',

@@ -7,7 +7,7 @@ and Email OTP prompt/auth-plan flows.
 
 ## May Import
 
-`walletAuth/*` passkey primitives and `interfaces/*` shared contracts.
+`webauthnAuth/*` passkey browser primitives and `interfaces/*` shared contracts.
 
 ## Must Not Import
 
@@ -25,4 +25,4 @@ Current entrypoints: `confirmOperation.ts`, `types.ts`, `channel/confirmTypes.ts
 Auth methods start as `<method>Prompt/` folders under `stepUpConfirmation/`.
 Durable method session folders are added only when a method owns cross-operation
 lifecycle state. `sessionEmailOtp/` exists for that reason; passkey code stays in
-`passkeyPrompt/` and `walletAuth/` until it needs a comparable coordinator.
+`passkeyPrompt/` and `webauthnAuth/` until it needs a comparable coordinator.

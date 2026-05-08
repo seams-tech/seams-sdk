@@ -4,15 +4,9 @@ import type {
   WalletAuthIntent,
   WalletAuthMethod,
 } from '@/core/types/seams';
+import type { AccountAuthMetadata } from '../interfaces/accountAuthMetadata';
 import { WALLET_AUTH_METHODS } from '@shared/utils';
 import { normalizePositiveInteger, toTrimmedString } from '@shared/utils/validation';
-
-export type AccountAuthMetadata = {
-  primaryAuthMethod: WalletAuthMethod;
-  linkedAuthMethods: WalletAuthMethod[];
-  email?: string;
-  passkeyCredentialIds?: string[];
-};
 
 export type PasskeyWalletAuthProof = {
   method: typeof WALLET_AUTH_METHODS.passkey;
@@ -112,24 +106,6 @@ export interface WarmSessionWalletAuthResolver {
   resolveWarmSessionPlan(input: ResolveWalletAuthPlanInput): Promise<WarmSessionWalletAuthPlan | null>;
 }
 
-export function resolveAccountAuthMetadataForSignerSource(args?: {
-  source?: unknown;
-  email?: string;
-  passkeyCredentialIds?: string[];
-}): AccountAuthMetadata {
-  const primaryAuthMethod =
-    args?.source === WALLET_AUTH_METHODS.emailOtp
-      ? WALLET_AUTH_METHODS.emailOtp
-      : WALLET_AUTH_METHODS.passkey;
-  return {
-    primaryAuthMethod,
-    linkedAuthMethods: [primaryAuthMethod],
-    ...(args?.email ? { email: args.email } : {}),
-    ...(args?.passkeyCredentialIds?.length
-      ? { passkeyCredentialIds: args.passkeyCredentialIds }
-      : {}),
-  };
-}
 
 export class WalletAuthModeResolutionError extends Error {
   readonly code:

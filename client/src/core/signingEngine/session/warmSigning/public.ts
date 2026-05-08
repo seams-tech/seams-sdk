@@ -6,7 +6,7 @@ import {
   getWalletSigningBudgetAvailableStatus as getWalletSigningBudgetAvailableStatusValue,
   mergeWalletSigningBudgetStatus,
   type WalletSigningBudgetAvailableStatusDeps,
-} from '../signingSession/budgetStatusReader';
+} from '../budget/budgetStatusReader';
 import {
   getStoredThresholdEd25519SessionRecordForAccount as getStoredThresholdEd25519SessionRecordForAccountValue,
 } from '../persistence/records';
@@ -231,3 +231,37 @@ export async function clearWarmSigningSessions(
 }
 
 export type { ThresholdEcdsaLoginPrefillResult };
+
+export function createWarmSigningPublicApi(deps: WarmSigningPublicDeps) {
+  return {
+    connectEd25519Session: (
+      args: Omit<ProvisionWarmEd25519CapabilityArgs, 'beforeProvision' | 'assertNotCancelled'>,
+    ) => connectEd25519Session(deps, args),
+    bootstrapEcdsaSession: (args: BootstrapEcdsaSessionArgs) => bootstrapEcdsaSession(deps, args),
+    persistThresholdEcdsaBootstrapChainAccount: (
+      args: PersistThresholdEcdsaBootstrapChainAccountInput,
+    ) => persistThresholdEcdsaBootstrapChainAccount(deps, args),
+    getWarmThresholdEd25519SessionStatus: (nearAccountId: AccountId | string) =>
+      getWarmThresholdEd25519SessionStatus(deps, nearAccountId),
+    getWarmThresholdEcdsaSessionStatus: (
+      nearAccountId: AccountId | string,
+      chainTarget: ThresholdEcdsaChainTarget,
+      thresholdSessionId: string,
+    ) => getWarmThresholdEcdsaSessionStatus(deps, nearAccountId, chainTarget, thresholdSessionId),
+    listWarmThresholdEcdsaSessionStatuses: (
+      nearAccountId: AccountId | string,
+      chainTarget: ThresholdEcdsaChainTarget,
+    ) => listWarmThresholdEcdsaSessionStatuses(deps, nearAccountId, chainTarget),
+    scheduleThresholdEcdsaLoginPresignPrefill: (args: {
+      nearAccountId: AccountId | string;
+      chainTarget: ThresholdEcdsaChainTarget;
+      thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef;
+      minRemainingUsesBeforePrefill?: number;
+    }) => scheduleThresholdEcdsaLoginPresignPrefill(deps, args),
+    hydrateSigningSession: (args: HydrateSigningSessionInput) => hydrateSigningSession(deps, args),
+    clearWarmSigningSessions: (nearAccountId?: AccountId | string) =>
+      clearWarmSigningSessions(deps, nearAccountId),
+  };
+}
+
+export type WarmSigningPublicApi = ReturnType<typeof createWarmSigningPublicApi>;

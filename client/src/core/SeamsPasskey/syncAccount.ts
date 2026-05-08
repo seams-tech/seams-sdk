@@ -8,8 +8,8 @@ import {
 import type { PasskeyManagerContext } from './index';
 import type { AccountId, WebAuthnAuthenticationCredential } from '../types';
 import { toAccountId } from '../types/accountIds';
-import { redactCredentialExtensionOutputs } from '../signingEngine/walletAuth/webauthn/credentials/credentialExtensions';
-import type { WebAuthnAllowCredential } from '../signingEngine/walletAuth/webauthn/credentials/collectAuthenticationCredentialForChallengeB64u';
+import { redactCredentialExtensionOutputs } from '../signingEngine/webauthnAuth/credentials/credentialExtensions';
+import type { WebAuthnAllowCredential } from '../signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import { base64UrlDecode } from '@shared/utils/base64';
 import { coerceSignerSlot } from '@shared/utils/signerSlot';
 import { errorMessage } from '@shared/utils/errors';

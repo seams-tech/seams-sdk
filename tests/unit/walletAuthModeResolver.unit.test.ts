@@ -3,9 +3,9 @@ import {
   createEmailOtpWalletAuthAdapter,
   createPasskeyWalletAuthAdapter,
   createWalletAuthModeResolver,
-  resolveAccountAuthMetadataForSignerSource,
   WalletAuthModeResolutionError,
-} from '@/core/signingEngine/walletAuth';
+} from '../../client/src/core/signingEngine/walletAuth';
+import { resolveAccountAuthMetadataForSignerSource } from '../../client/src/core/signingEngine/interfaces/accountAuthMetadata';
 import {
   accountAuthFixtures,
   type AccountAuthFixture,

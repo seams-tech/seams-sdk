@@ -1,6 +1,6 @@
 import { base64UrlDecode } from '@shared/utils/base64';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
-import { collectAuthenticationCredentialForChallengeB64u } from '../../walletAuth/webauthn/credentials/collectAuthenticationCredentialForChallengeB64u';
+import { collectAuthenticationCredentialForChallengeB64u } from '../../webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import {
   getPrfFirstB64uFromCredential,
   type ThresholdIndexedDbPort,

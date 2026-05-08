@@ -84,12 +84,12 @@ import type { SigningSessionCoordinator } from '../../session/SigningSessionCoor
 import type {
   SigningSessionBudgetStatusAuth,
   SigningSessionPreparedBudgetIdentity,
-} from '../../session/signingSession/budget';
+} from '../../session/budget/budget';
 import {
   createSigningSessionBudgetFinalizer,
   type SigningSessionBudgetFinalizer,
-} from '../../session/signingSession/budgetFinalizer';
-import { computeSigningOperationFingerprint } from '../../session/signingSession/operationFingerprint';
+} from '../../session/budget/budgetFinalizer';
+import { computeSigningOperationFingerprint } from '../../session/planning/operationFingerprint';
 import {
   SigningOperationCommandKind,
   runSigningOperationCommand,

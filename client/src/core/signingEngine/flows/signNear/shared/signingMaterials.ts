@@ -7,11 +7,11 @@ import type { SigningRuntimeDeps } from '@/core/signingEngine/interfaces/runtime
 import {
   getPrfResultsFromCredential,
   redactCredentialExtensionOutputs,
-} from '@/core/signingEngine/walletAuth/webauthn/credentials/credentialExtensions';
+} from '@/core/signingEngine/webauthnAuth/credentials/credentialExtensions';
 import {
   getLastLoggedInSignerSlot,
   parseSignerSlot,
-} from '@/core/signingEngine/walletAuth/webauthn/device/signerSlot';
+} from '@/core/signingEngine/webauthnAuth/device/signerSlot';
 
 export const PRF_MISSING_ERROR =
   'Missing PRF.first output from credential (requires a PRF-enabled passkey)';

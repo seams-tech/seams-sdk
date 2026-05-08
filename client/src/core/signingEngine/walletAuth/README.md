@@ -2,7 +2,8 @@
 
 ## Owns
 
-Wallet auth policy helpers and reusable passkey/WebAuthn primitives.
+Wallet auth policy helpers and the legacy auth-plan resolver still used by
+NEAR, recovery, and threshold-ed25519 paths.
 
 ## May Import
 
@@ -16,6 +17,5 @@ crypto constants from shared packages.
 
 ## Entrypoints
 
-Current entrypoints: `index.ts` for the public wallet auth export surface,
-`accountAuth.ts`, `walletAuthModeResolver.ts`, `webauthn/credentials/*`,
-`webauthn/device/*`, and `webauthn/fallbacks/*`.
+Current entrypoints: `index.ts` for the public wallet auth export surface and
+`walletAuthModeResolver.ts`.

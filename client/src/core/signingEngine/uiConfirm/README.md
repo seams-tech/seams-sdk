@@ -12,7 +12,7 @@
 
 ## May Import
 
-`walletAuth/*`, `chains/*`, `stepUpConfirmation/*`, `interfaces/*`,
+`walletAuth/*`, `webauthnAuth/*`, `chains/*`, `stepUpConfirmation/*`, `interfaces/*`,
 `nonce/*`, `session/*`, `threshold/*`, and `workerManager/*`.
 
 ## Must Not Import

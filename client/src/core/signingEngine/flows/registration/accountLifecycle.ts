@@ -20,7 +20,7 @@ import {
 import { normalizeIndexedDbAccountAddress } from '@/core/indexedDB/normalization';
 import { inferNearChainIdKey } from '@/core/accountData/near/accountRefs';
 import { buildNearProfileId } from '@/core/accountData/near/profileId';
-import { getLastLoggedInSignerSlot } from '../../walletAuth/webauthn/device/signerSlot';
+import { getLastLoggedInSignerSlot } from '../../webauthnAuth/device/signerSlot';
 import type { ProfileAuthenticatorRecord } from '@/core/indexedDB/passkeyClientDB.types';
 import type { IDBPDatabase } from 'idb';
 import type { RegistrationAccountLifecycleDeps } from '../../interfaces/operationDeps';

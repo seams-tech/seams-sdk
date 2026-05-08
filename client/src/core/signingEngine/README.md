@@ -10,7 +10,9 @@ flows or `SigningEngine`.
 
 - `index.ts`: public SDK signing-engine export surface.
 - `SigningEngine.ts`: product-level facade. Public methods should delegate to
-  one operation module within one hop.
+  one feature entry module within one hop and keep deeper composition inside
+  `assembly/*`, `flows/*`, `session/public.ts`, `session/warmSigning/public.ts`,
+  or other documented public boundary owners.
 - `assembly/`: assembles runtime dependencies and operation ports for `SigningEngine`.
 
 ## Folder Roles
@@ -19,8 +21,13 @@ flows or `SigningEngine`.
   operation paths.
 - `flows/shared/`: shared operation state machine, command ports, and
   confirmation command runner.
-- `session/`: selected lane identity, available lanes, record normalization,
-  restore, readiness, budget, sealed persistence, and warm-session state.
+- `session/`: selected lane identity, available lanes, readiness, record
+  normalization, restore, planning, budget, sealed persistence, and
+  warm-session state.
+- `session/planning/`: signing-operation planning, operation fingerprints, and
+  operation-id binding.
+- `session/budget/`: wallet signing-session budget reads, projection,
+  reservation, and spend finalization.
 - `sessionEmailOtp/`: Email OTP threshold-session provisioning, restoration,
   and warm-session status coordination.
 - `stepUpConfirmation/`: confirmation contracts, email-OTP/passkey prompts, intent
@@ -30,7 +37,11 @@ flows or `SigningEngine`.
 - `workers/` and `workerManager/`: worker operation dispatch, worker types, and
   host-side worker transport.
 - `nonce/`: nonce reservation and lifecycle coordination.
-- `walletAuth/`: WebAuthn/passkey credential and auth-mode helpers.
+- `walletAuth/`: higher-level wallet auth policy helpers and the remaining
+  legacy auth-plan resolver path.
+- `webauthnAuth/`: low-level WebAuthn/passkey browser primitives.
+- `interfaces/accountAuthMetadata.ts`: neutral account-auth metadata
+  normalized for step-up method selection and operation planning.
 - `interfaces/`: shared public/runtime contracts and primitive cross-domain
   signing identifiers such as ECDSA chain targets.
 
@@ -38,7 +49,11 @@ Auth methods are symmetric at the prompt/auth-plan boundary:
 `stepUpConfirmation/passkeyPrompt` and `stepUpConfirmation/otpPrompt` own method
 prompt construction. Method session folders are introduced only for durable
 cross-operation lifecycle ownership, which is why Email OTP has
-`sessionEmailOtp/` and passkey currently has no `sessionPasskey/`.
+`sessionEmailOtp/` and passkey currently has no `sessionPasskey/`. The ongoing
+step-up adaptor refactor has already moved neutral account-auth metadata into
+`interfaces/accountAuthMetadata.ts`, moved low-level WebAuthn
+primitives into `webauthnAuth/`, and is shrinking `walletAuth/` toward the
+remaining legacy resolver only.
 
 ## Import Direction
 
@@ -57,6 +72,7 @@ flowchart TD
   INIT --> UI["uiConfirm/"]
   INIT --> NONCE["nonce/"]
   INIT --> IFACE["interfaces/"]
+  INIT --> WEBAUTHN["webauthnAuth/"]
   OPS --> SESSION
   OPS --> EMAILOTP
   OPS --> CONF
@@ -65,9 +81,10 @@ flowchart TD
   OPS --> WORKERS
   OPS --> NONCE
   CONF --> AUTH
+  CONF --> WEBAUTHN
   CONF --> IFACE
   UI --> CONF
-  UI --> AUTH
+  UI --> WEBAUTHN
 ```
 
 Rules enforced by Refactor 33 guards:
@@ -114,6 +131,12 @@ sequenceDiagram
 - `SelectedSigningSessionPlanningLane` (`session/signingSession/types.ts`):
   planning-layer extension for operation planning, storage source, retention,
   and backing material context.
+- `SigningSessionPlan` (`session/planning/planner.ts`): planned operation
+  identity bound to one selected lane before confirmation, signing, and budget
+  stages execute.
+- `WalletSigningBudgetReservation` (`session/budget/budget.ts`): budget
+  reservation and spend identity that follows the selected lane through the
+  finalization path.
 - `ThresholdEcdsaSessionRecord` / `ThresholdEd25519SessionRecord`
   (`session/persistence/records.ts`): persistence records normalized at
   storage boundaries.
@@ -132,6 +155,8 @@ flowchart LR
   OP --> PREP["preparedSigning.ts"]
   PREP --> SELECT["session/identity/selectLane.ts"]
   SELECT --> ID["session/identity/laneIdentity.ts"]
+  OP --> PLAN["session/planning/planner.ts"]
+  OP --> BUDGET["session/budget/budget.ts"]
   OP --> AUTH["authPlanning.ts + stepUpConfirmation prompts"]
   OP --> TH["threshold/ecdsa/*"]
   OP --> CH["chains/evm + chains/tempo"]

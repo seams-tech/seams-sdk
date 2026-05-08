@@ -1117,7 +1117,7 @@ are internal unless explicitly re-exported by that facade.
      types only.
    - Guards should explicitly fail if nonce internals import
      `session/restoreCoordinator`, `session/availableSigningLanes`,
-     `session/signingSession/budget`, sealed-session store mutation APIs, or
+     `session/budget/budget`, sealed-session store mutation APIs, or
      signing-session lane resolution helpers.
    - Guards should reject nonce reservation paths that perform signing-session
      restore, available-lane reads, lane resolution, or budget spending instead of

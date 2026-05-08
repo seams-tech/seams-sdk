@@ -2,8 +2,8 @@
 
 ## Owns
 
-Signing-session operation planning, budget state, prepared operation state,
-post-sign policy, transaction state, operation fingerprints, and trace events.
+Shared signing-operation state, lane specializations, prepared operation
+shapes, post-sign policy state, transaction state, and trace events.
 
 ## May Import
 
@@ -17,10 +17,9 @@ types.
 
 ## Entrypoints
 
-- `planner.ts`
-- `budget.ts`
-- `budgetStatusReader.ts`
+- `types.ts`
+- `lanes.ts`
 - `preparedOperation.ts`
 - `postSignPolicy.ts`
 - `transactionState.ts`
-- `types.ts`
+- `trace.ts`

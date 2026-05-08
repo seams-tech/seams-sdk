@@ -32,7 +32,7 @@ import {
 } from './shared/thresholdAuthMode';
 import { ensureThresholdEd25519HssClientBase } from '../../threshold/ed25519/hssClientBase';
 import { repairThresholdEd25519MissingRelayerKey } from '../../threshold/ed25519/repairMissingRelayerKey';
-import { planSigningSession } from '../../session/signingSession/planner';
+import { planSigningSession } from '../../session/planning/planner';
 import {
   SigningOperationIntent,
   SigningSessionIds,

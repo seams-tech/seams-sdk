@@ -6,13 +6,13 @@ import type {
   SigningSessionNotReadyReason,
   SigningSessionPlan,
   ThresholdSessionId,
-} from './types';
+} from '../signingSession/types';
 import {
   SigningKeyRefIntentKind,
   SigningSessionPlanKind,
   summarizeSigningLane,
   summarizeSigningSessionPlan,
-} from './types';
+} from '../signingSession/types';
 
 type ReauthableNotReadyReason = Extract<
   SigningSessionNotReadyReason,

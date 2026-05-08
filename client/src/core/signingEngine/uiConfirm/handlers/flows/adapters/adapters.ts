@@ -27,7 +27,7 @@ import {
 } from './request';
 import type { ThemeName } from '@/core/types/seams';
 import type { ProfileAuthenticatorRecord } from '@/core/indexedDB';
-import { collectAuthenticationCredentialForChallengeB64u } from '@/core/signingEngine/walletAuth/webauthn/credentials/collectAuthenticationCredentialForChallengeB64u';
+import { collectAuthenticationCredentialForChallengeB64u } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import { sendConfirmResponse } from '@/core/signingEngine/stepUpConfirmation/channel/confirmCommon';
 import { toAccountId } from '@/core/types/accountIds';
 import {

@@ -2,7 +2,7 @@ import type { AccountId } from '@/core/types/accountIds';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { RegistrationCredentialConfirmationPayload } from '../../workerManager/validation';
-import type { WebAuthnAllowCredential } from '../../walletAuth/webauthn/credentials/collectAuthenticationCredentialForChallengeB64u';
+import type { WebAuthnAllowCredential } from '../../webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import type { RegistrationSessionDeps } from '../../interfaces/operationDeps';
 
 export async function requestRegistrationSessionCredentialConfirmation(

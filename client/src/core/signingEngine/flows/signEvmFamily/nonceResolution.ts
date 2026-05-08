@@ -10,7 +10,7 @@ import { toAccountId } from '@/core/types/accountIds';
 import type { SeamsChainConfig, SeamsConfigsReadonly } from '@/core/types/seams';
 import type { EvmSigningRequest } from '../../chains/evm/types';
 import type { TempoSigningRequest } from '../../chains/tempo/types';
-import type { EvmFamilyAccountMetadataDeps } from '../../walletAuth/accountAuth';
+import type { EvmFamilyAccountMetadataDeps } from './accountAuth';
 import { deriveSmartAccountDeploymentTargetFromSigningRequest } from './smartAccountDeploymentState';
 import { toOptionalEvmAddress } from './addresses';
 

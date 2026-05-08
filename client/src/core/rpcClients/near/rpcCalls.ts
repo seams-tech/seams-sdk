@@ -33,7 +33,7 @@ import {
   type LinkDeviceFlowEvent,
   SigningEventPhase,
 } from '../../types/sdkSentEvents';
-import { redactCredentialExtensionOutputs } from '../../signingEngine/walletAuth/webauthn/credentials/credentialExtensions';
+import { redactCredentialExtensionOutputs } from '../../signingEngine/webauthnAuth/credentials/credentialExtensions';
 
 export async function fetchNonceBlockHashAndHeight({
   nearClient,

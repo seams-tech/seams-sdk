@@ -7,7 +7,7 @@ import {
   type SigningPlannerDecisionTraceEvent,
   type SigningSessionPlannerInput,
   type SigningSessionReadiness,
-} from './signingSession/planner';
+} from './planning/planner';
 import {
   applySigningSessionBudgetReservationsToStatus,
   assertSigningSessionBudgetReservationAvailable,
@@ -36,12 +36,12 @@ import {
   type SigningSessionBudgetConsumer,
   type SigningSessionBudgetStatusReader,
   type SigningSessionBudgetStatusAuth,
-} from './signingSession/budget';
-import { budgetUnknownSigningSessionStatus } from './signingSession/budgetProjection';
+} from './budget/budget';
+import { budgetUnknownSigningSessionStatus } from './budget/budgetProjection';
 import {
   bindCallerProvidedSigningOperationIdToFingerprint,
   type SigningOperationIdBindingState,
-} from './signingSession/operationIdBinding';
+} from './planning/operationIdBinding';
 
 export {
   SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR,
@@ -765,14 +765,6 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
       this.onWalletBudgetTrace?.(createSigningSessionBudgetTraceEvent(input, event, extra));
     } catch {}
   }
-}
-
-function hasWalletSigningSessionReadinessDeps(deps: SigningSessionCoordinatorDeps): boolean {
-  return Boolean(
-    deps.touchConfirm ||
-    deps.listThresholdEcdsaSessionRecordsForSubject ||
-    deps.getEmailOtpWarmSessionStatus,
-  );
 }
 
 function hasWalletSigningSessionConsumeDeps(deps: SigningSessionCoordinatorDeps): boolean {

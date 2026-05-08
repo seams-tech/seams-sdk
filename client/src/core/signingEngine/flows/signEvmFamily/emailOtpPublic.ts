@@ -198,3 +198,31 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapabilityInternal(
 ): Promise<EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalResult> {
   return await deps.emailOtpSessions.enrollAndLoginWithEcdsaCapabilityInternal(args);
 }
+
+export function createEmailOtpPublicApi(deps: EmailOtpPublicDeps) {
+  return {
+    loginWithEmailOtpEcdsaCapabilityInternal: (
+      args: LoginWithEmailOtpEcdsaCapabilityInternalArgs,
+    ) => loginWithEmailOtpEcdsaCapabilityInternal(deps, args),
+    requestEmailOtpSigningSessionChallenge: (args: {
+      nearAccountId: AccountId | string;
+      subjectId: WalletSubjectId;
+      chainTarget: ThresholdEcdsaChainTarget;
+    }) => requestEmailOtpSigningSessionChallenge(deps, args),
+    refreshEmailOtpSigningSession: (args: {
+      nearAccountId: AccountId | string;
+      subjectId: WalletSubjectId;
+      chainTarget: ThresholdEcdsaChainTarget;
+      challengeId: string;
+      otpCode: string;
+      ttlMs?: number;
+      remainingUses?: number;
+    }) => refreshEmailOtpSigningSession(deps, args),
+    enrollEmailOtpInternal: (args: EnrollEmailOtpInternalArgs) => enrollEmailOtpInternal(deps, args),
+    enrollAndLoginWithEmailOtpEcdsaCapabilityInternal: (
+      args: EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs,
+    ) => enrollAndLoginWithEmailOtpEcdsaCapabilityInternal(deps, args),
+  };
+}
+
+export type EmailOtpPublicApi = ReturnType<typeof createEmailOtpPublicApi>;

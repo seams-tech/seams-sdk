@@ -5,13 +5,10 @@ import type { EvmSigningRequest } from '../../chains/evm/types';
 import type { TempoSignedResult } from '../../chains/tempo/tempoAdapter';
 import type { TempoSigningRequest } from '../../chains/tempo/types';
 import type { SelectedEcdsaLane } from '../../session/identity/laneIdentity';
-import type { SigningSessionBudgetReservation } from '../../session/signingSession/budget';
+import type { SigningSessionBudgetReservation } from '../../session/budget/budget';
 import type { BudgetAdmittedOperation } from '../../session/signingSession/transactionState';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type {
-  EvmFamilyThresholdEcdsaAdmissionBoundary,
-  EvmFamilyThresholdEcdsaAuthPlanInput,
-} from './thresholdAdmission';
+import type { EvmFamilyThresholdEcdsaStepUp } from './requireEvmFamilyStepUpAuth';
 import {
   evmReserveNonceInputToLane,
   type NonceOperationContext,
@@ -66,8 +63,7 @@ type EvmFamilyTransactionSigningExecutorArgs<TRequest extends EvmFamilyTransacti
     flowArgs: EvmFamilySigningFlowArgs;
     thresholdEcdsaState: EvmFamilyExecutorThresholdEcdsaState;
     onConfirmationDisplayed: () => void;
-    thresholdEcdsaBoundary: EvmFamilyThresholdEcdsaAdmissionBoundary;
-    thresholdEcdsaAuthPlan: EvmFamilyThresholdEcdsaAuthPlanInput;
+    thresholdEcdsaStepUp: EvmFamilyThresholdEcdsaStepUp;
     reserveWalletSigningSessionBudget: (
       operation: BudgetAdmittedOperation<SelectedEcdsaLane>,
     ) => Promise<SigningSessionBudgetReservation | null>;
@@ -132,8 +128,7 @@ async function executeConfiguredEvmFamilyTransactionSigning<
       ...args.flowArgs,
       request: args.request,
       onConfirmationDisplayed: args.onConfirmationDisplayed,
-      thresholdEcdsaBoundary: args.thresholdEcdsaBoundary,
-      thresholdEcdsaAuthPlan: args.thresholdEcdsaAuthPlan,
+      thresholdEcdsaStepUp: args.thresholdEcdsaStepUp,
       reserveWalletSigningSessionBudget: args.reserveWalletSigningSessionBudget,
       prepareRequestWithManagedNonce: async () =>
         await config.prepareRequestWithManagedNonce({
@@ -186,8 +181,7 @@ export async function executeEvmFamilyTransactionSigning(args: {
   flowArgs: EvmFamilySigningFlowArgs;
   thresholdEcdsaState: EvmFamilyExecutorThresholdEcdsaState;
   onConfirmationDisplayed: () => void;
-  thresholdEcdsaBoundary: EvmFamilyThresholdEcdsaAdmissionBoundary;
-  thresholdEcdsaAuthPlan: EvmFamilyThresholdEcdsaAuthPlanInput;
+  thresholdEcdsaStepUp: EvmFamilyThresholdEcdsaStepUp;
   reserveWalletSigningSessionBudget: (
     operation: BudgetAdmittedOperation<SelectedEcdsaLane>,
   ) => Promise<SigningSessionBudgetReservation | null>;

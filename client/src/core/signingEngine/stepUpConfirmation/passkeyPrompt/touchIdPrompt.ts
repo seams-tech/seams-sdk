@@ -3,10 +3,10 @@ import {
   serializeAuthenticationCredentialWithPRF,
   getPrfFirstSaltV1,
   getPrfSecondSaltV1,
-} from '../../walletAuth/webauthn/credentials/helpers';
-import type { WebAuthnAllowCredential } from '../../walletAuth/webauthn/credentials/collectAuthenticationCredentialForChallengeB64u';
+} from '../../webauthnAuth/credentials/helpers';
+import type { WebAuthnAllowCredential } from '../../webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
-import { executeWebAuthnWithParentFallbacksSafari } from '../../walletAuth/webauthn/fallbacks/safari-fallbacks';
+import { executeWebAuthnWithParentFallbacksSafari } from '../../webauthnAuth/fallbacks/safari-fallbacks';
 
 function isRegistrableSuffix(host: string, cand: string): boolean {
   if (!host || !cand) return false;

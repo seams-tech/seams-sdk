@@ -20,10 +20,6 @@ import {
 } from '@shared/utils/signerDomain';
 import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import {
-  createEmailOtpWalletAuthAdapter,
-  createPasskeyWalletAuthAdapter,
-} from '@/core/signingEngine/walletAuth';
-import {
   SigningAuthPlanKind,
   type SigningAuthPlan,
 } from '@/core/signingEngine/stepUpConfirmation/types';
@@ -71,7 +67,7 @@ import {
   SigningSessionCoordinator,
   type SigningSessionReadiness,
 } from '../../session/SigningSessionCoordinator';
-import type { SigningSessionBudgetStatusAuth } from '../../session/signingSession/budget';
+import type { SigningSessionBudgetStatusAuth } from '../../session/budget/budget';
 import { signingAuthPlanFromSigningSessionPlan } from '../shared/signingConfirmation';
 import {
   createSigningBoundaryTraceEvent,
@@ -548,94 +544,9 @@ async function resolveNearTransactionWalletAuth(args: {
 
   const authInput = {
     accountId: args.nearAccountId,
-    accountAuth: {
-      primaryAuthMethod: lane.authMethod,
-      linkedAuthMethods: [lane.authMethod],
-    },
     intent: SigningOperationIntent.TransactionSign,
     curve: 'ed25519' as const,
   };
-  const passkeyAuthAdapter = createPasskeyWalletAuthAdapter({
-    challenge: async () => ({}),
-    complete: async () => ({
-      method: 'passkey',
-      webauthnAuthentication: {},
-    }),
-  });
-  const emailOtpAuthAdapter = createEmailOtpWalletAuthAdapter({
-    challenge: async () => {
-      if (typeof args.confirmedDeps.requestEmailOtpTransactionSigningChallenge !== 'function') {
-        throw new Error('[SigningEngine] Email OTP per-operation NEAR signing is not configured');
-      }
-      emitNearSigningEvent(args.onEvent, args.nearAccountId, {
-        phase: SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_CHALLENGE_STARTED,
-        status: 'running',
-        message: 'Sending Email OTP for transaction authorization',
-        interaction: { kind: 'none', overlay: 'none' },
-      });
-      emitSigningBoundaryTrace(
-        'near',
-        createSigningBoundaryTraceEvent({
-          event: 'auth_side_effect_started',
-          lane,
-          sideEffect: 'email_otp_challenge',
-          phase: 'confirmed',
-        }),
-      );
-      const authLane = record
-        ? args.confirmedDeps.resolveEmailOtpSigningSessionAuthLane?.({
-            thresholdSessionId: record.thresholdSessionId,
-            curve: 'ed25519',
-          }) || emailOtpEd25519AuthLaneFromRecord(record)
-        : undefined;
-      const challenge = await args.confirmedDeps.requestEmailOtpTransactionSigningChallenge({
-        nearAccountId: args.nearAccountId,
-        chain: 'near',
-        ...(authLane ? { authLane } : {}),
-      });
-      const challengeId = String(challenge.challengeId || '').trim();
-      if (!challengeId) {
-        throw new Error('[SigningEngine] Email OTP challenge response did not include challengeId');
-      }
-      emitNearSigningEvent(args.onEvent, args.nearAccountId, {
-        phase: SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_INPUT_REQUIRED,
-        status: 'waiting_for_user',
-        message: 'Email OTP challenge ready',
-        interaction: { kind: 'otp_input', overlay: 'show' },
-        ...(challenge.emailHint ? { data: { emailHint: challenge.emailHint } } : {}),
-      });
-      return {
-        challengeId,
-        email: String(challenge.emailHint || '').trim(),
-      };
-    },
-    complete: async ({ challengeId, code }) => {
-      if (
-        typeof args.confirmedDeps.loginWithEmailOtpEd25519CapabilityForSigning !== 'function' ||
-        !record
-      ) {
-        throw new Error('[SigningEngine] Email OTP per-operation NEAR signing is not configured');
-      }
-      const sessionBudgetUses = resolveTransactionStepUpSessionUses(args.usesNeeded);
-      const authLane =
-        args.confirmedDeps.resolveEmailOtpSigningSessionAuthLane?.({
-          thresholdSessionId: record.thresholdSessionId,
-          curve: 'ed25519',
-        }) || emailOtpEd25519AuthLaneFromRecord(record);
-      const refreshed = await args.confirmedDeps.loginWithEmailOtpEd25519CapabilityForSigning({
-        nearAccountId: args.nearAccountId,
-        challengeId,
-        otpCode: code,
-        record,
-        ...(authLane ? { authLane } : {}),
-        remainingUses: sessionBudgetUses,
-      });
-      return {
-        method: 'email_otp',
-        emailOtpAuthentication: refreshed,
-      };
-    },
-  });
   const plan = preparedOperation.signingSessionPlan;
   if (plan.kind === SigningSessionPlanKind.NotReady) {
     if (plan.reason === 'policy_blocked') {
@@ -659,9 +570,6 @@ async function resolveNearTransactionWalletAuth(args: {
     expiresAtMs: preparedOperation.expiresAtMs,
     remainingUses: preparedOperation.remainingUses,
   });
-  if (signingAuthPlan.kind === SigningAuthPlanKind.PasskeyReauth) {
-    await passkeyAuthAdapter.createPasskeyReauthPlan(authInput);
-  }
   if (signingAuthPlan.kind !== SigningAuthPlanKind.EmailOtpReauth) {
     return {
       signingAuthPlan,
@@ -669,11 +577,52 @@ async function resolveNearTransactionWalletAuth(args: {
     };
   }
 
-  const emailOtpAuthBridge = await emailOtpAuthAdapter.createEmailOtpReauthPlan(authInput);
-
   let activeChallenge: { challengeId: string; email?: string } | null = null;
   const prepareEmailOtpChallenge = async () => {
-    activeChallenge = await emailOtpAuthBridge.challenge();
+    if (typeof args.confirmedDeps.requestEmailOtpTransactionSigningChallenge !== 'function') {
+      throw new Error('[SigningEngine] Email OTP per-operation NEAR signing is not configured');
+    }
+    emitNearSigningEvent(args.onEvent, args.nearAccountId, {
+      phase: SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_CHALLENGE_STARTED,
+      status: 'running',
+      message: 'Sending Email OTP for transaction authorization',
+      interaction: { kind: 'none', overlay: 'none' },
+    });
+    emitSigningBoundaryTrace(
+      'near',
+      createSigningBoundaryTraceEvent({
+        event: 'auth_side_effect_started',
+        lane,
+        sideEffect: 'email_otp_challenge',
+        phase: 'confirmed',
+      }),
+    );
+    const authLane = record
+      ? args.confirmedDeps.resolveEmailOtpSigningSessionAuthLane?.({
+          thresholdSessionId: record.thresholdSessionId,
+          curve: 'ed25519',
+        }) || emailOtpEd25519AuthLaneFromRecord(record)
+      : undefined;
+    const challenge = await args.confirmedDeps.requestEmailOtpTransactionSigningChallenge({
+      nearAccountId: args.nearAccountId,
+      chain: 'near',
+      ...(authLane ? { authLane } : {}),
+    });
+    const challengeId = String(challenge.challengeId || '').trim();
+    if (!challengeId) {
+      throw new Error('[SigningEngine] Email OTP challenge response did not include challengeId');
+    }
+    emitNearSigningEvent(args.onEvent, args.nearAccountId, {
+      phase: SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_INPUT_REQUIRED,
+      status: 'waiting_for_user',
+      message: 'Email OTP challenge ready',
+      interaction: { kind: 'otp_input', overlay: 'show' },
+      ...(challenge.emailHint ? { data: { emailHint: challenge.emailHint } } : {}),
+    });
+    activeChallenge = {
+      challengeId,
+      email: String(challenge.emailHint || '').trim(),
+    };
     return {
       challengeId: activeChallenge.challengeId,
       ...(activeChallenge.email ? { emailHint: activeChallenge.email } : {}),
@@ -692,14 +641,27 @@ async function resolveNearTransactionWalletAuth(args: {
         if (!resolvedChallengeId) {
           throw new Error('[SigningEngine] Email OTP challenge must be prepared before completion');
         }
-        const proof = await emailOtpAuthBridge.complete({
-          challengeId: resolvedChallengeId,
-          code: otpCode,
-        });
-        const emailOtpAuthentication = proof.emailOtpAuthentication as {
-          sessionId: string;
-          record?: ThresholdEd25519SessionRecord;
-        };
+        if (
+          typeof args.confirmedDeps.loginWithEmailOtpEd25519CapabilityForSigning !== 'function' ||
+          !record
+        ) {
+          throw new Error('[SigningEngine] Email OTP per-operation NEAR signing is not configured');
+        }
+        const sessionBudgetUses = resolveTransactionStepUpSessionUses(args.usesNeeded);
+        const authLane =
+          args.confirmedDeps.resolveEmailOtpSigningSessionAuthLane?.({
+            thresholdSessionId: record.thresholdSessionId,
+            curve: 'ed25519',
+          }) || emailOtpEd25519AuthLaneFromRecord(record);
+        const emailOtpAuthentication =
+          await args.confirmedDeps.loginWithEmailOtpEd25519CapabilityForSigning({
+            nearAccountId: args.nearAccountId,
+            challengeId: resolvedChallengeId,
+            otpCode,
+            record,
+            ...(authLane ? { authLane } : {}),
+            remainingUses: sessionBudgetUses,
+          });
         if (emailOtpAuthentication.record) {
           // OTP step-up mints the replacement Ed25519 runtime lane. Publish it
           // before signing/finalization so budget sync targets the same lane.

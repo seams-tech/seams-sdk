@@ -1,6 +1,9 @@
 import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
-import type { SigningSessionPreparedBudgetIdentity } from './budget';
-import type { SigningPlannerDecisionTraceEvent, SigningSessionReadiness } from './planner';
+import type { SigningSessionPreparedBudgetIdentity } from '../budget/budget';
+import type {
+  SigningPlannerDecisionTraceEvent,
+  SigningSessionReadiness,
+} from '../planning/planner';
 import type {
   SigningAuthMethod,
   SigningChainFamily,

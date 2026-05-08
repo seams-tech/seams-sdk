@@ -1,6 +1,6 @@
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
-import { collectAuthenticationCredentialForChallengeB64u } from '../../walletAuth/webauthn/credentials/collectAuthenticationCredentialForChallengeB64u';
+import { collectAuthenticationCredentialForChallengeB64u } from '../../webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import {
   getPrfFirstB64uFromCredential,
   type ThresholdIndexedDbPort,
@@ -13,13 +13,6 @@ import {
   type ThresholdSessionKind,
 } from '../sessionPolicy';
 import { mintEd25519AuthSession } from '../ed25519/authSession';
-import {
-  createEmailOtpWalletAuthAdapter,
-  createPasskeyWalletAuthAdapter,
-  createWalletAuthModeResolver,
-  resolveAccountAuthMetadataForSignerSource,
-  WalletAuthPlanKind,
-} from '../../walletAuth';
 
 function joinUrlPath(baseUrl: string, path: string): string {
   const base = String(baseUrl || '').replace(/\/+$/, '');
@@ -162,49 +155,15 @@ export async function connectEd25519Session(args: {
 
   let credential: WebAuthnAuthenticationCredential | undefined = args.localPrfCredential;
   if (!hasAppSessionAuth && !credential) {
-    const walletAuthResolver = createWalletAuthModeResolver({
-      passkey: createPasskeyWalletAuthAdapter({
-        challenge: async () =>
-          await collectAuthenticationCredentialForChallengeB64u({
-            indexedDB: args.indexedDB,
-            touchIdPrompt: args.touchIdPrompt,
-            nearAccountId: args.nearAccountId,
-            challengeB64u: sessionPolicyDigest32,
-          }),
-        complete: async ({ response }) => ({
-          method: 'passkey',
-          webauthnAuthentication: response,
-        }),
-      }),
-      emailOtp: createEmailOtpWalletAuthAdapter({
-        challenge: async () => {
-          throw new Error('Email OTP Ed25519 session mint is handled by the Email OTP login flow');
-        },
-        complete: async () => {
-          throw new Error('Email OTP Ed25519 session mint is handled by the Email OTP login flow');
-        },
-      }),
-    });
-    const walletAuthPlan = await walletAuthResolver.resolveWalletAuthPlan({
-      accountId: args.nearAccountId,
-      accountAuth: resolveAccountAuthMetadataForSignerSource(),
-      intent: 'session_mint',
-      curve: 'ed25519',
-    });
-    if (walletAuthPlan.kind !== WalletAuthPlanKind.PasskeyReauth) {
-      return {
-        ok: false,
-        code: 'unsupported',
-        message: 'Ed25519 session mint requires passkey authorization',
-      };
-    }
-
     // Collect WebAuthn only when the caller did not already confirm the same session policy.
     // A regression here ignored `localPrfCredential`, so post-exhaustion transaction signing
     // showed one tx confirmation and then a second TouchID prompt for the session mint.
-    const credentialChallenge = await walletAuthPlan.challenge();
-    const walletAuthProof = await walletAuthPlan.complete(credentialChallenge);
-    credential = walletAuthProof.webauthnAuthentication as WebAuthnAuthenticationCredential;
+    credential = await collectAuthenticationCredentialForChallengeB64u({
+      indexedDB: args.indexedDB,
+      touchIdPrompt: args.touchIdPrompt,
+      nearAccountId: args.nearAccountId,
+      challengeB64u: sessionPolicyDigest32,
+    });
   }
 
   if (!credential) {

@@ -1,14 +1,8 @@
-import {
-  createEmailOtpWalletAuthAdapter,
-  createPasskeyWalletAuthAdapter,
-  type AccountAuthMetadata,
-  type ResolveWalletAuthPlanInput,
-} from '@/core/signingEngine/walletAuth';
+import type { AccountAuthMetadata } from '@/core/signingEngine/interfaces/accountAuthMetadata';
 import {
   SigningAuthPlanKind,
   type SigningAuthPlan,
 } from '@/core/signingEngine/stepUpConfirmation/types';
-import { SigningEventPhase } from '@/core/types/sdkSentEvents';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
@@ -19,10 +13,6 @@ import type {
   SigningSessionReadiness,
 } from '../../session/SigningSessionCoordinator';
 import { resolveEmailOtpEcdsaWorkerSessionId } from '../../session/availability/readiness';
-import {
-  createSigningBoundaryTraceEvent,
-  emitSigningBoundaryTrace,
-} from '../../session/signingSession/trace';
 import type { SigningSessionPlan } from '../../session/signingSession/types';
 import { SigningOperationIntent, SigningSessionPlanKind } from '../../session/signingSession/types';
 import type { PreparedThresholdSigningOperation } from '../../session/signingSession/preparedOperation';
@@ -33,12 +23,14 @@ import type {
   WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
-  emailOtpEcdsaAuthLaneFromRecord,
   isEmailOtpThresholdEcdsaSigningContext,
   type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
 import type { EvmFamilyEcdsaSessionReaderDeps } from '../../interfaces/operationDeps';
-import { emitEvmFamilySigningEvent } from './events';
+import {
+  createEmailOtpEcdsaTransactionSigningBridge,
+  type EvmFamilyEmailOtpTransactionSigningBridge,
+} from './emailOtpSigningSession';
 import type {
   EvmFamilyChain,
   EvmFamilyLifecycleEventCallback,
@@ -77,29 +69,27 @@ export type EvmFamilyConfirmedEmailOtpDeps = {
 
 export type EvmFamilyConfirmedSigningDeps = EvmFamilyConfirmedEmailOtpDeps;
 
-export type EvmFamilyTransactionWalletAuthDeps = EvmFamilyPreConfirmSigningDeps;
+export type EvmFamilyTransactionStepUpDeps = EvmFamilyPreConfirmSigningDeps;
 
-type ResolveEvmFamilyTransactionWalletAuthBaseArgs = {
-  deps: EvmFamilyTransactionWalletAuthDeps;
+type ResolveEvmFamilyTransactionStepUpBaseArgs = {
+  deps: EvmFamilyTransactionStepUpDeps;
   confirmedDeps: EvmFamilyConfirmedSigningDeps;
   nearAccountId: string;
   chain: EvmFamilyChain;
-  chainId: number;
   chainTarget: ThresholdEcdsaChainTarget;
   accountAuth: AccountAuthMetadata;
-  forceFreshAuth?: boolean;
   onEvent?: EvmFamilyLifecycleEventCallback;
 };
 
-export type ResolveEvmFamilyTransactionWalletAuthArgs =
-  | (ResolveEvmFamilyTransactionWalletAuthBaseArgs & {
+export type ResolveEvmFamilyTransactionStepUpArgs =
+  | (ResolveEvmFamilyTransactionStepUpBaseArgs & {
       senderSignatureAlgorithm: 'secp256k1';
       preparedOperation: PreparedThresholdSigningOperation<
         ResolvedEvmFamilyEcdsaSigningLane,
         Record<string, unknown>
       >;
     })
-  | (ResolveEvmFamilyTransactionWalletAuthBaseArgs & {
+  | (ResolveEvmFamilyTransactionStepUpBaseArgs & {
       senderSignatureAlgorithm: Exclude<EvmFamilySenderSignatureAlgorithm, 'secp256k1'>;
       preparedOperation?: never;
     });
@@ -170,8 +160,8 @@ export async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
   return buildBackingReadiness({ expiresAtMs, remainingUses });
 }
 
-export async function resolveEvmFamilyTransactionWalletAuth(
-  args: ResolveEvmFamilyTransactionWalletAuthArgs,
+export async function resolveEvmFamilyTransactionStepUp(
+  args: ResolveEvmFamilyTransactionStepUpArgs,
 ): Promise<{
   signingAuthPlan: SigningAuthPlan;
   signingSessionPlan?: SigningSessionPlan;
@@ -200,123 +190,28 @@ export async function resolveEvmFamilyTransactionWalletAuth(
     preparedEcdsaLane?.authMethod === SIGNER_AUTH_METHODS.emailOtp
       ? preparedEcdsaMetadata?.emailOtpReauthRecord || preparedEcdsaMetadata?.warmRecord
       : undefined;
-  const passkeyAuthAdapter = createPasskeyWalletAuthAdapter({
-    challenge: async () => ({}),
-    complete: async () => ({
-      method: 'passkey',
-      webauthnAuthentication: {},
-    }),
-  });
-  const emailOtpAuthAdapter = createEmailOtpWalletAuthAdapter({
-    challenge: async () => {
-      if (typeof confirmedEmailOtpDeps.requestEmailOtpTransactionSigningChallenge !== 'function') {
-        throw new Error('[SigningEngine] Email OTP per-operation signing is not configured');
-      }
-      emitEvmFamilySigningEvent(args.onEvent, {
-        phase: SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_CHALLENGE_STARTED,
-        status: 'running',
-        accountId: args.nearAccountId,
-        interaction: { kind: 'none', overlay: 'none' },
-      });
-      emitSigningBoundaryTrace(
-        'evm-family',
-        createSigningBoundaryTraceEvent({
-          event: 'auth_side_effect_started',
-          lane: preparedEcdsaLane,
-          sideEffect: 'email_otp_challenge',
-          phase: 'confirmed',
-        }),
-      );
-      const emailOtpRecord =
-        emailOtpReauthRecord ||
-        (isEmailOtpThresholdEcdsaSigningContext({
-          ...(laneWarmRecord ? { record: laneWarmRecord } : {}),
-          ...(laneWarmKeyRef ? { keyRef: laneWarmKeyRef } : {}),
+  const emailOtpAuthBridge =
+    args.senderSignatureAlgorithm === 'secp256k1'
+      ? createEmailOtpEcdsaTransactionSigningBridge({
+          nearAccountId: args.nearAccountId,
+          chain: args.chain,
+          chainTarget: args.chainTarget,
+          selectedLane: preparedEcdsaLane,
+          warmRecord: laneWarmRecord,
+          warmKeyRef: laneWarmKeyRef,
+          emailOtpReauthRecord,
+          onEvent: args.onEvent,
+          requestEmailOtpTransactionSigningChallenge:
+            confirmedEmailOtpDeps.requestEmailOtpTransactionSigningChallenge,
+          resolveEmailOtpSigningSessionAuthLane:
+            confirmedEmailOtpDeps.resolveEmailOtpSigningSessionAuthLane,
+          loginWithEmailOtpEcdsaCapabilityForSigning:
+            confirmedEmailOtpDeps.loginWithEmailOtpEcdsaCapabilityForSigning,
         })
-          ? laneWarmRecord
-          : undefined);
-      const resolvedAuthLane = emailOtpRecord
-        ? await confirmedEmailOtpDeps.resolveEmailOtpSigningSessionAuthLane?.({
-            thresholdSessionId: emailOtpRecord.thresholdSessionId,
-            curve: 'ecdsa',
-            chain: args.chain,
-          })
-        : null;
-      const authLane = emailOtpRecord
-        ? resolvedAuthLane || emailOtpEcdsaAuthLaneFromRecord(emailOtpRecord)
-        : undefined;
-      const challenge = await confirmedEmailOtpDeps.requestEmailOtpTransactionSigningChallenge({
-        nearAccountId: args.nearAccountId,
-        chain: args.chain,
-        ...(authLane ? { authLane } : {}),
-      });
-      const challengeId = String(challenge.challengeId || '').trim();
-      if (!challengeId) {
-        throw new Error('[SigningEngine] Email OTP challenge response did not include challengeId');
-      }
-      emitEvmFamilySigningEvent(args.onEvent, {
-        phase: SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_INPUT_REQUIRED,
-        status: 'waiting_for_user',
-        accountId: args.nearAccountId,
-        interaction: { kind: 'otp_input', overlay: 'show' },
-        ...(challenge.emailHint ? { data: { emailHint: challenge.emailHint } } : {}),
-      });
-      return {
-        challengeId,
-        email: String(challenge.emailHint || '').trim(),
-      };
-    },
-    complete: async ({ challengeId, code }) => {
-      const emailOtpRecord =
-        emailOtpReauthRecord ||
-        (isEmailOtpThresholdEcdsaSigningContext({
-          ...(laneWarmRecord ? { record: laneWarmRecord } : {}),
-          ...(laneWarmKeyRef ? { keyRef: laneWarmKeyRef } : {}),
-        })
-          ? laneWarmRecord
-          : undefined);
-      if (typeof confirmedEmailOtpDeps.loginWithEmailOtpEcdsaCapabilityForSigning !== 'function') {
-        throw new Error('[SigningEngine] Email OTP per-operation signing is not configured');
-      }
-      const resolvedAuthLane = emailOtpRecord
-        ? await confirmedEmailOtpDeps.resolveEmailOtpSigningSessionAuthLane?.({
-            thresholdSessionId: emailOtpRecord.thresholdSessionId,
-            curve: 'ecdsa',
-            chain: args.chain,
-          })
-        : null;
-      const authLane = emailOtpRecord
-        ? resolvedAuthLane || emailOtpEcdsaAuthLaneFromRecord(emailOtpRecord)
-        : undefined;
-      if (!preparedEcdsaLane?.subjectId) {
-        throw new Error('[SigningEngine] Email OTP ECDSA reauth requires selected subject');
-      }
-      const refreshed = await confirmedEmailOtpDeps.loginWithEmailOtpEcdsaCapabilityForSigning({
-        nearAccountId: args.nearAccountId,
-        subjectId: preparedEcdsaLane.subjectId,
-        chainTarget: args.chainTarget,
-        challengeId,
-        otpCode: code,
-        ...(emailOtpRecord ? { record: emailOtpRecord } : {}),
-        ...(authLane ? { authLane } : {}),
-        remainingUses: 1,
-      });
-      return {
-        method: 'email_otp',
-        emailOtpAuthentication: refreshed,
-      };
-    },
-  });
-  const authInput: ResolveWalletAuthPlanInput = {
-    accountId: args.nearAccountId,
-    accountAuth: args.accountAuth,
-    intent: SigningOperationIntent.TransactionSign,
-    curve: args.senderSignatureAlgorithm === 'secp256k1' ? 'ecdsa' : undefined,
-  };
+      : null;
+  const signingIntent = SigningOperationIntent.TransactionSign;
+  const signingCurve = args.senderSignatureAlgorithm === 'secp256k1' ? 'ecdsa' : undefined;
   let plannedEcdsaSigningAuthPlan: SigningAuthPlan | null = null;
-  let emailOtpAuthBridge: Awaited<
-    ReturnType<typeof emailOtpAuthAdapter.createEmailOtpReauthPlan>
-  > | null = null;
   let plannedSigningSessionPlan: SigningSessionPlan | undefined;
   if (args.senderSignatureAlgorithm === 'secp256k1') {
     const preparedOperation = args.preparedOperation;
@@ -325,9 +220,9 @@ export async function resolveEvmFamilyTransactionWalletAuth(
     if (signingSessionPlan.kind === SigningSessionPlanKind.WarmSession) {
       plannedEcdsaSigningAuthPlan = signingAuthPlanFromSigningSessionPlan({
         plan: signingSessionPlan,
-        accountId: authInput.accountId,
-        intent: SigningOperationIntent.TransactionSign,
-        ...(authInput.curve ? { curve: authInput.curve } : {}),
+        accountId: args.nearAccountId,
+        intent: signingIntent,
+        ...(signingCurve ? { curve: signingCurve } : {}),
         ...(preparedOperation.metadata.signingRootId
           ? { signingRootId: String(preparedOperation.metadata.signingRootId) }
           : {}),
@@ -337,19 +232,17 @@ export async function resolveEvmFamilyTransactionWalletAuth(
     } else if (signingSessionPlan.kind === SigningSessionPlanKind.EmailOtpReauth) {
       plannedEcdsaSigningAuthPlan = signingAuthPlanFromSigningSessionPlan({
         plan: signingSessionPlan,
-        accountId: authInput.accountId,
-        intent: SigningOperationIntent.TransactionSign,
-        ...(authInput.curve ? { curve: authInput.curve } : {}),
+        accountId: args.nearAccountId,
+        intent: signingIntent,
+        ...(signingCurve ? { curve: signingCurve } : {}),
       });
-      emailOtpAuthBridge = await emailOtpAuthAdapter.createEmailOtpReauthPlan(authInput);
     } else if (signingSessionPlan.kind === SigningSessionPlanKind.PasskeyReauth) {
       plannedEcdsaSigningAuthPlan = signingAuthPlanFromSigningSessionPlan({
         plan: signingSessionPlan,
-        accountId: authInput.accountId,
-        intent: SigningOperationIntent.TransactionSign,
-        ...(authInput.curve ? { curve: authInput.curve } : {}),
+        accountId: args.nearAccountId,
+        intent: signingIntent,
+        ...(signingCurve ? { curve: signingCurve } : {}),
       });
-      await passkeyAuthAdapter.createPasskeyReauthPlan(authInput);
     } else {
       throw new Error(
         `[SigningEngine] ECDSA signing session is not ready: ${signingSessionPlan.reason}`,
@@ -358,15 +251,14 @@ export async function resolveEvmFamilyTransactionWalletAuth(
   }
   const directAuthPlan = plannedEcdsaSigningAuthPlan ? null : await resolveDirectSigningAuthPlan();
   const signingAuthPlan = plannedEcdsaSigningAuthPlan || directAuthPlan!.signingAuthPlan;
-  emailOtpAuthBridge = emailOtpAuthBridge || directAuthPlan?.emailOtpAuthBridge || null;
-  if (signingAuthPlan.kind !== SigningAuthPlanKind.EmailOtpReauth || !emailOtpAuthBridge) {
+  const activeEmailOtpAuthBridge = directAuthPlan?.emailOtpAuthBridge || emailOtpAuthBridge;
+  if (signingAuthPlan.kind !== SigningAuthPlanKind.EmailOtpReauth || !activeEmailOtpAuthBridge) {
     return {
       signingAuthPlan,
       ...(plannedSigningSessionPlan ? { signingSessionPlan: plannedSigningSessionPlan } : {}),
     };
   }
 
-  const activeEmailOtpAuthBridge = emailOtpAuthBridge;
   let activeChallenge: { challengeId: string; email: string } | null = null;
   const prepareChallenge = async (): Promise<{ challengeId: string; emailHint?: string }> => {
     activeChallenge = await activeEmailOtpAuthBridge.challenge();
@@ -394,14 +286,14 @@ export async function resolveEvmFamilyTransactionWalletAuth(
           challengeId: resolvedChallengeId,
           code: otpCode,
         });
-        return proof.emailOtpAuthentication as ThresholdEcdsaSecp256k1KeyRef;
+        return proof;
       },
     },
   };
 
   async function resolveDirectSigningAuthPlan(): Promise<{
     signingAuthPlan: SigningAuthPlan;
-    emailOtpAuthBridge?: Awaited<ReturnType<typeof emailOtpAuthAdapter.createEmailOtpReauthPlan>>;
+    emailOtpAuthBridge?: EvmFamilyEmailOtpTransactionSigningBridge;
   }> {
     const linkedAuthMethods = Array.isArray(args.accountAuth.linkedAuthMethods)
       ? args.accountAuth.linkedAuthMethods
@@ -414,7 +306,6 @@ export async function resolveEvmFamilyTransactionWalletAuth(
       );
     }
     if (args.accountAuth.primaryAuthMethod === SIGNER_AUTH_METHODS.passkey) {
-      await passkeyAuthAdapter.createPasskeyReauthPlan(authInput);
       return {
         signingAuthPlan: {
           kind: SigningAuthPlanKind.PasskeyReauth,
@@ -423,14 +314,15 @@ export async function resolveEvmFamilyTransactionWalletAuth(
       };
     }
     if (args.accountAuth.primaryAuthMethod === SIGNER_AUTH_METHODS.emailOtp) {
-      const directEmailOtpAuthBridge =
-        await emailOtpAuthAdapter.createEmailOtpReauthPlan(authInput);
+      if (!emailOtpAuthBridge) {
+        throw new Error('[SigningEngine] Email OTP transaction signing requires ECDSA lane state');
+      }
       return {
         signingAuthPlan: {
           kind: SigningAuthPlanKind.EmailOtpReauth,
           method: 'email_otp',
         },
-        emailOtpAuthBridge: directEmailOtpAuthBridge,
+        emailOtpAuthBridge,
       };
     }
     throw new Error(

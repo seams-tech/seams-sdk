@@ -5,11 +5,11 @@ import {
   type WebAuthnIndexedDbClientPort,
   type WebAuthnIndexedDbPort,
   type WebAuthnPromptPort,
-} from '../../walletAuth/webauthn/credentials/collectAuthenticationCredentialForChallengeB64u';
+} from '../../webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import {
   getPrfFirstB64uFromCredential,
   redactCredentialExtensionOutputs,
-} from '../../walletAuth/webauthn/credentials/credentialExtensions';
+} from '../../webauthnAuth/credentials/credentialExtensions';
 
 export { getPrfFirstB64uFromCredential, redactCredentialExtensionOutputs };
 

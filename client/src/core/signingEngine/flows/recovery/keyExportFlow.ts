@@ -12,7 +12,7 @@ import {
   type ThresholdEcdsaChainTarget,
   type WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { getPrfResultsFromCredential } from '../../walletAuth/webauthn/credentials/credentialExtensions';
+import { getPrfResultsFromCredential } from '../../webauthnAuth/credentials/credentialExtensions';
 
 export type KeyExportEventCallback = (event: KeyExportFlowEvent) => void;
 

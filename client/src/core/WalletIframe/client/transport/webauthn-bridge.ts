@@ -2,8 +2,8 @@ import { isObject } from '@shared/utils/validation';
 import {
   serializeRegistrationCredentialWithPRF,
   serializeAuthenticationCredentialWithPRF,
-} from '@/core/signingEngine/walletAuth/webauthn/credentials/helpers';
-import { WebAuthnBridgeMessage } from '@/core/signingEngine/walletAuth/webauthn/fallbacks/safari-fallbacks';
+} from '@/core/signingEngine/webauthnAuth/credentials/helpers';
+import { WebAuthnBridgeMessage } from '@/core/signingEngine/webauthnAuth/fallbacks/safari-fallbacks';
 
 type CreateReq = { requestId?: string; publicKey?: PublicKeyCredentialCreationOptions };
 type GetReq = { requestId?: string; publicKey?: PublicKeyCredentialRequestOptions };

@@ -4,12 +4,12 @@ import {
   resolveProfileAccountContextFromCandidates,
   selectAccountSigner,
 } from '@/core/indexedDB/profileAccountProjection';
+import { toAccountId } from '@/core/types/accountIds';
+import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import {
   resolveAccountAuthMetadataForSignerSource,
   type AccountAuthMetadata,
-} from './walletAuthModeResolver';
-import { toAccountId } from '@/core/types/accountIds';
-import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
+} from '../../interfaces/accountAuthMetadata';
 
 export type EvmFamilyAccountMetadataDeps = {
   indexedDB: UnifiedIndexedDBManager;

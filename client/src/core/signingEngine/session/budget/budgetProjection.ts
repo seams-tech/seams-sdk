@@ -4,7 +4,7 @@ import type {
   SigningOperationFingerprint,
   SigningOperationId,
   WalletSigningSessionId,
-} from './types';
+} from '../signingSession/types';
 
 export type TrustedWalletBudgetStatus =
   | {

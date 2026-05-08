@@ -27,7 +27,7 @@ import { checkNearAccountExistsBestEffort } from '../rpcClients/near/rpcCalls';
 import {
   getPrfFirstB64uFromCredential,
   getPrfResultsFromCredential,
-} from '../signingEngine/walletAuth/webauthn/credentials/credentialExtensions';
+} from '../signingEngine/webauthnAuth/credentials/credentialExtensions';
 import { listConfiguredThresholdEcdsaPublicationTargets } from './thresholdEcdsaProvisioning';
 import { IndexedDBManager } from '../indexedDB';
 import { resolveNearAccountProfileContinuity } from '../accountData/near/accountProjection';

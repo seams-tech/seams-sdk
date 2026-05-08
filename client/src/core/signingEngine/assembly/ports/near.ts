@@ -3,7 +3,7 @@ import type { AccountId } from '@/core/types/accountIds';
 import type { NearSigningApiDeps } from '../../interfaces/operationDeps';
 import { getStoredThresholdEd25519SessionRecordForAccount } from '../../session/persistence/records';
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
-import { resolveEvmFamilyTransactionAccountAuth } from '../../walletAuth/accountAuth';
+import { resolveEvmFamilyTransactionAccountAuth } from '../../flows/signEvmFamily/accountAuth';
 import { createWarmSessionCapabilityReader } from '../../session/warmSigning/capabilityReader';
 import { createWarmSessionStatusReader } from '../../session/warmSigning/statusReader';
 import { generateSessionId as generateSessionIdValue } from '../../session/warmSigning/prfCache';

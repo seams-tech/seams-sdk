@@ -7,7 +7,7 @@ import {
   type AppOrThresholdSessionAuth,
   type CookieSessionAuth,
 } from '@shared/utils/sessionTokens';
-import { redactCredentialExtensionOutputs } from '../../signingEngine/walletAuth/webauthn/credentials/credentialExtensions';
+import { redactCredentialExtensionOutputs } from '../../signingEngine/webauthnAuth/credentials/credentialExtensions';
 import type { ThresholdRuntimePolicyScope } from '../../signingEngine/threshold/sessionPolicy';
 import type {
   ThresholdEcdsaChainTarget,

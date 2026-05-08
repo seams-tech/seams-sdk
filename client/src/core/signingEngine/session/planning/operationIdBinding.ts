@@ -1,4 +1,7 @@
-import type { SigningOperationFingerprint, SigningOperationId } from './types';
+import type {
+  SigningOperationFingerprint,
+  SigningOperationId,
+} from '../signingSession/types';
 
 const MAX_BOUND_CALLER_OPERATION_IDS = 1024;
 

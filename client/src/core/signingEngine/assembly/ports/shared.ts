@@ -33,7 +33,7 @@ import type {
 } from '../../session/persistence/records';
 import type { RestorePersistedSessionForSigningInput } from '../../session/restore/restoreCoordinator';
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
-import type { SigningSessionBudgetStatusAuth } from '../../session/signingSession/budget';
+import type { SigningSessionBudgetStatusAuth } from '../../session/budget/budget';
 import {
   toWalletSubjectId,
   type ThresholdEcdsaChainTarget,

@@ -192,6 +192,29 @@ export function clearAllThresholdEcdsaSessionRecords(deps: SessionPublicDeps): v
   clearAllThresholdEcdsaSessionRecordsValue(deps.ecdsaSessions);
 }
 
+export function createSessionPublicApi(deps: SessionPublicDeps) {
+  return {
+    restorePersistedSessionsForAccount: (args: RestorePersistedSessionsForAccountInput) =>
+      restorePersistedSessionsForAccount(deps, args),
+    readPersistedAvailableSigningLanes: (
+      args: Omit<ReadAvailableSigningLanesInput, 'ecdsaChainTargets'>,
+    ) => readPersistedAvailableSigningLanes(deps, args),
+    upsertThresholdEcdsaSessionFromBootstrap: (
+      args: UpsertThresholdEcdsaSessionFromBootstrapInput,
+    ) => upsertThresholdEcdsaSessionFromBootstrap(deps, args),
+    getThresholdEcdsaKeyRefForAccountTarget: (
+      args: GetThresholdEcdsaKeyRefForAccountTargetInput,
+    ) => getThresholdEcdsaKeyRefForAccountTarget(deps, args),
+    listThresholdEcdsaSessionRecordsForSubject: (args: { subjectId: WalletSubjectId }) =>
+      listThresholdEcdsaSessionRecordsForSubject(deps, args),
+    clearThresholdEcdsaSessionRecordForAccount: (nearAccountId: AccountId | string) =>
+      clearThresholdEcdsaSessionRecordForAccount(deps, nearAccountId),
+    clearAllThresholdEcdsaSessionRecords: () => clearAllThresholdEcdsaSessionRecords(deps),
+  };
+}
+
+export type SessionPublicApi = ReturnType<typeof createSessionPublicApi>;
+
 export type {
   RestorePersistedSessionsForAccountInput,
   RestorePersistedSessionsForAccountResult,

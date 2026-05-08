@@ -27,8 +27,8 @@ import {
   toSigningSessionStatus,
   toWarmSessionClaimFromStatusResult,
 } from '../warmSigning/readModel';
-import type { SigningSessionBudgetStatusAuth } from '../signingSession/budget';
-import type { SigningSessionReadiness } from '../signingSession/planner';
+import type { SigningSessionBudgetStatusAuth } from '../budget/budget';
+import type { SigningSessionReadiness } from '../planning/planner';
 import {
   thresholdEcdsaChainTargetKey,
   toWalletSubjectId,

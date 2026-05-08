@@ -5,7 +5,7 @@ const IMPORT_PATHS = {
   clientDB: '/sdk/esm/core/indexedDB/passkeyClientDB/manager.js',
   accountKeyMaterialDB: '/sdk/esm/core/indexedDB/accountKeyMaterialDB/manager.js',
   nearKeyMaterial: '/sdk/esm/core/accountData/near/keyMaterial.js',
-  signerSlot: '/sdk/esm/core/signingEngine/walletAuth/webauthn/device/signerSlot.js',
+  signerSlot: '/sdk/esm/core/signingEngine/webauthnAuth/device/signerSlot.js',
 } as const;
 
 test.describe('PasskeyClientDB device selection', () => {

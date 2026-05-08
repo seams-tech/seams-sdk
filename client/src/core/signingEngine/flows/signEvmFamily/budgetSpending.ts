@@ -1,9 +1,9 @@
-import { createSigningSessionBudgetFinalizer } from '../../session/signingSession/budgetFinalizer';
+import { createSigningSessionBudgetFinalizer } from '../../session/budget/budgetFinalizer';
 import type {
   SigningSessionBudgetReservation,
   SigningSessionPreparedBudgetIdentity,
   SigningSessionBudgetStatusAuth,
-} from '../../session/signingSession/budget';
+} from '../../session/budget/budget';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import {
   type SigningOperationFingerprint,

@@ -1,7 +1,7 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { ExportPrivateKeysWithUiWorkerResult } from '@/core/types/secure-confirm-worker';
 import type { PrivateKeyExportRecoveryDeps } from '../../interfaces/operationDeps';
-import { getLastLoggedInSignerSlot } from '../../walletAuth/webauthn/device/signerSlot';
+import { getLastLoggedInSignerSlot } from '../../webauthnAuth/device/signerSlot';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 type ExportScheme = 'ed25519' | 'secp256k1';

@@ -1,4 +1,4 @@
-import type { AccountAuthMetadata } from '@/core/signingEngine/walletAuth';
+import type { AccountAuthMetadata } from '@/core/signingEngine/interfaces/accountAuthMetadata';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type {
   EcdsaLaneCandidate,
@@ -17,7 +17,7 @@ import {
 } from '../../session/availability/availableSigningLanes';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import type { RestorePersistedSessionForSigningInput } from '../../session/restore/restoreCoordinator';
-import type { SigningSessionBudgetStatusAuth } from '../../session/signingSession/budget';
+import type { SigningSessionBudgetStatusAuth } from '../../session/budget/budget';
 import {
   selectTransactionLane,
   type EvmFamilyEcdsaAvailableLane,
@@ -63,7 +63,7 @@ import {
   resolveEvmFamilyEcdsaPlannerReadiness,
   type EvmFamilyPreConfirmSigningDeps,
 } from './authPlanning';
-import { resolveEvmFamilyTransactionAccountAuth } from '../../walletAuth/accountAuth';
+import { resolveEvmFamilyTransactionAccountAuth } from './accountAuth';
 import type { EvmFamilySigningTarget } from './types';
 
 function buildEvmFamilyTransactionSigningIntent(args: {

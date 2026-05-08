@@ -61,8 +61,80 @@ export type SigningAuthPlan =
       emailOtpPrompt?: EmailOtpConfirmPrompt;
     };
 
+export function isWarmSessionSigningAuthPlan(
+  plan: Pick<SigningAuthPlan, 'kind'> | null | undefined,
+): plan is Extract<SigningAuthPlan, { kind: typeof SigningAuthPlanKind.WarmSession }> {
+  return plan?.kind === SigningAuthPlanKind.WarmSession;
+}
+
+export function isPasskeySigningAuthPlan(
+  plan: Pick<SigningAuthPlan, 'kind'> | null | undefined,
+): plan is Extract<SigningAuthPlan, { kind: typeof SigningAuthPlanKind.PasskeyReauth }> {
+  return plan?.kind === SigningAuthPlanKind.PasskeyReauth;
+}
+
+export function isEmailOtpSigningAuthPlan(
+  plan: Pick<SigningAuthPlan, 'kind'> | null | undefined,
+): plan is Extract<SigningAuthPlan, { kind: typeof SigningAuthPlanKind.EmailOtpReauth }> {
+  return plan?.kind === SigningAuthPlanKind.EmailOtpReauth;
+}
+
 export function signingAuthModeFromSigningAuthPlan(plan: SigningAuthPlan): SigningAuthMode {
   if (plan.kind === SigningAuthPlanKind.WarmSession) return 'warmSession';
   if (plan.kind === SigningAuthPlanKind.EmailOtpReauth) return 'emailOtp';
   return 'webauthn';
 }
+
+export type StepUpMethod =
+  | 'passkey'
+  | 'email_otp'
+  | 'authenticator_otp'
+  | 'magic_link'
+  | 'password';
+
+export type PasskeyPromptPlan = {
+  title?: string;
+  body?: string;
+};
+
+export type StepUpWarmSessionAuthorization = {
+  method: WalletAuthMethod;
+  sessionId: string;
+  expiresAtMs: number;
+  remainingUses: number;
+};
+
+export type StepUpPolicy =
+  | {
+      kind: 'use_selected_lane';
+    }
+  | {
+      kind: 'force_method';
+      method: StepUpMethod;
+    }
+  | {
+      kind: 'reuse_warm_session';
+      authorization: StepUpWarmSessionAuthorization;
+    };
+
+export type PasskeyStepUpConfirmation = {
+  credential: unknown;
+};
+
+export type EmailOtpStepUpConfirmation = {
+  otpCode: string;
+};
+
+export type StepUpAuthorizationResult<TPasskeyAuthorization, TEmailOtpAuthorization> =
+  | {
+      method: 'warm_session';
+      authorization: StepUpWarmSessionAuthorization;
+    }
+  | {
+      method: 'passkey';
+      authorization: TPasskeyAuthorization;
+    }
+  | {
+      method: 'email_otp';
+      authorization: TEmailOtpAuthorization;
+    };

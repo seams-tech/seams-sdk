@@ -4,7 +4,7 @@ import type { UserConfirmSecurityContext, TransactionContext } from '@/core/type
 import type { ThemeName } from '@/core/types/seams';
 import type { NonceLease } from '@/core/signingEngine/nonce/NonceCoordinator';
 import { nonceLeaseToRef } from '@/core/signingEngine/nonce/NonceCoordinator';
-import { collectAuthenticationCredentialForChallengeB64u } from '@/core/signingEngine/walletAuth/webauthn/credentials/collectAuthenticationCredentialForChallengeB64u';
+import { collectAuthenticationCredentialForChallengeB64u } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import {
   UserConfirmationType,
   type TransactionSummary,

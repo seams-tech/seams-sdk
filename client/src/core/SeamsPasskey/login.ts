@@ -34,13 +34,7 @@ import {
 import { getNearThresholdKeyMaterial } from '../accountData/near/keyMaterial';
 import type { ClientUserData } from '../accountData/near/types';
 import { exchangeSession, type SessionExchangeInput } from '../rpcClients/near/rpcCalls';
-import { parseSignerSlot } from '../signingEngine/walletAuth/webauthn/device/signerSlot';
-import {
-  createEmailOtpWalletAuthAdapter,
-  createPasskeyWalletAuthAdapter,
-  createWalletAuthModeResolver,
-  resolveAccountAuthMetadataForSignerSource,
-} from '../signingEngine/walletAuth';
+import { parseSignerSlot } from '../signingEngine/webauthnAuth/device/signerSlot';
 import {
   clearAllStoredThresholdEd25519SessionRecords,
   getStoredThresholdEd25519SessionRecordForAccount,
@@ -413,37 +407,6 @@ export async function unlock(
             transports: [],
           }));
 
-          const walletAuthResolver = createWalletAuthModeResolver({
-            passkey: createPasskeyWalletAuthAdapter({
-              challenge: async () =>
-                await signingEngine.getAuthenticationCredentialsSerialized({
-                  nearAccountId,
-                  challengeB64u,
-                  allowCredentials,
-                  includeSecondPrfOutput: false,
-                }),
-              complete: async ({ response }) => ({
-                method: 'passkey',
-                webauthnAuthentication: response,
-              }),
-            }),
-            emailOtp: createEmailOtpWalletAuthAdapter({
-              challenge: async () => {
-                throw new Error('Email OTP wallet unlock uses the Email OTP login flow');
-              },
-              complete: async () => {
-                throw new Error('Email OTP wallet unlock uses the Email OTP login flow');
-              },
-            }),
-          });
-          const walletAuthPlan = await walletAuthResolver.resolveWalletAuthPlan({
-            accountId: nearAccountId,
-            accountAuth: resolveAccountAuthMetadataForSignerSource(),
-            intent: 'wallet_unlock',
-          });
-          if (walletAuthPlan.kind !== 'passkeyReauth') {
-            throw new Error('Passkey session exchange requires passkey authorization');
-          }
           emitUnlockEvent(onEvent, nearAccountId, {
             phase: UnlockEventPhase.STEP_03_PASSKEY_PROMPT_STARTED,
             status: 'waiting_for_user',
@@ -453,8 +416,12 @@ export async function unlock(
               overlay: 'show',
             },
           });
-          const walletAuthChallenge = await walletAuthPlan.challenge();
-          const walletAuthProof = await walletAuthPlan.complete(walletAuthChallenge);
+          const webauthnAuthentication = await signingEngine.getAuthenticationCredentialsSerialized({
+            nearAccountId,
+            challengeB64u,
+            allowCredentials,
+            includeSecondPrfOutput: false,
+          });
           emitUnlockEvent(onEvent, nearAccountId, {
             phase: UnlockEventPhase.STEP_03_PASSKEY_PROMPT_SUCCEEDED,
             status: 'succeeded',
@@ -464,8 +431,6 @@ export async function unlock(
               overlay: 'hide',
             },
           });
-          const webauthnAuthentication =
-            walletAuthProof.webauthnAuthentication as WebAuthnAuthenticationCredential;
           loginCredential = webauthnAuthentication;
           const expectedOrigin = String(
             exchange.expectedOrigin ??

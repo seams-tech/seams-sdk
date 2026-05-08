@@ -29,7 +29,8 @@ Supporting entrypoints: `signingFlow.ts`, `signEvmWithUiConfirm.ts`,
 1. Input normalization: `signEvmFamily.ts`, `types.ts`, `addresses.ts`.
 2. Lane selection: `ecdsaLanes.ts`, `ecdsaSelection.ts`, `ecdsaReadiness.ts`.
 3. Auth planning: `authPlanning.ts`, `emailOtpSigningSession.ts`,
-   `emailOtpRefresh.ts`, `emailOtpPublic.ts`, `freshEmailOtpRetry.ts`.
+   `emailOtpRefresh.ts`, `emailOtpPublic.ts`, `freshEmailOtpRetry.ts`,
+   `requireEvmFamilyStepUpAuth.ts`.
 4. Confirmation: `signingFlow.ts`, `signEvmWithUiConfirm.ts`,
    `signTempoWithUiConfirm.ts`.
 5. Threshold admission: `thresholdAdmission.ts`, `budgetSpending.ts`,

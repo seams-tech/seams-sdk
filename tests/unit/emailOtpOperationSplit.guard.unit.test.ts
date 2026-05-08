@@ -14,7 +14,7 @@ test.describe('Email OTP operation split guard', () => {
     const transactionApiFiles = [
       'client/src/core/signingEngine/flows/signNear/signNear.ts',
       'client/src/core/signingEngine/flows/signEvmFamily/authPlanning.ts',
-      'client/src/core/signingEngine/assembly/createPorts.ts',
+      'client/src/core/signingEngine/assembly/ports/evmFamily.ts',
     ];
     const forbidden = [
       'requestEmailOtpChallengeForSigning',
@@ -90,7 +90,7 @@ test.describe('Email OTP operation split guard', () => {
       'client/src/core/signingEngine/flows/signEvmFamily/preparedSigning.ts',
     );
     const accountAuthSource = readRepoFile(
-      'client/src/core/signingEngine/walletAuth/accountAuth.ts',
+      'client/src/core/signingEngine/flows/signEvmFamily/accountAuth.ts',
     );
     const lanesSource = readRepoFile('client/src/core/signingEngine/flows/signEvmFamily/ecdsaLanes.ts');
     const selectionModule = readRepoFile(
@@ -197,10 +197,10 @@ test.describe('Email OTP operation split guard', () => {
     expect(evmSigningDeps).toContain('getPasskeyThresholdEcdsaSessionRecordForSigning');
     expect(evmSigning).not.toContain('type EcdsaSigningLaneContext');
     expect(ecdsaSelection).toContain('export type EvmFamilyEcdsaSigningSelection');
-    expect(authPlanning).toContain('export type ResolveEvmFamilyTransactionWalletAuthArgs');
+    expect(authPlanning).toContain('export type ResolveEvmFamilyTransactionStepUpArgs');
     expect(authPlanning).toContain('preparedOperation: PreparedThresholdSigningOperation');
     expect(authPlanning).not.toContain('ecdsaSigningLane: ResolvedEvmFamilyEcdsaSigningLane');
-    expect(evmSigning).toContain('resolveEvmFamilyTransactionWalletAuth');
+    expect(evmSigning).toContain('resolveEvmFamilyTransactionStepUp');
     expect(ecdsaLanes).toContain('requireResolvedEvmFamilyEcdsaSigningLane');
     expect(ecdsaSelection).toContain('source: SIGNER_AUTH_METHODS.emailOtp');
     expect(ecdsaSelection).toContain('PASSKEY_ECDSA_SIGNING_SOURCE_PRIORITY');

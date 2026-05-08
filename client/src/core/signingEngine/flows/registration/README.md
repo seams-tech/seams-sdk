@@ -7,7 +7,7 @@ and registration-facing WebAuthn credential helpers used by the public facade.
 
 ## May Import
 
-`interfaces/*`, shared SDK account/profile types, `walletAuth/*` WebAuthn
+`interfaces/*`, shared SDK account/profile types, `webauthnAuth/*` WebAuthn
 primitives, and `workerManager/*` validation contracts.
 
 ## Must Not Import

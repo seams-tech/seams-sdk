@@ -3,7 +3,7 @@ import type {
   WebAuthnAuthenticationCredential,
   WebAuthnRegistrationCredential,
 } from '@/core/types/webauthn';
-import { getPrfResultsFromCredential } from '../../walletAuth/webauthn/credentials/credentialExtensions';
+import { getPrfResultsFromCredential } from '../../webauthnAuth/credentials/credentialExtensions';
 import type { NearSigningKeyOps } from '../../interfaces/nearKeyOps';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import {

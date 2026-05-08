@@ -3,7 +3,7 @@ import { getNearThresholdKeyMaterial } from '@/core/accountData/near/keyMaterial
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { NonceCoordinator } from '../nonce/NonceCoordinator';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
-import { getLastLoggedInSignerSlot } from '../walletAuth/webauthn/device/signerSlot';
+import { getLastLoggedInSignerSlot } from '../webauthnAuth/device/signerSlot';
 
 export type WorkerResourceWarmupDeps = {
   workerBaseOrigin: string;

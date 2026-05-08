@@ -9,7 +9,8 @@ ports, runtime startup, and resource warmup.
 
 `flows/*` public entrypoints, `session/*`, `sessionEmailOtp/*`,
 `stepUpConfirmation/*`, `threshold/*`, `chains/*`, `workers/*`,
-`workerManager/*`, `uiConfirm/*`, `walletAuth/*`, `interfaces/*`, and `nonce/*`.
+`workerManager/*`, `uiConfirm/*`, `walletAuth/*`, `webauthnAuth/*`,
+`interfaces/*`, and `nonce/*`.
 
 ## Must Not Import
 

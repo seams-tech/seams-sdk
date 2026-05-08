@@ -28,23 +28,17 @@ import type { EmailOtpWorkerProgressEvent } from './workerManager/workerTypes';
 import type { UiConfirmRuntimeBridgePort } from './uiConfirm/types';
 import {
   readTrustedWalletSigningBudgetStatus as readTrustedWalletSigningBudgetStatusValue,
-} from './session/signingSession/budgetStatusReader';
+} from './session/budget/budgetStatusReader';
 import type { TouchIdPrompt } from './stepUpConfirmation/passkeyPrompt/touchIdPrompt';
-import type { WebAuthnAllowCredential } from './walletAuth/webauthn/credentials/collectAuthenticationCredentialForChallengeB64u';
+import type { WebAuthnAllowCredential } from './webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import type { EvmSigningRequest } from './chains/evm/types';
 import type { EvmSignedResult } from './chains/evm/evmAdapter';
 import type { TempoSigningRequest } from './chains/tempo/types';
 import type { TempoSignedResult } from './chains/tempo/tempoAdapter';
 import type { BootstrapEcdsaSessionArgs } from './session/warmSigning/ecdsaBootstrap';
 import {
-  buildThresholdEd25519SeedExportArtifactFromHssReport as buildThresholdEd25519SeedExportArtifactFromHssReportPublicValue,
-  completeThresholdEd25519HssClientCeremony as completeThresholdEd25519HssClientCeremonyPublicValue,
-  deriveThresholdEd25519ClientVerifyingShareFromCredential as deriveThresholdEd25519ClientVerifyingShareFromCredentialPublicValue,
-  deriveThresholdEd25519HssClientInputsFromCredential as deriveThresholdEd25519HssClientInputsFromCredentialPublicValue,
-  openThresholdEd25519HssSeedOutput as openThresholdEd25519HssSeedOutputPublicValue,
-  prepareThresholdEd25519HssClientCeremonyFromCredential as prepareThresholdEd25519HssClientCeremonyFromCredentialPublicValue,
-  prepareThresholdEd25519HssClientRequest as prepareThresholdEd25519HssClientRequestPublicValue,
-  runThresholdEd25519HssCeremonyWithSession as runThresholdEd25519HssCeremonyWithSessionPublicValue,
+  createThresholdEd25519PublicApi,
+  type ThresholdEd25519PublicApi,
 } from './threshold/ed25519/public';
 import {
   persistThresholdEcdsaBootstrapChainAccount as persistThresholdEcdsaBootstrapChainAccountValue,
@@ -113,9 +107,8 @@ import {
   type ThresholdEd25519CommitQueueByKey,
 } from './threshold/ed25519/commitQueue';
 import {
-  exportKeypairWithUI as exportKeypairWithUIPublicValue,
-  exportNearEd25519SeedArtifactWithUI as exportNearEd25519SeedArtifactWithUIPublicValue,
-  exportThresholdEd25519SeedFromHssReport as exportThresholdEd25519SeedFromHssReportPublicValue,
+  createRecoveryPublicApi,
+  type RecoveryPublicApi,
   type RecoveryPublicDeps,
   type SigningEngineExportKeypairWithUIInput,
   type KeyExportEventCallback,
@@ -123,30 +116,13 @@ import {
 import type { RegistrationCredentialConfirmationPayload } from './workerManager/validation';
 import type { ConfirmationConfig } from '../types/signer-worker';
 import {
-  atomicStoreRegistrationData as atomicStoreRegistrationDataPublicValue,
-  extractCosePublicKey as extractRegistrationCosePublicKeyValue,
-  getAllUsers as getAllUsersPublicValue,
-  getAuthenticatorsByUser as getAuthenticatorsByUserPublicValue,
-  getAuthenticationCredentialsSerialized as getAuthenticationCredentialsSerializedPublicValue,
-  getLastUser as getLastUserPublicValue,
-  getUserBySignerSlot as getUserBySignerSlotPublicValue,
-  hasPasskeyCredential as hasPasskeyCredentialPublicValue,
-  initializeCurrentUser as initializeCurrentUserPublicValue,
-  requestRegistrationCredentialConfirmation as requestRegistrationCredentialConfirmationPublicValue,
-  rollbackUserRegistration as rollbackUserRegistrationPublicValue,
-  setLastUser as setLastUserPublicValue,
-  storeAuthenticator as storeAuthenticatorPublicValue,
-  storeUserData as storeUserDataPublicValue,
-  updateLastLogin as updateLastLoginPublicValue,
-  type RegistrationPublicDeps,
+  createRegistrationPublicApi,
+  type RegistrationPublicApi,
   type StoreAuthenticatorInput,
 } from './flows/registration/public';
 import {
-  enrollAndLoginWithEmailOtpEcdsaCapabilityInternal as enrollAndLoginWithEmailOtpEcdsaCapabilityInternalPublicValue,
-  enrollEmailOtpInternal as enrollEmailOtpInternalPublicValue,
-  loginWithEmailOtpEcdsaCapabilityInternal as loginWithEmailOtpEcdsaCapabilityInternalPublicValue,
-  refreshEmailOtpSigningSession as refreshEmailOtpSigningSessionPublicValue,
-  requestEmailOtpSigningSessionChallenge as requestEmailOtpSigningSessionChallengePublicValue,
+  createEmailOtpPublicApi,
+  type EmailOtpPublicApi,
   type EmailOtpPublicDeps,
 } from './flows/signEvmFamily/emailOtpPublic';
 import { initializeSigningEngineRuntime } from './assembly/createSigningEngineRuntime';
@@ -168,16 +144,13 @@ import type {
   RestorePersistedSessionsForAccountResult,
   ReadAvailableSigningLanesInput,
   AvailableSigningLanes,
-  SessionPublicDeps,
+  SessionPublicApi,
   ThresholdEcdsaSessionRecord as SessionPublicThresholdEcdsaSessionRecord,
   UpsertThresholdEcdsaSessionFromBootstrapInput,
   GetThresholdEcdsaKeyRefForAccountTargetInput,
 } from './session/public';
-import {
-  readPersistedAvailableSigningLanes as readPersistedAvailableSigningLanesValue,
-  readPersistedAvailableSigningLanesForSigning as readPersistedAvailableSigningLanesForSigningValue,
-  readPersistedAvailableSigningLanesForTargets as readPersistedAvailableSigningLanesForTargetsValue,
-} from './session/availability/persistedAvailableSigningLanes';
+import { createSessionPublicApi } from './session/public';
+import { readPersistedAvailableSigningLanesForSigning as readPersistedAvailableSigningLanesForSigningValue } from './session/availability/persistedAvailableSigningLanes';
 import {
   createWarmSigningPorts,
   createWarmSigningPublicDeps,
@@ -187,29 +160,10 @@ import { createStepUpRuntime } from './assembly/ports/stepUpRuntime';
 import { createRecoveryPublicDeps } from './assembly/ports/recovery';
 import { createSessionPublicDeps } from './assembly/ports/session';
 import { createEmailOtpPublicDeps } from './assembly/ports/emailOtp';
-import {
-  clearAllThresholdEcdsaSessionRecords as clearAllThresholdEcdsaSessionRecordsPublicValue,
-  clearThresholdEcdsaSessionRecordForAccount as clearThresholdEcdsaSessionRecordForAccountPublicValue,
-  getThresholdEcdsaKeyRefForAccountTarget as getThresholdEcdsaKeyRefForAccountTargetPublicValue,
-  listThresholdEcdsaSessionRecordsForSubject as listThresholdEcdsaSessionRecordsForSubjectPublicValue,
-  readPersistedAvailableSigningLanes as readPersistedAvailableSigningLanesPublicValue,
-  restorePersistedSessionsForAccount as restorePersistedSessionsForAccountPublicValue,
-  upsertThresholdEcdsaSessionFromBootstrap as upsertThresholdEcdsaSessionFromBootstrapPublicValue,
-} from './session/public';
 import type {
-  WarmSigningPublicDeps,
+  WarmSigningPublicApi,
 } from './session/warmSigning/public';
-import {
-  bootstrapEcdsaSession as bootstrapEcdsaSessionPublicValue,
-  clearWarmSigningSessions as clearWarmSigningSessionsPublicValue,
-  connectEd25519Session as connectEd25519SessionPublicValue,
-  getWarmThresholdEcdsaSessionStatus as getWarmThresholdEcdsaSessionStatusPublicValue,
-  getWarmThresholdEd25519SessionStatus as getWarmThresholdEd25519SessionStatusPublicValue,
-  hydrateSigningSession as hydrateSigningSessionPublicValue,
-  listWarmThresholdEcdsaSessionStatuses as listWarmThresholdEcdsaSessionStatusesPublicValue,
-  persistThresholdEcdsaBootstrapChainAccount as persistThresholdEcdsaBootstrapChainAccountPublicValue,
-  scheduleThresholdEcdsaLoginPresignPrefill as scheduleThresholdEcdsaLoginPresignPrefillPublicValue,
-} from './session/warmSigning/public';
+import { createWarmSigningPublicApi } from './session/warmSigning/public';
 
 export type { ThresholdEcdsaSessionBootstrapResult } from './threshold/ecdsa/activation';
 export type { EmailOtpBootstrapRecovery } from './stepUpConfirmation/otpPrompt/bootstrapRecovery';
@@ -243,10 +197,12 @@ export class SigningEngine {
     ThresholdEcdsaCanonicalExportArtifact
   > = new Map();
   private readonly warmSigning: WarmSigningPorts;
-  private readonly warmSigningPublic: WarmSigningPublicDeps;
-  private readonly sessionPublic: SessionPublicDeps;
-  private readonly emailOtpPublic: EmailOtpPublicDeps;
-  private readonly recoveryPublic: RecoveryPublicDeps;
+  private readonly warmSigningPublic: WarmSigningPublicApi;
+  private readonly sessionPublic: SessionPublicApi;
+  private readonly emailOtpPublic: EmailOtpPublicApi;
+  private readonly recoveryPublic: RecoveryPublicApi;
+  private readonly registrationPublic: RegistrationPublicApi;
+  private readonly thresholdEd25519Public: ThresholdEd25519PublicApi;
   private readonly sealedRefreshStartupParityPromise: Promise<void>;
   private sealedRefreshStartupParityError: Error | null = null;
   private readonly enginePorts: ReturnType<typeof createSigningEnginePorts>;
@@ -303,13 +259,14 @@ export class SigningEngine {
       recordsByLane: this.thresholdEcdsaSessionByLane,
       exportArtifactsByLane: this.thresholdEcdsaExportArtifactByLane,
     });
-    this.sessionPublic = createSessionPublicDeps({
+    const sessionPublicDeps = createSessionPublicDeps({
       seamsPasskeyConfigs: this.seamsPasskeyConfigs,
       ecdsaSessions: this.warmSigning.ecdsaSessions,
       touchConfirm: this.touchConfirm,
       emailOtpSessions: this.emailOtpSessions,
     });
-    this.emailOtpPublic = createEmailOtpPublicDeps({
+    this.sessionPublic = createSessionPublicApi(sessionPublicDeps);
+    const emailOtpPublicDeps = createEmailOtpPublicDeps({
       ecdsaSessions: this.warmSigning.ecdsaSessions,
       relayerUrl: this.seamsPasskeyConfigs.network.relayer?.url || '',
       shamirPrimeB64u: this.seamsPasskeyConfigs.signing.sessionSeal?.shamirPrimeB64u || '',
@@ -317,7 +274,8 @@ export class SigningEngine {
         this.enginePorts.thresholdSessionActivationDeps.getSignerWorkerContext(),
       emailOtpSessions: this.emailOtpSessions,
     });
-    this.recoveryPublic = createRecoveryPublicDeps({
+    this.emailOtpPublic = createEmailOtpPublicApi(emailOtpPublicDeps);
+    const recoveryPublicDeps = createRecoveryPublicDeps({
       seamsPasskeyConfigs: this.seamsPasskeyConfigs,
       touchIdPrompt: this.touchIdPrompt,
       signerWorkerManager: this.signerWorkerManager,
@@ -339,6 +297,7 @@ export class SigningEngine {
           this.warmSigning.statusReader.resolveCurrentEcdsaRecord(recordArgs),
       },
     });
+    this.recoveryPublic = createRecoveryPublicApi(recoveryPublicDeps);
 
     this.enginePorts = createSigningEnginePorts({
       seamsPasskeyConfigs: this.seamsPasskeyConfigs,
@@ -364,11 +323,11 @@ export class SigningEngine {
       signTempo: (args) => this.signTempo(args),
       extractCosePublicKey: (attestationObjectBase64url: string) =>
         this.extractCosePublicKey(attestationObjectBase64url),
-      initializeCurrentUser: (nearAccountId: AccountId, nearClientArg?: NearClient) =>
-        initializeCurrentUserPublicValue(this.registrationPublicDeps(), {
-          nearAccountId,
-          nearClient: nearClientArg,
-        }),
+        initializeCurrentUser: (nearAccountId: AccountId, nearClientArg?: NearClient) =>
+          this.registrationPublic.initializeCurrentUser({
+            nearAccountId,
+            nearClient: nearClientArg,
+          }),
       persistThresholdEcdsaBootstrapChainAccount: (args) =>
         persistThresholdEcdsaBootstrapChainAccountValue({
           indexedDB: this.enginePorts.indexedDB,
@@ -479,7 +438,7 @@ export class SigningEngine {
           ...queueArgs,
         }),
     });
-    this.warmSigningPublic = createWarmSigningPublicDeps({
+    const warmSigningPublicDeps = createWarmSigningPublicDeps({
       seamsPasskeyConfigs: this.seamsPasskeyConfigs,
       indexedDB: this.enginePorts.indexedDB,
       touchIdPrompt: this.touchIdPrompt,
@@ -492,6 +451,15 @@ export class SigningEngine {
         this.enginePorts.resolveCanonicalThresholdEcdsaSessionIdForChain,
       signingSessionCoordinator: this.enginePorts.signingSessionCoordinator,
     });
+    this.warmSigningPublic = createWarmSigningPublicApi(warmSigningPublicDeps);
+    this.registrationPublic = createRegistrationPublicApi({
+      accountLifecycle: this.enginePorts.registrationAccountLifecycleDeps,
+      session: this.enginePorts.registrationSessionDeps,
+      signingKeyOps: this.enginePorts.nearKeyOpsDeps.signingKeyOps,
+    });
+    this.thresholdEd25519Public = createThresholdEd25519PublicApi(
+      this.enginePorts.thresholdEd25519LifecycleDeps,
+    );
 
     initializeSigningEngineRuntime({
       seamsPasskeyConfigs: this.seamsPasskeyConfigs,
@@ -519,21 +487,13 @@ export class SigningEngine {
   async restorePersistedSessionsForAccount(
     args: RestorePersistedSessionsForAccountInput,
   ): Promise<RestorePersistedSessionsForAccountResult> {
-    return await restorePersistedSessionsForAccountPublicValue(this.sessionPublic, args);
+    return await this.sessionPublic.restorePersistedSessionsForAccount(args);
   }
 
   async readPersistedAvailableSigningLanes(
     args: Omit<ReadAvailableSigningLanesInput, 'ecdsaChainTargets'>,
   ): Promise<AvailableSigningLanes> {
-    return await readPersistedAvailableSigningLanesPublicValue(this.sessionPublic, args);
-  }
-
-  private registrationPublicDeps(): RegistrationPublicDeps {
-    return {
-      accountLifecycle: this.enginePorts.registrationAccountLifecycleDeps,
-      session: this.enginePorts.registrationSessionDeps,
-      signingKeyOps: this.enginePorts.nearKeyOpsDeps.signingKeyOps,
-    };
+    return await this.sessionPublic.readPersistedAvailableSigningLanes(args);
   }
 
   async warmCriticalResources(nearAccountId?: string): Promise<void> {
@@ -597,53 +557,53 @@ export class SigningEngine {
   }
 
   storeUserData(userData: StoreUserDataInput): Promise<void> {
-    return storeUserDataPublicValue(this.registrationPublicDeps(), userData);
+    return this.registrationPublic.storeUserData(userData);
   }
 
   getAllUsers(): Promise<ClientUserData[]> {
-    return getAllUsersPublicValue(this.registrationPublicDeps());
+    return this.registrationPublic.getAllUsers();
   }
 
   getUserBySignerSlot(
     nearAccountId: AccountId,
     signerSlot: number,
   ): Promise<ClientUserData | null> {
-    return getUserBySignerSlotPublicValue(this.registrationPublicDeps(), nearAccountId, signerSlot);
+    return this.registrationPublic.getUserBySignerSlot(nearAccountId, signerSlot);
   }
 
   getLastUser(): Promise<ClientUserData | null> {
-    return getLastUserPublicValue(this.registrationPublicDeps());
+    return this.registrationPublic.getLastUser();
   }
 
   getAuthenticatorsByUser(nearAccountId: AccountId): Promise<ClientAuthenticatorData[]> {
-    return getAuthenticatorsByUserPublicValue(this.registrationPublicDeps(), nearAccountId);
+    return this.registrationPublic.getAuthenticatorsByUser(nearAccountId);
   }
 
   updateLastLogin(nearAccountId: AccountId): Promise<void> {
-    return updateLastLoginPublicValue(this.registrationPublicDeps(), nearAccountId);
+    return this.registrationPublic.updateLastLogin(nearAccountId);
   }
 
   setLastUser(nearAccountId: AccountId, signerSlot: number = 1): Promise<void> {
-    return setLastUserPublicValue(this.registrationPublicDeps(), nearAccountId, signerSlot);
+    return this.registrationPublic.setLastUser(nearAccountId, signerSlot);
   }
 
   initializeCurrentUser(nearAccountId: AccountId, nearClientArg?: NearClient): Promise<void> {
-    return initializeCurrentUserPublicValue(this.registrationPublicDeps(), {
+    return this.registrationPublic.initializeCurrentUser({
       nearAccountId,
       nearClient: nearClientArg,
     });
   }
 
   storeAuthenticator(authenticatorData: StoreAuthenticatorInput): Promise<void> {
-    return storeAuthenticatorPublicValue(this.registrationPublicDeps(), authenticatorData);
+    return this.registrationPublic.storeAuthenticator(authenticatorData);
   }
 
   rollbackUserRegistration(nearAccountId: AccountId): Promise<void> {
-    return rollbackUserRegistrationPublicValue(this.registrationPublicDeps(), nearAccountId);
+    return this.registrationPublic.rollbackUserRegistration(nearAccountId);
   }
 
   hasPasskeyCredential(nearAccountId: AccountId): Promise<boolean> {
-    return hasPasskeyCredentialPublicValue(this.registrationPublicDeps(), nearAccountId);
+    return this.registrationPublic.hasPasskeyCredential(nearAccountId);
   }
 
   atomicStoreRegistrationData(args: {
@@ -651,7 +611,7 @@ export class SigningEngine {
     credential: WebAuthnRegistrationCredential;
     operationalPublicKey: string;
   }): Promise<void> {
-    return atomicStoreRegistrationDataPublicValue(this.registrationPublicDeps(), args);
+    return this.registrationPublic.atomicStoreRegistrationData(args);
   }
 
   requestRegistrationCredentialConfirmation(params: {
@@ -660,10 +620,7 @@ export class SigningEngine {
     confirmerText?: { title?: string; body?: string };
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
   }): Promise<RegistrationCredentialConfirmationPayload> {
-    return requestRegistrationCredentialConfirmationPublicValue(
-      this.registrationPublicDeps(),
-      params,
-    );
+    return this.registrationPublic.requestRegistrationCredentialConfirmation(params);
   }
 
   getAuthenticationCredentialsSerialized(args: {
@@ -672,20 +629,17 @@ export class SigningEngine {
     allowCredentials: WebAuthnAllowCredential[];
     includeSecondPrfOutput?: boolean;
   }): Promise<WebAuthnAuthenticationCredential> {
-    return getAuthenticationCredentialsSerializedPublicValue(this.registrationPublicDeps(), args);
+    return this.registrationPublic.getAuthenticationCredentialsSerialized(args);
   }
 
   extractCosePublicKey(attestationObjectBase64url: string): Promise<Uint8Array> {
-    return extractRegistrationCosePublicKeyValue(
-      this.registrationPublicDeps(),
-      attestationObjectBase64url,
-    );
+    return this.registrationPublic.extractCosePublicKey(attestationObjectBase64url);
   }
 
   async exportKeypairWithUI(
     input: SigningEngineExportKeypairWithUIInput,
   ): Promise<{ accountId: string; exportedSchemes: Array<'ed25519' | 'secp256k1'> }> {
-    return await exportKeypairWithUIPublicValue(this.recoveryPublic, input);
+    return await this.recoveryPublic.exportKeypairWithUI(input);
   }
 
   exportNearEd25519SeedArtifactWithUI(args: {
@@ -697,17 +651,17 @@ export class SigningEngine {
       theme?: 'dark' | 'light';
     };
   }): Promise<{ accountId: string; exportedSchemes: Array<'ed25519' | 'secp256k1'> }> {
-    return exportNearEd25519SeedArtifactWithUIPublicValue(this.recoveryPublic, args);
+    return this.recoveryPublic.exportNearEd25519SeedArtifactWithUI(args);
   }
 
   async exportThresholdEd25519SeedFromHssReport(args: {
     nearAccountId: AccountId;
     preparedSession: Parameters<
-      typeof buildThresholdEd25519SeedExportArtifactFromHssReportPublicValue
-    >[1]['preparedSession'];
+      RecoveryPublicApi['exportThresholdEd25519SeedFromHssReport']
+    >[0]['preparedSession'];
     finalizedReport: Parameters<
-      typeof buildThresholdEd25519SeedExportArtifactFromHssReportPublicValue
-    >[1]['finalizedReport'];
+      RecoveryPublicApi['exportThresholdEd25519SeedFromHssReport']
+    >[0]['finalizedReport'];
     expectedPublicKey: string;
     options: {
       variant?: 'drawer' | 'modal';
@@ -715,7 +669,7 @@ export class SigningEngine {
       onEvent?: KeyExportEventCallback;
     };
   }): Promise<{ accountId: string; exportedSchemes: Array<'ed25519' | 'secp256k1'> }> {
-    return await exportThresholdEd25519SeedFromHssReportPublicValue(this.recoveryPublic, args);
+    return await this.recoveryPublic.exportThresholdEd25519SeedFromHssReport(args);
   }
 
   signTransactionWithKeyPair(args: {
@@ -749,13 +703,13 @@ export class SigningEngine {
   async connectEd25519Session(
     args: Omit<ProvisionWarmEd25519CapabilityArgs, 'beforeProvision' | 'assertNotCancelled'>,
   ): Promise<ProvisionWarmEd25519CapabilityResult> {
-    return await connectEd25519SessionPublicValue(this.warmSigningPublic, args);
+    return await this.warmSigningPublic.connectEd25519Session(args);
   }
 
   async bootstrapEcdsaSession(
     args: BootstrapEcdsaSessionArgs,
   ): Promise<ThresholdEcdsaSessionBootstrapResult> {
-    return await bootstrapEcdsaSessionPublicValue(this.warmSigningPublic, args);
+    return await this.warmSigningPublic.bootstrapEcdsaSession(args);
   }
 
   async loginWithEmailOtpEcdsaCapabilityInternal(args: {
@@ -786,7 +740,7 @@ export class SigningEngine {
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     warmCapability: WarmSessionEcdsaCapabilityState;
   }> {
-    return await loginWithEmailOtpEcdsaCapabilityInternalPublicValue(this.emailOtpPublic, args);
+    return await this.emailOtpPublic.loginWithEmailOtpEcdsaCapabilityInternal(args);
   }
 
   async requestEmailOtpSigningSessionChallenge(args: {
@@ -794,7 +748,7 @@ export class SigningEngine {
     subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
   }): Promise<{ challengeId: string; emailHint?: string }> {
-    return await requestEmailOtpSigningSessionChallengePublicValue(this.emailOtpPublic, args);
+    return await this.emailOtpPublic.requestEmailOtpSigningSessionChallenge(args);
   }
 
   async refreshEmailOtpSigningSession(args: {
@@ -810,7 +764,7 @@ export class SigningEngine {
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     warmCapability: WarmSessionEcdsaCapabilityState;
   }> {
-    return await refreshEmailOtpSigningSessionPublicValue(this.emailOtpPublic, args);
+    return await this.emailOtpPublic.refreshEmailOtpSigningSession(args);
   }
 
   /**
@@ -826,8 +780,8 @@ export class SigningEngine {
     appSessionJwt?: string;
     clientSecret32?: Uint8Array;
     otpChannel?: WalletEmailOtpChannel;
-  }): Promise<Awaited<ReturnType<typeof enrollEmailOtpInternalPublicValue>>> {
-    return await enrollEmailOtpInternalPublicValue(this.emailOtpPublic, args);
+  }): Promise<Awaited<ReturnType<EmailOtpPublicApi['enrollEmailOtpInternal']>>> {
+    return await this.emailOtpPublic.enrollEmailOtpInternal(args);
   }
 
   async enrollAndLoginWithEmailOtpEcdsaCapabilityInternal(args: {
@@ -854,40 +808,37 @@ export class SigningEngine {
     registrationAttemptId?: string;
     onProgress?: (progress: EmailOtpWorkerProgressEvent) => void;
   }): Promise<{
-    enrollment: Awaited<ReturnType<typeof enrollEmailOtpInternalPublicValue>>;
+    enrollment: Awaited<ReturnType<EmailOtpPublicApi['enrollEmailOtpInternal']>>;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     warmCapability: WarmSessionEcdsaCapabilityState;
   }> {
-    return await enrollAndLoginWithEmailOtpEcdsaCapabilityInternalPublicValue(
-      this.emailOtpPublic,
-      args,
-    );
+    return await this.emailOtpPublic.enrollAndLoginWithEmailOtpEcdsaCapabilityInternal(args);
   }
 
   upsertThresholdEcdsaSessionFromBootstrap(
     args: UpsertThresholdEcdsaSessionFromBootstrapInput,
   ): void {
-    upsertThresholdEcdsaSessionFromBootstrapPublicValue(this.sessionPublic, args);
+    this.sessionPublic.upsertThresholdEcdsaSessionFromBootstrap(args);
   }
 
   getThresholdEcdsaKeyRefForAccountTarget(
     args: GetThresholdEcdsaKeyRefForAccountTargetInput,
   ): ThresholdEcdsaSecp256k1KeyRef {
-    return getThresholdEcdsaKeyRefForAccountTargetPublicValue(this.sessionPublic, args);
+    return this.sessionPublic.getThresholdEcdsaKeyRefForAccountTarget(args);
   }
 
   listThresholdEcdsaSessionRecordsForSubject(args: {
     subjectId: WalletSubjectId;
   }): SessionPublicThresholdEcdsaSessionRecord[] {
-    return listThresholdEcdsaSessionRecordsForSubjectPublicValue(this.sessionPublic, args);
+    return this.sessionPublic.listThresholdEcdsaSessionRecordsForSubject(args);
   }
 
   clearThresholdEcdsaSessionRecordForAccount(nearAccountId: AccountId | string): void {
-    clearThresholdEcdsaSessionRecordForAccountPublicValue(this.sessionPublic, nearAccountId);
+    this.sessionPublic.clearThresholdEcdsaSessionRecordForAccount(nearAccountId);
   }
 
   clearAllThresholdEcdsaSessionRecords(): void {
-    clearAllThresholdEcdsaSessionRecordsPublicValue(this.sessionPublic);
+    this.sessionPublic.clearAllThresholdEcdsaSessionRecords();
   }
 
   persistThresholdEcdsaBootstrapChainAccount(args: {
@@ -901,13 +852,13 @@ export class SigningEngine {
     };
     ensureEmailOtpNearAccountMapping?: boolean;
   }): Promise<void> {
-    return persistThresholdEcdsaBootstrapChainAccountPublicValue(this.warmSigningPublic, args);
+    return this.warmSigningPublic.persistThresholdEcdsaBootstrapChainAccount(args);
   }
 
   getWarmThresholdEd25519SessionStatus(
     nearAccountId: AccountId | string,
   ): Promise<SigningSessionStatus | null> {
-    return getWarmThresholdEd25519SessionStatusPublicValue(this.warmSigningPublic, nearAccountId);
+    return this.warmSigningPublic.getWarmThresholdEd25519SessionStatus(nearAccountId);
   }
 
   getWarmThresholdEcdsaSessionStatus(
@@ -915,8 +866,7 @@ export class SigningEngine {
     chainTarget: ThresholdEcdsaChainTarget,
     thresholdSessionId: string,
   ): Promise<WarmEcdsaSigningSessionStatus | null> {
-    return getWarmThresholdEcdsaSessionStatusPublicValue(
-      this.warmSigningPublic,
+    return this.warmSigningPublic.getWarmThresholdEcdsaSessionStatus(
       nearAccountId,
       chainTarget,
       thresholdSessionId,
@@ -927,11 +877,7 @@ export class SigningEngine {
     nearAccountId: AccountId | string,
     chainTarget: ThresholdEcdsaChainTarget,
   ): Promise<WarmEcdsaSigningSessionStatus[]> {
-    return listWarmThresholdEcdsaSessionStatusesPublicValue(
-      this.warmSigningPublic,
-      nearAccountId,
-      chainTarget,
-    );
+    return this.warmSigningPublic.listWarmThresholdEcdsaSessionStatuses(nearAccountId, chainTarget);
   }
 
   async scheduleThresholdEcdsaLoginPresignPrefill(args: {
@@ -940,10 +886,7 @@ export class SigningEngine {
     thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef;
     minRemainingUsesBeforePrefill?: number;
   }): Promise<ThresholdEcdsaLoginPrefillResult> {
-    return await scheduleThresholdEcdsaLoginPresignPrefillPublicValue(
-      this.warmSigningPublic,
-      args,
-    );
+    return await this.warmSigningPublic.scheduleThresholdEcdsaLoginPresignPrefill(args);
   }
 
   async hydrateSigningSession(args: {
@@ -959,11 +902,11 @@ export class SigningEngine {
       shamirPrimeB64u?: string;
     };
   }): Promise<void> {
-    await hydrateSigningSessionPublicValue(this.warmSigningPublic, args);
+    await this.warmSigningPublic.hydrateSigningSession(args);
   }
 
   async clearWarmSigningSessions(nearAccountId?: AccountId | string): Promise<void> {
-    await clearWarmSigningSessionsPublicValue(this.warmSigningPublic, nearAccountId);
+    await this.warmSigningPublic.clearWarmSigningSessions(nearAccountId);
   }
 
   clearThresholdEcdsaCommitQueue(): void {
@@ -971,75 +914,59 @@ export class SigningEngine {
   }
 
   deriveThresholdEd25519ClientVerifyingShareFromCredential(
-    args: Parameters<typeof deriveThresholdEd25519ClientVerifyingShareFromCredentialPublicValue>[1],
-  ): ReturnType<typeof deriveThresholdEd25519ClientVerifyingShareFromCredentialPublicValue> {
-    return deriveThresholdEd25519ClientVerifyingShareFromCredentialPublicValue(
-      this.enginePorts.thresholdEd25519LifecycleDeps,
-      args,
-    );
+    args: Parameters<
+      ThresholdEd25519PublicApi['deriveThresholdEd25519ClientVerifyingShareFromCredential']
+    >[0],
+  ): ReturnType<ThresholdEd25519PublicApi['deriveThresholdEd25519ClientVerifyingShareFromCredential']> {
+    return this.thresholdEd25519Public.deriveThresholdEd25519ClientVerifyingShareFromCredential(args);
   }
 
   deriveThresholdEd25519HssClientInputsFromCredential(
-    args: Parameters<typeof deriveThresholdEd25519HssClientInputsFromCredentialPublicValue>[1],
-  ): ReturnType<typeof deriveThresholdEd25519HssClientInputsFromCredentialPublicValue> {
-    return deriveThresholdEd25519HssClientInputsFromCredentialPublicValue(
-      this.enginePorts.thresholdEd25519LifecycleDeps,
-      args,
-    );
+    args: Parameters<
+      ThresholdEd25519PublicApi['deriveThresholdEd25519HssClientInputsFromCredential']
+    >[0],
+  ): ReturnType<ThresholdEd25519PublicApi['deriveThresholdEd25519HssClientInputsFromCredential']> {
+    return this.thresholdEd25519Public.deriveThresholdEd25519HssClientInputsFromCredential(args);
   }
 
   prepareThresholdEd25519HssClientCeremonyFromCredential(
-    args: Parameters<typeof prepareThresholdEd25519HssClientCeremonyFromCredentialPublicValue>[1],
-  ): ReturnType<typeof prepareThresholdEd25519HssClientCeremonyFromCredentialPublicValue> {
-    return prepareThresholdEd25519HssClientCeremonyFromCredentialPublicValue(
-      this.enginePorts.thresholdEd25519LifecycleDeps,
-      args,
-    );
+    args: Parameters<
+      ThresholdEd25519PublicApi['prepareThresholdEd25519HssClientCeremonyFromCredential']
+    >[0],
+  ): ReturnType<ThresholdEd25519PublicApi['prepareThresholdEd25519HssClientCeremonyFromCredential']> {
+    return this.thresholdEd25519Public.prepareThresholdEd25519HssClientCeremonyFromCredential(args);
   }
 
   prepareThresholdEd25519HssClientRequest(
-    args: Parameters<typeof prepareThresholdEd25519HssClientRequestPublicValue>[1],
-  ): ReturnType<typeof prepareThresholdEd25519HssClientRequestPublicValue> {
-    return prepareThresholdEd25519HssClientRequestPublicValue(
-      this.enginePorts.thresholdEd25519LifecycleDeps,
-      args,
-    );
+    args: Parameters<ThresholdEd25519PublicApi['prepareThresholdEd25519HssClientRequest']>[0],
+  ): ReturnType<ThresholdEd25519PublicApi['prepareThresholdEd25519HssClientRequest']> {
+    return this.thresholdEd25519Public.prepareThresholdEd25519HssClientRequest(args);
   }
 
   completeThresholdEd25519HssClientCeremony(
-    args: Parameters<typeof completeThresholdEd25519HssClientCeremonyPublicValue>[1],
-  ): ReturnType<typeof completeThresholdEd25519HssClientCeremonyPublicValue> {
-    return completeThresholdEd25519HssClientCeremonyPublicValue(
-      this.enginePorts.thresholdEd25519LifecycleDeps,
-      args,
-    );
+    args: Parameters<ThresholdEd25519PublicApi['completeThresholdEd25519HssClientCeremony']>[0],
+  ): ReturnType<ThresholdEd25519PublicApi['completeThresholdEd25519HssClientCeremony']> {
+    return this.thresholdEd25519Public.completeThresholdEd25519HssClientCeremony(args);
   }
 
   runThresholdEd25519HssCeremonyWithSession(
-    args: Parameters<typeof runThresholdEd25519HssCeremonyWithSessionPublicValue>[1],
-  ): ReturnType<typeof runThresholdEd25519HssCeremonyWithSessionPublicValue> {
-    return runThresholdEd25519HssCeremonyWithSessionPublicValue(
-      this.enginePorts.thresholdEd25519LifecycleDeps,
-      args,
-    );
+    args: Parameters<ThresholdEd25519PublicApi['runThresholdEd25519HssCeremonyWithSession']>[0],
+  ): ReturnType<ThresholdEd25519PublicApi['runThresholdEd25519HssCeremonyWithSession']> {
+    return this.thresholdEd25519Public.runThresholdEd25519HssCeremonyWithSession(args);
   }
 
   openThresholdEd25519HssSeedOutput(
-    args: Parameters<typeof openThresholdEd25519HssSeedOutputPublicValue>[1],
-  ): ReturnType<typeof openThresholdEd25519HssSeedOutputPublicValue> {
-    return openThresholdEd25519HssSeedOutputPublicValue(
-      this.enginePorts.thresholdEd25519LifecycleDeps,
-      args,
-    );
+    args: Parameters<ThresholdEd25519PublicApi['openThresholdEd25519HssSeedOutput']>[0],
+  ): ReturnType<ThresholdEd25519PublicApi['openThresholdEd25519HssSeedOutput']> {
+    return this.thresholdEd25519Public.openThresholdEd25519HssSeedOutput(args);
   }
 
   buildThresholdEd25519SeedExportArtifactFromHssReport(
-    args: Parameters<typeof buildThresholdEd25519SeedExportArtifactFromHssReportPublicValue>[1],
-  ): ReturnType<typeof buildThresholdEd25519SeedExportArtifactFromHssReportPublicValue> {
-    return buildThresholdEd25519SeedExportArtifactFromHssReportPublicValue(
-      this.enginePorts.thresholdEd25519LifecycleDeps,
-      args,
-    );
+    args: Parameters<
+      ThresholdEd25519PublicApi['buildThresholdEd25519SeedExportArtifactFromHssReport']
+    >[0],
+  ): ReturnType<ThresholdEd25519PublicApi['buildThresholdEd25519SeedExportArtifactFromHssReport']> {
+    return this.thresholdEd25519Public.buildThresholdEd25519SeedExportArtifactFromHssReport(args);
   }
 
   destroy(): void {
@@ -1047,7 +974,7 @@ export class SigningEngine {
     this.nonceCoordinator.clearAll();
     clearThresholdEcdsaCommitQueue(this.thresholdEcdsaCommitQueueByKey);
     clearThresholdEd25519CommitQueue(this.thresholdEd25519CommitQueueByKey);
-    clearAllThresholdEcdsaSessionRecordsPublicValue(this.sessionPublic);
+    this.sessionPublic.clearAllThresholdEcdsaSessionRecords();
   }
 
 }

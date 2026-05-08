@@ -2,7 +2,7 @@ import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
 import { SigningEventPhase } from '@/core/types/sdkSentEvents';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
-import type { AccountAuthMetadata } from '@/core/signingEngine/walletAuth';
+import type { AccountAuthMetadata } from '@/core/signingEngine/interfaces/accountAuthMetadata';
 import type { NonceCoordinator, NonceOperationContext } from '../../nonce/NonceCoordinator';
 import type { EvmSigningRequest } from '../../chains/evm/types';
 import type { EvmSignedResult } from '../../chains/evm/evmAdapter';
@@ -38,13 +38,13 @@ import {
   emitSigningSessionFlowFailure,
   emitSigningSessionFlowTrace,
 } from '../../session/signingSession/trace';
-import { computeSigningOperationFingerprint } from '../../session/signingSession/operationFingerprint';
+import { computeSigningOperationFingerprint } from '../../session/planning/operationFingerprint';
 import {
   isSigningSessionBudgetExhaustedError,
   type SigningSessionBudgetStatusAuth,
   type SigningSessionPreparedBudgetIdentity,
   type SigningSessionBudgetReservation,
-} from '../../session/signingSession/budget';
+} from '../../session/budget/budget';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import type { BootstrapEcdsaSessionArgs } from '../../session/warmSigning/ecdsaBootstrap';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
@@ -85,8 +85,8 @@ import {
   type EvmFamilyEcdsaAuthMethod,
   type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
-import { resolveEvmFamilyTransactionAccountAuth } from '../../walletAuth/accountAuth';
-import { resolveEvmFamilyTransactionWalletAuth } from './authPlanning';
+import { resolveEvmFamilyTransactionAccountAuth } from './accountAuth';
+import { resolveEvmFamilyTransactionStepUp } from './authPlanning';
 import {
   prepareEvmFamilyEcdsaSigningSession,
   type PreparedEvmFamilyEcdsaSigningSession,
@@ -97,7 +97,8 @@ import {
   reserveEvmFamilyWalletSigningSessionBudget,
   type EvmFamilyTransactionSigningOperationContext,
 } from './budgetSpending';
-import { SigningAuthPlanKind } from '../../stepUpConfirmation/types';
+import { isPasskeySigningAuthPlan } from '../../stepUpConfirmation/types';
+import type { EvmFamilyThresholdEcdsaStepUp } from './requireEvmFamilyStepUpAuth';
 import type { SelectedEcdsaLane } from '../../session/identity/laneIdentity';
 import { applySuccessfulEvmFamilyEcdsaPostSignPolicy } from './postSignPolicy';
 import {
@@ -349,7 +350,7 @@ async function signEvmFamilyAttempt(
   const resolveEmailOtpReauthRecord = (): ThresholdEcdsaSessionRecord | undefined =>
     preparedEcdsaSigningSession?.emailOtpReauthRecord ||
     (selectedEcdsaAuthMethod === SIGNER_AUTH_METHODS.emailOtp ? emailOtpReauthRecord : undefined);
-  const walletAuthArgsBase = {
+  const authPlanningArgsBase = {
     deps: {
       ...deps,
       signingSessionCoordinator,
@@ -358,7 +359,6 @@ async function signEvmFamilyAttempt(
     nearAccountId: args.nearAccountId,
     chain: requestChain,
     accountAuth: resolvedAccountAuth,
-    forceFreshAuth: attempt.forceFreshAuth === true,
     onEvent: args.onEvent,
   };
   const getPreparedEcdsaSigningSession = (): PreparedEvmFamilyEcdsaSigningSession => {
@@ -633,25 +633,23 @@ async function signEvmFamilyAttempt(
     args.request.senderSignatureAlgorithm === 'secp256k1'
       ? getPreparedEcdsaSigningSession()
       : undefined;
-  const walletAuthResult =
+  const authPlanningResult =
     args.request.senderSignatureAlgorithm === 'secp256k1'
       ? await (async () => {
           const prepared = getPreparedEcdsaSigningSession();
-          return await resolveEvmFamilyTransactionWalletAuth({
-            ...walletAuthArgsBase,
-            chainId: args.request.tx.chainId,
+          return await resolveEvmFamilyTransactionStepUp({
+            ...authPlanningArgsBase,
             chainTarget: signingTarget,
             senderSignatureAlgorithm: 'secp256k1',
             preparedOperation: prepared.preparedOperation,
           });
         })()
-      : await resolveEvmFamilyTransactionWalletAuth({
-          ...walletAuthArgsBase,
-          chainId: args.request.tx.chainId,
+      : await resolveEvmFamilyTransactionStepUp({
+          ...authPlanningArgsBase,
           chainTarget: signingTarget,
           senderSignatureAlgorithm: args.request.senderSignatureAlgorithm,
         });
-  const { signingAuthPlan, signingSessionPlan, emailOtpSigning } = walletAuthResult;
+  const { signingAuthPlan, signingSessionPlan, emailOtpSigning } = authPlanningResult;
   const emailOtpSigningForFlow = emailOtpSigning
     ? {
         ...emailOtpSigning,
@@ -876,7 +874,7 @@ async function signEvmFamilyAttempt(
       // If this attempt already performed passkey reauth, retrying would show a
       // second Touch ID prompt for the same user operation instead of surfacing
       // the budget-lane bug that made the fresh session unusable.
-      signingAuthPlan.kind === SigningAuthPlanKind.PasskeyReauth ||
+      isPasskeySigningAuthPlan(signingAuthPlan) ||
       !isSigningSessionBudgetExhaustedError(error)
     ) {
       return null;
@@ -994,28 +992,39 @@ async function signEvmFamilyAttempt(
       : {}),
   };
   const preparedExecutorSession = getPreparedEcdsaSigningSessionIfEcdsa();
-  const thresholdEcdsaBoundary = preparedExecutorSession
+  const requireThresholdEcdsaStepUpRuntime = () => {
+    const runtime = flowArgs.thresholdEcdsaStepUpRuntime;
+    if (!runtime) {
+      throw new Error(
+        '[SigningEngine][ecdsa] prepared executor requires threshold step-up runtime',
+      );
+    }
+    return runtime;
+  };
+  const thresholdEcdsaStepUp: EvmFamilyThresholdEcdsaStepUp = preparedExecutorSession
     ? preparedExecutorSession.budget.kind === 'admitted'
       ? {
-          kind: 'admitted' as const,
+          kind: 'required_admitted',
+          authPlan: {
+            kind: 'planned',
+            signingAuthPlan,
+          },
           operation: {
             ...preparedExecutorSession.budget.operation,
             authPlan: signingAuthPlan,
           },
+          runtime: requireThresholdEcdsaStepUpRuntime(),
         }
       : {
-          kind: 'not_required' as const,
+          kind: 'required_not_admitted',
+          authPlan: {
+            kind: 'planned',
+            signingAuthPlan,
+          },
+          runtime: requireThresholdEcdsaStepUpRuntime(),
         }
     : {
-        kind: 'not_required' as const,
-      };
-  const thresholdEcdsaAuthPlan = preparedExecutorSession
-    ? {
-        kind: 'planned' as const,
-        signingAuthPlan,
-      }
-    : {
-        kind: 'not_required' as const,
+        kind: 'not_required',
       };
   const thresholdEcdsaState: EvmFamilyExecutorThresholdEcdsaState = (() => {
     if (!preparedExecutorSession) {
@@ -1049,8 +1058,7 @@ async function signEvmFamilyAttempt(
     nonceOperation,
     thresholdEcdsaState,
     onConfirmationDisplayed: markConfirmationDisplayed,
-    thresholdEcdsaBoundary,
-    thresholdEcdsaAuthPlan,
+    thresholdEcdsaStepUp,
     reserveWalletSigningSessionBudget,
     recordSuccessfulWalletSigningSessionSpend,
     recordFailedWalletSigningSessionSpend,

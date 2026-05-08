@@ -3,7 +3,7 @@
 ## Owns
 
 Signing-session identity, record normalization, lane selection, readiness,
-budget, restore, sealed persistence, and warm-session state.
+planning, budget, restore, sealed persistence, and warm-session state.
 
 ## May Import
 
@@ -21,8 +21,8 @@ chain operation modules.
 restore, available-lane reads, and ECDSA session-record admin methods.
 
 Current child owners are explicit folders:
-`identity/*`, `availability/*`, `persistence/*`, `restore/*`,
-`signingSession/*`, and `warmSigning/*`.
+`identity/*`, `availability/*`, `planning/*`, `budget/*`, `persistence/*`,
+`restore/*`, `signingSession/*`, and `warmSigning/*`.
 
 ## Child Domains
 
@@ -32,9 +32,13 @@ Current child owners are explicit folders:
 - Availability: `availability/availableSigningLanes.ts`,
   `availability/persistedAvailableSigningLanes.ts`, and
   `availability/readiness.ts`.
-- Planning and budget: `signingSession/planner.ts`,
-  `signingSession/budget*.ts`, `signingSession/preparedOperation.ts`, and
-  `signingSession/postSignPolicy.ts`.
+- Planning: `planning/planner.ts`, `planning/operationFingerprint.ts`, and
+  `planning/operationIdBinding.ts`.
+- Budget: `budget/budget.ts`, `budget/budgetProjection.ts`,
+  `budget/budgetFinalizer.ts`, and `budget/budgetStatusReader.ts`.
+- Signing operation state: `signingSession/types.ts`,
+  `signingSession/preparedOperation.ts`, `signingSession/postSignPolicy.ts`,
+  `signingSession/transactionState.ts`, and `signingSession/trace.ts`.
 - Restore and persistence: `restore/restoreCoordinator.ts`,
   `persistence/sealedSessionStore.ts`, `persistence/records.ts`, and
   persistence-specific normalization.

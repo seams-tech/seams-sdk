@@ -1,4 +1,4 @@
-import type { AccountAuthMetadata } from '@/core/signingEngine/walletAuth';
+import type { AccountAuthMetadata } from '@/core/signingEngine/interfaces/accountAuthMetadata';
 import { SigningEventPhase } from '@/core/types/sdkSentEvents';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { EvmSignedResult } from '../../chains/evm/evmAdapter';

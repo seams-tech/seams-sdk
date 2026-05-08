@@ -15,16 +15,16 @@ import type {
 import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfaces/signing';
 import type { TxDisplayModel } from '@/core/signingEngine/interfaces/display';
 import {
-  SigningAuthPlanKind,
+  isPasskeySigningAuthPlan,
+  isWarmSessionSigningAuthPlan,
 } from '@/core/signingEngine/stepUpConfirmation/types';
-import { prepareEmailOtpSigningPrompt } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/signingPrompt';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { ManagedNonceReservation } from '@/core/rpcClients/evm/nonceBackend';
 import { toManagedNonceReservationSnapshot } from '@/core/rpcClients/evm/nonceBackend';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { bytesToHex } from '@/core/signingEngine/chains/evm/bytes';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import { normalizeAuthenticationCredential } from '@/core/signingEngine/walletAuth/webauthn/credentials/helpers';
+import { normalizeAuthenticationCredential } from '@/core/signingEngine/webauthnAuth/credentials/helpers';
 import {
   createSigningFlowEvent,
   SigningEventPhase,
@@ -36,7 +36,7 @@ import {
   PENDING_INTENT_DIGEST,
   registerIntentDigestPreparation,
 } from '@/core/signingEngine/stepUpConfirmation/intentDigestPreparation';
-import type { SigningSessionBudgetReservation } from '../../session/signingSession/budget';
+import type { SigningSessionBudgetReservation } from '../../session/budget/budget';
 import type { SelectedEcdsaLane } from '../../session/identity/laneIdentity';
 import type { BudgetAdmittedOperation } from '../../session/signingSession/transactionState';
 import type { SigningOperationContext, SigningSessionPlan } from '../../session/signingSession/types';
@@ -52,12 +52,8 @@ import {
   type SigningOperationTransitionObserver,
 } from '../shared/signingStateMachine';
 import type {
-  EvmFamilyThresholdEcdsaAdmissionBoundary,
-  EvmFamilyThresholdEcdsaAuthPlanInput,
-  EvmFamilyThresholdEcdsaEmailOtpSigning,
   EvmFamilyThresholdEcdsaAdmissionMode,
   EvmFamilyThresholdEcdsaOperation,
-  EvmFamilyThresholdEcdsaPasskeyReconnect,
   EvmFamilyThresholdEcdsaPasskeyReconnectPlan,
   EvmFamilyThresholdEcdsaReauthResult,
 } from './thresholdAdmission';
@@ -70,16 +66,13 @@ import {
   resolveSigningConfirmationAuth,
   resolveSigningConfirmationAuthMethod,
 } from '../shared/signingConfirmation';
+import {
+  requireEvmFamilyStepUpAuth,
+  signingAuthPlanFromThresholdEcdsaStepUp,
+  type EvmFamilyThresholdEcdsaStepUp,
+} from './requireEvmFamilyStepUpAuth';
 
 export type EvmFamilySigningAuthSideEffect = 'passkey_reauth' | 'threshold_reconnect';
-
-export type EvmFamilyPasskeyEcdsaReconnect = {
-  prepare: (args: { usesNeeded: number }) => Promise<{
-    sessionId: string;
-    walletSigningSessionId: string;
-    sessionPolicyDigest32: string;
-  }>;
-} & EvmFamilyThresholdEcdsaPasskeyReconnect;
 
 type EvmFamilySigningWebAuthnMode<TRequest> =
   | {
@@ -137,24 +130,16 @@ export type SignEvmFamilyWithUiConfirmArgs<TRequest> = {
   thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   workerCtx: WorkerOperationContext;
-  ensureThresholdEcdsaKeyRefReady?: () => Promise<EvmFamilyThresholdEcdsaReauthResult>;
-  passkeyEcdsaReconnect?: EvmFamilyPasskeyEcdsaReconnect;
   prepareRequestWithManagedNonce?: () => Promise<{
     request: TRequest & { senderSignatureAlgorithm: string };
     reservation: ManagedNonceReservation;
   }>;
   releaseNonceReservation?: (reservation: ManagedNonceReservation) => void | Promise<void>;
   onConfirmationDisplayed?: () => void;
-  thresholdEcdsaBoundary: EvmFamilyThresholdEcdsaAdmissionBoundary;
-  thresholdEcdsaAuthPlan: EvmFamilyThresholdEcdsaAuthPlanInput;
+  thresholdEcdsaStepUp: EvmFamilyThresholdEcdsaStepUp;
   reserveWalletSigningSessionBudget?: (
     operation: BudgetAdmittedOperation<SelectedEcdsaLane>,
   ) => Promise<SigningSessionBudgetReservation | null>;
-  emailOtpSigning?: {
-    prepare: () => Promise<{ challengeId: string; emailHint?: string }>;
-    resend?: () => Promise<{ challengeId: string; emailHint?: string }>;
-  } & EvmFamilyThresholdEcdsaEmailOtpSigning;
-  onAuthSideEffectStarted?: (sideEffect: EvmFamilySigningAuthSideEffect) => void;
 };
 
 export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends object>(args: {
@@ -165,11 +150,10 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
   const sessionId = makeRequestId('intent');
   const flowId = `signing:${config.flowName}:${input.nearAccountId}:${sessionId}`;
   const hasThresholdEcdsaRequest = input.request.senderSignatureAlgorithm === 'secp256k1';
-  const thresholdEcdsaBoundary = input.thresholdEcdsaBoundary;
-  const signingAuthPlan =
-    input.thresholdEcdsaAuthPlan.kind === 'planned'
-      ? input.thresholdEcdsaAuthPlan.signingAuthPlan
-      : undefined;
+  const thresholdEcdsaStepUp = input.thresholdEcdsaStepUp;
+  const thresholdEcdsaStepUpRuntime =
+    thresholdEcdsaStepUp.kind === 'not_required' ? undefined : thresholdEcdsaStepUp.runtime;
+  const signingAuthPlan = signingAuthPlanFromThresholdEcdsaStepUp(thresholdEcdsaStepUp);
   if (hasThresholdEcdsaRequest && !signingAuthPlan) {
     throw new Error(
       '[chains] threshold ECDSA transaction signing requires an explicit auth plan',
@@ -177,7 +161,7 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
   }
   const authMethod = resolveSigningConfirmationAuthMethod(
     signingAuthPlan,
-    !!input.emailOtpSigning,
+    Boolean(thresholdEcdsaStepUpRuntime?.emailOtpSigning),
   );
   const emitProgress = (
     event: Omit<CreateSigningFlowEventInput, 'flowId' | 'accountId' | 'authMethod'>,
@@ -198,7 +182,7 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
     if (authSideEffectsStarted.has(sideEffect)) return;
     authSideEffectsStarted.add(sideEffect);
     try {
-      input.onAuthSideEffectStarted?.(sideEffect);
+      thresholdEcdsaStepUpRuntime?.onAuthSideEffectStarted?.(sideEffect);
     } catch {}
   };
   const emitUiConfirmProgress = (progress: {
@@ -269,7 +253,7 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
   let walletBudgetReservation: SigningSessionBudgetReservation | null = null;
   let walletBudgetReservationAttempted = false;
   let activeThresholdEcdsaOperation: EvmFamilyThresholdEcdsaOperation | null =
-    thresholdEcdsaBoundary.kind === 'admitted' ? thresholdEcdsaBoundary.operation : null;
+    thresholdEcdsaStepUp.kind === 'required_admitted' ? thresholdEcdsaStepUp.operation : null;
   const getBudgetAdmittedThresholdEcdsaOperation =
     async (): Promise<EvmFamilyThresholdEcdsaOperation> => {
       if (activeThresholdEcdsaOperation) return activeThresholdEcdsaOperation;
@@ -380,10 +364,11 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
   const ensureThresholdKeyRef = async (): Promise<ThresholdEcdsaSecp256k1KeyRef> => {
     if (ensuredThresholdKeyRef) return ensuredThresholdKeyRef;
     if (ensureThresholdKeyRefTask) return await ensureThresholdKeyRefTask;
-    if (input.ensureThresholdEcdsaKeyRefReady) {
+    if (thresholdEcdsaStepUpRuntime?.thresholdReconnect) {
       notifyAuthSideEffectStarted('threshold_reconnect');
       ensureThresholdKeyRefTask = (async () => {
-        const ensured = await input.ensureThresholdEcdsaKeyRefReady!();
+        const thresholdReconnect = thresholdEcdsaStepUpRuntime.thresholdReconnect!;
+        const ensured = await thresholdReconnect.ensureThresholdEcdsaKeyRefReady();
         thresholdEcdsaKeyRef = ensured.keyRef;
         ensuredThresholdKeyRef = ensured.keyRef;
         activeThresholdEcdsaOperation = ensured.operation;
@@ -409,34 +394,16 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
       interaction: { kind: 'transaction_confirmation', overlay: 'show' },
     });
     input.onConfirmationDisplayed?.();
-    const emailOtpPrompt = await prepareEmailOtpSigningPrompt(input.emailOtpSigning);
-    const confirmationAuthInput = signingAuthPlan
-      ? ({
-          kind: 'signing_plan' as const,
-          signingAuthPlan,
-          emailOtpPrompt: emailOtpPrompt || null,
-        })
-      : emailOtpPrompt
-        ? ({ kind: 'email_otp' as const, emailOtpPrompt })
-        : !hasThresholdEcdsaRequest && needsWebAuthn
-          ? ({ kind: 'passkey' as const })
-          : null;
-    if (!confirmationAuthInput) {
-      throw new Error(
-        `[chains] ${config.explicitAuthErrorLabel} signing requires explicit auth input`,
-      );
-    }
-    confirmationAuthPayload = (
-      await resolveSigningConfirmationAuth(confirmationAuthInput)
-    ).confirmationAuthPayload;
-    const shouldReconnectWithPasskeyEcdsa =
-      confirmationAuthPayload.signingAuthPlan.kind === SigningAuthPlanKind.PasskeyReauth &&
-      Boolean(input.passkeyEcdsaReconnect);
-    plannedPasskeyReconnect =
-      shouldReconnectWithPasskeyEcdsa && input.passkeyEcdsaReconnect?.prepare
-        ? await input.passkeyEcdsaReconnect.prepare({ usesNeeded: 1 })
-        : undefined;
-    if (confirmationAuthPayload.signingAuthPlan.kind === SigningAuthPlanKind.WarmSession) {
+    const stepUp = await requireEvmFamilyStepUpAuth({
+      thresholdEcdsaStepUp,
+      hasThresholdEcdsaRequest,
+      needsWebAuthn,
+      explicitAuthErrorLabel: config.explicitAuthErrorLabel,
+    });
+    confirmationAuthPayload = stepUp.confirmationAuthPayload;
+    plannedPasskeyReconnect = stepUp.plannedPasskeyReconnect;
+    const emailOtpPrompt = stepUp.emailOtpPrompt;
+    if (isWarmSessionSigningAuthPlan(confirmationAuthPayload.signingAuthPlan)) {
       await reserveWalletSigningBudgetOnce();
       emitProgress({
         phase: SigningEventPhase.STEP_06_AUTH_WARM_SESSION_CLAIMED,
@@ -492,12 +459,15 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
     }
     const admissionMode: EvmFamilyThresholdEcdsaAdmissionMode = (() => {
       if (!intentHasSecp256k1Request) return { kind: 'not_required' };
-      if (input.emailOtpSigning) {
-        return { kind: 'email_otp', emailOtpSigning: input.emailOtpSigning };
+      if (thresholdEcdsaStepUpRuntime?.emailOtpSigning) {
+        return {
+          kind: 'email_otp',
+          emailOtpSigning: thresholdEcdsaStepUpRuntime.emailOtpSigning,
+        };
       }
       if (
-        confirmationAuthPayload.signingAuthPlan.kind === SigningAuthPlanKind.PasskeyReauth &&
-        input.passkeyEcdsaReconnect
+        isPasskeySigningAuthPlan(confirmationAuthPayload.signingAuthPlan) &&
+        thresholdEcdsaStepUpRuntime?.passkeyReconnect
       ) {
         if (!plannedPasskeyReconnect) {
           throw new Error(
@@ -506,15 +476,16 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
         }
         return {
           kind: 'passkey_reconnect',
-          passkeyEcdsaReconnect: input.passkeyEcdsaReconnect,
+          passkeyEcdsaReconnect: thresholdEcdsaStepUpRuntime.passkeyReconnect,
           plannedPasskeyReconnect,
           onThresholdReconnectStarted: () => notifyAuthSideEffectStarted('threshold_reconnect'),
         };
       }
-      if (input.ensureThresholdEcdsaKeyRefReady) {
+      if (thresholdEcdsaStepUpRuntime?.thresholdReconnect) {
         return {
           kind: 'threshold_reconnect',
-          ensureThresholdEcdsaKeyRefReady: input.ensureThresholdEcdsaKeyRefReady,
+          ensureThresholdEcdsaKeyRefReady:
+            thresholdEcdsaStepUpRuntime.thresholdReconnect.ensureThresholdEcdsaKeyRefReady,
           onThresholdReconnectStarted: () => notifyAuthSideEffectStarted('threshold_reconnect'),
         };
       }

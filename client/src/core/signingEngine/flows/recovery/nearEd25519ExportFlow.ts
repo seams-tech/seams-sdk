@@ -1,5 +1,5 @@
 import { getNearThresholdKeyMaterial } from '@/core/accountData/near/keyMaterial';
-import { getLastLoggedInSignerSlot } from '../../walletAuth/webauthn/device/signerSlot';
+import { getLastLoggedInSignerSlot } from '../../webauthnAuth/device/signerSlot';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import { KeyExportEventPhase } from '@/core/types/sdkSentEvents';
 import type { ThemeName } from '@/core/types/seams';

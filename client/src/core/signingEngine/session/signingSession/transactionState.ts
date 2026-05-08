@@ -17,8 +17,8 @@ import {
   type SigningOperationId,
   SigningSessionPlanKind,
 } from './types';
-import type { SigningSessionPreparedBudgetIdentity } from './budget';
-import type { SigningPlannerDecisionTraceEvent } from './planner';
+import type { SigningSessionPreparedBudgetIdentity } from '../budget/budget';
+import type { SigningPlannerDecisionTraceEvent } from '../planning/planner';
 import {
   prepareThresholdSigningOperation,
   type PreparedThresholdSigningOperation,
