@@ -298,7 +298,7 @@ async function readAndValidateEmailOtpSigningSession(ctx: CloudflareRelayContext
     };
   }
   const sessionPolicy = ctx.opts.signingSessionSeal?.sessionPolicy;
-  if (!sessionPolicy?.getSessionStatus) {
+  if (!sessionPolicy?.getSessionStatus || !sessionPolicy.getSessionStatuses) {
     return {
       ok: false,
       response: json(
@@ -316,9 +316,7 @@ async function readAndValidateEmailOtpSigningSession(ctx: CloudflareRelayContext
     if (!Array.isArray(actual) || actual.length !== participantIds.length) return false;
     return actual.every((value, index) => Number(value) === Number(participantIds[index]));
   };
-  const curveStatuses = sessionPolicy.getSessionStatuses
-    ? await sessionPolicy.getSessionStatuses(sessionId)
-    : [await sessionPolicy.getSessionStatus(sessionId)].filter(Boolean);
+  const curveStatuses = await sessionPolicy.getSessionStatuses(sessionId);
   const curveStatus =
     curveStatuses.find((status) => {
       const record = status?.record;

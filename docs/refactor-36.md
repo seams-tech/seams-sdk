@@ -8,8 +8,8 @@ Status: draft
 Eliminate wide optional argument bags from signing-engine lifecycle paths.
 
 The recent passkey ECDSA regression came from one object shape representing
-multiple incompatible lifecycle routes. Fresh WebAuthn reauthorization,
-threshold-session JWT reconnect, and Email OTP refresh all flowed through the
+multiple incompatible lifecycle routes. Passkey reauthorization,
+threshold-session auth reconnect, and Email OTP refresh all flowed through the
 same optional fields:
 
 - `sessionId?: string`
@@ -20,11 +20,29 @@ same optional fields:
 - `emailOtpAuthContext?: ...`
 
 That let an invalid mixed state compile. The provisioner then had to infer route
-semantics from field presence, which made stale JWT identity look eligible for a
-fresh planned WebAuthn identity.
+semantics from field presence, which made stale threshold-session auth identity
+look eligible for a new passkey-planned identity.
 
 This refactor replaces those bags with discriminated lifecycle plans whose
 required state is required by type.
+
+## Execution Priorities
+
+Treat this as two tracks:
+
+1. Must-fix identity/auth safety.
+2. Cleanup and broad state tightening.
+
+The first implementation milestone should stay deliberately narrow:
+
+- ECDSA provision plan union.
+- EVM-family caller migration to the plan union.
+- server signing-budget/status curve-bound request parsing.
+- deletion of the ECDSA optional provision/bootstrap bags.
+
+Lane candidate states, sealed recovery normalization, and broader budget cleanup
+are important follow-up phases. They should not block the first safety
+milestone.
 
 ## Goals
 
@@ -72,6 +90,45 @@ Optional fields remain acceptable for:
 - UI labels, hints, and diagnostics
 - override/config knobs whose absence has a real default
 - raw persistence records at the storage boundary, before normalization
+
+## Construction Rules
+
+Lifecycle plans and verified auth/status request types must be created through
+named constructors/builders. Direct object construction is allowed only inside
+those builder modules and compile-time negative fixtures.
+
+Required builders:
+
+- `buildPasskeyEcdsaSessionProvision`
+- `buildThresholdSessionAuthEcdsaReconnect`
+- `buildEmailOtpEcdsaSessionProvision`
+- `parseEcdsaWalletSigningBudgetStatusRequest`
+- `parseEd25519WalletSigningBudgetStatusRequest`
+- `parseWalletSigningBudgetStatusRequest`
+
+Forbidden near lifecycle builders:
+
+- `as EcdsaSessionProvisionPlan`
+- `as WalletSigningBudgetStatusRequest`
+- `as any`
+- broad object spreads into lifecycle plans
+- accepting `Record<string, unknown>` after boundary parsing
+
+Use `satisfies` for local literals where direct construction is useful in tests.
+
+## Field Layout Convention
+
+Order lifecycle fields so reviewers can audit identity and shared state before
+reading branch-specific material:
+
+1. Discriminant: `kind`, then `curve` when present.
+2. Subject/session identity: `subjectId`, `chainTarget`,
+   `newSessionIdentity`, `existingSessionIdentity`, `identity`,
+   `thresholdSessionId`, `walletSigningSessionId`.
+3. Shared lifecycle fields: signing-key context, auth token, expiry, budget.
+4. A comment line: `// Branch-specific fields.` or
+   `// Curve-specific fields.`
+5. Branch-only material and `never` exclusions.
 
 ## Current Hotspots
 
@@ -165,11 +222,14 @@ Problem shape:
 
 Target shape:
 
-- request-boundary JWT parsing returns a verified curve-specific auth branch
+- request-boundary threshold-session auth parsing returns a verified
+  curve-specific auth branch
 - ECDSA status requests require ECDSA auth claims and ECDSA store material
 - Ed25519 status requests require Ed25519 auth claims and Ed25519 store material
 - wrong-curve auth/status combinations are rejected with `never` fields before
   route code can call a generic lookup
+- Express and Cloudflare routes share one parser module so curve/auth validation
+  cannot drift between runtimes
 
 ### Sealed Recovery
 
@@ -246,10 +306,10 @@ export function toEcdsaSessionIdentity(input: {
 Internal code should accept `EcdsaSessionIdentity`, not sibling
 `sessionId?: string` and `walletSigningSessionId?: string` fields.
 
-### ECDSA Key Context
+### ECDSA Signing Key Context
 
 ```ts
-export type EcdsaKeyContext = {
+export type EcdsaSigningKeyContext = {
   ecdsaThresholdKeyId: string;
   signingRootId: string;
   signingRootVersion: string;
@@ -264,53 +324,59 @@ while migrating. Delete the branch before this refactor is complete.
 ### ECDSA Provision Plan
 
 ```ts
-export type EcdsaProvisionPlan =
-  | FreshPasskeyWebAuthnEcdsaProvision
-  | ThresholdJwtEcdsaReconnect
-  | EmailOtpEcdsaProvision;
+export type EcdsaSessionProvisionPlan =
+  | PasskeyEcdsaSessionProvision
+  | ThresholdSessionAuthEcdsaReconnect
+  | EmailOtpEcdsaSessionProvision;
 ```
 
 ```ts
-export type FreshPasskeyWebAuthnEcdsaProvision = {
-  kind: 'fresh_passkey_webauthn';
+export type PasskeyEcdsaSessionProvision = {
+  kind: 'passkey_ecdsa_session_provision';
   subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
-  plannedIdentity: EcdsaSessionIdentity;
-  keyContext: EcdsaKeyContext;
+  newSessionIdentity: EcdsaSessionIdentity;
+  signingKeyContext: EcdsaSigningKeyContext;
+  sessionBudgetUses: number;
+
+  // Branch-specific fields.
   clientRootShare32B64u: string;
   webauthnAuthentication: WebAuthnAuthenticationCredential;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
-  sessionBudgetUses: number;
   thresholdSessionAuth?: never;
   emailOtpAuthContext?: never;
 };
 ```
 
 ```ts
-export type ThresholdJwtEcdsaReconnect = {
-  kind: 'threshold_jwt_reconnect';
+export type ThresholdSessionAuthEcdsaReconnect = {
+  kind: 'threshold_session_auth_ecdsa_reconnect';
   subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
-  existingIdentity: EcdsaSessionIdentity;
-  keyContext: EcdsaKeyContext;
-  thresholdSessionAuth: VerifiedThresholdSessionAuth;
+  existingSessionIdentity: EcdsaSessionIdentity;
+  signingKeyContext: EcdsaSigningKeyContext;
   sessionBudgetUses: number;
+
+  // Branch-specific fields.
+  thresholdSessionAuth: VerifiedEcdsaThresholdSessionAuth;
   webauthnAuthentication?: never;
   emailOtpAuthContext?: never;
 };
 ```
 
 ```ts
-export type EmailOtpEcdsaProvision = {
-  kind: 'email_otp';
+export type EmailOtpEcdsaSessionProvision = {
+  kind: 'email_otp_ecdsa_session_provision';
   subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
-  plannedIdentity: EcdsaSessionIdentity;
-  keyContext: EcdsaKeyContext;
+  newSessionIdentity: EcdsaSessionIdentity;
+  signingKeyContext: EcdsaSigningKeyContext;
+  sessionBudgetUses: number;
+
+  // Branch-specific fields.
   emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
   clientRootShare32B64u: string;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
-  sessionBudgetUses: number;
   webauthnAuthentication?: never;
   thresholdSessionAuth?: never;
 };
@@ -318,7 +384,7 @@ export type EmailOtpEcdsaProvision = {
 
 ### Verified Threshold Auth
 
-Decode threshold-session JWTs at the boundary and carry the verified curve,
+Decode threshold-session auth tokens at the boundary and carry the verified curve,
 identity, and session-store expectations:
 
 ```ts
@@ -329,64 +395,89 @@ export type VerifiedThresholdSessionAuth =
 export type VerifiedEcdsaThresholdSessionAuth = {
   kind: 'threshold_session';
   curve: 'ecdsa';
-  jwt: string;
   identity: EcdsaSessionIdentity;
+  thresholdSessionAuthToken: string;
+  expiresAtMs: number;
+
+  // Curve-specific fields.
   ecdsaThresholdKeyId: string;
   relayerKeyId: string;
-  expiresAtMs: number;
   ed25519RelayerKeyId?: never;
 };
 
 export type VerifiedEd25519ThresholdSessionAuth = {
   kind: 'threshold_session';
   curve: 'ed25519';
-  jwt: string;
   thresholdSessionId: string;
   walletSigningSessionId: string;
-  ed25519RelayerKeyId: string;
+  thresholdSessionAuthToken: string;
   expiresAtMs: number;
+
+  // Curve-specific fields.
+  ed25519RelayerKeyId: string;
   ecdsaThresholdKeyId?: never;
 };
 ```
 
-`threshold_jwt_reconnect` should require `VerifiedEcdsaThresholdSessionAuth`,
-and its constructor should only return the plan when `auth.identity` equals
-`existingIdentity`.
+`threshold_session_auth_ecdsa_reconnect` should require
+`VerifiedEcdsaThresholdSessionAuth`, and its constructor should only return the
+plan when `auth.identity` equals `existingSessionIdentity`.
 
 ### Server Budget Status Request
 
-The server budget-status route should parse raw request/JWT state once and
+The server budget-status route should parse raw request/auth state once and
 convert it into a curve-bound request:
 
 ```ts
-export type SigningBudgetStatusRequest =
-  | EcdsaSigningBudgetStatusRequest
-  | Ed25519SigningBudgetStatusRequest;
+export type WalletSigningBudgetStatusRequest =
+  | EcdsaWalletSigningBudgetStatusRequest
+  | Ed25519WalletSigningBudgetStatusRequest;
 
-export type EcdsaSigningBudgetStatusRequest = {
+export type EcdsaWalletSigningBudgetStatusRequest = {
   kind: 'ecdsa_wallet_budget_status';
   auth: VerifiedEcdsaThresholdSessionAuth;
   identity: EcdsaSessionIdentity;
-  walletSigningSessionId: string;
   thresholdSessionId: string;
+  walletSigningSessionId: string;
+
+  // Curve-specific fields.
   ecdsaThresholdKeyId: string;
   ed25519RelayerKeyId?: never;
 };
 
-export type Ed25519SigningBudgetStatusRequest = {
+export type Ed25519WalletSigningBudgetStatusRequest = {
   kind: 'ed25519_wallet_budget_status';
   auth: VerifiedEd25519ThresholdSessionAuth;
-  walletSigningSessionId: string;
   thresholdSessionId: string;
+  walletSigningSessionId: string;
+
+  // Curve-specific fields.
   ed25519RelayerKeyId: string;
   ecdsaThresholdKeyId?: never;
 };
 ```
 
 The route should switch on `request.kind` and call a curve-specific selector.
-Generic `getSessionStatus(thresholdSessionId)` may remain as a low-level store
-primitive, but route-level status resolution should consume a typed request that
-cannot mix ECDSA JWT claims with Ed25519 session-store material.
+Do not use a route-level `getSessionStatus(thresholdSessionId)` for threshold
+session curve resolution.
+
+Split the policy API so the call site names the lookup intent:
+
+```ts
+type SigningSessionSealThresholdSessionPolicy = {
+  getThresholdSessionStatuses(
+    thresholdSessionId: string,
+  ): Promise<SigningSessionSealThresholdSessionStatus[]>;
+
+  getWalletBudgetStatus(
+    walletSigningSessionId: string,
+  ): Promise<SigningSessionSealThresholdSessionStatus | null>;
+};
+```
+
+The current `getSessionStatuses` shape is an intermediate step. The target API
+should make a wallet-budget lookup and a threshold-session curve lookup distinct
+operations.
 
 ## Target Call Graph
 
@@ -394,19 +485,19 @@ cannot mix ECDSA JWT claims with Ed25519 session-store material.
 flowchart TD
   FLOW["flows/signEvmFamily"] --> STEPUP["requireEvmFamilyStepUpAuth"]
   STEPUP --> AUTH["StepUpAuthResult union"]
-  FLOW --> PLAN["buildEcdsaProvisionPlan"]
+  FLOW --> PLAN["buildEcdsaSessionProvisionPlan"]
   PLAN --> WARM["ensureWarmEcdsaCapabilityReady(plan)"]
   WARM --> SWITCH["switch plan.kind"]
-  SWITCH --> PASSKEY["provisionFreshPasskeyEcdsaSession"]
-  SWITCH --> JWT["reconnectThresholdJwtEcdsaSession"]
+  SWITCH --> PASSKEY["provisionPasskeyEcdsaSession"]
+  SWITCH --> AUTH["reconnectThresholdSessionAuthEcdsaSession"]
   SWITCH --> OTP["provisionEmailOtpEcdsaSession"]
   PASSKEY --> BOOT["bootstrapEcdsaSessionValue"]
-  JWT --> BOOT
+  AUTH --> BOOT
   OTP --> BOOT
 ```
 
-Only `buildEcdsaProvisionPlan` should translate from operation result state into
-session provisioning state.
+Only `buildEcdsaSessionProvisionPlan` should translate from operation result
+state into session provisioning state.
 
 ## Import Direction Contract
 
@@ -418,10 +509,29 @@ session provisioning state.
 | `session/passkey/*` | passkey provision branch types, WebAuthn auth material, sealed recovery ports | `flows/*`, Email OTP implementation |
 | `session/emailOtp/*` | Email OTP provision branch types, Email OTP worker/session ports | `flows/*`, passkey implementation |
 | `session/budget/*` | canonical wallet/threshold budget request branches | `flows/*`, raw selected-lane candidates |
+| `server/src/router/*/routes/sessions.ts` | shared signing-budget/status parser and typed selectors | duplicated curve/auth parsing logic, bare threshold-session status lookup |
+
+## Deletion Gates
+
+Each phase must delete at least one old type, fallback path, or compatibility
+adapter. A phase that only adds wrappers around the old optional bags is not
+complete.
+
+Minimum deletion gates:
+
+- ECDSA provision plan phase deletes `EnsureWarmEcdsaCapabilityReadyArgs`.
+- Bootstrap phase deletes `ResolveWarmEcdsaBootstrapRequestArgs`,
+  `WarmEcdsaBootstrapRequest`, and `ProvisionWarmEcdsaCapabilityArgs`.
+- Server budget/status phase deletes route-level threshold-session
+  `getSessionStatus(thresholdSessionId)` fallback usage.
+- Budget API phase replaces generic `getSessionStatus` call sites with
+  `getThresholdSessionStatuses` or `getWalletBudgetStatus`.
+- Final cleanup removes all temporary allowlist entries from the
+  optional-lifecycle guard.
 
 ## Phased Implementation
 
-### Phase 1: Inventory and Guardrails
+### Phase 1: Inventory, Guardrails, and Negative Type Fixtures
 
 - [ ] Add an inventory section to this plan with every type that carries
   optional lifecycle fields.
@@ -436,6 +546,15 @@ session provisioning state.
   - `server/src/threshold/session/signingSessionSeal/*`
 - [ ] Allowlisted optional fields must be config/UI/callback fields only.
 - [ ] Document every temporary allowlist entry with the phase that deletes it.
+- [ ] Add type-level negative fixtures using `@ts-expect-error` or `satisfies`
+  for:
+  - passkey provision with threshold-session auth
+  - threshold-session auth reconnect with WebAuthn auth
+  - ECDSA server status request with Ed25519 relayer material
+  - Ed25519 server status request with ECDSA threshold-key material
+- [ ] Add a source guard forbidding `as EcdsaSessionProvisionPlan`,
+  `as WalletSigningBudgetStatusRequest`, and broad object spreads into
+  lifecycle plan builders.
 
 Exit criteria:
 
@@ -445,6 +564,7 @@ Exit criteria:
   internal lifecycle type
 - server guard fails when budget/status route code accepts a generic
   `thresholdSessionId` without a curve-bound auth branch
+- negative type fixtures prove the invalid lifecycle mixes fail compilation
 - current allowlist is explicit and finite
 
 ### Phase 2: Canonical Identity Types
@@ -453,7 +573,7 @@ Exit criteria:
 - [ ] Add boundary constructors for:
   - planned identity from policy/session creation
   - existing identity from selected key ref/record
-  - verified identity from decoded threshold-session JWT
+  - verified identity from decoded threshold-session auth
 - [ ] Replace sibling identity fields in local ECDSA readiness/provisioning
   helpers with `EcdsaSessionIdentity`.
 - [ ] Keep raw string parsing only in constructors and request-boundary files.
@@ -466,24 +586,30 @@ Exit criteria:
 
 ### Phase 3: ECDSA Provision Plan Union
 
-- [ ] Add `EcdsaProvisionPlan`.
-- [ ] Add `FreshPasskeyWebAuthnEcdsaProvision`.
-- [ ] Add `ThresholdJwtEcdsaReconnect`.
-- [ ] Add `EmailOtpEcdsaProvision`.
+- [ ] Add `EcdsaSessionProvisionPlan`.
+- [ ] Add `PasskeyEcdsaSessionProvision`.
+- [ ] Add `ThresholdSessionAuthEcdsaReconnect`.
+- [ ] Add `EmailOtpEcdsaSessionProvision`.
+- [ ] Add named builders:
+  - `buildPasskeyEcdsaSessionProvision`
+  - `buildThresholdSessionAuthEcdsaReconnect`
+  - `buildEmailOtpEcdsaSessionProvision`
 - [ ] Move route selection out of `ensureWarmEcdsaCapabilityReady` into
-  `buildEcdsaProvisionPlan`.
-- [ ] Make `ensureWarmEcdsaCapabilityReady` accept `EcdsaProvisionPlan`.
+  `buildEcdsaSessionProvisionPlan`.
+- [ ] Make `ensureWarmEcdsaCapabilityReady` accept `EcdsaSessionProvisionPlan`.
 - [ ] Split narrow provision functions:
-  - `provisionFreshPasskeyEcdsaSession`
-  - `reconnectThresholdJwtEcdsaSession`
+  - `provisionPasskeyEcdsaSession`
+  - `reconnectThresholdSessionAuthEcdsaSession`
   - `provisionEmailOtpEcdsaSession`
 
 Exit criteria:
 
-- passkey fresh WebAuthn plan cannot carry `thresholdSessionAuth`
-- threshold JWT reconnect plan cannot carry `webauthnAuthentication`
+- passkey session provision cannot carry `thresholdSessionAuth`
+- threshold-session auth reconnect plan cannot carry `webauthnAuthentication`
 - Email OTP plan cannot carry passkey WebAuthn auth
 - provisioner switches on `plan.kind`
+- callers use builders rather than object-spread construction
+- `EnsureWarmEcdsaCapabilityReadyArgs` is deleted
 
 ### Phase 4: Remove ECDSA Bootstrap Optional Bags
 
@@ -491,7 +617,7 @@ Exit criteria:
   bootstrap inputs.
 - [ ] Replace `WarmEcdsaBootstrapRequest` with a normalized union.
 - [ ] Replace `ProvisionWarmEcdsaCapabilityArgs` with
-  `EcdsaProvisionPlan` plus explicit config fields.
+  `EcdsaSessionProvisionPlan` plus explicit config fields.
 - [ ] Delete helper logic that infers route from optional auth fields.
 - [ ] Remove compatibility forwarding of old optional shapes.
 
@@ -502,12 +628,12 @@ Exit criteria:
 - route selection uses discriminants instead of `Boolean(field)` checks
 - old optional bootstrap types are deleted
 
-### Phase 5: EVM-Family Vertical Slice
+### Phase 5: EVM-Family Must-Fix Vertical Slice
 
 - [ ] Convert `flows/signEvmFamily/signingFlowRuntime.ts` to build a
-  `FreshPasskeyWebAuthnEcdsaProvision` after passkey step-up.
-- [ ] Convert Email OTP signing refresh to build `EmailOtpEcdsaProvision`.
-- [ ] Convert exact reconnect path to build `ThresholdJwtEcdsaReconnect`.
+  `PasskeyEcdsaSessionProvision` after passkey step-up.
+- [ ] Convert Email OTP signing refresh to build `EmailOtpEcdsaSessionProvision`.
+- [ ] Convert exact reconnect path to build `ThresholdSessionAuthEcdsaReconnect`.
 - [ ] Update `ecdsaReadiness.ts`, `thresholdAdmission.ts`, and
   `budgetSpending.ts` to consume narrowed state.
 - [ ] Delete optional-field bridge code after the EVM-family slice compiles.
@@ -515,28 +641,47 @@ Exit criteria:
 Exit criteria:
 
 - Tempo and EVM signing use the same provision-plan union
-- fresh passkey, Email OTP, and threshold JWT reconnect each have one typed path
+- passkey, Email OTP, and threshold-session auth reconnect each have one
+  typed path
 - no EVM-family call site passes raw optional lifecycle fields into session code
 
-### Phase 6: Budget Branch Types
+### Phase 6: Server Budget Status Curve-Bound Requests
+
+- [ ] Add shared parser module used by both Express and Cloudflare routes.
+- [ ] Add `parseWalletSigningBudgetStatusRequest`.
+- [ ] Add `parseEcdsaWalletSigningBudgetStatusRequest`.
+- [ ] Add `parseEd25519WalletSigningBudgetStatusRequest`.
+- [ ] Require curve-bound verified auth on server budget-status branches.
+- [ ] Use `never` fields to reject ECDSA auth with Ed25519 status material and
+  Ed25519 auth with ECDSA status material.
+- [ ] Replace duplicated route-local parsing with the shared parser.
+- [ ] Split policy lookup methods:
+  - `getThresholdSessionStatuses`
+  - `getWalletBudgetStatus`
+- [ ] Update Express and Cloudflare session routes to switch on
+  `WalletSigningBudgetStatusRequest.kind`.
+- [ ] Delete route-level fallback to generic threshold
+  `getSessionStatus(thresholdSessionId)`.
+
+Exit criteria:
+
+- server signing-budget status cannot compile with ambiguous curve lookup
+- ECDSA status cannot compile with Ed25519 relayer material
+- Ed25519 status cannot compile with ECDSA threshold-key material
+- Express and Cloudflare import the same parser and request types
+- threshold-session curve lookup and wallet-budget lookup are separate API calls
+
+### Phase 7: Client Budget Branch Types
 
 - [ ] Define budget request branches:
   - `NoBudgetSpend`
   - `WalletBudgetSpend`
   - `ThresholdBudgetStatusCheck`
   - `BudgetFinalizationSpend`
-- [ ] Define server budget-status request branches:
-  - `EcdsaSigningBudgetStatusRequest`
-  - `Ed25519SigningBudgetStatusRequest`
 - [ ] Require wallet identity on wallet-budget branches.
 - [ ] Require target threshold IDs on branches that query scoped status.
 - [ ] Require trusted status auth on authenticated status branches.
-- [ ] Require curve-bound verified auth on server budget-status branches.
-- [ ] Use `never` fields to reject ECDSA auth with Ed25519 status material and
-  Ed25519 auth with ECDSA status material.
 - [ ] Update `BudgetCoordinator` and `budget.ts` to accept the union.
-- [ ] Update Express and Cloudflare session routes to switch on the typed server
-  budget-status request.
 - [ ] Delete optional target-array inputs from internal budget APIs.
 
 Exit criteria:
@@ -544,11 +689,8 @@ Exit criteria:
 - wallet budget admission cannot compile without wallet signing-session identity
 - scoped status check cannot compile without target IDs
 - zero-spend cannot accidentally carry spend identity
-- server signing-budget status cannot compile with ambiguous curve lookup
-- ECDSA status cannot compile with Ed25519 relayer material
-- Ed25519 status cannot compile with ECDSA threshold-key material
 
-### Phase 7: Lane Candidate States
+### Phase 8: Lane Candidate States
 
 - [ ] Replace `{ record?: ..., keyRef?: ... }` candidate material with a union:
   - `missing`
@@ -568,7 +710,7 @@ Exit criteria:
 - readiness failure reasons are discriminated states
 - diagnostics no longer double as lifecycle state
 
-### Phase 8: Sealed Recovery Normalization
+### Phase 9: Sealed Recovery Normalization
 
 - [ ] Keep raw optional persistence records only inside
   `session/persistence/*`.
@@ -584,7 +726,29 @@ Exit criteria:
 - method recovery files never receive partial sealed-record lifecycle state
 - missing restore metadata fails at persistence-boundary normalization
 
-### Phase 9: Step-Up Result Tightening
+### Phase 10: Persisted Data Migration and Compatibility Deletion
+
+- [ ] Define raw persisted shapes separately from normalized current shapes.
+- [ ] Audit existing IndexedDB records for fields that may be absent:
+  - `signingRootId`
+  - `signingRootVersion`
+  - `participantIds`
+  - restore metadata
+  - threshold-session auth material
+- [ ] Decide per missing field whether the boundary migrates, rejects, or
+  rebuilds the state.
+- [ ] Add explicit migration or rejection code at `session/persistence/*`.
+- [ ] Delete any temporary branch such as `legacy_missing_signing_root` before
+  this refactor is complete.
+
+Exit criteria:
+
+- raw persisted records are never passed into provisioning, budget, or restore
+  logic
+- every normalized current record has required lifecycle fields
+- old missing-field branches are deleted or confined to one migration boundary
+
+### Phase 11: Step-Up Result Tightening
 
 - [ ] Audit `StepUpAuthResult` and method runner results.
 - [ ] Ensure each method result contains only method-specific authorization.
@@ -599,7 +763,7 @@ Exit criteria:
   request
 - every method-specific result maps through a typed builder
 
-### Phase 10: Delete Old Types and Guards
+### Phase 12: Delete Old Types and Guards
 
 - [ ] Delete `EnsureWarmEcdsaCapabilityReadyArgs`.
 - [ ] Delete `ResolveWarmEcdsaBootstrapRequestArgs`.
@@ -611,7 +775,8 @@ Exit criteria:
 Exit criteria:
 
 - `rg "sessionId\\?:|walletSigningSessionId\\?:|thresholdSessionAuth\\?:|webauthnAuthentication\\?:|clientRootShare32B64u\\?:" client/src/core/signingEngine` returns only approved boundary/config cases
-- TypeScript rejects mixed passkey/JWT/Email OTP provision states
+- TypeScript rejects mixed passkey/threshold-session auth/Email OTP provision
+  states
 - EVM-family passkey and Email OTP signing compile through branch-specific
   provision plans
 
@@ -625,22 +790,24 @@ Use these TypeScript patterns consistently:
 4. Boundary constructors for raw inputs.
 5. Exhaustive `switch` with `assertNever`.
 6. Separate diagnostics objects from lifecycle objects.
+7. `satisfies` for exact literals in tests and compile-time fixtures.
+8. `@ts-expect-error` negative fixtures for invalid lifecycle mixes.
 
 Example:
 
 ```ts
-type InvalidMixedProvision = FreshPasskeyWebAuthnEcdsaProvision & {
+type InvalidMixedProvision = PasskeyEcdsaSessionProvision & {
   thresholdSessionAuth: VerifiedThresholdSessionAuth;
 };
 ```
 
 The above should be impossible because `thresholdSessionAuth?: never` exists on
-the fresh passkey branch.
+the passkey session provision branch.
 
 Server-side curve mismatch guard:
 
 ```ts
-const invalidStatusRequest: EcdsaSigningBudgetStatusRequest = {
+const invalidStatusRequest: EcdsaWalletSigningBudgetStatusRequest = {
   kind: 'ecdsa_wallet_budget_status',
   auth: verifiedEcdsaAuth,
   identity,
@@ -654,12 +821,12 @@ const invalidStatusRequest: EcdsaSigningBudgetStatusRequest = {
 Client-side reconnect mismatch guard:
 
 ```ts
-const invalidReconnect: ThresholdJwtEcdsaReconnect = {
-  kind: 'threshold_jwt_reconnect',
+const invalidReconnect: ThresholdSessionAuthEcdsaReconnect = {
+  kind: 'threshold_session_auth_ecdsa_reconnect',
   subjectId,
   chainTarget,
-  existingIdentity,
-  keyContext,
+  existingSessionIdentity,
+  signingKeyContext,
   thresholdSessionAuth: verifiedEcdsaAuth,
   sessionBudgetUses: 1,
   webauthnAuthentication, // compile error
@@ -671,17 +838,22 @@ const invalidReconnect: ThresholdJwtEcdsaReconnect = {
 - No internal lifecycle type uses optional identity, auth, restore, budget,
   signing, or export fields.
 - ECDSA provisioning route is selected once and encoded as
-  `EcdsaProvisionPlan.kind`.
+  `EcdsaSessionProvisionPlan.kind`.
 - `ensureWarmEcdsaCapabilityReady` has no route inference based on optional
   auth-field presence.
 - Tempo and EVM share the same ECDSA provision-plan path.
-- Passkey fresh reauth cannot compile with threshold JWT auth.
-- Threshold JWT reconnect cannot compile with WebAuthn auth.
+- Passkey reauth cannot compile with threshold-session auth.
+- Threshold-session auth reconnect cannot compile with WebAuthn auth.
 - Email OTP provisioning cannot compile with passkey WebAuthn auth.
 - Server budget-status requests cannot compile with wrong-curve auth/store
   material.
 - Server budget-status route switches on a discriminated request instead of
   resolving status from a bare `thresholdSessionId`.
+- Express and Cloudflare server routes share the same budget-status parser.
+- Lifecycle plans are built only through named builders.
+- Source guards block `as EcdsaSessionProvisionPlan`,
+  `as WalletSigningBudgetStatusRequest`, and broad object-spread construction
+  in lifecycle builder call sites.
 - Raw optional persistence shapes remain isolated to `session/persistence/*`.
 - Architecture guard blocks new internal lifecycle optional fields.
 

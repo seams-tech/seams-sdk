@@ -308,6 +308,10 @@ function makeSigningSessionStatusPolicy(args?: {
       args?.onStatusRead?.(thresholdSessionId);
       return statusById[thresholdSessionId] || null;
     },
+    getSessionStatuses: async (thresholdSessionId: string) => {
+      const status = statusById[thresholdSessionId] || null;
+      return status ? [status] : [];
+    },
     consumeUseCount: async (thresholdSessionId: string) => {
       args?.onConsumeUseCount?.(thresholdSessionId);
       return { ok: false, code: 'test_forbidden', message: 'unexpected consumeUseCount' };

@@ -55,6 +55,7 @@ function makePolicy(
         remainingUses,
       };
     },
+    getSessionStatuses: async () => [],
     consumeUseCount: async () => ({
       ok: true as const,
       remainingUses: Math.max(0, remainingUses - 1),
@@ -254,6 +255,7 @@ test.describe('signing-session seal routes', () => {
             },
           };
         },
+        getSessionStatuses: async () => [],
       },
       cipher: createSigningSessionSealCipherAdapter({
         applyServerSeal: async (input) => ({
@@ -309,6 +311,7 @@ test.describe('signing-session seal routes', () => {
             },
           };
         },
+        getSessionStatuses: async () => [],
       },
       cipher: createSigningSessionSealCipherAdapter({
         applyServerSeal: async (input) => {
@@ -366,6 +369,7 @@ test.describe('signing-session seal routes', () => {
             },
           };
         },
+        getSessionStatuses: async () => [],
       },
       cipher: createSigningSessionSealCipherAdapter({
         applyServerSeal: async (input) => ({

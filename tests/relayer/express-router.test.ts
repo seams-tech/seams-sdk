@@ -3749,6 +3749,7 @@ test.describe('relayer router (express) – P0', () => {
         sessionPolicy: {
           getSession: async () => null,
           getSessionStatus: async () => null,
+          getSessionStatuses: async () => [],
         },
       },
     });
@@ -3769,6 +3770,104 @@ test.describe('relayer router (express) – P0', () => {
         thresholdSessionId: 'threshold-login-stale-express',
         status: 'not_found',
         statusCode: 'unauthorized',
+      });
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('POST /session/signing-budget/status: selects matching ECDSA row when threshold id collides across curves', async () => {
+    const nowMs = Date.now();
+    const claims = {
+      sub: 'budget-curve-collision.testnet',
+      walletId: 'budget-curve-collision.testnet',
+      kind: 'threshold_ecdsa_session_v1',
+      sessionId: 'threshold-login-curve-collision-express',
+      walletSigningSessionId: 'wsess-curve-collision-express',
+      subjectId: 'budget-curve-collision.testnet',
+      chainTarget: {
+        kind: 'evm',
+        namespace: 'eip155',
+        chainId: 5042002,
+        networkSlug: 'arc-testnet',
+      },
+      ecdsaThresholdKeyId: 'ecdsa-key-curve-collision-express',
+      relayerKeyId: 'ecdsa-relayer-key-curve-collision-express',
+      rpId: 'example.localhost',
+      thresholdExpiresAtMs: nowMs + 60_000,
+      participantIds: [1, 2],
+    };
+    const makeStatus = (input: {
+      thresholdSessionId: string;
+      relayerKeyId: string;
+      remainingUses: number;
+    }) => ({
+      thresholdSessionId: input.thresholdSessionId,
+      userId: claims.walletId,
+      expiresAtMs: nowMs + 60_000,
+      remainingUses: input.remainingUses,
+      record: {
+        expiresAtMs: nowMs + 60_000,
+        relayerKeyId: input.relayerKeyId,
+        userId: claims.walletId,
+        rpId: claims.rpId,
+        participantIds: claims.participantIds,
+      },
+    });
+    const wrongCurveStatus = makeStatus({
+      thresholdSessionId: claims.sessionId,
+      relayerKeyId: 'ed25519-relayer-key-curve-collision-express',
+      remainingUses: 3,
+    });
+    const ecdsaStatus = makeStatus({
+      thresholdSessionId: claims.sessionId,
+      relayerKeyId: claims.relayerKeyId,
+      remainingUses: 3,
+    });
+    const walletBudgetStatus = makeStatus({
+      thresholdSessionId: `wallet-signing:${claims.walletSigningSessionId}`,
+      relayerKeyId: 'wallet-budget-relayer-key-curve-collision-express',
+      remainingUses: 2,
+    });
+    const session = makeSessionAdapter({
+      parse: async () => ({ ok: true, claims }),
+    });
+    const service = makeFakeAuthService();
+    const router = createRelayRouter(service, {
+      session,
+      signingSessionSeal: {
+        service: {
+          applyServerSeal: async () => ({ ok: false, code: 'unused', message: 'unused' }),
+          removeServerSeal: async () => ({ ok: false, code: 'unused', message: 'unused' }),
+        },
+        sessionPolicy: {
+          getSession: async () => null,
+          getSessionStatus: async (sessionId: string) =>
+            sessionId === `wallet-signing:${claims.walletSigningSessionId}`
+              ? walletBudgetStatus
+              : wrongCurveStatus,
+          getSessionStatuses: async (sessionId: string) =>
+            sessionId === claims.sessionId ? [wrongCurveStatus, ecdsaStatus] : [],
+        },
+      },
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/session/signing-budget/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ecdsa-token' },
+        body: JSON.stringify({
+          walletSigningSessionId: claims.walletSigningSessionId,
+          thresholdSessionId: claims.sessionId,
+        }),
+      });
+      expect(res.status).toBe(200);
+      expect(res.json).toMatchObject({
+        ok: true,
+        walletSigningSessionId: claims.walletSigningSessionId,
+        thresholdSessionId: claims.sessionId,
+        status: 'active',
+        remainingUses: 2,
       });
     } finally {
       await srv.close();

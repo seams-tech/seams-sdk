@@ -294,7 +294,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
       };
     }
     const sessionPolicy = ctx.opts.signingSessionSeal?.sessionPolicy;
-    if (!sessionPolicy?.getSessionStatus) {
+    if (!sessionPolicy?.getSessionStatus || !sessionPolicy.getSessionStatuses) {
       return {
         ok: false,
         status: 501,
@@ -310,9 +310,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
       if (!Array.isArray(actual) || actual.length !== participantIds.length) return false;
       return actual.every((value, index) => Number(value) === Number(participantIds[index]));
     };
-    const curveStatuses = sessionPolicy.getSessionStatuses
-      ? await sessionPolicy.getSessionStatuses(sessionId)
-      : [await sessionPolicy.getSessionStatus(sessionId)].filter(Boolean);
+    const curveStatuses = await sessionPolicy.getSessionStatuses(sessionId);
     const curveStatus =
       curveStatuses.find((status) => {
         const record = status?.record;

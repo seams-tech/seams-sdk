@@ -3266,6 +3266,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
         sessionPolicy: {
           getSession: async () => null,
           getSessionStatus: async () => null,
+          getSessionStatuses: async () => [],
         },
       },
     });
@@ -3288,6 +3289,104 @@ test.describe('relayer router (cloudflare) – P0', () => {
       thresholdSessionId: 'threshold-login-stale-cf',
       status: 'not_found',
       statusCode: 'unauthorized',
+    });
+  });
+
+  test('POST /session/signing-budget/status: selects matching ECDSA row when threshold id collides across curves', async () => {
+    const nowMs = Date.now();
+    const claims = {
+      sub: 'budget-curve-collision-cf.testnet',
+      walletId: 'budget-curve-collision-cf.testnet',
+      kind: 'threshold_ecdsa_session_v1',
+      sessionId: 'threshold-login-curve-collision-cf',
+      walletSigningSessionId: 'wsess-curve-collision-cf',
+      subjectId: 'budget-curve-collision-cf.testnet',
+      chainTarget: {
+        kind: 'evm',
+        namespace: 'eip155',
+        chainId: 5042002,
+        networkSlug: 'arc-testnet',
+      },
+      ecdsaThresholdKeyId: 'ecdsa-key-curve-collision-cf',
+      relayerKeyId: 'ecdsa-relayer-key-curve-collision-cf',
+      rpId: 'example.localhost',
+      thresholdExpiresAtMs: nowMs + 60_000,
+      participantIds: [1, 2],
+    };
+    const makeStatus = (input: {
+      thresholdSessionId: string;
+      relayerKeyId: string;
+      remainingUses: number;
+    }) => ({
+      thresholdSessionId: input.thresholdSessionId,
+      userId: claims.walletId,
+      expiresAtMs: nowMs + 60_000,
+      remainingUses: input.remainingUses,
+      record: {
+        expiresAtMs: nowMs + 60_000,
+        relayerKeyId: input.relayerKeyId,
+        userId: claims.walletId,
+        rpId: claims.rpId,
+        participantIds: claims.participantIds,
+      },
+    });
+    const wrongCurveStatus = makeStatus({
+      thresholdSessionId: claims.sessionId,
+      relayerKeyId: 'ed25519-relayer-key-curve-collision-cf',
+      remainingUses: 3,
+    });
+    const ecdsaStatus = makeStatus({
+      thresholdSessionId: claims.sessionId,
+      relayerKeyId: claims.relayerKeyId,
+      remainingUses: 3,
+    });
+    const walletBudgetStatus = makeStatus({
+      thresholdSessionId: `wallet-signing:${claims.walletSigningSessionId}`,
+      relayerKeyId: 'wallet-budget-relayer-key-curve-collision-cf',
+      remainingUses: 2,
+    });
+    const session = makeSessionAdapter({
+      parse: async () => ({ ok: true, claims }),
+    });
+    const service = makeFakeAuthService();
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      session,
+      signingSessionSeal: {
+        service: {
+          applyServerSeal: async () => ({ ok: false, code: 'unused', message: 'unused' }),
+          removeServerSeal: async () => ({ ok: false, code: 'unused', message: 'unused' }),
+        },
+        sessionPolicy: {
+          getSession: async () => null,
+          getSessionStatus: async (sessionId: string) =>
+            sessionId === `wallet-signing:${claims.walletSigningSessionId}`
+              ? walletBudgetStatus
+              : wrongCurveStatus,
+          getSessionStatuses: async (sessionId: string) =>
+            sessionId === claims.sessionId ? [wrongCurveStatus, ecdsaStatus] : [],
+        },
+      },
+    });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/session/signing-budget/status',
+      origin: 'https://example.localhost',
+      headers: { Authorization: 'Bearer ecdsa-token' },
+      body: {
+        walletSigningSessionId: claims.walletSigningSessionId,
+        thresholdSessionId: claims.sessionId,
+      },
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.json).toMatchObject({
+      ok: true,
+      walletSigningSessionId: claims.walletSigningSessionId,
+      thresholdSessionId: claims.sessionId,
+      status: 'active',
+      remainingUses: 2,
     });
   });
 
