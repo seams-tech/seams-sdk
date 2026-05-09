@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   persistThresholdEcdsaBootstrapChainAccount,
   type ThresholdEcdsaBootstrapIndexedDbPort,
-} from '@/core/signingEngine/session/warmSigning/ecdsaBootstrapPersistence';
+} from '@/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence';
 
 type UpsertCall = Parameters<ThresholdEcdsaBootstrapIndexedDbPort['upsertChainAccount']>[0];
 

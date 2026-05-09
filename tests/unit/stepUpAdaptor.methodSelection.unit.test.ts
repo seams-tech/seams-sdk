@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { requireStepUpAuth } from '../../client/src/core/signingEngine/stepUpConfirmation/requireStepUpAuth';
+import {
+  prepareStepUpAuth,
+  requireStepUpAuth,
+} from '../../client/src/core/signingEngine/stepUpConfirmation/requireStepUpAuth';
 import {
   selectStepUpMethod,
   StepUpMethodSelectionError,
@@ -107,5 +110,36 @@ test.describe('step-up adaptor method selection', () => {
     } satisfies Partial<StepUpMethodSelectionError>);
 
     expect(confirmationCalls).toBe(0);
+  });
+
+  test('prepares an Email OTP prompt without starting confirmation', async () => {
+    let completed = false;
+    const prepared = await prepareStepUpAuth({
+      operation: { kind: 'transaction_sign' },
+      selectedLane: { authMethod: 'email_otp' as const },
+      policy: { kind: 'use_selected_lane' as const },
+      methods: {
+        emailOtp: {
+          method: 'email_otp',
+          prepareChallenge: async () => ({ challengeId: 'otp-1', emailHint: 'a***@x.test' }),
+          complete: async ({ confirmation, prompt }) => {
+            completed = true;
+            return {
+              otpCode: confirmation.otpCode,
+              challengeId: prompt.challengeId,
+            };
+          },
+        },
+      },
+    });
+
+    expect(prepared.method).toBe('email_otp');
+    if (prepared.method !== 'email_otp') throw new Error('expected Email OTP route');
+    expect(prepared.prompt.challengeId).toBe('otp-1');
+    expect(completed).toBe(false);
+    await expect(prepared.complete({ otpCode: '123456' })).resolves.toEqual({
+      otpCode: '123456',
+      challengeId: 'otp-1',
+    });
   });
 });

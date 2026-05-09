@@ -1,13 +1,9 @@
 import type {
   SigningOperationFingerprint,
   SigningOperationId,
-} from '../signingSession/types';
+} from '../operationState/types';
 
 const MAX_BOUND_CALLER_OPERATION_IDS = 1024;
-
-export type SigningOperationIdBindingState = {
-  callerProvidedOperationFingerprintsById: Map<string, string>;
-};
 
 export type SigningOperationIdFingerprintBinder = {
   bindCallerProvidedOperationIdToFingerprint(args: {
@@ -16,8 +12,12 @@ export type SigningOperationIdFingerprintBinder = {
   }): void;
 };
 
-export function bindCallerProvidedSigningOperationIdToFingerprint(args: {
-  state: SigningOperationIdBindingState;
+type SigningOperationIdBindingRegistryState = {
+  callerProvidedOperationFingerprintsById: Map<string, string>;
+};
+
+function bindCallerProvidedSigningOperationIdToFingerprint(args: {
+  state: SigningOperationIdBindingRegistryState;
   operationId: SigningOperationId;
   operationFingerprint: SigningOperationFingerprint;
 }): void {
@@ -36,6 +36,25 @@ export function bindCallerProvidedSigningOperationIdToFingerprint(args: {
 
   bindings.set(operationId, fingerprint);
   trimOldestBoundCallerOperationIds(bindings);
+}
+
+export class SigningOperationIdBindingRegistry
+  implements SigningOperationIdFingerprintBinder
+{
+  private readonly state: SigningOperationIdBindingRegistryState = {
+    callerProvidedOperationFingerprintsById: new Map(),
+  };
+
+  bindCallerProvidedOperationIdToFingerprint(args: {
+    operationId: SigningOperationId;
+    operationFingerprint: SigningOperationFingerprint;
+  }): void {
+    bindCallerProvidedSigningOperationIdToFingerprint({
+      state: this.state,
+      operationId: args.operationId,
+      operationFingerprint: args.operationFingerprint,
+    });
+  }
 }
 
 function trimOldestBoundCallerOperationIds(bindings: Map<string, string>): void {

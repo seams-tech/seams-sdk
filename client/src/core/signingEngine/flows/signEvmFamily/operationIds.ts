@@ -2,7 +2,7 @@ import {
   SigningSessionIds,
   type SigningOperationFingerprint,
   type SigningOperationId,
-} from '../../session/signingSession/types';
+} from '../../session/operationState/types';
 import type { SigningOperationIdFingerprintBinder } from '../../session/planning/operationIdBinding';
 
 export type EvmFamilySigningOperationIds = {

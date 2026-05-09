@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { SigningSessionIds } from '@/core/signingEngine/session/signingSession/types';
+import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 
 test.describe('signing session shared types', () => {
   test('branded id helpers normalize required session ids', () => {

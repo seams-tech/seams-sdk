@@ -1,7 +1,7 @@
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { SelectedEcdsaLane } from '../../session/identity/laneIdentity';
-import type { BudgetAdmittedTransactionOperation } from '../../session/signingSession/transactionState';
+import type { BudgetAdmittedTransactionOperation } from '../../session/operationState/transactionState';
 import type { SigningAuthPlan } from '../../stepUpConfirmation/types';
 
 export type EvmFamilyThresholdEcdsaOperation = BudgetAdmittedTransactionOperation<

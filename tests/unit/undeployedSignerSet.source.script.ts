@@ -1,6 +1,6 @@
 import { buildCanonicalSmartAccountDeploymentManifest } from '../../server/src/core/smartAccountDeploymentManifest.ts';
 import { syncCanonicalSmartAccountDeploymentManifest } from '../../server/src/router/smartAccountDeploymentManifest.ts';
-import { buildThresholdEcdsaBootstrapUndeployedSignerSet } from '../../client/src/core/signingEngine/session/warmSigning/ecdsaBootstrapPersistence.ts';
+import { buildThresholdEcdsaBootstrapUndeployedSignerSet } from '../../client/src/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence.ts';
 import {
   thresholdEcdsaChainTargetFromChainFamily,
   toWalletSubjectId,

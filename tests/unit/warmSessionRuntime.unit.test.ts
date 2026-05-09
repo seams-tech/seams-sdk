@@ -1,8 +1,6 @@
 import { expect, test } from '@playwright/test';
-import {
-  claimWarmSessionPrfFirst,
-  ensureEcdsaPrfSealPersisted,
-} from '@/core/signingEngine/session/warmSigning/runtime';
+import { claimWarmSessionPrfFirst } from '@/core/signingEngine/session/passkey/prfClaim';
+import { ensureEcdsaPrfSealPersisted } from '@/core/signingEngine/session/passkey/runtime';
 import {
   createThresholdEcdsaBootstrapFixture,
   createThresholdEcdsaStoreFixture,

@@ -4,9 +4,10 @@ import type { NearSigningApiDeps } from '../../interfaces/operationDeps';
 import { getStoredThresholdEd25519SessionRecordForAccount } from '../../session/persistence/records';
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import { resolveEvmFamilyTransactionAccountAuth } from '../../flows/signEvmFamily/accountAuth';
-import { createWarmSessionCapabilityReader } from '../../session/warmSigning/capabilityReader';
-import { createWarmSessionStatusReader } from '../../session/warmSigning/statusReader';
-import { generateSessionId as generateSessionIdValue } from '../../session/warmSigning/prfCache';
+import { createWarmSessionCapabilityReader } from '../../session/warmCapabilities/capabilityReader';
+import { createWarmSessionStatusReader } from '../../session/warmCapabilities/statusReader';
+import { generateSessionId as generateSessionIdValue } from '../../session/passkey/prfCache';
+import { reconnectPasskeyEd25519CapabilityForSigning } from '../../session/passkey/ed25519Recovery';
 import type { WarmSessionStatusResult } from '../../uiConfirm/types';
 import type { CreateSigningEnginePortsArgs } from './shared';
 
@@ -85,35 +86,19 @@ export function createNearSigningDeps(args: {
       remainingUses,
       sessionId,
       walletSigningSessionId,
-    }) => {
-      const reconnectRemainingUses = Math.max(1, Math.floor(Number(remainingUses) || 1));
-      const provisioned = await createArgs.provisionThresholdEd25519Session({
+    }) =>
+      reconnectPasskeyEd25519CapabilityForSigning({
         nearAccountId,
-        relayerUrl: record.relayerUrl,
-        relayerKeyId: record.relayerKeyId,
+        record,
         localPrfCredential,
-        ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
-        participantIds: record.participantIds,
-        sessionKind: record.thresholdSessionKind,
+        remainingUses,
         ...(sessionId ? { sessionId } : {}),
-        ...(walletSigningSessionId || record.walletSigningSessionId
-          ? { walletSigningSessionId: walletSigningSessionId || record.walletSigningSessionId }
-          : {}),
-        remainingUses: reconnectRemainingUses,
-      });
-      if (!provisioned.ok || !provisioned.sessionId) {
-        throw new Error(
-          provisioned.message ||
-            provisioned.code ||
-            'Passkey Ed25519 signing session reconnect failed',
-        );
-      }
-      const refreshedRecord = getStoredThresholdEd25519SessionRecordForAccount(nearAccountId);
-      return {
-        sessionId: provisioned.sessionId,
-        ...(refreshedRecord ? { record: refreshedRecord } : {}),
-      };
-    },
+        ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
+        provisionThresholdEd25519Session: (provisionArgs) =>
+          createArgs.provisionThresholdEd25519Session(provisionArgs),
+        readStoredThresholdEd25519SessionRecord: (accountId) =>
+          getStoredThresholdEd25519SessionRecordForAccount(accountId),
+      }),
     signingSessionCoordinator,
     getWarmThresholdEd25519SessionStatusForSession: ({ nearAccountId, thresholdSessionId }) =>
       createWarmSessionStatusReader({

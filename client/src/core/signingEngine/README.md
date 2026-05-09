@@ -11,7 +11,7 @@ flows or `SigningEngine`.
 - `index.ts`: public SDK signing-engine export surface.
 - `SigningEngine.ts`: product-level facade. Public methods should delegate to
   one feature entry module within one hop and keep deeper composition inside
-  `assembly/*`, `flows/*`, `session/public.ts`, `session/warmSigning/public.ts`,
+  `assembly/*`, `flows/*`, `session/public.ts`, `session/warmCapabilities/public.ts`,
   or other documented public boundary owners.
 - `assembly/`: assembles runtime dependencies and operation ports for `SigningEngine`.
 
@@ -24,12 +24,12 @@ flows or `SigningEngine`.
 - `session/`: selected lane identity, available lanes, readiness, record
   normalization, restore, planning, budget, sealed persistence, and
   warm-session state.
+- `session/emailOtp/`: Email OTP threshold-session provisioning, restoration,
+  export recovery, and warm-session status coordination.
 - `session/planning/`: signing-operation planning, operation fingerprints, and
   operation-id binding.
 - `session/budget/`: wallet signing-session budget reads, projection,
   reservation, and spend finalization.
-- `sessionEmailOtp/`: Email OTP threshold-session provisioning, restoration,
-  and warm-session status coordination.
 - `stepUpConfirmation/`: confirmation contracts, email-OTP/passkey prompts, intent
   digest preparation, and channel message contracts.
 - `chains/`: chain-specific payload, display, nonce, and WASM adaptor code.
@@ -49,7 +49,7 @@ Auth methods are symmetric at the prompt/auth-plan boundary:
 `stepUpConfirmation/passkeyPrompt` and `stepUpConfirmation/otpPrompt` own method
 prompt construction. Method session folders are introduced only for durable
 cross-operation lifecycle ownership, which is why Email OTP has
-`sessionEmailOtp/` and passkey currently has no `sessionPasskey/`. The ongoing
+`session/emailOtp/` and passkey currently has no `sessionPasskey/`. The ongoing
 step-up adaptor refactor has already moved neutral account-auth metadata into
 `interfaces/accountAuthMetadata.ts`, moved low-level WebAuthn
 primitives into `webauthnAuth/`, and is shrinking `walletAuth/` toward the
@@ -63,7 +63,6 @@ flowchart TD
   SE --> INIT["assembly/"]
   SE --> OPS["flows/*"]
   INIT --> SESSION["session/"]
-  INIT --> EMAILOTP["sessionEmailOtp/"]
   INIT --> CONF["stepUpConfirmation/"]
   INIT --> THRESHOLD["threshold/"]
   INIT --> CHAINS["chains/"]
@@ -74,7 +73,6 @@ flowchart TD
   INIT --> IFACE["interfaces/"]
   INIT --> WEBAUTHN["webauthnAuth/"]
   OPS --> SESSION
-  OPS --> EMAILOTP
   OPS --> CONF
   OPS --> THRESHOLD
   OPS --> CHAINS
@@ -128,7 +126,7 @@ sequenceDiagram
   `session/identity/laneIdentity.ts`.
 - `LaneCandidate` (`session/identity/laneIdentity.ts`): concrete candidate derived from
   available lane or persisted session records before selection.
-- `SelectedSigningSessionPlanningLane` (`session/signingSession/types.ts`):
+- `SelectedSigningSessionPlanningLane` (`session/operationState/types.ts`):
   planning-layer extension for operation planning, storage source, retention,
   and backing material context.
 - `SigningSessionPlan` (`session/planning/planner.ts`): planned operation

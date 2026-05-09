@@ -3,7 +3,7 @@ import {
   THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR,
   THRESHOLD_SESSION_EXHAUSTED_ERROR,
   THRESHOLD_SESSION_STATUS_UNAVAILABLE_ERROR,
-} from '@/core/signingEngine/session/warmSigning/statusReader';
+} from '@/core/signingEngine/session/warmCapabilities/statusReader';
 import {
   buildNearThresholdSigningAuthPlan,
   resolveNearThresholdSigningAuthContext,

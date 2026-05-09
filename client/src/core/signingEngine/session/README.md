@@ -3,7 +3,7 @@
 ## Owns
 
 Signing-session identity, record normalization, lane selection, readiness,
-planning, budget, restore, sealed persistence, and warm-session state.
+planning, budget, sealed recovery, sealed persistence, and warm-session state.
 
 ## May Import
 
@@ -22,7 +22,8 @@ restore, available-lane reads, and ECDSA session-record admin methods.
 
 Current child owners are explicit folders:
 `identity/*`, `availability/*`, `planning/*`, `budget/*`, `persistence/*`,
-`restore/*`, `signingSession/*`, and `warmSigning/*`.
+`sealedRecovery/*`, `operationState/*`, `warmCapabilities/*`, `passkey/*`, and
+`emailOtp/*`.
 
 ## Child Domains
 
@@ -36,15 +37,34 @@ Current child owners are explicit folders:
   `planning/operationIdBinding.ts`.
 - Budget: `budget/budget.ts`, `budget/budgetProjection.ts`,
   `budget/budgetFinalizer.ts`, and `budget/budgetStatusReader.ts`.
-- Signing operation state: `signingSession/types.ts`,
-  `signingSession/preparedOperation.ts`, `signingSession/postSignPolicy.ts`,
-  `signingSession/transactionState.ts`, and `signingSession/trace.ts`.
-- Restore and persistence: `restore/restoreCoordinator.ts`,
+- Signing operation state: `operationState/types.ts`,
+  `operationState/preparedOperation.ts`, `operationState/postSignPolicy.ts`,
+  `operationState/transactionState.ts`, and `operationState/trace.ts`.
+- Sealed recovery and persistence: `sealedRecovery/restoreCoordinator.ts`,
+  `sealedRecovery/types.ts`, `sealedRecovery/exactRecordLookup.ts`,
+  `sealedRecovery/policy.ts`, `sealedRecovery/companionSessions.ts`,
+  `sealedRecovery/readback.ts`,
   `persistence/sealedSessionStore.ts`, `persistence/records.ts`, and
   persistence-specific normalization.
-- Warm signing: `warmSigning/*` for warm-session material, sealed-refresh
-  parity, provisioning, runtime reads, status reads, capability state, and
-  the warm-session public facade in `warmSigning/public.ts`.
+- Method folders consume the same sealed-recovery orchestration boundary:
+  passkey reconnect/restore-before-claim goes through
+  `sealedRecovery/restoreCoordinator.ts`, while Email OTP additionally reuses
+  `sealedRecovery/policy.ts`, `sealedRecovery/readback.ts`, and
+  `sealedRecovery/companionSessions.ts`.
+- Warm capabilities: `warmCapabilities/*` for warm-session material,
+  sealed-refresh parity, provisioning, runtime reads, status reads, capability
+  state, and the warm-session public facade in `warmCapabilities/public.ts`.
+- Passkey method helpers: `passkey/prfCache.ts`, `passkey/runtime.ts`,
+  `passkey/ecdsaProvisioner.ts`, `passkey/ed25519Provisioner.ts`,
+  `passkey/ecdsaBootstrap.ts`, `passkey/ecdsaWarmCapabilityBootstrap.ts`,
+  `passkey/ecdsaSessionProvision.ts`, `passkey/ed25519SessionProvision.ts`,
+  and `passkey/ecdsaBootstrapRequest.ts`.
+- Email OTP method helpers: `emailOtp/EmailOtpThresholdSessionCoordinator.ts`,
+  `emailOtp/companionSessions.ts`,
+  `emailOtp/ecdsaRecovery.ts`, `emailOtp/ed25519Recovery.ts`,
+  `emailOtp/ecdsaBootstrapCommit.ts`, `emailOtp/ed25519LocalMetadata.ts`,
+  `emailOtp/exportRecovery.ts`, `emailOtp/provisioning.ts`,
+  `emailOtp/status.ts`, and `emailOtp/workerRequests.ts`.
 
 Selected-lane construction belongs to `identity/selectLane.ts` and
 `identity/laneIdentity.ts`.

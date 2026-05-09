@@ -17,7 +17,7 @@ import type {
 import type {
   RestorePersistedSessionsForAccountInput,
   RestorePersistedSessionsForAccountResult,
-} from './restore/restoreCoordinator';
+} from './sealedRecovery/types';
 import {
   clearAllThresholdEcdsaSessionRecords as clearAllThresholdEcdsaSessionRecordsValue,
   clearThresholdEcdsaSessionRecordForAccount as clearThresholdEcdsaSessionRecordForAccountValue,
@@ -218,6 +218,6 @@ export type SessionPublicApi = ReturnType<typeof createSessionPublicApi>;
 export type {
   RestorePersistedSessionsForAccountInput,
   RestorePersistedSessionsForAccountResult,
-} from './restore/restoreCoordinator';
+} from './sealedRecovery/types';
 export type { ReadAvailableSigningLanesInput, AvailableSigningLanes } from './availability/availableSigningLanes';
 export type { ThresholdEcdsaSessionRecord } from './persistence/records';

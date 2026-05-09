@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { SigningEngine } from '@/core/signingEngine/SigningEngine';
-import { SigningOperationIntent } from '@/core/signingEngine/session/signingSession/types';
+import { SigningOperationIntent } from '@/core/signingEngine/session/operationState/types';
 
 test.describe('threshold ECDSA registration bootstrap parity gate', () => {
   test('registration-source bootstrap soft-fails startup parity errors', async () => {

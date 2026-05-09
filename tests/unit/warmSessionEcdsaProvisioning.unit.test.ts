@@ -6,8 +6,8 @@ import {
   getPrimaryAndSecondaryEcdsaCapabilities,
   normalizeParticipantIds,
   toOptionalNonEmptyString,
-} from '@/core/signingEngine/session/warmSigning/ecdsaProvisioner';
-import type { WarmSessionEnvelope } from '@/core/signingEngine/session/warmSigning/types';
+} from '@/core/signingEngine/session/passkey/ecdsaProvisioner';
+import type { WarmSessionEnvelope } from '@/core/signingEngine/session/warmCapabilities/types';
 import {
   createThresholdEcdsaBootstrapFixture,
   testEcdsaChainTarget,

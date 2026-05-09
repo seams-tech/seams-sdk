@@ -4,7 +4,7 @@ import {
   getThresholdEcdsaKeyRefByKey,
   getThresholdEcdsaSessionRecordByKey,
 } from '@/core/signingEngine/session/persistence/records';
-import { SigningSessionIds } from '@/core/signingEngine/session/signingSession/types';
+import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 import { toAccountId } from '@/core/types/accountIds';
 import { SigningEventPhase } from '@/core/types/sdkSentEvents';
 import {

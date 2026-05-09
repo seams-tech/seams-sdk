@@ -1,5 +1,5 @@
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
-import { createWarmSessionStatusReader } from '../../session/warmSigning/statusReader';
+import { createWarmSessionStatusReader } from '../../session/warmCapabilities/statusReader';
 import type { EmailOtpPublicDeps } from '../../flows/signEvmFamily/emailOtpPublic';
 import type { WarmSessionStatusResult } from '../../uiConfirm/types';
 import type { CreateSigningEnginePortsArgs } from './shared';

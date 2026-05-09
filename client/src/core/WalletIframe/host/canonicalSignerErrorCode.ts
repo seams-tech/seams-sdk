@@ -15,6 +15,7 @@ export type CanonicalWalletSignerErrorCode =
   | 'deployment_failed'
   | 'nonce_conflict_retryable'
   | 'nonce_lane_blocked'
+  | 'rpc_request_failed'
   | 'cancelled';
 
 export type WalletSignerBoundaryKind = SignerKind;
@@ -33,6 +34,7 @@ const CANONICAL_SIGNER_CODES = new Set<CanonicalWalletSignerErrorCode>([
   'deployment_failed',
   'nonce_conflict_retryable',
   'nonce_lane_blocked',
+  'rpc_request_failed',
   'cancelled',
 ]);
 
@@ -92,6 +94,7 @@ const CANONICAL_SIGNER_ERROR_MESSAGES: Record<CanonicalWalletSignerErrorCode, st
   nonce_conflict_retryable: 'Nonce conflict detected. Refresh nonce state and retry the request.',
   nonce_lane_blocked:
     'Nonce lane is blocked by unresolved in-flight transaction(s). Reconcile lane state and retry.',
+  rpc_request_failed: 'RPC request failed. Retry the request or use another RPC endpoint.',
   cancelled: 'Request cancelled.',
 };
 
@@ -272,6 +275,15 @@ function inferCanonicalCodeFromRawCode(args: {
     return 'nonce_lane_blocked';
   }
 
+  if (
+    rawCode === 'rpc_request_failed' ||
+    rawCode === 'rpc_error' ||
+    rawCode === 'request_timeout' ||
+    rawCode === 'timeout'
+  ) {
+    return 'rpc_request_failed';
+  }
+
   return null;
 }
 
@@ -349,6 +361,15 @@ function inferCanonicalCodeFromMessage(args: {
     message.includes('invalid nonce')
   ) {
     return 'nonce_conflict_retryable';
+  }
+
+  if (
+    message.includes('rpc request failed') ||
+    message.includes('[nearclient] rpc call') ||
+    message.includes('request timeout') ||
+    message.includes('408')
+  ) {
+    return 'rpc_request_failed';
   }
 
   if (

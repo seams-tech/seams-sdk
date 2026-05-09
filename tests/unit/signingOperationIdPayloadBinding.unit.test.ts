@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
 import { computeSigningOperationFingerprint } from '@/core/signingEngine/session/planning/operationFingerprint';
-import { SigningSessionIds } from '@/core/signingEngine/session/signingSession/types';
+import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 
 test.describe('SigningOperationIdPayloadBinding', () => {
   test('rejects a caller-provided NEAR operation id reused for different transactions', async () => {

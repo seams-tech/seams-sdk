@@ -20,13 +20,13 @@ import type {
 import {
   readWarmSessionCapabilityRecordsForAccount,
   readWarmSessionEd25519RecordByThresholdSessionId,
-} from '../warmSigning/store';
-import type { WarmSessionPrfClaim } from '../warmSigning/types';
+} from '../warmCapabilities/store';
+import type { WarmSessionPrfClaim } from '../warmCapabilities/types';
 import {
   readWarmSessionClaims,
   toSigningSessionStatus,
   toWarmSessionClaimFromStatusResult,
-} from '../warmSigning/readModel';
+} from '../warmCapabilities/readModel';
 import type { SigningSessionBudgetStatusAuth } from '../budget/budget';
 import type { SigningSessionReadiness } from '../planning/planner';
 import {

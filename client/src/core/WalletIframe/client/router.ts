@@ -369,6 +369,7 @@ const CANONICAL_SIGNER_BOUNDARY_MESSAGES: Record<string, string> = {
   deployment_in_progress: 'Smart-account deployment is already in progress.',
   deployment_failed: 'Smart-account deployment failed before signing.',
   nonce_conflict_retryable: 'Nonce conflict detected. Refresh nonce state and retry the request.',
+  rpc_request_failed: 'RPC request failed. Retry the request or use another RPC endpoint.',
   cancelled: 'Request cancelled.',
 };
 

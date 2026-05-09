@@ -16,7 +16,7 @@ import {
   isConcreteAvailableSigningLane,
 } from '../../session/availability/availableSigningLanes';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
-import type { RestorePersistedSessionForSigningInput } from '../../session/restore/restoreCoordinator';
+import type { RestorePersistedSessionForSigningInput } from '../../session/sealedRecovery/types';
 import type { SigningSessionBudgetStatusAuth } from '../../session/budget/budget';
 import {
   selectTransactionLane,
@@ -29,12 +29,12 @@ import {
   type PreparedTransactionOperation,
   type TransactionAuthSelectionPolicy,
   type TransactionSigningIntent,
-} from '../../session/signingSession/transactionState';
+} from '../../session/operationState/transactionState';
 import {
   thresholdEcdsaChainTargetsEqual,
   type WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { type PreparedThresholdSigningOperation } from '../../session/signingSession/preparedOperation';
+import { type PreparedThresholdSigningOperation } from '../../session/operationState/preparedOperation';
 import {
   createSigningBoundaryTraceEvent,
   emitSigningBoundaryTrace,
@@ -42,7 +42,7 @@ import {
   emitSigningPlannerDecisionTrace,
   emitSigningSessionFlowFailure,
   emitSigningSessionFlowTrace,
-} from '../../session/signingSession/trace';
+} from '../../session/operationState/trace';
 import {
   requireResolvedEvmFamilyEcdsaSigningLane,
   summarizeEvmFamilyEcdsaKeyRef,
@@ -364,12 +364,18 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           );
         }
         const authMethod = transactionLane.authMethod;
+        const hasExactHotMaterial = Boolean(
+          args.deps.getThresholdEcdsaSessionRecordByKey(transactionLane) ||
+            args.deps.getThresholdEcdsaKeyRefByKey(transactionLane),
+        );
         // Transaction prepare first reads side-effect-free available signing
         // lanes, then restores only the selected exact auth-method lane.
         // Broad probing belongs to startup/session-status maintenance paths.
         const restoreResults: Record<string, unknown> = {};
         const shouldRestoreAvailableLane =
-          laneCandidate.state === 'restorable' || laneCandidate.state === 'deferred';
+          laneCandidate.state === 'restorable' ||
+          laneCandidate.state === 'deferred' ||
+          !hasExactHotMaterial;
         if (shouldRestoreAvailableLane) {
           emitSigningSessionFlowTrace('evm-family', {
             stage: 'ecdsa_prepare.restore_start',
@@ -377,6 +383,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
             chain,
             chainTarget,
             authMethod,
+            hasExactHotMaterial,
             selectedAvailableLane: summarizeEcdsaAvailableLane(selectedAvailableLane),
             selectedLaneCandidate: summarizeEcdsaLaneCandidate(laneCandidate),
           });

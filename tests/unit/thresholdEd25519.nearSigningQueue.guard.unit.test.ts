@@ -71,7 +71,7 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
       'client/src/core/signingEngine/session/SigningSessionCoordinator.ts',
     );
     const emailOtpCoordinator = readRepoSource(
-      'client/src/core/signingEngine/sessionEmailOtp/EmailOtpThresholdSessionCoordinator.ts',
+      'client/src/core/signingEngine/session/emailOtp/EmailOtpThresholdSessionCoordinator.ts',
     );
     const worker = readRepoSource(
       'client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
@@ -104,7 +104,7 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
       'client/src/core/signingEngine/session/availability/readiness.ts',
     );
 
-    expect(enginePorts).toContain('new SigningSessionCoordinator');
+    expect(enginePorts).toContain('createSigningSessionCoordinatorPort({');
     expect(enginePorts).toContain('signingSessionCoordinator');
     expect(enginePorts).not.toContain('signingSessionBudget');
     expect(enginePorts).not.toContain('consumeWalletSigningSessionUse');

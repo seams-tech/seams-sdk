@@ -5,9 +5,9 @@ import {
 import type { ThresholdEd25519SessionStoreSource } from '@/core/signingEngine/session/identity/laneIdentity';
 import {
   buildNearTransactionSigningLane,
-} from '@/core/signingEngine/session/signingSession/lanes';
-import { SigningSessionIds } from '@/core/signingEngine/session/signingSession/types';
-import type { WarmSessionCapabilityReader } from '@/core/signingEngine/session/warmSigning/types';
+} from '@/core/signingEngine/session/operationState/lanes';
+import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
+import type { WarmSessionCapabilityReader } from '@/core/signingEngine/session/warmCapabilities/types';
 import type { NearResolvedEd25519SigningSessionState } from '@/core/signingEngine/interfaces/near';
 import { THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR } from './thresholdAuthMode';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';

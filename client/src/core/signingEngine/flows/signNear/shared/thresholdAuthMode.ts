@@ -6,15 +6,17 @@ import {
   formatThresholdSigningSessionAvailabilityError,
   THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR,
   THRESHOLD_SESSION_MISSING_ERROR,
-} from '@/core/signingEngine/session/warmSigning/statusReader';
-import { createWarmSessionCapabilityReader } from '@/core/signingEngine/session/warmSigning/capabilityReader';
-import { createWarmSessionStatusReader } from '@/core/signingEngine/session/warmSigning/statusReader';
+} from '@/core/signingEngine/session/warmCapabilities/statusReader';
+import { createWarmSessionCapabilityReader } from '@/core/signingEngine/session/warmCapabilities/capabilityReader';
+import { createWarmSessionStatusReader } from '@/core/signingEngine/session/warmCapabilities/statusReader';
 import type {
   ThresholdWarmSessionStatusReader,
   WarmSessionCapabilityReader,
   WarmSessionProvisioner,
-} from '@/core/signingEngine/session/warmSigning/types';
-import { claimWarmSessionPrfFirst } from '@/core/signingEngine/session/warmSigning/runtime';
+} from '@/core/signingEngine/session/warmCapabilities/types';
+import { claimPasskeyEcdsaPrfFirst } from '@/core/signingEngine/session/passkey/ecdsaRecovery';
+import { claimPasskeyEd25519PrfFirst } from '@/core/signingEngine/session/passkey/ed25519Recovery';
+import { claimWarmSessionPrfFirst } from '@/core/signingEngine/session/passkey/prfClaim';
 import type {
   WarmSessionPersistedRestorer,
   WarmSessionStatusResult,
@@ -22,7 +24,7 @@ import type {
 import {
   buildNearTransactionSigningLane,
   type NearTransactionSigningLane,
-} from '@/core/signingEngine/session/signingSession/lanes';
+} from '@/core/signingEngine/session/operationState/lanes';
 import {
   type ResolveSigningSessionAuthPlanFromReadinessInput,
   type ResolveSigningSessionAuthPlanFromReadinessResult,
@@ -33,12 +35,12 @@ import {
   emitSigningBoundaryTrace,
   emitSigningLaneResolutionTrace,
   emitSigningPlannerDecisionTrace,
-} from '@/core/signingEngine/session/signingSession/trace';
+} from '@/core/signingEngine/session/operationState/trace';
 import {
   SigningOperationIntent,
   SigningSessionPlanKind,
   SigningSessionIds,
-} from '@/core/signingEngine/session/signingSession/types';
+} from '@/core/signingEngine/session/operationState/types';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export type NearThresholdSigningAuthPlan = {
@@ -63,53 +65,6 @@ type NearSigningSessionCoordinatorPort = Parameters<
     ? UiConfirm & Partial<WarmSessionPersistedRestorer>
     : never
   : never;
-
-async function restorePasskeySessionBeforeClaim(args: {
-  touchConfirm: NearSigningSessionCoordinatorPort;
-  claim: {
-    walletId?: string;
-    authMethod?: 'passkey' | 'email_otp';
-    curve?: 'ed25519' | 'ecdsa';
-    chain?: 'near';
-    chainTarget?: ThresholdEcdsaChainTarget;
-    walletSigningSessionId?: string;
-    thresholdSessionId: string;
-  };
-}): Promise<void> {
-  if (args.claim.authMethod !== 'passkey') return;
-  if (typeof args.touchConfirm?.restorePersistedSessionForSigning !== 'function') return;
-  const walletId = String(args.claim.walletId || '').trim();
-  const walletSigningSessionId = String(args.claim.walletSigningSessionId || '').trim();
-  const thresholdSessionId = String(args.claim.thresholdSessionId || '').trim();
-  if (!walletId || !walletSigningSessionId || !thresholdSessionId) return;
-  const curve = args.claim.curve;
-  const chain = args.claim.chain;
-  if (curve === 'ed25519') {
-    if (chain !== 'near') return;
-    await args.touchConfirm.restorePersistedSessionForSigning({
-      walletId,
-      authMethod: 'passkey',
-      curve: 'ed25519',
-      chain: 'near',
-      walletSigningSessionId,
-      thresholdSessionId,
-      reason: 'transaction',
-    });
-    return;
-  }
-  if (curve !== 'ecdsa' || !args.claim.chainTarget) {
-    return;
-  }
-  await args.touchConfirm.restorePersistedSessionForSigning({
-    walletId,
-    authMethod: 'passkey',
-    curve: 'ecdsa',
-    chainTarget: args.claim.chainTarget,
-    walletSigningSessionId,
-    thresholdSessionId,
-    reason: 'transaction',
-  });
-}
 
 export function createNearSigningSessionCoordinator(
   touchConfirm: NearSigningSessionCoordinatorPort,
@@ -152,14 +107,51 @@ export function createNearSigningSessionCoordinator(
           consume = statusBeforeRestore?.ok === true;
         }
       }
-      return claimWarmSessionPrfFirst({
+      if (claimArgs.authMethod !== 'passkey') {
+        return await claimWarmSessionPrfFirst({
+          touchConfirm,
+          thresholdSessionId: claimArgs.thresholdSessionId,
+          errorContext: claimArgs.errorContext,
+          uses: claimArgs.uses,
+          consume,
+          ...(claimArgs.curve ? { curve: claimArgs.curve } : {}),
+          ...(claimArgs.chain ? { chain: claimArgs.chain } : {}),
+          ...(claimArgs.chainTarget ? { chainTarget: claimArgs.chainTarget } : {}),
+        });
+      }
+      const walletId = String(claimArgs.walletId || '').trim();
+      const walletSigningSessionId = String(claimArgs.walletSigningSessionId || '').trim();
+      if (!walletId || !walletSigningSessionId) {
+        throw new Error(
+          '[WarmSessionStore] NEAR passkey warm-session claim requires walletId and walletSigningSessionId',
+        );
+      }
+      if (claimArgs.curve === 'ecdsa') {
+        const chainTarget = claimArgs.chainTarget;
+        if (!chainTarget) {
+          throw new Error(
+            '[WarmSessionStore] NEAR passkey ECDSA warm-session claim requires chainTarget',
+          );
+        }
+        return await claimPasskeyEcdsaPrfFirst({
+          touchConfirm,
+          walletId,
+          walletSigningSessionId,
+          thresholdSessionId: claimArgs.thresholdSessionId,
+          chainTarget,
+          errorContext: claimArgs.errorContext,
+          uses: claimArgs.uses,
+          consume,
+        });
+      }
+      return await claimPasskeyEd25519PrfFirst({
         touchConfirm,
+        walletId,
+        walletSigningSessionId,
         thresholdSessionId: claimArgs.thresholdSessionId,
         errorContext: claimArgs.errorContext,
         uses: claimArgs.uses,
         consume,
-        restoreBeforeClaim: () =>
-          restorePasskeySessionBeforeClaim({ touchConfirm, claim: claimArgs }),
       });
     },
   };

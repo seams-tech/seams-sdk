@@ -1,4 +1,4 @@
-import type { SigningSessionPlan } from '../../session/signingSession/types';
+import type { SigningSessionPlan } from '../../session/operationState/types';
 import { runSuccessfulEvmFamilyPostSignCommands } from './postSignFinalization';
 import type { EvmSignedResult } from '../../chains/evm/evmAdapter';
 import type { EvmSigningRequest } from '../../chains/evm/types';
@@ -6,7 +6,7 @@ import type { TempoSignedResult } from '../../chains/tempo/tempoAdapter';
 import type { TempoSigningRequest } from '../../chains/tempo/types';
 import type { SelectedEcdsaLane } from '../../session/identity/laneIdentity';
 import type { SigningSessionBudgetReservation } from '../../session/budget/budget';
-import type { BudgetAdmittedOperation } from '../../session/signingSession/transactionState';
+import type { BudgetAdmittedOperation } from '../../session/operationState/transactionState';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EvmFamilyThresholdEcdsaStepUp } from './requireEvmFamilyStepUpAuth';
 import {

@@ -37,13 +37,14 @@ import {
   SigningOperationIntent,
   SigningSessionIds,
   type SigningOperationContext,
-} from '../../session/signingSession/types';
+} from '../../session/operationState/types';
 import {
   SigningOperationCommandKind,
   runSigningOperationCommand,
   type SigningOperationCommand,
 } from '../shared/signingStateMachine';
 import { runSigningConfirmationCommand } from '../shared/signingConfirmation';
+import { requireNearStepUpAuth } from './requireNearStepUpAuth';
 
 /**
  * Sign a NEP-413 message using the user's passkey-derived private key
@@ -133,6 +134,11 @@ export async function signNep413Message({
         commandKind: args.commandKind,
         execute: args.execute,
       });
+    const preparedStepUp = await requireNearStepUpAuth({
+      signingAuthPlan: thresholdAuthPlan.signingAuthPlan,
+      signingLane: thresholdAuthPlan.lane,
+      usesNeeded,
+    });
     const confirmation = await runSigningConfirmationCommand({
       signingSessionPlan: resolvedThresholdSigningSession.signingSessionPlan,
       signingOperation,
@@ -142,7 +148,7 @@ export async function signNep413Message({
         sessionId,
         chain: 'near',
         kind: 'nep413',
-        ...thresholdAuthPlan.confirmationAuthPayload,
+        ...preparedStepUp.confirmationAuthPayload,
         nearAccountId,
         nearPublicKeyStr: signingContext.nearPublicKey,
         message: payload.message,

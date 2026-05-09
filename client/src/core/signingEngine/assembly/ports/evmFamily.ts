@@ -1,7 +1,7 @@
 import { IndexedDBManager } from '@/core/indexedDB';
 import type { EvmFamilySigningDeps } from '../../interfaces/operationDeps';
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
-import { createWarmSessionCapabilityReader } from '../../session/warmSigning/capabilityReader';
+import { createWarmSessionCapabilityReader } from '../../session/warmCapabilities/capabilityReader';
 import type { WarmSessionStatusResult } from '../../uiConfirm/types';
 import type { CreateSigningEnginePortsArgs } from './shared';
 

@@ -10,7 +10,6 @@ const targetTopLevelFolders = [
   'assembly',
   'flows',
   'session',
-  'sessionEmailOtp',
   'stepUpConfirmation',
   'threshold',
   'chains',
@@ -48,8 +47,9 @@ const signingEngineAllowedImportPrefixes = [
   './session/availability/persistedAvailableSigningLanes',
   './session/persistence/records',
   './session/identity/laneIdentity',
-  './session/warmSigning/',
-  './sessionEmailOtp/',
+  './session/passkey/',
+  './session/warmCapabilities/',
+  './session/emailOtp/',
   './nonce/NonceCoordinator',
   './uiConfirm/',
   './walletAuth/',
@@ -62,7 +62,6 @@ const currentTopLevelImportContract: Record<string, readonly string[]> = {
     'walletAuth',
     'chains',
     'stepUpConfirmation',
-    'sessionEmailOtp',
     'assembly',
     'interfaces',
     'nonce',
@@ -78,15 +77,6 @@ const currentTopLevelImportContract: Record<string, readonly string[]> = {
   webauthnAuth: [],
   chains: ['interfaces', 'workerManager'],
   stepUpConfirmation: ['interfaces', 'webauthnAuth'],
-  sessionEmailOtp: [
-    'stepUpConfirmation',
-    'interfaces',
-    'session',
-    'threshold',
-    'uiConfirm',
-    'webauthnAuth',
-    'workerManager',
-  ],
   assembly: [
     'flows',
     'walletAuth',
@@ -95,7 +85,6 @@ const currentTopLevelImportContract: Record<string, readonly string[]> = {
     'interfaces',
     'nonce',
     'session',
-    'sessionEmailOtp',
     'threshold',
     'uiConfirm',
     'webauthnAuth',
@@ -176,6 +165,7 @@ const deletedSigningEngineFolders = [
   'client/src/core/signingEngine/signers/wasm',
   'client/src/core/signingEngine/signers/webauthn',
   'client/src/core/signingEngine/webauthnAuth/cose',
+  'client/src/core/signingEngine/sessionEmailOtp',
   'client/src/core/signingEngine/sessionsEmailOtp',
   'client/src/core/signingEngine/flows/emailOtp',
   'client/src/core/signingEngine/flows/passkey',
@@ -183,6 +173,9 @@ const deletedSigningEngineFolders = [
   'client/src/core/signingEngine/sessionMagicLink',
   'client/src/core/signingEngine/sessionAuthenticatorOtp',
   'client/src/core/signingEngine/sessionPassword',
+  'client/src/core/signingEngine/session/restore',
+  'client/src/core/signingEngine/session/signingSession',
+  'client/src/core/signingEngine/session/warmSigning',
   'client/src/core/signingEngine/touchConfirm',
   'client/src/core/signingEngine/uiConfirm/shared',
 ] as const;
@@ -265,13 +258,13 @@ const deletedSigningEnginePaths = [
   'client/src/core/signingEngine/stepUpConfirmation/warmSessionUiConfirm.ts',
   'client/src/core/signingEngine/stepUpConfirmation/passkeyPrompt/webauthnKeyRef.ts',
   'client/src/core/signingEngine/webauthnAuth/cose/coseP256.ts',
-  'client/src/core/signingEngine/session/signingSession/budget.ts',
-  'client/src/core/signingEngine/session/signingSession/budgetFinalizer.ts',
-  'client/src/core/signingEngine/session/signingSession/budgetProjection.ts',
-  'client/src/core/signingEngine/session/signingSession/budgetStatusReader.ts',
-  'client/src/core/signingEngine/session/signingSession/planner.ts',
-  'client/src/core/signingEngine/session/signingSession/operationFingerprint.ts',
-  'client/src/core/signingEngine/session/signingSession/operationIdBinding.ts',
+  'client/src/core/signingEngine/session/operationState/budget.ts',
+  'client/src/core/signingEngine/session/operationState/budgetFinalizer.ts',
+  'client/src/core/signingEngine/session/operationState/budgetProjection.ts',
+  'client/src/core/signingEngine/session/operationState/budgetStatusReader.ts',
+  'client/src/core/signingEngine/session/operationState/planner.ts',
+  'client/src/core/signingEngine/session/operationState/operationFingerprint.ts',
+  'client/src/core/signingEngine/session/operationState/operationIdBinding.ts',
   'client/src/core/signingEngine/chainAdaptors/evm/bytes.ts',
   'client/src/core/signingEngine/chainAdaptors/evm/evmAdapter.ts',
   'client/src/core/signingEngine/chainAdaptors/evm/index.ts',
@@ -313,9 +306,9 @@ const deletedSigningEnginePaths = [
   'client/src/core/signingEngine/orchestration/tempo/tempoSigningFlow.ts',
   'client/src/core/signingEngine/orchestration/walletOrigin/thresholdEcdsaCoordinator.ts',
   'client/src/core/signingEngine/orchestration/walletOrigin/webauthnKeyRef.ts',
-  'client/src/core/signingEngine/session/signingSession/execution.ts',
-  'client/src/core/signingEngine/session/signingSession/ecdsaChainTarget.ts',
-  'client/src/core/signingEngine/session/signingSession/readiness.ts',
+  'client/src/core/signingEngine/session/operationState/execution.ts',
+  'client/src/core/signingEngine/session/operationState/ecdsaChainTarget.ts',
+  'client/src/core/signingEngine/session/operationState/readiness.ts',
   'client/src/core/signingEngine/session/identity.ts',
   'client/src/core/signingEngine/session/selectLane.ts',
   'client/src/core/signingEngine/session/availableSigningLanes.ts',
@@ -538,9 +531,15 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     expect(source).toContain("type WarmSigningPorts,");
     expect(source).toContain("from './assembly/ports/warmSigning';");
     expect(source).toContain('this.warmSigning = createWarmSigningPorts({');
-    expect(source).toContain('const warmSigningPublicDeps = createWarmSigningPublicDeps({');
+    expect(source).toContain('const passkeyPublicDeps = createPasskeyPublicDeps({');
     expect(source).toContain(
-      'this.warmSigningPublic = createWarmSigningPublicApi(warmSigningPublicDeps);',
+      'this.passkeyPublic = createPasskeyPublicApi(passkeyPublicDeps);',
+    );
+    expect(source).toContain(
+      'const warmCapabilitiesPublicDeps = createWarmCapabilitiesPublicDeps({',
+    );
+    expect(source).toContain(
+      'this.warmCapabilitiesPublic = createWarmCapabilitiesPublicApi(warmCapabilitiesPublicDeps);',
     );
     expect(source).not.toContain('createWarmSessionStatusOnlyUiConfirm(');
     expect(source).not.toContain('createWarmSessionCapabilityReader(');
@@ -549,51 +548,59 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     expect(warmSigningAssembly).toContain('createWarmSessionStatusOnlyUiConfirm');
     expect(warmSigningAssembly).toContain('createWarmSessionCapabilityReader');
     expect(warmSigningAssembly).toContain('createWarmSessionStatusReader');
-    expect(warmSigningAssembly).toContain('export function createWarmSigningPublicDeps');
+    expect(warmSigningAssembly).toContain('export function createPasskeyPublicDeps');
+    expect(warmSigningAssembly).toContain('export function createWarmCapabilitiesPublicDeps');
   });
 
   test('warm-session public methods delegate through session warm-signing public entrypoints', () => {
     const source = readRepoSource('client/src/core/signingEngine/SigningEngine.ts');
     const warmSigningPublic = readRepoSource(
-      'client/src/core/signingEngine/session/warmSigning/public.ts',
+      'client/src/core/signingEngine/session/warmCapabilities/public.ts',
+    );
+    const passkeyPublic = readRepoSource(
+      'client/src/core/signingEngine/session/passkey/public.ts',
     );
 
-    expect(source).toContain("from './session/warmSigning/public';");
+    expect(source).toContain("from './session/warmCapabilities/public';");
+    expect(source).toContain("from './session/passkey/public';");
     expect(source).toContain(
-      'return await this.warmSigningPublic.connectEd25519Session(args);',
+      'return await this.passkeyPublic.connectEd25519Session(args);',
     );
     expect(source).toContain(
-      'return await this.warmSigningPublic.bootstrapEcdsaSession(args);',
+      'return await this.passkeyPublic.bootstrapEcdsaSession(args);',
     );
     expect(source).toContain(
-      'return this.warmSigningPublic.persistThresholdEcdsaBootstrapChainAccount(args);',
+      'return this.warmCapabilitiesPublic.persistThresholdEcdsaBootstrapChainAccount(args);',
     );
     expect(source).toContain(
-      'return this.warmSigningPublic.getWarmThresholdEd25519SessionStatus(nearAccountId);',
+      'return this.warmCapabilitiesPublic.getWarmThresholdEd25519SessionStatus(nearAccountId);',
     );
     expect(source).toContain(
-      'return this.warmSigningPublic.getWarmThresholdEcdsaSessionStatus(',
+      'return this.warmCapabilitiesPublic.getWarmThresholdEcdsaSessionStatus(',
     );
     expect(source).toContain(
-      'return this.warmSigningPublic.listWarmThresholdEcdsaSessionStatuses(nearAccountId, chainTarget);',
+      'return this.warmCapabilitiesPublic.listWarmThresholdEcdsaSessionStatuses(',
     );
     expect(source).toContain(
-      'return await this.warmSigningPublic.scheduleThresholdEcdsaLoginPresignPrefill(args);',
+      'return await this.warmCapabilitiesPublic.scheduleThresholdEcdsaLoginPresignPrefill(args);',
     );
     expect(source).toContain(
-      'await this.warmSigningPublic.hydrateSigningSession(args);',
+      'await this.warmCapabilitiesPublic.hydrateSigningSession(args);',
     );
     expect(source).toContain(
-      'await this.warmSigningPublic.clearWarmSigningSessions(nearAccountId);',
+      'await this.warmCapabilitiesPublic.clearWarmSigningSessions(nearAccountId);',
     );
     expect(source).not.toContain('return await provisionWarmEd25519Capability(');
     expect(source).not.toContain('return await bootstrapWarmEcdsaCapability(');
 
-    expect(warmSigningPublic).toContain('export type WarmSigningPublicDeps');
-    expect(warmSigningPublic).toContain('export async function connectEd25519Session');
+    expect(warmSigningPublic).toContain('export type WarmCapabilitiesPublicDeps');
+    expect(warmSigningPublic).not.toContain('export async function connectEd25519Session');
     expect(warmSigningPublic).toContain(
       'export async function scheduleThresholdEcdsaLoginPresignPrefill',
     );
+    expect(passkeyPublic).toContain('export type PasskeyPublicDeps');
+    expect(passkeyPublic).toContain('export async function connectEd25519Session');
+    expect(passkeyPublic).toContain('export async function bootstrapEcdsaSession');
   });
 
   test('step-up runtime assembly is bound through assembly ports', () => {
@@ -762,9 +769,11 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
       'client/src/core/signingEngine/session/identity/README.md',
       'client/src/core/signingEngine/session/availability/README.md',
       'client/src/core/signingEngine/session/persistence/README.md',
-      'client/src/core/signingEngine/session/restore/README.md',
-      'client/src/core/signingEngine/session/warmSigning/README.md',
-      'client/src/core/signingEngine/session/signingSession/README.md',
+      'client/src/core/signingEngine/session/sealedRecovery/README.md',
+      'client/src/core/signingEngine/session/warmCapabilities/README.md',
+      'client/src/core/signingEngine/session/passkey/README.md',
+      'client/src/core/signingEngine/session/emailOtp/README.md',
+      'client/src/core/signingEngine/session/operationState/README.md',
       'client/src/core/signingEngine/session/budget/README.md',
       'client/src/core/signingEngine/session/planning/README.md',
     ]) {
@@ -912,9 +921,11 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
       'client/src/core/signingEngine/session/planning',
       'client/src/core/signingEngine/session/budget',
       'client/src/core/signingEngine/session/persistence',
-      'client/src/core/signingEngine/session/restore',
-      'client/src/core/signingEngine/session/signingSession',
-      'client/src/core/signingEngine/session/warmSigning',
+      'client/src/core/signingEngine/session/sealedRecovery',
+      'client/src/core/signingEngine/session/operationState',
+      'client/src/core/signingEngine/session/warmCapabilities',
+      'client/src/core/signingEngine/session/passkey',
+      'client/src/core/signingEngine/session/emailOtp',
     ] as const;
     const forbiddenMarkers = [
       '/flows/',
@@ -937,16 +948,45 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     expect(offenders).toEqual([]);
   });
 
+  test('sealedRecovery stays free of method folders, flows, assembly, and SigningEngine.ts', () => {
+    const domainRoot = path.join(
+      repoRoot,
+      'client/src/core/signingEngine/session/sealedRecovery',
+    );
+    const offenders: string[] = [];
+
+    for (const relativePath of listProductionTypeScriptFiles(domainRoot)) {
+      const source = readRepoSource(relativePath);
+      for (const specifier of extractImportSpecifiers(source)) {
+        const resolved = resolveSigningEngineImport(relativePath, specifier);
+        if (!resolved) continue;
+        if (
+          resolved.startsWith('client/src/core/signingEngine/session/passkey/') ||
+          resolved.startsWith('client/src/core/signingEngine/session/emailOtp/') ||
+          resolved.startsWith('client/src/core/signingEngine/flows/') ||
+          resolved.startsWith('client/src/core/signingEngine/assembly/') ||
+          resolved === 'client/src/core/signingEngine/SigningEngine'
+        ) {
+          offenders.push(`${relativePath} -> ${specifier}`);
+        }
+      }
+    }
+
+    expect(offenders).toEqual([]);
+  });
+
   test('session child domains only use allowed sibling domains', () => {
     const allowedSiblingDomains: Record<string, readonly string[]> = {
-      identity: ['availability', 'signingSession'],
-      availability: ['identity', 'persistence', 'warmSigning', 'budget', 'planning'],
-      planning: ['signingSession'],
-      budget: ['persistence', 'signingSession'],
+      identity: ['availability', 'operationState'],
+      availability: ['identity', 'persistence', 'warmCapabilities', 'budget', 'planning'],
+      planning: ['operationState'],
+      budget: ['persistence', 'operationState'],
       persistence: ['identity'],
-      restore: ['persistence'],
-      signingSession: ['identity', 'persistence', 'budget', 'planning'],
-      warmSigning: ['availability', 'identity', 'persistence', 'signingSession', 'budget'],
+      sealedRecovery: ['persistence'],
+      operationState: ['identity', 'persistence', 'budget', 'planning'],
+      warmCapabilities: ['availability', 'identity', 'persistence', 'operationState', 'budget'],
+      passkey: ['identity', 'persistence', 'operationState', 'warmCapabilities'],
+      emailOtp: ['availability', 'identity', 'persistence', 'sealedRecovery', 'warmCapabilities'],
     };
     const offenders: string[] = [];
 
@@ -976,6 +1016,110 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     expect(offenders).toEqual([]);
   });
 
+  test('child session domains do not import session/SigningSessionCoordinator.ts', () => {
+    const childDomains = [
+      'identity',
+      'availability',
+      'planning',
+      'budget',
+      'persistence',
+      'sealedRecovery',
+      'operationState',
+      'warmCapabilities',
+      'passkey',
+      'emailOtp',
+    ] as const;
+    const coordinatorPath =
+      'client/src/core/signingEngine/session/SigningSessionCoordinator.ts';
+    const offenders: string[] = [];
+
+    for (const domain of childDomains) {
+      const domainRoot = path.join(repoRoot, `client/src/core/signingEngine/session/${domain}`);
+      for (const relativePath of listProductionTypeScriptFiles(domainRoot)) {
+        const source = readRepoSource(relativePath);
+        for (const specifier of extractImportSpecifiers(source)) {
+          const resolved = resolveSigningEngineImport(relativePath, specifier);
+          if (resolved === coordinatorPath.replace(/\.ts$/, '')) {
+            offenders.push(`${relativePath} -> ${specifier}`);
+          }
+        }
+      }
+    }
+
+    expect(offenders).toEqual([]);
+  });
+
+  test('SigningSessionCoordinator.ts stays free of method-specific session domains', () => {
+    const source = readRepoSource(
+      'client/src/core/signingEngine/session/SigningSessionCoordinator.ts',
+    );
+    const offenders: string[] = [];
+
+    for (const specifier of extractImportSpecifiers(source)) {
+      const resolved = resolveSigningEngineImport(
+        'client/src/core/signingEngine/session/SigningSessionCoordinator.ts',
+        specifier,
+      );
+      if (!resolved?.startsWith('client/src/core/signingEngine/session/')) continue;
+      if (
+        resolved.startsWith('client/src/core/signingEngine/session/passkey/') ||
+        resolved.startsWith('client/src/core/signingEngine/session/emailOtp/')
+      ) {
+        offenders.push(`${specifier} -> ${resolved}`);
+      }
+    }
+
+    expect(offenders).toEqual([]);
+  });
+
+  test('SigningSessionCoordinator.ts only imports orchestration session domains', () => {
+    const relativePath = 'client/src/core/signingEngine/session/SigningSessionCoordinator.ts';
+    const source = readRepoSource(relativePath);
+    const allowedSessionDomains = new Set([
+      'planning',
+      'availability',
+      'budget',
+      'persistence',
+      'operationState',
+      'warmCapabilities',
+    ]);
+    const offenders: string[] = [];
+
+    for (const specifier of extractImportSpecifiers(source)) {
+      const resolved = resolveSigningEngineImport(relativePath, specifier);
+      if (!resolved?.startsWith('client/src/core/signingEngine/session/')) continue;
+      const tail = resolved.slice('client/src/core/signingEngine/session/'.length);
+      const targetDomain = tail.split('/')[0];
+      if (!targetDomain || targetDomain === 'SigningSessionCoordinator.ts') continue;
+      if (targetDomain === 'public.ts') continue;
+      if (!allowedSessionDomains.has(targetDomain)) {
+        offenders.push(`${specifier} -> ${resolved}`);
+      }
+    }
+
+    expect(offenders).toEqual([]);
+  });
+
+  test('signing flows only import session/SigningSessionCoordinator.ts as a session coordinator', () => {
+    const offenders: string[] = [];
+    const allowedCoordinatorPrefix =
+      'client/src/core/signingEngine/session/SigningSessionCoordinator';
+
+    for (const relativePath of listProductionTypeScriptFiles(path.join(signingEngineRoot, 'flows'))) {
+      const source = readRepoSource(relativePath);
+      for (const specifier of extractImportSpecifiers(source)) {
+        const resolved = resolveSigningEngineImport(relativePath, specifier);
+        if (!resolved?.startsWith('client/src/core/signingEngine/session/')) continue;
+        if (!resolved.includes('Coordinator')) continue;
+        if (resolved !== allowedCoordinatorPrefix && resolved !== `${allowedCoordinatorPrefix}.ts`) {
+          offenders.push(`${relativePath} -> ${specifier} -> ${resolved}`);
+        }
+      }
+    }
+
+    expect(offenders).toEqual([]);
+  });
+
   test('shared signing state machine owns the signing operation runner', () => {
     const source = readRepoSource(
       'client/src/core/signingEngine/flows/shared/signingStateMachine.ts',
@@ -995,7 +1139,7 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     expect(source).toContain("PreparePayload: 'preparePayload'");
     expect(source).toContain("lane: SigningSessionPlan['lane'];");
     expect(source).toContain('lane: plan.lane');
-    expect(source).toContain("from '../../session/signingSession/types'");
+    expect(source).toContain("from '../../session/operationState/types'");
     expect(source).toContain("from './operationPorts'");
     expect(ports).toContain('export type OperationCommandExecutor<TCommand>');
     expect(ports).toContain('export type OperationTransitionObserver<TTransitionEvent>');
@@ -1040,7 +1184,7 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     expect(evmFamilyOperation).toContain(
       'onSigningOperationTransition: emitEvmFamilySigningOperationTrace',
     );
-    expect(runtime).not.toContain("from './runtimeCommandExecutor'");
+    expect(runtime).not.toContain("from '../passkey/runtimeCommandExecutor'");
     expect(runtime).not.toContain('function executeEvmFamilyRuntimeCommand');
     expect(runtime).not.toContain('function wrapEmailOtpSigningWithRuntimeCommands');
     expect(uiConfirmFlow).not.toContain('for (const command of commands)');
@@ -1179,7 +1323,7 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
       'client/src/core/signingEngine/stepUpConfirmation/intentDigestPreparation.ts',
     );
     const emailOtpCoordinator = readRepoSource(
-      'client/src/core/signingEngine/sessionEmailOtp/EmailOtpThresholdSessionCoordinator.ts',
+      'client/src/core/signingEngine/session/emailOtp/EmailOtpThresholdSessionCoordinator.ts',
     );
 
     expect(confirmationTypes).toContain('export const SigningAuthPlanKind');
@@ -1352,7 +1496,6 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
       assembly: [
         'flows',
         'session',
-        'sessionEmailOtp',
         'stepUpConfirmation',
         'threshold',
         'chains',
@@ -1426,7 +1569,6 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
         'stepUpConfirmation',
         'uiConfirm',
         'session',
-        'sessionEmailOtp',
         'flows',
         'threshold',
         'chains',
@@ -1437,7 +1579,6 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
         'stepUpConfirmation',
         'uiConfirm',
         'session',
-        'sessionEmailOtp',
         'flows',
         'threshold',
         'chains',
@@ -1447,7 +1588,6 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
       stepUpConfirmation: [
         'uiConfirm',
         'session',
-        'sessionEmailOtp',
         'flows',
         'assembly',
         'threshold',
@@ -1504,7 +1644,7 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
       'export async function requestEmailOtpExportAuthorization',
       'Enter email code to sign',
     ] as const;
-    const roots = ['flows', 'sessionEmailOtp', 'walletAuth'] as const;
+    const roots = ['flows', 'session', 'walletAuth'] as const;
     const offenders: string[] = [];
 
     for (const root of roots) {
@@ -1524,7 +1664,7 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
 
     for (const relativePath of listProductionTypeScriptFiles(path.join(repoRoot, 'client/src'))) {
       const source = readRepoSource(relativePath);
-      if (source.includes('signingEngine/session/signingSession/ecdsaChainTarget')) {
+      if (source.includes('signingEngine/session/operationState/ecdsaChainTarget')) {
         offenders.push(relativePath);
       }
     }
@@ -1549,10 +1689,10 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
   test('canonical selected lanes and operation states do not use optional lifecycle fields', () => {
     const identity = readRepoSource('client/src/core/signingEngine/session/identity/laneIdentity.ts');
     const signingLanes = readRepoSource(
-      'client/src/core/signingEngine/session/signingSession/lanes.ts',
+      'client/src/core/signingEngine/session/operationState/lanes.ts',
     );
     const signingTypes = readRepoSource(
-      'client/src/core/signingEngine/session/signingSession/types.ts',
+      'client/src/core/signingEngine/session/operationState/types.ts',
     );
     const signingBudget = readRepoSource(
       'client/src/core/signingEngine/session/budget/budget.ts',
@@ -1563,8 +1703,11 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     const planner = readRepoSource(
       'client/src/core/signingEngine/session/planning/planner.ts',
     );
+    const restoreTypes = readRepoSource(
+      'client/src/core/signingEngine/session/sealedRecovery/types.ts',
+    );
     const restoreCoordinator = readRepoSource(
-      'client/src/core/signingEngine/session/restore/restoreCoordinator.ts',
+      'client/src/core/signingEngine/session/sealedRecovery/restoreCoordinator.ts',
     );
 
     for (const typeName of [
@@ -1604,10 +1747,10 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     expect(signingLanes).not.toContain('chain: input.chainTarget.kind');
     expect(signingLanes).not.toContain('): SigningSessionPlanningLane');
     expect(
-      sliceTypeAlias(restoreCoordinator, 'RestorePersistedSessionForSigningInput'),
+      sliceTypeAlias(restoreTypes, 'RestorePersistedSessionForSigningInput'),
     ).not.toMatch(/\w+\?:/);
     expect(
-      sliceTypeAlias(restoreCoordinator, 'RestorePersistedSessionForSigningInput'),
+      sliceTypeAlias(restoreTypes, 'RestorePersistedSessionForSigningInput'),
     ).not.toContain("reason: 'session_status'");
     expect(restoreCoordinator).not.toContain('RestorePersistedSessionForSigningMaintenanceInput');
     expect(sliceTypeAlias(planner, 'SigningSessionReadiness')).not.toMatch(/\w+\?:/);
@@ -1790,7 +1933,7 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     const identity = readRepoSource('client/src/core/signingEngine/session/identity/laneIdentity.ts');
     const records = readRepoSource('client/src/core/signingEngine/session/persistence/records.ts');
     const activation = readRepoSource(
-      'client/src/core/signingEngine/session/warmSigning/ecdsaBootstrap.ts',
+      'client/src/core/signingEngine/session/passkey/ecdsaBootstrap.ts',
     );
 
     expect(identity).toContain('export type ThresholdEcdsaSessionStoreSource');
@@ -1821,13 +1964,13 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
 
     expect(source).not.toContain('persistWarmSessionEd25519Capability');
     expect(source).not.toContain('cacheSigningSessionPrfFirstBestEffort');
-    expect(source).not.toContain('session/warmSigning');
+    expect(source).not.toContain('session/warmCapabilities');
   });
 
   test('threshold modules avoid session lifecycle imports', () => {
     const forbiddenMarkers = [
       'session/records',
-      'session/warmSigning',
+      'session/warmCapabilities',
       'api/session/signingSessionState',
     ] as const;
     const offenders: string[] = [];

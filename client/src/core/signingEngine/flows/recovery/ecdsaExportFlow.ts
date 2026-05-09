@@ -9,8 +9,8 @@ import { requireThresholdSessionAuthToken } from '@shared/utils/sessionTokens';
 import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
-import type { WarmSessionPostSignPolicyAdapterDeps } from '../../session/warmSigning/postSignPolicyAdapter';
-import { assertWarmSessionEcdsaOperationAllowed } from '../../session/warmSigning/postSignPolicyAdapter';
+import type { WarmSessionPostSignPolicyAdapterDeps } from '../../session/operationState/warmSessionPolicyAdapter';
+import { assertWarmSessionEcdsaOperationAllowed } from '../../session/operationState/warmSessionPolicyAdapter';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import {
   assertEcdsaExportKeyRefMatchesLane,

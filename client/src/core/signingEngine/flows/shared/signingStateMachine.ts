@@ -1,14 +1,14 @@
 import type {
   SigningOperationContext,
   SigningSessionPlan,
-} from '../../session/signingSession/types';
+} from '../../session/operationState/types';
 import {
   SigningSessionPlanKind,
   summarizeSigningLane,
   summarizeSigningSessionPlan,
   type SigningLaneSummary,
   type SigningPlanSummary,
-} from '../../session/signingSession/types';
+} from '../../session/operationState/types';
 import type { OperationCommandExecutor, OperationTransitionObserver } from './operationPorts';
 import type { PreparedOperation } from './operationState';
 

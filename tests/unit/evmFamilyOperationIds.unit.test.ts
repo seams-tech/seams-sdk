@@ -5,7 +5,7 @@ import {
 } from '@/core/signingEngine/flows/signEvmFamily/operationIds';
 import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
 import { computeSigningOperationFingerprint } from '@/core/signingEngine/session/planning/operationFingerprint';
-import { SigningSessionIds } from '@/core/signingEngine/session/signingSession/types';
+import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 
 test.describe('EVM-family signing operation ids', () => {
   test('binds caller-provided operation ids to the canonical operation fingerprint', async () => {

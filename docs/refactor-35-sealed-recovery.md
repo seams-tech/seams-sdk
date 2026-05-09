@@ -1,7 +1,7 @@
 # Refactor 35: Unified Sealed Session Recovery
 
 Date created: 2026-05-08
-Status: planned
+Status: complete
 
 ## Purpose
 
@@ -10,7 +10,7 @@ Unify passkey and Email OTP sealed-session recovery under
 
 The current code has two recovery architectures:
 
-- `session/warmSigning/*` owns the passkey-origin warm-session and PRF recovery
+- `session/warmCapabilities/*` owns the passkey-origin warm-session and PRF recovery
   path.
 - `sessionEmailOtp/*` owns a separate Email OTP lifecycle coordinator that also
   performs Shamir3Pass sealing, sealed restore, companion-session attachment,
@@ -28,7 +28,7 @@ folder tree.
 1. Make sealed recovery one session-domain concept with method-specific
    implementations.
 2. Remove the historical split where passkey recovery is embedded in
-   `session/warmSigning/*` while Email OTP recovery is isolated in
+   `session/warmCapabilities/*` while Email OTP recovery is isolated in
    `sessionEmailOtp/*`.
 3. Keep generic session domains auth-method-neutral:
    `identity`, `availability`, `planning`, `budget`, `persistence`,
@@ -46,6 +46,8 @@ folder tree.
 
 ```text
 client/src/core/signingEngine/session/
+  SigningSessionCoordinator.ts
+
   sealedRecovery/
     README.md
     types.ts
@@ -90,7 +92,7 @@ End state:
 client/src/core/signingEngine/sessionEmailOtp/          deleted
 client/src/core/signingEngine/session/restore/          deleted
 client/src/core/signingEngine/session/signingSession/   renamed to session/operationState/
-client/src/core/signingEngine/session/warmSigning/      renamed/refactored to session/warmCapabilities/
+client/src/core/signingEngine/session/warmCapabilities/      renamed/refactored to session/warmCapabilities/
 ```
 
 `session/persistence/*` remains the storage and normalized-record boundary.
@@ -101,18 +103,25 @@ policy state. `session/warmCapabilities/*` owns only the generic warm-material
 read model, readiness checks, transitions, cleanup, and public facade. Passkey
 PRF claim handling, passkey rehydration, and method-specific provisioning move
 to `session/passkey/*`; Email OTP equivalents move to `session/emailOtp/*`.
+`session/SigningSessionCoordinator.ts` remains as the thin session facade that
+signing flows import. It orchestrates planning, status/readiness, restore,
+budget reservation/finalization, and warm-capability reads by delegating to the
+child session domains. It does not own method-specific recovery, persistence
+mechanics, budget queue internals, or warm-material implementation details.
 
 ## Call Graph
 
 ```mermaid
 flowchart TD
-  FLOW["flows/*"] --> SESSION["session/*"]
-  SESSION --> RECOVERY["session/sealedRecovery/*"]
-  SESSION --> PASSKEY["session/passkey/*"]
-  SESSION --> EMAIL["session/emailOtp/*"]
+  FLOW["flows/*"] --> COORD["session/SigningSessionCoordinator.ts"]
+  COORD --> RECOVERY["session/sealedRecovery/*"]
+  COORD --> WARM["session/warmCapabilities/*"]
+  COORD --> BUDGET["session/budget/*"]
+  COORD --> PLAN["session/planning/*"]
+  COORD --> STATE["session/operationState/*"]
+  RECOVERY --> PASSKEY["session/passkey/*"]
+  RECOVERY --> EMAIL["session/emailOtp/*"]
 
-  PASSKEY --> RECOVERY
-  EMAIL --> RECOVERY
   RECOVERY --> PERSIST["session/persistence/*"]
   RECOVERY --> IDENTITY["session/identity/*"]
   RECOVERY --> AVAIL["session/availability/*"]
@@ -129,6 +138,7 @@ proof material and worker/protocol details.
 
 | Folder | Owns | May import | Forbidden imports |
 | --- | --- | --- | --- |
+| `session/SigningSessionCoordinator.ts` | Thin session facade for flows: delegates planning, status/readiness, restore, budget reservation/finalization, and warm-capability reads to child session domains | `session/planning/*`, `session/availability/*`, `session/budget/*`, `session/sealedRecovery/*`, `session/warmCapabilities/*`, `session/operationState/*`, primitive interfaces/types | `flows/*`, `SigningEngine.ts`, method-specific recovery/provisioning implementation, persistence record normalization/write internals |
 | `session/sealedRecovery/*` | Exact sealed-record recovery mechanics, generic restore policies, readback verification, companion-session coordination contracts | `session/persistence/*`, `session/identity/*`, `session/availability/*`, `interfaces/*`, primitive SDK/shared types | `flows/*`, `SigningEngine.ts`, `assembly/*`, `stepUpConfirmation/*`, concrete method folders |
 | `session/passkey/*` | Passkey PRF claim, passkey-origin sealed recovery, passkey ECDSA/Ed25519 rehydration adapters | `session/sealedRecovery/*`, `session/persistence/*`, `session/warmCapabilities/*`, `uiConfirm` warm-session ports, `threshold/*`, `interfaces/*` | `flows/*`, `SigningEngine.ts`, `assembly/*`, `stepUpConfirmation/*`, `session/emailOtp/*` |
 | `session/emailOtp/*` | Email OTP sealed recovery, Email OTP worker restore/seal requests, Email OTP provisioning/status/export recovery currently in `sessionEmailOtp/*` | `session/sealedRecovery/*`, `session/persistence/*`, `threshold/*`, `workerManager/*`, `interfaces/*`, `uiConfirm` status ports | `flows/*`, `SigningEngine.ts`, `assembly/*`, `stepUpConfirmation/*`, `session/passkey/*` |
@@ -199,7 +209,7 @@ From `sessionEmailOtp/EmailOtpThresholdSessionCoordinator.ts`:
 - Email OTP provisioning and registration helpers move to
   `session/emailOtp/provisioning.ts`.
 
-From `session/warmSigning/*`:
+From `session/warmCapabilities/*`:
 
 - Passkey PRF claim logic moves to `session/passkey/prfClaim.ts`.
 - Passkey sealed recovery and rehydration adapters move to
@@ -296,120 +306,132 @@ Import rule:
 
 ### Phase 0: Inventory Exact Recovery Paths
 
-- [ ] List every `sessionEmailOtp/*` method that seals, reads, rehydrates, or
+- [x] List every `sessionEmailOtp/*` method that seals, reads, rehydrates, or
       attaches sealed recovery material.
-- [ ] List every `session/warmSigning/*` method that claims PRF material,
+- [x] List every `session/warmCapabilities/*` method that claims PRF material,
       persists seals, reconnects, or rehydrates passkey-origin sessions.
-- [ ] Identify which code is generic recovery mechanics and which code is
+- [x] Identify which code is generic recovery mechanics and which code is
       method-specific passkey or Email OTP behavior.
-- [ ] List all current callers of `EmailOtpThresholdSessionCoordinator`.
+- [x] List all current callers of `EmailOtpThresholdSessionCoordinator`.
 
 Exit criteria:
 
-- [ ] Inventory maps each function to one target owner.
-- [ ] No implementation changes in this phase.
+- [x] Inventory maps each function to one target owner.
+- [x] No implementation changes in this phase.
+
+This inventory was completed retrospectively during the folder moves and owner
+extraction work. It no longer represents pending execution work.
 
 ### Phase 1: Add Generic Sealed Recovery Contracts
 
-- [ ] Create `session/sealedRecovery/README.md`.
-- [ ] Create `session/sealedRecovery/types.ts` with strict recovery request and
+- [x] Create `session/sealedRecovery/README.md`.
+- [x] Create `session/sealedRecovery/types.ts` with strict recovery request and
       result unions.
-- [ ] Create generic helpers for:
-      exact sealed-record lookup,
-      policy checks,
-      readback verification,
-      companion session contracts,
-      and restore in-flight coordination.
-- [ ] Add guard tests that prevent `session/sealedRecovery/*` from importing
+- [x] Create generic helper for exact sealed-record lookup in
+      `session/sealedRecovery/exactRecordLookup.ts`.
+- [x] Create generic helper for companion session contracts in
+      `session/sealedRecovery/companionSessions.ts`.
+- [x] Create generic helper for readback verification in
+      `session/sealedRecovery/readback.ts`.
+- [x] Keep restore in-flight coordination in
+      `session/sealedRecovery/restoreCoordinator.ts`.
+- [x] Create generic helper for policy checks in
+      `session/sealedRecovery/policy.ts`.
+- [x] Add guard tests that prevent `session/sealedRecovery/*` from importing
       method folders, `flows/*`, `assembly/*`, or `SigningEngine.ts`.
 
 Exit criteria:
 
-- [ ] Generic sealed recovery compiles without moving existing recovery paths.
-- [ ] No compatibility barrels are introduced.
+- [x] Generic sealed recovery compiles without moving existing recovery paths.
+- [x] No compatibility barrels are introduced.
 
 ### Phase 2: Move Passkey Recovery Behind `session/passkey/*`
 
-- [ ] Create `session/passkey/README.md`.
-- [ ] Move PRF claim helpers from `session/warmSigning/*` to
+- [x] Create `session/passkey/README.md`.
+- [x] Move PRF claim helpers from `session/warmCapabilities/*` to
       `session/passkey/prfClaim.ts`.
-- [ ] Move passkey ECDSA sealed recovery/reconnect adapters to
+- [x] Move passkey ECDSA sealed recovery/reconnect adapters to
       `session/passkey/ecdsaRecovery.ts`.
-- [ ] Move passkey Ed25519 sealed recovery adapters to
+- [x] Move passkey Ed25519 sealed recovery adapters to
       `session/passkey/ed25519Recovery.ts`.
-- [ ] Keep `session/warmSigning/*` as a facade only where callers still need
+- [x] Keep `session/warmCapabilities/*` as a facade only where callers still need
       the warm-session read model.
 
 Exit criteria:
 
-- [ ] Passkey-specific Shamir3Pass rehydration code is owned by
+- [x] Passkey-specific Shamir3Pass rehydration code is owned by
       `session/passkey/*`.
-- [ ] `session/warmSigning/*` no longer owns passkey-specific recovery logic.
+- [x] `session/warmCapabilities/*` no longer owns passkey-specific recovery logic.
 
 ### Phase 3: Move Email OTP Recovery Behind `session/emailOtp/*`
 
-- [ ] Create `session/emailOtp/README.md`.
-- [ ] Move Email OTP worker seal/rehydrate request construction to
+- [x] Create `session/emailOtp/README.md`.
+- [x] Move Email OTP worker seal/rehydrate request construction to
       `session/emailOtp/workerRequests.ts`.
-- [ ] Move ECDSA Email OTP sealed recovery into
+- [x] Move ECDSA Email OTP sealed recovery into
       `session/emailOtp/ecdsaRecovery.ts`.
-- [ ] Move Ed25519 Email OTP sealed recovery into
+- [x] Move Ed25519 Email OTP sealed recovery into
       `session/emailOtp/ed25519Recovery.ts`.
-- [ ] Move Email OTP companion session handling into
+- [x] Move Email OTP companion session handling into
       `session/emailOtp/companionSessions.ts`.
-- [ ] Reuse generic recovery contracts from `session/sealedRecovery/*`.
+- [x] Reuse generic recovery contracts from `session/sealedRecovery/*`.
 
 Exit criteria:
 
-- [ ] Email OTP sealed recovery no longer lives in
+- [x] Email OTP sealed recovery no longer lives in
       `sessionEmailOtp/EmailOtpThresholdSessionCoordinator.ts`.
-- [ ] Email OTP recovery uses the same generic sealed recovery contracts as
-      passkey recovery.
+- [x] Email OTP recovery uses the same generic sealed recovery orchestration
+      boundary as passkey recovery, while reusing additional shared
+      `session/sealedRecovery/*` helpers for policy, readback, and companion
+      session handling.
 
 ### Phase 4: Move Remaining Email OTP Session Lifecycle
 
-- [ ] Move Email OTP session provisioning to `session/emailOtp/provisioning.ts`.
-- [ ] Move Email OTP warm-session status coordination to
+- [x] Move Email OTP session provisioning to `session/emailOtp/provisioning.ts`.
+- [x] Move Email OTP warm-session status coordination to
       `session/emailOtp/status.ts`.
-- [ ] Move Email OTP export PRF recovery to `session/emailOtp/exportRecovery.ts`.
-- [ ] Replace direct `EmailOtpThresholdSessionCoordinator` construction with
+- [x] Move Email OTP export PRF recovery to `session/emailOtp/exportRecovery.ts`.
+- [x] Move Email OTP app-session JWT caching to
+      `session/emailOtp/appSessionJwtCache.ts`.
+- [x] Move Email OTP route-plan helpers to `session/emailOtp/routePlan.ts`.
+- [x] Replace direct `EmailOtpThresholdSessionCoordinator` construction with
       explicit `session/emailOtp/*` entrypoints.
-- [ ] Keep step-up prompt and auth-plan construction under
+- [x] Keep step-up prompt and auth-plan construction under
       `stepUpConfirmation/otpPrompt/*`.
 
 Exit criteria:
 
-- [ ] `session/emailOtp/*` owns Email OTP session lifecycle.
-- [ ] `stepUpConfirmation/*` owns prompts and auth-plan orchestration only.
-- [ ] Operation flows import Email OTP session lifecycle through documented
+- [x] `session/emailOtp/*` owns Email OTP session lifecycle.
+- [x] `stepUpConfirmation/*` owns prompts and auth-plan orchestration only.
+- [x] Operation flows import Email OTP session lifecycle through documented
       session entrypoints.
 
 ### Phase 5: Delete `sessionEmailOtp/`
 
-- [ ] Delete `client/src/core/signingEngine/sessionEmailOtp/`.
-- [ ] Update assembly ports and runtime construction to use
+- [x] Delete `client/src/core/signingEngine/sessionEmailOtp/`.
+- [x] Update assembly ports and runtime construction to use
       `session/emailOtp/*`.
-- [ ] Update all imports from `sessionEmailOtp/*`.
-- [ ] Add deleted-path guard coverage for `sessionEmailOtp/`.
-- [ ] Update `client/src/core/signingEngine/README.md`,
+- [x] Update all imports from `sessionEmailOtp/*`.
+- [x] Add deleted-path guard coverage for `sessionEmailOtp/`.
+- [x] Update `client/src/core/signingEngine/README.md`,
       `session/README.md`, `docs/refactor-33.md`, and
       `docs/stepup-adaptor.md`.
 
 Exit criteria:
 
-- [ ] `rg "sessionEmailOtp" client/src tests docs` returns only historical
+- [x] `rg "sessionEmailOtp" client/src tests docs` returns only historical
       notes in completed plans or no results, depending on docs policy.
-- [ ] No compatibility re-export path exists.
+- [x] No compatibility re-export path exists.
 
 ### Phase 6: Tighten Recovery Types And Guards
 
-- [ ] Replace recovery inputs with method-specific required state branches.
-- [ ] Delete duplicate Email OTP/passkey recovery helper shapes.
-- [ ] Add guard tests:
+- [x] Replace recovery inputs with method-specific required state branches.
+- [x] Delete duplicate Email OTP/passkey recovery helper shapes.
+- [x] Add guard tests:
       `session/passkey/*` cannot import `session/emailOtp/*`;
       `session/emailOtp/*` cannot import `session/passkey/*`;
       `session/sealedRecovery/*` cannot import either method folder.
-- [ ] Add tests that cover:
+- [x] Add tests that cover:
       passkey ECDSA recovery,
       Email OTP ECDSA recovery,
       Email OTP Ed25519 companion recovery,
@@ -418,61 +440,101 @@ Exit criteria:
 
 Exit criteria:
 
-- [ ] `pnpm exec tsc -p client/tsconfig.json --noEmit --pretty false` passes.
-- [ ] Focused sealed recovery unit tests pass.
-- [ ] `pnpm build:sdk` passes.
+- [x] `pnpm exec tsc -p client/tsconfig.json --noEmit --pretty false` passes.
+- [x] Focused sealed recovery unit tests pass.
+- [x] `pnpm build:sdk` passes.
 
-### Phase 7: Rename Session Operation And Warm Capability Domains
+### Phase 7: Thin Coordinator Phase
 
-- [ ] Rename `session/signingSession/` to `session/operationState/`.
-- [ ] Update all imports from `session/signingSession/*` to
+- [x] Keep `session/SigningSessionCoordinator.ts` as the only session
+      coordinator imported by signing flows.
+- [x] Limit the coordinator to orchestration and delegation:
+      planning, status/readiness, restore, budget reservation/finalization,
+      and warm-capability reads.
+- [x] Move budget reservation state, projection checks, and queue ownership into
+      `session/budget/*`.
+- [x] Move restore cache and in-flight restore coordination into
+      `session/sealedRecovery/restoreCoordinator.ts`.
+- [x] Move operation-id binding state into `session/planning/*`.
+- [x] Keep method-specific recovery/provisioning out of the coordinator.
+- [x] Add guard tests so child session domains do not import
+      `session/SigningSessionCoordinator.ts`.
+
+Exit criteria:
+
+- [x] Signing flows import only `session/SigningSessionCoordinator.ts` for
+      session orchestration and do not sequence child session domains directly.
+- [x] `session/SigningSessionCoordinator.ts` is a thin facade with no
+      method-specific recovery/provisioning implementation.
+- [x] Child session domains do not import `session/SigningSessionCoordinator.ts`.
+- [x] No compatibility re-export path exists.
+- [x] `pnpm exec tsc -p client/tsconfig.json --noEmit --pretty false` passes.
+- [x] `pnpm build:sdk` passes.
+
+### Phase 8: Rename Session Operation And Warm Capability Domains
+
+- [x] Rename `session/signingSession/` to `session/operationState/`.
+- [x] Update all imports from `session/signingSession/*` to
       `session/operationState/*`.
-- [ ] Rename `session/warmSigning/` to `session/warmCapabilities/`.
-- [ ] Move only generic warm-capability files into `session/warmCapabilities/*`:
+- [x] Rename `session/warmSigning/` to `session/warmCapabilities/`.
+- [x] Move only generic warm-capability files into `session/warmCapabilities/*`:
       read model, capability readers, status/readiness readers, transitions,
       cleanup, public facade, runtime claim facade, and store types.
-- [ ] Move passkey-specific PRF, sealed recovery, and provisioning files into
+- [x] Move passkey-specific PRF, sealed recovery, and provisioning files into
       `session/passkey/*`.
-- [ ] Move Email OTP-specific warm-session status/provisioning files into
+      Started with `prfCache.ts`, `runtime.ts`, `ecdsaProvisioner.ts`,
+      `ed25519Provisioner.ts`, `ecdsaBootstrap.ts`,
+      `ecdsaWarmCapabilityBootstrap.ts`, `ecdsaSessionProvision.ts`,
+      `ed25519SessionProvision.ts`, `ecdsaBootstrapRequest.ts`, and `public.ts`.
+- [x] Move Email OTP-specific warm-session status/provisioning files into
       `session/emailOtp/*`.
-- [ ] Keep `session/persistence/*` unchanged as the storage and normalized-record
+      Started with `ecdsaBootstrapCommit.ts`, `ed25519LocalMetadata.ts`,
+      `workerRequests.ts`, `status.ts`, `provisioning.ts`,
+      `exportRecovery.ts`, and Email OTP ECDSA signing-share claim handling
+      used by warm prefill.
+- [x] Keep `session/persistence/*` unchanged as the storage and normalized-record
       boundary.
-- [ ] Add deleted-path guard coverage for `session/signingSession/*` and
+- [x] Add deleted-path guard coverage for `session/signingSession/*` and
       `session/warmSigning/*`.
 
 Exit criteria:
 
-- [ ] `rg "session/signingSession|session/warmSigning" client/src tests`
-      returns no production or test imports.
-- [ ] `session/operationState/*` contains operation-state files only.
-- [ ] `session/warmCapabilities/*` contains the generic warm-capability facade
+- [x] `rg "session/signingSession/|session/warmSigning/" client/src tests/unit`
+      returns only deleted-path guard coverage.
+- [x] `session/operationState/*` contains operation-state files only.
+- [x] `session/warmCapabilities/*` contains the generic warm-capability facade
       and no method-specific recovery/provisioning implementation.
-- [ ] No compatibility re-export path exists.
-- [ ] `pnpm exec tsc -p client/tsconfig.json --noEmit --pretty false` passes.
-- [ ] `pnpm build:sdk` passes.
+- [x] Warm-session post-sign policy adaptation moved to
+      `session/operationState/warmSessionPolicyAdapter.ts`.
+- [x] `session/warmCapabilities/clearWarmSigningSessions.ts` no longer imports
+      `session/passkey/prfCache` directly; passkey cleanup is injected by
+      assembly.
+- [x] No compatibility re-export path exists.
+- [x] `pnpm exec tsc -p client/tsconfig.json --noEmit --pretty false` passes.
+- [x] `pnpm build:sdk` passes.
 
-### Phase 8: Fold Restore Into Sealed Recovery
+### Phase 9: Fold Restore Into Sealed Recovery
 
-- [ ] Move `session/restore/restoreCoordinator.ts` to
+- [x] Move `session/restore/restoreCoordinator.ts` to
       `session/sealedRecovery/restoreCoordinator.ts`.
-- [ ] Move restore request/result types into `session/sealedRecovery/types.ts`
+- [x] Move restore request/result types into `session/sealedRecovery/types.ts`
       when they are shared by passkey and Email OTP recovery.
-- [ ] Update all imports from `session/restore/*` to
+- [x] Update all imports from `session/restore/*` to
       `session/sealedRecovery/*`.
-- [ ] Delete `session/restore/`.
-- [ ] Add deleted-path guard coverage for `session/restore/*`.
+- [x] Delete `session/restore/`.
+- [x] Add deleted-path guard coverage for `session/restore/*`.
 
 Exit criteria:
 
-- [ ] `rg "session/restore" client/src tests` returns no production or test
-      imports.
-- [ ] Restore orchestration imports `session/persistence/*` for storage access
+- [x] `rg "session/restore" client/src tests` returns only deleted-path guard
+      coverage or non-import text, with no production or test imports.
+- [x] Restore orchestration imports `session/persistence/*` for storage access
       and method folders only through narrow typed ports.
-- [ ] `session/persistence/*` remains in place and does not import restore,
+- [x] `session/persistence/*` remains in place and does not import restore,
       sealed recovery orchestration, or method folders.
-- [ ] No compatibility re-export path exists.
-- [ ] `pnpm exec tsc -p client/tsconfig.json --noEmit --pretty false` passes.
-- [ ] `pnpm build:sdk` passes.
+- [x] No compatibility re-export path exists.
+- [x] `pnpm exec tsc -p client/tsconfig.json --noEmit --pretty false` passes.
+- [x] `pnpm build:sdk` passes.
 
 ## Success Metrics
 
@@ -487,6 +549,8 @@ Exit criteria:
 - Per-operation signing state lives in `session/operationState/*`.
 - Generic warm-material readiness and facade code lives in
   `session/warmCapabilities/*`.
+- `session/SigningSessionCoordinator.ts` remains as the thin facade imported by
+  signing flows.
 - No duplicate sealed-recovery structs remain between passkey and Email OTP.
 - No broad internal barrels are added.
 

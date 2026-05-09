@@ -53,11 +53,11 @@ import {
   SigningSessionIds,
   type ResolvedEd25519SigningSessionIdentity,
   type SigningOperationId,
-} from '../../session/signingSession/types';
+} from '../../session/operationState/types';
 import {
   buildNearTransactionSigningLane,
   type NearTransactionSigningLane,
-} from '../../session/signingSession/lanes';
+} from '../../session/operationState/lanes';
 import {
   toWalletSubjectId,
   type WalletSubjectId,
@@ -74,11 +74,11 @@ import {
   emitSigningBoundaryTrace,
   emitSigningLaneResolutionTrace,
   emitSigningPlannerDecisionTrace,
-} from '../../session/signingSession/trace';
+} from '../../session/operationState/trace';
 import {
   type PreparedThresholdSigningOperation,
   type ThresholdSigningReadinessInput,
-} from '../../session/signingSession/preparedOperation';
+} from '../../session/operationState/preparedOperation';
 import {
   resolveThresholdEd25519SessionStateFromRecord,
   type ResolvedThresholdEd25519SessionState,
@@ -103,7 +103,7 @@ import {
   type TransactionSigningIntent,
   type TransactionReadiness,
   type TransactionReadinessClassifiedState,
-} from '../../session/signingSession/transactionState';
+} from '../../session/operationState/transactionState';
 
 export type SignDelegateActionResult = {
   signedDelegate: WasmSignedDelegate;

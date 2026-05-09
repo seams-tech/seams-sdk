@@ -26,10 +26,9 @@ import type {
   NearPasskeyEd25519ReconnectHook,
 } from '../../interfaces/near';
 import {
-  SigningAuthPlanKind,
+  isWarmSessionSigningAuthPlan,
   type UserConfirmProgressEvent,
 } from '@/core/signingEngine/stepUpConfirmation/types';
-import { prepareEmailOtpSigningPrompt } from '../../stepUpConfirmation/otpPrompt/signingPrompt';
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '@/core/config/defaultConfigs';
 import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
 import { WebAuthnAuthenticationCredential } from '@/core/types';
@@ -63,8 +62,8 @@ import {
   SigningOperationIntent,
   SigningSessionIds,
   type SigningOperationId,
-} from '../../session/signingSession/types';
-import type { NearTransactionSigningLane } from '../../session/signingSession/lanes';
+} from '../../session/operationState/types';
+import type { NearTransactionSigningLane } from '../../session/operationState/lanes';
 import {
   admitTransactionBudget,
   finalizeSignedTransactionOperation,
@@ -74,12 +73,12 @@ import {
   type PreparedTransactionOperation,
   type SignedTransactionOperation,
   type TransactionReadiness,
-} from '../../session/signingSession/transactionState';
+} from '../../session/operationState/transactionState';
 import type { NonceLeaseRef } from '../../interfaces/nonceLease';
 import {
   createSigningBoundaryTraceEvent,
   emitSigningBoundaryTrace,
-} from '../../session/signingSession/trace';
+} from '../../session/operationState/trace';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import type {
   SigningSessionBudgetStatusAuth,
@@ -95,6 +94,7 @@ import {
   runSigningOperationCommand,
   type SigningOperationCommand,
 } from '../shared/signingStateMachine';
+import { requireNearStepUpAuth } from './requireNearStepUpAuth';
 import { runSigningConfirmationCommand } from '../shared/signingConfirmation';
 
 function emitNearSigningEvent(
@@ -319,7 +319,7 @@ export async function runNearTransactionsWithActionsSigning({
     );
   }
   if (
-    providedSigningAuthPlan.kind === SigningAuthPlanKind.WarmSession &&
+    isWarmSessionSigningAuthPlan(providedSigningAuthPlan) &&
     providedSigningAuthPlan.sessionId !== providedSessionId
   ) {
     throw new Error(
@@ -328,13 +328,13 @@ export async function runNearTransactionsWithActionsSigning({
   }
   const thresholdAuthPlan = {
     sessionId:
-      providedSigningAuthPlan.kind === SigningAuthPlanKind.WarmSession
+      isWarmSessionSigningAuthPlan(providedSigningAuthPlan)
         ? providedSigningAuthPlan.sessionId
         : providedSessionId,
     lane: signingLane,
     signingAuthPlan: providedSigningAuthPlan,
     confirmationAuthPayload: { signingAuthPlan: providedSigningAuthPlan },
-    warmSessionReady: providedSigningAuthPlan.kind === SigningAuthPlanKind.WarmSession,
+    warmSessionReady: isWarmSessionSigningAuthPlan(providedSigningAuthPlan),
   };
   const activeSigningLane = signingLane;
   type NearAuthSideEffect = 'passkey_reauth' | 'threshold_reconnect';
@@ -357,37 +357,25 @@ export async function runNearTransactionsWithActionsSigning({
       emitConfirmedAuthSideEffectStarted('passkey_reauth');
     }
   };
-  if (providedSigningAuthPlan.kind === SigningAuthPlanKind.EmailOtpReauth && !emailOtpSigning) {
-    throw new Error('[email-otp] verify Email OTP again before NEAR threshold signing');
-  }
-  let shouldReconnectWithPasskeyEd25519 = false;
-  let plannedPasskeyReconnect:
-    | {
-        sessionId: string;
-        walletSigningSessionId?: string;
-        sessionPolicyDigest32: string;
-      }
-    | undefined;
   emitNearSigningEvent(onEvent, nearAccountId, {
     phase: SigningEventPhase.STEP_05_CONFIRMATION_DISPLAYED,
     status: 'waiting_for_user',
     message: 'Opening confirmation prompt',
     interaction: { kind: 'transaction_confirmation', overlay: 'show' },
   });
-  const emailOtpPrompt = await prepareEmailOtpSigningPrompt(emailOtpSigning);
-  const signingAuthPlan =
-    providedSigningAuthPlan.kind === SigningAuthPlanKind.EmailOtpReauth && emailOtpPrompt
-      ? { ...providedSigningAuthPlan, emailOtpPrompt }
-      : providedSigningAuthPlan;
-  const confirmationAuthPayload = { signingAuthPlan };
-  shouldReconnectWithPasskeyEd25519 =
-    confirmationAuthPayload.signingAuthPlan.kind === SigningAuthPlanKind.PasskeyReauth &&
-    Boolean(passkeyEd25519Reconnect);
-  plannedPasskeyReconnect =
-    shouldReconnectWithPasskeyEd25519 && passkeyEd25519Reconnect?.prepare
-      ? await passkeyEd25519Reconnect.prepare({ usesNeeded })
-      : undefined;
-  if (confirmationAuthPayload.signingAuthPlan.kind === SigningAuthPlanKind.WarmSession) {
+  const preparedStepUp = await requireNearStepUpAuth({
+    signingAuthPlan: providedSigningAuthPlan,
+    signingLane,
+    usesNeeded,
+    ...(emailOtpSigning ? { emailOtpSigning } : {}),
+    ...(passkeyEd25519Reconnect ? { passkeyEd25519Reconnect } : {}),
+  });
+  const confirmationAuthPayload = preparedStepUp.confirmationAuthPayload;
+  const emailOtpPrompt = preparedStepUp.emailOtpPrompt;
+  const plannedPasskeyReconnect = preparedStepUp.plannedPasskeyReconnect;
+  const shouldReconnectWithPasskeyEd25519 =
+    preparedStepUp.shouldReconnectWithPasskeyEd25519;
+  if (isWarmSessionSigningAuthPlan(confirmationAuthPayload.signingAuthPlan)) {
     emitNearSigningEvent(onEvent, nearAccountId, {
       phase: SigningEventPhase.STEP_06_AUTH_WARM_SESSION_CLAIMED,
       status: 'succeeded',

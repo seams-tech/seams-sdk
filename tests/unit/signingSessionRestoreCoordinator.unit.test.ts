@@ -1,10 +1,10 @@
 import { expect, test } from '@playwright/test';
-import type { SigningSessionSealedStoreRecord } from '@/core/signingEngine/session/persistence/sealedSessionStore';
+import type { SigningSessionSealedStoreRecord } from '../../client/src/core/signingEngine/session/persistence/sealedSessionStore';
 import {
   createSigningSessionRestoreCache,
   restorePersistedSessionsForAccountCommand,
   restorePersistedSessionForSigningCommand,
-} from '@/core/signingEngine/session/restore/restoreCoordinator';
+} from '../../client/src/core/signingEngine/session/sealedRecovery/restoreCoordinator';
 
 const TEST_ECDSA_CHAIN_TARGETS = {
   tempo: { kind: 'tempo' as const, chainId: 42431, networkSlug: 'tempo-moderato' },
@@ -30,6 +30,8 @@ function makeSealedRecord(args: {
     ecdsa?: string;
   };
   walletSigningSessionId?: string;
+  expiresAtMs?: number;
+  remainingUses?: number;
   updatedAtMs?: number;
 }): SigningSessionSealedStoreRecord {
   const authMethod = args.authMethod || 'email_otp';
@@ -65,8 +67,8 @@ function makeSealedRecord(args: {
         }
       : {}),
     issuedAtMs: 1,
-    expiresAtMs: Date.now() + 60_000,
-    remainingUses: 5,
+    expiresAtMs: args.expiresAtMs ?? Date.now() + 60_000,
+    remainingUses: args.remainingUses ?? 5,
     updatedAtMs: args.updatedAtMs || 1,
   };
 }
@@ -190,6 +192,69 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
 
     expect(listCalls).toBe(1);
     expect(restoreCalls).toBe(0);
+  });
+
+  test('ignores expired and exhausted exact-purpose sealed records', async () => {
+    const cache = createSigningSessionRestoreCache();
+    let restoreCalls = 0;
+
+    const result = await restorePersistedSessionForSigningCommand(
+      {
+        walletId: 'restore.testnet',
+        authMethod: 'email_otp',
+        curve: 'ecdsa',
+        chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
+        walletSigningSessionId: 'wsess-restore',
+        thresholdSessionId: 'tsess-restore',
+        reason: 'transaction',
+      },
+      {
+        cache,
+        listExactSealedSessionsForAccount: async () => [
+          makeSealedRecord({ expiresAtMs: Date.now() - 1 }),
+          makeSealedRecord({ remainingUses: 0, updatedAtMs: 2 }),
+        ],
+        restoreSealedRecordForAccount: async () => {
+          restoreCalls += 1;
+          return 'restored';
+        },
+      },
+    );
+
+    expect(result).toEqual({ attempted: 0, restored: 0, deferred: 0 });
+    expect(restoreCalls).toBe(0);
+  });
+
+  test('restores exhausted passkey exact-purpose sealed records for step-up reconnect', async () => {
+    let restoreCalls = 0;
+
+    const result = await restorePersistedSessionForSigningCommand(
+      {
+        walletId: 'restore.testnet',
+        authMethod: 'passkey',
+        curve: 'ecdsa',
+        chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
+        walletSigningSessionId: 'wsess-restore',
+        thresholdSessionId: 'tsess-restore',
+        reason: 'transaction',
+      },
+      {
+        listExactSealedSessionsForAccount: async () => [
+          makeSealedRecord({
+            authMethod: 'passkey',
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: 0,
+          }),
+        ],
+        restoreSealedRecordForAccount: async () => {
+          restoreCalls += 1;
+          return 'restored';
+        },
+      },
+    );
+
+    expect(result).toEqual({ attempted: 1, restored: 1, deferred: 0 });
+    expect(restoreCalls).toBe(1);
   });
 
   test('caches successful restores by durable record version', async () => {

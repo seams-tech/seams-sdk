@@ -1,7 +1,7 @@
 import { SigningEventPhase } from '@/core/types/sdkSentEvents';
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
-import { SigningOperationIntent } from '../../session/signingSession/types';
+import { SigningOperationIntent } from '../../session/operationState/types';
 import {
   createEvmFamilyWarmSessionServices,
   type EvmFamilyWarmSessionServicesDeps,

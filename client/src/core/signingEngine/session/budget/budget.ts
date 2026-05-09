@@ -8,7 +8,7 @@ import {
   type SigningOperationContext,
   type SigningOperationId,
   type WalletSigningSpendPlan,
-} from '../signingSession/types';
+} from '../operationState/types';
 import { budgetUnknownSigningSessionStatus } from './budgetProjection';
 
 export type SigningSessionBudgetZeroSpendReason =

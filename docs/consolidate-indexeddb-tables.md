@@ -97,7 +97,7 @@ Post-refactor 33 paths to revisit during the consolidation:
    client DB surface.
 4. `client/src/core/signingEngine/flows/registration/accountLifecycle.ts`,
    `flows/signEvmFamily/*`, `flows/signNear/*`, `flows/recovery/*`,
-   any remaining Email OTP flow helpers, `session/warmSigning/*`, `threshold/*`,
+   any remaining Email OTP flow helpers, `session/warmCapabilities/*`, `threshold/*`,
    and `walletAuth/webauthn/*` still depend on `UnifiedIndexedDBManager`,
    `clientDB`, or `accountKeyMaterialDB` ports.
 5. `sdk/rolldown.config.ts` still exposes the old IndexedDB managers and the
@@ -330,7 +330,7 @@ legacy database deletion. Repositories own object-store reads and writes.
 6. Update post-refactor 33 callsites to use the new repositories:
    - `session/userPreferences.ts`
    - `session/persistence/sealedSessionStore.ts`
-   - `session/warmSigning/*`
+   - `session/warmCapabilities/*`
    - `flows/registration/*`
    - `flows/recovery/*`
    - `flows/signEvmFamily/*`

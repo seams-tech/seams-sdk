@@ -220,7 +220,7 @@ signing.
 - `client/src/core/signingEngine/session/persistence/sealedSessionStore.ts`
   - preserves sealed refresh transport metadata that may include the token
 
-- `client/src/core/signingEngine/session/warmSigning/readModel.ts`
+- `client/src/core/signingEngine/session/warmCapabilities/readModel.ts`
   - exposes warm-session auth state used by signing orchestration
 
 ### Email OTP Paths

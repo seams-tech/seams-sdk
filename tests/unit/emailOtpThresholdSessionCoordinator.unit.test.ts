@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { EmailOtpThresholdSessionCoordinator } from '@/core/signingEngine/sessionEmailOtp/EmailOtpThresholdSessionCoordinator';
+import { EmailOtpThresholdSessionCoordinator } from '@/core/signingEngine/session/emailOtp/EmailOtpThresholdSessionCoordinator';
 import { requestEmailOtpExportAuthorization } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/exportAuthorization';
 import { WALLET_EMAIL_OTP_EXPORT_OPERATION } from '@shared/utils/emailOtpDomain';
-import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmSigning/persistence';
+import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmCapabilities/persistence';
 import {
   clearAllStoredThresholdEd25519SessionRecords,
   clearAllThresholdEcdsaSessionRecords,

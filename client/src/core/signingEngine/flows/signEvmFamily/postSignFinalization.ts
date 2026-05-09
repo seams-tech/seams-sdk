@@ -1,7 +1,7 @@
 import {
   SigningSessionPlanKind,
   type SigningSessionPlan,
-} from '../../session/signingSession/types';
+} from '../../session/operationState/types';
 import type { OperationTransitionObserver } from '../shared/operationPorts';
 import {
   SigningOperationCommandKind,

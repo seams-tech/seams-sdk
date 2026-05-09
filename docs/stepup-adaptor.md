@@ -3,6 +3,9 @@
 Date created: 2026-05-07
 Status: in progress
 
+Current path note: earlier `sessionEmailOtp/` references now map to
+`session/emailOtp/`.
+
 ## Purpose
 
 Main transaction signing flows should ask for signing authorization through one
@@ -13,7 +16,7 @@ This plan assumes the preferred naming end state:
 
 - `webauthnAuth/`: low-level WebAuthn/passkey browser primitives only
 - `stepUpConfirmation/`: method selection plus prompt/auth-plan orchestration
-- `sessionEmailOtp/`: Email OTP durable lifecycle coordination
+- `session/emailOtp/`: Email OTP durable lifecycle coordination
 
 Do not begin code moves toward a mixed `walletAuth/` and `webauthnAuth/` state.
 The split to `webauthnAuth/` is part of this refactor plan.
@@ -43,7 +46,7 @@ and returns a narrow authorization result.
 3. Keep method-specific prompt/auth-plan construction under
    `stepUpConfirmation/`.
 4. Keep method-specific lifecycle coordination in the real owner:
-   operation-local code, `sessionEmailOtp/`, generic `session/`, or a future
+   operation-local code, `session/emailOtp/`, generic `session/`, or a future
    method session folder when it owns durable lifecycle state.
 5. Delete direct operation imports of `otpPrompt/*`, `passkeyPrompt/*`, and
    auth-plan enum switches after call sites move.
@@ -88,8 +91,9 @@ client/src/core/signingEngine/
   session/
     ...
 
-  sessionEmailOtp/
-    EmailOtpThresholdSessionCoordinator.ts
+  session/
+    emailOtp/
+      EmailOtpThresholdSessionCoordinator.ts
 
   webauthnAuth/
     credentials/
@@ -118,14 +122,14 @@ flowchart TD
   STEPUP --> CONFIRM["confirmSigningOperation"]
   CONFIRM --> UI["uiConfirm/*"]
   STEPUP --> RUNNER["method runner port"]
-  RUNNER --> EMAILSESSION["sessionEmailOtp/*"]
+  RUNNER --> EMAILSESSION["session/emailOtp/*"]
   RUNNER --> WEBAUTHN["webauthnAuth/*"]
   FLOW --> THRESHOLD["threshold/*"]
   FLOW --> CHAINS["chains/*"]
   FLOW --> NONCE["nonce/*"]
 ```
 
-Runtime calls may pass through a method runner to `sessionEmailOtp/` or
+Runtime calls may pass through a method runner to `session/emailOtp/` or
 `webauthnAuth/`. Import direction stays controlled by defining runner interfaces
 in `stepUpConfirmation/` and passing implementations in from the operation or
 assembly layer.
@@ -137,7 +141,7 @@ assembly layer.
 | `flows/*` | `stepUpConfirmation/requireStepUpAuth`, `stepUpConfirmation/types`, operation-local runner builders | `stepUpConfirmation/*Prompt`, `SigningAuthPlanKind` switches, concrete `uiConfirm/*` internals |
 | `stepUpConfirmation/requireStepUpAuth.ts` | `methodSelection`, `types`, prompt builders, `confirmOperation` | `flows/*`, `SigningEngine.ts`, concrete session lifecycle modules |
 | `stepUpConfirmation/*Prompt` | prompt-local types, primitive auth/display types, and `webauthnAuth/*` browser primitives | operation flows, `SigningEngine.ts`, threshold protocol execution |
-| `sessionEmailOtp/*` | `stepUpConfirmation` Email OTP contracts, `session/*`, `threshold/*`, `workerManager/*` | operation flows, `SigningEngine.ts`, passkey prompt internals |
+| `session/emailOtp/*` | `stepUpConfirmation` Email OTP contracts, `session/*`, `threshold/*`, `workerManager/*` | operation flows, `SigningEngine.ts`, passkey prompt internals |
 | `webauthnAuth/*` | reusable WebAuthn/passkey browser primitives only | `stepUpConfirmation/*` orchestration logic, operation flows, session lifecycle modules |
 | `uiConfirm/*` | confirmation contracts and concrete UI runtime dependencies | operation flows, `SigningEngine.ts` |
 
@@ -393,9 +397,10 @@ Do not move NEAR, recovery, or export flows in this phase.
       sites.
 - [x] Keep threshold signing and nonce sequencing in the existing operation
       flow.
-- [ ] Replace the operation-local helper internals so it calls
-      `stepUpConfirmation/requireStepUpAuth` directly instead of translating the
-      current confirmation payload shape.
+- [x] Replace the operation-local helper internals so it calls the shared
+      `stepUpConfirmation/prepareStepUpAuth` route instead of importing prompt
+      builders directly. The helper still returns the current confirmation
+      payload shape while the UI runtime consumes `SigningAuthPlan`.
 - [x] Move EVM-family account-auth resolution out of `walletAuth/` and into
       `flows/signEvmFamily/accountAuth.ts`.
 - [ ] Move `signEvmFamily.ts` off the remaining wallet-auth naming and result
@@ -418,13 +423,13 @@ Exit criteria:
 
 ### Phase 4: NEAR Vertical Slice
 
-- [ ] Add `flows/signNear/requireNearStepUpAuth.ts`.
+- [x] Add `flows/signNear/requireNearStepUpAuth.ts`.
 - [x] Remove NEAR transaction passkey/Email OTP adapter wrappers from
       `signNear.ts`; keep direct Email OTP challenge/completion closures local
       until the shared NEAR helper exists.
-- [ ] Move NEAR transaction Email OTP prompt setup into the NEAR helper or a
+- [x] Move NEAR transaction Email OTP prompt setup into the NEAR helper or a
       shared runner builder if it is auth-method neutral.
-- [ ] Route NEAR transaction, delegate, and NEP-413 signing through the same
+- [x] Route NEAR transaction, delegate, and NEP-413 signing through the same
       adaptor shape.
 - [ ] Keep NEAR-specific Ed25519 threshold material resolution in `signNear` or
       `threshold/ed25519`.

@@ -7,7 +7,7 @@ finalization, and trusted budget status fetches.
 
 ## May Import
 
-Shared operation-state and lane types from `session/signingSession/*`,
+Shared operation-state and lane types from `session/operationState/*`,
 primitive persistence reads, and neutral relayer/session token helpers.
 
 ## Must Not Import
@@ -17,6 +17,7 @@ entrypoints, or concrete confirmation/runtime modules.
 
 ## Entrypoints
 
+- `BudgetCoordinator.ts`
 - `budget.ts`
 - `budgetProjection.ts`
 - `budgetFinalizer.ts`

@@ -8,7 +8,7 @@ import {
 import {
   SigningOperationIntent,
   SigningSessionIds,
-} from '@/core/signingEngine/session/signingSession/types';
+} from '@/core/signingEngine/session/operationState/types';
 
 function createFakeEvmNonceBackend(): EvmNonceBackend {
   return {

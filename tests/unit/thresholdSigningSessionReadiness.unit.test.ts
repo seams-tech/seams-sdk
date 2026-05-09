@@ -5,7 +5,7 @@ import {
   readThresholdSigningSessionReadiness,
   THRESHOLD_SESSION_EXHAUSTED_ERROR,
   THRESHOLD_SESSION_MISSING_ERROR,
-} from '@/core/signingEngine/session/warmSigning/thresholdSigningSessionReadiness';
+} from '@/core/signingEngine/session/warmCapabilities/thresholdSigningSessionReadiness';
 import { isThresholdSessionAuthUnavailableError } from '@/core/signingEngine/threshold/sessionPolicy';
 
 const EVM_CHAIN_TARGET = {

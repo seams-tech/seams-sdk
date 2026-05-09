@@ -3,6 +3,9 @@
 Date created: 2026-05-04
 Status: implemented through Phase 16; Phase 12 deep-cleanup follow-through completed except for future optional composition tightening
 
+Current path note: historical references in this document to
+`sessionEmailOtp/` now map to `session/emailOtp/`.
+
 ## Purpose
 
 This refactor simplifies the SDK internals under
@@ -1351,7 +1354,7 @@ Todo:
 - [x] Move ECDSA protocol workflows to `threshold/ecdsa/*`.
   - [x] Move threshold activation to `threshold/ecdsa/activation.ts`.
   - [x] Move ECDSA session activation lifecycle wrapper to
-        `session/warmSigning/ecdsaBootstrap.ts`; `threshold/ecdsa/*` keeps
+        `session/passkey/ecdsaBootstrap.ts`; `threshold/ecdsa/*` keeps
         protocol activation helpers.
   - [x] Move ECDSA commit queue ownership to
         `threshold/ecdsa/commitQueue.ts`.
@@ -1382,9 +1385,9 @@ Todo:
       types from `session/persistence/records.ts` to `session/identity/laneIdentity.ts`.
 - [x] Move PRF cache helpers from
       `api/session/signingSessionState.ts` to
-      `session/warmSigning/prfCache.ts`.
+      `session/passkey/prfCache.ts`.
 - [x] Move ECDSA bootstrap warm-material cache writes to
-      `session/warmSigning/ecdsaBootstrap.ts`; `threshold/ecdsa/bootstrapSession.ts`
+      `session/passkey/ecdsaBootstrap.ts`; `threshold/ecdsa/bootstrapSession.ts`
       returns resolved protocol PRF material only.
 
 Exit criteria:
@@ -1486,7 +1489,7 @@ Todo:
         suite, the passkey export-flow suite, and private-key export recovery
         tests.
   - [x] Move warm signing-session clear/ID collection out of
-        `SigningEngine.ts` into `session/warmSigning/clearWarmSigningSessions.ts`;
+        `SigningEngine.ts` into `session/warmCapabilities/clearWarmSigningSessions.ts`;
         the public method now delegates with the touch-confirm cache port and
         ECDSA session store.
   - [x] Verify warm signing-session clear extraction with `git diff --check`,
@@ -1508,7 +1511,7 @@ Todo:
         suite, the passkey export-flow suite, and private-key export recovery
         tests.
   - [x] Move sealed-refresh startup parity retry policy out of
-        `SigningEngine.ts` into `session/warmSigning/sealedRefreshParity.ts`;
+        `SigningEngine.ts` into `session/warmCapabilities/sealedRefreshParity.ts`;
         the facade now passes only the parity assertion function and bootstrap
         or signing identity.
   - [x] Verify sealed-refresh parity extraction with `git diff --check`,
@@ -1534,7 +1537,7 @@ Todo:
         suite, the passkey export-flow suite, and private-key export recovery
         tests.
   - [x] Move account-scoped ECDSA bootstrap queueing out of
-        `SigningEngine.ts` into `session/warmSigning/ecdsaBootstrapQueue.ts`;
+        `SigningEngine.ts` into `session/passkey/ecdsaBootstrapQueue.ts`;
         the facade now owns the queue map and calls the warm-session helper at
         bootstrap and worker-commit sites.
   - [x] Verify ECDSA bootstrap queue extraction with `git diff --check`,
@@ -1550,14 +1553,14 @@ Todo:
         tests.
   - [x] Move ECDSA warm-capability readiness assertion out of
         `SigningEngine.ts` into
-        `session/warmSigning/ecdsaCapabilityReadiness.ts`; EVM-family commit
+        `session/warmCapabilities/ecdsaCapabilityReadiness.ts`; EVM-family commit
         now calls the warm-session helper directly.
   - [x] Verify ECDSA warm-capability readiness extraction with
         `git diff --check`, `pnpm -C sdk build:rolldown`, the Refactor 33 guard
         suite, the passkey export-flow suite, and private-key export recovery
         tests.
   - [x] Move worker-provisioned ECDSA bootstrap commit orchestration out of
-        `SigningEngine.ts` into `session/warmSigning/ecdsaBootstrapCommit.ts`;
+        `SigningEngine.ts` into `session/emailOtp/ecdsaBootstrapCommit.ts`;
         the helper now owns bootstrap canonicalization, account persistence,
         session-record upsert, queueing, and warm-capability assertion through
         explicit ports.
@@ -1567,7 +1570,7 @@ Todo:
         tests.
   - [x] Move queued ECDSA bootstrap provisioning plus PRF seal persistence out
         of `SigningEngine.ts` into
-        `session/warmSigning/ecdsaSessionProvision.ts`; the public bootstrap
+        `session/passkey/ecdsaSessionProvision.ts`; the public bootstrap
         method now passes activation deps, queue ownership, touch-confirm, and
         seal transport resolution as explicit ports.
   - [x] Verify queued ECDSA bootstrap provisioning extraction with
@@ -1576,7 +1579,7 @@ Todo:
         tests.
   - [x] Move Ed25519 threshold-session provisioning out of
         `SigningEngine.ts` into
-        `session/warmSigning/ed25519SessionProvision.ts`; the helper now owns
+        `session/passkey/ed25519SessionProvision.ts`; the helper now owns
         relayer/session-id resolution, worker minting, warm-session persistence,
         and PRF-first cache hydration through explicit ports.
   - [x] Verify Ed25519 threshold-session provisioning extraction with
@@ -1585,7 +1588,7 @@ Todo:
         tests.
   - [x] Move public ECDSA warm-capability bootstrap orchestration out of
         `SigningEngine.ts` into
-        `session/warmSigning/ecdsaWarmCapabilityBootstrap.ts`; both the public
+        `session/passkey/ecdsaWarmCapabilityBootstrap.ts`; both the public
         bootstrap method and operation dependency bundle now call the same
         session helper directly.
   - [x] Verify ECDSA warm-capability bootstrap helper extraction with
@@ -1670,7 +1673,7 @@ Todo:
 
 - [x] Delete `api/*` modules whose behavior moved to `flows/*`.
   - [x] Move remaining threshold lifecycle API modules to
-        `session/warmSigning/*`: ECDSA bootstrap persistence and login presign
+        `session/warmCapabilities/*`: ECDSA bootstrap persistence and login presign
         prefill.
   - [x] Move recovery export operation code to
         `flows/recovery/privateKeyExportRecovery.ts`.
@@ -1850,7 +1853,7 @@ Todo:
         so `SigningEngine.ts` stops directly clearing, upserting, listing, and
         reconstructing record-key lookups from `session/persistence/records.ts`.
   - [x] Move warm-session lifecycle facade methods behind
-        `session/warmSigning/public.ts` and `assembly/ports/warmSigning.ts`
+        `session/warmCapabilities/public.ts` and `assembly/ports/warmSigning.ts`
         so `SigningEngine.ts` stops directly composing warm bootstrap,
         status-plus-budget merging, prefill scheduling, PRF hydration, and
         warm-session cleanup.
@@ -1885,8 +1888,8 @@ Todo:
         warm signing.
   - [x] Prefer child folders only where they improve call-chain readability:
         `session/identity/*`, `session/availability/*`,
-        `session/planning/*`, `session/budget/*`, `session/restore/*`,
-        `session/persistence/*`, and `session/warmSigning/*`.
+        `session/planning/*`, `session/budget/*`, `session/sealedRecovery/*`,
+        `session/persistence/*`, and `session/warmCapabilities/*`.
   - [x] Keep selected-lane construction in exactly one identity boundary.
   - [x] Keep persistence record normalization in one persistence/records
         boundary.

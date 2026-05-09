@@ -7,7 +7,7 @@ import {
   assertEcdsaOperationAllowed,
   ecdsaPostSignPolicyMaterialFromRecord,
   ecdsaPostSignPolicySessionFromRecord,
-} from '@/core/signingEngine/session/signingSession/postSignPolicy';
+} from '@/core/signingEngine/session/operationState/postSignPolicy';
 import { toAccountId } from '@/core/types/accountIds';
 
 const NEAR_ACCOUNT_ID = toAccountId('alice.testnet');

@@ -22,12 +22,12 @@ import {
   type SelectedEd25519Lane,
   type SelectedLane,
 } from './laneIdentity';
-import type { SigningAuthMethod } from '../signingSession/types';
+import type { SigningAuthMethod } from '../operationState/types';
 import type {
   EvmFamilyEcdsaTransactionSigningIntent,
   TransactionLane,
   TransactionSigningIntent,
-} from '../signingSession/transactionState';
+} from '../operationState/transactionState';
 import { thresholdEcdsaChainTargetsEqual } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export type TransactionLaneSelectionFailure =

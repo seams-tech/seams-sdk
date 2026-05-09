@@ -12,7 +12,7 @@ import type {
   SigningOperationContext,
   SelectedSigningSessionPlanningLane,
   WalletSigningSpendPlan,
-} from '../signingSession/types';
+} from '../operationState/types';
 
 export type SigningSessionBudgetFinalizer = {
   spend?: WalletSigningSpendPlan;

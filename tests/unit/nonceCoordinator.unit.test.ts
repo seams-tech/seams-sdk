@@ -14,7 +14,7 @@ import {
 import {
   SigningOperationIntent,
   SigningSessionIds,
-} from '@/core/signingEngine/session/signingSession/types';
+} from '@/core/signingEngine/session/operationState/types';
 import { thresholdEcdsaChainTargetFromChainFamily } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 const TEST_SENDER = `0x${'22'.repeat(20)}` as const;

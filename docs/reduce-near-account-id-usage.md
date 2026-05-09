@@ -397,7 +397,7 @@ client/src/core/signingEngine/api/evm**
 client/src/core/signingEngine/api/evmFamily/**
 client/src/core/signingEngine/emailOtp/**
 client/src/core/signingEngine/nonce/**
-client/src/core/signingEngine/session/warmSigning/**
+client/src/core/signingEngine/session/warmCapabilities/**
 client/src/core/signingEngine/threshold/workflows/bootstrapEcdsaSession.ts
 client/src/core/signingEngine/workerManager/**
 client/src/core/rpcClients/evm/**

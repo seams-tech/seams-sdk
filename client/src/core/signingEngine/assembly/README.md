@@ -7,7 +7,7 @@ ports, runtime startup, and resource warmup.
 
 ## May Import
 
-`flows/*` public entrypoints, `session/*`, `sessionEmailOtp/*`,
+`flows/*` public entrypoints, `session/*`,
 `stepUpConfirmation/*`, `threshold/*`, `chains/*`, `workers/*`,
 `workerManager/*`, `uiConfirm/*`, `walletAuth/*`, `webauthnAuth/*`,
 `interfaces/*`, and `nonce/*`.

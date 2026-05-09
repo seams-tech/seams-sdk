@@ -3,7 +3,7 @@ import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import {
   SigningSessionIds,
   type SigningOperationFingerprint,
-} from '../signingSession/types';
+} from '../operationState/types';
 
 export async function computeSigningOperationFingerprint(args: {
   kind: string;

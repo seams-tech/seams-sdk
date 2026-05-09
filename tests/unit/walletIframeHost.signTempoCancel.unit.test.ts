@@ -204,6 +204,14 @@ test.describe('wallet iframe host canonical signer error mapping', () => {
     expect(code).toBe('threshold_ed25519_session_not_ready');
   });
 
+  test('maps NEAR RPC timeouts to rpc_request_failed', async () => {
+    const code = resolveWalletBoundaryErrorCode({
+      requestType: 'PM_SIGN_AND_SEND_TXS',
+      message: 'RPC request failed: 408 Request Timeout',
+    });
+    expect(code).toBe('rpc_request_failed');
+  });
+
   test('maps session kind mismatch wording to threshold_session_kind_mismatch', async () => {
     const code = resolveWalletBoundaryErrorCode({
       requestType: 'PM_SIGN_TEMPO',

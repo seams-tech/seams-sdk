@@ -13,7 +13,7 @@ import {
   type ThresholdEd25519SessionId,
   type ThresholdSessionId,
   type WalletSigningSessionId,
-} from '../signingSession/types';
+} from '../operationState/types';
 
 export type { SigningAuthMethod, SigningCurve };
 export type EcdsaThresholdKeyId = string & { readonly __brand?: 'EcdsaThresholdKeyId' };

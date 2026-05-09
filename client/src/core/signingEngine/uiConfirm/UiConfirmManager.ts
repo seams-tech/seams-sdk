@@ -70,13 +70,15 @@ import type { EcdsaThresholdKeyId } from '../interfaces/signing';
 import {
   restorePersistedSessionsForAccountCommand,
   restorePersistedSessionForSigningCommand,
-  type RestorePersistedSessionsForAccountInput,
-  type RestorePersistedSessionsForAccountResult,
-  type RestorePersistedSessionForSigningInput,
-  type RestorePersistedSessionForSigningResult,
-  type RestorePersistedSessionPurpose,
-  type RestoreSealedRecordForAccountResult,
-} from '../session/restore/restoreCoordinator';
+} from '../session/sealedRecovery/restoreCoordinator';
+import type {
+  RestorePersistedSessionsForAccountInput,
+  RestorePersistedSessionsForAccountResult,
+  RestorePersistedSessionForSigningInput,
+  RestorePersistedSessionForSigningResult,
+  RestorePersistedSessionPurpose,
+  RestoreSealedRecordForAccountResult,
+} from '../session/sealedRecovery/types';
 import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
@@ -2010,6 +2012,12 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     );
     const error = new Error(`UserConfirm worker failed: ${message}`);
     console.error('[UserConfirmWorker] error:', errorEvent);
+    if (this.worker) {
+      this.detachWorkerRouter(this.worker);
+      this.worker.terminate();
+      this.worker = null;
+    }
+    this.initializationPromise = null;
     this.rejectAllPendingWorkerRequests(error);
   }
 
@@ -2146,6 +2154,12 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       console.warn('[UserConfirmWorker] testWebWorkerCommunication failed:', message);
+      if (this.worker) {
+        this.detachWorkerRouter(this.worker);
+        this.worker.terminate();
+        this.worker = null;
+      }
+      throw error;
     }
   }
 }

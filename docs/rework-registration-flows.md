@@ -517,20 +517,20 @@ Client files to edit:
 - `client/src/core/signingEngine/threshold/sessionPolicy.ts`
   - Keep threshold signing-session policy construction scoped to signing/session routes.
   - Exclude signer-provisioning authority from threshold-session policy material.
-- `client/src/core/signingEngine/session/warmSigning/ecdsaBootstrap.ts`
+- `client/src/core/signingEngine/session/passkey/ecdsaBootstrap.ts`
   - Keep warm-material cache writes for ECDSA signing-session bootstrap.
   - Remove initial-registration continuation-token assumptions.
-- `client/src/core/signingEngine/session/warmSigning/ecdsaBootstrapRequest.ts`
+- `client/src/core/signingEngine/session/passkey/ecdsaBootstrapRequest.ts`
   - Build signing-session bootstrap requests from wallet signer refs.
   - Keep registration ceremony requests in wallet registration RPC helpers.
-- `client/src/core/signingEngine/session/warmSigning/ecdsaBootstrapPersistence.ts`
+- `client/src/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence.ts`
   - Persist ECDSA warm-session material against wallet-subject signer refs.
-- `client/src/core/signingEngine/session/warmSigning/ecdsaProvisioner.ts`
+- `client/src/core/signingEngine/session/passkey/ecdsaProvisioner.ts`
   - Provision ECDSA warm sessions from existing signer records after registration.
   - Avoid creating signer records from warm-session provisioning.
-- `client/src/core/signingEngine/session/warmSigning/ed25519Provisioner.ts`
+- `client/src/core/signingEngine/session/passkey/ed25519Provisioner.ts`
   - Provision Ed25519 warm sessions from existing signer records after registration.
-- `client/src/core/signingEngine/session/warmSigning/ed25519SessionProvision.ts`
+- `client/src/core/signingEngine/session/passkey/ed25519SessionProvision.ts`
   - Keep Ed25519 signing-session provisioning separate from Ed25519 signer creation.
 - `client/src/core/signingEngine/walletAuth/webauthn/credentials/credentialExtensions.ts`
   - Parse WebAuthn PRF extension output once at the boundary.
@@ -633,7 +633,7 @@ Tests to edit or add:
 - [ ] Derive Ed25519 and ECDSA PRF inputs with domain-separated labels.
 - [ ] Run selected signer HSS work inside the combined registration ceremony.
 - [ ] Route Ed25519 protocol work through `threshold/ed25519/*` and ECDSA protocol work through `threshold/ecdsa/*`.
-- [ ] Keep warm-session persistence in `session/warmSigning/*` after signer records exist.
+- [ ] Keep warm-session persistence in `session/warmCapabilities/*` after signer records exist.
 - [ ] Emit progress events for per-signer prepare/finalize states.
 - [ ] Persist returned signer refs under wallet subject identity.
 - [ ] Wire React context and SDK flow tracking to the new registration API.

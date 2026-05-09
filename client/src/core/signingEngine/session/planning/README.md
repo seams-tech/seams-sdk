@@ -7,7 +7,7 @@ operation-id binding for deduplication.
 
 ## May Import
 
-Shared operation-state and lane types from `session/signingSession/*` plus
+Shared operation-state and lane types from `session/operationState/*` plus
 neutral digest helpers.
 
 ## Must Not Import

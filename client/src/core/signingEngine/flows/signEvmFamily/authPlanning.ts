@@ -13,9 +13,9 @@ import type {
   SigningSessionReadiness,
 } from '../../session/SigningSessionCoordinator';
 import { resolveEmailOtpEcdsaWorkerSessionId } from '../../session/availability/readiness';
-import type { SigningSessionPlan } from '../../session/signingSession/types';
-import { SigningOperationIntent, SigningSessionPlanKind } from '../../session/signingSession/types';
-import type { PreparedThresholdSigningOperation } from '../../session/signingSession/preparedOperation';
+import type { SigningSessionPlan } from '../../session/operationState/types';
+import { SigningOperationIntent, SigningSessionPlanKind } from '../../session/operationState/types';
+import type { PreparedThresholdSigningOperation } from '../../session/operationState/preparedOperation';
 import { signingAuthPlanFromSigningSessionPlan } from '../shared/signingConfirmation';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
 import type {

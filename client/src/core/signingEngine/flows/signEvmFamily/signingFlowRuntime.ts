@@ -1,7 +1,7 @@
 import { SigningEventPhase } from '@/core/types/sdkSentEvents';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
-import { assertThresholdSigningSessionReady } from '../../session/warmSigning/thresholdSigningSessionReadiness';
-import type { SigningOperationContext, SigningSessionPlan } from '../../session/signingSession/types';
+import { assertThresholdSigningSessionReady } from '../../session/warmCapabilities/thresholdSigningSessionReadiness';
+import type { SigningOperationContext, SigningSessionPlan } from '../../session/operationState/types';
 import {
   SigningOperationCommandKind,
   runSigningOperationCommandTrace,
@@ -11,7 +11,7 @@ import {
   createSigningBoundaryTraceEvent,
   emitSigningBoundaryTrace,
   emitSigningSessionFlowTrace,
-} from '../../session/signingSession/trace';
+} from '../../session/operationState/trace';
 import type { EvmFamilySigningDeps } from '../../interfaces/operationDeps';
 import { resolveThresholdEcdsaCommitQueueKey } from '../../threshold/ecdsa/commitQueue';
 import { emitEvmFamilySigningEvent, emitEvmFamilySigningOperationTrace } from './events';
@@ -164,17 +164,10 @@ export async function createEvmFamilySigningFlowRuntime(args: {
         if (!relayerKeyId) {
           throw new Error('[SigningEngine] missing relayerKeyId for passkey ECDSA reconnect');
         }
-        // Exhausted ECDSA passkey sessions must use this planned policy digest as the
-        // confirmation challenge. Otherwise confirmation collects one WebAuthn assertion,
-        // then generic reconnect collects a second assertion and falls back to default uses.
+        // Passkey step-up mints a fresh wallet signing session. The planned
+        // policy digest must be the confirmation challenge so the reconnect
+        // can consume that same WebAuthn assertion.
         const remainingUses = resolveTransactionStepUpSessionUses(usesNeeded);
-        const sessionId = String(lane.thresholdSessionId || '').trim();
-        const walletSigningSessionId = String(lane.walletSigningSessionId || '').trim();
-        if (!sessionId || !walletSigningSessionId) {
-          throw new Error(
-            '[SigningEngine] passkey ECDSA reconnect requires selected lane identity',
-          );
-        }
         const ecdsaThresholdKeyId = String(
           record?.ecdsaThresholdKeyId || keyRef?.ecdsaThresholdKeyId || '',
         ).trim();
@@ -190,8 +183,6 @@ export async function createEvmFamilySigningFlowRuntime(args: {
           relayerKeyId,
           chainTarget: lane.chainTarget,
           ecdsaThresholdKeyId,
-          sessionId,
-          walletSigningSessionId,
           ...(record?.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
           ...(record?.participantIds?.length
             ? { participantIds: record.participantIds }

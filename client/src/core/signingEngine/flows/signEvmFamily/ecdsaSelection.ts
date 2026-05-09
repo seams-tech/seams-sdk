@@ -2,13 +2,13 @@ import type { AccountAuthMetadata } from '@/core/signingEngine/interfaces/accoun
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type { EcdsaLaneCandidate, ThresholdEcdsaSessionStoreSource } from '../../session/identity/laneIdentity';
-import { SigningSessionIds } from '../../session/signingSession/types';
-import { emitSigningSessionFlowFailure } from '../../session/signingSession/trace';
+import { SigningSessionIds } from '../../session/operationState/types';
+import { emitSigningSessionFlowFailure } from '../../session/operationState/trace';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
 import {
   buildEvmTransactionSigningLane,
   buildTempoTransactionSigningLane,
-} from '../../session/signingSession/lanes';
+} from '../../session/operationState/lanes';
 import {
   resolveEvmFamilyTransactionAccountAuth,
   type EvmFamilyAccountMetadataDeps,

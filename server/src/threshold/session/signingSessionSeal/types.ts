@@ -133,6 +133,9 @@ export interface SigningSessionSealThresholdSessionPolicy {
   getSessionStatus?(
     thresholdSessionId: string,
   ): Promise<SigningSessionSealThresholdSessionStatus | null>;
+  getSessionStatuses?(
+    thresholdSessionId: string,
+  ): Promise<SigningSessionSealThresholdSessionStatus[]>;
   consumeUseCount?(thresholdSessionId: string): Promise<SigningSessionSealConsumeUseResult>;
 }
 

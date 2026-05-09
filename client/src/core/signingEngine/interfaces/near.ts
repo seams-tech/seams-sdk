@@ -17,13 +17,13 @@ import type { SigningSessionCoordinator } from '../session/SigningSessionCoordin
 import type {
   SigningOperationId,
   SigningSessionPlan,
-} from '../session/signingSession/types';
-import type { NearTransactionSigningLane } from '../session/signingSession/lanes';
+} from '../session/operationState/types';
+import type { NearTransactionSigningLane } from '../session/operationState/lanes';
 import type { SelectedEd25519Lane } from '../session/identity/laneIdentity';
 import type {
   BudgetAdmittedOperation,
   PreparedTransactionOperation,
-} from '../session/signingSession/transactionState';
+} from '../session/operationState/transactionState';
 
 type NearResolvedEd25519SessionAuth =
   | {

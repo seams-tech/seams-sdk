@@ -44,7 +44,7 @@ test.describe('Email OTP operation split guard', () => {
 
   test('Email OTP coordinator keeps export challenge issuance separate from signing challenge issuance', () => {
     const source = readRepoFile(
-      'client/src/core/signingEngine/sessionEmailOtp/EmailOtpThresholdSessionCoordinator.ts',
+      'client/src/core/signingEngine/session/emailOtp/EmailOtpThresholdSessionCoordinator.ts',
     );
     const forbidden = [
       'requestEmailOtpChallengeForSigning',
@@ -174,13 +174,13 @@ test.describe('Email OTP operation split guard', () => {
       'client/src/core/signingEngine/flows/signEvmFamily/preparedSigning.ts',
     );
     const emailOtpCoordinator = readRepoFile(
-      'client/src/core/signingEngine/sessionEmailOtp/EmailOtpThresholdSessionCoordinator.ts',
+      'client/src/core/signingEngine/session/emailOtp/EmailOtpThresholdSessionCoordinator.ts',
     );
     const signingSessionReadiness = readRepoFile(
       'client/src/core/signingEngine/session/availability/readiness.ts',
     );
     const warmSessionStatusReader = readRepoFile(
-      'client/src/core/signingEngine/session/warmSigning/statusReader.ts',
+      'client/src/core/signingEngine/session/warmCapabilities/statusReader.ts',
     );
 
     expect(store).toContain('getEmailOtpThresholdEcdsaSessionRecordForSigning');

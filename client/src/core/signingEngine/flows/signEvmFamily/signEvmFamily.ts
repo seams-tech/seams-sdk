@@ -13,7 +13,7 @@ import type {
   ReadAvailableSigningLanesForSigningInput,
   AvailableSigningLanes,
 } from '../../session/availability/availableSigningLanes';
-import type { RestorePersistedSessionForSigningInput } from '../../session/restore/restoreCoordinator';
+import type { RestorePersistedSessionForSigningInput } from '../../session/sealedRecovery/types';
 import type {
   ThresholdEcdsaKeyRefLookupResult,
   ThresholdEcdsaSessionRecord,
@@ -33,11 +33,11 @@ import {
   SigningOperationIntent,
   type SigningOperationFingerprint,
   type SigningOperationId,
-} from '../../session/signingSession/types';
+} from '../../session/operationState/types';
 import {
   emitSigningSessionFlowFailure,
   emitSigningSessionFlowTrace,
-} from '../../session/signingSession/trace';
+} from '../../session/operationState/trace';
 import { computeSigningOperationFingerprint } from '../../session/planning/operationFingerprint';
 import {
   isSigningSessionBudgetExhaustedError,
@@ -46,9 +46,9 @@ import {
   type SigningSessionBudgetReservation,
 } from '../../session/budget/budget';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
-import type { BootstrapEcdsaSessionArgs } from '../../session/warmSigning/ecdsaBootstrap';
+import type { BootstrapEcdsaSessionArgs } from '../../session/passkey/ecdsaBootstrap';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
-import { ensureSealedRefreshStartupParityForTransactionSigning } from '../../session/warmSigning/sealedRefreshParity';
+import { ensureSealedRefreshStartupParityForTransactionSigning } from '../../session/warmCapabilities/sealedRefreshParity';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import {
@@ -113,7 +113,7 @@ import {
   replacePreparedTransactionLane,
   signPreparedTransactionOperation,
   type BudgetAdmittedOperation,
-} from '../../session/signingSession/transactionState';
+} from '../../session/operationState/transactionState';
 import { completeEvmFamilyEmailOtpSigningRefresh } from './emailOtpRefresh';
 import { createEvmFamilySigningFlowRuntime } from './signingFlowRuntime';
 import { retryEvmFamilyWithFreshEmailOtpAuthWhenRequired } from './freshEmailOtpRetry';
@@ -657,7 +657,7 @@ async function signEvmFamilyAttempt(
           const refreshed = await completeEvmFamilyEmailOtpSigningRefresh({
             deps,
             nearAccountId: args.nearAccountId,
-            chain: args.request.chain,
+            chain: requestChain,
             chainTarget: signingTarget,
             emailOtpSigning,
             otpCode,
@@ -784,7 +784,7 @@ async function signEvmFamilyAttempt(
               source: currentPrepared.source,
               signingLane: updateResolvedEvmFamilyEcdsaSigningLaneIdentity({
                 lane: currentPrepared.signingLane,
-                chain: args.request.chain,
+                chain: requestChain,
                 thresholdSessionId: refreshedThresholdSessionId,
                 walletSigningSessionId: refreshedWalletSigningSessionId,
                 context: 'EVM-family signing keyRef refresh',

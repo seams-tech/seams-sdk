@@ -30,31 +30,29 @@ import type {
 import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/types';
 import {
   createWarmSessionCapabilityReader,
-} from '@/core/signingEngine/session/warmSigning/capabilityReader';
+} from '@/core/signingEngine/session/warmCapabilities/capabilityReader';
 import {
   ensureWarmEcdsaCapabilityReady,
   provisionWarmEcdsaCapability,
   tryReuseReadyWarmEcdsaBootstrap,
-} from '@/core/signingEngine/session/warmSigning/ecdsaProvisioner';
-import { provisionWarmEd25519Capability } from '@/core/signingEngine/session/warmSigning/ed25519Provisioner';
+} from '@/core/signingEngine/session/passkey/ecdsaProvisioner';
+import { provisionWarmEd25519Capability } from '@/core/signingEngine/session/passkey/ed25519Provisioner';
 import {
   applyWarmSessionEcdsaPostSignPolicy,
   assertWarmSessionEcdsaOperationAllowed,
-} from '@/core/signingEngine/session/warmSigning/postSignPolicyAdapter';
+} from '@/core/signingEngine/session/operationState/warmSessionPolicyAdapter';
 import {
   createWarmSessionStatusReader as createCoreWarmSessionStatusReader,
-} from '@/core/signingEngine/session/warmSigning/statusReader';
-import { resolveWarmEcdsaBootstrapRequestFromSession } from '@/core/signingEngine/session/warmSigning/ecdsaBootstrapRequest';
-import {
-  claimWarmSessionPrfFirst,
-  ensureEcdsaPrfSealPersisted,
-} from '@/core/signingEngine/session/warmSigning/runtime';
+} from '@/core/signingEngine/session/warmCapabilities/statusReader';
+import { resolveWarmEcdsaBootstrapRequestFromSession } from '@/core/signingEngine/session/passkey/ecdsaBootstrapRequest';
+import { claimWarmSessionPrfFirst } from '@/core/signingEngine/session/passkey/prfClaim';
+import { ensureEcdsaPrfSealPersisted } from '@/core/signingEngine/session/passkey/runtime';
 import type {
   EnsureWarmEcdsaCapabilityReadyResult,
   ProvisionWarmEcdsaCapabilityArgs,
   ProvisionWarmEd25519CapabilityArgs,
   ProvisionWarmEd25519CapabilityResult,
-} from '@/core/signingEngine/session/warmSigning/types';
+} from '@/core/signingEngine/session/warmCapabilities/types';
 import {
   thresholdEcdsaChainTargetFromChainFamily,
   toWalletSubjectId,
@@ -73,7 +71,7 @@ export function testEcdsaChainTarget(
     chainId: testEcdsaChainId(chain),
   });
 }
-import type { WarmSessionTransitionEvent } from '@/core/signingEngine/session/warmSigning/transitions';
+import type { WarmSessionTransitionEvent } from '@/core/signingEngine/session/warmCapabilities/transitions';
 
 type SessionStorageMock = {
   getItem: (key: string) => string | null;

@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   assertWarmSessionEnvelopeInvariant,
   type WarmSessionEnvelope,
-} from '@/core/signingEngine/session/warmSigning/types';
+} from '@/core/signingEngine/session/warmCapabilities/types';
 import {
   createWarmSessionTestServices,
   createThresholdEcdsaBootstrapFixture,

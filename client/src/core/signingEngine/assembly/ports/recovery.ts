@@ -6,8 +6,9 @@ import {
   readPersistedAvailableSigningLanesForTargets,
 } from '../../session/availability/persistedAvailableSigningLanes';
 import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/types';
-import type { WarmSessionCapabilityReader } from '../../session/warmSigning/types';
-import type { WarmSigningStatusReader } from '../../session/warmSigning/statusReader';
+import type { WarmSessionCapabilityReader } from '../../session/warmCapabilities/types';
+import type { WarmSigningStatusReader } from '../../session/warmCapabilities/statusReader';
+import type { WalletSigningBudgetAvailableStatusDeps } from '../../session/budget/budgetStatusReader';
 import type {
   RecoveryPublicDeps,
   RecoveryPublicEcdsaSessionStoreDeps,
@@ -45,6 +46,7 @@ export function createRecoveryPublicDeps(args: {
     getWarmSession: WarmSessionCapabilityReader['getWarmSession'];
     resolveCurrentEcdsaRecord: WarmSigningStatusReader['resolveCurrentEcdsaRecord'];
   };
+  getWalletSigningBudgetStatus: WalletSigningBudgetAvailableStatusDeps['getAvailableStatus'];
 }): RecoveryPublicDeps {
   const configuredChainTargets = configuredThresholdEcdsaChainTargets(
     args.seamsPasskeyConfigs.network.chains,
@@ -56,6 +58,7 @@ export function createRecoveryPublicDeps(args: {
           {
             ecdsaSessions: args.ecdsaSessions,
             statusReader: args.touchConfirm,
+            getWalletSigningBudgetStatus: args.getWalletSigningBudgetStatus,
           },
           availableLanesArgs,
           configuredChainTargets,
@@ -65,6 +68,7 @@ export function createRecoveryPublicDeps(args: {
           {
             ecdsaSessions: args.ecdsaSessions,
             statusReader: args.touchConfirm,
+            getWalletSigningBudgetStatus: args.getWalletSigningBudgetStatus,
           },
           availableLanesArgs,
         ),

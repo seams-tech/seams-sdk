@@ -1,4 +1,4 @@
-import type { SigningOperationId } from '../../session/signingSession/types';
+import type { SigningOperationId } from '../../session/operationState/types';
 import type { SelectedLane } from '../../session/identity/laneIdentity';
 
 export type OperationIntent =

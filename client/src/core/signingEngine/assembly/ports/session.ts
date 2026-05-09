@@ -2,6 +2,7 @@ import { configuredThresholdEcdsaChainTargets } from '@/core/signingEngine/inter
 import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/types';
 import type { ThresholdEcdsaSessionStoreDeps } from '../../session/persistence/records';
 import type { SessionPublicDeps } from '../../session/public';
+import type { WalletSigningBudgetAvailableStatusDeps } from '../../session/budget/budgetStatusReader';
 import type { CreateSigningEnginePortsArgs } from './shared';
 
 export function createSessionPublicDeps(args: {
@@ -11,6 +12,7 @@ export function createSessionPublicDeps(args: {
   emailOtpSessions: {
     restorePersistedSessionsForAccount: SessionPublicDeps['restore']['emailOtp'];
   };
+  getWalletSigningBudgetStatus: WalletSigningBudgetAvailableStatusDeps['getAvailableStatus'];
 }): SessionPublicDeps {
   const passkeyRestore = args.touchConfirm.restorePersistedSessionsForAccount
     ? (restoreArgs: Parameters<NonNullable<SessionPublicDeps['restore']['passkey']>>[0]) =>
@@ -21,6 +23,7 @@ export function createSessionPublicDeps(args: {
     availableLanes: {
       ecdsaSessions: args.ecdsaSessions,
       statusReader: args.touchConfirm,
+      getWalletSigningBudgetStatus: args.getWalletSigningBudgetStatus,
     },
     ecdsaSessions: args.ecdsaSessions,
     signingSessionSeal: args.seamsPasskeyConfigs.signing.sessionSeal,

@@ -15,7 +15,7 @@ import {
   thresholdEcdsaChainTargetKey,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { SigningAuthPlanKind } from '@/core/signingEngine/stepUpConfirmation/types';
-import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmSigning/persistence';
+import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmCapabilities/persistence';
 import { clearAllStoredThresholdEd25519SessionRecords } from '@/core/signingEngine/session/persistence/records';
 
 const TEST_ECDSA_CHAIN_TARGETS = {

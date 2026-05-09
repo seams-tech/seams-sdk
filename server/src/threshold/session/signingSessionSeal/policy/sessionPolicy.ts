@@ -88,6 +88,23 @@ function normalizeStatusAcrossStores(
   })();
 }
 
+function normalizeStatusesAcrossStores(
+  thresholdSessionId: string,
+  stores: readonly Ed25519AuthSessionStore[],
+): Promise<SigningSessionSealThresholdSessionStatus[]> {
+  return (async () => {
+    const statuses: SigningSessionSealThresholdSessionStatus[] = [];
+    for (const store of stores) {
+      const normalized = normalizeSessionStatus(
+        thresholdSessionId,
+        await store.getSessionStatus(thresholdSessionId),
+      );
+      if (normalized) statuses.push(normalized);
+    }
+    return statuses;
+  })();
+}
+
 function normalizeConsumeAcrossStores(
   thresholdSessionId: string,
   stores: readonly Ed25519AuthSessionStore[],
@@ -115,6 +132,8 @@ export function createSigningSessionSealPolicyFromThresholdAuthSessionStores(inp
       await normalizeStoreResult(thresholdSessionId, stores),
     getSessionStatus: async (thresholdSessionId: string) =>
       await normalizeStatusAcrossStores(thresholdSessionId, stores),
+    getSessionStatuses: async (thresholdSessionId: string) =>
+      await normalizeStatusesAcrossStores(thresholdSessionId, stores),
     consumeUseCount: async (thresholdSessionId: string) =>
       await normalizeConsumeAcrossStores(thresholdSessionId, stores),
   };

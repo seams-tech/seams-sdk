@@ -47,7 +47,7 @@ import {
   resolveNearThresholdSigningAuthContext,
   THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR,
 } from './shared/thresholdAuthMode';
-import { SigningAuthPlanKind } from '@/core/signingEngine/stepUpConfirmation/types';
+import { isWarmSessionSigningAuthPlan } from '@/core/signingEngine/stepUpConfirmation/types';
 import { ensureThresholdEd25519HssClientBase } from '../../threshold/ed25519/hssClientBase';
 import { repairThresholdEd25519MissingRelayerKey } from '../../threshold/ed25519/repairMissingRelayerKey';
 import { planSigningSession } from '../../session/planning/planner';
@@ -55,13 +55,14 @@ import {
   SigningOperationIntent,
   SigningSessionIds,
   type SigningOperationContext,
-} from '../../session/signingSession/types';
+} from '../../session/operationState/types';
 import {
   SigningOperationCommandKind,
   runSigningOperationCommand,
   type SigningOperationCommand,
 } from '../shared/signingStateMachine';
 import { runSigningConfirmationCommand } from '../shared/signingConfirmation';
+import { requireNearStepUpAuth } from './requireNearStepUpAuth';
 
 function emitNearSigningEvent(
   onEvent: ((event: SigningFlowEvent) => void) | undefined,
@@ -196,8 +197,13 @@ export async function runNearDelegateActionSigning({
     message: 'Opening confirmation prompt',
     interaction: { kind: 'transaction_confirmation', overlay: 'show' },
   });
-  const confirmationAuthPayload = thresholdAuthPlan.confirmationAuthPayload;
-  if (confirmationAuthPayload.signingAuthPlan.kind === SigningAuthPlanKind.WarmSession) {
+  const preparedStepUp = await requireNearStepUpAuth({
+    signingAuthPlan: thresholdAuthPlan.signingAuthPlan,
+    signingLane: thresholdAuthPlan.lane,
+    usesNeeded,
+  });
+  const confirmationAuthPayload = preparedStepUp.confirmationAuthPayload;
+  if (isWarmSessionSigningAuthPlan(confirmationAuthPayload.signingAuthPlan)) {
     emitNearSigningEvent(onEvent, nearAccountId, {
       phase: SigningEventPhase.STEP_06_AUTH_WARM_SESSION_CLAIMED,
       status: 'succeeded',

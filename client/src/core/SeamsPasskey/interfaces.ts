@@ -10,7 +10,7 @@ import type {
   WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '../signingEngine/threshold/sessionPolicy';
-import type { WarmSessionEcdsaCapabilityState } from '../signingEngine/session/warmSigning/types';
+import type { WarmSessionEcdsaCapabilityState } from '../signingEngine/session/warmCapabilities/types';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 import type { NearClient, SignedTransaction } from '../rpcClients/near/NearClient';
 import type {

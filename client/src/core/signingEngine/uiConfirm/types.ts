@@ -34,7 +34,7 @@ import type {
   RestorePersistedSessionsForAccountInput,
   RestorePersistedSessionsForAccountResult,
   RestorePersistedSessionForSigningInput,
-} from '../session/restore/restoreCoordinator';
+} from '../session/sealedRecovery/types';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export type RequestUserConfirmationOptions = {

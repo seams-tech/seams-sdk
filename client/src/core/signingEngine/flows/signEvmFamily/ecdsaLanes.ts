@@ -16,7 +16,7 @@ import {
   buildEvmTransactionSigningLane,
   buildTempoTransactionSigningLane,
   type EcdsaTransactionSigningLane,
-} from '../../session/signingSession/lanes';
+} from '../../session/operationState/lanes';
 import type {
   ThresholdEcdsaKeyRefLookupResult,
   ThresholdEcdsaSessionRecord,
@@ -27,7 +27,7 @@ import {
   type ResolvedEcdsaSigningSessionIdentity,
   type ThresholdEcdsaSessionId,
   type WalletSigningSessionId,
-} from '../../session/signingSession/types';
+} from '../../session/operationState/types';
 import { toAccountId } from '@/core/types/accountIds';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import {

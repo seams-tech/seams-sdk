@@ -14,7 +14,7 @@ import type {
   SigningOperationContext,
   SigningOperationFingerprint,
   SigningOperationId,
-} from '../session/signingSession/types';
+} from '../session/operationState/types';
 import {
   thresholdEcdsaChainTargetFromChainFamily,
   type ThresholdEcdsaChainTarget,

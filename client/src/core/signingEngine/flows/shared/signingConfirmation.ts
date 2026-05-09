@@ -18,11 +18,11 @@ import type {
   SigningOperationIntent,
   SigningOperationContext,
   SigningSessionPlan,
-} from '@/core/signingEngine/session/signingSession/types';
+} from '@/core/signingEngine/session/operationState/types';
 import {
   SigningKeyRefIntentKind,
   SigningSessionPlanKind,
-} from '@/core/signingEngine/session/signingSession/types';
+} from '@/core/signingEngine/session/operationState/types';
 import {
   SigningEventPhase,
   type CreateSigningFlowEventInput,

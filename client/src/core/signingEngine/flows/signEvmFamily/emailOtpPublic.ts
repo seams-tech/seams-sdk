@@ -12,8 +12,8 @@ import type {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
-import type { ThresholdEcdsaSmartAccountBootstrapInput } from '../../session/warmSigning/ecdsaBootstrapPersistence';
-import type { WarmSessionEcdsaCapabilityState } from '../../session/warmSigning/types';
+import type { ThresholdEcdsaSmartAccountBootstrapInput } from '../../session/warmCapabilities/ecdsaBootstrapPersistence';
+import type { WarmSessionEcdsaCapabilityState } from '../../session/warmCapabilities/types';
 import type { EmailOtpWorkerProgressEvent } from '../../workerManager/workerTypes';
 import {
   requestEmailOtpSigningSessionChallenge as requestEmailOtpSigningSessionChallengeValue,

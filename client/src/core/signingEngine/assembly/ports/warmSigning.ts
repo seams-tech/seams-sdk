@@ -1,4 +1,5 @@
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
+import { base64UrlDecode } from '@shared/utils/base64';
 import type { ThresholdEcdsaCanonicalExportArtifact } from '../../interfaces/signing';
 import { toAccountId } from '@/core/types/accountIds';
 import {
@@ -10,29 +11,37 @@ import {
 } from '../../session/persistence/records';
 import {
   createWarmSessionCapabilityReader,
-} from '../../session/warmSigning/capabilityReader';
+} from '../../session/warmCapabilities/capabilityReader';
 import {
   createWarmSessionStatusReader,
   type WarmSigningStatusReader,
-} from '../../session/warmSigning/statusReader';
-import type { WarmSessionCapabilityReader } from '../../session/warmSigning/types';
+} from '../../session/warmCapabilities/statusReader';
+import type { WarmSessionCapabilityReader } from '../../session/warmCapabilities/types';
 import type {
   HydrateSigningSessionInput,
   PersistThresholdEcdsaBootstrapChainAccountInput,
-  WarmSigningPublicDeps,
-} from '../../session/warmSigning/public';
+  WarmCapabilitiesPublicDeps,
+} from '../../session/warmCapabilities/public';
+import type { PasskeyPublicDeps } from '../../session/passkey/public';
 import { createWarmSessionStatusOnlyUiConfirm } from '../../uiConfirm/warmSessionUiConfirm';
 import type {
   UiConfirmRuntimeBridgePort,
   WarmSessionStatusResult,
 } from '../../uiConfirm/types';
 import type { WalletSubjectId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { persistThresholdEcdsaBootstrapChainAccount } from '../../session/warmSigning/ecdsaBootstrapPersistence';
-import { bootstrapWarmEcdsaCapability } from '../../session/warmSigning/ecdsaWarmCapabilityBootstrap';
-import { provisionThresholdEd25519Session } from '../../session/warmSigning/ed25519SessionProvision';
-import { clearWarmSigningSessions } from '../../session/warmSigning/clearWarmSigningSessions';
-import { cacheSigningSessionPrfFirst } from '../../session/warmSigning/prfCache';
-import type { ThresholdSessionActivationDeps } from '../../session/warmSigning/ecdsaBootstrap';
+import { persistThresholdEcdsaBootstrapChainAccount } from '../../session/warmCapabilities/ecdsaBootstrapPersistence';
+import { bootstrapWarmEcdsaCapability } from '../../session/passkey/ecdsaWarmCapabilityBootstrap';
+import { provisionThresholdEd25519Session } from '../../session/passkey/ed25519SessionProvision';
+import { clearWarmSigningSessions } from '../../session/warmCapabilities/clearWarmSigningSessions';
+import {
+  cacheSigningSessionPrfFirst,
+  clearSigningSessionPrfFirstBestEffort,
+} from '../../session/passkey/prfCache';
+import {
+  claimEmailOtpEcdsaSigningShare32,
+  resolveEmailOtpWorkerShareSessionId,
+} from '../../session/emailOtp/workerRequests';
+import type { ThresholdSessionActivationDeps } from '../../session/passkey/ecdsaBootstrap';
 import type { SigningEnginePorts } from './shared';
 import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 
@@ -105,7 +114,7 @@ export function createWarmSigningPorts(args: WarmSigningPortsArgs): WarmSigningP
   };
 }
 
-export function createWarmSigningPublicDeps(args: {
+export function createPasskeyPublicDeps(args: {
   seamsPasskeyConfigs: {
     network: SeamsConfigsReadonly['network'];
     signing: SeamsConfigsReadonly['signing'];
@@ -120,12 +129,9 @@ export function createWarmSigningPublicDeps(args: {
   thresholdEcdsaBootstrapQueueByAccount: Map<string, Promise<void>>;
   ensureSealedRefreshStartupParity: () => Promise<void>;
   thresholdSessionActivationDeps: ThresholdSessionActivationDeps;
-  resolveCanonicalThresholdEcdsaSessionIdForChain: SigningEnginePorts['resolveCanonicalThresholdEcdsaSessionIdForChain'];
-  signingSessionCoordinator: Pick<SigningEnginePorts['signingSessionCoordinator'], 'getAvailableStatus'>;
-}): WarmSigningPublicDeps {
+}): PasskeyPublicDeps {
   return {
-    capabilityReader: args.warmSigning.capabilityReader,
-    statusReader: args.warmSigning.statusReader,
+    getWarmSession: (nearAccountId) => args.warmSigning.capabilityReader.getWarmSession(nearAccountId),
     provisionThresholdEd25519Session: async (provisionArgs) =>
       await provisionThresholdEd25519Session(
         {
@@ -149,6 +155,26 @@ export function createWarmSigningPublicDeps(args: {
         },
         bootstrapArgs,
       ),
+  };
+}
+
+export function createWarmCapabilitiesPublicDeps(args: {
+  seamsPasskeyConfigs: {
+    network: SeamsConfigsReadonly['network'];
+    signing: SeamsConfigsReadonly['signing'];
+  };
+  indexedDB: SigningEnginePorts['indexedDB'];
+  touchConfirm: UiConfirmRuntimeBridgePort;
+  warmSigning: Pick<
+    WarmSigningPorts,
+    'ecdsaSessions' | 'capabilityReader' | 'statusReader'
+  >;
+  thresholdSessionActivationDeps: ThresholdSessionActivationDeps;
+  resolveCanonicalThresholdEcdsaSessionIdForChain: SigningEnginePorts['resolveCanonicalThresholdEcdsaSessionIdForChain'];
+  signingSessionCoordinator: Pick<SigningEnginePorts['signingSessionCoordinator'], 'getAvailableStatus'>;
+}): WarmCapabilitiesPublicDeps {
+  return {
+    statusReader: args.warmSigning.statusReader,
     persistThresholdEcdsaBootstrapChainAccount: async (
       persistArgs: PersistThresholdEcdsaBootstrapChainAccountInput,
     ) =>
@@ -168,6 +194,8 @@ export function createWarmSigningPublicDeps(args: {
         {
           touchConfirm: args.touchConfirm,
           ecdsaSessions: args.warmSigning.ecdsaSessions,
+          clearThresholdSessionMaterial: async (sessionId) =>
+            await clearSigningSessionPrfFirstBestEffort(args.touchConfirm, sessionId),
         },
         nearAccountId,
       ),
@@ -175,7 +203,32 @@ export function createWarmSigningPublicDeps(args: {
       args.signingSessionCoordinator.getAvailableStatus(statusArgs),
     resolveCanonicalThresholdEcdsaSessionIdForChain: (nearAccountId, chainTarget) =>
       args.resolveCanonicalThresholdEcdsaSessionIdForChain(nearAccountId, chainTarget),
-    getSignerWorkerContext: () => args.thresholdSessionActivationDeps.getSignerWorkerContext(),
     thresholdEcdsaPresignPoolPolicy: args.seamsPasskeyConfigs.signing.thresholdEcdsa.presignPool,
+    getSignerWorkerContext: () => args.thresholdSessionActivationDeps.getSignerWorkerContext(),
+    resolveClientSigningShare32: async (keyRef) => {
+      const emailOtpWorkerShareSessionId = resolveEmailOtpWorkerShareSessionId(keyRef);
+      if (emailOtpWorkerShareSessionId) {
+        return await claimEmailOtpEcdsaSigningShare32({
+          workerCtx: args.thresholdSessionActivationDeps.getSignerWorkerContext(),
+          sessionId: emailOtpWorkerShareSessionId,
+        });
+      }
+      const clientAdditiveShare32B64u = String(
+        keyRef.backendBinding?.clientAdditiveShare32B64u || '',
+      ).trim();
+      if (!clientAdditiveShare32B64u) {
+        throw new Error('missing ECDSA signing material');
+      }
+      let clientSigningShare32: Uint8Array;
+      try {
+        clientSigningShare32 = base64UrlDecode(clientAdditiveShare32B64u);
+      } catch {
+        throw new Error('clientAdditiveShare32B64u must be valid base64url');
+      }
+      if (clientSigningShare32.length !== 32) {
+        throw new Error('clientAdditiveShare32B64u must decode to 32 bytes');
+      }
+      return clientSigningShare32;
+    },
   };
 }

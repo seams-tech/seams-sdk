@@ -8,7 +8,7 @@ import {
   THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
   THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
 } from '@/core/signingEngine/threshold/ed25519/hssClientBase';
-import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmSigning/persistence';
+import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmCapabilities/persistence';
 import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
 import { signTransactionsWithActions } from '@/core/signingEngine/flows/signNear/signTransactions';
 import { SigningEngine } from '@/core/signingEngine/SigningEngine';

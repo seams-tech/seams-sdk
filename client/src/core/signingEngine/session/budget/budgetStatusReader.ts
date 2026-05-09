@@ -274,7 +274,6 @@ export function mergeWalletSigningBudgetStatus<TStatus extends SigningSessionSta
   budgetStatus: SigningSessionStatus | null,
 ): TStatus {
   if (!budgetStatus) return status;
-  if (budgetStatus.status === 'not_found') return status;
   if (budgetStatus.status !== 'active') {
     return {
       ...status,

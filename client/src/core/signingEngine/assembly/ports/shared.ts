@@ -31,7 +31,7 @@ import type {
   ThresholdEd25519SessionRecord,
   ThresholdEcdsaKeyRefLookupResult,
 } from '../../session/persistence/records';
-import type { RestorePersistedSessionForSigningInput } from '../../session/restore/restoreCoordinator';
+import type { RestorePersistedSessionForSigningInput } from '../../session/sealedRecovery/types';
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import type { SigningSessionBudgetStatusAuth } from '../../session/budget/budget';
 import {
@@ -41,11 +41,11 @@ import {
   type WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { UserPreferencesManager } from '../../session/userPreferences';
-import { generateSessionId as generateSessionIdValue } from '../../session/warmSigning/prfCache';
+import { generateSessionId as generateSessionIdValue } from '../../session/passkey/prfCache';
 import type {
   ProvisionWarmEd25519CapabilityArgs,
   ProvisionWarmEd25519CapabilityResult,
-} from '../../session/warmSigning/types';
+} from '../../session/warmCapabilities/types';
 import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
@@ -53,7 +53,7 @@ import type { ThresholdEd25519LifecycleDeps } from '../../threshold/ed25519/hssL
 import type {
   BootstrapEcdsaSessionArgs,
   ThresholdSessionActivationDeps,
-} from '../../session/warmSigning/ecdsaBootstrap';
+} from '../../session/passkey/ecdsaBootstrap';
 import type { UiConfirmRuntimeBridgePort, WarmSessionStatusResult } from '../../uiConfirm/types';
 import { prewarmTxConfirmerUi } from '../../uiConfirm/ui/confirm-ui';
 import type { SignerWorkerManager } from '../../workerManager/SignerWorkerManager';

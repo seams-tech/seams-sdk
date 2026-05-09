@@ -1,5 +1,5 @@
 import type { AccountId } from '@/core/types/accountIds';
-import type { BootstrapEcdsaSessionArgs } from '../../session/warmSigning/ecdsaBootstrap';
+import type { BootstrapEcdsaSessionArgs } from '../../session/passkey/ecdsaBootstrap';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import { clearThresholdEcdsaClientPresignaturesForLane } from '../../threshold/ecdsa/presignPool';
 import type {
@@ -11,23 +11,24 @@ import type {
   WarmSessionStatusReader,
   WarmSessionStatusResult,
 } from '../../uiConfirm/types';
-import { createWarmSessionCapabilityReader } from '../../session/warmSigning/capabilityReader';
+import { createWarmSessionCapabilityReader } from '../../session/warmCapabilities/capabilityReader';
 import {
   ensureWarmEcdsaCapabilityReady,
   provisionWarmEcdsaCapability,
-} from '../../session/warmSigning/ecdsaProvisioner';
+} from '../../session/passkey/ecdsaProvisioner';
 import {
   applyWarmSessionEcdsaPostSignPolicy,
   assertWarmSessionEcdsaOperationAllowed,
-} from '../../session/warmSigning/postSignPolicyAdapter';
+} from '../../session/operationState/warmSessionPolicyAdapter';
 import type {
   ThresholdWarmSessionStatusReader,
   WarmSessionCapabilityReader,
   WarmSessionPostSignPolicy,
   WarmSessionProvisioner,
-} from '../../session/warmSigning/types';
-import { createWarmSessionStatusReader } from '../../session/warmSigning/statusReader';
-import { claimWarmSessionPrfFirst } from '../../session/warmSigning/runtime';
+} from '../../session/warmCapabilities/types';
+import { createWarmSessionStatusReader } from '../../session/warmCapabilities/statusReader';
+import { claimPasskeyEcdsaPrfFirst } from '../../session/passkey/ecdsaRecovery';
+import { claimWarmSessionPrfFirst } from '../../session/passkey/prfClaim';
 import type {
   ThresholdEcdsaSessionRecord,
 } from '../../session/persistence/records';
@@ -148,36 +149,36 @@ export function createEvmFamilyWarmSessionServices(
         listThresholdEcdsaKeyRefsForAccountTarget,
         provisionThresholdEcdsaSession: (provisionRequest) =>
           deps.provisionThresholdEcdsaSession(provisionRequest),
-        claimPrfFirstByThresholdSessionId: (claimArgs) =>
-          claimWarmSessionPrfFirst({
+        claimPrfFirstByThresholdSessionId: (claimArgs) => {
+          if (claimArgs.authMethod !== 'passkey') {
+            return claimWarmSessionPrfFirst({
+              touchConfirm: deps.touchConfirm,
+              thresholdSessionId: claimArgs.thresholdSessionId,
+              errorContext: claimArgs.errorContext,
+              uses: claimArgs.uses,
+              ...(typeof claimArgs.consume === 'boolean' ? { consume: claimArgs.consume } : {}),
+              curve: 'ecdsa',
+              chainTarget: claimArgs.chainTarget || provisionArgs.chainTarget,
+            });
+          }
+          const walletId = String(claimArgs.walletId || '').trim();
+          const walletSigningSessionId = String(claimArgs.walletSigningSessionId || '').trim();
+          if (!walletId || !walletSigningSessionId) {
+            throw new Error(
+              '[WarmSessionStore] passkey ECDSA reconnect requires walletId and walletSigningSessionId',
+            );
+          }
+          return claimPasskeyEcdsaPrfFirst({
             touchConfirm: deps.touchConfirm,
+            walletId,
+            walletSigningSessionId,
             thresholdSessionId: claimArgs.thresholdSessionId,
+            chainTarget: claimArgs.chainTarget || provisionArgs.chainTarget,
             errorContext: claimArgs.errorContext,
             uses: claimArgs.uses,
             ...(typeof claimArgs.consume === 'boolean' ? { consume: claimArgs.consume } : {}),
-            ...(claimArgs.curve ? { curve: claimArgs.curve } : {}),
-            ...(claimArgs.chainTarget ? { chainTarget: claimArgs.chainTarget } : {}),
-            restoreBeforeClaim: async () => {
-              if (claimArgs.authMethod !== 'passkey') return;
-              if (typeof deps.touchConfirm.restorePersistedSessionForSigning !== 'function') return;
-              const walletId = String(claimArgs.walletId || '').trim();
-              const walletSigningSessionId = String(claimArgs.walletSigningSessionId || '').trim();
-              const thresholdSessionId = String(claimArgs.thresholdSessionId || '').trim();
-              if (!walletId || !walletSigningSessionId || !thresholdSessionId) return;
-              const chainTarget =
-                claimArgs.chainTarget ||
-                provisionArgs.chainTarget;
-              await deps.touchConfirm.restorePersistedSessionForSigning({
-                walletId,
-                authMethod: 'passkey',
-                curve: 'ecdsa',
-                chainTarget,
-                walletSigningSessionId,
-                thresholdSessionId,
-                reason: 'transaction',
-              });
-            },
-          }),
+          });
+        },
       },
       provisionArgs,
     );

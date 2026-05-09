@@ -11,7 +11,7 @@ import type { EmailOtpBootstrapRecovery } from '../../stepUpConfirmation/otpProm
 import {
   createSigningBoundaryTraceEvent,
   emitSigningBoundaryTrace,
-} from '../../session/signingSession/trace';
+} from '../../session/operationState/trace';
 import type { ThresholdEcdsaSessionStoreDeps } from '../../session/persistence/records';
 import { getThresholdEcdsaSessionRecordForTarget } from '../../session/persistence/records';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
@@ -21,8 +21,8 @@ import type {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
-import type { ThresholdEcdsaSmartAccountBootstrapInput } from '../../session/warmSigning/ecdsaBootstrapPersistence';
-import type { WarmSessionEcdsaCapabilityState } from '../../session/warmSigning/types';
+import type { ThresholdEcdsaSmartAccountBootstrapInput } from '../../session/warmCapabilities/ecdsaBootstrapPersistence';
+import type { WarmSessionEcdsaCapabilityState } from '../../session/warmCapabilities/types';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type { EvmFamilyChain, EvmFamilyLifecycleEventCallback } from './types';
 import { emitEvmFamilySigningEvent } from './events';

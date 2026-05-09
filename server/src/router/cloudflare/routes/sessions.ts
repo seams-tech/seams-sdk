@@ -311,15 +311,27 @@ async function readAndValidateEmailOtpSigningSession(ctx: CloudflareRelayContext
       ),
     };
   }
-  const curveStatus = await sessionPolicy.getSessionStatus(sessionId);
-  const walletBudgetStatus = await sessionPolicy.getSessionStatus(
-    `wallet-signing:${walletSigningSessionId}`,
-  );
   const participantIds = Array.isArray(claims.participantIds) ? claims.participantIds : [];
   const sameParticipants = (actual: unknown): boolean => {
     if (!Array.isArray(actual) || actual.length !== participantIds.length) return false;
     return actual.every((value, index) => Number(value) === Number(participantIds[index]));
   };
+  const curveStatuses = sessionPolicy.getSessionStatuses
+    ? await sessionPolicy.getSessionStatuses(sessionId)
+    : [await sessionPolicy.getSessionStatus(sessionId)].filter(Boolean);
+  const curveStatus =
+    curveStatuses.find((status) => {
+      const record = status?.record;
+      return (
+        record?.userId === userId &&
+        record?.rpId === claims.rpId &&
+        record?.relayerKeyId === claims.relayerKeyId &&
+        sameParticipants(record?.participantIds)
+      );
+    }) || null;
+  const walletBudgetStatus = await sessionPolicy.getSessionStatus(
+    `wallet-signing:${walletSigningSessionId}`,
+  );
   const curveRecord = curveStatus?.record;
   const walletBudgetRecord = walletBudgetStatus?.record;
   const statusMatches =

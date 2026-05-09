@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { signTransactionsWithActions as signPreparedTransactionsWithActions } from '@/core/signingEngine/flows/signNear/signTransactions';
 import { connectEd25519Session } from '@/core/signingEngine/threshold/ed25519/connectSession';
-import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmSigning/persistence';
+import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmCapabilities/persistence';
 import {
   clearAllStoredThresholdEd25519SessionRecords,
   getStoredThresholdEd25519SessionRecordForAccount,
@@ -12,8 +12,8 @@ import {
   SigningKeyRefIntentKind,
   SigningSessionIds,
   SigningSessionPlanKind,
-} from '@/core/signingEngine/session/signingSession/types';
-import { buildNearTransactionSigningLane } from '@/core/signingEngine/session/signingSession/lanes';
+} from '@/core/signingEngine/session/operationState/types';
+import { buildNearTransactionSigningLane } from '@/core/signingEngine/session/operationState/lanes';
 import { ActionType } from '@/core/types/actions';
 import { SigningEventPhase, type SigningFlowEvent } from '@/core/types/sdkSentEvents';
 import { WorkerResponseType } from '@/core/types/signer-worker';

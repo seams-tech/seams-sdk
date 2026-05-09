@@ -8,7 +8,7 @@ import type { SigningSessionCoordinator } from '../../session/SigningSessionCoor
 import {
   type SigningOperationFingerprint,
   type SigningOperationContext,
-} from '../../session/signingSession/types';
+} from '../../session/operationState/types';
 import type { SelectedEcdsaLane } from '../../session/identity/laneIdentity';
 import type { ResolvedEvmFamilyEcdsaSigningLane } from './ecdsaLanes';
 

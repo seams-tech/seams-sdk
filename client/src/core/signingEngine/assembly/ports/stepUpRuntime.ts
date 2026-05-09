@@ -1,15 +1,15 @@
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
-import { ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap } from '../../session/warmSigning/sealedRefreshParity';
-import { commitEvmFamilyThresholdEcdsaSessions } from '../../session/warmSigning/ecdsaBootstrapCommit';
-import { persistWarmSessionEd25519Capability } from '../../session/warmSigning/persistence';
-import { cacheSigningSessionPrfFirst } from '../../session/warmSigning/prfCache';
+import { ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap } from '../../session/warmCapabilities/sealedRefreshParity';
+import { commitEvmFamilyThresholdEcdsaSessions } from '../../session/emailOtp/ecdsaBootstrapCommit';
+import { persistWarmSessionEd25519Capability } from '../../session/warmCapabilities/persistence';
+import { cacheSigningSessionPrfFirst } from '../../session/passkey/prfCache';
 import { createWarmSessionAwareUiConfirm } from '../../uiConfirm/warmSessionUiConfirm';
 import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/types';
 import {
   EmailOtpThresholdSessionCoordinator,
   type EmailOtpThresholdSessionCoordinatorDeps,
-} from '../../sessionEmailOtp/EmailOtpThresholdSessionCoordinator';
-import { persistEmailOtpThresholdEd25519LocalMetadata } from '../../sessionEmailOtp/ed25519LocalMetadata';
+} from '../../session/emailOtp/EmailOtpThresholdSessionCoordinator';
+import { persistEmailOtpThresholdEd25519LocalMetadata } from '../../session/emailOtp/ed25519LocalMetadata';
 import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { SignerWorkerManager } from '../../workerManager/SignerWorkerManager';
 import type { WarmSigningPorts } from './warmSigning';

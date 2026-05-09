@@ -8,7 +8,7 @@ import {
   type ConcreteAvailableEcdsaSigningLane,
   type AvailableEd25519SigningLane,
 } from '../../session/availability/availableSigningLanes';
-import { emitSigningSessionFlowFailure, emitSigningSessionFlowTrace } from '../../session/signingSession/trace';
+import { emitSigningSessionFlowFailure, emitSigningSessionFlowTrace } from '../../session/operationState/trace';
 import {
   thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
@@ -24,7 +24,7 @@ import {
 import type {
   RestorePersistedSessionForSigningInput,
   RestorePersistedSessionForSigningResult,
-} from '../../session/restore/restoreCoordinator';
+} from '../../session/sealedRecovery/types';
 
 export type ExactNearEd25519ExportLane = {
   curve: 'ed25519';

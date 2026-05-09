@@ -3,8 +3,8 @@ import {
   emitWarmSessionTransition,
   summarizeWarmSessionTransition,
   type WarmSessionTransitionEvent,
-} from '@/core/signingEngine/session/warmSigning/transitions';
-import type { WarmSessionEnvelope } from '@/core/signingEngine/session/warmSigning/types';
+} from '@/core/signingEngine/session/warmCapabilities/transitions';
+import type { WarmSessionEnvelope } from '@/core/signingEngine/session/warmCapabilities/types';
 
 function createEnvelope(): WarmSessionEnvelope {
   return {

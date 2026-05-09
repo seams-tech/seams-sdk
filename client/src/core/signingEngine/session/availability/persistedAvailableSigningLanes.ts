@@ -1,10 +1,13 @@
 import { toAccountId } from '@/core/types/accountIds';
+import type { AccountId } from '@/core/types/accountIds';
+import type { SigningSessionStatus } from '@/core/types/seams';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WarmSessionStatusResult } from '../../uiConfirm/types';
 import { resolveEmailOtpEcdsaWorkerSessionId } from './readiness';
 import {
   getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
+  getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   listStoredThresholdEd25519SessionRecordsForAccount,
   listThresholdEcdsaRuntimeLanesForSubject,
   type ThresholdEcdsaSessionStoreDeps,
@@ -31,7 +34,47 @@ export type PersistedAvailableSigningLanesDeps = {
   statusReader: {
     getWarmSessionStatus: (args: { sessionId: string }) => Promise<WarmSessionStatusResult>;
   };
+  getWalletSigningBudgetStatus?: (args: {
+    nearAccountId: AccountId | string;
+    walletSigningSessionId: string;
+    targetThresholdSessionIds?: string[];
+    targetBackingMaterialSessionIds?: string[];
+  }) => Promise<SigningSessionStatus | null>;
 };
+
+function applyWalletBudgetStatusToRuntimeClaim(args: {
+  sessionId: string;
+  localClaim: AvailableSigningLanesRuntimeClaim | null;
+  walletBudgetStatus: SigningSessionStatus | null;
+}): AvailableSigningLanesRuntimeClaim | null {
+  const budgetStatus = args.walletBudgetStatus;
+  if (!budgetStatus) return args.localClaim;
+  if (budgetStatus.status === 'active') {
+    if (args.localClaim?.state !== 'warm') return args.localClaim;
+    return {
+      state: 'warm',
+      sessionId: args.sessionId,
+      remainingUses: Math.max(0, Math.floor(Number(budgetStatus.remainingUses) || 0)),
+      ...(Number(budgetStatus.expiresAtMs) > 0
+        ? { expiresAtMs: Math.floor(Number(budgetStatus.expiresAtMs)) }
+        : args.localClaim.expiresAtMs
+          ? { expiresAtMs: args.localClaim.expiresAtMs }
+          : {}),
+    };
+  }
+  if (budgetStatus.status === 'not_found') {
+    return { state: 'missing', sessionId: args.sessionId, code: 'wallet_budget_not_found' };
+  }
+  if (budgetStatus.status === 'expired') return { state: 'expired', sessionId: args.sessionId };
+  if (budgetStatus.status === 'exhausted') {
+    return { state: 'exhausted', sessionId: args.sessionId };
+  }
+  return {
+    state: 'unavailable',
+    sessionId: args.sessionId,
+    code: budgetStatus.status,
+  };
+}
 
 export async function readPersistedAvailableSigningLanes(
   deps: PersistedAvailableSigningLanesDeps,
@@ -162,6 +205,8 @@ export async function readPersistedAvailableSigningLanesForTargets(
         await Promise.all(
           sessionIds.map(async (sessionId) => {
             const ecdsaRecord = getStoredThresholdEcdsaSessionRecordByThresholdSessionId(sessionId);
+            const ed25519Record =
+              ecdsaRecord ? null : getStoredThresholdEd25519SessionRecordByThresholdSessionId(sessionId);
             const statusSessionId =
               ecdsaRecord?.source === SIGNER_AUTH_METHODS.emailOtp
                 ? resolveEmailOtpEcdsaWorkerSessionId(ecdsaRecord)
@@ -169,9 +214,29 @@ export async function readPersistedAvailableSigningLanesForTargets(
             const status = await deps.statusReader
               .getWarmSessionStatus({ sessionId: statusSessionId })
               .catch(() => null);
+            const localClaim = status
+              ? warmStatusToAvailableSigningLanesRuntimeClaim({ sessionId, status })
+              : null;
+            const walletSigningSessionId = String(
+              ecdsaRecord?.walletSigningSessionId || ed25519Record?.walletSigningSessionId || '',
+            ).trim();
+            const walletBudgetStatus =
+              walletSigningSessionId && deps.getWalletSigningBudgetStatus
+                ? await deps
+                    .getWalletSigningBudgetStatus({
+                      nearAccountId: accountId,
+                      walletSigningSessionId,
+                      targetThresholdSessionIds: [sessionId],
+                    })
+                    .catch(() => null)
+                : null;
             claims.set(
               sessionId,
-              status ? warmStatusToAvailableSigningLanesRuntimeClaim({ sessionId, status }) : null,
+              applyWalletBudgetStatusToRuntimeClaim({
+                sessionId,
+                localClaim,
+                walletBudgetStatus,
+              }),
             );
           }),
         );

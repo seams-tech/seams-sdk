@@ -24,13 +24,13 @@ import type {
   ThresholdEcdsaSessionRecord,
   ThresholdEd25519SessionRecord,
 } from '../session/persistence/records';
-import type { RestorePersistedSessionForSigningInput } from '../session/restore/restoreCoordinator';
+import type { RestorePersistedSessionForSigningInput } from '../session/sealedRecovery/types';
 import type {
   ThresholdEcdsaChainTarget,
   WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { UserPreferencesManager } from '../session/userPreferences';
-import type { BootstrapEcdsaSessionArgs } from '../session/warmSigning/ecdsaBootstrap';
+import type { BootstrapEcdsaSessionArgs } from '../session/passkey/ecdsaBootstrap';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
 import type {
   UiConfirmContextPort,

@@ -38,8 +38,8 @@ import {
 } from '@/core/signingEngine/stepUpConfirmation/intentDigestPreparation';
 import type { SigningSessionBudgetReservation } from '../../session/budget/budget';
 import type { SelectedEcdsaLane } from '../../session/identity/laneIdentity';
-import type { BudgetAdmittedOperation } from '../../session/signingSession/transactionState';
-import type { SigningOperationContext, SigningSessionPlan } from '../../session/signingSession/types';
+import type { BudgetAdmittedOperation } from '../../session/operationState/transactionState';
+import type { SigningOperationContext, SigningSessionPlan } from '../../session/operationState/types';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   SigningOperationCommandKind,

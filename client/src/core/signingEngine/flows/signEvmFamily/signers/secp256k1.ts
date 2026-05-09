@@ -15,7 +15,7 @@ import {
 } from '../../../threshold/ecdsa/presignPool';
 import type { ThresholdEcdsaClientPresignatureRefillScheduleResult } from '../../../threshold/ecdsa/presignPool';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
-import { createWarmSessionCapabilityReader } from '../../../session/warmSigning/capabilityReader';
+import { createWarmSessionCapabilityReader } from '../../../session/warmCapabilities/capabilityReader';
 import {
   deleteExactSealedSession,
   updateExactSealedSessionPolicy,

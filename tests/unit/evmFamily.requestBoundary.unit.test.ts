@@ -89,6 +89,28 @@ test.describe('EVM-family request boundaries', () => {
     expect(signTempoWithUiConfirm).toContain('new EvmAdapter(workerCtx).buildIntent(request)');
     expect(signTempoWithUiConfirm).toContain("targetKind: 'tempo'");
   });
+
+  test('refreshes step-up ECDSA lanes with the normalized signing target chain', () => {
+    const signEvmFamily = fs.readFileSync(
+      path.join(repoRoot, 'client/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts'),
+      'utf8',
+    );
+
+    const emailOtpRefreshCall = signEvmFamily.slice(
+      signEvmFamily.indexOf('completeEvmFamilyEmailOtpSigningRefresh({'),
+      signEvmFamily.indexOf('completeEvmFamilyEmailOtpSigningRefresh({') + 400,
+    );
+    expect(emailOtpRefreshCall).toContain('chain: requestChain');
+    expect(emailOtpRefreshCall).not.toContain('chain: args.request.chain');
+
+    const keyRefRefreshStart = signEvmFamily.lastIndexOf(
+      'updateResolvedEvmFamilyEcdsaSigningLaneIdentity({',
+      signEvmFamily.indexOf("context: 'EVM-family signing keyRef refresh'"),
+    );
+    const keyRefRefreshCall = signEvmFamily.slice(keyRefRefreshStart, keyRefRefreshStart + 400);
+    expect(keyRefRefreshCall).toContain('chain: requestChain');
+    expect(keyRefRefreshCall).not.toContain('chain: args.request.chain');
+  });
 });
 
 test.describe('Trusted wallet signing budget status', () => {

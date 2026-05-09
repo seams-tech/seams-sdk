@@ -4,8 +4,8 @@ import type {
   RegistrationAccountLifecycleDeps,
   RegistrationSessionDeps,
 } from '../../interfaces/operationDeps';
-import type { ThresholdSessionActivationDeps } from '../../session/warmSigning/ecdsaBootstrap';
-import { generateSessionId as generateSessionIdValue } from '../../session/warmSigning/prfCache';
+import type { ThresholdSessionActivationDeps } from '../../session/passkey/ecdsaBootstrap';
+import { generateSessionId as generateSessionIdValue } from '../../session/passkey/prfCache';
 import type { NearKeyOpsDeps, CreateSigningEnginePortsArgs } from './shared';
 
 export function createThresholdEd25519LifecycleDeps(

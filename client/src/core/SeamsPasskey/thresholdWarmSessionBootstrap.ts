@@ -17,7 +17,7 @@ import {
   getNearThresholdKeyMaterial,
   storeNearThresholdKeyMaterial,
 } from '../accountData/near/keyMaterial';
-import { persistWarmSessionEd25519Capability } from '../signingEngine/session/warmSigning/persistence';
+import { persistWarmSessionEd25519Capability } from '../signingEngine/session/warmCapabilities/persistence';
 import { getPrfFirstB64uFromCredential } from '../signingEngine/threshold/crypto/webauthn';
 import {
   getStoredThresholdEd25519SessionRecordForAccount,
