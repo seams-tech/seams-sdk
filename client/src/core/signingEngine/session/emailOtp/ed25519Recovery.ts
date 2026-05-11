@@ -7,7 +7,6 @@ import {
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   upsertStoredThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
-import { normalizeThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type {
   RestorePersistedEd25519SessionPurpose,
   RestoreSealedRecordForAccountResult,
@@ -16,7 +15,7 @@ import {
   recordAndVerifyRestoredWarmSessions,
   type RestoredWarmSessionStatus,
 } from '@/core/signingEngine/session/sealedRecovery/readback';
-import type { SigningSessionSealedStoreRecord } from '@/core/signingEngine/session/persistence/sealedSessionStore';
+import type { EmailOtpEd25519SealedRecoveryRecord } from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
 import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/types';
 import type {
   EmailOtpEcdsaSealedRecoveryRecordInput,
@@ -29,7 +28,7 @@ export type EmailOtpEd25519RestorePurpose = RestorePersistedEd25519SessionPurpos
 
 export function buildEmailOtpEd25519RecordFromSealedRestoreMetadata(args: {
   accountId: string;
-  record: SigningSessionSealedStoreRecord;
+  record: EmailOtpEd25519SealedRecoveryRecord;
   purpose: EmailOtpEd25519RestorePurpose;
 }): ThresholdEd25519SessionRecord | null {
   const existing = getStoredThresholdEd25519SessionRecordByThresholdSessionId(
@@ -42,25 +41,19 @@ export function buildEmailOtpEd25519RecordFromSealedRestoreMetadata(args: {
   ) {
     return existing;
   }
-  const metadata = args.record.ed25519Restore;
-  if (!metadata) return null;
-  const relayerUrl = String(args.record.relayerUrl || '').trim();
-  const signingRootId = String(args.record.signingRootId || '').trim();
-  if (!relayerUrl || !signingRootId) return null;
-  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(metadata.runtimePolicyScope);
   return upsertStoredThresholdEd25519SessionRecord({
     nearAccountId: args.accountId,
-    rpId: metadata.rpId,
-    relayerUrl,
-    relayerKeyId: metadata.relayerKeyId,
-    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-    ...(metadata.xClientBaseB64u ? { xClientBaseB64u: metadata.xClientBaseB64u } : {}),
-    participantIds: metadata.participantIds,
-    thresholdSessionKind: metadata.sessionKind,
+    rpId: args.record.rpId,
+    relayerUrl: args.record.relayerUrl,
+    relayerKeyId: args.record.relayerKeyId,
+    ...(args.record.runtimePolicyScope ? { runtimePolicyScope: args.record.runtimePolicyScope } : {}),
+    ...(args.record.xClientBaseB64u ? { xClientBaseB64u: args.record.xClientBaseB64u } : {}),
+    participantIds: [...args.record.participantIds],
+    thresholdSessionKind: args.record.sessionKind,
     thresholdSessionId: args.purpose.thresholdSessionId,
     walletSigningSessionId: args.purpose.walletSigningSessionId,
-    ...(metadata.thresholdSessionAuthToken
-      ? { thresholdSessionAuthToken: metadata.thresholdSessionAuthToken }
+    ...(args.record.thresholdSessionAuthToken
+      ? { thresholdSessionAuthToken: args.record.thresholdSessionAuthToken }
       : {}),
     expiresAtMs: args.record.expiresAtMs,
     remainingUses: args.record.remainingUses,
@@ -76,7 +69,7 @@ export function buildEmailOtpEd25519RecordFromSealedRestoreMetadata(args: {
 
 export async function restoreEmailOtpEd25519SealedRecordForAccount(args: {
   accountId: string;
-  record: SigningSessionSealedStoreRecord;
+  record: EmailOtpEd25519SealedRecoveryRecord;
   purpose: EmailOtpEd25519RestorePurpose;
   getThresholdEcdsaSessionRecordByThresholdSessionId?: (
     thresholdSessionId: string,
@@ -90,20 +83,21 @@ export async function restoreEmailOtpEd25519SealedRecordForAccount(args: {
     args: EmailOtpEcdsaSealedRecoveryRecordInput,
   ) => Promise<EmailOtpThresholdEcdsaRehydrateResult | null>;
 }): Promise<RestoreSealedRecordForAccountResult> {
-  const ecdsaThresholdSessionId = String(args.record.thresholdSessionIds.ecdsa || '').trim();
-  if (!ecdsaThresholdSessionId) return 'deferred';
   const ed25519Record = buildEmailOtpEd25519RecordFromSealedRestoreMetadata(args);
   if (!ed25519Record) return 'deferred';
   const existingStatus = await args
     .readWarmSessionStatusFromWorker(args.purpose.thresholdSessionId)
     .catch(() => null);
   if (existingStatus?.ok) return 'ready';
+  const ecdsaSealedRecord = args.record.companionEcdsaRecovery;
+  if (!ecdsaSealedRecord) return 'deferred';
+  const ecdsaThresholdSessionId = ecdsaSealedRecord.thresholdSessionId;
   const ecdsaRecord =
     args.getThresholdEcdsaSessionRecordByThresholdSessionId?.(ecdsaThresholdSessionId) ||
     getStoredThresholdEcdsaSessionRecordByThresholdSessionId(ecdsaThresholdSessionId);
   const restored = await args
     .restoreEcdsaSigningSessionMaterialFromSealedRecord({
-      sealedRecord: args.record,
+      sealedRecord: ecdsaSealedRecord,
       ecdsaRecord,
       ed25519Record,
     })

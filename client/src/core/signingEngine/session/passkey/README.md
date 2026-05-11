@@ -32,4 +32,15 @@ threshold types.
 - `ecdsaSessionProvision.ts`
 - `ed25519Recovery.ts`
 - `ed25519SessionProvision.ts`
-- `ecdsaBootstrapRequest.ts`
+
+## ECDSA Flow Rule
+
+`passkey/*` no longer owns a separate ECDSA bootstrap-request adapter layer.
+The public boundary is `ecdsaBootstrap.ts`. `EcdsaBootstrapRequest`
+normalization lives in `ecdsaWarmCapabilityBootstrap.ts`. Strict
+plan-driven reuse and reconnect activation lives in `ecdsaProvisioner.ts`.
+Activation and persistence handoff lives in `ecdsaSessionProvision.ts`.
+
+`prfCache.ts` is the browser-runtime cache boundary for warm-session PRF
+material. It reuses the shared warm-session material transport contract instead
+of defining a passkey-local lifecycle transport shape.

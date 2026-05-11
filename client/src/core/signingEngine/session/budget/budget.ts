@@ -2,11 +2,15 @@ import type { AccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
 import {
   normalizeWalletSigningSpendPlan,
+  SigningOperationIntent,
   summarizeSigningLane,
+  type BackingMaterialSessionId,
   type SelectedSigningSessionPlanningLane,
   type SigningLaneSummary,
   type SigningOperationContext,
   type SigningOperationId,
+  type ThresholdSessionId,
+  type WalletSigningSessionId,
   type WalletSigningSpendPlan,
 } from '../operationState/types';
 import { budgetUnknownSigningSessionStatus } from './budgetProjection';
@@ -42,19 +46,75 @@ export type SigningSessionBudgetTraceEvent = {
   zeroSpendReason?: SigningSessionBudgetZeroSpendReason;
 };
 
-export type SigningSessionBudgetRecordSuccessInput = {
+export type WalletBudgetSpend = WalletSigningSpendPlan;
+
+export type ReservedWalletBudgetSpend = {
+  kind: 'reserved_success';
+  spend: WalletBudgetSpend;
+  expectedBudgetProjectionVersion: string;
+  trustedStatusAuth?: SigningSessionBudgetStatusAuth;
+};
+
+export type UnreservedWalletBudgetSpend = {
+  kind: 'unreserved_success';
+  spend: WalletBudgetSpend;
+  expectedBudgetProjectionVersion: string;
+  trustedStatusAuth?: SigningSessionBudgetStatusAuth;
+};
+
+type NonEmptyConsumedSessionIdList<TValue extends string = string> = readonly [TValue, ...TValue[]];
+
+type ExternallyConsumedBackingMaterialWalletBudgetSpend = {
+  kind: 'externally_consumed_success';
+  spend: WalletBudgetSpend;
+  trustedStatusAuth?: SigningSessionBudgetStatusAuth;
+  alreadyConsumedBackingMaterialSessionIds: NonEmptyConsumedSessionIdList<BackingMaterialSessionId>;
+  alreadyConsumedThresholdSessionIds?: readonly ThresholdSessionId[];
+};
+
+type ExternallyConsumedThresholdWalletBudgetSpend = {
+  kind: 'externally_consumed_success';
+  spend: WalletBudgetSpend;
+  trustedStatusAuth?: SigningSessionBudgetStatusAuth;
+  alreadyConsumedBackingMaterialSessionIds?: readonly BackingMaterialSessionId[];
+  alreadyConsumedThresholdSessionIds: NonEmptyConsumedSessionIdList<ThresholdSessionId>;
+};
+
+export type ExternallyConsumedWalletBudgetSpend =
+  | ExternallyConsumedBackingMaterialWalletBudgetSpend
+  | ExternallyConsumedThresholdWalletBudgetSpend;
+
+export type ZeroWalletBudgetSpend = {
+  kind: 'zero_spend';
+  operationId: SigningOperationId;
+  lane: SelectedSigningSessionPlanningLane;
+  reason: SigningSessionBudgetZeroSpendReason;
+  error?: unknown;
+};
+
+export type BudgetFinalizationSpend =
+  | ReservedBudgetFinalizationSpend
+  | UnreservedBudgetFinalizationSpend
+  | ExternallyConsumedBudgetFinalizationSpend
+  | ZeroBudgetFinalizationSpend;
+
+export type ReservedBudgetFinalizationSpend = ReservedWalletBudgetSpend;
+export type UnreservedBudgetFinalizationSpend = UnreservedWalletBudgetSpend;
+export type ExternallyConsumedBudgetFinalizationSpend = ExternallyConsumedWalletBudgetSpend;
+export type ZeroBudgetFinalizationSpend = ZeroWalletBudgetSpend;
+
+export type SigningSessionBudgetSuccessInput =
+  | ReservedWalletBudgetSpend
+  | UnreservedWalletBudgetSpend
+  | ExternallyConsumedWalletBudgetSpend;
+
+export type SigningSessionBudgetReserveInput = {
   spend: WalletSigningSpendPlan;
   expectedBudgetProjectionVersion?: string;
   trustedStatusAuth?: SigningSessionBudgetStatusAuth;
-  alreadyConsumedBackingMaterialSessionIds?: readonly string[];
-  alreadyConsumedThresholdSessionIds?: readonly string[];
 };
 
-export type SigningSessionBudgetReserveInput = SigningSessionBudgetRecordSuccessInput & {
-  expectedBudgetProjectionVersion: string;
-};
-
-export type SigningSessionBudgetReservationRecord = SigningSessionBudgetRecordSuccessInput & {
+export type SigningSessionBudgetReservationRecord = SigningSessionBudgetReserveInput & {
   operationFingerprint: string;
   walletSigningSessionId: string;
   reservedAgainstProjectionVersion: string;
@@ -62,24 +122,59 @@ export type SigningSessionBudgetReservationRecord = SigningSessionBudgetRecordSu
   createdAtMs: number;
 };
 
-export type SigningSessionBudgetRecordZeroSpendInput = {
-  spend: WalletSigningSpendPlan;
-  reason: SigningSessionBudgetZeroSpendReason;
-  error?: unknown;
-};
-
 export type SigningSessionBudgetReservation = {
   operationId: SigningOperationId;
   release(reason?: SigningSessionBudgetZeroSpendReason): void;
 };
 
-export type SigningSessionBudgetStatusReader = (args: {
+export type WalletBudgetStatusCheck = {
+  kind: 'wallet_budget_status_check';
   nearAccountId: AccountId | string;
-  walletSigningSessionId?: string;
-  targetBackingMaterialSessionIds?: string[];
-  targetThresholdSessionIds?: string[];
-  trustedStatusAuth?: SigningSessionBudgetStatusAuth;
-}) => Promise<SigningSessionStatus | null>;
+  walletSigningSessionId: WalletSigningSessionId | string;
+  targetBackingMaterialSessionIds?: never;
+  targetThresholdSessionIds?: never;
+  trustedStatusAuth?: never;
+};
+
+export type BackingMaterialBudgetStatusCheck = {
+  kind: 'backing_material_budget_status_check';
+  nearAccountId: AccountId | string;
+  walletSigningSessionId: WalletSigningSessionId | string;
+  targetBackingMaterialSessionIds: readonly [
+    BackingMaterialSessionId | string,
+    ...(BackingMaterialSessionId | string)[],
+  ];
+  targetThresholdSessionIds?: never;
+  trustedStatusAuth?: never;
+};
+
+export type ThresholdBudgetStatusCheck = {
+  kind: 'threshold_budget_status_check';
+  nearAccountId: AccountId | string;
+  walletSigningSessionId: WalletSigningSessionId | string;
+  targetThresholdSessionIds: readonly [ThresholdSessionId | string, ...(ThresholdSessionId | string)[]];
+  targetBackingMaterialSessionIds?: never;
+  trustedStatusAuth?: never;
+};
+
+export type AuthenticatedThresholdBudgetStatusCheck = {
+  kind: 'authenticated_threshold_budget_status_check';
+  nearAccountId: AccountId | string;
+  walletSigningSessionId: WalletSigningSessionId | string;
+  targetThresholdSessionIds: readonly [ThresholdSessionId | string, ...(ThresholdSessionId | string)[]];
+  trustedStatusAuth: SigningSessionBudgetStatusAuth;
+  targetBackingMaterialSessionIds?: never;
+};
+
+export type SigningSessionBudgetStatusCheck =
+  | WalletBudgetStatusCheck
+  | BackingMaterialBudgetStatusCheck
+  | ThresholdBudgetStatusCheck
+  | AuthenticatedThresholdBudgetStatusCheck;
+
+export type SigningSessionBudgetStatusReader = (
+  args: SigningSessionBudgetStatusCheck,
+) => Promise<SigningSessionStatus | null>;
 
 export type SigningSessionBudgetStatusAuth = {
   relayerUrl: string;
@@ -92,11 +187,9 @@ export type SigningSessionBudgetConsumer = (args: {
   walletSigningSessionId: string;
   uses: number;
   reason: WalletSigningSpendPlan['reason'];
-  targetBackingMaterialSessionIds?: string[];
-  targetThresholdSessionIds?: string[];
+  budgetStatusCheck: SigningSessionBudgetStatusCheck;
   alreadyConsumedBackingMaterialSessionIds?: string[];
   alreadyConsumedThresholdSessionIds?: string[];
-  trustedStatusAuth?: SigningSessionBudgetStatusAuth;
 }) => Promise<SigningSessionStatus>;
 
 export type SigningSessionBudgetDeps = {
@@ -113,17 +206,9 @@ export type SigningSessionPreparedBudgetIdentity = {
 
 export type SigningSessionBudget = {
   reserve(input: SigningSessionBudgetReserveInput): Promise<SigningSessionBudgetReservation | null>;
-  getAvailableStatus(input: {
-    nearAccountId: AccountId | string;
-    walletSigningSessionId: string;
-    targetBackingMaterialSessionIds?: readonly string[];
-    targetThresholdSessionIds?: readonly string[];
-    trustedStatusAuth?: SigningSessionBudgetStatusAuth;
-  }): Promise<SigningSessionStatus | null>;
-  recordSuccess(
-    input: SigningSessionBudgetRecordSuccessInput,
-  ): Promise<SigningSessionStatus | null>;
-  recordZeroSpend(input: SigningSessionBudgetRecordZeroSpendInput): void;
+  getAvailableStatus(input: SigningSessionBudgetStatusCheck): Promise<SigningSessionStatus | null>;
+  recordSuccess(input: SigningSessionBudgetSuccessInput): Promise<SigningSessionStatus | null>;
+  recordZeroSpend(input: ZeroWalletBudgetSpend): void;
   hasRecorded(operationId: SigningOperationId): boolean;
 };
 
@@ -184,13 +269,12 @@ export async function assertSigningSessionBudgetReservationAvailable(args: {
   if (!args.getStatus) {
     throw budgetUnknownError(spend, 'adapter_unavailable');
   }
-  const status = await args.getStatus({
-    nearAccountId: spend.nearAccountId,
-    walletSigningSessionId: spend.walletSigningSessionId,
-    targetBackingMaterialSessionIds: normalizeStringList(spend.backingMaterialSessionIds),
-    targetThresholdSessionIds: normalizeStringList(spend.thresholdSessionIds),
-    trustedStatusAuth: args.input.trustedStatusAuth,
-  });
+  const status = await args.getStatus(
+    buildSigningSessionBudgetStatusCheckForSpend({
+      spend,
+      trustedStatusAuth: args.input.trustedStatusAuth,
+    }),
+  );
   if (!status) {
     throw budgetUnknownError(spend, 'missing_trusted_status');
   }
@@ -281,13 +365,43 @@ function formatSpendIdentityForError(spend: WalletSigningSpendPlan): string {
   ].join(' ');
 }
 
-export function normalizeSigningSessionBudgetRecordSuccessInput<
-  TInput extends SigningSessionBudgetRecordSuccessInput,
+export function normalizeWalletBudgetSuccessInput<
+  TInput extends SigningSessionBudgetSuccessInput,
 >(input: TInput): TInput {
-  return {
+  const normalized = {
     ...input,
     spend: normalizeWalletSigningSpendPlan(input.spend),
-  };
+  } as TInput;
+  if (normalized.kind !== 'externally_consumed_success') {
+    return normalized;
+  }
+  const alreadyConsumedBackingMaterialSessionIds = normalizeStringList(
+    normalized.alreadyConsumedBackingMaterialSessionIds,
+  ) as BackingMaterialSessionId[] | undefined;
+  const alreadyConsumedThresholdSessionIds = normalizeStringList(
+    normalized.alreadyConsumedThresholdSessionIds,
+  ) as ThresholdSessionId[] | undefined;
+  if (
+    !alreadyConsumedBackingMaterialSessionIds?.length &&
+    !alreadyConsumedThresholdSessionIds?.length
+  ) {
+    throw new Error(
+      '[SigningSessionBudget] externally_consumed_success requires consumed session identities',
+    );
+  }
+  return {
+    ...normalized,
+    ...(alreadyConsumedBackingMaterialSessionIds
+      ? {
+          alreadyConsumedBackingMaterialSessionIds,
+        }
+      : {}),
+    ...(alreadyConsumedThresholdSessionIds
+      ? {
+          alreadyConsumedThresholdSessionIds,
+        }
+      : {}),
+  } as TInput;
 }
 
 export function resolveWalletSigningOperationFingerprint(spend: WalletSigningSpendPlan): string {
@@ -333,7 +447,7 @@ export function assertPreparedBudgetProjectionVersion(args: {
 }
 
 export function createSigningSessionBudgetTraceEvent(
-  input: SigningSessionBudgetRecordSuccessInput,
+  input: { spend: WalletBudgetSpend },
   event: SigningSessionBudgetTraceEvent['event'],
   extra: Pick<SigningSessionBudgetTraceEvent, 'status' | 'error' | 'zeroSpendReason'> = {},
 ): SigningSessionBudgetTraceEvent {
@@ -347,6 +461,27 @@ export function createSigningSessionBudgetTraceEvent(
     uses: spend.uses,
     thresholdSessionCount: spend.thresholdSessionIds.length,
     backingMaterialSessionCount: spend.backingMaterialSessionIds.length,
+    ...extra,
+  };
+}
+
+export function createZeroSpendTraceEvent(
+  input: ZeroWalletBudgetSpend,
+  event: Extract<
+    SigningSessionBudgetTraceEvent['event'],
+    'wallet_signing_budget_reservation_released' | 'wallet_signing_budget_zero_spend_recorded'
+  >,
+  extra: Pick<SigningSessionBudgetTraceEvent, 'status' | 'error' | 'zeroSpendReason'> = {},
+): SigningSessionBudgetTraceEvent {
+  return {
+    event,
+    operationId: input.operationId,
+    nearAccountId: input.lane.accountId as AccountId,
+    lane: summarizeSigningLane(input.lane),
+    reason: SigningOperationIntent.TransactionSign,
+    uses: 1,
+    thresholdSessionCount: input.lane.thresholdSessionId ? 1 : 0,
+    backingMaterialSessionCount: input.lane.backingMaterialSessionId ? 1 : 0,
     ...extra,
   };
 }
@@ -381,6 +516,115 @@ export function buildWalletSigningSpendPlan(
     uses: 1,
     reason: operation.intent,
   };
+}
+
+export function buildWalletBudgetStatusCheck(args: {
+  nearAccountId: AccountId | string;
+  walletSigningSessionId: WalletSigningSessionId | string;
+}): WalletBudgetStatusCheck {
+  return {
+    kind: 'wallet_budget_status_check',
+    nearAccountId: args.nearAccountId,
+    walletSigningSessionId: normalizeRequired(
+      args.walletSigningSessionId,
+      'walletSigningSessionId',
+    ) as WalletSigningSessionId,
+  };
+}
+
+export function buildBackingMaterialBudgetStatusCheck(args: {
+  nearAccountId: AccountId | string;
+  walletSigningSessionId: WalletSigningSessionId | string;
+  targetBackingMaterialSessionIds: readonly (BackingMaterialSessionId | string)[];
+}): BackingMaterialBudgetStatusCheck {
+  const targetBackingMaterialSessionIds = normalizeStringList(
+    args.targetBackingMaterialSessionIds,
+  ) as BackingMaterialSessionId[] | undefined;
+  if (!targetBackingMaterialSessionIds?.length) {
+    throw new Error('[SigningSessionBudget] targetBackingMaterialSessionIds are required');
+  }
+  return {
+    kind: 'backing_material_budget_status_check',
+    nearAccountId: args.nearAccountId,
+    walletSigningSessionId: normalizeRequired(
+      args.walletSigningSessionId,
+      'walletSigningSessionId',
+    ) as WalletSigningSessionId,
+    targetBackingMaterialSessionIds: [
+      targetBackingMaterialSessionIds[0],
+      ...targetBackingMaterialSessionIds.slice(1),
+    ],
+  };
+}
+
+export function buildThresholdBudgetStatusCheck(args: {
+  nearAccountId: AccountId | string;
+  walletSigningSessionId: WalletSigningSessionId | string;
+  targetThresholdSessionIds: readonly (ThresholdSessionId | string)[];
+}): ThresholdBudgetStatusCheck {
+  const targetThresholdSessionIds = normalizeStringList(
+    args.targetThresholdSessionIds,
+  ) as ThresholdSessionId[] | undefined;
+  if (!targetThresholdSessionIds?.length) {
+    throw new Error('[SigningSessionBudget] targetThresholdSessionIds are required');
+  }
+  return {
+    kind: 'threshold_budget_status_check',
+    nearAccountId: args.nearAccountId,
+    walletSigningSessionId: normalizeRequired(
+      args.walletSigningSessionId,
+      'walletSigningSessionId',
+    ) as WalletSigningSessionId,
+    targetThresholdSessionIds: [targetThresholdSessionIds[0], ...targetThresholdSessionIds.slice(1)],
+  };
+}
+
+export function buildAuthenticatedThresholdBudgetStatusCheck(args: {
+  nearAccountId: AccountId | string;
+  walletSigningSessionId: WalletSigningSessionId | string;
+  targetThresholdSessionIds: readonly (ThresholdSessionId | string)[];
+  trustedStatusAuth: SigningSessionBudgetStatusAuth;
+}): AuthenticatedThresholdBudgetStatusCheck {
+  const thresholdCheck = buildThresholdBudgetStatusCheck(args);
+  return {
+    kind: 'authenticated_threshold_budget_status_check',
+    nearAccountId: thresholdCheck.nearAccountId,
+    walletSigningSessionId: thresholdCheck.walletSigningSessionId,
+    targetThresholdSessionIds: thresholdCheck.targetThresholdSessionIds,
+    trustedStatusAuth: args.trustedStatusAuth,
+  };
+}
+
+export function buildSigningSessionBudgetStatusCheckForSpend(args: {
+  spend: WalletSigningSpendPlan;
+  trustedStatusAuth?: SigningSessionBudgetStatusAuth;
+}): SigningSessionBudgetStatusCheck {
+  if (args.trustedStatusAuth) {
+    return buildAuthenticatedThresholdBudgetStatusCheck({
+      nearAccountId: args.spend.nearAccountId,
+      walletSigningSessionId: args.spend.walletSigningSessionId,
+      targetThresholdSessionIds: args.spend.thresholdSessionIds,
+      trustedStatusAuth: args.trustedStatusAuth,
+    });
+  }
+  if (args.spend.thresholdSessionIds.length) {
+    return buildThresholdBudgetStatusCheck({
+      nearAccountId: args.spend.nearAccountId,
+      walletSigningSessionId: args.spend.walletSigningSessionId,
+      targetThresholdSessionIds: args.spend.thresholdSessionIds,
+    });
+  }
+  if (args.spend.backingMaterialSessionIds.length) {
+    return buildBackingMaterialBudgetStatusCheck({
+      nearAccountId: args.spend.nearAccountId,
+      walletSigningSessionId: args.spend.walletSigningSessionId,
+      targetBackingMaterialSessionIds: args.spend.backingMaterialSessionIds,
+    });
+  }
+  return buildWalletBudgetStatusCheck({
+    nearAccountId: args.spend.nearAccountId,
+    walletSigningSessionId: args.spend.walletSigningSessionId,
+  });
 }
 
 function uniqueDefined<TValue extends string>(values: readonly (TValue | undefined)[]): TValue[] {

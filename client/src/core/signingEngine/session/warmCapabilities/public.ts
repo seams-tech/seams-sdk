@@ -3,10 +3,12 @@ import type { SigningSessionStatus } from '@/core/types/seams';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import {
+  buildWalletBudgetStatusCheckForSession,
   getWalletSigningBudgetAvailableStatus as getWalletSigningBudgetAvailableStatusValue,
   mergeWalletSigningBudgetStatus,
   type WalletSigningBudgetAvailableStatusDeps,
 } from '../budget/budgetStatusReader';
+import { buildThresholdBudgetStatusCheck } from '../budget/budget';
 import {
   getStoredThresholdEd25519SessionRecordForAccount as getStoredThresholdEd25519SessionRecordForAccountValue,
 } from '../persistence/records';
@@ -17,6 +19,7 @@ import {
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import type { ThresholdEcdsaSmartAccountBootstrapInput } from './ecdsaBootstrapPersistence';
 import type {
+  WarmEcdsaRecordBackedSigningSessionStatus,
   WarmEcdsaSigningSessionStatus,
   ThresholdWarmSessionStatusReader,
 } from './types';
@@ -86,15 +89,21 @@ export async function getWarmThresholdEd25519SessionStatus(
 ): Promise<SigningSessionStatus | null> {
   const status = await deps.statusReader.getEd25519SigningSessionStatus(nearAccountId);
   const record = getStoredThresholdEd25519SessionRecordForAccountValue(nearAccountId);
-  const walletBudgetStatus = await getWalletSigningBudgetAvailableStatusValue(
-    {
-      getAvailableStatus: deps.getWalletSigningBudgetStatus,
-    },
-    {
-      nearAccountId,
-      walletSigningSessionId: record?.walletSigningSessionId,
-    },
-  );
+  const walletSigningSessionId = String(record?.walletSigningSessionId || '').trim();
+  const budgetStatusCheck = walletSigningSessionId
+    ? buildWalletBudgetStatusCheckForSession({
+        nearAccountId,
+        walletSigningSessionId,
+      })
+    : null;
+  const walletBudgetStatus = budgetStatusCheck
+    ? await getWalletSigningBudgetAvailableStatusValue(
+        {
+          getAvailableStatus: deps.getWalletSigningBudgetStatus,
+        },
+        budgetStatusCheck,
+      )
+    : null;
   if (!status) return walletBudgetStatus;
   return mergeWalletSigningBudgetStatus(status, walletBudgetStatus);
 }
@@ -110,16 +119,18 @@ export async function getWarmThresholdEcdsaSessionStatus(
     chainTarget,
     thresholdSessionId,
   });
-  const walletBudgetStatus = await getWalletSigningBudgetAvailableStatusValue(
-    {
-      getAvailableStatus: deps.getWalletSigningBudgetStatus,
-    },
-    {
-      nearAccountId,
-      walletSigningSessionId: status?.walletSigningSessionId,
-      targetThresholdSessionIds: [thresholdSessionId],
-    },
-  );
+  const walletBudgetStatus = isRecordBackedEcdsaStatus(status)
+    ? await getWalletSigningBudgetAvailableStatusValue(
+        {
+          getAvailableStatus: deps.getWalletSigningBudgetStatus,
+        },
+        buildThresholdBudgetStatusCheck({
+          nearAccountId,
+          walletSigningSessionId: status.walletSigningSessionId,
+          targetThresholdSessionIds: [thresholdSessionId],
+        }),
+      )
+    : null;
   if (!status) return walletBudgetStatus as WarmEcdsaSigningSessionStatus | null;
   return mergeWalletSigningBudgetStatus(status, walletBudgetStatus);
 }
@@ -139,15 +150,21 @@ export async function listWarmThresholdEcdsaSessionStatuses(
         {
           getAvailableStatus: deps.getWalletSigningBudgetStatus,
         },
-        {
+        buildThresholdBudgetStatusCheck({
           nearAccountId,
           walletSigningSessionId: status.walletSigningSessionId,
           targetThresholdSessionIds: [status.sessionId],
-        },
+        }),
       );
       return mergeWalletSigningBudgetStatus(status, walletBudgetStatus);
     }),
   );
+}
+
+function isRecordBackedEcdsaStatus(
+  status: WarmEcdsaSigningSessionStatus | null,
+): status is WarmEcdsaRecordBackedSigningSessionStatus {
+  return Boolean(status && typeof status.walletSigningSessionId === 'string');
 }
 
 export async function scheduleThresholdEcdsaLoginPresignPrefill(

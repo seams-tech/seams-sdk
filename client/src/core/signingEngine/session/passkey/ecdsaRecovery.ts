@@ -1,4 +1,19 @@
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
+import type { RestorePersistedEcdsaSessionPurpose } from '@/core/signingEngine/session/sealedRecovery/types';
+import type {
+  PasskeyEcdsaSealedRecoveryRecord,
+} from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
+import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/types';
+import { toAccountId } from '@/core/types/accountIds';
+import {
+  thresholdEcdsaChainTargetsEqual,
+  toWalletSubjectId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { EcdsaThresholdKeyId } from '@/core/signingEngine/session/identity/laneIdentity';
+import { publishResolvedIdentity } from '@/core/signingEngine/session/persistence/sealedSessionStore';
+import { upsertStoredThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
+import { buildEcdsaSessionIdentity } from '@/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan';
 import { claimWarmSessionPrfFirst, type PasskeyWarmSessionRecoveryPorts } from './prfClaim';
 
 type PasskeySessionRestoreIdentity = {
@@ -19,13 +34,17 @@ export async function restorePasskeyEcdsaSessionBeforeClaim(
   args: PasskeySessionRestoreIdentity & { chainTarget: ThresholdEcdsaChainTarget },
 ): Promise<void> {
   if (typeof args.touchConfirm.restorePersistedSessionForSigning !== 'function') return;
+  const identity = buildEcdsaSessionIdentity({
+    walletSigningSessionId: args.walletSigningSessionId,
+    thresholdSessionId: args.thresholdSessionId,
+  });
   await args.touchConfirm.restorePersistedSessionForSigning({
     walletId: String(args.walletId).trim(),
     authMethod: 'passkey',
     curve: 'ecdsa',
     chainTarget: args.chainTarget,
-    walletSigningSessionId: String(args.walletSigningSessionId).trim(),
-    thresholdSessionId: String(args.thresholdSessionId).trim(),
+    walletSigningSessionId: identity.walletSigningSessionId,
+    thresholdSessionId: identity.thresholdSessionId,
     reason: 'transaction',
   });
 }
@@ -48,4 +67,128 @@ export async function claimPasskeyEcdsaPrfFirst(args: PasskeyEcdsaPrfClaimArgs):
         chainTarget: args.chainTarget,
       }),
   });
+}
+
+export async function restorePasskeyEcdsaSealedRecordForAccount(args: {
+  accountId: string;
+  record: PasskeyEcdsaSealedRecoveryRecord;
+  purpose: RestorePersistedEcdsaSessionPurpose & { authMethod: 'passkey' };
+  transport: WarmSessionSealTransportInput;
+  shamirPrimeB64u: string;
+  rehydrateWarmSessionMaterial: (args: {
+    sessionId: string;
+    sealedSecretB64u: string;
+    keyVersion?: string;
+    expiresAtMs: number;
+    remainingUses: number;
+    transport: WarmSessionSealTransportInput;
+  }) => Promise<WarmSessionStatusResult>;
+  deletePersistedRecord: () => Promise<void>;
+  recordSessionMaterialRestored: (status: WarmSessionStatusResult) => Promise<void>;
+  readWarmSessionStatusFromWorker: (sessionId: string) => Promise<WarmSessionStatusResult | null>;
+  updatePersistedPolicy: (args: {
+    expiresAtMs: number;
+    remainingUses: number;
+    updatedAtMs: number;
+  }) => Promise<void>;
+}): Promise<WarmSessionStatusResult | null> {
+  if (!thresholdEcdsaChainTargetsEqual(args.record.chainTarget, args.purpose.chainTarget)) {
+    return null;
+  }
+  const thresholdSessionId = String(args.purpose.thresholdSessionId || '').trim();
+  const walletSigningSessionId = String(args.purpose.walletSigningSessionId || '').trim();
+  if (!thresholdSessionId || !walletSigningSessionId || !args.shamirPrimeB64u) {
+    return null;
+  }
+
+  const publishRecord = (policy: { expiresAtMs: number; remainingUses: number }): void => {
+    upsertStoredThresholdEcdsaSessionRecord(
+      { recordsByLane: new Map() },
+      {
+        nearAccountId: toAccountId(args.accountId),
+        subjectId: toWalletSubjectId(args.accountId),
+        chainTarget: args.record.chainTarget,
+        relayerUrl: args.record.relayerUrl,
+        ecdsaThresholdKeyId: args.record.ecdsaThresholdKeyId as EcdsaThresholdKeyId,
+        signingRootId: args.record.signingRootId,
+        ...(args.record.signingRootVersion
+          ? { signingRootVersion: args.record.signingRootVersion }
+          : {}),
+        relayerKeyId: args.record.relayerKeyId,
+        clientVerifyingShareB64u: args.record.clientVerifyingShareB64u,
+        participantIds: [...args.record.participantIds],
+        ...(args.record.runtimePolicyScope ? { runtimePolicyScope: args.record.runtimePolicyScope } : {}),
+        thresholdSessionKind: args.record.sessionKind,
+        thresholdSessionId,
+        walletSigningSessionId,
+        ...(args.record.sessionKind === 'jwt'
+          ? { thresholdSessionAuthToken: args.record.thresholdSessionAuthToken }
+          : {}),
+        ...(args.record.keyVersion ? { signingSessionSealKeyVersion: args.record.keyVersion } : {}),
+        ...(args.record.shamirPrimeB64u
+          ? { signingSessionSealShamirPrimeB64u: args.record.shamirPrimeB64u }
+          : {}),
+        expiresAtMs: policy.expiresAtMs,
+        remainingUses: policy.remainingUses,
+        updatedAtMs: Date.now(),
+        source: 'login',
+      },
+    );
+    publishResolvedIdentity({
+      walletId: args.accountId,
+      authMethod: 'passkey',
+      curve: 'ecdsa',
+      chainTarget: args.purpose.chainTarget,
+      walletSigningSessionId,
+      thresholdSessionId,
+    });
+  };
+
+  publishRecord({
+    expiresAtMs: Math.floor(Number(args.record.expiresAtMs) || 0),
+    remainingUses: Math.max(0, Math.floor(Number(args.record.remainingUses) || 0)),
+  });
+
+  const rehydrated = await args.rehydrateWarmSessionMaterial({
+    sessionId: thresholdSessionId,
+    sealedSecretB64u: args.record.sealedSecretB64u,
+    keyVersion: args.record.keyVersion,
+    expiresAtMs: args.record.expiresAtMs,
+    remainingUses: Math.max(1_000_000, Math.floor(Number(args.record.remainingUses) || 0)),
+    transport: {
+      ...args.transport,
+      shamirPrimeB64u: args.shamirPrimeB64u,
+    },
+  });
+  if (!rehydrated.ok) {
+    if (rehydrated.code === 'expired') {
+      await args.deletePersistedRecord().catch(() => undefined);
+    }
+    await args.recordSessionMaterialRestored(rehydrated);
+    return rehydrated;
+  }
+
+  publishRecord({
+    expiresAtMs: rehydrated.expiresAtMs,
+    remainingUses: rehydrated.remainingUses,
+  });
+  await args.recordSessionMaterialRestored(rehydrated);
+  const parsed = await args.readWarmSessionStatusFromWorker(thresholdSessionId);
+  if (!parsed) {
+    return {
+      ok: false,
+      code: 'worker_error',
+      message: 'Warm-session status read failed after rehydrate',
+    };
+  }
+  if (parsed.ok) {
+    await args
+      .updatePersistedPolicy({
+        expiresAtMs: parsed.expiresAtMs,
+        remainingUses: parsed.remainingUses,
+        updatedAtMs: Date.now(),
+      })
+      .catch(() => undefined);
+  }
+  return parsed;
 }

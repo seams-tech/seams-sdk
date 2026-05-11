@@ -9,17 +9,12 @@ import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/
 import {
   thresholdEcdsaChainTargetsEqual,
   toWalletSubjectId,
+  type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WarmSessionEcdsaCapabilityState } from '@/core/signingEngine/session/warmCapabilities/types';
-import {
-  assertSealedRecordRecoverable,
-  assertSealedRecordRecoveryPolicy,
-  assertSealedRecordRestoreIdentity,
-} from '@/core/signingEngine/session/sealedRecovery/policy';
-import { normalizeThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
+import type { EmailOtpEcdsaSealedRecoveryRecord } from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { ThresholdEcdsaSmartAccountBootstrapInput } from '@/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence';
-import type { SigningSessionSealedStoreRecord } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import { requestRehydrateEmailOtpEcdsaWarmSessionMaterial } from './workerRequests';
 
 export type EmailOtpThresholdEcdsaRehydrateResult = {
@@ -31,7 +26,7 @@ export type EmailOtpThresholdEcdsaRehydrateResult = {
 };
 
 export type EmailOtpEcdsaSealedRecoveryRecordInput = {
-  sealedRecord: SigningSessionSealedStoreRecord;
+  sealedRecord: EmailOtpEcdsaSealedRecoveryRecord;
   ecdsaRecord?: ThresholdEcdsaSessionRecord | null;
   ed25519Record?: ThresholdEd25519SessionRecord | null;
 };
@@ -41,7 +36,7 @@ export type EmailOtpEcdsaSealedRecoveryInput = {
   getSignerWorkerContext: () => WorkerOperationContext | null | undefined;
   commitEvmFamilyThresholdEcdsaSessions: (args: {
     nearAccountId: string;
-    primaryChain: NonNullable<SigningSessionSealedStoreRecord['ecdsaRestore']>['chainTarget'];
+    primaryChain: ThresholdEcdsaChainTarget;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     source: 'email_otp';
     emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
@@ -73,29 +68,9 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
 ): Promise<EmailOtpThresholdEcdsaRehydrateResult | null> {
   const sealedRecord = args.sealedRecord;
   const ecdsaRecord = args.ecdsaRecord || null;
-  const ecdsaRestore = sealedRecord.ecdsaRestore;
-  if (
-    !(
-      sealedRecord.authMethod === 'email_otp' &&
-      sealedRecord.secretKind === 'signing_session_secret32' &&
-      sealedRecord.curve === 'ecdsa'
-    )
-  ) {
+  if (sealedRecord.authMethod !== 'email_otp' || sealedRecord.curve !== 'ecdsa') {
     return null;
   }
-  assertSealedRecordRecoveryPolicy({
-    record: sealedRecord,
-    policy: {
-      authMethod: 'email_otp',
-      secretKind: 'signing_session_secret32',
-      curve: 'ecdsa',
-    },
-    errorPrefix: 'Email OTP sealed refresh',
-  });
-  assertSealedRecordRecoverable({
-    record: sealedRecord,
-    errorPrefix: 'Email OTP sealed refresh',
-  });
   if (ecdsaRecord && ecdsaRecord.source !== 'email_otp') return null;
   const emailOtpAuthContext =
     ecdsaRecord?.emailOtpAuthContext ||
@@ -113,7 +88,7 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
   }
 
   const thresholdSessionId = String(
-    ecdsaRecord?.thresholdSessionId || sealedRecord.thresholdSessionIds.ecdsa || '',
+    ecdsaRecord?.thresholdSessionId || sealedRecord.thresholdSessionId || '',
   ).trim();
   const walletSigningSessionId = String(
     ecdsaRecord?.walletSigningSessionId || sealedRecord.walletSigningSessionId || '',
@@ -126,7 +101,7 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
       '',
   ).trim();
   const thresholdSessionAuthToken = String(
-    ecdsaRecord?.thresholdSessionAuthToken || ecdsaRestore?.thresholdSessionAuthToken || '',
+    ecdsaRecord?.thresholdSessionAuthToken || sealedRecord.thresholdSessionAuthToken || '',
   ).trim();
   const keyVersion = String(
     sealedRecord.keyVersion ||
@@ -134,16 +109,27 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
       args.configs.signing.sessionSeal?.keyVersion ||
       '',
   ).trim();
+  if (sealedRecord.expiresAtMs <= Date.now()) {
+    throw new Error('Email OTP sealed refresh expired sealed record');
+  }
+  if (sealedRecord.remainingUses <= 0) {
+    throw new Error('Email OTP sealed refresh exhausted sealed record');
+  }
   if (!thresholdSessionId || !walletSigningSessionId || !relayerUrl || !shamirPrimeB64u) {
     throw new Error('Email OTP sealed refresh is missing threshold-session restore metadata');
   }
-  assertSealedRecordRestoreIdentity({
-    record: sealedRecord,
-    curve: 'ecdsa',
-    thresholdSessionId,
-    walletSigningSessionId,
-    errorPrefix: 'Email OTP sealed refresh',
-  });
+  if (
+    ecdsaRecord?.thresholdSessionId &&
+    ecdsaRecord.thresholdSessionId !== sealedRecord.thresholdSessionId
+  ) {
+    throw new Error('Email OTP sealed refresh threshold-session id mismatch');
+  }
+  if (
+    ecdsaRecord?.walletSigningSessionId &&
+    ecdsaRecord.walletSigningSessionId !== sealedRecord.walletSigningSessionId
+  ) {
+    throw new Error('Email OTP sealed refresh wallet signing-session id mismatch');
+  }
   if (
     sealedRecord.signingRootId &&
     ecdsaRecord?.signingRootId &&
@@ -160,22 +146,20 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
   }
   if (
     ecdsaRecord?.chainTarget &&
-    ecdsaRestore?.chainTarget &&
-    !thresholdEcdsaChainTargetsEqual(ecdsaRecord.chainTarget, ecdsaRestore.chainTarget)
+    !thresholdEcdsaChainTargetsEqual(ecdsaRecord.chainTarget, sealedRecord.chainTarget)
   ) {
     throw new Error('Email OTP sealed refresh chain target mismatch');
   }
-  const restoreChainTarget = ecdsaRecord?.chainTarget || ecdsaRestore?.chainTarget;
+  const restoreChainTarget = ecdsaRecord?.chainTarget || sealedRecord.chainTarget;
   const restoreSigningRootId = ecdsaRecord?.signingRootId || sealedRecord.signingRootId;
   const restoreEcdsaThresholdKeyId =
-    ecdsaRecord?.ecdsaThresholdKeyId || ecdsaRestore?.ecdsaThresholdKeyId;
-  const restoreRelayerKeyId = ecdsaRecord?.relayerKeyId || ecdsaRestore?.relayerKeyId;
-  const restoreParticipantIds = ecdsaRecord?.participantIds || ecdsaRestore?.participantIds;
+    ecdsaRecord?.ecdsaThresholdKeyId || sealedRecord.ecdsaThresholdKeyId;
+  const restoreRelayerKeyId = ecdsaRecord?.relayerKeyId || sealedRecord.relayerKeyId;
+  const restoreParticipantIds = ecdsaRecord?.participantIds || sealedRecord.participantIds;
   const restoreSubjectId = toWalletSubjectId(ecdsaRecord?.subjectId || sealedRecord.subjectId);
-  const restoreSessionKind = ecdsaRecord?.thresholdSessionKind || ecdsaRestore?.sessionKind || 'jwt';
+  const restoreSessionKind = ecdsaRecord?.thresholdSessionKind || sealedRecord.sessionKind || 'jwt';
   const restoreRuntimePolicyScope =
-    ecdsaRecord?.runtimePolicyScope ||
-    normalizeThresholdRuntimePolicyScope(ecdsaRestore?.runtimePolicyScope);
+    ecdsaRecord?.runtimePolicyScope || sealedRecord.runtimePolicyScope;
   if (
     !restoreChainTarget ||
     !restoreSigningRootId ||
@@ -190,7 +174,6 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
     args.ed25519Record &&
     args.ed25519Record.source === 'email_otp' &&
     args.ed25519Record.emailOtpAuthContext?.retention === 'session' &&
-    sealedRecord.thresholdSessionIds.ed25519 === args.ed25519Record.thresholdSessionId &&
     args.ed25519Record.walletSigningSessionId === walletSigningSessionId
       ? args.ed25519Record
       : null;
@@ -208,9 +191,9 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
     },
     restore: {
       sessionId: thresholdSessionId,
-      walletId: sealedRecord.walletId || String(ecdsaRecord?.nearAccountId || ''),
+      walletId: sealedRecord.walletId,
       subjectId: restoreSubjectId,
-      userId: sealedRecord.userId || String(ecdsaRecord?.nearAccountId || sealedRecord.walletId || ''),
+      userId: sealedRecord.walletId,
       rpId: args.requireRpId('Email OTP sealed refresh'),
       chainTarget: restoreChainTarget,
       walletSigningSessionId,
@@ -223,7 +206,7 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
         : {}),
       ecdsaThresholdKeyId: restoreEcdsaThresholdKeyId,
       relayerKeyId: restoreRelayerKeyId,
-      participantIds: restoreParticipantIds,
+      participantIds: [...restoreParticipantIds],
       sessionKind: restoreSessionKind,
       ...(restoreRuntimePolicyScope ? { runtimePolicyScope: restoreRuntimePolicyScope } : {}),
       ...(ed25519Record
@@ -242,8 +225,7 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
   }
 
   const { bootstrap, warmCapability } = await args.commitEvmFamilyThresholdEcdsaSessions({
-    nearAccountId:
-      ecdsaRecord?.nearAccountId || sealedRecord.walletId || sealedRecord.userId || '',
+    nearAccountId: ecdsaRecord?.nearAccountId || sealedRecord.walletId,
     primaryChain: restoreChainTarget,
     bootstrap: restored.bootstrap,
     source: 'email_otp',
@@ -256,7 +238,7 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
       rpId: ed25519Record.rpId,
       relayerUrl: ed25519Record.relayerUrl,
       relayerKeyId: ed25519Record.relayerKeyId,
-      participantIds: ed25519Record.participantIds,
+      participantIds: [...ed25519Record.participantIds],
       ...(ed25519Record.runtimePolicyScope
         ? { runtimePolicyScope: ed25519Record.runtimePolicyScope }
         : {}),

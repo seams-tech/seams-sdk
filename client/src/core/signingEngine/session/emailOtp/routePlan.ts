@@ -1,4 +1,3 @@
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 import type {
@@ -9,10 +8,10 @@ import type {
 import {
   authLaneToRouteAuth,
   buildEmailOtpRoutePlan,
-  resolveEmailOtpAuthLane,
   routeFamilyForAuthLane,
   type EmailOtpAuthLane,
   type EmailOtpRoutePlan,
+  type EmailOtpSigningSessionAuthLane,
 } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 
 export type EmailOtpSigningSessionChallengeOperation =
@@ -24,62 +23,35 @@ export const EMAIL_OTP_SIGNING_SESSION_AUTH_UNAVAILABLE =
 
 export function buildFreshEmailOtpRoutePlan(args: {
   freshRouteFamily: 'login' | 'registration';
-  routeAuth?: AppOrThresholdSessionAuth;
-  appSessionJwt?: string;
-  sessionKind?: 'jwt' | 'cookie';
-  thresholdSessionId?: string;
-  walletSigningSessionId?: string;
-  curve?: 'ed25519' | 'ecdsa';
-  chainTarget?: ThresholdEcdsaChainTarget;
+  authLane: EmailOtpAuthLane;
   operation?: WalletEmailOtpLoginOperation;
 }): EmailOtpRoutePlan {
-  const authLane = resolveEmailOtpAuthLane({
-    sessionKind: args.sessionKind,
-    appSessionJwt: args.appSessionJwt,
-    routeAuth: args.routeAuth,
-    thresholdSessionId: args.thresholdSessionId,
-    walletSigningSessionId: args.walletSigningSessionId,
-    curve: args.curve,
-    chainTarget: args.chainTarget,
-  });
-  if (!authLane) {
-    throw new Error(`Email OTP ${args.freshRouteFamily} requires route auth`);
-  }
   return buildEmailOtpRoutePlan({
     routeFamily: routeFamilyForAuthLane({
-      authLane,
+      authLane: args.authLane,
       freshRouteFamily: args.freshRouteFamily,
     }),
-    authLane,
+    authLane: args.authLane,
     operation: args.operation,
   });
 }
 
-export function buildEmailOtpSigningSessionRoutePlan(args: {
-  authLane?: EmailOtpAuthLane;
-  routeAuth?: AppOrThresholdSessionAuth;
-  thresholdSessionId?: string;
-  walletSigningSessionId?: string;
-  curve?: 'ed25519' | 'ecdsa';
-  chainTarget?: ThresholdEcdsaChainTarget;
-  operation: EmailOtpSigningSessionChallengeOperation;
-}): EmailOtpRoutePlan {
-  const authLane =
-    args.authLane?.kind === 'signing_session'
-      ? args.authLane
-      : resolveEmailOtpAuthLane({
-          routeAuth: args.routeAuth,
-          thresholdSessionId: args.thresholdSessionId,
-          walletSigningSessionId: args.walletSigningSessionId,
-          curve: args.curve,
-          chainTarget: args.chainTarget,
-        });
+export function assertEmailOtpSigningSessionAuthLane(
+  authLane: EmailOtpAuthLane | undefined,
+): EmailOtpSigningSessionAuthLane {
   if (authLane?.kind !== 'signing_session') {
     throw new Error(EMAIL_OTP_SIGNING_SESSION_AUTH_UNAVAILABLE);
   }
+  return authLane;
+}
+
+export function buildEmailOtpSigningSessionRoutePlan(args: {
+  authLane: EmailOtpSigningSessionAuthLane;
+  operation: EmailOtpSigningSessionChallengeOperation;
+}): EmailOtpRoutePlan {
   return buildEmailOtpRoutePlan({
     routeFamily: 'signing_session',
-    authLane,
+    authLane: args.authLane,
     operation: args.operation,
   });
 }
@@ -99,7 +71,7 @@ export function thresholdSessionAuthFromEcdsaBootstrap(
 
 export function walletSigningSessionIdFromEcdsaBootstrap(
   bootstrap: ThresholdEcdsaSessionBootstrapResult | undefined,
-  defaultWalletSigningSessionId?: string,
+  defaultWalletSigningSessionId: string,
 ): string {
   return (
     String(bootstrap?.session?.walletSigningSessionId || '').trim() ||

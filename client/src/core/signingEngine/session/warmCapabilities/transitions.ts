@@ -48,9 +48,12 @@ export type WarmSessionTransitionEvent =
 function summarizeWarmSessionCapabilityTransition(
   capability: WarmSessionEd25519CapabilityState | WarmSessionEcdsaCapabilityState,
 ): WarmSessionTransitionCapabilitySnapshot {
+  const thresholdSessionId = capability.record?.thresholdSessionId
+    ? String(capability.record.thresholdSessionId).trim()
+    : null;
   return {
     state: capability.state,
-    thresholdSessionId: String(capability.record?.thresholdSessionId || '').trim() || null,
+    thresholdSessionId: thresholdSessionId || null,
     authState: capability.auth ? 'present' : 'missing',
     prfClaimState: capability.prfClaim?.state || null,
     ...(capability.prfClaim?.state === 'warm'

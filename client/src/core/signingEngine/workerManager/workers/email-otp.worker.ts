@@ -3303,6 +3303,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
                 unlockSignatureB64u: result.unlockSignatureB64u,
                 thresholdEd25519PrfFirstB64u: result.thresholdEd25519PrfFirstB64u,
               },
+              ecdsaClientRootShare32B64u: base64UrlEncode(result.clientRootShare32),
               bootstraps,
               ...(ecdsaHssExportArtifact ? { ecdsaHssExportArtifact } : {}),
             },

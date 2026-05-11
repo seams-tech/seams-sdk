@@ -4,6 +4,7 @@ import type {
   SigningSessionRetention,
   WalletAuthMethod,
 } from '@/core/types/seams';
+import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 
 export interface UserConfirmProgressEvent {
   requestId: string;
@@ -118,7 +119,7 @@ export type StepUpPolicy =
     };
 
 export type PasskeyStepUpConfirmation = {
-  credential: unknown;
+  credential: WebAuthnAuthenticationCredential;
 };
 
 export type EmailOtpStepUpConfirmation = {
@@ -138,3 +139,33 @@ export type StepUpAuthorizationResult<TPasskeyAuthorization, TEmailOtpAuthorizat
       method: 'email_otp';
       authorization: TEmailOtpAuthorization;
     };
+
+export type WarmSessionStepUpAuthorization<
+  TSigningAuthPlan extends Extract<SigningAuthPlan, { kind: typeof SigningAuthPlanKind.WarmSession }>,
+> = {
+  kind: 'warm_session';
+  signingAuthPlan: TSigningAuthPlan;
+  sessionId: string;
+  expiresAtMs: number;
+  remainingUses: number;
+};
+
+export type PasskeyStepUpAuthorization<
+  TSigningAuthPlan extends Extract<SigningAuthPlan, { kind: typeof SigningAuthPlanKind.PasskeyReauth }>,
+  TIdentity extends object = Record<never, never>,
+> = {
+  kind: 'passkey';
+  signingAuthPlan: TSigningAuthPlan;
+  credential: WebAuthnAuthenticationCredential;
+} & TIdentity;
+
+export type EmailOtpStepUpAuthorization<
+  TSigningAuthPlan extends Extract<SigningAuthPlan, { kind: typeof SigningAuthPlanKind.EmailOtpReauth }>,
+  TIdentity extends object = Record<never, never>,
+> = {
+  kind: 'email_otp';
+  signingAuthPlan: TSigningAuthPlan;
+  challengeId: string;
+  otpCode: string;
+  emailHint?: string;
+} & TIdentity;

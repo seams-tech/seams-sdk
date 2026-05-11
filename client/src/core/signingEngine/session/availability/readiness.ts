@@ -27,7 +27,10 @@ import {
   toSigningSessionStatus,
   toWarmSessionClaimFromStatusResult,
 } from '../warmCapabilities/readModel';
-import type { SigningSessionBudgetStatusAuth } from '../budget/budget';
+import type {
+  SigningSessionBudgetStatusAuth,
+  SigningSessionBudgetStatusCheck,
+} from '../budget/budget';
 import type { SigningSessionReadiness } from '../planning/planner';
 import {
   thresholdEcdsaChainTargetKey,
@@ -106,20 +109,14 @@ export type WalletSigningSessionConsumeUseInput = {
   nearAccountId: AccountId | string;
   walletSigningSessionId: string;
   uses: number;
-  targetBackingMaterialSessionIds?: string[];
-  targetThresholdSessionIds?: string[];
+  budgetStatusCheck: SigningSessionBudgetStatusCheck;
   alreadyConsumedBackingMaterialSessionIds?: string[];
   alreadyConsumedThresholdSessionIds?: string[];
-  trustedStatusAuth?: SigningSessionBudgetStatusAuth;
 };
 
-export type WalletSigningSessionStatusReader = (args: {
-  nearAccountId: AccountId | string;
-  walletSigningSessionId?: string;
-  targetBackingMaterialSessionIds?: string[];
-  targetThresholdSessionIds?: string[];
-  trustedStatusAuth?: SigningSessionBudgetStatusAuth;
-}) => Promise<SigningSessionStatus | null>;
+export type WalletSigningSessionStatusReader = (
+  args: SigningSessionBudgetStatusCheck,
+) => Promise<SigningSessionStatus | null>;
 
 export type SigningSessionReadinessWithBudget = {
   readiness: SigningSessionReadiness;
@@ -578,6 +575,23 @@ export async function readWalletScopedLaneClaimsForAccount(args: {
   });
 }
 
+function targetSessionSetsForBudgetStatusCheck(check: SigningSessionBudgetStatusCheck): {
+  backingMaterialSessionIds: Set<string>;
+  thresholdSessionIds: Set<string>;
+} {
+  return {
+    backingMaterialSessionIds:
+      check.kind === 'backing_material_budget_status_check'
+        ? new Set(check.targetBackingMaterialSessionIds.map(normalizeNonEmpty).filter(Boolean))
+        : new Set<string>(),
+    thresholdSessionIds:
+      check.kind === 'threshold_budget_status_check' ||
+      check.kind === 'authenticated_threshold_budget_status_check'
+        ? new Set(check.targetThresholdSessionIds.map(normalizeNonEmpty).filter(Boolean))
+        : new Set<string>(),
+  };
+}
+
 export async function readDirectSigningSessionStatusForTargets(args: {
   deps: WalletSigningSessionReadinessDeps;
   walletSigningSessionId: string;
@@ -746,12 +760,9 @@ export async function consumeWalletSigningSessionUse(args: {
   const alreadyConsumedThreshold = new Set(
     (input.alreadyConsumedThresholdSessionIds || []).map(normalizeNonEmpty).filter(Boolean),
   );
-  const targetBacking = new Set(
-    (input.targetBackingMaterialSessionIds || []).map(normalizeNonEmpty).filter(Boolean),
-  );
-  const targetThreshold = new Set(
-    (input.targetThresholdSessionIds || []).map(normalizeNonEmpty).filter(Boolean),
-  );
+  const budgetTargets = targetSessionSetsForBudgetStatusCheck(input.budgetStatusCheck);
+  const targetBacking = budgetTargets.backingMaterialSessionIds;
+  const targetThreshold = budgetTargets.thresholdSessionIds;
   const lanes = getLanesForWalletSession({
     deps: args.deps,
     nearAccountId: input.nearAccountId,
@@ -857,13 +868,7 @@ export async function consumeWalletSigningSessionUse(args: {
     });
   }
 
-  const status = (await args.readStatus({
-    nearAccountId: input.nearAccountId,
-    walletSigningSessionId,
-    targetBackingMaterialSessionIds: input.targetBackingMaterialSessionIds,
-    targetThresholdSessionIds: input.targetThresholdSessionIds,
-    trustedStatusAuth: input.trustedStatusAuth,
-  })) || {
+  const status = (await args.readStatus(input.budgetStatusCheck)) || {
     sessionId: walletSigningSessionId,
     status: 'not_found',
   };

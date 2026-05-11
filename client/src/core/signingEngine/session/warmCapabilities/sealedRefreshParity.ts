@@ -6,14 +6,24 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export type ThresholdEcdsaBootstrapParityArgs = {
-  source?: string;
-  operationIntent?: SigningOperationIntent;
-  nearAccountId?: string;
+  nearAccountId: string;
   chainTarget: ThresholdEcdsaChainTarget;
-  emailOtpAuthContext?: {
-    authMethod?: string;
-  };
-};
+} & (
+  | {
+      kind: 'registration_bootstrap_parity';
+    }
+  | {
+      kind: 'transaction_bootstrap_parity';
+      operationIntent: (typeof SigningOperationIntent)['TransactionSign'];
+    }
+  | {
+      kind: 'email_otp_bootstrap_parity';
+      authMethod: typeof SIGNER_AUTH_METHODS.emailOtp;
+    }
+  | {
+      kind: 'default_bootstrap_parity';
+    }
+);
 
 export function isRetryableSealedRefreshCapabilityFetchError(error: unknown): boolean {
   const code =
@@ -45,7 +55,7 @@ export async function ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap
   try {
     await ensureParity();
   } catch (error: unknown) {
-    if (args.source === 'registration') {
+    if (args.kind === 'registration_bootstrap_parity') {
       console.warn(
         '[threshold-ecdsa] registration bootstrap skipped sealed-refresh startup parity enforcement',
         {
@@ -57,7 +67,7 @@ export async function ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap
       return;
     }
     if (
-      args.operationIntent === SigningOperationIntent.TransactionSign &&
+      args.kind === 'transaction_bootstrap_parity' &&
       isRetryableSealedRefreshCapabilityFetchError(error)
     ) {
       console.warn(
@@ -71,7 +81,8 @@ export async function ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap
       return;
     }
     if (
-      args.emailOtpAuthContext?.authMethod === SIGNER_AUTH_METHODS.emailOtp &&
+      args.kind === 'email_otp_bootstrap_parity' &&
+      args.authMethod === SIGNER_AUTH_METHODS.emailOtp &&
       isRetryableSealedRefreshCapabilityFetchError(error)
     ) {
       console.warn(

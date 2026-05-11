@@ -11,16 +11,16 @@ import {
   type ThresholdEcdsaSessionStoreDeps,
 } from '../persistence/records';
 import { toWalletSubjectId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { SigningSessionBudgetStatusAuth } from './budget';
+import {
+  buildWalletBudgetStatusCheck,
+  type SigningSessionBudgetStatusAuth,
+  type SigningSessionBudgetStatusCheck,
+} from './budget';
 
 export type WalletSigningBudgetAvailableStatusDeps = {
-  getAvailableStatus: (args: {
-    nearAccountId: AccountId | string;
-    walletSigningSessionId: string;
-    targetThresholdSessionIds?: string[];
-    targetBackingMaterialSessionIds?: string[];
-    trustedStatusAuth?: SigningSessionBudgetStatusAuth;
-  }) => Promise<SigningSessionStatus | null>;
+  getAvailableStatus: (
+    args: SigningSessionBudgetStatusCheck,
+  ) => Promise<SigningSessionStatus | null>;
 };
 
 export type TrustedWalletSigningBudgetStatusDeps = {
@@ -28,57 +28,68 @@ export type TrustedWalletSigningBudgetStatusDeps = {
 };
 
 type BudgetStatusAuth = {
+  kind: 'wallet_scoped';
   relayerUrl: string;
-  thresholdSessionId?: string;
+};
+
+type ThresholdScopedBudgetStatusAuth = {
+  kind: 'threshold_scoped';
+  relayerUrl: string;
+  thresholdSessionId: string;
   thresholdSessionAuthToken?: string;
 };
+
+type TrustedBudgetStatusAuth = BudgetStatusAuth | ThresholdScopedBudgetStatusAuth;
 
 type TrustedBudgetStatusFetchResult = {
   status: SigningSessionStatus | null;
   authRejected: boolean;
 };
 
+type TrustedBudgetStatusPayload =
+  | {
+      kind: 'not_found';
+      status: SigningSessionStatus & { status: 'not_found' };
+    }
+  | {
+      kind: 'current';
+      status: SigningSessionStatus & {
+        status: 'active' | 'exhausted' | 'expired';
+      };
+    };
+
 export async function getWalletSigningBudgetAvailableStatus(
   deps: WalletSigningBudgetAvailableStatusDeps,
-  args: {
-    nearAccountId: AccountId | string;
-    walletSigningSessionId?: string;
-    targetThresholdSessionIds?: string[];
-    targetBackingMaterialSessionIds?: string[];
-    trustedStatusAuth?: SigningSessionBudgetStatusAuth;
-  },
+  args: SigningSessionBudgetStatusCheck,
 ): Promise<SigningSessionStatus | null> {
   const walletSigningSessionId = String(args.walletSigningSessionId || '').trim();
   if (!walletSigningSessionId) return null;
   return await deps
-    .getAvailableStatus({
-      nearAccountId: args.nearAccountId,
-      walletSigningSessionId,
-      targetThresholdSessionIds: args.targetThresholdSessionIds,
-      targetBackingMaterialSessionIds: args.targetBackingMaterialSessionIds,
-      trustedStatusAuth: args.trustedStatusAuth,
-    })
+    .getAvailableStatus({ ...args, walletSigningSessionId })
     .catch(() => null);
 }
 
 export async function readTrustedWalletSigningBudgetStatus(
   deps: TrustedWalletSigningBudgetStatusDeps,
-  args: {
-    nearAccountId: AccountId | string;
-    walletSigningSessionId?: string;
-    targetThresholdSessionIds?: string[];
-    trustedStatusAuth?: SigningSessionBudgetStatusAuth;
-  },
+  args: SigningSessionBudgetStatusCheck,
 ): Promise<SigningSessionStatus | null> {
   const walletSigningSessionId = String(args.walletSigningSessionId || '').trim();
   if (!walletSigningSessionId) return null;
-  const providedAuth = normalizeBudgetStatusAuth(args.trustedStatusAuth);
+  const targetThresholdSessionIds =
+    args.kind === 'threshold_budget_status_check' ||
+    args.kind === 'authenticated_threshold_budget_status_check'
+      ? [...args.targetThresholdSessionIds]
+      : undefined;
+  const providedAuth =
+    args.kind === 'authenticated_threshold_budget_status_check'
+      ? normalizeBudgetStatusAuth(args.trustedStatusAuth)
+      : null;
   const resolvedAuth =
     providedAuth ||
     resolveWalletSigningBudgetStatusAuth(deps, {
       nearAccountId: args.nearAccountId,
       walletSigningSessionId,
-      targetThresholdSessionIds: args.targetThresholdSessionIds,
+      targetThresholdSessionIds,
     });
   if (!resolvedAuth?.relayerUrl) return null;
 
@@ -93,7 +104,7 @@ export async function readTrustedWalletSigningBudgetStatus(
   const fallbackAuth = resolveWalletSigningBudgetStatusAuth(deps, {
     nearAccountId: args.nearAccountId,
     walletSigningSessionId,
-    targetThresholdSessionIds: args.targetThresholdSessionIds,
+    targetThresholdSessionIds,
   });
   if (!fallbackAuth?.relayerUrl || sameBudgetStatusAuth(providedAuth, fallbackAuth)) {
     return initial.status;
@@ -107,7 +118,7 @@ export async function readTrustedWalletSigningBudgetStatus(
 
 function normalizeBudgetStatusAuth(
   trustedStatusAuth: SigningSessionBudgetStatusAuth | undefined,
-): BudgetStatusAuth | null {
+): ThresholdScopedBudgetStatusAuth | null {
   const relayerUrl = String(trustedStatusAuth?.relayerUrl || '').trim();
   const thresholdSessionId = String(trustedStatusAuth?.thresholdSessionId || '').trim();
   if (!relayerUrl || !thresholdSessionId) return null;
@@ -115,38 +126,103 @@ function normalizeBudgetStatusAuth(
     trustedStatusAuth?.thresholdSessionAuthToken || '',
   ).trim();
   return {
+    kind: 'threshold_scoped',
     relayerUrl,
     thresholdSessionId,
     ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
   };
 }
 
-function sameBudgetStatusAuth(left: BudgetStatusAuth, right: BudgetStatusAuth): boolean {
+function sameBudgetStatusAuth(left: TrustedBudgetStatusAuth, right: TrustedBudgetStatusAuth): boolean {
   return (
+    left.kind === right.kind &&
     left.relayerUrl === right.relayerUrl &&
-    String(left.thresholdSessionId || '') === String(right.thresholdSessionId || '') &&
-    String(left.thresholdSessionAuthToken || '') === String(right.thresholdSessionAuthToken || '')
+    (left.kind === 'threshold_scoped' && right.kind === 'threshold_scoped'
+      ? left.thresholdSessionId === right.thresholdSessionId &&
+        String(left.thresholdSessionAuthToken || '') === String(right.thresholdSessionAuthToken || '')
+      : true)
   );
 }
 
+function parseTrustedBudgetStatusPayload(args: {
+  body: unknown;
+  walletSigningSessionId: string;
+  auth: TrustedBudgetStatusAuth;
+}): TrustedBudgetStatusPayload | null {
+  const record = (args.body || {}) as Record<string, unknown>;
+  if (record.ok !== true) return null;
+  const walletSigningSessionId = String(record.walletSigningSessionId || '').trim();
+  if (walletSigningSessionId !== args.walletSigningSessionId) return null;
+  const thresholdSessionId = String(record.thresholdSessionId || '').trim();
+  if (args.auth.kind === 'threshold_scoped' && args.auth.thresholdSessionId !== thresholdSessionId) {
+    return null;
+  }
+
+  const status = String(record.status || '').trim();
+  if (status === 'not_found') {
+    const statusCode = String(record.statusCode || '').trim();
+    return {
+      kind: 'not_found',
+      status: {
+        sessionId: walletSigningSessionId,
+        status: 'not_found',
+        ...(statusCode ? { statusCode } : {}),
+      },
+    };
+  }
+
+  if (status !== 'active' && status !== 'exhausted' && status !== 'expired') {
+    return null;
+  }
+
+  const expiresAtMs = Math.floor(Number(record.expiresAtMs));
+  if (!Number.isFinite(expiresAtMs) || expiresAtMs <= 0) return null;
+
+  if (status === 'expired') {
+    return {
+      kind: 'current',
+      status: {
+        sessionId: walletSigningSessionId,
+        status,
+        expiresAtMs,
+      },
+    };
+  }
+
+  const remainingUses = Math.floor(Number(record.remainingUses));
+  if (!Number.isFinite(remainingUses) || remainingUses < 0) return null;
+  const projectionVersion = String(record.projectionVersion || '').trim();
+  if (!projectionVersion) return null;
+  return {
+    kind: 'current',
+    status: {
+      sessionId: walletSigningSessionId,
+      status,
+      remainingUses,
+      expiresAtMs,
+      projectionVersion,
+    },
+  };
+}
+
 async function fetchTrustedWalletSigningBudgetStatus(args: {
-  auth: BudgetStatusAuth;
+  auth: TrustedBudgetStatusAuth;
   walletSigningSessionId: string;
 }): Promise<TrustedBudgetStatusFetchResult> {
+  const thresholdSessionAuthToken =
+    args.auth.kind === 'threshold_scoped' ? args.auth.thresholdSessionAuthToken : undefined;
   const response = await fetch(
     joinNormalizedUrl(args.auth.relayerUrl, '/session/signing-budget/status'),
     {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(args.auth.thresholdSessionAuthToken
-          ? { Authorization: `Bearer ${args.auth.thresholdSessionAuthToken}` }
-          : {}),
+        ...(thresholdSessionAuthToken ? { Authorization: `Bearer ${thresholdSessionAuthToken}` } : {}),
       },
-      credentials: args.auth.thresholdSessionAuthToken ? 'omit' : 'include',
+      credentials: thresholdSessionAuthToken ? 'omit' : 'include',
       body: JSON.stringify({
         walletSigningSessionId: args.walletSigningSessionId,
-        ...(args.auth.thresholdSessionId
+        ...(args.auth.kind === 'threshold_scoped'
           ? { thresholdSessionId: args.auth.thresholdSessionId }
           : {}),
       }),
@@ -166,31 +242,14 @@ async function fetchTrustedWalletSigningBudgetStatus(args: {
     }
     return { status: null, authRejected: false };
   }
-  const status = String(json.status || '').trim();
-  if (status === 'not_found') {
-    return {
-      status: {
-        sessionId: args.walletSigningSessionId,
-        status,
-        ...(typeof json.statusCode === 'string' ? { statusCode: json.statusCode } : {}),
-      },
-      authRejected: false,
-    };
-  }
-  if (status !== 'active' && status !== 'exhausted' && status !== 'expired') {
-    return { status: null, authRejected: false };
-  }
-  const remainingUses = Math.max(0, Math.floor(Number(json.remainingUses) || 0));
-  const expiresAtMs = Math.floor(Number(json.expiresAtMs) || 0);
-  const projectionVersion = String(json.projectionVersion || '').trim();
+  const parsed = parseTrustedBudgetStatusPayload({
+    body: json,
+    walletSigningSessionId: args.walletSigningSessionId,
+    auth: args.auth,
+  });
+  if (!parsed) return { status: null, authRejected: false };
   return {
-    status: {
-      sessionId: args.walletSigningSessionId,
-      status,
-      ...(status === 'active' || status === 'exhausted' ? { remainingUses } : {}),
-      ...(expiresAtMs > 0 ? { expiresAtMs } : {}),
-      ...(projectionVersion ? { projectionVersion } : {}),
-    },
+    status: parsed.status,
     authRejected: false,
   };
 }
@@ -202,7 +261,7 @@ function resolveWalletSigningBudgetStatusAuth(
     walletSigningSessionId: string;
     targetThresholdSessionIds?: string[];
   },
-): BudgetStatusAuth | null {
+): TrustedBudgetStatusAuth | null {
   const accountId = toAccountId(args.nearAccountId);
   const walletSigningSessionId = String(args.walletSigningSessionId || '').trim();
   if (!accountId || !walletSigningSessionId) return null;
@@ -211,16 +270,16 @@ function resolveWalletSigningBudgetStatusAuth(
       .map((value) => String(value || '').trim())
       .filter(Boolean),
   );
-  const candidates: Array<BudgetStatusAuth & { thresholdSessionId: string; exactTarget: boolean }> =
+  const candidates: Array<ThresholdScopedBudgetStatusAuth & { exactTarget: boolean }> =
     [];
   const pushCandidate = (
     record:
       | {
-          relayerUrl?: string;
-          thresholdSessionId?: string;
-          thresholdSessionAuthToken?: string;
-          walletSigningSessionId?: string;
-          thresholdSessionKind?: string;
+          relayerUrl?: unknown;
+          thresholdSessionId?: unknown;
+          thresholdSessionAuthToken?: unknown;
+          walletSigningSessionId?: unknown;
+          thresholdSessionKind?: unknown;
         }
       | null
       | undefined,
@@ -235,6 +294,7 @@ function resolveWalletSigningBudgetStatusAuth(
     const thresholdSessionAuthToken = String(record.thresholdSessionAuthToken || '').trim();
     if (!thresholdSessionAuthToken && record.thresholdSessionKind !== 'cookie') return;
     candidates.push({
+      kind: 'threshold_scoped',
       relayerUrl,
       thresholdSessionId,
       ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
@@ -295,4 +355,16 @@ export function mergeWalletSigningBudgetStatus<TStatus extends SigningSessionSta
     ...(budgetStatus.authMethod ? { authMethod: budgetStatus.authMethod } : {}),
     ...(budgetStatus.retention ? { retention: budgetStatus.retention } : {}),
   };
+}
+
+export function buildWalletBudgetStatusCheckForSession(args: {
+  nearAccountId: AccountId | string;
+  walletSigningSessionId: string;
+}): SigningSessionBudgetStatusCheck | null {
+  const walletSigningSessionId = String(args.walletSigningSessionId || '').trim();
+  if (!walletSigningSessionId) return null;
+  return buildWalletBudgetStatusCheck({
+    nearAccountId: args.nearAccountId,
+    walletSigningSessionId,
+  });
 }

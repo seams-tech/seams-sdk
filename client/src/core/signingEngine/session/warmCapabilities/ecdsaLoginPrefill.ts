@@ -1,5 +1,4 @@
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
-import { normalizeInteger } from '@shared/utils/normalize';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import { normalizeThresholdSessionKind } from '../../threshold/sessionPolicy';
 import type {
@@ -44,16 +43,43 @@ export type ThresholdEcdsaLoginPrefillResult =
     }
   | {
       status: 'skipped';
-      reason: ThresholdEcdsaLoginPrefillSkippedReason;
-      thresholdSessionId?: string;
-      remainingUses?: number;
-      details?: string;
-      schedule?: ThresholdEcdsaClientPresignatureRefillScheduleResult;
+      reason: 'invalid_key_ref' | 'missing_threshold_session_id';
+      thresholdSessionId: null;
+      details: string | null;
+    }
+  | {
+      status: 'skipped';
+      reason: 'missing_threshold_session_auth_token' | 'warm_session_not_active';
+      thresholdSessionId: string;
+    }
+  | {
+      status: 'skipped';
+      reason: 'threshold_session_mismatch';
+      thresholdSessionId: string;
+      details: string;
+    }
+  | {
+      status: 'skipped';
+      reason: 'low_remaining_uses';
+      thresholdSessionId: string;
+      remainingUses: number;
+    }
+  | {
+      status: 'skipped';
+      reason: 'refill_not_scheduled';
+      thresholdSessionId: string;
+      remainingUses: number;
+      schedule: ThresholdEcdsaClientPresignatureRefillScheduleResult;
+    }
+  | {
+      status: 'skipped';
+      reason: 'pool_disabled' | 'pool_already_warm';
+      thresholdSessionId: string;
     }
   | {
       status: 'failed';
       reason: 'unexpected_error';
-      thresholdSessionId?: string;
+      thresholdSessionId: string | null;
       error: string;
     };
 
@@ -95,6 +121,8 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
       return {
         status: 'skipped',
         reason: 'invalid_key_ref',
+        thresholdSessionId: null,
+        details: null,
       };
     }
 
@@ -110,6 +138,8 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
       return {
         status: 'skipped',
         reason: 'invalid_key_ref',
+        thresholdSessionId: null,
+        details: null,
       };
     }
 
@@ -118,6 +148,8 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
       return {
         status: 'skipped',
         reason: 'missing_threshold_session_id',
+        thresholdSessionId: null,
+        details: null,
       };
     }
 
@@ -178,13 +210,13 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
       LOGIN_PREFILL_MIN_REMAINING_USES,
       Math.floor(Number(args.minRemainingUsesBeforePrefill ?? LOGIN_PREFILL_MIN_REMAINING_USES)),
     );
-    const remainingUsesBefore = normalizeInteger(warmStatus.remainingUses);
-    if (remainingUsesBefore == null || remainingUsesBefore < minimumUses) {
+    const remainingUsesBefore = Math.floor(Number(warmStatus.remainingUses) || 0);
+    if (remainingUsesBefore < minimumUses) {
       return {
         status: 'skipped',
         reason: 'low_remaining_uses',
         thresholdSessionId,
-        remainingUses: remainingUsesBefore ?? undefined,
+        remainingUses: remainingUsesBefore,
       };
     }
 
@@ -197,7 +229,7 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
       return {
         status: 'skipped',
         reason: 'invalid_key_ref',
-        thresholdSessionId,
+        thresholdSessionId: null,
         details: message || 'missing ECDSA signing material',
       };
     }
@@ -221,11 +253,11 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
       });
 
       if (!schedule.scheduled) {
-        return {
-          status: 'skipped',
-          reason: 'refill_not_scheduled',
-          thresholdSessionId,
-          remainingUses: remainingUsesAfterDispense,
+      return {
+        status: 'skipped',
+        reason: 'refill_not_scheduled',
+        thresholdSessionId,
+        remainingUses: remainingUsesAfterDispense,
           schedule,
         };
       }
@@ -245,7 +277,7 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
     return {
       status: 'failed',
       reason: 'unexpected_error',
-      ...(thresholdSessionId ? { thresholdSessionId } : {}),
+      thresholdSessionId: thresholdSessionId || null,
       error: String((error as { message?: unknown })?.message || error || 'unexpected error'),
     };
   }

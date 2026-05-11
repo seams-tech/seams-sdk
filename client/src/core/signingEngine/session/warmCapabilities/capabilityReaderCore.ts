@@ -74,6 +74,90 @@ export type WarmSessionCapabilityReaderCore = {
 export function createWarmSessionCapabilityReaderCore(
   deps: WarmSessionCapabilityReaderCoreDeps,
 ): WarmSessionCapabilityReaderCore {
+  function buildEd25519CapabilityState(args: {
+    record: WarmSessionEd25519CapabilityState['record'];
+    auth: WarmSessionEd25519AuthMaterial | null;
+    prfClaim: WarmSessionEd25519CapabilityState['prfClaim'];
+  }): WarmSessionEd25519CapabilityState {
+    const state = deriveEd25519CapabilityState(args);
+    if (!args.record) {
+      return {
+        capability: 'ed25519',
+        record: null,
+        auth: null,
+        prfClaim: null,
+        state: 'missing',
+      };
+    }
+    if (state === 'missing') {
+      throw new Error('[WarmSessionStore] Ed25519 capability state cannot be missing with a record');
+    }
+    if (args.record.source === 'email_otp') {
+      if (!args.record.emailOtpAuthContext) {
+        throw new Error(
+          '[WarmSessionStore] Email OTP Ed25519 capability requires emailOtpAuthContext',
+        );
+      }
+      return {
+        capability: 'ed25519',
+        record: args.record,
+        auth: args.auth,
+        prfClaim: args.prfClaim,
+        emailOtpAuthContext: args.record.emailOtpAuthContext,
+        state,
+      };
+    }
+    return {
+      capability: 'ed25519',
+      record: args.record,
+      auth: args.auth,
+      prfClaim: args.prfClaim,
+      state,
+    };
+  }
+
+  function buildEcdsaCapabilityState(args: {
+    record: WarmSessionEcdsaCapabilityState['record'];
+    auth: WarmSessionEcdsaAuthMaterial | null;
+    prfClaim: WarmSessionEcdsaCapabilityState['prfClaim'];
+  }): WarmSessionEcdsaCapabilityState {
+    const state = deriveEcdsaCapabilityState(args);
+    if (!args.record) {
+      return {
+        capability: 'ecdsa',
+        record: null,
+        auth: null,
+        prfClaim: null,
+        state: 'missing',
+      };
+    }
+    if (state === 'missing') {
+      throw new Error('[WarmSessionStore] ECDSA capability state cannot be missing with a record');
+    }
+    if (args.record.source === 'email_otp') {
+      if (!args.record.emailOtpAuthContext) {
+        throw new Error(
+          '[WarmSessionStore] Email OTP ECDSA capability requires emailOtpAuthContext',
+        );
+      }
+      return {
+        capability: 'ecdsa',
+        record: args.record,
+        auth: args.auth,
+        prfClaim: args.prfClaim,
+        emailOtpAuthContext: args.record.emailOtpAuthContext,
+        state,
+      };
+    }
+    return {
+      capability: 'ecdsa',
+      record: args.record,
+      auth: args.auth,
+      prfClaim: args.prfClaim,
+      state,
+    };
+  }
+
   async function getWarmSession(nearAccountId: AccountId | string): Promise<WarmSessionEnvelope> {
     const accountId = toAccountId(nearAccountId);
     const records = readWarmSessionCapabilityRecordsForAccount(accountId);
@@ -88,52 +172,22 @@ export function createWarmSessionCapabilityReaderCore(
     return assertWarmSessionEnvelopeInvariant({
       accountId,
       capabilities: {
-        ed25519: {
-          capability: 'ed25519',
+        ed25519: buildEd25519CapabilityState({
           record: records.ed25519,
           auth: ed25519Auth,
           prfClaim: ed25519Claim,
-          state: deriveEd25519CapabilityState({
-            record: records.ed25519,
-            auth: ed25519Auth,
-            prfClaim: ed25519Claim,
-            emailOtpAuthContext: records.ed25519?.emailOtpAuthContext || null,
-          }),
-          ...(records.ed25519?.emailOtpAuthContext
-            ? { emailOtpAuthContext: records.ed25519.emailOtpAuthContext }
-            : {}),
-        },
+        }),
         ecdsa: {
-          evm: {
-            capability: 'ecdsa',
+          evm: buildEcdsaCapabilityState({
             record: records.ecdsa.evm,
             auth: evmAuth,
             prfClaim: evmClaim,
-            ...(records.ecdsa.evm?.emailOtpAuthContext
-              ? { emailOtpAuthContext: records.ecdsa.evm.emailOtpAuthContext }
-              : {}),
-            state: deriveEcdsaCapabilityState({
-              record: records.ecdsa.evm,
-              auth: evmAuth,
-              prfClaim: evmClaim,
-              emailOtpAuthContext: records.ecdsa.evm?.emailOtpAuthContext || null,
-            }),
-          },
-          tempo: {
-            capability: 'ecdsa',
+          }),
+          tempo: buildEcdsaCapabilityState({
             record: records.ecdsa.tempo,
             auth: tempoAuth,
             prfClaim: tempoClaim,
-            ...(records.ecdsa.tempo?.emailOtpAuthContext
-              ? { emailOtpAuthContext: records.ecdsa.tempo.emailOtpAuthContext }
-              : {}),
-            state: deriveEcdsaCapabilityState({
-              record: records.ecdsa.tempo,
-              auth: tempoAuth,
-              prfClaim: tempoClaim,
-              emailOtpAuthContext: records.ecdsa.tempo?.emailOtpAuthContext || null,
-            }),
-          },
+          }),
         },
       },
       updatedAtMs: Date.now(),
@@ -207,19 +261,7 @@ export function createWarmSessionCapabilityReaderCore(
     if (!record) return null;
     const auth = resolveEd25519AuthMaterial(record);
     const prfClaim = await readWarmSessionClaim(deps.touchConfirm, record.thresholdSessionId);
-    return {
-      capability: 'ed25519',
-      record,
-      auth,
-      prfClaim,
-      state: deriveEd25519CapabilityState({
-        record,
-        auth,
-        prfClaim,
-        emailOtpAuthContext: record.emailOtpAuthContext || null,
-      }),
-      ...(record.emailOtpAuthContext ? { emailOtpAuthContext: record.emailOtpAuthContext } : {}),
-    };
+    return buildEd25519CapabilityState({ record, auth, prfClaim });
   }
 
   async function getEcdsaCapabilityByThresholdSessionId(
@@ -231,19 +273,7 @@ export function createWarmSessionCapabilityReaderCore(
     if (!record) return null;
     const auth = resolveEcdsaAuthMaterial(record);
     const prfClaim = await deps.statusReader.readEcdsaWarmSessionClaimForRecord(record);
-    return {
-      capability: 'ecdsa',
-      record,
-      auth,
-      prfClaim,
-      state: deriveEcdsaCapabilityState({
-        record,
-        auth,
-        prfClaim,
-        emailOtpAuthContext: record.emailOtpAuthContext || null,
-      }),
-      ...(record.emailOtpAuthContext ? { emailOtpAuthContext: record.emailOtpAuthContext } : {}),
-    };
+    return buildEcdsaCapabilityState({ record, auth, prfClaim });
   }
 
   function resolveEcdsaSealTransportByThresholdSessionId(args: {

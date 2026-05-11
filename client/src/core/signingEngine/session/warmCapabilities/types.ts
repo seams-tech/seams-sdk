@@ -4,6 +4,7 @@ import type { SigningSessionStatus } from '@/core/types/seams';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaSmartAccountBootstrapInput } from './ecdsaBootstrapPersistence';
+import type { EcdsaSessionProvisionPlan } from './ecdsaProvisionPlan';
 import type {
   ThresholdEcdsaSessionAuthTokenSource,
   ThresholdEcdsaSessionRecord,
@@ -31,45 +32,160 @@ import type { ThresholdEcdsaChainTarget, WalletSubjectId } from '@/core/signingE
 export type WarmSessionCapability = 'ed25519' | 'ecdsa';
 export type WarmSessionPrfClaimState = 'missing' | 'warm' | 'expired' | 'exhausted' | 'unavailable';
 
-export type WarmSessionPrfClaim = {
-  state: WarmSessionPrfClaimState;
+type WarmSessionPrfClaimBase = {
   sessionId: string;
-  expiresAtMs?: number;
-  remainingUses?: number;
-  code?: string;
 };
 
-export type WarmSessionEd25519AuthMaterial = {
+export type WarmSessionWarmPrfClaim = WarmSessionPrfClaimBase & {
+  state: 'warm';
+  expiresAtMs: number;
+  remainingUses: number;
+  code?: never;
+};
+
+export type WarmSessionUnavailablePrfClaim = WarmSessionPrfClaimBase & {
+  state: 'unavailable';
+  code: string;
+  expiresAtMs?: never;
+  remainingUses?: never;
+};
+
+export type WarmSessionMissingPrfClaim = WarmSessionPrfClaimBase & {
+  state: 'missing';
+  expiresAtMs?: never;
+  remainingUses?: never;
+  code?: never;
+};
+
+export type WarmSessionExpiredPrfClaim = WarmSessionPrfClaimBase & {
+  state: 'expired';
+  expiresAtMs?: never;
+  remainingUses?: never;
+  code?: never;
+};
+
+export type WarmSessionExhaustedPrfClaim = WarmSessionPrfClaimBase & {
+  state: 'exhausted';
+  expiresAtMs?: never;
+  remainingUses?: never;
+  code?: never;
+};
+
+export type WarmSessionPrfClaim =
+  | WarmSessionWarmPrfClaim
+  | WarmSessionUnavailablePrfClaim
+  | WarmSessionMissingPrfClaim
+  | WarmSessionExpiredPrfClaim
+  | WarmSessionExhaustedPrfClaim;
+
+export type WarmSessionEd25519AuthMaterialWithToken = {
   capability: 'ed25519';
   record: ThresholdEd25519SessionRecord;
-  thresholdSessionAuthToken?: string;
-  thresholdSessionAuthTokenSource: 'ed25519' | 'none';
+  thresholdSessionAuthToken: string;
+  thresholdSessionAuthTokenSource: 'ed25519';
 };
 
-export type WarmSessionEcdsaAuthMaterial = {
+export type WarmSessionEd25519AuthMaterialWithoutToken = {
+  capability: 'ed25519';
+  record: ThresholdEd25519SessionRecord;
+  thresholdSessionAuthToken?: never;
+  thresholdSessionAuthTokenSource: 'none';
+};
+
+export type WarmSessionEd25519AuthMaterial =
+  | WarmSessionEd25519AuthMaterialWithToken
+  | WarmSessionEd25519AuthMaterialWithoutToken;
+
+export type WarmSessionEcdsaAuthMaterialWithToken = {
   capability: 'ecdsa';
   record: ThresholdEcdsaSessionRecord;
-  thresholdSessionAuthToken?: string;
-  thresholdSessionAuthTokenSource: Exclude<ThresholdEcdsaSessionAuthTokenSource, 'ed25519'>;
+  thresholdSessionAuthToken: string;
+  thresholdSessionAuthTokenSource: 'ecdsa';
 };
 
-export type WarmSessionEd25519CapabilityState = {
+export type WarmSessionEcdsaAuthMaterialWithoutToken = {
+  capability: 'ecdsa';
+  record: ThresholdEcdsaSessionRecord;
+  thresholdSessionAuthToken?: never;
+  thresholdSessionAuthTokenSource: 'none';
+};
+
+export type WarmSessionEcdsaAuthMaterial =
+  | WarmSessionEcdsaAuthMaterialWithToken
+  | WarmSessionEcdsaAuthMaterialWithoutToken;
+
+type WarmSessionCapabilityStateValue =
+  | 'missing'
+  | 'ready'
+  | 'auth_missing'
+  | 'prf_missing'
+  | 'prf_unavailable';
+
+type WarmSessionPresentCapabilityStateValue = Exclude<WarmSessionCapabilityStateValue, 'missing'>;
+
+type WarmSessionMissingEd25519CapabilityState = {
   capability: 'ed25519';
-  record: ThresholdEd25519SessionRecord | null;
+  record: null;
+  auth: null;
+  prfClaim: null;
+  emailOtpAuthContext?: never;
+  state: 'missing';
+};
+
+type WarmSessionEmailOtpEd25519CapabilityState = {
+  capability: 'ed25519';
+  record: ThresholdEd25519SessionRecord;
   auth: WarmSessionEd25519AuthMaterial | null;
   prfClaim: WarmSessionPrfClaim | null;
-  emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext | null;
-  state: 'missing' | 'ready' | 'auth_missing' | 'prf_missing' | 'prf_unavailable';
+  emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
+  state: WarmSessionPresentCapabilityStateValue;
 };
 
-export type WarmSessionEcdsaCapabilityState = {
+type WarmSessionNonEmailOtpEd25519CapabilityState = {
+  capability: 'ed25519';
+  record: ThresholdEd25519SessionRecord;
+  auth: WarmSessionEd25519AuthMaterial | null;
+  prfClaim: WarmSessionPrfClaim | null;
+  emailOtpAuthContext?: never;
+  state: WarmSessionPresentCapabilityStateValue;
+};
+
+export type WarmSessionEd25519CapabilityState =
+  | WarmSessionMissingEd25519CapabilityState
+  | WarmSessionEmailOtpEd25519CapabilityState
+  | WarmSessionNonEmailOtpEd25519CapabilityState;
+
+type WarmSessionMissingEcdsaCapabilityState = {
   capability: 'ecdsa';
-  record: ThresholdEcdsaSessionRecord | null;
+  record: null;
+  auth: null;
+  prfClaim: null;
+  emailOtpAuthContext?: never;
+  state: 'missing';
+};
+
+type WarmSessionEmailOtpEcdsaCapabilityState = {
+  capability: 'ecdsa';
+  record: ThresholdEcdsaSessionRecord;
   auth: WarmSessionEcdsaAuthMaterial | null;
   prfClaim: WarmSessionPrfClaim | null;
-  emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext | null;
-  state: 'missing' | 'ready' | 'auth_missing' | 'prf_missing' | 'prf_unavailable';
+  emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
+  state: WarmSessionPresentCapabilityStateValue;
 };
+
+type WarmSessionNonEmailOtpEcdsaCapabilityState = {
+  capability: 'ecdsa';
+  record: ThresholdEcdsaSessionRecord;
+  auth: WarmSessionEcdsaAuthMaterial | null;
+  prfClaim: WarmSessionPrfClaim | null;
+  emailOtpAuthContext?: never;
+  state: WarmSessionPresentCapabilityStateValue;
+};
+
+export type WarmSessionEcdsaCapabilityState =
+  | WarmSessionMissingEcdsaCapabilityState
+  | WarmSessionEmailOtpEcdsaCapabilityState
+  | WarmSessionNonEmailOtpEcdsaCapabilityState;
 
 export type WarmSessionEnvelope = {
   accountId: AccountId;
@@ -150,16 +266,28 @@ function assertCapabilityStateInvariant(args: {
         `[WarmSessionStore] invalid ${args.label} capability: warm-session status sessionId does not match record sessionId`,
       );
     }
-    if (
-      prfClaim.state === 'warm' &&
-      (typeof prfClaim.remainingUses !== 'number' ||
-        prfClaim.remainingUses <= 0 ||
-        typeof prfClaim.expiresAtMs !== 'number' ||
-        prfClaim.expiresAtMs <= 0)
-    ) {
-      throw new Error(
-        `[WarmSessionStore] invalid ${args.label} capability: warm warm-session status requires positive remainingUses and expiresAtMs`,
-      );
+    switch (prfClaim.state) {
+      case 'warm':
+        if (prfClaim.remainingUses <= 0 || prfClaim.expiresAtMs <= 0) {
+          throw new Error(
+            `[WarmSessionStore] invalid ${args.label} capability: warm warm-session status requires positive remainingUses and expiresAtMs`,
+          );
+        }
+        break;
+      case 'unavailable':
+        if (!String(prfClaim.code || '').trim()) {
+          throw new Error(
+            `[WarmSessionStore] invalid ${args.label} capability: unavailable warm-session status requires a code`,
+          );
+        }
+        break;
+      case 'missing':
+      case 'expired':
+      case 'exhausted':
+        break;
+      default:
+        prfClaim satisfies never;
+        throw new Error('[WarmSessionStore] unsupported warm-session claim state');
     }
   }
 
@@ -225,7 +353,7 @@ export function assertWarmSessionEnvelopeInvariant(
   });
   return envelope;
 }
-export type ProvisionWarmEd25519CapabilityArgs = {
+type ProvisionWarmEd25519CapabilityCommonArgs = {
   nearAccountId: AccountId | string;
   relayerKeyId: string;
   appSessionJwt?: string;
@@ -236,38 +364,62 @@ export type ProvisionWarmEd25519CapabilityArgs = {
     environmentId: string;
     publishableKey: string;
   };
-  participantIds?: number[];
-  sessionKind?: ThresholdSessionKind;
+  participantIds: readonly number[];
+  sessionKind: ThresholdSessionKind;
   relayerUrl?: string;
   ttlMs?: number;
   remainingUses?: number;
-  sessionId?: string;
-  walletSigningSessionId?: string;
-  source?: ThresholdEd25519SessionStoreSource;
+  source: ThresholdEd25519SessionStoreSource;
   beforeProvision?: () => void | Promise<void>;
   assertNotCancelled?: () => void;
 };
 
-export type ProvisionWarmEd25519CapabilityResult = {
-  ok: boolean;
-  sessionId?: string;
-  walletSigningSessionId?: string;
-  expiresAtMs?: number;
-  remainingUses?: number;
+export type FreshWarmEd25519CapabilityProvisionArgs =
+  ProvisionWarmEd25519CapabilityCommonArgs & {
+    kind: 'fresh_ed25519_provisioning';
+    sessionId?: never;
+    walletSigningSessionId?: never;
+  };
+
+export type ExactWarmEd25519CapabilityProvisionArgs =
+  ProvisionWarmEd25519CapabilityCommonArgs & {
+    kind: 'exact_ed25519_provisioning';
+    sessionId: string;
+    walletSigningSessionId: string;
+  };
+
+export type ProvisionWarmEd25519CapabilityArgs =
+  | FreshWarmEd25519CapabilityProvisionArgs
+  | ExactWarmEd25519CapabilityProvisionArgs;
+
+export type ProvisionWarmEd25519CapabilitySuccessResult = {
+  ok: true;
+  sessionId: string;
+  walletSigningSessionId: string;
+  expiresAtMs: number;
+  remainingUses: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  jwt?: string;
+  jwt: string;
   ecdsaHssClientRootShare32B64u?: string;
-  code?: string;
-  message?: string;
 };
 
-export type EnsureWarmEcdsaCapabilityReadyArgs = {
+export type ProvisionWarmEd25519CapabilityFailureResult = {
+  ok: false;
+  code: string;
+  message: string;
+};
+
+export type ProvisionWarmEd25519CapabilityResult =
+  | ProvisionWarmEd25519CapabilitySuccessResult
+  | ProvisionWarmEd25519CapabilityFailureResult;
+
+export type EnsureWarmEcdsaProvisionPlanReadyArgs = {
   nearAccountId: AccountId | string;
   subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
+  plan: EcdsaSessionProvisionPlan;
   keyRef?: ThresholdEcdsaSecp256k1KeyRef;
-  source?: ThresholdEcdsaSessionStoreSource;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  source: ThresholdEcdsaSessionStoreSource;
   runtimeScopeBootstrap?: {
     environmentId: string;
     publishableKey: string;
@@ -275,10 +427,6 @@ export type EnsureWarmEcdsaCapabilityReadyArgs = {
   usesNeeded?: number;
   sessionBudgetUses: number;
   operationIntent?: SigningOperationIntent;
-  sessionId?: string;
-  walletSigningSessionId?: string;
-  clientRootShare32B64u?: string;
-  webauthnAuthentication?: WebAuthnAuthenticationCredential;
   beforeReconnect?: () => void | Promise<void>;
   assertNotCancelled?: () => void;
 };
@@ -293,8 +441,7 @@ export type EnsureWarmEcdsaCapabilityReadyResult = {
 export type ApplyWarmEcdsaPostSignPolicyArgs = {
   nearAccountId: AccountId | string;
   chainTarget: ThresholdEcdsaChainTarget;
-  thresholdSessionId?: string;
-  source?: ThresholdEcdsaSessionStoreSource;
+  thresholdSessionId: string;
   selectedRecord: ThresholdEcdsaSessionRecord;
 };
 
@@ -302,89 +449,74 @@ export type AssertWarmEcdsaOperationAllowedArgs = {
   nearAccountId: AccountId | string;
   chainTarget: ThresholdEcdsaChainTarget;
   operationLabel: string;
-  thresholdSessionId?: string;
-  source?: ThresholdEcdsaSessionStoreSource;
+  thresholdSessionId: string;
+  source: ThresholdEcdsaSessionStoreSource;
   sensitivePolicy?: SensitiveOperationPolicy;
 };
 
-export type ResolveWarmEcdsaBootstrapRequestArgs = {
-  nearAccountId: AccountId | string;
-  subjectId: WalletSubjectId;
-  chainTarget: ThresholdEcdsaChainTarget;
-  emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
-  relayerUrl?: string;
-  ecdsaThresholdKeyId?: string;
-  participantIds?: number[];
-  sessionKind?: 'jwt' | 'cookie';
-  sessionId?: string;
-  walletSigningSessionId?: string;
-  thresholdSessionAuth?: ThresholdEcdsaHssRouteAuth;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  runtimeScopeBootstrap?: {
-    environmentId: string;
-    publishableKey: string;
-  };
-  clientRootShare32?: Uint8Array;
-  clientRootShare32B64u?: string;
-  webauthnAuthentication?: WebAuthnAuthenticationCredential;
-  operationIntent?: SigningOperationIntent;
-};
-
-export type WarmEcdsaBootstrapRequest = {
-  nearAccountId: AccountId;
-  subjectId: WalletSubjectId;
-  chainTarget: ThresholdEcdsaChainTarget;
-  emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
-  relayerUrl?: string;
-  ecdsaThresholdKeyId?: string;
-  participantIds?: number[];
-  sessionKind?: 'jwt' | 'cookie';
-  sessionId?: string;
-  walletSigningSessionId?: string;
-  thresholdSessionAuth?: ThresholdEcdsaHssRouteAuth;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  runtimeScopeBootstrap?: {
-    environmentId: string;
-    publishableKey: string;
-  };
-  clientRootShare32?: Uint8Array;
-  clientRootShare32B64u?: string;
-  webauthnAuthentication?: WebAuthnAuthenticationCredential;
-  operationIntent?: SigningOperationIntent;
-};
-
-export type ProvisionWarmEcdsaCapabilityArgs = ResolveWarmEcdsaBootstrapRequestArgs & {
-  source?: ThresholdEcdsaSessionStoreSource;
-  ttlMs?: number;
-  remainingUses?: number;
-  smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
-  beforeProvision?: () => void | Promise<void>;
-  assertNotCancelled?: () => void;
-};
-
-export type ClaimWarmSessionPrfArgs = {
+type ClaimWarmSessionPrfArgsBase = {
   thresholdSessionId: string;
   errorContext: string;
   uses?: number;
   consume?: boolean;
-  walletId?: string;
-  authMethod?: 'passkey' | 'email_otp';
-  curve?: 'ed25519' | 'ecdsa';
-  chain?: 'near';
-  chainTarget?: ThresholdEcdsaChainTarget;
-  walletSigningSessionId?: string;
 };
 
-export type WarmEcdsaSigningSessionStatus = SigningSessionStatus & {
-  chainTarget: ThresholdEcdsaChainTarget;
-  source?: ThresholdEcdsaSessionStoreSource;
-  walletSigningSessionId?: string;
+export type ThresholdOnlyWarmSessionPrfClaimArgs = ClaimWarmSessionPrfArgsBase & {
+  kind: 'threshold_only_claim';
+  walletId?: never;
+  authMethod?: never;
+  walletSigningSessionId?: never;
+  curve?: never;
+  chain?: never;
+  chainTarget?: never;
 };
+
+export type WalletScopedEd25519WarmSessionPrfClaimArgs = ClaimWarmSessionPrfArgsBase & {
+  kind: 'wallet_scoped_ed25519_claim';
+  walletId: string;
+  authMethod: 'passkey';
+  walletSigningSessionId: string;
+  curve: 'ed25519';
+  chain: 'near';
+  chainTarget?: never;
+};
+
+export type WalletScopedEcdsaWarmSessionPrfClaimArgs = ClaimWarmSessionPrfArgsBase & {
+  kind: 'wallet_scoped_ecdsa_claim';
+  walletId: string;
+  authMethod: 'passkey';
+  walletSigningSessionId: string;
+  curve: 'ecdsa';
+  chain: 'near';
+  chainTarget: ThresholdEcdsaChainTarget;
+};
+
+export type ClaimWarmSessionPrfArgs =
+  | ThresholdOnlyWarmSessionPrfClaimArgs
+  | WalletScopedEd25519WarmSessionPrfClaimArgs
+  | WalletScopedEcdsaWarmSessionPrfClaimArgs;
+
+export type WarmEcdsaRecordBackedSigningSessionStatus = SigningSessionStatus & {
+  chainTarget: ThresholdEcdsaChainTarget;
+  source: ThresholdEcdsaSessionStoreSource;
+  walletSigningSessionId: string;
+};
+
+export type WarmEcdsaMissingSigningSessionStatus = SigningSessionStatus & {
+  status: 'not_found';
+  chainTarget: ThresholdEcdsaChainTarget;
+  source?: never;
+  walletSigningSessionId?: never;
+};
+
+export type WarmEcdsaSigningSessionStatus =
+  | WarmEcdsaRecordBackedSigningSessionStatus
+  | WarmEcdsaMissingSigningSessionStatus;
 
 export type WarmSessionEcdsaCapabilityRef = {
   nearAccountId: AccountId | string;
   chainTarget: ThresholdEcdsaChainTarget;
-  thresholdSessionId?: string;
+  thresholdSessionId: string;
 };
 
 export type GetWarmEcdsaSigningSessionStatusArgs = Omit<
@@ -440,7 +572,7 @@ export type ThresholdWarmSessionStatusReader = {
   listEcdsaSigningSessionStatuses: (args: {
     nearAccountId: AccountId | string;
     chainTarget: ThresholdEcdsaChainTarget;
-  }) => Promise<WarmEcdsaSigningSessionStatus[]>;
+  }) => Promise<WarmEcdsaRecordBackedSigningSessionStatus[]>;
   assertEcdsaSigningSessionReady: (
     args: Omit<WarmSessionEcdsaCapabilityRef, 'thresholdSessionId'> & {
       thresholdSessionId: unknown;
@@ -453,19 +585,8 @@ export type WarmSessionProvisioner = {
   provisionEd25519Capability: (
     args: ProvisionWarmEd25519CapabilityArgs,
   ) => Promise<ProvisionWarmEd25519CapabilityResult>;
-  resolveEcdsaBootstrapRequest: (
-    args: ResolveWarmEcdsaBootstrapRequestArgs,
-  ) => Promise<WarmEcdsaBootstrapRequest>;
-  provisionEcdsaCapability: (
-    args: ProvisionWarmEcdsaCapabilityArgs,
-  ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
-  tryReuseReadyEcdsaBootstrap: (args: {
-    nearAccountId: AccountId | string;
-    chainTarget: ThresholdEcdsaChainTarget;
-    source?: ThresholdEcdsaSessionStoreSource;
-  }) => Promise<ThresholdEcdsaSessionBootstrapResult | null>;
   ensureEcdsaCapabilityReady: (
-    args: EnsureWarmEcdsaCapabilityReadyArgs,
+    args: EnsureWarmEcdsaProvisionPlanReadyArgs,
   ) => Promise<EnsureWarmEcdsaCapabilityReadyResult>;
   claimPrfFirstByThresholdSessionId: (args: ClaimWarmSessionPrfArgs) => Promise<string>;
   ensureEcdsaPrfSealPersistedByThresholdSessionId: (args: {

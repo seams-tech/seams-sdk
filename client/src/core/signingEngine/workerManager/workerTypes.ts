@@ -340,6 +340,7 @@ export interface EmailOtpWorkerOperationMap {
         unlockSignatureB64u: string;
         thresholdEd25519PrfFirstB64u: string;
       };
+      ecdsaClientRootShare32B64u: string;
       bootstraps: ThresholdEcdsaSessionBootstrapResult[];
       ecdsaHssExportArtifact?: {
         artifactKind: 'ecdsa-hss-secp256k1-key-v1';

@@ -1,9 +1,13 @@
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
-import type { ProvisionWarmEd25519CapabilityArgs } from '../warmCapabilities/types';
+import type {
+  ExactWarmEd25519CapabilityProvisionArgs,
+  FreshWarmEd25519CapabilityProvisionArgs,
+  ProvisionWarmEd25519CapabilityArgs,
+} from '../warmCapabilities/types';
 import type { ProvisionWarmEd25519CapabilityResult } from '../warmCapabilities/types';
 import type { WarmSessionEnvelope } from '../warmCapabilities/types';
 import { provisionWarmEd25519Capability } from './ed25519Provisioner';
-import type { BootstrapEcdsaSessionArgs } from './ecdsaBootstrap';
+import type { EcdsaBootstrapRequest } from './ecdsaBootstrap';
 
 export type PasskeyPublicDeps = {
   getWarmSession: (
@@ -13,13 +17,17 @@ export type PasskeyPublicDeps = {
     args: ProvisionWarmEd25519CapabilityArgs,
   ) => Promise<ProvisionWarmEd25519CapabilityResult>;
   bootstrapEcdsaSession: (
-    args: BootstrapEcdsaSessionArgs,
+    args: EcdsaBootstrapRequest,
   ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
 };
 
+export type ConnectEd25519SessionArgs =
+  | Omit<FreshWarmEd25519CapabilityProvisionArgs, 'beforeProvision' | 'assertNotCancelled'>
+  | Omit<ExactWarmEd25519CapabilityProvisionArgs, 'beforeProvision' | 'assertNotCancelled'>;
+
 export async function connectEd25519Session(
   deps: PasskeyPublicDeps,
-  args: Omit<ProvisionWarmEd25519CapabilityArgs, 'beforeProvision' | 'assertNotCancelled'>,
+  args: ConnectEd25519SessionArgs,
 ): Promise<ProvisionWarmEd25519CapabilityResult> {
   return await provisionWarmEd25519Capability(
     {
@@ -33,17 +41,16 @@ export async function connectEd25519Session(
 
 export async function bootstrapEcdsaSession(
   deps: PasskeyPublicDeps,
-  args: BootstrapEcdsaSessionArgs,
+  args: EcdsaBootstrapRequest,
 ): Promise<ThresholdEcdsaSessionBootstrapResult> {
   return await deps.bootstrapEcdsaSession(args);
 }
 
 export function createPasskeyPublicApi(deps: PasskeyPublicDeps) {
   return {
-    connectEd25519Session: (
-      args: Omit<ProvisionWarmEd25519CapabilityArgs, 'beforeProvision' | 'assertNotCancelled'>,
-    ) => connectEd25519Session(deps, args),
-    bootstrapEcdsaSession: (args: BootstrapEcdsaSessionArgs) => bootstrapEcdsaSession(deps, args),
+    connectEd25519Session: (args: ConnectEd25519SessionArgs) =>
+      connectEd25519Session(deps, args),
+    bootstrapEcdsaSession: (args: EcdsaBootstrapRequest) => bootstrapEcdsaSession(deps, args),
   };
 }
 

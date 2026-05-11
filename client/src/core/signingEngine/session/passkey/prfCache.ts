@@ -3,19 +3,16 @@ import type {
   WarmSessionMaterialWriter,
 } from '../../uiConfirm/types';
 
+type SigningSessionCacheTransport = Parameters<
+  WarmSessionMaterialWriter['putWarmSessionMaterial']
+>[0]['transport'];
+
 export type SigningSessionCacheEntry = {
   sessionId: string;
   prfFirstB64u: string;
   expiresAtMs: number;
   remainingUses: number;
-  transport?: {
-    curve?: 'ed25519' | 'ecdsa';
-    relayerUrl?: string;
-    walletSigningSessionId?: string;
-    thresholdSessionAuthToken?: string;
-    keyVersion?: string;
-    shamirPrimeB64u?: string;
-  };
+  transport?: SigningSessionCacheTransport;
 };
 
 type SigningSessionPrfCacheWriter = WarmSessionMaterialWriter;

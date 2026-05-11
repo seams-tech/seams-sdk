@@ -1,4 +1,5 @@
 import { toAccountId } from '@/core/types/accountIds';
+import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { connectEd25519Session } from '../../threshold/ed25519/connectSession';
 import {
   cacheSigningSessionPrfFirstBestEffort,
@@ -12,6 +13,7 @@ import type {
   ProvisionWarmEd25519CapabilityArgs,
   ProvisionWarmEd25519CapabilityResult,
 } from '../warmCapabilities/types';
+import type { ThresholdEd25519SessionStoreSource } from '../identity/laneIdentity';
 
 type ConnectEd25519SessionInput = Parameters<typeof connectEd25519Session>[0];
 
@@ -32,11 +34,21 @@ export async function provisionThresholdEd25519Session(
 ): Promise<ProvisionWarmEd25519CapabilityResult> {
   const nearAccountId = toAccountId(args.nearAccountId);
   const relayerUrl = String(args.relayerUrl || deps.defaultRelayerUrl || '').trim();
+  const participantIds = normalizeThresholdEd25519ParticipantIds(args.participantIds);
+  const sessionKind = args.sessionKind === 'cookie' ? 'cookie' : 'jwt';
+  const source: Exclude<ThresholdEd25519SessionStoreSource, 'email_otp'> =
+    args.source === 'email_otp' ? 'manual-connect' : args.source || 'manual-connect';
   if (!relayerUrl) {
     throw new Error('Missing relayer url (configs.network.relayer.url)');
   }
+  if (!participantIds) {
+    throw new Error('Missing participantIds for threshold Ed25519 session provision');
+  }
   const workerCtx = deps.getSignerWorkerContext();
-  const sessionId = String(args.sessionId || '').trim() || generateSessionId('threshold-ed25519');
+  const sessionId =
+    args.kind === 'exact_ed25519_provisioning'
+      ? String(args.sessionId || '').trim()
+      : generateSessionId('threshold-ed25519');
   const connected = await connectEd25519Session({
     indexedDB: deps.indexedDB,
     touchIdPrompt: deps.touchIdPrompt,
@@ -48,22 +60,37 @@ export async function provisionThresholdEd25519Session(
     ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
     ...(args.runtimeScopeBootstrap ? { runtimeScopeBootstrap: args.runtimeScopeBootstrap } : {}),
     nearAccountId,
-    participantIds: args.participantIds,
-    sessionKind: args.sessionKind,
+    participantIds,
+    sessionKind,
     sessionId,
-    walletSigningSessionId: args.walletSigningSessionId,
+    ...(args.kind === 'exact_ed25519_provisioning'
+      ? { walletSigningSessionId: args.walletSigningSessionId }
+      : {}),
     ttlMs: args.ttlMs,
     remainingUses: args.remainingUses,
     workerCtx,
   });
   if (!connected.ok) {
-    return connected;
+    return {
+      ok: false,
+      code: String(connected.code || 'worker_error').trim() || 'worker_error',
+      message:
+        String(connected.message || '').trim() || 'Threshold Ed25519 session mint failed',
+    };
   }
 
   const resolvedSessionId = String(connected.sessionId || sessionId).trim();
+  const walletSigningSessionId = String(connected.walletSigningSessionId || '').trim();
   const expiresAtMs = Number(connected.expiresAtMs);
   const remainingUses = Number(connected.remainingUses);
-  if (!resolvedSessionId || !Number.isFinite(expiresAtMs) || !Number.isFinite(remainingUses)) {
+  const jwt = String(connected.jwt || '').trim();
+  if (
+    !resolvedSessionId ||
+    !walletSigningSessionId ||
+    !Number.isFinite(expiresAtMs) ||
+    !Number.isFinite(remainingUses) ||
+    (sessionKind === 'jwt' && !jwt)
+  ) {
     return {
       ok: false,
       code: 'invalid_result',
@@ -72,25 +99,44 @@ export async function provisionThresholdEd25519Session(
   }
 
   const persist = deps.persistWarmSessionEd25519Capability || persistWarmSessionEd25519Capability;
-  persist({
-    nearAccountId,
-    rpId: deps.touchIdPrompt.getRpId(),
-    relayerUrl,
-    relayerKeyId: args.relayerKeyId,
-    ...(connected.runtimePolicyScope || args.runtimePolicyScope
-      ? { runtimePolicyScope: connected.runtimePolicyScope || args.runtimePolicyScope }
-      : {}),
-    participantIds: args.participantIds,
-    sessionKind: args.sessionKind,
-    sessionId: resolvedSessionId,
-    ...(connected.walletSigningSessionId
-      ? { walletSigningSessionId: connected.walletSigningSessionId }
-      : {}),
-    expiresAtMs,
-    remainingUses,
-    jwt: connected.jwt,
-    source: args.source || 'manual-connect',
-  });
+  if (sessionKind === 'cookie') {
+    persist({
+      kind: 'cookie_passkey',
+      nearAccountId,
+      rpId: deps.touchIdPrompt.getRpId(),
+      relayerUrl,
+      relayerKeyId: args.relayerKeyId,
+      ...(connected.runtimePolicyScope || args.runtimePolicyScope
+        ? { runtimePolicyScope: connected.runtimePolicyScope || args.runtimePolicyScope }
+        : {}),
+      participantIds,
+      sessionKind: 'cookie',
+      sessionId: resolvedSessionId,
+      walletSigningSessionId,
+      expiresAtMs,
+      remainingUses,
+      source,
+    });
+  } else {
+    persist({
+      kind: 'jwt_passkey',
+      nearAccountId,
+      rpId: deps.touchIdPrompt.getRpId(),
+      relayerUrl,
+      relayerKeyId: args.relayerKeyId,
+      ...(connected.runtimePolicyScope || args.runtimePolicyScope
+        ? { runtimePolicyScope: connected.runtimePolicyScope || args.runtimePolicyScope }
+        : {}),
+      participantIds,
+      sessionKind: 'jwt',
+      sessionId: resolvedSessionId,
+      walletSigningSessionId,
+      expiresAtMs,
+      remainingUses,
+      jwt,
+      source,
+    });
+  }
 
   const prfFirstB64u = String(connected.ecdsaHssClientRootShare32B64u || '').trim();
   if (prfFirstB64u) {
@@ -102,15 +148,22 @@ export async function provisionThresholdEd25519Session(
       transport: {
         curve: 'ed25519',
         relayerUrl,
-        ...(connected.walletSigningSessionId
-          ? { walletSigningSessionId: connected.walletSigningSessionId }
-          : {}),
-        ...(typeof connected.jwt === 'string' && connected.jwt.trim()
-          ? { thresholdSessionAuthToken: connected.jwt.trim() }
-          : {}),
+        walletSigningSessionId,
+        thresholdSessionAuthToken: jwt,
       },
     });
   }
 
-  return connected;
+  return {
+    ok: true,
+    sessionId: resolvedSessionId,
+    walletSigningSessionId,
+    expiresAtMs,
+    remainingUses,
+    ...(connected.runtimePolicyScope ? { runtimePolicyScope: connected.runtimePolicyScope } : {}),
+    jwt,
+    ...(connected.ecdsaHssClientRootShare32B64u
+      ? { ecdsaHssClientRootShare32B64u: connected.ecdsaHssClientRootShare32B64u }
+      : {}),
+  };
 }

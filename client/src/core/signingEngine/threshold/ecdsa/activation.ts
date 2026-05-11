@@ -192,6 +192,7 @@ export async function activateEcdsaSession(
     ok: true,
     keygenSessionId: bootstrap.keygenSessionId,
     rpId: bootstrap.rpId,
+    ecdsaThresholdKeyId,
     clientVerifyingShareB64u,
     ...(clientAdditiveShare32B64u ? { clientAdditiveShare32B64u } : {}),
     relayerKeyId,

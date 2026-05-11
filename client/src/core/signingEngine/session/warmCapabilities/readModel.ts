@@ -123,11 +123,18 @@ export function resolveEd25519AuthMaterial(
 ): WarmSessionEd25519AuthMaterial | null {
   if (!record) return null;
   const thresholdSessionAuthToken = String(record.thresholdSessionAuthToken || '').trim();
+  if (thresholdSessionAuthToken) {
+    return {
+      capability: 'ed25519',
+      record,
+      thresholdSessionAuthToken,
+      thresholdSessionAuthTokenSource: 'ed25519',
+    };
+  }
   return {
     capability: 'ed25519',
     record,
-    ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
-    thresholdSessionAuthTokenSource: thresholdSessionAuthToken ? 'ed25519' : 'none',
+    thresholdSessionAuthTokenSource: 'none',
   };
 }
 
@@ -136,11 +143,18 @@ export function resolveEcdsaAuthMaterial(
 ): WarmSessionEcdsaAuthMaterial | null {
   if (!record) return null;
   const thresholdSessionAuthToken = String(record.thresholdSessionAuthToken || '').trim();
+  if (thresholdSessionAuthToken) {
+    return {
+      capability: 'ecdsa',
+      record,
+      thresholdSessionAuthToken,
+      thresholdSessionAuthTokenSource: 'ecdsa',
+    };
+  }
   return {
     capability: 'ecdsa',
     record,
-    ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
-    thresholdSessionAuthTokenSource: thresholdSessionAuthToken ? 'ecdsa' : 'none',
+    thresholdSessionAuthTokenSource: 'none',
   };
 }
 
@@ -148,7 +162,6 @@ export function deriveEd25519CapabilityState(args: {
   record: WarmSessionEd25519CapabilityState['record'];
   auth: WarmSessionEd25519AuthMaterial | null;
   prfClaim: WarmSessionPrfClaim | null;
-  emailOtpAuthContext?: WarmSessionEd25519CapabilityState['emailOtpAuthContext'];
 }): WarmSessionEd25519CapabilityState['state'] {
   if (!args.record) return 'missing';
   if (
@@ -159,8 +172,8 @@ export function deriveEd25519CapabilityState(args: {
   }
   if (
     args.record.source === 'email_otp' &&
-    args.emailOtpAuthContext?.retention === 'single_use' &&
-    Number(args.emailOtpAuthContext.consumedAtMs) > 0
+    args.record.emailOtpAuthContext?.retention === 'single_use' &&
+    Number(args.record.emailOtpAuthContext.consumedAtMs) > 0
   ) {
     return 'prf_missing';
   }
@@ -177,7 +190,6 @@ export function deriveEcdsaCapabilityState(args: {
   record: WarmSessionEcdsaCapabilityState['record'];
   auth: WarmSessionEcdsaAuthMaterial | null;
   prfClaim: WarmSessionPrfClaim | null;
-  emailOtpAuthContext?: WarmSessionEcdsaCapabilityState['emailOtpAuthContext'];
 }): WarmSessionEcdsaCapabilityState['state'] {
   if (!args.record) return 'missing';
   if (
@@ -188,8 +200,8 @@ export function deriveEcdsaCapabilityState(args: {
   }
   if (
     args.record.source === 'email_otp' &&
-    args.emailOtpAuthContext?.retention === 'single_use' &&
-    Number(args.emailOtpAuthContext.consumedAtMs) > 0
+    args.record.emailOtpAuthContext?.retention === 'single_use' &&
+    Number(args.record.emailOtpAuthContext.consumedAtMs) > 0
   ) {
     return 'prf_missing';
   }
@@ -280,13 +292,12 @@ export function resolveEcdsaSealTransport(args: {
   if (!relayerUrl) return null;
   const keyVersion = String(args.keyVersion || '').trim();
   const shamirPrimeB64u = String(args.shamirPrimeB64u || '').trim();
+  const walletSigningSessionId = args.record.walletSigningSessionId;
   return {
     curve: 'ecdsa',
     chainTarget: args.record.chainTarget,
     relayerUrl,
-    ...(String(args.record.walletSigningSessionId || '').trim()
-      ? { walletSigningSessionId: String(args.record.walletSigningSessionId || '').trim() }
-      : {}),
+    ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
     ...(String(args.auth?.thresholdSessionAuthToken || '').trim()
       ? { thresholdSessionAuthToken: String(args.auth?.thresholdSessionAuthToken || '').trim() }
       : {}),

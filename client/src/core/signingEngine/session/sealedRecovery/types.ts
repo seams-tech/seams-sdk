@@ -1,5 +1,9 @@
-import type { SigningSessionSealedStoreRecord } from '../persistence/sealedSessionStore';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type {
+  RawSigningSessionSealedStoreRecord,
+  RejectedSealedRecoveryRecord,
+  SealedRecoveryRecord,
+} from './recoveryRecord';
 
 type RestoreSealedSessionListInput =
   | {
@@ -80,7 +84,7 @@ export type RestorePersistedEcdsaSessionPurpose = Extract<
 >;
 
 export type RestorePersistedSessionWorkItem = {
-  record: SigningSessionSealedStoreRecord;
+  record: SealedRecoveryRecord;
   purpose: RestorePersistedSessionPurpose;
 };
 
@@ -107,11 +111,11 @@ export type SigningSessionRestoreCache = {
   rememberKnownMissing: (input: RestorePersistedSessionForSigningInput) => void;
   hasSuccessfulRestore: (
     input: RestorePersistedSessionForSigningInput | RestorePersistedSessionPurpose,
-    record: SigningSessionSealedStoreRecord,
+    record: SealedRecoveryRecord,
   ) => boolean;
   rememberSuccessfulRestore: (
     input: RestorePersistedSessionForSigningInput | RestorePersistedSessionPurpose,
-    record: SigningSessionSealedStoreRecord,
+    record: SealedRecoveryRecord,
   ) => void;
   clear: () => void;
 };
@@ -128,10 +132,10 @@ export type SigningSessionRestoreAttemptRegistry = {
 export type RestorePersistedSessionForSigningPorts = {
   listExactSealedSessionsForAccount: (
     args: RestoreSealedSessionListInput,
-  ) => Promise<SigningSessionSealedStoreRecord[]>;
+  ) => Promise<RawSigningSessionSealedStoreRecord[]>;
   restoreSealedRecordForAccount: (args: {
     accountId: string;
-    record: SigningSessionSealedStoreRecord;
+    record: SealedRecoveryRecord;
     purpose: RestorePersistedSessionPurpose;
   }) => Promise<RestoreSealedRecordForAccountResult>;
   onListError?: (args: {
@@ -140,18 +144,26 @@ export type RestorePersistedSessionForSigningPorts = {
     reason: RestorePersistedSessionForSigningInput['reason'];
     error: unknown;
   }) => void;
+  onRejectedRecord?: (args: {
+    accountId: string;
+    rejection: RejectedSealedRecoveryRecord;
+  }) => void;
   cache?: SigningSessionRestoreCache;
 };
 
 export type RestorePersistedSessionsForAccountPorts = {
   listExactSealedSessionsForAccount: (
     args: RestoreSealedSessionListInput,
-  ) => Promise<SigningSessionSealedStoreRecord[]>;
+  ) => Promise<RawSigningSessionSealedStoreRecord[]>;
   restoreSealedRecordForAccount: (args: {
     accountId: string;
-    record: SigningSessionSealedStoreRecord;
+    record: SealedRecoveryRecord;
     purpose: RestorePersistedSessionPurpose;
   }) => Promise<RestoreSealedRecordForAccountResult>;
   onListError?: (args: { accountId: string; error: unknown }) => void;
+  onRejectedRecord?: (args: {
+    accountId: string;
+    rejection: RejectedSealedRecoveryRecord;
+  }) => void;
   cache?: SigningSessionRestoreCache;
 };

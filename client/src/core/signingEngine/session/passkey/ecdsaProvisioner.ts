@@ -1,9 +1,10 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
-import { decodeJwtPayloadRecord } from '@shared/utils/sessionTokens';
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import type { ThresholdEcdsaSessionStoreSource } from '../identity/laneIdentity';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
+import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
+import type { SigningOperationIntent } from '../operationState/types';
 import {
   ecdsaPostSignPolicySessionFromRecord,
   formatEmailOtpSensitiveOperationError,
@@ -19,19 +20,28 @@ import {
   summarizeWarmSessionTransition,
   type WarmSessionTransitionEvent,
 } from '../warmCapabilities/transitions';
-import { resolveWarmEcdsaBootstrapRequestFromSession } from '../passkey/ecdsaBootstrapRequest';
+import {
+  getEcdsaSessionProvisionIdentity,
+  type EcdsaSessionProvisionPlan,
+} from '../warmCapabilities/ecdsaProvisionPlan';
 import { hasSufficientWarmClaim } from '../warmCapabilities/readModel';
 import type {
   WarmSessionEcdsaCapabilityState,
   WarmSessionEnvelope,
 } from '../warmCapabilities/types';
 import type {
-  ClaimWarmSessionPrfArgs,
-  EnsureWarmEcdsaCapabilityReadyArgs,
+  EnsureWarmEcdsaProvisionPlanReadyArgs,
   EnsureWarmEcdsaCapabilityReadyResult,
-  ProvisionWarmEcdsaCapabilityArgs,
 } from '../warmCapabilities/types';
-import { readWarmSessionEcdsaRecordByThresholdSessionId } from '../warmCapabilities/store';
+import type {
+  ThresholdEcdsaActivationPolicy,
+  ThresholdEcdsaActivationRequest,
+  ThresholdEcdsaActivationRuntimeScopeBootstrap,
+  ThresholdEcdsaCookieReconnectRequest,
+  ThresholdEcdsaEmailOtpActivationRequest,
+  ThresholdEcdsaPasskeyActivationRequest,
+  ThresholdEcdsaThresholdSessionAuthReconnectRequest,
+} from './ecdsaSessionProvision';
 
 export type WarmSessionEcdsaProvisionerDeps = {
   getWarmSession: (nearAccountId: AccountId | string) => Promise<WarmSessionEnvelope>;
@@ -41,11 +51,6 @@ export type WarmSessionEcdsaProvisionerDeps = {
     chainTarget: ThresholdEcdsaChainTarget;
     source?: ThresholdEcdsaSessionStoreSource;
   }) => EcdsaKeyRefCandidate[];
-  provisionThresholdEcdsaSession: (
-    args: ProvisionWarmEcdsaCapabilityArgs,
-  ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
-  claimPrfFirstByThresholdSessionId?: (args: ClaimWarmSessionPrfArgs) => Promise<string>;
-  onTransition?: (event: WarmSessionTransitionEvent) => void | Promise<void>;
 };
 
 export type WarmSessionEcdsaReconnectDeps = {
@@ -57,8 +62,8 @@ export type WarmSessionEcdsaReconnectDeps = {
     source?: ThresholdEcdsaSessionStoreSource;
   }) => EcdsaKeyRefCandidate[];
   canProvisionEcdsaCapability: boolean;
-  provisionEcdsaCapability: (
-    args: ProvisionWarmEcdsaCapabilityArgs,
+  provisionThresholdEcdsaSession: (
+    args: ThresholdEcdsaActivationRequest,
   ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
   resolveCurrentEcdsaRecord: (args: {
     nearAccountId: AccountId;
@@ -71,6 +76,50 @@ export type WarmSessionEcdsaReconnectDeps = {
   reconnectInFlightByCapability: Map<string, Promise<EnsureWarmEcdsaCapabilityReadyResult>>;
   onTransition?: (event: WarmSessionTransitionEvent) => void | Promise<void>;
 };
+
+type EcdsaProvisionActivationCommon = {
+  nearAccountId: AccountId;
+  relayerUrl: string;
+  source: ThresholdEcdsaSessionStoreSource;
+  runtimePolicy: ThresholdEcdsaActivationPolicy;
+  runtimeScopeBootstrap?: ThresholdEcdsaActivationRuntimeScopeBootstrap;
+  operationIntent?: SigningOperationIntent;
+  beforeProvision?: () => void | Promise<void>;
+  assertNotCancelled?: () => void;
+};
+
+type PasskeyEcdsaActivation = ThresholdEcdsaPasskeyActivationRequest &
+  Pick<EcdsaProvisionActivationCommon, 'beforeProvision' | 'assertNotCancelled'> & {
+    plan: Extract<EcdsaSessionProvisionPlan, { kind: 'passkey_ecdsa_session_provision' }>;
+  };
+
+type EmailOtpEcdsaActivation = ThresholdEcdsaEmailOtpActivationRequest &
+  Pick<EcdsaProvisionActivationCommon, 'beforeProvision' | 'assertNotCancelled'> & {
+    plan: Extract<EcdsaSessionProvisionPlan, { kind: 'email_otp_ecdsa_session_provision' }>;
+  };
+
+type CookieEcdsaActivation = ThresholdEcdsaCookieReconnectRequest &
+  Pick<EcdsaProvisionActivationCommon, 'beforeProvision' | 'assertNotCancelled'> & {
+    plan: Extract<EcdsaSessionProvisionPlan, { kind: 'cookie_ecdsa_reconnect' }>;
+  };
+
+type ThresholdSessionAuthEcdsaActivation = ThresholdEcdsaThresholdSessionAuthReconnectRequest &
+  Pick<EcdsaProvisionActivationCommon, 'beforeProvision' | 'assertNotCancelled'> & {
+    plan: Extract<EcdsaSessionProvisionPlan, { kind: 'threshold_session_auth_ecdsa_reconnect' }>;
+  };
+
+type EcdsaProvisionActivation =
+  | PasskeyEcdsaActivation
+  | EmailOtpEcdsaActivation
+  | CookieEcdsaActivation
+  | ThresholdSessionAuthEcdsaActivation;
+
+type EcdsaActivationPolicy = ThresholdEcdsaActivationPolicy;
+
+type EcdsaActivationOptions = Pick<
+  EcdsaProvisionActivationCommon,
+  'runtimeScopeBootstrap' | 'operationIntent' | 'beforeProvision' | 'assertNotCancelled'
+>;
 
 function assertPersistedEcdsaWarmSessionRecord(args: {
   nearAccountId: AccountId;
@@ -92,21 +141,6 @@ type EcdsaKeyRefCandidate = {
   source: ThresholdEcdsaSessionStoreSource;
   keyRef: ThresholdEcdsaSecp256k1KeyRef;
 };
-
-function summarizeReconnectAuthTokenClaims(tokenRaw: string | undefined): Record<string, unknown> {
-  const payload = decodeJwtPayloadRecord(String(tokenRaw || '').trim());
-  if (!payload) return { present: false };
-  return {
-    present: true,
-    kind: payload.kind,
-    sub: payload.sub,
-    walletId: payload.walletId,
-    userId: payload.userId,
-    sessionId: payload.sessionId,
-    walletSigningSessionId: payload.walletSigningSessionId,
-    exp: payload.exp,
-  };
-}
 
 function summarizeReconnectKeyRef(
   keyRef: ThresholdEcdsaSecp256k1KeyRef | null | undefined,
@@ -146,100 +180,6 @@ function summarizeReconnectRecord(
     emailOtpRetention: record.emailOtpAuthContext?.retention,
     emailOtpReason: record.emailOtpAuthContext?.reason,
     hasThresholdSessionAuthToken: Boolean(String(record.thresholdSessionAuthToken || '').trim()),
-  };
-}
-
-type ReconnectThresholdSessionAuthTokenIdentityMatch =
-  | { kind: 'matched'; authToken: string; source: 'keyRef' | 'record' }
-  | { kind: 'unknown'; authToken: string; source: 'keyRef' | 'record' }
-  | { kind: 'mismatched'; source: 'keyRef' | 'record'; claims: Record<string, unknown> };
-
-function evaluateReconnectThresholdSessionAuthTokenIdentity(args: {
-  source: 'keyRef' | 'record';
-  tokenRaw: string | undefined;
-  thresholdSessionId: string;
-  walletSigningSessionId: string;
-}): ReconnectThresholdSessionAuthTokenIdentityMatch | null {
-  const authToken = toOptionalNonEmptyString(args.tokenRaw);
-  if (!authToken) return null;
-  const claims = decodeJwtPayloadRecord(authToken);
-  if (!claims) return { kind: 'unknown', source: args.source, authToken };
-  const claimSessionId = String(claims.sessionId || '').trim();
-  const claimWalletSigningSessionId = String(claims.walletSigningSessionId || '').trim();
-  if (
-    claimSessionId === args.thresholdSessionId &&
-    claimWalletSigningSessionId === args.walletSigningSessionId
-  ) {
-    return { kind: 'matched', source: args.source, authToken };
-  }
-  return {
-    kind: 'mismatched',
-    source: args.source,
-    claims: {
-      kind: claims.kind,
-      sessionId: claimSessionId || undefined,
-      walletSigningSessionId: claimWalletSigningSessionId || undefined,
-      exp: claims.exp,
-    },
-  };
-}
-
-function selectReconnectThresholdSessionAuthToken(args: {
-  keyRef: ThresholdEcdsaSecp256k1KeyRef | null;
-  record: ThresholdEcdsaSessionRecord | null | undefined;
-  thresholdSessionId: string | undefined;
-  walletSigningSessionId: string | undefined;
-}): {
-  authToken?: string;
-  source?: 'keyRef' | 'record';
-  mismatches: Record<string, unknown>[];
-} {
-  const thresholdSessionId = toOptionalNonEmptyString(args.thresholdSessionId);
-  const walletSigningSessionId = toOptionalNonEmptyString(args.walletSigningSessionId);
-  const candidates = [
-    evaluateReconnectThresholdSessionAuthTokenIdentity({
-      source: 'keyRef',
-      tokenRaw: args.keyRef?.thresholdSessionAuthToken,
-      thresholdSessionId: thresholdSessionId || '',
-      walletSigningSessionId: walletSigningSessionId || '',
-    }),
-    evaluateReconnectThresholdSessionAuthTokenIdentity({
-      source: 'record',
-      tokenRaw: args.record?.thresholdSessionAuthToken,
-      thresholdSessionId: thresholdSessionId || '',
-      walletSigningSessionId: walletSigningSessionId || '',
-    }),
-  ].filter(Boolean) as ReconnectThresholdSessionAuthTokenIdentityMatch[];
-
-  const matched =
-    thresholdSessionId && walletSigningSessionId
-      ? candidates.find((candidate) => candidate.kind === 'matched')
-      : null;
-  if (matched?.kind === 'matched') {
-    return { authToken: matched.authToken, source: matched.source, mismatches: [] };
-  }
-
-  const unknown = candidates.find((candidate) => candidate.kind === 'unknown');
-  if (unknown?.kind === 'unknown') {
-    return {
-      authToken: unknown.authToken,
-      source: unknown.source,
-      mismatches: candidates
-        .filter((candidate) => candidate.kind === 'mismatched')
-        .map((candidate) => ({
-          source: candidate.source,
-          claims: candidate.claims,
-        })),
-    };
-  }
-
-  return {
-    mismatches: candidates
-      .filter((candidate) => candidate.kind === 'mismatched')
-      .map((candidate) => ({
-        source: candidate.source,
-        claims: candidate.claims,
-      })),
   };
 }
 
@@ -291,6 +231,338 @@ function readEcdsaKeyRefCandidates(
   return candidates;
 }
 
+function keyRefMatchesPlannedIdentity(args: {
+  keyRef: ThresholdEcdsaSecp256k1KeyRef;
+  plan: EcdsaSessionProvisionPlan;
+}): boolean {
+  const identity = getEcdsaSessionProvisionIdentity(args.plan);
+  return (
+    identity.thresholdSessionId === String(args.keyRef.thresholdSessionId || '').trim() &&
+    identity.walletSigningSessionId === String(args.keyRef.walletSigningSessionId || '').trim()
+  );
+}
+
+function buildDefaultEcdsaActivationPolicy(): EcdsaActivationPolicy {
+  return { kind: 'default_policy' };
+}
+
+function buildScopedEcdsaActivationPolicy(
+  scope: ThresholdRuntimePolicyScope,
+): EcdsaActivationPolicy {
+  return { kind: 'scoped_policy', scope };
+}
+
+function buildEcdsaActivationPolicy(
+  scope: ThresholdRuntimePolicyScope | undefined,
+): EcdsaActivationPolicy {
+  return scope ? buildScopedEcdsaActivationPolicy(scope) : buildDefaultEcdsaActivationPolicy();
+}
+
+function buildActivationOptions(
+  args: EnsureWarmEcdsaProvisionPlanReadyArgs,
+): EcdsaActivationOptions {
+  const options: EcdsaActivationOptions = {};
+  if (args.runtimeScopeBootstrap) {
+    options.runtimeScopeBootstrap = args.runtimeScopeBootstrap;
+  }
+  if (args.operationIntent) {
+    options.operationIntent = args.operationIntent;
+  }
+  if (args.beforeReconnect) {
+    options.beforeProvision = args.beforeReconnect;
+  }
+  if (args.assertNotCancelled) {
+    options.assertNotCancelled = args.assertNotCancelled;
+  }
+  return options;
+}
+
+function buildPasskeyEcdsaActivation(args: {
+  nearAccountId: AccountId;
+  relayerUrl: string;
+  source: ThresholdEcdsaSessionStoreSource;
+  runtimePolicy: EcdsaActivationPolicy;
+  options: EcdsaActivationOptions;
+  plan: Extract<EcdsaSessionProvisionPlan, { kind: 'passkey_ecdsa_session_provision' }>;
+}): PasskeyEcdsaActivation {
+  const activation: PasskeyEcdsaActivation = {
+    kind: 'passkey_ecdsa_activation',
+    nearAccountId: args.nearAccountId,
+    subjectId: args.plan.subjectId,
+    chainTarget: args.plan.chainTarget,
+    relayerUrl: args.relayerUrl,
+    source: args.source,
+    ecdsaThresholdKeyId: args.plan.signingKeyContext.ecdsaThresholdKeyId,
+    participantIds: [...args.plan.signingKeyContext.participantIds],
+    sessionIdentity: args.plan.newSessionIdentity,
+    sessionKind: args.plan.sessionKind,
+    sessionBudgetUses: args.plan.sessionBudgetUses,
+    runtimePolicy: args.runtimePolicy,
+    clientRootShare32B64u: args.plan.clientRootShare32B64u,
+    webauthnAuthentication: args.plan.webauthnAuthentication,
+    plan: args.plan,
+  };
+  if (args.options.runtimeScopeBootstrap) {
+    activation.runtimeScopeBootstrap = args.options.runtimeScopeBootstrap;
+  }
+  if (args.options.operationIntent) {
+    activation.operationIntent = args.options.operationIntent;
+  }
+  if (args.options.beforeProvision) {
+    activation.beforeProvision = args.options.beforeProvision;
+  }
+  if (args.options.assertNotCancelled) {
+    activation.assertNotCancelled = args.options.assertNotCancelled;
+  }
+  return activation;
+}
+
+function buildEmailOtpEcdsaActivation(args: {
+  nearAccountId: AccountId;
+  relayerUrl: string;
+  source: ThresholdEcdsaSessionStoreSource;
+  runtimePolicy: EcdsaActivationPolicy;
+  options: EcdsaActivationOptions;
+  plan: Extract<EcdsaSessionProvisionPlan, { kind: 'email_otp_ecdsa_session_provision' }>;
+}): EmailOtpEcdsaActivation {
+  const activation: EmailOtpEcdsaActivation = {
+    kind: 'email_otp_ecdsa_activation',
+    nearAccountId: args.nearAccountId,
+    subjectId: args.plan.subjectId,
+    chainTarget: args.plan.chainTarget,
+    relayerUrl: args.relayerUrl,
+    source: args.source,
+    ecdsaThresholdKeyId: args.plan.signingKeyContext.ecdsaThresholdKeyId,
+    participantIds: [...args.plan.signingKeyContext.participantIds],
+    sessionIdentity: args.plan.newSessionIdentity,
+    sessionKind: args.plan.sessionKind,
+    sessionBudgetUses: args.plan.sessionBudgetUses,
+    runtimePolicy: args.runtimePolicy,
+    clientRootShare32B64u: args.plan.clientRootShare32B64u,
+    emailOtpAuthContext: args.plan.emailOtpAuthContext,
+    plan: args.plan,
+  };
+  if (args.options.runtimeScopeBootstrap) {
+    activation.runtimeScopeBootstrap = args.options.runtimeScopeBootstrap;
+  }
+  if (args.options.operationIntent) {
+    activation.operationIntent = args.options.operationIntent;
+  }
+  if (args.options.beforeProvision) {
+    activation.beforeProvision = args.options.beforeProvision;
+  }
+  if (args.options.assertNotCancelled) {
+    activation.assertNotCancelled = args.options.assertNotCancelled;
+  }
+  return activation;
+}
+
+function buildThresholdSessionAuthEcdsaActivation(args: {
+  nearAccountId: AccountId;
+  relayerUrl: string;
+  source: ThresholdEcdsaSessionStoreSource;
+  runtimePolicy: EcdsaActivationPolicy;
+  options: EcdsaActivationOptions;
+  plan: Extract<EcdsaSessionProvisionPlan, { kind: 'threshold_session_auth_ecdsa_reconnect' }>;
+}): ThresholdSessionAuthEcdsaActivation {
+  const activation: ThresholdSessionAuthEcdsaActivation = {
+    kind: 'threshold_session_auth_reconnect',
+    nearAccountId: args.nearAccountId,
+    subjectId: args.plan.subjectId,
+    chainTarget: args.plan.chainTarget,
+    relayerUrl: args.relayerUrl,
+    source: args.source,
+    ecdsaThresholdKeyId: args.plan.signingKeyContext.ecdsaThresholdKeyId,
+    participantIds: [...args.plan.signingKeyContext.participantIds],
+    sessionIdentity: args.plan.existingSessionIdentity,
+    sessionKind: 'jwt',
+    sessionBudgetUses: args.plan.sessionBudgetUses,
+    runtimePolicy: args.runtimePolicy,
+    thresholdSessionAuth: args.plan.thresholdSessionAuth,
+    plan: args.plan,
+  };
+  if (args.options.runtimeScopeBootstrap) {
+    activation.runtimeScopeBootstrap = args.options.runtimeScopeBootstrap;
+  }
+  if (args.options.operationIntent) {
+    activation.operationIntent = args.options.operationIntent;
+  }
+  if (args.options.beforeProvision) {
+    activation.beforeProvision = args.options.beforeProvision;
+  }
+  if (args.options.assertNotCancelled) {
+    activation.assertNotCancelled = args.options.assertNotCancelled;
+  }
+  return activation;
+}
+
+function buildCookieEcdsaActivation(args: {
+  nearAccountId: AccountId;
+  relayerUrl: string;
+  source: ThresholdEcdsaSessionStoreSource;
+  runtimePolicy: EcdsaActivationPolicy;
+  options: EcdsaActivationOptions;
+  plan: Extract<EcdsaSessionProvisionPlan, { kind: 'cookie_ecdsa_reconnect' }>;
+}): CookieEcdsaActivation {
+  const activation: CookieEcdsaActivation = {
+    kind: 'cookie_reconnect',
+    nearAccountId: args.nearAccountId,
+    subjectId: args.plan.subjectId,
+    chainTarget: args.plan.chainTarget,
+    relayerUrl: args.relayerUrl,
+    source: args.source,
+    ecdsaThresholdKeyId: args.plan.signingKeyContext.ecdsaThresholdKeyId,
+    participantIds: [...args.plan.signingKeyContext.participantIds],
+    sessionIdentity: args.plan.existingSessionIdentity,
+    sessionKind: 'cookie',
+    sessionBudgetUses: args.plan.sessionBudgetUses,
+    runtimePolicy: args.runtimePolicy,
+    plan: args.plan,
+  };
+  if (args.options.runtimeScopeBootstrap) {
+    activation.runtimeScopeBootstrap = args.options.runtimeScopeBootstrap;
+  }
+  if (args.options.operationIntent) {
+    activation.operationIntent = args.options.operationIntent;
+  }
+  if (args.options.beforeProvision) {
+    activation.beforeProvision = args.options.beforeProvision;
+  }
+  if (args.options.assertNotCancelled) {
+    activation.assertNotCancelled = args.options.assertNotCancelled;
+  }
+  return activation;
+}
+
+async function provisionEcdsaActivation(
+  deps: Pick<WarmSessionEcdsaReconnectDeps, 'provisionThresholdEcdsaSession'>,
+  activation: EcdsaProvisionActivation,
+): Promise<ThresholdEcdsaSessionBootstrapResult> {
+  await activation.beforeProvision?.();
+  activation.assertNotCancelled?.();
+  switch (activation.kind) {
+    case 'passkey_ecdsa_activation':
+      return await provisionPasskeyEcdsaSession(deps, activation);
+    case 'threshold_session_auth_reconnect':
+      return await reconnectThresholdSessionAuthEcdsaSession(deps, activation);
+    case 'cookie_reconnect':
+      return await reconnectCookieEcdsaSession(deps, activation);
+    case 'email_otp_ecdsa_activation':
+      return await provisionEmailOtpEcdsaSession(deps, activation);
+  }
+  activation satisfies never;
+  throw new Error('[SigningEngine][ecdsa] unsupported ECDSA provision plan');
+}
+
+async function provisionPasskeyEcdsaSession(
+  deps: Pick<WarmSessionEcdsaReconnectDeps, 'provisionThresholdEcdsaSession'>,
+  activation: PasskeyEcdsaActivation,
+): Promise<ThresholdEcdsaSessionBootstrapResult> {
+  const plan = activation.plan;
+  const request: ThresholdEcdsaPasskeyActivationRequest = {
+    kind: 'passkey_ecdsa_activation',
+    nearAccountId: activation.nearAccountId,
+    subjectId: plan.subjectId,
+    chainTarget: plan.chainTarget,
+    source: activation.source,
+    relayerUrl: activation.relayerUrl,
+    ecdsaThresholdKeyId: plan.signingKeyContext.ecdsaThresholdKeyId,
+    participantIds: [...plan.signingKeyContext.participantIds],
+    sessionIdentity: plan.newSessionIdentity,
+    sessionKind: plan.sessionKind,
+    sessionBudgetUses: plan.sessionBudgetUses,
+    runtimePolicy: activation.runtimePolicy,
+    ...(activation.runtimeScopeBootstrap
+      ? { runtimeScopeBootstrap: activation.runtimeScopeBootstrap }
+      : {}),
+    ...(activation.operationIntent ? { operationIntent: activation.operationIntent } : {}),
+    clientRootShare32B64u: plan.clientRootShare32B64u,
+    webauthnAuthentication: plan.webauthnAuthentication,
+  };
+  return await deps.provisionThresholdEcdsaSession(request);
+}
+
+async function reconnectThresholdSessionAuthEcdsaSession(
+  deps: Pick<WarmSessionEcdsaReconnectDeps, 'provisionThresholdEcdsaSession'>,
+  activation: ThresholdSessionAuthEcdsaActivation,
+): Promise<ThresholdEcdsaSessionBootstrapResult> {
+  const plan = activation.plan;
+  const request: ThresholdEcdsaThresholdSessionAuthReconnectRequest = {
+    kind: 'threshold_session_auth_reconnect',
+    nearAccountId: activation.nearAccountId,
+    subjectId: plan.subjectId,
+    chainTarget: plan.chainTarget,
+    source: activation.source,
+    relayerUrl: activation.relayerUrl,
+    ecdsaThresholdKeyId: plan.signingKeyContext.ecdsaThresholdKeyId,
+    participantIds: [...plan.signingKeyContext.participantIds],
+    sessionIdentity: plan.existingSessionIdentity,
+    sessionKind: 'jwt',
+    sessionBudgetUses: plan.sessionBudgetUses,
+    runtimePolicy: activation.runtimePolicy,
+    ...(activation.runtimeScopeBootstrap
+      ? { runtimeScopeBootstrap: activation.runtimeScopeBootstrap }
+      : {}),
+    ...(activation.operationIntent ? { operationIntent: activation.operationIntent } : {}),
+    thresholdSessionAuth: plan.thresholdSessionAuth,
+  };
+  return await deps.provisionThresholdEcdsaSession(request);
+}
+
+async function reconnectCookieEcdsaSession(
+  deps: Pick<WarmSessionEcdsaReconnectDeps, 'provisionThresholdEcdsaSession'>,
+  activation: CookieEcdsaActivation,
+): Promise<ThresholdEcdsaSessionBootstrapResult> {
+  const plan = activation.plan;
+  const request: ThresholdEcdsaCookieReconnectRequest = {
+    kind: 'cookie_reconnect',
+    nearAccountId: activation.nearAccountId,
+    subjectId: plan.subjectId,
+    chainTarget: plan.chainTarget,
+    source: activation.source,
+    relayerUrl: activation.relayerUrl,
+    ecdsaThresholdKeyId: plan.signingKeyContext.ecdsaThresholdKeyId,
+    participantIds: [...plan.signingKeyContext.participantIds],
+    sessionIdentity: plan.existingSessionIdentity,
+    sessionKind: 'cookie',
+    sessionBudgetUses: plan.sessionBudgetUses,
+    runtimePolicy: activation.runtimePolicy,
+    ...(activation.runtimeScopeBootstrap
+      ? { runtimeScopeBootstrap: activation.runtimeScopeBootstrap }
+      : {}),
+    ...(activation.operationIntent ? { operationIntent: activation.operationIntent } : {}),
+  };
+  return await deps.provisionThresholdEcdsaSession(request);
+}
+
+async function provisionEmailOtpEcdsaSession(
+  deps: Pick<WarmSessionEcdsaReconnectDeps, 'provisionThresholdEcdsaSession'>,
+  activation: EmailOtpEcdsaActivation,
+): Promise<ThresholdEcdsaSessionBootstrapResult> {
+  const plan = activation.plan;
+  const request: ThresholdEcdsaEmailOtpActivationRequest = {
+    kind: 'email_otp_ecdsa_activation',
+    nearAccountId: activation.nearAccountId,
+    subjectId: plan.subjectId,
+    chainTarget: plan.chainTarget,
+    source: activation.source,
+    relayerUrl: activation.relayerUrl,
+    ecdsaThresholdKeyId: plan.signingKeyContext.ecdsaThresholdKeyId,
+    participantIds: [...plan.signingKeyContext.participantIds],
+    sessionIdentity: plan.newSessionIdentity,
+    sessionKind: plan.sessionKind,
+    sessionBudgetUses: plan.sessionBudgetUses,
+    runtimePolicy: activation.runtimePolicy,
+    ...(activation.runtimeScopeBootstrap
+      ? { runtimeScopeBootstrap: activation.runtimeScopeBootstrap }
+      : {}),
+    ...(activation.operationIntent ? { operationIntent: activation.operationIntent } : {}),
+    clientRootShare32B64u: plan.clientRootShare32B64u,
+    emailOtpAuthContext: plan.emailOtpAuthContext,
+  };
+  return await deps.provisionThresholdEcdsaSession(request);
+}
+
 export async function tryReuseReadyWarmEcdsaBootstrap(
   deps: WarmSessionEcdsaProvisionerDeps,
   args: {
@@ -330,134 +602,21 @@ export async function tryReuseReadyWarmEcdsaBootstrap(
   return null;
 }
 
-export async function provisionWarmEcdsaCapability(
-  deps: WarmSessionEcdsaProvisionerDeps,
-  args: ProvisionWarmEcdsaCapabilityArgs,
-): Promise<ThresholdEcdsaSessionBootstrapResult> {
-  const nearAccountId = toAccountId(args.nearAccountId);
-  const chainTarget = args.chainTarget;
-  const capabilityBucket = chainTarget.kind;
-  const beforeWarmSession = await deps.getWarmSession(nearAccountId);
-  const hasThresholdSessionAuth = Boolean(args.thresholdSessionAuth);
-  const hasWebAuthnAuthentication = Boolean(args.webauthnAuthentication);
-  const normalizedClientRootShare32 =
-    args.clientRootShare32 instanceof Uint8Array ? args.clientRootShare32 : undefined;
-  const normalizedClientRootShare32B64u = toOptionalNonEmptyString(args.clientRootShare32B64u);
-  const normalizedSessionId = toOptionalNonEmptyString(args.sessionId);
-
-  if (
-    !hasWebAuthnAuthentication &&
-    !hasThresholdSessionAuth &&
-    !normalizedClientRootShare32 &&
-    !normalizedClientRootShare32B64u &&
-    !normalizedSessionId
-  ) {
-    const reusableBootstrap = await tryReuseReadyWarmEcdsaBootstrap(deps, {
-      nearAccountId,
-      subjectId: args.subjectId,
-      chainTarget,
-      source: args.source,
-    });
-    if (reusableBootstrap) {
-      return reusableBootstrap;
-    }
+function requireActivationRelayerUrl(args: {
+  keyRef: ThresholdEcdsaSecp256k1KeyRef | null;
+  reconnectRecord: ThresholdEcdsaSessionRecord | null;
+  secondaryRecord: ThresholdEcdsaSessionRecord | null;
+}): string {
+  const relayerUrl = String(
+    args.reconnectRecord?.relayerUrl ||
+      args.keyRef?.relayerUrl ||
+      args.secondaryRecord?.relayerUrl ||
+      '',
+  ).trim();
+  if (!relayerUrl) {
+    throw new Error('[WarmSessionStore] ECDSA activation requires relayerUrl');
   }
-
-  const resolvedBootstrapRequest = resolveWarmEcdsaBootstrapRequestFromSession({
-    request: {
-      nearAccountId,
-      subjectId: args.subjectId,
-      chainTarget,
-      relayerUrl: args.relayerUrl,
-      ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
-      participantIds: args.participantIds,
-      sessionKind: args.sessionKind,
-      sessionId: args.sessionId,
-      walletSigningSessionId: args.walletSigningSessionId,
-      thresholdSessionAuth: args.thresholdSessionAuth,
-      runtimePolicyScope: args.runtimePolicyScope,
-      runtimeScopeBootstrap: args.runtimeScopeBootstrap,
-      clientRootShare32: args.clientRootShare32,
-      clientRootShare32B64u: args.clientRootShare32B64u,
-      webauthnAuthentication: args.webauthnAuthentication,
-    },
-    warmSession: beforeWarmSession,
-  });
-  if (
-    !resolvedBootstrapRequest.clientRootShare32 &&
-    !resolvedBootstrapRequest.clientRootShare32B64u &&
-    resolvedBootstrapRequest.sessionId
-  ) {
-    if (typeof deps.claimPrfFirstByThresholdSessionId !== 'function') {
-      throw new Error(
-        '[WarmSessionStore] claimPrfFirstByThresholdSessionId is required for threshold-ecdsa restored-session bootstrap',
-      );
-    }
-    // A restored passkey/OTP signing session may be cookie-backed and have no
-    // threshold-route JWT. The sealed PRF is still the reload-safe material, so
-    // reconnect must claim it directly instead of falling through to WebAuthn.
-    resolvedBootstrapRequest.clientRootShare32B64u = await deps.claimPrfFirstByThresholdSessionId({
-      thresholdSessionId: resolvedBootstrapRequest.sessionId,
-      errorContext: 'threshold-ecdsa restored-session bootstrap',
-      uses: 1,
-      // ECDSA reconnect needs the hot PRF to recreate the client additive share,
-      // but the transaction finalizer is the authoritative budget-consume
-      // boundary. Reading this material must not spend a signing use itself.
-      consume: false,
-      walletId: nearAccountId,
-      authMethod: args.source === 'email_otp' ? 'email_otp' : 'passkey',
-      curve: 'ecdsa',
-      chainTarget,
-      walletSigningSessionId: args.walletSigningSessionId,
-    });
-  }
-
-  await args.beforeProvision?.();
-  args.assertNotCancelled?.();
-
-  const provisioned = await deps.provisionThresholdEcdsaSession({
-    ...args,
-    ...resolvedBootstrapRequest,
-  });
-
-  if (!provisioned) {
-    throw new Error(
-      '[WarmSessionStore] provisionThresholdEcdsaSession is required to provision ECDSA capability',
-    );
-  }
-
-  args.assertNotCancelled?.();
-
-  const expectedSessionId = toOptionalNonEmptyString(
-    provisioned.thresholdEcdsaKeyRef?.thresholdSessionId,
-  );
-  if (!expectedSessionId) {
-    throw new Error(
-      `[WarmSessionStore] provisioned ECDSA capability is missing thresholdSessionId for ${nearAccountId}`,
-    );
-  }
-
-  const afterWarmSession = await deps.getWarmSession(nearAccountId);
-  const persistedRecord = readWarmSessionEcdsaRecordByThresholdSessionId(expectedSessionId);
-  assertPersistedEcdsaWarmSessionRecord({
-    nearAccountId,
-    expectedSessionId,
-    persistedSessionIdRaw: persistedRecord?.thresholdSessionId,
-    fallbackPersistedSessionIdRaw:
-      afterWarmSession.capabilities.ecdsa[capabilityBucket].record?.thresholdSessionId,
-  });
-  emitWarmSessionTransition({
-    onTransition: deps.onTransition,
-    event: {
-      type: 'ecdsa_capability_provisioned',
-      accountId: nearAccountId,
-      chainTarget,
-      thresholdSessionId: expectedSessionId,
-      before: summarizeWarmSessionTransition(beforeWarmSession),
-      after: summarizeWarmSessionTransition(afterWarmSession),
-    },
-  });
-  return provisioned;
+  return relayerUrl;
 }
 
 function buildEcdsaCapabilityInflightKey(args: {
@@ -481,31 +640,9 @@ function buildEcdsaCapabilityInflightKey(args: {
   ].join('::');
 }
 
-function keyRefMatchesRequestedReconnectIdentity(args: {
-  keyRef: ThresholdEcdsaSecp256k1KeyRef;
-  sessionId?: string;
-  walletSigningSessionId?: string;
-}): boolean {
-  const requestedSessionId = toOptionalNonEmptyString(args.sessionId);
-  const requestedWalletSigningSessionId = toOptionalNonEmptyString(args.walletSigningSessionId);
-  if (
-    requestedSessionId &&
-    requestedSessionId !== String(args.keyRef.thresholdSessionId || '').trim()
-  ) {
-    return false;
-  }
-  if (
-    requestedWalletSigningSessionId &&
-    requestedWalletSigningSessionId !== String(args.keyRef.walletSigningSessionId || '').trim()
-  ) {
-    return false;
-  }
-  return true;
-}
-
 export async function ensureWarmEcdsaCapabilityReady(
   deps: WarmSessionEcdsaReconnectDeps,
-  args: EnsureWarmEcdsaCapabilityReadyArgs,
+  args: EnsureWarmEcdsaProvisionPlanReadyArgs,
 ): Promise<EnsureWarmEcdsaCapabilityReadyResult> {
   const nearAccountId = toAccountId(args.nearAccountId);
   const chainTarget = args.chainTarget;
@@ -520,9 +657,9 @@ export async function ensureWarmEcdsaCapabilityReady(
         chainTarget,
         ...(args.source ? { source: args.source } : {}),
       });
-  const confirmedReconnectRequested = Boolean(
-    args.webauthnAuthentication || args.clientRootShare32B64u,
-  );
+  const confirmedReconnectRequested =
+    args.plan.kind === 'passkey_ecdsa_session_provision' ||
+    args.plan.kind === 'email_otp_ecdsa_session_provision';
   let keyRef: ThresholdEcdsaSecp256k1KeyRef | null = null;
   let keyRefSource: ThresholdEcdsaSessionStoreSource | undefined;
   for (const candidate of keyRefCandidates) {
@@ -539,13 +676,7 @@ export async function ensureWarmEcdsaCapabilityReady(
       }
       continue;
     }
-    if (
-      !keyRefMatchesRequestedReconnectIdentity({
-        keyRef: candidate.keyRef,
-        sessionId: args.sessionId,
-        walletSigningSessionId: args.walletSigningSessionId,
-      })
-    ) {
+    if (!keyRefMatchesPlannedIdentity({ keyRef: candidate.keyRef, plan: args.plan })) {
       keyRef = candidate.keyRef;
       keyRefSource = candidate.source;
       continue;
@@ -580,13 +711,7 @@ export async function ensureWarmEcdsaCapabilityReady(
       hasSufficientWarmClaim(directCapability.prfClaim, args.usesNeeded)
     ) {
       if (hasEcdsaKeyRefSigningMaterial(candidate.keyRef)) {
-        if (
-          !keyRefMatchesRequestedReconnectIdentity({
-            keyRef: candidate.keyRef,
-            sessionId: args.sessionId,
-            walletSigningSessionId: args.walletSigningSessionId,
-          })
-        ) {
+        if (!keyRefMatchesPlannedIdentity({ keyRef: candidate.keyRef, plan: args.plan })) {
           keyRef = candidate.keyRef;
           keyRefSource = candidate.source;
           continue;
@@ -671,85 +796,17 @@ export async function ensureWarmEcdsaCapabilityReady(
   let reconnectPromise = deps.reconnectInFlightByCapability.get(inflightKey);
   if (!reconnectPromise) {
     reconnectPromise = (async (): Promise<EnsureWarmEcdsaCapabilityReadyResult> => {
-      const reconnectUses = Math.max(1, Math.floor(Number(args.sessionBudgetUses) || 1));
-      const reconnectThresholdKeyId = toOptionalNonEmptyString(
-        keyRef?.ecdsaThresholdKeyId || reconnectRecord?.ecdsaThresholdKeyId,
-      );
-      const reconnectParticipantIds =
-        normalizeParticipantIds(keyRef?.participantIds) ||
-        normalizeParticipantIds(reconnectRecord?.participantIds);
-      const explicitReconnectSessionId = toOptionalNonEmptyString(args.sessionId);
-      const explicitReconnectWalletSigningSessionId = toOptionalNonEmptyString(
-        args.walletSigningSessionId,
-      );
-      if (Boolean(explicitReconnectSessionId) !== Boolean(explicitReconnectWalletSigningSessionId)) {
-        throw new Error(
-          '[SigningEngine][ecdsa] reconnect requires both sessionId and walletSigningSessionId',
-        );
-      }
-      const usesFreshWebAuthnAuthorization = Boolean(args.webauthnAuthentication);
-      const reconnectSessionId = usesFreshWebAuthnAuthorization
-        ? explicitReconnectSessionId
-        : toOptionalNonEmptyString(
-            explicitReconnectSessionId ||
-              keyRef?.thresholdSessionId ||
-              reconnectRecord?.thresholdSessionId,
-          );
-      const reconnectWalletSigningSessionId = usesFreshWebAuthnAuthorization
-        ? explicitReconnectWalletSigningSessionId
-        : toOptionalNonEmptyString(
-            explicitReconnectWalletSigningSessionId ||
-              keyRef?.walletSigningSessionId ||
-              reconnectRecord?.walletSigningSessionId,
-          );
-      const selectedReconnectAuthToken: {
-        authToken?: string;
-        source?: 'keyRef' | 'record';
-        mismatches: Record<string, unknown>[];
-      } = usesFreshWebAuthnAuthorization
-        ? { mismatches: [] }
-        : selectReconnectThresholdSessionAuthToken({
-            keyRef,
-            record: reconnectRecord,
-            thresholdSessionId: reconnectSessionId,
-            walletSigningSessionId: reconnectWalletSigningSessionId,
-          });
-      if (
-        selectedReconnectAuthToken.mismatches.length > 0 &&
-        !selectedReconnectAuthToken.authToken &&
-        reconnectSessionId &&
-        reconnectWalletSigningSessionId
-      ) {
-        console.warn('[threshold-ecdsa][reconnect-provision][authToken-mismatch]', {
-          nearAccountId: String(nearAccountId),
-          chain,
-          chainId,
-          plannedProvisionIdentity: {
-            thresholdSessionId: reconnectSessionId,
-            walletSigningSessionId: reconnectWalletSigningSessionId,
-          },
-          mismatches: selectedReconnectAuthToken.mismatches,
-          selectedKeyRef: summarizeReconnectKeyRef(keyRef),
-          reconnectRecord: summarizeReconnectRecord(reconnectRecord),
-        });
-        throw new Error(
-          '[SigningEngine][ecdsa] threshold session auth token does not match planned reconnect identity',
-        );
-      }
-      const reconnectThresholdSessionAuthToken = selectedReconnectAuthToken.authToken;
+      const plannedIdentity = getEcdsaSessionProvisionIdentity(args.plan);
       try {
         console.info('[threshold-ecdsa][reconnect-provision][diagnostic]', {
           nearAccountId: String(nearAccountId),
           chain,
           chainId,
-          requestedLaneIdentity: {
-            thresholdSessionId: args.sessionId || undefined,
-            walletSigningSessionId: args.walletSigningSessionId || undefined,
-          },
-          provisionMode: usesFreshWebAuthnAuthorization ? 'fresh_webauthn' : 'exact_reconnect',
+          requestedLaneIdentity: plannedIdentity,
+          provisionMode: args.plan.kind,
           plannedProvisionIdentity: {
-            thresholdSessionId: reconnectSessionId || undefined,
-            walletSigningSessionId: reconnectWalletSigningSessionId || undefined,
+            thresholdSessionId: plannedIdentity.thresholdSessionId,
+            walletSigningSessionId: plannedIdentity.walletSigningSessionId,
           },
           keyRefSource,
           provisionSource: inheritedEmailOtpRecord
@@ -765,60 +822,82 @@ export async function ensureWarmEcdsaCapabilityReady(
             source: candidate.source,
             keyRef: summarizeReconnectKeyRef(candidate.keyRef),
           })),
-          selectedRouteAuthSource: selectedReconnectAuthToken.source,
-          routeAuthMismatches: selectedReconnectAuthToken.mismatches,
-          routeAuthClaims: summarizeReconnectAuthTokenClaims(reconnectThresholdSessionAuthToken),
+          routeAuthClaims:
+            args.plan.kind === 'threshold_session_auth_ecdsa_reconnect'
+              ? {
+                  present: true,
+                  sessionId: args.plan.thresholdSessionAuth.identity.thresholdSessionId,
+                  walletSigningSessionId:
+                    args.plan.thresholdSessionAuth.identity.walletSigningSessionId,
+                  exp: args.plan.thresholdSessionAuth.expiresAtMs,
+                }
+              : { present: false },
         });
       } catch {}
-      const provisioned = await deps.provisionEcdsaCapability({
-        nearAccountId,
-        subjectId: args.subjectId,
-        chainTarget,
-        source: inheritedEmailOtpRecord ? 'email_otp' : keyRefSource || args.source || 'login',
-        // Reconnect starts from a selected key ref when worker memory was lost.
-        // Preserve that exact lane identity so sealed PRF restore cannot fall
-        // back to a generic WebAuthn bootstrap.
-        ...(reconnectSessionId ? { sessionId: reconnectSessionId } : {}),
-        ...(reconnectWalletSigningSessionId
-          ? { walletSigningSessionId: reconnectWalletSigningSessionId }
-          : {}),
-        ...(reconnectThresholdKeyId ? { ecdsaThresholdKeyId: reconnectThresholdKeyId } : {}),
-        ...(reconnectParticipantIds ? { participantIds: reconnectParticipantIds } : {}),
-        ...(toOptionalNonEmptyString(
-          keyRef?.thresholdSessionKind || reconnectRecord?.thresholdSessionKind,
-        )
+      const effectivePlan =
+        args.plan.kind === 'email_otp_ecdsa_session_provision' && inheritedEmailOtpRecord?.emailOtpAuthContext
           ? {
-              sessionKind: toOptionalNonEmptyString(
-                keyRef?.thresholdSessionKind || reconnectRecord?.thresholdSessionKind,
-              ) as 'jwt' | 'cookie',
+              kind: 'email_otp_ecdsa_session_provision' as const,
+              subjectId: args.plan.subjectId,
+              chainTarget: args.plan.chainTarget,
+              newSessionIdentity: args.plan.newSessionIdentity,
+              signingKeyContext: args.plan.signingKeyContext,
+              sessionKind: args.plan.sessionKind,
+              sessionBudgetUses: args.plan.sessionBudgetUses,
+              emailOtpAuthContext: inheritedEmailOtpRecord.emailOtpAuthContext,
+              clientRootShare32B64u: args.plan.clientRootShare32B64u,
+              ...(args.plan.runtimePolicyScope
+                ? { runtimePolicyScope: args.plan.runtimePolicyScope }
+                : {}),
             }
-          : {}),
-        ...(reconnectThresholdSessionAuthToken
-          ? {
-              thresholdSessionAuth: {
-                kind: 'threshold_session',
-                jwt: reconnectThresholdSessionAuthToken,
-              },
-            }
-          : {}),
-        ...(args.clientRootShare32B64u
-          ? { clientRootShare32B64u: args.clientRootShare32B64u }
-          : {}),
-        ...(args.webauthnAuthentication
-          ? { webauthnAuthentication: args.webauthnAuthentication }
-          : {}),
-        ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
-        ...(args.runtimeScopeBootstrap
-          ? { runtimeScopeBootstrap: args.runtimeScopeBootstrap }
-          : {}),
-        ...(args.operationIntent ? { operationIntent: args.operationIntent } : {}),
-        ...(inheritedEmailOtpRecord?.emailOtpAuthContext
-          ? { emailOtpAuthContext: inheritedEmailOtpRecord.emailOtpAuthContext }
-          : {}),
-        remainingUses: reconnectUses,
-        beforeProvision: args.beforeReconnect,
-        assertNotCancelled: args.assertNotCancelled,
+          : args.plan;
+      const activationSource = inheritedEmailOtpRecord ? 'email_otp' : keyRefSource || args.source || 'login';
+      const activationPolicy = buildEcdsaActivationPolicy(
+        'runtimePolicyScope' in effectivePlan ? effectivePlan.runtimePolicyScope : undefined,
+      );
+      const activationOptions = buildActivationOptions(args);
+      const relayerUrl = requireActivationRelayerUrl({
+        keyRef,
+        reconnectRecord,
+        secondaryRecord,
       });
+      const activation =
+        effectivePlan.kind === 'passkey_ecdsa_session_provision'
+          ? buildPasskeyEcdsaActivation({
+              nearAccountId,
+              relayerUrl,
+              source: activationSource,
+              runtimePolicy: activationPolicy,
+              options: activationOptions,
+              plan: effectivePlan,
+            })
+          : effectivePlan.kind === 'email_otp_ecdsa_session_provision'
+            ? buildEmailOtpEcdsaActivation({
+                nearAccountId,
+                relayerUrl,
+                source: activationSource,
+                runtimePolicy: activationPolicy,
+                options: activationOptions,
+                plan: effectivePlan,
+              })
+            : effectivePlan.kind === 'threshold_session_auth_ecdsa_reconnect'
+              ? buildThresholdSessionAuthEcdsaActivation({
+                  nearAccountId,
+                  relayerUrl,
+                  source: activationSource,
+                  runtimePolicy: activationPolicy,
+                  options: activationOptions,
+                  plan: effectivePlan,
+                })
+              : buildCookieEcdsaActivation({
+                  nearAccountId,
+                  relayerUrl,
+                  source: activationSource,
+                  runtimePolicy: activationPolicy,
+                  options: activationOptions,
+                  plan: effectivePlan,
+                });
+      const provisioned = await provisionEcdsaActivation(deps, activation);
       args.assertNotCancelled?.();
 
       const refreshedKeyRef = provisioned.thresholdEcdsaKeyRef;
@@ -854,7 +933,7 @@ export async function ensureWarmEcdsaCapabilityReady(
           type: 'ecdsa_capability_reconnected',
           accountId: nearAccountId,
           chainTarget,
-          thresholdSessionId: String(refreshedKeyRef.thresholdSessionId || '').trim(),
+          thresholdSessionId: refreshedSessionId,
           before: summarizeWarmSessionTransition(warmSession),
           after: summarizeWarmSessionTransition(refreshedWarmSession),
         },

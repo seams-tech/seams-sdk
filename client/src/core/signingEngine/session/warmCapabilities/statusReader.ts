@@ -26,8 +26,12 @@ import {
   toSigningSessionStatus,
   toWarmSessionClaimFromStatusResult,
 } from './readModel';
-import type { WarmSessionPrfClaim } from './types';
-import type { ThresholdWarmSessionStatusReader, WarmEcdsaSigningSessionStatus } from './types';
+import type {
+  ThresholdWarmSessionStatusReader,
+  WarmEcdsaRecordBackedSigningSessionStatus,
+  WarmEcdsaSigningSessionStatus,
+  WarmSessionPrfClaim,
+} from './types';
 
 type WarmSessionEcdsaPolicyRecordHint = ThresholdEcdsaSessionRecord;
 
@@ -338,7 +342,13 @@ export function createWarmSessionStatusReader(
   function toEcdsaSigningSessionStatus(args: {
     record: ThresholdEcdsaSessionRecord;
     claim: WarmSessionPrfClaim | null;
-  }): WarmEcdsaSigningSessionStatus {
+  }): WarmEcdsaRecordBackedSigningSessionStatus {
+    const walletSigningSessionId = String(args.record.walletSigningSessionId || '').trim();
+    if (!walletSigningSessionId) {
+      throw new Error(
+        '[WarmSessionStatusReader] ECDSA signing-session status requires walletSigningSessionId',
+      );
+    }
     return {
       ...toSigningSessionStatus({
         sessionId: String(args.record.thresholdSessionId || '').trim(),
@@ -348,16 +358,14 @@ export function createWarmSessionStatusReader(
       }),
       chainTarget: args.record.chainTarget,
       source: args.record.source,
-      ...(args.record.walletSigningSessionId
-        ? { walletSigningSessionId: args.record.walletSigningSessionId }
-        : {}),
+      walletSigningSessionId,
     };
   }
 
   async function listEcdsaSigningSessionStatuses(args: {
     nearAccountId: AccountId | string;
     chainTarget: ThresholdEcdsaChainTarget;
-  }): Promise<WarmEcdsaSigningSessionStatus[]> {
+  }): Promise<WarmEcdsaRecordBackedSigningSessionStatus[]> {
     const accountId = toAccountId(args.nearAccountId);
     const records = listCurrentEcdsaRecords({ nearAccountId: accountId, chainTarget: args.chainTarget });
     if (!records.length) return [];

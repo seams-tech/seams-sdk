@@ -10,7 +10,7 @@ import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/
 
 export type EcdsaPostSignPolicyMaterialClearer = (args: {
   record: ThresholdEcdsaSessionRecord;
-  thresholdSessionId?: string;
+  thresholdSessionId: string;
 }) => Promise<void>;
 
 export type EcdsaPostSignPolicySession = {
@@ -51,7 +51,7 @@ export function ecdsaPostSignPolicyMaterialFromRecord(args: {
     clearEphemeralMaterial: async () => {
       await args.clearEcdsaEphemeralMaterial({
         record: args.record,
-        ...(session.thresholdSessionId ? { thresholdSessionId: session.thresholdSessionId } : {}),
+        thresholdSessionId: session.thresholdSessionId,
       });
     },
   };

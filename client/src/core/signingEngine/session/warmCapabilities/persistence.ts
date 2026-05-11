@@ -2,7 +2,6 @@ import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/parti
 import { normalizePositiveInteger } from '@shared/utils/normalize';
 import type { AccountId } from '@/core/types/accountIds';
 import {
-  getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   type ThresholdEd25519SessionRecord,
   upsertStoredThresholdEd25519SessionRecord,
 } from '../persistence/records';
@@ -17,33 +16,65 @@ import {
 } from '../../threshold/sessionPolicy';
 import { publishResolvedIdentity } from '../persistence/sealedSessionStore';
 
-export type PersistWarmSessionEd25519CapabilityArgs = {
+type PersistWarmSessionEd25519CapabilityCommon = {
   nearAccountId: AccountId | string;
   rpId: string;
   relayerUrl: string;
   relayerKeyId: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  participantIds?: number[];
-  sessionKind?: ThresholdSessionKind;
+  participantIds: readonly number[];
   sessionId: string;
-  walletSigningSessionId?: string;
+  walletSigningSessionId: string;
   expiresAtMs: number;
   remainingUses: number;
-  jwt?: string;
   xClientBaseB64u?: string;
-  emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
   updatedAtMs?: number;
-  source?: ThresholdEd25519SessionStoreSource;
 };
+
+export type PersistWarmSessionEd25519JwtEmailOtpCapabilityArgs =
+  PersistWarmSessionEd25519CapabilityCommon & {
+    kind: 'jwt_email_otp';
+    sessionKind: 'jwt';
+    jwt: string;
+    source: 'email_otp';
+    emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
+  };
+
+export type PersistWarmSessionEd25519JwtPasskeyCapabilityArgs =
+  PersistWarmSessionEd25519CapabilityCommon & {
+    kind: 'jwt_passkey';
+    sessionKind: 'jwt';
+    jwt: string;
+    source: Exclude<ThresholdEd25519SessionStoreSource, 'email_otp'>;
+    emailOtpAuthContext?: never;
+  };
+
+export type PersistWarmSessionEd25519CookiePasskeyCapabilityArgs =
+  PersistWarmSessionEd25519CapabilityCommon & {
+    kind: 'cookie_passkey';
+    sessionKind: 'cookie';
+    source: Exclude<ThresholdEd25519SessionStoreSource, 'email_otp'>;
+    jwt?: never;
+    emailOtpAuthContext?: never;
+  };
+
+export type PersistWarmSessionEd25519CapabilityArgs =
+  | PersistWarmSessionEd25519JwtEmailOtpCapabilityArgs
+  | PersistWarmSessionEd25519JwtPasskeyCapabilityArgs
+  | PersistWarmSessionEd25519CookiePasskeyCapabilityArgs;
 
 export function persistWarmSessionEd25519Capability(
   args: PersistWarmSessionEd25519CapabilityArgs,
 ): ThresholdEd25519SessionRecord {
   const sessionId = String(args.sessionId || '').trim();
+  const walletSigningSessionId = String(args.walletSigningSessionId || '').trim();
   const expiresAtMs = Math.floor(Number(args.expiresAtMs));
   const remainingUses = normalizePositiveInteger(args.remainingUses) ?? 0;
   if (!sessionId) {
     throw new Error('Missing sessionId for warm threshold-ed25519 capability');
+  }
+  if (!walletSigningSessionId) {
+    throw new Error('Missing walletSigningSessionId for warm threshold-ed25519 capability');
   }
   if (!Number.isFinite(expiresAtMs) || expiresAtMs <= 0) {
     throw new Error('Invalid expiresAtMs for warm threshold-ed25519 capability');
@@ -52,22 +83,19 @@ export function persistWarmSessionEd25519Capability(
     throw new Error('Invalid remainingUses for warm threshold-ed25519 capability');
   }
 
-  const existingRecord = getStoredThresholdEd25519SessionRecordByThresholdSessionId(sessionId);
-  const participantIds =
-    normalizeThresholdEd25519ParticipantIds(args.participantIds) ||
-    normalizeThresholdEd25519ParticipantIds(existingRecord?.participantIds);
+  const participantIds = normalizeThresholdEd25519ParticipantIds(args.participantIds);
   if (!participantIds) {
     throw new Error('Missing participantIds for warm threshold-ed25519 capability');
   }
 
-  const jwt = String(args.jwt || '').trim();
+  const xClientBaseB64u = String(args.xClientBaseB64u || '').trim();
+  const jwt = args.kind === 'cookie_passkey' ? '' : String(args.jwt || '').trim();
   const runtimePolicyScope =
-    args.runtimePolicyScope ||
-    parseThresholdRuntimePolicyScopeFromJwt(jwt) ||
-    existingRecord?.runtimePolicyScope;
-  const xClientBaseB64u =
-    String(args.xClientBaseB64u || '').trim() ||
-    String(existingRecord?.xClientBaseB64u || '').trim();
+    args.runtimePolicyScope || parseThresholdRuntimePolicyScopeFromJwt(jwt);
+  const authMethod = args.kind === 'jwt_email_otp' ? 'email_otp' : 'passkey';
+  const thresholdSessionKind: ThresholdSessionKind =
+    args.kind === 'cookie_passkey' ? 'cookie' : 'jwt';
+  const source = args.source;
 
   const record = upsertStoredThresholdEd25519SessionRecord({
     nearAccountId: args.nearAccountId,
@@ -77,34 +105,28 @@ export function persistWarmSessionEd25519Capability(
     participantIds,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     ...(xClientBaseB64u ? { xClientBaseB64u } : {}),
-    thresholdSessionKind: args.sessionKind === 'cookie' ? 'cookie' : 'jwt',
+    thresholdSessionKind,
     thresholdSessionId: sessionId,
-    ...(String(args.walletSigningSessionId || existingRecord?.walletSigningSessionId || '').trim()
-      ? {
-          walletSigningSessionId: String(
-            args.walletSigningSessionId || existingRecord?.walletSigningSessionId || '',
-          ).trim(),
-        }
-      : {}),
+    walletSigningSessionId,
     ...(jwt ? { thresholdSessionAuthToken: jwt } : {}),
     expiresAtMs,
     remainingUses,
-    ...(args.emailOtpAuthContext ? { emailOtpAuthContext: args.emailOtpAuthContext } : {}),
+    ...(args.kind === 'jwt_email_otp'
+      ? { emailOtpAuthContext: args.emailOtpAuthContext }
+      : {}),
     updatedAtMs: Math.floor(Number(args.updatedAtMs ?? Date.now()) || 0),
-    source: args.source || 'manual-connect',
+    source,
   });
   if (!record) {
     throw new Error('Failed to persist warm threshold-ed25519 capability');
   }
-  if (record.walletSigningSessionId) {
-    publishResolvedIdentity({
-      walletId: record.nearAccountId,
-      authMethod: record.source === 'email_otp' ? 'email_otp' : 'passkey',
-      curve: 'ed25519',
-      chain: 'near',
-      walletSigningSessionId: record.walletSigningSessionId,
-      thresholdSessionId: record.thresholdSessionId,
-    });
-  }
+  publishResolvedIdentity({
+    walletId: record.nearAccountId,
+    authMethod,
+    curve: 'ed25519',
+    chain: 'near',
+    walletSigningSessionId,
+    thresholdSessionId: sessionId,
+  });
   return record;
 }

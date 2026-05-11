@@ -1,25 +1,29 @@
 import type { AccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
+import { normalizeWalletSigningSpendPlan } from '../operationState/types';
 import {
   applySigningSessionBudgetReservationsToStatus,
   assertPreparedBudgetProjectionVersion,
   assertSigningSessionBudgetReservationAvailable,
   assertWalletSigningOperationFingerprintMatches,
+  buildSigningSessionBudgetStatusCheckForSpend,
+  createZeroSpendTraceEvent,
   createSigningSessionBudgetTraceEvent,
   normalizeRequired,
-  normalizeSigningSessionBudgetRecordSuccessInput,
+  normalizeWalletBudgetSuccessInput,
   normalizeStringList,
   resolveWalletSigningOperationFingerprint,
   SIGNING_SESSION_BUDGET_UNKNOWN_ERROR,
   type SigningSessionBudget,
   type SigningSessionBudgetConsumer,
-  type SigningSessionBudgetRecordSuccessInput,
-  type SigningSessionBudgetRecordZeroSpendInput,
   type SigningSessionBudgetReservation,
   type SigningSessionBudgetReservationRecord,
-  type SigningSessionBudgetStatusAuth,
+  type SigningSessionBudgetReserveInput,
+  type SigningSessionBudgetSuccessInput,
   type SigningSessionBudgetTraceEvent,
   type SigningSessionBudgetZeroSpendReason,
+  type WalletBudgetSpend,
+  type ZeroWalletBudgetSpend,
 } from './budget';
 
 type SuccessfulSpendRecord = {
@@ -28,13 +32,7 @@ type SuccessfulSpendRecord = {
 };
 
 export type BudgetCoordinatorDeps = {
-  readStatus: (args: {
-    nearAccountId: AccountId | string;
-    walletSigningSessionId?: string;
-    targetBackingMaterialSessionIds?: string[];
-    targetThresholdSessionIds?: string[];
-    trustedStatusAuth?: SigningSessionBudgetStatusAuth;
-  }) => Promise<SigningSessionStatus>;
+  readStatus: (args: Parameters<SigningSessionBudget['getAvailableStatus']>[0]) => Promise<SigningSessionStatus>;
   consumeUse?: SigningSessionBudgetConsumer;
   onTrace?: (event: SigningSessionBudgetTraceEvent) => void;
 };
@@ -52,7 +50,10 @@ export class BudgetCoordinator implements SigningSessionBudget {
   async reserve(
     input: Parameters<SigningSessionBudget['reserve']>[0],
   ): ReturnType<SigningSessionBudget['reserve']> {
-    const normalizedInput = normalizeSigningSessionBudgetRecordSuccessInput(input);
+    const normalizedInput: SigningSessionBudgetReserveInput = {
+      ...input,
+      spend: normalizeWalletSigningSpendPlan(input.spend),
+    };
     const spend = normalizedInput.spend;
     const operationId = normalizeRequired(spend.operationId, 'operationId');
     const walletSigningSessionId = normalizeRequired(
@@ -129,16 +130,10 @@ export class BudgetCoordinator implements SigningSessionBudget {
   async getAvailableStatus(
     input: Parameters<SigningSessionBudget['getAvailableStatus']>[0],
   ): ReturnType<SigningSessionBudget['getAvailableStatus']> {
-    const walletSigningSessionId = normalizeRequired(
-      input.walletSigningSessionId,
-      'walletSigningSessionId',
-    );
+    const walletSigningSessionId = normalizeRequired(input.walletSigningSessionId, 'walletSigningSessionId');
     const status = await this.deps.readStatus({
-      nearAccountId: input.nearAccountId,
+      ...input,
       walletSigningSessionId,
-      targetBackingMaterialSessionIds: normalizeStringList(input.targetBackingMaterialSessionIds),
-      targetThresholdSessionIds: normalizeStringList(input.targetThresholdSessionIds),
-      trustedStatusAuth: input.trustedStatusAuth,
     });
     return applySigningSessionBudgetReservationsToStatus({
       status,
@@ -148,9 +143,9 @@ export class BudgetCoordinator implements SigningSessionBudget {
   }
 
   async recordSuccess(
-    input: SigningSessionBudgetRecordSuccessInput,
+    input: SigningSessionBudgetSuccessInput,
   ): ReturnType<SigningSessionBudget['recordSuccess']> {
-    const normalizedInput = normalizeSigningSessionBudgetRecordSuccessInput(input);
+    const normalizedInput = normalizeWalletBudgetSuccessInput(input);
     const operationId = normalizeRequired(normalizedInput.spend.operationId, 'operationId');
     const existing = this.successfulSpendsByOperationId.get(operationId);
     if (existing) {
@@ -163,37 +158,43 @@ export class BudgetCoordinator implements SigningSessionBudget {
       return await existing.promise;
     }
     const reservation = this.reservationsByOperationId.get(operationId);
-    let spendInput = normalizedInput;
     if (reservation) {
       assertWalletSigningOperationFingerprintMatches({
         operationId,
         existingFingerprint: resolveWalletSigningOperationFingerprint(reservation.spend),
         nextFingerprint: resolveWalletSigningOperationFingerprint(normalizedInput.spend),
       });
-      spendInput = {
-        ...normalizedInput,
-        expectedBudgetProjectionVersion: reservation.expectedBudgetProjectionVersion,
-      };
+      if (normalizedInput.kind === 'unreserved_success') {
+        throw new Error(
+          '[SigningSessionBudget] reserved operations must finalize with reserved_success',
+        );
+      }
+      if (
+        normalizedInput.kind === 'reserved_success' &&
+        normalizedInput.expectedBudgetProjectionVersion !==
+          (reservation.expectedBudgetProjectionVersion ||
+            reservation.reservedAgainstProjectionVersion)
+      ) {
+        throw new Error(
+          '[SigningSessionBudget] reserved_success projection does not match reservation',
+        );
+      }
+    } else if (normalizedInput.kind === 'reserved_success') {
+      throw new Error(
+        '[SigningSessionBudget] reserved_success requires an existing reservation',
+      );
     }
     if (!reservation) {
-      const status = await this.deps.readStatus({
-        nearAccountId: normalizedInput.spend.nearAccountId,
-        walletSigningSessionId: normalizedInput.spend.walletSigningSessionId,
-        targetBackingMaterialSessionIds: normalizeStringList(
-          normalizedInput.spend.backingMaterialSessionIds,
-        ),
-        targetThresholdSessionIds: normalizeStringList(normalizedInput.spend.thresholdSessionIds),
-        trustedStatusAuth: normalizedInput.trustedStatusAuth,
-      });
+      const status = await this.deps.readStatus(
+        buildSigningSessionBudgetStatusCheckForSpend({
+          spend: normalizedInput.spend,
+          trustedStatusAuth: normalizedInput.trustedStatusAuth,
+        }),
+      );
       if (status.status === 'budget_unknown') {
         throw new Error(SIGNING_SESSION_BUDGET_UNKNOWN_ERROR);
       }
-      const hasAuthoritativeExternalSpend =
-        Boolean(
-          normalizeStringList(normalizedInput.alreadyConsumedBackingMaterialSessionIds)?.length,
-        ) ||
-        Boolean(normalizeStringList(normalizedInput.alreadyConsumedThresholdSessionIds)?.length);
-      if (!hasAuthoritativeExternalSpend) {
+      if (normalizedInput.kind !== 'externally_consumed_success') {
         assertPreparedBudgetProjectionVersion({
           status,
           expectedBudgetProjectionVersion: normalizedInput.expectedBudgetProjectionVersion,
@@ -201,35 +202,34 @@ export class BudgetCoordinator implements SigningSessionBudget {
       }
     }
 
-    const spendPromise = this.recordSpend(spendInput)
+    const spendPromise = this.recordSpend(normalizedInput)
       .catch((error) => {
         this.successfulSpendsByOperationId.delete(operationId);
-        this.emitTrace(spendInput, 'wallet_signing_budget_spend_failed', {
+        this.emitTrace(normalizedInput, 'wallet_signing_budget_spend_failed', {
           error: error instanceof Error ? error.message : String(error || 'unknown error'),
         });
         throw error;
       })
       .finally(() => {
-        this.releaseReservation(spendInput);
+        this.releaseReservation(normalizedInput);
       });
     this.successfulSpendsByOperationId.set(operationId, {
-      operationFingerprint: resolveWalletSigningOperationFingerprint(spendInput.spend),
+      operationFingerprint: resolveWalletSigningOperationFingerprint(normalizedInput.spend),
       promise: spendPromise,
     });
     return await spendPromise;
   }
 
-  recordZeroSpend(input: SigningSessionBudgetRecordZeroSpendInput): void {
-    const spend = normalizeSigningSessionBudgetRecordSuccessInput({
-      spend: input.spend,
-    }).spend;
-    this.releaseReservation({ spend }, input.reason);
-    this.emitTrace({ spend }, 'wallet_signing_budget_zero_spend_recorded', {
-      zeroSpendReason: input.reason,
-      ...(input.error
-        ? { error: input.error instanceof Error ? input.error.message : String(input.error) }
-        : {}),
-    });
+  recordZeroSpend(input: ZeroWalletBudgetSpend): void {
+    this.releaseZeroSpendReservation(input);
+    this.deps.onTrace?.(
+      createZeroSpendTraceEvent(input, 'wallet_signing_budget_zero_spend_recorded', {
+        zeroSpendReason: input.reason,
+        ...(input.error
+          ? { error: input.error instanceof Error ? input.error.message : String(input.error) }
+          : {}),
+      }),
+    );
   }
 
   hasRecorded(operationId: string): boolean {
@@ -269,7 +269,7 @@ export class BudgetCoordinator implements SigningSessionBudget {
   }
 
   private releaseReservation(
-    input: SigningSessionBudgetRecordSuccessInput,
+    input: { spend: WalletBudgetSpend },
     reason?: SigningSessionBudgetZeroSpendReason,
   ): void {
     const operationId = normalizeRequired(input.spend.operationId, 'operationId');
@@ -283,8 +283,19 @@ export class BudgetCoordinator implements SigningSessionBudget {
     );
   }
 
+  private releaseZeroSpendReservation(input: ZeroWalletBudgetSpend): void {
+    const reservation = this.reservationsByOperationId.get(input.operationId);
+    if (!reservation) return;
+    this.reservationsByOperationId.delete(input.operationId);
+    this.deps.onTrace?.(
+      createZeroSpendTraceEvent(input, 'wallet_signing_budget_reservation_released', {
+        zeroSpendReason: input.reason,
+      }),
+    );
+  }
+
   private async recordSpend(
-    input: SigningSessionBudgetRecordSuccessInput,
+    input: SigningSessionBudgetSuccessInput,
   ): Promise<SigningSessionStatus | null> {
     if (!this.deps.consumeUse) {
       throw new Error(
@@ -298,20 +309,26 @@ export class BudgetCoordinator implements SigningSessionBudget {
     );
     const nearAccountId = normalizeRequired(spend.nearAccountId, 'nearAccountId') as AccountId;
     this.emitTrace(input, 'wallet_signing_budget_spend_started');
+    const budgetStatusCheck = buildSigningSessionBudgetStatusCheckForSpend({
+      spend,
+      trustedStatusAuth: input.trustedStatusAuth,
+    });
     const status = await this.deps.consumeUse({
       nearAccountId,
       walletSigningSessionId,
       uses: spend.uses,
       reason: spend.reason,
-      targetBackingMaterialSessionIds: normalizeStringList(spend.backingMaterialSessionIds),
-      targetThresholdSessionIds: normalizeStringList(spend.thresholdSessionIds),
-      alreadyConsumedBackingMaterialSessionIds: normalizeStringList(
-        input.alreadyConsumedBackingMaterialSessionIds,
-      ),
-      alreadyConsumedThresholdSessionIds: normalizeStringList(
-        input.alreadyConsumedThresholdSessionIds,
-      ),
-      trustedStatusAuth: input.trustedStatusAuth,
+      budgetStatusCheck,
+      ...(input.kind === 'externally_consumed_success'
+        ? {
+            alreadyConsumedBackingMaterialSessionIds: normalizeStringList(
+              input.alreadyConsumedBackingMaterialSessionIds,
+            ),
+            alreadyConsumedThresholdSessionIds: normalizeStringList(
+              input.alreadyConsumedThresholdSessionIds,
+            ),
+          }
+        : {}),
     });
     if (!status) {
       throw new Error('[SigningSessionBudget] wallet signing-session spend returned no status');
@@ -335,7 +352,7 @@ export class BudgetCoordinator implements SigningSessionBudget {
   }
 
   private emitTrace(
-    input: SigningSessionBudgetRecordSuccessInput,
+    input: { spend: WalletBudgetSpend },
     event: SigningSessionBudgetTraceEvent['event'],
     extra: Pick<SigningSessionBudgetTraceEvent, 'status' | 'error' | 'zeroSpendReason'> = {},
   ): void {

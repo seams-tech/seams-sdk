@@ -23,15 +23,15 @@ import { toAccountId } from '../../types/accountIds';
 import { resolveWorkerUrl } from '../../walletRuntimePaths';
 import {
   acquireSigningSessionRestoreLease,
+  buildCurrentSealedSessionRecord,
   clearAllSealedSessions,
   deleteExactSealedSession,
   listExactSealedSessionsForAccount,
-  publishResolvedIdentity,
   readExactSealedSession,
   releaseSigningSessionRestoreLease,
   updateExactSealedSessionPolicy,
   writeExactSealedSession,
-  type WriteExactSealedSessionBaseInput,
+  type BuildCurrentSealedSessionRecordBaseInput,
   type SigningSessionSealedStoreRecord,
   type SigningSessionSealedRecordFilter,
 } from '../session/persistence/sealedSessionStore';
@@ -39,8 +39,6 @@ import {
   getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
   getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget,
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
-  upsertStoredThresholdEcdsaSessionRecord,
-  upsertStoredThresholdEd25519SessionRecord,
 } from '../session/persistence/records';
 import { normalizeThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import {
@@ -66,11 +64,12 @@ import type {
   UiConfirmContext,
   UiConfirmManager,
 } from './types';
-import type { EcdsaThresholdKeyId } from '../interfaces/signing';
 import {
   restorePersistedSessionsForAccountCommand,
   restorePersistedSessionForSigningCommand,
 } from '../session/sealedRecovery/restoreCoordinator';
+import { restorePasskeyEcdsaSealedRecordForAccount } from '../session/passkey/ecdsaRecovery';
+import { restorePasskeyEd25519SealedRecordForAccount } from '../session/passkey/ed25519Recovery';
 import type {
   RestorePersistedSessionsForAccountInput,
   RestorePersistedSessionsForAccountResult,
@@ -79,10 +78,12 @@ import type {
   RestorePersistedSessionPurpose,
   RestoreSealedRecordForAccountResult,
 } from '../session/sealedRecovery/types';
+import type {
+  SealedRecoveryRecord,
+} from '../session/sealedRecovery/recoveryRecord';
 import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
-  toWalletSubjectId,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
@@ -556,17 +557,24 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
   }
 
   private async registerSigningSession(
-    record: WriteExactSealedSessionBaseInput & { curve: 'ed25519' | 'ecdsa' },
+    record: BuildCurrentSealedSessionRecordBaseInput & { curve: 'ed25519' | 'ecdsa' },
   ): Promise<void> {
-    if (record.curve === 'ecdsa') {
-      const subjectId = String(record.subjectId || '').trim();
-      if (!subjectId) {
-        throw new Error('[UiConfirm] ECDSA sealed write requires subjectId');
-      }
-      await writeExactSealedSession({ ...record, curve: 'ecdsa', subjectId });
-      return;
+    const currentRecord = buildCurrentSealedSessionRecord(
+      record.curve === 'ecdsa'
+        ? {
+            ...record,
+            curve: 'ecdsa',
+            subjectId: String(record.subjectId || '').trim(),
+          }
+        : {
+            ...record,
+            curve: 'ed25519',
+          },
+    );
+    if (!currentRecord) {
+      throw new Error('[SigningSessionSealedStore] invalid sealed session record write input');
     }
-    await writeExactSealedSession({ ...record, curve: 'ed25519' });
+    await writeExactSealedSession(currentRecord);
   }
 
   private mergePasskeySealedRecordMetadata(args: {
@@ -766,84 +774,6 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     };
   }
 
-  private publishRestoredPasskeyThresholdSessionRecord(args: {
-    accountId: string;
-    record: SigningSessionSealedStoreRecord;
-    purpose: RestorePersistedSessionPurpose;
-    policy: { expiresAtMs: number; remainingUses: number };
-  }): void {
-    const thresholdSessionId = String(args.purpose.thresholdSessionId || '').trim();
-    const walletSigningSessionId = String(args.purpose.walletSigningSessionId || '').trim();
-    const relayerUrl = String(args.record.relayerUrl || '').trim();
-    if (!thresholdSessionId || !walletSigningSessionId || !relayerUrl) return;
-    if (args.purpose.curve === 'ed25519') {
-      const restore = args.record.ed25519Restore;
-      if (!restore) return;
-      const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(restore.runtimePolicyScope);
-      upsertStoredThresholdEd25519SessionRecord({
-        nearAccountId: args.accountId,
-        rpId: restore.rpId,
-        relayerUrl,
-        relayerKeyId: restore.relayerKeyId,
-        participantIds: restore.participantIds,
-        ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-        ...(restore.xClientBaseB64u ? { xClientBaseB64u: restore.xClientBaseB64u } : {}),
-        thresholdSessionKind: restore.sessionKind,
-        thresholdSessionId,
-        walletSigningSessionId,
-        ...(restore.thresholdSessionAuthToken ? { thresholdSessionAuthToken: restore.thresholdSessionAuthToken } : {}),
-        expiresAtMs: args.policy.expiresAtMs,
-        remainingUses: args.policy.remainingUses,
-        updatedAtMs: Date.now(),
-        source: 'login',
-      });
-      return;
-    }
-
-    const restore = args.record.ecdsaRestore;
-    const signingRootId = String(args.record.signingRootId || '').trim();
-    if (
-      !restore ||
-      !restore.chainTarget ||
-      !thresholdEcdsaChainTargetsEqual(restore.chainTarget, args.purpose.chainTarget) ||
-      !restore.clientVerifyingShareB64u
-    ) {
-      return;
-    }
-    if (!signingRootId) return;
-    const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(restore.runtimePolicyScope);
-    upsertStoredThresholdEcdsaSessionRecord(
-      { recordsByLane: new Map() },
-      {
-        nearAccountId: toAccountId(args.accountId),
-        subjectId: toWalletSubjectId(args.accountId),
-        chainTarget: restore.chainTarget,
-        relayerUrl,
-        ecdsaThresholdKeyId: restore.ecdsaThresholdKeyId as EcdsaThresholdKeyId,
-        signingRootId,
-        ...(args.record.signingRootVersion
-          ? { signingRootVersion: args.record.signingRootVersion }
-          : {}),
-        relayerKeyId: restore.relayerKeyId,
-        clientVerifyingShareB64u: restore.clientVerifyingShareB64u,
-        participantIds: restore.participantIds,
-        ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-        thresholdSessionKind: restore.sessionKind,
-        thresholdSessionId,
-        walletSigningSessionId,
-        ...(restore.thresholdSessionAuthToken ? { thresholdSessionAuthToken: restore.thresholdSessionAuthToken } : {}),
-        ...(args.record.keyVersion ? { signingSessionSealKeyVersion: args.record.keyVersion } : {}),
-        ...(args.record.shamirPrimeB64u
-          ? { signingSessionSealShamirPrimeB64u: args.record.shamirPrimeB64u }
-          : {}),
-        expiresAtMs: args.policy.expiresAtMs,
-        remainingUses: args.policy.remainingUses,
-        updatedAtMs: Date.now(),
-        source: 'login',
-      },
-    );
-  }
-
   private async ensureSealedRecordPersistedBestEffort(
     thresholdSessionIdRaw: string,
     transport?: WarmSessionSealTransportInput | null,
@@ -859,7 +789,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
 
   private async restorePasskeySealedRecordForAccount(args: {
     accountId: string;
-    record: SigningSessionSealedStoreRecord;
+    record: SealedRecoveryRecord;
     purpose: RestorePersistedSessionPurpose;
   }): Promise<RestoreSealedRecordForAccountResult> {
     if (!this.isSealedRefreshModeEnabled()) return 'deferred';
@@ -869,12 +799,12 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     if (args.record.authMethod !== 'passkey') return 'deferred';
     const curve = args.purpose.curve;
     const chainTarget = curve === 'ecdsa' ? args.purpose.chainTarget : undefined;
-    if (
-      curve === 'ecdsa' &&
-      (!chainTarget ||
-        !args.record.ecdsaRestore?.chainTarget ||
-        !thresholdEcdsaChainTargetsEqual(args.record.ecdsaRestore.chainTarget, chainTarget))
-    ) {
+    if (curve === 'ecdsa') {
+      if (!chainTarget || args.record.curve !== 'ecdsa') return 'deferred';
+      if (!thresholdEcdsaChainTargetsEqual(args.record.chainTarget, chainTarget)) {
+        return 'deferred';
+      }
+    } else if (args.record.curve !== 'ed25519') {
       return 'deferred';
     }
     const singleFlightKey = makeWarmSessionSingleFlightKey({
@@ -916,11 +846,10 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
             walletSigningSessionId: args.purpose.walletSigningSessionId,
             keyVersion: args.record.keyVersion,
             shamirPrimeB64u: args.record.shamirPrimeB64u,
-            ...(args.record.ecdsaRestore?.thresholdSessionAuthToken
-              ? { thresholdSessionAuthToken: args.record.ecdsaRestore.thresholdSessionAuthToken }
+            ...(args.record.thresholdSessionAuthToken
+              ? { thresholdSessionAuthToken: args.record.thresholdSessionAuthToken }
               : {}),
           },
-          args.record,
         );
         if (!transport) return null;
         const shamirPrimeB64u = String(
@@ -928,108 +857,104 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         ).trim();
         if (!shamirPrimeB64u) return null;
 
-        // Lane identity comes from the authenticated durable seal metadata. Publish it before
-        // touching volatile worker state so refresh restore cannot fall back to "session not ready".
-        this.publishRestoredPasskeyThresholdSessionRecord({
-          accountId: args.accountId,
-          record: args.record,
-          purpose: args.purpose,
-          policy: {
-            expiresAtMs: Math.floor(Number(args.record.expiresAtMs) || 0),
-            remainingUses: Math.max(0, Math.floor(Number(args.record.remainingUses) || 0)),
-          },
-        });
-        if (curve === 'ecdsa' && chainTarget && args.purpose.curve === 'ecdsa') {
-          publishResolvedIdentity({
-            walletId: args.accountId,
-            authMethod: 'passkey',
-            curve: 'ecdsa',
-            chainTarget: args.purpose.chainTarget,
-            walletSigningSessionId: args.purpose.walletSigningSessionId,
-            thresholdSessionId,
-          });
-        } else if (curve === 'ed25519') {
-          publishResolvedIdentity({
-            walletId: args.accountId,
-            authMethod: 'passkey',
-            curve: 'ed25519',
-            chain: 'near',
-            walletSigningSessionId: args.purpose.walletSigningSessionId,
-            thresholdSessionId,
-          });
-        }
-
-        const rehydrated = await this.rehydrateWarmSessionMaterial({
-          sessionId: thresholdSessionId,
-          sealedSecretB64u: args.record.sealedSecretB64u,
-          keyVersion: args.record.keyVersion,
-          expiresAtMs: args.record.expiresAtMs,
-          // IndexedDB remainingUses is a restore hint, not budget authority.
-          // Keep restored passkey material locally available; the wallet
-          // budget service decides whether each operation may spend.
-          remainingUses: Math.max(1_000_000, Math.floor(Number(args.record.remainingUses) || 0)),
-          transport: {
-            ...transport,
-            shamirPrimeB64u,
-          },
-        });
-        if (!rehydrated.ok) {
-          if (rehydrated.code === 'expired') {
-            await deleteExactSealedSession(thresholdSessionId, sealedRecordFilter).catch(
-              () => undefined,
-            );
-          }
-          await this.recordSessionMaterialRestored(
-            thresholdSessionId,
-            rehydrated,
-            curve,
-            chainTarget,
-          );
-          return { ok: false, code: rehydrated.code, message: rehydrated.message };
-        }
-
-        this.publishRestoredPasskeyThresholdSessionRecord({
-          accountId: args.accountId,
-          record: args.record,
-          purpose: args.purpose,
-          policy: {
-            expiresAtMs: rehydrated.expiresAtMs,
-            remainingUses: rehydrated.remainingUses,
-          },
-        });
-
-        await this.recordSessionMaterialRestored(
-          thresholdSessionId,
-          rehydrated,
-          curve,
-          chainTarget,
-        );
-
-        const rehydratedPeek = await this.sendMessage({
-          type: 'WARM_SESSION_STATUS_READ',
-          id: this.generateMessageId(),
-          payload: { sessionId: thresholdSessionId },
-        });
-        const parsed = parseWarmSessionStatusResult(rehydratedPeek?.data);
-        if (rehydratedPeek?.success !== true || !parsed) {
-          return {
-            ok: false,
-            code: 'worker_error',
-            message: String(
-              rehydratedPeek?.error || 'Warm-session status read failed after rehydrate',
-            ),
-          };
-        }
-        if (parsed.ok) {
-          await updateExactSealedSessionPolicy({
-            thresholdSessionId,
-            filter: sealedRecordFilter,
-            expiresAtMs: parsed.expiresAtMs,
-            remainingUses: parsed.remainingUses,
-            updatedAtMs: Date.now(),
-          }).catch(() => undefined);
-        }
-        return parsed;
+        return curve === 'ecdsa' &&
+          chainTarget &&
+          args.purpose.curve === 'ecdsa' &&
+          args.purpose.authMethod === 'passkey' &&
+          args.record.authMethod === 'passkey' &&
+          args.record.curve === 'ecdsa'
+          ? await restorePasskeyEcdsaSealedRecordForAccount({
+              accountId: args.accountId,
+              record: args.record,
+              purpose: { ...args.purpose, authMethod: 'passkey' },
+              transport,
+              shamirPrimeB64u,
+              rehydrateWarmSessionMaterial: (rehydrateArgs) =>
+                this.rehydrateWarmSessionMaterial(rehydrateArgs),
+              deletePersistedRecord: async () =>
+                await deleteExactSealedSession(thresholdSessionId, sealedRecordFilter),
+              recordSessionMaterialRestored: async (status) =>
+                await this.recordSessionMaterialRestored(
+                  thresholdSessionId,
+                  status,
+                  curve,
+                  chainTarget,
+                ),
+              readWarmSessionStatusFromWorker: async (sessionId) => {
+                const rehydratedPeek = await this.sendMessage({
+                  type: 'WARM_SESSION_STATUS_READ',
+                  id: this.generateMessageId(),
+                  payload: { sessionId },
+                });
+                const parsed = parseWarmSessionStatusResult(rehydratedPeek?.data);
+                if (rehydratedPeek?.success !== true || !parsed) {
+                  return {
+                    ok: false,
+                    code: 'worker_error',
+                    message: String(
+                      rehydratedPeek?.error ||
+                        'Warm-session status read failed after rehydrate',
+                    ),
+                  };
+                }
+                return parsed;
+              },
+              updatePersistedPolicy: async (policy) =>
+                await updateExactSealedSessionPolicy({
+                  thresholdSessionId,
+                  filter: sealedRecordFilter,
+                  ...policy,
+                }),
+            })
+          : curve === 'ed25519' &&
+              args.purpose.curve === 'ed25519' &&
+              args.purpose.authMethod === 'passkey' &&
+              args.record.authMethod === 'passkey' &&
+              args.record.curve === 'ed25519'
+            ? await restorePasskeyEd25519SealedRecordForAccount({
+                accountId: args.accountId,
+                record: args.record,
+                purpose: { ...args.purpose, authMethod: 'passkey' },
+                transport,
+                shamirPrimeB64u,
+                rehydrateWarmSessionMaterial: (rehydrateArgs) =>
+                  this.rehydrateWarmSessionMaterial(rehydrateArgs),
+                deletePersistedRecord: async () =>
+                  await deleteExactSealedSession(thresholdSessionId, sealedRecordFilter),
+                recordSessionMaterialRestored: async (status) =>
+                  await this.recordSessionMaterialRestored(
+                    thresholdSessionId,
+                    status,
+                    curve,
+                    chainTarget,
+                  ),
+                readWarmSessionStatusFromWorker: async (sessionId) => {
+                  const rehydratedPeek = await this.sendMessage({
+                    type: 'WARM_SESSION_STATUS_READ',
+                    id: this.generateMessageId(),
+                    payload: { sessionId },
+                  });
+                  const parsed = parseWarmSessionStatusResult(rehydratedPeek?.data);
+                  if (rehydratedPeek?.success !== true || !parsed) {
+                    return {
+                      ok: false,
+                      code: 'worker_error',
+                      message: String(
+                        rehydratedPeek?.error ||
+                          'Warm-session status read failed after rehydrate',
+                      ),
+                    };
+                  }
+                  return parsed;
+                },
+                updatePersistedPolicy: async (policy) =>
+                  await updateExactSealedSessionPolicy({
+                    thresholdSessionId,
+                    filter: sealedRecordFilter,
+                    ...policy,
+                  }),
+              })
+            : null;
       } finally {
         await releaseSigningSessionRestoreLease(lease);
       }

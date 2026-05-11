@@ -1,38 +1,45 @@
 import type {
+  BudgetFinalizationSpend,
+  ExternallyConsumedBudgetFinalizationSpend,
+  ReservedBudgetFinalizationSpend,
   SigningSessionBudget,
-  SigningSessionBudgetRecordSuccessInput,
   SigningSessionBudgetReservation,
   SigningSessionPreparedBudgetIdentity,
-  SigningSessionBudgetStatusAuth,
   SigningSessionBudgetZeroSpendReason,
+  UnreservedBudgetFinalizationSpend,
+  ZeroBudgetFinalizationSpend,
 } from './budget';
-import { buildWalletSigningSpendPlan, isSigningSessionBudgetInFlightError } from './budget';
+import { isSigningSessionBudgetInFlightError } from './budget';
 import type {
   SigningAuthMethod,
-  SigningOperationContext,
-  SelectedSigningSessionPlanningLane,
   WalletSigningSpendPlan,
 } from '../operationState/types';
 
 export type SigningSessionBudgetFinalizer = {
   spend?: WalletSigningSpendPlan;
   reserve(): Promise<SigningSessionBudgetReservation | null>;
-  recordSuccess(input?: Omit<SigningSessionBudgetRecordSuccessInput, 'spend'>): Promise<void>;
+  recordSuccess(): Promise<void>;
   recordZeroSpend(error: unknown): void;
 };
+
+type BudgetFinalizationSpendWithSpend =
+  | ReservedBudgetFinalizationSpend
+  | UnreservedBudgetFinalizationSpend
+  | ExternallyConsumedBudgetFinalizationSpend;
 
 export function createSigningSessionBudgetFinalizer(args: {
   signingSessionBudget?: SigningSessionBudget;
   budgetIdentity: SigningSessionPreparedBudgetIdentity;
-  trustedStatusAuth?: SigningSessionBudgetStatusAuth;
-  operation: SigningOperationContext;
-  lane: SelectedSigningSessionPlanningLane;
+  finalization: BudgetFinalizationSpend;
   onRecordSuccessError?: (error: unknown, spend: WalletSigningSpendPlan) => void;
   onRecordZeroSpendError?: (error: unknown) => void;
 }): SigningSessionBudgetFinalizer {
-  const spend = buildWalletSigningSpendPlan(args.operation, args.lane);
+  const spend = getFinalizationSpend(args.finalization);
   const budget = args.signingSessionBudget;
-  if (args.budgetIdentity.walletSigningSessionId !== String(spend.walletSigningSessionId)) {
+  if (
+    spend &&
+    args.budgetIdentity.walletSigningSessionId !== String(spend.walletSigningSessionId)
+  ) {
     throw new Error('[SigningSessionBudget] prepared budget identity does not match spend lane');
   }
 
@@ -40,25 +47,26 @@ export function createSigningSessionBudgetFinalizer(args: {
     spend,
     async reserve() {
       if (!budget) return null;
+      if (!spend) return null;
+      const successFinalization = requireSuccessFinalization(args.finalization, 'reserve');
       return await reserveWithLocalContentionRetry(
         async () =>
           await budget.reserve({
             spend,
             expectedBudgetProjectionVersion: args.budgetIdentity.projectionVersion,
-            ...(args.trustedStatusAuth ? { trustedStatusAuth: args.trustedStatusAuth } : {}),
+            ...(successFinalization.trustedStatusAuth
+              ? { trustedStatusAuth: successFinalization.trustedStatusAuth }
+              : {}),
           }),
       );
     },
-    async recordSuccess(input = {}) {
+    async recordSuccess() {
       if (!budget) return;
+      if (args.finalization.kind === 'zero_spend') return;
       await budget
-        .recordSuccess({
-          ...input,
-          spend,
-          expectedBudgetProjectionVersion: args.budgetIdentity.projectionVersion,
-          ...(args.trustedStatusAuth ? { trustedStatusAuth: args.trustedStatusAuth } : {}),
-        })
+        .recordSuccess(args.finalization)
         .catch((error) => {
+          if (!spend) return;
           args.onRecordSuccessError?.(error, spend);
           // Do not fail open here. A previous regression logged spend failures and
           // still reported signing success, leaving the next operation to hit
@@ -69,19 +77,59 @@ export function createSigningSessionBudgetFinalizer(args: {
     recordZeroSpend(error) {
       if (!budget) return;
       try {
-        budget.recordZeroSpend({
-          spend,
-          reason: inferSigningSessionBudgetZeroSpendReason({
-            error,
-            authMethod: spend.lane.authMethod,
-          }),
-          error,
-        });
+        budget.recordZeroSpend(
+          args.finalization.kind === 'zero_spend'
+            ? {
+                ...args.finalization,
+                reason: inferSigningSessionBudgetZeroSpendReason({
+                  error,
+                  authMethod: args.finalization.lane.authMethod,
+                }),
+                error,
+              }
+            : {
+                kind: 'zero_spend',
+                operationId: args.finalization.spend.operationId,
+                lane: args.finalization.spend.lane,
+                reason: inferSigningSessionBudgetZeroSpendReason({
+                  error,
+                  authMethod: args.finalization.spend.lane.authMethod,
+                }),
+                error,
+              },
+        );
       } catch (recordError) {
         args.onRecordZeroSpendError?.(recordError);
       }
     },
   };
+}
+
+function getFinalizationSpend(
+  finalization: BudgetFinalizationSpend,
+): WalletSigningSpendPlan | undefined {
+  switch (finalization.kind) {
+    case 'reserved_success':
+    case 'unreserved_success':
+    case 'externally_consumed_success':
+      return finalization.spend;
+    case 'zero_spend':
+      return undefined;
+  }
+}
+
+function requireSuccessFinalization(
+  finalization: BudgetFinalizationSpend,
+  context: string,
+): BudgetFinalizationSpendWithSpend {
+  switch (finalization.kind) {
+    case 'reserved_success':
+    case 'unreserved_success':
+    case 'externally_consumed_success':
+      return finalization;
+    case 'zero_spend':
+      throw new Error(`[SigningSessionBudget] ${context} requires a success finalization branch`);
+  }
 }
 
 async function reserveWithLocalContentionRetry(

@@ -27,14 +27,13 @@ export type ApplyWarmEcdsaPostSignPolicyArgs = {
   nearAccountId: AccountId | string;
   chainTarget: ThresholdEcdsaChainTarget;
   selectedRecord: ThresholdEcdsaSessionRecord;
-  thresholdSessionId?: string;
-  source?: ThresholdEcdsaSessionStoreSource;
+  thresholdSessionId: string;
 };
 
 export type WarmSessionEcdsaCapabilityRef = {
   nearAccountId: AccountId | string;
   chainTarget: ThresholdEcdsaChainTarget;
-  thresholdSessionId?: string;
+  thresholdSessionId: string;
 };
 
 export type WarmSessionPostSignPolicyAdapterDeps = {
@@ -51,7 +50,7 @@ export type WarmSessionPostSignPolicyAdapterDeps = {
   }) => void;
   clearEcdsaEphemeralMaterial: (args: {
     record: ThresholdEcdsaSessionRecord;
-    thresholdSessionId?: string;
+    thresholdSessionId: string;
   }) => Promise<void>;
 };
 
@@ -59,7 +58,7 @@ async function resolveSecondaryEcdsaRecord(args: {
   getWarmSession: WarmSessionPostSignPolicyAdapterDeps['getWarmSession'];
   accountId: AccountId;
   chainTarget: ThresholdEcdsaChainTarget;
-  source?: ThresholdEcdsaSessionStoreSource;
+  source: ThresholdEcdsaSessionStoreSource;
 }): Promise<ThresholdEcdsaSessionRecord | null> {
   if (args.source) return null;
   const warmSession = await args.getWarmSession(args.accountId);
@@ -77,11 +76,11 @@ export async function applyWarmSessionEcdsaPostSignPolicy(
     getWarmSession: deps.getWarmSession,
     accountId,
     chainTarget: args.chainTarget,
-    ...(args.source ? { source: args.source } : {}),
+    source: args.selectedRecord.source,
   });
   await applyEcdsaPostSignPolicy({
-    thresholdSessionId: args.thresholdSessionId || null,
-    source: args.source || null,
+    thresholdSessionId: args.thresholdSessionId,
+    source: args.selectedRecord.source,
     selectedMaterial: ecdsaPostSignPolicyMaterialFromRecord({
       record: args.selectedRecord,
       clearEcdsaEphemeralMaterial: deps.clearEcdsaEphemeralMaterial,
@@ -100,7 +99,7 @@ export async function assertWarmSessionEcdsaOperationAllowed(
   deps: Pick<WarmSessionPostSignPolicyAdapterDeps, 'getWarmSession' | 'resolveCurrentEcdsaRecord'>,
   args: WarmSessionEcdsaCapabilityRef & {
     operationLabel: string;
-    source?: ThresholdEcdsaSessionStoreSource;
+    source: ThresholdEcdsaSessionStoreSource;
     sensitivePolicy?: SensitiveOperationPolicy;
   },
 ): Promise<void> {
@@ -108,19 +107,19 @@ export async function assertWarmSessionEcdsaOperationAllowed(
   const record = deps.resolveCurrentEcdsaRecord({
     nearAccountId: accountId,
     chainTarget: args.chainTarget,
-    ...(args.source ? { source: args.source } : {}),
+    source: args.source,
   });
   const secondaryRecord = await resolveSecondaryEcdsaRecord({
     getWarmSession: deps.getWarmSession,
     accountId,
     chainTarget: args.chainTarget,
-    ...(args.source ? { source: args.source } : {}),
+    source: args.source,
   });
   assertEcdsaOperationAllowed({
     chainTarget: args.chainTarget,
     operationLabel: args.operationLabel,
-    thresholdSessionId: args.thresholdSessionId || null,
-    source: args.source || null,
+    thresholdSessionId: args.thresholdSessionId,
+    source: args.source,
     selectedSession: record ? ecdsaPostSignPolicySessionFromRecord(record) : null,
     secondarySession: secondaryRecord
       ? ecdsaPostSignPolicySessionFromRecord(secondaryRecord)

@@ -22,3 +22,9 @@ confirmation/runtime flow modules.
 - `credentials/*`
 - `device/*`
 - `fallbacks/*`
+
+## ECDSA Boundary
+
+`webauthnAuth/*` provides credential primitives only. It does not own ECDSA
+session reconnect planning, warm-session bootstrap resolution, or threshold
+activation.

@@ -152,8 +152,8 @@ export type WalletSigningSpendPlan = {
   nearAccountId: AccountId;
   walletSigningSessionId: WalletSigningSessionId;
   lane: SelectedSigningSessionPlanningLane;
-  thresholdSessionIds: ThresholdSessionId[];
-  backingMaterialSessionIds: BackingMaterialSessionId[];
+  thresholdSessionIds: readonly ThresholdSessionId[];
+  backingMaterialSessionIds: readonly BackingMaterialSessionId[];
   uses: 1;
   reason: SigningOperationIntent;
 };

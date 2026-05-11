@@ -1,8 +1,8 @@
-import type { SigningSessionSealedStoreRecord } from '../persistence/sealedSessionStore';
 import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
-  buildRestoreWorkItemForRecord,
-  buildRestoreWorkItemsForAccountRecord,
+  buildRestoreWorkItemLookupResult,
+  buildRestoreWorkItemLookupResultsForAccountRecord,
+  type RestoreWorkItemLookupResult,
 } from './exactRecordLookup';
 import type {
   RestorePersistedSessionForSigningInput,
@@ -15,10 +15,17 @@ import type {
   SigningSessionRestoreAttemptRegistry,
   SigningSessionRestoreCache,
 } from './types';
+import type { SealedRecoveryRecord } from './recoveryRecord';
 
 type RestorePersistedSessionCacheInput =
   | RestorePersistedSessionForSigningInput
   | RestorePersistedSessionPurpose;
+
+function isMatchedRestoreWorkItemLookup(
+  lookup: RestoreWorkItemLookupResult,
+): lookup is Extract<RestoreWorkItemLookupResult, { kind: 'matched' }> {
+  return lookup.kind === 'matched';
+}
 
 function knownMissingCacheKey(input: RestorePersistedSessionForSigningInput): string {
   const chainKey =
@@ -37,7 +44,7 @@ function knownMissingCacheKey(input: RestorePersistedSessionForSigningInput): st
 
 function successfulRestoreCacheKey(
   input: RestorePersistedSessionCacheInput,
-  record: SigningSessionSealedStoreRecord,
+  record: SealedRecoveryRecord,
 ): string {
   const chainKey =
     input.curve === 'ecdsa' ? thresholdEcdsaChainTargetKey(input.chainTarget) : input.chain;
@@ -50,13 +57,13 @@ function successfulRestoreCacheKey(
     input.walletSigningSessionId,
     input.thresholdSessionId,
     record.walletSigningSessionId,
-    record.thresholdSessionIds[input.curve] || '',
+    record.thresholdSessionId,
     record.updatedAtMs,
     'restored',
   ].join('|');
 }
 
-function purposeCacheKey(purpose: RestorePersistedSessionPurpose, record: SigningSessionSealedStoreRecord): string {
+function purposeCacheKey(purpose: RestorePersistedSessionPurpose, record: SealedRecoveryRecord): string {
   const chainKey =
     purpose.curve === 'ecdsa' ? thresholdEcdsaChainTargetKey(purpose.chainTarget) : purpose.chain;
   return [
@@ -135,7 +142,7 @@ export async function restorePersistedSessionForSigningCommand(
     return { attempted: 0, restored: 0, deferred: 0 };
   }
 
-  let records: SigningSessionSealedStoreRecord[];
+  let records;
   try {
     if (normalizedInput.curve === 'ecdsa') {
       records = await ports.listExactSealedSessionsForAccount({
@@ -164,12 +171,16 @@ export async function restorePersistedSessionForSigningCommand(
     return { attempted: 0, restored: 0, deferred: 0 };
   }
 
-  const exactPurposeWorkItems = records
-    .map((record) => buildRestoreWorkItemForRecord(normalizedInput, record))
-    .filter(
-      (item): item is NonNullable<ReturnType<typeof buildRestoreWorkItemForRecord>> =>
-        item !== null,
-    );
+  const exactPurposeLookups = records.map((record) =>
+    buildRestoreWorkItemLookupResult(normalizedInput, record),
+  );
+  for (const lookup of exactPurposeLookups) {
+    if (lookup.kind !== 'rejected') continue;
+    ports.onRejectedRecord?.({ accountId, rejection: lookup.rejection });
+  }
+  const exactPurposeWorkItems = exactPurposeLookups
+    .filter(isMatchedRestoreWorkItemLookup)
+    .map((lookup) => lookup.workItem);
   if (!exactPurposeWorkItems.length) {
     ports.cache?.rememberKnownMissing(normalizedInput);
     return { attempted: 0, restored: 0, deferred: 0 };
@@ -204,7 +215,7 @@ export async function restorePersistedSessionsForAccountCommand(
   const empty = { listed: 0, attempted: 0, restored: 0, deferred: 0, skipped: 0, truncated: 0 };
   if (!accountId || maxRecords <= 0) return empty;
 
-  let records: SigningSessionSealedStoreRecord[];
+  let records;
   try {
     const authMethods = input.authMethod
       ? [input.authMethod]
@@ -235,14 +246,14 @@ export async function restorePersistedSessionsForAccountCommand(
   const seenWorkItems = new Set<string>();
   const workItems = records
     .flatMap((record) => [
-      ...buildRestoreWorkItemsForAccountRecord({
+      ...buildRestoreWorkItemLookupResultsForAccountRecord({
         walletId: accountId,
         record,
         reason: 'session_status',
         requestedCurve: 'ed25519',
       }),
       ...input.ecdsaChainTargets.flatMap((chainTarget) =>
-        buildRestoreWorkItemsForAccountRecord({
+        buildRestoreWorkItemLookupResultsForAccountRecord({
           walletId: accountId,
           record,
           reason: 'session_status',
@@ -251,6 +262,13 @@ export async function restorePersistedSessionsForAccountCommand(
         }),
       ),
     ])
+    .filter((lookup) => {
+      if (lookup.kind !== 'rejected') return true;
+      ports.onRejectedRecord?.({ accountId, rejection: lookup.rejection });
+      return false;
+    })
+    .filter(isMatchedRestoreWorkItemLookup)
+    .map((lookup) => lookup.workItem)
     .filter((item) => {
       const key = purposeCacheKey(item.purpose, item.record);
       if (seenWorkItems.has(key)) return false;

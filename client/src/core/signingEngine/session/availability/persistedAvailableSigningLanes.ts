@@ -5,6 +5,7 @@ import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WarmSessionStatusResult } from '../../uiConfirm/types';
 import { resolveEmailOtpEcdsaWorkerSessionId } from './readiness';
+import { buildThresholdBudgetStatusCheck, type SigningSessionBudgetStatusCheck } from '../budget/budget';
 import {
   getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
@@ -34,12 +35,9 @@ export type PersistedAvailableSigningLanesDeps = {
   statusReader: {
     getWarmSessionStatus: (args: { sessionId: string }) => Promise<WarmSessionStatusResult>;
   };
-  getWalletSigningBudgetStatus?: (args: {
-    nearAccountId: AccountId | string;
-    walletSigningSessionId: string;
-    targetThresholdSessionIds?: string[];
-    targetBackingMaterialSessionIds?: string[];
-  }) => Promise<SigningSessionStatus | null>;
+  getWalletSigningBudgetStatus?: (
+    args: SigningSessionBudgetStatusCheck,
+  ) => Promise<SigningSessionStatus | null>;
 };
 
 function applyWalletBudgetStatusToRuntimeClaim(args: {
@@ -223,11 +221,13 @@ export async function readPersistedAvailableSigningLanesForTargets(
             const walletBudgetStatus =
               walletSigningSessionId && deps.getWalletSigningBudgetStatus
                 ? await deps
-                    .getWalletSigningBudgetStatus({
+                    .getWalletSigningBudgetStatus(
+                      buildThresholdBudgetStatusCheck({
                       nearAccountId: accountId,
                       walletSigningSessionId,
                       targetThresholdSessionIds: [sessionId],
-                    })
+                      }),
+                    )
                     .catch(() => null)
                 : null;
             claims.set(

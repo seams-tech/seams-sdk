@@ -219,5 +219,14 @@ export type {
   RestorePersistedSessionsForAccountInput,
   RestorePersistedSessionsForAccountResult,
 } from './sealedRecovery/types';
+export type {
+  EmailOtpEcdsaSealedRecoveryRecord,
+  EmailOtpEd25519SealedRecoveryRecord,
+  PasskeyEcdsaSealedRecoveryRecord,
+  PasskeyEd25519SealedRecoveryRecord,
+  RejectedSealedRecoveryRecord,
+  SealedRecoveryRecord,
+  SealedRecoveryRejectionReason,
+} from './sealedRecovery/recoveryRecord';
 export type { ReadAvailableSigningLanesInput, AvailableSigningLanes } from './availability/availableSigningLanes';
 export type { ThresholdEcdsaSessionRecord } from './persistence/records';

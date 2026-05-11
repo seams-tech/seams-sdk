@@ -26,3 +26,9 @@ Auth methods start as `<method>Prompt/` folders under `stepUpConfirmation/`.
 Durable method session folders are added only when a method owns cross-operation
 lifecycle state. `session/emailOtp/` exists for that reason; passkey code stays in
 `passkeyPrompt/` and `webauthnAuth/` until it needs a comparable coordinator.
+
+## ECDSA Boundary
+
+`stepUpConfirmation/*` stops at typed authorization payloads. ECDSA session
+selection, reconnect planning, and bootstrap activation belong to
+`flows/signEvmFamily/*` and `session/passkey/*`.

@@ -25,12 +25,8 @@ export type RequireStepUpAuthRequest<
   selectedLane: TLane;
   policy: StepUpPolicy;
   confirmation: {
-    confirmPasskey(input: { prompt: { title?: string; body?: string } }): Promise<{
-      credential: unknown;
-    }>;
-    confirmEmailOtp(input: { prompt: EmailOtpConfirmPrompt }): Promise<{
-      otpCode: string;
-    }>;
+    confirmPasskey(input: { prompt: { title?: string; body?: string } }): Promise<PasskeyStepUpConfirmation>;
+    confirmEmailOtp(input: { prompt: EmailOtpConfirmPrompt }): Promise<EmailOtpStepUpConfirmation>;
   };
   methods: StepUpMethodRunners<TLane, TOperation, TPasskeyAuthorization, TEmailOtpAuthorization>;
 };
