@@ -1,4 +1,5 @@
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
+import type { ConfirmIntentDigestSigningOperationResult } from '@/core/signingEngine/stepUpConfirmation/confirmOperation';
 import type {
   UiConfirmSigningPort,
   UiConfirmSecureConfirmationPort,
@@ -15,7 +16,6 @@ import type {
 import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfaces/signing';
 import type { TxDisplayModel } from '@/core/signingEngine/interfaces/display';
 import {
-  isPasskeySigningAuthPlan,
   isWarmSessionSigningAuthPlan,
 } from '@/core/signingEngine/stepUpConfirmation/types';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
@@ -52,12 +52,14 @@ import {
   type SigningOperationTransitionObserver,
 } from '../shared/signingStateMachine';
 import type {
+  EvmFamilyThresholdEcdsaAdmissionConfirmation,
   EvmFamilyThresholdEcdsaAdmissionMode,
   EvmFamilyThresholdEcdsaOperation,
-  EvmFamilyThresholdEcdsaPasskeyReconnectPlan,
   EvmFamilyThresholdEcdsaReauthResult,
 } from './thresholdAdmission';
-import { completeEvmFamilyThresholdEcdsaAdmissionAfterConfirmation } from './thresholdAdmission';
+import {
+  completeEvmFamilyThresholdEcdsaAdmissionAfterConfirmation,
+} from './thresholdAdmission';
 import {
   createSigningConfirmationCommandHandler,
   inferDigest32FromSignRequest,
@@ -69,8 +71,10 @@ import {
 import {
   requireEvmFamilyStepUpAuth,
   signingAuthPlanFromThresholdEcdsaStepUp,
+  type EvmFamilyPreparedStepUpAuth,
   type EvmFamilyThresholdEcdsaStepUp,
 } from './requireEvmFamilyStepUpAuth';
+import { buildEvmFamilyEcdsaStepUpAuthorization } from './stepUpAuthorization';
 
 export type EvmFamilySigningAuthSideEffect = 'passkey_reauth' | 'threshold_reconnect';
 
@@ -346,15 +350,10 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
     ReturnType<typeof resolveSigningConfirmationAuth>
   >['confirmationAuthPayload'];
   type PreparedIntent = Awaited<typeof intentPreparationTask>;
-  type IntentDigestConfirmation = {
-    credential?: unknown;
-    otpCode?: string;
-    emailOtpChallengeId?: string;
-  };
 
-  let confirmationAuthPayload: ConfirmationAuthPayload | null = null;
-  let plannedPasskeyReconnect: EvmFamilyThresholdEcdsaPasskeyReconnectPlan | undefined;
-  let confirmation: IntentDigestConfirmation | null = null;
+  let preparedStepUpAuth: EvmFamilyPreparedStepUpAuth | null = null;
+  let stepUpAuthorization: ReturnType<typeof buildEvmFamilyEcdsaStepUpAuthorization> | null = null;
+  let confirmation: ConfirmIntentDigestSigningOperationResult | null = null;
   let intentPrepared: PreparedIntent | null = null;
   let intentHasSecp256k1Request = false;
   let signedResult: TResult | null = null;
@@ -365,10 +364,18 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
     if (ensuredThresholdKeyRef) return ensuredThresholdKeyRef;
     if (ensureThresholdKeyRefTask) return await ensureThresholdKeyRefTask;
     if (thresholdEcdsaStepUpRuntime?.thresholdReconnect) {
+      if (!stepUpAuthorization || stepUpAuthorization.kind !== 'warm_session') {
+        throw new Error(
+          '[chains] threshold ECDSA reconnect requires warm-session step-up authorization',
+        );
+      }
       notifyAuthSideEffectStarted('threshold_reconnect');
       ensureThresholdKeyRefTask = (async () => {
         const thresholdReconnect = thresholdEcdsaStepUpRuntime.thresholdReconnect!;
-        const ensured = await thresholdReconnect.ensureThresholdEcdsaKeyRefReady();
+        const ensured = await thresholdReconnect.ensureThresholdEcdsaKeyRefReady({
+          authorization: stepUpAuthorization,
+          usesNeeded: 1,
+        });
         thresholdEcdsaKeyRef = ensured.keyRef;
         ensuredThresholdKeyRef = ensured.keyRef;
         activeThresholdEcdsaOperation = ensured.operation;
@@ -400,9 +407,8 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
       needsWebAuthn,
       explicitAuthErrorLabel: config.explicitAuthErrorLabel,
     });
-    confirmationAuthPayload = stepUp.confirmationAuthPayload;
-    plannedPasskeyReconnect = stepUp.plannedPasskeyReconnect;
-    const emailOtpPrompt = stepUp.emailOtpPrompt;
+    preparedStepUpAuth = stepUp;
+    const confirmationAuthPayload = stepUp.confirmationAuthPayload;
     if (isWarmSessionSigningAuthPlan(confirmationAuthPayload.signingAuthPlan)) {
       await reserveWalletSigningBudgetOnce();
       emitProgress({
@@ -430,15 +436,19 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
         title: config.title,
         body: config.body,
         ...confirmationAuthPayload,
-        ...(emailOtpPrompt ? { emailOtpPrompt } : {}),
-        ...(plannedPasskeyReconnect?.sessionPolicyDigest32
-          ? { sessionPolicyDigest32: plannedPasskeyReconnect.sessionPolicyDigest32 }
+        ...(stepUp.kind === 'email_otp' ? { emailOtpPrompt: stepUp.emailOtpPrompt } : {}),
+        ...(stepUp.kind === 'passkey' && stepUp.plannedPasskeyReconnect?.sessionPolicyDigest32
+          ? { sessionPolicyDigest32: stepUp.plannedPasskeyReconnect.sessionPolicyDigest32 }
           : {}),
         onProgress: emitUiConfirmProgress,
         confirmationConfigOverride: input.confirmationConfigOverride,
       },
     });
     confirmation = await runConfirmation();
+    stepUpAuthorization = buildEvmFamilyEcdsaStepUpAuthorization({
+      prepared: stepUp,
+      confirmation,
+    });
     emitProgress({
       phase: SigningEventPhase.STEP_05_CONFIRMATION_APPROVED,
       status: 'succeeded',
@@ -454,8 +464,11 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
     if (!confirmation) {
       throw new Error('[chains] signing confirmation is required before threshold admission');
     }
-    if (!confirmationAuthPayload) {
+    if (!preparedStepUpAuth) {
       throw new Error('[chains] signing auth payload is required before threshold admission');
+    }
+    if (!stepUpAuthorization) {
+      throw new Error('[chains] signing step-up authorization is required before threshold admission');
     }
     const admissionMode: EvmFamilyThresholdEcdsaAdmissionMode = (() => {
       if (!intentHasSecp256k1Request) return { kind: 'not_required' };
@@ -465,19 +478,10 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
           emailOtpSigning: thresholdEcdsaStepUpRuntime.emailOtpSigning,
         };
       }
-      if (
-        isPasskeySigningAuthPlan(confirmationAuthPayload.signingAuthPlan) &&
-        thresholdEcdsaStepUpRuntime?.passkeyReconnect
-      ) {
-        if (!plannedPasskeyReconnect) {
-          throw new Error(
-            '[chains] passkey threshold ECDSA reconnect requires planned session identity',
-          );
-        }
+      if (stepUpAuthorization.kind === 'passkey' && thresholdEcdsaStepUpRuntime?.passkeyReconnect) {
         return {
           kind: 'passkey_reconnect',
           passkeyEcdsaReconnect: thresholdEcdsaStepUpRuntime.passkeyReconnect,
-          plannedPasskeyReconnect,
           onThresholdReconnectStarted: () => notifyAuthSideEffectStarted('threshold_reconnect'),
         };
       }
@@ -491,9 +495,32 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
       }
       return { kind: 'already_admitted' };
     })();
+    const admissionConfirmation: EvmFamilyThresholdEcdsaAdmissionConfirmation =
+      admissionMode.kind === 'threshold_reconnect'
+        ? stepUpAuthorization.kind === 'warm_session'
+          ? {
+              kind: 'warm_session',
+              authorization: stepUpAuthorization,
+            }
+          : { kind: 'none' }
+        : admissionMode.kind === 'email_otp'
+          ? stepUpAuthorization.kind === 'email_otp'
+            ? {
+                kind: 'email_otp',
+                authorization: stepUpAuthorization,
+              }
+            : { kind: 'none' }
+          : admissionMode.kind === 'passkey_reconnect'
+            ? stepUpAuthorization.kind === 'passkey'
+              ? {
+                  kind: 'passkey',
+                  authorization: stepUpAuthorization,
+                }
+              : { kind: 'none' }
+            : { kind: 'none' };
     const admissionCompletion = await completeEvmFamilyThresholdEcdsaAdmissionAfterConfirmation({
       mode: admissionMode,
-      confirmation,
+      confirmation: admissionConfirmation,
       usesNeeded: 1,
     });
     if (admissionCompletion) {

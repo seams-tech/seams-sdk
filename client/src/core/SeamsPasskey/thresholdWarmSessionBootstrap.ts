@@ -446,12 +446,13 @@ export async function persistRegisteredThresholdEd25519Session(args: {
     session.runtimePolicyScope || args.registrationSessionPolicy.runtimePolicyScope;
 
   persistWarmSessionEd25519Capability({
+    kind: 'jwt_passkey',
     nearAccountId: String(args.nearAccountId),
     rpId: args.rpId,
     relayerUrl: args.relayerUrl,
     relayerKeyId: args.completedRegistration.registered.relayerKeyId,
     participantIds,
-    sessionKind: 'jwt' as ThresholdSessionKind,
+    sessionKind: 'jwt',
     sessionId,
     walletSigningSessionId,
     expiresAtMs,
@@ -694,6 +695,7 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
   }
 
   persistWarmSessionEd25519Capability({
+    kind: 'jwt_passkey',
     nearAccountId: String(args.nearAccountId),
     rpId: String(args.rpId || '').trim(),
     relayerUrl: String(args.relayerUrl || '').trim(),

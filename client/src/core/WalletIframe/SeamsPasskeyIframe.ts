@@ -216,17 +216,11 @@ export class SeamsPasskeyIframe {
       reportDroppedOrReplaced: async (args) => await this.reportTempoDroppedOrReplacedDomain(args),
       reconcileNonceLane: async (args) => await this.reconcileTempoNonceLaneDomain(args),
       bootstrapEcdsaSession: async (args) =>
-        await this.bootstrapEcdsaSessionDomain({
-          nearAccountId: args.nearAccountId,
-          options: args.options,
-        }),
+        await this.bootstrapEcdsaSessionDomain(args),
     };
     this.evm = {
       bootstrapEcdsaSession: async (args) =>
-        await this.bootstrapEcdsaSessionDomain({
-          nearAccountId: args.nearAccountId,
-          options: args.options,
-        }),
+        await this.bootstrapEcdsaSessionDomain(args),
     };
     this.recovery = {
       getRecoveryEmails: async (accountId) => {
@@ -781,10 +775,7 @@ export class SeamsPasskeyIframe {
     args: BootstrapThresholdEcdsaSessionArgs,
   ): Promise<ThresholdEcdsaSessionBootstrapResult> {
     await this.requireRouterReady();
-    return await this.router.bootstrapEcdsaSession({
-      nearAccountId: args.nearAccountId,
-      options: args.options,
-    });
+    return await this.router.bootstrapEcdsaSession(args);
   }
 
   /**

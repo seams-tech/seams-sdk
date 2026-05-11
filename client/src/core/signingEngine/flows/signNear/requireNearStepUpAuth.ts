@@ -6,6 +6,7 @@ import type {
 } from '@/core/signingEngine/stepUpConfirmation/types';
 import {
   isEmailOtpSigningAuthPlan,
+  isPasskeySigningAuthPlan,
   isWarmSessionSigningAuthPlan,
 } from '@/core/signingEngine/stepUpConfirmation/types';
 import type {
@@ -13,20 +14,44 @@ import type {
   NearPasskeyEd25519ReconnectHook,
 } from '@/core/signingEngine/interfaces/near';
 import type { NearTransactionSigningLane } from '@/core/signingEngine/session/operationState/lanes';
-import type { WebAuthnAuthenticationCredential } from '@/core/types';
 
 export type NearPasskeyReconnectPlan = {
   sessionId: string;
-  walletSigningSessionId?: string;
+  walletSigningSessionId: string;
   sessionPolicyDigest32: string;
 };
 
-export type NearPreparedStepUpAuth = {
+type NearPreparedStepUpAuthBase = {
   confirmationAuthPayload: { signingAuthPlan: SigningAuthPlan };
-  emailOtpPrompt?: EmailOtpConfirmPrompt;
-  plannedPasskeyReconnect?: NearPasskeyReconnectPlan;
-  shouldReconnectWithPasskeyEd25519: boolean;
 };
+
+export type NearWarmSessionStepUpAuth = NearPreparedStepUpAuthBase & {
+  kind: 'warm_session';
+  confirmationAuthPayload: {
+    signingAuthPlan: Extract<SigningAuthPlan, { kind: 'warmSession' }>;
+  };
+};
+
+export type NearEmailOtpStepUpAuth = NearPreparedStepUpAuthBase & {
+  kind: 'email_otp';
+  confirmationAuthPayload: {
+    signingAuthPlan: Extract<SigningAuthPlan, { kind: 'emailOtpReauth' }>;
+  };
+  emailOtpPrompt: EmailOtpConfirmPrompt;
+};
+
+export type NearPasskeyStepUpAuth = NearPreparedStepUpAuthBase & {
+  kind: 'passkey';
+  confirmationAuthPayload: {
+    signingAuthPlan: Extract<SigningAuthPlan, { kind: 'passkeyReauth' }>;
+  };
+  plannedPasskeyReconnect: NearPasskeyReconnectPlan;
+};
+
+export type NearPreparedStepUpAuth =
+  | NearWarmSessionStepUpAuth
+  | NearEmailOtpStepUpAuth
+  | NearPasskeyStepUpAuth;
 
 export async function requireNearStepUpAuth(args: {
   signingAuthPlan: SigningAuthPlan;
@@ -38,8 +63,11 @@ export async function requireNearStepUpAuth(args: {
   if (isEmailOtpSigningAuthPlan(args.signingAuthPlan) && !args.emailOtpSigning) {
     throw new Error('[email-otp] verify Email OTP again before NEAR threshold signing');
   }
+  if (isPasskeySigningAuthPlan(args.signingAuthPlan) && !args.passkeyEd25519Reconnect) {
+    throw new Error('[SigningEngine][near] passkey reconnect runner is unavailable');
+  }
 
-  let plannedPasskeyReconnect: NearPasskeyReconnectPlan | undefined;
+  let plannedPasskeyReconnect: NearPasskeyReconnectPlan | null = null;
   const prepared = await prepareStepUpAuth({
     operation: {
       kind: 'near_ed25519_step_up' as const,
@@ -59,16 +87,31 @@ export async function requireNearStepUpAuth(args: {
                   }
                 : {}),
               complete: async ({ confirmation, prompt }) =>
-                await args.emailOtpSigning!.complete(confirmation.otpCode, prompt.challengeId),
+                await args.emailOtpSigning!.complete({
+                  kind: 'email_otp',
+                  signingAuthPlan: isEmailOtpSigningAuthPlan(args.signingAuthPlan)
+                    ? args.signingAuthPlan
+                    : {
+                        kind: 'emailOtpReauth',
+                        method: 'email_otp',
+                        emailOtpPrompt: prompt,
+                      },
+                  challengeId: String(prompt.challengeId || '').trim(),
+                  otpCode: String(confirmation.otpCode || '').trim(),
+                  ...(prompt.emailHint ? { emailHint: prompt.emailHint } : {}),
+                }),
             },
           }
         : {}),
       passkey: {
         method: 'passkey' as const,
         prepare: async () => {
-          plannedPasskeyReconnect = args.passkeyEd25519Reconnect?.prepare
-            ? await args.passkeyEd25519Reconnect.prepare({ usesNeeded: args.usesNeeded })
-            : undefined;
+          if (!args.passkeyEd25519Reconnect) {
+            throw new Error('[SigningEngine][near] passkey reconnect runner is unavailable');
+          }
+          plannedPasskeyReconnect = await args.passkeyEd25519Reconnect.prepare({
+            usesNeeded: args.usesNeeded,
+          });
           return {};
         },
         complete: async ({ confirmation }) => {
@@ -76,14 +119,18 @@ export async function requireNearStepUpAuth(args: {
             throw new Error('[SigningEngine][near] passkey reconnect runner is unavailable');
           }
           return await args.passkeyEd25519Reconnect.reconnect({
-            credential: confirmation.credential as WebAuthnAuthenticationCredential,
+            authorization: {
+              kind: 'passkey',
+              signingAuthPlan: isPasskeySigningAuthPlan(args.signingAuthPlan)
+                ? args.signingAuthPlan
+                : {
+                    kind: 'passkeyReauth',
+                    method: 'passkey',
+                  },
+              credential: confirmation.credential,
+              plannedPasskeyReconnect: requirePlannedPasskeyReconnect(plannedPasskeyReconnect),
+            },
             usesNeeded: args.usesNeeded,
-            ...(plannedPasskeyReconnect?.sessionId
-              ? { sessionId: plannedPasskeyReconnect.sessionId }
-              : {}),
-            ...(plannedPasskeyReconnect?.walletSigningSessionId
-              ? { walletSigningSessionId: plannedPasskeyReconnect.walletSigningSessionId }
-              : {}),
           });
         },
       },
@@ -94,13 +141,48 @@ export async function requireNearStepUpAuth(args: {
     prepared.method === 'email_otp'
       ? { ...args.signingAuthPlan, emailOtpPrompt: prepared.prompt }
       : args.signingAuthPlan;
+  if (prepared.method === 'warm_session') {
+    if (!isWarmSessionSigningAuthPlan(args.signingAuthPlan)) {
+      throw new Error('[SigningEngine][near] warm-session step-up requires a warm-session plan');
+    }
+    return {
+      kind: 'warm_session',
+      confirmationAuthPayload: {
+        signingAuthPlan: args.signingAuthPlan,
+      },
+    };
+  }
+  if (prepared.method === 'email_otp') {
+    if (!isEmailOtpSigningAuthPlan(signingAuthPlan)) {
+      throw new Error('[SigningEngine][near] Email OTP step-up requires an Email OTP plan');
+    }
+    return {
+      kind: 'email_otp',
+      confirmationAuthPayload: {
+        signingAuthPlan,
+      },
+      emailOtpPrompt: prepared.prompt,
+    };
+  }
+  if (!isPasskeySigningAuthPlan(signingAuthPlan)) {
+    throw new Error('[SigningEngine][near] passkey step-up requires a passkey plan');
+  }
   return {
-    confirmationAuthPayload: { signingAuthPlan },
-    ...(prepared.method === 'email_otp' ? { emailOtpPrompt: prepared.prompt } : {}),
-    ...(plannedPasskeyReconnect ? { plannedPasskeyReconnect } : {}),
-    shouldReconnectWithPasskeyEd25519:
-      prepared.method === 'passkey' && Boolean(args.passkeyEd25519Reconnect),
+    kind: 'passkey',
+    confirmationAuthPayload: {
+      signingAuthPlan,
+    },
+    plannedPasskeyReconnect: requirePlannedPasskeyReconnect(plannedPasskeyReconnect),
   };
+}
+
+function requirePlannedPasskeyReconnect(
+  plannedPasskeyReconnect: NearPasskeyReconnectPlan | null,
+): NearPasskeyReconnectPlan {
+  if (!plannedPasskeyReconnect) {
+    throw new Error('[SigningEngine][near] passkey reconnect plan is required');
+  }
+  return plannedPasskeyReconnect;
 }
 
 function stepUpPolicyFromSigningAuthPlan(signingAuthPlan: SigningAuthPlan): StepUpPolicy {

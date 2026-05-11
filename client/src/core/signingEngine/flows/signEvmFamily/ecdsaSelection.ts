@@ -1,10 +1,7 @@
 import type { AccountAuthMetadata } from '@/core/signingEngine/interfaces/accountAuthMetadata';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type { EcdsaLaneCandidate, ThresholdEcdsaSessionStoreSource } from '../../session/identity/laneIdentity';
 import { SigningSessionIds } from '../../session/operationState/types';
-import { emitSigningSessionFlowFailure } from '../../session/operationState/trace';
-import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
 import {
   buildEvmTransactionSigningLane,
   buildTempoTransactionSigningLane,
@@ -14,24 +11,25 @@ import {
   type EvmFamilyAccountMetadataDeps,
 } from './accountAuth';
 import {
-  buildEvmFamilyEcdsaSigningLaneContext,
+  buildEcdsaMaterialStateForCandidate,
+  summarizeEcdsaMaterialState,
+  summarizeVisibleEcdsaMaterial,
+  type EcdsaMaterialState,
+  type EcdsaMaterialSummary,
+  type ReadyEcdsaMaterial,
+} from './ecdsaMaterialState';
+import {
   findExactEcdsaKeyRefForSelectedLane,
   findExactEcdsaSessionRecordForSelectedLane,
-  isEmailOtpThresholdEcdsaSigningContext,
   isSingleUseEmailOtpEcdsaRecord,
   logEvmFamilyEcdsaLaneDiagnostic,
-  readSelectedEcdsaKeyRefForLane,
-  readSelectedEcdsaRecordForLane,
   requireResolvedEvmFamilyEcdsaSigningLane,
-  summarizeEvmFamilyEcdsaKeyRef,
   summarizeEvmFamilyEcdsaLane,
-  summarizeEvmFamilyEcdsaSessionRecord,
   tryGetEmailOtpThresholdEcdsaKeyRefForSigning,
   tryGetEmailOtpThresholdEcdsaSessionRecordForSigning,
   tryGetPasskeyThresholdEcdsaKeyRefForSigning,
   tryGetPasskeyThresholdEcdsaSessionRecordForSigning,
-  validateSelectedEcdsaKeyRefCandidateForLane,
-  validateSelectedEcdsaRecordCandidateForLane,
+  type EvmFamilyEcdsaAuthMethod,
   type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
 import type {
@@ -39,11 +37,13 @@ import type {
   PasskeyEcdsaSessionStoreSource,
 } from '../../interfaces/operationDeps';
 import type { EvmFamilyChain, EvmFamilySenderSignatureAlgorithm } from './types';
-import {
-  thresholdEcdsaChainTargetsEqual,
-  type ThresholdEcdsaChainTarget,
-  type WalletSubjectId,
+import type {
+  ThresholdEcdsaChainTarget,
+  WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
+import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
+import type { WalletBudgetUnknown } from '../../session/budget/budgetProjection';
 
 const PASSKEY_ECDSA_SIGNING_SOURCE_PRIORITY = [
   'login',
@@ -54,19 +54,73 @@ const PASSKEY_ECDSA_SIGNING_SOURCE_PRIORITY = [
 export type EvmFamilyEcdsaSigningSelectionDeps = EvmFamilyAccountMetadataDeps &
   EvmFamilyEcdsaSessionReaderDeps;
 
-export type EvmFamilyEcdsaSigningSelection = {
-  accountAuth: AccountAuthMetadata;
-  authMethod: typeof SIGNER_AUTH_METHODS.emailOtp | typeof SIGNER_AUTH_METHODS.passkey;
-  source: ThresholdEcdsaSessionStoreSource;
-  warmRecord?: ThresholdEcdsaSessionRecord;
-  warmKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
-  reauthRecord?: ThresholdEcdsaSessionRecord;
-  lane?: ResolvedEvmFamilyEcdsaSigningLane;
+export type EcdsaSelectionDiagnostics = {
+  selectedLaneCandidate: {
+    authMethod: EcdsaLaneCandidate['authMethod'];
+    chain: EcdsaLaneCandidate['chain'];
+    chainTarget: ThresholdEcdsaChainTarget;
+    state: EcdsaLaneCandidate['state'];
+    source: EcdsaLaneCandidate['source'];
+    walletSigningSessionId: string;
+    thresholdSessionId: string;
+    remainingUses: number | null;
+    expiresAtMs: number | null;
+    updatedAtMs: number | null;
+  };
+  exactCandidateMaterial: EcdsaMaterialSummary;
+  visibleEmailOtpMaterial: EcdsaMaterialSummary | { present: false };
+  visiblePasskeyMaterials: readonly (EcdsaMaterialSummary | { present: false })[];
+  selectedPasskeyMaterial: EcdsaMaterialSummary | { present: false };
 };
+
+export type ReadyEvmFamilyEcdsaSigningSelection = {
+  kind: 'ready';
+  accountAuth: AccountAuthMetadata;
+  authMethod: EvmFamilyEcdsaAuthMethod;
+  source: ThresholdEcdsaSessionStoreSource;
+  lane: ResolvedEvmFamilyEcdsaSigningLane;
+  material: ReadyEcdsaMaterial;
+  diagnostics: EcdsaSelectionDiagnostics;
+};
+
+export type ReauthRequiredEvmFamilyEcdsaSigningSelection = {
+  kind: 'reauth_required';
+  accountAuth: AccountAuthMetadata;
+  authMethod: EvmFamilyEcdsaAuthMethod;
+  lane: ResolvedEvmFamilyEcdsaSigningLane;
+  material: EcdsaMaterialState;
+  reason: 'single_use_email_otp' | 'missing_hot_material' | 'expired' | 'exhausted';
+  diagnostics: EcdsaSelectionDiagnostics;
+};
+
+export type BudgetBlockedEvmFamilyEcdsaSigningSelection = {
+  kind: 'budget_blocked';
+  accountAuth: AccountAuthMetadata;
+  authMethod: EvmFamilyEcdsaAuthMethod;
+  lane: ResolvedEvmFamilyEcdsaSigningLane;
+  material: ReadyEcdsaMaterial;
+  budget: WalletBudgetUnknown | { kind: 'exhausted'; remainingUses: 0 };
+  diagnostics: EcdsaSelectionDiagnostics;
+};
+
+export type MissingMaterialEvmFamilyEcdsaSigningSelection = {
+  kind: 'missing_material';
+  accountAuth: AccountAuthMetadata;
+  authMethod: EvmFamilyEcdsaAuthMethod;
+  candidate: EcdsaLaneCandidate;
+  material: EcdsaMaterialState;
+  diagnostics: EcdsaSelectionDiagnostics;
+};
+
+export type EvmFamilyEcdsaSigningSelectionResult =
+  | ReadyEvmFamilyEcdsaSigningSelection
+  | ReauthRequiredEvmFamilyEcdsaSigningSelection
+  | BudgetBlockedEvmFamilyEcdsaSigningSelection
+  | MissingMaterialEvmFamilyEcdsaSigningSelection;
 
 function accountAuthWithSelectedPrimary(
   accountAuth: AccountAuthMetadata,
-  authMethod: typeof SIGNER_AUTH_METHODS.emailOtp | typeof SIGNER_AUTH_METHODS.passkey,
+  authMethod: EvmFamilyEcdsaAuthMethod,
 ): AccountAuthMetadata {
   return {
     ...accountAuth,
@@ -75,130 +129,7 @@ function accountAuthWithSelectedPrimary(
   };
 }
 
-function logMissingEcdsaSelectionLane(args: {
-  nearAccountId: string;
-  chain: EvmFamilyChain;
-  authMethod: typeof SIGNER_AUTH_METHODS.emailOtp | typeof SIGNER_AUTH_METHODS.passkey;
-  source: ThresholdEcdsaSessionStoreSource;
-  emailOtpRecord?: ThresholdEcdsaSessionRecord;
-  emailOtpKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
-  passkeyRecord?: ThresholdEcdsaSessionRecord;
-  passkeyKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
-  selectedRecord?: ThresholdEcdsaSessionRecord;
-  selectedKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
-  lane?: ResolvedEvmFamilyEcdsaSigningLane;
-}): void {
-  if (args.lane) return;
-  logEvmFamilyEcdsaLaneDiagnostic('lane selection returned no selected lane', {
-    nearAccountId: args.nearAccountId,
-    chain: args.chain,
-    authMethod: args.authMethod,
-    source: args.source,
-    emailOtpRecord: summarizeEvmFamilyEcdsaSessionRecord(args.emailOtpRecord),
-    emailOtpKeyRef: summarizeEvmFamilyEcdsaKeyRef(args.emailOtpKeyRef),
-    passkeyRecord: summarizeEvmFamilyEcdsaSessionRecord(args.passkeyRecord),
-    passkeyKeyRef: summarizeEvmFamilyEcdsaKeyRef(args.passkeyKeyRef),
-    selectedRecord: summarizeEvmFamilyEcdsaSessionRecord(args.selectedRecord),
-    selectedKeyRef: summarizeEvmFamilyEcdsaKeyRef(args.selectedKeyRef),
-    lane: summarizeEvmFamilyEcdsaLane(args.lane),
-  });
-}
-
-function pickUnambiguousEcdsaAuthRecord(args: {
-  emailOtpRecord?: ThresholdEcdsaSessionRecord;
-  emailOtpKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
-  passkeyRecord?: ThresholdEcdsaSessionRecord;
-  passkeyKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
-}): {
-  record?: ThresholdEcdsaSessionRecord;
-  keyRef?: ThresholdEcdsaSecp256k1KeyRef;
-} {
-  const hasEmailOtpLane = !!args.emailOtpRecord || !!args.emailOtpKeyRef;
-  const hasPasskeyLane = !!args.passkeyRecord || !!args.passkeyKeyRef;
-  if (hasEmailOtpLane === hasPasskeyLane) return {};
-  return hasEmailOtpLane
-    ? {
-        ...(args.emailOtpRecord ? { record: args.emailOtpRecord } : {}),
-        ...(args.emailOtpKeyRef ? { keyRef: args.emailOtpKeyRef } : {}),
-      }
-    : {
-        ...(args.passkeyRecord ? { record: args.passkeyRecord } : {}),
-        ...(args.passkeyKeyRef ? { keyRef: args.passkeyKeyRef } : {}),
-      };
-}
-
-function ecdsaMaterialMatchesLaneCandidate(args: {
-  candidate: EcdsaLaneCandidate;
-  record?: ThresholdEcdsaSessionRecord;
-  keyRef?: ThresholdEcdsaSecp256k1KeyRef;
-}): boolean {
-  const expectedSubjectId = String(args.candidate.subjectId || '').trim();
-  const expectedThresholdKeyId = String(args.candidate.ecdsaThresholdKeyId || '').trim();
-  const expectedSigningRootId = String(args.candidate.signingRootId || '').trim();
-  const expectedSigningRootVersion = String(args.candidate.signingRootVersion || '').trim();
-  const expectedThresholdSessionId = String(args.candidate.thresholdSessionId || '').trim();
-  const expectedWalletSigningSessionId = String(args.candidate.walletSigningSessionId || '').trim();
-  const recordMatches =
-    !!args.record &&
-    String(args.record.subjectId || '').trim() === expectedSubjectId &&
-    thresholdEcdsaChainTargetsEqual(args.record.chainTarget, args.candidate.chainTarget) &&
-    String(args.record.ecdsaThresholdKeyId || '').trim() === expectedThresholdKeyId &&
-    String(args.record.signingRootId || '').trim() === expectedSigningRootId &&
-    String(args.record.signingRootVersion || 'default').trim() === expectedSigningRootVersion &&
-    String(args.record.walletSigningSessionId || '').trim() === expectedWalletSigningSessionId &&
-    String(args.record.thresholdSessionId || '').trim() === expectedThresholdSessionId;
-  const keyRefMatches =
-    !!args.keyRef &&
-    String(args.keyRef.subjectId || '').trim() === expectedSubjectId &&
-    thresholdEcdsaChainTargetsEqual(args.keyRef.chainTarget, args.candidate.chainTarget) &&
-    String(args.keyRef.ecdsaThresholdKeyId || '').trim() === expectedThresholdKeyId &&
-    String(args.keyRef.signingRootId || '').trim() === expectedSigningRootId &&
-    String(args.keyRef.signingRootVersion || 'default').trim() === expectedSigningRootVersion &&
-    String(args.keyRef.walletSigningSessionId || '').trim() === expectedWalletSigningSessionId &&
-    String(args.keyRef.thresholdSessionId || '').trim() === expectedThresholdSessionId;
-  return recordMatches || keyRefMatches;
-}
-
-function requireExactEcdsaCandidateMaterial(args: {
-  nearAccountId: string;
-  chain: EvmFamilyChain;
-  candidate: EcdsaLaneCandidate;
-  record?: ThresholdEcdsaSessionRecord;
-  keyRef?: ThresholdEcdsaSecp256k1KeyRef;
-}): void {
-  if (args.record || args.keyRef) return;
-  logEvmFamilyEcdsaLaneDiagnostic('exact available lane is not present in runtime stores', {
-    nearAccountId: args.nearAccountId,
-    chain: args.chain,
-    candidate: {
-      authMethod: args.candidate.authMethod,
-      thresholdSessionId: args.candidate.thresholdSessionId,
-      walletSigningSessionId: args.candidate.walletSigningSessionId,
-      state: args.candidate.state,
-      source: args.candidate.source,
-    },
-  });
-  emitSigningSessionFlowFailure('evm-family', {
-    stage: 'ecdsa_selection.exact_material_missing',
-    accountId: args.nearAccountId,
-    chain: args.chain,
-    candidate: {
-      authMethod: args.candidate.authMethod,
-      thresholdSessionId: args.candidate.thresholdSessionId,
-      walletSigningSessionId: args.candidate.walletSigningSessionId,
-      state: args.candidate.state,
-      source: args.candidate.source,
-    },
-    record: summarizeEvmFamilyEcdsaSessionRecord(args.record),
-    keyRef: summarizeEvmFamilyEcdsaKeyRef(args.keyRef),
-  });
-  throw new Error('[SigningEngine][ecdsa] exact available lane is unavailable after restore');
-}
-
-function exactEcdsaCandidateRequiresHotMaterial(
-  candidate: EcdsaLaneCandidate | undefined,
-): boolean {
-  if (!candidate) return false;
+function exactEcdsaCandidateRequiresHotMaterial(candidate: EcdsaLaneCandidate): boolean {
   return (
     candidate.state === 'ready' ||
     candidate.state === 'restorable' ||
@@ -207,9 +138,8 @@ function exactEcdsaCandidateRequiresHotMaterial(
 }
 
 function signingLaneFromExactLaneCandidate(
-  candidate: EcdsaLaneCandidate | undefined,
-): ResolvedEvmFamilyEcdsaSigningLane | undefined {
-  if (!candidate) return undefined;
+  candidate: EcdsaLaneCandidate,
+): ResolvedEvmFamilyEcdsaSigningLane {
   const buildLane =
     candidate.chainTarget.kind === 'tempo'
       ? buildTempoTransactionSigningLane
@@ -247,20 +177,33 @@ function signingLaneFromExactLaneCandidate(
   });
 }
 
-function listPasskeyEcdsaSigningCandidates(args: {
-  deps: EvmFamilyEcdsaSigningSelectionDeps;
-  subjectId: WalletSubjectId;
-  chainTarget: ThresholdEcdsaChainTarget;
-}): Array<{
+function summarizeLaneCandidate(candidate: EcdsaLaneCandidate): EcdsaSelectionDiagnostics['selectedLaneCandidate'] {
+  return {
+    authMethod: candidate.authMethod,
+    chain: candidate.chain,
+    chainTarget: candidate.chainTarget,
+    state: candidate.state,
+    source: candidate.source,
+    walletSigningSessionId: candidate.walletSigningSessionId,
+    thresholdSessionId: candidate.thresholdSessionId,
+    remainingUses: candidate.remainingUses,
+    expiresAtMs: candidate.expiresAtMs,
+    updatedAtMs: candidate.updatedAtMs,
+  };
+}
+
+type PasskeyVisibleMaterial = {
   source: PasskeyEcdsaSessionStoreSource;
   record?: ThresholdEcdsaSessionRecord;
   keyRef?: ThresholdEcdsaSecp256k1KeyRef;
-}> {
-  const candidates: Array<{
-    source: PasskeyEcdsaSessionStoreSource;
-    record?: ThresholdEcdsaSessionRecord;
-    keyRef?: ThresholdEcdsaSecp256k1KeyRef;
-  }> = [];
+};
+
+function listPasskeyVisibleMaterials(args: {
+  deps: EvmFamilyEcdsaSigningSelectionDeps;
+  subjectId: WalletSubjectId;
+  chainTarget: ThresholdEcdsaChainTarget;
+}): PasskeyVisibleMaterial[] {
+  const candidates: PasskeyVisibleMaterial[] = [];
   for (const source of PASSKEY_ECDSA_SIGNING_SOURCE_PRIORITY) {
     const record = tryGetPasskeyThresholdEcdsaSessionRecordForSigning({
       deps: args.deps,
@@ -284,6 +227,124 @@ function listPasskeyEcdsaSigningCandidates(args: {
   return candidates;
 }
 
+function buildEcdsaSelectionDiagnostics(args: {
+  candidate: EcdsaLaneCandidate;
+  exactCandidateMaterial: EcdsaMaterialState;
+  emailOtpRecord?: ThresholdEcdsaSessionRecord;
+  emailOtpKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
+  passkeyVisibleMaterials: readonly PasskeyVisibleMaterial[];
+  selectedPasskeyMaterial?: PasskeyVisibleMaterial;
+}): EcdsaSelectionDiagnostics {
+  return {
+    selectedLaneCandidate: summarizeLaneCandidate(args.candidate),
+    exactCandidateMaterial: summarizeEcdsaMaterialState(args.exactCandidateMaterial),
+    visibleEmailOtpMaterial: summarizeVisibleEcdsaMaterial({
+      authMethod: SIGNER_AUTH_METHODS.emailOtp,
+      source: SIGNER_AUTH_METHODS.emailOtp,
+      chainTarget: args.candidate.chainTarget,
+      ...(args.emailOtpRecord ? { record: args.emailOtpRecord } : {}),
+      ...(args.emailOtpKeyRef ? { keyRef: args.emailOtpKeyRef } : {}),
+    }),
+    visiblePasskeyMaterials: args.passkeyVisibleMaterials.map((material) =>
+      summarizeVisibleEcdsaMaterial({
+        authMethod: SIGNER_AUTH_METHODS.passkey,
+        source: material.source,
+        chainTarget: args.candidate.chainTarget,
+        ...(material.record ? { record: material.record } : {}),
+        ...(material.keyRef ? { keyRef: material.keyRef } : {}),
+      }),
+    ),
+    selectedPasskeyMaterial: args.selectedPasskeyMaterial
+      ? summarizeVisibleEcdsaMaterial({
+          authMethod: SIGNER_AUTH_METHODS.passkey,
+          source: args.selectedPasskeyMaterial.source,
+          chainTarget: args.candidate.chainTarget,
+          ...(args.selectedPasskeyMaterial.record
+            ? { record: args.selectedPasskeyMaterial.record }
+            : {}),
+          ...(args.selectedPasskeyMaterial.keyRef
+            ? { keyRef: args.selectedPasskeyMaterial.keyRef }
+            : {}),
+        })
+      : { present: false },
+  };
+}
+
+function selectPasskeyMaterialForCandidate(args: {
+  candidate: EcdsaLaneCandidate;
+  exactRecord?: ThresholdEcdsaSessionRecord;
+  exactKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
+  exactSource?: ThresholdEcdsaSessionStoreSource;
+  passkeyVisibleMaterials: readonly PasskeyVisibleMaterial[];
+  chainTarget: ThresholdEcdsaChainTarget;
+}): { material: EcdsaMaterialState; selected?: PasskeyVisibleMaterial } {
+  if (args.exactRecord || args.exactKeyRef) {
+    const exactMaterial = buildEcdsaMaterialStateForCandidate({
+      candidate: args.candidate,
+      record: args.exactRecord,
+      keyRef: args.exactKeyRef,
+      authMethod: SIGNER_AUTH_METHODS.passkey,
+      source: (args.exactSource || 'manual-bootstrap') as ThresholdEcdsaSessionStoreSource,
+      chainTarget: args.chainTarget,
+    });
+    if (exactMaterial.kind !== 'missing') {
+      return {
+        material: exactMaterial,
+        selected: {
+          source: (args.exactSource || 'manual-bootstrap') as PasskeyEcdsaSessionStoreSource,
+          ...(args.exactRecord ? { record: args.exactRecord } : {}),
+          ...(args.exactKeyRef ? { keyRef: args.exactKeyRef } : {}),
+        },
+      };
+    }
+  }
+  for (const candidateMaterial of args.passkeyVisibleMaterials) {
+    const material = buildEcdsaMaterialStateForCandidate({
+      candidate: args.candidate,
+      record: candidateMaterial.record,
+      keyRef: candidateMaterial.keyRef,
+      authMethod: SIGNER_AUTH_METHODS.passkey,
+      source: candidateMaterial.source,
+      chainTarget: args.chainTarget,
+    });
+    if (material.kind !== 'missing') {
+      return { material, selected: candidateMaterial };
+    }
+  }
+  return {
+    material: buildEcdsaMaterialStateForCandidate({
+      candidate: args.candidate,
+      record: undefined,
+      keyRef: undefined,
+      authMethod: SIGNER_AUTH_METHODS.passkey,
+      source: 'manual-bootstrap',
+      chainTarget: args.chainTarget,
+    }),
+  };
+}
+
+function selectSessionSourceForAccountAuth(args: {
+  emailOtpRecord?: ThresholdEcdsaSessionRecord;
+  emailOtpKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
+  selectedPasskeyMaterial?: PasskeyVisibleMaterial;
+}): { sessionSource?: string; isEmailOtpThresholdContext?: boolean } {
+  const hasEmailOtpVisible = Boolean(args.emailOtpRecord || args.emailOtpKeyRef);
+  const hasPasskeyVisible = Boolean(
+    args.selectedPasskeyMaterial?.record || args.selectedPasskeyMaterial?.keyRef,
+  );
+  if (hasEmailOtpVisible === hasPasskeyVisible) return {};
+  if (hasEmailOtpVisible) {
+    return {
+      sessionSource: args.emailOtpRecord?.source || SIGNER_AUTH_METHODS.emailOtp,
+      isEmailOtpThresholdContext: true,
+    };
+  }
+  return {
+    sessionSource: args.selectedPasskeyMaterial?.record?.source || args.selectedPasskeyMaterial?.source,
+    isEmailOtpThresholdContext: false,
+  };
+}
+
 export async function resolveEvmFamilyEcdsaSigningSelection(args: {
   deps: EvmFamilyEcdsaSigningSelectionDeps;
   nearAccountId: string;
@@ -291,348 +352,202 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
   chain: EvmFamilyChain;
   chainTarget: ThresholdEcdsaChainTarget;
   senderSignatureAlgorithm: EvmFamilySenderSignatureAlgorithm;
-  authMethod: typeof SIGNER_AUTH_METHODS.emailOtp | typeof SIGNER_AUTH_METHODS.passkey;
-  laneCandidate?: EcdsaLaneCandidate;
+  authMethod: EvmFamilyEcdsaAuthMethod;
+  laneCandidate: EcdsaLaneCandidate;
   allowMissingHotMaterial?: boolean;
-}): Promise<EvmFamilyEcdsaSigningSelection> {
-  const exactSelectedLane = signingLaneFromExactLaneCandidate(args.laneCandidate);
-  const exactRecordForCandidate = exactSelectedLane
-    ? findExactEcdsaSessionRecordForSelectedLane({
-        deps: args.deps,
-        lane: exactSelectedLane,
-      })
-    : undefined;
-  const exactKeyRefMatchForCandidate = exactSelectedLane
-    ? findExactEcdsaKeyRefForSelectedLane({
-        deps: args.deps,
-        lane: exactSelectedLane,
-      })
-    : undefined;
+}): Promise<EvmFamilyEcdsaSigningSelectionResult> {
+  const lane = signingLaneFromExactLaneCandidate(args.laneCandidate);
+  const exactRecordForCandidate = findExactEcdsaSessionRecordForSelectedLane({
+    deps: args.deps,
+    lane,
+  });
+  const exactKeyRefMatchForCandidate = findExactEcdsaKeyRefForSelectedLane({
+    deps: args.deps,
+    lane,
+  });
   const exactKeyRefForCandidate = exactKeyRefMatchForCandidate?.keyRef;
 
-  const genericEmailOtpRecord = tryGetEmailOtpThresholdEcdsaSessionRecordForSigning({
+  const emailOtpRecord = tryGetEmailOtpThresholdEcdsaSessionRecordForSigning({
     deps: args.deps,
     subjectId: args.subjectId,
     chainTarget: args.chainTarget,
   });
-  const genericEmailOtpKeyRef = tryGetEmailOtpThresholdEcdsaKeyRefForSigning({
+  const emailOtpKeyRef = tryGetEmailOtpThresholdEcdsaKeyRefForSigning({
     deps: args.deps,
     subjectId: args.subjectId,
     chainTarget: args.chainTarget,
   });
-  const emailOtpRecord =
-    args.laneCandidate?.authMethod === SIGNER_AUTH_METHODS.emailOtp
-      ? exactRecordForCandidate
-      : genericEmailOtpRecord;
-  const emailOtpKeyRef =
-    args.laneCandidate?.authMethod === SIGNER_AUTH_METHODS.emailOtp
-      ? exactKeyRefForCandidate
-      : genericEmailOtpKeyRef;
-
-  const passkeyCandidates = listPasskeyEcdsaSigningCandidates({
+  const passkeyVisibleMaterials = listPasskeyVisibleMaterials({
     deps: args.deps,
     subjectId: args.subjectId,
     chainTarget: args.chainTarget,
   });
-  const exactPasskeyCandidate =
-    args.laneCandidate?.authMethod === SIGNER_AUTH_METHODS.passkey &&
-    (exactRecordForCandidate || exactKeyRefForCandidate) &&
-    exactKeyRefMatchForCandidate?.source !== SIGNER_AUTH_METHODS.emailOtp
-      ? {
-          source: (exactRecordForCandidate?.source ||
+  const exactCandidateMaterial =
+    args.laneCandidate.authMethod === SIGNER_AUTH_METHODS.emailOtp
+      ? buildEcdsaMaterialStateForCandidate({
+          candidate: args.laneCandidate,
+          record: exactRecordForCandidate || emailOtpRecord,
+          keyRef: exactKeyRefForCandidate || emailOtpKeyRef,
+          authMethod: SIGNER_AUTH_METHODS.emailOtp,
+          source: SIGNER_AUTH_METHODS.emailOtp,
+          chainTarget: args.chainTarget,
+        })
+      : selectPasskeyMaterialForCandidate({
+          candidate: args.laneCandidate,
+          exactRecord: exactRecordForCandidate,
+          exactKeyRef: exactKeyRefForCandidate,
+          exactSource:
+            exactRecordForCandidate?.source ||
             exactKeyRefMatchForCandidate?.source ||
-            'manual-bootstrap') as PasskeyEcdsaSessionStoreSource,
-          ...(exactRecordForCandidate ? { record: exactRecordForCandidate } : {}),
-          ...(exactKeyRefForCandidate ? { keyRef: exactKeyRefForCandidate } : {}),
-        }
-      : undefined;
-  const selectedPasskeyCandidate =
-    exactPasskeyCandidate ||
-    (args.laneCandidate?.authMethod === SIGNER_AUTH_METHODS.passkey
-      ? passkeyCandidates.find((candidate) =>
-          ecdsaMaterialMatchesLaneCandidate({
-            candidate: args.laneCandidate!,
-            ...(candidate.record ? { record: candidate.record } : {}),
-            ...(candidate.keyRef ? { keyRef: candidate.keyRef } : {}),
-          }),
-        )
-      : passkeyCandidates[0]);
-  const passkeyRecord = selectedPasskeyCandidate?.record;
-  const passkeyKeyRef = selectedPasskeyCandidate?.keyRef;
+            undefined,
+          passkeyVisibleMaterials,
+          chainTarget: args.chainTarget,
+        }).material;
 
-  try {
-    console.info('[SigningEngine][ecdsa][post-restore-inventory]', {
-      nearAccountId: args.nearAccountId,
-      chain: args.chain,
-      requestedAuthMethod: args.authMethod,
-      allowMissingHotMaterial: args.allowMissingHotMaterial === true,
-      selectedLaneCandidate: args.laneCandidate
-        ? {
-            authMethod: args.laneCandidate.authMethod,
-            chain: args.laneCandidate.chainTarget.kind,
-            chainTarget: args.laneCandidate.chainTarget,
-            state: args.laneCandidate.state,
-            source: args.laneCandidate.source,
-            walletSigningSessionId: args.laneCandidate.walletSigningSessionId,
-            thresholdSessionId: args.laneCandidate.thresholdSessionId,
-            remainingUses: args.laneCandidate.remainingUses,
-            expiresAtMs: args.laneCandidate.expiresAtMs,
-            updatedAtMs: args.laneCandidate.updatedAtMs,
-          }
-        : { present: false },
-      visibleEmailOtp: {
-        record: summarizeEvmFamilyEcdsaSessionRecord(genericEmailOtpRecord),
-        keyRef: summarizeEvmFamilyEcdsaKeyRef(genericEmailOtpKeyRef),
-      },
-      exactCandidateMaterial: {
-        record: summarizeEvmFamilyEcdsaSessionRecord(exactRecordForCandidate),
-        keyRef: summarizeEvmFamilyEcdsaKeyRef(exactKeyRefForCandidate),
-        keyRefSource: exactKeyRefMatchForCandidate?.source || null,
-      },
-      visiblePasskeyCandidates: passkeyCandidates.map((candidate) => ({
-        source: candidate.source,
-        record: summarizeEvmFamilyEcdsaSessionRecord(candidate.record),
-        keyRef: summarizeEvmFamilyEcdsaKeyRef(candidate.keyRef),
-      })),
-      selectedPasskeyCandidate: selectedPasskeyCandidate
-        ? {
-            source: selectedPasskeyCandidate.source,
-            record: summarizeEvmFamilyEcdsaSessionRecord(selectedPasskeyCandidate.record),
-            keyRef: summarizeEvmFamilyEcdsaKeyRef(selectedPasskeyCandidate.keyRef),
-          }
-        : { present: false },
-    });
-  } catch {}
+  const selectedPasskeyMaterial = selectPasskeyMaterialForCandidate({
+    candidate: args.laneCandidate,
+    exactRecord: exactRecordForCandidate,
+    exactKeyRef: exactKeyRefForCandidate,
+    exactSource:
+      exactRecordForCandidate?.source || exactKeyRefMatchForCandidate?.source || undefined,
+    passkeyVisibleMaterials,
+    chainTarget: args.chainTarget,
+  });
 
-  const unambiguousLane = pickUnambiguousEcdsaAuthRecord({
+  const accountAuthInputs = selectSessionSourceForAccountAuth({
     ...(emailOtpRecord ? { emailOtpRecord } : {}),
     ...(emailOtpKeyRef ? { emailOtpKeyRef } : {}),
-    ...(passkeyRecord ? { passkeyRecord } : {}),
-    ...(passkeyKeyRef ? { passkeyKeyRef } : {}),
+    ...(selectedPasskeyMaterial.selected
+      ? { selectedPasskeyMaterial: selectedPasskeyMaterial.selected }
+      : {}),
   });
   const accountAuth = await resolveEvmFamilyTransactionAccountAuth({
     deps: args.deps,
     nearAccountId: args.nearAccountId,
     senderSignatureAlgorithm: args.senderSignatureAlgorithm,
-    ...(unambiguousLane.record ? { sessionSource: unambiguousLane.record.source } : {}),
-    isEmailOtpThresholdContext: isEmailOtpThresholdEcdsaSigningContext(unambiguousLane),
+    ...(accountAuthInputs.sessionSource ? { sessionSource: accountAuthInputs.sessionSource } : {}),
+    ...(typeof accountAuthInputs.isEmailOtpThresholdContext === 'boolean'
+      ? { isEmailOtpThresholdContext: accountAuthInputs.isEmailOtpThresholdContext }
+      : {}),
   });
+  const selectedAccountAuth = accountAuthWithSelectedPrimary(
+    accountAuth,
+    args.laneCandidate.authMethod,
+  );
 
-  const selectedAuthMethod = args.laneCandidate?.authMethod || args.authMethod;
-  const selectedAccountAuth = accountAuthWithSelectedPrimary(accountAuth, selectedAuthMethod);
-
-  if (selectedAuthMethod === SIGNER_AUTH_METHODS.emailOtp) {
-    const exactCandidate = args.laneCandidate;
-    const selectedEmailOtpRecord =
-      exactCandidate?.authMethod === SIGNER_AUTH_METHODS.emailOtp
-        ? exactRecordForCandidate ||
-          (ecdsaMaterialMatchesLaneCandidate({
-            candidate: exactCandidate,
-            ...(genericEmailOtpRecord ? { record: genericEmailOtpRecord } : {}),
-          })
-            ? genericEmailOtpRecord
-            : undefined)
-        : emailOtpRecord;
-    const selectedEmailOtpKeyRef =
-      exactCandidate?.authMethod === SIGNER_AUTH_METHODS.emailOtp
-        ? exactKeyRefForCandidate ||
-          (ecdsaMaterialMatchesLaneCandidate({
-            candidate: exactCandidate,
-            ...(genericEmailOtpKeyRef ? { keyRef: genericEmailOtpKeyRef } : {}),
-          })
-            ? genericEmailOtpKeyRef
-            : undefined)
-        : emailOtpKeyRef;
-    if (
-      !args.allowMissingHotMaterial &&
-      exactCandidate?.authMethod === SIGNER_AUTH_METHODS.emailOtp &&
-      exactEcdsaCandidateRequiresHotMaterial(exactCandidate)
-    ) {
-      requireExactEcdsaCandidateMaterial({
-        nearAccountId: args.nearAccountId,
-        chain: args.chain,
-        candidate: exactCandidate,
-        ...(selectedEmailOtpRecord ? { record: selectedEmailOtpRecord } : {}),
-        ...(selectedEmailOtpKeyRef ? { keyRef: selectedEmailOtpKeyRef } : {}),
-      });
-    }
-    const signingLaneFromMaterial =
-      selectedEmailOtpRecord && selectedEmailOtpKeyRef
-        ? buildEvmFamilyEcdsaSigningLaneContext({
-            nearAccountId: args.nearAccountId,
-            chain: args.chain,
-            chainTarget: args.chainTarget,
-            authMethod: SIGNER_AUTH_METHODS.emailOtp,
-            source: SIGNER_AUTH_METHODS.emailOtp,
-            material: 'record_and_key_ref',
-            record: selectedEmailOtpRecord,
-            keyRef: selectedEmailOtpKeyRef,
-          })
-        : selectedEmailOtpRecord
-          ? buildEvmFamilyEcdsaSigningLaneContext({
-              nearAccountId: args.nearAccountId,
-              chain: args.chain,
-              chainTarget: args.chainTarget,
-              authMethod: SIGNER_AUTH_METHODS.emailOtp,
-              source: SIGNER_AUTH_METHODS.emailOtp,
-              material: 'record',
-              record: selectedEmailOtpRecord,
-            })
-          : selectedEmailOtpKeyRef
-            ? buildEvmFamilyEcdsaSigningLaneContext({
-                nearAccountId: args.nearAccountId,
-                chain: args.chain,
-                chainTarget: args.chainTarget,
-                authMethod: SIGNER_AUTH_METHODS.emailOtp,
-                source: SIGNER_AUTH_METHODS.emailOtp,
-                material: 'key_ref',
-                keyRef: selectedEmailOtpKeyRef,
-              })
-            : undefined;
-    const signingLane =
-      signingLaneFromMaterial || signingLaneFromExactLaneCandidate(args.laneCandidate);
-    const selectedRecord = selectedEmailOtpRecord
-      ? validateSelectedEcdsaRecordCandidateForLane({
-          lane: signingLane,
-          record: selectedEmailOtpRecord,
-          context: 'Email OTP ECDSA selection',
-        })
-      : exactCandidate?.authMethod === SIGNER_AUTH_METHODS.emailOtp
-        ? undefined
-        : readSelectedEcdsaRecordForLane({ deps: args.deps, lane: signingLane });
-    const selectedKeyRef = selectedEmailOtpKeyRef
-      ? validateSelectedEcdsaKeyRefCandidateForLane({
-          lane: signingLane,
-          keyRef: selectedEmailOtpKeyRef,
-          context: 'Email OTP ECDSA selection',
-        })
-      : exactCandidate?.authMethod === SIGNER_AUTH_METHODS.emailOtp
-        ? undefined
-        : readSelectedEcdsaKeyRefForLane({ deps: args.deps, lane: signingLane });
-    const warmRecord =
-      selectedRecord && !isSingleUseEmailOtpEcdsaRecord(selectedRecord)
-        ? selectedRecord
-        : undefined;
-    logMissingEcdsaSelectionLane({
+  const diagnostics = buildEcdsaSelectionDiagnostics({
+    candidate: args.laneCandidate,
+    exactCandidateMaterial,
+    ...(emailOtpRecord ? { emailOtpRecord } : {}),
+    ...(emailOtpKeyRef ? { emailOtpKeyRef } : {}),
+    passkeyVisibleMaterials,
+    ...(selectedPasskeyMaterial.selected
+      ? { selectedPasskeyMaterial: selectedPasskeyMaterial.selected }
+      : {}),
+  });
+  try {
+    console.info('[SigningEngine][ecdsa][selection]', {
       nearAccountId: args.nearAccountId,
       chain: args.chain,
-      authMethod: SIGNER_AUTH_METHODS.emailOtp,
-      source: SIGNER_AUTH_METHODS.emailOtp,
-      ...(emailOtpRecord ? { emailOtpRecord } : {}),
-      ...(emailOtpKeyRef ? { emailOtpKeyRef } : {}),
-      ...(passkeyRecord ? { passkeyRecord } : {}),
-      ...(passkeyKeyRef ? { passkeyKeyRef } : {}),
-      ...(selectedRecord ? { selectedRecord } : {}),
-      ...(selectedKeyRef ? { selectedKeyRef } : {}),
-      ...(signingLane ? { lane: signingLane } : {}),
+      requestedAuthMethod: args.authMethod,
+      selectedAuthMethod: args.laneCandidate.authMethod,
+      selectionDiagnostics: diagnostics,
     });
+  } catch {}
+
+  if (
+    !args.allowMissingHotMaterial &&
+    exactEcdsaCandidateRequiresHotMaterial(args.laneCandidate) &&
+    exactCandidateMaterial.kind !== 'ready_material'
+  ) {
     return {
-      authMethod: SIGNER_AUTH_METHODS.emailOtp,
+      kind: 'missing_material',
       accountAuth: selectedAccountAuth,
-      source: SIGNER_AUTH_METHODS.emailOtp,
-      ...(warmRecord ? { warmRecord } : {}),
-      ...(warmRecord && selectedKeyRef ? { warmKeyRef: selectedKeyRef } : {}),
-      ...(selectedRecord ? { reauthRecord: selectedRecord } : {}),
-      ...(signingLane ? { lane: signingLane } : {}),
+      authMethod: args.laneCandidate.authMethod as EvmFamilyEcdsaAuthMethod,
+      candidate: args.laneCandidate,
+      material: exactCandidateMaterial,
+      diagnostics,
+    };
+  }
+
+  if (args.laneCandidate.state === 'expired') {
+    return {
+      kind: 'reauth_required',
+      accountAuth: selectedAccountAuth,
+      authMethod: args.laneCandidate.authMethod as EvmFamilyEcdsaAuthMethod,
+      lane,
+      material: exactCandidateMaterial,
+      reason: 'expired',
+      diagnostics,
+    };
+  }
+
+  if (args.laneCandidate.state === 'exhausted') {
+    if (exactCandidateMaterial.kind === 'ready_material') {
+      return {
+        kind: 'budget_blocked',
+        accountAuth: selectedAccountAuth,
+        authMethod: args.laneCandidate.authMethod as EvmFamilyEcdsaAuthMethod,
+        lane,
+        material: exactCandidateMaterial,
+        budget: { kind: 'exhausted', remainingUses: 0 },
+        diagnostics,
+      };
+    }
+    return {
+      kind: 'reauth_required',
+      accountAuth: selectedAccountAuth,
+      authMethod: args.laneCandidate.authMethod as EvmFamilyEcdsaAuthMethod,
+      lane,
+      material: exactCandidateMaterial,
+      reason: 'exhausted',
+      diagnostics,
     };
   }
 
   if (
-    !args.allowMissingHotMaterial &&
-    args.laneCandidate?.authMethod === SIGNER_AUTH_METHODS.passkey &&
-    exactEcdsaCandidateRequiresHotMaterial(args.laneCandidate)
+    exactCandidateMaterial.kind === 'ready_material' &&
+    args.laneCandidate.authMethod === SIGNER_AUTH_METHODS.emailOtp &&
+    isSingleUseEmailOtpEcdsaRecord(exactCandidateMaterial.record)
   ) {
-    requireExactEcdsaCandidateMaterial({
-      nearAccountId: args.nearAccountId,
-      chain: args.chain,
-      candidate: args.laneCandidate,
-      ...(passkeyRecord ? { record: passkeyRecord } : {}),
-      ...(passkeyKeyRef ? { keyRef: passkeyKeyRef } : {}),
-    });
+    return {
+      kind: 'reauth_required',
+      accountAuth: selectedAccountAuth,
+      authMethod: SIGNER_AUTH_METHODS.emailOtp,
+      lane,
+      material: exactCandidateMaterial,
+      reason: 'single_use_email_otp',
+      diagnostics,
+    };
   }
-  const passkeySource = selectedPasskeyCandidate?.source || 'manual-bootstrap';
-  const signingLaneFromMaterial =
-    passkeyRecord && passkeyKeyRef
-      ? buildEvmFamilyEcdsaSigningLaneContext({
-          nearAccountId: args.nearAccountId,
-          chain: args.chain,
-          chainTarget: args.chainTarget,
-          authMethod: SIGNER_AUTH_METHODS.passkey,
-          source: passkeySource,
-          material: 'record_and_key_ref',
-          record: passkeyRecord,
-          keyRef: passkeyKeyRef,
-        })
-      : passkeyRecord
-        ? buildEvmFamilyEcdsaSigningLaneContext({
-            nearAccountId: args.nearAccountId,
-            chain: args.chain,
-            chainTarget: args.chainTarget,
-            authMethod: SIGNER_AUTH_METHODS.passkey,
-            source: passkeySource,
-            material: 'record',
-            record: passkeyRecord,
-          })
-        : passkeyKeyRef
-          ? buildEvmFamilyEcdsaSigningLaneContext({
-              nearAccountId: args.nearAccountId,
-              chain: args.chain,
-              chainTarget: args.chainTarget,
-              authMethod: SIGNER_AUTH_METHODS.passkey,
-              source: passkeySource,
-              material: 'key_ref',
-              keyRef: passkeyKeyRef,
-            })
-          : undefined;
-  const signingLane =
-    signingLaneFromMaterial || signingLaneFromExactLaneCandidate(args.laneCandidate);
-  const selectedPasskeyRecord = passkeyRecord
-    ? validateSelectedEcdsaRecordCandidateForLane({
-        lane: signingLane,
-        record: passkeyRecord,
-        context: 'passkey ECDSA selection',
-      })
-    : args.laneCandidate?.authMethod === SIGNER_AUTH_METHODS.passkey
-      ? undefined
-      : readSelectedEcdsaRecordForLane({
-          deps: args.deps,
-          lane: signingLane,
-        });
-  const selectedPasskeyKeyRef = passkeyKeyRef
-    ? validateSelectedEcdsaKeyRefCandidateForLane({
-        lane: signingLane,
-        keyRef: passkeyKeyRef,
-        context: 'passkey ECDSA selection',
-      })
-    : args.laneCandidate?.authMethod === SIGNER_AUTH_METHODS.passkey
-      ? undefined
-      : readSelectedEcdsaKeyRefForLane({
-          deps: args.deps,
-          lane: signingLane,
-        });
-  const selectedWarmRecord =
-    selectedPasskeyRecord && !isSingleUseEmailOtpEcdsaRecord(selectedPasskeyRecord)
-      ? selectedPasskeyRecord
-      : undefined;
-  logMissingEcdsaSelectionLane({
-    nearAccountId: args.nearAccountId,
-    chain: args.chain,
-    authMethod: SIGNER_AUTH_METHODS.passkey,
-    source: passkeySource,
-    ...(emailOtpRecord ? { emailOtpRecord } : {}),
-    ...(emailOtpKeyRef ? { emailOtpKeyRef } : {}),
-    ...(passkeyRecord ? { passkeyRecord } : {}),
-    ...(passkeyKeyRef ? { passkeyKeyRef } : {}),
-    ...(selectedPasskeyRecord ? { selectedRecord: selectedPasskeyRecord } : {}),
-    ...(selectedPasskeyKeyRef ? { selectedKeyRef: selectedPasskeyKeyRef } : {}),
-    ...(signingLane ? { lane: signingLane } : {}),
-  });
+
+  if (exactCandidateMaterial.kind !== 'ready_material') {
+    return {
+      kind: 'reauth_required',
+      accountAuth: selectedAccountAuth,
+      authMethod: args.laneCandidate.authMethod as EvmFamilyEcdsaAuthMethod,
+      lane,
+      material: exactCandidateMaterial,
+      reason: 'missing_hot_material',
+      diagnostics,
+    };
+  }
+
+  if (args.laneCandidate.authMethod !== exactCandidateMaterial.authMethod) {
+    logEvmFamilyEcdsaLaneDiagnostic('selected ECDSA material auth method mismatch', {
+      lane: summarizeEvmFamilyEcdsaLane(lane),
+      material: summarizeEcdsaMaterialState(exactCandidateMaterial),
+    });
+    throw new Error('[SigningEngine][ecdsa] selected ECDSA material auth method mismatch');
+  }
+
   return {
-    authMethod: SIGNER_AUTH_METHODS.passkey,
+    kind: 'ready',
     accountAuth: selectedAccountAuth,
-    source: passkeySource,
-    ...(selectedWarmRecord ? { warmRecord: selectedWarmRecord } : {}),
-    ...(selectedWarmRecord && selectedPasskeyKeyRef ? { warmKeyRef: selectedPasskeyKeyRef } : {}),
-    ...(signingLane ? { lane: signingLane } : {}),
+    authMethod: args.laneCandidate.authMethod as EvmFamilyEcdsaAuthMethod,
+    source: exactCandidateMaterial.source,
+    lane,
+    material: exactCandidateMaterial,
+    diagnostics,
   };
 }

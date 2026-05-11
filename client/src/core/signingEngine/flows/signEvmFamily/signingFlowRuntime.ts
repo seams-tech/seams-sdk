@@ -31,15 +31,20 @@ import {
 } from './ecdsaLanes';
 import type { EvmSigningRequest } from '../../chains/evm/types';
 import type { TempoSigningRequest } from '../../chains/tempo/types';
-import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
-import { getPrfFirstB64uFromCredential } from '../../webauthnAuth/credentials/credentialExtensions';
 import { buildEcdsaSessionPolicy } from '../../threshold/sessionPolicy';
+import {
+  buildEcdsaSessionIdentity,
+} from '../../session/warmCapabilities/ecdsaProvisionPlan';
 import type {
   EvmFamilyThresholdEcdsaOperation,
   EvmFamilyThresholdEcdsaReauthResult,
 } from './thresholdAdmission';
 import type { EvmFamilyThresholdEcdsaStepUpRuntime } from './requireEvmFamilyStepUpAuth';
 import { type ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  buildEvmFamilyPasskeyEcdsaProvisionPlan,
+  buildEvmFamilyWarmSessionReconnectPlan,
+} from './provisionPlan';
 
 function resolveTransactionStepUpSessionUses(operationUsesNeeded?: number): number {
   const normalized = Math.floor(Number(operationUsesNeeded) || 0);
@@ -77,12 +82,10 @@ function requirePlannedReconnectSessionIdentity(args: {
   thresholdSessionId: string;
   walletSigningSessionId: string;
 } {
-  const thresholdSessionId = String(args.sessionId || '').trim();
-  const walletSigningSessionId = String(args.walletSigningSessionId || '').trim();
-  if (!thresholdSessionId || !walletSigningSessionId) {
-    throw new Error('[SigningEngine][ecdsa] passkey reconnect requires planned fresh session ids');
-  }
-  return { thresholdSessionId, walletSigningSessionId };
+  return buildEcdsaSessionIdentity({
+    thresholdSessionId: args.sessionId,
+    walletSigningSessionId: args.walletSigningSessionId,
+  });
 }
 
 export async function createEvmFamilySigningFlowRuntime(args: {
@@ -198,24 +201,29 @@ export async function createEvmFamilySigningFlowRuntime(args: {
         };
       },
       reconnect: async ({
-        credential,
+        authorization,
         usesNeeded,
-        sessionId,
-        walletSigningSessionId,
       }: {
-        credential: WebAuthnAuthenticationCredential;
+        authorization: Parameters<
+          NonNullable<EvmFamilyThresholdEcdsaStepUpRuntime['passkeyReconnect']>['reconnect']
+        >[0]['authorization'];
         usesNeeded: number;
-        sessionId: string;
-        walletSigningSessionId: string;
       }) => {
-        const clientRootShare32B64u = getPrfFirstB64uFromCredential(credential);
-        if (!clientRootShare32B64u) {
-          throw new Error('[SigningEngine] missing PRF.first for passkey ECDSA reconnect');
-        }
         const lane = args.getResolvedEcdsaSigningLane();
+        const keyRef =
+          args.getThresholdEcdsaKeyRef() ||
+          readSelectedEcdsaKeyRefForLane({ deps: args.deps, lane });
+        const record = readSelectedEcdsaRecordForLane({ deps: args.deps, lane });
+        const reconnectPlan = buildEvmFamilyPasskeyEcdsaProvisionPlan({
+          authorization,
+          lane,
+          keyRef,
+          record: record || null,
+          sessionBudgetUses: resolveTransactionStepUpSessionUses(usesNeeded),
+        });
         const reconnectSessionIdentity = requirePlannedReconnectSessionIdentity({
-          sessionId,
-          walletSigningSessionId,
+          sessionId: reconnectPlan.newSessionIdentity.thresholdSessionId,
+          walletSigningSessionId: reconnectPlan.newSessionIdentity.walletSigningSessionId,
         });
         emitSigningSessionFlowTrace('evm-family', {
           stage: 'ecdsa_runtime.passkey_reconnect_start',
@@ -233,14 +241,14 @@ export async function createEvmFamilySigningFlowRuntime(args: {
         const readyKeyRef = await runRuntimeCommand(
           SigningOperationCommandKind.ConnectThreshold,
           async () =>
-            await ensureEvmFamilyThresholdEcdsaKeyRefReady({
-              deps: args.deps,
-              lane,
-              chainId: requestChainId,
-              keyRef: args.getThresholdEcdsaKeyRef(),
-              reconnectSessionIdentity,
-              clientRootShare32B64u,
-              webauthnAuthentication: credential,
+                  await ensureEvmFamilyThresholdEcdsaKeyRefReady({
+                    mode: 'planned_reconnect',
+                    deps: args.deps,
+                    lane,
+                    chainId: requestChainId,
+                    keyRef: args.getThresholdEcdsaKeyRef(),
+                    reconnectSessionIdentity,
+              reconnectPlan,
               operationUsesNeeded: Math.max(1, Math.floor(Number(usesNeeded) || 1)),
               sessionBudgetUses: resolveTransactionStepUpSessionUses(usesNeeded),
               shouldAbort: args.shouldAbort,
@@ -293,22 +301,35 @@ export async function createEvmFamilySigningFlowRuntime(args: {
           ...(emailOtpSigningForFlow ? { emailOtpSigning: emailOtpSigningForFlow } : {}),
           ...(passkeyEcdsaReconnect ? { passkeyReconnect: passkeyEcdsaReconnect } : {}),
           thresholdReconnect: {
-            ensureThresholdEcdsaKeyRefReady: async () => {
+            ensureThresholdEcdsaKeyRefReady: async ({ authorization, usesNeeded }) => {
               const lane = args.getResolvedEcdsaSigningLane();
+              const keyRef =
+                args.getThresholdEcdsaKeyRef() ||
+                readSelectedEcdsaKeyRefForLane({ deps: args.deps, lane });
+              const record = readSelectedEcdsaRecordForLane({ deps: args.deps, lane });
+              const reconnectPlan = buildEvmFamilyWarmSessionReconnectPlan({
+                authorization,
+                lane,
+                keyRef,
+                record: record || null,
+                sessionBudgetUses: resolveTransactionStepUpSessionUses(usesNeeded),
+              });
               const readyKeyRef = await runRuntimeCommand(
                 SigningOperationCommandKind.ConnectThreshold,
                 async () =>
                   await ensureEvmFamilyThresholdEcdsaKeyRefReady({
+                    mode: 'planned_reconnect',
                     deps: args.deps,
                     lane,
                     chainId: requestChainId,
-                    keyRef: args.getThresholdEcdsaKeyRef(),
-                    reconnectSessionIdentity: {
-                      thresholdSessionId: String(lane.thresholdSessionId),
-                      walletSigningSessionId: String(lane.walletSigningSessionId),
-                    },
-                    operationUsesNeeded: 1,
-                    sessionBudgetUses: resolveTransactionStepUpSessionUses(1),
+                    keyRef,
+                    reconnectSessionIdentity: buildEcdsaSessionIdentity({
+                      thresholdSessionId: lane.thresholdSessionId,
+                      walletSigningSessionId: lane.walletSigningSessionId,
+                    }),
+                    reconnectPlan,
+                    operationUsesNeeded: Math.max(1, Math.floor(Number(usesNeeded) || 1)),
+                    sessionBudgetUses: resolveTransactionStepUpSessionUses(usesNeeded),
                     shouldAbort: args.shouldAbort,
                     onEvent: args.onEvent,
                   }),

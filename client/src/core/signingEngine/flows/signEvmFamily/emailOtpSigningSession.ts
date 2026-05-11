@@ -12,6 +12,7 @@ import {
   createSigningBoundaryTraceEvent,
   emitSigningBoundaryTrace,
 } from '../../session/operationState/trace';
+import type { EmailOtpEcdsaSigningBootstrapResult } from '../../interfaces/operationDeps';
 import type { ThresholdEcdsaSessionStoreDeps } from '../../session/persistence/records';
 import { getThresholdEcdsaSessionRecordForTarget } from '../../session/persistence/records';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
@@ -23,7 +24,6 @@ import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy'
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import type { ThresholdEcdsaSmartAccountBootstrapInput } from '../../session/warmCapabilities/ecdsaBootstrapPersistence';
 import type { WarmSessionEcdsaCapabilityState } from '../../session/warmCapabilities/types';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type { EvmFamilyChain, EvmFamilyLifecycleEventCallback } from './types';
 import { emitEvmFamilySigningEvent } from './events';
 import {
@@ -31,6 +31,11 @@ import {
   isEmailOtpThresholdEcdsaSigningContext,
   type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
+import {
+  getEcdsaMaterialKeyRef,
+  getEcdsaMaterialRecord,
+  type EcdsaMaterialState,
+} from './ecdsaMaterialState';
 
 export type EmailOtpEcdsaSigningSessionDeps = {
   ecdsaSessions: ThresholdEcdsaSessionStoreDeps;
@@ -53,7 +58,6 @@ export type EmailOtpEcdsaSigningSessionDeps = {
       ecdsaThresholdKeyId?: string;
       participantIds?: number[];
       sessionKind?: 'jwt' | 'cookie';
-      walletSigningSessionId?: string;
       ttlMs?: number;
       remainingUses?: number;
       runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -73,7 +77,7 @@ export type EvmFamilyEmailOtpTransactionSigningBridge = {
   complete: (input: {
     challengeId: string;
     code: string;
-  }) => Promise<ThresholdEcdsaSecp256k1KeyRef>;
+  }) => Promise<EmailOtpEcdsaSigningBootstrapResult>;
 };
 
 export function createEmailOtpEcdsaTransactionSigningBridge(args: {
@@ -81,9 +85,8 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
   chain: EvmFamilyChain;
   chainTarget: ThresholdEcdsaChainTarget;
   selectedLane?: ResolvedEvmFamilyEcdsaSigningLane;
-  warmRecord?: ThresholdEcdsaSessionRecord;
-  warmKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
-  emailOtpReauthRecord?: ThresholdEcdsaSessionRecord;
+  material?: EcdsaMaterialState;
+  signingSessionRecord: ThresholdEcdsaSessionRecord | null;
   onEvent?: EvmFamilyLifecycleEventCallback;
   requestEmailOtpTransactionSigningChallenge?: (args: {
     nearAccountId: string;
@@ -104,15 +107,17 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
     record?: ThresholdEcdsaSessionRecord;
     authLane?: EmailOtpAuthLane;
     remainingUses?: number;
-  }) => Promise<ThresholdEcdsaSecp256k1KeyRef>;
+  }) => Promise<EmailOtpEcdsaSigningBootstrapResult>;
 }): EvmFamilyEmailOtpTransactionSigningBridge {
+  const materialRecord = args.material ? getEcdsaMaterialRecord(args.material) : undefined;
+  const materialKeyRef = args.material ? getEcdsaMaterialKeyRef(args.material) : undefined;
   const resolveEmailOtpRecord = () =>
-    args.emailOtpReauthRecord ||
+    args.signingSessionRecord ||
     (isEmailOtpThresholdEcdsaSigningContext({
-      ...(args.warmRecord ? { record: args.warmRecord } : {}),
-      ...(args.warmKeyRef ? { keyRef: args.warmKeyRef } : {}),
+      ...(materialRecord ? { record: materialRecord } : {}),
+      ...(materialKeyRef ? { keyRef: materialKeyRef } : {}),
     })
-      ? args.warmRecord
+      ? materialRecord
       : undefined);
   const resolveAuthLane = async () => {
     const emailOtpRecord = resolveEmailOtpRecord();
@@ -284,7 +289,6 @@ export async function refreshEmailOtpSigningSession(
     ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
     participantIds: record.participantIds,
     sessionKind: record.thresholdSessionKind,
-    walletSigningSessionId: record.walletSigningSessionId,
     ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
     ...(typeof args.remainingUses === 'number' ? { remainingUses: args.remainingUses } : {}),
     ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),

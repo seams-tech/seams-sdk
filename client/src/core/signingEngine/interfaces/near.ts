@@ -12,7 +12,6 @@ import type {
 import type { SigningRuntimeDeps } from './runtime';
 import type { SigningAuthPlan } from '../stepUpConfirmation/types';
 import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
-import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { SigningSessionCoordinator } from '../session/SigningSessionCoordinator';
 import type {
   SigningOperationId,
@@ -24,6 +23,10 @@ import type {
   BudgetAdmittedOperation,
   PreparedTransactionOperation,
 } from '../session/operationState/transactionState';
+import type {
+  NearEd25519EmailOtpStepUpAuthorization,
+  NearEd25519PasskeyStepUpAuthorization,
+} from '../flows/signNear/stepUpAuthorization';
 
 type NearResolvedEd25519SessionAuth =
   | {
@@ -50,8 +53,7 @@ export type NearEmailOtpSigningHook = {
   prepare: () => Promise<{ challengeId: string; emailHint?: string }>;
   resend?: () => Promise<{ challengeId: string; emailHint?: string }>;
   complete: (
-    otpCode: string,
-    challengeId?: string,
+    authorization: NearEd25519EmailOtpStepUpAuthorization,
   ) => Promise<{ sessionId: string; sessionState?: NearResolvedEd25519SigningSessionState }>;
 };
 
@@ -61,21 +63,19 @@ export type NearEd25519WarmupHook = {
 };
 
 export type NearPasskeyEd25519ReconnectHook = {
-  prepare?: (args: { usesNeeded: number }) => Promise<{
+  prepare: (args: { usesNeeded: number }) => Promise<{
     sessionId: string;
-    walletSigningSessionId?: string;
+    walletSigningSessionId: string;
     sessionPolicyDigest32: string;
   }>;
   reconnect: (args: {
-    credential: WebAuthnAuthenticationCredential;
+    authorization: NearEd25519PasskeyStepUpAuthorization;
     usesNeeded: number;
-    sessionId?: string;
-    walletSigningSessionId?: string;
   }) => Promise<{ sessionId: string; sessionState?: NearResolvedEd25519SigningSessionState }>;
 };
 
 export type NearSigningSessionFinalizationHook = {
-  recordSuccess: (args?: { alreadyConsumedThresholdSessionIds?: string[] }) => Promise<void>;
+  recordSuccess: () => Promise<void>;
   recordZeroSpend: (error: unknown) => Promise<void> | void;
 };
 

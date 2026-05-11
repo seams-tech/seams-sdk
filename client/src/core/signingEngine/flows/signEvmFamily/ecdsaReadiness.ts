@@ -21,11 +21,42 @@ import type {
   ThresholdEcdsaSessionRecord,
 } from '../../session/persistence/records';
 import type { ThresholdEcdsaSessionStoreSource } from '../../session/identity/laneIdentity';
-import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import { thresholdEcdsaChainTargetFromChainFamily } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  buildEcdsaReconnectMaterial,
+  buildEcdsaSessionProvisionPlan,
+  buildEcdsaSessionIdentity,
+  buildEcdsaSigningKeyContext,
+  getEcdsaSessionProvisionIdentity,
+  type EcdsaSessionProvisionPlan,
+} from '../../session/warmCapabilities/ecdsaProvisionPlan';
 
 export type EvmFamilyThresholdEcdsaReadinessDeps = EvmFamilyWarmSessionServicesDeps & {
   seamsPasskeyConfigs: SeamsConfigsReadonly;
+};
+
+type EvmFamilyThresholdEcdsaReadinessBaseArgs = {
+  deps: EvmFamilyThresholdEcdsaReadinessDeps;
+  lane: ResolvedEvmFamilyEcdsaSigningLane;
+  chainId: number;
+  keyRef: ThresholdEcdsaSecp256k1KeyRef | undefined;
+  reconnectSessionIdentity: {
+    thresholdSessionId: string;
+    walletSigningSessionId: string;
+  };
+  operationUsesNeeded?: number;
+  sessionBudgetUses: number;
+  shouldAbort?: () => boolean;
+  onEvent?: EvmFamilyLifecycleEventCallback;
+};
+
+type PlannedEvmFamilyThresholdEcdsaReadinessArgs = EvmFamilyThresholdEcdsaReadinessBaseArgs & {
+  mode: 'planned_reconnect';
+  reconnectPlan: EcdsaSessionProvisionPlan;
+};
+
+type DerivedEvmFamilyThresholdEcdsaReadinessArgs = EvmFamilyThresholdEcdsaReadinessBaseArgs & {
+  mode: 'derive_from_lane';
 };
 
 function resolveManagedRuntimeScopeBootstrap(
@@ -53,23 +84,9 @@ function requireEcdsaStoreSource(
   }
 }
 
-export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(args: {
-  deps: EvmFamilyThresholdEcdsaReadinessDeps;
-  lane: ResolvedEvmFamilyEcdsaSigningLane;
-  chainId: number;
-  keyRef: ThresholdEcdsaSecp256k1KeyRef | undefined;
-  reconnectSessionIdentity: {
-    thresholdSessionId: string;
-    walletSigningSessionId: string;
-  };
-  clientRootShare32B64u?: string;
-  webauthnAuthentication?: WebAuthnAuthenticationCredential;
-  remainingUses?: number;
-  operationUsesNeeded?: number;
-  sessionBudgetUses: number;
-  shouldAbort?: () => boolean;
-  onEvent?: EvmFamilyLifecycleEventCallback;
-}): Promise<ThresholdEcdsaSecp256k1KeyRef> {
+export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(
+  args: PlannedEvmFamilyThresholdEcdsaReadinessArgs | DerivedEvmFamilyThresholdEcdsaReadinessArgs,
+): Promise<ThresholdEcdsaSecp256k1KeyRef> {
   throwIfEvmFamilySigningCancelled(args.shouldAbort);
 
   const chain = args.lane.chainFamily;
@@ -79,17 +96,15 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(args: {
   });
   const source = requireEcdsaStoreSource(args.lane);
   const nearAccountId = String(args.lane.accountId);
-  const thresholdSessionId = String(args.reconnectSessionIdentity.thresholdSessionId || '').trim();
-  const walletSigningSessionId = String(
-    args.reconnectSessionIdentity.walletSigningSessionId || '',
-  ).trim();
-  if (!thresholdSessionId || !walletSigningSessionId) {
-    throw new Error('[SigningEngine] ECDSA reconnect requires exact fresh session identity');
-  }
+  const reconnectSessionIdentity = buildEcdsaSessionIdentity({
+    thresholdSessionId: args.reconnectSessionIdentity.thresholdSessionId,
+    walletSigningSessionId: args.reconnectSessionIdentity.walletSigningSessionId,
+  });
+  const { thresholdSessionId, walletSigningSessionId } = reconnectSessionIdentity;
   const warmSessionServices = createEvmFamilyWarmSessionServices(args.deps);
   const operationUsesNeeded = Math.max(
     1,
-    Math.floor(Number(args.operationUsesNeeded ?? args.remainingUses) || 1),
+    Math.floor(Number(args.operationUsesNeeded) || 1),
   );
   const sessionBudgetUses = Math.max(
     1,
@@ -109,6 +124,31 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(args: {
     });
   } catch {
     selectedRecord = undefined;
+  }
+  const reconnectPlan =
+    args.mode === 'planned_reconnect'
+      ? args.reconnectPlan
+      : buildEcdsaSessionProvisionPlan({
+          kind: 'ecdsa_session_reconnect',
+          subjectId: args.lane.subjectId,
+          chainTarget,
+          sessionIdentity: reconnectSessionIdentity,
+          signingKeyContext: buildEcdsaSigningKeyContext({
+            keyRef: resolvedKeyRef,
+            record: selectedRecord || null,
+          }),
+          sessionBudgetUses,
+          reconnectMaterial: buildEcdsaReconnectMaterial({
+            keyRef: resolvedKeyRef,
+            record: selectedRecord || null,
+          }),
+        });
+  const reconnectPlanIdentity = getEcdsaSessionProvisionIdentity(reconnectPlan);
+  if (
+    reconnectPlanIdentity.thresholdSessionId !== thresholdSessionId ||
+    reconnectPlanIdentity.walletSigningSessionId !== walletSigningSessionId
+  ) {
+    throw new Error('[SigningEngine][ecdsa] reconnect plan identity does not match requested reconnect identity');
   }
   try {
     console.info('[SigningEngine][ecdsa][reconnect-selected-lane]', {
@@ -132,16 +172,13 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(args: {
     nearAccountId,
     subjectId: args.lane.subjectId,
     chainTarget,
+    plan: reconnectPlan,
     keyRef: resolvedKeyRef,
     source,
     runtimeScopeBootstrap: resolveManagedRuntimeScopeBootstrap(args.deps.seamsPasskeyConfigs),
     usesNeeded: operationUsesNeeded,
     sessionBudgetUses,
     operationIntent: SigningOperationIntent.TransactionSign,
-    sessionId: thresholdSessionId,
-    walletSigningSessionId,
-    ...(args.clientRootShare32B64u ? { clientRootShare32B64u: args.clientRootShare32B64u } : {}),
-    ...(args.webauthnAuthentication ? { webauthnAuthentication: args.webauthnAuthentication } : {}),
     beforeReconnect: async () => {
       try {
         emitEvmFamilySigningEvent(args.onEvent, {

@@ -30,7 +30,9 @@ import type {
   WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { UserPreferencesManager } from '../session/userPreferences';
-import type { BootstrapEcdsaSessionArgs } from '../session/passkey/ecdsaBootstrap';
+import type {
+  WarmSessionEcdsaCapabilityState,
+} from '../session/warmCapabilities/types';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
 import type {
   UiConfirmContextPort,
@@ -50,6 +52,12 @@ export type NearEd25519SigningSessionStatus = {
   status?: string | null;
   remainingUses?: number | null;
   expiresAtMs?: number | null;
+};
+
+export type EmailOtpEcdsaSigningBootstrapResult = {
+  bootstrap: ThresholdEcdsaSessionBootstrapResult;
+  warmCapability: WarmSessionEcdsaCapabilityState;
+  clientRootShare32B64u: string;
 };
 
 export type NearSigningApiDeps = {
@@ -85,8 +93,8 @@ export type NearSigningApiDeps = {
     localPrfCredential: WebAuthnAuthenticationCredential;
     usesNeeded?: number;
     remainingUses?: number;
-    sessionId?: string;
-    walletSigningSessionId?: string;
+    sessionId: string;
+    walletSigningSessionId: string;
   }) => Promise<{ sessionId: string; record?: ThresholdEd25519SessionRecord }>;
   resolveAccountAuthMethodForSigning?: (args: {
     nearAccountId: AccountId | string;
@@ -199,7 +207,7 @@ export type EvmFamilySigningDeps = EvmFamilyEcdsaSessionReaderDeps & {
     record?: ThresholdEcdsaSessionRecord;
     authLane?: EmailOtpAuthLane;
     remainingUses?: number;
-  }) => Promise<ThresholdEcdsaSecp256k1KeyRef>;
+  }) => Promise<EmailOtpEcdsaSigningBootstrapResult>;
   restorePersistedSessionForSigning: (
     args: Extract<RestorePersistedSessionForSigningInput, { curve: 'ecdsa' }>,
   ) => Promise<unknown>;
@@ -214,7 +222,7 @@ export type EvmFamilySigningDeps = EvmFamilyEcdsaSessionReaderDeps & {
   }) => void;
   signingSessionCoordinator: SigningSessionCoordinator;
   provisionThresholdEcdsaSession: (
-    args: BootstrapEcdsaSessionArgs,
+    args: import('../session/passkey/ecdsaSessionProvision').ThresholdEcdsaActivationRequest,
   ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
   touchConfirm: UiConfirmContextPort &
     UiConfirmSigningPort &

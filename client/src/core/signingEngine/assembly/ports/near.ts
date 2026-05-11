@@ -92,8 +92,8 @@ export function createNearSigningDeps(args: {
         record,
         localPrfCredential,
         remainingUses,
-        ...(sessionId ? { sessionId } : {}),
-        ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
+        sessionId,
+        walletSigningSessionId,
         provisionThresholdEd25519Session: (provisionArgs) =>
           createArgs.provisionThresholdEd25519Session(provisionArgs),
         readStoredThresholdEd25519SessionRecord: (accountId) =>

@@ -1,6 +1,6 @@
 import type { AccountId } from '@/core/types/accountIds';
-import type { BootstrapEcdsaSessionArgs } from '../../session/passkey/ecdsaBootstrap';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
+import type { ThresholdEcdsaActivationRequest } from '../../session/passkey/ecdsaSessionProvision';
 import { clearThresholdEcdsaClientPresignaturesForLane } from '../../threshold/ecdsa/presignPool';
 import type {
   UiConfirmContextPort,
@@ -12,10 +12,7 @@ import type {
   WarmSessionStatusResult,
 } from '../../uiConfirm/types';
 import { createWarmSessionCapabilityReader } from '../../session/warmCapabilities/capabilityReader';
-import {
-  ensureWarmEcdsaCapabilityReady,
-  provisionWarmEcdsaCapability,
-} from '../../session/passkey/ecdsaProvisioner';
+import { ensureWarmEcdsaCapabilityReady } from '../../session/passkey/ecdsaProvisioner';
 import {
   applyWarmSessionEcdsaPostSignPolicy,
   assertWarmSessionEcdsaOperationAllowed,
@@ -27,8 +24,6 @@ import type {
   WarmSessionProvisioner,
 } from '../../session/warmCapabilities/types';
 import { createWarmSessionStatusReader } from '../../session/warmCapabilities/statusReader';
-import { claimPasskeyEcdsaPrfFirst } from '../../session/passkey/ecdsaRecovery';
-import { claimWarmSessionPrfFirst } from '../../session/passkey/prfClaim';
 import type {
   ThresholdEcdsaSessionRecord,
 } from '../../session/persistence/records';
@@ -60,7 +55,7 @@ export type EvmFamilyWarmSessionServicesDeps = EvmFamilyEcdsaSessionReaderDeps &
     uses?: number;
   }) => void;
   provisionThresholdEcdsaSession: (
-    args: BootstrapEcdsaSessionArgs,
+    args: ThresholdEcdsaActivationRequest,
   ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
   getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
 };
@@ -87,17 +82,17 @@ export function createEvmFamilyWarmSessionServices(
     deps.getEmailOtpWarmSessionStatus ||
     (async (sessionId: string): Promise<WarmSessionStatusResult> =>
       deps.touchConfirm.getWarmSessionStatus({ sessionId }));
-  const clearEcdsaEphemeralMaterial = async (args: {
-    record: ThresholdEcdsaSessionRecord;
-    thresholdSessionId?: string;
-  }): Promise<void> => {
+  const clearEcdsaEphemeralMaterial = async (
+    record: ThresholdEcdsaSessionRecord,
+    thresholdSessionIdOverride: string | undefined,
+  ): Promise<void> => {
     clearThresholdEcdsaClientPresignaturesForLane({
-      relayerUrl: args.record.relayerUrl,
-      ecdsaThresholdKeyId: args.record.ecdsaThresholdKeyId,
-      participantIds: args.record.participantIds,
+      relayerUrl: record.relayerUrl,
+      ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
+      participantIds: record.participantIds,
     });
     const thresholdSessionId = String(
-      args.thresholdSessionId || args.record.thresholdSessionId || '',
+      thresholdSessionIdOverride || record.thresholdSessionId || '',
     ).trim();
     if (thresholdSessionId && typeof deps.touchConfirm.clearWarmSessionMaterial === 'function') {
       await deps.touchConfirm
@@ -140,49 +135,6 @@ export function createEvmFamilyWarmSessionServices(
     touchConfirm: deps.touchConfirm,
     getEmailOtpWarmSessionStatus,
   });
-  const provisionEcdsaCapability: WarmSessionProvisioner['provisionEcdsaCapability'] = (
-    provisionArgs,
-  ) =>
-    provisionWarmEcdsaCapability(
-      {
-        getWarmSession: (nearAccountId) => capabilityReader.getWarmSession(nearAccountId),
-        listThresholdEcdsaKeyRefsForAccountTarget,
-        provisionThresholdEcdsaSession: (provisionRequest) =>
-          deps.provisionThresholdEcdsaSession(provisionRequest),
-        claimPrfFirstByThresholdSessionId: (claimArgs) => {
-          if (claimArgs.authMethod !== 'passkey') {
-            return claimWarmSessionPrfFirst({
-              touchConfirm: deps.touchConfirm,
-              thresholdSessionId: claimArgs.thresholdSessionId,
-              errorContext: claimArgs.errorContext,
-              uses: claimArgs.uses,
-              ...(typeof claimArgs.consume === 'boolean' ? { consume: claimArgs.consume } : {}),
-              curve: 'ecdsa',
-              chainTarget: claimArgs.chainTarget || provisionArgs.chainTarget,
-            });
-          }
-          const walletId = String(claimArgs.walletId || '').trim();
-          const walletSigningSessionId = String(claimArgs.walletSigningSessionId || '').trim();
-          if (!walletId || !walletSigningSessionId) {
-            throw new Error(
-              '[WarmSessionStore] passkey ECDSA reconnect requires walletId and walletSigningSessionId',
-            );
-          }
-          return claimPasskeyEcdsaPrfFirst({
-            touchConfirm: deps.touchConfirm,
-            walletId,
-            walletSigningSessionId,
-            thresholdSessionId: claimArgs.thresholdSessionId,
-            chainTarget: claimArgs.chainTarget || provisionArgs.chainTarget,
-            errorContext: claimArgs.errorContext,
-            uses: claimArgs.uses,
-            ...(typeof claimArgs.consume === 'boolean' ? { consume: claimArgs.consume } : {}),
-          });
-        },
-      },
-      provisionArgs,
-    );
-
   return {
     getWarmSession: (nearAccountId) => capabilityReader.getWarmSession(nearAccountId),
     resolveEcdsaSealTransportByThresholdSessionId: (args) =>
@@ -197,7 +149,8 @@ export function createEvmFamilyWarmSessionServices(
           getWarmSession: (nearAccountId) => capabilityReader.getWarmSession(nearAccountId),
           listThresholdEcdsaKeyRefsForAccountTarget,
           canProvisionEcdsaCapability: true,
-          provisionEcdsaCapability,
+          provisionThresholdEcdsaSession: (provisionRequest) =>
+            deps.provisionThresholdEcdsaSession(provisionRequest),
           resolveCurrentEcdsaRecord: (recordArgs) =>
             statusReader.resolveCurrentEcdsaRecord(recordArgs),
           readEcdsaCapabilityByThresholdSessionId: (thresholdSessionId) =>
@@ -213,7 +166,8 @@ export function createEvmFamilyWarmSessionServices(
           resolveCurrentEcdsaRecord: (recordArgs) =>
             statusReader.resolveCurrentEcdsaRecord(recordArgs),
           markEmailOtpSessionConsumed: deps.markThresholdEcdsaEmailOtpSessionConsumedForAccount,
-          clearEcdsaEphemeralMaterial,
+          clearEcdsaEphemeralMaterial: ({ record, thresholdSessionId }) =>
+            clearEcdsaEphemeralMaterial(record, thresholdSessionId),
         },
         policyArgs,
       ),

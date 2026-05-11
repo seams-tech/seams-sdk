@@ -641,25 +641,24 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
     )) {
       const publicationChain = target.chainTarget.kind;
       const bootstrapStartedAt = performance.now();
-      const existingKeyPublicationSessionId = canonicalEcdsaThresholdKeyId
-        ? createThresholdRegistrationEcdsaSessionId()
-        : '';
+      const thresholdSessionId = createThresholdRegistrationEcdsaSessionId();
       const bootstrap = await args.signingEngine.bootstrapEcdsaSession({
+        kind: 'passkey_fresh_ecdsa_bootstrap',
         nearAccountId: args.nearAccountId,
         subjectId: toWalletSubjectId(args.nearAccountId),
         chainTarget: target.chainTarget,
         source: 'registration',
         relayerUrl,
         sessionKind: 'jwt',
-        ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
+        sessionIdentity: {
+          thresholdSessionId,
+          walletSigningSessionId,
+        },
         ...(canonicalEcdsaThresholdKeyId
           ? { ecdsaThresholdKeyId: canonicalEcdsaThresholdKeyId }
           : {}),
-        ...(existingKeyPublicationSessionId
-          ? { sessionId: existingKeyPublicationSessionId }
-          : {}),
         clientRootShare32B64u,
-        thresholdSessionAuth: {
+        routeAuth: {
           kind: 'registration_continuation',
           token: registrationContinuationToken,
         },

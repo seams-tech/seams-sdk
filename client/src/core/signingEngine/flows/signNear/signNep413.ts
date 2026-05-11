@@ -45,6 +45,7 @@ import {
 } from '../shared/signingStateMachine';
 import { runSigningConfirmationCommand } from '../shared/signingConfirmation';
 import { requireNearStepUpAuth } from './requireNearStepUpAuth';
+import { buildNearEd25519StepUpAuthorization } from './stepUpAuthorization';
 
 /**
  * Sign a NEP-413 message using the user's passkey-derived private key
@@ -158,21 +159,26 @@ export async function signNep413Message({
         confirmationConfigOverride: payload.confirmationConfigOverride,
       },
     });
+    const stepUpAuthorization = buildNearEd25519StepUpAuthorization({
+      prepared: preparedStepUp,
+      confirmation,
+    });
 
     const credentialWithPrf: WebAuthnAuthenticationCredential | undefined =
-      confirmation.credential as WebAuthnAuthenticationCredential | undefined;
+      stepUpAuthorization.kind === 'passkey' ? stepUpAuthorization.credential : undefined;
     const credentialForRelayJson = toCredentialForRelayJson(credentialWithPrf);
 
     const preparedPayload = await runSharedNearNep413Command({
       commandKind: SigningOperationCommandKind.PreparePayload,
       execute: async () => {
-        const prfFirstB64u = thresholdAuthPlan.warmSessionReady
+        const prfFirstB64u = stepUpAuthorization.kind === 'warm_session'
           ? await signingSessionCoordinator.claimPrfFirstByThresholdSessionId({
+              kind: 'wallet_scoped_ed25519_claim',
               thresholdSessionId: thresholdAuthPlan.sessionId,
               uses: usesNeeded,
               errorContext: 'threshold-ed25519 nep413 signing',
               walletId: nearAccountId,
-              authMethod: thresholdAuthPlan.lane.authMethod,
+              authMethod: 'passkey',
               curve: 'ed25519',
               chain: 'near',
               walletSigningSessionId: thresholdAuthPlan.lane.walletSigningSessionId,

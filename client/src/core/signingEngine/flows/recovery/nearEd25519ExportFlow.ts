@@ -375,7 +375,7 @@ export async function tryExportNearEd25519SingleKeyHssWithAuthorization(
       },
     );
     const prfFirstB64u = requirePrfFirstForPrivateKeyExport({
-      credential: exportCredential,
+      credential: exportCredential.credential,
       errorContext: 'single-key HSS Ed25519 export',
     });
     return await runNearEd25519HssExportAndViewer(deps, {

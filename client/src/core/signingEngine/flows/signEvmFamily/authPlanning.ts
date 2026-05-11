@@ -6,7 +6,7 @@ import {
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
+import type { EmailOtpEcdsaSigningBootstrapResult } from '../../interfaces/operationDeps';
 import type { WarmSessionStatusReader, WarmSessionStatusResult } from '../../uiConfirm/types';
 import type {
   SigningSessionCoordinator,
@@ -31,6 +31,15 @@ import {
   createEmailOtpEcdsaTransactionSigningBridge,
   type EvmFamilyEmailOtpTransactionSigningBridge,
 } from './emailOtpSigningSession';
+import {
+  getEcdsaMaterialKeyRef,
+  getEcdsaMaterialRecord,
+  type EcdsaMaterialState,
+} from './ecdsaMaterialState';
+import type {
+  ReadyEvmFamilyEcdsaSigningSelection,
+  ReauthRequiredEvmFamilyEcdsaSigningSelection,
+} from './ecdsaSelection';
 import type {
   EvmFamilyChain,
   EvmFamilyLifecycleEventCallback,
@@ -64,7 +73,7 @@ export type EvmFamilyConfirmedEmailOtpDeps = {
     record?: ThresholdEcdsaSessionRecord;
     authLane?: EmailOtpAuthLane;
     remainingUses?: number;
-  }) => Promise<ThresholdEcdsaSecp256k1KeyRef>;
+  }) => Promise<EmailOtpEcdsaSigningBootstrapResult>;
 };
 
 export type EvmFamilyConfirmedSigningDeps = EvmFamilyConfirmedEmailOtpDeps;
@@ -97,8 +106,7 @@ export type ResolveEvmFamilyTransactionStepUpArgs =
 export async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
   deps: Pick<EvmFamilyPreConfirmSigningDeps, 'touchConfirm' | 'getEmailOtpWarmSessionStatus'>;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
-  record?: ThresholdEcdsaSessionRecord;
-  keyRef?: ThresholdEcdsaSecp256k1KeyRef;
+  material: EcdsaMaterialState;
 }): Promise<{
   readiness: SigningSessionReadiness;
   expiresAtMs: number;
@@ -109,7 +117,7 @@ export async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
   const base = {
     thresholdSessionId,
   };
-  const record = args.record;
+  const record = getEcdsaMaterialRecord(args.material);
   if (!record) {
     return {
       readiness: {
@@ -134,7 +142,8 @@ export async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
     ...(signingRootId ? { signingRootId } : {}),
   });
 
-  if (isEmailOtpThresholdEcdsaSigningContext({ record, keyRef: args.keyRef })) {
+  const keyRef = getEcdsaMaterialKeyRef(args.material);
+  if (isEmailOtpThresholdEcdsaSigningContext({ record, keyRef })) {
     const emailOtpWorkerSessionId = resolveEmailOtpEcdsaWorkerSessionId(record);
     const readEmailOtpStatus = async () => {
       if (emailOtpWorkerSessionId && typeof args.deps.getEmailOtpWarmSessionStatus === 'function') {
@@ -168,27 +177,35 @@ export async function resolveEvmFamilyTransactionStepUp(
   emailOtpSigning?: {
     prepare: () => Promise<{ challengeId: string; emailHint?: string }>;
     resend?: () => Promise<{ challengeId: string; emailHint?: string }>;
-    complete: (otpCode: string, challengeId?: string) => Promise<ThresholdEcdsaSecp256k1KeyRef>;
+    complete: (
+      otpCode: string,
+      challengeId?: string,
+    ) => Promise<EmailOtpEcdsaSigningBootstrapResult>;
   };
 }> {
   const preparedEcdsaMetadata =
     args.senderSignatureAlgorithm === 'secp256k1'
       ? (args.preparedOperation.metadata as {
-          warmRecord?: ThresholdEcdsaSessionRecord;
-          warmKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
-          emailOtpReauthRecord?: ThresholdEcdsaSessionRecord;
+          selection:
+            | ReadyEvmFamilyEcdsaSigningSelection
+            | ReauthRequiredEvmFamilyEcdsaSigningSelection;
+          material: EcdsaMaterialState;
           signingRootId?: string;
         })
       : null;
   const preparedEcdsaLane =
     args.senderSignatureAlgorithm === 'secp256k1' ? args.preparedOperation.lane : undefined;
-  const laneWarmRecord = preparedEcdsaMetadata?.warmRecord;
-  const laneWarmKeyRef = preparedEcdsaMetadata?.warmKeyRef;
+  const preparedSelection = preparedEcdsaMetadata?.selection;
+  const preparedMaterial = preparedEcdsaMetadata?.material;
+  const laneWarmRecord = preparedMaterial ? getEcdsaMaterialRecord(preparedMaterial) : undefined;
+  const laneWarmKeyRef = preparedMaterial ? getEcdsaMaterialKeyRef(preparedMaterial) : undefined;
   const confirmedEmailOtpDeps = args.confirmedDeps;
   const emailOtpReauthRecord =
     args.senderSignatureAlgorithm === 'secp256k1' &&
     preparedEcdsaLane?.authMethod === SIGNER_AUTH_METHODS.emailOtp
-      ? preparedEcdsaMetadata?.emailOtpReauthRecord || preparedEcdsaMetadata?.warmRecord
+      ? preparedSelection?.kind === 'reauth_required'
+        ? getEcdsaMaterialRecord(preparedSelection.material) || laneWarmRecord
+        : laneWarmRecord
       : undefined;
   const emailOtpAuthBridge =
     args.senderSignatureAlgorithm === 'secp256k1'
@@ -197,9 +214,8 @@ export async function resolveEvmFamilyTransactionStepUp(
           chain: args.chain,
           chainTarget: args.chainTarget,
           selectedLane: preparedEcdsaLane,
-          warmRecord: laneWarmRecord,
-          warmKeyRef: laneWarmKeyRef,
-          emailOtpReauthRecord,
+          material: preparedMaterial,
+          signingSessionRecord: emailOtpReauthRecord || null,
           onEvent: args.onEvent,
           requestEmailOtpTransactionSigningChallenge:
             confirmedEmailOtpDeps.requestEmailOtpTransactionSigningChallenge,

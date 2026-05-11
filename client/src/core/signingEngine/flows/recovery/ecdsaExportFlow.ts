@@ -300,6 +300,7 @@ export async function exportThresholdEcdsaKeyWithAuthorization(
       chainTarget: args.exportLane.chainTarget,
       thresholdSessionId: args.keyRef.thresholdSessionId,
       operationLabel: 'threshold-ecdsa key export',
+      source: currentRecord.source,
       sensitivePolicy: SENSITIVE_OPERATION_POLICIES.requirePasskey,
     });
   } catch (error: unknown) {
@@ -323,7 +324,7 @@ export async function exportThresholdEcdsaKeyWithAuthorization(
     },
   );
   const yClient32LeB64u = requirePrfFirstForPrivateKeyExport({
-    credential: exportCredential,
+    credential: exportCredential.credential,
     errorContext: 'threshold-ecdsa explicit export',
   });
 

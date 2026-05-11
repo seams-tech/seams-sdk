@@ -1,14 +1,16 @@
 import { createSigningSessionBudgetFinalizer } from '../../session/budget/budgetFinalizer';
 import type {
+  BudgetFinalizationSpend,
   SigningSessionBudgetReservation,
-  SigningSessionPreparedBudgetIdentity,
   SigningSessionBudgetStatusAuth,
+  WalletBudgetSpend,
 } from '../../session/budget/budget';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import {
   type SigningOperationFingerprint,
   type SigningOperationContext,
 } from '../../session/operationState/types';
+import type { BudgetAdmittedOperation } from '../../session/operationState/transactionState';
 import type { SelectedEcdsaLane } from '../../session/identity/laneIdentity';
 import type { ResolvedEvmFamilyEcdsaSigningLane } from './ecdsaLanes';
 
@@ -20,42 +22,76 @@ type EvmFamilyWalletSigningSessionBudgetArgs = {
   signingSessionCoordinator: SigningSessionCoordinator;
   nearAccountId: string;
   operation: EvmFamilyTransactionSigningOperationContext;
-  selectedTransactionLane: SelectedEcdsaLane;
-  selectedSigningLane: ResolvedEvmFamilyEcdsaSigningLane;
-  budgetIdentity: SigningSessionPreparedBudgetIdentity;
+  admittedTransaction: BudgetAdmittedOperation<SelectedEcdsaLane>;
+  finalizedSigningLane: ResolvedEvmFamilyEcdsaSigningLane;
   trustedStatusAuth?: SigningSessionBudgetStatusAuth;
+  reserved?: boolean;
+  error?: unknown;
 };
 
-function createEvmFamilyTransactionBudgetFinalizer(args: EvmFamilyWalletSigningSessionBudgetArgs) {
-  const selectedTransactionLane = args.selectedTransactionLane;
-  const resolvedThresholdSessionId = String(
-    selectedTransactionLane?.thresholdSessionId || '',
-  ).trim();
-  if (
-    !selectedTransactionLane ||
-    !resolvedThresholdSessionId ||
-    !String(selectedTransactionLane.walletSigningSessionId).trim()
-  ) {
+function buildEvmFamilyBudgetFinalization(
+  args: EvmFamilyWalletSigningSessionBudgetArgs,
+): BudgetFinalizationSpend {
+  const selectedTransactionLane = args.admittedTransaction.lane;
+  const resolvedThresholdSessionId = String(selectedTransactionLane.thresholdSessionId || '').trim();
+  const resolvedWalletSigningSessionId = String(selectedTransactionLane.walletSigningSessionId || '').trim();
+  if (!resolvedThresholdSessionId || !resolvedWalletSigningSessionId) {
     throw new Error(
       '[SigningEngine][ecdsa] budget finalizer requires an exact selected transaction lane',
     );
   }
+  if (typeof args.error !== 'undefined') {
+    return {
+      kind: 'zero_spend',
+      operationId: args.operation.operationId,
+      lane: args.finalizedSigningLane,
+      reason: 'signing_failed',
+      error: args.error,
+    };
+  }
+  const spend: WalletBudgetSpend = {
+    operationId: args.operation.operationId,
+    ...(args.operation.operationFingerprint
+      ? { operationFingerprint: args.operation.operationFingerprint }
+      : {}),
+    nearAccountId: args.finalizedSigningLane.accountId,
+    walletSigningSessionId: args.finalizedSigningLane.walletSigningSessionId,
+    lane: args.finalizedSigningLane,
+    thresholdSessionIds: [args.finalizedSigningLane.thresholdSessionId],
+    backingMaterialSessionIds: [],
+    uses: 1,
+    reason: args.operation.intent,
+  };
+  if (args.reserved) {
+    return {
+      kind: 'reserved_success',
+      spend,
+      expectedBudgetProjectionVersion: args.admittedTransaction.budgetAdmission.budgetIdentity.projectionVersion,
+      ...(args.trustedStatusAuth ? { trustedStatusAuth: args.trustedStatusAuth } : {}),
+    };
+  }
+  return {
+    kind: 'externally_consumed_success',
+    spend,
+    ...(args.trustedStatusAuth ? { trustedStatusAuth: args.trustedStatusAuth } : {}),
+    alreadyConsumedThresholdSessionIds: [args.finalizedSigningLane.thresholdSessionId],
+  };
+}
 
+function createEvmFamilyTransactionBudgetFinalizer(args: EvmFamilyWalletSigningSessionBudgetArgs) {
+  const selectedTransactionLane = args.admittedTransaction.lane;
+  const resolvedThresholdSessionId = String(selectedTransactionLane.thresholdSessionId || '').trim();
+  const resolvedWalletSigningSessionId = String(selectedTransactionLane.walletSigningSessionId || '').trim();
   return {
     finalizer: createSigningSessionBudgetFinalizer({
       signingSessionBudget: args.signingSessionCoordinator,
-      budgetIdentity: args.budgetIdentity,
-      ...(args.trustedStatusAuth ? { trustedStatusAuth: args.trustedStatusAuth } : {}),
-      operation: args.operation,
-      // Passkey reauth can replace the ECDSA threshold session after the
-      // confirmation. Budget finalization must follow the refreshed keyRef,
-      // not the exhausted lane that was selected during pre-confirm planning.
-      lane: args.selectedSigningLane,
+      budgetIdentity: args.admittedTransaction.budgetAdmission.budgetIdentity,
+      finalization: buildEvmFamilyBudgetFinalization(args),
       onRecordSuccessError: (error) => {
         console.warn('[SigningEngine][ecdsa] failed to update wallet signing-session budget', {
           nearAccountId: args.nearAccountId,
           chainTarget: selectedTransactionLane.chainTarget,
-          walletSigningSessionId: String(selectedTransactionLane.walletSigningSessionId),
+          walletSigningSessionId: resolvedWalletSigningSessionId,
           thresholdSessionId: resolvedThresholdSessionId,
           error: error instanceof Error ? error.message : String(error || 'unknown error'),
         });
@@ -76,14 +112,7 @@ export async function recordSuccessfulEvmFamilyWalletSigningSessionSpend(
   args: EvmFamilyWalletSigningSessionBudgetArgs,
 ): Promise<void> {
   const result = createEvmFamilyTransactionBudgetFinalizer(args);
-  await result.finalizer.recordSuccess({
-    // ECDSA threshold authorization is the server-side budget spend boundary
-    // for both Email OTP and passkey lanes. Finalization should sync the
-    // resulting status, not spend the same threshold session a second time.
-    ...(result.thresholdSessionId
-      ? { alreadyConsumedThresholdSessionIds: [result.thresholdSessionId] }
-      : {}),
-  });
+  await result.finalizer.recordSuccess();
 }
 
 export async function reserveEvmFamilyWalletSigningSessionBudget(

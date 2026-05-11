@@ -63,6 +63,7 @@ import {
 } from '../shared/signingStateMachine';
 import { runSigningConfirmationCommand } from '../shared/signingConfirmation';
 import { requireNearStepUpAuth } from './requireNearStepUpAuth';
+import { buildNearEd25519StepUpAuthorization } from './stepUpAuthorization';
 
 function emitNearSigningEvent(
   onEvent: ((event: SigningFlowEvent) => void) | undefined,
@@ -239,12 +240,16 @@ export async function runNearDelegateActionSigning({
     status: 'succeeded',
     interaction: { kind: 'transaction_confirmation', overlay: 'hide' },
   });
+  const stepUpAuthorization = buildNearEd25519StepUpAuthorization({
+    prepared: preparedStepUp,
+    confirmation,
+  });
 
   const intentDigest = confirmation.intentDigest;
   const transactionContext = confirmation.transactionContext;
 
   const credentialWithPrf: WebAuthnAuthenticationCredential | undefined =
-    confirmation.credential as WebAuthnAuthenticationCredential | undefined;
+    stepUpAuthorization.kind === 'passkey' ? stepUpAuthorization.credential : undefined;
 
   const credentialForRelayJson = toCredentialForRelayJson(credentialWithPrf);
 
@@ -258,13 +263,14 @@ export async function runNearDelegateActionSigning({
         interaction: { kind: 'none', overlay: 'none' },
       });
 
-      const prfFirstB64u = thresholdAuthPlan.warmSessionReady
+      const prfFirstB64u = stepUpAuthorization.kind === 'warm_session'
         ? await signingSessionCoordinator.claimPrfFirstByThresholdSessionId({
+            kind: 'wallet_scoped_ed25519_claim',
             thresholdSessionId: thresholdAuthPlan.sessionId,
             uses: usesNeeded,
             errorContext: 'threshold-ed25519 delegate signing',
             walletId: nearAccountId,
-            authMethod: thresholdAuthPlan.lane.authMethod,
+            authMethod: 'passkey',
             curve: 'ed25519',
             chain: 'near',
             walletSigningSessionId: thresholdAuthPlan.lane.walletSigningSessionId,
@@ -279,7 +285,7 @@ export async function runNearDelegateActionSigning({
         phase: SigningEventPhase.STEP_07_AUTHENTICATION_COMPLETE,
         status: 'succeeded',
         interaction: { kind: 'none', overlay: 'none' },
-        authMethod: thresholdAuthPlan.warmSessionReady ? 'warm_session' : 'passkey',
+        authMethod: stepUpAuthorization.kind === 'warm_session' ? 'warm_session' : 'passkey',
       });
 
       const delegatePayload = delegateSigningPayloads.workerDelegate;

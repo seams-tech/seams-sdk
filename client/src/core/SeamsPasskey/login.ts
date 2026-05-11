@@ -804,9 +804,11 @@ async function primeThresholdLoginWarmSigners(args: {
       dependencies: [],
       run: async () => {
         const connected = await args.signingEngine.connectEd25519Session({
+          kind: 'fresh_ed25519_provisioning',
           nearAccountId: args.nearAccountId,
           relayerUrl: args.relayerUrl,
           relayerKeyId: args.relayerKeyId,
+          source: 'login',
           ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
           ...(args.useAppSessionCookie ? { useAppSessionCookie: args.useAppSessionCookie } : {}),
           ...(args.credential ? { localPrfCredential: args.credential } : {}),
@@ -820,7 +822,6 @@ async function primeThresholdLoginWarmSigners(args: {
           sessionKind: args.useAppSessionCookie ? 'cookie' : 'jwt',
           ttlMs: args.ttlMs,
           remainingUses: args.remainingUses,
-          sessionId: args.preferredEd25519SessionId || undefined,
         });
         if (!connected.ok) {
           const details = String(
@@ -878,8 +879,10 @@ async function primeThresholdLoginWarmSigners(args: {
           for (const target of listConfiguredThresholdEcdsaPublicationTargets(
             args.context.configs.network.chains,
           )) {
-            const sessionId = warmState.sessionId || createThresholdLoginWarmSessionId('threshold-ecdsa-login');
+            const thresholdSessionId =
+              warmState.sessionId || createThresholdLoginWarmSessionId('threshold-ecdsa-login');
             await args.signingEngine.bootstrapEcdsaSession({
+              kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
               nearAccountId: args.nearAccountId,
               subjectId: toWalletSubjectId(args.nearAccountId),
               chainTarget: target.chainTarget,
@@ -888,12 +891,13 @@ async function primeThresholdLoginWarmSigners(args: {
               ecdsaThresholdKeyId: bootstrapIdentity.ecdsaThresholdKeyId,
               participantIds: args.participantIds,
               sessionKind: 'jwt',
-              sessionId,
-              walletSigningSessionId: bootstrapIdentity.walletSigningSessionId,
+              sessionIdentity: {
+                thresholdSessionId,
+                walletSigningSessionId: bootstrapIdentity.walletSigningSessionId,
+              },
               ttlMs: args.ttlMs,
               remainingUses: args.remainingUses,
-              clientRootShare32B64u: warmState.ecdsaHssClientRootShare32B64u,
-              thresholdSessionAuth: bootstrapIdentity.routeAuth,
+              routeAuth: bootstrapIdentity.routeAuth,
               ...(args.canonicalEcdsaContext.runtimePolicyScope
                 ? { runtimePolicyScope: args.canonicalEcdsaContext.runtimePolicyScope }
                 : {}),

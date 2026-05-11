@@ -95,7 +95,7 @@ export function createNearSigningSessionCoordinator(
     claimPrfFirstByThresholdSessionId: async (claimArgs) => {
       let consume = claimArgs.consume;
       if (typeof consume !== 'boolean') {
-        if (claimArgs.authMethod !== 'passkey') {
+        if (claimArgs.kind === 'threshold_only_claim') {
           consume = true;
         } else {
           const statusBeforeRestore = await touchConfirm
@@ -107,52 +107,37 @@ export function createNearSigningSessionCoordinator(
           consume = statusBeforeRestore?.ok === true;
         }
       }
-      if (claimArgs.authMethod !== 'passkey') {
-        return await claimWarmSessionPrfFirst({
-          touchConfirm,
-          thresholdSessionId: claimArgs.thresholdSessionId,
-          errorContext: claimArgs.errorContext,
-          uses: claimArgs.uses,
-          consume,
-          ...(claimArgs.curve ? { curve: claimArgs.curve } : {}),
-          ...(claimArgs.chain ? { chain: claimArgs.chain } : {}),
-          ...(claimArgs.chainTarget ? { chainTarget: claimArgs.chainTarget } : {}),
-        });
-      }
-      const walletId = String(claimArgs.walletId || '').trim();
-      const walletSigningSessionId = String(claimArgs.walletSigningSessionId || '').trim();
-      if (!walletId || !walletSigningSessionId) {
-        throw new Error(
-          '[WarmSessionStore] NEAR passkey warm-session claim requires walletId and walletSigningSessionId',
-        );
-      }
-      if (claimArgs.curve === 'ecdsa') {
-        const chainTarget = claimArgs.chainTarget;
-        if (!chainTarget) {
-          throw new Error(
-            '[WarmSessionStore] NEAR passkey ECDSA warm-session claim requires chainTarget',
-          );
-        }
+      switch (claimArgs.kind) {
+        case 'threshold_only_claim':
+          return await claimWarmSessionPrfFirst({
+            touchConfirm,
+            thresholdSessionId: claimArgs.thresholdSessionId,
+            errorContext: claimArgs.errorContext,
+            uses: claimArgs.uses,
+            consume,
+          });
+        case 'wallet_scoped_ecdsa_claim':
         return await claimPasskeyEcdsaPrfFirst({
           touchConfirm,
-          walletId,
-          walletSigningSessionId,
+          walletId: claimArgs.walletId,
+          walletSigningSessionId: claimArgs.walletSigningSessionId,
           thresholdSessionId: claimArgs.thresholdSessionId,
-          chainTarget,
+          chainTarget: claimArgs.chainTarget,
           errorContext: claimArgs.errorContext,
           uses: claimArgs.uses,
           consume,
         });
+        case 'wallet_scoped_ed25519_claim':
+          return await claimPasskeyEd25519PrfFirst({
+            touchConfirm,
+            walletId: claimArgs.walletId,
+            walletSigningSessionId: claimArgs.walletSigningSessionId,
+            thresholdSessionId: claimArgs.thresholdSessionId,
+            errorContext: claimArgs.errorContext,
+            uses: claimArgs.uses,
+            consume,
+          });
       }
-      return await claimPasskeyEd25519PrfFirst({
-        touchConfirm,
-        walletId,
-        walletSigningSessionId,
-        thresholdSessionId: claimArgs.thresholdSessionId,
-        errorContext: claimArgs.errorContext,
-        uses: claimArgs.uses,
-        consume,
-      });
     },
   };
 }

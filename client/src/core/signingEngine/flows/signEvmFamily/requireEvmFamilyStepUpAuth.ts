@@ -4,7 +4,6 @@ import type {
   SigningAuthPlan,
   StepUpPolicy,
 } from '@/core/signingEngine/stepUpConfirmation/types';
-import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import {
   isEmailOtpSigningAuthPlan,
   isPasskeySigningAuthPlan,
@@ -14,6 +13,11 @@ import type {
   EvmFamilyThresholdEcdsaOperation,
   EvmFamilyThresholdEcdsaReauthResult,
 } from './thresholdAdmission';
+import type {
+  EvmFamilyEcdsaEmailOtpStepUpAuthorization,
+  EvmFamilyEcdsaPasskeyStepUpAuthorization,
+  EvmFamilyEcdsaWarmSessionStepUpAuthorization,
+} from './stepUpAuthorization';
 
 export type EvmFamilyPasskeyReconnectPlan = {
   sessionId: string;
@@ -29,22 +33,22 @@ export type EvmFamilyEmailOtpStepUpRuntime = {
   prepare: () => Promise<{ challengeId: string; emailHint?: string }>;
   resend?: () => Promise<{ challengeId: string; emailHint?: string }>;
   complete: (
-    otpCode: string,
-    challengeId?: string,
+    authorization: EvmFamilyEcdsaEmailOtpStepUpAuthorization,
   ) => Promise<EvmFamilyThresholdEcdsaReauthResult>;
 };
 
 export type EvmFamilyPasskeyStepUpRuntime = EvmFamilyPasskeyReconnectPlanner & {
   reconnect: (args: {
-    credential: WebAuthnAuthenticationCredential;
+    authorization: EvmFamilyEcdsaPasskeyStepUpAuthorization;
     usesNeeded: number;
-    sessionId: string;
-    walletSigningSessionId: string;
   }) => Promise<EvmFamilyThresholdEcdsaReauthResult>;
 };
 
 export type EvmFamilyThresholdReconnectRuntime = {
-  ensureThresholdEcdsaKeyRefReady: () => Promise<EvmFamilyThresholdEcdsaReauthResult>;
+  ensureThresholdEcdsaKeyRefReady: (args: {
+    authorization: EvmFamilyEcdsaWarmSessionStepUpAuthorization;
+    usesNeeded: number;
+  }) => Promise<EvmFamilyThresholdEcdsaReauthResult>;
 };
 
 export type EvmFamilyThresholdEcdsaStepUpRuntime = {
@@ -76,11 +80,38 @@ export type EvmFamilyThresholdEcdsaStepUp =
       runtime: EvmFamilyThresholdEcdsaStepUpRuntime;
     };
 
-export type EvmFamilyPreparedStepUpAuth = {
+type EvmFamilyPreparedStepUpAuthBase = {
+  kind: 'warm_session' | 'email_otp' | 'passkey';
   confirmationAuthPayload: { signingAuthPlan: SigningAuthPlan };
-  emailOtpPrompt?: EmailOtpConfirmPrompt;
+};
+
+export type EvmFamilyWarmSessionStepUpAuth = EvmFamilyPreparedStepUpAuthBase & {
+  kind: 'warm_session';
+  confirmationAuthPayload: {
+    signingAuthPlan: Extract<SigningAuthPlan, { kind: 'warmSession' }>;
+  };
+};
+
+export type EvmFamilyEmailOtpStepUpAuth = EvmFamilyPreparedStepUpAuthBase & {
+  kind: 'email_otp';
+  confirmationAuthPayload: {
+    signingAuthPlan: Extract<SigningAuthPlan, { kind: 'emailOtpReauth' }>;
+  };
+  emailOtpPrompt: EmailOtpConfirmPrompt;
+};
+
+export type EvmFamilyPasskeyStepUpAuth = EvmFamilyPreparedStepUpAuthBase & {
+  kind: 'passkey';
+  confirmationAuthPayload: {
+    signingAuthPlan: Extract<SigningAuthPlan, { kind: 'passkeyReauth' }>;
+  };
   plannedPasskeyReconnect?: EvmFamilyPasskeyReconnectPlan;
 };
+
+export type EvmFamilyPreparedStepUpAuth =
+  | EvmFamilyWarmSessionStepUpAuth
+  | EvmFamilyEmailOtpStepUpAuth
+  | EvmFamilyPasskeyStepUpAuth;
 
 export function signingAuthPlanFromThresholdEcdsaStepUp(
   stepUp: EvmFamilyThresholdEcdsaStepUp,
@@ -131,10 +162,19 @@ export async function requireEvmFamilyStepUpAuth(args: {
                   }
                 : {}),
               complete: async ({ confirmation, prompt }) =>
-                await stepUpRuntime.emailOtpSigning!.complete(
-                  confirmation.otpCode,
-                  prompt.challengeId,
-                ),
+                await stepUpRuntime.emailOtpSigning!.complete({
+                  kind: 'email_otp',
+                  signingAuthPlan: isEmailOtpSigningAuthPlan(signingAuthPlan)
+                    ? signingAuthPlan
+                    : {
+                        kind: 'emailOtpReauth',
+                        method: 'email_otp',
+                        emailOtpPrompt: prompt,
+                      },
+                  challengeId: String(prompt.challengeId || '').trim(),
+                  otpCode: String(confirmation.otpCode || '').trim(),
+                  ...(prompt.emailHint ? { emailHint: prompt.emailHint } : {}),
+                }),
             },
           }
         : {}),
@@ -153,25 +193,66 @@ export async function requireEvmFamilyStepUpAuth(args: {
             throw new Error('[chains] passkey reconnect runner is unavailable');
           }
           return await stepUpRuntime.passkeyReconnect.reconnect({
-            credential: confirmation.credential as WebAuthnAuthenticationCredential,
+            authorization: {
+              kind: 'passkey',
+              signingAuthPlan: isPasskeySigningAuthPlan(signingAuthPlan)
+                ? signingAuthPlan
+                : {
+                    kind: 'passkeyReauth',
+                    method: 'passkey',
+                  },
+              credential: confirmation.credential,
+              ...(plannedPasskeyReconnect
+                ? { plannedPasskeyReconnect }
+                : {}),
+            },
             usesNeeded: 1,
-            sessionId: plannedPasskeyReconnect?.sessionId || '',
-            walletSigningSessionId: plannedPasskeyReconnect?.walletSigningSessionId || '',
           });
         },
       },
     },
   });
-  const confirmationAuthPayload = {
-    signingAuthPlan: signingAuthPlanFromPreparedEvmFamilyStepUp({
+  if (prepared.method === 'warm_session') {
+    if (!signingAuthPlan || !isWarmSessionSigningAuthPlan(signingAuthPlan)) {
+      throw new Error('[chains] warm-session step-up requires an existing warm-session plan');
+    }
+    return {
+      kind: 'warm_session',
+      confirmationAuthPayload: {
+        signingAuthPlan,
+      },
+    };
+  }
+
+  if (prepared.method === 'email_otp') {
+    const stepUpPlan = signingAuthPlanFromPreparedEvmFamilyStepUp({
       signingAuthPlan,
       prepared,
-    }),
-  };
-  const emailOtpPrompt = prepared.method === 'email_otp' ? prepared.prompt : undefined;
+    });
+    if (!isEmailOtpSigningAuthPlan(stepUpPlan)) {
+      throw new Error('[chains] Email OTP step-up requires an Email OTP signing auth plan');
+    }
+    return {
+      kind: 'email_otp',
+      confirmationAuthPayload: {
+        signingAuthPlan: stepUpPlan,
+      },
+      emailOtpPrompt: prepared.prompt,
+    };
+  }
+
+  const stepUpPlan = signingAuthPlanFromPreparedEvmFamilyStepUp({
+    signingAuthPlan,
+    prepared,
+  });
+  if (!isPasskeySigningAuthPlan(stepUpPlan)) {
+    throw new Error('[chains] passkey step-up requires a passkey signing auth plan');
+  }
   return {
-    confirmationAuthPayload,
-    ...(emailOtpPrompt ? { emailOtpPrompt } : {}),
+    kind: 'passkey',
+    confirmationAuthPayload: {
+      signingAuthPlan: stepUpPlan,
+    },
     ...(plannedPasskeyReconnect ? { plannedPasskeyReconnect } : {}),
   };
 }
@@ -212,10 +293,14 @@ function signingAuthPlanFromPreparedEvmFamilyStepUp(args: {
   prepared: Awaited<ReturnType<typeof prepareStepUpAuth>>;
 }): SigningAuthPlan {
   if (args.signingAuthPlan) {
-    return args.prepared.method === 'email_otp' &&
-      isEmailOtpSigningAuthPlan(args.signingAuthPlan)
-      ? { ...args.signingAuthPlan, emailOtpPrompt: args.prepared.prompt }
-      : args.signingAuthPlan;
+    if (args.prepared.method === 'email_otp' && isEmailOtpSigningAuthPlan(args.signingAuthPlan)) {
+      return {
+        kind: 'emailOtpReauth',
+        method: 'email_otp',
+        emailOtpPrompt: args.prepared.prompt,
+      };
+    }
+    return args.signingAuthPlan;
   }
   if (args.prepared.method === 'email_otp') {
     return {

@@ -216,20 +216,14 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       req: Req<'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION'>,
     ) => {
       const pm = getSeamsPasskey();
-      const { nearAccountId, options } = req.payload!;
+      const args = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
 
-      const chainKind = options.chainTarget.kind;
+      const chainKind = args.chainTarget.kind;
       const result =
         chainKind === 'evm'
-          ? await pm.evm.bootstrapEcdsaSession({
-              nearAccountId,
-              options,
-            })
-          : await pm.tempo.bootstrapEcdsaSession({
-              nearAccountId,
-              options,
-            });
+          ? await pm.evm.bootstrapEcdsaSession(args)
+          : await pm.tempo.bootstrapEcdsaSession(args);
       if (respondIfCancelled(req.requestId)) return;
       respondOkResult(req.requestId, result);
     },

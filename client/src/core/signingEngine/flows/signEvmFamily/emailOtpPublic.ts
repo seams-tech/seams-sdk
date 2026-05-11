@@ -33,8 +33,6 @@ export type LoginWithEmailOtpEcdsaCapabilityInternalArgs = {
   ecdsaThresholdKeyId?: string;
   participantIds?: number[];
   sessionKind?: 'jwt' | 'cookie';
-  sessionId?: string;
-  walletSigningSessionId?: string;
   ttlMs?: number;
   remainingUses?: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -73,7 +71,6 @@ export type EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs = {
   ecdsaThresholdKeyId?: string;
   participantIds?: number[];
   sessionKind?: 'jwt' | 'cookie';
-  sessionId?: string;
   ttlMs?: number;
   remainingUses?: number;
   clientSecret32?: Uint8Array;

@@ -128,6 +128,7 @@ import type {
 import type { SyncAccountResult } from '../../SeamsPasskey/syncAccount';
 import type { ExportKeypairWithUIInput } from '../../SeamsPasskey/interfaces';
 import type {
+  BootstrapThresholdEcdsaSessionArgs,
   EmailOtpChallengeResult,
   EmailOtpEcdsaCapabilityArgs,
   EmailOtpEcdsaCapabilityResult,
@@ -882,34 +883,16 @@ export class WalletIframeRouter {
     }
   }
 
-  async bootstrapEcdsaSession(payload: {
-    nearAccountId: string;
-    options: {
-      chainTarget: ThresholdEcdsaChainTarget;
-      relayerUrl?: string;
-      participantIds?: number[];
-      sessionKind?: 'jwt' | 'cookie';
-      ttlMs?: number;
-      remainingUses?: number;
-      smartAccount?: {
-        chainId: number;
-        factory?: string;
-        entryPoint?: string;
-        salt?: string;
-        counterfactualAddress?: string;
-      };
-    };
-  }): Promise<ThresholdEcdsaSessionBootstrapResult> {
+  async bootstrapEcdsaSession(
+    payload: BootstrapThresholdEcdsaSessionArgs,
+  ): Promise<ThresholdEcdsaSessionBootstrapResult> {
     this.showFrameForActivation();
     try {
-      const safeOptions = removeFunctionsFromOptions(payload.options);
+      const safePayload = removeFunctionsFromOptions(payload);
       const res = await this.post<ThresholdEcdsaSessionBootstrapResult>(
         {
           type: 'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION',
-          payload: {
-            nearAccountId: payload.nearAccountId,
-            options: safeOptions,
-          },
+          payload: safePayload,
         },
         {
           timeoutMs: WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS,

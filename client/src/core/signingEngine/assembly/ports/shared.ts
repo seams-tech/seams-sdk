@@ -10,6 +10,7 @@ import type { TempoSignedResult } from '../../chains/tempo/tempoAdapter';
 import type { TempoSigningRequest } from '../../chains/tempo/types';
 import type { NearSigningKeyOps } from '../../interfaces/nearKeyOps';
 import type {
+  EmailOtpEcdsaSigningBootstrapResult,
   EvmFamilySigningDeps,
   NearSigningApiDeps,
   PrivateKeyExportRecoveryDeps,
@@ -33,7 +34,7 @@ import type {
 } from '../../session/persistence/records';
 import type { RestorePersistedSessionForSigningInput } from '../../session/sealedRecovery/types';
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
-import type { SigningSessionBudgetStatusAuth } from '../../session/budget/budget';
+import type { SigningSessionBudgetStatusCheck } from '../../session/budget/budget';
 import {
   toWalletSubjectId,
   type ThresholdEcdsaChainTarget,
@@ -51,7 +52,6 @@ import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touch
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import type { ThresholdEd25519LifecycleDeps } from '../../threshold/ed25519/hssLifecycle';
 import type {
-  BootstrapEcdsaSessionArgs,
   ThresholdSessionActivationDeps,
 } from '../../session/passkey/ecdsaBootstrap';
 import type { UiConfirmRuntimeBridgePort, WarmSessionStatusResult } from '../../uiConfirm/types';
@@ -93,13 +93,9 @@ export type CreateSigningEnginePortsArgs = {
     sessionId: string;
     uses?: number;
   }) => Promise<WarmSessionStatusResult>;
-  getWalletSigningBudgetStatus: (args: {
-    nearAccountId: AccountId | string;
-    walletSigningSessionId?: string;
-    targetBackingMaterialSessionIds?: string[];
-    targetThresholdSessionIds?: string[];
-    trustedStatusAuth?: SigningSessionBudgetStatusAuth;
-  }) => Promise<SigningSessionStatus | null>;
+  getWalletSigningBudgetStatus: (
+    args: SigningSessionBudgetStatusCheck,
+  ) => Promise<SigningSessionStatus | null>;
   signerWorkerManager: SignerWorkerManager;
   getWorkerBaseOrigin: () => string;
   getTheme: () => ThemeName;
@@ -173,7 +169,7 @@ export type CreateSigningEnginePortsArgs = {
     otpCode: string;
     record?: ThresholdEcdsaSessionRecord;
     authLane?: EmailOtpAuthLane;
-  }) => Promise<ThresholdEcdsaSecp256k1KeyRef>;
+  }) => Promise<EmailOtpEcdsaSigningBootstrapResult>;
   restorePersistedSessionForSigning: (
     args: RestorePersistedSessionForSigningInput,
   ) => Promise<unknown>;
@@ -196,7 +192,7 @@ export type CreateSigningEnginePortsArgs = {
     source?: ThresholdEcdsaSessionStoreSource;
   }) => void;
   provisionThresholdEcdsaSession: (
-    args: BootstrapEcdsaSessionArgs,
+    args: import('../../session/passkey/ecdsaSessionProvision').ThresholdEcdsaActivationRequest,
   ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
   withThresholdEcdsaCommitQueue: <T>(args: {
     queueKey: string;

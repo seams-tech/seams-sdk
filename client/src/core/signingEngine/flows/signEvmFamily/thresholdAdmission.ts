@@ -1,8 +1,12 @@
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
-import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { SelectedEcdsaLane } from '../../session/identity/laneIdentity';
 import type { BudgetAdmittedTransactionOperation } from '../../session/operationState/transactionState';
 import type { SigningAuthPlan } from '../../stepUpConfirmation/types';
+import type {
+  EvmFamilyEcdsaEmailOtpStepUpAuthorization,
+  EvmFamilyEcdsaPasskeyStepUpAuthorization,
+  EvmFamilyEcdsaWarmSessionStepUpAuthorization,
+} from './stepUpAuthorization';
 
 export type EvmFamilyThresholdEcdsaOperation = BudgetAdmittedTransactionOperation<
   SelectedEcdsaLane,
@@ -34,17 +38,14 @@ export type EvmFamilyThresholdEcdsaAuthPlanInput =
 
 export type EvmFamilyThresholdEcdsaEmailOtpSigning = {
   complete: (
-    otpCode: string,
-    challengeId?: string,
+    authorization: EvmFamilyEcdsaEmailOtpStepUpAuthorization,
   ) => Promise<EvmFamilyThresholdEcdsaReauthResult>;
 };
 
 export type EvmFamilyThresholdEcdsaPasskeyReconnect = {
   reconnect: (args: {
-    credential: WebAuthnAuthenticationCredential;
+    authorization: EvmFamilyEcdsaPasskeyStepUpAuthorization;
     usesNeeded: number;
-    sessionId: string;
-    walletSigningSessionId: string;
   }) => Promise<EvmFamilyThresholdEcdsaReauthResult>;
 };
 
@@ -58,6 +59,23 @@ export type EvmFamilyThresholdEcdsaAdmissionCompletion = {
   source: 'email_otp' | 'passkey' | 'threshold_reconnect';
   result: EvmFamilyThresholdEcdsaReauthResult;
 };
+
+export type EvmFamilyThresholdEcdsaAdmissionConfirmation =
+  | {
+      kind: 'none';
+    }
+  | {
+      kind: 'warm_session';
+      authorization: EvmFamilyEcdsaWarmSessionStepUpAuthorization;
+    }
+  | {
+      kind: 'email_otp';
+      authorization: EvmFamilyEcdsaEmailOtpStepUpAuthorization;
+    }
+  | {
+      kind: 'passkey';
+      authorization: EvmFamilyEcdsaPasskeyStepUpAuthorization;
+    };
 
 export type EvmFamilyThresholdEcdsaAdmissionMode =
   | {
@@ -73,35 +91,29 @@ export type EvmFamilyThresholdEcdsaAdmissionMode =
   | {
       kind: 'passkey_reconnect';
       passkeyEcdsaReconnect: EvmFamilyThresholdEcdsaPasskeyReconnect;
-      plannedPasskeyReconnect: EvmFamilyThresholdEcdsaPasskeyReconnectPlan;
       onThresholdReconnectStarted?: () => void;
     }
   | {
       kind: 'threshold_reconnect';
-      ensureThresholdEcdsaKeyRefReady: () => Promise<EvmFamilyThresholdEcdsaReauthResult>;
+      ensureThresholdEcdsaKeyRefReady: (args: {
+        authorization: EvmFamilyEcdsaWarmSessionStepUpAuthorization;
+        usesNeeded: number;
+      }) => Promise<EvmFamilyThresholdEcdsaReauthResult>;
       onThresholdReconnectStarted?: () => void;
     };
 
 export async function completeEvmFamilyThresholdEcdsaAdmissionAfterConfirmation(args: {
   mode: EvmFamilyThresholdEcdsaAdmissionMode;
-  confirmation: {
-    credential?: unknown;
-    otpCode?: string;
-    emailOtpChallengeId?: string;
-  };
+  confirmation: EvmFamilyThresholdEcdsaAdmissionConfirmation;
   usesNeeded: number;
 }): Promise<EvmFamilyThresholdEcdsaAdmissionCompletion | null> {
   if (args.mode.kind === 'not_required' || args.mode.kind === 'already_admitted') return null;
 
   if (args.mode.kind === 'email_otp') {
-    const otpCode = String(args.confirmation.otpCode || '').trim();
-    if (!/^\d{6}$/.test(otpCode)) {
-      throw new Error('[chains] missing Email OTP code from touchConfirm');
+    if (args.confirmation.kind !== 'email_otp') {
+      throw new Error('[chains] Email OTP admission requires Email OTP confirmation');
     }
-    const result = await args.mode.emailOtpSigning.complete(
-      otpCode,
-      args.confirmation.emailOtpChallengeId,
-    );
+    const result = await args.mode.emailOtpSigning.complete(args.confirmation.authorization);
     if (!result?.keyRef || !result?.operation) {
       throw new Error('[chains] Email OTP ECDSA reauth must return admitted operation');
     }
@@ -109,22 +121,25 @@ export async function completeEvmFamilyThresholdEcdsaAdmissionAfterConfirmation(
   }
 
   if (args.mode.kind === 'passkey_reconnect') {
-    if (!args.confirmation.credential) {
-      throw new Error('[chains] missing WebAuthn credential for threshold ECDSA reconnect');
+    if (args.confirmation.kind !== 'passkey') {
+      throw new Error('[chains] passkey admission requires WebAuthn confirmation');
     }
     args.mode.onThresholdReconnectStarted?.();
     const result = await args.mode.passkeyEcdsaReconnect.reconnect({
-      credential: args.confirmation.credential as WebAuthnAuthenticationCredential,
+      authorization: args.confirmation.authorization,
       usesNeeded: args.usesNeeded,
-      sessionId: args.mode.plannedPasskeyReconnect.sessionId,
-      walletSigningSessionId: args.mode.plannedPasskeyReconnect.walletSigningSessionId,
     });
     if (!result?.keyRef || !result?.operation) {
       throw new Error('[chains] passkey ECDSA reconnect must return admitted operation');
     }
+    if (!args.confirmation.authorization.plannedPasskeyReconnect) {
+      throw new Error(
+        '[chains] passkey ECDSA reconnect requires planned session identity in authorization',
+      );
+    }
     if (
       String(result.operation.lane.thresholdSessionId || '').trim() !==
-        args.mode.plannedPasskeyReconnect.sessionId
+        args.confirmation.authorization.plannedPasskeyReconnect.sessionId
     ) {
       throw new Error(
         '[chains] threshold ECDSA reconnect admitted a different session id than the confirmed session policy',
@@ -132,7 +147,7 @@ export async function completeEvmFamilyThresholdEcdsaAdmissionAfterConfirmation(
     }
     if (
       String(result.operation.lane.walletSigningSessionId || '').trim() !==
-        args.mode.plannedPasskeyReconnect.walletSigningSessionId
+        args.confirmation.authorization.plannedPasskeyReconnect.walletSigningSessionId
     ) {
       throw new Error(
         '[chains] threshold ECDSA reconnect admitted a different wallet signing-session id than the confirmed session policy',
@@ -142,8 +157,14 @@ export async function completeEvmFamilyThresholdEcdsaAdmissionAfterConfirmation(
   }
 
   if (args.mode.kind === 'threshold_reconnect') {
+    if (args.confirmation.kind !== 'warm_session') {
+      throw new Error('[chains] threshold ECDSA reconnect requires warm-session authorization');
+    }
     args.mode.onThresholdReconnectStarted?.();
-    const result = await args.mode.ensureThresholdEcdsaKeyRefReady();
+    const result = await args.mode.ensureThresholdEcdsaKeyRefReady({
+      authorization: args.confirmation.authorization,
+      usesNeeded: args.usesNeeded,
+    });
     if (!result?.keyRef || !result?.operation) {
       throw new Error('[chains] threshold ECDSA reconnect must return admitted operation');
     }

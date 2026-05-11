@@ -35,7 +35,7 @@ import type { EvmSigningRequest } from './chains/evm/types';
 import type { EvmSignedResult } from './chains/evm/evmAdapter';
 import type { TempoSigningRequest } from './chains/tempo/types';
 import type { TempoSignedResult } from './chains/tempo/tempoAdapter';
-import type { BootstrapEcdsaSessionArgs } from './session/passkey/ecdsaBootstrap';
+import type { EcdsaBootstrapRequest } from './session/passkey/ecdsaBootstrap';
 import {
   createThresholdEd25519PublicApi,
   type ThresholdEd25519PublicApi,
@@ -128,15 +128,14 @@ import {
 import { initializeSigningEngineRuntime } from './assembly/createSigningEngineRuntime';
 import { createManagerAssembly } from './assembly/createManagers';
 import { verifySealedRefreshStartupParity } from '../rpcClients/relayer/sealedRefreshCapabilities';
-import { bootstrapWarmEcdsaCapability } from './session/passkey/ecdsaWarmCapabilityBootstrap';
 import type { WarmSessionEcdsaCapabilityState } from './session/warmCapabilities/types';
 import type {
-  ProvisionWarmEd25519CapabilityArgs,
   ProvisionWarmEd25519CapabilityResult,
   WarmEcdsaSigningSessionStatus,
 } from './session/warmCapabilities/types';
 import { createSigningEnginePorts } from './assembly/createPorts';
 import { provisionThresholdEd25519Session as provisionThresholdEd25519SessionValue } from './session/passkey/ed25519SessionProvision';
+import { provisionThresholdEcdsaSession as provisionThresholdEcdsaSessionValue } from './session/passkey/ecdsaSessionProvision';
 import type { EmailOtpThresholdSessionCoordinator } from './session/emailOtp/EmailOtpThresholdSessionCoordinator';
 import type { EmailOtpBootstrapRecovery } from './stepUpConfirmation/otpPrompt/bootstrapRecovery';
 import type {
@@ -165,7 +164,7 @@ import type {
   WarmCapabilitiesPublicApi,
 } from './session/warmCapabilities/public';
 import { createWarmCapabilitiesPublicApi } from './session/warmCapabilities/public';
-import type { PasskeyPublicApi } from './session/passkey/public';
+import type { ConnectEd25519SessionArgs, PasskeyPublicApi } from './session/passkey/public';
 import { createPasskeyPublicApi } from './session/passkey/public';
 
 export type { ThresholdEcdsaSessionBootstrapResult } from './threshold/ecdsa/activation';
@@ -436,14 +435,16 @@ export class SigningEngine {
       clearThresholdEcdsaSessionRecordForLane: (args) =>
         clearThresholdEcdsaSessionRecordForLaneValue(this.warmSigning.ecdsaSessions, args),
       provisionThresholdEcdsaSession: (args) =>
-        bootstrapWarmEcdsaCapability(
+        provisionThresholdEcdsaSessionValue(
           {
-            ensureSealedRefreshStartupParity: () => this.ensureSealedRefreshStartupParity(),
             queueByAccount: this.thresholdEcdsaBootstrapQueueByAccount,
             activationDeps: this.enginePorts.thresholdSessionActivationDeps,
             touchConfirm: this.touchConfirm,
-            ecdsaSessions: this.warmSigning.ecdsaSessions,
-            capabilityReader: this.warmSigning.capabilityReader,
+            resolveSealTransport: ({ thresholdSessionId, chainTarget }) =>
+              this.warmSigning.capabilityReader.resolveEcdsaSealTransportByThresholdSessionId({
+                thresholdSessionId,
+                chainTarget,
+              }),
           },
           args,
         ),
@@ -729,13 +730,13 @@ export class SigningEngine {
   }
 
   async connectEd25519Session(
-    args: Omit<ProvisionWarmEd25519CapabilityArgs, 'beforeProvision' | 'assertNotCancelled'>,
+    args: ConnectEd25519SessionArgs,
   ): Promise<ProvisionWarmEd25519CapabilityResult> {
     return await this.passkeyPublic.connectEd25519Session(args);
   }
 
   async bootstrapEcdsaSession(
-    args: BootstrapEcdsaSessionArgs,
+    args: EcdsaBootstrapRequest,
   ): Promise<ThresholdEcdsaSessionBootstrapResult> {
     return await this.passkeyPublic.bootstrapEcdsaSession(args);
   }

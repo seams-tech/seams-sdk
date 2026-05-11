@@ -1,6 +1,5 @@
 import type { AccountId } from '@/core/types/accountIds';
 import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/types';
-import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { ThemeName, WalletAuthCurve, WalletAuthIntent } from '@/core/types/seams';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 import {
@@ -12,6 +11,11 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import { requestEmailOtpExportAuthorization as requestEmailOtpExportAuthorizationValue } from '../../stepUpConfirmation/otpPrompt/exportAuthorization';
+import {
+  buildExportStepUpAuthorization,
+  type ExportEmailOtpStepUpAuthorization,
+  type ExportPasskeyStepUpAuthorization,
+} from './stepUpAuthorization';
 import {
   isExportViewerSessionOpen,
   removeExportViewerHostIfPresent,
@@ -76,8 +80,8 @@ export async function requestEmailOtpKeyExportAuthorization(
     routeAuth?: AppOrThresholdSessionAuth;
     authLane?: EmailOtpAuthLane;
   },
-): Promise<{ challengeId: string; otpCode: string }> {
-  return await requestEmailOtpExportAuthorizationValue({
+): Promise<ExportEmailOtpStepUpAuthorization> {
+  const authorization = await requestEmailOtpExportAuthorizationValue({
     nearAccountId: args.nearAccountId,
     chain: args.chain,
     publicKey: args.publicKey,
@@ -96,6 +100,26 @@ export async function requestEmailOtpKeyExportAuthorization(
         await deps.touchConfirm.requestUserConfirmation(request),
     },
   });
+  const exportAuthorization = buildExportStepUpAuthorization({
+    method: 'email_otp',
+    nearAccountId: args.nearAccountId,
+    chain: args.chain,
+    publicKey: args.publicKey,
+    curve: args.curve,
+    intent: args.curve === 'ecdsa' ? 'ecdsa_export' : 'ed25519_export',
+    emailOtpPrompt: {
+      challengeId: authorization.challengeId,
+    },
+    decision: {
+      confirmed: true,
+      otpCode: authorization.otpCode,
+      emailOtpChallengeId: authorization.challengeId,
+    },
+  });
+  if (exportAuthorization.kind !== 'email_otp') {
+    throw new Error('[SigningEngine][export] Email OTP export returned the wrong step-up method');
+  }
+  return exportAuthorization;
 }
 
 export async function requestNearEd25519ExportAuthorization(
@@ -106,11 +130,13 @@ export async function requestNearEd25519ExportAuthorization(
     flowId: string;
     onEvent?: KeyExportEventCallback;
   },
-): Promise<WebAuthnAuthenticationCredential> {
+): Promise<ExportPasskeyStepUpAuthorization> {
   return await requestPasskeyExportAuthorization(deps, {
     nearAccountId: args.nearAccountId,
     intent: 'ed25519_export',
     curve: 'ed25519',
+    chain: 'near',
+    publicKey: args.expectedPublicKey,
     flowId: args.flowId,
     onEvent: args.onEvent,
     request: {
@@ -210,12 +236,14 @@ export async function requestThresholdEcdsaExportAuthorization(
     flowId: string;
     onEvent?: KeyExportEventCallback;
   },
-): Promise<WebAuthnAuthenticationCredential> {
+): Promise<ExportPasskeyStepUpAuthorization> {
   const chain = args.chainTarget.kind;
   return await requestPasskeyExportAuthorization(deps, {
     nearAccountId: args.nearAccountId,
     intent: 'ecdsa_export',
     curve: 'ecdsa',
+    chain,
+    publicKey: args.publicKey,
     flowId: args.flowId,
     onEvent: args.onEvent,
     request: {
@@ -316,11 +344,13 @@ async function requestPasskeyExportAuthorization(
     nearAccountId: AccountId;
     intent: Extract<WalletAuthIntent, 'ed25519_export' | 'ecdsa_export'>;
     curve: WalletAuthCurve;
+    chain: 'near' | ThresholdEcdsaChainTarget['kind'];
+    publicKey: string;
     flowId: string;
     onEvent?: KeyExportEventCallback;
     request: Parameters<UiConfirmRuntimeBridgePort['requestUserConfirmation']>[0];
   },
-): Promise<WebAuthnAuthenticationCredential> {
+): Promise<ExportPasskeyStepUpAuthorization> {
   emitKeyExportEvent(args.onEvent, {
     phase: KeyExportEventPhase.STEP_02_AUTH_PASSKEY_PROMPT_STARTED,
     status: 'waiting_for_user',
@@ -332,8 +362,17 @@ async function requestPasskeyExportAuthorization(
   });
   removeExportViewerHostIfPresent();
   const decision = await deps.touchConfirm.requestUserConfirmation(args.request);
-  if (!decision.confirmed) {
-    throw new Error(decision.error || 'User cancelled export request');
+  const authorization = buildExportStepUpAuthorization({
+    method: 'passkey',
+    nearAccountId: args.nearAccountId,
+    publicKey: args.publicKey,
+    curve: args.curve,
+    intent: args.intent,
+    chain: args.chain,
+    decision,
+  });
+  if (authorization.kind !== 'passkey') {
+    throw new Error('[SigningEngine][export] passkey export returned the wrong step-up method');
   }
   emitKeyExportEvent(args.onEvent, {
     phase: KeyExportEventPhase.STEP_02_AUTH_PASSKEY_PROMPT_SUCCEEDED,
@@ -344,7 +383,7 @@ async function requestPasskeyExportAuthorization(
     interaction: { kind: 'passkey_assert', overlay: 'hide' },
     data: { intent: args.intent, curve: args.curve },
   });
-  return decision.credential as WebAuthnAuthenticationCredential;
+  return authorization;
 }
 
 export { isExportViewerSessionOpen, removeExportViewerHostIfPresent };

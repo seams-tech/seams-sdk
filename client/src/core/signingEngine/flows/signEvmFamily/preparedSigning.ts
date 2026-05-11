@@ -30,6 +30,7 @@ import {
   type TransactionAuthSelectionPolicy,
   type TransactionSigningIntent,
 } from '../../session/operationState/transactionState';
+import { SigningSessionIds } from '../../session/operationState/types';
 import {
   thresholdEcdsaChainTargetsEqual,
   type WalletSubjectId,
@@ -44,10 +45,14 @@ import {
   emitSigningSessionFlowTrace,
 } from '../../session/operationState/trace';
 import {
+  materialIdentityMatchesResolvedLane,
+  summarizeEcdsaMaterialState,
+  type EcdsaMaterialState,
+  type ReadyEcdsaMaterial,
+} from './ecdsaMaterialState';
+import {
   requireResolvedEvmFamilyEcdsaSigningLane,
-  summarizeEvmFamilyEcdsaKeyRef,
   summarizeEvmFamilyEcdsaLane,
-  summarizeEvmFamilyEcdsaSessionRecord,
   type EvmFamilyEcdsaAuthMethod,
   type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
@@ -57,7 +62,10 @@ import type {
 } from '../../interfaces/operationDeps';
 import {
   resolveEvmFamilyEcdsaSigningSelection,
+  type EvmFamilyEcdsaSigningSelectionResult,
   type EvmFamilyEcdsaSigningSelectionDeps,
+  type ReadyEvmFamilyEcdsaSigningSelection,
+  type ReauthRequiredEvmFamilyEcdsaSigningSelection,
 } from './ecdsaSelection';
 import {
   resolveEvmFamilyEcdsaPlannerReadiness,
@@ -172,32 +180,120 @@ function summarizeEcdsaLaneCandidate(
 }
 
 function assertSelectionMatchesLaneCandidate(args: {
-  candidate: EcdsaLaneCandidate | null;
-  lane: ResolvedEvmFamilyEcdsaSigningLane;
+  candidate: EcdsaLaneCandidate;
+  selection: ReadyEvmFamilyEcdsaSigningSelection;
 }): void {
   const candidate = args.candidate;
-  if (!candidate) return;
-  if (candidate.authMethod !== args.lane.authMethod) {
+  if (candidate.authMethod !== args.selection.lane.authMethod) {
     throw new Error(
-      `[SigningEngine][ecdsa] prepared restore auth method ${candidate.authMethod} did not match selected lane auth method ${args.lane.authMethod}`,
+      `[SigningEngine][ecdsa] prepared restore auth method ${candidate.authMethod} did not match selected lane auth method ${args.selection.lane.authMethod}`,
     );
   }
-  if (candidate.thresholdSessionId !== String(args.lane.thresholdSessionId)) {
+  if (candidate.thresholdSessionId !== String(args.selection.lane.thresholdSessionId)) {
     throw new Error(
       '[SigningEngine][ecdsa] prepared restore threshold session did not match selected lane',
     );
   }
-  if (candidate.walletSigningSessionId !== String(args.lane.walletSigningSessionId)) {
+  if (candidate.walletSigningSessionId !== String(args.selection.lane.walletSigningSessionId)) {
     throw new Error(
       '[SigningEngine][ecdsa] prepared restore wallet signing session did not match selected lane',
     );
   }
+  if (
+    !materialIdentityMatchesResolvedLane({
+      state: args.selection.material,
+      lane: args.selection.lane,
+    })
+  ) {
+    throw new Error('[SigningEngine][ecdsa] prepared restore material did not match selected lane');
+  }
 }
+
+function readinessFromSelection(selection: EvmFamilyEcdsaSigningSelectionResult): {
+  readiness: {
+    status:
+      | 'ready'
+      | 'missing_session'
+      | 'expired'
+      | 'exhausted'
+      | 'budget_unknown';
+    thresholdSessionId: ResolvedEvmFamilyEcdsaSigningLane['thresholdSessionId'];
+  };
+  expiresAtMs: number;
+  remainingUses: number;
+  signingRootId?: string;
+} {
+  switch (selection.kind) {
+    case 'ready':
+      return {
+        readiness: {
+          status: 'ready',
+          thresholdSessionId: selection.lane.thresholdSessionId,
+        },
+        expiresAtMs: Math.floor(Number(selection.material.record.expiresAtMs) || 0),
+        remainingUses: Math.max(0, Math.floor(Number(selection.material.record.remainingUses) || 0)),
+        signingRootId: selection.material.signingKeyContext.signingRootId,
+      };
+    case 'reauth_required':
+      return {
+        readiness: {
+          status:
+            selection.reason === 'expired'
+              ? 'expired'
+              : selection.reason === 'exhausted'
+                ? 'exhausted'
+                : 'missing_session',
+          thresholdSessionId: selection.lane.thresholdSessionId,
+        },
+        expiresAtMs: 0,
+        remainingUses: 0,
+        ...(selection.material.kind === 'missing'
+          ? {}
+          : { signingRootId: selection.material.signingKeyContext.signingRootId }),
+      };
+    case 'budget_blocked':
+      return {
+        readiness: {
+          status:
+            'status' in selection.budget && selection.budget.status === 'budget_unknown'
+              ? 'budget_unknown'
+              : 'exhausted',
+          thresholdSessionId: selection.lane.thresholdSessionId,
+        },
+        expiresAtMs: Math.floor(Number(selection.material.record.expiresAtMs) || 0),
+        remainingUses: 0,
+        signingRootId: selection.material.signingKeyContext.signingRootId,
+      };
+    case 'missing_material':
+      return {
+        readiness: {
+          status: 'missing_session',
+          thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(
+            selection.candidate.thresholdSessionId,
+          ),
+        },
+        expiresAtMs: 0,
+        remainingUses: 0,
+      };
+  }
+}
+
+type PreparedEvmFamilyEcdsaMetadata = {
+  accountAuth: AccountAuthMetadata;
+  authMethod: EvmFamilyEcdsaAuthMethod;
+  source: ThresholdEcdsaSessionStoreSource;
+  selection: ReadyEvmFamilyEcdsaSigningSelection | ReauthRequiredEvmFamilyEcdsaSigningSelection;
+  material: EcdsaMaterialState;
+  availableLanesGeneration: number;
+  signingRootId?: string;
+};
 
 export type PreparedEvmFamilyEcdsaSigningSession = {
   accountAuth: AccountAuthMetadata;
   authMethod: EvmFamilyEcdsaAuthMethod;
   source: ThresholdEcdsaSessionStoreSource;
+  selection: ReadyEvmFamilyEcdsaSigningSelection | ReauthRequiredEvmFamilyEcdsaSigningSelection;
+  material: EcdsaMaterialState;
   availableLanesGeneration: number;
   signingLane: ResolvedEvmFamilyEcdsaSigningLane;
   preparedOperation: PreparedThresholdSigningOperation<
@@ -207,9 +303,6 @@ export type PreparedEvmFamilyEcdsaSigningSession = {
   transactionOperation: PreparedTransactionOperation<SelectedEcdsaLane>;
   budget: PreparedTransactionBudgetState<SelectedEcdsaLane>;
   budgetStatusAuth?: SigningSessionBudgetStatusAuth;
-  warmRecord?: ThresholdEcdsaSessionRecord;
-  warmKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
-  emailOtpReauthRecord?: ThresholdEcdsaSessionRecord;
 };
 
 export type PrepareEvmFamilyEcdsaSigningDeps = EvmFamilyEcdsaSigningSelectionDeps &
@@ -469,13 +562,46 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           accountId: args.nearAccountId,
           chain,
           chainTarget,
+          selectionKind: selection.kind,
           authMethod: selection.authMethod,
-          source: selection.source,
-          lane: summarizeEvmFamilyEcdsaLane(selection.lane),
-          warmRecord: summarizeEvmFamilyEcdsaSessionRecord(selection.warmRecord),
-          warmKeyRef: summarizeEvmFamilyEcdsaKeyRef(selection.warmKeyRef),
-          reauthRecord: summarizeEvmFamilyEcdsaSessionRecord(selection.reauthRecord),
+          lane:
+            'lane' in selection
+              ? summarizeEvmFamilyEcdsaLane(selection.lane)
+              : { present: false },
+          material: summarizeEcdsaMaterialState(selection.material),
+          diagnostics: selection.diagnostics,
         });
+        if (selection.kind === 'missing_material') {
+          emitSigningSessionFlowFailure('evm-family', {
+            stage: 'ecdsa_selection.exact_material_missing',
+            accountId: args.nearAccountId,
+            chain,
+            chainTarget,
+            authMethod: selection.authMethod,
+            candidate: selection.diagnostics.selectedLaneCandidate,
+            material: summarizeEcdsaMaterialState(selection.material),
+          });
+          throw new Error(
+            '[SigningEngine][ecdsa] exact available lane is unavailable after restore',
+          );
+        }
+        if (selection.kind === 'budget_blocked') {
+          emitSigningSessionFlowFailure('evm-family', {
+            stage: 'ecdsa_prepare.selection_budget_blocked',
+            accountId: args.nearAccountId,
+            chain,
+            chainTarget,
+            authMethod: selection.authMethod,
+            lane: summarizeEvmFamilyEcdsaLane(selection.lane),
+            material: summarizeEcdsaMaterialState(selection.material),
+            budget: selection.budget,
+          });
+          throw new Error(
+            'status' in selection.budget && selection.budget.status === 'budget_unknown'
+              ? '[SigningEngine][ecdsa] selected ECDSA lane budget is budget_unknown'
+              : '[SigningEngine][ecdsa] selected ECDSA lane budget is exhausted',
+          );
+        }
         const availableLanes = await args.deps.readAvailableSigningLanesForSigning({
           walletId: args.nearAccountId,
           subjectId: transactionLane.subjectId,
@@ -483,51 +609,37 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           ecdsaChainTargets: [chainTarget],
           authMethod: selection.authMethod,
         });
-        const signingLane = selection.lane;
-        emitSigningLaneResolutionTrace('evm-family', signingLane, {
+        emitSigningLaneResolutionTrace('evm-family', selection.lane, {
           reason: 'evm_family_ecdsa_selection',
         });
         args.diagnostics.selection = {
+          kind: selection.kind,
           authMethod: selection.authMethod,
-          source: selection.source,
-          lane: summarizeEvmFamilyEcdsaLane(signingLane),
-          warmRecord: summarizeEvmFamilyEcdsaSessionRecord(selection.warmRecord),
-          warmKeyRef: summarizeEvmFamilyEcdsaKeyRef(selection.warmKeyRef),
-          reauthRecord: summarizeEvmFamilyEcdsaSessionRecord(selection.reauthRecord),
+          source: selection.kind === 'ready' ? selection.source : selection.material.source,
+          lane: summarizeEvmFamilyEcdsaLane(selection.lane),
+          material: summarizeEcdsaMaterialState(selection.material),
+          diagnostics: selection.diagnostics,
         };
-        if (!signingLane) {
-          emitSigningSessionFlowFailure('evm-family', {
-            stage: 'ecdsa_prepare.material_selection_missing_lane',
-            accountId: args.nearAccountId,
-            chain,
-            chainTarget,
-            authMethod: selection.authMethod,
-            source: selection.source,
-            selectedAvailableLane: summarizeEcdsaAvailableLane(selectedAvailableLane),
-          });
-          console.warn(
-            '[SigningEngine][ecdsa] EVM-family signing has no selected lane after selection',
-            {
-              ...args.diagnostics,
-            },
-          );
-        }
         const resolvedLane = requireResolvedEvmFamilyEcdsaSigningLane({
-          lane: signingLane,
+          lane: selection.lane,
           chain,
           context: 'EVM-family signing preparation',
           diagnostics: args.diagnostics,
         });
-        assertSelectionMatchesLaneCandidate({
-          candidate: laneCandidate,
-          lane: resolvedLane,
-        });
-        const readiness = await resolveEvmFamilyEcdsaPlannerReadiness({
-          deps: args.deps,
-          lane: resolvedLane,
-          ...(selection.warmRecord ? { record: selection.warmRecord } : {}),
-          ...(selection.warmKeyRef ? { keyRef: selection.warmKeyRef } : {}),
-        });
+        if (selection.kind === 'ready') {
+          assertSelectionMatchesLaneCandidate({
+            candidate: laneCandidate,
+            selection,
+          });
+        }
+        const readiness =
+          selection.kind === 'ready'
+            ? await resolveEvmFamilyEcdsaPlannerReadiness({
+                deps: args.deps,
+                lane: resolvedLane,
+                material: selection.material,
+              })
+            : readinessFromSelection(selection);
         emitSigningSessionFlowTrace('evm-family', {
           stage: 'ecdsa_prepare.readiness',
           accountId: args.nearAccountId,
@@ -559,11 +671,10 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           metadata: {
             accountAuth: selection.accountAuth,
             authMethod: selection.authMethod,
-            source: selection.source,
+            source: selection.kind === 'ready' ? selection.source : selection.material.source,
+            selection,
+            material: selection.material,
             availableLanesGeneration: availableLanes.generation,
-            ...(selection.warmRecord ? { warmRecord: selection.warmRecord } : {}),
-            ...(selection.warmKeyRef ? { warmKeyRef: selection.warmKeyRef } : {}),
-            ...(selection.reauthRecord ? { emailOtpReauthRecord: selection.reauthRecord } : {}),
             ...(readiness.signingRootId ? { signingRootId: readiness.signingRootId } : {}),
           },
         };
@@ -575,28 +686,17 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
       ResolvedEvmFamilyEcdsaSigningLane,
       Record<string, unknown>
     >;
-  const metadata = preparedOperation.metadata as {
-    accountAuth: AccountAuthMetadata;
-    authMethod: EvmFamilyEcdsaAuthMethod;
-    source: ThresholdEcdsaSessionStoreSource;
-    availableLanesGeneration: number;
-    warmRecord?: ThresholdEcdsaSessionRecord;
-    warmKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
-    emailOtpReauthRecord?: ThresholdEcdsaSessionRecord;
-  };
+  const metadata = preparedOperation.metadata as PreparedEvmFamilyEcdsaMetadata;
   return {
     accountAuth: metadata.accountAuth,
     authMethod: metadata.authMethod,
     source: metadata.source,
+    selection: metadata.selection,
+    material: metadata.material,
     availableLanesGeneration: metadata.availableLanesGeneration,
     signingLane: preparedOperation.lane,
     preparedOperation,
     transactionOperation: preparedTransaction.transactionOperation,
     budget: preparedTransaction.budget,
-    ...(metadata.warmRecord ? { warmRecord: metadata.warmRecord } : {}),
-    ...(metadata.warmKeyRef ? { warmKeyRef: metadata.warmKeyRef } : {}),
-    ...(metadata.emailOtpReauthRecord
-      ? { emailOtpReauthRecord: metadata.emailOtpReauthRecord }
-      : {}),
   };
 }

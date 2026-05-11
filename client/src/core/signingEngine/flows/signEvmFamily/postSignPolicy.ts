@@ -1,6 +1,5 @@
 import type { ResolvedEvmFamilyEcdsaSigningLane } from './ecdsaLanes';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
-import type { ThresholdEcdsaSessionStoreSource } from '../../session/identity/laneIdentity';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 type EvmFamilyEcdsaPostSignPolicyRunner = {
@@ -8,7 +7,6 @@ type EvmFamilyEcdsaPostSignPolicyRunner = {
     nearAccountId: string;
     chainTarget: ThresholdEcdsaChainTarget;
     thresholdSessionId: string;
-    source: ThresholdEcdsaSessionStoreSource;
     selectedRecord: ThresholdEcdsaSessionRecord;
   }) => Promise<void> | void;
 };
@@ -18,7 +16,6 @@ export async function applySuccessfulEvmFamilyEcdsaPostSignPolicy(args: {
   nearAccountId: string;
   chainTarget: ThresholdEcdsaChainTarget;
   ecdsaSigningLane: ResolvedEvmFamilyEcdsaSigningLane;
-  selectedEcdsaSource: ThresholdEcdsaSessionStoreSource;
   selectedRecord: ThresholdEcdsaSessionRecord;
 }): Promise<void> {
   // Post-sign cleanup is security-sensitive: it must operate on the exact
@@ -27,7 +24,6 @@ export async function applySuccessfulEvmFamilyEcdsaPostSignPolicy(args: {
     nearAccountId: args.nearAccountId,
     chainTarget: args.chainTarget,
     thresholdSessionId: String(args.ecdsaSigningLane.thresholdSessionId),
-    source: args.selectedEcdsaSource,
     selectedRecord: args.selectedRecord,
   });
 }

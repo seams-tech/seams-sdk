@@ -1,5 +1,6 @@
 // Typed RPC messages for the wallet service iframe channel (SeamsPasskey-first)
 import type { WalletUIRegistry } from '../host/lit-ui/iframe-lit-element-registry';
+import type { BootstrapThresholdEcdsaSessionArgs } from '../../SeamsPasskey/interfaces';
 import { SignedTransaction } from '../../rpcClients/near/NearClient';
 import { ActionArgs, TransactionInput } from '../../types';
 import { type DeviceLinkingQRData } from '../../types/linkDevice';
@@ -126,28 +127,7 @@ export interface PMRegisterPayload {
   options?: Record<string, unknown>;
 }
 
-export interface PMBootstrapThresholdEcdsaSessionPayload {
-  nearAccountId: string;
-  options: {
-    chainTarget: ThresholdEcdsaChainTarget;
-    relayerUrl?: string;
-    participantIds?: number[];
-    sessionKind?: 'jwt' | 'cookie';
-    runtimeScopeBootstrap?: {
-      environmentId: string;
-      publishableKey: string;
-    };
-    ttlMs?: number;
-    remainingUses?: number;
-    smartAccount?: {
-      chainId: number;
-      factory?: string;
-      entryPoint?: string;
-      salt?: string;
-      counterfactualAddress?: string;
-    };
-  };
-}
+export type PMBootstrapThresholdEcdsaSessionPayload = BootstrapThresholdEcdsaSessionArgs;
 
 export interface PMUnlockPayload {
   nearAccountId: string;
