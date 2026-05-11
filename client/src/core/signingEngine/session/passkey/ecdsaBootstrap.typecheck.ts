@@ -6,12 +6,19 @@ import type {
   EcdsaBootstrapRequest,
   ThresholdEcdsaSmartAccountBootstrapInput,
 } from './ecdsaBootstrap';
+import { buildEcdsaSessionIdentity } from '../warmCapabilities/ecdsaProvisionPlan';
+import { SigningSessionIds } from '../operationState/types';
 
 declare const nearAccountId: AccountId;
 declare const subjectId: WalletSubjectId;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const webauthnAuthentication: WebAuthnAuthenticationCredential;
 declare const smartAccount: ThresholdEcdsaSmartAccountBootstrapInput;
+
+const sessionIdentity = buildEcdsaSessionIdentity({
+  thresholdSessionId: 'threshold-session-id',
+  walletSigningSessionId: 'wallet-signing-session-id',
+});
 
 const validReuseBootstrap = {
   kind: 'reuse_warm_ecdsa_bootstrap',
@@ -29,10 +36,7 @@ const validPasskeyFreshBootstrap = {
   chainTarget,
   source: 'registration',
   sessionKind: 'jwt',
-  sessionIdentity: {
-    thresholdSessionId: 'threshold-session-id',
-    walletSigningSessionId: 'wallet-signing-session-id',
-  },
+  sessionIdentity,
   clientRootShare32B64u: 'client-root-share',
   routeAuth: {
     kind: 'registration_continuation',
@@ -47,10 +51,7 @@ const validPasskeyFreshWebAuthnBootstrap = {
   chainTarget,
   source: 'login',
   sessionKind: 'jwt',
-  sessionIdentity: {
-    thresholdSessionId: 'threshold-session-id',
-    walletSigningSessionId: 'wallet-signing-session-id',
-  },
+  sessionIdentity,
   clientRootShare32B64u: 'client-root-share',
   webauthnAuthentication,
 } satisfies EcdsaBootstrapRequest;
@@ -62,10 +63,7 @@ const validPasskeyFreshCookieBootstrap = {
   chainTarget,
   source: 'login',
   sessionKind: 'cookie',
-  sessionIdentity: {
-    thresholdSessionId: 'threshold-session-id',
-    walletSigningSessionId: 'wallet-signing-session-id',
-  },
+  sessionIdentity,
   clientRootShare32B64u: 'client-root-share',
 } satisfies EcdsaBootstrapRequest;
 
@@ -75,10 +73,7 @@ const validCookieReconnectBootstrap = {
   subjectId,
   chainTarget,
   sessionKind: 'cookie',
-  sessionIdentity: {
-    thresholdSessionId: 'threshold-session-id',
-    walletSigningSessionId: 'wallet-signing-session-id',
-  },
+  sessionIdentity,
 } satisfies EcdsaBootstrapRequest;
 
 const validThresholdSessionReconnectBootstrap = {
@@ -87,10 +82,7 @@ const validThresholdSessionReconnectBootstrap = {
   subjectId,
   chainTarget,
   sessionKind: 'jwt',
-  sessionIdentity: {
-    thresholdSessionId: 'threshold-session-id',
-    walletSigningSessionId: 'wallet-signing-session-id',
-  },
+  sessionIdentity,
   routeAuth: {
     kind: 'threshold_session',
     jwt: 'threshold-session-jwt',
@@ -104,10 +96,7 @@ const validEmailOtpBootstrap = {
   chainTarget,
   source: 'email_otp',
   sessionKind: 'jwt',
-  sessionIdentity: {
-    thresholdSessionId: 'threshold-session-id',
-    walletSigningSessionId: 'wallet-signing-session-id',
-  },
+  sessionIdentity,
   clientRootShare32B64u: 'client-root-share',
   emailOtpAuthContext: {
     policy: 'session',
@@ -132,10 +121,7 @@ const invalidPasskeyFreshWithThresholdSessionAuth: EcdsaBootstrapRequest = {
   subjectId,
   chainTarget,
   sessionKind: 'jwt',
-  sessionIdentity: {
-    thresholdSessionId: 'threshold-session-id',
-    walletSigningSessionId: 'wallet-signing-session-id',
-  },
+  sessionIdentity,
   clientRootShare32B64u: 'client-root-share',
   routeAuth: {
     kind: 'threshold_session',
@@ -150,10 +136,7 @@ const invalidPasskeyFreshWithoutJwtAuth: EcdsaBootstrapRequest = {
   subjectId,
   chainTarget,
   sessionKind: 'jwt',
-  sessionIdentity: {
-    thresholdSessionId: 'threshold-session-id',
-    walletSigningSessionId: 'wallet-signing-session-id',
-  },
+  sessionIdentity,
   clientRootShare32B64u: 'client-root-share',
 };
 
@@ -163,10 +146,7 @@ const invalidPasskeyFreshWithMixedAuth: EcdsaBootstrapRequest = {
   subjectId,
   chainTarget,
   sessionKind: 'jwt',
-  sessionIdentity: {
-    thresholdSessionId: 'threshold-session-id',
-    walletSigningSessionId: 'wallet-signing-session-id',
-  },
+  sessionIdentity,
   clientRootShare32B64u: 'client-root-share',
   routeAuth: {
     // @ts-expect-error passkey fresh bootstrap accepts one auth branch
@@ -184,7 +164,7 @@ const invalidCookieReconnectWithoutWalletSession: EcdsaBootstrapRequest = {
   sessionKind: 'cookie',
   // @ts-expect-error cookie reconnect bootstrap requires walletSigningSessionId
   sessionIdentity: {
-    thresholdSessionId: 'threshold-session-id',
+    thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('threshold-session-id'),
   },
 };
 
@@ -195,10 +175,7 @@ const invalidThresholdSessionReconnectWithWebauthn: EcdsaBootstrapRequest = {
   subjectId,
   chainTarget,
   sessionKind: 'jwt',
-  sessionIdentity: {
-    thresholdSessionId: 'threshold-session-id',
-    walletSigningSessionId: 'wallet-signing-session-id',
-  },
+  sessionIdentity,
   routeAuth: {
     kind: 'threshold_session',
     jwt: 'threshold-session-jwt',
@@ -213,10 +190,7 @@ const invalidEmailOtpBootstrapWithoutAuthContext: EcdsaBootstrapRequest = {
   subjectId,
   chainTarget,
   sessionKind: 'jwt',
-  sessionIdentity: {
-    thresholdSessionId: 'threshold-session-id',
-    walletSigningSessionId: 'wallet-signing-session-id',
-  },
+  sessionIdentity,
   clientRootShare32B64u: 'client-root-share',
 };
 

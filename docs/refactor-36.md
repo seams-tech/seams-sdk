@@ -1899,6 +1899,11 @@ Outcome:
 - `refactor36RawIdentityParseAllowlist` is empty.
 - Guarded warm-capability and EVM-family flow internals receive canonical
   identity objects or already-normalized locals.
+- The Refactor 36 guard rejects raw identity object fields, raw
+  String-vs-String identity comparisons, and paired local
+  `thresholdSessionId` / `walletSigningSessionId` parsing in guarded internals.
+- `EcdsaSessionIdentity` now carries branded `ThresholdEcdsaSessionId` and
+  `WalletSigningSessionId` fields.
 - Future raw identity parsing must be added at a true boundary or the guard
   fails.
 

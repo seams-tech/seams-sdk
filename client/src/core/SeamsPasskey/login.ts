@@ -61,6 +61,7 @@ import {
   toWalletSubjectId,
   type WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { buildEcdsaSessionIdentity } from '../signingEngine/session/warmCapabilities/ecdsaProvisionPlan';
 
 type EmitUnlockEventInput = Omit<CreateUnlockFlowEventInput, 'accountId' | 'flowId'>;
 
@@ -891,10 +892,10 @@ async function primeThresholdLoginWarmSigners(args: {
               ecdsaThresholdKeyId: bootstrapIdentity.ecdsaThresholdKeyId,
               participantIds: args.participantIds,
               sessionKind: 'jwt',
-              sessionIdentity: {
+              sessionIdentity: buildEcdsaSessionIdentity({
                 thresholdSessionId,
                 walletSigningSessionId: bootstrapIdentity.walletSigningSessionId,
-              },
+              }),
               ttlMs: args.ttlMs,
               remainingUses: args.remainingUses,
               routeAuth: bootstrapIdentity.routeAuth,

@@ -20,6 +20,7 @@ import {
   LOGIN_PREFILL_TARGET_DEPTH,
   LOGIN_PREFILL_TRIGGER_DEPTH,
 } from '@/core/config/defaultConfigs';
+import { tryBuildEcdsaSessionIdentity } from './ecdsaProvisionPlan';
 
 export type ThresholdEcdsaLoginPrefillSkippedReason =
   | 'pool_disabled'
@@ -143,8 +144,9 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
       };
     }
 
-    thresholdSessionId = String(keyRef.thresholdSessionId || '').trim();
-    if (!thresholdSessionId) {
+    const identity = tryBuildEcdsaSessionIdentity(keyRef);
+    thresholdSessionId = identity?.thresholdSessionId;
+    if (!thresholdSessionId || !identity) {
       return {
         status: 'skipped',
         reason: 'missing_threshold_session_id',
@@ -197,7 +199,7 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
         thresholdSessionId,
       };
     }
-    if (String(warmStatus.sessionId || '').trim() !== thresholdSessionId) {
+    if (String(warmStatus.sessionId || '').trim() !== identity.thresholdSessionId) {
       return {
         status: 'skipped',
         reason: 'threshold_session_mismatch',

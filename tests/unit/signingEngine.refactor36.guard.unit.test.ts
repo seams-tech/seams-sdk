@@ -215,15 +215,37 @@ test.describe('signing engine refactor 36 guards', () => {
       'client/src/core/signingEngine/session/warmCapabilities',
     ];
     const offenders: string[] = [];
-    const pattern =
-      /(thresholdSessionId|walletSigningSessionId)\s*:\s*String\((?:[^)\n]*)(?:thresholdSessionId|walletSigningSessionId)(?:[^)\n]*)\)\.trim\(/g;
+    const patterns = [
+      {
+        name: 'object field identity parsing',
+        pattern:
+          /(thresholdSessionId|walletSigningSessionId)\s*:\s*String\((?:[^)\n]*)(?:thresholdSessionId|walletSigningSessionId)(?:[^)\n]*)\)\.trim\(/g,
+      },
+      {
+        name: 'raw identity comparison',
+        pattern:
+          /String\([^;\n]*(?:thresholdSessionId|walletSigningSessionId)[^;\n]*\)\.trim\(\)\s*(?:={2,3}|!={1,2})\s*String\([^;\n]*(?:thresholdSessionId|walletSigningSessionId)[^;\n]*\)\.trim\(\)/g,
+      },
+      {
+        name: 'paired local identity parsing',
+        pattern:
+          /\b(?:const|let)\s+\w*(?:ThresholdSessionId|SessionId)\s*=\s*String\([^;\n]*thresholdSessionId[^;\n]*\)\.trim\(\)[\s\S]{0,240}\b(?:const|let)\s+\w*WalletSigningSessionId\s*=\s*String\([^;\n]*walletSigningSessionId[^;\n]*\)\.trim\(\)/g,
+      },
+      {
+        name: 'paired local identity parsing',
+        pattern:
+          /\b(?:const|let)\s+\w*WalletSigningSessionId\s*=\s*String\([^;\n]*walletSigningSessionId[^;\n]*\)\.trim\(\)[\s\S]{0,240}\b(?:const|let)\s+\w*(?:ThresholdSessionId|SessionId)\s*=\s*String\([^;\n]*thresholdSessionId[^;\n]*\)\.trim\(\)/g,
+      },
+    ];
     for (const root of searchRoots) {
       for (const relativePath of listTsFiles(root)) {
         const source = readRepoFile(relativePath);
-        if (!pattern.test(source)) continue;
-        pattern.lastIndex = 0;
-        if (!allowedFiles.has(relativePath)) {
-          offenders.push(relativePath);
+        for (const { name, pattern } of patterns) {
+          if (!pattern.test(source)) continue;
+          pattern.lastIndex = 0;
+          if (!allowedFiles.has(relativePath)) {
+            offenders.push(`${relativePath} (${name})`);
+          }
         }
       }
     }

@@ -4,6 +4,7 @@ import type { EcdsaLaneCandidate, ThresholdEcdsaSessionStoreSource } from '../..
 import {
   buildEcdsaSessionIdentity,
   buildEcdsaSigningKeyContext,
+  ecdsaSessionIdentityMatches,
   type EcdsaSessionIdentity,
   type EcdsaSigningKeyContext,
 } from '../../session/warmCapabilities/ecdsaProvisionPlan';
@@ -84,6 +85,10 @@ function matchesCandidateIdentity(args: {
   candidate: EcdsaLaneCandidate;
   value: ThresholdEcdsaSessionRecord | ThresholdEcdsaSecp256k1KeyRef;
 }): boolean {
+  const candidateIdentity = buildEcdsaSessionIdentity({
+    thresholdSessionId: args.candidate.thresholdSessionId,
+    walletSigningSessionId: args.candidate.walletSigningSessionId,
+  });
   return (
     String(args.value.subjectId || '').trim() === String(args.candidate.subjectId || '').trim() &&
     thresholdEcdsaChainTargetsEqual(args.value.chainTarget, args.candidate.chainTarget) &&
@@ -92,10 +97,7 @@ function matchesCandidateIdentity(args: {
     String(args.value.signingRootId || '').trim() === String(args.candidate.signingRootId || '').trim() &&
     String(args.value.signingRootVersion || 'default').trim() ===
       String(args.candidate.signingRootVersion || '').trim() &&
-    String(args.value.walletSigningSessionId || '').trim() ===
-      String(args.candidate.walletSigningSessionId || '').trim() &&
-    String(args.value.thresholdSessionId || '').trim() ===
-      String(args.candidate.thresholdSessionId || '').trim()
+    ecdsaSessionIdentityMatches(candidateIdentity, args.value)
   );
 }
 

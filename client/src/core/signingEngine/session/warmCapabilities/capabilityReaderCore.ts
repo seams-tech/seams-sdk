@@ -1,5 +1,8 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
-import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
+import {
+  resolveEmailOtpAuthLane,
+  type EmailOtpAuthLane,
+} from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { ThresholdSessionSealTransportAuthMaterial } from '../persistence/records';
 import {
   readWarmSessionCapabilityRecordsForAccount,
@@ -16,6 +19,7 @@ import {
   resolveEd25519AuthMaterial,
   type WarmSessionReadPorts,
 } from './readModel';
+import { tryBuildEcdsaSessionIdentity } from './ecdsaProvisionPlan';
 import { assertWarmSessionEnvelopeInvariant } from './types';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
@@ -230,28 +234,30 @@ export function createWarmSessionCapabilityReaderCore(
     if (args.curve === 'ed25519') {
       const record = readWarmSessionEd25519RecordByThresholdSessionId(thresholdSessionId);
       const jwt = String(record?.thresholdSessionAuthToken || '').trim();
-      const walletSigningSessionId = String(record?.walletSigningSessionId || '').trim();
-      if (record?.source !== 'email_otp' || !jwt || !walletSigningSessionId) return null;
-      return {
-        kind: 'signing_session',
-        jwt,
+      const lane = resolveEmailOtpAuthLane({
+        routeAuth: jwt ? { kind: 'threshold_session', jwt } : undefined,
         thresholdSessionId,
-        walletSigningSessionId,
+        walletSigningSessionId: record?.walletSigningSessionId,
         curve: 'ed25519',
-      };
+      });
+      return record?.source === 'email_otp' &&
+        lane?.kind === 'signing_session' &&
+        lane.curve === 'ed25519'
+        ? lane
+        : null;
     }
     const record = readWarmSessionEcdsaRecordByThresholdSessionId(thresholdSessionId);
     const jwt = String(record?.thresholdSessionAuthToken || '').trim();
-    const walletSigningSessionId = String(record?.walletSigningSessionId || '').trim();
-    if (record?.source !== 'email_otp' || !jwt || !walletSigningSessionId) return null;
-    return {
-      kind: 'signing_session',
-      jwt,
-      thresholdSessionId,
-      walletSigningSessionId,
+    const identity = record ? tryBuildEcdsaSessionIdentity(record) : null;
+    if (record?.source !== 'email_otp' || !jwt || !identity) return null;
+    const lane = resolveEmailOtpAuthLane({
+      routeAuth: { kind: 'threshold_session', jwt },
+      thresholdSessionId: identity.thresholdSessionId,
+      walletSigningSessionId: identity.walletSigningSessionId,
       curve: 'ecdsa',
       chainTarget: record.chainTarget,
-    };
+    });
+    return lane?.kind === 'signing_session' && lane.curve === 'ecdsa' ? lane : null;
   }
 
   async function getEd25519CapabilityByThresholdSessionId(

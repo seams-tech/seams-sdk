@@ -2,6 +2,8 @@ import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { EmailOtpEcdsaSigningBootstrapResult } from '../../interfaces/operationDeps';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import {
+  buildEcdsaSessionIdentity,
+  ecdsaSessionIdentitiesEqual,
   type EmailOtpEcdsaSessionProvision,
 } from '../../session/warmCapabilities/ecdsaProvisionPlan';
 import {
@@ -55,11 +57,9 @@ export async function completeEvmFamilyEmailOtpSigningRefresh(args: {
   ) {
     throw new Error('[SigningEngine][ecdsa] Email OTP refresh returned the wrong ECDSA chain target');
   }
-  if (
-    String(record.thresholdSessionId || '').trim() !== String(keyRef.thresholdSessionId || '').trim() ||
-    String(record.walletSigningSessionId || '').trim() !==
-      String(keyRef.walletSigningSessionId || '').trim()
-  ) {
+  const recordIdentity = buildEcdsaSessionIdentity(record);
+  const keyRefIdentity = buildEcdsaSessionIdentity(keyRef);
+  if (!ecdsaSessionIdentitiesEqual(recordIdentity, keyRefIdentity)) {
     throw new Error('[SigningEngine][ecdsa] Email OTP refresh returned mismatched ECDSA identity');
   }
   const provisionPlan = buildEvmFamilyEmailOtpEcdsaProvisionPlan({

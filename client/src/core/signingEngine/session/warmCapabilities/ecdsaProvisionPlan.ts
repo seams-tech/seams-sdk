@@ -11,10 +11,15 @@ import type {
   ThresholdRuntimePolicyScope,
   ThresholdSessionKind,
 } from '../../threshold/sessionPolicy';
+import {
+  SigningSessionIds,
+  type ThresholdEcdsaSessionId,
+  type WalletSigningSessionId,
+} from '../operationState/types';
 
 export type EcdsaSessionIdentity = {
-  thresholdSessionId: string;
-  walletSigningSessionId: string;
+  thresholdSessionId: ThresholdEcdsaSessionId;
+  walletSigningSessionId: WalletSigningSessionId;
 };
 
 export type EcdsaSigningKeyContext = {
@@ -223,12 +228,47 @@ export function buildEcdsaSessionIdentity(args: {
   walletSigningSessionId: unknown;
 }): EcdsaSessionIdentity {
   return {
-    thresholdSessionId: requireNonEmptyString(args.thresholdSessionId, 'thresholdSessionId'),
-    walletSigningSessionId: requireNonEmptyString(
-      args.walletSigningSessionId,
-      'walletSigningSessionId',
-    ),
+    thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(args.thresholdSessionId),
+    walletSigningSessionId: SigningSessionIds.walletSigningSession(args.walletSigningSessionId),
   };
+}
+
+export function tryBuildEcdsaSessionIdentity(args: {
+  thresholdSessionId: unknown;
+  walletSigningSessionId: unknown;
+}): EcdsaSessionIdentity | null {
+  try {
+    return buildEcdsaSessionIdentity(args);
+  } catch {
+    return null;
+  }
+}
+
+export function ecdsaSessionIdentitiesEqual(
+  left: EcdsaSessionIdentity,
+  right: EcdsaSessionIdentity,
+): boolean {
+  return (
+    left.thresholdSessionId === right.thresholdSessionId &&
+    left.walletSigningSessionId === right.walletSigningSessionId
+  );
+}
+
+export function ecdsaSessionIdentityMatches(
+  identity: EcdsaSessionIdentity,
+  candidate: { thresholdSessionId: unknown; walletSigningSessionId: unknown },
+): boolean {
+  const candidateIdentity = tryBuildEcdsaSessionIdentity(candidate);
+  return Boolean(candidateIdentity && ecdsaSessionIdentitiesEqual(identity, candidateIdentity));
+}
+
+function tryBuildEcdsaSessionIdentityFromClaims(
+  claims: Record<string, unknown>,
+): EcdsaSessionIdentity | null {
+  return tryBuildEcdsaSessionIdentity({
+    thresholdSessionId: claims.sessionId,
+    walletSigningSessionId: claims.walletSigningSessionId,
+  });
 }
 
 export function buildEcdsaSigningKeyContext(args: {
@@ -297,11 +337,10 @@ function verifyEcdsaThresholdSessionAuth(args: {
   if (!claims) {
     throw new Error('[SigningEngine][ecdsa] threshold session auth token is invalid');
   }
-  const claimSessionId = String(claims.sessionId || '').trim();
-  const claimWalletSigningSessionId = String(claims.walletSigningSessionId || '').trim();
+  const claimIdentity = tryBuildEcdsaSessionIdentityFromClaims(claims);
   if (
-    claimSessionId !== args.identity.thresholdSessionId ||
-    claimWalletSigningSessionId !== args.identity.walletSigningSessionId
+    !claimIdentity ||
+    !ecdsaSessionIdentitiesEqual(claimIdentity, args.identity)
   ) {
     throw new Error(
       '[SigningEngine][ecdsa] threshold session auth token does not match planned reconnect identity',
@@ -333,12 +372,8 @@ function selectReconnectThresholdSessionAuthToken(args: {
   for (const token of candidates) {
     const claims = decodeJwtPayloadRecord(token);
     if (!claims) continue;
-    const claimSessionId = String(claims.sessionId || '').trim();
-    const claimWalletSigningSessionId = String(claims.walletSigningSessionId || '').trim();
-    if (
-      claimSessionId === args.identity.thresholdSessionId &&
-      claimWalletSigningSessionId === args.identity.walletSigningSessionId
-    ) {
+    const claimIdentity = tryBuildEcdsaSessionIdentityFromClaims(claims);
+    if (claimIdentity && ecdsaSessionIdentitiesEqual(claimIdentity, args.identity)) {
       return token;
     }
   }

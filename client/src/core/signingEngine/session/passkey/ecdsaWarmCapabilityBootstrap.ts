@@ -24,6 +24,7 @@ import {
   provisionThresholdEcdsaSessionFromBootstrapArgs,
   type ProvisionThresholdEcdsaSessionDeps,
 } from './ecdsaSessionProvision';
+import { buildEcdsaSessionIdentity } from '../warmCapabilities/ecdsaProvisionPlan';
 import type {
   WarmSessionCapabilityReader,
 } from '../warmCapabilities/types';
@@ -203,10 +204,10 @@ async function bootstrapReuseWarmEcdsaCapability(
       remainingUses: request.remainingUses,
       smartAccount: request.smartAccount,
       sessionKind: 'jwt',
-      sessionIdentity: {
+      sessionIdentity: buildEcdsaSessionIdentity({
         thresholdSessionId: reusableSessionId,
         walletSigningSessionId: reusableWalletSigningSessionId,
-      },
+      }),
       routeAuth: {
         kind: 'threshold_session',
         jwt: reusableThresholdSessionAuthToken,
@@ -231,10 +232,10 @@ async function bootstrapReuseWarmEcdsaCapability(
       remainingUses: request.remainingUses,
       smartAccount: request.smartAccount,
       sessionKind: 'cookie',
-      sessionIdentity: {
+      sessionIdentity: buildEcdsaSessionIdentity({
         thresholdSessionId: reusableSessionId,
         walletSigningSessionId: reusableWalletSigningSessionId,
-      },
+      }),
     });
   }
 

@@ -21,7 +21,11 @@ import {
   type WarmSessionTransitionEvent,
 } from '../warmCapabilities/transitions';
 import {
+  buildEcdsaSessionIdentity,
+  ecdsaSessionIdentitiesEqual,
+  ecdsaSessionIdentityMatches,
   getEcdsaSessionProvisionIdentity,
+  tryBuildEcdsaSessionIdentity,
   type EcdsaSessionProvisionPlan,
 } from '../warmCapabilities/ecdsaProvisionPlan';
 import { hasSufficientWarmClaim } from '../warmCapabilities/readModel';
@@ -218,9 +222,10 @@ function readEcdsaKeyRefCandidates(
     const keyRef = candidate.keyRef;
     if (args.source && source !== args.source) continue;
     try {
+      const identity = buildEcdsaSessionIdentity(keyRef);
       const key = [
         source,
-        String(keyRef.thresholdSessionId || '').trim(),
+        identity.thresholdSessionId,
         String(keyRef.ecdsaThresholdKeyId || '').trim(),
       ].join(':');
       if (seen.has(key)) continue;
@@ -236,10 +241,7 @@ function keyRefMatchesPlannedIdentity(args: {
   plan: EcdsaSessionProvisionPlan;
 }): boolean {
   const identity = getEcdsaSessionProvisionIdentity(args.plan);
-  return (
-    identity.thresholdSessionId === String(args.keyRef.thresholdSessionId || '').trim() &&
-    identity.walletSigningSessionId === String(args.keyRef.walletSigningSessionId || '').trim()
-  );
+  return ecdsaSessionIdentityMatches(identity, args.keyRef);
 }
 
 function buildDefaultEcdsaActivationPolicy(): EcdsaActivationPolicy {
@@ -627,7 +629,7 @@ function buildEcdsaCapabilityInflightKey(args: {
   keyRef: ThresholdEcdsaSecp256k1KeyRef | null;
 }): string {
   const keyId = String(args.keyRef?.ecdsaThresholdKeyId || '').trim() || 'auto';
-  const sessionId = String(args.keyRef?.thresholdSessionId || '').trim() || 'auto';
+  const sessionIdentity = args.keyRef ? tryBuildEcdsaSessionIdentity(args.keyRef) : null;
   const usesNeeded = Math.floor(Number(args.usesNeeded) || 0);
   const sessionBudgetUses = Math.floor(Number(args.sessionBudgetUses) || 0);
   return [
@@ -636,7 +638,7 @@ function buildEcdsaCapabilityInflightKey(args: {
     String(usesNeeded > 0 ? usesNeeded : 1),
     String(sessionBudgetUses > 0 ? sessionBudgetUses : 1),
     keyId,
-    sessionId,
+    sessionIdentity?.thresholdSessionId || 'auto',
   ].join('::');
 }
 
@@ -701,9 +703,11 @@ export async function ensureWarmEcdsaCapabilityReady(
   }
 
   for (const candidate of keyRefCandidates) {
-    const keyRefSessionId = String(candidate.keyRef.thresholdSessionId || '').trim();
-    if (!keyRefSessionId) continue;
-    const directCapability = await deps.readEcdsaCapabilityByThresholdSessionId(keyRefSessionId);
+    const keyRefIdentity = tryBuildEcdsaSessionIdentity(candidate.keyRef);
+    if (!keyRefIdentity) continue;
+    const directCapability = await deps.readEcdsaCapabilityByThresholdSessionId(
+      keyRefIdentity.thresholdSessionId,
+    );
     if (
       directCapability?.record?.chainTarget &&
       thresholdEcdsaChainTargetsEqual(directCapability.record.chainTarget, chainTarget) &&
@@ -908,10 +912,14 @@ export async function ensureWarmEcdsaCapabilityReady(
         keyRef: refreshedKeyRef,
         usesNeeded: args.usesNeeded,
       });
-      const refreshedSessionId = String(refreshedKeyRef?.thresholdSessionId || '').trim();
-      if (!refreshedCapability && refreshedSessionId) {
+      const refreshedIdentity = refreshedKeyRef
+        ? tryBuildEcdsaSessionIdentity(refreshedKeyRef)
+        : null;
+      if (!refreshedCapability && refreshedIdentity) {
         const directCapability =
-          await deps.readEcdsaCapabilityByThresholdSessionId(refreshedSessionId);
+          await deps.readEcdsaCapabilityByThresholdSessionId(
+            refreshedIdentity.thresholdSessionId,
+          );
         if (
           directCapability?.record?.chainTarget &&
           thresholdEcdsaChainTargetsEqual(directCapability.record.chainTarget, chainTarget) &&
@@ -921,7 +929,7 @@ export async function ensureWarmEcdsaCapabilityReady(
           refreshedCapability = directCapability;
         }
       }
-      if (!refreshedKeyRef || !refreshedCapability) {
+      if (!refreshedKeyRef || !refreshedIdentity || !refreshedCapability) {
         throw new Error(
           '[WarmSessionStore] threshold ECDSA warm capability is not ready after reconnect',
         );
@@ -933,7 +941,7 @@ export async function ensureWarmEcdsaCapabilityReady(
           type: 'ecdsa_capability_reconnected',
           accountId: nearAccountId,
           chainTarget,
-          thresholdSessionId: refreshedSessionId,
+          thresholdSessionId: refreshedIdentity.thresholdSessionId,
           before: summarizeWarmSessionTransition(warmSession),
           after: summarizeWarmSessionTransition(refreshedWarmSession),
         },
@@ -975,9 +983,15 @@ export function getMatchingReadyEcdsaCapability(args: {
   const capability = args.warmSession.capabilities.ecdsa[chain];
   if (!args.keyRef || capability.state !== 'ready') return null;
 
-  const recordSessionId = String(capability.record?.thresholdSessionId || '').trim();
-  const keyRefSessionId = String(args.keyRef.thresholdSessionId || '').trim();
-  if (!recordSessionId || !keyRefSessionId || recordSessionId !== keyRefSessionId) {
+  const recordIdentity = capability.record
+    ? tryBuildEcdsaSessionIdentity(capability.record)
+    : null;
+  const keyRefIdentity = tryBuildEcdsaSessionIdentity(args.keyRef);
+  if (
+    !recordIdentity ||
+    !keyRefIdentity ||
+    !ecdsaSessionIdentitiesEqual(recordIdentity, keyRefIdentity)
+  ) {
     return null;
   }
 
@@ -1053,11 +1067,11 @@ export function buildReusableEcdsaBootstrapResult(args: {
   const clientVerifyingShareB64u = String(record.clientVerifyingShareB64u || '').trim();
   const clientAdditiveShare32B64u = String(record.clientAdditiveShare32B64u || '').trim();
   const relayerKeyId = String(record.relayerKeyId || '').trim();
-  const sessionId = String(record.thresholdSessionId || '').trim();
+  const identity = tryBuildEcdsaSessionIdentity(record);
   // A warm ECDSA capability is only directly reusable when the canonical
   // keyRef already carries local signing material. Restored passkey lanes
   // often have only the PRF/JWT until reconnect recreates the additive share.
-  if (!clientVerifyingShareB64u || !clientAdditiveShare32B64u || !relayerKeyId || !sessionId) {
+  if (!clientVerifyingShareB64u || !clientAdditiveShare32B64u || !relayerKeyId || !identity) {
     return null;
   }
 
@@ -1070,8 +1084,8 @@ export function buildReusableEcdsaBootstrapResult(args: {
       ).trim(),
       participantIds: record.participantIds,
       thresholdSessionKind: record.thresholdSessionKind,
-      thresholdSessionId: sessionId,
-      walletSigningSessionId: record.walletSigningSessionId,
+      thresholdSessionId: identity.thresholdSessionId,
+      walletSigningSessionId: identity.walletSigningSessionId,
       thresholdSessionAuthToken: String(
         auth.thresholdSessionAuthToken || args.keyRef.thresholdSessionAuthToken || '',
       ).trim(),
@@ -1089,8 +1103,8 @@ export function buildReusableEcdsaBootstrapResult(args: {
     },
     session: {
       ok: true,
-      sessionId,
-      walletSigningSessionId: record.walletSigningSessionId,
+      sessionId: identity.thresholdSessionId,
+      walletSigningSessionId: identity.walletSigningSessionId,
       ...(String(auth.thresholdSessionAuthToken || '').trim()
         ? { jwt: String(auth.thresholdSessionAuthToken || '').trim() }
         : {}),

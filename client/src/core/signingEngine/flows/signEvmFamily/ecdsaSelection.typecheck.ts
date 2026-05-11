@@ -3,6 +3,7 @@ import type {
   ReauthRequiredEvmFamilyEcdsaSigningSelection,
 } from './ecdsaSelection';
 import type { ReadyEcdsaMaterial } from './ecdsaMaterialState';
+import { buildEcdsaSessionIdentity } from '../../session/warmCapabilities/ecdsaProvisionPlan';
 
 declare const readyMaterial: ReadyEcdsaMaterial;
 
@@ -27,10 +28,10 @@ const missingHotMaterialSelection: ReauthRequiredEvmFamilyEcdsaSigningSelection 
     authMethod: 'email_otp',
     source: 'email_otp',
     chainTarget: {} as ReauthRequiredEvmFamilyEcdsaSigningSelection['material']['chainTarget'],
-    identity: {
+    identity: buildEcdsaSessionIdentity({
       thresholdSessionId: 'threshold-session-1',
       walletSigningSessionId: 'wallet-signing-session-1',
-    },
+    }),
   },
   reason: 'missing_hot_material',
   diagnostics: {} as ReauthRequiredEvmFamilyEcdsaSigningSelection['diagnostics'],

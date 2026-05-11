@@ -41,6 +41,7 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../signingEngine/threshold/ecdsa/activation';
+import { buildEcdsaSessionIdentity } from '../signingEngine/session/warmCapabilities/ecdsaProvisionPlan';
 
 // Registration forces a visible, clickable confirmation for cross‑origin safety
 
@@ -650,10 +651,10 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
         source: 'registration',
         relayerUrl,
         sessionKind: 'jwt',
-        sessionIdentity: {
+        sessionIdentity: buildEcdsaSessionIdentity({
           thresholdSessionId,
           walletSigningSessionId,
-        },
+        }),
         ...(canonicalEcdsaThresholdKeyId
           ? { ecdsaThresholdKeyId: canonicalEcdsaThresholdKeyId }
           : {}),

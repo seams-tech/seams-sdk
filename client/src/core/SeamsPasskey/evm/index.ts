@@ -3,6 +3,7 @@ import type { EvmSignerCapability } from '..';
 import { routeWalletIframeOrLocal, type WalletIframeRouteDeps } from '../walletIframeRoute';
 import { toWalletSubjectId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
+import { buildEcdsaSessionIdentity } from '@/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan';
 
 type ChainSignerDeps = {
   getContext: () => import('../index').PasskeyManagerContext;
@@ -37,7 +38,7 @@ function toLocalBootstrapRequest(
           kind: 'passkey_fresh_ecdsa_bootstrap',
           ...common,
           sessionKind: args.sessionKind,
-          sessionIdentity: args.sessionIdentity,
+          sessionIdentity: buildEcdsaSessionIdentity(args.sessionIdentity),
           clientRootShare32B64u: args.clientRootShare32B64u,
           ...('webauthnAuthentication' in args && args.webauthnAuthentication
             ? { webauthnAuthentication: args.webauthnAuthentication }
@@ -49,7 +50,7 @@ function toLocalBootstrapRequest(
           kind: 'passkey_fresh_ecdsa_bootstrap',
           ...common,
           sessionKind: args.sessionKind,
-          sessionIdentity: args.sessionIdentity,
+          sessionIdentity: buildEcdsaSessionIdentity(args.sessionIdentity),
           clientRootShare32B64u: args.clientRootShare32B64u,
           routeAuth: args.routeAuth,
         };
@@ -58,7 +59,7 @@ function toLocalBootstrapRequest(
         kind: 'passkey_fresh_ecdsa_bootstrap',
         ...common,
         sessionKind: args.sessionKind,
-        sessionIdentity: args.sessionIdentity,
+        sessionIdentity: buildEcdsaSessionIdentity(args.sessionIdentity),
         clientRootShare32B64u: args.clientRootShare32B64u,
         webauthnAuthentication: args.webauthnAuthentication,
       };
@@ -67,14 +68,14 @@ function toLocalBootstrapRequest(
         kind: 'passkey_cookie_reconnect_ecdsa_bootstrap',
         ...common,
         sessionKind: args.sessionKind,
-        sessionIdentity: args.sessionIdentity,
+        sessionIdentity: buildEcdsaSessionIdentity(args.sessionIdentity),
       };
     case 'threshold_session_auth_reconnect_ecdsa_bootstrap':
       return {
         kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
         ...common,
         sessionKind: args.sessionKind,
-        sessionIdentity: args.sessionIdentity,
+        sessionIdentity: buildEcdsaSessionIdentity(args.sessionIdentity),
         routeAuth: args.routeAuth,
       };
     case 'email_otp_ecdsa_bootstrap':
@@ -83,7 +84,7 @@ function toLocalBootstrapRequest(
         ...common,
         source: 'email_otp',
         sessionKind: args.sessionKind,
-        sessionIdentity: args.sessionIdentity,
+        sessionIdentity: buildEcdsaSessionIdentity(args.sessionIdentity),
         clientRootShare32B64u: args.clientRootShare32B64u,
         routeAuth: args.routeAuth,
         emailOtpAuthContext: args.emailOtpAuthContext,

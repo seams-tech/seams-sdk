@@ -26,6 +26,10 @@ import {
   toSigningSessionStatus,
   toWarmSessionClaimFromStatusResult,
 } from './readModel';
+import {
+  buildEcdsaSessionIdentity,
+  tryBuildEcdsaSessionIdentity,
+} from './ecdsaProvisionPlan';
 import type {
   ThresholdWarmSessionStatusReader,
   WarmEcdsaRecordBackedSigningSessionStatus,
@@ -34,6 +38,12 @@ import type {
 } from './types';
 
 type WarmSessionEcdsaPolicyRecordHint = ThresholdEcdsaSessionRecord;
+
+function thresholdSessionIdFromEcdsaRecord(
+  record: ThresholdEcdsaSessionRecord | null | undefined,
+): string | null {
+  return record ? tryBuildEcdsaSessionIdentity(record)?.thresholdSessionId || null : null;
+}
 
 export const THRESHOLD_SESSION_MISSING_ERROR =
   '[chains] Missing threshold signingSessionId; reconnect threshold session before signing';
@@ -106,17 +116,17 @@ export function createWarmSessionStatusReader(
   async function readEcdsaWarmSessionClaimForRecord(
     record: ThresholdEcdsaSessionRecord,
   ): Promise<WarmSessionPrfClaim | null> {
-    const thresholdSessionId = String(record.thresholdSessionId || '').trim();
-    if (!thresholdSessionId) return null;
+    const identity = tryBuildEcdsaSessionIdentity(record);
+    if (!identity) return null;
     const workerSessionId =
       record.source === 'email_otp' ? resolveEmailOtpEcdsaWorkerSessionId(record) : '';
     if (workerSessionId) {
       const status = await deps.getEmailOtpWarmSessionStatus(workerSessionId).catch(() => null);
       return status
-        ? toWarmSessionClaimFromStatusResult({ sessionId: thresholdSessionId, status })
+        ? toWarmSessionClaimFromStatusResult({ sessionId: identity.thresholdSessionId, status })
         : null;
     }
-    return await readWarmSessionClaim(deps.touchConfirm, thresholdSessionId);
+    return await readWarmSessionClaim(deps.touchConfirm, identity.thresholdSessionId);
   }
 
   async function readWalletScopedClaimsForRecords(
@@ -135,9 +145,10 @@ export function createWarmSessionStatusReader(
       ed25519Claim:
         walletScopedClaims.get(String(records.ed25519?.thresholdSessionId || '').trim()) || null,
       evmClaim:
-        walletScopedClaims.get(String(records.ecdsa.evm?.thresholdSessionId || '').trim()) || null,
+        walletScopedClaims.get(thresholdSessionIdFromEcdsaRecord(records.ecdsa.evm) || '') ||
+        null,
       tempoClaim:
-        walletScopedClaims.get(String(records.ecdsa.tempo?.thresholdSessionId || '').trim()) ||
+        walletScopedClaims.get(thresholdSessionIdFromEcdsaRecord(records.ecdsa.tempo) || '') ||
         null,
     };
   }
@@ -156,7 +167,7 @@ export function createWarmSessionStatusReader(
       })) {
         if (!thresholdEcdsaChainTargetsEqual(candidate.chainTarget, args.chainTarget)) continue;
         if (args.source && candidate.source !== args.source) continue;
-        const sessionId = String(candidate.thresholdSessionId || '').trim();
+        const sessionId = thresholdSessionIdFromEcdsaRecord(candidate);
         const key = `${thresholdEcdsaChainTargetKey(candidate.chainTarget)}:${candidate.source}:${sessionId}`;
         if (sessionId) recordsBySession.set(key, candidate);
       }
@@ -165,7 +176,7 @@ export function createWarmSessionStatusReader(
       chain
     ];
     if (fallback && (!args.source || fallback.source === args.source)) {
-      const sessionId = String(fallback.thresholdSessionId || '').trim();
+      const sessionId = thresholdSessionIdFromEcdsaRecord(fallback);
       if (sessionId)
         recordsBySession.set(
           `${thresholdEcdsaChainTargetKey(fallback.chainTarget)}:${fallback.source}:${sessionId}`,
@@ -343,22 +354,17 @@ export function createWarmSessionStatusReader(
     record: ThresholdEcdsaSessionRecord;
     claim: WarmSessionPrfClaim | null;
   }): WarmEcdsaRecordBackedSigningSessionStatus {
-    const walletSigningSessionId = String(args.record.walletSigningSessionId || '').trim();
-    if (!walletSigningSessionId) {
-      throw new Error(
-        '[WarmSessionStatusReader] ECDSA signing-session status requires walletSigningSessionId',
-      );
-    }
+    const identity = buildEcdsaSessionIdentity(args.record);
     return {
       ...toSigningSessionStatus({
-        sessionId: String(args.record.thresholdSessionId || '').trim(),
+        sessionId: identity.thresholdSessionId,
         claim: args.claim,
         authMethod: args.record.source === 'email_otp' ? 'email_otp' : 'passkey',
         retention: args.record.emailOtpAuthContext?.retention || null,
       }),
       chainTarget: args.record.chainTarget,
       source: args.record.source,
-      walletSigningSessionId,
+      walletSigningSessionId: identity.walletSigningSessionId,
     };
   }
 
@@ -377,7 +383,8 @@ export function createWarmSessionStatusReader(
       toEcdsaSigningSessionStatus({
         record,
         claim:
-          claimsByThresholdSessionId.get(String(record.thresholdSessionId || '').trim()) || null,
+          claimsByThresholdSessionId.get(buildEcdsaSessionIdentity(record).thresholdSessionId) ||
+          null,
       }),
     );
   }
@@ -411,7 +418,7 @@ export function createWarmSessionStatusReader(
     return toEcdsaSigningSessionStatus({
       record,
       claim:
-        claimsByThresholdSessionId.get(String(record.thresholdSessionId || '').trim()) ||
+        claimsByThresholdSessionId.get(buildEcdsaSessionIdentity(record).thresholdSessionId) ||
         (await readEcdsaWarmSessionClaimForRecord(record)),
     });
   }
