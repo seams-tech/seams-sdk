@@ -389,18 +389,24 @@ Registration route auth should be:
 
 Threshold-session auth tokens are signing-session capabilities. They should be accepted by signing, presign, export, and session refresh routes only.
 
-## Refactor 33 Alignment
+## Refactor 33, 35, And 36 Alignment
 
-This plan targets the post-`docs/refactor-33.md` signing-engine layout:
+This plan targets the current signing-engine layout from `docs/refactor-33.md`, `docs/refactor-35-sealed-recovery.md`, and `docs/refactor-36.md`:
 
 - Registration account lifecycle and registration session helpers live under `client/src/core/signingEngine/flows/registration`.
 - Ed25519 threshold protocol mechanics live under `client/src/core/signingEngine/threshold/ed25519`.
 - ECDSA threshold protocol mechanics live under `client/src/core/signingEngine/threshold/ecdsa`.
-- Warm signing material, PRF cache writes, and session bootstrap persistence live under `client/src/core/signingEngine/session/warmSigning`.
-- Shared WebAuthn credential collection and PRF extension parsing live under `client/src/core/signingEngine/walletAuth/webauthn`.
+- Passkey-origin PRF cache writes, sealed recovery, and method-specific warm-session provisioning live under `client/src/core/signingEngine/session/passkey`.
+- Email OTP recovery and provisioning live under `client/src/core/signingEngine/session/emailOtp`.
+- Generic warm-material read models, readiness, transitions, and persistence helpers live under `client/src/core/signingEngine/session/warmCapabilities`.
+- Per-operation lane, prepared-operation, trace, and post-sign policy state lives under `client/src/core/signingEngine/session/operationState`.
+- Reusable WebAuthn credential collection and PRF extension parsing live under `client/src/core/signingEngine/webauthnAuth`.
+- Wallet/account auth policy lives under `client/src/core/signingEngine/walletAuth`.
 - Operation code should depend on `stepUpConfirmation/*`, `threshold/*`, and `session/*` by direct owner imports. Do not add `threshold/workflows/*`, `threshold/session/*`, `api/*`, or `orchestration/*` paths.
-- Concrete registration prompt routing currently remains under `touchConfirm/*`; if the planned `uiConfirm/*` rename lands first, apply those touchpoints to the renamed owner files in the same implementation phase.
+- Concrete registration prompt routing lives under `uiConfirm/*`.
+- Registration-adjacent session work must use discriminated lifecycle plans. Do not pass broad optional bags containing `thresholdSessionAuth?`, `webauthnAuthentication?`, `clientRootShare32B64u?`, `thresholdSessionId?`, or `walletSigningSessionId?` through internal registration, add-signer, warm-capability, or session-provisioning code.
 - `tests/unit/signingEngine.refactor33.guard.unit.test.ts` must stay green while registration code moves.
+- `tests/unit/signingEngine.refactor36.guard.unit.test.ts` must stay green while registration and signer-provisioning lifecycle types move.
 
 ## Current Code Touchpoints
 
@@ -519,10 +525,14 @@ Client files to edit:
   - Exclude signer-provisioning authority from threshold-session policy material.
 - `client/src/core/signingEngine/session/passkey/ecdsaBootstrap.ts`
   - Keep warm-material cache writes for ECDSA signing-session bootstrap.
+  - Keep `EcdsaBootstrapRequest` as a discriminated request union.
   - Remove initial-registration continuation-token assumptions.
-- `client/src/core/signingEngine/session/passkey/ecdsaBootstrapRequest.ts`
-  - Build signing-session bootstrap requests from wallet signer refs.
+- `client/src/core/signingEngine/session/passkey/ecdsaSessionProvision.ts`
+  - Build signing-session bootstrap requests from wallet signer refs through branch-specific request types.
   - Keep registration ceremony requests in wallet registration RPC helpers.
+- `client/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.ts`
+  - Keep ECDSA signing-session provision plans discriminated by passkey, Email OTP, threshold-session auth reconnect, or cookie reconnect.
+  - Add registration/add-signer-facing builders only when they return exact branch types with required lifecycle fields.
 - `client/src/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence.ts`
   - Persist ECDSA warm-session material against wallet-subject signer refs.
 - `client/src/core/signingEngine/session/passkey/ecdsaProvisioner.ts`
@@ -532,7 +542,7 @@ Client files to edit:
   - Provision Ed25519 warm sessions from existing signer records after registration.
 - `client/src/core/signingEngine/session/passkey/ed25519SessionProvision.ts`
   - Keep Ed25519 signing-session provisioning separate from Ed25519 signer creation.
-- `client/src/core/signingEngine/walletAuth/webauthn/credentials/credentialExtensions.ts`
+- `client/src/core/signingEngine/webauthnAuth/credentials/credentialExtensions.ts`
   - Parse WebAuthn PRF extension output once at the boundary.
   - Return precise registration PRF root types to registration orchestration.
 - `client/src/core/signingEngine/stepUpConfirmation/intentDigestPreparation.ts`
@@ -548,9 +558,9 @@ Client files to edit:
 - `client/src/core/rpcClients/relayer/thresholdEcdsa.ts`
   - Remove `{ kind: 'registration_continuation' }` from `ThresholdEcdsaHssRouteAuth`.
   - Add wallet registration RPC helpers or move them into a new `walletRegistration.ts` client.
-- `client/src/core/signingEngine/touchConfirm/handlers/flows/requestRegistrationCredentialConfirmation.ts`
+- `client/src/core/signingEngine/uiConfirm/handlers/flows/requestRegistrationCredentialConfirmation.ts`
   - Accept a canonical registration intent instead of only `nearAccountId` and `signerSlot`.
-- `client/src/core/signingEngine/touchConfirm/handlers/flows/registration.ts`
+- `client/src/core/signingEngine/uiConfirm/handlers/flows/registration.ts`
   - Compute the WebAuthn `create()` challenge from `RegistrationIntentV1`.
   - Preserve duplicate-credential retry only for signer selections where a retry is valid.
 - `client/src/utils/intentDigest.ts`
@@ -597,6 +607,10 @@ Tests to edit or add:
   - Update login provisioning expectations for wallet-subject signer records.
 - `tests/unit/signingEngine.refactor33.guard.unit.test.ts`
   - Keep deleted import paths and import-direction checks aligned with the new registration modules.
+- `tests/unit/signingEngine.refactor36.guard.unit.test.ts`
+  - Add registration and add-signer lifecycle plan coverage if new signer-provisioning builders are introduced.
+- `tests/unit/sealedRecovery.methodAdapters.unit.test.ts`
+  - Keep passkey and Email OTP sealed recovery method adapters separate after registration starts persisting wallet-subject signer records.
 - Add new registration mode tests covering `ed25519_only`, `ecdsa_only`, and `ed25519_and_ecdsa`.
 
 ## Implementation Phases
@@ -608,7 +622,10 @@ Tests to edit or add:
 - [ ] Add canonical `RegistrationIntentV1` and add-signer digest helpers in `client/src/utils/intentDigest.ts`.
 - [ ] Add server-side digest verification helpers for the same intent encodings.
 - [ ] Add architecture guards against optional lifecycle signer fields in registration core types.
+- [ ] Add client lifecycle-plan builders for any registration/add-signer path that creates warm-session or signer-provisioning material.
 - [ ] Keep registration client imports aligned with `docs/refactor-33.md`; avoid resurrecting deleted `threshold/workflows/*`, `threshold/session/*`, `api/*`, or `orchestration/*` paths.
+- [ ] Keep session ownership aligned with `docs/refactor-35-sealed-recovery.md`; use `session/passkey/*`, `session/emailOtp/*`, `session/warmCapabilities/*`, and `session/operationState/*` according to owner.
+- [ ] Keep lifecycle input types aligned with `docs/refactor-36.md`; use branch-specific required fields and `never` exclusions for invalid auth combinations.
 - [ ] Update exports in `client/src/index.ts`, `client/src/react/index.ts`, and `client/src/react/types.ts`.
 
 ### Phase 2: Server Ceremony
@@ -634,6 +651,8 @@ Tests to edit or add:
 - [ ] Run selected signer HSS work inside the combined registration ceremony.
 - [ ] Route Ed25519 protocol work through `threshold/ed25519/*` and ECDSA protocol work through `threshold/ecdsa/*`.
 - [ ] Keep warm-session persistence in `session/warmCapabilities/*` after signer records exist.
+- [ ] Keep passkey PRF handling and passkey-origin session provisioning in `session/passkey/*`.
+- [ ] Keep generic warm-capability read/status transitions in `session/warmCapabilities/*`.
 - [ ] Emit progress events for per-signer prepare/finalize states.
 - [ ] Persist returned signer refs under wallet subject identity.
 - [ ] Wire React context and SDK flow tracking to the new registration API.
@@ -662,6 +681,8 @@ Tests to edit or add:
 - [ ] Delete `/registration/bootstrap` and `/registration/threshold-ed25519/hss/*` routes in the same refactor that moves wrappers to `/wallets/register/*`.
 - [ ] Delete mixed paths that derive ECDSA authority from Ed25519 threshold-session auth tokens.
 - [ ] Delete any stale client imports that reference the removed threshold workflows path family.
+- [ ] Delete any stale client imports that reference removed `session/warmSigning/*`, `session/signingSession/*`, `sessionEmailOtp/*`, or `touchConfirm/*` paths.
+- [ ] Delete any internal registration or add-signer helper that infers lifecycle route from optional auth fields.
 - [ ] Rename threshold signing-session auth fields to opaque auth-token names as covered by `docs/signing-session-architecture/threshold-session-auth-token.md`.
 - [ ] Update route definitions, architecture guards, and tests so deleted continuation symbols are absent from production code.
 
@@ -675,6 +696,8 @@ Tests to edit or add:
 - [ ] Add tests that fake object-shaped WebAuthn auth fails add-signer preparation.
 - [ ] Add client tests for `registerWallet`, `registerNearWallet`, and `registerEvmWallet`.
 - [ ] Run `tests/unit/signingEngine.refactor33.guard.unit.test.ts` after client registration moves.
+- [ ] Run `tests/unit/signingEngine.refactor36.guard.unit.test.ts` after registration/add-signer lifecycle type changes.
+- [ ] Run `tests/unit/sealedRecovery.methodAdapters.unit.test.ts` if registration changes sealed recovery or warm-session persistence inputs.
 - [ ] Add cleanup tests that production code contains no `registrationContinuation` or `registration_continuation` symbols.
 
 ## Tests

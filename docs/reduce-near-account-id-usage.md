@@ -49,10 +49,13 @@ rg -l "nearAccountId"
 rg -o "nearAccountId" | wc -l
 ```
 
-Scan date: 2026-05-06
+Scan date: 2026-05-11
 
-The exact `nearAccountId` token appears in 4,756 places across 422 files. That
-includes this plan and other docs, so the count is only a sizing signal.
+The exact `nearAccountId` token appears in 4,916 places across 477 files. That
+includes this plan, docs, tests, and new guard/typecheck files, so the count is
+only a sizing signal. The previous 2026-05-06 scan found 4,756 hits across 422
+files; the increase mainly reflects the signing-engine module split and the new
+refactor-36 guard/typecheck surface.
 
 The scan shows three different classes of usage:
 
@@ -230,40 +233,58 @@ identity.
    audit/session field `walletSessionUserId` and the lane principal `subjectId`.
 6. Update the architecture guard strategy. Keep path-only guards for NEAR-only
    and ECDSA-only directories, and add structural guards for mixed files such as
-   wallet iframe messages, `SigningEngine.ts`, `SeamsPasskey/index.ts`, and
-   touch-confirm request types.
+   wallet iframe messages, `SigningEngine.ts`, `SeamsPasskey/index.ts`,
+   `assembly/ports/shared.ts`, `uiConfirm`, and `stepUpConfirmation`.
+7. Extend the new refactor-36 guard suite. The repository now has
+   `tests/unit/signingEngine.refactor36.guard.unit.test.ts` and
+   `tests/unit/signingEngine.refactor36.allowlists.ts`; add `nearAccountId`
+   surface guards there. The deleted
+   `signingSessionCoordinator.architecture.guard.unit.test.ts` should stay
+   deleted.
+8. Track remaining account-to-subject derivations explicitly. The rescan found
+   direct `toWalletSubjectId(nearAccountId)` calls in the SDK facade,
+   `SigningEngine.ts`, `session/public.ts`, availability/readiness,
+   warm-capability cleanup/status, email-OTP companion sessions, recovery lane
+   selection, and assembly shared ports.
 
 ## Refactor Area Inventory
 
 | Area | Exact-hit files | Required refactor |
 | --- | ---: | --- |
-| Tests | 164 | Rewrite fixtures and assertions to use `nearAccount` for NEAR flows, `walletSession + subjectId + chainTarget` for ECDSA flows, and add guards for forbidden payload fields. |
+| Tests | 167 | Rewrite fixtures and assertions to use `nearAccount` for NEAR flows, `walletSession + subjectId + chainTarget` for ECDSA flows, and add guards for forbidden payload fields. |
 | Server | 35 | Split hosted NEAR account flows from wallet/session identity in ThresholdService, HSS route handlers, sponsorship, smart-account deploy, recovery, and registration routes. |
+| EVM-family signing flows | 30 | Replace `nearAccountId` in `flows/signEvmFamily/**`, including auth planning, ECDSA material state, nonce lifecycle, budget spending, prepared signing, smart-account deployment, signing flow runtime, and transaction execution. |
 | SDK facade: `client/src/core/SeamsPasskey/**` | 23 | Rename public EVM/Tempo/auth inputs, stop deriving `subjectId` from `nearAccountId`, and keep NEAR account refs only under `near/**` and account creation/recovery flows. |
-| EVM-family signing API | 21 | Replace `nearAccountId` in `evmSigning.ts`, `tempoSigning.ts`, `api/evmFamily/**`, nonce lifecycle, budget, auth planning, prepared signing, and transaction execution. |
+| Signing engine other | 20 | Update `SigningEngine.ts`, threshold modules, EVM chain signer bridge, nonce coordinator, WebAuthn auth, user preferences, and remaining top-level session entrypoints. |
 | Examples and demo site | 19 | Update sample apps, docs snippets, demo hooks, login bridges, profile settings, and Tempo/EVM action hooks to model wallet/session identity separately from NEAR account display. |
-| Touch confirm | 17 | Split confirmation request data into NEAR account display for NEAR operations and wallet/subject display for ECDSA export, Tempo, EVM, and signing-session prompts. |
+| UI confirm | 16 | Split confirmation request data into NEAR account display for NEAR operations and wallet/subject display for ECDSA export, Tempo, EVM, and signing-session prompts. |
 | React package | 16 | Rename login state, context values, `getWalletSession(...)`, refresh callbacks, account input, account menu, linked devices, QR, and passkey menu data to use wallet/session names where the UI is wallet-scoped. |
-| Signing engine main and interfaces | 13 | Remove fallback `toWalletSubjectId(nearAccountId)` paths in `SigningEngine.ts`, shared interfaces, nonce coordinator, threshold workflows, and bootstrap dependency wiring. |
-| Docs | 10 | Update conceptual docs, smart-account docs, nonce docs, OTP privacy docs, and registration-flow docs after the API shape changes. |
+| Docs | 14 | Update conceptual docs, smart-account docs, nonce docs, OTP privacy docs, deployment docs, refactor docs, and registration-flow docs after the API shape changes. |
+| Warm capabilities | 14 | Move ECDSA warm-capability read models, status readers, provision plans, persistence, sealed-refresh parity, login prefill, and cleanup from account identity to `subjectId + chainTarget`. |
+| Recovery flows | 13 | Split ECDSA export/recovery lane selection and HSS export from NEAR Ed25519 export/recovery. ECDSA export should receive wallet/session and subject identity directly. |
+| Passkey session | 12 | Move ECDSA bootstrap/provision/recovery/warm-capability paths away from account-derived subjects while keeping Ed25519 provision/recovery account-scoped. |
+| Email OTP session | 10 | Split ECDSA bootstrap, provisioning, companion sessions, export recovery, and worker requests from Ed25519 account recovery and local metadata. |
 | Wallet iframe protocol | 9 | Update shared payload types, client router, iframe wrapper, host handlers, login-status events, preferences events, and route initialization to use wallet/session fields for non-NEAR flows. |
-| Warm signing | 9 | Move ECDSA warm-session read models, provisioners, status readers, capability records, and persistence keys from account identity to `subjectId + chainTarget`. |
-| Signing-session state | 9 | Ensure lanes, readiness, prepared operation, budget, post-sign policy, transaction state, and coordinator inputs require the narrow identity for each lifecycle state. |
 | WASM bindings | 8 | Keep NEAR signer/Ed25519 bindings account-scoped; update HSS client signer and ECDSA bridge payloads that use account strings as wallet/session identity. |
-| Client signers | 8 | Keep NEAR signer inputs account-scoped; update WebAuthn credential lookup, HSS client signer, eth signer worker bridge, Touch ID prompt context, and key refs for ECDSA. |
+| NEAR signing flows | 8 | Keep `flows/signNear/**` account-scoped; rename only generic wallet/session helpers that leaked in. |
 | Contracts | 7 | Keep or rename `nearAccountIdHash` only where it is part of the smart-account recovery protocol, with boundary comments and matching server manifest names. |
-| Threshold lifecycle API | 7 | Refactor ECDSA session store, bootstrap persistence, activation, commit queues, login prefill, and durable records to subject/chain identity. Keep Ed25519 session records account-scoped. |
-| Signing public API modules | 7 | Split `nearSigning`, `evmSigning`, `tempoSigning`, export/recovery, registration session, and preferences into NEAR account operations versus wallet/session operations. |
-| Non-NEAR orchestration | 7 | Update shared EVM-family signing flow, Tempo flow, smart-account deployment, threshold activation, and wallet-origin key-ref paths to avoid account-shaped ECDSA identity. |
-| NEAR orchestration | 7 | Keep NEAR transaction, delegate, NEP-413, threshold Ed25519 repair, and signing-material flows account-scoped; rename only generic wallet/session helpers that leaked in. |
 | Workers | 5 | Remove `nearAccountId` from ECDSA Email OTP worker messages, eth signer worker payloads, passkey confirm worker ECDSA paths, and worker type definitions. |
+| Operation state | 5 | Ensure lanes, prepared operation, post-sign policy, transaction state, and coordinator inputs require the narrow identity for each lifecycle state. |
+| Budget session | 5 | Move ECDSA budget admission, status, finalization, and projections from account identity to selected subject/chain identity. |
+| Assembly ports | 5 | Split `assembly/ports/near.ts` from shared/EVM-family port contracts that still route ECDSA status, challenge, and warm-capability calls through account arguments. |
+| Step-up confirmation | 4 | Keep NEAR PRF/account prompts account-scoped; split ECDSA export/signing prompts to wallet display plus subject identity. |
 | Client core types | 4 | Update SDK sent events, secure-confirm worker types, signer-worker types, and Seams public types to separate account, wallet, subject, and display fields. |
 | NEAR account data | 4 | Keep account projection, refs, key material, and NEAR account data types account-scoped; make callers pass normalized `NearAccountRef` or `AccountId` only at this boundary. |
 | Shared utilities | 3 | Keep `shared/src/utils/near.ts` and recovery email/domain helpers account-scoped; ensure generic wallet/session helpers live outside NEAR utilities. |
+| Session other | 3 | Update session public APIs, coordinator entrypoints, and identity/readiness bridges that still expose account-shaped ECDSA lifecycle inputs. |
+| Other flows | 3 | Keep registration account lifecycle scoped to NEAR account creation; update generic registration/export helpers that feed ECDSA bootstrap. |
+| Signing engine interfaces | 3 | Split `operationDeps`, `near`, and `nearKeyOps` contracts so ECDSA ports stop inheriting NEAR account naming. |
 | Benchmarks | 3 | Update threshold-load and ECDSA HSS fixtures so benchmark inputs match the new API and keep Ed25519/NEAR fixtures account-scoped. |
 | Crates | 2 | Keep signer-core NEAR Ed25519 domain comments account-scoped; update iOS vector replay naming only if the vector represents ECDSA wallet identity. |
 | Client utils | 2 | Keep intent digest and email recovery utilities account-scoped when they operate on NEAR data; move generic wallet/session formatting elsewhere. |
+| Availability | 2 | Remove account-derived subject fallbacks from persisted lane availability and readiness. |
 | RPC clients | 2 | Keep NEAR RPC account arguments; rename EVM nonce backend identity from account to subject/wallet session where it is ECDSA lane state. |
+| Session persistence | 1 | Audit `session/persistence/records.ts` because it has the densest persisted-record identity surface in the new layout. |
 
 ## Refactor Phases
 
@@ -331,12 +352,14 @@ identity.
 
 ### Phase 5: Move ECDSA Stores And Nonce To Subject Identity
 
-1. Ensure ECDSA runtime store indexes use `subjectId + chainTarget`.
+1. Ensure ECDSA runtime and persisted records use `subjectId + chainTarget`.
 2. Ensure durable sealed ECDSA records use `subjectId + chainTarget`.
-3. Ensure managed nonce lanes and snapshots use `subjectId + chainTarget`.
-4. Ensure budget identity and finalization use the selected `subjectId`.
-5. Delete account-keyed ECDSA cleanup and inventory helpers.
-6. Keep account-wide scans only in explicit maintenance/migration tools, with a
+3. Ensure warm-capability read models, status readers, provision plans, and
+   cleanup use `subjectId + chainTarget`.
+4. Ensure managed nonce lanes and snapshots use `subjectId + chainTarget`.
+5. Ensure budget identity and finalization use the selected `subjectId`.
+6. Delete account-keyed ECDSA cleanup and inventory helpers.
+7. Keep account-wide scans only in explicit maintenance/migration tools, with a
    comment explaining the maintenance boundary.
 
 ### Phase 6: Server And HSS Cleanup
@@ -370,11 +393,10 @@ Path-only allowed production paths:
 ```text
 client/src/core/accountData/near/**
 client/src/core/SeamsPasskey/near/**
-client/src/core/signingEngine/api/nearSigning.ts
-client/src/core/signingEngine/orchestration/near/**
+client/src/core/signingEngine/flows/signNear/**
 client/src/core/rpcClients/near/**
-client/src/core/signingEngine/chainAdaptors/near/**
-client/src/core/signingEngine/signers/wasm/nearSignerWasm.ts
+client/src/core/signingEngine/chains/near/**
+client/src/core/signingEngine/assembly/ports/near.ts
 client/src/core/signingEngine/workerManager/nearKeyOps/**
 client/src/utils/emailRecovery/**
 shared/src/utils/near.ts
@@ -385,6 +407,7 @@ server/src/core/hostedAccountIds.ts
 server/src/core/*Recovery*
 server/src/email-recovery/**
 server/src/router/*Recovery*
+server/src/router/recoveryExecutionTracking.ts
 contracts/evm-smart-account/**
 ```
 
@@ -393,13 +416,14 @@ Path-only forbidden production paths:
 ```text
 client/src/core/SeamsPasskey/evm/**
 client/src/core/SeamsPasskey/tempo/**
-client/src/core/signingEngine/api/evm**
-client/src/core/signingEngine/api/evmFamily/**
-client/src/core/signingEngine/emailOtp/**
+client/src/core/signingEngine/flows/signEvmFamily/**
 client/src/core/signingEngine/nonce/**
+client/src/core/signingEngine/session/budget/**
 client/src/core/signingEngine/session/warmCapabilities/**
-client/src/core/signingEngine/threshold/workflows/bootstrapEcdsaSession.ts
-client/src/core/signingEngine/workerManager/**
+client/src/core/signingEngine/chains/evm/**
+client/src/core/signingEngine/threshold/ecdsa/**
+client/src/core/signingEngine/workerManager/workers/**
+client/src/core/signingEngine/workerManager/workerTypes.ts
 client/src/core/rpcClients/evm/**
 server/src/core/ThresholdService/ethSignerWasm.ts
 wasm/hss_client_signer/**
@@ -419,9 +443,16 @@ client/src/core/WalletIframe/client/router.ts
 client/src/core/WalletIframe/SeamsPasskeyIframe.ts
 client/src/core/WalletIframe/host/wallet-iframe-handlers.ts
 client/src/core/signingEngine/SigningEngine.ts
+client/src/core/signingEngine/assembly/ports/shared.ts
+client/src/core/signingEngine/assembly/ports/evmFamily.ts
+client/src/core/signingEngine/assembly/ports/warmSigning.ts
+client/src/core/signingEngine/interfaces/operationDeps.ts
 client/src/core/signingEngine/session/persistence/records.ts
-client/src/core/signingEngine/session/signingSession/**
-client/src/core/signingEngine/touchConfirm/**
+client/src/core/signingEngine/session/passkey/**
+client/src/core/signingEngine/session/emailOtp/**
+client/src/core/signingEngine/flows/recovery/**
+client/src/core/signingEngine/uiConfirm/**
+client/src/core/signingEngine/stepUpConfirmation/**
 client/src/react/**
 server/src/core/ThresholdService/ThresholdSigningService.ts
 server/src/core/ThresholdService/signingHandlers.ts
@@ -440,6 +471,8 @@ Guard checks:
    `subjectId`.
 5. ECDSA nonce and budget identities do not contain `nearAccountId`.
 6. No production core ECDSA code calls `toWalletSubjectId(args.nearAccountId)`.
+7. Refactor-36 raw identity parsing allowlists stay finite and avoid becoming a
+   compatibility sink for account-shaped ECDSA identity.
 
 ## Migration Order
 
@@ -474,6 +507,8 @@ Run these after each phase:
 
 ```sh
 pnpm -C tests exec playwright test ./unit/signingEngine.refactor33.guard.unit.test.ts --reporter=line
+pnpm -C tests exec playwright test ./unit/signingEngine.refactor36.guard.unit.test.ts --reporter=line
+pnpm -C tests exec playwright test ./unit/evmFamily.requestBoundary.unit.test.ts --reporter=line
 pnpm -C tests exec playwright test ./unit/seamsPasskey.chainSigners.unit.test.ts --reporter=line
 pnpm -C tests exec playwright test ./unit/seamsPasskey.emailOtpIframe.unit.test.ts --reporter=line
 pnpm -w run type-check:sdk

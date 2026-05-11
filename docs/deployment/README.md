@@ -82,6 +82,8 @@ come from the same commit SHA.
 
 - [infra.md](infra.md): GitHub Environment values, Cloudflare setup, Postgres,
   Worker secrets, and migration commands.
+- [threshold-postgres-reset.md](threshold-postgres-reset.md): local/dev reset
+  for refactor-36 threshold/session/signing Postgres tables.
 - [sdk.md](sdk.md): SDK runtime bundle publishing, Pages `/sdk` assets, R2
   prefixes, npm release steps, and rollback.
 - [release.md](release.md): versioned release process.

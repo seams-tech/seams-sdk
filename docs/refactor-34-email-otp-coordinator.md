@@ -1,181 +1,210 @@
 # Refactor 34: Email OTP Threshold Session Coordinator
 
 Date created: 2026-05-07
-Status: planned
+Last refreshed: 2026-05-12
+Status: in progress
 
 ## Purpose
 
-`client/src/core/signingEngine/sessionEmailOtp/EmailOtpThresholdSessionCoordinator.ts`
-is currently a 3,285-line coordinator. It owns route planning, app-session JWT
-refresh, worker request assembly, warm-session policy accounting, sealed refresh
-restore, ECDSA login/enrollment/export, Ed25519 provisioning, registration
-transport, and low-level HTTP helpers.
+This refactor shrinks the Email OTP threshold-session coordinator into a
+facade over narrow session/email-OTP modules. The original coordinator was
+3,285 lines and mixed route planning, app-session JWT refresh, worker request
+assembly, warm-session accounting, sealed refresh restore, ECDSA
+login/enrollment/export, Ed25519 provisioning, registration transport, and
+low-level HTTP helpers.
 
-That makes correctness depend on local ordering inside one large file. The
-highest-risk paths are the ones that combine optional lifecycle fields with
-worker side effects: sealed ECDSA restore, Ed25519 companion restore,
-transaction versus export challenge routing, and session budget accounting.
-
-This is a breaking internal refactor. Update imports directly and delete old
-paths as each slice moves. Do not add compatibility barrels, deprecated aliases,
-or duplicate coordinator implementations.
-
-The user-facing path `client/src/core/signingEngine/otpSessions/...` is already
-covered as a deleted path by refactor-33 guards. The old intermediate
-`sessionsEmailOtp/` folder is also a deleted path. The live file is under
-`sessionEmailOtp/`.
-
-## Current Responsibility Map
-
-| Current area | Approximate lines | Responsibility | Target owner |
-| --- | ---: | --- | --- |
-| Dependency bag and class state | 252-332 | Broad runtime ports, app JWT cache, warmup map, restore caches | Thin facade plus small required ports |
-| Sealed refresh status and restore | 383-803, 903-1239, 2250-2747 | Exact sealed-session read/write, restore leases, policy updates, ECDSA/Ed25519 companion restore | `sessionEmailOtp/sealedRefresh*.ts` |
-| Persisted lane snapshot | 803-1131 | ECDSA chain-target snapshot and available lane read model | `sessionEmailOtp/persistedSnapshot.ts` |
-| Warm-session worker bridge | 1241-1403 | Status, claim, consume, clear, budget policy update | `sessionEmailOtp/warmSessionRuntime.ts` |
-| App-session JWT and route planning | 1405-1681 | JWT cache/refresh, route auth, challenge worker request | `sessionEmailOtp/appSessionJwtCache.ts`, `routePlan.ts`, `challengeRequests.ts` |
-| ECDSA reauth, export, login, enrollment | 1682-2747 | Transaction challenge, export challenge, fresh lane login, session login, enrollment, sealed persistence | `sessionEmailOtp/ecdsa*.ts` |
-| Ed25519 provisioning and warmup | 1605-1681, 2749-3130 | Background warmup map, HSS registration, session mint, hydrate PRF cache | `sessionEmailOtp/ed25519*.ts` |
-| Config and HTTP helpers | 3130-3285 | Relay/RP ID lookup, URL joining, JSON POST, managed registration grant | `runtimeConfig.ts`, `registrationTransport.ts`, `registrationHttp.ts` |
-
-## Target Shape
+The live path is now:
 
 ```text
-client/src/core/signingEngine/sessionEmailOtp/
-  README.md
-  EmailOtpThresholdSessionCoordinator.ts
-  types.ts
-  runtimeConfig.ts
-  appSessionJwtCache.ts
-  routePlan.ts
-  challengeRequests.ts
-  warmSessionRuntime.ts
-  persistedSnapshot.ts
-  sealedRefreshPolicy.ts
-  sealedRefreshRestore.ts
-  ecdsaPublication.ts
-  ecdsaLogin.ts
-  ecdsaEnrollment.ts
-  ecdsaExport.ts
-  ed25519Warmup.ts
-  ed25519Provisioning.ts
-  registrationTransport.ts
-  registrationHttp.ts
+client/src/core/signingEngine/session/emailOtp/
 ```
 
-`EmailOtpThresholdSessionCoordinator.ts` should become a facade that owns
-construction and public method delegation only. It should contain no direct
-`fetch`, no raw worker payload construction, no sealed-record metadata checks,
-and no lifecycle option normalization.
+The earlier standalone `sessionEmailOtp/` target is obsolete and is now a
+deleted path. The old `otpSessions/` and `sessionsEmailOtp/` paths are also
+deleted paths covered by refactor-33 guards.
 
-`types.ts` is allowed only for canonical Email OTP lifecycle state shared by
-sibling modules. It must not become a broad barrel. Import concrete modules
-directly.
+This remains a breaking internal refactor. Update imports directly and delete
+old paths as each slice moves. Avoid compatibility barrels, deprecated aliases,
+and duplicate coordinator implementations.
+
+## Current Snapshot
+
+Current line counts:
+
+| File | Lines | Status |
+| --- | ---: | --- |
+| `session/emailOtp/EmailOtpThresholdSessionCoordinator.ts` | 2,105 | still too large |
+| `session/emailOtp/provisioning.ts` | 630 | extracted, needs helper split if it grows |
+| `session/emailOtp/exportRecovery.ts` | 475 | extracted, owns challenge and export flows |
+| `session/emailOtp/ecdsaRecovery.ts` | 287 | extracted method adapter |
+| `session/emailOtp/companionSessions.ts` | 205 | extracted |
+| `session/emailOtp/ecdsaBootstrapCommit.ts` | 199 | extracted commit helper |
+| `session/emailOtp/workerRequests.ts` | 190 | extracted worker RPC boundary |
+| `session/emailOtp/status.ts` | 162 | extracted worker status/claim/consume calls |
+| `session/emailOtp/ed25519Recovery.ts` | 125 | extracted method adapter |
+| `session/emailOtp/ed25519LocalMetadata.ts` | 119 | extracted |
+| `session/emailOtp/routePlan.ts` | 114 | extracted |
+| `session/emailOtp/appSessionJwtCache.ts` | 95 | extracted |
+| `session/emailOtp/provisioning.typecheck.ts` | 59 | extracted type guard |
+
+Important current facts:
+
+- `session/sealedRecovery/*` now owns generic sealed-recovery contracts,
+  restore commands, recovery-record normalization, and restore attempt caches.
+- `session/emailOtp/*` owns Email OTP-specific restore adapters, worker
+  requests, route planning, export recovery, provisioning, and companion
+  sealed-record attachment.
+- `stepUpConfirmation/requireStepUpAuth.ts`,
+  `stepUpConfirmation/methodSelection.ts`, and
+  `stepUpConfirmation/methodRunners.ts` exist.
+- `webauthnAuth/*` exists and owns low-level WebAuthn/passkey browser
+  primitives.
+- `walletAuth/` still exists with `index.ts`, `README.md`, and
+  `walletAuthModeResolver.ts`.
+
+## Completed Work
+
+- Moved the Email OTP coordinator under the session domain:
+  `client/src/core/signingEngine/session/emailOtp/`.
+- Deleted and guarded legacy Email OTP coordinator paths:
+  `otpSessions/`, `sessionsEmailOtp/`, and `sessionEmailOtp/`.
+- Extracted app-session JWT caching and refresh to `appSessionJwtCache.ts`.
+- Extracted route-plan construction and bootstrap identity helpers to
+  `routePlan.ts`.
+- Extracted Email OTP worker RPC wrappers to `workerRequests.ts`.
+- Extracted warm-session status, claim, consume, and clear worker calls to
+  `status.ts`.
+- Extracted Ed25519 companion session lookup and sealed-record attachment to
+  `companionSessions.ts`.
+- Extracted ECDSA bootstrap commit helpers to `ecdsaBootstrapCommit.ts`.
+- Extracted ECDSA and Ed25519 sealed-recovery method adapters to
+  `ecdsaRecovery.ts` and `ed25519Recovery.ts`.
+- Extracted export challenge, export authorization, and fresh export-lane logic
+  to `exportRecovery.ts`.
+- Extracted Ed25519 provisioning and local metadata persistence to
+  `provisioning.ts` and `ed25519LocalMetadata.ts`.
+- Added step-up adaptor primitives and started the WebAuthn split:
+  `requireStepUpAuth`, `methodSelection`, `methodRunners`, and `webauthnAuth`.
+
+## Remaining Hotspots
+
+The coordinator still owns too much behavior. The highest-value remaining
+slices are:
+
+1. Sealed refresh orchestration.
+   `tryRestoreEcdsaWarmSessionStatusFromSealedRecord`,
+   `restorePersistedSessionsForAccount`, `restorePersistedSessionForSigning`,
+   restore lease acquisition, diagnostics throttling, policy cleanup, and
+   restore attempt cache wiring still live in the coordinator.
+
+2. Persisted lane snapshot.
+   `readPersistedSessionSnapshot`, configured ECDSA snapshot targets, runtime
+   lane collection, and sealed-record listing logic still live in the
+   coordinator.
+
+3. ECDSA publication and sealed persistence.
+   `emailOtpEcdsaPublicationChainTargets`,
+   `commitEmailOtpEcdsaPublicationBootstraps`, and
+   `persistEmailOtpEcdsaSigningSessionSealForUnlock` still live in the
+   coordinator.
+
+4. ECDSA login and enrollment.
+   `loginWithEcdsaCapabilityInternal` and
+   `enrollAndLoginWithEcdsaCapabilityInternal` still assemble direct worker
+   payloads for `loginWithEmailOtpAndBootstrapEcdsaSession` and
+   `enrollEmailOtpWalletAndBootstrapEcdsaSession`.
+
+5. Ed25519 warmup orchestration.
+   The pending warmup map, scheduling, `loginWithEd25519CapabilityForSigning`,
+   and the coordinator wrapper around `provisionEmailOtpEd25519Capability`
+   remain in the coordinator.
+
+6. Runtime config helpers.
+   `requireRelayUrl`, `requireShamirPrimeB64u`, and `requireRpId` remain
+   private coordinator helpers and are passed down as callback ports.
+
+7. Dependency shape.
+   `EmailOtpThresholdSessionCoordinatorDeps` remains broad and still has
+   fallback dependency functions for sealed-store operations.
+
+8. Wallet auth cleanup.
+   `walletAuth/` remains. The WebAuthn primitive split is partially complete,
+   and `walletAuthModeResolver.ts` still needs removal or absorption into
+   step-up method selection.
+
+## Current Target Shape
+
+Keep the session-domain layout. Do not recreate `sessionEmailOtp/`.
+
+```text
+client/src/core/signingEngine/session/emailOtp/
+  README.md
+  EmailOtpThresholdSessionCoordinator.ts      # target: facade only
+  appSessionJwtCache.ts                       # done
+  routePlan.ts                               # done
+  workerRequests.ts                          # done
+  status.ts                                  # done, policy write still elsewhere
+  companionSessions.ts                       # done
+  ecdsaBootstrapCommit.ts                    # done
+  ecdsaRecovery.ts                           # done method adapter
+  ed25519Recovery.ts                         # done method adapter
+  exportRecovery.ts                          # done, may split challengeRequests later
+  provisioning.ts                            # done, may split registration HTTP later
+  ed25519LocalMetadata.ts                    # done
+  provisioning.typecheck.ts                  # done
+
+  persistedSnapshot.ts                       # remaining
+  sealedRestoreOrchestrator.ts               # remaining
+  sealedRefreshPolicy.ts                     # remaining
+  ecdsaPublication.ts                        # remaining
+  ecdsaLogin.ts                              # remaining
+  ecdsaEnrollment.ts                         # remaining
+  ed25519Warmup.ts                           # remaining
+  runtimeConfig.ts                           # optional, if config helpers stay shared
+```
+
+Shared sealed-recovery code belongs under `session/sealedRecovery/*`. Email
+OTP-specific recovery worker/bootstrap logic belongs under `session/emailOtp/*`.
 
 ## Target Call Graph
 
 ```mermaid
 flowchart TD
-  FACADE["EmailOtpThresholdSessionCoordinator"] --> CHAL["challengeRequests"]
-  FACADE --> WARM["warmSessionRuntime"]
+  FACADE["EmailOtpThresholdSessionCoordinator"] --> STATUS["status"]
   FACADE --> SNAP["persistedSnapshot"]
-  FACADE --> RESTORE["sealedRefreshRestore"]
+  FACADE --> RESTORE["sealedRestoreOrchestrator"]
   FACADE --> ECDSA_LOGIN["ecdsaLogin"]
   FACADE --> ECDSA_ENROLL["ecdsaEnrollment"]
-  FACADE --> ECDSA_EXPORT["ecdsaExport"]
+  FACADE --> ECDSA_EXPORT["exportRecovery"]
   FACADE --> ED_WARM["ed25519Warmup"]
-  FACADE --> ED_PROV["ed25519Provisioning"]
 
-  CHAL --> ROUTE["routePlan"]
-  CHAL --> APPJWT["appSessionJwtCache"]
+  ECDSA_LOGIN --> ROUTE["routePlan"]
+  ECDSA_LOGIN --> APPJWT["appSessionJwtCache"]
   ECDSA_LOGIN --> PUB["ecdsaPublication"]
+  ECDSA_LOGIN --> WORKER["workerRequests"]
   ECDSA_ENROLL --> PUB
-  ECDSA_EXPORT --> ECDSA_LOGIN
-  ED_WARM --> ED_PROV
-  RESTORE --> WARM
-  RESTORE --> PUB
-  SNAP --> WARM
-  ED_PROV --> REG["registrationTransport + registrationHttp"]
+  ECDSA_EXPORT --> ROUTE
+  ECDSA_EXPORT --> APPJWT
+  ED_WARM --> PROV["provisioning"]
+  RESTORE --> SEALED["session/sealedRecovery"]
+  RESTORE --> ECDSA_REC["ecdsaRecovery"]
+  RESTORE --> ED_REC["ed25519Recovery"]
+  RESTORE --> POLICY["sealedRefreshPolicy"]
+  SNAP --> STATUS
 ```
 
-## Step-Up Auth Primitive Ownership
+## State-Type Direction
 
-The step-up adaptor in `docs/stepup-adaptor.md` changes the operation-facing
-shape: signing flows call `requireStepUpAuth`, then method selection routes to
-`passkeyPrompt`, `otpPrompt`, authenticator OTP, password, or future methods.
+The remaining extractions should tighten lifecycle inputs instead of moving the
+same optional-heavy argument bags into new files.
 
-That call graph makes the current `walletAuth/` name too broad after its policy
-and routing responsibilities move. Today it owns two separate concerns:
+Current public coordinator args still contain optional lifecycle fields such as
+`sessionKind`, `routePlan`, `ttlMs`, `remainingUses`, `runtimePolicyScope`,
+`participantIds`, `authSubjectId`, and progress callbacks. Keep those at the
+facade boundary, then normalize into internal states before calling core
+modules.
 
-1. Wallet/account auth policy and method routing:
-   `walletAuthModeResolver.ts`, EVM-family account-auth selection in
-   `flows/signEvmFamily/accountAuth.ts`, Email OTP/passkey auth-plan types, and
-   warm-session/passkey/Email OTP selection.
-2. WebAuthn/passkey browser primitives:
-   credential collection, credential normalization, Safari fallback behavior,
-   signer-slot helpers, and COSE/P-256 decoding until the Rust/WASM move lands.
-
-Target ownership:
-
-```text
-client/src/core/signingEngine/
-  stepUpConfirmation/
-    requireStepUpAuth.ts
-    methodSelection.ts
-    methodRunners.ts
-    passkeyPrompt/
-    otpPrompt/
-
-  webauthnAuth/
-    README.md
-    credentials/
-    device/
-    fallbacks/
-    cose/        # deleted after COSE moves to Rust/WASM
-
-  sessionEmailOtp/
-    ...
-```
-
-`stepUpConfirmation/methodSelection.ts` should absorb the generic auth-method
-routing and policy currently represented by `walletAuthModeResolver.ts` and the
-remaining account-auth helpers. `webauthnAuth/` should contain only reusable
-WebAuthn/passkey browser primitives. After that split, `walletAuth/` should be
-deleted.
-
-Target step-up graph:
-
-```mermaid
-flowchart TD
-  FLOW["signing flow"] --> REQ["requireStepUpAuth"]
-  REQ --> SELECT["methodSelection"]
-  SELECT --> PASSKEY["passkeyPrompt"]
-  SELECT --> OTP["otpPrompt"]
-  SELECT --> AUTHOTP["authenticatorOtpPrompt"]
-  SELECT --> PASSWORD["passwordPrompt"]
-  PASSKEY --> UI["uiConfirm"]
-  PASSKEY --> WEBAUTHN["webauthnAuth"]
-  OTP --> UI
-  OTP --> EMAILSESSION["sessionEmailOtp"]
-```
-
-Naming rule:
-
-- Use `webauthnAuth/` for low-level WebAuthn browser primitives.
-- Keep passkey prompt and product/auth-method planning under
-  `stepUpConfirmation/passkeyPrompt`.
-- Keep generic method routing under `stepUpConfirmation/methodSelection.ts`.
-- Delete `walletAuth/` once no mixed wallet-policy/WebAuthn ownership remains.
-- If wallet/account policy grows beyond method selection, introduce a neutral
-  policy module under `stepUpConfirmation/` or `session/`; do not keep a broad
-  `walletAuth/` folder as a catch-all.
-
-## Explicit State Types
-
-Add precise internal types before moving behavior. Normalize raw SDK inputs,
-config values, records, and worker responses at module boundaries.
-
-Recommended canonical shapes:
+Recommended internal variants:
 
 ```ts
 export type EmailOtpAppSessionRoute = {
@@ -205,10 +234,6 @@ export type EmailOtpSigningSessionRoute =
       chainTarget: ThresholdEcdsaChainTarget;
     };
 
-export type EmailOtpRouteContext =
-  | EmailOtpAppSessionRoute
-  | EmailOtpSigningSessionRoute;
-
 export type EmailOtpSessionRetention =
   | {
       kind: 'single_use';
@@ -221,251 +246,110 @@ export type EmailOtpSessionRetention =
       ttlMs: number;
       remainingUses: number;
     };
-
-export type EmailOtpEcdsaOperation =
-  | {
-      kind: 'fresh_login';
-      accountId: AccountId;
-      subjectId: WalletSubjectId;
-      chainTarget: ThresholdEcdsaChainTarget;
-      route: EmailOtpAppSessionRoute;
-      retention: EmailOtpSessionRetention;
-    }
-  | {
-      kind: 'session_reauth';
-      accountId: AccountId;
-      record: ThresholdEcdsaSessionRecord;
-      route: Extract<EmailOtpSigningSessionRoute, { curve: 'ecdsa' }>;
-      retention: Extract<EmailOtpSessionRetention, { kind: 'single_use' }>;
-    };
 ```
 
-The exact type names can change during implementation. The important rule is
-that signing identity, auth, restore metadata, budget, and export state must be
-required in the state variant that needs them. Optional fields stay limited to
-configuration and optional UI/progress callbacks.
+Rules:
 
-## Dependency Ports
+- Required identity, auth, restore, budget, signing, and export state must be
+  required in the normalized variant that uses it.
+- Optionals stay limited to config, optional UI/progress callbacks, and
+  intentionally absent features.
+- Raw strings, raw sealed records, and raw worker responses should be
+  normalized once at the module boundary.
+- Avoid converters between two internal target shapes. Delete one shape when
+  overlap appears.
 
-Replace the current broad `EmailOtpThresholdSessionCoordinatorDeps` bag with
-smaller required ports passed to the modules that use them:
+## Phase Status
 
-1. `EmailOtpConfigPort`: `configs`, relay URL, RP ID, session-seal config.
-2. `EmailOtpWorkerPort`: typed email OTP worker request helpers.
-3. `EmailOtpEcdsaCommitPort`: commits ECDSA bootstraps and reads ECDSA records.
-4. `EmailOtpEd25519PersistencePort`: local metadata persistence, warm-session
-   persistence, and PRF cache hydration.
-5. `EmailOtpSealedStorePort`: read, write, list, delete, update policy, acquire
-   restore lease, release restore lease.
-6. `EmailOtpAppSessionPort`: refresh app-session JWT.
+| Phase | Status | Notes |
+| --- | --- | --- |
+| 1. Characterize and guard | partial | Refactor-33 guards cover live/deleted paths. Dedicated refactor-34 guard is still useful for coordinator size and direct worker-payload checks. |
+| 2. Extract pure boundary helpers | partial | App JWT helper moved. Registration HTTP helpers remain private in `provisioning.ts`; acceptable for now, split if provisioning grows. |
+| 3. Normalize auth route state | partial | `routePlan.ts` exists. ECDSA login/enrollment still accept broad optional args before normalization. |
+| 4. Split challenge issuance | mostly done | `exportRecovery.ts` owns transaction and export challenge functions. A separate `challengeRequests.ts` is optional if `exportRecovery.ts` grows. |
+| 5. Extract warm-session runtime accounting | partial | `status.ts` owns worker calls. Policy writeback and cleanup remain in the coordinator. |
+| 6. Extract sealed refresh restore | partial | Method adapters and shared sealed-recovery primitives exist. Orchestration, leases, diagnostics, and cache wiring remain in the coordinator. |
+| 7. Extract ECDSA lifecycle | partial | Export and commit helpers moved. Login, enrollment, publication target selection, and sealed persistence remain in the coordinator. |
+| 8. Extract Ed25519 lifecycle | partial | Provisioning moved. Warmup map, scheduling, and Ed25519 signing orchestration remain in the coordinator. |
+| 9. Path cleanup | complete | Live path is `session/emailOtp/`; legacy Email OTP coordinator folders are deleted paths. |
+| 10. Shrink facade | open | Coordinator is 2,105 lines. Target remains under 250 lines. |
+| 11. Split wallet auth | partial | `webauthnAuth/` and step-up method modules exist. `walletAuth/` remains. |
 
-Production adapters should supply defaults once at construction. Tests can pass
-explicit fake ports. The core modules should receive required functions, so
-restore and auth paths never branch on missing dependency functions.
+## Next Implementation Order
 
-## Refactor Phases
+1. Extract `sealedRefreshPolicy.ts`.
+   Move `cleanupSigningSession`, `recordSessionPolicyResult`,
+   `recordSessionMaterialClaimed`, `recordSessionUseConsumed`, and
+   `recordSessionMaterialRestored`. Give it a required sealed-store policy port
+   rather than reading optional dependency fallbacks.
 
-### Phase 1: Characterize and Guard
+2. Extract `sealedRestoreOrchestrator.ts`.
+   Move `tryRestoreEcdsaWarmSessionStatusFromSealedRecord`,
+   `restorePersistedSessionsForAccount`, `restorePersistedSessionForSigning`,
+   `restoreEmailOtpSealedRecordForAccount`, and ECDSA restore attempt cache
+   usage. Keep generic restore command code in `session/sealedRecovery/*`.
 
-Keep behavior fixed while adding guardrails that describe the split.
+3. Extract `persistedSnapshot.ts`.
+   Move `configuredEcdsaSnapshotChainTargets`, `readPersistedSessionSnapshot`,
+   and runtime lane collection. Keep this read-only and dependent on `status.ts`
+   for runtime claims.
 
-- Add a `tests/unit/emailOtpCoordinatorRefactor.guard.unit.test.ts` guard that
-  checks the target folder name, blocks `otpSessions/` and `sessionsEmailOtp/`,
-  and blocks broad `index.ts` barrels.
-- Extend `tests/unit/emailOtpOperationSplit.guard.unit.test.ts` so transaction
-  challenge issuance and export challenge issuance remain separate after the
-  code moves.
-- Keep `tests/unit/emailOtpThresholdSessionCoordinator.unit.test.ts` as the
-  facade behavior suite until module-level tests replace individual clusters.
-- Add source-shape assertions only for architectural boundaries, such as no
-  direct `fetch` in the coordinator facade and no `sealEmailOtpWarmSessionMaterial`
-  calls outside the sealed-refresh module.
+4. Extract `ecdsaPublication.ts`.
+   Move publication target selection, bootstrap commit sequencing, and sealed
+   refresh persistence for session-retained ECDSA login.
 
-### Phase 2: Extract Pure Boundary Helpers
+5. Extract `ecdsaLogin.ts` and `ecdsaEnrollment.ts`.
+   Normalize facade args into exact internal login/enrollment commands, then
+   move the direct worker payload construction out of the coordinator.
 
-Move the bottom helper functions first because they have small dependency
-surfaces.
+6. Extract `ed25519Warmup.ts`.
+   Move pending warmup state, schedule/wait helpers, and Ed25519 signing
+   orchestration around `provisionEmailOtpEd25519Capability`.
 
-- `joinUrlPath`, `replaceUrlPathSuffix`, `postJsonExpectOk`, and
-  `readJsonObjectResponse` move to `registrationHttp.ts`.
-- `resolveRegistrationTransportFromConfig` and
-  `requestManagedRegistrationBootstrapGrant` move to `registrationTransport.ts`.
-- `requireRelayUrl`, `requireShamirPrimeB64u`, and `requireRpId` move to
-  `runtimeConfig.ts`.
+7. Narrow `EmailOtpThresholdSessionCoordinatorDeps`.
+   Split the broad dependency bag into config, worker, ECDSA commit, Ed25519
+   persistence, sealed store, and app-session ports. Production assembly should
+   provide concrete ports once.
 
-After this phase, the coordinator should import helpers from the new modules
-and the old helper definitions should be deleted from the coordinator file.
+8. Finish `walletAuth/` deletion.
+   Move remaining method-selection behavior to `stepUpConfirmation`, keep
+   WebAuthn primitives in `webauthnAuth`, update public exports, and add
+   deleted-path guards.
 
-### Phase 3: Normalize Auth Route State
+## Guardrails To Add Or Keep
 
-Extract app-session and route planning with narrow inputs.
-
-- Move `rememberAppSessionJwt`, `resolveAppSessionJwt`, and
-  `refreshAppSessionJwt` to `appSessionJwtCache.ts`.
-- Move `buildRoutePlan`, `buildSigningSessionRoutePlan`,
-  `routeAuthFromPlan`, `appSessionJwtFromLane`,
-  `appSessionSubjectFromLane`, and bootstrap session helpers to `routePlan.ts`.
-- Make route construction consume `EmailOtpRouteContext` variants instead of
-  partially filled objects.
-- Preserve the existing failure behavior:
-  transaction challenges with explicit app-session auth reject with
-  `EMAIL_OTP_SIGNING_SESSION_AUTH_UNAVAILABLE`; fresh transaction challenge
-  fallback can resolve an app-session JWT.
-
-### Phase 4: Split Challenge Issuance
-
-Move challenge worker calls into `challengeRequests.ts`.
-
-- Keep `requestTransactionSigningChallenge` and `requestExportChallenge` as
-  distinct exported functions.
-- Keep operation constants fixed:
-  `WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION` for transaction signing and
-  `WALLET_EMAIL_OTP_EXPORT_OPERATION` for export.
-- The module should accept normalized route context and return an
-  `EmailOtpChallengeResult` variant. App-session JWT presence should be
-  explicit in the variant instead of represented as an optional auth field.
-
-### Phase 5: Extract Warm-Session Runtime Accounting
-
-Move status, claim, consume, clear, and policy recording into
-`warmSessionRuntime.ts` and `sealedRefreshPolicy.ts`.
-
-- `readWarmSessionStatusOnly`, `claimWarmSessionMaterial`,
-  `consumeWarmSessionUses`, and `clearWarmSessionMaterial` stay available
-  through the coordinator facade.
-- Policy updates for expiry, exhaustion, and remaining-use changes should live
-  beside the sealed-refresh policy writer.
-- Preserve the invariant from
-  `tests/unit/thresholdEd25519.nearSigningQueue.guard.unit.test.ts`: Ed25519
-  status reads must not probe the ECDSA sealed store.
-
-### Phase 6: Extract Sealed Refresh Restore
-
-Move sealed refresh code into `sealedRefreshRestore.ts`.
-
-- Use one normalized `RestorableEmailOtpEcdsaSeal` type after reading and
-  validating raw `SigningSessionSealedStoreRecord`.
-- Separate three operations:
-  `restorePersistedSessionsForAccount`, `restorePersistedSessionForSigning`,
-  and `restoreEcdsaWarmSessionStatusFromSeal`.
-- Keep restore lease acquisition inside the restore module.
-- Keep completed/in-flight restore caches inside the restore module.
-- Keep diagnostics throttling local to sealed restore.
-- Make the Ed25519 companion state explicit:
-  `absent`, `presentAndRestorable`, or `presentButInvalid`. The restore worker
-  call should receive an Ed25519 companion only from the `presentAndRestorable`
-  branch.
-
-### Phase 7: Extract ECDSA Lifecycle
-
-Split ECDSA behavior by operation.
-
-- `ecdsaPublication.ts`: `configuredEcdsaSnapshotChainTargets`,
-  `emailOtpEcdsaPublicationChainTargets`,
-  `commitEmailOtpEcdsaPublicationBootstraps`, and
-  `persistEmailOtpEcdsaSigningSessionSealForUnlock`.
-- `ecdsaLogin.ts`: fresh login and session reauth for signing.
-- `ecdsaEnrollment.ts`: email OTP enrollment plus initial login.
-- `ecdsaExport.ts`: export with existing signing-session authorization and
-  fresh one-use Email OTP lane export.
-
-The ECDSA modules should construct worker payloads from normalized operation
-types. They should not accept raw partial args with optional identity fields.
-
-### Phase 8: Extract Ed25519 Lifecycle
-
-Move warmup and provisioning into separate modules.
-
-- `ed25519Warmup.ts`: pending warmup map, schedule/wait helpers, account-key
-  normalization.
-- `ed25519Provisioning.ts`: HSS registration, session mint, PRF cache hydrate,
-  client-base reconstruction, and sealed ECDSA record attachment.
-- `loginWithEd25519CapabilityForSigning` should become a small orchestration
-  function that selects an exact Email OTP ECDSA lane and awaits Ed25519
-  provisioning.
-
-Keep secret-bearing data scoped tightly. `clientSecret32` and PRF material
-should be copied only where needed and zeroized after worker/enrollment use.
-
-### Phase 9: Rename Folder and Delete Legacy Paths
-
-Finish the refactor-33 folder cleanup in the same change set that updates
-imports.
-
-- Keep `sessionEmailOtp/` as the live folder.
-- Keep `client/src/core/signingEngine/SigningEngine.ts`, the signing-engine
-  README, folder README, guard tests, and all unit tests on the live path.
-- Keep deleted-path guards for `client/src/core/signingEngine/sessionsEmailOtp/`.
-- Keep existing deleted-path guards for `otpSessions/`.
-- Do not create re-export files from old folders.
-
-### Phase 10: Shrink the Facade
-
-After all slices move, the coordinator class should be small enough to audit.
-
-Target responsibilities:
-
-1. Construct module instances from required ports.
-2. Preserve the public method names currently called by `SigningEngine`.
-3. Delegate to operation modules.
-4. Own no raw worker payloads, no raw sealed-record validation, no direct HTTP
-   calls, and no cross-operation caches except module instances.
-
-Target size: under 250 lines for the facade, with each extracted module under
-500 lines. If a module grows beyond that during the split, split it by operation
-or boundary before landing the phase.
-
-### Phase 11: Split Wallet Auth Into Method Selection And WebAuthn Primitives
-
-Coordinate this phase with `docs/stepup-adaptor.md`. The goal is to make the
-step-up graph read as:
-`flow -> requireStepUpAuth -> methodSelection -> method prompt -> method owner`.
-
-- Move generic auth-method selection from `walletAuth/walletAuthModeResolver.ts`
-  to `stepUpConfirmation/methodSelection.ts`.
-- Move EVM-family account-auth resolution from `flows/signEvmFamily/accountAuth.ts` to
-  the step-up adaptor layer or an operation-local helper if it remains
-  EVM-family specific.
-- Move runner interfaces for passkey and Email OTP to
-  `stepUpConfirmation/methodRunners.ts`.
-- Move reusable WebAuthn/passkey browser primitives from
-  `walletAuth/webauthn/*` to `webauthnAuth/*`:
-  credential collection, credential helpers, signer-slot helpers, and Safari
-  fallback handling.
-- Keep `walletAuth/webauthn/cose/*` only until the Rust/WASM COSE phase lands,
-  then delete the TypeScript COSE parser instead of moving it again.
-- Update `stepUpConfirmation/passkeyPrompt/*` imports to use `webauthnAuth/*`.
-- Delete `walletAuth/` after both generic method-selection code and WebAuthn
-  primitives have moved.
-- Update ownership READMEs, the signing-engine README, and refactor guard tests.
-- Add deleted-path guards for `walletAuth/` and blocked import guards for
-  `stepUpConfirmation/* -> walletAuth/*`.
-
-Exit criteria:
-
-- `stepUpConfirmation/methodSelection.ts` owns auth-method routing and policy.
-- `webauthnAuth/` owns only WebAuthn/passkey browser primitives.
-- `passkeyPrompt/*` imports `webauthnAuth/*` for browser credential primitives.
-- `otpPrompt/*` and `sessionEmailOtp/*` have no dependency on WebAuthn/passkey
-  primitives.
-- `walletAuth/` is deleted with no compatibility exports.
-- Refactor 33, Refactor 34, step-up adaptor guard tests, type-check, and
-  signing architecture checks pass.
+- Coordinator size guard: `EmailOtpThresholdSessionCoordinator.ts` should move
+  below 250 lines by the final phase.
+- Coordinator direct side-effect guard: no direct `fetch`, no direct
+  `requestWorkerOperation`, and no direct `sealEmailOtpWarmSessionMaterial`
+  request construction in the facade.
+- Path guard: `otpSessions/`, `sessionsEmailOtp/`, and `sessionEmailOtp/` stay
+  deleted paths.
+- Import guard: `session/emailOtp/*` may import `session/sealedRecovery/*`,
+  `session/warmCapabilities/*`, `session/persistence/*`, `session/identity/*`,
+  `stepUpConfirmation/otpPrompt/*`, `threshold/*`, `workerManager/*`, and
+  primitive interface or chain types.
+- Step-up guard: `webauthnAuth/*` stays a browser primitive layer and cannot
+  import step-up orchestration, flows, or session lifecycle modules.
+- Wallet-auth cleanup guard: after the final split, `walletAuth/` becomes a
+  deleted path with no compatibility exports.
 
 ## Tests and Verification
 
-Run focused tests after each phase that moves behavior:
+Run focused tests after each behavior-moving slice:
 
 ```bash
 pnpm -C tests exec playwright test ./unit/emailOtpThresholdSessionCoordinator.unit.test.ts --reporter=line
 pnpm -C tests exec playwright test ./unit/emailOtpOperationSplit.guard.unit.test.ts --reporter=line
 pnpm -C tests exec playwright test ./unit/thresholdEd25519.nearSigningQueue.guard.unit.test.ts --reporter=line
+pnpm -C tests exec playwright test ./unit/sealedRecovery.methodAdapters.unit.test.ts --reporter=line
+pnpm -C tests exec playwright test ./unit/stepUpAdaptor.methodSelection.unit.test.ts --reporter=line
 pnpm -C tests exec playwright test ./unit/signingEngine.refactor33.guard.unit.test.ts --reporter=line
 pnpm -s type-check
 pnpm -s check:signing-architecture
 ```
 
-Before the final phase, run the full unit suite:
+Run the full unit suite before marking the refactor complete:
 
 ```bash
 pnpm test:unit
@@ -488,23 +372,26 @@ pnpm test:unit
   matches the ECDSA seal.
 - Fresh Ed25519 signing waits for pending warmup and provisions from an exact
   concrete Email OTP ECDSA lane.
-- `sessionEmailOtp/*` follows the refactor-33 import direction contract.
-- No `sessionsEmailOtp/*` or `otpSessions/*` compatibility path remains.
-- `stepUpConfirmation/methodSelection.ts` owns generic step-up method routing.
-- `webauthnAuth/*` contains WebAuthn/passkey browser primitives.
-- No `walletAuth/*` compatibility path remains after Phase 11.
+- `session/emailOtp/*` follows the refactor-33 import direction contract.
+- `otpSessions/`, `sessionsEmailOtp/`, and `sessionEmailOtp/` remain deleted
+  paths.
+- Step-up method selection owns generic auth-method routing.
+- `webauthnAuth/*` contains WebAuthn/passkey browser primitives only.
+- `walletAuth/*` has no compatibility path after Phase 11 finishes.
 
 ## Exit Criteria
 
 - `EmailOtpThresholdSessionCoordinator.ts` is a thin facade under
-  `client/src/core/signingEngine/sessionEmailOtp/`.
-- The old `sessionsEmailOtp/` folder is deleted and guarded as a deleted path.
+  `client/src/core/signingEngine/session/emailOtp/`.
+- The coordinator facade is under 250 lines.
 - Each lifecycle module owns one boundary or operation cluster.
 - Canonical Email OTP state uses discriminated unions for route, retention,
   ECDSA operation, and sealed restore state.
-- Core modules do not accept raw strings, partial records, optional lifecycle
-  fields, or fallback dependency functions after their boundary normalization.
+- Core modules receive normalized inputs instead of raw strings, partial
+  records, optional lifecycle fields, or fallback dependency functions.
+- Generic sealed recovery stays in `session/sealedRecovery/*`; Email
+  OTP-specific worker/bootstrap behavior stays in `session/emailOtp/*`.
 - Step-up method selection is separated from WebAuthn/passkey browser
-  primitives, and the broad `walletAuth/` folder is deleted.
-- Focused Email OTP, NEAR Ed25519, refactor-33, type-check, and signing
-  architecture checks pass.
+  primitives, and `walletAuth/` is deleted.
+- Focused Email OTP, sealed recovery, NEAR Ed25519, step-up adaptor,
+  refactor-33, type-check, and signing architecture checks pass.

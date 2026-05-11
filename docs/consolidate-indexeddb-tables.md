@@ -2,7 +2,7 @@
 
 Date created: 2026-05-03
 
-Status: active cleanup plan, not implemented. Runtime storage still uses four
+Status: active cleanup plan, implementation pending. Runtime storage still uses four
 IndexedDB databases: `PasskeyClientDB`, `PasskeyAccountKeyMaterial`,
 `seams_wallet_v1`, and `seams_email_otp_device_enrollment_escrows_v1`. Keep this
 document as the active IndexedDB cleanup plan until the completion criteria pass.
@@ -41,8 +41,8 @@ Object store names are also mixed: `appState`, `profiles`,
 `email_otp_device_enrollment_escrows_v1`.
 
 DevTools can still show repeated DB names when multiple origins or frames are
-present. This plan cannot make Chrome collapse origins into one row, but it
-should make each Seams origin use the same small set of canonical names.
+present. This plan cannot make Chrome collapse origins into one row. It should
+make each Seams origin use the same small set of canonical names.
 
 Current implementation snapshot:
 
@@ -82,11 +82,16 @@ Current implementation snapshot:
    construction/runtime wiring is `assembly/*`. Some intermediate working-tree
    paths may still be named `operations/*`, `auth/*`, or `bootstrap/*` until
    Refactor 33 fully lands.
-9. Several unit tests still create CamelCase test databases such as
+9. Refactor 35/36 has moved sealed recovery into `session/sealedRecovery/*`,
+   method recovery into `session/passkey/*` and `session/emailOtp/*`, and strict
+   recovery-record normalization into `session/sealedRecovery/recoveryRecord.ts`.
+   Treat `session/persistence/*` and the recovery-record normalizer as the
+   raw sealed-record boundary during this plan.
+10. Several unit tests still create CamelCase test databases such as
    `PasskeyClientDB-*` and `PasskeyAccountKeyMaterial-*`. Those tests should be
    renamed or moved onto unified schema fixtures when this plan is implemented.
 
-Post-refactor 33 paths to revisit during the consolidation:
+Post-refactor 33/35/36 paths to revisit during the consolidation:
 
 1. `client/src/core/signingEngine/session/persistence/sealedSessionStore.ts` still opens
    `seams_wallet_v1` directly for signing-session seals and restore leases.
@@ -95,13 +100,24 @@ Post-refactor 33 paths to revisit during the consolidation:
 3. `client/src/core/signingEngine/session/userPreferences.ts` still subscribes
    to `IndexedDBManager.clientDB` events and reads profile state through the old
    client DB surface.
-4. `client/src/core/signingEngine/flows/registration/accountLifecycle.ts`,
+4. `client/src/core/accountData/near/*`,
+   `client/src/core/indexedDB/accountKeyMaterial.ts`,
+   `client/src/core/indexedDB/profileAccountProjection.ts`, and
+   `client/src/core/signingEngine/webauthnAuth/device/signerSlot.ts` still carry
+   `PasskeyClientDBManager`-shaped ports or old client DB error text.
+5. `client/src/core/signingEngine/flows/registration/accountLifecycle.ts`,
    `flows/signEvmFamily/*`, `flows/signNear/*`, `flows/recovery/*`,
-   any remaining Email OTP flow helpers, `session/warmCapabilities/*`, `threshold/*`,
-   and `walletAuth/webauthn/*` still depend on `UnifiedIndexedDBManager`,
-   `clientDB`, or `accountKeyMaterialDB` ports.
-5. `sdk/rolldown.config.ts` still exposes the old IndexedDB managers and the
+   `session/persistence/*`, `session/sealedRecovery/*`, `session/passkey/*`,
+   `session/emailOtp/*`, `session/availability/*`, `session/budget/*`,
+   `session/identity/*`, `session/operationState/*`,
+   `session/warmCapabilities/*`, `threshold/*`, and `walletAuth/webauthn/*`
+   need port-shape review as the persistence assembly changes.
+6. `sdk/rolldown.config.ts` still exposes the old IndexedDB managers and the
    Email OTP escrow store as stable deep-import entries for tests/tools.
+
+The storage ownership rule from Refactor 35/36 is: direct sealed-session storage
+changes belong in `session/persistence/*`; restore orchestration and method
+folders consume normalized recovery records.
 
 ## Target Model
 
@@ -202,6 +218,11 @@ inventory is:
    object-store string literals in runtime code.
 8. If local dev data breaks, delete old databases and recreate the account. Do
    not add legacy rescue paths.
+9. Raw sealed-session persistence records may exist only in IndexedDB
+   repositories, `session/persistence/*`, and
+   `session/sealedRecovery/recoveryRecord.ts`. Restore, flow, budget,
+   availability, identity, and operation-state code consumes normalized
+   discriminated records.
 
 ## Proposed Code Shape
 
@@ -256,6 +277,13 @@ type SeamsWalletRepositories = {
 Keep repository APIs narrow. The manager owns opening, version upgrades, and
 legacy database deletion. Repositories own object-store reads and writes.
 
+For signing sessions, keep `session/persistence/*` as the owner of sealed-store
+read/write functions. Its IndexedDB access should go through the
+`signingSessionSeals` and `signingSessionRestoreLeases` repositories backed by
+`seams_wallet`; `session/sealedRecovery/*`, `session/passkey/*`, and
+`session/emailOtp/*` should continue to receive `SealedRecoveryRecord` branches
+from `session/sealedRecovery/recoveryRecord.ts`.
+
 ## Implementation Plan
 
 ### Phase 1. Rescan, Constants, and Early Guards
@@ -287,11 +315,15 @@ legacy database deletion. Repositories own object-store reads and writes.
 
 5. Update test helpers so unique DB names are generated as
    `seams_test_wallet_<safe_suffix>`.
-6. Record the current post-refactor 33 IndexedDB callsite inventory before
+6. Record the current post-refactor 33/35/36 IndexedDB callsite inventory before
    moving repositories. Use the canonical `flows/`, `session/`, `threshold/`,
    `walletAuth/`, and worker-support paths from `docs/refactor-33.md` as the
    starting inventory, accounting for any intermediate folder names still in the
-   working tree.
+   working tree. Include the current `session/persistence/*`,
+   `session/sealedRecovery/*`, `session/passkey/*`, `session/emailOtp/*`,
+   `session/availability/*`, `session/budget/*`, `session/identity/*`,
+   `session/operationState/*`, `session/warmCapabilities/*`,
+   `accountData/near/*`, and `webauthnAuth/device/*` callers.
 
 ### Phase 2. Create the Unified Schema
 
@@ -317,30 +349,46 @@ legacy database deletion. Repositories own object-store reads and writes.
    ports.
 2. Delete `AccountKeyMaterialDBManager`; key material becomes a repository on
    the unified wallet DB.
-3. Move signing-session seal reads/writes from
-   `client/src/core/signingEngine/session/persistence/sealedSessionStore.ts` into a
-   `seams_signing_session_seals` repository on the unified wallet DB.
-4. Move Email OTP device enrollment escrow reads/writes from
+3. Replace direct IndexedDB logic inside
+   `client/src/core/signingEngine/session/persistence/sealedSessionStore.ts`
+   with calls to the `seams_signing_session_seals` and
+   `seams_signing_session_restore_leases` repositories on the unified wallet DB.
+   Keep sealed-store APIs and raw-record classification in `session/persistence/*`.
+4. Keep strict restore-record construction in
+   `client/src/core/signingEngine/session/sealedRecovery/recoveryRecord.ts`.
+5. Move Email OTP device enrollment escrow reads/writes from
    `client/src/core/signingEngine/workerManager/workers/email-otp/deviceEnrollmentEscrowStore.ts`
    into a
    `seams_email_otp_device_enrollment_escrows` repository on the unified wallet
    DB.
-5. Replace `UnifiedIndexedDBManager` with a smaller assembly that exposes
-   repositories, not separate database managers.
-6. Update post-refactor 33 callsites to use the new repositories:
+6. Keep Email OTP session lifecycle code under `session/emailOtp/*`; the
+   device-enrollment escrow repository is the worker-support persistence boundary
+   for those escrow records.
+7. Replace `UnifiedIndexedDBManager` with a smaller assembly that exposes
+   repositories as its persistence surface.
+8. Update post-refactor 33/35/36 callsites to use the new repositories:
    - `session/userPreferences.ts`
    - `session/persistence/sealedSessionStore.ts`
+   - `session/sealedRecovery/*`
+   - `session/passkey/*`
+   - `session/emailOtp/*`
+   - `session/availability/*`
+   - `session/budget/*`
+   - `session/identity/*`
+   - `session/operationState/*`
    - `session/warmCapabilities/*`
+   - `accountData/near/*`
    - `flows/registration/*`
    - `flows/recovery/*`
    - `flows/signEvmFamily/*`
    - `flows/signNear/*`
    - any remaining Email OTP flow helpers
    - `threshold/*`
+   - `webauthnAuth/device/*`
    - `walletAuth/webauthn/*`
    - `workerManager/workers/email-otp/*`
-7. Delete old manager files once no production import remains.
-8. Confirm `seams_wallet` is the only runtime database opened by the wallet
+9. Delete old manager files once no production import remains.
+10. Confirm `seams_wallet` is the only runtime database opened by the wallet
    persistence path after this phase.
 
 ### Phase 4. Delete Legacy Local Databases
@@ -385,6 +433,12 @@ Add or update tests for:
 6. Test database names are generated as `seams_test_wallet_*`.
 7. Architecture guards reject new IndexedDB database names or stores that are not
    `seams_*` snake_case.
+8. Sealed recovery paths accept only normalized `SealedRecoveryRecord` branches
+   after persistence reads.
+9. Raw sealed-record fixtures remain scoped to `session/persistence/*` and
+   `session/sealedRecovery/recoveryRecord.*` tests.
+10. Method-specific passkey and Email OTP recovery type fixtures reject raw
+    persisted records and broad optional bags.
 
 Existing tests to revisit during implementation:
 
@@ -405,6 +459,11 @@ Existing tests to revisit during implementation:
    `thresholdEd25519.registrationWarmSession.*`, and post-refactor 33 operation
    tests should use the repository assembly rather than the old
    `clientDB`/`accountKeyMaterialDB` split.
+6. `session/sealedRecovery/recoveryRecord.*`, `session/passkey/*Recovery.*`,
+   and `session/emailOtp/*Recovery.*` tests should keep fixtures on the
+   normalized recovery-record builders from Refactor 36.
+7. `accountData/near/*` and `webauthnAuth/device/*` tests should update
+   `PasskeyClientDBManager`-shaped ports to the new repository-shaped ports.
 
 ### Phase 6. Manual Verification
 
@@ -414,12 +473,15 @@ Existing tests to revisit during implementation:
 4. Confirm DevTools IndexedDB shows only Seams-prefixed DBs for each origin.
 5. Verify:
    - wallet unlock
-   - page refresh restore
+   - passkey sealed-session restore after page refresh
+   - Email OTP sealed-session restore after page refresh
    - ED25519 transaction signing
    - ECDSA transaction signing
    - session exhaustion step-up
+   - Email OTP companion session reuse
    - ED25519 key export
    - ECDSA key export
+   - Email OTP export recovery
 6. Repeat in wallet-iframe mode and confirm the app origin does not create local
    IndexedDB state.
 
@@ -431,6 +493,9 @@ Existing tests to revisit during implementation:
 - No production runtime code reads or migrates old IndexedDB databases.
 - Key material, profile/account state, nonce coordination, signing-session seals,
   and Email OTP enrollment escrow records live under the unified wallet DB.
+- Raw sealed-session records are normalized inside `session/persistence/*` and
+  `session/sealedRecovery/recoveryRecord.ts`; method recovery code consumes
+  strict branch types only.
 - Status, transaction signing, restore, and export paths do not create extra
   IndexedDB databases.
 - Guard tests prevent reintroducing mixed-case or non-Seams storage names.
