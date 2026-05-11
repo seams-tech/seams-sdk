@@ -180,10 +180,9 @@ export async function setupEmailOtpEcdsaTempoHarness(
     projectName: 'Threshold ECDSA Email OTP Project',
     signingSessionSeal: createSigningSessionSealRoutesOptions({
       sessionPolicy: createSigningSessionSealPolicyFromThresholdAuthSessionStores({
-        stores: [
-          thresholdAuthStores.authSessionStore as any,
-          thresholdAuthStores.ecdsaAuthSessionStore as any,
-        ],
+        ed25519Stores: [thresholdAuthStores.authSessionStore as any],
+        ecdsaStores: [thresholdAuthStores.ecdsaAuthSessionStore as any],
+        walletBudgetStores: [thresholdAuthStores.authSessionStore as any],
       }),
       cipher: createSigningSessionSealShamir3PassCipherAdapter({
         currentKeyVersion: SIGNING_SESSION_SEAL_KEY_VERSION,

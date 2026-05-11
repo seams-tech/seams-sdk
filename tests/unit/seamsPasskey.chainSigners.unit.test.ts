@@ -257,16 +257,20 @@ test.describe('SeamsPasskey chain signer modules', () => {
     });
 
     await tempoSigner.bootstrapEcdsaSession({
+      kind: 'reuse_warm_ecdsa_bootstrap',
       nearAccountId: 'alice.testnet',
-      options: { chainTarget: TEMPO_CHAIN_TARGET, relayerUrl: 'https://relay.example.test' },
+      chainTarget: TEMPO_CHAIN_TARGET,
+      relayerUrl: 'https://relay.example.test',
     });
     await evmSigner.bootstrapEcdsaSession({
+      kind: 'reuse_warm_ecdsa_bootstrap',
       nearAccountId: 'alice.testnet',
-      options: { chainTarget: EVM_CHAIN_TARGET, relayerUrl: 'https://relay.example.test' },
+      chainTarget: EVM_CHAIN_TARGET,
+      relayerUrl: 'https://relay.example.test',
     });
 
-    expect(tempoCalls[0]?.options?.chainTarget).toEqual(TEMPO_CHAIN_TARGET);
-    expect(evmCalls[0]?.options?.chainTarget).toEqual(EVM_CHAIN_TARGET);
+    expect(tempoCalls[0]?.chainTarget).toEqual(TEMPO_CHAIN_TARGET);
+    expect(evmCalls[0]?.chainTarget).toEqual(EVM_CHAIN_TARGET);
   });
 
   test('TempoSigner.reportBroadcastRejected forwards args in non-iframe mode', async () => {

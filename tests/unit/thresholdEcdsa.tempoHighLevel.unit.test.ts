@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { keccak256, parseTransaction, recoverTransactionAddress, serializeTransaction } from 'viem';
 import { publicKeyToAddress } from 'viem/accounts';
+import { thresholdEcdsaChainTargetFromChainFamily } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { corsHeadersForRoute } from '../e2e/thresholdEd25519.testUtils';
 import {
   runThresholdEcdsaTempoFlow,
@@ -21,6 +22,15 @@ const EIP1559_TEST_TX = {
   data: '0x' as const,
   accessList: [],
 };
+
+const TEMPO_CHAIN_TARGET = thresholdEcdsaChainTargetFromChainFamily({
+  chain: 'tempo',
+  chainId: 42431,
+});
+const EVM_CHAIN_TARGET = thresholdEcdsaChainTargetFromChainFamily({
+  chain: 'evm',
+  chainId: 11155111,
+});
 
 function asBigInt(value: bigint | number | undefined, field: string): bigint {
   if (typeof value === 'bigint') return value;
@@ -68,6 +78,11 @@ async function signTempoWithExistingPasskey(
       maxRefillInFlight?: number;
       refillAttemptTimeoutMs?: number;
     };
+    chainTarget: {
+      kind: 'tempo';
+      chainId: number;
+      networkSlug: string;
+    };
   },
 ): Promise<{
   ok: boolean;
@@ -91,7 +106,8 @@ async function signTempoWithExistingPasskey(
       autoProceedDelay: 0,
     };
 
-    const pm = new SeamsPasskey({
+    const existingPm = (globalThis as any).__w3aTempoHighLevelPm;
+    const pm = existingPm || new SeamsPasskey({
       nearNetwork: 'testnet',
       nearRpcUrl: 'https://test.rpc.fastnear.com',
       relayerAccount: 'web3-authn-v4.testnet',
@@ -109,14 +125,18 @@ async function signTempoWithExistingPasskey(
         rpIdOverride: 'example.localhost',
       },
     });
+    if (!existingPm) (globalThis as any).__w3aTempoHighLevelPm = pm;
 
     try {
       const boot = await pm.tempo.bootstrapEcdsaSession({
+        kind: 'reuse_warm_ecdsa_bootstrap',
         nearAccountId: input.accountId,
-        options: { relayerUrl: input.relayerUrl },
+        chainTarget: input.chainTarget,
+        relayerUrl: input.relayerUrl,
       });
       const signed = await pm.tempo.signTempo({
         nearAccountId: input.accountId,
+        subjectId: input.accountId,
         request: {
           chain: 'tempo',
           kind: 'tempoTransaction',
@@ -136,6 +156,7 @@ async function signTempoWithExistingPasskey(
             aaAuthorizationList: [],
           },
         },
+        chainTarget: input.chainTarget,
         options: { confirmationConfig },
       });
 
@@ -163,6 +184,12 @@ async function bootstrapEvmSessionWithExistingPasskey(
   args: {
     relayerUrl: string;
     accountId: string;
+    chainTarget: {
+      kind: 'evm';
+      namespace: 'eip155';
+      chainId: number;
+      networkSlug: string;
+    };
   },
 ): Promise<{
   ok: boolean;
@@ -173,7 +200,8 @@ async function bootstrapEvmSessionWithExistingPasskey(
     const sdkMod = await import('/sdk/esm/index.js');
     const { SeamsPasskey } = sdkMod as any;
 
-    const pm = new SeamsPasskey({
+    const existingPm = (globalThis as any).__w3aTempoHighLevelPm;
+    const pm = existingPm || new SeamsPasskey({
       nearNetwork: 'testnet',
       nearRpcUrl: 'https://test.rpc.fastnear.com',
       relayerAccount: 'web3-authn-v4.testnet',
@@ -188,11 +216,16 @@ async function bootstrapEvmSessionWithExistingPasskey(
         rpIdOverride: 'example.localhost',
       },
     });
+    if (!existingPm) (globalThis as any).__w3aTempoHighLevelPm = pm;
 
     try {
-      const boot = await pm.evm.bootstrapEcdsaSession({
-        nearAccountId: input.accountId,
-        options: { relayerUrl: input.relayerUrl },
+      const boot = await (globalThis as any).__w3aBootstrapFreshTempoEcdsaSession({
+        pm,
+        accountId: input.accountId,
+        relayerUrl: input.relayerUrl,
+        ttlMs: 120_000,
+        remainingUses: 4,
+        chainTarget: input.chainTarget,
       });
       return {
         ok: true,
@@ -234,7 +267,8 @@ async function runConcurrentThresholdSignsWithExistingPasskey(
       autoProceedDelay: 0,
     };
 
-    const pm = new SeamsPasskey({
+    const existingPm = (globalThis as any).__w3aTempoHighLevelPm;
+    const pm = existingPm || new SeamsPasskey({
       nearNetwork: 'testnet',
       nearRpcUrl: 'https://test.rpc.fastnear.com',
       relayerAccount: 'web3-authn-v4.testnet',
@@ -249,6 +283,7 @@ async function runConcurrentThresholdSignsWithExistingPasskey(
         rpIdOverride: 'example.localhost',
       },
     });
+    if (!existingPm) (globalThis as any).__w3aTempoHighLevelPm = pm;
 
     const tempoRequest = {
       chain: 'tempo' as const,
@@ -305,21 +340,57 @@ async function runConcurrentThresholdSignsWithExistingPasskey(
       };
     };
 
+    if (!existingPm) {
+      const login = await pm.unlock(input.accountId, {
+        session: {
+          kind: 'jwt',
+          relayUrl: input.relayerUrl,
+          exchange: { type: 'passkey_assertion' },
+        },
+        signingSession: { ttlMs: 120_000, remainingUses: 4 },
+      });
+      if (!login?.success) {
+        return {
+          first: { ok: false, error: String(login?.error || 'unlock failed') },
+          second: { ok: false, error: String(login?.error || 'unlock failed') },
+        };
+      }
+    }
+
     const firstPromise = pm.tempo.signTempo({
       nearAccountId: input.accountId,
+      subjectId: input.accountId,
       request: tempoRequest,
+      chainTarget: {
+        kind: 'tempo',
+        chainId: 42431,
+        networkSlug: 'tempo-moderato',
+      },
       options: { confirmationConfig },
     });
     const secondPromise =
       input.mode === 'tempo-tempo'
         ? pm.tempo.signTempo({
             nearAccountId: input.accountId,
+            subjectId: input.accountId,
             request: tempoRequest,
+            chainTarget: {
+              kind: 'tempo',
+              chainId: 42431,
+              networkSlug: 'tempo-moderato',
+            },
             options: { confirmationConfig },
           })
         : pm.tempo.signTempo({
             nearAccountId: input.accountId,
+            subjectId: input.accountId,
             request: evmRequest,
+            chainTarget: {
+              kind: 'evm',
+              namespace: 'eip155',
+              chainId: 11155111,
+              networkSlug: 'ethereum-sepolia',
+            },
             options: { confirmationConfig },
           });
 
@@ -385,8 +456,11 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
       expect(String(result.keygen?.ecdsaThresholdKeyId || '')).toBeTruthy();
       expect(String(result.keygen?.thresholdEcdsaPublicKeyB64u || '')).toBeTruthy();
       expect(String(result.keygen?.ethereumAddress || '')).toBeTruthy();
-      expect(result.session?.ok).toBe(true);
-      expect(result.session?.sessionId).toBeTruthy();
+      expect(result.session?.kind).toBe('connected');
+      if (!result.session || result.session.kind !== 'connected') {
+        throw new Error('Expected connected ECDSA session');
+      }
+      expect(result.session.sessionId).toBeTruthy();
       expect(result.signed?.chain).toBe('tempo');
       expect(result.signed?.kind).toBe('tempoTransaction');
       expect(result.signed?.rawTxHex?.startsWith('0x')).toBeTruthy();
@@ -413,7 +487,7 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
       expect(String(result.keygen?.ecdsaThresholdKeyId || '')).toBeTruthy();
       expect(String(result.keygen?.thresholdEcdsaPublicKeyB64u || '')).toBeTruthy();
       expect(String(result.keygen?.ethereumAddress || '')).toBeTruthy();
-      expect(result.session?.ok).toBe(true);
+      expect(result.session?.kind).toBe('connected');
       expect(result.signed?.chain).toBe('evm');
       expect(result.signed?.kind).toBe('eip1559');
 
@@ -653,6 +727,11 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
       const second = await signTempoWithExistingPasskey(page, {
         relayerUrl: harness.baseUrl,
         accountId: first.accountId,
+        chainTarget: {
+          kind: 'tempo',
+          chainId: 42431,
+          networkSlug: 'tempo-moderato',
+        },
         thresholdEcdsaPresignPool: {
           enabled: true,
           targetDepth: 4,
@@ -727,12 +806,12 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
     }
   });
 
-  test('cross-lane tempo+evm commits can both reach authorize before first lane releases', async ({
+  test('cross-lane tempo+evm commits can both reach sign/init before first lane releases', async ({
     page,
   }) => {
     const harness = await setupThresholdEcdsaTempoHarness(page);
-    let authorizePostCount = 0;
-    let releaseFirstAuthorize: (() => void) | null = null;
+    let signInitPostCount = 0;
+    let releaseFirstSignInit: (() => void) | null = null;
 
     try {
       const first = await runThresholdEcdsaTempoFlow(page, {
@@ -743,18 +822,24 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
       const evmBoot = await bootstrapEvmSessionWithExistingPasskey(page, {
         relayerUrl: harness.baseUrl,
         accountId: first.accountId,
+        chainTarget: {
+          kind: 'evm',
+          namespace: 'eip155',
+          chainId: 11155111,
+          networkSlug: 'ethereum-sepolia',
+        },
       });
       expect(evmBoot.ok, evmBoot.error || JSON.stringify(evmBoot)).toBe(true);
 
-      await page.route(`${harness.baseUrl}/threshold-ecdsa/authorize`, async (route) => {
+      await page.route(`${harness.baseUrl}/threshold-ecdsa/sign/init`, async (route) => {
         if (route.request().method().toUpperCase() !== 'POST') {
           await route.fallback();
           return;
         }
-        authorizePostCount += 1;
-        if (authorizePostCount === 1) {
+        signInitPostCount += 1;
+        if (signInitPostCount === 1) {
           await new Promise<void>((resolve) => {
-            releaseFirstAuthorize = () => resolve();
+            releaseFirstSignInit = () => resolve();
           });
         }
         await route.fallback();
@@ -766,13 +851,13 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
         mode: 'tempo-evm',
       });
 
-      for (let i = 0; i < 120 && authorizePostCount < 2; i += 1) {
+      for (let i = 0; i < 120 && signInitPostCount < 2; i += 1) {
         await page.waitForTimeout(50);
       }
-      expect(authorizePostCount).toBeGreaterThanOrEqual(2);
+      expect(signInitPostCount).toBeGreaterThanOrEqual(2);
 
-      const releaseFirstAuthorizeFn = releaseFirstAuthorize as (() => void) | null;
-      releaseFirstAuthorizeFn?.();
+      const releaseFirstSignInitFn = releaseFirstSignInit as (() => void) | null;
+      releaseFirstSignInitFn?.();
       const result = await pending;
       expect(result.first.ok || result.second.ok).toBe(true);
     } finally {

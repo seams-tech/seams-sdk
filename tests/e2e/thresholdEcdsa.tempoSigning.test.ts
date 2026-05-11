@@ -20,8 +20,21 @@ test.describe('threshold-ecdsa tempo signing', () => {
       expect(result.keygen?.ecdsaThresholdKeyId).toBeTruthy();
       expect(result.keygen?.thresholdEcdsaPublicKeyB64u).toBeTruthy();
       expect(result.keygen?.ethereumAddress).toMatch(/^0x[0-9a-f]{40}$/);
-      expect(result.session?.ok).toBe(true);
-      expect(result.session?.sessionId).toBeTruthy();
+      expect(result.session?.kind).toBe('connected');
+      if (!result.session || result.session.kind !== 'connected') {
+        throw new Error('Expected connected ECDSA session');
+      }
+      expect(result.session.sessionId).toBeTruthy();
+      expect(result.budgetStatus?.kind).toBe('active');
+      if (!result.budgetStatus || result.budgetStatus.kind !== 'active') {
+        throw new Error('Expected active wallet budget status');
+      }
+      expect(result.budgetStatus).toMatchObject({
+        ok: true,
+        walletSigningSessionId: result.session.walletSigningSessionId,
+        thresholdSessionId: result.session.sessionId,
+        status: 'active',
+      });
       expect(result.signed?.chain).toBe('tempo');
       expect(result.signed?.kind).toBe('tempoTransaction');
       if (!result.signed || result.signed.kind !== 'tempoTransaction') {
@@ -187,13 +200,12 @@ test.describe('threshold-ecdsa tempo signing', () => {
               };
             }
 
-            const bootstrap = await pm.tempo.bootstrapEcdsaSession({
-              nearAccountId: accountId,
-              options: {
-                relayerUrl,
-                ttlMs: 120_000,
-                remainingUses: 4,
-              },
+            const bootstrap = await (globalThis as any).__w3aBootstrapFreshTempoEcdsaSession({
+              pm,
+              accountId,
+              relayerUrl,
+              ttlMs: 120_000,
+              remainingUses: 4,
             });
             if (!bootstrap?.session?.ok) {
               return {
@@ -217,11 +229,30 @@ test.describe('threshold-ecdsa tempo signing', () => {
                 accessList: [],
               },
             };
+            const chainTarget = (globalThis as any).__w3aChainTargetForTempoRequest(request);
+            const requestBootstrap = await (globalThis as any).__w3aBootstrapFreshEcdsaForRequest({
+              pm,
+              accountId,
+              relayerUrl,
+              ttlMs: 120_000,
+              remainingUses: 4,
+              request,
+            });
+            if (!requestBootstrap?.session?.ok) {
+              return {
+                ok: false,
+                error: String(
+                  requestBootstrap?.session?.message || 'request ECDSA bootstrap failed',
+                ),
+              };
+            }
 
             try {
               await pm.tempo.executeEvmFamilyTransaction({
                 nearAccountId: accountId,
+                subjectId: accountId,
                 request,
+                chainTarget,
                 payloadExpectation: {
                   to: request.tx.to,
                   input: request.tx.data,
@@ -346,13 +377,12 @@ test.describe('threshold-ecdsa tempo signing', () => {
               };
             }
 
-            const bootstrap = await pm.tempo.bootstrapEcdsaSession({
-              nearAccountId: accountId,
-              options: {
-                relayerUrl,
-                ttlMs: 120_000,
-                remainingUses: 6,
-              },
+            const bootstrap = await (globalThis as any).__w3aBootstrapFreshTempoEcdsaSession({
+              pm,
+              accountId,
+              relayerUrl,
+              ttlMs: 120_000,
+              remainingUses: 6,
             });
             if (!bootstrap?.session?.ok) {
               return {
@@ -376,10 +406,29 @@ test.describe('threshold-ecdsa tempo signing', () => {
                 accessList: [],
               },
             };
+            const chainTarget = (globalThis as any).__w3aChainTargetForTempoRequest(request);
+            const requestBootstrap = await (globalThis as any).__w3aBootstrapFreshEcdsaForRequest({
+              pm,
+              accountId,
+              relayerUrl,
+              ttlMs: 120_000,
+              remainingUses: 6,
+              request,
+            });
+            if (!requestBootstrap?.session?.ok) {
+              return {
+                ok: false,
+                error: String(
+                  requestBootstrap?.session?.message || 'request ECDSA bootstrap failed',
+                ),
+              };
+            }
 
             const signed1 = await pm.tempo.signTempo({
               nearAccountId: accountId,
+              subjectId: accountId,
               request,
+              chainTarget,
               options: { confirmationConfig },
             });
             const nonce1Raw = String((signed1 as any)?.managedNonce?.nonce || '');
@@ -399,7 +448,9 @@ test.describe('threshold-ecdsa tempo signing', () => {
 
             const signed2 = await pm.tempo.signTempo({
               nearAccountId: accountId,
+              subjectId: accountId,
               request,
+              chainTarget,
               options: { confirmationConfig },
             });
             const nonce2Raw = String((signed2 as any)?.managedNonce?.nonce || '');
@@ -513,13 +564,12 @@ test.describe('threshold-ecdsa tempo signing', () => {
               };
             }
 
-            const bootstrap = await pm.tempo.bootstrapEcdsaSession({
-              nearAccountId: accountId,
-              options: {
-                relayerUrl,
-                ttlMs: 120_000,
-                remainingUses: 8,
-              },
+            const bootstrap = await (globalThis as any).__w3aBootstrapFreshTempoEcdsaSession({
+              pm,
+              accountId,
+              relayerUrl,
+              ttlMs: 120_000,
+              remainingUses: 8,
             });
             if (!bootstrap?.session?.ok) {
               return {
@@ -569,6 +619,10 @@ test.describe('threshold-ecdsa tempo signing', () => {
                 txHash: ('0x' + '22'.repeat(32)) as `0x${string}`,
               },
             ];
+            const requestsWithTargets = requests.map((lane) => ({
+              ...lane,
+              chainTarget: (globalThis as any).__w3aChainTargetForTempoRequest(lane.request),
+            }));
 
             const laneResults: Array<{
               lane: string;
@@ -578,10 +632,29 @@ test.describe('threshold-ecdsa tempo signing', () => {
               reconciledBlocked: boolean;
             }> = [];
 
-            for (const lane of requests) {
+            for (const lane of requestsWithTargets) {
+              const laneBootstrap = await (globalThis as any).__w3aBootstrapFreshEcdsaForRequest({
+                pm,
+                accountId,
+                relayerUrl,
+                ttlMs: 120_000,
+                remainingUses: 8,
+                request: lane.request,
+              });
+              if (!laneBootstrap?.session?.ok) {
+                return {
+                  ok: false,
+                  error: String(
+                    laneBootstrap?.session?.message ||
+                      `${lane.lane} request ECDSA bootstrap failed`,
+                  ),
+                };
+              }
               const signed1 = await pm.tempo.signTempo({
                 nearAccountId: accountId,
+                subjectId: accountId,
                 request: lane.request,
+                chainTarget: lane.chainTarget,
                 options: { confirmationConfig },
               });
               const nonce1Raw = String((signed1 as any)?.managedNonce?.nonce || '');
@@ -613,7 +686,9 @@ test.describe('threshold-ecdsa tempo signing', () => {
 
               const signed2 = await pm.tempo.signTempo({
                 nearAccountId: accountId,
+                subjectId: accountId,
                 request: lane.request,
+                chainTarget: lane.chainTarget,
                 options: { confirmationConfig },
               });
               const nonce2Raw = String((signed2 as any)?.managedNonce?.nonce || '');
@@ -738,13 +813,12 @@ test.describe('threshold-ecdsa tempo signing', () => {
               };
             }
 
-            const bootstrap = await pm.tempo.bootstrapEcdsaSession({
-              nearAccountId: accountId,
-              options: {
-                relayerUrl,
-                ttlMs: 120_000,
-                remainingUses: 8,
-              },
+            const bootstrap = await (globalThis as any).__w3aBootstrapFreshTempoEcdsaSession({
+              pm,
+              accountId,
+              relayerUrl,
+              ttlMs: 120_000,
+              remainingUses: 8,
             });
             if (!bootstrap?.session?.ok) {
               return {
@@ -768,10 +842,29 @@ test.describe('threshold-ecdsa tempo signing', () => {
                 accessList: [],
               },
             };
+            const chainTarget = (globalThis as any).__w3aChainTargetForTempoRequest(request);
+            const requestBootstrap = await (globalThis as any).__w3aBootstrapFreshEcdsaForRequest({
+              pm,
+              accountId,
+              relayerUrl,
+              ttlMs: 120_000,
+              remainingUses: 8,
+              request,
+            });
+            if (!requestBootstrap?.session?.ok) {
+              return {
+                ok: false,
+                error: String(
+                  requestBootstrap?.session?.message || 'request ECDSA bootstrap failed',
+                ),
+              };
+            }
 
             const signed1 = await pm.tempo.signTempo({
               nearAccountId: accountId,
+              subjectId: accountId,
               request,
+              chainTarget,
               options: { confirmationConfig },
             });
             const nonce1Raw = String((signed1 as any)?.managedNonce?.nonce || '');
@@ -797,7 +890,9 @@ test.describe('threshold-ecdsa tempo signing', () => {
 
             const signed2 = await pm.tempo.signTempo({
               nearAccountId: accountId,
+              subjectId: accountId,
               request,
+              chainTarget,
               options: { confirmationConfig },
             });
             const nonce2Raw = String((signed2 as any)?.managedNonce?.nonce || '');
@@ -829,7 +924,9 @@ test.describe('threshold-ecdsa tempo signing', () => {
 
             const signed3 = await pm.tempo.signTempo({
               nearAccountId: accountId,
+              subjectId: accountId,
               request,
+              chainTarget,
               options: { confirmationConfig },
             });
             const nonce3Raw = String((signed3 as any)?.managedNonce?.nonce || '');
@@ -952,13 +1049,12 @@ test.describe('threshold-ecdsa tempo signing', () => {
               };
             }
 
-            const bootstrap = await pm.tempo.bootstrapEcdsaSession({
-              nearAccountId: accountId,
-              options: {
-                relayerUrl,
-                ttlMs: 120_000,
-                remainingUses: 4,
-              },
+            const bootstrap = await (globalThis as any).__w3aBootstrapFreshTempoEcdsaSession({
+              pm,
+              accountId,
+              relayerUrl,
+              ttlMs: 120_000,
+              remainingUses: 4,
             });
             if (!bootstrap?.session?.ok) {
               return {
@@ -1003,16 +1099,44 @@ test.describe('threshold-ecdsa tempo signing', () => {
                 accessList: [],
               },
             };
+            const tempoChainTarget = (globalThis as any).__w3aChainTargetForTempoRequest(
+              tempoRequest,
+            );
+            const evmChainTarget = (globalThis as any).__w3aChainTargetForTempoRequest(evmRequest);
+            for (const request of [tempoRequest, evmRequest]) {
+              const requestBootstrap = await (globalThis as any).__w3aBootstrapFreshEcdsaForRequest(
+                {
+                  pm,
+                  accountId,
+                  relayerUrl,
+                  ttlMs: 120_000,
+                  remainingUses: 4,
+                  request,
+                },
+              );
+              if (!requestBootstrap?.session?.ok) {
+                return {
+                  ok: false,
+                  error: String(
+                    requestBootstrap?.session?.message || 'request ECDSA bootstrap failed',
+                  ),
+                };
+              }
+            }
 
             const [tempoResult, evmResult] = await Promise.allSettled([
               pm.tempo.signTempo({
                 nearAccountId: accountId,
+                subjectId: accountId,
                 request: tempoRequest,
+                chainTarget: tempoChainTarget,
                 options: { confirmationConfig },
               }),
               pm.tempo.signTempo({
                 nearAccountId: accountId,
+                subjectId: accountId,
                 request: evmRequest,
+                chainTarget: evmChainTarget,
                 options: { confirmationConfig },
               }),
             ]);
@@ -1151,13 +1275,12 @@ test.describe('threshold-ecdsa tempo signing', () => {
               };
             }
 
-            const bootstrap = await pm.tempo.bootstrapEcdsaSession({
-              nearAccountId: accountId,
-              options: {
-                relayerUrl,
-                ttlMs: 120_000,
-                remainingUses: 10,
-              },
+            const bootstrap = await (globalThis as any).__w3aBootstrapFreshTempoEcdsaSession({
+              pm,
+              accountId,
+              relayerUrl,
+              ttlMs: 120_000,
+              remainingUses: 10,
             });
             if (!bootstrap?.session?.ok) {
               return {
@@ -1208,6 +1331,30 @@ test.describe('threshold-ecdsa tempo signing', () => {
               tempo: tempoRequest,
               evm: evmRequest,
             } as const;
+            const chainTargetsByChain = {
+              tempo: (globalThis as any).__w3aChainTargetForTempoRequest(tempoRequest),
+              evm: (globalThis as any).__w3aChainTargetForTempoRequest(evmRequest),
+            } as const;
+            for (const request of [tempoRequest, evmRequest]) {
+              const requestBootstrap = await (globalThis as any).__w3aBootstrapFreshEcdsaForRequest(
+                {
+                  pm,
+                  accountId,
+                  relayerUrl,
+                  ttlMs: 120_000,
+                  remainingUses: 10,
+                  request,
+                },
+              );
+              if (!requestBootstrap?.session?.ok) {
+                return {
+                  ok: false,
+                  error: String(
+                    requestBootstrap?.session?.message || 'request ECDSA bootstrap failed',
+                  ),
+                };
+              }
+            }
 
             const runOrder = async (order: Array<'tempo' | 'evm'>) => {
               const out: Array<{
@@ -1218,7 +1365,9 @@ test.describe('threshold-ecdsa tempo signing', () => {
               for (const requestedChain of order) {
                 const signed = await pm.tempo.signTempo({
                   nearAccountId: accountId,
+                  subjectId: accountId,
                   request: requestsByChain[requestedChain],
+                  chainTarget: chainTargetsByChain[requestedChain],
                   options: { confirmationConfig },
                 });
                 out.push({
@@ -1429,13 +1578,12 @@ test.describe('threshold-ecdsa tempo signing', () => {
               };
             }
 
-            const bootstrap = await pm.tempo.bootstrapEcdsaSession({
-              nearAccountId: accountId,
-              options: {
-                relayerUrl,
-                ttlMs: 120_000,
-                remainingUses: 4,
-              },
+            const bootstrap = await (globalThis as any).__w3aBootstrapFreshTempoEcdsaSession({
+              pm,
+              accountId,
+              relayerUrl,
+              ttlMs: 120_000,
+              remainingUses: 4,
             });
             if (!bootstrap?.session?.ok) {
               return {
@@ -1490,6 +1638,28 @@ test.describe('threshold-ecdsa tempo signing', () => {
             const progressEvents: ProgressEvent[] = [];
             const settledAtMs: Partial<Record<'first' | 'second', number>> = {};
             const startedAtMs = performance.now();
+            const chainTargetFor = (request: typeof tempoRequest | typeof evmRequest) =>
+              (globalThis as any).__w3aChainTargetForTempoRequest(request);
+            for (const request of [tempoRequest, evmRequest]) {
+              const requestBootstrap = await (globalThis as any).__w3aBootstrapFreshEcdsaForRequest(
+                {
+                  pm,
+                  accountId,
+                  relayerUrl,
+                  ttlMs: 120_000,
+                  remainingUses: 4,
+                  request,
+                },
+              );
+              if (!requestBootstrap?.session?.ok) {
+                return {
+                  ok: false,
+                  error: String(
+                    requestBootstrap?.session?.message || 'request ECDSA bootstrap failed',
+                  ),
+                };
+              }
+            }
 
             const runSign = async (
               label: 'first' | 'second',
@@ -1498,7 +1668,9 @@ test.describe('threshold-ecdsa tempo signing', () => {
               try {
                 const value = await pm.tempo.signTempo({
                   nearAccountId: accountId,
+                  subjectId: accountId,
                   request,
+                  chainTarget: chainTargetFor(request),
                   options: {
                     confirmationConfig,
                     onEvent: (ev: { phase?: unknown; status?: unknown }) => {

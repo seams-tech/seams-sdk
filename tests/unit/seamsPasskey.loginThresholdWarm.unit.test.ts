@@ -273,18 +273,18 @@ test.describe('unlock threshold warm-session requirements', () => {
     expect('thresholdEcdsaKeyRef' in (result as unknown as Record<string, unknown>)).toBe(false);
     expect(bootstrapCalls).toBe(2);
     expect(bootstrapChains).toEqual(['tempo', 'evm']);
-    expect(String(bootstrapArgs?.['source'] || '')).toBe('login');
-    expect(String(bootstrapArgs?.['sessionId'] || '')).toBe('session-1');
-    expect(String(bootstrapArgs?.['walletSigningSessionId'] || '')).toBe(
-      WALLET_SIGNING_SESSION_ID,
+    expect(String(bootstrapArgs?.['kind'] || '')).toBe(
+      'threshold_session_auth_reconnect_ecdsa_bootstrap',
     );
-    expect(bootstrapArgs?.['thresholdSessionAuth']).toEqual({
+    expect(String(bootstrapArgs?.['source'] || '')).toBe('login');
+    expect((bootstrapArgs?.['sessionIdentity'] as Record<string, unknown>) || {}).toMatchObject({
+      thresholdSessionId: 'session-1',
+      walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+    });
+    expect(bootstrapArgs?.['routeAuth']).toEqual({
       kind: 'threshold_session',
       jwt: 'jwt-ed25519',
     });
-    expect(String(bootstrapArgs?.['clientRootShare32B64u'] || '')).toBe(
-      ECDSA_CLIENT_ROOT_SHARE32_B64U,
-    );
     expect(prefillCalls).toBe(0);
   });
 
@@ -412,7 +412,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     expect(bootstrapCalls).toBe(0);
   });
 
-  test('login warm-up mints a fresh Ed25519 session id even when canonical ECDSA state exists', async () => {
+  test('login warm-up lets fresh Ed25519 provisioning mint its own session id even when canonical ECDSA state exists', async () => {
     let capturedConnectArgs: Record<string, unknown> | null = null;
     const context = createBaseContext({
       signingEngine: {
@@ -446,8 +446,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     expect(result.signingSession?.status).toBe('active');
     expect(capturedConnectArgs).not.toBeNull();
     const requestedSessionId = String(capturedConnectArgs?.['sessionId'] || '').trim();
-    expect(requestedSessionId).not.toBe('');
-    expect(requestedSessionId).not.toBe('canonical-ecdsa-session-1');
+    expect(requestedSessionId).toBe('');
   });
 
   test('NEAR-only threshold warm-up does not bootstrap ECDSA sessions', async () => {
@@ -480,7 +479,7 @@ test.describe('unlock threshold warm-session requirements', () => {
           capturedConnectArgs = args;
           return {
             ok: true,
-            sessionId: String(args.sessionId || ''),
+            sessionId: 'fresh-near-only-session-1',
             walletSigningSessionId: 'wallet-session-near-only-1',
             jwt: 'jwt-ed25519',
             remainingUses: 3,
@@ -514,7 +513,7 @@ test.describe('unlock threshold warm-session requirements', () => {
 
       expect(result.success).toBe(true);
       expect(capturedConnectArgs).not.toBeNull();
-      expect(String(capturedConnectArgs?.['sessionId'] || '')).not.toBe('stored-ed25519-session-1');
+      expect(String(capturedConnectArgs?.['sessionId'] || '')).toBe('');
     } finally {
       clearAllStoredThresholdEd25519SessionRecords();
     }
@@ -847,15 +846,15 @@ test.describe('unlock threshold warm-session requirements', () => {
       expect(result.jwt).toBe('app-jwt-oidc-1');
       expect(bootstrapCalls).toBe(2);
       const bootstrap = bootstrapArgs as Record<string, any> | null;
-      expect(bootstrap?.thresholdSessionAuth).toEqual({
+      expect(bootstrap?.kind).toBe('threshold_session_auth_reconnect_ecdsa_bootstrap');
+      expect(bootstrap?.routeAuth).toEqual({
         kind: 'app_session',
         jwt: 'app-jwt-oidc-1',
       });
-      expect(String(bootstrap?.sessionId || '')).toBe('session-1');
-      expect(String(bootstrap?.walletSigningSessionId || '')).toBe(WALLET_SIGNING_SESSION_ID);
-      expect(String(bootstrap?.clientRootShare32B64u || '')).toBe(
-        ECDSA_CLIENT_ROOT_SHARE32_B64U,
-      );
+      expect(bootstrap?.sessionIdentity).toMatchObject({
+        thresholdSessionId: 'session-1',
+        walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+      });
       expect(String(bootstrap?.ecdsaThresholdKeyId || '')).toBe(ECDSA_THRESHOLD_KEY_ID);
     } finally {
       globalThis.fetch = originalFetch;

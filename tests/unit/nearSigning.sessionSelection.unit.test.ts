@@ -2045,6 +2045,7 @@ test.describe('near signing session selection', () => {
     } as any);
 
     await coordinator.claimPrfFirstByThresholdSessionId({
+      kind: 'wallet_scoped_ed25519_claim',
       thresholdSessionId: 'restored-passkey-ed25519',
       errorContext: 'test restored Ed25519 signing',
       uses: 1,
@@ -2055,6 +2056,7 @@ test.describe('near signing session selection', () => {
       walletSigningSessionId: 'wallet-session',
     });
     await coordinator.claimPrfFirstByThresholdSessionId({
+      kind: 'wallet_scoped_ed25519_claim',
       thresholdSessionId: 'restored-passkey-ed25519',
       errorContext: 'test hot Ed25519 signing',
       uses: 1,

@@ -132,7 +132,6 @@ test.describe('warmSessionReadModel', () => {
     });
     expect(resolveEcdsaAuthMaterial(ecdsaRecord)).toMatchObject({
       capability: 'ecdsa',
-      chain: 'evm',
       thresholdSessionAuthToken: ecdsaRecord.thresholdSessionAuthToken,
       thresholdSessionAuthTokenSource: 'ecdsa',
     });

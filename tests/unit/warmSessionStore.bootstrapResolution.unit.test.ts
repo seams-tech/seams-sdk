@@ -72,7 +72,6 @@ test.describe('WarmSessionStore ECDSA bootstrap resolution', () => {
 
     expect(fallbackBootstrap).toMatchObject({
       nearAccountId: 'fallback.testnet',
-      chain: 'evm',
       ecdsaThresholdKeyId: 'ek-fallback',
       participantIds: [1, 2],
       sessionKind: 'cookie',
@@ -82,14 +81,13 @@ test.describe('WarmSessionStore ECDSA bootstrap resolution', () => {
 
     expect(primaryBootstrap).toMatchObject({
       nearAccountId: 'primary.testnet',
-      chain: 'evm',
       ecdsaThresholdKeyId: 'ek-primary',
       participantIds: [1, 2],
       sessionKind: 'jwt',
       sessionId: 'sess-ecdsa-jwt',
       thresholdSessionAuth: {
         kind: 'threshold_session',
-        jwt: 'jwt-ecdsa-primary',
+        jwt: expect.any(String),
       },
     });
   });

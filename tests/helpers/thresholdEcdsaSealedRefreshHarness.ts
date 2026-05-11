@@ -490,10 +490,9 @@ export async function setupThresholdEcdsaSealedRefreshHarness(page: Page): Promi
     bootstrapTokenStore,
     signingSessionSeal: createSigningSessionSealRoutesOptions({
       sessionPolicy: createSigningSessionSealPolicyFromThresholdAuthSessionStores({
-        stores: [
-          thresholdAuthStores.authSessionStore as any,
-          thresholdAuthStores.ecdsaAuthSessionStore as any,
-        ],
+        ed25519Stores: [thresholdAuthStores.authSessionStore as any],
+        ecdsaStores: [thresholdAuthStores.ecdsaAuthSessionStore as any],
+        walletBudgetStores: [thresholdAuthStores.authSessionStore as any],
       }),
       cipher: createSigningSessionSealShamir3PassCipherAdapter({
         currentKeyVersion: TEST_KEY_VERSION,
@@ -775,12 +774,16 @@ export async function runPasskeySigningSessionLifecyclePhase(
           if (curve === 'ecdsa') {
             stage = 'bootstrap_ecdsa';
             const bootstrap = await seams.tempo.bootstrapEcdsaSession({
+              kind: 'reuse_warm_ecdsa_bootstrap',
               nearAccountId: accountId,
-              options: {
-                relayerUrl,
-                ttlMs: 120_000,
-                remainingUses,
+              chainTarget: {
+                kind: 'tempo',
+                chainId: 42431,
+                networkSlug: 'tempo-moderato',
               },
+              relayerUrl,
+              ttlMs: 120_000,
+              remainingUses,
             });
             if (!bootstrap?.thresholdEcdsaKeyRef?.ecdsaThresholdKeyId) {
               return {
@@ -937,4 +940,3 @@ export async function runPasskeySigningSessionLifecyclePhase(
     intervalMs: 250,
   });
 }
-

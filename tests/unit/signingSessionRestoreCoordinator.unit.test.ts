@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { SigningSessionSealedStoreRecord } from '../../client/src/core/signingEngine/session/persistence/sealedSessionStore';
+import type { SealedRecoveryRecord } from '../../client/src/core/signingEngine/session/sealedRecovery/recoveryRecord';
 import {
   createSigningSessionRestoreCache,
   restorePersistedSessionsForAccountCommand,
@@ -54,18 +55,34 @@ function makeSealedRecord(args: {
     curve,
     walletId: 'restore.testnet',
     userId: 'restore.testnet',
+    relayerUrl: 'https://relay.example',
     ...(curve === 'ecdsa'
       ? {
+          subjectId: 'restore.testnet',
+          signingRootId: 'root-restore',
+          signingRootVersion: 'v1',
+          keyVersion: 'seal-v1',
+          shamirPrimeB64u: 'prime-b64u',
           ecdsaRestore: {
             chainTarget,
             sessionKind: 'jwt' as const,
             thresholdSessionAuthToken: 'jwt-restore',
             ecdsaThresholdKeyId: 'ecdsa-key-restore',
             relayerKeyId: 'relayer-key-restore',
+            clientVerifyingShareB64u: 'client-verifying-share-restore',
             participantIds: [1, 2],
           },
         }
-      : {}),
+      : {
+          ed25519Restore: {
+            rpId: 'example.com',
+            relayerKeyId: 'relayer-key-restore',
+            participantIds: [1, 2],
+            sessionKind: 'jwt' as const,
+            thresholdSessionAuthToken: 'jwt-restore',
+            xClientBaseB64u: 'x-client-base-restore',
+          },
+        }),
     issuedAtMs: 1,
     expiresAtMs: args.expiresAtMs ?? Date.now() + 60_000,
     remainingUses: args.remainingUses ?? 5,
@@ -225,6 +242,43 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
     expect(restoreCalls).toBe(0);
   });
 
+  test('surfaces rejected exact-purpose records through the rejection callback', async () => {
+    const rejections: string[] = [];
+
+    const result = await restorePersistedSessionForSigningCommand(
+      {
+        walletId: 'restore.testnet',
+        authMethod: 'email_otp',
+        curve: 'ed25519',
+        chain: 'near',
+        walletSigningSessionId: 'wsess-restore',
+        thresholdSessionId: 'tsess-restore',
+        reason: 'transaction',
+      },
+      {
+        listExactSealedSessionsForAccount: async () => [
+          {
+            ...makeSealedRecord({ curve: 'ed25519' }),
+            ed25519Restore: {
+              rpId: 'example.com',
+              relayerKeyId: 'relayer-key-restore',
+              participantIds: [1, 2],
+              sessionKind: 'jwt',
+              thresholdSessionAuthToken: 'jwt-restore',
+            },
+          },
+        ],
+        restoreSealedRecordForAccount: async () => 'restored',
+        onRejectedRecord: ({ rejection }) => {
+          rejections.push(rejection.reason);
+        },
+      },
+    );
+
+    expect(result).toEqual({ attempted: 0, restored: 0, deferred: 0 });
+    expect(rejections).toEqual(['missing_restore_metadata']);
+  });
+
   test('restores exhausted passkey exact-purpose sealed records for step-up reconnect', async () => {
     let restoreCalls = 0;
 
@@ -323,16 +377,28 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
 
   test('restores Ed25519 intent from an ECDSA-primary companion sealed record', async () => {
     let restoreCalls = 0;
-    let restoredRecord: SigningSessionSealedStoreRecord | null = null;
+    let restoredRecord: SealedRecoveryRecord | null = null;
     const companionRecord: SigningSessionSealedStoreRecord = {
       ...makeSealedRecord({
-        chain: 'tempo',
-        thresholdSessionId: 'tsess-ecdsa-companion',
+        curve: 'ed25519',
+        thresholdSessionId: 'tsess-ed25519-companion',
         walletSigningSessionId: 'wsess-companion',
       }),
+      subjectId: 'restore.testnet',
+      signingRootId: 'root-restore',
+      signingRootVersion: 'v1',
       thresholdSessionIds: {
         ecdsa: 'tsess-ecdsa-companion',
         ed25519: 'tsess-ed25519-companion',
+      },
+      ecdsaRestore: {
+        chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
+        sessionKind: 'jwt',
+        thresholdSessionAuthToken: 'jwt-restore',
+        ecdsaThresholdKeyId: 'ecdsa-key-restore',
+        relayerKeyId: 'relayer-key-restore',
+        clientVerifyingShareB64u: 'client-verifying-share-restore',
+        participantIds: [1, 2],
       },
     };
 
@@ -359,25 +425,40 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
 
     expect(result).toMatchObject({ attempted: 1, restored: 1, deferred: 0 });
     expect(restoreCalls).toBe(1);
-    expect((restoredRecord as SigningSessionSealedStoreRecord | null)?.thresholdSessionIds.ed25519).toBe(
-      'tsess-ed25519-companion',
-    );
-    expect((restoredRecord as SigningSessionSealedStoreRecord | null)?.thresholdSessionIds.ecdsa).toBe(
-      'tsess-ecdsa-companion',
-    );
+    expect(restoredRecord).toMatchObject({
+      authMethod: 'email_otp',
+      curve: 'ed25519',
+      thresholdSessionId: 'tsess-ed25519-companion',
+      companionEcdsaRecovery: {
+        thresholdSessionId: 'tsess-ecdsa-companion',
+      },
+    });
   });
 
   test('passes Ed25519 purpose through to the restore port for an ECDSA-primary companion record', async () => {
-    const companionRecord = makeSealedRecord({
-      curve: 'ecdsa',
-      chain: 'tempo',
-      thresholdSessionId: 'tsess-ecdsa-primary',
-      walletSigningSessionId: 'wsess-companion-purpose',
+    const companionRecord: SigningSessionSealedStoreRecord = {
+      ...makeSealedRecord({
+        curve: 'ed25519',
+        thresholdSessionId: 'tsess-ed25519-purpose',
+        walletSigningSessionId: 'wsess-companion-purpose',
+      }),
+      subjectId: 'restore.testnet',
+      signingRootId: 'root-restore',
+      signingRootVersion: 'v1',
       thresholdSessionIds: {
         ecdsa: 'tsess-ecdsa-primary',
         ed25519: 'tsess-ed25519-purpose',
       },
-    });
+      ecdsaRestore: {
+        chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
+        sessionKind: 'jwt',
+        thresholdSessionAuthToken: 'jwt-restore',
+        ecdsaThresholdKeyId: 'ecdsa-key-restore',
+        relayerKeyId: 'relayer-key-restore',
+        clientVerifyingShareB64u: 'client-verifying-share-restore',
+        participantIds: [1, 2],
+      },
+    };
     const restoredPurposes: unknown[] = [];
 
     const result = await restorePersistedSessionForSigningCommand(
@@ -539,9 +620,9 @@ test.describe('restorePersistedSessionsForAccountCommand', () => {
           restored.push({
             authMethod: record.authMethod,
             curve: record.curve,
-            chain: record.ecdsaRestore?.chainTarget?.kind,
-            chainTarget: record.ecdsaRestore?.chainTarget,
-            thresholdSessionId: record.thresholdSessionIds[record.curve],
+            chain: record.curve === 'ecdsa' ? record.chainTarget.kind : undefined,
+            chainTarget: record.curve === 'ecdsa' ? record.chainTarget : undefined,
+            thresholdSessionId: record.thresholdSessionId,
           });
           return 'restored';
         },
@@ -574,17 +655,30 @@ test.describe('restorePersistedSessionsForAccountCommand', () => {
   });
 
   test('emits separate account restore work items for a multi-curve sealed record', async () => {
-    const companionRecord = makeSealedRecord({
-      authMethod: 'email_otp',
-      curve: 'ecdsa',
-      chain: 'tempo',
-      thresholdSessionId: 'tsess-ecdsa-account',
-      walletSigningSessionId: 'wsess-account-companion',
+    const companionRecord: SigningSessionSealedStoreRecord = {
+      ...makeSealedRecord({
+        authMethod: 'email_otp',
+        curve: 'ed25519',
+        thresholdSessionId: 'tsess-ed25519-account',
+        walletSigningSessionId: 'wsess-account-companion',
+      }),
+      subjectId: 'restore.testnet',
+      signingRootId: 'root-restore',
+      signingRootVersion: 'v1',
       thresholdSessionIds: {
         ecdsa: 'tsess-ecdsa-account',
         ed25519: 'tsess-ed25519-account',
       },
-    });
+      ecdsaRestore: {
+        chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
+        sessionKind: 'jwt',
+        thresholdSessionAuthToken: 'jwt-restore',
+        ecdsaThresholdKeyId: 'ecdsa-key-restore',
+        relayerKeyId: 'relayer-key-restore',
+        clientVerifyingShareB64u: 'client-verifying-share-restore',
+        participantIds: [1, 2],
+      },
+    };
     const restoredPurposes: unknown[] = [];
 
     const result = await restorePersistedSessionsForAccountCommand(

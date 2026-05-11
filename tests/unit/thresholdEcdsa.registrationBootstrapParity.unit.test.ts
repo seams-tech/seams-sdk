@@ -1,11 +1,26 @@
 import { expect, test } from '@playwright/test';
-import { SigningEngine } from '@/core/signingEngine/SigningEngine';
 import { SigningOperationIntent } from '@/core/signingEngine/session/operationState/types';
+import {
+  ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap,
+  ensureSealedRefreshStartupParityForTransactionSigning,
+} from '@/core/signingEngine/session/warmCapabilities/sealedRefreshParity';
+
+const TEMPO_CHAIN_TARGET = {
+  kind: 'tempo' as const,
+  chainId: 42431,
+  networkSlug: 'tempo-testnet',
+};
+
+const EVM_CHAIN_TARGET = {
+  kind: 'evm' as const,
+  namespace: 'eip155' as const,
+  chainId: 11155111,
+  networkSlug: 'sepolia',
+};
 
 test.describe('threshold ECDSA registration bootstrap parity gate', () => {
   test('registration-source bootstrap soft-fails startup parity errors', async () => {
-    const engine: any = Object.create(SigningEngine.prototype);
-    engine.ensureSealedRefreshStartupParity = async () => {
+    const ensureParity = async () => {
       throw new Error('[sealed-refresh-parity] Well-known endpoint returned HTTP 502');
     };
 
@@ -17,10 +32,10 @@ test.describe('threshold ECDSA registration bootstrap parity gate', () => {
 
     try {
       await expect(
-        engine.ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap({
+        ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap(ensureParity, {
+          kind: 'registration_bootstrap_parity',
           nearAccountId: 'alice.testnet',
-          chain: 'tempo',
-          source: 'registration',
+          chainTarget: TEMPO_CHAIN_TARGET,
         }),
       ).resolves.toBeUndefined();
     } finally {
@@ -33,28 +48,27 @@ test.describe('threshold ECDSA registration bootstrap parity gate', () => {
     );
     expect(warnings[0]?.[1]).toMatchObject({
       nearAccountId: 'alice.testnet',
-      chain: 'tempo',
+      chainTarget: 'tempo:42431',
       error: '[sealed-refresh-parity] Well-known endpoint returned HTTP 502',
     });
   });
 
   test('manual bootstrap still fails on startup parity errors', async () => {
-    const engine: any = Object.create(SigningEngine.prototype);
-    engine.ensureSealedRefreshStartupParity = async () => {
+    const ensureParity = async () => {
       throw new Error('[sealed-refresh-parity] Well-known endpoint returned HTTP 502');
     };
 
     await expect(
-      engine.ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap({
+      ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap(ensureParity, {
+        kind: 'default_bootstrap_parity',
         nearAccountId: 'alice.testnet',
-        source: 'manual-bootstrap',
-      }),
+        chainTarget: EVM_CHAIN_TARGET,
+        }),
     ).rejects.toThrow('Well-known endpoint returned HTTP 502');
   });
 
   test('transaction-sign bootstrap soft-fails retryable well-known fetch errors', async () => {
-    const engine: any = Object.create(SigningEngine.prototype);
-    engine.ensureSealedRefreshStartupParity = async () => {
+    const ensureParity = async () => {
       throw Object.assign(
         new Error('[sealed-refresh-parity] Well-known endpoint returned HTTP 502'),
         { code: 'sealed_refresh_parity_http_error' },
@@ -69,10 +83,10 @@ test.describe('threshold ECDSA registration bootstrap parity gate', () => {
 
     try {
       await expect(
-        engine.ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap({
+        ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap(ensureParity, {
+          kind: 'transaction_bootstrap_parity',
           nearAccountId: 'alice.testnet',
-          chain: 'evm',
-          source: 'manual-bootstrap',
+          chainTarget: EVM_CHAIN_TARGET,
           operationIntent: SigningOperationIntent.TransactionSign,
         }),
       ).resolves.toBeUndefined();
@@ -86,14 +100,13 @@ test.describe('threshold ECDSA registration bootstrap parity gate', () => {
     );
     expect(warnings[0]?.[1]).toMatchObject({
       nearAccountId: 'alice.testnet',
-      chain: 'evm',
+      chainTarget: 'evm:eip155:11155111',
       error: '[sealed-refresh-parity] Well-known endpoint returned HTTP 502',
     });
   });
 
   test('Email OTP bootstrap soft-fails retryable well-known fetch errors', async () => {
-    const engine: any = Object.create(SigningEngine.prototype);
-    engine.ensureSealedRefreshStartupParity = async () => {
+    const ensureParity = async () => {
       throw Object.assign(
         new Error('[sealed-refresh-parity] Well-known endpoint returned HTTP 502'),
         { code: 'sealed_refresh_parity_http_error' },
@@ -108,11 +121,11 @@ test.describe('threshold ECDSA registration bootstrap parity gate', () => {
 
     try {
       await expect(
-        engine.ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap({
+        ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap(ensureParity, {
+          kind: 'email_otp_bootstrap_parity',
           nearAccountId: 'alice.testnet',
-          chain: 'evm',
-          source: 'login',
-          emailOtpAuthContext: { authMethod: 'email_otp' },
+          chainTarget: EVM_CHAIN_TARGET,
+          authMethod: 'email_otp',
         }),
       ).resolves.toBeUndefined();
     } finally {
@@ -125,14 +138,13 @@ test.describe('threshold ECDSA registration bootstrap parity gate', () => {
     );
     expect(warnings[0]?.[1]).toMatchObject({
       nearAccountId: 'alice.testnet',
-      chain: 'evm',
+      chainTarget: 'evm:eip155:11155111',
       error: '[sealed-refresh-parity] Well-known endpoint returned HTTP 502',
     });
   });
 
   test('Email OTP bootstrap still fails closed on parity mismatches', async () => {
-    const engine: any = Object.create(SigningEngine.prototype);
-    engine.ensureSealedRefreshStartupParity = async () => {
+    const ensureParity = async () => {
       throw Object.assign(
         new Error('[sealed-refresh-parity] Client/server mismatch for fields: keyVersion'),
         { code: 'sealed_refresh_parity_mismatch' },
@@ -140,17 +152,17 @@ test.describe('threshold ECDSA registration bootstrap parity gate', () => {
     };
 
     await expect(
-      engine.ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap({
+      ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap(ensureParity, {
+        kind: 'email_otp_bootstrap_parity',
         nearAccountId: 'alice.testnet',
-        source: 'login',
-        emailOtpAuthContext: { authMethod: 'email_otp' },
+        chainTarget: EVM_CHAIN_TARGET,
+        authMethod: 'email_otp',
       }),
     ).rejects.toThrow('Client/server mismatch');
   });
 
   test('transaction signing soft-fails retryable well-known fetch errors', async () => {
-    const engine: any = Object.create(SigningEngine.prototype);
-    engine.ensureSealedRefreshStartupParity = async () => {
+    const ensureParity = async () => {
       throw Object.assign(
         new Error('[sealed-refresh-parity] Well-known endpoint returned HTTP 502'),
         { code: 'sealed_refresh_parity_http_error' },
@@ -165,9 +177,9 @@ test.describe('threshold ECDSA registration bootstrap parity gate', () => {
 
     try {
       await expect(
-        engine.ensureSealedRefreshStartupParityForTransactionSigning({
+        ensureSealedRefreshStartupParityForTransactionSigning(ensureParity, {
           nearAccountId: 'alice.testnet',
-          chain: 'tempo',
+          chainTarget: TEMPO_CHAIN_TARGET,
         }),
       ).resolves.toBeUndefined();
     } finally {
@@ -180,14 +192,13 @@ test.describe('threshold ECDSA registration bootstrap parity gate', () => {
     );
     expect(warnings[0]?.[1]).toMatchObject({
       nearAccountId: 'alice.testnet',
-      chain: 'tempo',
+      chainTarget: 'tempo:42431',
       error: '[sealed-refresh-parity] Well-known endpoint returned HTTP 502',
     });
   });
 
   test('transaction signing still fails closed on parity mismatches', async () => {
-    const engine: any = Object.create(SigningEngine.prototype);
-    engine.ensureSealedRefreshStartupParity = async () => {
+    const ensureParity = async () => {
       throw Object.assign(
         new Error('[sealed-refresh-parity] Client/server mismatch for fields: keyVersion'),
         { code: 'sealed_refresh_parity_mismatch' },
@@ -195,9 +206,9 @@ test.describe('threshold ECDSA registration bootstrap parity gate', () => {
     };
 
     await expect(
-      engine.ensureSealedRefreshStartupParityForTransactionSigning({
+      ensureSealedRefreshStartupParityForTransactionSigning(ensureParity, {
         nearAccountId: 'alice.testnet',
-        chain: 'evm',
+        chainTarget: EVM_CHAIN_TARGET,
       }),
     ).rejects.toThrow('Client/server mismatch');
   });

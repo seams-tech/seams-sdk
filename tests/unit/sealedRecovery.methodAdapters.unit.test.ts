@@ -3,6 +3,11 @@ import { claimPasskeyEcdsaPrfFirst } from '../../client/src/core/signingEngine/s
 import { restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord } from '../../client/src/core/signingEngine/session/emailOtp/ecdsaRecovery';
 import { restoreEmailOtpEd25519SealedRecordForAccount } from '../../client/src/core/signingEngine/session/emailOtp/ed25519Recovery';
 import type { SigningSessionSealedStoreRecord } from '../../client/src/core/signingEngine/session/persistence/sealedSessionStore';
+import {
+  normalizeSealedRecoveryRecord,
+  type EmailOtpEcdsaSealedRecoveryRecord,
+  type EmailOtpEd25519SealedRecoveryRecord,
+} from '../../client/src/core/signingEngine/session/sealedRecovery/recoveryRecord';
 
 const TEMPO_CHAIN_TARGET = {
   kind: 'tempo' as const,
@@ -12,9 +17,9 @@ const TEMPO_CHAIN_TARGET = {
 
 function makeEmailOtpEcdsaSealedRecord(
   overrides?: Partial<SigningSessionSealedStoreRecord>,
-): SigningSessionSealedStoreRecord {
+): EmailOtpEcdsaSealedRecoveryRecord {
   const now = Date.now();
-  return {
+  const normalized = normalizeSealedRecoveryRecord({
     v: 1,
     alg: 'shamir3pass-v1',
     storageScope: 'iframe_origin_indexeddb',
@@ -42,6 +47,7 @@ function makeEmailOtpEcdsaSealedRecord(
       thresholdSessionAuthToken: 'jwt-ecdsa',
       ecdsaThresholdKeyId: 'ecdsa-key',
       relayerKeyId: 'relayer-key',
+      clientVerifyingShareB64u: 'client-verifying-share',
       participantIds: [1, 2],
     },
     ed25519Restore: {
@@ -57,7 +63,74 @@ function makeEmailOtpEcdsaSealedRecord(
     remainingUses: 3,
     updatedAtMs: now,
     ...overrides,
-  };
+  });
+  if (
+    normalized.kind !== 'accepted' ||
+    normalized.record.authMethod !== 'email_otp' ||
+    normalized.record.curve !== 'ecdsa'
+  ) {
+    throw new Error('Expected accepted Email OTP ECDSA recovery record fixture');
+  }
+  return normalized.record;
+}
+
+function makeEmailOtpEd25519SealedRecord(
+  overrides?: Partial<SigningSessionSealedStoreRecord>,
+): EmailOtpEd25519SealedRecoveryRecord {
+  const now = Date.now();
+  const normalized = normalizeSealedRecoveryRecord({
+    v: 1,
+    alg: 'shamir3pass-v1',
+    storageScope: 'iframe_origin_indexeddb',
+    authMethod: 'email_otp',
+    secretKind: 'signing_session_secret32',
+    storeKey: 'email_otp:ed25519:near:tsess-ed25519',
+    walletSigningSessionId: 'wsess-ecdsa',
+    thresholdSessionIds: {
+      ecdsa: 'tsess-ecdsa',
+      ed25519: 'tsess-ed25519',
+    },
+    sealedSecretB64u: 'sealed-secret',
+    curve: 'ed25519',
+    walletId: 'alice.testnet',
+    userId: 'alice.testnet',
+    relayerUrl: 'https://relay.example',
+    shamirPrimeB64u: 'prime-b64u',
+    keyVersion: 'seal-v1',
+    ecdsaRestore: {
+      chainTarget: TEMPO_CHAIN_TARGET,
+      sessionKind: 'jwt',
+      thresholdSessionAuthToken: 'jwt-ecdsa',
+      ecdsaThresholdKeyId: 'ecdsa-key',
+      relayerKeyId: 'relayer-key',
+      clientVerifyingShareB64u: 'client-verifying-share',
+      participantIds: [1, 2],
+    },
+    subjectId: 'alice.testnet',
+    signingRootId: 'root-1',
+    signingRootVersion: 'v1',
+    ed25519Restore: {
+      rpId: 'example.com',
+      relayerKeyId: 'relayer-key-ed25519',
+      participantIds: [1, 2],
+      sessionKind: 'jwt',
+      thresholdSessionAuthToken: 'jwt-ed25519',
+      xClientBaseB64u: 'x-client-base',
+    },
+    issuedAtMs: now - 1_000,
+    expiresAtMs: now + 60_000,
+    remainingUses: 3,
+    updatedAtMs: now,
+    ...overrides,
+  });
+  if (
+    normalized.kind !== 'accepted' ||
+    normalized.record.authMethod !== 'email_otp' ||
+    normalized.record.curve !== 'ed25519'
+  ) {
+    throw new Error('Expected accepted Email OTP Ed25519 recovery record fixture');
+  }
+  return normalized.record;
 }
 
 test.describe('sealed recovery method adapters', () => {
@@ -160,7 +233,10 @@ test.describe('sealed recovery method adapters', () => {
     { label: 'exhausted', overrides: { expiresAtMs: Date.now() + 60_000, remainingUses: 0 } },
   ] as const) {
     test(`rejects ${staleCase.label} Email OTP ECDSA sealed records`, async () => {
-      const sealedRecord = makeEmailOtpEcdsaSealedRecord(staleCase.overrides);
+      const sealedRecord = {
+        ...makeEmailOtpEcdsaSealedRecord(),
+        ...staleCase.overrides,
+      };
 
       await expect(
         restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord({
@@ -184,7 +260,7 @@ test.describe('sealed recovery method adapters', () => {
   test('restores Email OTP Ed25519 companion session through shared readback contracts', async () => {
     const restoredSessions = new Set<string>();
     const recordedStatuses: Array<{ sessionId: string; remainingUses: number; expiresAtMs: number }> = [];
-    const record = makeEmailOtpEcdsaSealedRecord();
+    const record = makeEmailOtpEd25519SealedRecord();
 
     const result = await restoreEmailOtpEd25519SealedRecordForAccount({
       accountId: 'alice.testnet',

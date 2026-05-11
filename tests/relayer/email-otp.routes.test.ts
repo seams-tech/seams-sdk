@@ -274,51 +274,82 @@ function makeSigningSessionStatusPolicy(args?: {
     ? claims.participantIds.map((value) => Number(value))
     : [1, 2];
   const expiresAtMs = Math.floor(Number(claims.thresholdExpiresAtMs) || Date.now() + 60_000);
-  const makeStatus = (id: string, recordRelayerKeyId: string) => ({
+  const makeThresholdStatus = (id: string, recordRelayerKeyId: string) => ({
+    kind: 'threshold_session' as const,
+    curve: 'ecdsa' as const,
     thresholdSessionId: id,
     userId,
     expiresAtMs,
     remainingUses: 7,
-    record: {
-      userId,
-      rpId,
-      relayerKeyId: recordRelayerKeyId,
-      participantIds,
-      expiresAtMs,
-    },
+    relayerKeyId: recordRelayerKeyId,
+    rpId,
+    participantIds,
+  });
+  const makeWalletBudgetStatus = (id: string, recordRelayerKeyId: string) => ({
+    kind: 'wallet_budget' as const,
+    curve: 'ecdsa' as const,
+    thresholdSessionId: id,
+    walletSigningSessionId,
+    userId,
+    expiresAtMs,
+    remainingUses: 7,
+    relayerKeyId: recordRelayerKeyId,
+    rpId,
+    participantIds,
   });
   const walletBudgetId = `wallet-signing:${walletSigningSessionId}`;
   const statusById: Record<string, any | null> = {
-    [sessionId]: makeStatus(sessionId, relayerKeyId),
-    [walletBudgetId]: makeStatus(walletBudgetId, 'wallet-signing-budget'),
+    [sessionId]: makeThresholdStatus(sessionId, relayerKeyId),
+    [walletBudgetId]: makeWalletBudgetStatus(walletBudgetId, 'wallet-signing-budget'),
     ...(args?.statusById || {}),
   };
   return {
-    getSession: async (thresholdSessionId: string) => {
+    getThresholdSession: async ({
+      thresholdSessionId,
+    }: {
+      curve: 'ecdsa' | 'ed25519';
+      thresholdSessionId: string;
+    }) => {
       const status = statusById[thresholdSessionId];
-      if (!status) return null;
+      if (!status || status.kind !== 'threshold_session') return null;
       return {
+        curve: 'ecdsa' as const,
         thresholdSessionId,
         userId: status.userId,
         expiresAtMs: status.expiresAtMs,
+        relayerKeyId: status.relayerKeyId,
+        rpId: status.rpId,
+        participantIds: status.participantIds,
         remainingUses: status.remainingUses,
       };
     },
-    getSessionStatus: async (thresholdSessionId: string) => {
+    getThresholdSessionStatuses: async ({
+      thresholdSessionId,
+    }: {
+      curve: 'ecdsa' | 'ed25519';
+      thresholdSessionId: string;
+    }) => {
       args?.onStatusRead?.(thresholdSessionId);
-      return statusById[thresholdSessionId] || null;
-    },
-    getSessionStatuses: async (thresholdSessionId: string) => {
       const status = statusById[thresholdSessionId] || null;
-      return status ? [status] : [];
+      return status?.kind === 'threshold_session' ? [status] : [];
     },
-    consumeUseCount: async (thresholdSessionId: string) => {
+    getWalletBudgetStatus: async ({
+      walletSigningSessionId: requestedWalletSigningSessionId,
+    }: {
+      curve: 'ecdsa' | 'ed25519';
+      walletSigningSessionId: string;
+    }) => {
+      const walletStatus = statusById[`wallet-signing:${requestedWalletSigningSessionId}`] || null;
+      return walletStatus?.kind === 'wallet_budget' ? walletStatus : null;
+    },
+    consumeUseCount: async ({
+      thresholdSessionId,
+    }: {
+      curve: 'ecdsa' | 'ed25519';
+      thresholdSessionId: string;
+    }) => {
       args?.onConsumeUseCount?.(thresholdSessionId);
       return { ok: false, code: 'test_forbidden', message: 'unexpected consumeUseCount' };
-    },
-    consumeUseCountOnce: async (thresholdSessionId: string) => {
-      args?.onConsumeUseCount?.(thresholdSessionId);
-      return { ok: false, code: 'test_forbidden', message: 'unexpected consumeUseCountOnce' };
     },
   };
 }
@@ -1240,13 +1271,17 @@ test.describe('Email OTP routes', () => {
         claims: thresholdClaims,
         statusById: {
           'exhausted-ecdsa-session': {
-            ...((await exhaustedSessionStatus.getSessionStatus('exhausted-ecdsa-session')) as any),
+            ...((await exhaustedSessionStatus.getThresholdSessionStatuses({
+              curve: 'ecdsa',
+              thresholdSessionId: 'exhausted-ecdsa-session',
+            }))?.[0] as any),
             remainingUses: 0,
           },
           'wallet-signing:exhausted-wallet-signing-session': {
-            ...((await exhaustedSessionStatus.getSessionStatus(
-              'wallet-signing:exhausted-wallet-signing-session',
-            )) as any),
+            ...(await exhaustedSessionStatus.getWalletBudgetStatus?.({
+              curve: 'ecdsa',
+              walletSigningSessionId: 'exhausted-wallet-signing-session',
+            }) as any),
             remainingUses: 0,
           },
         },

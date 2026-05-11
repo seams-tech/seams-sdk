@@ -15,12 +15,60 @@ const ECDSA_RESTORE = {
   participantIds: [1, 2, 3],
 } as const;
 
+const EMAIL_OTP_ECDSA_RESTORE = {
+  ...ECDSA_RESTORE,
+  thresholdSessionAuthToken: 'threshold-session-jwt',
+} as const;
+
+const PASSKEY_ED25519_RESTORE = {
+  rpId: 'wallet.example.localhost',
+  relayerKeyId: 'relayer-key',
+  participantIds: [1, 2, 3],
+  sessionKind: 'cookie',
+} as const;
+
+const EMAIL_OTP_ED25519_RESTORE = {
+  ...PASSKEY_ED25519_RESTORE,
+  sessionKind: 'jwt',
+  thresholdSessionAuthToken: 'threshold-session-jwt',
+} as const;
+
 test.describe('signing session sealed store', () => {
   test.beforeEach(async ({ page }) => {
     await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
-    await page.evaluate((ecdsaRestore) => {
-      (globalThis as { ECDSA_RESTORE?: typeof ecdsaRestore }).ECDSA_RESTORE = ecdsaRestore;
-    }, ECDSA_RESTORE);
+    await page.evaluate(
+      ({ ecdsaRestore, emailOtpEcdsaRestore, passkeyEd25519Restore, emailOtpEd25519Restore }) => {
+        (
+          globalThis as {
+            ECDSA_RESTORE?: typeof ecdsaRestore;
+            EMAIL_OTP_ECDSA_RESTORE?: typeof emailOtpEcdsaRestore;
+            PASSKEY_ED25519_RESTORE?: typeof passkeyEd25519Restore;
+            EMAIL_OTP_ED25519_RESTORE?: typeof emailOtpEd25519Restore;
+          }
+        ).ECDSA_RESTORE = ecdsaRestore;
+        (
+          globalThis as {
+            EMAIL_OTP_ECDSA_RESTORE?: typeof emailOtpEcdsaRestore;
+          }
+        ).EMAIL_OTP_ECDSA_RESTORE = emailOtpEcdsaRestore;
+        (
+          globalThis as {
+            PASSKEY_ED25519_RESTORE?: typeof passkeyEd25519Restore;
+          }
+        ).PASSKEY_ED25519_RESTORE = passkeyEd25519Restore;
+        (
+          globalThis as {
+            EMAIL_OTP_ED25519_RESTORE?: typeof emailOtpEd25519Restore;
+          }
+        ).EMAIL_OTP_ED25519_RESTORE = emailOtpEd25519Restore;
+      },
+      {
+        ecdsaRestore: ECDSA_RESTORE,
+        emailOtpEcdsaRestore: EMAIL_OTP_ECDSA_RESTORE,
+        passkeyEd25519Restore: PASSKEY_ED25519_RESTORE,
+        emailOtpEd25519Restore: EMAIL_OTP_ED25519_RESTORE,
+      },
+    );
   });
 
   test('writes shamir3pass records to IndexedDB without persisting plaintext secret or JWT auth', async ({
@@ -39,6 +87,8 @@ test.describe('signing session sealed store', () => {
           subjectId: 'sealed-store-subject',
           authMethod: 'passkey',
           ecdsaRestore: ECDSA_RESTORE,
+          signingRootId: 'signing-root',
+          relayerUrl: 'https://relay.example',
           sealedSecretB64u: 'sealed-secret-b64u',
           thresholdSessionAuthToken: 'jwt-must-not-persist',
           signingSessionSecretB64u: 'plaintext-k-must-not-persist',
@@ -231,7 +281,7 @@ test.describe('signing session sealed store', () => {
             ed25519: 'email-otp-ed25519-session',
           },
           authMethod: 'email_otp',
-          ecdsaRestore: ECDSA_RESTORE,
+          ecdsaRestore: EMAIL_OTP_ECDSA_RESTORE,
           walletId: 'alice.testnet',
           userId: 'alice.testnet',
           signingRootId: 'signing-root',
@@ -312,6 +362,213 @@ test.describe('signing session sealed store', () => {
     expect(result.malformed).toBeNull();
   });
 
+  test('classifies legacy missing-field ECDSA records at the persistence boundary', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.sealedSessionStore);
+        await mod.clearAllSealedSessions();
+        const now = Date.now();
+        const deleteStoreKey = 'legacy-delete-wallet-session:email_otp:ecdsa:tempo%3A42431';
+        const missingSigningRootStoreKey =
+          'legacy-missing-signing-root-wallet-session:email_otp:ecdsa:tempo%3A42431';
+        const missingTokenStoreKey =
+          'legacy-missing-token-wallet-session:email_otp:ecdsa:tempo%3A42431';
+
+        await mod.writeExactSealedSession({
+          thresholdSessionId: 'legacy-current-ecdsa-session',
+          walletSigningSessionId: 'legacy-current-wallet-session',
+          curve: 'ecdsa',
+          subjectId: 'sealed-store-subject',
+          authMethod: 'email_otp',
+          thresholdSessionIds: { ecdsa: 'legacy-current-ecdsa-session' },
+          walletId: 'legacy.testnet',
+          userId: 'legacy.testnet',
+          signingRootId: 'legacy-signing-root',
+          relayerUrl: 'https://relay.example',
+          ecdsaRestore: {
+            ...ECDSA_RESTORE,
+            thresholdSessionAuthToken: 'threshold-session-jwt',
+          },
+          sealedSecretB64u: 'sealed-current',
+          issuedAtMs: now,
+          expiresAtMs: now + 60_000,
+          remainingUses: 2,
+          updatedAtMs: now,
+        });
+
+        const deleteRequiredRaw = {
+          v: 1,
+          alg: 'shamir3pass-v1',
+          storageScope: 'iframe_origin_indexeddb',
+          secretKind: 'signing_session_secret32',
+          storeKey: deleteStoreKey,
+          authMethod: 'email_otp',
+          walletSigningSessionId: 'legacy-delete-wallet-session',
+          thresholdSessionIds: { ecdsa: 'legacy-delete-ecdsa-session' },
+          curve: 'ecdsa',
+          subjectId: 'sealed-store-subject',
+          walletId: 'legacy.testnet',
+          userId: 'legacy.testnet',
+          signingRootId: 'legacy-signing-root',
+          relayerUrl: 'https://relay.example',
+          sealedSecretB64u: 'sealed-delete',
+          ecdsaRestore: {
+            ...ECDSA_RESTORE,
+            thresholdSessionAuthToken: 'threshold-session-jwt',
+            participantIds: [],
+          },
+          issuedAtMs: now,
+          expiresAtMs: now + 60_000,
+          remainingUses: 2,
+          updatedAtMs: now,
+        };
+        const rebuildRequiredRaw = {
+          v: 1,
+          alg: 'shamir3pass-v1',
+          storageScope: 'iframe_origin_indexeddb',
+          secretKind: 'signing_session_secret32',
+          storeKey: 'legacy-rebuild-required',
+          authMethod: 'email_otp',
+          walletSigningSessionId: 'legacy-rebuild-wallet-session',
+          thresholdSessionIds: { ecdsa: 'legacy-rebuild-ecdsa-session' },
+          curve: 'ecdsa',
+          subjectId: 'sealed-store-subject',
+          walletId: 'legacy.testnet',
+          userId: 'legacy.testnet',
+          signingRootId: 'legacy-signing-root',
+          relayerUrl: 'https://relay.example',
+          sealedSecretB64u: 'sealed-rebuild',
+          ecdsaRestore: undefined,
+          issuedAtMs: now,
+          expiresAtMs: now + 60_000,
+          remainingUses: 2,
+          updatedAtMs: now,
+        };
+        const missingSigningRootRaw = {
+          v: 1,
+          alg: 'shamir3pass-v1',
+          storageScope: 'iframe_origin_indexeddb',
+          secretKind: 'signing_session_secret32',
+          storeKey: missingSigningRootStoreKey,
+          authMethod: 'email_otp',
+          walletSigningSessionId: 'legacy-missing-signing-root-wallet-session',
+          thresholdSessionIds: { ecdsa: 'legacy-missing-signing-root-ecdsa-session' },
+          curve: 'ecdsa',
+          subjectId: 'sealed-store-subject',
+          walletId: 'legacy.testnet',
+          userId: 'legacy.testnet',
+          relayerUrl: 'https://relay.example',
+          sealedSecretB64u: 'sealed-missing-signing-root',
+          ecdsaRestore: EMAIL_OTP_ECDSA_RESTORE,
+          issuedAtMs: now,
+          expiresAtMs: now + 60_000,
+          remainingUses: 2,
+          updatedAtMs: now,
+        };
+        const missingTokenRaw = {
+          v: 1,
+          alg: 'shamir3pass-v1',
+          storageScope: 'iframe_origin_indexeddb',
+          secretKind: 'signing_session_secret32',
+          storeKey: missingTokenStoreKey,
+          authMethod: 'email_otp',
+          walletSigningSessionId: 'legacy-missing-token-wallet-session',
+          thresholdSessionIds: { ecdsa: 'legacy-missing-token-ecdsa-session' },
+          curve: 'ecdsa',
+          subjectId: 'sealed-store-subject',
+          walletId: 'legacy.testnet',
+          userId: 'legacy.testnet',
+          signingRootId: 'legacy-signing-root',
+          relayerUrl: 'https://relay.example',
+          sealedSecretB64u: 'sealed-missing-token',
+          ecdsaRestore: ECDSA_RESTORE,
+          issuedAtMs: now,
+          expiresAtMs: now + 60_000,
+          remainingUses: 2,
+          updatedAtMs: now,
+        };
+
+        const db = await new Promise<IDBDatabase>((resolve, reject) => {
+          const req = indexedDB.open('seams_wallet_v1');
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        });
+        const tx = db.transaction('signing_session_seals_v1', 'readwrite');
+        tx.objectStore('signing_session_seals_v1').put(deleteRequiredRaw);
+        tx.objectStore('signing_session_seals_v1').put(rebuildRequiredRaw);
+        tx.objectStore('signing_session_seals_v1').put(missingSigningRootRaw);
+        tx.objectStore('signing_session_seals_v1').put(missingTokenRaw);
+        await new Promise<void>((resolve, reject) => {
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+          tx.onabort = () => reject(tx.error);
+        });
+
+        const filter = {
+          authMethod: 'email_otp' as const,
+          curve: 'ecdsa' as const,
+          chain: 'tempo' as const,
+          chainTarget: ECDSA_RESTORE.chainTarget,
+        };
+        const currentRead = await mod.readExactSealedSession('legacy-current-ecdsa-session', filter);
+        const deleteRead = await mod.readExactSealedSession('legacy-delete-ecdsa-session', filter);
+        const rebuildRead = await mod.readExactSealedSession('legacy-rebuild-ecdsa-session', filter);
+        const missingSigningRootRead = await mod.readExactSealedSession(
+          'legacy-missing-signing-root-ecdsa-session',
+          filter,
+        );
+        const missingTokenRead = await mod.readExactSealedSession(
+          'legacy-missing-token-ecdsa-session',
+          filter,
+        );
+
+        const remainingKeys = await new Promise<string[]>((resolve, reject) => {
+          const readTx = db.transaction('signing_session_seals_v1', 'readonly');
+          const getReq = readTx.objectStore('signing_session_seals_v1').getAll();
+          getReq.onsuccess = () => {
+            resolve(
+              (getReq.result as Array<Record<string, unknown>>).map((entry) => String(entry.storeKey)),
+            );
+          };
+          getReq.onerror = () => reject(getReq.error);
+        });
+        db.close();
+
+        return {
+          currentRead,
+          deleteRead,
+          rebuildRead,
+          missingSigningRootRead,
+          missingTokenRead,
+          remainingKeys,
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.currentRead?.signingRootVersion).toBe('default');
+    expect(result.deleteRead).toBeNull();
+    expect(result.rebuildRead).toBeNull();
+    expect(result.missingSigningRootRead).toBeNull();
+    expect(result.missingTokenRead).toBeNull();
+    expect(result.currentRead?.storeKey).toBe(
+      'legacy-current-wallet-session:email_otp:ecdsa:tempo%3A42431',
+    );
+    expect(result.remainingKeys).toContain(result.currentRead?.storeKey);
+    expect(result.remainingKeys).not.toContain(
+      'legacy-delete-wallet-session:email_otp:ecdsa:tempo%3A42431',
+    );
+    expect(result.remainingKeys).not.toContain(
+      'legacy-missing-signing-root-wallet-session:email_otp:ecdsa:tempo%3A42431',
+    );
+    expect(result.remainingKeys).not.toContain(
+      'legacy-missing-token-wallet-session:email_otp:ecdsa:tempo%3A42431',
+    );
+    expect(result.remainingKeys).toContain('legacy-rebuild-required');
+  });
+
   test('filters colliding passkey and Email OTP sealed records by auth method and curve', async ({
     page,
   }) => {
@@ -327,6 +584,8 @@ test.describe('signing session sealed store', () => {
           thresholdSessionIds: { ed25519: thresholdSessionId },
           curve: 'ed25519',
           authMethod: 'passkey',
+          ed25519Restore: PASSKEY_ED25519_RESTORE,
+          relayerUrl: 'https://relay.example',
           sealedSecretB64u: 'sealed-passkey-session',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 5,
@@ -339,7 +598,7 @@ test.describe('signing session sealed store', () => {
           curve: 'ecdsa',
           subjectId: 'sealed-store-subject',
           authMethod: 'email_otp',
-          ecdsaRestore: ECDSA_RESTORE,
+          ecdsaRestore: EMAIL_OTP_ECDSA_RESTORE,
           walletId: 'alice.testnet',
           signingRootId: 'signing-root',
           relayerUrl: 'https://relay.example',
@@ -423,7 +682,7 @@ test.describe('signing session sealed store', () => {
           curve: 'ecdsa',
           subjectId: 'sealed-store-subject',
           authMethod: 'email_otp',
-          ecdsaRestore: ECDSA_RESTORE,
+          ecdsaRestore: EMAIL_OTP_ECDSA_RESTORE,
           walletId: 'alice.testnet',
           userId: 'alice.testnet',
           signingRootId: 'signing-root',
@@ -442,6 +701,8 @@ test.describe('signing session sealed store', () => {
           authMethod: 'email_otp',
           walletId: 'alice.testnet',
           userId: 'alice.testnet',
+          ed25519Restore: EMAIL_OTP_ED25519_RESTORE,
+          relayerUrl: 'https://relay.example',
           sealedSecretB64u: 'sealed-email-otp-ed25519',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 4,
@@ -457,6 +718,8 @@ test.describe('signing session sealed store', () => {
           ecdsaRestore: ECDSA_RESTORE,
           walletId: 'alice.testnet',
           userId: 'alice.testnet',
+          signingRootId: 'signing-root',
+          relayerUrl: 'https://relay.example',
           sealedSecretB64u: 'sealed-passkey-ecdsa',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 4,
@@ -469,7 +732,7 @@ test.describe('signing session sealed store', () => {
           curve: 'ecdsa',
           subjectId: 'sealed-store-subject',
           authMethod: 'email_otp',
-          ecdsaRestore: ECDSA_RESTORE,
+          ecdsaRestore: EMAIL_OTP_ECDSA_RESTORE,
           walletId: 'bob.testnet',
           userId: 'bob.testnet',
           signingRootId: 'signing-root',
@@ -520,6 +783,8 @@ test.describe('signing session sealed store', () => {
           authMethod: 'email_otp',
           walletId: 'alice.testnet',
           userId: 'alice.testnet',
+          ed25519Restore: EMAIL_OTP_ED25519_RESTORE,
+          relayerUrl: 'https://relay.example',
           sealedSecretB64u: 'old-ed25519',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 1,
@@ -533,6 +798,8 @@ test.describe('signing session sealed store', () => {
           authMethod: 'email_otp',
           walletId: 'alice.testnet',
           userId: 'alice.testnet',
+          ed25519Restore: EMAIL_OTP_ED25519_RESTORE,
+          relayerUrl: 'https://relay.example',
           sealedSecretB64u: 'new-ed25519',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 1,
@@ -546,9 +813,11 @@ test.describe('signing session sealed store', () => {
           curve: 'ecdsa',
           subjectId: 'sealed-store-subject',
           authMethod: 'email_otp',
-          ecdsaRestore: ECDSA_RESTORE,
+          ecdsaRestore: EMAIL_OTP_ECDSA_RESTORE,
           walletId: 'alice.testnet',
           userId: 'alice.testnet',
+          signingRootId: 'signing-root',
+          relayerUrl: 'https://relay.example',
           sealedSecretB64u: 'old-ecdsa',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 1,
@@ -561,10 +830,11 @@ test.describe('signing session sealed store', () => {
           curve: 'ecdsa',
           subjectId: 'sealed-store-subject',
           authMethod: 'email_otp',
-          ecdsaRestore: ECDSA_RESTORE,
+          ecdsaRestore: EMAIL_OTP_ECDSA_RESTORE,
           walletId: 'alice.testnet',
           userId: 'alice.testnet',
           signingRootId: 'signing-root',
+          relayerUrl: 'https://relay.example',
           sealedSecretB64u: 'new-ecdsa',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 1,
@@ -611,6 +881,8 @@ test.describe('signing session sealed store', () => {
           thresholdSessionIds: { ed25519: sharedEd25519SessionId },
           curve: 'ed25519',
           authMethod: 'passkey',
+          ed25519Restore: PASSKEY_ED25519_RESTORE,
+          relayerUrl: 'https://relay.example',
           sealedSecretB64u: 'sealed-passkey-ed25519',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 3,
@@ -626,9 +898,10 @@ test.describe('signing session sealed store', () => {
           curve: 'ecdsa',
           subjectId: 'sealed-store-subject',
           authMethod: 'email_otp',
-          ecdsaRestore: ECDSA_RESTORE,
+          ecdsaRestore: EMAIL_OTP_ECDSA_RESTORE,
           walletId: 'alice.testnet',
           signingRootId: 'signing-root',
+          relayerUrl: 'https://relay.example',
           sealedSecretB64u: 'sealed-email-otp-ecdsa',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 4,
@@ -676,6 +949,8 @@ test.describe('signing session sealed store', () => {
           subjectId: 'sealed-store-subject',
           authMethod: 'passkey',
           ecdsaRestore: ECDSA_RESTORE,
+          signingRootId: 'signing-root',
+          relayerUrl: 'https://relay.example',
           sealedSecretB64u: 'a',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 2,
@@ -688,6 +963,8 @@ test.describe('signing session sealed store', () => {
           subjectId: 'sealed-store-subject',
           authMethod: 'passkey',
           ecdsaRestore: ECDSA_RESTORE,
+          signingRootId: 'signing-root',
+          relayerUrl: 'https://relay.example',
           sealedSecretB64u: 'b',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 2,
@@ -752,6 +1029,8 @@ test.describe('signing session sealed store', () => {
             subjectId: 'sealed-store-subject',
             authMethod: 'passkey',
             ecdsaRestore: ECDSA_RESTORE,
+            signingRootId: 'signing-root',
+            relayerUrl: 'https://relay.example',
             sealedSecretB64u: 'sealed-host',
             expiresAtMs: Date.now() + 60_000,
             remainingUses: 2,
@@ -814,6 +1093,8 @@ test.describe('signing session sealed store', () => {
           subjectId: 'sealed-store-subject',
           authMethod: 'passkey',
           ecdsaRestore: ECDSA_RESTORE,
+          signingRootId: 'signing-root',
+          relayerUrl: 'https://relay.example',
           sealedSecretB64u: 'sealed-disabled',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 1,
@@ -859,6 +1140,8 @@ test.describe('signing session sealed store', () => {
           ecdsaRestore: ECDSA_RESTORE,
           walletId: 'restart.testnet',
           userId: 'restart.testnet',
+          signingRootId: 'signing-root',
+          relayerUrl: 'https://relay.example',
           sealedSecretB64u: 'sealed-restart',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 2,
@@ -901,6 +1184,8 @@ test.describe('signing session sealed store', () => {
           subjectId: 'sealed-store-subject',
           authMethod: 'passkey',
           ecdsaRestore: ECDSA_RESTORE,
+          signingRootId: 'signing-root',
+          relayerUrl: 'https://relay.example',
           sealedSecretB64u: 'sealed-lease',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 2,
@@ -996,10 +1281,11 @@ test.describe('signing session sealed store', () => {
             ed25519: 'transaction-ed25519-session',
           },
           authMethod: 'email_otp',
-          ecdsaRestore: ECDSA_RESTORE,
+          ecdsaRestore: EMAIL_OTP_ECDSA_RESTORE,
           walletId: 'alice.testnet',
           userId: 'alice.testnet',
           signingRootId: 'signing-root',
+          relayerUrl: 'https://relay.example',
           sealedSecretB64u: 'sealed-transaction-k',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 7,
@@ -1076,10 +1362,11 @@ test.describe('signing session sealed store', () => {
             ecdsa: 'identity-ecdsa-session',
           },
           authMethod: 'email_otp',
-          ecdsaRestore: ECDSA_RESTORE,
+          ecdsaRestore: EMAIL_OTP_ECDSA_RESTORE,
           walletId: 'identity.testnet',
           userId: 'identity.testnet',
           signingRootId: 'identity-root',
+          relayerUrl: 'https://relay.example',
           sealedSecretB64u: 'sealed-identity-k',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 7,
@@ -1168,6 +1455,8 @@ test.describe('signing session sealed store', () => {
           walletId: 'preserve-identity.testnet',
           userId: 'preserve-identity.testnet',
           signingRootId: 'preserve-identity-root',
+          ed25519Restore: PASSKEY_ED25519_RESTORE,
+          relayerUrl: 'https://relay.example',
           sealedSecretB64u: 'sealed-preserve-identity-k',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 1,
@@ -1204,6 +1493,8 @@ test.describe('signing session sealed store', () => {
           walletId: 'preserve-identity.testnet',
           userId: 'preserve-identity.testnet',
           signingRootId: 'preserve-identity-root',
+          ed25519Restore: PASSKEY_ED25519_RESTORE,
+          relayerUrl: 'https://relay.example',
           sealedSecretB64u: 'sealed-preserve-identity-k-2',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 1,

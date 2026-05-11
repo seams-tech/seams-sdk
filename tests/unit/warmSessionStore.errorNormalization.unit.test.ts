@@ -74,7 +74,9 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
         subjectId: toWalletSubjectId('bootstrap-error.testnet'),
         chainTarget: testEcdsaChainTarget('evm'),
         source: 'manual-bootstrap',
+        sessionKind: 'jwt',
         sessionId: record.thresholdSessionId,
+        walletSigningSessionId: record.walletSigningSessionId,
         thresholdSessionAuth: {
           kind: 'threshold_session',
           jwt: 'jwt:bootstrap-error-session',
@@ -135,9 +137,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
         sessionBudgetUses: 1,
         clientRootShare32B64u: 'reconnect-error-client-root-share',
       }),
-    ).rejects.toThrow(
-      '[WarmSessionStore] provisioned ECDSA capability was not persisted for reconnect-error.testnet (expected sessionId=reconnect-error-fresh-session, found=reconnect-error-stale-session)',
-    );
+    ).rejects.toThrow('[WarmSessionStore] threshold ECDSA warm capability is not ready after reconnect');
   });
 
   test('surfaces required seal persistence failures with code and message intact', async () => {

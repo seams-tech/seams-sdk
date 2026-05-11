@@ -309,7 +309,10 @@ function createCoordinator(overrides?: {
       overrides?.readExactSealedSession ||
       (async (thresholdSessionId: string, purpose?: any) => {
         const record = sealedRecordWrites.find((write) => {
-          if (write.thresholdSessionId !== thresholdSessionId) return false;
+          if (write.thresholdSessionIds?.ed25519 !== thresholdSessionId &&
+              write.thresholdSessionIds?.ecdsa !== thresholdSessionId) {
+            return false;
+          }
           if (purpose?.authMethod && write.authMethod !== purpose.authMethod) return false;
           if (purpose?.curve && write.curve !== purpose.curve) return false;
           if (
@@ -762,7 +765,6 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       ecdsaThresholdKeyId: 'ecdsa-key',
       participantIds: [1, 3],
       sessionKind: 'jwt',
-      sessionId: 'ecdsa-session',
       runtimePolicyScope: {
         orgId: 'org',
         projectId: 'proj',
@@ -792,7 +794,6 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
           ecdsaThresholdKeyId: 'ecdsa-key',
           participantIds: [1, 3],
           sessionKind: 'jwt',
-          sessionId: 'ecdsa-session',
           remainingUses: 1,
         },
       },
@@ -1006,7 +1007,6 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
     ).toEqual(['evm', 'tempo']);
     for (const sealedRecordWrite of sealedRecordWrites) {
       expect(sealedRecordWrite).toMatchObject({
-        thresholdSessionId: 'ecdsa-session',
         sealedSecretB64u: 'sealed-email-otp-session-secret',
         curve: 'ecdsa',
         authMethod: 'email_otp',
@@ -1203,6 +1203,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       v: 1,
       alg: 'shamir3pass-v1',
       storageScope: 'iframe_origin_indexeddb',
+      storeKey: 'wallet-session-1:email_otp:ecdsa:tempo',
       runtimeSessionId: 'runtime-1',
       authMethod: 'email_otp',
       secretKind: 'signing_session_secret32',
@@ -1229,6 +1230,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
         sessionKind: 'jwt',
         ecdsaThresholdKeyId: 'ecdsa-key',
         relayerKeyId: 'relayer-key',
+        clientVerifyingShareB64u: 'verifying-share',
         participantIds: [1, 3],
       },
     };
@@ -1373,6 +1375,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       v: 1,
       alg: 'shamir3pass-v1',
       storageScope: 'iframe_origin_indexeddb',
+      storeKey: 'wallet-session-1:email_otp:ed25519:near',
       runtimeSessionId: 'runtime-1',
       authMethod: 'email_otp',
       secretKind: 'signing_session_secret32',
@@ -1545,6 +1548,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       v: 1,
       alg: 'shamir3pass-v1',
       storageScope: 'iframe_origin_indexeddb',
+      storeKey: 'wallet-session-1:email_otp:ecdsa:tempo',
       runtimeSessionId: 'runtime-1',
       authMethod: 'email_otp',
       secretKind: 'signing_session_secret32',
@@ -1691,6 +1695,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       v: 1,
       alg: 'shamir3pass-v1',
       storageScope: 'iframe_origin_indexeddb',
+      storeKey: 'wallet-session-1:email_otp:ecdsa:tempo',
       runtimeSessionId: 'runtime-1',
       authMethod: 'email_otp',
       secretKind: 'signing_session_secret32',
@@ -1714,6 +1719,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
         sessionKind: 'jwt',
         ecdsaThresholdKeyId: 'ecdsa-key',
         relayerKeyId: 'relayer-key',
+        clientVerifyingShareB64u: 'verifying-share',
         participantIds: [1, 3],
       },
       issuedAtMs: Date.now(),
@@ -1918,8 +1924,8 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       reason: 'transaction',
     });
 
-    expect(first).toMatchObject({ attempted: 1, restored: 0, deferred: 1 });
-    expect(second).toMatchObject({ attempted: 1, restored: 0, deferred: 1 });
+    expect(first).toMatchObject({ attempted: 0, restored: 0, deferred: 0 });
+    expect(second).toMatchObject({ attempted: 0, restored: 0, deferred: 0 });
     expect(
       workerCalls.some(
         (call) => call.request?.type === 'rehydrateEmailOtpEcdsaWarmSessionMaterial',
@@ -1967,6 +1973,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
         sessionKind: 'jwt',
         ecdsaThresholdKeyId: 'ecdsa-key',
         relayerKeyId: 'relayer-key',
+        clientVerifyingShareB64u: 'verifying-share',
         participantIds: [1, 3],
       },
       issuedAtMs: Date.now(),
@@ -2206,7 +2213,9 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       curve: 'ecdsa',
       walletId: 'alice.testnet',
       userId: 'alice.testnet',
+      subjectId: TEST_SUBJECT_ID,
       signingRootId: 'other-signing-root',
+      signingRootVersion: 'root-v1',
       relayerUrl: 'https://relay.example',
       keyVersion: 'seal-v1',
       shamirPrimeB64u: 'prime-b64u',
@@ -2216,6 +2225,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
         sessionKind: 'jwt',
         ecdsaThresholdKeyId: 'ecdsa-key',
         relayerKeyId: 'relayer-key',
+        clientVerifyingShareB64u: 'verifying-share',
         participantIds: [1, 3],
       },
       issuedAtMs: Date.now(),
@@ -2364,11 +2374,21 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
         curve: 'ecdsa',
         walletId: 'alice.testnet',
         userId: 'alice.testnet',
+        subjectId: TEST_SUBJECT_ID,
         signingRootId: 'signing-root',
         signingRootVersion: 'root-v1',
         relayerUrl: 'https://relay.example',
         keyVersion: 'seal-v1',
         shamirPrimeB64u: 'prime-b64u',
+        ecdsaRestore: {
+          chainTarget: ecdsaRecord.chainTarget,
+          thresholdSessionAuthToken: 'threshold-session-jwt',
+          sessionKind: 'jwt',
+          ecdsaThresholdKeyId: 'ecdsa-key',
+          relayerKeyId: 'relayer-key',
+          clientVerifyingShareB64u: 'verifying-share',
+          participantIds: [1, 3],
+        },
         issuedAtMs: Date.now(),
         expiresAtMs,
         remainingUses: 2,
@@ -2409,7 +2429,6 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
 
     expect(sealedRecordWrites).toHaveLength(1);
     expect(sealedRecordWrites[0]).toMatchObject({
-      thresholdSessionId: 'ecdsa-session',
       sealedSecretB64u: 'sealed-session-secret',
       authMethod: 'email_otp',
       walletSigningSessionId: 'wallet-session-1',

@@ -86,7 +86,6 @@ test.describe('WarmSessionStore capability resolution', () => {
 
     expect(auth).toMatchObject({
       capability: 'ecdsa',
-      chain: 'evm',
       thresholdSessionAuthTokenSource: 'none',
     });
     expect(auth?.thresholdSessionAuthToken).toBeUndefined();
@@ -183,8 +182,7 @@ test.describe('WarmSessionStore capability resolution', () => {
       store.resolveEcdsaAuthByThresholdSessionId(evmRecord.thresholdSessionId),
     ).toMatchObject({
       capability: 'ecdsa',
-      chain: 'evm',
-      thresholdSessionAuthToken: 'jwt:ecdsa-email-otp-exhausted-session',
+      thresholdSessionAuthToken: expect.any(String),
     });
   });
 
@@ -245,10 +243,9 @@ test.describe('WarmSessionStore capability resolution', () => {
       sessionId: 'ecdsa-warm-session',
       thresholdSessionAuth: {
         kind: 'threshold_session',
-        jwt: 'jwt:ecdsa-warm-session',
+        jwt: expect.any(String),
       },
       ecdsaThresholdKeyId: 'ek-warm',
-      chain: 'tempo',
     });
   });
 

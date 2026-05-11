@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import type { WebAuthnAuthenticationCredential } from '../../client/src/core/types/webauthn';
 import {
   prepareStepUpAuth,
   requireStepUpAuth,
@@ -7,6 +8,27 @@ import {
   selectStepUpMethod,
   StepUpMethodSelectionError,
 } from '../../client/src/core/signingEngine/stepUpConfirmation/methodSelection';
+
+const TEST_WEBAUTHN_CREDENTIAL = {
+  id: 'credential-id',
+  rawId: 'raw-id',
+  type: 'public-key',
+  authenticatorAttachment: 'platform',
+  response: {
+    clientDataJSON: 'client-data',
+    authenticatorData: 'authenticator-data',
+    signature: 'signature',
+    userHandle: undefined,
+  },
+  clientExtensionResults: {
+    prf: {
+      results: {
+        first: 'first-prf',
+        second: undefined,
+      },
+    },
+  },
+} satisfies WebAuthnAuthenticationCredential;
 
 test.describe('step-up adaptor method selection', () => {
   test('selects passkey from the selected lane when a passkey runner exists', () => {
@@ -94,7 +116,7 @@ test.describe('step-up adaptor method selection', () => {
         confirmation: {
           confirmPasskey: async () => {
             confirmationCalls += 1;
-            return { credential: {} };
+            return { credential: TEST_WEBAUTHN_CREDENTIAL };
           },
           confirmEmailOtp: async () => {
             confirmationCalls += 1;
