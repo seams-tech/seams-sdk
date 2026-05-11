@@ -1,4 +1,8 @@
 import type { NormalizedLogger } from '../../../core/logger';
+import {
+  parseThresholdEcdsaSessionClaims,
+  parseThresholdEd25519SessionClaims,
+} from '../../../core/ThresholdService/validation';
 import { createSigningSessionSealAuditLogger } from './observability/audit';
 import { composeSigningSessionSealGuards, createSigningSessionSealRateLimitGuard } from './guards';
 import { createSigningSessionSealService } from './service';
@@ -79,6 +83,27 @@ function buildGuard(
   return composeSigningSessionSealGuards(...nonNullGuards);
 }
 
+function parseCurveBoundThresholdLookup(args: {
+  claims: Record<string, unknown>;
+  thresholdSessionId: string;
+}): { curve: 'ecdsa' | 'ed25519'; thresholdSessionId: string } | null {
+  const thresholdSessionId = String(args.thresholdSessionId || '').trim();
+  if (!thresholdSessionId) return null;
+  const ecdsaClaims = parseThresholdEcdsaSessionClaims(args.claims);
+  if (ecdsaClaims) {
+    return ecdsaClaims.sessionId === thresholdSessionId
+      ? { curve: 'ecdsa', thresholdSessionId }
+      : null;
+  }
+  const ed25519Claims = parseThresholdEd25519SessionClaims(args.claims);
+  if (ed25519Claims) {
+    return ed25519Claims.sessionId === thresholdSessionId
+      ? { curve: 'ed25519', thresholdSessionId }
+      : null;
+  }
+  return null;
+}
+
 export function createSigningSessionSealRoutesOptions(
   input: CreateSigningSessionSealRoutesOptionsInput,
 ): SigningSessionSealRoutesOptions {
@@ -151,9 +176,19 @@ export function createSigningSessionSealRoutesOptions(
           status: 401,
         };
       }
-      const thresholdSession = await input.sessionPolicy.getSession(
-        String(thresholdSessionId || '').trim(),
-      );
+      const thresholdLookup = parseCurveBoundThresholdLookup({
+        claims,
+        thresholdSessionId: String(thresholdSessionId || '').trim(),
+      });
+      if (!thresholdLookup) {
+        return {
+          ok: false,
+          code: 'forbidden',
+          message: 'threshold session token does not match requested thresholdSessionId',
+          status: 403,
+        };
+      }
+      const thresholdSession = await input.sessionPolicy.getThresholdSession(thresholdLookup);
       if (!thresholdSession) {
         return {
           ok: false,

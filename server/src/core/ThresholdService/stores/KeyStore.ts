@@ -13,6 +13,10 @@ import {
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { getPostgresPool, getPostgresUrlFromConfig } from '../../../storage/postgres';
 import {
+  parseCurrentThresholdEcdsaKeyRecord,
+  parseCurrentThresholdEd25519KeyRecord,
+} from '../postgresRecords';
+import {
   isObject,
   toThresholdEcdsaKeyPrefix,
   toThresholdEcdsaPrefixFromBase,
@@ -162,13 +166,15 @@ class PostgresThresholdEd25519KeyStore implements ThresholdEd25519KeyStore {
       'SELECT record_json FROM threshold_ed25519_keys WHERE namespace = $1 AND relayer_key_id = $2 LIMIT 1',
       [this.namespace, id],
     );
-    return parseThresholdEd25519KeyRecord(rows[0]?.record_json);
+    const parsed = parseCurrentThresholdEd25519KeyRecord(rows[0]?.record_json);
+    if (!parsed && rows[0]) await this.del(id);
+    return parsed;
   }
 
   async put(relayerKeyId: string, record: ThresholdEd25519KeyRecord): Promise<void> {
     const id = relayerKeyId;
     if (!id) throw new Error('Missing relayerKeyId');
-    const parsed = parseThresholdEd25519KeyRecord(record);
+    const parsed = parseCurrentThresholdEd25519KeyRecord(record);
     if (!parsed) throw new Error('Invalid threshold key record');
     const pool = await this.poolPromise;
     await pool.query(
@@ -337,7 +343,9 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
       'SELECT record_json FROM threshold_ecdsa_keys WHERE namespace = $1 AND relayer_key_id = $2 LIMIT 1',
       [this.namespace, id],
     );
-    return parseThresholdEcdsaIntegratedKeyRecord(rows[0]?.record_json);
+    const parsed = parseCurrentThresholdEcdsaKeyRecord(rows[0]?.record_json);
+    if (!parsed && rows[0]) await this.del(id);
+    return parsed;
   }
 
   async put(
@@ -346,7 +354,7 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
   ): Promise<void> {
     const id = ecdsaThresholdKeyId;
     if (!id) throw new Error('Missing ecdsaThresholdKeyId');
-    const parsed = parseThresholdEcdsaIntegratedKeyRecord(record);
+    const parsed = parseCurrentThresholdEcdsaKeyRecord(record);
     if (!parsed) throw new Error('Invalid threshold-ecdsa integrated key record');
     await this.ensureTable();
     const pool = await this.poolPromise;

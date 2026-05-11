@@ -6,8 +6,12 @@ import {
   redisGetJson,
   redisSetJson,
 } from '../../../core/ThresholdService/kv';
-import { getPostgresPool } from '../../../storage/postgres';
+import { getPostgresPool, parsePostgresRow } from '../../../storage/postgres';
 import { createInMemorySigningSessionSealIdempotencyStore } from './idempotency';
+import {
+  parseCurrentSigningSessionSealIdempotencyRouteResult,
+  parseCurrentSigningSessionSealIdempotencyStoredEntry,
+} from './postgresRecords';
 import type {
   SigningSessionSealIdempotencyStore,
   SigningSessionSealRouteResult,
@@ -17,56 +21,10 @@ import type {
 const DEFAULT_KEY_PREFIX = 'threshold:signing-session-seal:idempotency:';
 const DEFAULT_POSTGRES_NAMESPACE = 'threshold:signing-session-seal:idempotency';
 
-type StoredEntry = {
-  result: SigningSessionSealRouteResult;
-  expiresAtMs: number;
-};
-
 function toPositiveInt(value: unknown): number | undefined {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
   return Math.floor(parsed);
-}
-
-function normalizeResult(raw: unknown): SigningSessionSealRouteResult | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const obj = raw as Record<string, unknown>;
-  if (obj.ok === true) {
-    const ciphertext = toOptionalTrimmedString(obj.ciphertext);
-    if (!ciphertext) return null;
-    const keyVersion = toOptionalTrimmedString(obj.keyVersion);
-    const expiresAtMs = toPositiveInt(obj.expiresAtMs);
-    const remainingUses = toPositiveInt(obj.remainingUses);
-    return {
-      ok: true,
-      ciphertext,
-      ...(keyVersion ? { keyVersion } : {}),
-      ...(expiresAtMs !== undefined ? { expiresAtMs } : {}),
-      ...(remainingUses !== undefined ? { remainingUses } : {}),
-    };
-  }
-
-  if (obj.ok === false) {
-    const code = toOptionalTrimmedString(obj.code);
-    const message = toOptionalTrimmedString(obj.message);
-    if (!code || !message) return null;
-    return {
-      ok: false,
-      code,
-      message,
-    };
-  }
-
-  return null;
-}
-
-function normalizeStoredEntry(raw: unknown): StoredEntry | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const obj = raw as Record<string, unknown>;
-  const result = normalizeResult(obj.result);
-  const expiresAtMs = toPositiveInt(obj.expiresAtMs);
-  if (!result || expiresAtMs === undefined) return null;
-  return { result, expiresAtMs };
 }
 
 function prefixedKey(prefix: string, keyRaw: string): string {
@@ -105,7 +63,7 @@ class UpstashSigningSessionSealIdempotencyStore implements SigningSessionSealIde
     const key = prefixedKey(this.keyPrefix, input.key);
     if (!key) return null;
     const raw = await this.client.getJson(key);
-    const entry = normalizeStoredEntry(raw);
+    const entry = parseCurrentSigningSessionSealIdempotencyStoredEntry(raw);
     if (!entry) return null;
     if (entry.expiresAtMs <= input.nowMs) {
       try {
@@ -121,7 +79,7 @@ class UpstashSigningSessionSealIdempotencyStore implements SigningSessionSealIde
     if (!key) return;
     const expiresAtMs = toPositiveInt(input.expiresAtMs);
     if (expiresAtMs === undefined) return;
-    const normalizedResult = normalizeResult(input.result);
+    const normalizedResult = parseCurrentSigningSessionSealIdempotencyRouteResult(input.result);
     if (!normalizedResult) return;
     const ttlMs = ttlMsUntilExpiry(expiresAtMs, this.nowMs());
     if (ttlMs <= 0) return;
@@ -157,7 +115,7 @@ class RedisTcpSigningSessionSealIdempotencyStore implements SigningSessionSealId
     const key = prefixedKey(this.keyPrefix, input.key);
     if (!key) return null;
     const raw = await redisGetJson(this.client, key);
-    const entry = normalizeStoredEntry(raw);
+    const entry = parseCurrentSigningSessionSealIdempotencyStoredEntry(raw);
     if (!entry) return null;
     if (entry.expiresAtMs <= input.nowMs) {
       try {
@@ -173,7 +131,7 @@ class RedisTcpSigningSessionSealIdempotencyStore implements SigningSessionSealId
     if (!key) return;
     const expiresAtMs = toPositiveInt(input.expiresAtMs);
     if (expiresAtMs === undefined) return;
-    const normalizedResult = normalizeResult(input.result);
+    const normalizedResult = parseCurrentSigningSessionSealIdempotencyRouteResult(input.result);
     if (!normalizedResult) return;
     const ttlMs = ttlMsUntilExpiry(expiresAtMs, this.nowMs());
     if (ttlMs <= 0) return;
@@ -249,11 +207,22 @@ class PostgresSigningSessionSealIdempotencyStore implements SigningSessionSealId
       `,
       [this.namespace, key],
     );
-    const row = rows[0] as { result_json?: unknown; expires_at_ms?: unknown } | undefined;
-    if (!row) return null;
-    const expiresAtMs =
-      typeof row.expires_at_ms === 'number' ? row.expires_at_ms : Number(row.expires_at_ms);
-    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= input.nowMs) {
+    const parsedRow = parsePostgresRow({
+      row: rows[0],
+      parser: (row) => {
+        const expiresAtMs =
+          typeof row.expires_at_ms === 'number' ? row.expires_at_ms : Number(row.expires_at_ms);
+        if (!Number.isFinite(expiresAtMs)) {
+          return null;
+        }
+        return {
+          resultJson: row.result_json,
+          expiresAtMs,
+        };
+      },
+    });
+    if (parsedRow.kind === 'missing') return null;
+    if (parsedRow.kind === 'malformed') {
       await pool.query(
         `
           DELETE FROM threshold_signing_session_seal_idempotency
@@ -263,7 +232,29 @@ class PostgresSigningSessionSealIdempotencyStore implements SigningSessionSealId
       );
       return null;
     }
-    return normalizeResult(row.result_json);
+    const { expiresAtMs, resultJson } = parsedRow.value;
+    if (expiresAtMs <= input.nowMs) {
+      await pool.query(
+        `
+          DELETE FROM threshold_signing_session_seal_idempotency
+          WHERE namespace = $1 AND idempotency_key = $2
+        `,
+        [this.namespace, key],
+      );
+      return null;
+    }
+    const parsed = parseCurrentSigningSessionSealIdempotencyRouteResult(resultJson);
+    if (!parsed) {
+      await pool.query(
+        `
+          DELETE FROM threshold_signing_session_seal_idempotency
+          WHERE namespace = $1 AND idempotency_key = $2
+        `,
+        [this.namespace, key],
+      );
+      return null;
+    }
+    return parsed;
   }
 
   async set(input: { key: string; result: SigningSessionSealRouteResult; expiresAtMs: number }): Promise<void> {
@@ -271,7 +262,7 @@ class PostgresSigningSessionSealIdempotencyStore implements SigningSessionSealId
     if (!key) return;
     const expiresAtMs = toPositiveInt(input.expiresAtMs);
     if (expiresAtMs === undefined) return;
-    const result = normalizeResult(input.result);
+    const result = parseCurrentSigningSessionSealIdempotencyRouteResult(input.result);
     if (!result) return;
     await this.schemaReady;
     const pool = await this.poolPromise;

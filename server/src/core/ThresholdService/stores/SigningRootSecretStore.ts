@@ -2,6 +2,7 @@ import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { getPostgresPool } from '../../../storage/postgres';
 import type { CloudflareDurableObjectNamespaceLike } from '../../types';
+import { parseCurrentSigningRootSecretShareRecord } from '../postgresRecords';
 import {
   normalizeSigningRootSecretShareId,
   type SigningRootSecretShareId,
@@ -154,12 +155,14 @@ export class InMemorySigningRootSecretStore implements SigningRootSecretStore {
 }
 
 type SigningRootSecretShareRow = {
-  signing_root_id: string;
-  signing_root_version: string;
-  share_id: number;
-  sealed_share_b64u: string;
-  storage_id?: string | null;
-  kek_id?: string | null;
+  signing_root_id?: unknown;
+  signing_root_version?: unknown;
+  share_id?: unknown;
+  sealed_share_b64u?: unknown;
+  storage_id?: unknown;
+  kek_id?: unknown;
+  created_at_ms?: unknown;
+  updated_at_ms?: unknown;
 };
 
 type DurableObjectStubLike = { fetch(input: RequestInfo, init?: RequestInit): Promise<Response> };
@@ -304,30 +307,36 @@ export class PostgresSigningRootSecretStore implements SigningRootSecretStore {
     const pool = await this.poolPromise;
     const { rows } = await pool.query(
       `
-        SELECT signing_root_id, signing_root_version, share_id, sealed_share_b64u, storage_id, kek_id
+        SELECT
+          signing_root_id,
+          signing_root_version,
+          share_id,
+          sealed_share_b64u,
+          storage_id,
+          kek_id,
+          created_at_ms,
+          updated_at_ms
         FROM signing_root_secret_shares
         WHERE namespace = $1 AND signing_root_id = $2 AND signing_root_version = $3
         ORDER BY share_id ASC
       `,
       [this.namespace, signingRootId, signingRootVersionKey],
     );
-
-    return (rows as SigningRootSecretShareRow[]).map((row) => {
-      const shareId = normalizeSigningRootSecretShareId(row.share_id);
-      if (!shareId) throw new Error('stored signing-root share has invalid shareId');
-      return {
-        signingRootId: row.signing_root_id,
-        shareId,
-        sealedShare: base64UrlDecode(row.sealed_share_b64u),
-        ...(signingRootVersionFromKey(row.signing_root_version) ? { signingRootVersion: row.signing_root_version } : {}),
-        ...(toOptionalTrimmedString(row.storage_id)
-          ? { storageId: toOptionalTrimmedString(row.storage_id) }
-          : {}),
-        ...(toOptionalTrimmedString(row.kek_id)
-          ? { kekId: toOptionalTrimmedString(row.kek_id) }
-          : {}),
-      };
+    const parsedRows = (rows as SigningRootSecretShareRow[]).map((row) => {
+      const parsed = parseCurrentSigningRootSecretShareRecord(row);
+      if (!parsed) return null;
+      return cloneRecord(parsed);
     });
+    if (parsedRows.some((row) => row === null)) {
+      await this.deleteSigningRootSecretShares({
+        signingRootId,
+        signingRootVersion: signingRootVersionFromKey(signingRootVersionKey),
+      });
+      return [];
+    }
+    return parsedRows.filter(
+      (row): row is SealedSigningRootSecretShare => row !== null,
+    );
   }
 
   async putSealedSigningRootSecretShare(input: PutSigningRootSecretShareInput): Promise<void> {

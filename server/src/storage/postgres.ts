@@ -17,6 +17,28 @@ type PgModuleLike = {
   default?: { Pool?: new (opts: { connectionString: string }) => PgPool };
 };
 
+export type ParsedPostgresRowResult<T> =
+  | { kind: 'missing' }
+  | { kind: 'malformed' }
+  | { kind: 'current'; value: T };
+
+export function parsePostgresRow<T>(input: {
+  row: unknown;
+  parser: (row: Record<string, unknown>) => T | null;
+}): ParsedPostgresRowResult<T> {
+  if (input.row === null || input.row === undefined) {
+    return { kind: 'missing' };
+  }
+  if (typeof input.row !== 'object' || Array.isArray(input.row)) {
+    return { kind: 'malformed' };
+  }
+  const parsed = input.parser(input.row as Record<string, unknown>);
+  if (!parsed) {
+    return { kind: 'malformed' };
+  }
+  return { kind: 'current', value: parsed };
+}
+
 const poolsByUrl = new Map<string, Promise<PgPool>>();
 
 async function loadPgPoolCtor(): Promise<new (opts: { connectionString: string }) => PgPool> {

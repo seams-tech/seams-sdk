@@ -1111,7 +1111,9 @@ async function main() {
 
     return createSigningSessionSealRoutesOptions({
       sessionPolicy: createSigningSessionSealPolicyFromThresholdAuthSessionStores({
-        stores: [authSessionStore, ecdsaAuthSessionStore],
+        ed25519Stores: [authSessionStore],
+        ecdsaStores: [ecdsaAuthSessionStore],
+        walletBudgetStores: [authSessionStore],
       }),
       cipher: createSigningSessionSealShamir3PassCipherAdapter({
         currentKeyVersion: keyVersion,

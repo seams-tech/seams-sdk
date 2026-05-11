@@ -105,38 +105,68 @@ export interface SigningSessionSealStartupCapabilities {
 
 export type SigningSessionSealOperation = 'apply-server-seal' | 'remove-server-seal';
 
+export type SigningSessionSealCurve = 'ecdsa' | 'ed25519';
+
 export interface SigningSessionSealThresholdSessionRecord {
+  curve: SigningSessionSealCurve;
   thresholdSessionId: string;
   userId: string;
   expiresAtMs: number;
+  relayerKeyId: string;
+  rpId: string;
+  participantIds: readonly number[];
+  signingRootId?: string;
+  signingRootVersion?: string;
   remainingUses?: number;
 }
 
 export interface SigningSessionSealThresholdSessionStatus
   extends SigningSessionSealThresholdSessionRecord {
+  kind: 'threshold_session';
   remainingUses: number;
-  record: {
-    expiresAtMs: number;
-    relayerKeyId: string;
-    userId: string;
-    rpId: string;
-    participantIds: number[];
-  };
 }
+
+export interface SigningSessionSealWalletBudgetStatus extends SigningSessionSealThresholdSessionRecord {
+  kind: 'wallet_budget';
+  walletSigningSessionId: string;
+  remainingUses: number;
+}
+
+export type SigningSessionSealThresholdStatusLookup =
+  | {
+      curve: 'ecdsa';
+      thresholdSessionId: string;
+    }
+  | {
+      curve: 'ed25519';
+      thresholdSessionId: string;
+    };
+
+export type SigningSessionSealWalletBudgetStatusLookup =
+  | {
+      curve: 'ecdsa';
+      walletSigningSessionId: string;
+    }
+  | {
+      curve: 'ed25519';
+      walletSigningSessionId: string;
+    };
 
 export type SigningSessionSealConsumeUseResult =
   | { ok: true; remainingUses?: number }
   | { ok: false; code: string; message: string };
 
 export interface SigningSessionSealThresholdSessionPolicy {
-  getSession(thresholdSessionId: string): Promise<SigningSessionSealThresholdSessionRecord | null>;
-  getSessionStatus?(
-    thresholdSessionId: string,
-  ): Promise<SigningSessionSealThresholdSessionStatus | null>;
-  getSessionStatuses(
-    thresholdSessionId: string,
+  getThresholdSession(
+    input: SigningSessionSealThresholdStatusLookup,
+  ): Promise<SigningSessionSealThresholdSessionRecord | null>;
+  getThresholdSessionStatuses(
+    input: SigningSessionSealThresholdStatusLookup,
   ): Promise<SigningSessionSealThresholdSessionStatus[]>;
-  consumeUseCount?(thresholdSessionId: string): Promise<SigningSessionSealConsumeUseResult>;
+  getWalletBudgetStatus?(
+    input: SigningSessionSealWalletBudgetStatusLookup,
+  ): Promise<SigningSessionSealWalletBudgetStatus | null>;
+  consumeUseCount?(input: SigningSessionSealThresholdStatusLookup): Promise<SigningSessionSealConsumeUseResult>;
 }
 
 export interface SigningSessionSealCipherOperationInput {

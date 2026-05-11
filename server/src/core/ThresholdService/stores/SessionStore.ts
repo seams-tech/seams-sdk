@@ -13,6 +13,12 @@ import {
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { getPostgresPool, getPostgresUrlFromConfig } from '../../../storage/postgres';
 import {
+  parseCurrentThresholdEd25519CoordinatorSigningSessionRecord,
+  parseCurrentThresholdEd25519MpcSessionRecord,
+  parseCurrentThresholdEd25519SigningSessionRecord,
+  parseCurrentThresholdEd25519StoreSessionRow,
+} from '../postgresRecords';
+import {
   toThresholdEcdsaPrefixFromBase,
   toThresholdEcdsaSessionPrefix,
   toThresholdEd25519SessionPrefix,
@@ -361,18 +367,18 @@ class PostgresThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
   private async takeRow(
     kind: 'mpc' | 'signing' | 'coordinator',
     sessionId: string,
-  ): Promise<unknown | null> {
+  ): Promise<{ record_json?: unknown; expires_at_ms?: unknown } | null> {
     const pool = await this.poolPromise;
     const nowMs = Date.now();
     const { rows } = await pool.query(
       `
         DELETE FROM threshold_ed25519_sessions
         WHERE namespace = $1 AND kind = $2 AND session_id = $3 AND expires_at_ms > $4
-        RETURNING record_json
+        RETURNING record_json, expires_at_ms
       `,
       [this.namespace, kind, sessionId, nowMs],
     );
-    return rows[0]?.record_json ?? null;
+    return rows[0] ?? null;
   }
 
   async putMpcSession(
@@ -383,15 +389,24 @@ class PostgresThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
     const k = id;
     if (!k) throw new Error('Missing mpcSessionId');
     const expiresAtMs = Date.now() + Math.max(0, Number(ttlMs) || 0);
-    const storedRecord = { ...record, expiresAtMs };
+    const parsed = parseCurrentThresholdEd25519MpcSessionRecord(record);
+    if (!parsed) throw new Error('Invalid threshold ed25519 mpc session record');
+    const storedRecord = { ...parsed, expiresAtMs } satisfies ThresholdEd25519MpcSessionRecord;
     await this.insertOrUpdate({ kind: 'mpc', sessionId: k, record: storedRecord, expiresAtMs });
   }
 
   async takeMpcSession(id: string): Promise<ThresholdEd25519MpcSessionRecord | null> {
     const k = id;
     if (!k) return null;
-    const raw = await this.takeRow('mpc', k);
-    return parseThresholdEd25519MpcSessionRecord(raw);
+    const row = await this.takeRow('mpc', k);
+    const parsed = row
+      ? parseCurrentThresholdEd25519StoreSessionRow({
+          kind: 'mpc',
+          recordJson: row.record_json,
+          expiresAtMs: row.expires_at_ms,
+        })
+      : null;
+    return parsed?.kind === 'mpc' ? parsed.record : null;
   }
 
   async putSigningSession(
@@ -402,15 +417,24 @@ class PostgresThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
     const k = id;
     if (!k) throw new Error('Missing signingSessionId');
     const expiresAtMs = Date.now() + Math.max(0, Number(ttlMs) || 0);
-    const storedRecord = { ...record, expiresAtMs };
+    const parsed = parseCurrentThresholdEd25519SigningSessionRecord(record);
+    if (!parsed) throw new Error('Invalid threshold ed25519 signing session record');
+    const storedRecord = { ...parsed, expiresAtMs } satisfies ThresholdEd25519SigningSessionRecord;
     await this.insertOrUpdate({ kind: 'signing', sessionId: k, record: storedRecord, expiresAtMs });
   }
 
   async takeSigningSession(id: string): Promise<ThresholdEd25519SigningSessionRecord | null> {
     const k = id;
     if (!k) return null;
-    const raw = await this.takeRow('signing', k);
-    return parseThresholdEd25519SigningSessionRecord(raw);
+    const row = await this.takeRow('signing', k);
+    const parsed = row
+      ? parseCurrentThresholdEd25519StoreSessionRow({
+          kind: 'signing',
+          recordJson: row.record_json,
+          expiresAtMs: row.expires_at_ms,
+        })
+      : null;
+    return parsed?.kind === 'signing' ? parsed.record : null;
   }
 
   async putCoordinatorSigningSession(
@@ -421,7 +445,12 @@ class PostgresThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
     const k = id;
     if (!k) throw new Error('Missing coordinator signingSessionId');
     const expiresAtMs = Date.now() + Math.max(0, Number(ttlMs) || 0);
-    const storedRecord = { ...record, expiresAtMs };
+    const parsed = parseCurrentThresholdEd25519CoordinatorSigningSessionRecord(record);
+    if (!parsed) throw new Error('Invalid threshold ed25519 coordinator signing session record');
+    const storedRecord = {
+      ...parsed,
+      expiresAtMs,
+    } satisfies ThresholdEd25519CoordinatorSigningSessionRecord;
     await this.insertOrUpdate({
       kind: 'coordinator',
       sessionId: k,
@@ -435,8 +464,15 @@ class PostgresThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
   ): Promise<ThresholdEd25519CoordinatorSigningSessionRecord | null> {
     const k = id;
     if (!k) return null;
-    const raw = await this.takeRow('coordinator', k);
-    return parseThresholdEd25519CoordinatorSigningSessionRecord(raw);
+    const row = await this.takeRow('coordinator', k);
+    const parsed = row
+      ? parseCurrentThresholdEd25519StoreSessionRow({
+          kind: 'coordinator',
+          recordJson: row.record_json,
+          expiresAtMs: row.expires_at_ms,
+        })
+      : null;
+    return parsed?.kind === 'coordinator' ? parsed.record : null;
   }
 }
 

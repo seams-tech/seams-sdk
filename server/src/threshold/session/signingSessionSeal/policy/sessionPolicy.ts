@@ -1,9 +1,14 @@
 import type { Ed25519AuthSessionStore } from '../../../../core/ThresholdService/stores/AuthSessionStore';
+import { walletSigningBudgetSessionId } from '../../../../core/ThresholdService/walletSigningBudget';
 import type {
+  SigningSessionSealCurve,
   SigningSessionSealConsumeUseResult,
   SigningSessionSealThresholdSessionStatus,
   SigningSessionSealThresholdSessionPolicy,
   SigningSessionSealThresholdSessionRecord,
+  SigningSessionSealThresholdStatusLookup,
+  SigningSessionSealWalletBudgetStatus,
+  SigningSessionSealWalletBudgetStatusLookup,
 } from '../types';
 
 function toNonNegativeInt(value: unknown): number | undefined {
@@ -13,33 +18,90 @@ function toNonNegativeInt(value: unknown): number | undefined {
 }
 
 function normalizeSessionRecord(
-  thresholdSessionId: string,
+  input: {
+    curve: SigningSessionSealCurve;
+    thresholdSessionId: string;
+  },
   raw: Awaited<ReturnType<Ed25519AuthSessionStore['getSession']>>,
 ): SigningSessionSealThresholdSessionRecord | null {
   if (!raw) return null;
   const userId = String(raw.userId || '').trim();
   const expiresAtMs = Number(raw.expiresAtMs);
-  if (!userId || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0) return null;
+  const relayerKeyId = String(raw.relayerKeyId || '').trim();
+  const rpId = String(raw.rpId || '').trim();
+  const participantIds = Array.isArray(raw.participantIds)
+    ? raw.participantIds.map((value) => Math.floor(Number(value))).filter(Number.isFinite)
+    : [];
+  if (
+    !userId ||
+    !relayerKeyId ||
+    !rpId ||
+    participantIds.length < 2 ||
+    !Number.isFinite(expiresAtMs) ||
+    expiresAtMs <= 0
+  ) {
+    return null;
+  }
   return {
-    thresholdSessionId,
+    curve: input.curve,
+    thresholdSessionId: input.thresholdSessionId,
     userId,
     expiresAtMs: Math.floor(expiresAtMs),
+    relayerKeyId,
+    rpId,
+    participantIds,
+    ...(typeof raw.signingRootId === 'string' && raw.signingRootId.trim()
+      ? { signingRootId: raw.signingRootId.trim() }
+      : {}),
+    ...(typeof raw.signingRootVersion === 'string' && raw.signingRootVersion.trim()
+      ? { signingRootVersion: raw.signingRootVersion.trim() }
+      : {}),
   };
 }
 
-function normalizeSessionStatus(
-  thresholdSessionId: string,
+function normalizeThresholdSessionStatus(
+  input: {
+    curve: SigningSessionSealCurve;
+    thresholdSessionId: string;
+  },
   raw: Awaited<ReturnType<Ed25519AuthSessionStore['getSessionStatus']>>,
 ): SigningSessionSealThresholdSessionStatus | null {
   if (!raw) return null;
-  const normalized = normalizeSessionRecord(thresholdSessionId, raw.record);
+  const normalized = normalizeSessionRecord(input, raw.record);
   const remainingUses = toNonNegativeInt(raw.remainingUses);
   if (!normalized || remainingUses === undefined) return null;
   return {
     ...normalized,
+    kind: 'threshold_session',
     expiresAtMs: Math.floor(Number(raw.expiresAtMs) || normalized.expiresAtMs),
     remainingUses,
-    record: raw.record,
+  };
+}
+
+function normalizeWalletBudgetStatus(
+  input: {
+    curve: SigningSessionSealCurve;
+    walletSigningSessionId: string;
+  },
+  raw: Awaited<ReturnType<Ed25519AuthSessionStore['getSessionStatus']>>,
+): SigningSessionSealWalletBudgetStatus | null {
+  if (!raw) return null;
+  const thresholdSessionId = walletSigningBudgetSessionId(input.walletSigningSessionId);
+  const normalized = normalizeSessionRecord(
+    {
+      curve: input.curve,
+      thresholdSessionId,
+    },
+    raw.record,
+  );
+  const remainingUses = toNonNegativeInt(raw.remainingUses);
+  if (!normalized || remainingUses === undefined) return null;
+  return {
+    ...normalized,
+    kind: 'wallet_budget',
+    walletSigningSessionId: input.walletSigningSessionId,
+    expiresAtMs: Math.floor(Number(raw.expiresAtMs) || normalized.expiresAtMs),
+    remainingUses,
   };
 }
 
@@ -60,28 +122,12 @@ function normalizeConsumeResult(
 }
 
 function normalizeStoreResult(
-  thresholdSessionId: string,
+  input: SigningSessionSealThresholdStatusLookup,
   stores: readonly Ed25519AuthSessionStore[],
 ): Promise<SigningSessionSealThresholdSessionRecord | null> {
   return (async () => {
     for (const store of stores) {
-      const normalized = normalizeSessionRecord(thresholdSessionId, await store.getSession(thresholdSessionId));
-      if (normalized) return normalized;
-    }
-    return null;
-  })();
-}
-
-function normalizeStatusAcrossStores(
-  thresholdSessionId: string,
-  stores: readonly Ed25519AuthSessionStore[],
-): Promise<SigningSessionSealThresholdSessionStatus | null> {
-  return (async () => {
-    for (const store of stores) {
-      const normalized = normalizeSessionStatus(
-        thresholdSessionId,
-        await store.getSessionStatus(thresholdSessionId),
-      );
+      const normalized = normalizeSessionRecord(input, await store.getSession(input.thresholdSessionId));
       if (normalized) return normalized;
     }
     return null;
@@ -89,15 +135,15 @@ function normalizeStatusAcrossStores(
 }
 
 function normalizeStatusesAcrossStores(
-  thresholdSessionId: string,
+  input: SigningSessionSealThresholdStatusLookup,
   stores: readonly Ed25519AuthSessionStore[],
 ): Promise<SigningSessionSealThresholdSessionStatus[]> {
   return (async () => {
     const statuses: SigningSessionSealThresholdSessionStatus[] = [];
     for (const store of stores) {
-      const normalized = normalizeSessionStatus(
-        thresholdSessionId,
-        await store.getSessionStatus(thresholdSessionId),
+      const normalized = normalizeThresholdSessionStatus(
+        input,
+        await store.getSessionStatus(input.thresholdSessionId),
       );
       if (normalized) statuses.push(normalized);
     }
@@ -105,15 +151,32 @@ function normalizeStatusesAcrossStores(
   })();
 }
 
+function normalizeWalletBudgetStatusAcrossStores(
+  input: SigningSessionSealWalletBudgetStatusLookup,
+  stores: readonly Ed25519AuthSessionStore[],
+): Promise<SigningSessionSealWalletBudgetStatus | null> {
+  return (async () => {
+    const thresholdSessionId = walletSigningBudgetSessionId(input.walletSigningSessionId);
+    for (const store of stores) {
+      const normalized = normalizeWalletBudgetStatus(
+        input,
+        await store.getSessionStatus(thresholdSessionId),
+      );
+      if (normalized) return normalized;
+    }
+    return null;
+  })();
+}
+
 function normalizeConsumeAcrossStores(
-  thresholdSessionId: string,
+  input: SigningSessionSealThresholdStatusLookup,
   stores: readonly Ed25519AuthSessionStore[],
 ): Promise<SigningSessionSealConsumeUseResult> {
   return (async () => {
     for (const store of stores) {
-      const raw = await store.getSession(thresholdSessionId);
+      const raw = await store.getSession(input.thresholdSessionId);
       if (!raw) continue;
-      return normalizeConsumeResult(await store.consumeUseCount(thresholdSessionId));
+      return normalizeConsumeResult(await store.consumeUseCount(input.thresholdSessionId));
     }
     return {
       ok: false,
@@ -124,17 +187,28 @@ function normalizeConsumeAcrossStores(
 }
 
 export function createSigningSessionSealPolicyFromThresholdAuthSessionStores(input: {
-  stores: readonly Ed25519AuthSessionStore[];
+  ed25519Stores?: readonly Ed25519AuthSessionStore[] | null;
+  ecdsaStores?: readonly Ed25519AuthSessionStore[] | null;
+  walletBudgetStores: readonly Ed25519AuthSessionStore[];
 }): SigningSessionSealThresholdSessionPolicy {
-  const stores = input.stores.filter(Boolean);
+  const ed25519Stores = (input.ed25519Stores || []).filter(Boolean);
+  const ecdsaStores = (input.ecdsaStores || []).filter(Boolean);
+  const walletBudgetStores = input.walletBudgetStores.filter(Boolean);
+
+  function storesForLookup(
+    input: SigningSessionSealThresholdStatusLookup | SigningSessionSealWalletBudgetStatusLookup,
+  ): readonly Ed25519AuthSessionStore[] {
+    return input.curve === 'ecdsa' ? ecdsaStores : ed25519Stores;
+  }
+
   return {
-    getSession: async (thresholdSessionId: string) =>
-      await normalizeStoreResult(thresholdSessionId, stores),
-    getSessionStatus: async (thresholdSessionId: string) =>
-      await normalizeStatusAcrossStores(thresholdSessionId, stores),
-    getSessionStatuses: async (thresholdSessionId: string) =>
-      await normalizeStatusesAcrossStores(thresholdSessionId, stores),
-    consumeUseCount: async (thresholdSessionId: string) =>
-      await normalizeConsumeAcrossStores(thresholdSessionId, stores),
+    getThresholdSession: async (input: SigningSessionSealThresholdStatusLookup) =>
+      await normalizeStoreResult(input, storesForLookup(input)),
+    getThresholdSessionStatuses: async (input: SigningSessionSealThresholdStatusLookup) =>
+      await normalizeStatusesAcrossStores(input, storesForLookup(input)),
+    getWalletBudgetStatus: async (input: SigningSessionSealWalletBudgetStatusLookup) =>
+      await normalizeWalletBudgetStatusAcrossStores(input, walletBudgetStores),
+    consumeUseCount: async (input: SigningSessionSealThresholdStatusLookup) =>
+      await normalizeConsumeAcrossStores(input, storesForLookup(input)),
   };
 }

@@ -1,7 +1,12 @@
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { sha256BytesUtf8 } from '@shared/utils/digests';
+import {
+  parseThresholdEcdsaSessionClaims,
+  parseThresholdEd25519SessionClaims,
+} from '../../../core/ThresholdService/validation';
 import type {
   CreateSigningSessionSealServiceOptions,
+  SigningSessionSealCurve,
   SigningSessionSealConsumePolicy,
   SigningSessionSealConsumeUseResult,
   SigningSessionSealOperation,
@@ -9,7 +14,6 @@ import type {
   SigningSessionSealService,
   SigningSessionSealThresholdSessionRecord,
 } from './types';
-import { walletSigningBudgetSessionId } from '../../../core/ThresholdService/walletSigningBudget';
 
 const SIGNING_SESSION_SEAL_LOG_LABEL = '[threshold-signing-session-seal]';
 const SIGNING_SESSION_SEAL_IDEMPOTENCY_TTL_MS_DEFAULT = 90_000;
@@ -214,6 +218,53 @@ function hasWalletSigningSessionBudgetClaim(auth: { claims: Record<string, unkno
   return Boolean(String(auth.claims.walletSigningSessionId || '').trim());
 }
 
+function parseCurveBoundWalletBudgetLookup(
+  claims: Record<string, unknown>,
+): { curve: 'ecdsa' | 'ed25519'; walletSigningSessionId: string } | null {
+  const ecdsaClaims = parseThresholdEcdsaSessionClaims(claims);
+  if (ecdsaClaims) {
+    return {
+      curve: 'ecdsa',
+      walletSigningSessionId: ecdsaClaims.walletSigningSessionId,
+    };
+  }
+  const ed25519Claims = parseThresholdEd25519SessionClaims(claims);
+  if (ed25519Claims) {
+    return {
+      curve: 'ed25519',
+      walletSigningSessionId: ed25519Claims.walletSigningSessionId,
+    };
+  }
+  return null;
+}
+
+function parseCurveBoundThresholdLookup(args: {
+  claims: Record<string, unknown>;
+  thresholdSessionId: string;
+}): { curve: SigningSessionSealCurve; thresholdSessionId: string } | null {
+  const requestedThresholdSessionId = String(args.thresholdSessionId || '').trim();
+  if (!requestedThresholdSessionId) return null;
+  const ecdsaClaims = parseThresholdEcdsaSessionClaims(args.claims);
+  if (ecdsaClaims) {
+    return ecdsaClaims.sessionId === requestedThresholdSessionId
+      ? {
+          curve: 'ecdsa',
+          thresholdSessionId: requestedThresholdSessionId,
+        }
+      : null;
+  }
+  const ed25519Claims = parseThresholdEd25519SessionClaims(args.claims);
+  if (ed25519Claims) {
+    return ed25519Claims.sessionId === requestedThresholdSessionId
+      ? {
+          curve: 'ed25519',
+          thresholdSessionId: requestedThresholdSessionId,
+        }
+      : null;
+  }
+  return null;
+}
+
 async function resolveBudgetStatusForSealOperation(input: {
   options: CreateSigningSessionSealServiceOptions;
   auth: { userId: string; claims: Record<string, unknown> };
@@ -223,30 +274,22 @@ async function resolveBudgetStatusForSealOperation(input: {
   | { ok: true; remainingUses?: number; expiresAtMs: number }
   | { ok: false; code: string; message: string }
 > {
-  const walletSigningSessionId = String(input.auth.claims.walletSigningSessionId || '').trim();
-  if (!walletSigningSessionId) {
+  const walletBudgetLookup = parseCurveBoundWalletBudgetLookup(input.auth.claims);
+  if (!walletBudgetLookup) {
     return {
       ok: true,
       remainingUses: toNonNegativeInt(input.fallbackSession.remainingUses),
       expiresAtMs: input.fallbackSession.expiresAtMs,
     };
   }
-  if (!input.options.sessionPolicy.getSessionStatus) {
+  if (!input.options.sessionPolicy.getWalletBudgetStatus) {
     return {
       ok: false,
       code: 'not_configured',
       message: 'wallet signing-session status is not configured',
     };
   }
-  const walletBudgetSessionId = walletSigningBudgetSessionId(walletSigningSessionId);
-  if (!walletBudgetSessionId) {
-    return {
-      ok: false,
-      code: 'unauthorized',
-      message: 'Invalid wallet signing-session id',
-    };
-  }
-  const walletStatus = await input.options.sessionPolicy.getSessionStatus(walletBudgetSessionId);
+  const walletStatus = await input.options.sessionPolicy.getWalletBudgetStatus(walletBudgetLookup);
   if (!walletStatus) {
     return {
       ok: false,
@@ -312,7 +355,20 @@ async function runSealOperation(input: {
       metadata: input.request.metadata,
     });
 
-    const session = await input.options.sessionPolicy.getSession(input.request.thresholdSessionId);
+    const thresholdLookup = parseCurveBoundThresholdLookup({
+      claims: input.auth.claims,
+      thresholdSessionId: input.request.thresholdSessionId,
+    });
+    if (!thresholdLookup) {
+      result = {
+        ok: false,
+        code: 'forbidden',
+        message: 'threshold session token does not match requested thresholdSessionId',
+      };
+      return result;
+    }
+
+    const session = await input.options.sessionPolicy.getThresholdSession(thresholdLookup);
     if (!session) {
       result = {
         ok: false,
@@ -379,9 +435,7 @@ async function runSealOperation(input: {
         };
         return result;
       }
-      const consumed = await input.options.sessionPolicy.consumeUseCount(
-        input.request.thresholdSessionId,
-      );
+      const consumed = await input.options.sessionPolicy.consumeUseCount(thresholdLookup);
       if (!consumed.ok) {
         const mapped = mapConsumeFailure(consumed);
         result = { ok: false, code: mapped.code, message: mapped.message };

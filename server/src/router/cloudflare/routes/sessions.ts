@@ -31,14 +31,13 @@ import {
   emailOtpStatusCode,
   emailOtpFailureAuditPayload,
   hashEmailOtpAppSessionClaims,
-  hashEmailOtpSigningSessionClaims,
   parseOidcAccountMode,
 } from '../../emailOtpSessionRouteHelpers';
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
 import {
-  parseThresholdEcdsaSessionClaims,
-  parseThresholdEd25519SessionClaims,
-} from '../../../core/ThresholdService/validation';
+  parseWalletSigningBudgetStatusExpectations,
+  parseWalletSigningBudgetStatusRequest,
+} from '../../signingBudgetStatus';
 
 async function emitSessionExchangeFailed(
   ctx: CloudflareRelayContext,
@@ -239,135 +238,27 @@ async function readAndValidateEmailOtpSigningSession(ctx: CloudflareRelayContext
     }
   | { ok: false; response: Response }
 > {
-  const session = ctx.opts.session;
-  if (!session) {
+  const validated = await parseWalletSigningBudgetStatusRequest({
+    headers: headersToRecord(ctx.request.headers),
+    session: ctx.opts.session,
+    sessionPolicy: ctx.opts.signingSessionSeal?.sessionPolicy,
+  });
+  if (!validated.ok) {
     return {
       ok: false,
-      response: json(
-        { authenticated: false, code: 'sessions_disabled', message: 'Sessions are not configured' },
-        { status: 501 },
-      ),
+      response: json(validated.body, { status: validated.status }),
     };
   }
-  const parsed = await session.parse(headersToRecord(ctx.request.headers));
-  if (!parsed.ok) {
-    return {
-      ok: false,
-      response: json(
-        {
-          authenticated: false,
-          code: 'unauthorized',
-          message: 'Missing or invalid threshold session token',
-        },
-        { status: 401 },
-      ),
-    };
-  }
-  const rawClaims = ((parsed as any).claims || {}) as Record<string, unknown>;
-  const ed25519Claims = parseThresholdEd25519SessionClaims(rawClaims);
-  const ecdsaClaims = parseThresholdEcdsaSessionClaims(rawClaims);
-  const claims = ed25519Claims || ecdsaClaims;
-  if (!claims) {
-    return {
-      ok: false,
-      response: json(
-        {
-          authenticated: false,
-          code: 'unauthorized',
-          message: 'Invalid threshold session token claims',
-        },
-        { status: 401 },
-      ),
-    };
-  }
-  const userId = String(claims.walletId || '').trim();
-  const sessionId = String(claims.sessionId || '').trim();
-  const walletSigningSessionId = String(claims.walletSigningSessionId || '').trim();
-  const expiresAtMs = Math.floor(Number(claims.thresholdExpiresAtMs) || 0);
-  if (!userId || !sessionId || !walletSigningSessionId || expiresAtMs <= Date.now()) {
-    return {
-      ok: false,
-      response: json(
-        {
-          authenticated: false,
-          code: 'unauthorized',
-          message: 'Expired or incomplete threshold session token',
-        },
-        { status: 401 },
-      ),
-    };
-  }
-  const sessionPolicy = ctx.opts.signingSessionSeal?.sessionPolicy;
-  if (!sessionPolicy?.getSessionStatus || !sessionPolicy.getSessionStatuses) {
-    return {
-      ok: false,
-      response: json(
-        {
-          authenticated: false,
-          code: 'sessions_disabled',
-          message: 'Threshold session status reads are not configured',
-        },
-        { status: 501 },
-      ),
-    };
-  }
-  const participantIds = Array.isArray(claims.participantIds) ? claims.participantIds : [];
-  const sameParticipants = (actual: unknown): boolean => {
-    if (!Array.isArray(actual) || actual.length !== participantIds.length) return false;
-    return actual.every((value, index) => Number(value) === Number(participantIds[index]));
-  };
-  const curveStatuses = await sessionPolicy.getSessionStatuses(sessionId);
-  const curveStatus =
-    curveStatuses.find((status) => {
-      const record = status?.record;
-      return (
-        record?.userId === userId &&
-        record?.rpId === claims.rpId &&
-        record?.relayerKeyId === claims.relayerKeyId &&
-        sameParticipants(record?.participantIds)
-      );
-    }) || null;
-  const walletBudgetStatus = await sessionPolicy.getSessionStatus(
-    `wallet-signing:${walletSigningSessionId}`,
-  );
-  const curveRecord = curveStatus?.record;
-  const walletBudgetRecord = walletBudgetStatus?.record;
-  const statusMatches =
-    curveStatus &&
-    walletBudgetStatus &&
-    curveRecord?.userId === userId &&
-    curveRecord?.rpId === claims.rpId &&
-    curveRecord?.relayerKeyId === claims.relayerKeyId &&
-    sameParticipants(curveRecord?.participantIds) &&
-    walletBudgetRecord?.userId === userId &&
-    walletBudgetRecord?.rpId === claims.rpId &&
-    sameParticipants(walletBudgetRecord?.participantIds);
-  if (!statusMatches) {
-    return {
-      ok: false,
-      response: json(
-        {
-          authenticated: false,
-          code: 'unauthorized',
-          message: 'Threshold session is no longer active',
-        },
-        { status: 401 },
-      ),
-    };
-  }
-  const sessionHash = await hashEmailOtpSigningSessionClaims(rawClaims);
+  const { request } = validated;
   return {
     ok: true,
-    claims: rawClaims,
-    userId,
-    appSessionVersion: `signing-session:${claims.kind}:${walletSigningSessionId}:${sessionId}`,
-    sessionHash,
-    thresholdSessionId: sessionId,
-    walletSigningSessionId,
-    walletBudgetStatus: {
-      expiresAtMs: walletBudgetStatus.expiresAtMs,
-      remainingUses: Math.max(0, Math.floor(Number(walletBudgetStatus.remainingUses) || 0)),
-    },
+    claims: validated.claims,
+    userId: validated.userId,
+    appSessionVersion: validated.appSessionVersion,
+    sessionHash: validated.sessionHash,
+    thresholdSessionId: request.thresholdSessionId,
+    walletSigningSessionId: request.walletSigningSessionId,
+    walletBudgetStatus: validated.walletBudgetStatus,
   };
 }
 
@@ -1086,9 +977,9 @@ export async function handleSessionRefresh(ctx: CloudflareRelayContext): Promise
 export async function handleSigningBudgetStatus(ctx: CloudflareRelayContext): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/session/signing-budget/status') return null;
   try {
-    const body = (await readJson(ctx.request)) as Record<string, unknown>;
-    const expectedWalletSigningSessionId = String(body.walletSigningSessionId || '').trim();
-    const expectedThresholdSessionId = String(body.thresholdSessionId || '').trim();
+    const { walletSigningSessionId: expectedWalletSigningSessionId, thresholdSessionId } =
+      parseWalletSigningBudgetStatusExpectations(await readJson(ctx.request));
+    const expectedThresholdSessionId = thresholdSessionId || '';
     const validated = await readAndValidateEmailOtpSigningSession(ctx);
     if (!validated.ok) {
       if (expectedWalletSigningSessionId && validated.response.status === 401) {

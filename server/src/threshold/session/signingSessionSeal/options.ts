@@ -102,7 +102,9 @@ export function createSigningSessionSealOptions(input: CreateSigningSessionSealO
 
   return createSigningSessionSealRoutesOptions({
     sessionPolicy: createSigningSessionSealPolicyFromThresholdAuthSessionStores({
-      stores: [authSessionStore, ecdsaAuthSessionStore],
+      ed25519Stores: [authSessionStore],
+      ecdsaStores: [ecdsaAuthSessionStore],
+      walletBudgetStores: [authSessionStore],
     }),
     cipher: createShamir3PassCipher({
       keyVersion,

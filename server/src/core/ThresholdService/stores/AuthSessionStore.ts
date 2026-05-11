@@ -5,7 +5,15 @@ import type {
 } from '../../types';
 import { RedisTcpClient, UpstashRedisRestClient, redisGetJson, redisSetJson } from '../kv';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import { getPostgresPool, getPostgresUrlFromConfig } from '../../../storage/postgres';
+import {
+  getPostgresPool,
+  getPostgresUrlFromConfig,
+  parsePostgresRow,
+} from '../../../storage/postgres';
+import {
+  parseCurrentThresholdEd25519SessionRecord,
+  parseCurrentThresholdEd25519SessionStatusRow,
+} from '../postgresRecords';
 import {
   isObject,
   toThresholdEcdsaAuthPrefix,
@@ -424,6 +432,17 @@ class PostgresEd25519AuthSessionStore implements Ed25519AuthSessionStore {
     this.namespace = input.namespace;
   }
 
+  private async deleteSessionRow(id: string): Promise<void> {
+    const pool = await this.poolPromise;
+    await pool.query(
+      `
+        DELETE FROM threshold_ed25519_sessions
+        WHERE namespace = $1 AND kind = $2 AND session_id = $3
+      `,
+      [this.namespace, 'auth', id],
+    );
+  }
+
   async putSession(
     id: string,
     record: Ed25519AuthSessionRecord,
@@ -433,7 +452,7 @@ class PostgresEd25519AuthSessionStore implements Ed25519AuthSessionStore {
     const expiresAtMs = Date.now() + ttlMs;
     const remainingUses = Math.max(0, Number(opts.remainingUses) || 0);
     const storedRecord = { ...record, expiresAtMs };
-    const parsed = parseEd25519AuthSessionRecord(storedRecord);
+    const parsed = parseCurrentThresholdEd25519SessionRecord(storedRecord);
     if (!parsed) throw new Error('Invalid threshold auth session record');
     const pool = await this.poolPromise;
     await pool.query(
@@ -452,14 +471,30 @@ class PostgresEd25519AuthSessionStore implements Ed25519AuthSessionStore {
     const nowMs = Date.now();
     const { rows } = await pool.query(
       `
-        SELECT record_json
+        SELECT record_json, expires_at_ms, remaining_uses
         FROM threshold_ed25519_sessions
         WHERE namespace = $1 AND kind = $2 AND session_id = $3 AND expires_at_ms > $4
         LIMIT 1
       `,
       [this.namespace, 'auth', id, nowMs],
     );
-    return parseEd25519AuthSessionRecord(rows[0]?.record_json);
+    const parsed = parsePostgresRow({
+      row: rows[0],
+      parser: (row) =>
+        parseCurrentThresholdEd25519SessionStatusRow({
+          recordJson: row.record_json,
+          expiresAtMs: row.expires_at_ms,
+          remainingUses: row.remaining_uses,
+        }),
+    });
+    if (parsed.kind === 'missing') {
+      return null;
+    }
+    if (parsed.kind === 'malformed') {
+      await this.deleteSessionRow(id);
+      return null;
+    }
+    return parsed.value.record;
   }
 
   async getSessionStatus(id: string): Promise<Ed25519AuthSessionStatus | null> {
@@ -474,19 +509,23 @@ class PostgresEd25519AuthSessionStore implements Ed25519AuthSessionStore {
       `,
       [this.namespace, 'auth', id, nowMs],
     );
-    const row = rows[0];
-    if (!row) return null;
-    const record = parseEd25519AuthSessionRecord(row.record_json);
-    const expiresAtMs =
-      typeof row.expires_at_ms === 'number' ? row.expires_at_ms : Number(row.expires_at_ms);
-    const remainingUses =
-      typeof row.remaining_uses === 'number' ? row.remaining_uses : Number(row.remaining_uses);
-    if (!record || !Number.isFinite(expiresAtMs) || !Number.isFinite(remainingUses)) return null;
-    return {
-      record,
-      expiresAtMs,
-      remainingUses,
-    };
+    const parsed = parsePostgresRow({
+      row: rows[0],
+      parser: (row) =>
+        parseCurrentThresholdEd25519SessionStatusRow({
+          recordJson: row.record_json,
+          expiresAtMs: row.expires_at_ms,
+          remainingUses: row.remaining_uses,
+        }),
+    });
+    if (parsed.kind === 'missing') {
+      return null;
+    }
+    if (parsed.kind === 'malformed') {
+      await this.deleteSessionRow(id);
+      return null;
+    }
+    return parsed.value;
   }
 
   private async explainMissing(

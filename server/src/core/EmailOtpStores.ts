@@ -1,8 +1,28 @@
 import type { NormalizedLogger } from './logger';
 import type { ThresholdRuntimePolicyScope, ThresholdStoreConfigInput } from './types';
 import { THRESHOLD_PREFIX_DEFAULT } from './defaultConfigsServer';
-import { getPostgresPool, getPostgresUrlFromConfig } from '../storage/postgres';
+import {
+  getPostgresPool,
+  getPostgresUrlFromConfig,
+  parsePostgresRow,
+} from '../storage/postgres';
 import { isPlainObject, toOptionalTrimmedString } from '@shared/utils/validation';
+import {
+  parseCurrentEmailOtpAuthStateRecord,
+  parseCurrentEmailOtpChallengeRow,
+  parseCurrentEmailOtpChallengeRecord,
+  parseCurrentEmailOtpAuthStateRow,
+  parseCurrentEmailOtpGrantRecord,
+  parseCurrentEmailOtpGrantRow,
+  parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRecord,
+  parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRow,
+  parseCurrentEmailOtpUnlockChallengeRecord,
+  parseCurrentEmailOtpUnlockChallengeRow,
+  parseCurrentEmailOtpWalletEnrollmentRecord,
+  parseCurrentEmailOtpWalletEnrollmentRow,
+  parseCurrentGoogleEmailOtpRegistrationAttemptRecord,
+  parseCurrentGoogleEmailOtpRegistrationAttemptRow,
+} from './EmailOtpPostgresRecords';
 import type {
   WalletEmailOtpChannel,
   WalletEmailOtpLoginOperation,
@@ -822,7 +842,7 @@ class InMemoryEmailOtpChallengeStore implements EmailOtpChallengeStore {
   private readonly map = new Map<string, EmailOtpChallengeRecord>();
 
   async put(record: EmailOtpChallengeRecord): Promise<void> {
-    const parsed = parseChallengeRecord(record);
+    const parsed = parseCurrentEmailOtpChallengeRecord(record);
     if (!parsed) throw new Error('Invalid Email OTP challenge record');
     this.map.set(parsed.challengeId, cloneRecord(parsed));
   }
@@ -915,7 +935,7 @@ class InMemoryEmailOtpGrantStore implements EmailOtpGrantStore {
   private readonly map = new Map<string, EmailOtpGrantRecord>();
 
   async put(record: EmailOtpGrantRecord): Promise<void> {
-    const parsed = parseGrantRecord(record);
+    const parsed = parseCurrentEmailOtpGrantRecord(record);
     if (!parsed) throw new Error('Invalid Email OTP grant record');
     this.map.set(parsed.grantToken, cloneRecord(parsed));
   }
@@ -967,7 +987,7 @@ class InMemoryEmailOtpWalletEnrollmentStore implements EmailOtpWalletEnrollmentS
   }
 
   async put(record: EmailOtpWalletEnrollmentRecord): Promise<void> {
-    const parsed = parseWalletEnrollmentRecord(record);
+    const parsed = parseCurrentEmailOtpWalletEnrollmentRecord(record);
     if (!parsed) throw new Error('Invalid Email OTP wallet enrollment record');
     const duplicate = Array.from(this.map.values()).find(
       (existing) =>
@@ -1017,7 +1037,7 @@ class InMemoryEmailOtpRecoveryWrappedEnrollmentEscrowStore implements EmailOtpRe
   }
 
   async put(record: EmailOtpRecoveryWrappedEnrollmentEscrowRecord): Promise<void> {
-    const parsed = normalizeEmailOtpRecoveryWrappedEnrollmentEscrowRecord(record);
+    const parsed = parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRecord(record);
     if (!parsed) throw new Error('Invalid Email OTP recovery-wrapped enrollment escrow record');
     this.map.set(this.key(parsed), cloneRecord(parsed));
   }
@@ -1041,7 +1061,7 @@ class InMemoryEmailOtpAuthStateStore implements EmailOtpAuthStateStore {
   }
 
   async put(record: EmailOtpAuthStateRecord): Promise<void> {
-    const parsed = parseAuthStateRecord(record);
+    const parsed = parseCurrentEmailOtpAuthStateRecord(record);
     if (!parsed) throw new Error('Invalid Email OTP auth state record');
     this.map.set(parsed.walletId, cloneRecord(parsed));
   }
@@ -1057,7 +1077,7 @@ class InMemoryEmailOtpUnlockChallengeStore implements EmailOtpUnlockChallengeSto
   private readonly map = new Map<string, EmailOtpUnlockChallengeRecord>();
 
   async put(record: EmailOtpUnlockChallengeRecord): Promise<void> {
-    const parsed = parseUnlockChallengeRecord(record);
+    const parsed = parseCurrentEmailOtpUnlockChallengeRecord(record);
     if (!parsed) throw new Error('Invalid Email OTP unlock challenge record');
     this.map.set(parsed.challengeId, cloneRecord(parsed));
   }
@@ -1081,7 +1101,7 @@ class InMemoryEmailOtpRegistrationAttemptStore implements EmailOtpRegistrationAt
   private readonly map = new Map<string, GoogleEmailOtpRegistrationAttemptRecord>();
 
   async put(record: GoogleEmailOtpRegistrationAttemptRecord): Promise<void> {
-    const parsed = parseRegistrationAttemptRecord(record);
+    const parsed = parseCurrentGoogleEmailOtpRegistrationAttemptRecord(record);
     if (!parsed) throw new Error('Invalid Google Email OTP registration attempt record');
     this.map.set(parsed.attemptId, cloneRecord(parsed));
   }
@@ -1146,7 +1166,7 @@ class PostgresEmailOtpChallengeStore implements EmailOtpChallengeStore {
   }
 
   async put(record: EmailOtpChallengeRecord): Promise<void> {
-    const parsed = parseChallengeRecord(record);
+    const parsed = parseCurrentEmailOtpChallengeRecord(record);
     if (!parsed) throw new Error('Invalid Email OTP challenge record');
     const pool = await this.poolPromise;
     await pool.query(
@@ -1166,18 +1186,28 @@ class PostgresEmailOtpChallengeStore implements EmailOtpChallengeStore {
     const pool = await this.poolPromise;
     const { rows } = await pool.query(
       `
-        SELECT record_json
+        SELECT record_json, expires_at_ms, challenge_id
         FROM email_otp_challenges
         WHERE namespace = $1 AND challenge_id = $2
       `,
       [this.namespace, id],
     );
-    const parsed = parseChallengeRecord(rows[0]?.record_json);
-    if (!parsed) {
-      if (rows[0]) await this.del(id);
+    const parsed = parsePostgresRow({
+      row: rows[0],
+      parser: (row) =>
+        parseCurrentEmailOtpChallengeRow({
+          recordJson: row.record_json,
+          expiresAtMs: row.expires_at_ms,
+        }),
+    });
+    if (parsed.kind === 'missing') {
       return null;
     }
-    return cloneRecord(parsed);
+    if (parsed.kind === 'malformed') {
+      await this.del(id);
+      return null;
+    }
+    return cloneRecord(parsed.value);
   }
 
   async deleteExpired(nowMs: number): Promise<EmailOtpChallengeRecord[]> {
@@ -1186,12 +1216,17 @@ class PostgresEmailOtpChallengeStore implements EmailOtpChallengeStore {
       `
         DELETE FROM email_otp_challenges
         WHERE namespace = $1 AND expires_at_ms <= $2
-        RETURNING record_json
+        RETURNING record_json, expires_at_ms
       `,
       [this.namespace, nowMs],
     );
     return rows
-      .map((row) => parseChallengeRecord(row.record_json))
+      .map((row) =>
+        parseCurrentEmailOtpChallengeRow({
+          recordJson: row.record_json,
+          expiresAtMs: row.expires_at_ms,
+        }),
+      )
       .filter((record): record is EmailOtpChallengeRecord => Boolean(record))
       .map((record) => cloneRecord(record));
   }
@@ -1271,7 +1306,7 @@ class PostgresEmailOtpChallengeStore implements EmailOtpChallengeStore {
         )
         DELETE FROM email_otp_challenges
         WHERE namespace = $1 AND challenge_id IN (SELECT challenge_id FROM oldest)
-        RETURNING record_json
+        RETURNING record_json, expires_at_ms
       `,
       [
         this.namespace,
@@ -1286,8 +1321,25 @@ class PostgresEmailOtpChallengeStore implements EmailOtpChallengeStore {
         input.operation,
       ],
     );
-    const parsed = parseChallengeRecord(rows[0]?.record_json);
-    return parsed ? cloneRecord(parsed) : null;
+    const parsed = parsePostgresRow({
+      row: rows[0],
+      parser: (row) =>
+        parseCurrentEmailOtpChallengeRow({
+          recordJson: row.record_json,
+          expiresAtMs: row.expires_at_ms,
+        }),
+    });
+    if (parsed.kind === 'missing') {
+      return null;
+    }
+    if (parsed.kind === 'malformed') {
+      const challengeId = toOptionalTrimmedString(
+        (rows[0] as { challenge_id?: unknown } | undefined)?.challenge_id,
+      );
+      if (challengeId) await this.del(challengeId);
+      return null;
+    }
+    return cloneRecord(parsed.value);
   }
 
   async findActiveByContext(input: {
@@ -1305,7 +1357,7 @@ class PostgresEmailOtpChallengeStore implements EmailOtpChallengeStore {
     const pool = await this.poolPromise;
     const { rows } = await pool.query(
       `
-        SELECT record_json
+        SELECT record_json, expires_at_ms, challenge_id
         FROM email_otp_challenges
         WHERE namespace = $1
           AND expires_at_ms > $2
@@ -1335,8 +1387,24 @@ class PostgresEmailOtpChallengeStore implements EmailOtpChallengeStore {
         input.otpCode,
       ],
     );
-    const parsed = parseChallengeRecord(rows[0]?.record_json);
-    return parsed ? cloneRecord(parsed) : null;
+    const parsed = parsePostgresRow({
+      row: rows[0],
+      parser: (row) =>
+        parseCurrentEmailOtpChallengeRow({
+          recordJson: row.record_json,
+          expiresAtMs: row.expires_at_ms,
+        }),
+    });
+    if (parsed.kind === 'current') {
+      return cloneRecord(parsed.value);
+    }
+    if (parsed.kind === 'malformed') {
+      const challengeId = toOptionalTrimmedString(
+        (rows[0] as { challenge_id?: unknown } | undefined)?.challenge_id,
+      );
+      if (challengeId) await this.del(challengeId);
+    }
+    return null;
   }
 
   async del(challengeId: string): Promise<void> {
@@ -1360,7 +1428,7 @@ class PostgresEmailOtpGrantStore implements EmailOtpGrantStore {
   }
 
   async put(record: EmailOtpGrantRecord): Promise<void> {
-    const parsed = parseGrantRecord(record);
+    const parsed = parseCurrentEmailOtpGrantRecord(record);
     if (!parsed) throw new Error('Invalid Email OTP grant record');
     const pool = await this.poolPromise;
     await pool.query(
@@ -1382,13 +1450,20 @@ class PostgresEmailOtpGrantStore implements EmailOtpGrantStore {
       `
         DELETE FROM email_otp_grants
         WHERE namespace = $1 AND grant_token = $2
-        RETURNING record_json
+        RETURNING record_json, expires_at_ms
       `,
       [this.namespace, token],
     );
-    const parsed = parseGrantRecord(rows[0]?.record_json);
-    if (!parsed) return null;
-    return cloneRecord(parsed);
+    const parsed = parsePostgresRow({
+      row: rows[0],
+      parser: (row) =>
+        parseCurrentEmailOtpGrantRow({
+          recordJson: row.record_json,
+          expiresAtMs: row.expires_at_ms,
+        }),
+    });
+    if (parsed.kind !== 'current') return null;
+    return cloneRecord(parsed.value);
   }
 
   async get(grantToken: string): Promise<EmailOtpGrantRecord | null> {
@@ -1397,14 +1472,28 @@ class PostgresEmailOtpGrantStore implements EmailOtpGrantStore {
     const pool = await this.poolPromise;
     const { rows } = await pool.query(
       `
-        SELECT record_json
+        SELECT record_json, expires_at_ms
         FROM email_otp_grants
         WHERE namespace = $1 AND grant_token = $2
       `,
       [this.namespace, token],
     );
-    const parsed = parseGrantRecord(rows[0]?.record_json);
-    return parsed ? cloneRecord(parsed) : null;
+    const parsed = parsePostgresRow({
+      row: rows[0],
+      parser: (row) =>
+        parseCurrentEmailOtpGrantRow({
+          recordJson: row.record_json,
+          expiresAtMs: row.expires_at_ms,
+        }),
+    });
+    if (parsed.kind === 'missing') {
+      return null;
+    }
+    if (parsed.kind === 'malformed') {
+      await this.del(token);
+      return null;
+    }
+    return cloneRecord(parsed.value);
   }
 
   async del(grantToken: string): Promise<void> {
@@ -1433,18 +1522,28 @@ class PostgresEmailOtpWalletEnrollmentStore implements EmailOtpWalletEnrollmentS
     const pool = await this.poolPromise;
     const { rows } = await pool.query(
       `
-        SELECT record_json
+        SELECT record_json, updated_at_ms, wallet_id
         FROM email_otp_wallet_enrollments
         WHERE namespace = $1 AND wallet_id = $2
       `,
       [this.namespace, key],
     );
-    const parsed = parseWalletEnrollmentRecord(rows[0]?.record_json);
-    if (!parsed) {
-      if (rows[0]) await this.del(key);
+    const parsed = parsePostgresRow({
+      row: rows[0],
+      parser: (row) =>
+        parseCurrentEmailOtpWalletEnrollmentRow({
+          recordJson: row.record_json,
+          updatedAtMs: row.updated_at_ms,
+        }),
+    });
+    if (parsed.kind === 'missing') {
       return null;
     }
-    return cloneRecord(parsed);
+    if (parsed.kind === 'malformed') {
+      await this.del(key);
+      return null;
+    }
+    return cloneRecord(parsed.value);
   }
 
   async getByProviderUserId(input: {
@@ -1457,7 +1556,7 @@ class PostgresEmailOtpWalletEnrollmentStore implements EmailOtpWalletEnrollmentS
     const pool = await this.poolPromise;
     const { rows } = await pool.query(
       `
-        SELECT record_json
+        SELECT record_json, updated_at_ms, wallet_id
         FROM email_otp_wallet_enrollments
         WHERE namespace = $1
           AND org_id = $2
@@ -1467,12 +1566,29 @@ class PostgresEmailOtpWalletEnrollmentStore implements EmailOtpWalletEnrollmentS
       `,
       [this.namespace, orgId, providerUserId],
     );
-    const parsed = parseWalletEnrollmentRecord(rows[0]?.record_json);
-    return parsed ? cloneRecord(parsed) : null;
+    const parsed = parsePostgresRow({
+      row: rows[0],
+      parser: (row) =>
+        parseCurrentEmailOtpWalletEnrollmentRow({
+          recordJson: row.record_json,
+          updatedAtMs: row.updated_at_ms,
+        }),
+    });
+    if (parsed.kind === 'missing') {
+      return null;
+    }
+    if (parsed.kind === 'malformed') {
+      const walletId = toOptionalTrimmedString(
+        (rows[0] as { wallet_id?: unknown } | undefined)?.wallet_id,
+      );
+      if (walletId) await this.del(walletId);
+      return null;
+    }
+    return cloneRecord(parsed.value);
   }
 
   async put(record: EmailOtpWalletEnrollmentRecord): Promise<void> {
-    const parsed = parseWalletEnrollmentRecord(record);
+    const parsed = parseCurrentEmailOtpWalletEnrollmentRecord(record);
     if (!parsed) throw new Error('Invalid Email OTP wallet enrollment record');
     const pool = await this.poolPromise;
     await pool.query(
@@ -1519,18 +1635,28 @@ class PostgresEmailOtpRecoveryWrappedEnrollmentEscrowStore implements EmailOtpRe
     const pool = await this.poolPromise;
     const { rows } = await pool.query(
       `
-        SELECT record_json
+        SELECT record_json, updated_at_ms, recovery_key_id
         FROM email_otp_recovery_wrapped_enrollment_escrows
         WHERE namespace = $1 AND wallet_id = $2 AND recovery_key_id = $3
       `,
       [this.namespace, walletId, recoveryKeyId],
     );
-    const parsed = normalizeEmailOtpRecoveryWrappedEnrollmentEscrowRecord(rows[0]?.record_json);
-    if (!parsed) {
-      if (rows[0]) await this.del({ walletId, recoveryKeyId });
+    const parsed = parsePostgresRow({
+      row: rows[0],
+      parser: (row) =>
+        parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRow({
+          recordJson: row.record_json,
+          updatedAtMs: row.updated_at_ms,
+        }),
+    });
+    if (parsed.kind === 'missing') {
       return null;
     }
-    return cloneRecord(parsed);
+    if (parsed.kind === 'malformed') {
+      await this.del({ walletId, recoveryKeyId });
+      return null;
+    }
+    return cloneRecord(parsed.value);
   }
 
   async listActiveByWallet(
@@ -1541,21 +1667,35 @@ class PostgresEmailOtpRecoveryWrappedEnrollmentEscrowStore implements EmailOtpRe
     const pool = await this.poolPromise;
     const { rows } = await pool.query(
       `
-        SELECT record_json
+        SELECT record_json, updated_at_ms
         FROM email_otp_recovery_wrapped_enrollment_escrows
         WHERE namespace = $1 AND wallet_id = $2 AND recovery_key_status = 'active'
         ORDER BY updated_at_ms DESC, recovery_key_id ASC
       `,
       [this.namespace, key],
     );
-    return rows
-      .map((row) => normalizeEmailOtpRecoveryWrappedEnrollmentEscrowRecord(row.record_json))
-      .filter((record): record is EmailOtpRecoveryWrappedEnrollmentEscrowRecord => Boolean(record))
-      .map((record) => cloneRecord(record));
+    const records: EmailOtpRecoveryWrappedEnrollmentEscrowRecord[] = [];
+    const malformedRecoveryKeyIds: string[] = [];
+    for (const row of rows) {
+      const parsed = parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRow({
+        recordJson: row.record_json,
+        updatedAtMs: row.updated_at_ms,
+      });
+      if (parsed) {
+        records.push(cloneRecord(parsed));
+        continue;
+      }
+      const recoveryKeyId = toOptionalTrimmedString(row.recovery_key_id);
+      if (recoveryKeyId) malformedRecoveryKeyIds.push(recoveryKeyId);
+    }
+    await Promise.all(
+      malformedRecoveryKeyIds.map((recoveryKeyId) => this.del({ walletId: key, recoveryKeyId })),
+    );
+    return records;
   }
 
   async put(record: EmailOtpRecoveryWrappedEnrollmentEscrowRecord): Promise<void> {
-    const parsed = normalizeEmailOtpRecoveryWrappedEnrollmentEscrowRecord(record);
+    const parsed = parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRecord(record);
     if (!parsed) throw new Error('Invalid Email OTP recovery-wrapped enrollment escrow record');
     const pool = await this.poolPromise;
     await pool.query(
@@ -1616,22 +1756,32 @@ class PostgresEmailOtpAuthStateStore implements EmailOtpAuthStateStore {
     const pool = await this.poolPromise;
     const { rows } = await pool.query(
       `
-        SELECT record_json
+        SELECT record_json, updated_at_ms
         FROM email_otp_auth_states
         WHERE namespace = $1 AND wallet_id = $2
       `,
       [this.namespace, key],
     );
-    const parsed = parseAuthStateRecord(rows[0]?.record_json);
-    if (!parsed) {
-      if (rows[0]) await this.del(key);
+    const parsed = parsePostgresRow({
+      row: rows[0],
+      parser: (row) =>
+        parseCurrentEmailOtpAuthStateRow({
+          recordJson: row.record_json,
+          updatedAtMs: row.updated_at_ms,
+        }),
+    });
+    if (parsed.kind === 'missing') {
       return null;
     }
-    return cloneRecord(parsed);
+    if (parsed.kind === 'malformed') {
+      await this.del(key);
+      return null;
+    }
+    return cloneRecord(parsed.value);
   }
 
   async put(record: EmailOtpAuthStateRecord): Promise<void> {
-    const parsed = parseAuthStateRecord(record);
+    const parsed = parseCurrentEmailOtpAuthStateRecord(record);
     if (!parsed) throw new Error('Invalid Email OTP auth state record');
     const pool = await this.poolPromise;
     await pool.query(
@@ -1669,7 +1819,7 @@ class PostgresEmailOtpUnlockChallengeStore implements EmailOtpUnlockChallengeSto
   }
 
   async put(record: EmailOtpUnlockChallengeRecord): Promise<void> {
-    const parsed = parseUnlockChallengeRecord(record);
+    const parsed = parseCurrentEmailOtpUnlockChallengeRecord(record);
     if (!parsed) throw new Error('Invalid Email OTP unlock challenge record');
     const pool = await this.poolPromise;
     await pool.query(
@@ -1691,13 +1841,20 @@ class PostgresEmailOtpUnlockChallengeStore implements EmailOtpUnlockChallengeSto
       `
         DELETE FROM email_otp_unlock_challenges
         WHERE namespace = $1 AND challenge_id = $2
-        RETURNING record_json
+        RETURNING record_json, expires_at_ms
       `,
       [this.namespace, id],
     );
-    const parsed = parseUnlockChallengeRecord(rows[0]?.record_json);
-    if (!parsed) return null;
-    return cloneRecord(parsed);
+    const parsed = parsePostgresRow({
+      row: rows[0],
+      parser: (row) =>
+        parseCurrentEmailOtpUnlockChallengeRow({
+          recordJson: row.record_json,
+          expiresAtMs: row.expires_at_ms,
+        }),
+    });
+    if (parsed.kind !== 'current') return null;
+    return cloneRecord(parsed.value);
   }
 
   async del(challengeId: string): Promise<void> {
@@ -1720,8 +1877,21 @@ class PostgresEmailOtpRegistrationAttemptStore implements EmailOtpRegistrationAt
     this.namespace = input.namespace;
   }
 
+  private async deleteAttempt(attemptId: string): Promise<void> {
+    const id = toOptionalTrimmedString(attemptId);
+    if (!id) return;
+    const pool = await this.poolPromise;
+    await pool.query(
+      `
+        DELETE FROM email_otp_registration_attempts
+        WHERE namespace = $1 AND attempt_id = $2
+      `,
+      [this.namespace, id],
+    );
+  }
+
   async put(record: GoogleEmailOtpRegistrationAttemptRecord): Promise<void> {
-    const parsed = parseRegistrationAttemptRecord(record);
+    const parsed = parseCurrentGoogleEmailOtpRegistrationAttemptRecord(record);
     if (!parsed) throw new Error('Invalid Google Email OTP registration attempt record');
     const pool = await this.poolPromise;
     await pool.query(
@@ -1768,15 +1938,29 @@ class PostgresEmailOtpRegistrationAttemptStore implements EmailOtpRegistrationAt
     const pool = await this.poolPromise;
     const { rows } = await pool.query(
       `
-        SELECT record_json
+        SELECT record_json, expires_at_ms, updated_at_ms
         FROM email_otp_registration_attempts
         WHERE namespace = $1 AND attempt_id = $2
       `,
       [this.namespace, id],
     );
-    const parsed = parseRegistrationAttemptRecord(rows[0]?.record_json);
-    if (!parsed) return null;
-    return cloneRecord(parsed);
+    const parsed = parsePostgresRow({
+      row: rows[0],
+      parser: (row) =>
+        parseCurrentGoogleEmailOtpRegistrationAttemptRow({
+          recordJson: row.record_json,
+          expiresAtMs: row.expires_at_ms,
+          updatedAtMs: row.updated_at_ms,
+        }),
+    });
+    if (parsed.kind === 'missing') {
+      return null;
+    }
+    if (parsed.kind === 'malformed') {
+      await this.deleteAttempt(id);
+      return null;
+    }
+    return cloneRecord(parsed.value);
   }
 
   async findStartedBySubjectEmail(input: {
@@ -1787,7 +1971,7 @@ class PostgresEmailOtpRegistrationAttemptStore implements EmailOtpRegistrationAt
     const pool = await this.poolPromise;
     const { rows } = await pool.query(
       `
-        SELECT record_json
+        SELECT record_json, expires_at_ms, updated_at_ms, attempt_id
         FROM email_otp_registration_attempts
         WHERE namespace = $1
           AND provider_subject = $2
@@ -1799,8 +1983,26 @@ class PostgresEmailOtpRegistrationAttemptStore implements EmailOtpRegistrationAt
       `,
       [this.namespace, input.providerSubject, input.email, input.nowMs],
     );
-    const parsed = parseRegistrationAttemptRecord(rows[0]?.record_json);
-    return parsed ? cloneRecord(parsed) : null;
+    const parsed = parsePostgresRow({
+      row: rows[0],
+      parser: (row) =>
+        parseCurrentGoogleEmailOtpRegistrationAttemptRow({
+          recordJson: row.record_json,
+          expiresAtMs: row.expires_at_ms,
+          updatedAtMs: row.updated_at_ms,
+        }),
+    });
+    if (parsed.kind === 'missing') {
+      return null;
+    }
+    if (parsed.kind === 'malformed') {
+      const attemptId = toOptionalTrimmedString(
+        (rows[0] as { attempt_id?: unknown } | undefined)?.attempt_id,
+      );
+      if (attemptId) await this.deleteAttempt(attemptId);
+      return null;
+    }
+    return cloneRecord(parsed.value);
   }
 
   async hasLiveStartedWalletAttempt(input: { walletId: string; nowMs: number }): Promise<boolean> {

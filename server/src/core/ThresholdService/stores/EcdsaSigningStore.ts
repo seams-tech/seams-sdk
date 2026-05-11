@@ -5,7 +5,18 @@ import type {
 } from '../../types';
 import { RedisTcpClient, UpstashRedisRestClient, redisGetdelJson, redisSetJson } from '../kv';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import { getPostgresPool, getPostgresUrlFromConfig } from '../../../storage/postgres';
+import {
+  getPostgresPool,
+  getPostgresUrlFromConfig,
+  parsePostgresRow,
+} from '../../../storage/postgres';
+import {
+  parseCurrentThresholdEcdsaPresignSessionRecord,
+  parseCurrentThresholdEcdsaPresignSessionRow,
+  parseCurrentThresholdEcdsaPresignatureRecord,
+  parseCurrentThresholdEcdsaSigningSessionRecord,
+  parseCurrentThresholdEcdsaSigningSessionRow,
+} from '../postgresRecords';
 import {
   isObject,
   parseThresholdEcdsaPresignSessionRecord,
@@ -629,8 +640,9 @@ class PostgresThresholdEcdsaSigningSessionStore implements ThresholdEcdsaSigning
     if (!key) throw new Error('Missing signingSessionId');
     const ttl = Math.max(0, Number(ttlMs) || 0);
     const expiresAtMs = Date.now() + ttl;
-    const parsed = parseThresholdEcdsaSigningSessionRecord(record);
+    const parsed = parseCurrentThresholdEcdsaSigningSessionRecord(record);
     if (!parsed) throw new Error('Invalid threshold-ecdsa signing session record');
+    const storedRecord = { ...parsed, expiresAtMs } satisfies ThresholdEcdsaSigningSessionRecord;
     const pool = await this.poolPromise;
     await pool.query(
       `
@@ -639,7 +651,7 @@ class PostgresThresholdEcdsaSigningSessionStore implements ThresholdEcdsaSigning
         ON CONFLICT (namespace, signing_session_id)
         DO UPDATE SET record_json = EXCLUDED.record_json, expires_at_ms = EXCLUDED.expires_at_ms
       `,
-      [this.namespace, key, parsed, expiresAtMs],
+      [this.namespace, key, storedRecord, expiresAtMs],
     );
   }
 
@@ -656,13 +668,16 @@ class PostgresThresholdEcdsaSigningSessionStore implements ThresholdEcdsaSigning
       `,
       [this.namespace, key],
     );
-    const row = rows[0] as { record_json?: unknown; expires_at_ms?: unknown } | undefined;
-    const expiresAtMs =
-      typeof row?.expires_at_ms === 'number' ? row.expires_at_ms : Number(row?.expires_at_ms);
-    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs) return null;
-    return parseThresholdEcdsaSigningSessionRecord(
-      row?.record_json,
-    ) as ThresholdEcdsaSigningSessionRecord | null;
+    const parsedRow = parsePostgresRow({
+      row: rows[0],
+      parser: (row) =>
+        parseCurrentThresholdEcdsaSigningSessionRow({
+          recordJson: row.record_json,
+          expiresAtMs: row.expires_at_ms,
+        }),
+    });
+    if (parsedRow.kind !== 'current' || parsedRow.value.expiresAtMs <= nowMs) return null;
+    return parsedRow.value.record;
   }
 }
 
@@ -675,6 +690,17 @@ class PostgresThresholdEcdsaPresignSessionStore implements ThresholdEcdsaPresign
     this.namespace = input.namespace;
   }
 
+  private async deleteMalformedSession(id: string): Promise<void> {
+    const pool = await this.poolPromise;
+    await pool.query(
+      `
+        DELETE FROM threshold_ecdsa_presign_sessions
+        WHERE namespace = $1 AND presign_session_id = $2
+      `,
+      [this.namespace, id],
+    );
+  }
+
   async createSession(
     id: string,
     record: ThresholdEcdsaPresignSessionRecord,
@@ -682,10 +708,16 @@ class PostgresThresholdEcdsaPresignSessionStore implements ThresholdEcdsaPresign
   ): Promise<{ ok: true } | { ok: false; code: 'exists' }> {
     const key = toOptionalTrimmedString(id);
     if (!key) throw new Error('Missing presignSessionId');
-    const parsed = parseThresholdEcdsaPresignSessionRecord(record);
+    const parsed = parseCurrentThresholdEcdsaPresignSessionRecord(record);
     if (!parsed) throw new Error('Invalid threshold-ecdsa presign session record');
     const ttl = Math.max(0, Number(ttlMs) || 0);
-    const expiresAtMs = Date.now() + ttl;
+    const nowMs = Date.now();
+    const expiresAtMs = nowMs + ttl;
+    const storedRecord = {
+      ...parsed,
+      expiresAtMs,
+      updatedAtMs: nowMs,
+    } satisfies ThresholdEcdsaPresignSessionRecord;
     const pool = await this.poolPromise;
     const result = await pool.query(
       `
@@ -702,7 +734,15 @@ class PostgresThresholdEcdsaPresignSessionStore implements ThresholdEcdsaPresign
         ON CONFLICT (namespace, presign_session_id) DO NOTHING
         RETURNING presign_session_id
       `,
-      [this.namespace, key, parsed, parsed.stage, parsed.version, expiresAtMs, Date.now()],
+      [
+        this.namespace,
+        key,
+        storedRecord,
+        storedRecord.stage,
+        storedRecord.version,
+        expiresAtMs,
+        storedRecord.updatedAtMs,
+      ],
     );
     if (Array.isArray(result.rows) && result.rows.length > 0) {
       return { ok: true };
@@ -723,14 +763,23 @@ class PostgresThresholdEcdsaPresignSessionStore implements ThresholdEcdsaPresign
       `,
       [this.namespace, key],
     );
-    const row = rows[0] as { record_json?: unknown; expires_at_ms?: unknown } | undefined;
-    if (!row) return null;
-    const expiresAtMs =
-      typeof row.expires_at_ms === 'number' ? row.expires_at_ms : Number(row.expires_at_ms);
-    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs) return null;
-    return parseThresholdEcdsaPresignSessionRecord(
-      row.record_json,
-    ) as ThresholdEcdsaPresignSessionRecord | null;
+    const parsedRow = parsePostgresRow({
+      row: rows[0],
+      parser: (row) =>
+        parseCurrentThresholdEcdsaPresignSessionRow({
+          recordJson: row.record_json,
+          expiresAtMs: row.expires_at_ms,
+        }),
+    });
+    if (parsedRow.kind === 'missing') {
+      return null;
+    }
+    if (parsedRow.kind === 'malformed') {
+      await this.deleteMalformedSession(key);
+      return null;
+    }
+    if (parsedRow.value.expiresAtMs <= nowMs) return null;
+    return parsedRow.value.record;
   }
 
   async advanceSessionCas(input: {
@@ -745,12 +794,17 @@ class PostgresThresholdEcdsaPresignSessionStore implements ThresholdEcdsaPresign
     if (!Number.isFinite(expectedVersion) || expectedVersion < 1) {
       return { ok: false, code: 'version_mismatch' };
     }
-    const parsed = parseThresholdEcdsaPresignSessionRecord(input.nextRecord);
+    const parsed = parseCurrentThresholdEcdsaPresignSessionRecord(input.nextRecord);
     if (!parsed) throw new Error('Invalid threshold-ecdsa presign session record');
 
     const ttl = Math.max(0, Number(input.ttlMs) || 0);
     const nowMs = Date.now();
     const expiresAtMs = nowMs + ttl;
+    const storedRecord = {
+      ...parsed,
+      expiresAtMs,
+      updatedAtMs: nowMs,
+    } satisfies ThresholdEcdsaPresignSessionRecord;
     const pool = await this.poolPromise;
     const { rows } = await pool.query(
       `
@@ -765,26 +819,27 @@ class PostgresThresholdEcdsaPresignSessionStore implements ThresholdEcdsaPresign
           AND presign_session_id = $2
           AND version = $3
           AND expires_at_ms > $8
-        RETURNING record_json
+        RETURNING record_json, expires_at_ms
       `,
       [
         this.namespace,
         key,
         expectedVersion,
-        parsed,
-        parsed.stage,
-        parsed.version,
+        storedRecord,
+        storedRecord.stage,
+        storedRecord.version,
         expiresAtMs,
         nowMs,
       ],
     );
-    const row = rows[0] as { record_json?: unknown } | undefined;
+    const row = rows[0] as { record_json?: unknown; expires_at_ms?: unknown } | undefined;
     if (row) {
-      const updated = parseThresholdEcdsaPresignSessionRecord(
-        row.record_json,
-      ) as ThresholdEcdsaPresignSessionRecord | null;
+      const updated = parseCurrentThresholdEcdsaPresignSessionRow({
+        recordJson: row.record_json,
+        expiresAtMs: row.expires_at_ms,
+      });
       if (!updated) throw new Error('Invalid threshold-ecdsa presign session record after CAS');
-      return { ok: true, record: updated };
+      return { ok: true, record: updated.record };
     }
 
     const existing = await pool.query(
@@ -1258,8 +1313,22 @@ class PostgresThresholdEcdsaPresignaturePool implements ThresholdEcdsaPresignatu
     this.reservationTtlMs = Math.max(1, Math.floor(Number(input.reservationTtlMs) || 120_000));
   }
 
+  private async deleteMalformedPresignature(
+    relayerKeyId: string,
+    presignatureId: string,
+  ): Promise<void> {
+    const pool = await this.poolPromise;
+    await pool.query(
+      `
+        DELETE FROM threshold_ecdsa_presignatures
+        WHERE namespace = $1 AND relayer_key_id = $2 AND presignature_id = $3
+      `,
+      [this.namespace, relayerKeyId, presignatureId],
+    );
+  }
+
   async put(record: ThresholdEcdsaPresignatureRelayerShareRecord): Promise<void> {
-    const parsed = parseThresholdEcdsaPresignatureRelayerShareRecord(record);
+    const parsed = parseCurrentThresholdEcdsaPresignatureRecord(record);
     if (!parsed) throw new Error('Invalid threshold-ecdsa presignature record');
     const pool = await this.poolPromise;
     await pool.query(
@@ -1312,14 +1381,27 @@ class PostgresThresholdEcdsaPresignaturePool implements ThresholdEcdsaPresignatu
         SET state = 'reserved', reserved_at_ms = $3, reserve_expires_at_ms = $4
         FROM picked
         WHERE p.namespace = $1 AND p.relayer_key_id = $2 AND p.presignature_id = picked.presignature_id
-        RETURNING p.record_json
+        RETURNING p.record_json, p.presignature_id
       `,
       [this.namespace, relayer, nowMs, reserveExpiresAtMs],
     );
-    const record = rows[0]?.record_json;
-    return parseThresholdEcdsaPresignatureRelayerShareRecord(
-      record,
-    ) as ThresholdEcdsaPresignatureRelayerShareRecord | null;
+    const parsed = parsePostgresRow({
+      row: rows[0],
+      parser: (row) => parseCurrentThresholdEcdsaPresignatureRecord(row.record_json),
+    });
+    if (parsed.kind === 'missing') {
+      return null;
+    }
+    if (parsed.kind === 'malformed') {
+      const presignatureId = toOptionalTrimmedString(
+        (rows[0] as { presignature_id?: unknown } | undefined)?.presignature_id,
+      );
+      if (presignatureId) {
+        await this.deleteMalformedPresignature(relayer, presignatureId);
+      }
+      return null;
+    }
+    return parsed.value;
   }
 
   async reserveById(
@@ -1349,14 +1431,27 @@ class PostgresThresholdEcdsaPresignaturePool implements ThresholdEcdsaPresignatu
         SET state = 'reserved', reserved_at_ms = $4, reserve_expires_at_ms = $5
         FROM picked
         WHERE p.namespace = $1 AND p.relayer_key_id = $2 AND p.presignature_id = picked.presignature_id
-        RETURNING p.record_json
+        RETURNING p.record_json, p.presignature_id
       `,
       [this.namespace, relayer, id, nowMs, reserveExpiresAtMs],
     );
-    const record = rows[0]?.record_json;
-    return parseThresholdEcdsaPresignatureRelayerShareRecord(
-      record,
-    ) as ThresholdEcdsaPresignatureRelayerShareRecord | null;
+    const parsed = parsePostgresRow({
+      row: rows[0],
+      parser: (row) => parseCurrentThresholdEcdsaPresignatureRecord(row.record_json),
+    });
+    if (parsed.kind === 'missing') {
+      return null;
+    }
+    if (parsed.kind === 'malformed') {
+      const presignatureId = toOptionalTrimmedString(
+        (rows[0] as { presignature_id?: unknown } | undefined)?.presignature_id,
+      );
+      if (presignatureId) {
+        await this.deleteMalformedPresignature(relayer, presignatureId);
+      }
+      return null;
+    }
+    return parsed.value;
   }
 
   async consume(
@@ -1382,9 +1477,7 @@ class PostgresThresholdEcdsaPresignaturePool implements ThresholdEcdsaPresignatu
         ? row.reserve_expires_at_ms
         : Number(row?.reserve_expires_at_ms);
     if (Number.isFinite(reserveExpiresAtMs) && reserveExpiresAtMs < nowMs) return null;
-    return parseThresholdEcdsaPresignatureRelayerShareRecord(
-      row?.record_json,
-    ) as ThresholdEcdsaPresignatureRelayerShareRecord | null;
+    return parseCurrentThresholdEcdsaPresignatureRecord(row?.record_json);
   }
 
   async discard(relayerKeyId: string, presignatureId: string): Promise<void> {
