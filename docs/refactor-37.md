@@ -43,12 +43,13 @@ Introduce one shared key identity:
 type EvmFamilyEcdsaKeyIdentity = {
   walletId: WalletId;
   subjectId: WalletSubjectId;
-  family: 'evm-family';
+  rpId: RpId;
+  keyScope: 'evm-family';
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   signingRootId: SigningRootId;
   signingRootVersion: SigningRootVersion;
   participantIds: readonly ParticipantId[];
-  ethereumOwnerAddress: EvmAddress;
+  thresholdOwnerAddress: ThresholdOwnerAddress;
 };
 ```
 
@@ -96,6 +97,28 @@ type EvmFamilyEcdsaMaterialResolution =
 Core signing, export, HSS bootstrap, and post-exhaustion reauth should consume
 the `ready` branch only.
 
+## High-Value Review Additions
+
+1. The shared key identity must carry every stable HSS key-context field that
+   affects funds safety. The invariant names RP, so `rpId` belongs in
+   `EvmFamilyEcdsaKeyIdentity`. The identity should also name the stable
+   `keyScope = "evm-family"` explicitly.
+2. `thresholdOwnerAddress` must come from derived or server-verified key
+   material. Builders should reject any stored record, key ref, or profile row
+   whose owner address disagrees with the derived shared-key address.
+3. Email OTP should reuse the same ECDSA identity brands as passkey. Phase 4
+   should add Email OTP provider/auth-subject brands only; duplicating
+   `EcdsaThresholdKeyId`, `SigningRootId`, session ids, or owner-address brands
+   would recreate the parallel-shape problem.
+4. Storage cutover needs to be explicit. Old target-scoped ECDSA key rows,
+   sealed records, and server rows must be rejected or deleted at the boundary
+   during this development refactor. Keeping them as fallback candidates risks
+   reintroducing the exact ambiguous-lane and wrong-address failures.
+5. Add a stable identity fingerprint for diagnostics and tests. HSS prepare,
+   activation, lane resolution, export, budget admission, and nonce diagnostics
+   should all be able to print the same `evmFamilyKeyFingerprint` without
+   exposing secret material.
+
 ## Import Direction Contract
 
 - `interfaces/*` may define primitive identity types and parsers with no session
@@ -121,7 +144,10 @@ the `ready` branch only.
   - `ecdsaThresholdKeyId`
   - `signingRootId`
   - `signingRootVersion`
+  - `rpId`
+  - `keyScope`
   - `participantIds`
+  - `thresholdOwnerAddress`
   - `ethereumAddress`
   - `chainTarget`
   - `thresholdSessionId`
@@ -138,12 +164,18 @@ the `ready` branch only.
   `counterfactualAddress` in raw EIP-1559 signing paths.
 - [ ] Add a guard that fails if Tempo and EVM configured targets can produce
   different threshold owner addresses for one wallet in tests.
+- [ ] Add a guard that rejects local construction of
+  `EvmFamilyEcdsaKeyIdentity` outside approved builders/type fixtures.
+- [ ] Add a fixture that logs one `evmFamilyKeyFingerprint` through HSS
+  bootstrap, lane resolution, signing, export, and nonce resolution for the same
+  wallet.
 
 ## Phase 1: Canonical Identity Types
 
 - [ ] Add `client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.ts`.
 - [ ] Define role-specific branded primitives used by EVM-family identity:
   - `WalletId`
+  - `RpId`
   - `EcdsaThresholdKeyId`
   - `SigningRootId`
   - `SigningRootVersion`
@@ -152,6 +184,7 @@ the `ready` branch only.
   - `ThresholdOwnerAddress`
   - `SmartAccountAddress`
   - `CounterfactualAddress`
+  - `EvmFamilyKeyScope`
 - [ ] Define `EvmFamilyEcdsaKeyIdentity`.
 - [ ] Define `EvmFamilyEcdsaSessionLane`.
 - [ ] Define `ReadyEvmFamilyEcdsaMaterial`.
@@ -162,6 +195,8 @@ the `ready` branch only.
   - `signing_root_mismatch`
   - `participant_ids_mismatch`
   - `owner_address_mismatch`
+  - `rp_id_mismatch`
+  - `key_scope_mismatch`
   - `session_identity_mismatch`
   - `auth_method_mismatch`
   - `stale_or_unrestorable_material`
@@ -170,6 +205,20 @@ the `ready` branch only.
   - `buildEvmFamilyEcdsaKeyIdentityFromRecord(...)`
   - `buildEvmFamilyEcdsaSessionLane(...)`
   - `resolveReadyEvmFamilyEcdsaMaterial(...)`
+- [ ] Add `deriveEvmFamilyKeyFingerprint(...)` over stable public identity
+  fields:
+  - `walletId`
+  - `subjectId`
+  - `rpId`
+  - `keyScope`
+  - `ecdsaThresholdKeyId`
+  - `signingRootId`
+  - `signingRootVersion`
+  - `participantIds`
+  - `thresholdOwnerAddress`
+- [ ] Ensure owner-address builders verify the address from trusted key material
+  or a server-verified key ref before accepting persisted/profile/demo address
+  data.
 - [ ] Make `resolveReadyEvmFamilyEcdsaMaterial(...)` return a result union:
   - `ready`
   - `record_only`
@@ -187,6 +236,8 @@ the `ready` branch only.
     key identity
   - `ThresholdOwnerAddress` cannot be passed as `SmartAccountAddress`
   - `SmartAccountAddress` cannot be passed as a raw EIP-1559 sender
+  - a key identity cannot omit `rpId`
+  - a key identity cannot use a target-specific `keyScope`
 
 ## Phase 2: Persistence And Read Model Normalization
 
@@ -211,6 +262,20 @@ the `ready` branch only.
   ECDSA records preserve `ThresholdOwnerAddress`.
 - [ ] Reject current-format sealed ECDSA records that are missing owner address,
   key id, signing root, or concrete lane identity at the persistence boundary.
+- [ ] Add a storage cutover version for EVM-family ECDSA records. Any stored
+  record from the target-scoped-key era should be deleted or rejected before it
+  can become an available-lane candidate.
+- [ ] Add client-store and server-store uniqueness checks for one shared
+  EVM-family key identity per:
+  - `walletId`
+  - `subjectId`
+  - `rpId`
+  - `keyScope`
+  - `signingRootId`
+  - `signingRootVersion`
+- [ ] Reject or delete rows where two configured EVM-family targets for the same
+  shared identity point at different `ecdsaThresholdKeyId` or
+  `thresholdOwnerAddress` values.
 
 ## Phase 3: HSS Bootstrap Boundary
 
@@ -226,6 +291,9 @@ the `ready` branch only.
   key derivation when the target is Tempo vs Arc/EVM.
 - [ ] Add or extend HSS tests proving changing only `chainTarget` does not
   change the shared EVM-family key id or owner address.
+- [ ] Add HSS tests proving changing `rpId`, `signingRootId`,
+  `signingRootVersion`, `participantIds`, or `ecdsaThresholdKeyId` does change
+  the stable identity/fingerprint.
 - [ ] Delete any helper that reconstructs `ecdsaThresholdKeyId`,
   `signingRootId`, or owner address from optional bootstrap fields after the
   activation request has been built.
@@ -244,23 +312,26 @@ the `ready` branch only.
 - [ ] Add branded identity types for the Email OTP ECDSA HSS boundary:
   - `WalletSessionUserId`
   - `EmailOtpAuthSubjectId`
-  - `EcdsaSubjectId`
+- [ ] Reuse ECDSA identity brands from
+  `session/identity/evmFamilyEcdsaIdentity.ts`:
+  - `WalletSubjectId` / ECDSA subject identity
   - `EcdsaThresholdKeyId`
   - `SigningRootId`
   - `SigningRootVersion`
   - `ThresholdEcdsaSessionId`
   - `WalletSigningSessionId`
+  - `ThresholdOwnerAddress`
 - [ ] Add boundary parsers/builders that convert raw strings once:
   - wallet/account id to `WalletSessionUserId`
   - provider subject such as `google:*` to `EmailOtpAuthSubjectId`
-  - wallet ECDSA lane subject to `EcdsaSubjectId`
+  - wallet ECDSA lane subject to `WalletSubjectId`
   - server key id to `EcdsaThresholdKeyId`
 - [ ] Replace raw `walletSessionUserId: string` in Email OTP HSS request and
   session policy types with `WalletSessionUserId`.
 - [ ] Keep provider identity out of wallet-scoped HSS fields:
   - `authSubjectId: EmailOtpAuthSubjectId`
   - `walletSessionUserId: WalletSessionUserId`
-  - `subjectId: EcdsaSubjectId`
+  - `subjectId: WalletSubjectId`
 - [ ] Split Email OTP HSS bootstrap lifecycle types:
   - [ ] `EmailOtpRegistrationBootstrap` permits no preexisting
     `ecdsaThresholdKeyId`.
@@ -428,6 +499,7 @@ the `ready` branch only.
   failures:
   - `operationId`
   - `authMethod`
+  - `evmFamilyKeyFingerprint`
   - `chainTargetKey`
   - `ecdsaThresholdKeyId`
   - `walletSigningSessionId`
@@ -446,7 +518,7 @@ the `ready` branch only.
 ## Phase 9: Nonce, Sender Address, And Smart-Account Boundaries
 
 - [ ] Update EVM-family nonce identity so raw EIP-1559 paths use
-  `key.ethereumOwnerAddress` as sender.
+  `key.thresholdOwnerAddress` as sender.
 - [ ] Keep smart-account/counterfactual account address in smart-account
   deployment paths only.
 - [ ] Rename address fields at cross-boundary call sites to role-specific names:

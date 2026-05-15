@@ -1,9 +1,9 @@
 # Reduce NEAR Account ID Usage
 
 Date created: 2026-05-06
-Last refreshed: 2026-05-14
-Status: code phases complete; ready for manual smoke after clearing stale local
-wallet storage
+Last refreshed: 2026-05-16
+Status: code phases complete; refactor-36 follow-ups restored manual smoke
+coverage
 
 ## Purpose
 
@@ -15,6 +15,65 @@ EVM-family-specific.
 This refactor limits `nearAccountId` to NEAR account operations. Wallet/session
 identity, ECDSA lane identity, audit scope, and UI display labels should have
 separate names and types.
+
+## Post-Implementation Retrospective
+
+This plan started as a naming and ownership cleanup, then became a large
+correctness refactor. `nearAccountId` had become the SDK's informal universal
+identity for NEAR accounts, hosted wallets, wallet sessions, ECDSA subjects,
+HSS audit scope, budget lookup, nonce sender state, export selection, and UI
+display. Splitting those meanings forced the code to stop relying on implicit
+string equivalence.
+
+That tightening exposed hidden bugs that were already present in the design:
+
+- ECDSA HSS stable-key context was coupled to volatile session identity in some
+  paths. Fresh unlocks and reconnects could derive verifier material that no
+  longer matched the stored integrated key record.
+- Passkey wallet unlock and post-exhaustion refresh still had fallback paths
+  that accepted partial ECDSA material, stale key refs, or missing exact lanes.
+- Tempo and Arc/EVM were treated as target-scoped keys in some places and as one
+  shared EVM-family signer in others. That created wrong-address and
+  insufficient-funds failures because funding/preflight, nonce sender, and raw
+  EIP-1559 broadcast could disagree.
+- Email OTP ECDSA bootstrap mixed provider identity, such as `google:*`, with
+  wallet-scoped HSS/session identity. That broke wallet unlock and HSS prepare.
+- ECDSA export and lane selection could see multiple ready-ish shapes for the
+  same logical signer, producing ambiguous export selection.
+- Budget and finalization paths sometimes inferred the active session from
+  loose records instead of carrying exact lane identity through reauth.
+
+The refactor took several days because the identity split crossed nearly every
+signing boundary: SDK facade inputs, iframe messages, persistence, sealed
+recovery, wallet unlock, HSS client/server/WASM payloads, EVM-family signing,
+nonce handling, budget admission/finalization, key export, Email OTP, and
+tests. The repository scan showed roughly 4,916 `nearAccountId` hits across 477
+files, which was a useful signal that the change was architectural rather than
+local.
+
+The useful outcome is that the system is now stricter. `nearAccountId` is
+reserved for NEAR account operations, while ECDSA and EVM-family flows carry
+`walletId`, `walletSessionUserId`, `subjectId`, `chainTarget`, and concrete
+session identity separately. The follow-up in `docs/refactor-37.md` exists
+because this refactor revealed one remaining architectural theme: the same
+EVM-family ECDSA signer should be represented by one shared key identity, with
+target/session/budget state layered on top.
+
+Lessons for future identity refactors:
+
+- Define the end-to-end smoke matrix up front: registration, wallet unlock,
+  direct signing, export, session exhaustion, same-method step-up, passkey, and
+  Email OTP.
+- Treat stable key identity, concrete session lane identity, wallet budget
+  identity, and transaction sender identity as separate types.
+- Delete stale fallback paths as soon as exact identity exists.
+- Keep compatibility at persistence/request boundaries only.
+- Add guards for dangerous field groupings, such as key id plus session id in a
+  shared key type, owner address plus smart-account address in raw EIP-1559
+  flows, or provider subject in wallet-scoped HSS fields.
+- When HSS or signing-root context changes, include server, browser WASM,
+  fixtures, and manual wallet-unlock/sign/export flows in the same validation
+  slice.
 
 ## Goals
 
