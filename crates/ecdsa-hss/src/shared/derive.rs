@@ -11,7 +11,7 @@ use signer_core::secp256k1::{
 };
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-use crate::shared::context::{encode_context_v1, EcdsaHssContextV1};
+use crate::shared::context::{encode_context_v1, EcdsaHssStableKeyContextV1};
 use crate::wire::RootShareInputsV1;
 
 const CANONICAL_X_DOMAIN_TAG: &[u8] = b"ecdsa-hss:v1:canonical-x";
@@ -58,7 +58,7 @@ pub fn verify_single_key_invariant_v1(
 
 pub fn derive_canonical_secret_v1(
     root_shares: &RootShareInputsV1,
-    context: &EcdsaHssContextV1,
+    context: &EcdsaHssStableKeyContextV1,
 ) -> CoreResult<CanonicalSecretMaterialV1> {
     let y_client32_le = root_shares.y_client32_le;
     let y_relayer32_le = root_shares.y_relayer32_le;
@@ -95,7 +95,7 @@ pub fn derive_canonical_secret_v1(
 
 pub fn derive_additive_shares_v1(
     x32_be: &[u8],
-    context: &EcdsaHssContextV1,
+    context: &EcdsaHssStableKeyContextV1,
 ) -> CoreResult<AdditiveShareMaterialV1> {
     let x_scalar = parse_nonzero_scalar_32_be(x32_be, "x32_be")?;
     let x32_be = nonzero_scalar_to_32_be(&x_scalar);

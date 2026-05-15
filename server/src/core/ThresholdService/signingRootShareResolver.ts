@@ -3,7 +3,7 @@ import { toOptionalTrimmedString } from '@shared/utils/validation';
 import {
   deriveEcdsaHssYRelayerFromSigningRootSecretShares,
   deriveEd25519HssServerInputsFromSigningRootSecretShares,
-  type EcdsaHssSigningRootContext,
+  type EcdsaHssStableKeyPrfContext,
 } from './thresholdPrfWasm';
 import type {
   ThresholdEd25519HssCanonicalContext,
@@ -82,7 +82,7 @@ export type DeriveEcdsaHssYRelayerFromSigningRootShareResolverInput = {
     SigningRootSecretShareIdValue,
   ];
   readonly resolver: SigningRootShareResolver;
-  readonly context: EcdsaHssSigningRootContext;
+  readonly context: EcdsaHssStableKeyPrfContext;
 };
 
 export type DeriveEd25519HssServerInputsFromSigningRootShareResolverInput = {

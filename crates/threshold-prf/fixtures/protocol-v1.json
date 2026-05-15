@@ -4,7 +4,7 @@
     {
       "suite_id": "threshold-prf/ristretto255-sha512/v1",
       "purpose": "ecdsa-hss/y_relayer",
-      "context_hex": "65636473612d6873733a636f6e746578743a7631000c65636473612d6873732d76310009736563703235366b31001170726f6a6563742d616c7068613a646576000a616c6963652e6e656172000677616c6c6574000276310200010002",
+      "context_hex": "65636473612d6873733a636f6e746578743a7631000c65636473612d6873732d76310009736563703235366b31000a616c6963652e6e656172000d616c6963652d7375626a656374000a65766d2d66616d696c79000b65636473612d616c706861001170726f6a6563742d616c7068613a6465760007726f6f742d7631000677616c6c6574000276310200010002",
       "root_seed_hex": "0707070707070707070707070707070707070707070707070707070707070707",
       "split_seed_hex": "0808080808080808080808080808080808080808080808080808080808080808",
       "root_scalar_hex": "086565a2edb6121f62aeb259d634dadcbaa39a503cbb80b8e176643cb5d7d909",
@@ -28,54 +28,54 @@
       "partials": [
         {
           "id": 1,
-          "context_tag_hex": "3fc22585cc34fe9d40bbaec2553a428ab12431f43851d2e4b357a07e69a8bed8",
-          "compressed_point_hex": "e4a064b1cc222755369f00ce327628a44944ebb0b6061e8f06cd4323a7ca8f5e",
-          "wire_hex": "013fc22585cc34fe9d40bbaec2553a428ab12431f43851d2e4b357a07e69a8bed8e4a064b1cc222755369f00ce327628a44944ebb0b6061e8f06cd4323a7ca8f5e",
+          "context_tag_hex": "8324d32c765b3b8ae6cd92f56a68857c50dddba2f285ac6455e48fb914069c75",
+          "compressed_point_hex": "c43e8399f71cc24ec54fa00f66e63c363db5466cdd097882b6bb1b3ed68d270f",
+          "wire_hex": "018324d32c765b3b8ae6cd92f56a68857c50dddba2f285ac6455e48fb914069c75c43e8399f71cc24ec54fa00f66e63c363db5466cdd097882b6bb1b3ed68d270f",
           "share_commitment_wire_hex": "01f49f9f19b9de0951a0a92e46834a7553e80731472164bdd36fe0e9dd167db94e",
           "dleq_proof_seed_hex": "2828282828282828282828282828282828282828282828282828282828282801",
-          "dleq_proof_wire_hex": "10497af4fa0908c75be5ed6f0129aae0fa7fb08c9264e701c68b2d607ccd4806c2520dd9528465b61524803132cb113afecf626133427182c8b6c9d91230990a"
+          "dleq_proof_wire_hex": "9609f8333ac942d28e1641928939e73fefb9792bdbc5f7f9fcd90191d5aaf40bfcf5f9942e35a536621f96607a9a123639e217b89dae12db2a8f10e0a63c8e0b"
         },
         {
           "id": 2,
-          "context_tag_hex": "3fc22585cc34fe9d40bbaec2553a428ab12431f43851d2e4b357a07e69a8bed8",
-          "compressed_point_hex": "4c5edb608fee308fe7938f78ec95f2b5fd6a99dc7842b9246a1449fadb120f52",
-          "wire_hex": "023fc22585cc34fe9d40bbaec2553a428ab12431f43851d2e4b357a07e69a8bed84c5edb608fee308fe7938f78ec95f2b5fd6a99dc7842b9246a1449fadb120f52",
+          "context_tag_hex": "8324d32c765b3b8ae6cd92f56a68857c50dddba2f285ac6455e48fb914069c75",
+          "compressed_point_hex": "1059af570997e26e93b9c32a38c2309c6979fa29f66b4870b052f04ebe61fa79",
+          "wire_hex": "028324d32c765b3b8ae6cd92f56a68857c50dddba2f285ac6455e48fb914069c751059af570997e26e93b9c32a38c2309c6979fa29f66b4870b052f04ebe61fa79",
           "share_commitment_wire_hex": "02ec34ceeeb8e74e1aff7730a3c8f204bbfa04933e2a9475349657979e70df2179",
           "dleq_proof_seed_hex": "2828282828282828282828282828282828282828282828282828282828282802",
-          "dleq_proof_wire_hex": "6a04be79b83a53e5660e9556113acbd683ff0d452f035853721d52680669d00675a0ff8b32381d099df53cef18317dab19d86dddee14aa59afa8d406c54bc502"
+          "dleq_proof_wire_hex": "c4a809133c298de762f6046a7e47972729a1cb1e130886ce79d3f7b0126afc08a65720a2983d9f947c6a80aef548097f85e99c3ad2ab97abd545788b7fd7bb00"
         },
         {
           "id": 3,
-          "context_tag_hex": "3fc22585cc34fe9d40bbaec2553a428ab12431f43851d2e4b357a07e69a8bed8",
-          "compressed_point_hex": "d6502583d328b6e149d47d788672b49058288e7b7080c3626585d9e86a22de64",
-          "wire_hex": "033fc22585cc34fe9d40bbaec2553a428ab12431f43851d2e4b357a07e69a8bed8d6502583d328b6e149d47d788672b49058288e7b7080c3626585d9e86a22de64",
+          "context_tag_hex": "8324d32c765b3b8ae6cd92f56a68857c50dddba2f285ac6455e48fb914069c75",
+          "compressed_point_hex": "0c8a6abba892ea02d71a67a7882554743d0a725e8829e18efd50aa98aadb1920",
+          "wire_hex": "038324d32c765b3b8ae6cd92f56a68857c50dddba2f285ac6455e48fb914069c750c8a6abba892ea02d71a67a7882554743d0a725e8829e18efd50aa98aadb1920",
           "share_commitment_wire_hex": "033ac731bd21c3767d2659ff02bcec9466cac0a6dfed41ffc100112126e9477668",
           "dleq_proof_seed_hex": "2828282828282828282828282828282828282828282828282828282828282803",
-          "dleq_proof_wire_hex": "22b5011836e942ebf8bebde9fed1d0622827d5633047cd96d67a6a7ff54de20c10dcc1fbf307fca57542d16b489a6ec0abf031ba77978b180f993c3f0fcb3204"
+          "dleq_proof_wire_hex": "6c3b9f5858ce100aa0ac34e550388609955219b7b4cdd40028133c5d7ed6c406ddde32c81e695d76db728bc81b8111257845397914cd17f95263945d4949900b"
         }
       ],
-      "direct_output_hex": "ad502d0d27c9ee5a34b924d1f28e2e7bcc8f4756c07cc8335268e1d99b2c1ef3",
+      "direct_output_hex": "21d32ff2598066ef1202591050884c1d795e93bc20371dd43be69b1a09f6f5bb",
       "pairwise_outputs": [
         {
           "ids": [
             1,
             2
           ],
-          "output_hex": "ad502d0d27c9ee5a34b924d1f28e2e7bcc8f4756c07cc8335268e1d99b2c1ef3"
+          "output_hex": "21d32ff2598066ef1202591050884c1d795e93bc20371dd43be69b1a09f6f5bb"
         },
         {
           "ids": [
             1,
             3
           ],
-          "output_hex": "ad502d0d27c9ee5a34b924d1f28e2e7bcc8f4756c07cc8335268e1d99b2c1ef3"
+          "output_hex": "21d32ff2598066ef1202591050884c1d795e93bc20371dd43be69b1a09f6f5bb"
         },
         {
           "ids": [
             2,
             3
           ],
-          "output_hex": "ad502d0d27c9ee5a34b924d1f28e2e7bcc8f4756c07cc8335268e1d99b2c1ef3"
+          "output_hex": "21d32ff2598066ef1202591050884c1d795e93bc20371dd43be69b1a09f6f5bb"
         }
       ],
       "refresh_seed_hex": "6363636363636363636363636363636363636363636363636363636363636363",
@@ -106,21 +106,21 @@
             1,
             2
           ],
-          "output_hex": "ad502d0d27c9ee5a34b924d1f28e2e7bcc8f4756c07cc8335268e1d99b2c1ef3"
+          "output_hex": "21d32ff2598066ef1202591050884c1d795e93bc20371dd43be69b1a09f6f5bb"
         },
         {
           "ids": [
             1,
             3
           ],
-          "output_hex": "ad502d0d27c9ee5a34b924d1f28e2e7bcc8f4756c07cc8335268e1d99b2c1ef3"
+          "output_hex": "21d32ff2598066ef1202591050884c1d795e93bc20371dd43be69b1a09f6f5bb"
         },
         {
           "ids": [
             2,
             3
           ],
-          "output_hex": "ad502d0d27c9ee5a34b924d1f28e2e7bcc8f4756c07cc8335268e1d99b2c1ef3"
+          "output_hex": "21d32ff2598066ef1202591050884c1d795e93bc20371dd43be69b1a09f6f5bb"
         }
       ],
       "invalid_cases": [

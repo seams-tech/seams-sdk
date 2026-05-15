@@ -113,6 +113,7 @@ function assertHex32(value: unknown): `0x${string}` {
 }
 
 function encodeSmartAccountInitData(input: {
+  // The ERC-4337 account init payload includes the hosted-NEAR owner hash by protocol design.
   nearAccountIdHash: `0x${string}`;
   recoveryAuthority: `0x${string}`;
   entryPoint: `0x${string}`;

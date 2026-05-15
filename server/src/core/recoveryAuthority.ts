@@ -1,5 +1,8 @@
 import { normalizePositiveInteger, toOptionalTrimmedString } from '@shared/utils/validation';
-import { createEvmClient, parseEvmRpcHexQuantity } from '../../../client/src';
+import {
+  createEvmClient,
+  parseRpcHexQuantity as parseEvmRpcHexQuantity,
+} from '../../../client/src/core/rpcClients/evm/EvmClient';
 import type { AuthService } from './AuthService';
 import type { AccountSignerRecord } from './AccountSignerStore';
 import type { RecoveryExecutionRecord } from './RecoveryExecutionStore';

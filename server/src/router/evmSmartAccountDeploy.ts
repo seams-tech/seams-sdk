@@ -105,6 +105,7 @@ export function createEvmSmartAccountDeployHandler(input: {
   );
 
   return async (request: SmartAccountDeployRequest): Promise<SmartAccountDeployResult> => {
+    const walletId = request.walletId;
     if (request.chainTarget.kind !== 'evm') {
       return {
         ok: true,
@@ -178,7 +179,7 @@ export function createEvmSmartAccountDeployHandler(input: {
         },
       });
       logger.info('[relay][smart-account-deploy] deployed evm smart account', {
-        nearAccountId: request.nearAccountId,
+        walletId,
         chainId: request.chainTarget.chainId,
         accountAddress: request.accountAddress,
         deploymentTxHash: execution.txHash,
@@ -207,7 +208,7 @@ export function createEvmSmartAccountDeployHandler(input: {
         };
       }
       logger.warn('[relay][smart-account-deploy] evm smart-account deployment failed', {
-        nearAccountId: request.nearAccountId,
+        walletId,
         chainId: request.chainTarget.chainId,
         accountAddress: request.accountAddress,
         code,

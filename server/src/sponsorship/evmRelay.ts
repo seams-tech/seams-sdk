@@ -1,5 +1,8 @@
 import type { Request, Response, Router as ExpressRouter } from 'express';
-import { createEvmClient, parseEvmRpcHexQuantity } from '../../../client/src';
+import {
+  createEvmClient,
+  parseRpcHexQuantity as parseEvmRpcHexQuantity,
+} from '../../../client/src/core/rpcClients/evm/EvmClient';
 import type { ConsoleApiKeyService } from '../console/apiKeys';
 import type { ConsoleBillingService } from '../console/billing';
 import type { ConsoleBillingPrepaidReservationService } from '../console/billingPrepaidReservations';
@@ -9,14 +12,13 @@ import type { ConsoleSponsoredCallService } from '../console/sponsoredCalls';
 import type { ConsoleSponsorshipSpendCapService } from '../console/sponsorshipSpendCaps';
 import type { ConsoleWebhookService } from '../console/webhooks';
 import {
-  type SponsoredEvmCall,
   type ServerEip1559UnsignedTx,
   computeEip1559TxHash,
   secp256k1PrivateKey32ToPublicKey33,
   secp256k1PublicKey33ToEthereumAddress,
   signSecp256k1Recoverable,
   encodeEip1559SignedTxFromSignature65,
-} from '../index';
+} from '../core/ThresholdService/ethSignerWasm';
 import type { SponsorshipSpendPricingService } from './spendCaps';
 import { createRelayPublishableKeyAuthAdapter } from '../router/relayApiKeyAuth';
 import { coerceRouterLogger, type RouterLogger } from '../router/logger';
@@ -27,6 +29,7 @@ import {
   normalizeEvmAddress,
   normalizeHex32,
   parseOptionalPositiveInteger,
+  type SponsoredEvmCall,
 } from './evm';
 
 const DEFAULT_SPONSORED_EVM_RPC_URL = 'https://rpc.moderato.tempo.xyz';

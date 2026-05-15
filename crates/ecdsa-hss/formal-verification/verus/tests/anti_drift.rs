@@ -1,7 +1,7 @@
 use ecdsa_hss::{
     encode_context_v1,
     hidden_eval_boundary_from_staged_request_and_response_v1, AllowedOutputKindV1,
-    EcdsaHssContextV1, HiddenEvalBoundaryV1,
+    EcdsaHssStableKeyContextV1, HiddenEvalBoundaryV1,
     HiddenEvalInputBoundaryV1, HiddenEvalPersistedStateBoundaryV1,
     HiddenEvalTransportBoundaryV1, PrepareEnvelopeV1, RespondRequestV1,
     ServerEvalOperationV1, ServerPrepareInputsV1, StagedServerSessionV1, VisibleClientBoundaryV1,
@@ -95,7 +95,16 @@ fn sample_hidden_eval_boundary(operation: ServerEvalOperationV1) -> HiddenEvalBo
     let staged = StagedServerSessionV1::prepare(ServerPrepareInputsV1 {
         prepare: PrepareEnvelopeV1 {
             operation,
-            context: EcdsaHssContextV1::new("anti-drift.test.near", "evm-signing", "v1"),
+            context: EcdsaHssStableKeyContextV1::new(
+                "anti-drift.test.near",
+                "anti-drift-subject",
+                "evm:eip155:11155111",
+                "ehss-anti-drift",
+                "anti-drift-root",
+                "root-v1",
+                "evm-signing",
+                "v1",
+            ),
         },
         y_relayer32_le: [0x42u8; 32],
     })
@@ -126,7 +135,12 @@ fn anti_drift_hidden_eval_input_boundary_shape_matches_frozen_seam() {
 
     assert_eq!(operation, ServerEvalOperationV1::NonExportSign);
     assert_eq!(allowed_output_kind, AllowedOutputKindV1::ThresholdMaterialOnly);
-    assert_eq!(context.near_account_id, "anti-drift.test.near");
+    assert_eq!(context.wallet_session_user_id, "anti-drift.test.near");
+    assert_eq!(context.subject_id, "anti-drift-subject");
+    assert_eq!(context.chain_target, "evm:eip155:11155111");
+    assert_eq!(context.ecdsa_threshold_key_id, "ehss-anti-drift");
+    assert_eq!(context.signing_root_id, "anti-drift-root");
+    assert_eq!(context.signing_root_version, "root-v1");
     assert_eq!(context.key_purpose, "evm-signing");
     assert_eq!(context.key_version, "v1");
     assert_eq!(y_client32_le, [0x24u8; 32]);
@@ -310,8 +324,13 @@ fn anti_drift_k256_nonzero_reduction_matches_frozen_v1_formula() {
 
     let corpus = committed_fixture_corpus_file();
     for fixture in corpus.fixtures {
-        let context = EcdsaHssContextV1::new(
-            fixture.context.near_account_id,
+        let context = EcdsaHssStableKeyContextV1::new(
+            fixture.context.wallet_session_user_id,
+            fixture.context.subject_id,
+            fixture.context.chain_target,
+            fixture.context.ecdsa_threshold_key_id,
+            fixture.context.signing_root_id,
+            fixture.context.signing_root_version,
             fixture.context.key_purpose,
             fixture.context.key_version,
         );

@@ -11,6 +11,10 @@ import { json, withCors } from './http';
 import { handleThresholdEd25519 } from './routes/thresholdEd25519';
 import { handleThresholdEcdsa } from './routes/thresholdEcdsa';
 import { isPlainObject } from '@shared/utils/validation';
+import {
+  thresholdEcdsaChainTargetFromValue,
+  type ThresholdEcdsaChainTarget,
+} from '../../core/thresholdEcdsaChainTarget';
 
 type SelfHostedCloudflareRelayContext = Parameters<typeof handleThresholdEd25519>[0];
 
@@ -37,7 +41,12 @@ type SelfHostedEcdsaSigningRootWalletVerifier = {
   readonly verifyEcdsaSigningRootWalletAddress: (input: {
     readonly signingRootId: string;
     readonly signingRootVersion: string;
-    readonly userId: string;
+    readonly walletSessionUserId: string;
+    readonly subjectId: string;
+    readonly chainTarget: ThresholdEcdsaChainTarget;
+    readonly ecdsaThresholdKeyId: string;
+    readonly walletSigningSessionId: string;
+    readonly thresholdSessionId: string;
     readonly rpId: string;
     readonly clientRootShare32B64u: string;
     readonly expectedEthereumAddress?: string;
@@ -263,16 +272,34 @@ async function handleSigningRootAdminRoutes(
     const body = await readJson(ctx.request);
     const signingRootId = requireBodyString(body, 'signingRootId');
     const signingRootVersion = requireBodyString(body, 'signingRootVersion');
-    const userId = requireBodyString(body, 'userId') || requireBodyString(body, 'nearAccountId');
+    const walletSessionUserId = requireBodyString(body, 'walletSessionUserId');
+    const subjectId = requireBodyString(body, 'subjectId');
+    const chainTarget = isPlainObject(body)
+      ? thresholdEcdsaChainTargetFromValue(body.chainTarget)
+      : null;
+    const ecdsaThresholdKeyId = requireBodyString(body, 'ecdsaThresholdKeyId');
+    const walletSigningSessionId = requireBodyString(body, 'walletSigningSessionId');
+    const thresholdSessionId = requireBodyString(body, 'thresholdSessionId');
     const rpId = requireBodyString(body, 'rpId');
     const clientRootShare32B64u = requireBodyString(body, 'clientRootShare32B64u');
-    if (!signingRootId || !signingRootVersion || !userId || !rpId || !clientRootShare32B64u) {
+    if (
+      !signingRootId ||
+      !signingRootVersion ||
+      !walletSessionUserId ||
+      !subjectId ||
+      !chainTarget ||
+      !ecdsaThresholdKeyId ||
+      !walletSigningSessionId ||
+      !thresholdSessionId ||
+      !rpId ||
+      !clientRootShare32B64u
+    ) {
       return json(
         {
           ok: false,
           code: 'invalid_request',
           message:
-            'signingRootId, signingRootVersion, userId, rpId, and clientRootShare32B64u are required',
+            'signingRootId, signingRootVersion, walletSessionUserId, subjectId, chainTarget, ecdsaThresholdKeyId, walletSigningSessionId, thresholdSessionId, rpId, and clientRootShare32B64u are required',
         },
         { status: 400 },
       );
@@ -294,7 +321,12 @@ async function handleSigningRootAdminRoutes(
     const result = await verifier.verifyEcdsaSigningRootWalletAddress({
       signingRootId,
       signingRootVersion,
-      userId,
+      walletSessionUserId,
+      subjectId,
+      chainTarget,
+      ecdsaThresholdKeyId,
+      walletSigningSessionId,
+      thresholdSessionId,
       rpId,
       clientRootShare32B64u,
       ...(expectedEthereumAddress ? { expectedEthereumAddress } : {}),

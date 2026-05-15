@@ -10,7 +10,7 @@ export type SponsoredEvmCall = {
 
 export type SponsoredEvmCallRequest = {
   environmentId: string;
-  nearAccountId: string;
+  walletId: string;
   walletAddress: `0x${string}`;
   chainId: number;
   call: SponsoredEvmCall;
@@ -310,7 +310,7 @@ export function parseSponsoredEvmCallRequest(bodyRaw: unknown): SponsoredEvmCall
       ? (bodyRaw as Record<string, unknown>)
       : {};
   const environmentId = String(body.environmentId || '').trim();
-  const nearAccountId = String(body.nearAccountId || '').trim();
+  const walletId = String(body.walletId || body.nearAccountId || '').trim();
   const walletAddress = normalizeEvmAddress(body.walletAddress);
   const chainId = parseOptionalPositiveInteger(body.chainId);
   const callRaw =
@@ -325,8 +325,8 @@ export function parseSponsoredEvmCallRequest(bodyRaw: unknown): SponsoredEvmCall
   if (!environmentId) {
     throw new Error('Missing environmentId');
   }
-  if (!nearAccountId) {
-    throw new Error('Missing nearAccountId');
+  if (!walletId) {
+    throw new Error('Missing walletId');
   }
   if (!walletAddress) {
     throw new Error('Missing or invalid walletAddress');
@@ -346,7 +346,7 @@ export function parseSponsoredEvmCallRequest(bodyRaw: unknown): SponsoredEvmCall
   }
   return {
     environmentId,
-    nearAccountId,
+    walletId,
     walletAddress,
     chainId,
     call: {

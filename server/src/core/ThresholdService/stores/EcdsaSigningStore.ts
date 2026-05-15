@@ -35,7 +35,7 @@ export type ThresholdEcdsaSigningSessionRecord = {
   ecdsaThresholdKeyId: string;
   thresholdEcdsaPublicKeyB64u: string;
   signingDigestB64u: string;
-  userId: string;
+  walletSessionUserId: string;
   rpId: string;
   clientVerifyingShareB64u: string;
   participantIds: number[];
@@ -59,7 +59,7 @@ export type ThresholdEcdsaPresignSessionStage = 'triples' | 'triples_done' | 'pr
 
 export type ThresholdEcdsaPresignSessionRecord = {
   expiresAtMs: number;
-  userId: string;
+  walletSessionUserId: string;
   rpId: string;
   relayerKeyId: string;
   ownerInstanceId?: string;

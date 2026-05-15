@@ -81,7 +81,7 @@ type SponsoredEvmExecutionAssessment = SponsorshipExecutionAssessment & {
 };
 
 type SponsoredEvmCallDetails = {
-  nearAccountId: string;
+  walletId: string;
   walletAddress: `0x${string}`;
   chainId: number;
   call: {
@@ -173,8 +173,9 @@ function normalizeTxHashOrNull(value: unknown): `0x${string}` | null {
   return normalized as `0x${string}`;
 }
 
-function buildAccountRef(nearAccountId: string): string {
-  return `near:${nearAccountId}`;
+// Sponsored spend-cap accounting still binds to the hosted-NEAR account ref.
+function buildHostedNearAccountRef(walletId: string): string {
+  return `near:${walletId}`;
 }
 
 function buildTargetRef(chainId: number, to: `0x${string}`): string {
@@ -205,7 +206,7 @@ function buildDetailsJson(input: {
   };
 }): string {
   const details: SponsoredEvmCallDetails = {
-    nearAccountId: input.request.nearAccountId,
+    walletId: input.request.walletId,
     walletAddress: input.request.walletAddress,
     chainId: input.request.chainId,
     call: {
@@ -251,7 +252,7 @@ function buildDetailsJson(input: {
 function parseDetailsJson(value: string): SponsoredEvmCallDetails | null {
   try {
     const parsed = JSON.parse(value) as Record<string, unknown>;
-    const nearAccountId = String(parsed.nearAccountId || '').trim();
+    const walletId = String(parsed.walletId || parsed.nearAccountId || '').trim();
     const walletAddress = normalizeEvmAddress(parsed.walletAddress);
     const chainId = parseOptionalPositiveInteger(parsed.chainId);
     const call =
@@ -269,9 +270,9 @@ function parseDetailsJson(value: string): SponsoredEvmCallDetails | null {
     const selector = /^0x[0-9a-fA-F]{8}$/.test(String(call?.selector || '').trim())
       ? (String(call?.selector || '').trim().toLowerCase() as `0x${string}`)
       : null;
-    if (!nearAccountId || !walletAddress || !chainId || !to || !data || !selector) return null;
+    if (!walletId || !walletAddress || !chainId || !to || !data || !selector) return null;
     return {
-      nearAccountId,
+      walletId,
       walletAddress,
       chainId,
       call: {
@@ -611,7 +612,7 @@ export async function handleRelaySponsoredEvmCall(
     return sponsorshipDispatch.response;
   }
   const { matchedPolicy: matched, adapter } = sponsorshipDispatch.matched;
-  const accountRef = buildAccountRef(parsedBody.nearAccountId);
+  const accountRef = buildHostedNearAccountRef(parsedBody.walletId);
   const targetRef = buildTargetRef(parsedBody.chainId, parsedBody.call.to);
   const sponsorRef = buildSponsorRef(parsedBody.chainId, adapter.meta.sponsorAddress);
   const spendCapSourceEventId = buildSponsoredSpendCapSourceEventId({
@@ -625,7 +626,7 @@ export async function handleRelaySponsoredEvmCall(
     idempotencyKey,
   });
   const spendCapRequestDetails = {
-    nearAccountId: parsedBody.nearAccountId,
+    walletId: parsedBody.walletId,
     walletAddress: parsedBody.walletAddress,
     call: {
       to: parsedBody.call.to,
@@ -885,7 +886,7 @@ export async function handleRelaySponsoredEvmCall(
           idempotencyKey,
         }),
         assessment,
-        walletId: parsedBody.nearAccountId,
+        walletId: parsedBody.walletId,
         balanceEvents: {
           logger: input.logger,
           webhooks: relaySponsoredEvmCall.webhooks || null,
@@ -1035,7 +1036,7 @@ export async function handleRelaySponsoredEvmCall(
           idempotencyKey,
         }),
         assessment,
-        walletId: parsedBody.nearAccountId,
+        walletId: parsedBody.walletId,
         balanceEvents: {
           logger: input.logger,
           webhooks: relaySponsoredEvmCall.webhooks || null,
@@ -1066,7 +1067,7 @@ export async function handleRelaySponsoredEvmCall(
       input.logger.error('[sponsored-evm-call] request failed', {
         environmentId: parsedBody.environmentId,
         apiKeyId: sponsorshipRuntime.principal.principal.apiKeyId,
-        nearAccountId: parsedBody.nearAccountId,
+        walletId: parsedBody.walletId,
         walletAddress: parsedBody.walletAddress,
         txHash: assessment.txHash,
         message: assessment.responseMessage,

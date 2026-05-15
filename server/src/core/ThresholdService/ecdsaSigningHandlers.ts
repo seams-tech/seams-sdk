@@ -19,7 +19,6 @@ import {
   type RuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
 import type { ThresholdCoordinatorPeer, ThresholdNodeRole } from './config';
-import type { ThresholdEd25519SessionStore } from './stores/SessionStore';
 import type {
   ThresholdEcdsaPresignSessionRecord,
   ThresholdEcdsaPresignSessionStore,
@@ -41,6 +40,19 @@ import {
   ThresholdEcdsaPresignSession,
   threshold_ecdsa_finalize_signature,
 } from '../../../../wasm/eth_signer/pkg/eth_signer.js';
+
+type ThresholdEcdsaMpcSessionRecord = {
+  expiresAtMs: number;
+  ecdsaThresholdKeyId?: string;
+  relayerKeyId: string;
+  purpose: string;
+  intentDigestB64u: string;
+  signingDigestB64u: string;
+  walletSessionUserId: string;
+  rpId: string;
+  clientVerifyingShareB64u?: string;
+  participantIds: number[];
+} & Partial<ThresholdEcdsaSigningRootMetadata>;
 
 type ParseOk<T> = { ok: true; value: T };
 type ParseErr = { ok: false; code: string; message: string };
@@ -315,7 +327,9 @@ export class ThresholdEcdsaSigningHandlers {
   private readonly participantIds2p: number[];
   private readonly clientParticipantId: number;
   private readonly relayerParticipantId: number;
-  private readonly sessionStore: ThresholdEd25519SessionStore;
+  private readonly sessionStore: {
+    takeMpcSession(id: string): Promise<ThresholdEcdsaMpcSessionRecord | null>;
+  };
   private readonly signingSessionStore: ThresholdEcdsaSigningSessionStore;
   private readonly presignSessionStore: ThresholdEcdsaPresignSessionStore;
   private readonly presignaturePool: ThresholdEcdsaPresignaturePool;
@@ -339,7 +353,9 @@ export class ThresholdEcdsaSigningHandlers {
     relayerParticipantId: number;
     coordinatorInstanceId?: string | null;
     coordinatorPeers?: ThresholdCoordinatorPeer[];
-    sessionStore: ThresholdEd25519SessionStore;
+    sessionStore: {
+      takeMpcSession(id: string): Promise<ThresholdEcdsaMpcSessionRecord | null>;
+    };
     signingSessionStore: ThresholdEcdsaSigningSessionStore;
     presignSessionStore: ThresholdEcdsaPresignSessionStore;
     presignaturePool: ThresholdEcdsaPresignaturePool;
@@ -384,7 +400,7 @@ export class ThresholdEcdsaSigningHandlers {
 
   private async resolvePresignInitKeyMaterial(input: {
     ecdsaThresholdKeyId: string;
-    userId: string;
+    walletSessionUserId: string;
     rpId: string;
     participantIds: number[];
     tokenRelayerKeyId: string;
@@ -412,7 +428,10 @@ export class ThresholdEcdsaSigningHandlers {
         message: 'ecdsaThresholdKeyId is not active on this server',
       };
     }
-    if (integratedKey.userId !== input.userId || integratedKey.rpId !== input.rpId) {
+    if (
+      integratedKey.walletSessionUserId !== input.walletSessionUserId ||
+      integratedKey.rpId !== input.rpId
+    ) {
       return {
         ok: false,
         code: 'unauthorized',
@@ -588,12 +607,12 @@ export class ThresholdEcdsaSigningHandlers {
     const { ecdsaThresholdKeyId } = parsedRequest.value;
 
     const claims = input.claims;
-    const userId = toOptionalTrimmedString(claims?.walletId);
-    if (!userId)
+    const walletSessionUserId = toOptionalTrimmedString(claims?.walletId);
+    if (!walletSessionUserId)
       return {
         ok: false,
         code: 'unauthorized',
-        message: 'Missing userId in threshold session token',
+        message: 'Missing walletSessionUserId in threshold session token',
       };
     const tokenRelayerKeyId = toOptionalTrimmedString(claims?.relayerKeyId);
     const tokenRpId = toOptionalTrimmedString(claims?.rpId);
@@ -610,7 +629,7 @@ export class ThresholdEcdsaSigningHandlers {
     }
     const resolvedKeyMaterial = await this.resolvePresignInitKeyMaterial({
       ecdsaThresholdKeyId,
-      userId,
+      walletSessionUserId,
       rpId: tokenRpId,
       participantIds: claims.participantIds,
       tokenRelayerKeyId,
@@ -735,7 +754,7 @@ export class ThresholdEcdsaSigningHandlers {
       const createdAtMs = Date.now();
       const record: ThresholdEcdsaPresignSessionRecord = {
         expiresAtMs,
-        userId,
+        walletSessionUserId,
         rpId: tokenRpId,
         relayerKeyId,
         ...(this.coordinatorInstanceId ? { ownerInstanceId: this.coordinatorInstanceId } : {}),
@@ -889,7 +908,7 @@ export class ThresholdEcdsaSigningHandlers {
         };
       }
       if (
-        tokenUserId !== record.userId ||
+        tokenUserId !== record.walletSessionUserId ||
         tokenRpId !== record.rpId ||
         !sameParticipantIds(tokenParticipantIds, record.participantIds)
       ) {
@@ -1450,6 +1469,7 @@ export class ThresholdEcdsaSigningHandlers {
 
     const signingSessionId = this.createSigningSessionId();
     const entropyB64u = base64UrlEncode(crypto.getRandomValues(new Uint8Array(32)));
+    const walletSessionUserId = sess.walletSessionUserId;
 
     const record: ThresholdEcdsaSigningSessionRecord = {
       expiresAtMs: sess.expiresAtMs,
@@ -1458,7 +1478,7 @@ export class ThresholdEcdsaSigningHandlers {
       ecdsaThresholdKeyId,
       thresholdEcdsaPublicKeyB64u,
       signingDigestB64u: sess.signingDigestB64u,
-      userId: sess.userId,
+      walletSessionUserId,
       rpId: sess.rpId,
       clientVerifyingShareB64u,
       participantIds,

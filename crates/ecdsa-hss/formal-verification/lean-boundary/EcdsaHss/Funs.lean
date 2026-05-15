@@ -279,17 +279,36 @@ def server.reference_boundary.visible_boundary_from_respond_response_v1
       server.reference_boundary.VisibleRespondBoundaryV1 (core.convert.FromSame
       signer_core.error.SignerCoreError) residual
 
-/-- [ecdsa_hss::shared::context::{core::clone::Clone for ecdsa_hss::shared::context::EcdsaHssContextV1}::clone]:
-    Source: 'src/shared/context.rs', lines 8:16-8:21
+/-- [ecdsa_hss::shared::context::{core::clone::Clone for ecdsa_hss::shared::context::EcdsaHssStableKeyContextV1}::clone]:
+    Source: 'src/shared/context.rs', lines 9:16-9:21
     Visibility: public -/
-def shared.context.EcdsaHssContextV1.Insts.CoreCloneClone.clone
-  (self : shared.context.EcdsaHssContextV1) :
-  Result shared.context.EcdsaHssContextV1
+def shared.context.EcdsaHssStableKeyContextV1.Insts.CoreCloneClone.clone
+  (self : shared.context.EcdsaHssStableKeyContextV1) :
+  Result shared.context.EcdsaHssStableKeyContextV1
   := do
-  let s ← alloc.string.String.Insts.CoreCloneClone.clone self.near_account_id
-  let s1 ← alloc.string.String.Insts.CoreCloneClone.clone self.key_purpose
-  let s2 ← alloc.string.String.Insts.CoreCloneClone.clone self.key_version
-  ok { near_account_id := s, key_purpose := s1, key_version := s2 }
+  let s ←
+    alloc.string.String.Insts.CoreCloneClone.clone self.wallet_session_user_id
+  let s1 ← alloc.string.String.Insts.CoreCloneClone.clone self.subject_id
+  let s2 ← alloc.string.String.Insts.CoreCloneClone.clone self.chain_target
+  let s3 ←
+    alloc.string.String.Insts.CoreCloneClone.clone self.ecdsa_threshold_key_id
+  let s4 ←
+    alloc.string.String.Insts.CoreCloneClone.clone self.signing_root_id
+  let s5 ←
+    alloc.string.String.Insts.CoreCloneClone.clone self.signing_root_version
+  let s6 ← alloc.string.String.Insts.CoreCloneClone.clone self.key_purpose
+  let s7 ← alloc.string.String.Insts.CoreCloneClone.clone self.key_version
+  ok
+    {
+      wallet_session_user_id := s,
+      subject_id := s1,
+      chain_target := s2,
+      ecdsa_threshold_key_id := s3,
+      signing_root_id := s4,
+      signing_root_version := s5,
+      key_purpose := s6,
+      key_version := s7
+    }
 
 /-- [ecdsa_hss::server::reference_boundary::hidden_eval_input_boundary_from_staged_request_v1]:
     Source: 'src/server/reference_boundary.rs', lines 167:0-178:1
@@ -300,14 +319,14 @@ def server.reference_boundary.hidden_eval_input_boundary_from_staged_request_v1
   := do
   let aokv ←
     wire.ServerEvalOperationV1.allowed_output_kind staged.prepare.operation
-  let ehcv ←
-    shared.context.EcdsaHssContextV1.Insts.CoreCloneClone.clone
+  let ehskcv ←
+    shared.context.EcdsaHssStableKeyContextV1.Insts.CoreCloneClone.clone
       staged.prepare.context
   ok
     {
       operation := staged.prepare.operation,
       allowed_output_kind := aokv,
-      context := ehcv,
+      context := ehskcv,
       y_client32_le := request.y_client32_le,
       y_relayer32_le := staged.y_relayer32_le
     }
@@ -382,7 +401,7 @@ def
     ok (core.result.Result.Err sce)
   else
     let b1 ←
-      shared.context.EcdsaHssContextV1.Insts.CoreCmpPartialEqEcdsaHssContextV1.ne
+      shared.context.EcdsaHssStableKeyContextV1.Insts.CoreCmpPartialEqEcdsaHssStableKeyContextV1.ne
         response.finalized_server_session.context staged.prepare.context
     if b1
     then

@@ -5,7 +5,7 @@ use signer_core::error::SignerCoreError;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::client::{ClientOutputV1, ExplicitExportClientOutputV1, NonExportClientOutputV1};
-use crate::shared::context::EcdsaHssContextV1;
+use crate::shared::context::EcdsaHssStableKeyContextV1;
 use crate::shared::derive::{
     derive_additive_shares_v1, derive_canonical_secret_v1, verify_single_key_invariant_v1,
 };
@@ -26,7 +26,7 @@ pub struct FinalizedServerSessionV1 {
     #[zeroize(skip)]
     pub operation: ServerEvalOperationV1,
     #[zeroize(skip)]
-    pub context: EcdsaHssContextV1,
+    pub context: EcdsaHssStableKeyContextV1,
     pub retained: RetainedServerStateV1,
 }
 

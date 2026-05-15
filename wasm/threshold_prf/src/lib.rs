@@ -47,8 +47,12 @@ fn push_len16(out: &mut Vec<u8>, label: &str, value: &str) -> Result<(), JsValue
 }
 
 fn encode_ecdsa_hss_context_v1(
+    wallet_session_user_id: &str,
+    subject_id: &str,
+    _chain_target: &str,
+    ecdsa_threshold_key_id: &str,
     signing_root_id: &str,
-    near_account_id: &str,
+    signing_root_version: &str,
     key_purpose: &str,
     key_version: &str,
 ) -> Result<Vec<u8>, JsValue> {
@@ -56,8 +60,20 @@ fn encode_ecdsa_hss_context_v1(
     out.extend_from_slice(b"ecdsa-hss:context:v1");
     push_len16(&mut out, "scheme_id", "ecdsa-hss-v1")?;
     push_len16(&mut out, "curve", "secp256k1")?;
+    push_len16(
+        &mut out,
+        "wallet_session_user_id",
+        wallet_session_user_id,
+    )?;
+    push_len16(&mut out, "subject_id", subject_id)?;
+    push_len16(&mut out, "key_scope", "evm-family")?;
+    push_len16(
+        &mut out,
+        "ecdsa_threshold_key_id",
+        ecdsa_threshold_key_id,
+    )?;
     push_len16(&mut out, "signing_root_id", signing_root_id)?;
-    push_len16(&mut out, "near_account_id", near_account_id)?;
+    push_len16(&mut out, "signing_root_version", signing_root_version)?;
     push_len16(&mut out, "key_purpose", key_purpose)?;
     push_len16(&mut out, "key_version", key_version)?;
     out.push(2);
@@ -170,14 +186,22 @@ pub fn init_threshold_prf() {
 pub fn threshold_prf_derive_ecdsa_hss_y_relayer(
     share_wire_i: Vec<u8>,
     share_wire_j: Vec<u8>,
+    wallet_session_user_id: String,
+    subject_id: String,
+    chain_target: String,
+    ecdsa_threshold_key_id: String,
     signing_root_id: String,
-    near_account_id: String,
+    signing_root_version: String,
     key_purpose: String,
     key_version: String,
 ) -> Result<Vec<u8>, JsValue> {
     let context_bytes = encode_ecdsa_hss_context_v1(
+        &wallet_session_user_id,
+        &subject_id,
+        &chain_target,
+        &ecdsa_threshold_key_id,
         &signing_root_id,
-        &near_account_id,
+        &signing_root_version,
         &key_purpose,
         &key_version,
     )?;

@@ -13,7 +13,12 @@ verus! {
 pub struct CanonicalContextV1 {
     pub scheme_id: String,
     pub curve: String,
-    pub near_account_id: String,
+    pub wallet_session_user_id: String,
+    pub subject_id: String,
+    pub chain_target: String,
+    pub ecdsa_threshold_key_id: String,
+    pub signing_root_id: String,
+    pub signing_root_version: String,
     pub key_purpose: String,
     pub key_version: String,
     pub participant_ids: Vec<u16>,
@@ -61,7 +66,12 @@ pub open spec fn encode_context_v1_spec(context: CanonicalContextV1) -> Seq<u8> 
     domain_tag_v1_spec()
         + encoded_ascii_field_v1_spec(context.scheme_id)
         + encoded_ascii_field_v1_spec(context.curve)
-        + encoded_ascii_field_v1_spec(context.near_account_id)
+        + encoded_ascii_field_v1_spec(context.wallet_session_user_id)
+        + encoded_ascii_field_v1_spec(context.subject_id)
+        + encoded_ascii_field_v1_spec(context.chain_target)
+        + encoded_ascii_field_v1_spec(context.ecdsa_threshold_key_id)
+        + encoded_ascii_field_v1_spec(context.signing_root_id)
+        + encoded_ascii_field_v1_spec(context.signing_root_version)
         + encoded_ascii_field_v1_spec(context.key_purpose)
         + encoded_ascii_field_v1_spec(context.key_version)
         + participant_id_bytes_v1_spec()
@@ -73,7 +83,12 @@ pub proof fn encode_context_v1_has_fixed_field_order(context: CanonicalContextV1
             == domain_tag_v1_spec()
                 + encoded_ascii_field_v1_spec(context.scheme_id)
                 + encoded_ascii_field_v1_spec(context.curve)
-                + encoded_ascii_field_v1_spec(context.near_account_id)
+                + encoded_ascii_field_v1_spec(context.wallet_session_user_id)
+                + encoded_ascii_field_v1_spec(context.subject_id)
+                + encoded_ascii_field_v1_spec(context.chain_target)
+                + encoded_ascii_field_v1_spec(context.ecdsa_threshold_key_id)
+                + encoded_ascii_field_v1_spec(context.signing_root_id)
+                + encoded_ascii_field_v1_spec(context.signing_root_version)
                 + encoded_ascii_field_v1_spec(context.key_purpose)
                 + encoded_ascii_field_v1_spec(context.key_version)
                 + participant_id_bytes_v1_spec(),

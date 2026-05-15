@@ -73,12 +73,12 @@ axiom wire.ServerEvalOperationV1.Insts.CoreCmpPartialEqServerEvalOperationV1.ne
 axiom wire.AllowedOutputKindV1.Insts.CoreCmpPartialEqAllowedOutputKindV1.ne
   : wire.AllowedOutputKindV1 → wire.AllowedOutputKindV1 → Result Bool
 
-/-- [ecdsa_hss::shared::context::{core::cmp::PartialEq<ecdsa_hss::shared::context::EcdsaHssContextV1> for ecdsa_hss::shared::context::EcdsaHssContextV1}::ne]:
-    Source: 'src/shared/context.rs', lines 8:23-8:32
+/-- [ecdsa_hss::shared::context::{core::cmp::PartialEq<ecdsa_hss::shared::context::EcdsaHssStableKeyContextV1> for ecdsa_hss::shared::context::EcdsaHssStableKeyContextV1}::ne]:
+    Source: 'src/shared/context.rs', lines 9:23-9:32
     Visibility: public -/
 axiom
-  shared.context.EcdsaHssContextV1.Insts.CoreCmpPartialEqEcdsaHssContextV1.ne
+  shared.context.EcdsaHssStableKeyContextV1.Insts.CoreCmpPartialEqEcdsaHssStableKeyContextV1.ne
   :
-  shared.context.EcdsaHssContextV1 → shared.context.EcdsaHssContextV1 →
-    Result Bool
+  shared.context.EcdsaHssStableKeyContextV1 →
+    shared.context.EcdsaHssStableKeyContextV1 → Result Bool
 

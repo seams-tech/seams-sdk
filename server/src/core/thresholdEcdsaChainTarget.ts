@@ -59,3 +59,14 @@ export function thresholdEcdsaChainTargetsEqual(
 ): boolean {
   return thresholdEcdsaChainTargetKey(left) === thresholdEcdsaChainTargetKey(right);
 }
+
+export function thresholdEcdsaChainTargetsShareEvmFamilyAddress(
+  left: ThresholdEcdsaChainTarget,
+  right: ThresholdEcdsaChainTarget,
+): boolean {
+  return isEvmFamilyAddressTarget(left) && isEvmFamilyAddressTarget(right);
+}
+
+function isEvmFamilyAddressTarget(target: ThresholdEcdsaChainTarget): boolean {
+  return target.kind === 'evm' || target.kind === 'tempo';
+}

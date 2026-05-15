@@ -18,6 +18,8 @@ import initEthSignerWasm, {
   verify_secp256k1_recoverable_signature_against_public_key_33,
 } from '../../../../wasm/eth_signer/pkg/eth_signer.js';
 import type { InitInput } from '../../../../wasm/eth_signer/pkg/eth_signer.js';
+import type { ThresholdEcdsaChainTarget } from '../thresholdEcdsaChainTarget';
+import { thresholdEcdsaChainTargetKey } from '../thresholdEcdsaChainTarget';
 
 const ETH_SIGNER_WASM_PATH_CANDIDATES = [
   // Source-tree execution (server/src/* -> repo/wasm/*)
@@ -268,7 +270,12 @@ export async function mapAdditiveShareToThresholdSignaturesShare2p(input: {
 }
 
 export async function ecdsaHssBootstrapNonExportSign(input: {
-  nearAccountId: string;
+  walletSessionUserId: string;
+  subjectId: string;
+  chainTarget: ThresholdEcdsaChainTarget;
+  ecdsaThresholdKeyId: string;
+  signingRootId: string;
+  signingRootVersion: string;
   keyPurpose: string;
   keyVersion: string;
   yClient32Le: Uint8Array;
@@ -285,8 +292,14 @@ export async function ecdsaHssBootstrapNonExportSign(input: {
   retryCounter: number;
 }> {
   await ensureEthSignerWasm();
+  const walletSessionUserId = String(input.walletSessionUserId || '').trim();
   const raw = ecdsa_hss_bootstrap_non_export_sign_full({
-    nearAccountId: String(input.nearAccountId || '').trim(),
+    walletSessionUserId,
+    subjectId: String(input.subjectId || '').trim(),
+    chainTarget: thresholdEcdsaChainTargetKey(input.chainTarget),
+    ecdsaThresholdKeyId: String(input.ecdsaThresholdKeyId || '').trim(),
+    signingRootId: String(input.signingRootId || '').trim(),
+    signingRootVersion: String(input.signingRootVersion || '').trim(),
     keyPurpose: String(input.keyPurpose || '').trim(),
     keyVersion: String(input.keyVersion || '').trim(),
     yClient32Le: Array.from(checkedBytes('yClient32Le', input.yClient32Le, 32)),
@@ -338,7 +351,12 @@ export async function ecdsaHssBootstrapNonExportSign(input: {
 }
 
 export async function ecdsaHssExplicitExport(input: {
-  nearAccountId: string;
+  walletSessionUserId: string;
+  subjectId: string;
+  chainTarget: ThresholdEcdsaChainTarget;
+  ecdsaThresholdKeyId: string;
+  signingRootId: string;
+  signingRootVersion: string;
   keyPurpose: string;
   keyVersion: string;
   yClient32Le: Uint8Array;
@@ -349,8 +367,14 @@ export async function ecdsaHssExplicitExport(input: {
   canonicalEthereumAddress20: Uint8Array;
 }> {
   await ensureEthSignerWasm();
+  const walletSessionUserId = String(input.walletSessionUserId || '').trim();
   const raw = ecdsa_hss_explicit_export({
-    nearAccountId: String(input.nearAccountId || '').trim(),
+    walletSessionUserId,
+    subjectId: String(input.subjectId || '').trim(),
+    chainTarget: thresholdEcdsaChainTargetKey(input.chainTarget),
+    ecdsaThresholdKeyId: String(input.ecdsaThresholdKeyId || '').trim(),
+    signingRootId: String(input.signingRootId || '').trim(),
+    signingRootVersion: String(input.signingRootVersion || '').trim(),
     keyPurpose: String(input.keyPurpose || '').trim(),
     keyVersion: String(input.keyVersion || '').trim(),
     yClient32Le: Array.from(checkedBytes('yClient32Le', input.yClient32Le, 32)),
@@ -378,7 +402,12 @@ export async function ecdsaHssExplicitExport(input: {
 }
 
 export async function prepareThresholdEcdsaHssServerSession(input: {
-  nearAccountId: string;
+  walletSessionUserId: string;
+  subjectId: string;
+  chainTarget: ThresholdEcdsaChainTarget;
+  ecdsaThresholdKeyId: string;
+  signingRootId: string;
+  signingRootVersion: string;
   keyPurpose: string;
   keyVersion: string;
   operation:
@@ -392,8 +421,14 @@ export async function prepareThresholdEcdsaHssServerSession(input: {
   serverAssistInitMessageB64u: string;
 }> {
   await ensureEthSignerWasm();
+  const walletSessionUserId = String(input.walletSessionUserId || '').trim();
   return threshold_ecdsa_hss_prepare_server_session({
-    nearAccountId: String(input.nearAccountId || '').trim(),
+    walletSessionUserId,
+    subjectId: String(input.subjectId || '').trim(),
+    chainTarget: thresholdEcdsaChainTargetKey(input.chainTarget),
+    ecdsaThresholdKeyId: String(input.ecdsaThresholdKeyId || '').trim(),
+    signingRootId: String(input.signingRootId || '').trim(),
+    signingRootVersion: String(input.signingRootVersion || '').trim(),
     keyPurpose: String(input.keyPurpose || '').trim(),
     keyVersion: String(input.keyVersion || '').trim(),
     operation: String(input.operation || '').trim(),

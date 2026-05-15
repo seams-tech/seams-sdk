@@ -17,6 +17,8 @@ import {
   parseRegistrationContinuationClaims,
   parseThresholdEcdsaSessionClaims,
   parseThresholdEd25519SessionClaims,
+  resolveAppSessionWalletIdForWalletScope,
+  resolveAppSessionProviderUserIdForWalletScope,
 } from '../../../core/ThresholdService/validation';
 import { THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID } from '../../../core/ThresholdService/schemes/schemeIds';
 import { thresholdEcdsaStatusCode } from '../../../threshold/statusCodes';
@@ -186,19 +188,68 @@ function applyEcdsaRuntimePolicyScope(
   body: ThresholdEcdsaHssPrepareRequest,
   runtimePolicyScope: EcdsaRuntimePolicyScope | undefined,
 ): ThresholdEcdsaHssPrepareRequest {
-  if (!runtimePolicyScope || !body.sessionPolicy) return body;
-  return {
-    ...body,
-    sessionPolicy: {
-      ...body.sessionPolicy,
-      runtimePolicyScope,
-    },
+  if (!runtimePolicyScope) return body;
+  switch (body.operation) {
+    case 'registration_bootstrap':
+    case 'email_otp_bootstrap':
+    case 'session_bootstrap':
+      return {
+        ...body,
+        sessionPolicy: {
+          ...body.sessionPolicy,
+          runtimePolicyScope,
+        },
+      };
+    case 'explicit_key_export':
+      return body;
+  }
+}
+
+function attachEcdsaPrepareRouteClaims(input: {
+  body: ThresholdEcdsaHssPrepareRequest;
+  appSessionClaims: ReturnType<typeof parseAppSessionClaims>;
+  ed25519SessionClaims: ReturnType<typeof parseThresholdEd25519SessionClaims>;
+  ecdsaSessionClaims: ReturnType<typeof parseThresholdEcdsaSessionClaims>;
+  registrationContinuationClaims: ReturnType<typeof parseRegistrationContinuationClaims>;
+  emailOtpEnrollmentClaims: ThresholdEcdsaHssPrepareRequest['emailOtpEnrollmentClaims'] | undefined;
+}): ThresholdEcdsaHssPrepareRequest {
+  const shared = {
+    appSessionClaims: input.appSessionClaims || undefined,
+    ed25519SessionClaims: input.ed25519SessionClaims || undefined,
+    ecdsaSessionClaims: input.ecdsaSessionClaims || undefined,
   };
+  switch (input.body.operation) {
+    case 'registration_bootstrap':
+      return {
+        ...input.body,
+        ...shared,
+        registrationContinuationClaims: input.registrationContinuationClaims || undefined,
+      };
+    case 'email_otp_bootstrap':
+      return {
+        ...input.body,
+        ...shared,
+        emailOtpEnrollmentClaims: input.emailOtpEnrollmentClaims,
+      };
+    case 'session_bootstrap':
+      return {
+        ...input.body,
+        ...shared,
+        registrationContinuationClaims: input.registrationContinuationClaims || undefined,
+      };
+    case 'explicit_key_export':
+      return {
+        ...input.body,
+        ...shared,
+        ecdsaSessionClaims: input.ecdsaSessionClaims || input.body.ecdsaSessionClaims,
+      };
+  }
 }
 
 async function resolveEmailOtpEnrollmentClaimsForThresholdEcdsa(
   ctx: ExpressRelayContext,
   body: ThresholdEcdsaHssPrepareRequest,
+  runtimePolicyScope: EcdsaRuntimePolicyScope | undefined,
   appSessionClaims: ReturnType<typeof parseAppSessionClaims>,
   ed25519SessionClaims: ReturnType<typeof parseThresholdEd25519SessionClaims>,
   ecdsaSessionClaims: ReturnType<typeof parseThresholdEcdsaSessionClaims>,
@@ -207,29 +258,42 @@ async function resolveEmailOtpEnrollmentClaimsForThresholdEcdsa(
   const sessionClaims = appSessionClaims || ed25519SessionClaims || ecdsaSessionClaims;
   if (!sessionClaims) return undefined;
   const walletSessionUserId = String(body.walletSessionUserId || '').trim();
-  const sessionWalletId = String(
-    appSessionClaims ? appSessionClaims.walletId || '' : sessionClaims.walletId || '',
-  ).trim();
-  if (!sessionWalletId || !walletSessionUserId || sessionWalletId !== walletSessionUserId) {
+  if (!walletSessionUserId) {
+    return undefined;
+  }
+  const appSessionWalletId = resolveAppSessionWalletIdForWalletScope(
+    appSessionClaims,
+    walletSessionUserId,
+  );
+  const appSessionProviderUserId = resolveAppSessionProviderUserIdForWalletScope(
+    appSessionClaims,
+    walletSessionUserId,
+  );
+  if (appSessionClaims) {
+    if (appSessionWalletId && appSessionWalletId !== walletSessionUserId) return undefined;
+    if (!appSessionWalletId && !appSessionProviderUserId) return undefined;
+  } else if (String(sessionClaims.walletId || '').trim() !== walletSessionUserId) {
     return undefined;
   }
   const sessionOrgId =
     appSessionClaims?.runtimePolicyScope?.orgId ||
     ed25519SessionClaims?.runtimePolicyScope?.orgId ||
-    ecdsaSessionClaims?.runtimePolicyScope?.orgId;
+    ecdsaSessionClaims?.runtimePolicyScope?.orgId ||
+    runtimePolicyScope?.orgId;
   const enrollment = await ctx.service.readActiveEmailOtpEnrollment({
     walletId: walletSessionUserId,
     orgId: String(sessionOrgId || '').trim() || undefined,
-    providerUserId: appSessionClaims ? appSessionClaims.sub : undefined,
+    providerUserId: appSessionProviderUserId,
   });
   if (!enrollment.ok) return undefined;
   const verifier = String(
     enrollment.enrollment.thresholdEcdsaClientVerifyingShareB64u || '',
   ).trim();
-  // App-session auth is scoped to the provider subject. Threshold-session auth
-  // is scoped to the wallet id, so its `sub` is not comparable to providerUserId.
+  // App-session subjects can be provider-scoped or wallet-scoped depending on
+  // the issuing unlock path.
   if (
-    (appSessionClaims && enrollment.enrollment.providerUserId !== appSessionClaims.sub) ||
+    (appSessionProviderUserId &&
+      enrollment.enrollment.providerUserId !== appSessionProviderUserId) ||
     !verifier
   ) {
     return undefined;
@@ -324,6 +388,25 @@ export function registerThresholdEcdsaRoutes(
             : undefined,
         rpId: typeof body.rpId === 'string' ? body.rpId : undefined,
         operation: typeof body.operation === 'string' ? body.operation : undefined,
+        subjectId:
+          typeof body.sessionPolicy?.subjectId === 'string'
+            ? body.sessionPolicy.subjectId
+            : undefined,
+        chainTarget: body.sessionPolicy?.chainTarget,
+        ecdsaThresholdKeyId:
+          typeof body.ecdsaThresholdKeyId === 'string'
+            ? body.ecdsaThresholdKeyId
+            : typeof body.sessionPolicy?.ecdsaThresholdKeyId === 'string'
+              ? body.sessionPolicy.ecdsaThresholdKeyId
+              : undefined,
+        sessionId:
+          typeof body.sessionPolicy?.sessionId === 'string'
+            ? body.sessionPolicy.sessionId
+            : undefined,
+        walletSigningSessionId:
+          typeof body.sessionPolicy?.walletSigningSessionId === 'string'
+            ? body.sessionPolicy.walletSigningSessionId
+            : undefined,
       },
       async () => {
         const resolved = resolveThresholdScheme(
@@ -369,13 +452,6 @@ export function registerThresholdEcdsaRoutes(
             );
           }
         }
-        const emailOtpEnrollmentClaims = await resolveEmailOtpEnrollmentClaimsForThresholdEcdsa(
-          ctx,
-          body,
-          appSessionClaims,
-          ed25519SessionClaims,
-          ecdsaSessionClaims,
-        );
         const inheritedRuntimePolicyScope = resolveEcdsaRuntimePolicyScopeFromClaims({
           appSessionClaims,
           ed25519SessionClaims,
@@ -400,14 +476,22 @@ export function registerThresholdEcdsaRoutes(
         }
         const runtimePolicyScope = runtimePolicyScopeResolution.scope;
         const scopedBody = applyEcdsaRuntimePolicyScope(body, runtimePolicyScope);
-        const request: ThresholdEcdsaHssPrepareRequest = {
-          ...scopedBody,
-          appSessionClaims: appSessionClaims || undefined,
+        const emailOtpEnrollmentClaims = await resolveEmailOtpEnrollmentClaimsForThresholdEcdsa(
+          ctx,
+          scopedBody,
+          runtimePolicyScope,
+          appSessionClaims,
+          ed25519SessionClaims,
+          ecdsaSessionClaims,
+        );
+        const request = attachEcdsaPrepareRouteClaims({
+          body: scopedBody,
+          appSessionClaims,
           emailOtpEnrollmentClaims,
-          ed25519SessionClaims: ed25519SessionClaims || undefined,
-          ecdsaSessionClaims: ecdsaSessionClaims || undefined,
-          registrationContinuationClaims: registrationContinuationClaims || undefined,
-        };
+          ed25519SessionClaims,
+          ecdsaSessionClaims,
+          registrationContinuationClaims,
+        });
         return await scheme.hss.prepare(request);
       },
     );

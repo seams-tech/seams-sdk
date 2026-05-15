@@ -250,7 +250,7 @@ async function deployRegistrationSmartAccounts(input: {
     const result = await executeSmartAccountDeploy(
       { smartAccountDeploy: input.services.smartAccountDeploy },
       {
-        nearAccountId: input.nearAccountId,
+        walletId: input.nearAccountId,
         chainTarget: target.chainTarget,
         accountAddress,
         accountModel,

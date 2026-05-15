@@ -11,7 +11,7 @@ use ecdsa_hss::{
     parse_presignature97_v1, prepare_explicit_export_session_v1, prepare_signing_session_v1,
     sign_with_session_v1, verify_single_key_invariant_v1,
     visible_boundary_from_respond_response_v1, AllowedOutputKindV1, ClientOutputV1,
-    EcdsaHssContextV1, EvmThresholdBootstrapAdapterV1, EvmThresholdBootstrapRequestV1,
+    EcdsaHssStableKeyContextV1, EvmThresholdBootstrapAdapterV1, EvmThresholdBootstrapRequestV1,
     EvmThresholdExportRequestV1, EvmThresholdSigningOperationV1, PrepareEnvelopeV1,
     RespondRequestV1, RootShareInputsV1, ServerEvalOperationV1, ServerPrepareInputsV1,
     StagedServerSessionV1, VisibleClientBoundaryV1, VisibleClientBoundaryV1::ExplicitExport,
@@ -24,6 +24,28 @@ use signer_core::error::SignerCoreErrorCode;
 
 const SECP256K1_ORDER_HEX: &str =
     "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141";
+
+fn test_context(
+    wallet_session_user_id: &str,
+    key_purpose: &str,
+    key_version: &str,
+) -> EcdsaHssStableKeyContextV1 {
+    EcdsaHssStableKeyContextV1::new(
+        wallet_session_user_id,
+        wallet_session_user_id,
+        "evm:eip155:11155111",
+        "ehss-test-key",
+        "test-root",
+        "root-v1",
+        key_purpose,
+        key_version,
+    )
+}
+
+fn push_expected_ascii(out: &mut Vec<u8>, value: &str) {
+    out.extend_from_slice(&(value.len() as u16).to_be_bytes());
+    out.extend_from_slice(value.as_bytes());
+}
 
 fn sign_with_evm_threshold_adapter(
     adapter: &EvmThresholdBootstrapAdapterV1,
@@ -99,7 +121,7 @@ fn sign_with_evm_threshold_adapter(
 
 fn assert_signing_session_roundtrip(
     operation: EvmThresholdSigningOperationV1,
-    context: EcdsaHssContextV1,
+    context: EcdsaHssStableKeyContextV1,
     y_client32_le: [u8; 32],
     y_relayer32_le: [u8; 32],
     digest32: [u8; 32],
@@ -122,21 +144,21 @@ fn biguint_to_32_be(value: &BigUint) -> [u8; 32] {
 
 #[test]
 fn encode_context_v1_matches_frozen_layout() {
-    let context = EcdsaHssContextV1::new("alice.test.near", "evm-signing", "v1");
+    let context = test_context("alice.test.near", "evm-signing", "v1");
     let encoded = encode_context_v1(&context).expect("encode context");
 
     let mut expected = Vec::new();
     expected.extend_from_slice(b"ecdsa-hss:context:v1");
-    expected.extend_from_slice(&12u16.to_be_bytes());
-    expected.extend_from_slice(b"ecdsa-hss-v1");
-    expected.extend_from_slice(&9u16.to_be_bytes());
-    expected.extend_from_slice(b"secp256k1");
-    expected.extend_from_slice(&15u16.to_be_bytes());
-    expected.extend_from_slice(b"alice.test.near");
-    expected.extend_from_slice(&11u16.to_be_bytes());
-    expected.extend_from_slice(b"evm-signing");
-    expected.extend_from_slice(&2u16.to_be_bytes());
-    expected.extend_from_slice(b"v1");
+    push_expected_ascii(&mut expected, "ecdsa-hss-v1");
+    push_expected_ascii(&mut expected, "secp256k1");
+    push_expected_ascii(&mut expected, "alice.test.near");
+    push_expected_ascii(&mut expected, "alice.test.near");
+    push_expected_ascii(&mut expected, "evm:eip155:11155111");
+    push_expected_ascii(&mut expected, "ehss-test-key");
+    push_expected_ascii(&mut expected, "test-root");
+    push_expected_ascii(&mut expected, "root-v1");
+    push_expected_ascii(&mut expected, "evm-signing");
+    push_expected_ascii(&mut expected, "v1");
     expected.push(2);
     expected.extend_from_slice(&1u16.to_be_bytes());
     expected.extend_from_slice(&2u16.to_be_bytes());
@@ -146,7 +168,7 @@ fn encode_context_v1_matches_frozen_layout() {
 
 #[test]
 fn canonical_secret_derivation_is_deterministic_and_valid() {
-    let context = EcdsaHssContextV1::new("alpha.test.near", "evm-signing", "v1");
+    let context = test_context("alpha.test.near", "evm-signing", "v1");
     let y_client = [0x11u8; 32];
     let y_relayer = [0x22u8; 32];
 
@@ -162,7 +184,7 @@ fn canonical_secret_derivation_is_deterministic_and_valid() {
 
 #[test]
 fn additive_share_derivation_is_deterministic_and_preserves_the_secret() {
-    let context = EcdsaHssContextV1::new("beta.test.near", "evm-signing", "v2");
+    let context = test_context("beta.test.near", "evm-signing", "v2");
     let y_client = [0x33u8; 32];
     let y_relayer = [0x44u8; 32];
     let canonical =
@@ -228,27 +250,27 @@ fn frozen_fixture_wraparound_case_keeps_zero_d_visible() {
     assert_eq!(wraparound.canonical.d32, [0u8; 32]);
     assert_eq!(
         hex_encode(wraparound.canonical.context_bytes.as_slice()),
-        "65636473612d6873733a636f6e746578743a7631000c65636473612d6873732d76310009736563703235366b3100147772617061726f756e642e746573742e6e656172000b65766d2d7369676e696e67000776312d777261700200010002"
+        "65636473612d6873733a636f6e746578743a7631000c65636473612d6873732d76310009736563703235366b3100147772617061726f756e642e746573742e6e65617200127772617061726f756e642d7375626a656374001365766d3a6569703135353a3131313535313131000f656873732d7772617061726f756e64001770726f6a6563742d616c7068613a656e762d616c7068610007726f6f742d7631000b65766d2d7369676e696e67000776312d777261700200010002"
     );
 }
 
 #[test]
 fn encode_context_v1_rejects_non_ascii_fields() {
-    let context = EcdsaHssContextV1::new("alice.test.near", "evm-signing", "v1-東京");
+    let context = test_context("alice.test.near", "evm-signing", "v1-東京");
     let err = encode_context_v1(&context).expect_err("non-ascii key_version should fail");
     assert_eq!(err.code, SignerCoreErrorCode::InvalidInput);
 }
 
 #[test]
 fn additive_share_derivation_rejects_zero_scalar_input() {
-    let context = EcdsaHssContextV1::new("alice.test.near", "evm-signing", "v1");
+    let context = test_context("alice.test.near", "evm-signing", "v1");
     let err = derive_additive_shares_v1(&[0u8; 32], &context).expect_err("zero scalar should fail");
     assert_eq!(err.code, SignerCoreErrorCode::InvalidInput);
 }
 
 #[test]
 fn additive_share_derivation_rejects_group_order_scalar_input() {
-    let context = EcdsaHssContextV1::new("alice.test.near", "evm-signing", "v1");
+    let context = test_context("alice.test.near", "evm-signing", "v1");
     let order = BigUint::from_str_radix(SECP256K1_ORDER_HEX, 16).expect("order");
     let mut x32 = [0u8; 32];
     let bytes = order.to_bytes_be();
@@ -261,7 +283,7 @@ fn additive_share_derivation_rejects_group_order_scalar_input() {
 
 #[test]
 fn additive_share_derivation_accepts_scalar_domain_boundaries() {
-    let context = EcdsaHssContextV1::new("boundary.test.near", "evm-signing", "v1");
+    let context = test_context("boundary.test.near", "evm-signing", "v1");
     let order = BigUint::from_str_radix(SECP256K1_ORDER_HEX, 16).expect("order");
 
     for (label, x32) in [
@@ -307,12 +329,12 @@ fn canonical_secret_changes_when_context_changes() {
 
     let left = derive_canonical_secret_v1(
         &root_shares,
-        &EcdsaHssContextV1::new("alice.test.near", "evm-signing", "v1"),
+        &test_context("alice.test.near", "evm-signing", "v1"),
     )
     .expect("left canonical");
     let right = derive_canonical_secret_v1(
         &root_shares,
-        &EcdsaHssContextV1::new("alice.test.near", "evm-export", "v1"),
+        &test_context("alice.test.near", "evm-export", "v1"),
     )
     .expect("right canonical");
 
@@ -323,8 +345,78 @@ fn canonical_secret_changes_when_context_changes() {
 }
 
 #[test]
+fn canonical_secret_changes_when_stable_key_identity_changes() {
+    let root_shares = RootShareInputsV1::new([0x57u8; 32], [0x67u8; 32]);
+    let base = EcdsaHssStableKeyContextV1::new(
+        "alice.test.near",
+        "alice-subject",
+        "evm:eip155:11155111",
+        "ehss-test-key",
+        "test-root",
+        "root-v1",
+        "evm-signing",
+        "v1",
+    );
+    let base_secret = derive_canonical_secret_v1(&root_shares, &base).expect("base canonical");
+
+    let variants = [
+        EcdsaHssStableKeyContextV1::new(
+            "alice.test.near",
+            "alice-subject",
+            "tempo:42431",
+            "ehss-test-key",
+            "test-root",
+            "root-v1",
+            "evm-signing",
+            "v1",
+        ),
+        EcdsaHssStableKeyContextV1::new(
+            "alice.test.near",
+            "alice-subject",
+            "evm:eip155:11155111",
+            "ehss-other-key",
+            "test-root",
+            "root-v1",
+            "evm-signing",
+            "v1",
+        ),
+        EcdsaHssStableKeyContextV1::new(
+            "alice.test.near",
+            "alice-subject",
+            "evm:eip155:11155111",
+            "ehss-test-key",
+            "other-root",
+            "root-v1",
+            "evm-signing",
+            "v1",
+        ),
+        EcdsaHssStableKeyContextV1::new(
+            "alice.test.near",
+            "alice-subject",
+            "evm:eip155:11155111",
+            "ehss-test-key",
+            "test-root",
+            "root-v2",
+            "evm-signing",
+            "v1",
+        ),
+    ];
+
+    for variant in variants {
+        let variant_secret =
+            derive_canonical_secret_v1(&root_shares, &variant).expect("variant canonical");
+        assert_ne!(base_secret.context_bytes, variant_secret.context_bytes);
+        assert_ne!(base_secret.public_key33, variant_secret.public_key33);
+        assert_ne!(
+            base_secret.ethereum_address20,
+            variant_secret.ethereum_address20
+        );
+    }
+}
+
+#[test]
 fn single_key_invariant_rejects_mismatched_canonical_and_share_material() {
-    let context = EcdsaHssContextV1::new("alice.test.near", "evm-signing", "v1");
+    let context = test_context("alice.test.near", "evm-signing", "v1");
     let left = derive_canonical_secret_v1(
         &RootShareInputsV1::new([0x10u8; 32], [0x20u8; 32]),
         &context,
@@ -344,7 +436,7 @@ fn single_key_invariant_rejects_mismatched_canonical_and_share_material() {
 
 #[test]
 fn additive_share_derivation_changes_with_canonical_secret() {
-    let context = EcdsaHssContextV1::new("alice.test.near", "evm-signing", "v1");
+    let context = test_context("alice.test.near", "evm-signing", "v1");
     let left = derive_canonical_secret_v1(
         &RootShareInputsV1::new([0x01u8; 32], [0x02u8; 32]),
         &context,
@@ -373,7 +465,7 @@ fn additive_share_derivation_changes_with_canonical_secret() {
 
 #[test]
 fn staged_server_session_is_deterministic_for_non_export() {
-    let context = EcdsaHssContextV1::new("alice.test.near", "evm-signing", "v1");
+    let context = test_context("alice.test.near", "evm-signing", "v1");
     let request = RespondRequestV1 {
         y_client32_le: [0x11u8; 32],
     };
@@ -402,7 +494,7 @@ fn staged_server_session_is_deterministic_for_non_export() {
 
 #[test]
 fn non_export_output_excludes_canonical_secret_and_drops_raw_roots() {
-    let context = EcdsaHssContextV1::new("alice.test.near", "evm-signing", "v1");
+    let context = test_context("alice.test.near", "evm-signing", "v1");
     let request = RespondRequestV1 {
         y_client32_le: [0x33u8; 32],
     };
@@ -437,7 +529,7 @@ fn non_export_output_excludes_canonical_secret_and_drops_raw_roots() {
 
 #[test]
 fn explicit_export_output_includes_canonical_secret_and_keeps_identity_aligned() {
-    let context = EcdsaHssContextV1::new("alice.test.near", "evm-export", "v1");
+    let context = test_context("alice.test.near", "evm-export", "v1");
     let request = RespondRequestV1 {
         y_client32_le: [0x55u8; 32],
     };
@@ -517,7 +609,7 @@ fn hidden_derivation_fixture_corpus_is_deterministic_and_respects_output_policie
 
 #[test]
 fn finalize_envelope_must_match_retained_server_state() {
-    let context = EcdsaHssContextV1::new("alice.test.near", "evm-signing", "v1");
+    let context = test_context("alice.test.near", "evm-signing", "v1");
     let request = RespondRequestV1 {
         y_client32_le: [0x77u8; 32],
     };
@@ -547,7 +639,7 @@ fn finalize_envelope_must_match_retained_server_state() {
 
 #[test]
 fn reference_boundary_projects_non_export_response_shape() {
-    let context = EcdsaHssContextV1::new("alice.test.near", "evm-signing", "v1");
+    let context = test_context("alice.test.near", "evm-signing", "v1");
     let response = StagedServerSessionV1::prepare(ServerPrepareInputsV1 {
         prepare: PrepareEnvelopeV1 {
             operation: ServerEvalOperationV1::NonExportSign,
@@ -594,7 +686,7 @@ fn reference_boundary_projects_non_export_response_shape() {
 
 #[test]
 fn reference_boundary_projects_explicit_export_response_shape() {
-    let context = EcdsaHssContextV1::new("alice.test.near", "evm-export", "v1");
+    let context = test_context("alice.test.near", "evm-export", "v1");
     let response = StagedServerSessionV1::prepare(ServerPrepareInputsV1 {
         prepare: PrepareEnvelopeV1 {
             operation: ServerEvalOperationV1::ExplicitKeyExport,
@@ -634,7 +726,7 @@ fn reference_boundary_projects_explicit_export_response_shape() {
 
 #[test]
 fn server_owned_state_does_not_gain_canonical_secret_on_export_path() {
-    let context = EcdsaHssContextV1::new("alice.test.near", "evm-signing", "v1");
+    let context = test_context("alice.test.near", "evm-signing", "v1");
     let y_client32_le = [0xb1u8; 32];
     let y_relayer32_le = [0xb2u8; 32];
 
@@ -721,7 +813,7 @@ fn server_owned_state_does_not_gain_canonical_secret_on_export_path() {
 
 #[test]
 fn evm_threshold_adapter_uses_current_backend_seam() {
-    let context = EcdsaHssContextV1::new("alice.test.near", "evm-signing", "v1");
+    let context = test_context("alice.test.near", "evm-signing", "v1");
     let staged = StagedServerSessionV1::prepare(ServerPrepareInputsV1 {
         prepare: PrepareEnvelopeV1 {
             operation: ServerEvalOperationV1::NonExportSign,
@@ -761,7 +853,7 @@ fn evm_threshold_adapter_uses_current_backend_seam() {
 
 #[test]
 fn hidden_eval_boundary_freezes_input_transport_and_persisted_shapes() {
-    let context = EcdsaHssContextV1::new("hidden-eval.test.near", "evm-signing", "v1");
+    let context = test_context("hidden-eval.test.near", "evm-signing", "v1");
     let y_client32_le = [0x41u8; 32];
     let y_relayer32_le = [0x82u8; 32];
     let staged = StagedServerSessionV1::prepare(ServerPrepareInputsV1 {
@@ -811,7 +903,7 @@ fn hidden_eval_boundary_freezes_input_transport_and_persisted_shapes() {
 
 #[test]
 fn hidden_eval_boundary_reserves_canonical_secret_to_explicit_export_transport_only() {
-    let context = EcdsaHssContextV1::new("hidden-eval.test.near", "evm-export", "v1");
+    let context = test_context("hidden-eval.test.near", "evm-export", "v1");
     let staged = StagedServerSessionV1::prepare(ServerPrepareInputsV1 {
         prepare: PrepareEnvelopeV1 {
             operation: ServerEvalOperationV1::ExplicitKeyExport,
@@ -843,7 +935,7 @@ fn hidden_eval_boundary_reserves_canonical_secret_to_explicit_export_transport_o
 
 #[test]
 fn evm_threshold_bootstrap_entrypoint_matches_manual_staged_flow() {
-    let context = EcdsaHssContextV1::new("alice.test.near", "evm-signing", "v1");
+    let context = test_context("alice.test.near", "evm-signing", "v1");
     let y_client32_le = [0xbbu8; 32];
     let y_relayer32_le = [0xccu8; 32];
 
@@ -877,7 +969,7 @@ fn evm_threshold_bootstrap_entrypoint_matches_manual_staged_flow() {
 fn evm_threshold_adapter_can_drive_current_presign_and_sign_backend() {
     let bootstrapped = bootstrap_evm_threshold_v1(EvmThresholdBootstrapRequestV1 {
         operation: ServerEvalOperationV1::NonExportSign,
-        context: EcdsaHssContextV1::new("alice.test.near", "evm-signing", "v1"),
+        context: test_context("alice.test.near", "evm-signing", "v1"),
         y_client32_le: [0xddu8; 32],
         y_relayer32_le: [0xeeu8; 32],
     })
@@ -892,7 +984,7 @@ fn evm_threshold_adapter_can_drive_current_presign_and_sign_backend() {
 fn export_extractor_rejects_non_export_responses() {
     let response = bootstrap_evm_threshold_v1(EvmThresholdBootstrapRequestV1 {
         operation: ServerEvalOperationV1::NonExportSign,
-        context: EcdsaHssContextV1::new("alice.test.near", "evm-signing", "v1"),
+        context: test_context("alice.test.near", "evm-signing", "v1"),
         y_client32_le: [0x21u8; 32],
         y_relayer32_le: [0x43u8; 32],
     })
@@ -909,7 +1001,7 @@ fn export_extractor_rejects_non_export_responses() {
 fn evm_threshold_adapter_rejects_tampered_client_public_key() {
     let mut response = bootstrap_evm_threshold_v1(EvmThresholdBootstrapRequestV1 {
         operation: ServerEvalOperationV1::NonExportSign,
-        context: EcdsaHssContextV1::new("alice.test.near", "evm-signing", "v1"),
+        context: test_context("alice.test.near", "evm-signing", "v1"),
         y_client32_le: [0x24u8; 32],
         y_relayer32_le: [0x68u8; 32],
     })
@@ -931,7 +1023,7 @@ fn evm_threshold_adapter_rejects_tampered_client_public_key() {
 fn evm_threshold_adapter_rejects_tampered_threshold_identity() {
     let mut response = bootstrap_evm_threshold_v1(EvmThresholdBootstrapRequestV1 {
         operation: ServerEvalOperationV1::NonExportSign,
-        context: EcdsaHssContextV1::new("alice.test.near", "evm-signing", "v1"),
+        context: test_context("alice.test.near", "evm-signing", "v1"),
         y_client32_le: [0x29u8; 32],
         y_relayer32_le: [0x6bu8; 32],
     })
@@ -952,7 +1044,7 @@ fn evm_threshold_adapter_rejects_tampered_threshold_identity() {
 #[test]
 fn export_extractor_rejects_tampered_canonical_public_key() {
     let mut response = export_evm_threshold_v1(EvmThresholdExportRequestV1 {
-        context: EcdsaHssContextV1::new("alice.test.near", "evm-signing", "v1"),
+        context: test_context("alice.test.near", "evm-signing", "v1"),
         y_client32_le: [0x35u8; 32],
         y_relayer32_le: [0x57u8; 32],
     })
@@ -973,7 +1065,7 @@ fn export_extractor_rejects_tampered_canonical_public_key() {
 
 #[test]
 fn explicit_export_entrypoint_returns_same_identity_as_non_export_sign_path() {
-    let context = EcdsaHssContextV1::new("alice.test.near", "evm-signing", "v1");
+    let context = test_context("alice.test.near", "evm-signing", "v1");
     let y_client32_le = [0x31u8; 32];
     let y_relayer32_le = [0x53u8; 32];
 
@@ -1011,7 +1103,7 @@ fn explicit_export_entrypoint_returns_same_identity_as_non_export_sign_path() {
 
 #[test]
 fn one_key_lifecycle_bootstrap_sign_export_preserves_identity() {
-    let context = EcdsaHssContextV1::new("alice.test.near", "evm-signing", "v1");
+    let context = test_context("alice.test.near", "evm-signing", "v1");
     let y_client32_le = [0x61u8; 32];
     let y_relayer32_le = [0x71u8; 32];
 
@@ -1053,7 +1145,7 @@ fn one_key_lifecycle_bootstrap_sign_export_preserves_identity() {
 
 #[test]
 fn typed_session_api_binds_signing_and_export_policies() {
-    let context = EcdsaHssContextV1::new("alice.test.near", "evm-signing", "v1");
+    let context = test_context("alice.test.near", "evm-signing", "v1");
     let y_client32_le = [0x41u8; 32];
     let y_relayer32_le = [0x51u8; 32];
 
@@ -1097,7 +1189,7 @@ fn typed_session_api_binds_signing_and_export_policies() {
 fn typed_session_api_supports_registration_and_login_bootstrap_modes() {
     assert_signing_session_roundtrip(
         EvmThresholdSigningOperationV1::RegistrationBootstrap,
-        EcdsaHssContextV1::new("alice.test.near", "evm-signing", "v1"),
+        test_context("alice.test.near", "evm-signing", "v1"),
         [0x01u8; 32],
         [0x02u8; 32],
         [0x03u8; 32],
@@ -1105,7 +1197,7 @@ fn typed_session_api_supports_registration_and_login_bootstrap_modes() {
     );
     assert_signing_session_roundtrip(
         EvmThresholdSigningOperationV1::SessionBootstrap,
-        EcdsaHssContextV1::new("alice.test.near", "evm-signing", "v1"),
+        test_context("alice.test.near", "evm-signing", "v1"),
         [0x05u8; 32],
         [0x06u8; 32],
         [0x07u8; 32],
@@ -1115,7 +1207,7 @@ fn typed_session_api_supports_registration_and_login_bootstrap_modes() {
 
 #[test]
 fn registration_bootstrap_sign_export_preserves_identity() {
-    let context = EcdsaHssContextV1::new("alice.test.near", "evm-signing", "v1");
+    let context = test_context("alice.test.near", "evm-signing", "v1");
     let y_client32_le = [0x81u8; 32];
     let y_relayer32_le = [0x91u8; 32];
 
@@ -1149,7 +1241,7 @@ fn registration_bootstrap_sign_export_preserves_identity() {
 
 #[test]
 fn session_bootstrap_sign_export_preserves_identity() {
-    let context = EcdsaHssContextV1::new("alice.test.near", "evm-signing", "v1");
+    let context = test_context("alice.test.near", "evm-signing", "v1");
     let y_client32_le = [0xa1u8; 32];
     let y_relayer32_le = [0xb1u8; 32];
 

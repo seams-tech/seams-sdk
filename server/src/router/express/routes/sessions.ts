@@ -786,6 +786,13 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         ...(oidcEmail ? { email: oidcEmail } : {}),
         ...(oidcName ? { name: oidcName } : {}),
       };
+      const smartAccountSigners =
+        provider === 'passkey' ? await ctx.service.listActiveSmartAccountSignersForUser(userId) : [];
+      const responseBody = {
+        ok: true,
+        session: sessionBody,
+        ...(smartAccountSigners.length ? { smartAccountSigners } : {}),
+      };
       await emitRelayWebhookEvent({
         logger: ctx.logger,
         webhooks: ctx.opts.relayWebhooks,
@@ -815,10 +822,10 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
       }
       if (sessionKind === 'cookie') {
         res.set('Set-Cookie', session.buildSetCookie(jwt));
-        res.status(200).json({ ok: true, session: sessionBody });
+        res.status(200).json(responseBody);
         return;
       }
-      res.status(200).json({ ok: true, session: sessionBody, jwt });
+      res.status(200).json({ ...responseBody, jwt });
     } catch (e: any) {
       await emitSessionExchangeFailed({
         status: 500,

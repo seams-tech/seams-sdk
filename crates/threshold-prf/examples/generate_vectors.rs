@@ -79,7 +79,16 @@ fn main() {
         vectors: vec![
             vector_for(
                 PrfPurpose::EcdsaHssYRelayer,
-                ecdsa_hss_context_v1(SIGNING_ROOT_ID, "alice.near", "wallet", "v1"),
+                ecdsa_hss_context_v1(
+                    "alice.near",
+                    "alice-subject",
+                    "evm:eip155:11155111",
+                    "ecdsa-alpha",
+                    SIGNING_ROOT_ID,
+                    "root-v1",
+                    "wallet",
+                    "v1",
+                ),
                 ECDSA_HSS_PROOF_SEED_BASE,
             ),
             vector_for(
@@ -247,8 +256,12 @@ fn invalid_cases() -> Vec<InvalidCaseVector> {
 }
 
 fn ecdsa_hss_context_v1(
+    wallet_session_user_id: &str,
+    subject_id: &str,
+    _chain_target: &str,
+    ecdsa_threshold_key_id: &str,
     signing_root_id: &str,
-    near_account_id: &str,
+    signing_root_version: &str,
     key_purpose: &str,
     key_version: &str,
 ) -> Vec<u8> {
@@ -256,8 +269,12 @@ fn ecdsa_hss_context_v1(
     out.extend_from_slice(b"ecdsa-hss:context:v1");
     push_len16(&mut out, b"ecdsa-hss-v1");
     push_len16(&mut out, b"secp256k1");
+    push_len16(&mut out, wallet_session_user_id.as_bytes());
+    push_len16(&mut out, subject_id.as_bytes());
+    push_len16(&mut out, b"evm-family");
+    push_len16(&mut out, ecdsa_threshold_key_id.as_bytes());
     push_len16(&mut out, signing_root_id.as_bytes());
-    push_len16(&mut out, near_account_id.as_bytes());
+    push_len16(&mut out, signing_root_version.as_bytes());
     push_len16(&mut out, key_purpose.as_bytes());
     push_len16(&mut out, key_version.as_bytes());
     out.push(2);

@@ -121,5 +121,5 @@ export {
   deriveEcdsaHssYRelayerFromSigningRootSecretShares,
   deriveEd25519HssServerInputsFromSigningRootSecretShares,
   ensureThresholdPrfWasm,
-  type EcdsaHssSigningRootContext,
+  type EcdsaHssStableKeyPrfContext,
 } from './thresholdPrfWasm';

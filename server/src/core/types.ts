@@ -974,17 +974,17 @@ export type ThresholdEcdsaHssOperation =
   | 'session_bootstrap'
   | 'explicit_key_export';
 
-export interface ThresholdEcdsaHssPrepareRequest {
+type ThresholdEcdsaEmailOtpEnrollmentClaims = {
+  walletId: string;
+  userId: string;
+  otpChannel: WalletEmailOtpChannel;
+  thresholdEcdsaClientVerifyingShareB64u: string;
+};
+
+type ThresholdEcdsaHssPrepareRequestBase = {
   walletSessionUserId: string;
-  subjectId?: string;
   rpId: string;
-  operation: ThresholdEcdsaHssOperation;
-  ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
-  chainTarget?: ThresholdEcdsaChainTarget;
-  keygenSessionId?: string;
-  sessionPolicy?: ThresholdEcdsaBootstrapSessionPolicy;
   runtimeEnvironmentId?: string;
-  webauthn_authentication?: WebAuthnAuthenticationCredential;
   /**
    * Internal relay field: optional validated threshold-ed25519 session claims
    * extracted from bearer/cookie transport by the route layer.
@@ -999,12 +999,7 @@ export interface ThresholdEcdsaHssPrepareRequest {
    * Internal relay field: validated Email OTP enrollment metadata extracted by
    * the route layer for Email OTP-authorized threshold ECDSA bootstrap.
    */
-  emailOtpEnrollmentClaims?: {
-    walletId: string;
-    userId: string;
-    otpChannel: WalletEmailOtpChannel;
-    thresholdEcdsaClientVerifyingShareB64u: string;
-  };
+  emailOtpEnrollmentClaims?: ThresholdEcdsaEmailOtpEnrollmentClaims;
   /**
    * Internal relay field: optional validated threshold-ecdsa session claims
    * extracted from bearer/cookie transport by the route layer.
@@ -1016,7 +1011,48 @@ export interface ThresholdEcdsaHssPrepareRequest {
    */
   registrationContinuationClaims?: Record<string, unknown>;
   sessionKind?: 'jwt' | 'cookie';
-}
+};
+
+export type ThresholdEcdsaHssPrepareRequest =
+  | (ThresholdEcdsaHssPrepareRequestBase & {
+      operation: 'registration_bootstrap';
+      keygenSessionId: string;
+      sessionPolicy: ThresholdEcdsaBootstrapSessionPolicy;
+      webauthn_authentication?: WebAuthnAuthenticationCredential;
+      ecdsaThresholdKeyId?: never;
+      subjectId?: never;
+      chainTarget?: never;
+    })
+  | (ThresholdEcdsaHssPrepareRequestBase & {
+      operation: 'email_otp_bootstrap';
+      keygenSessionId: string;
+      sessionPolicy: ThresholdEcdsaBootstrapSessionPolicy;
+      ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
+      webauthn_authentication?: WebAuthnAuthenticationCredential;
+      subjectId?: never;
+      chainTarget?: never;
+    })
+  | (ThresholdEcdsaHssPrepareRequestBase & {
+      operation: 'session_bootstrap';
+      keygenSessionId: string;
+      sessionPolicy: ThresholdEcdsaBootstrapSessionPolicy;
+      ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+      webauthn_authentication?: WebAuthnAuthenticationCredential;
+      subjectId?: never;
+      chainTarget?: never;
+    })
+  | (ThresholdEcdsaHssPrepareRequestBase & {
+      operation: 'explicit_key_export';
+      subjectId: string;
+      chainTarget: ThresholdEcdsaChainTarget;
+      ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+      ecdsaSessionClaims: Record<string, unknown>;
+      keygenSessionId?: never;
+      sessionPolicy?: never;
+      webauthn_authentication?: never;
+      emailOtpEnrollmentClaims?: never;
+      registrationContinuationClaims?: never;
+    });
 
 export interface ThresholdEcdsaHssPrepareResponse {
   ok: boolean;
@@ -1025,6 +1061,16 @@ export interface ThresholdEcdsaHssPrepareResponse {
   ceremonyId?: string;
   preparedServerSessionB64u?: string;
   serverAssistInitB64u?: string;
+  hssContext?: {
+    walletSessionUserId: string;
+    subjectId: string;
+    chainTarget: ThresholdEcdsaChainTarget;
+    ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+    signingRootId: string;
+    signingRootVersion: string;
+    keyPurpose: string;
+    keyVersion: string;
+  };
 }
 
 export interface ThresholdEcdsaHssRespondRequest {
@@ -1083,7 +1129,8 @@ export interface ThresholdEcdsaHssFinalizeResponse {
 export interface ThresholdEcdsaIntegratedKeyRecord {
   version: 'threshold_ecdsa_hss_key_v1';
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
-  userId: string;
+  walletSessionUserId: string;
+  subjectId: string;
   rpId: string;
   schemeId: string;
   clientVerifyingShareB64u: string;
@@ -1104,7 +1151,7 @@ export interface ThresholdEcdsaIntegratedKeyRecord {
 
 export type EcdsaSessionPolicy = {
   version: 'threshold_session_v1';
-  userId: string;
+  walletSessionUserId: string;
   subjectId: string;
   rpId: string;
   relayerKeyId: string;
@@ -1121,7 +1168,7 @@ export type EcdsaSessionPolicy = {
 
 export type ThresholdEcdsaBootstrapSessionPolicy = {
   version: 'threshold_session_v1';
-  userId: string;
+  walletSessionUserId: string;
   subjectId: string;
   rpId: string;
   chainTarget: ThresholdEcdsaChainTarget;

@@ -5,7 +5,7 @@ use crate::server::{
     FinalizedServerSessionV1, RespondResponseV1, RetainedServerStateV1, StagedServerSessionV1,
 };
 use crate::wire::{AllowedOutputKindV1, FinalizeEnvelopeV1, ServerEvalOperationV1};
-use crate::{EcdsaHssContextV1, RespondRequestV1};
+use crate::{EcdsaHssStableKeyContextV1, RespondRequestV1};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VisibleOperationBoundaryV1 {
@@ -71,7 +71,7 @@ pub struct VisibleRespondBoundaryV1 {
 pub struct HiddenEvalInputBoundaryV1 {
     pub operation: ServerEvalOperationV1,
     pub allowed_output_kind: AllowedOutputKindV1,
-    pub context: EcdsaHssContextV1,
+    pub context: EcdsaHssStableKeyContextV1,
     pub y_client32_le: [u8; 32],
     pub y_relayer32_le: [u8; 32],
 }

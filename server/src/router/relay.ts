@@ -377,7 +377,7 @@ export interface RelayBootstrapGrantBroker {
 }
 
 export interface SmartAccountDeployRequest {
-  nearAccountId: string;
+  walletId: string;
   chainTarget: SmartAccountChainTarget;
   accountAddress: string;
   accountModel: string;

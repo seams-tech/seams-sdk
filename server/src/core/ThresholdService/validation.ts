@@ -176,7 +176,8 @@ export function parseThresholdEd25519KeyRecord(
 export type ParsedThresholdEcdsaIntegratedKeyRecord = {
   version: 'threshold_ecdsa_hss_key_v1';
   ecdsaThresholdKeyId: string;
-  userId: string;
+  walletSessionUserId: string;
+  subjectId: string;
   rpId: string;
   schemeId: string;
   clientVerifyingShareB64u: string;
@@ -201,7 +202,9 @@ export function parseThresholdEcdsaIntegratedKeyRecord(
   if (!isObject(raw)) return null;
   if (toOptionalString(raw.version) !== 'threshold_ecdsa_hss_key_v1') return null;
   const ecdsaThresholdKeyId = toOptionalString(raw.ecdsaThresholdKeyId);
-  const userId = toOptionalString(raw.userId);
+  const walletSessionUserId =
+    toOptionalString(raw.walletSessionUserId) || toOptionalString(raw.userId);
+  const subjectId = toOptionalString(raw.subjectId);
   const rpId = toOptionalString(raw.rpId);
   const schemeId = toOptionalString(raw.schemeId);
   const clientVerifyingShareB64u = toOptionalString(raw.clientVerifyingShareB64u);
@@ -217,7 +220,8 @@ export function parseThresholdEcdsaIntegratedKeyRecord(
   const updatedAtMs = raw.updatedAtMs;
   if (
     !ecdsaThresholdKeyId ||
-    !userId ||
+    !walletSessionUserId ||
+    !subjectId ||
     !rpId ||
     !schemeId ||
     !clientVerifyingShareB64u ||
@@ -235,7 +239,8 @@ export function parseThresholdEcdsaIntegratedKeyRecord(
   return {
     version: 'threshold_ecdsa_hss_key_v1',
     ecdsaThresholdKeyId,
-    userId,
+    walletSessionUserId,
+    subjectId,
     rpId,
     schemeId,
     clientVerifyingShareB64u,
@@ -518,7 +523,7 @@ export type ParsedThresholdEcdsaSigningSessionRecord = {
   ecdsaThresholdKeyId: string;
   thresholdEcdsaPublicKeyB64u: string;
   signingDigestB64u: string;
-  userId: string;
+  walletSessionUserId: string;
   rpId: string;
   clientVerifyingShareB64u: string;
   participantIds: number[];
@@ -537,7 +542,8 @@ export function parseThresholdEcdsaSigningSessionRecord(
   const ecdsaThresholdKeyId = toOptionalString(raw.ecdsaThresholdKeyId);
   const thresholdEcdsaPublicKeyB64u = toOptionalString(raw.thresholdEcdsaPublicKeyB64u);
   const signingDigestB64u = toOptionalString(raw.signingDigestB64u);
-  const userId = toOptionalString(raw.userId);
+  const walletSessionUserId =
+    toOptionalString(raw.walletSessionUserId) || toOptionalString(raw.userId);
   const rpId = toOptionalString(raw.rpId);
   const clientVerifyingShareB64u = toOptionalString(raw.clientVerifyingShareB64u);
   const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds) || [
@@ -554,7 +560,7 @@ export function parseThresholdEcdsaSigningSessionRecord(
     !ecdsaThresholdKeyId ||
     !thresholdEcdsaPublicKeyB64u ||
     !signingDigestB64u ||
-    !userId ||
+    !walletSessionUserId ||
     !rpId ||
     !clientVerifyingShareB64u ||
     !presignatureId ||
@@ -570,7 +576,7 @@ export function parseThresholdEcdsaSigningSessionRecord(
     ecdsaThresholdKeyId,
     thresholdEcdsaPublicKeyB64u,
     signingDigestB64u,
-    userId,
+    walletSessionUserId,
     rpId,
     clientVerifyingShareB64u,
     participantIds,
@@ -598,7 +604,7 @@ export type ParsedThresholdEcdsaPresignSessionStage =
 
 export type ParsedThresholdEcdsaPresignSessionRecord = {
   expiresAtMs: number;
-  userId: string;
+  walletSessionUserId: string;
   rpId: string;
   relayerKeyId: string;
   ownerInstanceId?: string;
@@ -616,7 +622,8 @@ export function parseThresholdEcdsaPresignSessionRecord(
 ): ParsedThresholdEcdsaPresignSessionRecord | null {
   if (!isObject(raw)) return null;
   const expiresAtMs = raw.expiresAtMs;
-  const userId = toOptionalString(raw.userId);
+  const walletSessionUserId =
+    toOptionalString(raw.walletSessionUserId) || toOptionalString(raw.userId);
   const rpId = toOptionalString(raw.rpId);
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
   const ownerInstanceId = toOptionalString(raw.ownerInstanceId);
@@ -646,7 +653,7 @@ export function parseThresholdEcdsaPresignSessionRecord(
     return null;
   }
   if (
-    !userId ||
+    !walletSessionUserId ||
     !rpId ||
     !relayerKeyId ||
     !stage ||
@@ -667,7 +674,7 @@ export function parseThresholdEcdsaPresignSessionRecord(
 
   return {
     expiresAtMs,
-    userId,
+    walletSessionUserId,
     rpId,
     relayerKeyId,
     ...(ownerInstanceId ? { ownerInstanceId } : {}),
@@ -862,6 +869,30 @@ export function parseAppSessionClaims(raw: unknown): AppSessionClaims | null {
   }
 
   return out;
+}
+
+export function resolveAppSessionProviderUserIdForWalletScope(
+  claims: AppSessionClaims | null | undefined,
+  walletSessionUserId: unknown,
+): string | undefined {
+  if (!claims) return undefined;
+  const subject = toOptionalString(claims.sub);
+  const walletId = toOptionalString(walletSessionUserId);
+  if (!subject || !walletId || subject === walletId) return undefined;
+  return subject;
+}
+
+export function resolveAppSessionWalletIdForWalletScope(
+  claims: AppSessionClaims | null | undefined,
+  walletSessionUserId: unknown,
+): string | undefined {
+  if (!claims) return undefined;
+  const explicitWalletId = toOptionalString(claims.walletId);
+  if (explicitWalletId) return explicitWalletId;
+  const subject = toOptionalString(claims.sub);
+  const requestedWalletId = toOptionalString(walletSessionUserId);
+  if (subject && requestedWalletId && subject === requestedWalletId) return subject;
+  return undefined;
 }
 
 export type ThresholdEcdsaSessionClaims = {

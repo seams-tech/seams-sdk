@@ -3457,7 +3457,7 @@ export class AuthService {
         if (thresholdEcdsaClientRootShare32B64u) {
           const thresholdEcdsaKeygenStartedAt = Date.now();
           const out = await thresholdService!.bootstrapEcdsaFromRegistrationMaterial({
-            userId: accountId,
+            walletSessionUserId: accountId,
             rpId,
             clientRootShare32B64u: thresholdEcdsaClientRootShare32B64u,
             sessionPolicy: thresholdEcdsaSessionPolicy as Record<string, unknown>,
@@ -7362,6 +7362,21 @@ export class AuthService {
     }
   }
 
+  async listActiveSmartAccountSignersForUser(userId: string): Promise<AccountSignerRecord[]> {
+    const normalizedUserId = String(userId || '').trim();
+    if (!normalizedUserId) return [];
+    return (await this.getAccountSignerStore().listByUserId(normalizedUserId)).filter((record) => {
+      if (record.status !== 'active') return false;
+      if (record.signerType !== 'threshold') return false;
+      const metadata = record.metadata || {};
+      return Boolean(
+        String(metadata.ecdsaThresholdKeyId || '').trim() &&
+          String(metadata.thresholdEcdsaPublicKeyB64u || '').trim() &&
+          metadata.chainTarget,
+      );
+    });
+  }
+
   async verifyWebAuthnSyncAccount(request: {
     challengeId?: unknown;
     challenge_id?: unknown;
@@ -7592,17 +7607,7 @@ export class AuthService {
         thresholdEd25519Session = normalizedSession;
       }
 
-      const smartAccountSigners = (await this.getAccountSignerStore().listByUserId(binding.userId))
-        .filter((record) => {
-          if (record.status !== 'active') return false;
-          if (record.signerType !== 'threshold') return false;
-          const metadata = record.metadata || {};
-          return Boolean(
-            String(metadata.ecdsaThresholdKeyId || '').trim() &&
-              String(metadata.thresholdEcdsaPublicKeyB64u || '').trim() &&
-              metadata.chainTarget,
-          );
-        });
+      const smartAccountSigners = await this.listActiveSmartAccountSignersForUser(binding.userId);
 
       return {
         ok: true,
@@ -8194,7 +8199,7 @@ export class AuthService {
 
       if (thresholdEcdsaClientRootShare32B64u) {
         const out = await threshold.bootstrapEcdsaFromRegistrationMaterial({
-          userId: accountId,
+          walletSessionUserId: accountId,
           rpId,
           clientRootShare32B64u: thresholdEcdsaClientRootShare32B64u,
           sessionPolicy: thresholdEcdsaSessionPolicy as Record<string, unknown>,
@@ -8763,7 +8768,7 @@ export class AuthService {
 
       if (thresholdEcdsaClientRootShare32B64u) {
         const out = await threshold.bootstrapEcdsaFromRegistrationMaterial({
-          userId: accountId,
+          walletSessionUserId: accountId,
           rpId,
           clientRootShare32B64u: thresholdEcdsaClientRootShare32B64u,
           sessionPolicy: thresholdEcdsaSessionPolicy as Record<string, unknown>,

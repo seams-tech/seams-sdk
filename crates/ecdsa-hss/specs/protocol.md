@@ -48,13 +48,24 @@ The fixed v1 context binding tuple is:
 
 - `scheme_id = "ecdsa-hss-v1"`
 - `curve = "secp256k1"`
-- `near_account_id`
+- `wallet_session_user_id`
+- `subject_id`
+- `key_scope = "evm-family"`
+- `ecdsa_threshold_key_id`
+- `signing_root_id`
+- `signing_root_version`
 - `key_purpose`
 - `key_version`
 - `participant_ids = [1, 2]`
 
 This context is part of deterministic derivation. Changing it changes the
 derived key.
+
+Funds-safety invariant: every EVM-class target for the same wallet, subject,
+RP, signing root, and key version MUST derive the same threshold ECDSA public
+key and Ethereum address. The fixed `key_scope = "evm-family"` field is the
+stable EVM-family key scope. Concrete chain targets must stay out of the stable
+key context.
 
 ## `encode_context_v1` Byte Contract
 
@@ -66,10 +77,15 @@ The byte encoding is:
 - followed by the fixed tuple fields in this exact order:
   1. `scheme_id`
   2. `curve`
-  3. `near_account_id`
-  4. `key_purpose`
-  5. `key_version`
-  6. `participant_ids`
+  3. `wallet_session_user_id`
+  4. `subject_id`
+  5. `key_scope`
+  6. `ecdsa_threshold_key_id`
+  7. `signing_root_id`
+  8. `signing_root_version`
+  9. `key_purpose`
+  10. `key_version`
+  11. `participant_ids`
 
 ### String Encoding
 
@@ -77,7 +93,12 @@ The v1 string fields are:
 
 - `scheme_id`
 - `curve`
-- `near_account_id`
+- `wallet_session_user_id`
+- `subject_id`
+- `key_scope`
+- `ecdsa_threshold_key_id`
+- `signing_root_id`
+- `signing_root_version`
 - `key_purpose`
 - `key_version`
 
@@ -116,7 +137,12 @@ The full `encode_context_v1(...)` byte layout is:
 - `b"ecdsa-hss:context:v1"`
 - `u16be(len("ecdsa-hss-v1")) || b"ecdsa-hss-v1"`
 - `u16be(len("secp256k1")) || b"secp256k1"`
-- `u16be(len(near_account_id)) || near_account_id_ascii_bytes`
+- `u16be(len(wallet_session_user_id)) || wallet_session_user_id_ascii_bytes`
+- `u16be(len(subject_id)) || subject_id_ascii_bytes`
+- `u16be(len(key_scope)) || key_scope_ascii_bytes`
+- `u16be(len(ecdsa_threshold_key_id)) || ecdsa_threshold_key_id_ascii_bytes`
+- `u16be(len(signing_root_id)) || signing_root_id_ascii_bytes`
+- `u16be(len(signing_root_version)) || signing_root_version_ascii_bytes`
 - `u16be(len(key_purpose)) || key_purpose_ascii_bytes`
 - `u16be(len(key_version)) || key_version_ascii_bytes`
 - `0x02 || 0x0001 || 0x0002`

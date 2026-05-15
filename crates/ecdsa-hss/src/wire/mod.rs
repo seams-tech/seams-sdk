@@ -1,4 +1,4 @@
-use crate::shared::context::EcdsaHssContextV1;
+use crate::shared::context::EcdsaHssStableKeyContextV1;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,7 +46,7 @@ impl ServerEvalOperationV1 {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrepareEnvelopeV1 {
     pub operation: ServerEvalOperationV1,
-    pub context: EcdsaHssContextV1,
+    pub context: EcdsaHssStableKeyContextV1,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]

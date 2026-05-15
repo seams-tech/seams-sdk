@@ -1,4 +1,4 @@
-use crate::shared::context::EcdsaHssContextV1;
+use crate::shared::context::EcdsaHssStableKeyContextV1;
 use signer_core::error::CoreResult;
 use signer_core::secp256k1::{
     add_secp256k1_public_keys_33, map_additive_share_to_threshold_signatures_share_2p,
@@ -54,7 +54,7 @@ pub struct EvmThresholdBootstrapRequestV1 {
     #[zeroize(skip)]
     pub operation: ServerEvalOperationV1,
     #[zeroize(skip)]
-    pub context: EcdsaHssContextV1,
+    pub context: EcdsaHssStableKeyContextV1,
     pub y_client32_le: [u8; 32],
     pub y_relayer32_le: [u8; 32],
 }
@@ -89,7 +89,7 @@ impl EvmThresholdSigningOperationV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 pub struct EvmThresholdExportRequestV1 {
     #[zeroize(skip)]
-    pub context: EcdsaHssContextV1,
+    pub context: EcdsaHssStableKeyContextV1,
     pub y_client32_le: [u8; 32],
     pub y_relayer32_le: [u8; 32],
 }
@@ -268,7 +268,7 @@ pub fn bootstrap_evm_threshold_v1(
 }
 
 pub fn bootstrap_registration_evm_threshold_v1(
-    context: EcdsaHssContextV1,
+    context: EcdsaHssStableKeyContextV1,
     y_client32_le: [u8; 32],
     y_relayer32_le: [u8; 32],
 ) -> CoreResult<EvmThresholdBootstrapResultV1> {
@@ -281,7 +281,7 @@ pub fn bootstrap_registration_evm_threshold_v1(
 }
 
 pub fn bootstrap_session_evm_threshold_v1(
-    context: EcdsaHssContextV1,
+    context: EcdsaHssStableKeyContextV1,
     y_client32_le: [u8; 32],
     y_relayer32_le: [u8; 32],
 ) -> CoreResult<EvmThresholdBootstrapResultV1> {
@@ -295,7 +295,7 @@ pub fn bootstrap_session_evm_threshold_v1(
 
 pub fn prepare_signing_session_v1(
     operation: EvmThresholdSigningOperationV1,
-    context: EcdsaHssContextV1,
+    context: EcdsaHssStableKeyContextV1,
     y_client32_le: [u8; 32],
     y_relayer32_le: [u8; 32],
 ) -> CoreResult<EvmThresholdSigningSessionV1> {
@@ -328,7 +328,7 @@ pub fn export_evm_threshold_v1(
 }
 
 pub fn prepare_explicit_export_session_v1(
-    context: EcdsaHssContextV1,
+    context: EcdsaHssStableKeyContextV1,
     y_client32_le: [u8; 32],
     y_relayer32_le: [u8; 32],
 ) -> CoreResult<EvmThresholdExplicitExportSessionV1> {

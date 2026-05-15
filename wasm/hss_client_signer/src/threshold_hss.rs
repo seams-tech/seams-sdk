@@ -3,7 +3,7 @@ use crate::js::{
     get_required_string, get_required_u16_vec, get_required_u32, object, set_string, set_u16_vec,
     set_u32,
 };
-use ecdsa_hss::{encode_context_v1 as encode_ecdsa_context_v1, EcdsaHssContextV1};
+use ecdsa_hss::{encode_context_v1 as encode_ecdsa_context_v1, EcdsaHssStableKeyContextV1};
 use ed25519_hss::{
     client::ClientDriverState, protocol::prepare_prime_order_succinct_hss_client,
     shared::CanonicalContext, wire::WireMessage,
@@ -137,7 +137,12 @@ pub fn threshold_ecdsa_hss_prepare_session(args: JsValue) -> Result<JsValue, JsV
     let y_client32_le = get_required_client_root_share32(&args)?;
     let context_binding = ecdsa_context_binding(&context)?;
     let state = ThresholdEcdsaHssClientSessionState {
-        near_account_id: context.near_account_id,
+        wallet_session_user_id: context.wallet_session_user_id,
+        subject_id: context.subject_id,
+        chain_target: context.chain_target,
+        ecdsa_threshold_key_id: context.ecdsa_threshold_key_id,
+        signing_root_id: context.signing_root_id,
+        signing_root_version: context.signing_root_version,
         key_purpose: context.key_purpose,
         key_version: context.key_version,
         context_binding,
@@ -145,7 +150,12 @@ pub fn threshold_ecdsa_hss_prepare_session(args: JsValue) -> Result<JsValue, JsV
     };
 
     let out = object();
-    set_string(&out, "nearAccountId", &state.near_account_id)?;
+    set_string(&out, "walletSessionUserId", &state.wallet_session_user_id)?;
+    set_string(&out, "subjectId", &state.subject_id)?;
+    set_string(&out, "chainTarget", &state.chain_target)?;
+    set_string(&out, "ecdsaThresholdKeyId", &state.ecdsa_threshold_key_id)?;
+    set_string(&out, "signingRootId", &state.signing_root_id)?;
+    set_string(&out, "signingRootVersion", &state.signing_root_version)?;
     set_string(&out, "keyPurpose", &state.key_purpose)?;
     set_string(&out, "keyVersion", &state.key_version)?;
     set_string(
@@ -264,7 +274,12 @@ fn get_required_client_root_share32(args: &JsValue) -> Result<[u8; 32], JsValue>
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ThresholdEcdsaHssClientSessionState {
-    near_account_id: String,
+    wallet_session_user_id: String,
+    subject_id: String,
+    chain_target: String,
+    ecdsa_threshold_key_id: String,
+    signing_root_id: String,
+    signing_root_version: String,
     key_purpose: String,
     key_version: String,
     context_binding: [u8; 32],
@@ -292,15 +307,20 @@ struct ThresholdEcdsaHssClientFinalizeWire {
     context_binding: [u8; 32],
 }
 
-fn ecdsa_canonical_context_from_js(args: &JsValue) -> Result<EcdsaHssContextV1, JsValue> {
-    Ok(EcdsaHssContextV1::new(
-        get_required_string(args, "nearAccountId")?,
+fn ecdsa_canonical_context_from_js(args: &JsValue) -> Result<EcdsaHssStableKeyContextV1, JsValue> {
+    Ok(EcdsaHssStableKeyContextV1::new(
+        get_required_string(args, "walletSessionUserId")?,
+        get_required_string(args, "subjectId")?,
+        get_required_string(args, "chainTarget")?,
+        get_required_string(args, "ecdsaThresholdKeyId")?,
+        get_required_string(args, "signingRootId")?,
+        get_required_string(args, "signingRootVersion")?,
         get_required_string(args, "keyPurpose")?,
         get_required_string(args, "keyVersion")?,
     ))
 }
 
-fn ecdsa_context_binding(context: &EcdsaHssContextV1) -> Result<[u8; 32], JsValue> {
+fn ecdsa_context_binding(context: &EcdsaHssStableKeyContextV1) -> Result<[u8; 32], JsValue> {
     let encoded =
         encode_ecdsa_context_v1(context).map_err(|e| JsValue::from_str(&e.to_string()))?;
     Ok(Sha256::digest(encoded).into())

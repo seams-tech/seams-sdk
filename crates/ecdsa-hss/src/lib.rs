@@ -37,7 +37,7 @@ pub use server::{
     StagedServerSessionV1,
 };
 pub use shared::context::{
-    encode_context_v1, EcdsaHssContextV1, ECDSA_HSS_V1_CURVE, ECDSA_HSS_V1_PARTICIPANT_IDS,
+    encode_context_v1, EcdsaHssStableKeyContextV1, ECDSA_HSS_V1_CURVE, ECDSA_HSS_V1_PARTICIPANT_IDS,
     ECDSA_HSS_V1_SCHEME_ID,
 };
 pub use shared::derive::{

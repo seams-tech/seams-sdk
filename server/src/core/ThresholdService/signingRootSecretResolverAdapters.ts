@@ -5,7 +5,7 @@ import type {
 import {
   deriveEcdsaHssYRelayerFromSigningRootSecretShares,
   deriveEd25519HssServerInputsFromSigningRootSecretShares,
-  type EcdsaHssSigningRootContext,
+  type EcdsaHssStableKeyPrfContext,
 } from './thresholdPrfWasm';
 import {
   resolveSigningRootSecretShareWirePair,
@@ -102,7 +102,7 @@ export type ResolveSigningRootSecretShareWirePairFromResolverInput = ResolveSign
 
 export type DeriveEcdsaHssYRelayerFromSigningRootSecretResolverInput =
   ResolveSigningRootSecretShareWirePairFromResolverInput & {
-    readonly context: EcdsaHssSigningRootContext;
+    readonly context: EcdsaHssStableKeyPrfContext;
   };
 
 export type DeriveEd25519HssServerInputsFromSigningRootSecretResolverInput =

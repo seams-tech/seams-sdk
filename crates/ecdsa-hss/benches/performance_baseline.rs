@@ -6,7 +6,7 @@ use ecdsa_hss::{
     bootstrap_evm_threshold_v1, compute_client_signature_share_v1, derive_additive_shares_v1,
     derive_canonical_secret_v1, export_evm_threshold_v1, finalize_signature_v1,
     init_client_presign_session_v1, init_relayer_presign_session_v1, parse_presignature97_v1,
-    prepare_signing_session_v1, sign_with_session_v1, EcdsaHssContextV1,
+    prepare_signing_session_v1, sign_with_session_v1, EcdsaHssStableKeyContextV1,
     EvmThresholdBootstrapAdapterV1, EvmThresholdBootstrapRequestV1, EvmThresholdExportRequestV1,
     EvmThresholdPresignatureV1, EvmThresholdSigningOperationV1, RootShareInputsV1,
     ServerEvalOperationV1,
@@ -17,7 +17,7 @@ use signer_core::threshold_ecdsa::ThresholdEcdsaPresignSession;
 #[derive(Clone)]
 struct BenchmarkFixture {
     name: &'static str,
-    context: EcdsaHssContextV1,
+    context: EcdsaHssStableKeyContextV1,
     y_client32_le: [u8; 32],
     y_relayer32_le: [u8; 32],
     canonical_x32: [u8; 32],

@@ -1,7 +1,7 @@
 use base64ct::{Base64UrlUnpadded, Encoding};
 use ecdsa_hss::{
     bootstrap_evm_threshold_v1, complete_presign_roundtrip_v1, derive_additive_shares_v1,
-    derive_canonical_secret_v1, encode_context_v1, export_evm_threshold_v1, EcdsaHssContextV1,
+    derive_canonical_secret_v1, encode_context_v1, export_evm_threshold_v1, EcdsaHssStableKeyContextV1,
     EvmThresholdBootstrapRequestV1, EvmThresholdExportRequestV1, EvmThresholdSigningOperationV1,
     RootShareInputsV1, ServerEvalOperationV1,
 };
@@ -15,7 +15,12 @@ use crate::errors::{js_core_err, js_invalid_input_err};
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EcdsaHssBenchmarkInputJs {
-    pub near_account_id: String,
+    pub wallet_session_user_id: String,
+    pub subject_id: String,
+    pub chain_target: String,
+    pub ecdsa_threshold_key_id: String,
+    pub signing_root_id: String,
+    pub signing_root_version: String,
     pub key_purpose: String,
     pub key_version: String,
     pub y_client32_le: Vec<u8>,
@@ -94,11 +99,16 @@ pub struct SignBenchmarkProfileResultJs {
 
 fn parse_context_and_roots(
     payload: JsValue,
-) -> Result<(EcdsaHssContextV1, [u8; 32], [u8; 32]), JsValue> {
+) -> Result<(EcdsaHssStableKeyContextV1, [u8; 32], [u8; 32]), JsValue> {
     let parsed: EcdsaHssBenchmarkInputJs =
         serde_wasm_bindgen::from_value(payload).map_err(|err| js_invalid_input_err(err))?;
-    let context = EcdsaHssContextV1::new(
-        parsed.near_account_id,
+    let context = EcdsaHssStableKeyContextV1::new(
+        parsed.wallet_session_user_id,
+        parsed.subject_id,
+        parsed.chain_target,
+        parsed.ecdsa_threshold_key_id,
+        parsed.signing_root_id,
+        parsed.signing_root_version,
         parsed.key_purpose,
         parsed.key_version,
     );
@@ -209,8 +219,13 @@ pub fn ecdsa_hss_explicit_export(payload: JsValue) -> Result<JsValue, JsValue> {
 pub fn threshold_ecdsa_hss_prepare_server_session(_payload: JsValue) -> Result<JsValue, JsValue> {
     let parsed: EcdsaHssPrepareServerSessionInputJs =
         serde_wasm_bindgen::from_value(_payload).map_err(|err| js_invalid_input_err(err))?;
-    let context = EcdsaHssContextV1::new(
-        parsed.near_account_id,
+    let context = EcdsaHssStableKeyContextV1::new(
+        parsed.wallet_session_user_id,
+        parsed.subject_id,
+        parsed.chain_target,
+        parsed.ecdsa_threshold_key_id,
+        parsed.signing_root_id,
+        parsed.signing_root_version,
         parsed.key_purpose,
         parsed.key_version,
     );
@@ -219,7 +234,12 @@ pub fn threshold_ecdsa_hss_prepare_server_session(_payload: JsValue) -> Result<J
     let y_relayer32_le = vec_to_fixed_32(parsed.y_relayer32_le, "yRelayer32Le")?;
     let session = ThresholdEcdsaHssPreparedServerSessionWire {
         operation: server_eval_operation_code(operation),
-        near_account_id: context.near_account_id,
+        wallet_session_user_id: context.wallet_session_user_id,
+        subject_id: context.subject_id,
+        chain_target: context.chain_target,
+        ecdsa_threshold_key_id: context.ecdsa_threshold_key_id,
+        signing_root_id: context.signing_root_id,
+        signing_root_version: context.signing_root_version,
         key_purpose: context.key_purpose,
         key_version: context.key_version,
         context_binding,
@@ -352,7 +372,12 @@ fn vec_to_fixed_32(bytes: Vec<u8>, field_name: &str) -> Result<[u8; 32], JsValue
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EcdsaHssPrepareServerSessionInputJs {
-    pub near_account_id: String,
+    pub wallet_session_user_id: String,
+    pub subject_id: String,
+    pub chain_target: String,
+    pub ecdsa_threshold_key_id: String,
+    pub signing_root_id: String,
+    pub signing_root_version: String,
     pub key_purpose: String,
     pub key_version: String,
     pub operation: String,
@@ -412,7 +437,12 @@ pub struct ThresholdEcdsaHssOpenServerOutputResultJs {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ThresholdEcdsaHssPreparedServerSessionWire {
     operation: u8,
-    near_account_id: String,
+    wallet_session_user_id: String,
+    subject_id: String,
+    chain_target: String,
+    ecdsa_threshold_key_id: String,
+    signing_root_id: String,
+    signing_root_version: String,
     key_purpose: String,
     key_version: String,
     context_binding: [u8; 32],
@@ -466,7 +496,7 @@ fn server_eval_operation_code(value: ServerEvalOperationV1) -> u8 {
 }
 
 fn compute_ecdsa_context_binding(
-    context: &EcdsaHssContextV1,
+    context: &EcdsaHssStableKeyContextV1,
 ) -> signer_platform_web::error::CoreResult<[u8; 32]> {
     Ok(Sha256::digest(encode_context_v1(context)?).into())
 }
@@ -499,8 +529,13 @@ fn run_sign_non_export(payload: JsValue) -> Result<SignBenchmarkProfileResultJs,
     let parse_started = Date::now();
     let parsed: EcdsaHssSignBenchmarkInputJs =
         serde_wasm_bindgen::from_value(payload).map_err(|err| js_invalid_input_err(err))?;
-    let context = EcdsaHssContextV1::new(
-        parsed.root.near_account_id,
+    let context = EcdsaHssStableKeyContextV1::new(
+        parsed.root.wallet_session_user_id,
+        parsed.root.subject_id,
+        parsed.root.chain_target,
+        parsed.root.ecdsa_threshold_key_id,
+        parsed.root.signing_root_id,
+        parsed.root.signing_root_version,
         parsed.root.key_purpose,
         parsed.root.key_version,
     );

@@ -25,6 +25,7 @@ export type RecoveryAuthorityAuthorization = {
     verifyingContract: `0x${string}`;
   };
   payload: {
+    // Smart-account recovery authorization commits to the hosted-NEAR owner hash on chain.
     nearAccountIdHash: `0x${string}`;
     newNearKeyHash: `0x${string}`;
     newOwner: `0x${string}`;
@@ -210,6 +211,7 @@ export function buildRecoveryAuthorityAuthorizationDigest(input: {
     throw new Error('Invalid recovery authorization payload');
   }
 
+  // This hash is part of the recovery authority EIP-712 payload shape.
   const nearAccountIdHash = utf8KeccakHex(nearAccountId);
   const newNearKeyHash = utf8KeccakHex(newNearPublicKey);
   const recoverySessionHash = utf8KeccakHex(recoverySessionId);

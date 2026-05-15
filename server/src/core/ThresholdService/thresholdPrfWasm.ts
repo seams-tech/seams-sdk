@@ -10,6 +10,8 @@ import type {
   ThresholdEd25519HssCanonicalContext,
   ThresholdEd25519HssServerInputs,
 } from '../types';
+import type { ThresholdEcdsaChainTarget } from '../thresholdEcdsaChainTarget';
+import { thresholdEcdsaChainTargetKey } from '../thresholdEcdsaChainTarget';
 import type { SigningRootSecretShareWirePair } from './signingRootSecretShareWires';
 
 const THRESHOLD_PRF_WASM_PATH_CANDIDATES = [
@@ -23,9 +25,15 @@ const THRESHOLD_PRF_WASM_PATH_CANDIDATES = [
 let thresholdPrfWasmInitPromise: Promise<void> | null = null;
 let thresholdPrfWasmReady = false;
 
-export type EcdsaHssSigningRootContext = {
+export type EcdsaHssStableKeyPrfContext = {
+  readonly walletSessionUserId: string;
+  readonly subjectId: string;
+  readonly chainTarget: ThresholdEcdsaChainTarget;
+  readonly ecdsaThresholdKeyId: string;
   readonly signingRootId: string;
-  readonly nearAccountId: string;
+  readonly signingRootVersion: string;
+  readonly walletSigningSessionId?: never;
+  readonly thresholdSessionId?: never;
   readonly keyPurpose: string;
   readonly keyVersion: string;
 };
@@ -92,7 +100,7 @@ function checkedB64u32(label: string, value: unknown): string {
 
 export async function deriveEcdsaHssYRelayerFromSigningRootSecretShares(input: {
   readonly shareWires: SigningRootSecretShareWirePair;
-  readonly context: EcdsaHssSigningRootContext;
+  readonly context: EcdsaHssStableKeyPrfContext;
 }): Promise<Uint8Array> {
   await ensureThresholdPrfWasm();
   requireThresholdPrfWasmReady();
@@ -100,8 +108,12 @@ export async function deriveEcdsaHssYRelayerFromSigningRootSecretShares(input: {
   const out = threshold_prf_derive_ecdsa_hss_y_relayer(
     new Uint8Array(input.shareWires[0]),
     new Uint8Array(input.shareWires[1]),
+    requiredTrimmed('walletSessionUserId', input.context.walletSessionUserId),
+    requiredTrimmed('subjectId', input.context.subjectId),
+    thresholdEcdsaChainTargetKey(input.context.chainTarget),
+    requiredTrimmed('ecdsaThresholdKeyId', input.context.ecdsaThresholdKeyId),
     requiredTrimmed('signingRootId', input.context.signingRootId),
-    requiredTrimmed('nearAccountId', input.context.nearAccountId),
+    requiredTrimmed('signingRootVersion', input.context.signingRootVersion),
     requiredTrimmed('keyPurpose', input.context.keyPurpose),
     requiredTrimmed('keyVersion', input.context.keyVersion),
   ) as Uint8Array;

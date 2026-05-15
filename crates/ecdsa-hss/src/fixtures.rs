@@ -7,7 +7,7 @@ use signer_core::secp256k1::{
 
 use crate::client::ClientOutputV1;
 use crate::server::{FinalizedServerSessionV1, ServerPrepareInputsV1, StagedServerSessionV1};
-use crate::shared::context::EcdsaHssContextV1;
+use crate::shared::context::EcdsaHssStableKeyContextV1;
 use crate::shared::derive::{
     derive_additive_shares_v1, derive_canonical_secret_v1, AdditiveShareMaterialV1,
     CanonicalSecretMaterialV1,
@@ -20,7 +20,7 @@ pub const COMMITTED_FIXTURE_CORPUS_JSON: &str = include_str!("../fixtures/phase1
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Phase1FixtureV1 {
     pub name: String,
-    pub context: EcdsaHssContextV1,
+    pub context: EcdsaHssStableKeyContextV1,
     pub y_client32_le: [u8; 32],
     pub y_relayer32_le: [u8; 32],
     pub canonical: CanonicalSecretMaterialV1,
@@ -52,7 +52,12 @@ pub struct FixtureRecord {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContextRecord {
-    pub near_account_id: String,
+    pub wallet_session_user_id: String,
+    pub subject_id: String,
+    pub chain_target: String,
+    pub ecdsa_threshold_key_id: String,
+    pub signing_root_id: String,
+    pub signing_root_version: String,
     pub key_purpose: String,
     pub key_version: String,
 }
@@ -87,25 +92,61 @@ pub fn deterministic_fixture_corpus() -> CoreResult<Vec<Phase1FixtureV1>> {
     [
         (
             "wraparound-zero-d",
-            EcdsaHssContextV1::new("wraparound.test.near", "evm-signing", "v1-wrap"),
+            EcdsaHssStableKeyContextV1::new(
+                "wraparound.test.near",
+                "wraparound-subject",
+                "evm:eip155:11155111",
+                "ehss-wraparound",
+                "project-alpha:env-alpha",
+                "root-v1",
+                "evm-signing",
+                "v1-wrap",
+            ),
             [0xff; 32],
             one_le_u256(),
         ),
         (
             "patterned-seed",
-            EcdsaHssContextV1::new("patterned.test.near", "evm-signing", "v1-pattern"),
+            EcdsaHssStableKeyContextV1::new(
+                "patterned.test.near",
+                "patterned-subject",
+                "evm:eip155:11155111",
+                "ehss-patterned",
+                "project-alpha:env-alpha",
+                "root-v1",
+                "evm-signing",
+                "v1-pattern",
+            ),
             ascending_bytes(),
             descending_bytes(),
         ),
         (
             "derived-alpha",
-            EcdsaHssContextV1::new("alpha.test.near", "evm-export", "v1-alpha"),
+            EcdsaHssStableKeyContextV1::new(
+                "alpha.test.near",
+                "alpha-subject",
+                "evm:eip155:11155111",
+                "ehss-alpha",
+                "project-alpha:env-alpha",
+                "root-v2",
+                "evm-export",
+                "v1-alpha",
+            ),
             derive_bytes32("ecdsa-hss/fixture/alpha/y-client"),
             derive_bytes32("ecdsa-hss/fixture/alpha/y-relayer"),
         ),
         (
             "derived-beta",
-            EcdsaHssContextV1::new("beta.test.near", "evm-signing", "v2-beta"),
+            EcdsaHssStableKeyContextV1::new(
+                "beta.test.near",
+                "beta-subject",
+                "tempo:42431",
+                "ehss-beta",
+                "project-beta:env-beta",
+                "root-v3",
+                "evm-signing",
+                "v2-beta",
+            ),
             derive_bytes32("ecdsa-hss/fixture/beta/y-client"),
             derive_bytes32("ecdsa-hss/fixture/beta/y-relayer"),
         ),
@@ -217,7 +258,12 @@ impl FixtureRecord {
         Self {
             name: fixture.name.clone(),
             context: ContextRecord {
-                near_account_id: fixture.context.near_account_id.clone(),
+                wallet_session_user_id: fixture.context.wallet_session_user_id.clone(),
+                subject_id: fixture.context.subject_id.clone(),
+                chain_target: fixture.context.chain_target.clone(),
+                ecdsa_threshold_key_id: fixture.context.ecdsa_threshold_key_id.clone(),
+                signing_root_id: fixture.context.signing_root_id.clone(),
+                signing_root_version: fixture.context.signing_root_version.clone(),
                 key_purpose: fixture.context.key_purpose.clone(),
                 key_version: fixture.context.key_version.clone(),
             },
@@ -255,8 +301,13 @@ impl FixtureRecord {
     }
 
     fn to_fixture(&self) -> CoreResult<Phase1FixtureV1> {
-        let context = EcdsaHssContextV1::new(
-            self.context.near_account_id.clone(),
+        let context = EcdsaHssStableKeyContextV1::new(
+            self.context.wallet_session_user_id.clone(),
+            self.context.subject_id.clone(),
+            self.context.chain_target.clone(),
+            self.context.ecdsa_threshold_key_id.clone(),
+            self.context.signing_root_id.clone(),
+            self.context.signing_root_version.clone(),
             self.context.key_purpose.clone(),
             self.context.key_version.clone(),
         );

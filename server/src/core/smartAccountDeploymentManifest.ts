@@ -29,6 +29,7 @@ export type CanonicalSmartAccountDeploymentManifest = {
   version: 'smart_account_deployment_manifest_v1';
   chainIdKey: string;
   accountAddress: string;
+  // The on-chain smart-account init payload binds the hosted-NEAR owner by hash.
   nearAccountIdHash: `0x${string}`;
   chainTarget: SmartAccountChainTarget;
   accountModel: 'erc4337' | 'tempo-native';

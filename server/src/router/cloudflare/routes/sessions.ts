@@ -780,6 +780,8 @@ export async function handleSessionExchange(ctx: CloudflareRelayContext): Promis
       ...(oidcFamilyName ? { family_name: oidcFamilyName } : {}),
     });
     const sessionExpiresAt = deriveJwtExpiresAtIso(jwt);
+    const smartAccountSigners =
+      provider === 'passkey' ? await ctx.service.listActiveSmartAccountSignersForUser(userId) : [];
     const responseBody = {
       ok: true,
       session: {
@@ -804,6 +806,7 @@ export async function handleSessionExchange(ctx: CloudflareRelayContext): Promis
         ...(oidcEmail ? { email: oidcEmail } : {}),
         ...(oidcName ? { name: oidcName } : {}),
       },
+      ...(smartAccountSigners.length ? { smartAccountSigners } : {}),
     };
     await emitRelayWebhookEvent({
       logger: ctx.logger,

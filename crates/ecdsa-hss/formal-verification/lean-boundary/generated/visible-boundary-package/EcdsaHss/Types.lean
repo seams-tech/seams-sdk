@@ -87,11 +87,16 @@ inductive wire.ServerEvalOperationV1 where
 | NonExportSign : wire.ServerEvalOperationV1
 | ExplicitKeyExport : wire.ServerEvalOperationV1
 
-/-- [ecdsa_hss::shared::context::EcdsaHssContextV1]
-    Source: 'src/shared/context.rs', lines 9:0-13:1
+/-- [ecdsa_hss::shared::context::EcdsaHssStableKeyContextV1]
+    Source: 'src/shared/context.rs', lines 10:0-19:1
     Visibility: public -/
-structure shared.context.EcdsaHssContextV1 where
-  near_account_id : String
+structure shared.context.EcdsaHssStableKeyContextV1 where
+  wallet_session_user_id : String
+  subject_id : String
+  chain_target : String
+  ecdsa_threshold_key_id : String
+  signing_root_id : String
+  signing_root_version : String
   key_purpose : String
   key_version : String
 
@@ -111,7 +116,7 @@ structure server.RetainedServerStateV1 where
     Visibility: public -/
 structure server.FinalizedServerSessionV1 where
   operation : wire.ServerEvalOperationV1
-  context : shared.context.EcdsaHssContextV1
+  context : shared.context.EcdsaHssStableKeyContextV1
   retained : server.RetainedServerStateV1
 
 /-- [ecdsa_hss::wire::PrepareEnvelopeV1]
@@ -119,7 +124,7 @@ structure server.FinalizedServerSessionV1 where
     Visibility: public -/
 structure wire.PrepareEnvelopeV1 where
   operation : wire.ServerEvalOperationV1
-  context : shared.context.EcdsaHssContextV1
+  context : shared.context.EcdsaHssStableKeyContextV1
 
 /-- [ecdsa_hss::server::StagedServerSessionV1]
     Source: 'src/server/mod.rs', lines 44:0-48:1
@@ -224,7 +229,7 @@ structure server.reference_boundary.VisibleRespondBoundaryV1 where
 structure server.reference_boundary.HiddenEvalInputBoundaryV1 where
   operation : wire.ServerEvalOperationV1
   allowed_output_kind : wire.AllowedOutputKindV1
-  context : shared.context.EcdsaHssContextV1
+  context : shared.context.EcdsaHssStableKeyContextV1
   y_client32_le : Array Std.U8 32#usize
   y_relayer32_le : Array Std.U8 32#usize
 

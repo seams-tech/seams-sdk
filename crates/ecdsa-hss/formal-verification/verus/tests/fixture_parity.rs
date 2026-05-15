@@ -74,7 +74,12 @@ fn encode_context_v1(record: &FixtureRecord) -> Vec<u8> {
     out.extend_from_slice(ECDSA_HSS_V1_CONTEXT_DOMAIN_TAG);
     out.extend_from_slice(&encode_ascii_field(ECDSA_HSS_V1_SCHEME_ID));
     out.extend_from_slice(&encode_ascii_field(ECDSA_HSS_V1_CURVE));
-    out.extend_from_slice(&encode_ascii_field(&record.context.near_account_id));
+    out.extend_from_slice(&encode_ascii_field(&record.context.wallet_session_user_id));
+    out.extend_from_slice(&encode_ascii_field(&record.context.subject_id));
+    out.extend_from_slice(&encode_ascii_field(&record.context.chain_target));
+    out.extend_from_slice(&encode_ascii_field(&record.context.ecdsa_threshold_key_id));
+    out.extend_from_slice(&encode_ascii_field(&record.context.signing_root_id));
+    out.extend_from_slice(&encode_ascii_field(&record.context.signing_root_version));
     out.extend_from_slice(&encode_ascii_field(&record.context.key_purpose));
     out.extend_from_slice(&encode_ascii_field(&record.context.key_version));
     out.extend_from_slice(&[2u8, 0, 1, 0, 2]);

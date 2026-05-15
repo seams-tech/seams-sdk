@@ -521,15 +521,26 @@ encoding:
 ```text
 ecdsa_hss_context_v1 =
   "ecdsa-hss:context:v1"
-  || u16be(len("ecdsa-hss-v1")) || "ecdsa-hss-v1"
-  || u16be(len("secp256k1"))    || "secp256k1"
-  || u16be(len(near_account_id_ascii)) || near_account_id_ascii
-  || u16be(len(key_purpose_ascii))     || key_purpose_ascii
-  || u16be(len(key_version_ascii))     || key_version_ascii
+  || u16be(len("ecdsa-hss-v1"))             || "ecdsa-hss-v1"
+  || u16be(len("secp256k1"))                || "secp256k1"
+  || u16be(len(wallet_session_user_id_ascii)) || wallet_session_user_id_ascii
+  || u16be(len(subject_id_ascii))           || subject_id_ascii
+  || u16be(len("evm-family"))               || "evm-family"
+  || u16be(len(ecdsa_threshold_key_id_ascii)) || ecdsa_threshold_key_id_ascii
+  || u16be(len(signing_root_id_ascii))      || signing_root_id_ascii
+  || u16be(len(signing_root_version_ascii)) || signing_root_version_ascii
+  || u16be(len(key_purpose_ascii))          || key_purpose_ascii
+  || u16be(len(key_version_ascii))          || key_version_ascii
   || u8(2)
   || u16be(1)
   || u16be(2)
 ```
+
+Funds-safety invariant: ECDSA PRF/HSS context bytes use the fixed
+`"evm-family"` key scope so Tempo, Arc, Ethereum, and future EVM-family targets
+derive one shared ECDSA signer address for the same wallet, subject, RP,
+signing root, and key version. Concrete chain target data belongs in session
+policy and signing requests, never in the stable key derivation bytes.
 
 The threshold-PRF purpose must be `ecdsa-hss/y_relayer`.
 
