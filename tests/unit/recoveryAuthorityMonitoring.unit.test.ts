@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { injectImportMap } from '../setup/bootstrap';
 
 const IMPORT_PATHS = {
-  server: '/sdk/esm/server/index.js',
+  server: '/sdk/esm/server/router/recoveryAuthorityMonitoring.js',
 } as const;
 
 test.describe('recovery authority monitoring', () => {
@@ -110,8 +110,9 @@ test.describe('recovery authority monitoring', () => {
             metadata: {
               sponsorshipScope: {
                 orgId: 'org_recovery',
-                environmentId: 'env_recovery',
                 projectId: 'proj_recovery',
+                envId: 'env_recovery',
+                signingRootVersion: 'root-recovery-v1',
               },
             },
           },
@@ -125,8 +126,9 @@ test.describe('recovery authority monitoring', () => {
             metadata: {
               sponsorshipScope: {
                 orgId: 'org_recovery',
-                environmentId: 'env_recovery',
                 projectId: 'proj_recovery',
+                envId: 'env_recovery',
+                signingRootVersion: 'root-recovery-v1',
               },
             },
           },
@@ -140,8 +142,9 @@ test.describe('recovery authority monitoring', () => {
             metadata: {
               sponsorshipScope: {
                 orgId: 'org_recovery',
-                environmentId: 'env_recovery',
                 projectId: 'proj_recovery',
+                envId: 'env_recovery',
+                signingRootVersion: 'root-recovery-v1',
               },
             },
           },

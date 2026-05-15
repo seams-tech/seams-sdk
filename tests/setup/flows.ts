@@ -293,7 +293,7 @@ export async function executeTransfer(
         console.log(`[flow:transfer] executing action for ${args.accountId}`);
         return utils.seams.near
           .executeAction({
-            nearAccountId: toAccountId(args.accountId),
+            nearAccount: { kind: 'named', accountId: toAccountId(args.accountId) },
             receiverId: args.receiverId,
             actionArgs: {
               type: args.actionType ?? 'Transfer',

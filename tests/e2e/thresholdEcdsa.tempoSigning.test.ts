@@ -249,7 +249,10 @@ test.describe('threshold-ecdsa tempo signing', () => {
 
             try {
               await pm.tempo.executeEvmFamilyTransaction({
-                nearAccountId: accountId,
+                walletSession: {
+                  walletId: accountId,
+                  walletSessionUserId: accountId,
+                },
                 subjectId: accountId,
                 request,
                 chainTarget,
@@ -425,7 +428,10 @@ test.describe('threshold-ecdsa tempo signing', () => {
             }
 
             const signed1 = await pm.tempo.signTempo({
-              nearAccountId: accountId,
+              walletSession: {
+                walletId: accountId,
+                walletSessionUserId: accountId,
+              },
               subjectId: accountId,
               request,
               chainTarget,
@@ -441,13 +447,19 @@ test.describe('threshold-ecdsa tempo signing', () => {
             }
 
             await pm.tempo.reportBroadcastAccepted({
-              nearAccountId: accountId,
+              walletSession: {
+                walletId: accountId,
+                walletSessionUserId: accountId,
+              },
               signedResult: signed1,
               txHash: ('0x' + '11'.repeat(32)) as `0x${string}`,
             });
 
             const signed2 = await pm.tempo.signTempo({
-              nearAccountId: accountId,
+              walletSession: {
+                walletId: accountId,
+                walletSessionUserId: accountId,
+              },
               subjectId: accountId,
               request,
               chainTarget,
@@ -463,7 +475,10 @@ test.describe('threshold-ecdsa tempo signing', () => {
             }
 
             await pm.tempo.reportBroadcastAccepted({
-              nearAccountId: accountId,
+              walletSession: {
+                walletId: accountId,
+                walletSessionUserId: accountId,
+              },
               signedResult: signed2,
               txHash: ('0x' + '12'.repeat(32)) as `0x${string}`,
             });
@@ -651,7 +666,10 @@ test.describe('threshold-ecdsa tempo signing', () => {
                 };
               }
               const signed1 = await pm.tempo.signTempo({
-                nearAccountId: accountId,
+                walletSession: {
+                  walletId: accountId,
+                  walletSessionUserId: accountId,
+                },
                 subjectId: accountId,
                 request: lane.request,
                 chainTarget: lane.chainTarget,
@@ -667,25 +685,37 @@ test.describe('threshold-ecdsa tempo signing', () => {
               }
 
               await pm.tempo.reportBroadcastAccepted({
-                nearAccountId: accountId,
+                walletSession: {
+                  walletId: accountId,
+                  walletSessionUserId: accountId,
+                },
                 signedResult: signed1,
                 txHash: lane.txHash,
               });
 
               const reconciled = await pm.tempo.reconcileNonceLane({
-                nearAccountId: accountId,
+                walletSession: {
+                  walletId: accountId,
+                  walletSessionUserId: accountId,
+                },
                 signedResult: signed1,
               });
 
               await pm.tempo.reportDroppedOrReplaced({
-                nearAccountId: accountId,
+                walletSession: {
+                  walletId: accountId,
+                  walletSessionUserId: accountId,
+                },
                 signedResult: signed1,
                 reason: 'dropped',
                 txHash: lane.txHash,
               });
 
               const signed2 = await pm.tempo.signTempo({
-                nearAccountId: accountId,
+                walletSession: {
+                  walletId: accountId,
+                  walletSessionUserId: accountId,
+                },
                 subjectId: accountId,
                 request: lane.request,
                 chainTarget: lane.chainTarget,
@@ -861,7 +891,10 @@ test.describe('threshold-ecdsa tempo signing', () => {
             }
 
             const signed1 = await pm.tempo.signTempo({
-              nearAccountId: accountId,
+              walletSession: {
+                walletId: accountId,
+                walletSessionUserId: accountId,
+              },
               subjectId: accountId,
               request,
               chainTarget,
@@ -878,18 +911,27 @@ test.describe('threshold-ecdsa tempo signing', () => {
 
             const txHash1 = ('0x' + '77'.repeat(32)) as `0x${string}`;
             await pm.tempo.reportBroadcastAccepted({
-              nearAccountId: accountId,
+              walletSession: {
+                walletId: accountId,
+                walletSessionUserId: accountId,
+              },
               signedResult: signed1,
               txHash: txHash1,
             });
 
             const laneBefore = await pm.tempo.reconcileNonceLane({
-              nearAccountId: accountId,
+              walletSession: {
+                walletId: accountId,
+                walletSessionUserId: accountId,
+              },
               signedResult: signed1,
             });
 
             const signed2 = await pm.tempo.signTempo({
-              nearAccountId: accountId,
+              walletSession: {
+                walletId: accountId,
+                walletSessionUserId: accountId,
+              },
               subjectId: accountId,
               request,
               chainTarget,
@@ -905,25 +947,37 @@ test.describe('threshold-ecdsa tempo signing', () => {
             }
 
             await pm.tempo.reportBroadcastRejected({
-              nearAccountId: accountId,
+              walletSession: {
+                walletId: accountId,
+                walletSessionUserId: accountId,
+              },
               signedResult: signed2,
               error: { message: 'manual test rejection before broadcast' },
             });
 
             await pm.tempo.reportDroppedOrReplaced({
-              nearAccountId: accountId,
+              walletSession: {
+                walletId: accountId,
+                walletSessionUserId: accountId,
+              },
               signedResult: signed1,
               reason: 'dropped',
               txHash: txHash1,
             });
 
             const laneAfter = await pm.tempo.reconcileNonceLane({
-              nearAccountId: accountId,
+              walletSession: {
+                walletId: accountId,
+                walletSessionUserId: accountId,
+              },
               signedResult: signed1,
             });
 
             const signed3 = await pm.tempo.signTempo({
-              nearAccountId: accountId,
+              walletSession: {
+                walletId: accountId,
+                walletSessionUserId: accountId,
+              },
               subjectId: accountId,
               request,
               chainTarget,
@@ -1126,14 +1180,20 @@ test.describe('threshold-ecdsa tempo signing', () => {
 
             const [tempoResult, evmResult] = await Promise.allSettled([
               pm.tempo.signTempo({
-                nearAccountId: accountId,
+                walletSession: {
+                  walletId: accountId,
+                  walletSessionUserId: accountId,
+                },
                 subjectId: accountId,
                 request: tempoRequest,
                 chainTarget: tempoChainTarget,
                 options: { confirmationConfig },
               }),
               pm.tempo.signTempo({
-                nearAccountId: accountId,
+                walletSession: {
+                  walletId: accountId,
+                  walletSessionUserId: accountId,
+                },
                 subjectId: accountId,
                 request: evmRequest,
                 chainTarget: evmChainTarget,
@@ -1364,7 +1424,10 @@ test.describe('threshold-ecdsa tempo signing', () => {
               }> = [];
               for (const requestedChain of order) {
                 const signed = await pm.tempo.signTempo({
-                  nearAccountId: accountId,
+                  walletSession: {
+                    walletId: accountId,
+                    walletSessionUserId: accountId,
+                  },
                   subjectId: accountId,
                   request: requestsByChain[requestedChain],
                   chainTarget: chainTargetsByChain[requestedChain],
@@ -1379,7 +1442,10 @@ test.describe('threshold-ecdsa tempo signing', () => {
                   acceptedCounter += 1;
                   const txHashByte = (16 + acceptedCounter).toString(16).padStart(2, '0');
                   await pm.tempo.reportBroadcastAccepted({
-                    nearAccountId: accountId,
+                    walletSession: {
+                      walletId: accountId,
+                      walletSessionUserId: accountId,
+                    },
                     signedResult: signed,
                     txHash: ('0x' + txHashByte.repeat(32)) as `0x${string}`,
                   });
@@ -1667,7 +1733,10 @@ test.describe('threshold-ecdsa tempo signing', () => {
             ) => {
               try {
                 const value = await pm.tempo.signTempo({
-                  nearAccountId: accountId,
+                  walletSession: {
+                    walletId: accountId,
+                    walletSessionUserId: accountId,
+                  },
                   subjectId: accountId,
                   request,
                   chainTarget: chainTargetFor(request),

@@ -33,7 +33,9 @@ test.describe('threshold ecdsa postgres records', () => {
       parseCurrentThresholdEcdsaKeyRecord({
         version: 'threshold_ecdsa_hss_key_v1',
         ecdsaThresholdKeyId: 'threshold-key',
-        userId: 'alice.testnet',
+        walletSessionUserId: 'alice.testnet',
+        subjectId: 'alice.testnet',
+        chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 11155111 },
         rpId: 'example.localhost',
         schemeId: 'scheme-v1',
         clientVerifyingShareB64u: 'client-share',
@@ -51,7 +53,9 @@ test.describe('threshold ecdsa postgres records', () => {
     ).toEqual({
       version: 'threshold_ecdsa_hss_key_v1',
       ecdsaThresholdKeyId: 'threshold-key',
-      userId: 'alice.testnet',
+      walletSessionUserId: 'alice.testnet',
+      subjectId: 'alice.testnet',
+      chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 11155111 },
       rpId: 'example.localhost',
       schemeId: 'scheme-v1',
       clientVerifyingShareB64u: 'client-share',
@@ -71,7 +75,9 @@ test.describe('threshold ecdsa postgres records', () => {
       parseCurrentThresholdEcdsaKeyRecord({
         version: 'threshold_ecdsa_hss_key_v1',
         ecdsaThresholdKeyId: 'threshold-key',
-        userId: 'alice.testnet',
+        walletSessionUserId: 'alice.testnet',
+        subjectId: 'alice.testnet',
+        chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 11155111 },
         rpId: 'example.localhost',
         schemeId: 'scheme-v1',
         clientVerifyingShareB64u: 'client-share',
@@ -118,7 +124,7 @@ test.describe('threshold ecdsa postgres records', () => {
         ecdsaThresholdKeyId: 'threshold-key',
         thresholdEcdsaPublicKeyB64u: 'public-key',
         signingDigestB64u: 'digest',
-        userId: 'alice.testnet',
+        walletSessionUserId: 'alice.testnet',
         rpId: 'example.localhost',
         clientVerifyingShareB64u: 'client-share',
         participantIds: [1, 2],
@@ -201,7 +207,7 @@ test.describe('threshold ecdsa postgres records', () => {
     ).toEqual({
       record: {
         expiresAtMs: 999_999,
-        userId: 'alice.testnet',
+        walletSessionUserId: 'alice.testnet',
         rpId: 'example.localhost',
         relayerKeyId: 'relayer-key',
         participantIds: [1, 2],

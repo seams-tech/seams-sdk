@@ -41,6 +41,20 @@ const RUNTIME_PROJECT_ID = 'project-alpha';
 const RUNTIME_ENV_ID = 'dev';
 const PROJECT_ID = `${RUNTIME_PROJECT_ID}:${RUNTIME_ENV_ID}`;
 const SIGNING_ROOT_VERSION = 'root-v1';
+const ECDSA_HSS_CONTEXT = {
+  signingRootId: PROJECT_ID,
+  signingRootVersion: SIGNING_ROOT_VERSION,
+  walletSessionUserId: 'alice.near',
+  subjectId: 'alice-subject',
+  chainTarget: {
+    kind: 'evm' as const,
+    namespace: 'eip155' as const,
+    chainId: 11155111,
+  },
+  ecdsaThresholdKeyId: 'ecdsa-alpha',
+  keyPurpose: 'wallet',
+  keyVersion: 'v1',
+} as const;
 
 function loadCorpus(): ThresholdPrfFixtureCorpus {
   return JSON.parse(readFileSync(FIXTURE_PATH, 'utf8')) as ThresholdPrfFixtureCorpus;
@@ -133,10 +147,7 @@ test('signing-root resolver derives ECDSA HSS y_relayer and zeroizes decrypted s
     resolver,
     preferredShareIds: [1, 2],
     context: {
-      signingRootId: PROJECT_ID,
-      nearAccountId: 'alice.near',
-      keyPurpose: 'wallet',
-      keyVersion: 'v1',
+      ...ECDSA_HSS_CONTEXT,
     },
   });
 
@@ -183,10 +194,8 @@ test('ECDSA signing-root derivation ignores org ownership and changes with signi
       resolver,
       preferredShareIds: [1, 2],
       context: {
+        ...ECDSA_HSS_CONTEXT,
         signingRootId,
-        nearAccountId: 'alice.near',
-        keyPurpose: 'wallet',
-        keyVersion: 'v1',
       },
     });
     expect(result.ok).toBe(true);
@@ -318,10 +327,7 @@ test('signing-root resolver reports canonical share decode failures as derivatio
     resolver,
     preferredShareIds: [1, 2],
     context: {
-      signingRootId: PROJECT_ID,
-      nearAccountId: 'alice.near',
-      keyPurpose: 'wallet',
-      keyVersion: 'v1',
+      ...ECDSA_HSS_CONTEXT,
     },
   });
 
@@ -342,10 +348,7 @@ test('signing-root resolver reports public share-wire validation failures before
     resolver,
     preferredShareIds: [1, 2],
     context: {
-      signingRootId: PROJECT_ID,
-      nearAccountId: 'alice.near',
-      keyPurpose: 'wallet',
-      keyVersion: 'v1',
+      ...ECDSA_HSS_CONTEXT,
     },
   });
 
@@ -364,10 +367,7 @@ test('signing-root resolver preserves typed resolve errors through derivation he
       resolver,
       preferredShareIds: [1, 1],
       context: {
-        signingRootId: PROJECT_ID,
-        nearAccountId: 'alice.near',
-        keyPurpose: 'wallet',
-        keyVersion: 'v1',
+        ...ECDSA_HSS_CONTEXT,
       },
     });
 

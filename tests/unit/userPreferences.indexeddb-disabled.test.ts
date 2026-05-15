@@ -32,7 +32,7 @@ test.describe('UserPreferences when IndexedDB is disabled', () => {
     });
   });
 
-  test('setCurrentUser does not cause unhandledrejection', async ({ page }) => {
+  test('setCurrentWallet does not cause unhandledrejection', async ({ page }) => {
     await setupBasicPasskeyTest(page);
 
     const result = await page.evaluate(
@@ -55,7 +55,7 @@ test.describe('UserPreferences when IndexedDB is disabled', () => {
         window.addEventListener('unhandledrejection', onUnhandled);
 
         try {
-          userPreferences.setCurrentUser('alice.testnet' as any);
+          userPreferences.setCurrentWallet('alice.testnet' as any);
           await new Promise((r) => setTimeout(r, 0));
         } finally {
           window.removeEventListener('unhandledrejection', onUnhandled);

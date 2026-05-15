@@ -128,6 +128,8 @@ test('threshold-ed25519 relayer-fleet cosigning (2-of-3 stub) aggregates cosigne
       publicKey: groupPublicKey,
       relayerSigningShareB64u,
       relayerVerifyingShareB64u,
+      keyVersion: 'threshold-ed25519-hss-v1',
+      recoveryExportCapable: true,
     },
     accessKeysOnChain: [groupPublicKey],
   });

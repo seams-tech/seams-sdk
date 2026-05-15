@@ -80,7 +80,7 @@ function makeKeyRef(): ThresholdEcdsaSecp256k1KeyRef {
 
 function makeRecord(): ThresholdEcdsaSessionRecord {
   return {
-    nearAccountId: toAccountId('alice.testnet'),
+    walletId: toAccountId('alice.testnet'),
     subjectId: toWalletSubjectId('wallet-1'),
     chainTarget: CHAIN_TARGET,
     relayerUrl: 'https://relayer.test',
@@ -102,7 +102,7 @@ function makeRecord(): ThresholdEcdsaSessionRecord {
     updatedAtMs: 1_800_000_000_000,
     source: 'email_otp',
     emailOtpAuthContext: {
-      policy: 'default',
+      policy: 'session',
       retention: 'session',
       reason: 'sign',
       authMethod: 'email_otp',
@@ -112,7 +112,7 @@ function makeRecord(): ThresholdEcdsaSessionRecord {
 
 function makeLane(record: ThresholdEcdsaSessionRecord, keyRef: ThresholdEcdsaSecp256k1KeyRef) {
   const lane = buildEvmFamilyEcdsaSigningLaneContext({
-    nearAccountId: 'alice.testnet',
+    walletId: 'alice.testnet',
     chain: 'evm',
     chainTarget: CHAIN_TARGET,
     authMethod: 'passkey',
@@ -167,9 +167,9 @@ test.describe('EVM-family step-up provision-plan builders', () => {
 
   test('buildEvmFamilyWarmSessionReconnectPlan returns a threshold-session reconnect branch', () => {
     const keyRef = makeKeyRef();
-    const record = {
+    const record: ThresholdEcdsaSessionRecord = {
       ...makeRecord(),
-      source: 'login',
+      source: 'login' as const,
       emailOtpAuthContext: undefined,
     };
     const lane = makeLane(record, keyRef);

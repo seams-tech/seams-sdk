@@ -73,14 +73,14 @@ test.describe('WarmSessionStore concurrency', () => {
           );
         },
       },
-      listThresholdEcdsaKeyRefsForAccountTarget: () => [
+      listThresholdEcdsaKeyRefsForWalletTarget: () => [
         { source: 'manual-bootstrap', keyRef: staleBootstrap.thresholdEcdsaKeyRef },
       ],
-      provisionThresholdEcdsaSession: async ({ nearAccountId, chainTarget }) => {
+      provisionThresholdEcdsaSession: async ({ walletId, chainTarget }) => {
         provisionCalls += 1;
         const bootstrap = await provisionDeferred.promise;
         seedEcdsaWarmSessionRecord(ecdsaStore, {
-          nearAccountId: String(nearAccountId),
+          nearAccountId: String(walletId),
           chain: chainTarget.kind,
           source: 'manual-bootstrap',
           bootstrap,

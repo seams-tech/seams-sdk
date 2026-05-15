@@ -23,10 +23,13 @@ function makeExportKeypairReq(requestId: string): any {
     type: 'PM_EXPORT_KEYPAIR_UI',
     requestId,
     payload: {
-      nearAccountId: 'alice.testnet',
-      chain: 'near',
-      variant: 'drawer',
-      theme: 'dark',
+      kind: 'near',
+      nearAccount: { kind: 'named', accountId: 'alice.testnet' },
+      options: {
+        chain: 'near',
+        variant: 'drawer',
+        theme: 'dark',
+      },
     },
   };
 }
@@ -42,9 +45,9 @@ test.describe('wallet iframe host export UI handlers', () => {
       getSeamsPasskey: () =>
         ({
           keys: {
-            exportKeypairWithUI: async (_accountId: string, options: any) => {
+            exportKeypairWithUI: async (input: any) => {
               exportCalls += 1;
-              options.onEvent?.({
+              input.options?.onEvent?.({
                 version: 2,
                 flow: 'key_export',
                 step: 1,

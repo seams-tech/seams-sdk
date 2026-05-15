@@ -251,7 +251,7 @@ test.describe('NonceCoordinator', () => {
       sender: reservation.sender,
       nonceKey: reservation.nonceKey?.toString(),
       nonce: reservation.nonce.toString(),
-      nearAccountId: reservation.nearAccountId,
+      walletId: reservation.walletId,
       leaseId: reservation.leaseId,
       operationId: reservation.operationId,
       operationFingerprint: reservation.operationFingerprint,

@@ -1,7 +1,11 @@
 import { expect, test } from '@playwright/test';
 import { SENSITIVE_OPERATION_POLICIES } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  toWalletSubjectId,
+  type ThresholdEcdsaChainTarget,
+  type WalletSubjectId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   applyEcdsaPostSignPolicy,
   assertEcdsaOperationAllowed,
@@ -31,26 +35,43 @@ function ecdsaRecord(args: {
   consumedAtMs?: number;
 }): ThresholdEcdsaSessionRecord {
   return {
-    nearAccountId: NEAR_ACCOUNT_ID,
+    walletId: NEAR_ACCOUNT_ID,
+    subjectId: toWalletSubjectId(NEAR_ACCOUNT_ID),
     chainTarget: args.chainTarget || EVM_CHAIN_TARGET,
+    relayerUrl: 'https://relay.example',
+    ecdsaThresholdKeyId: 'ecdsa-key-1',
+    signingRootId: 'signing-root',
+    signingRootVersion: 'v1',
+    relayerKeyId: 'relayer-key-1',
+    clientVerifyingShareB64u: 'client-verifying-share',
+    participantIds: [1, 2],
+    thresholdSessionKind: 'jwt',
     thresholdSessionId: args.thresholdSessionId,
+    walletSigningSessionId: `wallet-${args.thresholdSessionId}`,
+    expiresAtMs: Date.now() + 60_000,
+    remainingUses: 1,
+    updatedAtMs: Date.now(),
     source: args.source || 'email_otp',
     emailOtpAuthContext:
       args.source === 'login'
         ? undefined
         : {
             authMethod: 'email_otp',
-            policy: 'single_use',
+            policy: 'per_operation',
             reason: 'sign',
             retention: args.retention || 'single_use',
             ...(args.consumedAtMs ? { consumedAtMs: args.consumedAtMs } : {}),
           },
-  } as ThresholdEcdsaSessionRecord;
+  };
 }
 
 test.describe('SigningPostSignPolicy', () => {
   test('clears single-use selected Email OTP material and marks the lane consumed', async () => {
-    const consumed: Array<{ nearAccountId: string; chainTarget: ThresholdEcdsaChainTarget }> = [];
+    const consumed: Array<{
+      subjectId: WalletSubjectId;
+      chainTarget: ThresholdEcdsaChainTarget;
+      uses?: number;
+    }> = [];
     const cleared: Array<{
       recordThresholdSessionId: string;
       thresholdSessionId: string;
@@ -74,7 +95,7 @@ test.describe('SigningPostSignPolicy', () => {
     });
 
     expect(consumed).toEqual([
-      { nearAccountId: 'alice.testnet', chainTarget: EVM_CHAIN_TARGET, uses: 1 },
+      { subjectId: toWalletSubjectId('alice.testnet'), chainTarget: EVM_CHAIN_TARGET, uses: 1 },
     ]);
     expect(cleared).toEqual([
       {

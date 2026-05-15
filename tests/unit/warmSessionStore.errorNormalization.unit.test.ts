@@ -70,16 +70,15 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
 
     await expect(
       store.provisionEcdsaCapability({
-        nearAccountId: 'bootstrap-error.testnet',
+        kind: 'passkey_cookie_reconnect_ecdsa_bootstrap',
+        walletId: 'bootstrap-error.testnet',
         subjectId: toWalletSubjectId('bootstrap-error.testnet'),
         chainTarget: testEcdsaChainTarget('evm'),
         source: 'manual-bootstrap',
-        sessionKind: 'jwt',
-        sessionId: record.thresholdSessionId,
-        walletSigningSessionId: record.walletSigningSessionId,
-        thresholdSessionAuth: {
-          kind: 'threshold_session',
-          jwt: 'jwt:bootstrap-error-session',
+        sessionKind: 'cookie',
+        sessionIdentity: {
+          thresholdSessionId: record.thresholdSessionId,
+          walletSigningSessionId: record.walletSigningSessionId,
         },
       }),
     ).rejects.toThrow(
@@ -115,12 +114,12 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
     });
     const store = createWarmSessionTestServices({
       touchConfirm: fixture.touchConfirm,
-      listThresholdEcdsaKeyRefsForAccountTarget: () => [
+      listThresholdEcdsaKeyRefsForWalletTarget: () => [
         { source: 'login', keyRef: staleBootstrap.thresholdEcdsaKeyRef },
       ],
-      provisionThresholdEcdsaSession: async ({ nearAccountId, chainTarget }) => {
+      provisionThresholdEcdsaSession: async ({ walletId, chainTarget }) => {
         return createThresholdEcdsaBootstrapFixture({
-          nearAccountId: String(nearAccountId),
+          nearAccountId: String(walletId),
           chain: chainTarget.kind,
           ecdsaThresholdKeyId: 'ek-reconnect-error',
           sessionId: 'reconnect-error-fresh-session',
@@ -217,7 +216,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
 
     await expect(
       store.assertEcdsaSigningSessionReady({
-        nearAccountId: 'signing-exhausted.testnet',
+        walletId: 'signing-exhausted.testnet',
         chainTarget: testEcdsaChainTarget('evm'),
         thresholdSessionId: 'signing-exhausted-session',
         usesNeeded: 2,
@@ -242,7 +241,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
     await expect(
       resolveNearThresholdSigningAuthForTest({
         warmSessionReader: store,
-        nearAccountId: 'auth-unavailable.testnet',
+        nearAccount: { kind: 'named', accountId: 'auth-unavailable.testnet' as any },
         usesNeeded: 1,
         operationLabel: 'unit-test',
       }),
@@ -272,7 +271,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
     await expect(
       resolveNearThresholdSigningAuthForTest({
         warmSessionReader: store,
-        nearAccountId: 'status-unavailable.testnet',
+        nearAccount: { kind: 'named', accountId: 'status-unavailable.testnet' as any },
         usesNeeded: 1,
         operationLabel: 'unit-test',
       }),
@@ -312,7 +311,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
     const plan = await resolveNearThresholdSigningAuthForTest({
       warmSessionReader: store,
       signingSessionCoordinator,
-      nearAccountId: 'wallet-budget-exhausted-ed25519.testnet',
+      nearAccount: { kind: 'named', accountId: 'wallet-budget-exhausted-ed25519.testnet' as any },
       usesNeeded: 1,
       operationLabel: 'unit-test',
     });

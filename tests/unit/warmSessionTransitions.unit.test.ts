@@ -8,7 +8,7 @@ import type { WarmSessionEnvelope } from '@/core/signingEngine/session/warmCapab
 
 function createEnvelope(): WarmSessionEnvelope {
   return {
-    accountId: 'transition-summary.testnet' as any,
+    walletId: 'transition-summary.testnet' as any,
     capabilities: {
       ed25519: {
         capability: 'ed25519',
@@ -42,7 +42,7 @@ function createEnvelope(): WarmSessionEnvelope {
         tempo: {
           capability: 'ecdsa',
           record: {
-            nearAccountId: 'transition-summary.testnet',
+            walletId: 'transition-summary.testnet',
             thresholdSessionId: 'tempo-session',
             thresholdSessionKind: 'cookie',
           } as any,
@@ -67,7 +67,7 @@ function createEnvelope(): WarmSessionEnvelope {
 test.describe('warmSessionTransitions', () => {
   test('summarizes warm-session envelopes into transition snapshots', () => {
     expect(summarizeWarmSessionTransition(createEnvelope())).toMatchObject({
-      accountId: 'transition-summary.testnet',
+      walletId: 'transition-summary.testnet',
       updatedAtMs: 5678,
       capabilities: {
         ed25519: {
@@ -103,7 +103,7 @@ test.describe('warmSessionTransitions', () => {
         },
         event: {
           type: 'ed25519_capability_provisioned',
-          accountId: 'transition-summary.testnet' as any,
+          walletId: 'transition-summary.testnet' as any,
           thresholdSessionId: 'ed25519-session',
           before: summarizeWarmSessionTransition(createEnvelope()),
           after: summarizeWarmSessionTransition(createEnvelope()),
@@ -126,7 +126,7 @@ test.describe('warmSessionTransitions', () => {
     try {
       const event: WarmSessionTransitionEvent = {
         type: 'ed25519_capability_provisioned',
-        accountId: 'transition-summary.testnet' as any,
+        walletId: 'transition-summary.testnet' as any,
         thresholdSessionId: 'ed25519-session',
         before: summarizeWarmSessionTransition(createEnvelope()),
         after: summarizeWarmSessionTransition(createEnvelope()),

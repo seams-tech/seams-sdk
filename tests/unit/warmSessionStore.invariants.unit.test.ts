@@ -15,7 +15,7 @@ import {
 
 function createEmptyEnvelope(): WarmSessionEnvelope {
   return {
-    accountId: 'invariants.testnet' as any,
+    walletId: 'invariants.testnet' as any,
     capabilities: {
       ed25519: {
         capability: 'ed25519',
@@ -105,14 +105,14 @@ test.describe('WarmSessionStore invariants', () => {
     envelope.capabilities.ecdsa.evm = {
       capability: 'ecdsa',
       record: {
-        nearAccountId: 'invariants.testnet',
+        walletId: 'invariants.testnet',
         thresholdSessionId: 'record-session',
         thresholdSessionKind: 'jwt',
       } as any,
       auth: {
         capability: 'ecdsa',
         record: {
-          nearAccountId: 'invariants.testnet',
+          walletId: 'invariants.testnet',
           thresholdSessionId: 'record-session',
           thresholdSessionKind: 'jwt',
         } as any,

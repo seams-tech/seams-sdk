@@ -89,7 +89,7 @@ test.describe('link-device threshold-ecdsa persistence', () => {
             upsertThresholdEcdsaSessionFromBootstrap(args: Record<string, unknown>) {
               sessionCalls.push(args);
             },
-            async persistThresholdEcdsaBootstrapChainAccount(args: Record<string, unknown>) {
+            async persistThresholdEcdsaBootstrapForWalletTarget(args: Record<string, unknown>) {
               chainAccountCalls.push(args);
               const context = await clientDB.resolveProfileAccountContext(nearAccountRef);
               if (!context?.profileId) throw new Error('missing near account context');
@@ -128,7 +128,7 @@ test.describe('link-device threshold-ecdsa persistence', () => {
           await persistLinkDeviceThresholdEcdsaBootstrap({
             indexedDB,
             signingEngine,
-            nearAccountId,
+            walletId: nearAccountId,
             relayerUrl: 'https://relay.example.test',
             signerSlot: 2,
             rpId: 'wallet.example.test',

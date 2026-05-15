@@ -71,21 +71,29 @@ test.describe('WarmSessionStore ECDSA bootstrap resolution', () => {
     });
 
     expect(fallbackBootstrap).toMatchObject({
-      nearAccountId: 'fallback.testnet',
+      kind: 'passkey_cookie_reconnect_ecdsa_bootstrap',
+      walletId: 'fallback.testnet',
       ecdsaThresholdKeyId: 'ek-fallback',
       participantIds: [1, 2],
       sessionKind: 'cookie',
-      sessionId: 'sess-ecdsa-cookie',
+      sessionIdentity: {
+        thresholdSessionId: 'sess-ecdsa-cookie',
+        walletSigningSessionId: 'wsess-sess-ecdsa-cookie',
+      },
     });
     expect('thresholdSessionAuth' in fallbackBootstrap).toBe(false);
 
     expect(primaryBootstrap).toMatchObject({
-      nearAccountId: 'primary.testnet',
+      kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
+      walletId: 'primary.testnet',
       ecdsaThresholdKeyId: 'ek-primary',
       participantIds: [1, 2],
       sessionKind: 'jwt',
-      sessionId: 'sess-ecdsa-jwt',
-      thresholdSessionAuth: {
+      sessionIdentity: {
+        thresholdSessionId: 'sess-ecdsa-jwt',
+        walletSigningSessionId: 'wsess-sess-ecdsa-jwt',
+      },
+      routeAuth: {
         kind: 'threshold_session',
         jwt: expect.any(String),
       },

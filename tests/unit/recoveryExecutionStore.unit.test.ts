@@ -2,7 +2,8 @@ import { expect, test } from '@playwright/test';
 import { injectImportMap } from '../setup/bootstrap';
 
 const IMPORT_PATHS = {
-  server: '/sdk/esm/server/index.js',
+  store: '/sdk/esm/server/core/RecoveryExecutionStore.js',
+  records: '/sdk/esm/server/core/recoveryExecutionRecords.js',
 } as const;
 
 test.describe('recovery execution canonical store', () => {
@@ -15,10 +16,8 @@ test.describe('recovery execution canonical store', () => {
     page,
   }) => {
     const result = await page.evaluate(async ({ paths }) => {
-      const {
-        buildRecoveryExecutionRecord,
-        createRecoveryExecutionStore,
-      } = await import(paths.server);
+      const { createRecoveryExecutionStore } = await import(paths.store);
+      const { buildRecoveryExecutionRecord } = await import(paths.records);
 
       const nowMs = Date.now();
       const record = buildRecoveryExecutionRecord({
@@ -67,10 +66,8 @@ test.describe('recovery execution canonical store', () => {
 
   test('lists recovery executions by status and action in created order', async ({ page }) => {
     const result = await page.evaluate(async ({ paths }) => {
-      const {
-        buildRecoveryExecutionRecord,
-        createRecoveryExecutionStore,
-      } = await import(paths.server);
+      const { createRecoveryExecutionStore } = await import(paths.store);
+      const { buildRecoveryExecutionRecord } = await import(paths.records);
 
       const store = createRecoveryExecutionStore({
         config: null,

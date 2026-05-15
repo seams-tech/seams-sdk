@@ -2,21 +2,35 @@ import { expect, test } from '@playwright/test';
 import { base64UrlDecode } from '../../shared/src/utils/encoders';
 import { createThresholdSigningServiceForUnitTests } from '../helpers/thresholdEd25519TestUtils';
 
-const TEST_RUNTIME_SCOPE = { orgId: 'org-alpha', projectId: 'project-alpha', envId: 'env-alpha' } as const;
+const TEST_RUNTIME_SCOPE = {
+  orgId: 'org-alpha',
+  projectId: 'project-alpha',
+  envId: 'env-alpha',
+  signingRootVersion: 'root-v1',
+} as const;
+const TEST_ECDSA_CHAIN_TARGET = {
+  kind: 'evm',
+  namespace: 'eip155',
+  chainId: 11155111,
+  networkSlug: 'sepolia',
+} as const;
 
 test.describe('threshold-ecdsa integrated key store', () => {
   test('persists relayer backend signer input without export-capable secret material', async () => {
     const { svc } = createThresholdSigningServiceForUnitTests({});
 
     const bootstrap = await svc.bootstrapEcdsaFromRegistrationMaterial({
-      userId: 'alice.near',
+      walletSessionUserId: 'alice.near',
       rpId: 'wallet.example.test',
       clientRootShare32B64u: Buffer.from(new Uint8Array(32).fill(11)).toString('base64url'),
       sessionPolicy: {
         version: 'threshold_session_v1',
-        userId: 'alice.near',
+        walletSessionUserId: 'alice.near',
+        subjectId: 'alice.near',
         rpId: 'wallet.example.test',
+        chainTarget: TEST_ECDSA_CHAIN_TARGET,
         sessionId: 'ecdsa-session-1',
+        walletSigningSessionId: 'wallet-signing-session-1',
         runtimePolicyScope: TEST_RUNTIME_SCOPE,
         ttlMs: 60_000,
         remainingUses: 5,
@@ -40,7 +54,7 @@ test.describe('threshold-ecdsa integrated key store', () => {
     expect(integratedKeyRecord.signingRootId).toBe(
       `${TEST_RUNTIME_SCOPE.projectId}:${TEST_RUNTIME_SCOPE.envId}`,
     );
-    expect(integratedKeyRecord.signingRootVersion).toBeUndefined();
+    expect(integratedKeyRecord.signingRootVersion).toBe(TEST_RUNTIME_SCOPE.signingRootVersion);
     expect(integratedKeyRecord.walletKeyVersion).toBe('v1');
     expect(integratedKeyRecord.derivationVersion).toBe(1);
 

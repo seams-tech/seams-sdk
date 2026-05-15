@@ -34,7 +34,7 @@ test.describe('threshold ECDSA registration bootstrap parity gate', () => {
       await expect(
         ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap(ensureParity, {
           kind: 'registration_bootstrap_parity',
-          nearAccountId: 'alice.testnet',
+          walletId: 'alice.testnet',
           chainTarget: TEMPO_CHAIN_TARGET,
         }),
       ).resolves.toBeUndefined();
@@ -47,7 +47,7 @@ test.describe('threshold ECDSA registration bootstrap parity gate', () => {
       'registration bootstrap skipped sealed-refresh startup parity enforcement',
     );
     expect(warnings[0]?.[1]).toMatchObject({
-      nearAccountId: 'alice.testnet',
+      walletId: 'alice.testnet',
       chainTarget: 'tempo:42431',
       error: '[sealed-refresh-parity] Well-known endpoint returned HTTP 502',
     });
@@ -61,7 +61,7 @@ test.describe('threshold ECDSA registration bootstrap parity gate', () => {
     await expect(
       ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap(ensureParity, {
         kind: 'default_bootstrap_parity',
-        nearAccountId: 'alice.testnet',
+        walletId: 'alice.testnet',
         chainTarget: EVM_CHAIN_TARGET,
         }),
     ).rejects.toThrow('Well-known endpoint returned HTTP 502');
@@ -85,7 +85,7 @@ test.describe('threshold ECDSA registration bootstrap parity gate', () => {
       await expect(
         ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap(ensureParity, {
           kind: 'transaction_bootstrap_parity',
-          nearAccountId: 'alice.testnet',
+          walletId: 'alice.testnet',
           chainTarget: EVM_CHAIN_TARGET,
           operationIntent: SigningOperationIntent.TransactionSign,
         }),
@@ -99,7 +99,7 @@ test.describe('threshold ECDSA registration bootstrap parity gate', () => {
       'transaction bootstrap skipped retryable sealed-refresh capability fetch failure',
     );
     expect(warnings[0]?.[1]).toMatchObject({
-      nearAccountId: 'alice.testnet',
+      walletId: 'alice.testnet',
       chainTarget: 'evm:eip155:11155111',
       error: '[sealed-refresh-parity] Well-known endpoint returned HTTP 502',
     });
@@ -123,7 +123,7 @@ test.describe('threshold ECDSA registration bootstrap parity gate', () => {
       await expect(
         ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap(ensureParity, {
           kind: 'email_otp_bootstrap_parity',
-          nearAccountId: 'alice.testnet',
+          walletId: 'alice.testnet',
           chainTarget: EVM_CHAIN_TARGET,
           authMethod: 'email_otp',
         }),
@@ -137,7 +137,7 @@ test.describe('threshold ECDSA registration bootstrap parity gate', () => {
       'Email OTP bootstrap skipped retryable sealed-refresh capability fetch failure',
     );
     expect(warnings[0]?.[1]).toMatchObject({
-      nearAccountId: 'alice.testnet',
+      walletId: 'alice.testnet',
       chainTarget: 'evm:eip155:11155111',
       error: '[sealed-refresh-parity] Well-known endpoint returned HTTP 502',
     });
@@ -154,7 +154,7 @@ test.describe('threshold ECDSA registration bootstrap parity gate', () => {
     await expect(
       ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap(ensureParity, {
         kind: 'email_otp_bootstrap_parity',
-        nearAccountId: 'alice.testnet',
+        walletId: 'alice.testnet',
         chainTarget: EVM_CHAIN_TARGET,
         authMethod: 'email_otp',
       }),
@@ -178,7 +178,7 @@ test.describe('threshold ECDSA registration bootstrap parity gate', () => {
     try {
       await expect(
         ensureSealedRefreshStartupParityForTransactionSigning(ensureParity, {
-          nearAccountId: 'alice.testnet',
+          walletId: 'alice.testnet',
           chainTarget: TEMPO_CHAIN_TARGET,
         }),
       ).resolves.toBeUndefined();
@@ -191,7 +191,7 @@ test.describe('threshold ECDSA registration bootstrap parity gate', () => {
       'transaction signing skipped retryable sealed-refresh capability fetch failure',
     );
     expect(warnings[0]?.[1]).toMatchObject({
-      nearAccountId: 'alice.testnet',
+      walletId: 'alice.testnet',
       chainTarget: 'tempo:42431',
       error: '[sealed-refresh-parity] Well-known endpoint returned HTTP 502',
     });
@@ -207,7 +207,7 @@ test.describe('threshold ECDSA registration bootstrap parity gate', () => {
 
     await expect(
       ensureSealedRefreshStartupParityForTransactionSigning(ensureParity, {
-        nearAccountId: 'alice.testnet',
+        walletId: 'alice.testnet',
         chainTarget: EVM_CHAIN_TARGET,
       }),
     ).rejects.toThrow('Client/server mismatch');

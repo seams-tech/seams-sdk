@@ -122,7 +122,7 @@ test.describe('Worker Communication Protocol', () => {
 
           // Now test executeAction with detailed progress tracking (new SDK signature)
           const actionResult = await seams.near.executeAction({
-            nearAccountId: testAccountId,
+            nearAccount: { accountId: testAccountId },
             receiverId: (window as any).testUtils.configs.testReceiverAccountId, // Use centralized configuration
             actionArgs: {
               type: ActionType.FunctionCall,

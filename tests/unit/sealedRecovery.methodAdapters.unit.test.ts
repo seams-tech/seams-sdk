@@ -46,8 +46,10 @@ function makeEmailOtpEcdsaSealedRecord(
       sessionKind: 'jwt',
       thresholdSessionAuthToken: 'jwt-ecdsa',
       ecdsaThresholdKeyId: 'ecdsa-key',
+      ethereumAddress: `0x${'33'.repeat(20)}`,
       relayerKeyId: 'relayer-key',
       clientVerifyingShareB64u: 'client-verifying-share',
+      thresholdEcdsaPublicKeyB64u: 'threshold-public-key',
       participantIds: [1, 2],
     },
     ed25519Restore: {
@@ -102,8 +104,10 @@ function makeEmailOtpEd25519SealedRecord(
       sessionKind: 'jwt',
       thresholdSessionAuthToken: 'jwt-ecdsa',
       ecdsaThresholdKeyId: 'ecdsa-key',
+      ethereumAddress: `0x${'33'.repeat(20)}`,
       relayerKeyId: 'relayer-key',
       clientVerifyingShareB64u: 'client-verifying-share',
+      thresholdEcdsaPublicKeyB64u: 'threshold-public-key',
       participantIds: [1, 2],
     },
     subjectId: 'alice.testnet',
@@ -140,6 +144,7 @@ test.describe('sealed recovery method adapters', () => {
       touchConfirm: {
         restorePersistedSessionForSigning: async (args) => {
           calls.push({ kind: 'restore', args: args as Record<string, unknown> });
+          return { attempted: 0, restored: 0, deferred: 0 };
         },
         claimWarmSessionMaterial: async (args) => {
           calls.push({ kind: 'claim', args: args as Record<string, unknown> });
@@ -274,6 +279,7 @@ test.describe('sealed recovery method adapters', () => {
         thresholdSessionId: 'tsess-ed25519',
         reason: 'transaction',
       },
+      getThresholdEcdsaSessionRecordByThresholdSessionId: () => null,
       readWarmSessionStatusFromWorker: async (sessionId) => {
         if (!restoredSessions.has(sessionId)) {
           return { ok: false as const, code: 'not_found', message: 'missing' };

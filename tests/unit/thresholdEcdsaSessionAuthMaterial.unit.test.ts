@@ -32,14 +32,22 @@ test('resolves JWT only from explicit canonical ECDSA ownership', async ({
           thresholdSessionKind: 'jwt' | 'cookie';
           thresholdSessionAuthToken?: string;
         }) => {
+          const chainTarget = {
+            kind: 'tempo',
+            chainId: 42431,
+            networkSlug: 'tempo-42431',
+          };
+          const walletSigningSessionId = `wallet-${args.thresholdSessionId}`;
           storeMod.upsertThresholdEcdsaSessionFromBootstrap(deps, {
             nearAccountId: args.nearAccountId,
-            chain: 'tempo',
+            chainTarget,
             source: 'login',
             bootstrap: {
               thresholdEcdsaKeyRef: {
                 type: 'threshold-ecdsa-secp256k1',
                 userId: args.nearAccountId,
+                subjectId: args.nearAccountId,
+                chainTarget,
                 relayerUrl: 'https://relay.example',
                 ecdsaThresholdKeyId: `ek-${args.thresholdSessionId}`,
                 signingRootId: 'proj-a:env-a',
@@ -51,6 +59,7 @@ test('resolves JWT only from explicit canonical ECDSA ownership', async ({
                 },
                 thresholdSessionKind: args.thresholdSessionKind,
                 thresholdSessionId: args.thresholdSessionId,
+                walletSigningSessionId,
                 ...(args.thresholdSessionAuthToken
                   ? { thresholdSessionAuthToken: args.thresholdSessionAuthToken }
                   : {}),
@@ -66,6 +75,7 @@ test('resolves JWT only from explicit canonical ECDSA ownership', async ({
               session: {
                 ok: true,
                 sessionId: args.thresholdSessionId,
+                walletSigningSessionId,
                 expiresAtMs: now + 120_000,
                 remainingUses: 9,
                 ...(args.thresholdSessionAuthToken ? { jwt: args.thresholdSessionAuthToken } : {}),
@@ -85,6 +95,7 @@ test('resolves JWT only from explicit canonical ECDSA ownership', async ({
           participantIds: [1, 2],
           thresholdSessionKind: 'jwt',
           thresholdSessionId: 'sess-ed25519',
+          walletSigningSessionId: 'wallet-sess-ed25519',
           thresholdSessionAuthToken: 'jwt-ed25519-fallback',
           expiresAtMs: now + 120_000,
           remainingUses: 7,
@@ -120,7 +131,14 @@ test('resolves JWT only from explicit canonical ECDSA ownership', async ({
         const resolvedMissing =
           capabilityReader.resolveEcdsaAuthByThresholdSessionId('sess-missing');
         const transportFromEcdsa =
-          capabilityReader.resolveEcdsaSealTransportByThresholdSessionId('sess-ecdsa-jwt');
+          capabilityReader.resolveEcdsaSealTransportByThresholdSessionId({
+            thresholdSessionId: 'sess-ecdsa-jwt',
+            chainTarget: {
+              kind: 'tempo',
+              chainId: 42431,
+              networkSlug: 'tempo-42431',
+            },
+          });
 
         return {
           primary: resolvedPrimary

@@ -7,7 +7,15 @@ import {
 
 const BASELINE_ECDSA_HSS_CONTEXT = {
   signingRootId: 'project-alpha:dev',
-  nearAccountId: 'alice.near',
+  signingRootVersion: 'root-v1',
+  walletSessionUserId: 'alice.near',
+  subjectId: 'alice-subject',
+  chainTarget: {
+    kind: 'evm' as const,
+    namespace: 'eip155' as const,
+    chainId: 11155111,
+  },
+  ecdsaThresholdKeyId: 'ecdsa-alpha',
   keyPurpose: 'wallet',
   keyVersion: 'v1',
 } as const;
@@ -17,7 +25,7 @@ const BASELINE_ECDSA_HSS_SHARE_1_WIRE_HEX =
 const BASELINE_ECDSA_HSS_SHARE_2_WIRE_HEX =
   '021bb9834016ae79b9a815f68d1f456b35acb1b5631dd04e1cab9f640852aaed0d';
 const BASELINE_ECDSA_HSS_Y_RELAYER_HEX =
-  'ad502d0d27c9ee5a34b924d1f28e2e7bcc8f4756c07cc8335268e1d99b2c1ef3';
+  '0ae98a416bcbdc49dae5c0bfb2a2091a29be08e361586da5d6c2c82184572b92';
 
 function hexToBytes(hex: string): Uint8Array {
   return new Uint8Array(Buffer.from(hex, 'hex'));

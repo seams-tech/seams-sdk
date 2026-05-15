@@ -70,108 +70,109 @@ test.describe('Lite signer – NEAR multichain seam normalization (wallet iframe
 
       const resultPromise = page.evaluate(
         async ({ walletOrigin, relayerUrl, receiverId }) => {
-        try {
-          const { SeamsPasskey } = await import('/sdk/esm/core/SeamsPasskey/index.js');
-          const { ActionType, toActionArgsWasm } = await import('/sdk/esm/core/types/actions.js');
-          const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
+          try {
+            const { SeamsPasskey } = await import('/sdk/esm/core/SeamsPasskey/index.js');
+            const { ActionType, toActionArgsWasm } = await import('/sdk/esm/core/types/actions.js');
+            const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
 
-          const suffix =
-            typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-              ? crypto.randomUUID()
-              : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-          const accountId = `e2enearnorm${suffix}.w3a-v1.testnet`;
+            const suffix =
+              typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+                ? crypto.randomUUID()
+                : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+            const accountId = `e2enearnorm${suffix}.w3a-v1.testnet`;
 
-          const seams = new SeamsPasskey({
-            nearNetwork: 'testnet',
-            nearRpcUrl: 'https://test.rpc.fastnear.com',
-            relayer: { url: relayerUrl },
-            ...(managedRegistration
-              ? {
-                  registration: {
-                    mode: 'managed' as const,
-                    environmentId: String(managedRegistration.environmentId || ''),
-                    publishableKey: String(managedRegistration.publishableKey || ''),
-                  },
-                }
-              : {}),
-            iframeWallet: {
-              walletOrigin,
-              servicePath: '/wallet-service',
-              sdkBasePath: '/sdk',
-              rpIdOverride: 'example.localhost',
-            },
-          });
+            const seams = new SeamsPasskey({
+              nearNetwork: 'testnet',
+              nearRpcUrl: 'https://test.rpc.fastnear.com',
+              relayer: { url: relayerUrl },
+              ...(managedRegistration
+                ? {
+                    registration: {
+                      mode: 'managed' as const,
+                      environmentId: String(managedRegistration.environmentId || ''),
+                      publishableKey: String(managedRegistration.publishableKey || ''),
+                    },
+                  }
+                : {}),
+              iframeWallet: {
+                walletOrigin,
+                servicePath: '/wallet-service',
+                sdkBasePath: '/sdk',
+                rpIdOverride: 'example.localhost',
+              },
+            });
 
-          const confirmationConfig = {
-            uiMode: 'none',
-            behavior: 'skipClick',
-            autoProceedDelay: 0,
-          } as const;
-          const registration = await seams.registration.registerPasskeyInternal(
-            accountId,
-            {},
-            confirmationConfig as any,
-          );
-          if (!registration?.success) {
-            return { ok: false as const, error: registration?.error || 'registration failed' };
-          }
+            const confirmationConfig = {
+              uiMode: 'none',
+              behavior: 'skipClick',
+              autoProceedDelay: 0,
+            } as const;
+            const registration = await seams.registration.registerPasskeyInternal(
+              accountId,
+              {},
+              confirmationConfig as any,
+            );
+            if (!registration?.success) {
+              return { ok: false as const, error: registration?.error || 'registration failed' };
+            }
 
-          const login = await seams.auth.unlock(accountId);
-          if (!login?.success) {
-            return { ok: false as const, error: login?.error || 'login failed' };
-          }
+            const login = await seams.auth.unlock(accountId);
+            if (!login?.success) {
+              return { ok: false as const, error: login?.error || 'login failed' };
+            }
 
-          const rawReceiverId = `  ${receiverId}  `;
-          const transferAction = { type: ActionType.Transfer, amount: '1' };
-          const signed = await seams.near.signTransactionsWithActions({
-            nearAccountId: accountId,
-            transactions: [{ receiverId: rawReceiverId, actions: [transferAction] }],
-            options: {
-              signerSlot: 1,
-              confirmationConfig: confirmationConfig as any,
-            },
-          });
+            const rawReceiverId = `  ${receiverId}  `;
+            const transferAction = { type: ActionType.Transfer, amount: '1' };
+            const signed = await seams.near.signTransactionsWithActions({
+              nearAccount: { accountId },
+              transactions: [{ receiverId: rawReceiverId, actions: [transferAction] }],
+              options: {
+                signerSlot: 1,
+                confirmationConfig: confirmationConfig as any,
+              },
+            });
 
-          if (!Array.isArray(signed) || signed.length !== 1) {
+            if (!Array.isArray(signed) || signed.length !== 1) {
+              return {
+                ok: false as const,
+                error: `expected 1 signed tx, got ${Array.isArray(signed) ? signed.length : 'non-array'}`,
+              };
+            }
+
+            const signedTx: any = signed[0]?.signedTransaction;
+            const signatureData = signedTx?.signature?.signatureData;
+            const tx = signedTx?.transaction;
+            if (!tx || !signatureData) {
+              return { ok: false as const, error: 'invalid signed transaction shape' };
+            }
+
             return {
-              ok: false as const,
-              error: `expected 1 signed tx, got ${Array.isArray(signed) ? signed.length : 'non-array'}`,
+              ok: true as const,
+              account: {
+                id: accountId,
+                publicKey: String(registration.operationalPublicKey || ''),
+              },
+              rawReceiverId,
+              normalizedReceiverId: rawReceiverId.trim(),
+              wasmActions: [toActionArgsWasm(transferAction)],
+              signed: {
+                signerId: String(tx?.signerId || ''),
+                receiverId: String(tx?.receiverId || ''),
+                nonce:
+                  typeof tx?.nonce === 'bigint' ? tx.nonce.toString() : String(tx?.nonce || ''),
+                blockHash: Array.from((tx?.blockHash ?? []) as ArrayLike<number>),
+                signature: Array.from(signatureData as ArrayLike<number>),
+              },
             };
+          } catch (error: any) {
+            return { ok: false as const, error: error?.message || String(error) };
           }
-
-          const signedTx: any = signed[0]?.signedTransaction;
-          const signatureData = signedTx?.signature?.signatureData;
-          const tx = signedTx?.transaction;
-          if (!tx || !signatureData) {
-            return { ok: false as const, error: 'invalid signed transaction shape' };
-          }
-
-          return {
-            ok: true as const,
-            account: {
-              id: accountId,
-              publicKey: String(registration.operationalPublicKey || ''),
-            },
-            rawReceiverId,
-            normalizedReceiverId: rawReceiverId.trim(),
-            wasmActions: [toActionArgsWasm(transferAction)],
-            signed: {
-              signerId: String(tx?.signerId || ''),
-              receiverId: String(tx?.receiverId || ''),
-              nonce: typeof tx?.nonce === 'bigint' ? tx.nonce.toString() : String(tx?.nonce || ''),
-              blockHash: Array.from((tx?.blockHash ?? []) as ArrayLike<number>),
-              signature: Array.from(signatureData as ArrayLike<number>),
-            },
-          };
-        } catch (error: any) {
-          return { ok: false as const, error: error?.message || String(error) };
-        }
-      },
-      {
-        walletOrigin: 'https://wallet.example.localhost',
-        relayerUrl,
-        receiverId: expectedReceiverId,
-      },
+        },
+        {
+          walletOrigin: 'https://wallet.example.localhost',
+          relayerUrl,
+          receiverId: expectedReceiverId,
+        },
       );
 
       const result = await autoConfirmWalletIframeUntil(page, resultPromise, {
@@ -180,10 +181,9 @@ test.describe('Lite signer – NEAR multichain seam normalization (wallet iframe
       });
       if (!result.ok) {
         if (handleInfrastructureErrors(result as any)) return;
-        expect(
-          result.ok,
-          (result as any)?.error || 'NEAR seam normalization flow failed',
-        ).toBe(true);
+        expect(result.ok, (result as any)?.error || 'NEAR seam normalization flow failed').toBe(
+          true,
+        );
         return;
       }
 

@@ -21,7 +21,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
 
         const ctx: any = {
           userPreferencesManager: {
-            getCurrentUserAccountId: () => 'alice.testnet',
+            getCurrentWalletId: () => 'alice.testnet',
           },
         };
 
@@ -113,7 +113,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
 
         const ctx: any = {
           userPreferencesManager: {
-            getCurrentUserAccountId: () => 'alice.testnet',
+            getCurrentWalletId: () => 'alice.testnet',
           },
         };
 
@@ -258,7 +258,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
 
         const ctx: any = {
           userPreferencesManager: {
-            getCurrentUserAccountId: () => 'alice.testnet',
+            getCurrentWalletId: () => 'alice.testnet',
           },
         };
 
@@ -387,7 +387,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
 
         const ctx: any = {
           userPreferencesManager: {
-            getCurrentUserAccountId: () => 'alice.testnet',
+            getCurrentWalletId: () => 'alice.testnet',
           },
         };
 
@@ -520,7 +520,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
 
         const ctx: any = {
           userPreferencesManager: {
-            getCurrentUserAccountId: () => 'alice.testnet',
+            getCurrentWalletId: () => 'alice.testnet',
           },
         };
 
@@ -605,7 +605,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
 
         const ctx: any = {
           userPreferencesManager: {
-            getCurrentUserAccountId: () => 'alice.testnet',
+            getCurrentWalletId: () => 'alice.testnet',
           },
         };
 
@@ -696,7 +696,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
 
         const ctx: any = {
           userPreferencesManager: {
-            getCurrentUserAccountId: () => 'alice.testnet',
+            getCurrentWalletId: () => 'alice.testnet',
           },
         };
 
@@ -829,7 +829,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
 
         const ctx: any = {
           userPreferencesManager: {
-            getCurrentUserAccountId: () => 'alice.testnet',
+            getCurrentWalletId: () => 'alice.testnet',
           },
         };
 
@@ -910,7 +910,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
 
         const ctx: any = {
           userPreferencesManager: {
-            getCurrentUserAccountId: () => 'alice.testnet',
+            getCurrentWalletId: () => 'alice.testnet',
           },
         };
 
@@ -1029,7 +1029,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
 
         const ctx: any = {
           userPreferencesManager: {
-            getCurrentUserAccountId: () => 'alice.testnet',
+            getCurrentWalletId: () => 'alice.testnet',
           },
           // Intentionally keep Arc as generic family fallback so chainId-specific override is testable.
           evmExplorerUrl: 'https://arc-explorer.example',
@@ -1143,7 +1143,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
 
         const ctx: any = {
           userPreferencesManager: {
-            getCurrentUserAccountId: () => 'alice.testnet',
+            getCurrentWalletId: () => 'alice.testnet',
           },
         };
 
@@ -1218,7 +1218,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
 
         const ctx: any = {
           userPreferencesManager: {
-            getCurrentUserAccountId: () => 'bob.testnet',
+            getCurrentWalletId: () => 'bob.testnet',
           },
         };
 
@@ -1270,7 +1270,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
 
         const ctx: any = {
           userPreferencesManager: {
-            getCurrentUserAccountId: () => 'carol.testnet',
+            getCurrentWalletId: () => 'carol.testnet',
           },
         };
 

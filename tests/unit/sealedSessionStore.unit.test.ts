@@ -11,7 +11,9 @@ const ECDSA_RESTORE = {
   chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
   sessionKind: 'jwt',
   ecdsaThresholdKeyId: 'ecdsa-key',
+  ethereumAddress: `0x${'33'.repeat(20)}`,
   relayerKeyId: 'relayer-key',
+  thresholdEcdsaPublicKeyB64u: 'threshold-public-key',
   participantIds: [1, 2, 3],
 } as const;
 
@@ -80,7 +82,7 @@ test.describe('signing session sealed store', () => {
         const thresholdSessionId = 'sess-sealed-1';
         const walletSigningSessionId = 'wallet-sess-sealed-1';
         await mod.clearAllSealedSessions();
-        await mod.writeExactSealedSession({
+        await mod.writeExactSealedSession(mod.buildCurrentSealedSessionRecord({
           thresholdSessionId,
           walletSigningSessionId,
           curve: 'ecdsa',
@@ -98,7 +100,7 @@ test.describe('signing session sealed store', () => {
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 7,
           updatedAtMs: Date.now(),
-        });
+        })!);
 
         const passkeyEcdsa = { authMethod: 'passkey', curve: 'ecdsa', chain: 'tempo', chainTarget: ECDSA_RESTORE.chainTarget };
         const record = await mod.readExactSealedSession(thresholdSessionId, passkeyEcdsa);
@@ -232,7 +234,7 @@ test.describe('signing session sealed store', () => {
         const mod = await import(paths.sealedSessionStore);
         await mod.clearAllSealedSessions();
 
-        await mod.writeExactSealedSession({
+        await mod.writeExactSealedSession(mod.buildCurrentSealedSessionRecord({
           thresholdSessionId: 'legacy-chain-only-session',
           walletSigningSessionId: 'legacy-chain-only-wallet-session',
           curve: 'ecdsa',
@@ -249,7 +251,7 @@ test.describe('signing session sealed store', () => {
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 1,
           updatedAtMs: Date.now(),
-        });
+        })!);
 
         return await mod.readExactSealedSession('legacy-chain-only-session', {
           authMethod: 'email_otp',
@@ -271,7 +273,7 @@ test.describe('signing session sealed store', () => {
       async ({ paths }) => {
         const mod = await import(paths.sealedSessionStore);
         await mod.clearAllSealedSessions();
-        await mod.writeExactSealedSession({
+        await mod.writeExactSealedSession(mod.buildCurrentSealedSessionRecord({
           thresholdSessionId: 'email-otp-ecdsa-session',
           walletSigningSessionId: 'email-otp-wallet-session',
           curve: 'ecdsa',
@@ -293,7 +295,7 @@ test.describe('signing session sealed store', () => {
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 2,
           updatedAtMs: Date.now(),
-        });
+        })!);
         const emailOtpEcdsa = { authMethod: 'email_otp', curve: 'ecdsa', chain: 'tempo', chainTarget: ECDSA_RESTORE.chainTarget };
         const emailOtpEd25519 = { authMethod: 'email_otp', curve: 'ed25519' };
         const validByEcdsa = await mod.readExactSealedSession(
@@ -376,7 +378,7 @@ test.describe('signing session sealed store', () => {
         const missingTokenStoreKey =
           'legacy-missing-token-wallet-session:email_otp:ecdsa:tempo%3A42431';
 
-        await mod.writeExactSealedSession({
+        await mod.writeExactSealedSession(mod.buildCurrentSealedSessionRecord({
           thresholdSessionId: 'legacy-current-ecdsa-session',
           walletSigningSessionId: 'legacy-current-wallet-session',
           curve: 'ecdsa',
@@ -396,7 +398,7 @@ test.describe('signing session sealed store', () => {
           expiresAtMs: now + 60_000,
           remainingUses: 2,
           updatedAtMs: now,
-        });
+        })!);
 
         const deleteRequiredRaw = {
           v: 1,
@@ -578,7 +580,7 @@ test.describe('signing session sealed store', () => {
         const thresholdSessionId = 'shared-threshold-session';
         await mod.clearAllSealedSessions();
 
-        await mod.writeExactSealedSession({
+        await mod.writeExactSealedSession(mod.buildCurrentSealedSessionRecord({
           thresholdSessionId,
           walletSigningSessionId: 'passkey-wallet-session',
           thresholdSessionIds: { ed25519: thresholdSessionId },
@@ -590,8 +592,8 @@ test.describe('signing session sealed store', () => {
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 5,
           updatedAtMs: Date.now(),
-        });
-        await mod.writeExactSealedSession({
+        })!);
+        await mod.writeExactSealedSession(mod.buildCurrentSealedSessionRecord({
           thresholdSessionId,
           walletSigningSessionId: 'email-otp-wallet-session',
           thresholdSessionIds: { ecdsa: thresholdSessionId },
@@ -607,7 +609,7 @@ test.describe('signing session sealed store', () => {
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 4,
           updatedAtMs: Date.now(),
-        });
+        })!);
 
         const generic = await mod
           .readExactSealedSession(thresholdSessionId)
@@ -675,7 +677,7 @@ test.describe('signing session sealed store', () => {
         const mod = await import(paths.sealedSessionStore);
         await mod.clearAllSealedSessions();
 
-        await mod.writeExactSealedSession({
+        await mod.writeExactSealedSession(mod.buildCurrentSealedSessionRecord({
           thresholdSessionId: 'email-otp-ecdsa-session',
           walletSigningSessionId: 'email-otp-wallet-session',
           thresholdSessionIds: { ecdsa: 'email-otp-ecdsa-session' },
@@ -692,8 +694,8 @@ test.describe('signing session sealed store', () => {
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 4,
           updatedAtMs: Date.now(),
-        });
-        await mod.writeExactSealedSession({
+        })!);
+        await mod.writeExactSealedSession(mod.buildCurrentSealedSessionRecord({
           thresholdSessionId: 'email-otp-ed25519-session',
           walletSigningSessionId: 'email-otp-ed25519-wallet-session',
           thresholdSessionIds: { ed25519: 'email-otp-ed25519-session' },
@@ -707,8 +709,8 @@ test.describe('signing session sealed store', () => {
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 4,
           updatedAtMs: Date.now(),
-        });
-        await mod.writeExactSealedSession({
+        })!);
+        await mod.writeExactSealedSession(mod.buildCurrentSealedSessionRecord({
           thresholdSessionId: 'passkey-ecdsa-session',
           walletSigningSessionId: 'passkey-wallet-session',
           thresholdSessionIds: { ecdsa: 'passkey-ecdsa-session' },
@@ -724,8 +726,8 @@ test.describe('signing session sealed store', () => {
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 4,
           updatedAtMs: Date.now(),
-        });
-        await mod.writeExactSealedSession({
+        })!);
+        await mod.writeExactSealedSession(mod.buildCurrentSealedSessionRecord({
           thresholdSessionId: 'bob-email-otp-ecdsa-session',
           walletSigningSessionId: 'bob-email-otp-wallet-session',
           thresholdSessionIds: { ecdsa: 'bob-email-otp-ecdsa-session' },
@@ -742,10 +744,10 @@ test.describe('signing session sealed store', () => {
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 4,
           updatedAtMs: Date.now(),
-        });
+        })!);
 
-        const records = await mod.listExactSealedSessionsForAccount({
-          accountId: 'alice.testnet',
+        const records = await mod.listExactSealedSessionsForWallet({
+          walletId: 'alice.testnet',
           filter: { authMethod: 'email_otp', curve: 'ecdsa', chain: 'tempo', chainTarget: ECDSA_RESTORE.chainTarget },
         });
 
@@ -775,7 +777,7 @@ test.describe('signing session sealed store', () => {
         const mod = await import(paths.sealedSessionStore);
         await mod.clearAllSealedSessions();
 
-        await mod.writeExactSealedSession({
+        await mod.writeExactSealedSession(mod.buildCurrentSealedSessionRecord({
           thresholdSessionId: 'old-email-otp-ed25519-session',
           walletSigningSessionId: 'old-email-otp-ed25519-wallet-session',
           thresholdSessionIds: { ed25519: 'old-email-otp-ed25519-session' },
@@ -789,8 +791,8 @@ test.describe('signing session sealed store', () => {
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 1,
           updatedAtMs: Date.now() - 1_000,
-        });
-        await mod.writeExactSealedSession({
+        })!);
+        await mod.writeExactSealedSession(mod.buildCurrentSealedSessionRecord({
           thresholdSessionId: 'new-email-otp-ed25519-session',
           walletSigningSessionId: 'new-email-otp-ed25519-wallet-session',
           thresholdSessionIds: { ed25519: 'new-email-otp-ed25519-session' },
@@ -804,9 +806,9 @@ test.describe('signing session sealed store', () => {
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 1,
           updatedAtMs: Date.now(),
-        });
+        })!);
 
-        await mod.writeExactSealedSession({
+        await mod.writeExactSealedSession(mod.buildCurrentSealedSessionRecord({
           thresholdSessionId: 'old-email-otp-ecdsa-session',
           walletSigningSessionId: 'old-email-otp-ecdsa-wallet-session',
           thresholdSessionIds: { ecdsa: 'old-email-otp-ecdsa-session' },
@@ -822,8 +824,8 @@ test.describe('signing session sealed store', () => {
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 1,
           updatedAtMs: Date.now() - 1_000,
-        });
-        await mod.writeExactSealedSession({
+        })!);
+        await mod.writeExactSealedSession(mod.buildCurrentSealedSessionRecord({
           thresholdSessionId: 'new-email-otp-ecdsa-session',
           walletSigningSessionId: 'new-email-otp-ecdsa-wallet-session',
           thresholdSessionIds: { ecdsa: 'new-email-otp-ecdsa-session' },
@@ -839,14 +841,14 @@ test.describe('signing session sealed store', () => {
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 1,
           updatedAtMs: Date.now(),
-        });
+        })!);
 
-        const ed25519Records = await mod.listExactSealedSessionsForAccount({
-          accountId: 'alice.testnet',
+        const ed25519Records = await mod.listExactSealedSessionsForWallet({
+          walletId: 'alice.testnet',
           filter: { authMethod: 'email_otp', curve: 'ed25519' },
         });
-        const ecdsaRecords = await mod.listExactSealedSessionsForAccount({
-          accountId: 'alice.testnet',
+        const ecdsaRecords = await mod.listExactSealedSessionsForWallet({
+          walletId: 'alice.testnet',
           filter: { authMethod: 'email_otp', curve: 'ecdsa', chain: ECDSA_RESTORE.chain, chainTarget: ECDSA_RESTORE.chainTarget },
         });
 
@@ -875,7 +877,7 @@ test.describe('signing session sealed store', () => {
         const emailOtpEcdsaSessionId = 'email-otp-ecdsa-threshold-session';
         await mod.clearAllSealedSessions();
 
-        await mod.writeExactSealedSession({
+        await mod.writeExactSealedSession(mod.buildCurrentSealedSessionRecord({
           thresholdSessionId: sharedEd25519SessionId,
           walletSigningSessionId: sharedWalletSigningSessionId,
           thresholdSessionIds: { ed25519: sharedEd25519SessionId },
@@ -887,8 +889,8 @@ test.describe('signing session sealed store', () => {
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 3,
           updatedAtMs: Date.now(),
-        });
-        await mod.writeExactSealedSession({
+        })!);
+        await mod.writeExactSealedSession(mod.buildCurrentSealedSessionRecord({
           thresholdSessionId: emailOtpEcdsaSessionId,
           walletSigningSessionId: sharedWalletSigningSessionId,
           thresholdSessionIds: {
@@ -906,7 +908,7 @@ test.describe('signing session sealed store', () => {
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 4,
           updatedAtMs: Date.now(),
-        });
+        })!);
 
         return {
           passkeyEd25519: await mod.readExactSealedSession(sharedEd25519SessionId, {
@@ -942,7 +944,7 @@ test.describe('signing session sealed store', () => {
       async ({ paths }) => {
         const mod = await import(paths.sealedSessionStore);
         await mod.clearAllSealedSessions();
-        await mod.writeExactSealedSession({
+        await mod.writeExactSealedSession(mod.buildCurrentSealedSessionRecord({
           thresholdSessionId: 'sess-a',
           walletSigningSessionId: 'wallet-sess-a',
           curve: 'ecdsa',
@@ -955,8 +957,8 @@ test.describe('signing session sealed store', () => {
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 2,
           updatedAtMs: Date.now(),
-        });
-        await mod.writeExactSealedSession({
+        })!);
+        await mod.writeExactSealedSession(mod.buildCurrentSealedSessionRecord({
           thresholdSessionId: 'sess-b',
           walletSigningSessionId: 'wallet-sess-b',
           curve: 'ecdsa',
@@ -969,7 +971,7 @@ test.describe('signing session sealed store', () => {
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 2,
           updatedAtMs: Date.now(),
-        });
+        })!);
         const before = {
           a: await mod.readExactSealedSession('sess-a', {
             authMethod: 'passkey',
@@ -1022,7 +1024,7 @@ test.describe('signing session sealed store', () => {
           const mod = await import(paths.sealedSessionStore);
           const thresholdSessionId = 'sess-host-mode';
           await mod.clearAllSealedSessions();
-          await mod.writeExactSealedSession({
+          await mod.writeExactSealedSession(mod.buildCurrentSealedSessionRecord({
             thresholdSessionId,
             walletSigningSessionId: 'wallet-sess-host-mode',
             curve: 'ecdsa',
@@ -1035,7 +1037,7 @@ test.describe('signing session sealed store', () => {
             expiresAtMs: Date.now() + 60_000,
             remainingUses: 2,
             updatedAtMs: Date.now(),
-          });
+          })!);
           const record = await mod.readExactSealedSession(thresholdSessionId, {
             authMethod: 'passkey',
             curve: 'ecdsa',
@@ -1086,7 +1088,7 @@ test.describe('signing session sealed store', () => {
         const indexedDbMod = await import(paths.indexedDB);
         indexedDbMod.configureIndexedDB({ mode: 'disabled' });
         const mod = await import(paths.sealedSessionStore);
-        await mod.writeExactSealedSession({
+        await mod.writeExactSealedSession(mod.buildCurrentSealedSessionRecord({
           thresholdSessionId: 'sess-disabled-mode',
           walletSigningSessionId: 'wallet-sess-disabled-mode',
           curve: 'ecdsa',
@@ -1099,7 +1101,7 @@ test.describe('signing session sealed store', () => {
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 1,
           updatedAtMs: Date.now(),
-        });
+        })!);
         const record = await mod.readExactSealedSession('sess-disabled-mode', {
           authMethod: 'passkey',
           curve: 'ecdsa',
@@ -1131,7 +1133,7 @@ test.describe('signing session sealed store', () => {
         const mod = await import(paths.sealedSessionStore);
         const thresholdSessionId = 'sess-browser-restart';
         await mod.clearAllSealedSessions();
-        await mod.writeExactSealedSession({
+        await mod.writeExactSealedSession(mod.buildCurrentSealedSessionRecord({
           thresholdSessionId,
           walletSigningSessionId: 'wallet-sess-browser-restart',
           curve: 'ecdsa',
@@ -1146,13 +1148,13 @@ test.describe('signing session sealed store', () => {
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 2,
           updatedAtMs: Date.now(),
-        });
+        })!);
         const passkeyEcdsa = { authMethod: 'passkey', curve: 'ecdsa', chain: 'tempo', chainTarget: ECDSA_RESTORE.chainTarget };
         const before = await mod.readExactSealedSession(thresholdSessionId, passkeyEcdsa);
         sessionStorage.removeItem('seams:signing-session-sealed:runtime-session-id:v1');
         const after = await mod.readExactSealedSession(thresholdSessionId, passkeyEcdsa);
-        const exactAfterMarkerRemoved = await mod.listExactSealedSessionsForAccount({
-          accountId: 'restart.testnet',
+        const exactAfterMarkerRemoved = await mod.listExactSealedSessionsForWallet({
+          walletId: 'restart.testnet',
           filter: { authMethod: 'passkey', curve: 'ecdsa', chain: 'tempo', chainTarget: ECDSA_RESTORE.chainTarget },
         });
         const readAfterMarkerRestored = await mod.readExactSealedSession(
@@ -1177,7 +1179,7 @@ test.describe('signing session sealed store', () => {
         const mod = await import(paths.sealedSessionStore);
         const thresholdSessionId = 'sess-lease';
         await mod.clearAllSealedSessions();
-        await mod.writeExactSealedSession({
+        await mod.writeExactSealedSession(mod.buildCurrentSealedSessionRecord({
           thresholdSessionId,
           walletSigningSessionId: 'wallet-session-lease',
           curve: 'ecdsa',
@@ -1190,7 +1192,7 @@ test.describe('signing session sealed store', () => {
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 2,
           updatedAtMs: Date.now(),
-        });
+        })!);
 
         const first = await mod.acquireSigningSessionRestoreLease({
           thresholdSessionId,
@@ -1271,7 +1273,7 @@ test.describe('signing session sealed store', () => {
       async ({ paths }) => {
         const mod = await import(paths.sealedSessionStore);
         await mod.clearAllSealedSessions();
-        await mod.writeExactSealedSession({
+        await mod.writeExactSealedSession(mod.buildCurrentSealedSessionRecord({
           thresholdSessionId: 'transaction-ecdsa-session',
           walletSigningSessionId: 'transaction-wallet-session',
           curve: 'ecdsa',
@@ -1290,7 +1292,7 @@ test.describe('signing session sealed store', () => {
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 7,
           updatedAtMs: Date.now(),
-        });
+        })!);
 
         await mod.updateExactSealedSessionPolicy({
           thresholdSessionId: 'export-operation-session',
@@ -1352,7 +1354,7 @@ test.describe('signing session sealed store', () => {
         const mod = await import(paths.sealedSessionStore);
         await mod.clearAllSealedSessions();
 
-        await mod.writeExactSealedSession({
+        await mod.writeExactSealedSession(mod.buildCurrentSealedSessionRecord({
           thresholdSessionId: 'identity-ecdsa-session',
           walletSigningSessionId: 'identity-wallet-session',
           curve: 'ecdsa',
@@ -1371,7 +1373,7 @@ test.describe('signing session sealed store', () => {
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 7,
           updatedAtMs: 12_345,
-        });
+        })!);
 
         const ecdsaAfterWrite = await mod.readExactSealedSession('identity-ecdsa-session', {
           authMethod: 'email_otp',
@@ -1444,7 +1446,7 @@ test.describe('signing session sealed store', () => {
         const mod = await import(paths.sealedSessionStore);
         await mod.clearAllSealedSessions();
 
-        await mod.writeExactSealedSession({
+        await mod.writeExactSealedSession(mod.buildCurrentSealedSessionRecord({
           thresholdSessionId: 'preserve-identity-ed25519-session',
           walletSigningSessionId: 'preserve-identity-wallet-session',
           curve: 'ed25519',
@@ -1461,7 +1463,7 @@ test.describe('signing session sealed store', () => {
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 1,
           updatedAtMs: 44_444,
-        });
+        })!);
 
         await mod.deleteExactSealedSession(
           'preserve-identity-ed25519-session',
@@ -1482,7 +1484,7 @@ test.describe('signing session sealed store', () => {
           },
         );
 
-        await mod.writeExactSealedSession({
+        await mod.writeExactSealedSession(mod.buildCurrentSealedSessionRecord({
           thresholdSessionId: 'preserve-identity-ed25519-session',
           walletSigningSessionId: 'preserve-identity-wallet-session',
           curve: 'ed25519',
@@ -1499,7 +1501,7 @@ test.describe('signing session sealed store', () => {
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 1,
           updatedAtMs: 55_555,
-        });
+        })!);
 
         await mod.deleteExactSealedSession('preserve-identity-ed25519-session', {
           authMethod: 'passkey',

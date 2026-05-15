@@ -46,7 +46,7 @@ test.describe('EVM family threshold reconnect events', () => {
     const provisionedChainIds: unknown[] = [];
     const lane = {
       kind: 'selected_lane',
-      accountId: toAccountId('reconnect-events.testnet'),
+      walletId: toAccountId('reconnect-events.testnet'),
       authMethod: 'passkey',
       curve: 'ecdsa',
       chain: 'evm',
@@ -79,20 +79,20 @@ test.describe('EVM family threshold reconnect events', () => {
         getThresholdEcdsaKeyRefByKey: (identity: Parameters<typeof getThresholdEcdsaKeyRefByKey>[1]) =>
           getThresholdEcdsaKeyRefByKey(ecdsaStore, identity),
         clearThresholdEcdsaSessionRecordForLane: () => undefined,
-        provisionThresholdEcdsaSession: async ({
-          nearAccountId,
-          chain,
-          chainTarget,
-          sessionId,
-          walletSigningSessionId: requestedWalletSigningSessionId,
-        }: {
-          nearAccountId: string;
-          chain: 'evm' | 'tempo';
+        provisionThresholdEcdsaSession: async (request: {
+          walletId: string;
           chainTarget: typeof staleRecord.chainTarget;
-          sessionId: string;
-          walletSigningSessionId: string;
+          sessionIdentity: {
+            thresholdSessionId: string;
+            walletSigningSessionId: string;
+          };
         }) => {
-          provisionedChainIds.push(chainTarget.chainId);
+          const chain = request.chainTarget.kind;
+          const sessionId = String(request.sessionIdentity.thresholdSessionId);
+          const requestedWalletSigningSessionId = String(
+            request.sessionIdentity.walletSigningSessionId,
+          );
+          provisionedChainIds.push(request.chainTarget.chainId);
           const freshBootstrap = createThresholdEcdsaBootstrapFixture({
             nearAccountId: 'reconnect-events.testnet',
             chain,
@@ -102,7 +102,7 @@ test.describe('EVM family threshold reconnect events', () => {
             walletSigningSessionId: requestedWalletSigningSessionId,
           });
           const refreshedRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
-            nearAccountId: String(nearAccountId),
+            nearAccountId: String(request.walletId),
             chain,
             source: 'manual-bootstrap',
             bootstrap: freshBootstrap,
@@ -118,11 +118,11 @@ test.describe('EVM family threshold reconnect events', () => {
       lane,
       chainId: 11_155_111,
       keyRef: undefined,
+      mode: 'derive_from_lane',
       reconnectSessionIdentity: {
         thresholdSessionId: String(lane.thresholdSessionId),
         walletSigningSessionId: String(lane.walletSigningSessionId),
       },
-      clientRootShare32B64u: 'test-client-root-share',
       operationUsesNeeded: 1,
       sessionBudgetUses: 3,
       onEvent: (event) => events.push(event),

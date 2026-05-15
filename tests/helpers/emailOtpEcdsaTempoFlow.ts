@@ -1,4 +1,5 @@
 import type { Page } from '@playwright/test';
+import { thresholdEcdsaChainTargetFromChainFamily } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   createSigningSessionSealPolicyFromThresholdAuthSessionStores,
   createSigningSessionSealRoutesOptions,
@@ -487,6 +488,17 @@ export async function runEmailOtpEcdsaTempoFlow(
 
     const signingKind = input.signingKind === 'eip1559' ? 'eip1559' : 'tempoTransaction';
     const bootstrapChain = signingKind === 'eip1559' ? 'evm' : 'tempo';
+    const tempoChainTarget = thresholdEcdsaChainTargetFromChainFamily({
+      chain: 'tempo',
+      chainId: 42431,
+      networkSlug: 'tempo-moderato',
+    });
+    const evmChainTarget = thresholdEcdsaChainTargetFromChainFamily({
+      chain: 'evm',
+      chainId: 11155111,
+      networkSlug: 'ethereum-sepolia',
+    });
+    const signingChainTarget = signingKind === 'eip1559' ? evmChainTarget : tempoChainTarget;
     const makeThresholdEcdsaRequest = (tag: string) =>
       signingKind === 'eip1559'
         ? {
@@ -669,8 +681,13 @@ export async function runEmailOtpEcdsaTempoFlow(
           : await (async () => {
               try {
                 const signed = await pm.tempo.signTempo({
-                  nearAccountId: accountId,
+                  walletSession: {
+                    walletId: accountId,
+                    walletSessionUserId: accountId,
+                  },
+                  subjectId: accountId,
                   request: makeThresholdEcdsaRequest('a1'),
+                  chainTarget: signingChainTarget,
                   options: { confirmationConfig },
                 });
                 return {
@@ -696,8 +713,13 @@ export async function runEmailOtpEcdsaTempoFlow(
           : await (async () => {
               try {
                 const signed = await pm.tempo.signTempo({
-                  nearAccountId: accountId,
+                  walletSession: {
+                    walletId: accountId,
+                    walletSessionUserId: accountId,
+                  },
+                  subjectId: accountId,
                   request: makeThresholdEcdsaRequest('b2'),
+                  chainTarget: signingChainTarget,
                   options: { confirmationConfig },
                 });
                 return {
@@ -722,7 +744,7 @@ export async function runEmailOtpEcdsaTempoFlow(
           ? await (async () => {
               try {
                 const signed = await pm.near.signTransactionsWithActions({
-                  nearAccountId: accountId,
+                  nearAccount: { accountId },
                   transactions: [
                     {
                       receiverId: 'w3a-v1.testnet',
@@ -972,10 +994,10 @@ export async function runEmailOtpReloadPhase(
       };
       const readRuntimeDiagnostics = async (): Promise<Record<string, unknown>> => {
         const [thresholdStore, sealedStore] = await Promise.all([
-          import('/sdk/esm/core/signingEngine/session/persistence/records.js').catch(
+          import('/sdk/esm/core/signingEngine/session/persistence/records.js').catch(() => null),
+          import('/sdk/esm/core/signingEngine/session/persistence/sealedSessionStore.js').catch(
             () => null,
           ),
-          import('/sdk/esm/core/signingEngine/session/persistence/sealedSessionStore.js').catch(() => null),
         ]);
         const ed25519Record =
           thresholdStore &&
@@ -1214,6 +1236,17 @@ export async function runEmailOtpReloadPhase(
           };
         }
 
+        const tempoChainTarget = {
+          kind: 'tempo' as const,
+          chainId: 42431,
+          networkSlug: 'tempo-moderato',
+        };
+        const evmChainTarget = {
+          kind: 'evm' as const,
+          namespace: 'eip155' as const,
+          chainId: 11155111,
+          networkSlug: 'ethereum-sepolia',
+        };
         const tempoRequest = (tag: string) => ({
           chain: 'tempo' as const,
           kind: 'tempoTransaction' as const,
@@ -1278,7 +1311,7 @@ export async function runEmailOtpReloadPhase(
           try {
             if (kind === 'near') {
               const signed = await pm.near.signTransactionsWithActions({
-                nearAccountId: accountId,
+                nearAccount: { accountId },
                 transactions: [
                   {
                     receiverId: 'w3a-v1.testnet',
@@ -1296,8 +1329,13 @@ export async function runEmailOtpReloadPhase(
             }
             if (kind === 'tempo') {
               const signed = await pm.tempo.signTempo({
-                nearAccountId: accountId,
+                walletSession: {
+                  walletId: accountId,
+                  walletSessionUserId: accountId,
+                },
+                subjectId: accountId,
                 request: tempoRequest(tag),
+                chainTarget: tempoChainTarget,
                 options: { confirmationConfig },
               });
               pushResult({ kind, ok: signed?.kind === 'tempoTransaction', chain: signed?.chain });
@@ -1305,8 +1343,13 @@ export async function runEmailOtpReloadPhase(
             }
             if (kind === 'evm') {
               const signed = await pm.tempo.signTempo({
-                nearAccountId: accountId,
+                walletSession: {
+                  walletId: accountId,
+                  walletSessionUserId: accountId,
+                },
+                subjectId: accountId,
                 request: evmRequest(tag),
+                chainTarget: evmChainTarget,
                 options: { confirmationConfig },
               });
               pushResult({ kind, ok: signed?.kind === 'eip1559', chain: signed?.chain });

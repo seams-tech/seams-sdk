@@ -159,6 +159,7 @@ test.describe('threshold Ed25519 threshold-session state', () => {
           xClientBaseB64u: 'x-client-base',
           thresholdSessionKind: 'jwt',
           thresholdSessionId: 'canonical-threshold-session',
+          walletSigningSessionId: 'canonical-wallet-session',
           thresholdSessionAuthToken: 'jwt-canonical',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 3,
@@ -174,7 +175,8 @@ test.describe('threshold Ed25519 threshold-session state', () => {
           return {
             sessionKind: resolved.sessionKind,
             thresholdSessionAuthToken: resolved.thresholdSessionAuthToken || null,
-            thresholdSessionId: resolved.record.thresholdSessionId,
+            thresholdSessionId: resolved.thresholdSessionId,
+            walletSigningSessionId: resolved.walletSigningSessionId,
             xClientBaseB64u: resolved.xClientBaseB64u || null,
             relayerUrl: resolved.relayerUrl,
           };
@@ -189,6 +191,7 @@ test.describe('threshold Ed25519 threshold-session state', () => {
       sessionKind: 'jwt',
       thresholdSessionAuthToken: 'jwt-canonical',
       thresholdSessionId: 'canonical-threshold-session',
+      walletSigningSessionId: 'canonical-wallet-session',
       xClientBaseB64u: 'x-client-base',
       relayerUrl: 'https://relay.example',
     });
@@ -218,6 +221,7 @@ test.describe('threshold Ed25519 threshold-session state', () => {
           participantIds: [1, 2],
           thresholdSessionKind: 'jwt',
           thresholdSessionId: 'shared-session-id',
+          walletSigningSessionId: 'shared-wallet-session',
           thresholdSessionAuthToken: 'jwt-ed25519',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 3,
@@ -227,11 +231,17 @@ test.describe('threshold Ed25519 threshold-session state', () => {
 
         storeMod.upsertThresholdEcdsaSessionFromBootstrap(ecdsaStoreDeps, {
           nearAccountId: 'alice.testnet',
-          chain: 'evm',
+          chainTarget: {
+            kind: 'evm',
+            namespace: 'eip155',
+            chainId: 5042002,
+            networkSlug: 'arc-testnet',
+          },
           bootstrap: {
             thresholdEcdsaKeyRef: {
               type: 'threshold-ecdsa-secp256k1',
               userId: 'alice.testnet',
+              subjectId: 'alice.testnet',
               relayerUrl: 'https://relay.example',
               ecdsaThresholdKeyId: 'ecdsa-key-id',
               signingRootId: 'proj-a:env-a',
@@ -243,6 +253,7 @@ test.describe('threshold Ed25519 threshold-session state', () => {
               participantIds: [1, 2],
               thresholdSessionKind: 'jwt',
               thresholdSessionId: 'shared-session-id',
+              walletSigningSessionId: 'shared-wallet-session',
               thresholdSessionAuthToken: 'jwt-ecdsa',
             } as any,
             keygen: {
@@ -255,6 +266,7 @@ test.describe('threshold Ed25519 threshold-session state', () => {
             session: {
               ok: true,
               sessionId: 'shared-session-id',
+              walletSigningSessionId: 'shared-wallet-session',
               jwt: 'jwt-ecdsa',
               expiresAtMs: Date.now() + 60_000,
               remainingUses: 3,
@@ -278,9 +290,9 @@ test.describe('threshold Ed25519 threshold-session state', () => {
           return {
             directEd25519RelayerKeyId: String(directEd25519?.relayerKeyId || ''),
             directScopedRelayerKeyId: String(directScoped?.relayerKeyId || ''),
-            relayerKeyId: resolved.record.relayerKeyId,
             thresholdSessionAuthToken: resolved.thresholdSessionAuthToken || null,
-            thresholdSessionId: resolved.record.thresholdSessionId,
+            thresholdSessionId: resolved.thresholdSessionId,
+            walletSigningSessionId: resolved.walletSigningSessionId,
           };
         } finally {
           storeMod.clearAllStoredThresholdEd25519SessionRecords();
@@ -293,9 +305,9 @@ test.describe('threshold Ed25519 threshold-session state', () => {
     expect(result).toEqual({
       directEd25519RelayerKeyId: 'rk-ed25519',
       directScopedRelayerKeyId: 'rk-ed25519',
-      relayerKeyId: 'rk-ed25519',
       thresholdSessionAuthToken: 'jwt-ed25519',
       thresholdSessionId: 'shared-session-id',
+      walletSigningSessionId: 'shared-wallet-session',
     });
   });
 
@@ -315,6 +327,7 @@ test.describe('threshold Ed25519 threshold-session state', () => {
           xClientBaseB64u: 'x-client-base',
           thresholdSessionKind: 'jwt',
           thresholdSessionId: 'stale-threshold-session',
+          walletSigningSessionId: 'stale-wallet-session',
           thresholdSessionAuthToken: 'jwt-stale',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 3,
@@ -378,7 +391,7 @@ test.describe('threshold Ed25519 threshold-session state', () => {
 
     expect(result).toEqual([
       'Invalid threshold session record: stale runtimePolicyScope',
-      'stale-record-invalid:invalid_shape',
+      'stale-record-dropped',
     ]);
   });
 
@@ -398,6 +411,7 @@ test.describe('threshold Ed25519 threshold-session state', () => {
           xClientBaseB64u: 'x-client-base',
           thresholdSessionKind: 'jwt',
           thresholdSessionId,
+          walletSigningSessionId: `wallet-${thresholdSessionId}`,
           thresholdSessionAuthToken: `jwt-${thresholdSessionId}`,
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 3,
@@ -525,13 +539,13 @@ test.describe('threshold Ed25519 threshold-session state', () => {
     );
 
     expect(result).toEqual([
-      'missing-remainingUses:invalid:invalid_shape',
-      'negative-remainingUses:invalid:invalid_shape',
-      'missing-expiresAtMs:invalid:invalid_shape',
-      'invalid-expiresAtMs:invalid:invalid_shape',
-      'missing-jwt-for-jwt-session:invalid:invalid_shape',
-      'missing-email-otp-context:invalid:invalid_shape',
-      'invalid-email-otp-retention:invalid:invalid_shape',
+      'missing-remainingUses:rejected',
+      'negative-remainingUses:rejected',
+      'missing-expiresAtMs:rejected',
+      'invalid-expiresAtMs:rejected',
+      'missing-jwt-for-jwt-session:rejected',
+      'missing-email-otp-context:rejected',
+      'invalid-email-otp-retention:rejected',
       'cookie-without-jwt:accepted',
     ]);
   });

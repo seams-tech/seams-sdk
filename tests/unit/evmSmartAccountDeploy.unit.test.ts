@@ -5,7 +5,7 @@ import type { SmartAccountDeployRequest } from '../../server/src/router/relay';
 
 function makeBaseRequest(): SmartAccountDeployRequest {
   return {
-    nearAccountId: 'alice.testnet',
+    walletId: 'alice.testnet',
     chainTarget: smartAccountChainTargetFromParts({
       chain: 'evm',
       chainId: 11155111,

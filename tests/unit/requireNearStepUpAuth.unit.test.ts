@@ -4,6 +4,7 @@ import {
   buildEd25519EmailOtpSigningLane,
   buildEd25519PasskeySigningLane,
 } from '../../client/src/core/signingEngine/session/operationState/lanes';
+import { SigningSessionIds } from '../../client/src/core/signingEngine/session/operationState/types';
 import { SigningAuthPlanKind } from '../../client/src/core/signingEngine/stepUpConfirmation/types';
 
 test.describe('requireNearStepUpAuth', () => {
@@ -19,8 +20,8 @@ test.describe('requireNearStepUpAuth', () => {
     };
     const signingLane = buildEd25519PasskeySigningLane({
       accountId: 'alice.testnet',
-      walletSigningSessionId: 'wallet-session-warm',
-      thresholdSessionId: 'threshold-session-warm',
+      walletSigningSessionId: SigningSessionIds.walletSigningSession('wallet-session-warm'),
+      thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-warm'),
       storageSource: 'login',
     });
 
@@ -45,8 +46,8 @@ test.describe('requireNearStepUpAuth', () => {
     };
     const signingLane = buildEd25519EmailOtpSigningLane({
       accountId: 'alice.testnet',
-      walletSigningSessionId: 'wallet-session-email',
-      thresholdSessionId: 'threshold-session-email',
+      walletSigningSessionId: SigningSessionIds.walletSigningSession('wallet-session-email'),
+      thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-email'),
     });
 
     const prepared = await requireNearStepUpAuth({
@@ -74,8 +75,8 @@ test.describe('requireNearStepUpAuth', () => {
     };
     const signingLane = buildEd25519PasskeySigningLane({
       accountId: 'alice.testnet',
-      walletSigningSessionId: 'wallet-session-passkey',
-      thresholdSessionId: 'threshold-session-passkey',
+      walletSigningSessionId: SigningSessionIds.walletSigningSession('wallet-session-passkey'),
+      thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-passkey'),
       storageSource: 'login',
     });
 

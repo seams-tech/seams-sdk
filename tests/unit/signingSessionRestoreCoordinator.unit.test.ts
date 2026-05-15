@@ -3,7 +3,7 @@ import type { SigningSessionSealedStoreRecord } from '../../client/src/core/sign
 import type { SealedRecoveryRecord } from '../../client/src/core/signingEngine/session/sealedRecovery/recoveryRecord';
 import {
   createSigningSessionRestoreCache,
-  restorePersistedSessionsForAccountCommand,
+  restorePersistedSessionsForWalletCommand,
   restorePersistedSessionForSigningCommand,
 } from '../../client/src/core/signingEngine/session/sealedRecovery/restoreCoordinator';
 
@@ -68,8 +68,10 @@ function makeSealedRecord(args: {
             sessionKind: 'jwt' as const,
             thresholdSessionAuthToken: 'jwt-restore',
             ecdsaThresholdKeyId: 'ecdsa-key-restore',
+            ethereumAddress: `0x${'33'.repeat(20)}`,
             relayerKeyId: 'relayer-key-restore',
             clientVerifyingShareB64u: 'client-verifying-share-restore',
+            thresholdEcdsaPublicKeyB64u: 'threshold-public-key-restore',
             participantIds: [1, 2],
           },
         }
@@ -107,11 +109,11 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
       },
       {
         cache,
-        listExactSealedSessionsForAccount: async () => {
+        listExactSealedSessionsForWallet: async () => {
           listCalls += 1;
           return [];
         },
-        restoreSealedRecordForAccount: async () => 'restored',
+        restoreSealedRecordForWallet: async () => 'restored',
       },
     );
     await restorePersistedSessionForSigningCommand(
@@ -126,11 +128,11 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
       },
       {
         cache,
-        listExactSealedSessionsForAccount: async () => {
+        listExactSealedSessionsForWallet: async () => {
           listCalls += 1;
           return [];
         },
-        restoreSealedRecordForAccount: async () => 'restored',
+        restoreSealedRecordForWallet: async () => 'restored',
       },
     );
 
@@ -143,11 +145,11 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
 
     const ports = {
       cache,
-      listExactSealedSessionsForAccount: async () => {
+      listExactSealedSessionsForWallet: async () => {
         listCalls += 1;
         throw new Error('indexeddb temporarily unavailable');
       },
-      restoreSealedRecordForAccount: async () => 'restored' as const,
+      restoreSealedRecordForWallet: async () => 'restored' as const,
     };
 
     await restorePersistedSessionForSigningCommand(
@@ -194,11 +196,11 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
     };
     const ports = {
       cache,
-      listExactSealedSessionsForAccount: async () => {
+      listExactSealedSessionsForWallet: async () => {
         listCalls += 1;
         return [makeSealedRecord({ chain: 'evm', thresholdSessionId: 'tsess-wrong-chain' })];
       },
-      restoreSealedRecordForAccount: async () => {
+      restoreSealedRecordForWallet: async () => {
         restoreCalls += 1;
         return 'restored' as const;
       },
@@ -227,11 +229,11 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
       },
       {
         cache,
-        listExactSealedSessionsForAccount: async () => [
+        listExactSealedSessionsForWallet: async () => [
           makeSealedRecord({ expiresAtMs: Date.now() - 1 }),
           makeSealedRecord({ remainingUses: 0, updatedAtMs: 2 }),
         ],
-        restoreSealedRecordForAccount: async () => {
+        restoreSealedRecordForWallet: async () => {
           restoreCalls += 1;
           return 'restored';
         },
@@ -256,7 +258,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
         reason: 'transaction',
       },
       {
-        listExactSealedSessionsForAccount: async () => [
+        listExactSealedSessionsForWallet: async () => [
           {
             ...makeSealedRecord({ curve: 'ed25519' }),
             ed25519Restore: {
@@ -268,7 +270,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
             },
           },
         ],
-        restoreSealedRecordForAccount: async () => 'restored',
+        restoreSealedRecordForWallet: async () => 'restored',
         onRejectedRecord: ({ rejection }) => {
           rejections.push(rejection.reason);
         },
@@ -293,14 +295,14 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
         reason: 'transaction',
       },
       {
-        listExactSealedSessionsForAccount: async () => [
+        listExactSealedSessionsForWallet: async () => [
           makeSealedRecord({
             authMethod: 'passkey',
             expiresAtMs: Date.now() + 60_000,
             remainingUses: 0,
           }),
         ],
-        restoreSealedRecordForAccount: async () => {
+        restoreSealedRecordForWallet: async () => {
           restoreCalls += 1;
           return 'restored';
         },
@@ -326,8 +328,8 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
     };
     const ports = {
       cache,
-      listExactSealedSessionsForAccount: async () => [record],
-      restoreSealedRecordForAccount: async () => {
+      listExactSealedSessionsForWallet: async () => [record],
+      restoreSealedRecordForWallet: async () => {
         restoreCalls += 1;
         return 'restored' as const;
       },
@@ -357,16 +359,16 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
 
     await restorePersistedSessionForSigningCommand(input, {
       cache,
-      listExactSealedSessionsForAccount: async () => [makeSealedRecord({})],
-      restoreSealedRecordForAccount: async () => {
+      listExactSealedSessionsForWallet: async () => [makeSealedRecord({})],
+      restoreSealedRecordForWallet: async () => {
         restoreCalls += 1;
         return 'deferred';
       },
     });
     await restorePersistedSessionForSigningCommand(input, {
       cache,
-      listExactSealedSessionsForAccount: async () => [makeSealedRecord({})],
-      restoreSealedRecordForAccount: async () => {
+      listExactSealedSessionsForWallet: async () => [makeSealedRecord({})],
+      restoreSealedRecordForWallet: async () => {
         restoreCalls += 1;
         return 'deferred';
       },
@@ -396,8 +398,10 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
         sessionKind: 'jwt',
         thresholdSessionAuthToken: 'jwt-restore',
         ecdsaThresholdKeyId: 'ecdsa-key-restore',
+        ethereumAddress: `0x${'33'.repeat(20)}`,
         relayerKeyId: 'relayer-key-restore',
         clientVerifyingShareB64u: 'client-verifying-share-restore',
+        thresholdEcdsaPublicKeyB64u: 'threshold-public-key-restore',
         participantIds: [1, 2],
       },
     };
@@ -413,9 +417,9 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
         reason: 'transaction',
       },
       {
-        listExactSealedSessionsForAccount: async ({ curve }) =>
+        listExactSealedSessionsForWallet: async ({ curve }) =>
           curve === 'ed25519' ? [companionRecord] : [],
-        restoreSealedRecordForAccount: async ({ record }) => {
+        restoreSealedRecordForWallet: async ({ record }) => {
           restoreCalls += 1;
           restoredRecord = record;
           return 'restored';
@@ -454,8 +458,10 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
         sessionKind: 'jwt',
         thresholdSessionAuthToken: 'jwt-restore',
         ecdsaThresholdKeyId: 'ecdsa-key-restore',
+        ethereumAddress: `0x${'33'.repeat(20)}`,
         relayerKeyId: 'relayer-key-restore',
         clientVerifyingShareB64u: 'client-verifying-share-restore',
+        thresholdEcdsaPublicKeyB64u: 'threshold-public-key-restore',
         participantIds: [1, 2],
       },
     };
@@ -472,9 +478,9 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
         reason: 'transaction',
       },
       {
-        listExactSealedSessionsForAccount: async (filter) =>
+        listExactSealedSessionsForWallet: async (filter) =>
           filter.curve === 'ed25519' ? [companionRecord] : [],
-        restoreSealedRecordForAccount: async ({ purpose }) => {
+        restoreSealedRecordForWallet: async ({ purpose }) => {
           restoredPurposes.push(purpose);
           return 'restored';
         },
@@ -496,7 +502,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
   });
 });
 
-test.describe('restorePersistedSessionsForAccountCommand', () => {
+test.describe('restorePersistedSessionsForWalletCommand', () => {
   test('bounds account-wide restore across exact ECDSA chain identities', async () => {
     const records = [
       makeSealedRecord({ chain: 'tempo', thresholdSessionId: 'tsess-1' }),
@@ -508,7 +514,7 @@ test.describe('restorePersistedSessionsForAccountCommand', () => {
     ];
     let restoreCalls = 0;
 
-    const result = await restorePersistedSessionsForAccountCommand(
+    const result = await restorePersistedSessionsForWalletCommand(
       {
         walletId: 'restore.testnet',
         ecdsaChainTargets: TEST_ECDSA_CHAIN_TARGET_LIST,
@@ -516,7 +522,7 @@ test.describe('restorePersistedSessionsForAccountCommand', () => {
         maxRecords: 2,
       },
       {
-        listExactSealedSessionsForAccount: async (filter) =>
+        listExactSealedSessionsForWallet: async (filter) =>
           records.filter((record) => {
             if (record.authMethod !== filter.authMethod) return false;
             if (record.curve !== filter.curve) return false;
@@ -525,7 +531,7 @@ test.describe('restorePersistedSessionsForAccountCommand', () => {
             }
             return true;
           }),
-        restoreSealedRecordForAccount: async () => {
+        restoreSealedRecordForWallet: async () => {
           restoreCalls += 1;
           return 'restored';
         },
@@ -555,18 +561,18 @@ test.describe('restorePersistedSessionsForAccountCommand', () => {
     };
     const ports = {
       cache,
-      listExactSealedSessionsForAccount: async (filter: any) =>
+      listExactSealedSessionsForWallet: async (filter: any) =>
         filter.curve === 'ecdsa' && filter.chainTarget?.kind === 'tempo'
           ? [makeSealedRecord({ chain: 'tempo' })]
           : [],
-      restoreSealedRecordForAccount: async () => {
+      restoreSealedRecordForWallet: async () => {
         restoreCalls += 1;
         return 'restored' as const;
       },
     };
 
-    await restorePersistedSessionsForAccountCommand(input, ports);
-    await restorePersistedSessionsForAccountCommand(input, ports);
+    await restorePersistedSessionsForWalletCommand(input, ports);
+    await restorePersistedSessionsForWalletCommand(input, ports);
 
     expect(restoreCalls).toBe(1);
   });
@@ -599,7 +605,7 @@ test.describe('restorePersistedSessionsForAccountCommand', () => {
       thresholdSessionId?: string;
     }> = [];
 
-    const result = await restorePersistedSessionsForAccountCommand(
+    const result = await restorePersistedSessionsForWalletCommand(
       {
         walletId: 'restore.testnet',
         ecdsaChainTargets: TEST_ECDSA_CHAIN_TARGET_LIST,
@@ -607,7 +613,7 @@ test.describe('restorePersistedSessionsForAccountCommand', () => {
         maxRecords: 10,
       },
       {
-        listExactSealedSessionsForAccount: async (filter) =>
+        listExactSealedSessionsForWallet: async (filter) =>
           records.filter((record) => {
             if (record.authMethod !== filter.authMethod) return false;
             if (record.curve !== filter.curve) return false;
@@ -616,7 +622,7 @@ test.describe('restorePersistedSessionsForAccountCommand', () => {
             }
             return true;
           }),
-        restoreSealedRecordForAccount: async ({ record }) => {
+        restoreSealedRecordForWallet: async ({ record }) => {
           restored.push({
             authMethod: record.authMethod,
             curve: record.curve,
@@ -674,14 +680,16 @@ test.describe('restorePersistedSessionsForAccountCommand', () => {
         sessionKind: 'jwt',
         thresholdSessionAuthToken: 'jwt-restore',
         ecdsaThresholdKeyId: 'ecdsa-key-restore',
+        ethereumAddress: `0x${'33'.repeat(20)}`,
         relayerKeyId: 'relayer-key-restore',
         clientVerifyingShareB64u: 'client-verifying-share-restore',
+        thresholdEcdsaPublicKeyB64u: 'threshold-public-key-restore',
         participantIds: [1, 2],
       },
     };
     const restoredPurposes: unknown[] = [];
 
-    const result = await restorePersistedSessionsForAccountCommand(
+    const result = await restorePersistedSessionsForWalletCommand(
       {
         walletId: 'restore.testnet',
         ecdsaChainTargets: TEST_ECDSA_CHAIN_TARGET_LIST,
@@ -689,14 +697,14 @@ test.describe('restorePersistedSessionsForAccountCommand', () => {
         maxRecords: 10,
       },
       {
-        listExactSealedSessionsForAccount: async (filter) => {
+        listExactSealedSessionsForWallet: async (filter) => {
           if (filter.curve === 'ed25519') return [companionRecord];
           if (filter.curve === 'ecdsa' && filter.chainTarget.kind === 'tempo') {
             return [companionRecord];
           }
           return [];
         },
-        restoreSealedRecordForAccount: async ({ purpose }) => {
+        restoreSealedRecordForWallet: async ({ purpose }) => {
           restoredPurposes.push(purpose);
           return 'restored';
         },

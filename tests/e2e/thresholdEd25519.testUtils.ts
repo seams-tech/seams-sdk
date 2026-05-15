@@ -449,7 +449,7 @@ export async function installCreateAccountAndRegisterUserMock(
     };
     threshold?: {
       bootstrapEcdsaFromRegistrationMaterial?: (request: {
-        userId: string;
+        walletSessionUserId: string;
         rpId: string;
         clientRootShare32B64u: string;
         sessionPolicy: Record<string, unknown>;
@@ -552,12 +552,12 @@ export async function installCreateAccountAndRegisterUserMock(
       input.threshold?.bootstrapEcdsaFromRegistrationMaterial &&
       ecdsaSessionPolicy
         ? await input.threshold.bootstrapEcdsaFromRegistrationMaterial({
-            userId: accountId,
+            walletSessionUserId: accountId,
             rpId: String(payload?.rp_id || '').trim() || 'example.localhost',
             clientRootShare32B64u: thresholdEcdsaClientRootShare32B64u,
             sessionPolicy: {
               version: 'threshold_session_v1',
-              userId: accountId,
+              walletSessionUserId: accountId,
               rpId: String(payload?.rp_id || '').trim() || 'example.localhost',
               sessionId: String(
                 ecdsaSessionPolicy?.sessionId ||

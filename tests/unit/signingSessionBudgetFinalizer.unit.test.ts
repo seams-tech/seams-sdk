@@ -36,7 +36,7 @@ function makeSpend(): WalletSigningSpendPlan {
   return {
     operationId: SigningSessionIds.signingOperation('operation-1'),
     operationFingerprint: SigningSessionIds.signingOperationFingerprint('fingerprint-1'),
-    nearAccountId: lane.accountId,
+    walletId: lane.accountId,
     walletSigningSessionId: lane.walletSigningSessionId,
     lane,
     thresholdSessionIds: [lane.thresholdSessionId],
@@ -212,7 +212,7 @@ test.describe('budget coordinator reserved success handling', () => {
           kind: 'externally_consumed_success',
           spend: {
             operationId: SigningSessionIds.signingOperation('observation-only'),
-            nearAccountId: toAccountId(String(args.nearAccountId)),
+            walletId: toAccountId(String(args.walletId)),
             walletSigningSessionId: SigningSessionIds.walletSigningSession(
               args.walletSigningSessionId,
             ),

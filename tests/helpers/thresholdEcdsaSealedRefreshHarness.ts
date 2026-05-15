@@ -98,7 +98,7 @@ async function installThresholdRegistrationBootstrapMock(
 ): Promise<void> {
   const threshold = input.threshold as {
     bootstrapEcdsaFromRegistrationMaterial?: (request: {
-      userId: string;
+      walletSessionUserId: string;
       rpId: string;
       clientRootShare32B64u: string;
       sessionPolicy: Record<string, unknown>;
@@ -251,12 +251,12 @@ async function installThresholdRegistrationBootstrapMock(
       const participantIds = asParticipantIds(policy?.participantIds, [1, 2]);
       const runtimePolicyScope = resolveRuntimePolicyScope(policy);
       const bootstrap = (await bootstrapEcdsaFromRegistrationMaterial({
-        userId: accountId,
+        walletSessionUserId: accountId,
         rpId,
         clientRootShare32B64u: thresholdEcdsaClientRootShare32B64u,
         sessionPolicy: {
           version: 'threshold_session_v1',
-          userId: accountId,
+          walletSessionUserId: accountId,
           rpId,
           sessionId,
           ttlMs,
@@ -404,7 +404,9 @@ async function installThresholdRegistrationFinalizeRelayKeyMaterialCapture(
   );
 }
 
-export async function setupThresholdEcdsaSealedRefreshHarness(page: Page): Promise<SealedRefreshHarness> {
+export async function setupThresholdEcdsaSealedRefreshHarness(
+  page: Page,
+): Promise<SealedRefreshHarness> {
   const keysOnChain = new Set<string>();
   const nonceByPublicKey = new Map<string, number>();
   const accountsOnChain = new Set<string>(
@@ -775,7 +777,11 @@ export async function runPasskeySigningSessionLifecyclePhase(
             stage = 'bootstrap_ecdsa';
             const bootstrap = await seams.tempo.bootstrapEcdsaSession({
               kind: 'reuse_warm_ecdsa_bootstrap',
-              nearAccountId: accountId,
+              walletSession: {
+                walletId: accountId,
+                walletSessionUserId: accountId,
+              },
+              subjectId: accountId,
               chainTarget: {
                 kind: 'tempo',
                 chainId: 42431,
@@ -806,7 +812,7 @@ export async function runPasskeySigningSessionLifecyclePhase(
             .join('');
           if (curve === 'ed25519') {
             const signed = await seams.near.executeAction({
-              nearAccountId: accountId,
+              nearAccount: { accountId },
               receiverId: 'w3a-v1.testnet',
               actionArgs: {
                 type: ActionType.FunctionCall,
@@ -827,7 +833,16 @@ export async function runPasskeySigningSessionLifecyclePhase(
           }
 
           const signed = await seams.tempo.signTempo({
-            nearAccountId: accountId,
+            walletSession: {
+              walletId: accountId,
+              walletSessionUserId: accountId,
+            },
+            subjectId: accountId,
+            chainTarget: {
+              kind: 'tempo',
+              chainId: 42431,
+              networkSlug: 'tempo-moderato',
+            },
             request: {
               chain: 'tempo' as const,
               kind: 'tempoTransaction' as const,

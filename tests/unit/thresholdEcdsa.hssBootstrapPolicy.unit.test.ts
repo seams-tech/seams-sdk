@@ -29,6 +29,14 @@ const TEST_ECDSA_CHAIN_TARGET = {
   chainId: 11155111,
   networkSlug: 'sepolia',
 } as const;
+const TEST_TEMPO_CHAIN_TARGET = {
+  kind: 'tempo',
+  chainId: 42431,
+  networkSlug: 'tempo-testnet',
+} as const;
+type TestThresholdEcdsaChainTarget =
+  | typeof TEST_ECDSA_CHAIN_TARGET
+  | typeof TEST_TEMPO_CHAIN_TARGET;
 const HSS_CLIENT_SIGNER_WASM_URL = new URL(
   '../../wasm/hss_client_signer/pkg/hss_client_signer_bg.wasm',
   import.meta.url,
@@ -75,18 +83,40 @@ function clientVerifyingShareB64uFromRootShare(clientRootShare32B64u: string): s
   return Buffer.from(publicKey33).toString('base64url');
 }
 
+function thresholdEcdsaHssChainTargetString(target: TestThresholdEcdsaChainTarget): string {
+  return target.kind === 'evm' ? `evm:eip155:${target.chainId}` : `tempo:${target.chainId}`;
+}
+
 async function createHiddenEvalBootstrapMessages(args: {
   ceremonyId: string;
   preparedServerSessionB64u: string;
   serverAssistInitB64u: string;
   clientRootShare32B64u: string;
-  nearAccountId: string;
+  hssContext: {
+    walletSessionUserId: string;
+    subjectId: string;
+    chainTarget: string | TestThresholdEcdsaChainTarget;
+    ecdsaThresholdKeyId: string;
+    signingRootId: string;
+    signingRootVersion: string;
+    keyPurpose: string;
+    keyVersion: string;
+  };
 }): Promise<{ requestMessageB64u: string; createFinalizeMessage(responseMessageB64u: string): Promise<string> }> {
   ensureHssClientSignerWasm();
+  const chainTarget =
+    typeof args.hssContext.chainTarget === 'string'
+      ? args.hssContext.chainTarget
+      : thresholdEcdsaHssChainTargetString(args.hssContext.chainTarget);
   const preparedClientSession = threshold_ecdsa_hss_prepare_session({
-    nearAccountId: args.nearAccountId,
-    keyPurpose: 'evm-signing',
-    keyVersion: 'v1',
+    walletSessionUserId: args.hssContext.walletSessionUserId,
+    subjectId: args.hssContext.subjectId,
+    chainTarget,
+    ecdsaThresholdKeyId: args.hssContext.ecdsaThresholdKeyId,
+    signingRootId: args.hssContext.signingRootId,
+    signingRootVersion: args.hssContext.signingRootVersion,
+    keyPurpose: args.hssContext.keyPurpose,
+    keyVersion: args.hssContext.keyVersion,
     clientRootShare32B64u: args.clientRootShare32B64u,
   }) as { evaluatorDriverStateB64u: string };
   const clientRequest = threshold_ecdsa_hss_prepare_client_request({
@@ -132,7 +162,13 @@ async function registerThresholdEcdsaKey(args: {
   keygenSessionId: string;
   bootstrapSessionId: string;
   clientRootShare32B64u: string;
-}): Promise<{ ecdsaThresholdKeyId: string; clientVerifyingShareB64u: string }> {
+  chainTarget?: typeof TEST_ECDSA_CHAIN_TARGET | typeof TEST_TEMPO_CHAIN_TARGET;
+}): Promise<{
+  ecdsaThresholdKeyId: string;
+  clientVerifyingShareB64u: string;
+  ethereumAddress: string;
+}> {
+  const chainTarget = args.chainTarget || TEST_ECDSA_CHAIN_TARGET;
   const prepare = await args.svc.ecdsaHss.prepare({
     walletSessionUserId: args.userId,
     rpId: args.rpId,
@@ -141,11 +177,12 @@ async function registerThresholdEcdsaKey(args: {
     webauthn_authentication: fakeWebAuthnAuthentication() as any,
     sessionPolicy: {
       version: 'threshold_session_v1',
-      userId: args.userId,
+      walletSessionUserId: args.userId,
       subjectId: args.userId,
       rpId: args.rpId,
-      chainTarget: TEST_ECDSA_CHAIN_TARGET,
+      chainTarget,
       sessionId: args.bootstrapSessionId,
+      walletSigningSessionId: `${args.bootstrapSessionId}:wallet-signing`,
       runtimePolicyScope: TEST_RUNTIME_SCOPE,
       ttlMs: 60_000,
       remainingUses: 3,
@@ -160,7 +197,7 @@ async function registerThresholdEcdsaKey(args: {
     preparedServerSessionB64u: String(prepare.preparedServerSessionB64u || ''),
     serverAssistInitB64u: String(prepare.serverAssistInitB64u || ''),
     clientRootShare32B64u: args.clientRootShare32B64u,
-    nearAccountId: args.userId,
+    hssContext: prepare.hssContext!,
   });
 
   const respond = await args.svc.ecdsaHss.respond({
@@ -175,13 +212,16 @@ async function registerThresholdEcdsaKey(args: {
       String(respond.responseMessageB64u || ''),
     ),
   });
+  if (!finalize.ok) throw new Error(JSON.stringify(finalize));
   expect(finalize.ok).toBe(true);
 
   const ecdsaThresholdKeyId = String(finalize.ecdsaThresholdKeyId || '');
   expect(ecdsaThresholdKeyId).toBeTruthy();
   const clientVerifyingShareB64u = String(finalize.clientVerifyingShareB64u || '');
   expect(clientVerifyingShareB64u).toBeTruthy();
-  return { ecdsaThresholdKeyId, clientVerifyingShareB64u };
+  const ethereumAddress = String(finalize.ethereumAddress || '').trim();
+  expect(ethereumAddress).toMatch(/^0x[0-9a-f]{40}$/);
+  return { ecdsaThresholdKeyId, clientVerifyingShareB64u, ethereumAddress };
 }
 
 test.describe('threshold-ecdsa hss bootstrap policy', () => {
@@ -195,11 +235,12 @@ test.describe('threshold-ecdsa hss bootstrap policy', () => {
       keygenSessionId: 'ecdsa-keygen-1',
       sessionPolicy: {
         version: 'threshold_session_v1',
-        userId: 'alice.near',
+        walletSessionUserId: 'alice.near',
         subjectId: 'alice.near',
         rpId: 'wallet.example.test',
         chainTarget: TEST_ECDSA_CHAIN_TARGET,
         sessionId: 'ecdsa-session-1',
+        walletSigningSessionId: 'wallet-signing-session-1',
         runtimePolicyScope: TEST_RUNTIME_SCOPE,
         ttlMs: 60_000,
         remainingUses: 3,
@@ -209,6 +250,7 @@ test.describe('threshold-ecdsa hss bootstrap policy', () => {
     expect(missingWebauthn.ok).toBe(false);
     expect(missingWebauthn.message).toContain('webauthn_authentication');
 
+    // @ts-expect-error Boundary validation test intentionally omits keygenSessionId.
     const missingKeygenSession = await svc.ecdsaHss.prepare({
       walletSessionUserId: 'alice.near',
       rpId: 'wallet.example.test',
@@ -216,11 +258,12 @@ test.describe('threshold-ecdsa hss bootstrap policy', () => {
       webauthn_authentication: fakeWebAuthnAuthentication() as any,
       sessionPolicy: {
         version: 'threshold_session_v1',
-        userId: 'alice.near',
+        walletSessionUserId: 'alice.near',
         subjectId: 'alice.near',
         rpId: 'wallet.example.test',
         chainTarget: TEST_ECDSA_CHAIN_TARGET,
         sessionId: 'ecdsa-session-1',
+        walletSigningSessionId: 'wallet-signing-session-1',
         runtimePolicyScope: TEST_RUNTIME_SCOPE,
         ttlMs: 60_000,
         remainingUses: 3,
@@ -238,15 +281,17 @@ test.describe('threshold-ecdsa hss bootstrap policy', () => {
       walletSessionUserId: 'alice.near',
       rpId: 'wallet.example.test',
       operation: 'session_bootstrap',
+      keygenSessionId: 'keygen-missing-auth',
       ecdsaThresholdKeyId: 'ecdsa-key-missing-auth',
       sessionPolicy: {
         version: 'threshold_session_v1',
-        userId: 'alice.near',
+        walletSessionUserId: 'alice.near',
         subjectId: 'alice.near',
         rpId: 'wallet.example.test',
         chainTarget: TEST_ECDSA_CHAIN_TARGET,
         ecdsaThresholdKeyId: 'ecdsa-key-missing-auth',
         sessionId: 'ecdsa-session-2',
+        walletSigningSessionId: 'wallet-signing-session-2',
         runtimePolicyScope: TEST_RUNTIME_SCOPE,
         ttlMs: 60_000,
         remainingUses: 3,
@@ -260,10 +305,12 @@ test.describe('threshold-ecdsa hss bootstrap policy', () => {
   test('session_bootstrap app-session path requires explicit ecdsaThresholdKeyId', async () => {
     const { svc } = createThresholdSigningServiceForUnitTests({});
 
+    // @ts-expect-error Boundary validation test intentionally omits ecdsaThresholdKeyId.
     const rejected = await svc.ecdsaHss.prepare({
       walletSessionUserId: 'alice.near',
       rpId: 'wallet.example.test',
       operation: 'session_bootstrap',
+      keygenSessionId: 'keygen-app-missing-key',
       appSessionClaims: {
         kind: 'app_session_v1',
         sub: 'alice.near',
@@ -271,11 +318,12 @@ test.describe('threshold-ecdsa hss bootstrap policy', () => {
       },
       sessionPolicy: {
         version: 'threshold_session_v1',
-        userId: 'alice.near',
+        walletSessionUserId: 'alice.near',
         subjectId: 'alice.near',
         rpId: 'wallet.example.test',
         chainTarget: TEST_ECDSA_CHAIN_TARGET,
         sessionId: 'ecdsa-session-app-missing-key',
+        walletSigningSessionId: 'wallet-signing-session-app-missing-key',
         runtimePolicyScope: TEST_RUNTIME_SCOPE,
         ttlMs: 60_000,
         remainingUses: 3,
@@ -285,6 +333,201 @@ test.describe('threshold-ecdsa hss bootstrap policy', () => {
     expect(rejected.ok).toBe(false);
     expect(rejected.code).toBe('invalid_body');
     expect(rejected.message).toContain('ecdsaThresholdKeyId');
+  });
+
+  test('session_bootstrap accepts the same ECDSA key id across EVM-family targets', async () => {
+    const { svc } = createThresholdSigningServiceForUnitTests({});
+    const userId = 'alice-target-mismatch.near';
+    const rpId = 'wallet.example.test';
+    const participantIds = [1, 2];
+    const clientRootShare32B64u = Buffer.from(new Uint8Array(32).fill(31)).toString('base64url');
+    const registered = await registerThresholdEcdsaKey({
+      svc,
+      userId,
+      rpId,
+      participantIds,
+      keygenSessionId: 'ecdsa-keygen-tempo-key',
+      bootstrapSessionId: 'ecdsa-session-tempo-key',
+      clientRootShare32B64u,
+      chainTarget: TEST_TEMPO_CHAIN_TARGET,
+    });
+
+    const prepare = await svc.ecdsaHss.prepare({
+      walletSessionUserId: userId,
+      rpId,
+      operation: 'session_bootstrap',
+      keygenSessionId: 'ecdsa-keygen-evm-with-tempo-key',
+      ecdsaThresholdKeyId: registered.ecdsaThresholdKeyId,
+      appSessionClaims: {
+        kind: 'app_session_v1',
+        sub: userId,
+        walletId: userId,
+        appSessionVersion: 'app-session-v1',
+      },
+      sessionPolicy: {
+        version: 'threshold_session_v1',
+        walletSessionUserId: userId,
+        subjectId: userId,
+        rpId,
+        chainTarget: TEST_ECDSA_CHAIN_TARGET,
+        ecdsaThresholdKeyId: registered.ecdsaThresholdKeyId,
+        sessionId: 'ecdsa-session-evm-with-tempo-key',
+        walletSigningSessionId: 'wallet-signing-evm-with-tempo-key',
+        runtimePolicyScope: TEST_RUNTIME_SCOPE,
+        ttlMs: 60_000,
+        remainingUses: 3,
+        participantIds,
+      },
+    });
+
+    expect(prepare, JSON.stringify(prepare)).toMatchObject({ ok: true });
+    expect(String(prepare.ceremonyId || '')).toBeTruthy();
+    expect(prepare.hssContext?.ecdsaThresholdKeyId).toBe(registered.ecdsaThresholdKeyId);
+    expect(prepare.hssContext?.chainTarget).toEqual(TEST_ECDSA_CHAIN_TARGET);
+
+    const staged = await createHiddenEvalBootstrapMessages({
+      ceremonyId: String(prepare.ceremonyId || ''),
+      preparedServerSessionB64u: String(prepare.preparedServerSessionB64u || ''),
+      serverAssistInitB64u: String(prepare.serverAssistInitB64u || ''),
+      clientRootShare32B64u,
+      hssContext: prepare.hssContext!,
+    });
+    const respond = await svc.ecdsaHss.respond({
+      ceremonyId: String(prepare.ceremonyId || ''),
+      requestMessageB64u: staged.requestMessageB64u,
+    });
+    expect(respond.ok).toBe(true);
+    const finalize = await svc.ecdsaHss.finalize({
+      ceremonyId: String(prepare.ceremonyId || ''),
+      clientFinalizeMessageB64u: await staged.createFinalizeMessage(
+        String(respond.responseMessageB64u || ''),
+      ),
+    });
+    expect(finalize, JSON.stringify(finalize)).toMatchObject({ ok: true });
+    expect(finalize.ecdsaThresholdKeyId).toBe(registered.ecdsaThresholdKeyId);
+    expect(finalize.ethereumAddress).toBe(registered.ethereumAddress);
+  });
+
+  test('session_bootstrap accepts threshold-session auth across EVM-family targets for the same key id', async () => {
+    const { svc } = createThresholdSigningServiceForUnitTests({});
+    const userId = 'alice-threshold-session-target-mismatch.near';
+    const rpId = 'wallet.example.test';
+    const participantIds = [1, 2];
+    const bootstrapSessionId = 'ecdsa-session-tempo-threshold-auth';
+    const walletSigningSessionId = `${bootstrapSessionId}:wallet-signing`;
+    const clientRootShare32B64u = Buffer.from(new Uint8Array(32).fill(32)).toString(
+      'base64url',
+    );
+    const registered = await registerThresholdEcdsaKey({
+      svc,
+      userId,
+      rpId,
+      participantIds,
+      keygenSessionId: 'ecdsa-keygen-tempo-threshold-auth',
+      bootstrapSessionId,
+      clientRootShare32B64u,
+      chainTarget: TEST_TEMPO_CHAIN_TARGET,
+    });
+
+    const prepare = await svc.ecdsaHss.prepare({
+      walletSessionUserId: userId,
+      rpId,
+      operation: 'session_bootstrap',
+      keygenSessionId: 'ecdsa-keygen-evm-with-tempo-threshold-auth',
+      ecdsaThresholdKeyId: registered.ecdsaThresholdKeyId,
+      ecdsaSessionClaims: {
+        kind: 'threshold_ecdsa_session_v1',
+        sub: userId,
+        walletId: userId,
+        subjectId: userId,
+        chainTarget: TEST_TEMPO_CHAIN_TARGET,
+        ecdsaThresholdKeyId: registered.ecdsaThresholdKeyId,
+        sessionId: bootstrapSessionId,
+        walletSigningSessionId,
+        relayerKeyId: 'relayer-key-tempo-threshold-auth',
+        rpId,
+        thresholdExpiresAtMs: Date.now() + 60_000,
+        participantIds,
+      },
+      sessionPolicy: {
+        version: 'threshold_session_v1',
+        walletSessionUserId: userId,
+        subjectId: userId,
+        rpId,
+        chainTarget: TEST_ECDSA_CHAIN_TARGET,
+        ecdsaThresholdKeyId: registered.ecdsaThresholdKeyId,
+        sessionId: bootstrapSessionId,
+        walletSigningSessionId,
+        runtimePolicyScope: TEST_RUNTIME_SCOPE,
+        ttlMs: 60_000,
+        remainingUses: 3,
+        participantIds,
+      },
+    });
+
+    expect(prepare, JSON.stringify(prepare)).toMatchObject({ ok: true });
+    expect(String(prepare.ceremonyId || '')).toBeTruthy();
+    expect(prepare.hssContext?.ecdsaThresholdKeyId).toBe(registered.ecdsaThresholdKeyId);
+    expect(prepare.hssContext?.chainTarget).toEqual(TEST_ECDSA_CHAIN_TARGET);
+  });
+
+  test('session_bootstrap rejects threshold-session auth across EVM-family targets for a different key id', async () => {
+    const { svc } = createThresholdSigningServiceForUnitTests({});
+    const userId = 'alice-threshold-session-key-mismatch.near';
+    const rpId = 'wallet.example.test';
+    const participantIds = [1, 2];
+    const bootstrapSessionId = 'ecdsa-session-tempo-threshold-key-mismatch';
+    const walletSigningSessionId = `${bootstrapSessionId}:wallet-signing`;
+    const registered = await registerThresholdEcdsaKey({
+      svc,
+      userId,
+      rpId,
+      participantIds,
+      keygenSessionId: 'ecdsa-keygen-tempo-threshold-key-mismatch',
+      bootstrapSessionId,
+      clientRootShare32B64u: Buffer.from(new Uint8Array(32).fill(33)).toString('base64url'),
+      chainTarget: TEST_TEMPO_CHAIN_TARGET,
+    });
+
+    const rejected = await svc.ecdsaHss.prepare({
+      walletSessionUserId: userId,
+      rpId,
+      operation: 'session_bootstrap',
+      keygenSessionId: 'ecdsa-keygen-evm-with-different-threshold-auth',
+      ecdsaThresholdKeyId: registered.ecdsaThresholdKeyId,
+      ecdsaSessionClaims: {
+        kind: 'threshold_ecdsa_session_v1',
+        sub: userId,
+        walletId: userId,
+        subjectId: userId,
+        chainTarget: TEST_TEMPO_CHAIN_TARGET,
+        ecdsaThresholdKeyId: 'different-ecdsa-key-id',
+        sessionId: bootstrapSessionId,
+        walletSigningSessionId,
+        relayerKeyId: 'relayer-key-tempo-threshold-key-mismatch',
+        rpId,
+        thresholdExpiresAtMs: Date.now() + 60_000,
+        participantIds,
+      },
+      sessionPolicy: {
+        version: 'threshold_session_v1',
+        walletSessionUserId: userId,
+        subjectId: userId,
+        rpId,
+        chainTarget: TEST_ECDSA_CHAIN_TARGET,
+        ecdsaThresholdKeyId: registered.ecdsaThresholdKeyId,
+        sessionId: bootstrapSessionId,
+        walletSigningSessionId,
+        runtimePolicyScope: TEST_RUNTIME_SCOPE,
+        ttlMs: 60_000,
+        remainingUses: 3,
+        participantIds,
+      },
+    });
+
+    expect(rejected.ok).toBe(false);
+    expect(rejected.code).toBe('unauthorized');
+    expect(rejected.message).toContain('lane identity mismatch');
   });
 
   test('email_otp_bootstrap accepts app session plus enrollment verifier without an existing ECDSA key id', async () => {
@@ -318,7 +561,7 @@ test.describe('threshold-ecdsa hss bootstrap policy', () => {
       },
       sessionPolicy: {
         version: 'threshold_session_v1',
-        userId,
+        walletSessionUserId: userId,
         subjectId: userId,
         rpId,
         chainTarget: TEST_ECDSA_CHAIN_TARGET,
@@ -338,7 +581,7 @@ test.describe('threshold-ecdsa hss bootstrap policy', () => {
       preparedServerSessionB64u: String(prepare.preparedServerSessionB64u || ''),
       serverAssistInitB64u: String(prepare.serverAssistInitB64u || ''),
       clientRootShare32B64u,
-      nearAccountId: userId,
+      hssContext: prepare.hssContext!,
     });
     const respond = await svc.ecdsaHss.respond({
       ceremonyId,
@@ -352,11 +595,59 @@ test.describe('threshold-ecdsa hss bootstrap policy', () => {
       ),
     });
 
+    if (!finalize.ok) throw new Error(JSON.stringify(finalize));
     expect(finalize.ok).toBe(true);
     expect(String(finalize.clientVerifyingShareB64u || '')).toBeTruthy();
     expect(String(finalize.ecdsaThresholdKeyId || '')).toBeTruthy();
     expect(finalize.sessionId).toBe('ecdsa-session-email-otp-1');
     expect(finalize.walletSigningSessionId).toBe('wallet-signing-session-email-otp-1');
+  });
+
+  test('email_otp_bootstrap accepts wallet-scoped app session plus provider enrollment verifier', async () => {
+    const { svc } = createThresholdSigningServiceForUnitTests({});
+    const userId = 'email-wallet-app-session.testnet';
+    const googleSub = 'google:wallet-scoped-subject';
+    const rpId = 'wallet.example.test';
+    const clientRootShare32B64u = Buffer.from(new Uint8Array(32).fill(26)).toString(
+      'base64url',
+    );
+    const clientVerifyingShareB64u =
+      clientVerifyingShareB64uFromRootShare(clientRootShare32B64u);
+
+    const prepare = await svc.ecdsaHss.prepare({
+      walletSessionUserId: userId,
+      rpId,
+      operation: 'email_otp_bootstrap',
+      keygenSessionId: 'ecdsa-email-otp-keygen-wallet-scoped-app-session',
+      appSessionClaims: {
+        kind: 'app_session_v1',
+        sub: userId,
+        walletId: userId,
+        appSessionVersion: 'app-session-v1',
+      },
+      emailOtpEnrollmentClaims: {
+        walletId: userId,
+        userId: googleSub,
+        otpChannel: 'email_otp',
+        thresholdEcdsaClientVerifyingShareB64u: clientVerifyingShareB64u,
+      },
+      sessionPolicy: {
+        version: 'threshold_session_v1',
+        walletSessionUserId: userId,
+        subjectId: userId,
+        rpId,
+        chainTarget: TEST_ECDSA_CHAIN_TARGET,
+        sessionId: 'ecdsa-session-email-otp-wallet-scoped-app-session',
+        walletSigningSessionId: 'wallet-signing-email-otp-wallet-scoped-app-session',
+        runtimePolicyScope: TEST_RUNTIME_SCOPE,
+        ttlMs: 60_000,
+        remainingUses: 3,
+        participantIds: [1, 2],
+      },
+    });
+
+    expect(prepare.ok).toBe(true);
+    expect(String(prepare.ceremonyId || '')).toBeTruthy();
   });
 
   test('email_otp_bootstrap accepts threshold-session auth for a Google Email OTP enrollment', async () => {
@@ -398,7 +689,7 @@ test.describe('threshold-ecdsa hss bootstrap policy', () => {
       },
       sessionPolicy: {
         version: 'threshold_session_v1',
-        userId,
+        walletSessionUserId: userId,
         subjectId: userId,
         rpId,
         chainTarget: TEST_ECDSA_CHAIN_TARGET,
@@ -418,7 +709,7 @@ test.describe('threshold-ecdsa hss bootstrap policy', () => {
       preparedServerSessionB64u: String(prepare.preparedServerSessionB64u || ''),
       serverAssistInitB64u: String(prepare.serverAssistInitB64u || ''),
       clientRootShare32B64u,
-      nearAccountId: userId,
+      hssContext: prepare.hssContext!,
     });
     const respond = await svc.ecdsaHss.respond({
       ceremonyId,
@@ -432,6 +723,7 @@ test.describe('threshold-ecdsa hss bootstrap policy', () => {
       ),
     });
 
+    if (!finalize.ok) throw new Error(JSON.stringify(finalize));
     expect(finalize.ok).toBe(true);
     expect(String(finalize.clientVerifyingShareB64u || '')).toBeTruthy();
     expect(String(finalize.ecdsaThresholdKeyId || '')).toBeTruthy();
@@ -473,11 +765,12 @@ test.describe('threshold-ecdsa hss bootstrap policy', () => {
       },
       sessionPolicy: {
         version: 'threshold_session_v1',
-        userId,
+        walletSessionUserId: userId,
         subjectId: userId,
         rpId,
         chainTarget: TEST_ECDSA_CHAIN_TARGET,
         sessionId: 'ecdsa-session-email-otp-mismatch',
+        walletSigningSessionId: 'wallet-signing-session-email-otp-mismatch',
         runtimePolicyScope: TEST_RUNTIME_SCOPE,
         ttlMs: 60_000,
         remainingUses: 3,
@@ -492,7 +785,7 @@ test.describe('threshold-ecdsa hss bootstrap policy', () => {
       preparedServerSessionB64u: String(prepare.preparedServerSessionB64u || ''),
       serverAssistInitB64u: String(prepare.serverAssistInitB64u || ''),
       clientRootShare32B64u: recoveredRootShare32B64u,
-      nearAccountId: userId,
+      hssContext: prepare.hssContext!,
     });
     const respond = await svc.ecdsaHss.respond({
       ceremonyId,
@@ -530,6 +823,7 @@ test.describe('threshold-ecdsa hss bootstrap policy', () => {
       walletSessionUserId: userId,
       rpId,
       operation: 'session_bootstrap',
+      keygenSessionId: 'ecdsa-keygen-app-session-1',
       ecdsaThresholdKeyId,
       appSessionClaims: {
         kind: 'app_session_v1',
@@ -538,12 +832,13 @@ test.describe('threshold-ecdsa hss bootstrap policy', () => {
       },
       sessionPolicy: {
         version: 'threshold_session_v1',
-        userId,
+        walletSessionUserId: userId,
         subjectId: userId,
         rpId,
         chainTarget: TEST_ECDSA_CHAIN_TARGET,
         ecdsaThresholdKeyId,
         sessionId: 'ecdsa-session-app-2',
+        walletSigningSessionId: 'wallet-signing-session-app-2',
         runtimePolicyScope: TEST_RUNTIME_SCOPE,
         ttlMs: 60_000,
         remainingUses: 3,
@@ -573,6 +868,7 @@ test.describe('threshold-ecdsa hss bootstrap policy', () => {
       walletSessionUserId: userId,
       rpId,
       operation: 'session_bootstrap',
+      keygenSessionId: 'ecdsa-keygen-app-session-2',
       ecdsaThresholdKeyId,
       appSessionClaims: {
         kind: 'app_session_v1',
@@ -581,12 +877,13 @@ test.describe('threshold-ecdsa hss bootstrap policy', () => {
       },
       sessionPolicy: {
         version: 'threshold_session_v1',
-        userId,
+        walletSessionUserId: userId,
         subjectId: userId,
         rpId,
         chainTarget: TEST_ECDSA_CHAIN_TARGET,
         ecdsaThresholdKeyId,
         sessionId: 'ecdsa-session-app-mismatch',
+        walletSigningSessionId: 'wallet-signing-session-app-mismatch',
         runtimePolicyScope: TEST_RUNTIME_SCOPE,
         ttlMs: 60_000,
         remainingUses: 3,
@@ -609,11 +906,12 @@ test.describe('threshold-ecdsa hss bootstrap policy', () => {
       webauthn_authentication: fakeWebAuthnAuthentication() as any,
       sessionPolicy: {
         version: 'threshold_session_v1',
-        userId: 'alice.near',
+        walletSessionUserId: 'alice.near',
         subjectId: 'alice.near',
         rpId: 'wallet.example.test',
         chainTarget: TEST_ECDSA_CHAIN_TARGET,
         sessionId: 'ecdsa-session-3',
+        walletSigningSessionId: 'wallet-signing-session-3',
         runtimePolicyScope: TEST_RUNTIME_SCOPE,
         ttlMs: 60_000,
         remainingUses: 3,
@@ -628,7 +926,7 @@ test.describe('threshold-ecdsa hss bootstrap policy', () => {
       preparedServerSessionB64u: String(prepare.preparedServerSessionB64u || ''),
       serverAssistInitB64u: String(prepare.serverAssistInitB64u || ''),
       clientRootShare32B64u: Buffer.from(new Uint8Array(32).fill(11)).toString('base64url'),
-      nearAccountId: 'alice.near',
+      hssContext: prepare.hssContext!,
     });
 
     const respond = await svc.ecdsaHss.respond({
@@ -643,6 +941,7 @@ test.describe('threshold-ecdsa hss bootstrap policy', () => {
         String(respond.responseMessageB64u || ''),
       ),
     });
+    if (!finalize.ok) throw new Error(JSON.stringify(finalize));
     expect(finalize.ok).toBe(true);
     expect('canonicalSecp256k1KeyB64u' in finalize).toBe(false);
   });

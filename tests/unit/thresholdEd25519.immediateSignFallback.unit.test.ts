@@ -355,6 +355,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
 
       persistWarmSessionEd25519Capability({
         kind: 'jwt_email_otp',
+        sessionKind: 'jwt',
         nearAccountId,
         rpId,
         relayerUrl,
@@ -605,6 +606,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
 
       persistWarmSessionEd25519Capability({
         kind: 'jwt_email_otp',
+        sessionKind: 'jwt',
         nearAccountId,
         rpId,
         relayerUrl,
@@ -768,6 +770,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
             completedOtpCode = String(authorization?.otpCode || '');
             persistWarmSessionEd25519Capability({
               kind: 'jwt_email_otp',
+              sessionKind: 'jwt',
               nearAccountId,
               rpId,
               relayerUrl,
@@ -877,6 +880,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
 
       persistWarmSessionEd25519Capability({
         kind: 'jwt_email_otp',
+        sessionKind: 'jwt',
         nearAccountId,
         rpId,
         relayerUrl,
@@ -1024,6 +1028,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
 
       persistWarmSessionEd25519Capability({
         kind: 'jwt_passkey',
+        sessionKind: 'jwt',
         nearAccountId,
         rpId,
         relayerUrl,
@@ -1235,6 +1240,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
 
         persistWarmSessionEd25519Capability({
           kind: 'jwt_passkey',
+          sessionKind: 'jwt',
           nearAccountId,
           rpId,
           relayerUrl,
@@ -1395,6 +1401,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
 
       const refreshedRecord = persistWarmSessionEd25519Capability({
         kind: 'jwt_passkey',
+        sessionKind: 'jwt',
         nearAccountId,
         rpId,
         relayerUrl,
@@ -1569,7 +1576,6 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
 
       try {
         const result = await connectEd25519Session({
-          kind: 'exact_ed25519_provisioning',
           indexedDB: {} as any,
           touchIdPrompt: {
             getRpId: () => 'example.localhost',
@@ -1668,7 +1674,6 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
 
       try {
         const result = await connectEd25519Session({
-          kind: 'exact_ed25519_provisioning',
           indexedDB: {} as any,
           touchIdPrompt: {
             getRpId: () => 'example.localhost',
@@ -1718,6 +1723,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
 
       persistWarmSessionEd25519Capability({
         kind: 'jwt_email_otp',
+        sessionKind: 'jwt',
         nearAccountId,
         rpId,
         relayerUrl,
@@ -1836,6 +1842,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
 
       persistWarmSessionEd25519Capability({
         kind: 'jwt_email_otp',
+        sessionKind: 'jwt',
         nearAccountId,
         rpId,
         relayerUrl,
@@ -1935,6 +1942,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
 
       persistWarmSessionEd25519Capability({
         kind: 'jwt_email_otp',
+        sessionKind: 'jwt',
         nearAccountId,
         rpId,
         relayerUrl,
@@ -2028,6 +2036,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
             completedChallengeId = String(authorization?.challengeId || '');
             persistWarmSessionEd25519Capability({
               kind: 'jwt_email_otp',
+              sessionKind: 'jwt',
               nearAccountId,
               rpId,
               relayerUrl,
@@ -2102,6 +2111,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
 
       persistWarmSessionEd25519Capability({
         kind: 'jwt_email_otp',
+        sessionKind: 'jwt',
         nearAccountId,
         rpId,
         relayerUrl,

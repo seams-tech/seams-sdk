@@ -52,7 +52,7 @@ function managedNonce(overrides?: Record<string, unknown>) {
     sender: TEST_SENDER,
     nonceKey: '1',
     nonce: '12',
-    nearAccountId: 'alice.testnet',
+    walletId: 'alice.testnet',
     leaseId: 'nonce-lease-test',
     operationId: 'operation-test',
     operationFingerprint: 'sha256:test',
@@ -93,7 +93,7 @@ test.describe('tempo broadcast nonce lifecycle', () => {
     const calls: Array<{ fn: string; input: any }> = [];
 
     await reportTempoBroadcastAccepted(createDeps(calls), {
-      nearAccountId: 'alice.testnet',
+      walletId: 'alice.testnet',
       txHash: `0x${'ab'.repeat(32)}` as `0x${string}`,
       signedResult: evmSignedResult(),
     });
@@ -113,7 +113,7 @@ test.describe('tempo broadcast nonce lifecycle', () => {
   test('fails closed when signed result is missing managed nonce metadata', async () => {
     await expect(
       reportTempoBroadcastAccepted(createDeps([]), {
-        nearAccountId: 'alice.testnet',
+        walletId: 'alice.testnet',
         txHash: `0x${'ab'.repeat(32)}` as `0x${string}`,
         signedResult: {
           chain: 'evm',
@@ -128,7 +128,7 @@ test.describe('tempo broadcast nonce lifecycle', () => {
   test('fails closed when managed nonce lease metadata is missing', async () => {
     await expect(
       reportTempoBroadcastAccepted(createDeps([]), {
-        nearAccountId: 'alice.testnet',
+        walletId: 'alice.testnet',
         txHash: `0x${'ab'.repeat(32)}` as `0x${string}`,
         signedResult: evmSignedResult({
           managedNonce: managedNonce({
@@ -144,7 +144,7 @@ test.describe('tempo broadcast nonce lifecycle', () => {
     const calls: Array<{ fn: string; input: any }> = [];
 
     await reportTempoBroadcastRejected(createDeps(calls), {
-      nearAccountId: 'alice.testnet',
+      walletId: 'alice.testnet',
       error: { message: 'execution reverted' },
       signedResult: tempoSignedResult(),
     });
@@ -165,7 +165,7 @@ test.describe('tempo broadcast nonce lifecycle', () => {
     const calls: Array<{ fn: string; input: any }> = [];
 
     await reportTempoFinalized(createDeps(calls), {
-      nearAccountId: 'alice.testnet',
+      walletId: 'alice.testnet',
       txHash: `0x${'aa'.repeat(32)}` as `0x${string}`,
       receiptStatus: 'success',
       signedResult: evmSignedResult({
@@ -194,7 +194,7 @@ test.describe('tempo broadcast nonce lifecycle', () => {
     const calls: Array<{ fn: string; input: any }> = [];
 
     await reportTempoDroppedOrReplaced(createDeps(calls), {
-      nearAccountId: 'alice.testnet',
+      walletId: 'alice.testnet',
       reason: 'dropped',
       txHash: `0x${'cc'.repeat(32)}` as `0x${string}`,
       signedResult: tempoSignedResult({
@@ -222,7 +222,7 @@ test.describe('tempo broadcast nonce lifecycle', () => {
     const calls: Array<{ fn: string; input: any }> = [];
 
     await reportTempoDroppedOrReplaced(createDeps(calls), {
-      nearAccountId: 'alice.testnet',
+      walletId: 'alice.testnet',
       reason: 'replaced',
       txHash: `0x${'ee'.repeat(32)}` as `0x${string}`,
       signedResult: evmSignedResult({
@@ -264,7 +264,7 @@ test.describe('tempo broadcast nonce lifecycle', () => {
       },
     ]);
     const args = {
-      nearAccountId: 'alice.testnet',
+      walletId: 'alice.testnet',
       signedResult: evmSignedResult({
         managedNonce: managedNonce({
           chain: 'evm',
@@ -305,7 +305,7 @@ test.describe('tempo broadcast nonce lifecycle', () => {
 
     await expect(
       reportTempoBroadcastRejected(createDeps(calls), {
-        nearAccountId: 'alice.testnet',
+        walletId: 'alice.testnet',
         error: { message: 'replacement transaction underpriced' },
         signedResult: evmSignedResult({
           managedNonce: managedNonce({

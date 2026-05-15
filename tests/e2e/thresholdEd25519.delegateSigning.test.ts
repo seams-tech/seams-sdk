@@ -145,7 +145,7 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
             };
 
             const signed = await pm.near.signDelegateAction({
-              nearAccountId: accountId,
+              nearAccount: { accountId },
               delegate,
               options: {
                 confirmationConfig: confirmConfig as any,

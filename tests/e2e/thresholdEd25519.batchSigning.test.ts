@@ -191,18 +191,22 @@ test.describe('threshold-ed25519 batch signing', () => {
 
             const ecdsaTempoKeyRef = (() => {
               try {
-                const keyRef = (pm.getContext().signingEngine as any).getThresholdEcdsaKeyRefForSigning(
-                  {
-                    nearAccountId: accountId,
-                    chain: 'tempo',
-                  },
-                );
+                const keyRef = (
+                  pm.getContext().signingEngine as any
+                ).getThresholdEcdsaKeyRefForSigning({
+                  nearAccountId: accountId,
+                  chain: 'tempo',
+                });
                 return {
                   ecdsaThresholdKeyId: String(keyRef?.ecdsaThresholdKeyId || ''),
-                  relayerKeyId: String(keyRef?.relayerKeyId || keyRef?.backendBinding?.relayerKeyId || ''),
+                  relayerKeyId: String(
+                    keyRef?.relayerKeyId || keyRef?.backendBinding?.relayerKeyId || '',
+                  ),
                   thresholdSessionId: String(keyRef?.thresholdSessionId || ''),
                   participantIds: Array.isArray(keyRef?.participantIds)
-                    ? keyRef.participantIds.map((value: unknown) => Number(value)).filter(Number.isFinite)
+                    ? keyRef.participantIds
+                        .map((value: unknown) => Number(value))
+                        .filter(Number.isFinite)
                     : [],
                   ethereumAddress: String(keyRef?.ethereumAddress || ''),
                 };
@@ -228,7 +232,7 @@ test.describe('threshold-ed25519 batch signing', () => {
             const wasmActions = actions.map(toActionArgsWasm);
 
             const signed = await pm.near.signTransactionsWithActions({
-              nearAccountId: accountId,
+              nearAccount: { accountId },
               transactions: [
                 { receiverId, actions },
                 { receiverId, actions },

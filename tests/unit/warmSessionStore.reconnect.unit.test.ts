@@ -39,7 +39,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
     let provisionCalls = 0;
     const store = createWarmSessionTestServices({
       touchConfirm: fixture.touchConfirm,
-      listThresholdEcdsaKeyRefsForAccountTarget: () => [
+      listThresholdEcdsaKeyRefsForWalletTarget: () => [
         { source: 'login', keyRef: bootstrap.thresholdEcdsaKeyRef },
       ],
       provisionThresholdEcdsaSession: async () => {
@@ -98,20 +98,20 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
     let provisionCalls = 0;
     const store = createWarmSessionTestServices({
       touchConfirm: fixture.touchConfirm,
-      listThresholdEcdsaKeyRefsForAccountTarget: () => [
+      listThresholdEcdsaKeyRefsForWalletTarget: () => [
         { source: 'login', keyRef: staleBootstrap.thresholdEcdsaKeyRef },
       ],
-      provisionThresholdEcdsaSession: async ({ nearAccountId, chainTarget }) => {
+      provisionThresholdEcdsaSession: async ({ walletId, chainTarget }) => {
         provisionCalls += 1;
         const refreshedBootstrap = createThresholdEcdsaBootstrapFixture({
-          nearAccountId: String(nearAccountId),
+          nearAccountId: String(walletId),
           chain: chainTarget.kind,
           ecdsaThresholdKeyId: 'ek-reconnect',
           sessionId: 'fresh-evm-session',
           sessionAuthToken: 'jwt:fresh-evm-session',
         });
         const refreshedRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
-          nearAccountId: String(nearAccountId),
+          nearAccountId: String(walletId),
           chain: chainTarget.kind,
           source: 'manual-bootstrap',
           bootstrap: refreshedBootstrap,

@@ -25,7 +25,7 @@ const TEMPO_CHAIN_TARGET: ThresholdEcdsaChainTarget = {
 function makeCandidate(): EcdsaLaneCandidate {
   return {
     kind: 'lane_candidate',
-    accountId: toAccountId('alice.testnet'),
+    walletId: toAccountId('alice.testnet'),
     authMethod: 'passkey',
     curve: 'ecdsa',
     chain: 'evm',
@@ -35,7 +35,7 @@ function makeCandidate(): EcdsaLaneCandidate {
     remainingUses: 1,
     expiresAtMs: 1_900_000_000_000,
     updatedAtMs: 1_800_000_000_000,
-    source: 'persisted_session',
+    source: 'runtime_session_record',
     subjectId: toWalletSubjectId('wallet-1'),
     chainTarget: EVM_CHAIN_TARGET,
     ecdsaThresholdKeyId: 'ecdsa-key-1',

@@ -26,17 +26,17 @@ test.describe('deriveSecp256k1KeypairFromPrfSecondWasm', () => {
 
         const first = await deriveSecp256k1KeypairFromPrfSecondWasm({
           prfSecondB64u,
-          nearAccountId: 'alice.testnet',
+          walletSessionUserId: 'alice.testnet',
           workerCtx: workerCtx as any,
         });
         const second = await deriveSecp256k1KeypairFromPrfSecondWasm({
           prfSecondB64u,
-          nearAccountId: 'alice.testnet',
+          walletSessionUserId: 'alice.testnet',
           workerCtx: workerCtx as any,
         });
         const otherAccount = await deriveSecp256k1KeypairFromPrfSecondWasm({
           prfSecondB64u,
-          nearAccountId: 'bob.testnet',
+          walletSessionUserId: 'bob.testnet',
           workerCtx: workerCtx as any,
         });
 

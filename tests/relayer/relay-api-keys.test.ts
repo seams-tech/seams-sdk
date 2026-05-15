@@ -704,7 +704,7 @@ test.describe('relay API key auth (express)', () => {
         apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
         smartAccountDeploy: async (request) => {
           deployCalls.push({
-            nearAccountId: request.nearAccountId,
+            walletId: request.walletId,
             chain: request.chainTarget.kind,
             chainId: request.chainTarget.chainId,
             accountAddress: request.accountAddress,
@@ -735,7 +735,7 @@ test.describe('relay API key auth (express)', () => {
       expect(res.json?.success).toBe(true);
       expect(deployCalls).toEqual([
         expect.objectContaining({
-          nearAccountId: 'alice.testnet',
+          walletId: 'alice.testnet',
           chain: 'evm',
           chainId: 11155111,
           accountAddress: `0x${'11'.repeat(20)}`,
@@ -751,7 +751,7 @@ test.describe('relay API key auth (express)', () => {
           }),
         }),
         expect.objectContaining({
-          nearAccountId: 'alice.testnet',
+          walletId: 'alice.testnet',
           chain: 'tempo',
           chainId: 42431,
           accountAddress: `0x${'22'.repeat(20)}`,
@@ -1427,7 +1427,7 @@ test.describe('relay API key auth (cloudflare)', () => {
         apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
         smartAccountDeploy: async (request) => {
           deployCalls.push({
-            nearAccountId: request.nearAccountId,
+            walletId: request.walletId,
             chain: request.chainTarget.kind,
             chainId: request.chainTarget.chainId,
             accountAddress: request.accountAddress,
@@ -1458,7 +1458,7 @@ test.describe('relay API key auth (cloudflare)', () => {
     expect(res.json?.success).toBe(true);
     expect(deployCalls).toEqual([
       expect.objectContaining({
-        nearAccountId: 'alice.testnet',
+        walletId: 'alice.testnet',
         chain: 'evm',
         chainId: 11155111,
         accountAddress: `0x${'11'.repeat(20)}`,
@@ -1474,7 +1474,7 @@ test.describe('relay API key auth (cloudflare)', () => {
         }),
       }),
       expect.objectContaining({
-        nearAccountId: 'alice.testnet',
+        walletId: 'alice.testnet',
         chain: 'tempo',
         chainId: 42431,
         accountAddress: `0x${'22'.repeat(20)}`,

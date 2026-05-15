@@ -49,9 +49,14 @@ test.describe('smart-account bootstrap persistence', () => {
         });
         const manager = new SigningEngine(configs, {} as any);
 
-        await manager.persistThresholdEcdsaBootstrapChainAccount({
-          nearAccountId: 'alice.testnet',
-          chain: 'evm',
+        await manager.persistThresholdEcdsaBootstrapForWalletTarget({
+          walletId: 'alice.testnet',
+          chainTarget: {
+            kind: 'evm',
+            namespace: 'eip155',
+            chainId: 11155111,
+            networkSlug: 'sepolia',
+          },
           bootstrap: {
             keygen: {
               chainId: 11155111,
@@ -66,15 +71,9 @@ test.describe('smart-account bootstrap persistence', () => {
 
         const rows = await IndexedDBManager.clientDB.listChainAccountsByProfileAndChain(
           'profile-smartacct-bootstrap',
-          'evm:11155111',
+          'evm:eip155:11155111',
         );
         const persisted = rows.find((row: any) => row.accountAddress === accountAddress) || null;
-        const mirrorRows = await IndexedDBManager.clientDB.listChainAccountsByProfileAndChain(
-          'profile-smartacct-bootstrap',
-          'tempo:42431',
-        );
-        const mirror = mirrorRows.find((row: any) => row.accountAddress === accountAddress) || null;
-
         return {
           found: !!persisted,
           accountModel: persisted?.accountModel || null,
@@ -86,10 +85,6 @@ test.describe('smart-account bootstrap persistence', () => {
             typeof persisted?.lastDeploymentCheckAt === 'number'
               ? persisted.lastDeploymentCheckAt
               : null,
-          mirrorFound: !!mirror,
-          mirrorChainIdKey: mirror?.chainIdKey || null,
-          mirrorAccountModel: mirror?.accountModel || null,
-          mirrorCounterfactualAddress: mirror?.counterfactualAddress || null,
         };
       },
       { paths: IMPORT_PATHS },
@@ -97,14 +92,10 @@ test.describe('smart-account bootstrap persistence', () => {
 
     expect(result.found).toBe(true);
     expect(result.accountModel).toBe('erc4337');
-    expect(result.chainIdKey).toBe('evm:11155111');
+    expect(result.chainIdKey).toBe('evm:eip155:11155111');
     expect(result.counterfactualAddress).toBe(`0x${'ab'.repeat(20)}`);
     expect(result.deployed).toBe(false);
     expect(result.deploymentTxHash).toBeNull();
     expect(result.lastDeploymentCheckAt).toBeNull();
-    expect(result.mirrorFound).toBe(true);
-    expect(result.mirrorChainIdKey).toBe('tempo:42431');
-    expect(result.mirrorAccountModel).toBe('tempo-native');
-    expect(result.mirrorCounterfactualAddress).toBe(`0x${'ab'.repeat(20)}`);
   });
 });

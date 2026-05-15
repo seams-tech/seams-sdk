@@ -20,7 +20,7 @@ test.describe('WarmSessionStore lifecycle', () => {
     });
     const warmSession = await store.getWarmSession('empty.testnet');
 
-    expect(warmSession.accountId).toBe('empty.testnet');
+    expect(warmSession.walletId).toBe('empty.testnet');
     expect(warmSession.capabilities.ed25519.state).toBe('missing');
     expect(warmSession.capabilities.ed25519.record).toBeNull();
     expect(warmSession.capabilities.ecdsa.evm.state).toBe('missing');
@@ -156,7 +156,7 @@ test.describe('WarmSessionStore lifecycle', () => {
         },
       }),
     });
-    const warmSession = await store.getWarmSession(evmRecord.nearAccountId);
+    const warmSession = await store.getWarmSession(evmRecord.walletId);
 
     expect(warmSession.capabilities.ecdsa.evm.state).toBe('ready');
     expect(warmSession.capabilities.ecdsa.evm.auth?.thresholdSessionAuthToken).toBe(

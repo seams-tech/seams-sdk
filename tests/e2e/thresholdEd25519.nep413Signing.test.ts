@@ -123,7 +123,7 @@ test.describe('threshold-ed25519 NEP-413 signing', () => {
             const recipient = 'example.localhost';
             const state = 'test-state';
             const signed = await pm.near.signNEP413Message({
-              nearAccountId: accountId,
+              nearAccount: { accountId },
               params: { message, recipient, state },
               options: {
                 confirmationConfig: confirmConfig as any,

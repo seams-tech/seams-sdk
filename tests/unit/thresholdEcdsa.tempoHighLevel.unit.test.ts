@@ -107,35 +107,44 @@ async function signTempoWithExistingPasskey(
     };
 
     const existingPm = (globalThis as any).__w3aTempoHighLevelPm;
-    const pm = existingPm || new SeamsPasskey({
-      nearNetwork: 'testnet',
-      nearRpcUrl: 'https://test.rpc.fastnear.com',
-      relayerAccount: 'web3-authn-v4.testnet',
-      ...(input.thresholdEcdsaPresignPool
-        ? { thresholdEcdsaPresignPool: input.thresholdEcdsaPresignPool }
-        : {}),
-      relayer: {
-        url: input.relayerUrl,
-        smartAccountDeploymentMode: 'observe',
-      },
-      iframeWallet: {
-        walletOrigin: '',
-        walletServicePath: '/wallet-service',
-        sdkBasePath: '/sdk',
-        rpIdOverride: 'example.localhost',
-      },
-    });
+    const pm =
+      existingPm ||
+      new SeamsPasskey({
+        nearNetwork: 'testnet',
+        nearRpcUrl: 'https://test.rpc.fastnear.com',
+        relayerAccount: 'web3-authn-v4.testnet',
+        ...(input.thresholdEcdsaPresignPool
+          ? { thresholdEcdsaPresignPool: input.thresholdEcdsaPresignPool }
+          : {}),
+        relayer: {
+          url: input.relayerUrl,
+          smartAccountDeploymentMode: 'observe',
+        },
+        iframeWallet: {
+          walletOrigin: '',
+          walletServicePath: '/wallet-service',
+          sdkBasePath: '/sdk',
+          rpIdOverride: 'example.localhost',
+        },
+      });
     if (!existingPm) (globalThis as any).__w3aTempoHighLevelPm = pm;
 
     try {
       const boot = await pm.tempo.bootstrapEcdsaSession({
         kind: 'reuse_warm_ecdsa_bootstrap',
-        nearAccountId: input.accountId,
+        walletSession: {
+          walletId: input.accountId,
+          walletSessionUserId: input.accountId,
+        },
+        subjectId: input.accountId,
         chainTarget: input.chainTarget,
         relayerUrl: input.relayerUrl,
       });
       const signed = await pm.tempo.signTempo({
-        nearAccountId: input.accountId,
+        walletSession: {
+          walletId: input.accountId,
+          walletSessionUserId: input.accountId,
+        },
         subjectId: input.accountId,
         request: {
           chain: 'tempo',
@@ -201,21 +210,23 @@ async function bootstrapEvmSessionWithExistingPasskey(
     const { SeamsPasskey } = sdkMod as any;
 
     const existingPm = (globalThis as any).__w3aTempoHighLevelPm;
-    const pm = existingPm || new SeamsPasskey({
-      nearNetwork: 'testnet',
-      nearRpcUrl: 'https://test.rpc.fastnear.com',
-      relayerAccount: 'web3-authn-v4.testnet',
-      relayer: {
-        url: input.relayerUrl,
-        smartAccountDeploymentMode: 'observe',
-      },
-      iframeWallet: {
-        walletOrigin: '',
-        walletServicePath: '/wallet-service',
-        sdkBasePath: '/sdk',
-        rpIdOverride: 'example.localhost',
-      },
-    });
+    const pm =
+      existingPm ||
+      new SeamsPasskey({
+        nearNetwork: 'testnet',
+        nearRpcUrl: 'https://test.rpc.fastnear.com',
+        relayerAccount: 'web3-authn-v4.testnet',
+        relayer: {
+          url: input.relayerUrl,
+          smartAccountDeploymentMode: 'observe',
+        },
+        iframeWallet: {
+          walletOrigin: '',
+          walletServicePath: '/wallet-service',
+          sdkBasePath: '/sdk',
+          rpIdOverride: 'example.localhost',
+        },
+      });
     if (!existingPm) (globalThis as any).__w3aTempoHighLevelPm = pm;
 
     try {
@@ -268,21 +279,23 @@ async function runConcurrentThresholdSignsWithExistingPasskey(
     };
 
     const existingPm = (globalThis as any).__w3aTempoHighLevelPm;
-    const pm = existingPm || new SeamsPasskey({
-      nearNetwork: 'testnet',
-      nearRpcUrl: 'https://test.rpc.fastnear.com',
-      relayerAccount: 'web3-authn-v4.testnet',
-      relayer: {
-        url: input.relayerUrl,
-        smartAccountDeploymentMode: 'observe',
-      },
-      iframeWallet: {
-        walletOrigin: '',
-        walletServicePath: '/wallet-service',
-        sdkBasePath: '/sdk',
-        rpIdOverride: 'example.localhost',
-      },
-    });
+    const pm =
+      existingPm ||
+      new SeamsPasskey({
+        nearNetwork: 'testnet',
+        nearRpcUrl: 'https://test.rpc.fastnear.com',
+        relayerAccount: 'web3-authn-v4.testnet',
+        relayer: {
+          url: input.relayerUrl,
+          smartAccountDeploymentMode: 'observe',
+        },
+        iframeWallet: {
+          walletOrigin: '',
+          walletServicePath: '/wallet-service',
+          sdkBasePath: '/sdk',
+          rpIdOverride: 'example.localhost',
+        },
+      });
     if (!existingPm) (globalThis as any).__w3aTempoHighLevelPm = pm;
 
     const tempoRequest = {
@@ -358,7 +371,10 @@ async function runConcurrentThresholdSignsWithExistingPasskey(
     }
 
     const firstPromise = pm.tempo.signTempo({
-      nearAccountId: input.accountId,
+      walletSession: {
+        walletId: input.accountId,
+        walletSessionUserId: input.accountId,
+      },
       subjectId: input.accountId,
       request: tempoRequest,
       chainTarget: {
@@ -371,7 +387,10 @@ async function runConcurrentThresholdSignsWithExistingPasskey(
     const secondPromise =
       input.mode === 'tempo-tempo'
         ? pm.tempo.signTempo({
-            nearAccountId: input.accountId,
+            walletSession: {
+              walletId: input.accountId,
+              walletSessionUserId: input.accountId,
+            },
             subjectId: input.accountId,
             request: tempoRequest,
             chainTarget: {
@@ -382,7 +401,10 @@ async function runConcurrentThresholdSignsWithExistingPasskey(
             options: { confirmationConfig },
           })
         : pm.tempo.signTempo({
-            nearAccountId: input.accountId,
+            walletSession: {
+              walletId: input.accountId,
+              walletSessionUserId: input.accountId,
+            },
             subjectId: input.accountId,
             request: evmRequest,
             chainTarget: {

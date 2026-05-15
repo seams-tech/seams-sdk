@@ -72,157 +72,157 @@ test.describe('Lite signer – concurrent sessions (wallet iframe)', () => {
 
       const resultPromise = page.evaluate(
         async ({ walletOrigin, relayerUrl, receiverId }) => {
-        try {
-          const { SeamsPasskey } = await import('/sdk/esm/core/SeamsPasskey/index.js');
-          const { ActionType, toActionArgsWasm } = await import('/sdk/esm/core/types/actions.js');
-          const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
+          try {
+            const { SeamsPasskey } = await import('/sdk/esm/core/SeamsPasskey/index.js');
+            const { ActionType, toActionArgsWasm } = await import('/sdk/esm/core/types/actions.js');
+            const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
 
-          const suffix =
-            typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-              ? crypto.randomUUID()
-              : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-          const account1 = `e2econ1${suffix}.w3a-v1.testnet`;
-          const account2 = `e2econ2${suffix}.w3a-v1.testnet`;
+            const suffix =
+              typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+                ? crypto.randomUUID()
+                : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+            const account1 = `e2econ1${suffix}.w3a-v1.testnet`;
+            const account2 = `e2econ2${suffix}.w3a-v1.testnet`;
 
-          const seams = new SeamsPasskey({
-            nearNetwork: 'testnet',
-            nearRpcUrl: 'https://test.rpc.fastnear.com',
-            relayer: { url: relayerUrl },
-            ...(managedRegistration
-              ? {
-                  registration: {
-                    mode: 'managed' as const,
-                    environmentId: String(managedRegistration.environmentId || ''),
-                    publishableKey: String(managedRegistration.publishableKey || ''),
-                  },
-                }
-              : {}),
-            iframeWallet: {
-              walletOrigin,
-              servicePath: '/wallet-service',
-              sdkBasePath: '/sdk',
-              rpIdOverride: 'example.localhost',
-            },
-          });
-
-          const confirmConfig = {
-            uiMode: 'none',
-            behavior: 'skipClick',
-            autoProceedDelay: 0,
-          } as const;
-
-          const reg1 = await seams.registration.registerPasskeyInternal(
-            account1,
-            {},
-            confirmConfig as any,
-          );
-          if (!reg1?.success) {
-            return { ok: false as const, error: reg1?.error || 'registration (1) failed' };
-          }
-
-          const reg2 = await seams.registration.registerPasskeyInternal(
-            account2,
-            {},
-            confirmConfig as any,
-          );
-          if (!reg2?.success) {
-            return { ok: false as const, error: reg2?.error || 'registration (2) failed' };
-          }
-
-          const login1 = await seams.auth.unlock(account1);
-          if (!login1?.success) {
-            return { ok: false as const, error: login1?.error || 'login (1) failed' };
-          }
-
-          const login2 = await seams.auth.unlock(account2);
-          if (!login2?.success) {
-            return { ok: false as const, error: login2?.error || 'login (2) failed' };
-          }
-
-          const receiver = receiverId || 'w3a-v1.testnet';
-          const alternateReceiver =
-            receiver === 'w3a-v1.testnet' ? 'alt.w3a-v1.testnet' : 'w3a-v1.testnet';
-          const action = { type: ActionType.Transfer, amount: '1' };
-          const wasmActions = [toActionArgsWasm(action)];
-          const toNumberArray = (value: unknown): number[] =>
-            Array.from(value as ArrayLike<number>);
-
-          const signOnce = async (accountId: string, receiverId: string) => {
-            const signed = await seams.near.signTransactionsWithActions({
-              nearAccountId: accountId,
-              transactions: [{ receiverId, actions: [action] }],
-              options: {
-                signerSlot: 1,
-                confirmationConfig: confirmConfig as any,
+            const seams = new SeamsPasskey({
+              nearNetwork: 'testnet',
+              nearRpcUrl: 'https://test.rpc.fastnear.com',
+              relayer: { url: relayerUrl },
+              ...(managedRegistration
+                ? {
+                    registration: {
+                      mode: 'managed' as const,
+                      environmentId: String(managedRegistration.environmentId || ''),
+                      publishableKey: String(managedRegistration.publishableKey || ''),
+                    },
+                  }
+                : {}),
+              iframeWallet: {
+                walletOrigin,
+                servicePath: '/wallet-service',
+                sdkBasePath: '/sdk',
+                rpIdOverride: 'example.localhost',
               },
             });
 
-            if (!Array.isArray(signed) || signed.length !== 1) {
-              throw new Error(
-                `expected 1 signed tx for ${accountId}, got ${Array.isArray(signed) ? signed.length : 'non-array'}`,
-              );
+            const confirmConfig = {
+              uiMode: 'none',
+              behavior: 'skipClick',
+              autoProceedDelay: 0,
+            } as const;
+
+            const reg1 = await seams.registration.registerPasskeyInternal(
+              account1,
+              {},
+              confirmConfig as any,
+            );
+            if (!reg1?.success) {
+              return { ok: false as const, error: reg1?.error || 'registration (1) failed' };
             }
 
-            const signedTx: any = signed[0]?.signedTransaction;
-            const signatureData = signedTx?.signature?.signatureData;
-            const borshBytes = signedTx?.borsh_bytes ?? signedTx?.borshBytes;
-            if (!signedTx || !signatureData || !borshBytes) {
-              throw new Error(`invalid signed transaction shape for ${receiverId}`);
+            const reg2 = await seams.registration.registerPasskeyInternal(
+              account2,
+              {},
+              confirmConfig as any,
+            );
+            if (!reg2?.success) {
+              return { ok: false as const, error: reg2?.error || 'registration (2) failed' };
+            }
+
+            const login1 = await seams.auth.unlock(account1);
+            if (!login1?.success) {
+              return { ok: false as const, error: login1?.error || 'login (1) failed' };
+            }
+
+            const login2 = await seams.auth.unlock(account2);
+            if (!login2?.success) {
+              return { ok: false as const, error: login2?.error || 'login (2) failed' };
+            }
+
+            const receiver = receiverId || 'w3a-v1.testnet';
+            const alternateReceiver =
+              receiver === 'w3a-v1.testnet' ? 'alt.w3a-v1.testnet' : 'w3a-v1.testnet';
+            const action = { type: ActionType.Transfer, amount: '1' };
+            const wasmActions = [toActionArgsWasm(action)];
+            const toNumberArray = (value: unknown): number[] =>
+              Array.from(value as ArrayLike<number>);
+
+            const signOnce = async (accountId: string, receiverId: string) => {
+              const signed = await seams.near.signTransactionsWithActions({
+                nearAccount: { accountId },
+                transactions: [{ receiverId, actions: [action] }],
+                options: {
+                  signerSlot: 1,
+                  confirmationConfig: confirmConfig as any,
+                },
+              });
+
+              if (!Array.isArray(signed) || signed.length !== 1) {
+                throw new Error(
+                  `expected 1 signed tx for ${accountId}, got ${Array.isArray(signed) ? signed.length : 'non-array'}`,
+                );
+              }
+
+              const signedTx: any = signed[0]?.signedTransaction;
+              const signatureData = signedTx?.signature?.signatureData;
+              const borshBytes = signedTx?.borsh_bytes ?? signedTx?.borshBytes;
+              if (!signedTx || !signatureData || !borshBytes) {
+                throw new Error(`invalid signed transaction shape for ${receiverId}`);
+              }
+
+              return {
+                signerId: String(signedTx?.transaction?.signerId || ''),
+                receiverId: String(signedTx?.transaction?.receiverId || ''),
+                signature: toNumberArray(signatureData),
+                borshBytes: toNumberArray(borshBytes),
+                nonce:
+                  typeof signedTx?.transaction?.nonce === 'bigint'
+                    ? signedTx.transaction.nonce.toString()
+                    : String(signedTx?.transaction?.nonce || ''),
+                blockHash: toNumberArray(signedTx?.transaction?.blockHash ?? []),
+              };
+            };
+
+            let signed1;
+            let signed2;
+            try {
+              [signed1, signed2] = await Promise.all([
+                signOnce(account1, receiver),
+                signOnce(account2, alternateReceiver),
+              ]);
+            } catch (error: any) {
+              return {
+                ok: false as const,
+                error: error?.message || String(error),
+                code: error?.code,
+                debug: error?.details,
+              };
             }
 
             return {
-              signerId: String(signedTx?.transaction?.signerId || ''),
-              receiverId: String(signedTx?.transaction?.receiverId || ''),
-              signature: toNumberArray(signatureData),
-              borshBytes: toNumberArray(borshBytes),
-              nonce:
-                typeof signedTx?.transaction?.nonce === 'bigint'
-                  ? signedTx.transaction.nonce.toString()
-                  : String(signedTx?.transaction?.nonce || ''),
-              blockHash: toNumberArray(signedTx?.transaction?.blockHash ?? []),
+              ok: true as const,
+              account1: { id: account1, publicKey: String(reg1.operationalPublicKey || '') },
+              account2: { id: account2, publicKey: String(reg2.operationalPublicKey || '') },
+              receiver,
+              alternateReceiver,
+              wasmActions,
+              signed1,
+              signed2,
             };
-          };
-
-          let signed1;
-          let signed2;
-          try {
-            [signed1, signed2] = await Promise.all([
-              signOnce(account1, receiver),
-              signOnce(account2, alternateReceiver),
-            ]);
-          } catch (error: any) {
+          } catch (e: any) {
             return {
               ok: false as const,
-              error: error?.message || String(error),
-              code: error?.code,
-              debug: error?.details,
+              error: e?.message || String(e),
+              code: e?.code,
+              debug: e?.debug,
             };
           }
-
-          return {
-            ok: true as const,
-            account1: { id: account1, publicKey: String(reg1.operationalPublicKey || '') },
-            account2: { id: account2, publicKey: String(reg2.operationalPublicKey || '') },
-            receiver,
-            alternateReceiver,
-            wasmActions,
-            signed1,
-            signed2,
-          };
-        } catch (e: any) {
-          return {
-            ok: false as const,
-            error: e?.message || String(e),
-            code: e?.code,
-            debug: e?.debug,
-          };
-        }
-      },
-      {
-        walletOrigin: 'https://wallet.example.localhost',
-        relayerUrl,
-        receiverId: receiverIdFromConfig(),
-      },
+        },
+        {
+          walletOrigin: 'https://wallet.example.localhost',
+          relayerUrl,
+          receiverId: receiverIdFromConfig(),
+        },
       );
 
       const result = await autoConfirmWalletIframeUntil(page, resultPromise, {
@@ -231,7 +231,9 @@ test.describe('Lite signer – concurrent sessions (wallet iframe)', () => {
       });
       if (!result.ok) {
         if (handleInfrastructureErrors(result as any)) return;
-        const debugSuffix = (result as any)?.debug ? `\n${JSON.stringify((result as any).debug, null, 2)}` : '';
+        const debugSuffix = (result as any)?.debug
+          ? `\n${JSON.stringify((result as any).debug, null, 2)}`
+          : '';
         expect(
           result.ok,
           `${(result as any)?.error || 'concurrent signing failed'}${debugSuffix}`,

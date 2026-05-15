@@ -59,19 +59,23 @@ const SIGNING_ROOT_ID = `${PROJECT_ID}:${ENV_ID}`;
 const SIGNING_ROOT_VERSION = 'root-v1';
 const KEK_ID = 'kek-v1';
 const KEK_BYTES = new Uint8Array(32).fill(0x42);
-const ECDSA_CONTEXT = {
-  signingRootId: SIGNING_ROOT_ID,
-  nearAccountId: 'alice.near',
-  keyPurpose: 'wallet',
-  keyVersion: 'v1',
-};
-const ECDSA_SUBJECT_ID = ECDSA_CONTEXT.nearAccountId;
 const ECDSA_CHAIN_TARGET = {
   kind: 'evm',
   namespace: 'eip155',
   chainId: 11155111,
   networkSlug: 'sepolia',
 } as const;
+const ECDSA_CONTEXT = {
+  signingRootId: SIGNING_ROOT_ID,
+  signingRootVersion: SIGNING_ROOT_VERSION,
+  walletSessionUserId: 'alice.near',
+  subjectId: 'alice-subject',
+  chainTarget: ECDSA_CHAIN_TARGET,
+  ecdsaThresholdKeyId: 'ecdsa-alpha',
+  keyPurpose: 'wallet',
+  keyVersion: 'v1',
+};
+const ECDSA_SUBJECT_ID = ECDSA_CONTEXT.subjectId;
 
 function loadCorpus(): ThresholdPrfFixtureCorpus {
   return JSON.parse(readFileSync(FIXTURE_PATH, 'utf8')) as ThresholdPrfFixtureCorpus;
@@ -271,11 +275,12 @@ test('ECDSA HSS prepare uses signing-root resolver when configured and preserves
   });
   const sessionPolicy: ThresholdEcdsaHssPrepareRequest['sessionPolicy'] = {
     version: 'threshold_session_v1',
-    userId: ECDSA_CONTEXT.nearAccountId,
+    walletSessionUserId: ECDSA_CONTEXT.walletSessionUserId,
     subjectId: ECDSA_SUBJECT_ID,
     chainTarget: ECDSA_CHAIN_TARGET,
     rpId: 'example.localhost',
     sessionId: 'ecdsa-session-1',
+    walletSigningSessionId: 'wallet-signing-session-1',
     runtimePolicyScope: {
       orgId: 'org-alpha',
       projectId: PROJECT_ID,
@@ -289,7 +294,7 @@ test('ECDSA HSS prepare uses signing-root resolver when configured and preserves
 
   expect(service.hasSigningRootShareResolver()).toBe(true);
   const prepared = await service.ecdsaHss.prepare({
-    walletSessionUserId: ECDSA_CONTEXT.nearAccountId,
+    walletSessionUserId: ECDSA_CONTEXT.walletSessionUserId,
     rpId: 'example.localhost',
     operation: 'registration_bootstrap',
     keygenSessionId: 'keygen-session-1',
@@ -347,16 +352,17 @@ test('ECDSA first bootstrap uses signing-root resolver when configured and no se
   const clientRootShare32B64u = Buffer.from(new Uint8Array(32).fill(0x07)).toString('base64url');
 
   const bootstrapped = await service.bootstrapEcdsaFromRegistrationMaterial({
-    userId: ECDSA_CONTEXT.nearAccountId,
+    walletSessionUserId: ECDSA_CONTEXT.walletSessionUserId,
     rpId: 'example.localhost',
     clientRootShare32B64u,
     sessionPolicy: {
       version: 'threshold_session_v1',
-      userId: ECDSA_CONTEXT.nearAccountId,
+      walletSessionUserId: ECDSA_CONTEXT.walletSessionUserId,
       subjectId: ECDSA_SUBJECT_ID,
       chainTarget: ECDSA_CHAIN_TARGET,
       rpId: 'example.localhost',
       sessionId: 'ecdsa-bootstrap-session-1',
+      walletSigningSessionId: 'wallet-signing-bootstrap-1',
       runtimePolicyScope: {
         orgId: 'org-alpha',
         projectId: PROJECT_ID,
@@ -397,18 +403,19 @@ test('ECDSA self-host signing-root resolver supplies fixed project scope when se
   });
   const sessionPolicy: ThresholdEcdsaHssPrepareRequest['sessionPolicy'] = {
     version: 'threshold_session_v1',
-    userId: ECDSA_CONTEXT.nearAccountId,
+    walletSessionUserId: ECDSA_CONTEXT.walletSessionUserId,
     subjectId: ECDSA_SUBJECT_ID,
     chainTarget: ECDSA_CHAIN_TARGET,
     rpId: 'example.localhost',
     sessionId: 'ecdsa-self-host-session-1',
+    walletSigningSessionId: 'wallet-signing-self-host-1',
     participantIds: [1, 2],
     ttlMs: 60_000,
     remainingUses: 1,
   };
 
   const prepared = await service.ecdsaHss.prepare({
-    walletSessionUserId: ECDSA_CONTEXT.nearAccountId,
+    walletSessionUserId: ECDSA_CONTEXT.walletSessionUserId,
     rpId: 'example.localhost',
     operation: 'registration_bootstrap',
     keygenSessionId: 'self-host-keygen-session-1',
@@ -419,7 +426,7 @@ test('ECDSA self-host signing-root resolver supplies fixed project scope when se
   if (!prepared.ok) throw new Error(prepared.message);
 
   const bootstrapped = await service.bootstrapEcdsaFromRegistrationMaterial({
-    userId: ECDSA_CONTEXT.nearAccountId,
+    walletSessionUserId: ECDSA_CONTEXT.walletSessionUserId,
     rpId: 'example.localhost',
     clientRootShare32B64u: Buffer.from(new Uint8Array(32).fill(0x07)).toString('base64url'),
     sessionPolicy,
@@ -476,7 +483,10 @@ test('ECDSA signing-root wallet verification derives the known address from impo
   const first = await service.verifyEcdsaSigningRootWalletAddress({
     signingRootId: SIGNING_ROOT_ID,
     signingRootVersion: SIGNING_ROOT_VERSION,
-    userId: ECDSA_CONTEXT.nearAccountId,
+    walletSessionUserId: ECDSA_CONTEXT.walletSessionUserId,
+    subjectId: ECDSA_CONTEXT.subjectId,
+    chainTarget: ECDSA_CONTEXT.chainTarget,
+    ecdsaThresholdKeyId: ECDSA_CONTEXT.ecdsaThresholdKeyId,
     rpId: 'example.localhost',
     clientRootShare32B64u,
   });
@@ -488,7 +498,10 @@ test('ECDSA signing-root wallet verification derives the known address from impo
   const second = await service.verifyEcdsaSigningRootWalletAddress({
     signingRootId: SIGNING_ROOT_ID,
     signingRootVersion: SIGNING_ROOT_VERSION,
-    userId: ECDSA_CONTEXT.nearAccountId,
+    walletSessionUserId: ECDSA_CONTEXT.walletSessionUserId,
+    subjectId: ECDSA_CONTEXT.subjectId,
+    chainTarget: ECDSA_CONTEXT.chainTarget,
+    ecdsaThresholdKeyId: ECDSA_CONTEXT.ecdsaThresholdKeyId,
     rpId: 'example.localhost',
     clientRootShare32B64u,
     expectedEthereumAddress: first.canonicalEthereumAddress,
@@ -502,7 +515,10 @@ test('ECDSA signing-root wallet verification derives the known address from impo
   const mismatch = await service.verifyEcdsaSigningRootWalletAddress({
     signingRootId: SIGNING_ROOT_ID,
     signingRootVersion: SIGNING_ROOT_VERSION,
-    userId: ECDSA_CONTEXT.nearAccountId,
+    walletSessionUserId: ECDSA_CONTEXT.walletSessionUserId,
+    subjectId: ECDSA_CONTEXT.subjectId,
+    chainTarget: ECDSA_CONTEXT.chainTarget,
+    ecdsaThresholdKeyId: ECDSA_CONTEXT.ecdsaThresholdKeyId,
     rpId: 'example.localhost',
     clientRootShare32B64u,
     expectedEthereumAddress: `0x${'11'.repeat(20)}`,

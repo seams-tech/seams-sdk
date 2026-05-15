@@ -229,6 +229,7 @@ test.describe('EmailRecoveryDomain', () => {
                   orgId: 'org-email-recovery',
                   projectId: 'proj-email-recovery',
                   envId: 'env-email-recovery',
+                  signingRootVersion: 'root-email-recovery-v1',
                 },
                 jwt: 'sync-jwt',
               },

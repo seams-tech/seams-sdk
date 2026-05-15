@@ -75,6 +75,10 @@ test.describe('EVM-family request boundaries', () => {
     expect(transactionExecutor).toContain(
       "targetKind === 'tempo' ? loadSignTempoWithUiConfirm : loadSignEvmWithUiConfirm",
     );
+    expect(transactionExecutor).toContain('requireRawEip1559ThresholdOwnerAddress');
+    expect(transactionExecutor).toContain(
+      'raw EIP-1559 signing requires threshold ECDSA owner address',
+    );
 
     const signTempoWithUiConfirm = fs.readFileSync(
       path.join(
@@ -136,7 +140,7 @@ test.describe('Trusted wallet signing budget status', () => {
         { ecdsaSessions },
         {
           kind: 'authenticated_threshold_budget_status_check',
-          nearAccountId: 'budget-not-found.testnet',
+          walletId: 'budget-not-found.testnet',
           walletSigningSessionId: 'wallet-session-missing',
           targetThresholdSessionIds: ['threshold-session-missing'],
           trustedStatusAuth: {
@@ -200,7 +204,7 @@ test.describe('Trusted wallet signing budget status', () => {
         { ecdsaSessions },
         {
           kind: 'authenticated_threshold_budget_status_check',
-          nearAccountId: 'budget-current.testnet',
+          walletId: 'budget-current.testnet',
           walletSigningSessionId: 'wallet-session-fresh',
           targetThresholdSessionIds: ['threshold-session-fresh'],
           trustedStatusAuth: {
@@ -223,6 +227,115 @@ test.describe('Trusted wallet signing budget status', () => {
           thresholdSessionId: 'threshold-session-fresh',
         },
       ]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('coalesces identical concurrent trusted budget status reads', async () => {
+    const ecdsaSessions = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaSessions);
+    const originalFetch = globalThis.fetch;
+    let callCount = 0;
+    let resolveFetch: (() => void) | null = null;
+    const fetchGate = new Promise<void>((resolve) => {
+      resolveFetch = resolve;
+    });
+    globalThis.fetch = (async (): Promise<Response> => {
+      callCount += 1;
+      await fetchGate;
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          walletSigningSessionId: 'wallet-session-coalesced',
+          thresholdSessionId: 'threshold-session-coalesced',
+          status: 'active',
+          remainingUses: 3,
+          expiresAtMs: 1_777_777_777_000,
+          projectionVersion: 'projection-v1',
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }) as typeof fetch;
+
+    const args = {
+      kind: 'authenticated_threshold_budget_status_check',
+      walletId: 'budget-coalesced.testnet',
+      walletSigningSessionId: 'wallet-session-coalesced',
+      targetThresholdSessionIds: ['threshold-session-coalesced'],
+      trustedStatusAuth: {
+        relayerUrl: 'https://relay.example',
+        thresholdSessionId: 'threshold-session-coalesced',
+        thresholdSessionAuthToken: 'fresh-jwt',
+      },
+    } as const;
+
+    try {
+      const first = readTrustedWalletSigningBudgetStatus({ ecdsaSessions }, args);
+      const second = readTrustedWalletSigningBudgetStatus({ ecdsaSessions }, args);
+
+      expect(callCount).toBe(1);
+      resolveFetch?.();
+
+      const [firstStatus, secondStatus] = await Promise.all([first, second]);
+      expect(firstStatus).toMatchObject({
+        sessionId: 'wallet-session-coalesced',
+        status: 'active',
+        projectionVersion: 'projection-v1',
+      });
+      expect(secondStatus).toEqual(firstStatus);
+    } finally {
+      resolveFetch?.();
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('does not reuse completed trusted budget status reads', async () => {
+    const ecdsaSessions = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaSessions);
+    const originalFetch = globalThis.fetch;
+    let callCount = 0;
+    globalThis.fetch = (async (): Promise<Response> => {
+      callCount += 1;
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          walletSigningSessionId: 'wallet-session-fresh-read',
+          thresholdSessionId: 'threshold-session-fresh-read',
+          status: 'active',
+          remainingUses: 3,
+          expiresAtMs: 1_777_777_777_000,
+          projectionVersion: `projection-v${callCount}`,
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }) as typeof fetch;
+
+    const args = {
+      kind: 'authenticated_threshold_budget_status_check',
+      walletId: 'budget-fresh-read.testnet',
+      walletSigningSessionId: 'wallet-session-fresh-read',
+      targetThresholdSessionIds: ['threshold-session-fresh-read'],
+      trustedStatusAuth: {
+        relayerUrl: 'https://relay.example',
+        thresholdSessionId: 'threshold-session-fresh-read',
+        thresholdSessionAuthToken: 'fresh-jwt',
+      },
+    } as const;
+
+    try {
+      const first = await readTrustedWalletSigningBudgetStatus({ ecdsaSessions }, args);
+      const second = await readTrustedWalletSigningBudgetStatus({ ecdsaSessions }, args);
+
+      expect(callCount).toBe(2);
+      expect(first?.projectionVersion).toBe('projection-v1');
+      expect(second?.projectionVersion).toBe('projection-v2');
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -254,7 +367,7 @@ test.describe('Trusted wallet signing budget status', () => {
         { ecdsaSessions },
         {
           kind: 'authenticated_threshold_budget_status_check',
-          nearAccountId: 'budget-mismatch.testnet',
+          walletId: 'budget-mismatch.testnet',
           walletSigningSessionId: 'wallet-session-fresh',
           targetThresholdSessionIds: ['threshold-session-fresh'],
           trustedStatusAuth: {
@@ -297,7 +410,7 @@ test.describe('Trusted wallet signing budget status', () => {
         { ecdsaSessions },
         {
           kind: 'authenticated_threshold_budget_status_check',
-          nearAccountId: 'budget-threshold-mismatch.testnet',
+          walletId: 'budget-threshold-mismatch.testnet',
           walletSigningSessionId: 'wallet-session-fresh',
           targetThresholdSessionIds: ['threshold-session-fresh'],
           trustedStatusAuth: {
@@ -339,7 +452,7 @@ test.describe('Trusted wallet signing budget status', () => {
         { ecdsaSessions },
         {
           kind: 'authenticated_threshold_budget_status_check',
-          nearAccountId: 'budget-projection-missing.testnet',
+          walletId: 'budget-projection-missing.testnet',
           walletSigningSessionId: 'wallet-session-fresh',
           targetThresholdSessionIds: ['threshold-session-fresh'],
           trustedStatusAuth: {

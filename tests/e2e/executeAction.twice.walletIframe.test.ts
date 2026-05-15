@@ -99,11 +99,7 @@ test.describe('Lite signer – executeAction twice (wallet iframe)', () => {
             });
 
             const cfg = { uiMode: 'modal', behavior: 'requireClick', autoProceedDelay: 0 } as const;
-            const reg = await seams.registration.registerPasskeyInternal(
-              accountId,
-              {},
-              cfg as any,
-            );
+            const reg = await seams.registration.registerPasskeyInternal(accountId, {}, cfg as any);
             if (!reg?.success) {
               return { ok: false as const, error: reg?.error || 'registration failed' };
             }
@@ -136,7 +132,7 @@ test.describe('Lite signer – executeAction twice (wallet iframe)', () => {
 
             const runOnce = async (call: number) => {
               const result = await seams.near.executeAction({
-                nearAccountId: accountId,
+                nearAccount: { accountId },
                 receiverId,
                 actionArgs: {
                   type: ActionType.FunctionCall,

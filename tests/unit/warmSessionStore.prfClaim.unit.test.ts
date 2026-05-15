@@ -133,7 +133,6 @@ test.describe('WarmSessionStore PRF claim handling', () => {
 
     await expect(
       store.claimPrfFirstByThresholdSessionId({
-        kind: 'threshold_only_claim',
         thresholdSessionId: record.thresholdSessionId,
         errorContext: 'threshold-ecdsa authorization bootstrap',
       }),
@@ -179,7 +178,6 @@ test.describe('WarmSessionStore PRF claim handling', () => {
 
     await expect(
       store.claimPrfFirstByThresholdSessionId({
-        kind: 'threshold_only_claim',
         thresholdSessionId: record.thresholdSessionId,
         errorContext: 'threshold-ecdsa authorization bootstrap',
       }),
@@ -216,7 +214,6 @@ test.describe('WarmSessionStore PRF claim handling', () => {
 
       await expect(
         store.claimPrfFirstByThresholdSessionId({
-          kind: 'threshold_only_claim',
           thresholdSessionId: record.thresholdSessionId,
           errorContext: 'threshold-ecdsa explicit export',
         }),
@@ -256,7 +253,6 @@ test.describe('WarmSessionStore PRF claim handling', () => {
 
     await expect(
       store.claimPrfFirstByThresholdSessionId({
-        kind: 'threshold_only_claim',
         thresholdSessionId: record.thresholdSessionId,
         errorContext: 'threshold-ecdsa explicit export',
       }),
@@ -305,7 +301,6 @@ test.describe('WarmSessionStore PRF claim handling', () => {
 
     await expect(
       store.claimPrfFirstByThresholdSessionId({
-        kind: 'threshold_only_claim',
         thresholdSessionId: record.thresholdSessionId,
         errorContext: 'threshold-ecdsa authorization bootstrap',
       }),

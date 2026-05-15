@@ -86,12 +86,20 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
             }
 
             const bootstrap = await seams.tempo.bootstrapEcdsaSession({
-              nearAccountId: accountId,
-              options: {
-                relayerUrl,
-                ttlMs: 120_000,
-                remainingUses: 10,
+              kind: 'reuse_warm_ecdsa_bootstrap',
+              walletSession: {
+                walletId: accountId,
+                walletSessionUserId: accountId,
               },
+              subjectId: accountId,
+              chainTarget: {
+                kind: 'tempo' as const,
+                chainId: 42431,
+                networkSlug: 'tempo-testnet',
+              },
+              relayerUrl,
+              ttlMs: 120_000,
+              remainingUses: 10,
             });
             if (!bootstrap?.thresholdEcdsaKeyRef?.ecdsaThresholdKeyId) {
               return {
@@ -102,7 +110,16 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
             }
 
             const signed = await seams.tempo.signTempo({
-              nearAccountId: accountId,
+              walletSession: {
+                walletId: accountId,
+                walletSessionUserId: accountId,
+              },
+              subjectId: accountId,
+              chainTarget: {
+                kind: 'tempo' as const,
+                chainId: 42431,
+                networkSlug: 'tempo-testnet',
+              },
               request: {
                 chain: 'tempo' as const,
                 kind: 'tempoTransaction' as const,
@@ -401,12 +418,20 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
 
             seams.setConfirmationConfig(confirmationConfig as any);
             const bootstrap = await seams.tempo.bootstrapEcdsaSession({
-              nearAccountId: accountId,
-              options: {
-                relayerUrl,
-                ttlMs: 120_000,
-                remainingUses: 3,
+              kind: 'reuse_warm_ecdsa_bootstrap',
+              walletSession: {
+                walletId: accountId,
+                walletSessionUserId: accountId,
               },
+              subjectId: accountId,
+              chainTarget: {
+                kind: 'tempo' as const,
+                chainId: 42431,
+                networkSlug: 'tempo-testnet',
+              },
+              relayerUrl,
+              ttlMs: 120_000,
+              remainingUses: 3,
             });
             if (!bootstrap?.thresholdEcdsaKeyRef?.ecdsaThresholdKeyId) {
               return {
@@ -415,7 +440,16 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               };
             }
             const firstSign = await seams.tempo.signTempo({
-              nearAccountId: accountId,
+              walletSession: {
+                walletId: accountId,
+                walletSessionUserId: accountId,
+              },
+              subjectId: accountId,
+              chainTarget: {
+                kind: 'tempo' as const,
+                chainId: 42431,
+                networkSlug: 'tempo-testnet',
+              },
               request: {
                 chain: 'tempo' as const,
                 kind: 'tempoTransaction' as const,
@@ -519,7 +553,16 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
             const session = await seams.auth.getWalletSession(accountId);
 
             const refreshedSign = await seams.tempo.signTempo({
-              nearAccountId: accountId,
+              walletSession: {
+                walletId: accountId,
+                walletSessionUserId: accountId,
+              },
+              subjectId: accountId,
+              chainTarget: {
+                kind: 'tempo' as const,
+                chainId: 42431,
+                networkSlug: 'tempo-testnet',
+              },
               request: {
                 chain: 'tempo' as const,
                 kind: 'tempoTransaction' as const,
@@ -543,8 +586,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
             });
 
             return {
-              ok:
-                refreshedSign?.chain === 'tempo' && refreshedSign?.kind === 'tempoTransaction',
+              ok: refreshedSign?.chain === 'tempo' && refreshedSign?.kind === 'tempoTransaction',
               chain: String(refreshedSign?.chain || ''),
               kind: String(refreshedSign?.kind || ''),
               sessionStatus: String(session?.signingSession?.status || ''),
@@ -762,7 +804,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
             seams.setConfirmationConfig(confirmationConfig as any);
 
             const sign = await seams.near.executeAction({
-              nearAccountId: accountId,
+              nearAccount: { accountId },
               receiverId: 'w3a-v1.testnet',
               actionArgs: {
                 type: ActionType.FunctionCall,
@@ -857,7 +899,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
             seams.setConfirmationConfig(confirmationConfig as any);
 
             const sign = await seams.near.executeAction({
-              nearAccountId: accountId,
+              nearAccount: { accountId },
               receiverId: 'w3a-v1.testnet',
               actionArgs: {
                 type: ActionType.FunctionCall,
@@ -1059,12 +1101,20 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
             }
 
             const bootstrap = await seams.tempo.bootstrapEcdsaSession({
-              nearAccountId: accountId,
-              options: {
-                relayerUrl,
-                ttlMs: 120_000,
-                remainingUses: 10,
+              kind: 'reuse_warm_ecdsa_bootstrap',
+              walletSession: {
+                walletId: accountId,
+                walletSessionUserId: accountId,
               },
+              subjectId: accountId,
+              chainTarget: {
+                kind: 'tempo' as const,
+                chainId: 42431,
+                networkSlug: 'tempo-testnet',
+              },
+              relayerUrl,
+              ttlMs: 120_000,
+              remainingUses: 10,
             });
             if (!bootstrap?.thresholdEcdsaKeyRef?.ecdsaThresholdKeyId) {
               return {
@@ -1073,12 +1123,21 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               };
             }
             const evmBootstrap = await seams.evm.bootstrapEcdsaSession({
-              nearAccountId: accountId,
-              options: {
-                relayerUrl,
-                ttlMs: 120_000,
-                remainingUses: 10,
+              kind: 'reuse_warm_ecdsa_bootstrap',
+              walletSession: {
+                walletId: accountId,
+                walletSessionUserId: accountId,
               },
+              subjectId: accountId,
+              chainTarget: {
+                kind: 'evm' as const,
+                namespace: 'eip155' as const,
+                chainId: 11155111,
+                networkSlug: 'evm-11155111',
+              },
+              relayerUrl,
+              ttlMs: 120_000,
+              remainingUses: 10,
             });
             if (!evmBootstrap?.thresholdEcdsaKeyRef?.ecdsaThresholdKeyId) {
               return {
@@ -1088,7 +1147,16 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
             }
 
             const warmTempo = await seams.tempo.signTempo({
-              nearAccountId: accountId,
+              walletSession: {
+                walletId: accountId,
+                walletSessionUserId: accountId,
+              },
+              subjectId: accountId,
+              chainTarget: {
+                kind: 'tempo' as const,
+                chainId: 42431,
+                networkSlug: 'tempo-testnet',
+              },
               request: {
                 chain: 'tempo' as const,
                 kind: 'tempoTransaction' as const,
@@ -1245,7 +1313,24 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               }> = [];
               for (const requestedChain of order) {
                 const signed = await seams.tempo.signTempo({
-                  nearAccountId: accountId,
+                  walletSession: {
+                    walletId: accountId,
+                    walletSessionUserId: accountId,
+                  },
+                  subjectId: accountId,
+                  chainTarget:
+                    requestedChain === 'tempo'
+                      ? {
+                          kind: 'tempo' as const,
+                          chainId: 42431,
+                          networkSlug: 'tempo-testnet',
+                        }
+                      : {
+                          kind: 'evm' as const,
+                          namespace: 'eip155' as const,
+                          chainId: 11155111,
+                          networkSlug: 'ethereum-sepolia',
+                        },
                   request: requestByChain[requestedChain],
                   options: { confirmationConfig },
                 });
@@ -1713,7 +1798,7 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
                 }
                 if (sessionKind === 'jwt') {
                   const firstSign = await seams.near.executeAction({
-                    nearAccountId: accountId,
+                    nearAccount: { accountId },
                     receiverId: 'w3a-v1.testnet',
                     actionArgs: {
                       type: ActionType.FunctionCall,
@@ -1737,7 +1822,16 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
               } else {
                 if (sessionKind === 'jwt') {
                   const firstSign = await seams.tempo.signTempo({
-                    nearAccountId: accountId,
+                    walletSession: {
+                      walletId: accountId,
+                      walletSessionUserId: accountId,
+                    },
+                    subjectId: accountId,
+                    chainTarget: {
+                      kind: 'tempo' as const,
+                      chainId: 42431,
+                      networkSlug: 'tempo-testnet',
+                    },
                     request: {
                       chain: 'tempo' as const,
                       kind: 'tempoTransaction' as const,
@@ -1846,7 +1940,7 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
               if (curve === 'ed25519') {
                 if (sessionKind === 'jwt') {
                   const refreshedSign = await seams.near.executeAction({
-                    nearAccountId: accountId,
+                    nearAccount: { accountId },
                     receiverId: 'w3a-v1.testnet',
                     actionArgs: {
                       type: ActionType.FunctionCall,
@@ -1870,7 +1964,16 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
               } else {
                 if (sessionKind === 'jwt') {
                   const refreshedSign = await seams.tempo.signTempo({
-                    nearAccountId: accountId,
+                    walletSession: {
+                      walletId: accountId,
+                      walletSessionUserId: accountId,
+                    },
+                    subjectId: accountId,
+                    chainTarget: {
+                      kind: 'tempo' as const,
+                      chainId: 42431,
+                      networkSlug: 'tempo-testnet',
+                    },
                     request: {
                       chain: 'tempo' as const,
                       kind: 'tempoTransaction' as const,

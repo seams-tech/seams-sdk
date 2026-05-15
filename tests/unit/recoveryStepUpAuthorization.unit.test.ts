@@ -68,7 +68,7 @@ test.describe('recovery step-up authorization', () => {
   test('builds typed passkey export authorization with normalized credential', () => {
     const authorization = buildExportStepUpAuthorization({
       method: 'passkey',
-      nearAccountId: 'alice.testnet',
+      walletSessionUserId: 'alice.testnet',
       chain: 'evm',
       publicKey: '02'.padEnd(66, '1'),
       curve: 'ecdsa',
@@ -86,7 +86,7 @@ test.describe('recovery step-up authorization', () => {
         kind: SigningAuthPlanKind.PasskeyReauth,
         method: 'passkey',
       },
-      nearAccountId: 'alice.testnet',
+      walletSessionUserId: 'alice.testnet',
       chain: 'evm',
       publicKey: '02'.padEnd(66, '1'),
       curve: 'ecdsa',

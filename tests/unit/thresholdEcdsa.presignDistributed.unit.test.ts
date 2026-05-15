@@ -17,8 +17,19 @@ import { ThresholdEcdsaPresignSession } from '../../wasm/eth_signer/pkg/eth_sign
 
 const TEST_RELAYER_SHARE_SEED_B64U = Buffer.from(new Uint8Array(32).fill(9)).toString('base64url');
 const TEST_THRESHOLD_EXPIRES_IN_MS = 10 * 60_000;
-const TEST_RUNTIME_SCOPE = { orgId: 'org-alpha', projectId: 'project-alpha', envId: 'env-alpha' } as const;
+const TEST_RUNTIME_SCOPE = {
+  orgId: 'org-alpha',
+  projectId: 'project-alpha',
+  envId: 'env-alpha',
+  signingRootVersion: 'root-v1',
+} as const;
 const TEST_SIGNING_ROOT_ID = `${TEST_RUNTIME_SCOPE.projectId}:${TEST_RUNTIME_SCOPE.envId}`;
+const TEST_ECDSA_CHAIN_TARGET = {
+  kind: 'evm',
+  namespace: 'eip155',
+  chainId: 11155111,
+  networkSlug: 'sepolia',
+} as const;
 
 function toUint8Array(value: ArrayBuffer | ArrayBufferView): Uint8Array {
   if (value instanceof Uint8Array) return value;
@@ -97,12 +108,16 @@ function buildIntegratedKeyRecord(input: {
     version: 'threshold_ecdsa_hss_key_v1' as const,
     ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
     userId: input.userId,
+    walletSessionUserId: input.userId,
+    subjectId: input.userId,
+    chainTarget: TEST_ECDSA_CHAIN_TARGET,
     rpId: input.rpId,
     schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
     clientVerifyingShareB64u: input.clientVerifyingShareB64u,
     thresholdEcdsaPublicKeyB64u: base64UrlEncode(groupPublicKey33),
     ethereumAddress: `0x${'11'.repeat(20)}`,
     signingRootId: TEST_SIGNING_ROOT_ID,
+    signingRootVersion: TEST_RUNTIME_SCOPE.signingRootVersion,
     walletKeyVersion: 'v1',
     derivationVersion: 1,
     participantIds: input.participantIds,
@@ -233,7 +248,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
     const handlerA = makeHandler();
 
     const claims = {
-      sub: userId,
+      walletId: userId,
       rpId,
       relayerKeyId,
       participantIds,
@@ -406,7 +421,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
     const handlerA = makeHandler();
     const handlerB = makeHandler();
     const claims = {
-      sub: userId,
+      walletId: userId,
       rpId,
       relayerKeyId,
       participantIds,
@@ -516,7 +531,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
       peers: [{ instanceId: 'coordinator-a', relayerUrl: 'https://relay-a.internal' }],
     });
     const claims = {
-      sub: userId,
+      walletId: userId,
       rpId,
       relayerKeyId,
       participantIds,
@@ -654,7 +669,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
       peers: [{ instanceId: 'coordinator-a', relayerUrl: 'https://relay-a.internal' }],
     });
     const claims = {
-      sub: userId,
+      walletId: userId,
       rpId,
       relayerKeyId,
       participantIds,
@@ -760,7 +775,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
     const handlerA = makeHandler();
     const handlerB = makeHandler();
     const validClaims = {
-      sub: userId,
+      walletId: userId,
       rpId,
       relayerKeyId,
       participantIds,
@@ -778,7 +793,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
 
     const wrongScopeClaims = {
       ...validClaims,
-      sub: 'different-user',
+      walletId: 'different-user',
     };
     const step = await handlerB.ecdsaPresignStep({
       claims: wrongScopeClaims as any,
@@ -873,7 +888,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
     });
 
     const claims = {
-      sub: userId,
+      walletId: userId,
       rpId,
       relayerKeyId,
       participantIds,
@@ -1028,6 +1043,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
           clientVerifyingShareB64u,
           participantIds,
           signingRootId: TEST_SIGNING_ROOT_ID,
+          signingRootVersion: TEST_RUNTIME_SCOPE.signingRootVersion,
           walletKeyVersion: 'v1',
           derivationVersion: 1,
         },

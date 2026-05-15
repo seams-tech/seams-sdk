@@ -133,7 +133,7 @@ test.describe('threshold-ed25519 FROST transcript tampering', () => {
             if (!login?.success) throw new Error(login?.error || 'login failed');
 
             await pm.near.signTransactionsWithActions({
-              nearAccountId: accountId,
+              nearAccount: { accountId },
               transactions: [
                 {
                   receiverId: 'w3a-v1.testnet',
@@ -247,7 +247,7 @@ test.describe('threshold-ed25519 FROST transcript tampering', () => {
             if (!login?.success) throw new Error(login?.error || 'login failed');
 
             await pm.near.signTransactionsWithActions({
-              nearAccountId: accountId,
+              nearAccount: { accountId },
               transactions: [
                 {
                   receiverId: 'w3a-v1.testnet',

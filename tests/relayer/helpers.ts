@@ -262,6 +262,7 @@ export function makeFakeAuthService(
     listRecoveryExecutions: AuthService['listRecoveryExecutions'];
     listRecoveryExecutionsByStatus: AuthService['listRecoveryExecutionsByStatus'];
     listAccountSignersByAccount: AuthService['listAccountSignersByAccount'];
+    listActiveSmartAccountSignersForUser: AuthService['listActiveSmartAccountSignersForUser'];
     putAccountSigner: AuthService['putAccountSigner'];
     recordNearPublicKeyMetadata: AuthService['recordNearPublicKeyMetadata'];
     listIdentities: AuthService['listIdentities'];
@@ -439,6 +440,8 @@ export function makeFakeAuthService(
       overrides.listRecoveryExecutionsByStatus || (async () => ({ ok: true, records: [] })),
     listAccountSignersByAccount:
       overrides.listAccountSignersByAccount || (async () => ({ ok: true, records: [] })),
+    listActiveSmartAccountSignersForUser:
+      overrides.listActiveSmartAccountSignersForUser || (async () => []),
     putAccountSigner: overrides.putAccountSigner || (async (record) => ({ ok: true, record })),
     recordNearPublicKeyMetadata:
       overrides.recordNearPublicKeyMetadata || (async () => ({ ok: true })),

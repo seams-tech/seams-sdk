@@ -1558,6 +1558,97 @@ test.describe('relayer router (express) – P0', () => {
     }
   });
 
+  test('POST /threshold-ecdsa/hss/prepare attaches Email OTP enrollment from resolved request scope', async () => {
+    let capturedRequest: Record<string, unknown> | null = null;
+    const enrollmentReads: Array<Record<string, unknown>> = [];
+    const service = makeFakeAuthService();
+    (service as any).readActiveEmailOtpEnrollment = async (request: Record<string, unknown>) => {
+      enrollmentReads.push(request);
+      return {
+        ok: true,
+        enrollment: {
+          walletId: 'alice.testnet',
+          providerUserId: 'google:alice',
+          orgId: 'org-email-otp-express',
+          thresholdEcdsaClientVerifyingShareB64u: 'email-otp-verifier',
+        },
+      };
+    };
+    const session = makeSessionAdapter({
+      parse: async () => ({
+        ok: true,
+        claims: {
+          kind: 'app_session_v1',
+          sub: 'alice.testnet',
+          walletId: 'alice.testnet',
+          appSessionVersion: 'app-session-v1',
+        },
+      }),
+    });
+    const threshold = makeEcdsaThresholdAdapter({
+      prepare: async (request) => {
+        capturedRequest = request;
+        return {
+          ok: true,
+          ceremonyId: 'ceremony-email-otp-express',
+          preparedServerSessionB64u: 'prepared-server',
+          serverAssistInitB64u: 'server-assist',
+        };
+      },
+    });
+    const router = createRelayRouter(service, { session, threshold: threshold as any });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/threshold-ecdsa/hss/prepare`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
+        body: JSON.stringify({
+          walletSessionUserId: 'alice.testnet',
+          rpId: 'example.localhost',
+          operation: 'email_otp_bootstrap',
+          keygenSessionId: 'keygen-email-otp-express',
+          sessionPolicy: {
+            version: 'threshold_session_v1',
+            walletSessionUserId: 'alice.testnet',
+            subjectId: 'alice.testnet',
+            rpId: 'example.localhost',
+            chainTarget: {
+              kind: 'evm',
+              namespace: 'eip155',
+              chainId: 5042002,
+              networkSlug: 'arc-testnet',
+            },
+            sessionId: 'ecdsa-session-email-otp-express',
+            walletSigningSessionId: 'wallet-signing-email-otp-express',
+            runtimePolicyScope: {
+              orgId: 'org-email-otp-express',
+              projectId: 'project-email-otp-express',
+              envId: 'env-email-otp-express',
+              signingRootVersion: 'default',
+            },
+            participantIds: [1, 2],
+            ttlMs: 300_000,
+            remainingUses: 5,
+          },
+          sessionKind: 'jwt',
+        }),
+      });
+
+      expect(res.status, res.text).toBe(200);
+      expect(enrollmentReads[0]?.walletId).toBe('alice.testnet');
+      expect(enrollmentReads[0]?.orgId).toBe('org-email-otp-express');
+      expect(enrollmentReads[0]?.providerUserId).toBeUndefined();
+      expect(getPath(capturedRequest, 'emailOtpEnrollmentClaims')).toEqual({
+        walletId: 'alice.testnet',
+        userId: 'google:alice',
+        otpChannel: 'email_otp',
+        thresholdEcdsaClientVerifyingShareB64u: 'email-otp-verifier',
+      });
+    } finally {
+      await srv.close();
+    }
+  });
+
   test('GET /session/state: sessions disabled -> 501', async () => {
     const service = makeFakeAuthService();
     const router = createRelayRouter(service, {});
@@ -2765,6 +2856,18 @@ test.describe('relayer router (express) – P0', () => {
         };
       },
       getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
+      listActiveSmartAccountSignersForUser: async (userId: string) => [
+        {
+          userId,
+          signerType: 'threshold',
+          status: 'active',
+          metadata: {
+            ecdsaThresholdKeyId: 'ehss-passkey-express-1',
+            thresholdEcdsaPublicKeyB64u: 'ecdsa-public-key',
+            chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 5042002 },
+          },
+        } as any,
+      ],
     });
     const router = createRelayRouter(service, {
       session,
@@ -2807,6 +2910,9 @@ test.describe('relayer router (express) – P0', () => {
       expect(getPath(res.json, 'session', 'kind')).toBe('app_session_v1');
       expect(getPath(res.json, 'session', 'userId')).toBe('user-passkey-1');
       expect(res.json?.jwt).toBe('app-jwt-passkey-1');
+      expect(getPath(res.json, 'smartAccountSigners', 0, 'metadata', 'ecdsaThresholdKeyId')).toBe(
+        'ehss-passkey-express-1',
+      );
       expect(String((verifyArgs as Record<string, unknown> | null)?.['challengeId'] || '')).toBe(
         'challenge-passkey-1',
       );
@@ -3796,7 +3902,7 @@ test.describe('relayer router (express) – P0', () => {
           getWalletBudgetStatus: async ({ walletSigningSessionId }) =>
             walletSigningSessionId === claims.walletSigningSessionId
               ? walletBudgetStatus
-              : wrongCurveStatus,
+              : null,
           getThresholdSessionStatuses: async ({ thresholdSessionId }) =>
             thresholdSessionId === claims.sessionId ? [wrongCurveStatus, ecdsaStatus] : [],
         },
@@ -3842,7 +3948,7 @@ test.describe('relayer router (express) – P0', () => {
         },
         sessionPolicy: {
           getThresholdSession: async () => null,
-          getWalletBudgetStatus: async () => wrongCurveStatus,
+          getWalletBudgetStatus: async () => null,
           getThresholdSessionStatuses: async () => [wrongCurveStatus],
         },
       },

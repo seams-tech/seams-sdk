@@ -43,6 +43,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
         return {
           ok: true,
           sessionId,
+          walletSigningSessionId: 'wsess-ed25519-transition',
           jwt: `jwt:${sessionId}`,
           remainingUses: 7,
           expiresAtMs,
@@ -51,14 +52,18 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
     });
 
     await store.provisionEd25519Capability({
+      kind: 'fresh_ed25519_provisioning',
       nearAccountId: 'transition-ed25519.testnet',
       relayerKeyId: 'rk-ed25519-transition',
+      participantIds: [1, 2],
+      sessionKind: 'jwt',
+      source: 'login',
     });
 
     expect(transitions).toHaveLength(1);
     expect(transitions[0]).toMatchObject({
       type: 'ed25519_capability_provisioned',
-      accountId: 'transition-ed25519.testnet',
+      walletId: 'transition-ed25519.testnet',
       thresholdSessionId: sessionId,
       before: {
         capabilities: {
@@ -96,6 +101,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
       provisionThresholdEd25519Session: async () => ({
         ok: true,
         sessionId,
+        walletSigningSessionId: 'wsess-ed25519-unpersisted',
         jwt: `jwt:${sessionId}`,
         remainingUses: 5,
         expiresAtMs: Date.now() + 120_000,
@@ -104,15 +110,19 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
 
     await expect(
       store.provisionEd25519Capability({
+        kind: 'fresh_ed25519_provisioning',
         nearAccountId: 'transition-unpersisted.testnet',
         relayerKeyId: 'rk-ed25519-unpersisted',
+        participantIds: [1, 2],
+        sessionKind: 'jwt',
+        source: 'login',
       }),
     ).rejects.toThrow(
       `[WarmSessionStore] provisioned Ed25519 capability was not persisted for transition-unpersisted.testnet (expected sessionId=${sessionId}, found=missing)`,
     );
   });
 
-  test('emits ECDSA provision and reconnect transitions when a stale capability is reconnected', async () => {
+  test('emits an ECDSA reconnect transition when a stale capability is reconnected', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
 
@@ -144,12 +154,12 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
       onTransition: (event) => {
         transitions.push(event);
       },
-      listThresholdEcdsaKeyRefsForAccountTarget: () => [
+      listThresholdEcdsaKeyRefsForWalletTarget: () => [
         { source: 'login', keyRef: staleBootstrap.thresholdEcdsaKeyRef },
       ],
-      provisionThresholdEcdsaSession: async ({ nearAccountId, chainTarget }) => {
+      provisionThresholdEcdsaSession: async ({ walletId, chainTarget }) => {
         const refreshedBootstrap = createThresholdEcdsaBootstrapFixture({
-          nearAccountId: String(nearAccountId),
+          nearAccountId: String(walletId),
           chain: chainTarget.kind,
           ecdsaThresholdKeyId: 'ek-transition-stale',
           sessionId: 'ecdsa-fresh-session',
@@ -157,7 +167,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
           walletSigningSessionId: 'wsess-ecdsa-transition',
         });
         const refreshedRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
-          nearAccountId: String(nearAccountId),
+          nearAccountId: String(walletId),
           chain: chainTarget.kind,
           source: 'login',
           bootstrap: refreshedBootstrap,
@@ -179,13 +189,10 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
       clientRootShare32B64u: 'transition-client-root-share',
     });
 
-    expect(transitions.map((event) => event.type)).toEqual([
-      'ecdsa_capability_provisioned',
-      'ecdsa_capability_reconnected',
-    ]);
-    expect(transitions[1]).toMatchObject({
+    expect(transitions.map((event) => event.type)).toEqual(['ecdsa_capability_reconnected']);
+    expect(transitions[0]).toMatchObject({
       type: 'ecdsa_capability_reconnected',
-      accountId: 'transition-ecdsa.testnet',
+      walletId: 'transition-ecdsa.testnet',
       thresholdSessionId: 'ecdsa-fresh-session',
       before: {
         capabilities: {

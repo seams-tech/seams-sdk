@@ -19,13 +19,14 @@ const manifest = buildCanonicalSmartAccountDeploymentManifest({
     version: 'smart_account_recovery_subject_v1',
     userId: 'alice.testnet',
     nearAccountId: 'alice.testnet',
-    chainIdKey: 'evm:11155111',
+    chainIdKey: 'evm:eip155:11155111',
     accountAddress,
     createdAtMs: 1,
     updatedAtMs: 1,
     metadata: {
       chain: 'evm',
       chainId: 11155111,
+      chainTarget,
       accountModel: 'erc4337',
       deployed: false,
       counterfactualAddress: accountAddress,
@@ -35,7 +36,7 @@ const manifest = buildCanonicalSmartAccountDeploymentManifest({
     {
       version: 'account_signer_v1',
       userId: 'alice.testnet',
-      chainIdKey: 'evm:11155111',
+      chainIdKey: 'evm:eip155:11155111',
       accountAddress,
       signerType: 'threshold',
       signerId: accountAddress,
@@ -101,13 +102,14 @@ await syncCanonicalSmartAccountDeploymentManifest({
           version: 'smart_account_recovery_subject_v1',
           userId: 'alice.testnet',
           nearAccountId: 'alice.testnet',
-          chainIdKey: 'evm:11155111',
+          chainIdKey: 'evm:eip155:11155111',
           accountAddress,
           createdAtMs: 1,
           updatedAtMs: 1,
           metadata: {
             chain: 'evm',
             chainId: 11155111,
+            chainTarget,
             accountModel: 'erc4337',
             deployed: false,
             counterfactualAddress: accountAddress,
@@ -122,7 +124,7 @@ await syncCanonicalSmartAccountDeploymentManifest({
           {
             version: 'account_signer_v1',
             userId: 'alice.testnet',
-            chainIdKey: 'evm:11155111',
+            chainIdKey: 'evm:eip155:11155111',
             accountAddress,
             signerType: 'threshold',
             signerId: accountAddress,
@@ -143,7 +145,7 @@ await syncCanonicalSmartAccountDeploymentManifest({
       return { ok: true, record };
     },
   } as never,
-  chainIdKey: 'evm:11155111',
+  chainIdKey: 'evm:eip155:11155111',
   accountAddress,
   materializedAtMs: 4321,
 });

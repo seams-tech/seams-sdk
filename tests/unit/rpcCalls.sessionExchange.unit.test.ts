@@ -142,6 +142,13 @@ test.describe('exchangeSession', () => {
             userId: 'carol.testnet',
             expiresAt: '2030-01-01T00:00:00.000Z',
           },
+          smartAccountSigners: [
+            {
+              metadata: {
+                ecdsaThresholdKeyId: 'ehss-rpc-passkey-1',
+              },
+            },
+          ],
         });
       }) as typeof fetch;
 
@@ -159,6 +166,9 @@ test.describe('exchangeSession', () => {
 
       expect(result.success).toBe(true);
       expect(result.sessionUserId).toBe('carol.testnet');
+      expect(result.smartAccountSigners?.[0]).toEqual({
+        metadata: { ecdsaThresholdKeyId: 'ehss-rpc-passkey-1' },
+      });
       expect(captured).toHaveLength(1);
       const body = JSON.parse(String(captured[0]!.init?.body || '{}')) as Record<string, unknown>;
       const exchange = (body.exchange || {}) as Record<string, unknown>;

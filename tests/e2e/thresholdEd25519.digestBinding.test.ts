@@ -135,7 +135,7 @@ test.describe('threshold-ed25519 digest binding', () => {
 
             // Attempt a threshold sign. The test tampered /authorize, so this must fail.
             await pm.near.signTransactionsWithActions({
-              nearAccountId: accountId,
+              nearAccount: { accountId },
               transactions: [
                 {
                   receiverId: 'w3a-v1.testnet',
@@ -273,7 +273,7 @@ test.describe('threshold-ed25519 digest binding', () => {
             if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
 
             await pm.near.signTransactionsWithActions({
-              nearAccountId: accountId,
+              nearAccount: { accountId },
               transactions: [
                 {
                   receiverId: 'w3a-v1.testnet',

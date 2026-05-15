@@ -240,8 +240,12 @@ test.describe('WarmSessionStore capability resolution', () => {
     expect('sessionId' in evmBootstrap).toBe(false);
     expect('thresholdSessionAuth' in evmBootstrap).toBe(false);
     expect(tempoBootstrap).toMatchObject({
-      sessionId: 'ecdsa-warm-session',
-      thresholdSessionAuth: {
+      kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
+      sessionIdentity: {
+        thresholdSessionId: 'ecdsa-warm-session',
+        walletSigningSessionId: 'wsess-ecdsa-warm-session',
+      },
+      routeAuth: {
         kind: 'threshold_session',
         jwt: expect.any(String),
       },

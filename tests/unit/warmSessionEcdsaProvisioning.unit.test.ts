@@ -32,7 +32,7 @@ function createEnvelope(): WarmSessionEnvelope {
     sessionAuthToken: 'jwt:tempo-session',
   });
   const envelope: WarmSessionEnvelope = {
-    accountId: 'provisioning.testnet' as any,
+    walletId: 'provisioning.testnet' as any,
     capabilities: {
       ed25519: {
         capability: 'ed25519',
@@ -45,10 +45,14 @@ function createEnvelope(): WarmSessionEnvelope {
         evm: {
           capability: 'ecdsa',
           record: {
-            nearAccountId: 'provisioning.testnet',
-            chain: 'evm',
+            walletId: 'provisioning.testnet',
+            subjectId: evmBootstrap.thresholdEcdsaKeyRef.subjectId,
+            chainTarget: EVM_CHAIN_TARGET,
             ecdsaThresholdKeyId: 'ek-evm',
+            signingRootId: evmBootstrap.thresholdEcdsaKeyRef.signingRootId,
+            signingRootVersion: evmBootstrap.thresholdEcdsaKeyRef.signingRootVersion,
             thresholdSessionId: 'evm-session',
+            walletSigningSessionId: evmBootstrap.session.walletSigningSessionId,
             thresholdSessionKind: 'jwt',
             relayerUrl: evmBootstrap.thresholdEcdsaKeyRef.relayerUrl,
             relayerKeyId: evmBootstrap.keygen.relayerKeyId,
@@ -74,10 +78,14 @@ function createEnvelope(): WarmSessionEnvelope {
         tempo: {
           capability: 'ecdsa',
           record: {
-            nearAccountId: 'provisioning.testnet',
-            chain: 'tempo',
+            walletId: 'provisioning.testnet',
+            subjectId: tempoBootstrap.thresholdEcdsaKeyRef.subjectId,
+            chainTarget: TEMPO_CHAIN_TARGET,
             ecdsaThresholdKeyId: 'ek-tempo',
+            signingRootId: tempoBootstrap.thresholdEcdsaKeyRef.signingRootId,
+            signingRootVersion: tempoBootstrap.thresholdEcdsaKeyRef.signingRootVersion,
             thresholdSessionId: 'tempo-session',
+            walletSigningSessionId: tempoBootstrap.session.walletSigningSessionId,
             thresholdSessionKind: 'jwt',
             relayerUrl: tempoBootstrap.thresholdEcdsaKeyRef.relayerUrl,
             relayerKeyId: tempoBootstrap.keygen.relayerKeyId,
@@ -167,6 +175,7 @@ test.describe('warmSessionEcdsaProvisioning', () => {
       session: {
         ok: true,
         sessionId: 'evm-session',
+        walletSigningSessionId: 'wsess-evm-session',
         jwt: 'jwt:evm-session',
       },
     });

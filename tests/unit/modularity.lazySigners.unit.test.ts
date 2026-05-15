@@ -28,8 +28,8 @@ test.describe('modularity lazy signer loading', () => {
     );
 
     expect(nearSigningSource).toContain("from './nearSigningFlow'");
-    expect(nearSigningFlowSource).toContain('signTransactionsWithActions(request.payload)');
-    expect(nearSigningFlowSource).toContain('signDelegateAction(request.payload)');
+    expect(nearSigningFlowSource).toContain('runNearTransactionsWithActionsSigning(request.payload)');
+    expect(nearSigningFlowSource).toContain('runNearDelegateActionSigning(request.payload)');
     expect(nearSigningFlowSource).toContain('signNep413Message(request.payload)');
     expect(signerLoaderSource).toContain("import('./signEvmWithUiConfirm')");
     expect(signerLoaderSource).toContain("import('./signTempoWithUiConfirm')");

@@ -223,7 +223,7 @@ test.describe('threshold-ed25519 session exhaustion', () => {
 
             const signOnce = async () => {
               const signed = await pm.near.signTransactionsWithActions({
-                nearAccountId: accountId,
+                nearAccount: { accountId },
                 transactions: [{ receiverId, actions }],
                 options: {
                   confirmationConfig: confirmConfig as any,

@@ -246,28 +246,26 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
       relayerUrl: string;
       ttlMs: number;
       remainingUses: number;
-      chainTarget?: {
-        kind: 'tempo';
-        chainId: number;
-        networkSlug: string;
-      } | {
-        kind: 'evm';
-        namespace: 'eip155';
-        chainId: number;
-        networkSlug: string;
-      };
+      chainTarget?:
+        | {
+            kind: 'tempo';
+            chainId: number;
+            networkSlug: string;
+          }
+        | {
+            kind: 'evm';
+            namespace: 'eip155';
+            chainId: number;
+            networkSlug: string;
+          };
     }) => {
       const indexedDbMod = await import('/sdk/esm/core/indexedDB/index.js');
       const keyMaterialMod = await import('/sdk/esm/core/accountData/near/keyMaterial.js');
-      const recordsMod = await import(
-        '/sdk/esm/core/signingEngine/session/persistence/records.js'
-      );
-      const webauthnCredentialMod = await import(
-        '/sdk/esm/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u.js'
-      );
-      const credentialExtensionsMod = await import(
-        '/sdk/esm/core/signingEngine/webauthnAuth/credentials/credentialExtensions.js'
-      );
+      const recordsMod = await import('/sdk/esm/core/signingEngine/session/persistence/records.js');
+      const webauthnCredentialMod =
+        await import('/sdk/esm/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u.js');
+      const credentialExtensionsMod =
+        await import('/sdk/esm/core/signingEngine/webauthnAuth/credentials/credentialExtensions.js');
       const { IndexedDBManager } = indexedDbMod as any;
       const { getNearThresholdKeyMaterial } = keyMaterialMod as any;
       const {
@@ -290,8 +288,9 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
         input.accountId,
         1,
       ).catch(() => null);
-      const registrationEd25519Record =
-        getStoredThresholdEd25519SessionRecordForAccount(input.accountId);
+      const registrationEd25519Record = getStoredThresholdEd25519SessionRecordForAccount(
+        input.accountId,
+      );
       const relayerKeyId = String(
         thresholdKeyMaterial?.relayerKeyId || registrationEd25519Record?.relayerKeyId || '',
       ).trim();
@@ -351,7 +350,7 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
           ? registrationEd25519Record.participantIds
               .map((id: unknown) => Number(id))
               .filter((id: number) => Number.isFinite(id))
-        : [1, 2];
+          : [1, 2];
       const connectedEd25519 = await signingEngine.connectEd25519Session({
         kind: 'fresh_ed25519_provisioning',
         nearAccountId: input.accountId,
@@ -365,9 +364,7 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
         appSessionJwt: String(login.jwt || ''),
         localPrfCredential,
       });
-      const walletSigningSessionId = String(
-        connectedEd25519?.walletSigningSessionId || '',
-      ).trim();
+      const walletSigningSessionId = String(connectedEd25519?.walletSigningSessionId || '').trim();
       const clientRootShare32B64u = String(
         connectedEd25519?.ecdsaHssClientRootShare32B64u ||
           getPrfFirstB64uFromCredential(localPrfCredential) ||
@@ -388,13 +385,15 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
         networkSlug: 'tempo-moderato',
       };
       const existingTargetRecord = Array.isArray(
-        signingEngine.listThresholdEcdsaSessionRecordsForSubject?.({
+        signingEngine.listThresholdEcdsaSessionRecordsForTarget?.({
           subjectId: input.accountId,
+          chainTarget,
         }),
       )
         ? signingEngine
-            .listThresholdEcdsaSessionRecordsForSubject?.({
+            .listThresholdEcdsaSessionRecordsForTarget?.({
               subjectId: input.accountId,
+              chainTarget,
             })
             ?.find((record: Record<string, unknown>) => {
               const recordChainTarget =
@@ -434,11 +433,17 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
           : { webauthnAuthentication: localPrfCredential };
       const bootstrapRequest = {
         kind: 'passkey_fresh_ecdsa_bootstrap' as const,
-        nearAccountId: input.accountId,
+        walletSession: {
+          walletId: input.accountId,
+          walletSessionUserId: input.accountId,
+        },
+        subjectId: input.accountId,
         chainTarget,
         source: 'manual-bootstrap' as const,
         relayerUrl: input.relayerUrl,
-        ...(existingEcdsaThresholdKeyId ? { ecdsaThresholdKeyId: existingEcdsaThresholdKeyId } : {}),
+        ...(existingEcdsaThresholdKeyId
+          ? { ecdsaThresholdKeyId: existingEcdsaThresholdKeyId }
+          : {}),
         participantIds,
         sessionKind: 'jwt' as const,
         sessionIdentity: {
@@ -506,12 +511,10 @@ export async function runThresholdEcdsaTempoFlow(
     const indexedDbMod = await import('/sdk/esm/core/indexedDB/index.js');
     const keyMaterialMod = await import('/sdk/esm/core/accountData/near/keyMaterial.js');
     const recordsMod = await import('/sdk/esm/core/signingEngine/session/persistence/records.js');
-    const webauthnCredentialMod = await import(
-      '/sdk/esm/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u.js'
-    );
-    const credentialExtensionsMod = await import(
-      '/sdk/esm/core/signingEngine/webauthnAuth/credentials/credentialExtensions.js'
-    );
+    const webauthnCredentialMod =
+      await import('/sdk/esm/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u.js');
+    const credentialExtensionsMod =
+      await import('/sdk/esm/core/signingEngine/webauthnAuth/credentials/credentialExtensions.js');
 
     const { SeamsPasskey } = sdkMod as any;
     const { IndexedDBManager } = indexedDbMod as any;
@@ -630,8 +633,9 @@ export async function runThresholdEcdsaTempoFlow(
           }>;
           includeSecondPrfOutput?: boolean;
         }) => Promise<unknown>;
-        listThresholdEcdsaSessionRecordsForSubject?: (args: {
+        listThresholdEcdsaSessionRecordsForTarget?: (args: {
           subjectId: string;
+          chainTarget: { kind: string; chainId: number; networkSlug?: string };
         }) => Array<Record<string, unknown>>;
       };
       const thresholdKeyMaterial = await getNearThresholdKeyMaterial(
@@ -712,8 +716,7 @@ export async function runThresholdEcdsaTempoFlow(
           : [1, 2],
         sessionKind: 'jwt',
         source: 'login',
-        ttlMs:
-          typeof input.connectSessionTtlMs === 'number' ? input.connectSessionTtlMs : 120_000,
+        ttlMs: typeof input.connectSessionTtlMs === 'number' ? input.connectSessionTtlMs : 120_000,
         remainingUses:
           typeof input.connectSessionRemainingUses === 'number'
             ? input.connectSessionRemainingUses
@@ -721,9 +724,7 @@ export async function runThresholdEcdsaTempoFlow(
         appSessionJwt: String(login.jwt || ''),
         localPrfCredential,
       });
-      const walletSigningSessionId = String(
-        connectedEd25519?.walletSigningSessionId || '',
-      ).trim();
+      const walletSigningSessionId = String(connectedEd25519?.walletSigningSessionId || '').trim();
       const clientRootShare32B64u = String(
         connectedEd25519?.ecdsaHssClientRootShare32B64u ||
           getPrfFirstB64uFromCredential(localPrfCredential) ||
@@ -734,9 +735,7 @@ export async function runThresholdEcdsaTempoFlow(
           ok: false,
           accountId,
           error: String(
-            connectedEd25519?.message ||
-              connectedEd25519?.code ||
-              'connectEd25519Session failed',
+            connectedEd25519?.message || connectedEd25519?.code || 'connectEd25519Session failed',
           ),
         };
       }
@@ -795,13 +794,15 @@ export async function runThresholdEcdsaTempoFlow(
       if (input.connectSession !== false) {
         try {
           const existingTargetRecord = Array.isArray(
-            signingEngine.listThresholdEcdsaSessionRecordsForSubject?.({
+            signingEngine.listThresholdEcdsaSessionRecordsForTarget?.({
               subjectId: accountId,
+              chainTarget: signingChainTarget,
             }),
           )
             ? signingEngine
-                .listThresholdEcdsaSessionRecordsForSubject?.({
+                .listThresholdEcdsaSessionRecordsForTarget?.({
                   subjectId: accountId,
+                  chainTarget: signingChainTarget,
                 })
                 ?.find((record: Record<string, unknown>) => {
                   const recordChainTarget =
@@ -820,15 +821,21 @@ export async function runThresholdEcdsaTempoFlow(
             existingTargetRecord?.ecdsaThresholdKeyId || '',
           ).trim();
           if (existingTargetRecord && (signingEngine as any).warmSigning?.ecdsaSessions) {
-            clearThresholdEcdsaSessionRecordForLane((signingEngine as any).warmSigning.ecdsaSessions, {
-              subjectId: accountId,
-              chainTarget: signingChainTarget,
-              source: 'registration',
-            });
+            clearThresholdEcdsaSessionRecordForLane(
+              (signingEngine as any).warmSigning.ecdsaSessions,
+              {
+                subjectId: accountId,
+                chainTarget: signingChainTarget,
+                source: 'registration',
+              },
+            );
           }
           const bootstrapArgs = {
             kind: 'passkey_fresh_ecdsa_bootstrap' as const,
-            nearAccountId: accountId,
+            walletSession: {
+              walletId: accountId,
+              walletSessionUserId: accountId,
+            },
             subjectId: accountId,
             chainTarget: signingChainTarget,
             source: 'manual-bootstrap' as const,
@@ -856,9 +863,7 @@ export async function runThresholdEcdsaTempoFlow(
               token: registrationContinuationToken,
             },
             ttlMs:
-              typeof input.connectSessionTtlMs === 'number'
-                ? input.connectSessionTtlMs
-                : 120_000,
+              typeof input.connectSessionTtlMs === 'number' ? input.connectSessionTtlMs : 120_000,
             remainingUses:
               typeof input.connectSessionRemainingUses === 'number'
                 ? input.connectSessionRemainingUses
@@ -890,14 +895,20 @@ export async function runThresholdEcdsaTempoFlow(
                   };
           }
         } catch (e: unknown) {
+          const stack =
+            e && typeof e === 'object' && 'stack' in e
+              ? String((e as { stack?: unknown }).stack || '').trim()
+              : '';
           return {
             ok: false,
             accountId,
-            error: String(
-              e && typeof e === 'object' && 'message' in e
-                ? (e as { message?: unknown }).message
-                : e || 'bootstrapEcdsaSession failed',
-            ),
+            error:
+              stack ||
+              String(
+                e && typeof e === 'object' && 'message' in e
+                  ? (e as { message?: unknown }).message
+                  : e || 'bootstrapEcdsaSession failed',
+              ),
           };
         }
       }
@@ -945,7 +956,10 @@ export async function runThresholdEcdsaTempoFlow(
 
       try {
         const signed = await pm.tempo.signTempo({
-          nearAccountId: accountId,
+          walletSession: {
+            walletId: accountId,
+            walletSessionUserId: accountId,
+          },
           subjectId: accountId,
           request,
           chainTarget: signingChainTarget,
@@ -961,6 +975,10 @@ export async function runThresholdEcdsaTempoFlow(
           signed,
         };
       } catch (e: unknown) {
+        const stack =
+          e && typeof e === 'object' && 'stack' in e
+            ? String((e as { stack?: unknown }).stack || '').trim()
+            : '';
         const message = String(
           e && typeof e === 'object' && 'message' in e
             ? (e as { message?: unknown }).message
@@ -972,7 +990,7 @@ export async function runThresholdEcdsaTempoFlow(
           keygen,
           session,
           budgetStatus,
-          error: message,
+          error: stack || message,
         };
       }
     } catch (e: unknown) {

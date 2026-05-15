@@ -7,6 +7,7 @@ import {
 import type { SigningSessionSealedStoreRecord } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import {
   thresholdEcdsaChainTargetFromChainFamily,
+  thresholdEcdsaChainTargetKey,
   toWalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
@@ -39,6 +40,50 @@ function sealedEd25519Record(args: {
   } as unknown as SigningSessionSealedStoreRecord;
 }
 
+function sealedEcdsaRecord(args: {
+  walletSigningSessionId: string;
+  thresholdSessionId: string;
+  updatedAtMs: number;
+  restoreMetadata: 'valid' | 'missing';
+}): SigningSessionSealedStoreRecord {
+  const issuedAtMs = Date.now();
+  return {
+    storeKey: `passkey:${args.walletSigningSessionId}:${args.thresholdSessionId}:${args.updatedAtMs}:ecdsa`,
+    curve: 'ecdsa',
+    authMethod: 'passkey',
+    walletId: WALLET_ID,
+    walletSigningSessionId: args.walletSigningSessionId,
+    thresholdSessionId: args.thresholdSessionId,
+    thresholdSessionIds: { ecdsa: args.thresholdSessionId },
+    sealedSecretB64u: 'sealed',
+    subjectId: WALLET_ID,
+    signingRootId: 'sr-test:dev',
+    signingRootVersion: 'default',
+    relayerUrl: 'https://relay.example.test',
+    keyVersion: 'seal-key-v1',
+    shamirPrimeB64u: 'shamir-prime',
+    ecdsaRestore:
+      args.restoreMetadata === 'valid'
+        ? {
+            chainTarget: ECDSA_TARGET,
+            sessionKind: 'cookie',
+            ecdsaThresholdKeyId: 'ek-passkey',
+            relayerKeyId: 'relayer-key',
+            clientVerifyingShareB64u: 'client-verifying-share',
+            participantIds: [1, 2],
+          }
+        : {
+            chainTarget: ECDSA_TARGET,
+            sessionKind: 'cookie',
+            ecdsaThresholdKeyId: 'ek-passkey',
+          },
+    issuedAtMs,
+    expiresAtMs: issuedAtMs + 60_000,
+    remainingUses: 1,
+    updatedAtMs: args.updatedAtMs,
+  } as unknown as SigningSessionSealedStoreRecord;
+}
+
 async function readAvailableLanes(args: {
   sealedRecords: SigningSessionSealedStoreRecord[];
   runtimeRecords?: AvailableSigningLanesRuntimeEd25519Record[];
@@ -51,8 +96,8 @@ async function readAvailableLanes(args: {
       ecdsaChainTargets: [ECDSA_TARGET],
     },
     {
-      listSealedRecordsForAccount: async ({ filter }) =>
-        filter.curve === 'ed25519' ? args.sealedRecords : [],
+      listSealedRecordsForWallet: async ({ filter }) =>
+        args.sealedRecords.filter((record) => record.curve === filter.curve),
       listRuntimeEcdsaLanesForSubject: async () => [],
       listRuntimeEd25519RecordsForAccount: async () => args.runtimeRecords || [],
       readRuntimeClaimsForSessions: async (sessionIds) => {
@@ -200,5 +245,35 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
       'tsess-1',
       'tsess-2',
     ]);
+  });
+
+  test('ignores durable ECDSA entries that cannot normalize for sealed restore', async () => {
+    const availableLanes = await readAvailableLanes({
+      sealedRecords: [
+        sealedEcdsaRecord({
+          walletSigningSessionId: 'wsess-stale-ecdsa',
+          thresholdSessionId: 'tsess-stale-ecdsa',
+          updatedAtMs: 300,
+          restoreMetadata: 'missing',
+        }),
+        sealedEcdsaRecord({
+          walletSigningSessionId: 'wsess-valid-ecdsa',
+          thresholdSessionId: 'tsess-valid-ecdsa',
+          updatedAtMs: 200,
+          restoreMetadata: 'valid',
+        }),
+      ],
+    });
+
+    const targetKey = thresholdEcdsaChainTargetKey(ECDSA_TARGET);
+    expect(availableLanes.ecdsa.candidatesByTarget[targetKey]).toHaveLength(1);
+    expect(availableLanes.ecdsa.candidatesByTarget[targetKey][0]).toMatchObject({
+      authMethod: 'passkey',
+      source: 'durable_sealed_record',
+      state: 'restorable',
+      walletSigningSessionId: 'wsess-valid-ecdsa',
+      thresholdSessionId: 'tsess-valid-ecdsa',
+      ecdsaThresholdKeyId: 'ek-passkey',
+    });
   });
 });

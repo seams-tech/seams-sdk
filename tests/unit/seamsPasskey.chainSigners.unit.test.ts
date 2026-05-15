@@ -1,11 +1,23 @@
 import { expect, test } from '@playwright/test';
 import { EvmSigner } from '@/core/SeamsPasskey/evm';
+import { getWalletSession } from '@/core/SeamsPasskey/login';
 import { NearSigner } from '@/core/SeamsPasskey/near';
 import { TempoSigner } from '@/core/SeamsPasskey/tempo';
+import { IndexedDBManager } from '@/core/indexedDB';
 import { createSigningFlowEvent, SigningEventPhase } from '@/core/types/sdkSentEvents';
-import { thresholdEcdsaChainTargetFromChainFamily, toWalletSubjectId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  nearAccountRefFromAccountId,
+  thresholdEcdsaChainTargetFromChainFamily,
+  toWalletSubjectId,
+  walletSessionRefFromSession,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 const TEST_SUBJECT_ID = toWalletSubjectId('alice.testnet');
+const TEST_NEAR_ACCOUNT = nearAccountRefFromAccountId('alice.testnet');
+const TEST_WALLET_SESSION = walletSessionRefFromSession({
+  walletId: 'alice.testnet',
+  walletSessionUserId: 'alice.testnet',
+});
 const allowThresholdEcdsaOperation = async () => undefined;
 const applyThresholdEcdsaPostSignPolicy = async () => undefined;
 const TEMPO_CHAIN_TARGET = thresholdEcdsaChainTargetFromChainFamily({
@@ -59,7 +71,7 @@ test.describe('SeamsPasskey chain signer modules', () => {
     });
 
     const result = await signer.executeAction({
-      nearAccountId: 'alice.testnet',
+      nearAccount: TEST_NEAR_ACCOUNT,
       receiverId: 'contract.testnet',
       actionArgs: { type: 'FunctionCall', methodName: 'ping' } as any,
       options: {
@@ -84,7 +96,7 @@ test.describe('SeamsPasskey chain signer modules', () => {
 
     await expect(
       signer.executeAction({
-        nearAccountId: 'alice.testnet',
+        nearAccount: TEST_NEAR_ACCOUNT,
         receiverId: 'contract.testnet',
         actionArgs: { type: 'FunctionCall', methodName: 'ping' } as any,
         options: {
@@ -118,7 +130,7 @@ test.describe('SeamsPasskey chain signer modules', () => {
     });
 
     const result = await signer.signAndSendTransactions({
-      nearAccountId: 'alice.testnet',
+      nearAccount: TEST_NEAR_ACCOUNT,
       transactions: [{ receiverId: 'contract.testnet', actions: [] }] as any,
       options: {
         onEvent: (event: any) => progressEvents.push(event),
@@ -149,7 +161,7 @@ test.describe('SeamsPasskey chain signer modules', () => {
     (signer as any).sendDelegateActionViaRelayer = async () => relayResult;
 
     const combined = await signer.signAndSendDelegateAction({
-      nearAccountId: 'alice.testnet',
+      nearAccount: TEST_NEAR_ACCOUNT,
       delegate: { senderId: 'alice.testnet', receiverId: 'contract.testnet', actions: [] } as any,
       relayerUrl: 'https://relay.example.test',
       options: {
@@ -186,7 +198,10 @@ test.describe('SeamsPasskey chain signer modules', () => {
     });
 
     const result = await signer.signTempo({
-      nearAccountId: 'alice.testnet',
+      walletSession: walletSessionRefFromSession({
+        walletId: 'alice.testnet',
+        walletSessionUserId: 'alice.testnet',
+      }),
       subjectId: TEST_SUBJECT_ID,
       chainTarget: TEMPO_CHAIN_TARGET,
       request: {
@@ -258,19 +273,217 @@ test.describe('SeamsPasskey chain signer modules', () => {
 
     await tempoSigner.bootstrapEcdsaSession({
       kind: 'reuse_warm_ecdsa_bootstrap',
-      nearAccountId: 'alice.testnet',
+      walletSession: walletSessionRefFromSession({
+        walletId: 'alice.testnet',
+        walletSessionUserId: 'alice.testnet',
+      }),
+      subjectId: TEST_SUBJECT_ID,
       chainTarget: TEMPO_CHAIN_TARGET,
       relayerUrl: 'https://relay.example.test',
     });
     await evmSigner.bootstrapEcdsaSession({
       kind: 'reuse_warm_ecdsa_bootstrap',
-      nearAccountId: 'alice.testnet',
+      walletSession: walletSessionRefFromSession({
+        walletId: 'alice.testnet',
+        walletSessionUserId: 'alice.testnet',
+      }),
+      subjectId: TEST_SUBJECT_ID,
       chainTarget: EVM_CHAIN_TARGET,
       relayerUrl: 'https://relay.example.test',
     });
 
     expect(tempoCalls[0]?.chainTarget).toEqual(TEMPO_CHAIN_TARGET);
     expect(evmCalls[0]?.chainTarget).toEqual(EVM_CHAIN_TARGET);
+  });
+
+  test('wallet session exposes threshold ECDSA owner address instead of EVM counterfactual address', async () => {
+    const clientDb = IndexedDBManager.clientDB as unknown as Record<string, unknown>;
+    const originalResolveProfileAccountContext = clientDb.resolveProfileAccountContext;
+    const originalGetProfileContinuitySnapshot = clientDb.getProfileContinuitySnapshot;
+    const ownerAddress = `0x${'11'.repeat(20)}`;
+    const counterfactualAddress = `0x${'22'.repeat(20)}`;
+
+    clientDb.resolveProfileAccountContext = async () => ({
+      profileId: 'profile-1',
+      accountRef: {
+        chainIdKey: 'near:testnet',
+        accountAddress: 'alice.testnet',
+      },
+    });
+    clientDb.getProfileContinuitySnapshot = async () => ({
+      profile: {
+        profileId: 'profile-1',
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      chainAccounts: [
+        {
+          profileId: 'profile-1',
+          chainIdKey: 'evm:5042002',
+          accountAddress: counterfactualAddress,
+          accountModel: 'erc4337',
+          status: 'active',
+          isPrimary: true,
+          createdAt: 1,
+          updatedAt: 1,
+          counterfactualAddress,
+        },
+      ],
+      accountSigners: [
+        {
+          profileId: 'profile-1',
+          chainIdKey: 'evm:5042002',
+          accountAddress: counterfactualAddress,
+          signerId: ownerAddress,
+          signerSlot: 1,
+          signerType: 'threshold',
+          signerKind: 'threshold_ecdsa',
+          signerAuthMethod: 'passkey',
+          signerSource: 'passkey_registration',
+          status: 'active',
+          addedAt: 1,
+          updatedAt: 1,
+          metadata: {
+            ownerAddress,
+            counterfactualAddress,
+          },
+        },
+      ],
+    });
+
+    try {
+      const walletSession = await getWalletSession(
+        {
+          configs: {
+            network: {
+              chains: [
+                {
+                  network: 'arc-testnet',
+                  chainId: 5042002,
+                },
+              ],
+            },
+            signing: {
+              sessionDefaults: {
+                ttlMs: 60_000,
+                remainingUses: 3,
+              },
+            },
+          },
+          signingEngine: {
+            assertSealedRefreshStartupParity: async () => undefined,
+            getLastUser: async () => null,
+            getUserBySignerSlot: async () => null,
+            getWarmThresholdEd25519SessionStatus: async () => null,
+          },
+        } as any,
+        'alice.testnet',
+      );
+
+      expect(walletSession.login.thresholdEcdsaEthereumAddress).toBe(ownerAddress);
+      expect(walletSession.login.thresholdEcdsaEthereumAddress).not.toBe(counterfactualAddress);
+    } finally {
+      clientDb.resolveProfileAccountContext = originalResolveProfileAccountContext;
+      clientDb.getProfileContinuitySnapshot = originalGetProfileContinuitySnapshot;
+    }
+  });
+
+  test('wallet session ignores conflicting threshold ECDSA record addresses', async () => {
+    const clientDb = IndexedDBManager.clientDB as unknown as Record<string, unknown>;
+    const originalResolveProfileAccountContext = clientDb.resolveProfileAccountContext;
+    const originalGetProfileContinuitySnapshot = clientDb.getProfileContinuitySnapshot;
+    const originalWarn = console.warn;
+    const ownerAddress = `0x${'aa'.repeat(20)}`;
+    const counterfactualAddress = `0x${'bb'.repeat(20)}`;
+
+    clientDb.resolveProfileAccountContext = async () => ({
+      profileId: 'profile-conflict',
+      accountRef: {
+        chainIdKey: 'near:testnet',
+        accountAddress: 'alice.testnet',
+      },
+    });
+    clientDb.getProfileContinuitySnapshot = async () => ({
+      profile: {
+        profileId: 'profile-conflict',
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      chainAccounts: [
+        {
+          profileId: 'profile-conflict',
+          chainIdKey: 'evm:5042002',
+          accountAddress: counterfactualAddress,
+          accountModel: 'erc4337',
+          status: 'active',
+          isPrimary: true,
+          createdAt: 1,
+          updatedAt: 1,
+          counterfactualAddress,
+        },
+      ],
+      accountSigners: [
+        {
+          profileId: 'profile-conflict',
+          chainIdKey: 'evm:5042002',
+          accountAddress: counterfactualAddress,
+          signerId: ownerAddress,
+          signerSlot: 1,
+          signerType: 'threshold',
+          signerKind: 'threshold_ecdsa',
+          signerAuthMethod: 'passkey',
+          signerSource: 'passkey_registration',
+          status: 'active',
+          addedAt: 1,
+          updatedAt: 1,
+          metadata: {
+            ownerAddress,
+          },
+        },
+      ],
+    });
+    console.warn = (() => undefined) as typeof console.warn;
+
+    try {
+      const walletSession = await getWalletSession(
+        {
+          configs: {
+            network: {
+              chains: [
+                {
+                  network: 'arc-testnet',
+                  chainId: 5042002,
+                },
+              ],
+            },
+            signing: {
+              sessionDefaults: {
+                ttlMs: 60_000,
+                remainingUses: 3,
+              },
+            },
+          },
+          signingEngine: {
+            assertSealedRefreshStartupParity: async () => undefined,
+            getLastUser: async () => null,
+            getUserBySignerSlot: async () => null,
+            getWarmThresholdEd25519SessionStatus: async () => null,
+            listThresholdEcdsaSessionRecordsForTarget: () =>
+              [
+                { source: 'login', ethereumAddress: `0x${'11'.repeat(20)}` },
+                { source: 'manual-bootstrap', ethereumAddress: `0x${'22'.repeat(20)}` },
+              ] as any,
+          },
+        } as any,
+        'alice.testnet',
+      );
+
+      expect(walletSession.login.thresholdEcdsaEthereumAddress).toBe(ownerAddress);
+    } finally {
+      console.warn = originalWarn;
+      clientDb.resolveProfileAccountContext = originalResolveProfileAccountContext;
+      clientDb.getProfileContinuitySnapshot = originalGetProfileContinuitySnapshot;
+    }
   });
 
   test('TempoSigner.reportBroadcastRejected forwards args in non-iframe mode', async () => {
@@ -303,13 +516,13 @@ test.describe('SeamsPasskey chain signer modules', () => {
     const onEvent = () => undefined;
 
     await signer.reportBroadcastRejected({
-      nearAccountId: 'alice.testnet',
+      walletSession: TEST_WALLET_SESSION,
       signedResult,
       error: { code: 'nonce too low', message: 'nonce too low' },
       options: { onEvent },
     });
 
-    expect(capturedArgs?.nearAccountId).toBe('alice.testnet');
+    expect(capturedArgs?.walletId).toBe('alice.testnet');
     expect(capturedArgs?.signedResult).toEqual(signedResult);
     expect(capturedArgs?.error?.code).toContain('nonce');
     expect(capturedArgs?.onEvent).toBe(onEvent);
@@ -334,7 +547,7 @@ test.describe('SeamsPasskey chain signer modules', () => {
     error.code = 'nonce_conflict_retryable';
 
     await signer.reportBroadcastRejected({
-      nearAccountId: 'alice.testnet',
+      walletSession: TEST_WALLET_SESSION,
       signedResult: {
         chain: 'tempo',
         kind: 'tempoTransaction',
@@ -345,7 +558,7 @@ test.describe('SeamsPasskey chain signer modules', () => {
     });
 
     expect(routerCalls).toHaveLength(1);
-    expect(routerCalls[0]?.nearAccountId).toBe('alice.testnet');
+    expect(routerCalls[0]?.walletSession).toEqual(TEST_WALLET_SESSION);
     expect(routerCalls[0]?.error?.code).toBe('nonce_conflict_retryable');
     expect(String(routerCalls[0]?.error?.message || '')).toContain('underpriced');
   });
@@ -501,9 +714,9 @@ test.describe('SeamsPasskey chain signer modules', () => {
       });
 
       const result = await signer.executeEvmFamilyTransaction({
-      nearAccountId: 'alice.testnet',
-      subjectId: TEST_SUBJECT_ID,
-      chainTarget: TEMPO_CHAIN_TARGET,
+        walletSession: TEST_WALLET_SESSION,
+        subjectId: TEST_SUBJECT_ID,
+        chainTarget: TEMPO_CHAIN_TARGET,
         request: {
           chain: 'evm',
           kind: 'eip1559',
@@ -648,9 +861,9 @@ test.describe('SeamsPasskey chain signer modules', () => {
 
       await expect(
         signer.executeEvmFamilyTransaction({
-      nearAccountId: 'alice.testnet',
-      subjectId: TEST_SUBJECT_ID,
-      chainTarget: TEMPO_CHAIN_TARGET,
+          walletSession: TEST_WALLET_SESSION,
+          subjectId: TEST_SUBJECT_ID,
+          chainTarget: TEMPO_CHAIN_TARGET,
           request: {
             chain: 'evm',
             kind: 'eip1559',
@@ -820,9 +1033,9 @@ test.describe('SeamsPasskey chain signer modules', () => {
 
       await expect(
         signer.executeEvmFamilyTransaction({
-      nearAccountId: 'alice.testnet',
-      subjectId: TEST_SUBJECT_ID,
-      chainTarget: TEMPO_CHAIN_TARGET,
+          walletSession: TEST_WALLET_SESSION,
+          subjectId: TEST_SUBJECT_ID,
+          chainTarget: TEMPO_CHAIN_TARGET,
           request: {
             chain: 'evm',
             kind: 'eip1559',
@@ -1005,9 +1218,9 @@ test.describe('SeamsPasskey chain signer modules', () => {
 
       await expect(
         signer.executeEvmFamilyTransaction({
-      nearAccountId: 'alice.testnet',
-      subjectId: TEST_SUBJECT_ID,
-      chainTarget: TEMPO_CHAIN_TARGET,
+          walletSession: TEST_WALLET_SESSION,
+          subjectId: TEST_SUBJECT_ID,
+          chainTarget: TEMPO_CHAIN_TARGET,
           request: {
             chain: 'evm',
             kind: 'eip1559',
@@ -1178,9 +1391,9 @@ test.describe('SeamsPasskey chain signer modules', () => {
 
       await expect(
         signer.executeEvmFamilyTransaction({
-      nearAccountId: 'alice.testnet',
-      subjectId: TEST_SUBJECT_ID,
-      chainTarget: TEMPO_CHAIN_TARGET,
+          walletSession: TEST_WALLET_SESSION,
+          subjectId: TEST_SUBJECT_ID,
+          chainTarget: TEMPO_CHAIN_TARGET,
           request: {
             chain: 'evm',
             kind: 'eip1559',
@@ -1342,9 +1555,9 @@ test.describe('SeamsPasskey chain signer modules', () => {
 
       await expect(
         signer.executeEvmFamilyTransaction({
-      nearAccountId: 'alice.testnet',
-      subjectId: TEST_SUBJECT_ID,
-      chainTarget: TEMPO_CHAIN_TARGET,
+          walletSession: TEST_WALLET_SESSION,
+          subjectId: TEST_SUBJECT_ID,
+          chainTarget: TEMPO_CHAIN_TARGET,
           request: {
             chain: 'evm',
             kind: 'eip1559',
@@ -1504,9 +1717,9 @@ test.describe('SeamsPasskey chain signer modules', () => {
 
       await expect(
         signer.executeEvmFamilyTransaction({
-      nearAccountId: 'alice.testnet',
-      subjectId: TEST_SUBJECT_ID,
-      chainTarget: TEMPO_CHAIN_TARGET,
+          walletSession: TEST_WALLET_SESSION,
+          subjectId: TEST_SUBJECT_ID,
+          chainTarget: TEMPO_CHAIN_TARGET,
           request: {
             chain: 'evm',
             kind: 'eip1559',

@@ -111,12 +111,15 @@ test.describe('signing session PRF cache utilities', () => {
 
   test('signing engine global clear path wipes all worker PRF cache entries', () => {
     const source = fs.readFileSync(
-      path.resolve(process.cwd(), '../client/src/core/signingEngine/SigningEngine.ts'),
+      path.resolve(
+        process.cwd(),
+        '../client/src/core/signingEngine/session/warmCapabilities/clearWarmSigningSessions.ts',
+      ),
       'utf8',
     );
 
     expect(source).toContain(
-      'if (nearAccountId == null && hasWarmSessionMaterialClearAll(this.touchConfirm))',
+      'if (nearAccountId == null && hasWarmSessionMaterialClearAll(deps.touchConfirm))',
     );
     expect(source).toContain('clearAllWarmSessionMaterial');
   });

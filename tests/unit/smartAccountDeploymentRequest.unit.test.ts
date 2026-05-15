@@ -100,7 +100,7 @@ test.describe('smart-account deployment request assembly', () => {
             },
           } as any,
           {
-            nearAccountId: 'alice.testnet' as any,
+            walletId: 'alice.testnet' as any,
             chainTarget: {
               kind: 'evm',
               namespace: 'eip155',
@@ -142,7 +142,7 @@ test.describe('smart-account deployment request assembly', () => {
     );
     expect(result.calls[1]?.url).toBe('https://relay.example.test/deploy-smart-account');
     const requestBody = result.calls[1]?.body as any;
-    expect(requestBody.nearAccountId).toBe('alice.testnet');
+    expect(requestBody.walletId).toBe('alice.testnet');
     expect(requestBody.chainTarget).toEqual({
       kind: 'evm',
       namespace: 'eip155',

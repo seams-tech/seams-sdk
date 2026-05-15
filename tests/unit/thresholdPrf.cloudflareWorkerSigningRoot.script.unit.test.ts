@@ -59,9 +59,19 @@ const SIGNING_ROOT_ID = `${PROJECT_ID}:${ENV_ID}`;
 const SIGNING_ROOT_VERSION = 'root-v1';
 const KEK_ID = 'kek-v1';
 const KEK_BYTES = new Uint8Array(32).fill(0x42);
+const ECDSA_CHAIN_TARGET = {
+  kind: 'evm',
+  namespace: 'eip155',
+  chainId: 11155111,
+  networkSlug: 'sepolia',
+} as const;
 const ECDSA_CONTEXT = {
   signingRootId: SIGNING_ROOT_ID,
-  nearAccountId: 'alice.near',
+  signingRootVersion: SIGNING_ROOT_VERSION,
+  walletSessionUserId: 'alice.near',
+  subjectId: 'alice-subject',
+  chainTarget: ECDSA_CHAIN_TARGET,
+  ecdsaThresholdKeyId: 'ecdsa-alpha',
   keyPurpose: 'wallet',
   keyVersion: 'v1',
 };

@@ -3,6 +3,7 @@ import { setupBasicPasskeyTest, SDK_ESM_PATHS } from '../setup';
 import { buildWalletServiceHtml, registerWalletServiceRoute } from './harness';
 import {
   thresholdEcdsaChainTargetFromChainFamily,
+  toWalletId,
   toWalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
@@ -125,7 +126,10 @@ test.describe('WalletIframeRouter signing progress forwarding', () => {
 
         const events: any[] = [];
         const signed = await router.signTempo({
-          nearAccountId: 'alice.testnet',
+          walletSession: {
+            walletId: toWalletId('alice.testnet'),
+            walletSessionUserId: 'alice.testnet',
+          },
           subjectId: ALICE_SUBJECT_ID,
           chainTarget: ALICE_EVM_CHAIN_TARGET,
           request: {

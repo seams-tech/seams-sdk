@@ -183,6 +183,8 @@ test.describe('near signing session selection', () => {
       }) as typeof fetch;
 
       persistWarmSessionEd25519Capability({
+        kind: 'jwt_passkey',
+        sessionKind: 'jwt',
         nearAccountId: 'alice.testnet',
         rpId: 'example.localhost',
         relayerUrl: 'https://relay.example.test',
@@ -205,6 +207,28 @@ test.describe('near signing session selection', () => {
             activeRemainingUses: 10,
           }),
           resolveThresholdEd25519SessionId: () => 'ed25519-session',
+          reconnectPasskeyEd25519CapabilityForSigning: async ({
+            sessionId,
+            walletSigningSessionId,
+          }) => {
+            const record = persistWarmSessionEd25519Capability({
+              kind: 'jwt_passkey',
+              sessionKind: 'jwt',
+              nearAccountId: 'alice.testnet',
+              rpId: 'example.localhost',
+              relayerUrl: 'https://relay.example.test',
+              relayerKeyId: 'ed25519:relayer-key-id',
+              participantIds: [1, 2],
+              sessionId,
+              walletSigningSessionId,
+              expiresAtMs: Date.now() + 60_000,
+              remainingUses: 10,
+              jwt: 'persisted-threshold-jwt',
+              xClientBaseB64u: 'cached-client-base',
+              source: 'registration',
+            });
+            return { sessionId, record };
+          },
           readAvailableSigningLanesForSigning: async () =>
             createNearEd25519AvailableLanes({
               nearAccountId: 'alice.testnet',
@@ -260,9 +284,10 @@ test.describe('near signing session selection', () => {
               relayerUrl: 'https://relay.example.test',
               touchConfirm: {
                 getWarmSessionStatus: async () => ({
-                  ok: false as const,
-                  code: 'not_found',
-                  message: 'warm-session status missing',
+                  ok: true as const,
+                  sessionId: 'ed25519-session',
+                  remainingUses: 10,
+                  expiresAtMs: Date.now() + 60_000,
                 }),
                 claimWarmSessionMaterial: async () => ({
                   ok: false as const,
@@ -315,6 +340,7 @@ test.describe('near signing session selection', () => {
           withThresholdEd25519CommitQueue: async ({ task }) => await task(),
         },
         {
+          nearAccount: { kind: 'named', accountId: 'alice.testnet' as any },
           rpcCall: { nearAccountId: 'alice.testnet', nearRpcUrl: 'https://rpc.testnet.test' },
           signerSlot: 1,
           transactions: [
@@ -373,6 +399,8 @@ test.describe('near signing session selection', () => {
       let confirmationCount = 0;
 
       persistWarmSessionEd25519Capability({
+        kind: 'jwt_passkey',
+        sessionKind: 'jwt',
         nearAccountId,
         rpId: 'example.localhost',
         relayerUrl,
@@ -489,6 +517,7 @@ test.describe('near signing session selection', () => {
           withThresholdEd25519CommitQueue: async ({ task }) => await task(),
         },
         {
+          nearAccount: { kind: 'named', accountId: nearAccountId as any },
           rpcCall: { nearAccountId, nearRpcUrl: 'https://rpc.testnet.test' },
           signerSlot: 1,
           transactions: [
@@ -549,6 +578,8 @@ test.describe('near signing session selection', () => {
       let workerSessionId = '';
 
       persistWarmSessionEd25519Capability({
+        kind: 'jwt_email_otp',
+        sessionKind: 'jwt',
         nearAccountId,
         rpId,
         relayerUrl,
@@ -615,6 +646,8 @@ test.describe('near signing session selection', () => {
           loginWithEmailOtpEd25519CapabilityForSigning: async ({ otpCode }) => {
             order.push(`complete:${otpCode}`);
             persistWarmSessionEd25519Capability({
+        kind: 'jwt_email_otp',
+        sessionKind: 'jwt',
               nearAccountId,
               rpId,
               relayerUrl,
@@ -736,6 +769,7 @@ test.describe('near signing session selection', () => {
           withThresholdEd25519CommitQueue: async ({ task }) => await task(),
         },
         {
+          nearAccount: { kind: 'named', accountId: nearAccountId as any },
           rpcCall: { nearAccountId, nearRpcUrl: 'https://rpc.testnet.test' },
           signerSlot: 1,
           onEvent: (event) => {
@@ -812,6 +846,8 @@ test.describe('near signing session selection', () => {
 
       const persistEmailOtpRecord = (sessionId: string, jwt: string, remainingUses: number) =>
         persistWarmSessionEd25519Capability({
+        kind: 'jwt_email_otp',
+        sessionKind: 'jwt',
           nearAccountId,
           rpId,
           relayerUrl,
@@ -1017,6 +1053,7 @@ test.describe('near signing session selection', () => {
           withThresholdEd25519CommitQueue: async ({ task }) => await task(),
         },
         {
+          nearAccount: { kind: 'named', accountId: nearAccountId as any },
           rpcCall: { nearAccountId, nearRpcUrl: 'https://rpc.testnet.test' },
           signerSlot: 1,
           transactions: [
@@ -1131,6 +1168,8 @@ test.describe('near signing session selection', () => {
               thresholdSessionId: restoreArgs.thresholdSessionId,
             });
             persistWarmSessionEd25519Capability({
+        kind: 'jwt_email_otp',
+        sessionKind: 'jwt',
               nearAccountId,
               rpId,
               relayerUrl,
@@ -1248,6 +1287,7 @@ test.describe('near signing session selection', () => {
           withThresholdEd25519CommitQueue: async ({ task }) => await task(),
         },
         {
+          nearAccount: { kind: 'named', accountId: nearAccountId as any },
           rpcCall: { nearAccountId, nearRpcUrl: 'https://rpc.testnet.test' },
           signerSlot: 1,
           transactions: [
@@ -1319,6 +1359,8 @@ test.describe('near signing session selection', () => {
       let workerSessionId = '';
 
       persistWarmSessionEd25519Capability({
+        kind: 'jwt_email_otp',
+        sessionKind: 'jwt',
         nearAccountId,
         rpId,
         relayerUrl,
@@ -1496,6 +1538,7 @@ test.describe('near signing session selection', () => {
           withThresholdEd25519CommitQueue: async ({ task }) => await task(),
         },
         {
+          nearAccount: { kind: 'named', accountId: nearAccountId as any },
           rpcCall: { nearAccountId, nearRpcUrl: 'https://rpc.testnet.test' },
           signerSlot: 1,
           transactions: [
@@ -1545,6 +1588,8 @@ test.describe('near signing session selection', () => {
       let workerSessionId = '';
 
       persistWarmSessionEd25519Capability({
+        kind: 'jwt_email_otp',
+        sessionKind: 'jwt',
         nearAccountId,
         rpId,
         relayerUrl,
@@ -1695,7 +1740,8 @@ test.describe('near signing session selection', () => {
             withThresholdEd25519CommitQueue: async ({ task }) => await task(),
           },
           {
-            rpcCall: { nearAccountId, nearRpcUrl: 'https://rpc.testnet.test' },
+          nearAccount: { kind: 'named', accountId: nearAccountId as any },
+          rpcCall: { nearAccountId, nearRpcUrl: 'https://rpc.testnet.test' },
             signerSlot: 1,
             transactions: [
               {
@@ -1754,6 +1800,8 @@ test.describe('near signing session selection', () => {
       let workerAttempts = 0;
 
       persistWarmSessionEd25519Capability({
+        kind: 'jwt_email_otp',
+        sessionKind: 'jwt',
         nearAccountId,
         rpId,
         relayerUrl,
@@ -1805,6 +1853,8 @@ test.describe('near signing session selection', () => {
           loginWithEmailOtpEd25519CapabilityForSigning: async ({ otpCode }) => {
             order.push(`complete:${otpCode}`);
             persistWarmSessionEd25519Capability({
+        kind: 'jwt_email_otp',
+        sessionKind: 'jwt',
               nearAccountId,
               rpId,
               relayerUrl,
@@ -1921,6 +1971,7 @@ test.describe('near signing session selection', () => {
           withThresholdEd25519CommitQueue: async ({ task }) => await task(),
         },
         {
+          nearAccount: { kind: 'named', accountId: nearAccountId as any },
           rpcCall: { nearAccountId, nearRpcUrl: 'https://rpc.testnet.test' },
           signerSlot: 1,
           transactions: [
@@ -1992,7 +2043,7 @@ test.describe('near signing session selection', () => {
 
     const context = await resolveNearThresholdSigningAuthContext({
       warmSessionReader,
-      nearAccountId,
+      nearAccount: { kind: 'named', accountId: nearAccountId as any },
       operationLabel: 'transaction signing',
       usesNeeded: 1,
     });

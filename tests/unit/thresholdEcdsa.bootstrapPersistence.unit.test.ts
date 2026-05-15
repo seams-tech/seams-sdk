@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import {
-  persistThresholdEcdsaBootstrapChainAccount,
+  persistThresholdEcdsaBootstrapForWalletTarget,
   type ThresholdEcdsaBootstrapIndexedDbPort,
 } from '@/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence';
 
@@ -51,9 +51,9 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
   test('persists undeployed bootstrap rows and clears prior deployment metadata', async () => {
     const calls: UpsertCall[] = [];
 
-    await persistThresholdEcdsaBootstrapChainAccount({
+    await persistThresholdEcdsaBootstrapForWalletTarget({
       indexedDB: createIndexedDbPort(calls),
-      nearAccountId: 'alice.testnet' as any,
+      walletId: 'alice.testnet' as any,
       chainTarget: EVM_TARGET,
       bootstrap: {
         keygen: {
@@ -94,9 +94,9 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
   test('uses requested chain target when bootstrap chain id is invalid', async () => {
     const calls: UpsertCall[] = [];
 
-    await persistThresholdEcdsaBootstrapChainAccount({
+    await persistThresholdEcdsaBootstrapForWalletTarget({
       indexedDB: createIndexedDbPort(calls),
-      nearAccountId: 'alice.testnet' as any,
+      walletId: 'alice.testnet' as any,
       chainTarget: EVM_TARGET,
       bootstrap: {
         keygen: {
@@ -113,9 +113,9 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
   test('persists deployed state when registration already deployed the smart account', async () => {
     const calls: UpsertCall[] = [];
 
-    await persistThresholdEcdsaBootstrapChainAccount({
+    await persistThresholdEcdsaBootstrapForWalletTarget({
       indexedDB: createIndexedDbPort(calls),
-      nearAccountId: 'alice.testnet' as any,
+      walletId: 'alice.testnet' as any,
       chainTarget: TEMPO_TARGET,
       bootstrap: {
         keygen: {
@@ -195,9 +195,9 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
       },
     };
 
-    await persistThresholdEcdsaBootstrapChainAccount({
+    await persistThresholdEcdsaBootstrapForWalletTarget({
       indexedDB: port,
-      nearAccountId: 'google-user.testnet' as any,
+      walletId: 'google-user.testnet' as any,
       chainTarget: TEMPO_TARGET,
       ensureEmailOtpNearAccountMapping: true,
       bootstrap: {

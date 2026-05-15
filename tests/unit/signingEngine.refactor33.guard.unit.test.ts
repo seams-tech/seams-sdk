@@ -16,7 +16,6 @@ const targetTopLevelFolders = [
   'uiConfirm',
   'workers',
   'nonce',
-  'walletAuth',
   'webauthnAuth',
 ] as const;
 const targetContractFolders = [
@@ -26,7 +25,6 @@ const targetContractFolders = [
   'stepUpConfirmation',
   'uiConfirm',
   'workers',
-  'walletAuth',
   'webauthnAuth',
 ] as const;
 
@@ -52,14 +50,12 @@ const signingEngineAllowedImportPrefixes = [
   './session/emailOtp/',
   './nonce/NonceCoordinator',
   './uiConfirm/',
-  './walletAuth/',
   './webauthnAuth/',
   './workerManager/',
 ] as const;
 
 const currentTopLevelImportContract: Record<string, readonly string[]> = {
   'SigningEngine.ts': [
-    'walletAuth',
     'chains',
     'stepUpConfirmation',
     'assembly',
@@ -72,14 +68,12 @@ const currentTopLevelImportContract: Record<string, readonly string[]> = {
     'webauthnAuth',
     'workerManager',
   ],
-  'index.ts': ['SigningEngine.ts', 'walletAuth', 'interfaces'],
-  walletAuth: ['interfaces'],
+  'index.ts': ['SigningEngine.ts', 'stepUpConfirmation', 'interfaces'],
   webauthnAuth: [],
   chains: ['interfaces', 'workerManager'],
   stepUpConfirmation: ['interfaces', 'webauthnAuth'],
   assembly: [
     'flows',
-    'walletAuth',
     'chains',
     'stepUpConfirmation',
     'interfaces',
@@ -100,7 +94,6 @@ const currentTopLevelImportContract: Record<string, readonly string[]> = {
   ],
   nonce: ['interfaces', 'session'],
   flows: [
-    'walletAuth',
     'chains',
     'stepUpConfirmation',
     'interfaces',
@@ -112,14 +105,13 @@ const currentTopLevelImportContract: Record<string, readonly string[]> = {
     'workerManager',
   ],
   session: [
-    'walletAuth',
     'stepUpConfirmation',
     'interfaces',
     'threshold',
     'uiConfirm',
     'workerManager',
   ],
-  threshold: ['walletAuth', 'chains', 'interfaces', 'session', 'webauthnAuth', 'workerManager'],
+  threshold: ['chains', 'interfaces', 'session', 'webauthnAuth', 'workerManager'],
   uiConfirm: [
     'chains',
     'stepUpConfirmation',
@@ -144,7 +136,6 @@ const currentTopLevelImportContract: Record<string, readonly string[]> = {
 } as const;
 
 const existingIndexFiles = [
-  'client/src/core/signingEngine/walletAuth/index.ts',
   'client/src/core/signingEngine/index.ts',
   'client/src/core/signingEngine/interfaces/index.ts',
   'client/src/core/signingEngine/uiConfirm/ui/lit-components/Drawer/index.ts',
@@ -178,6 +169,7 @@ const deletedSigningEngineFolders = [
   'client/src/core/signingEngine/session/warmSigning',
   'client/src/core/signingEngine/touchConfirm',
   'client/src/core/signingEngine/uiConfirm/shared',
+  'client/src/core/signingEngine/walletAuth',
 ] as const;
 
 const deletedSigningEnginePaths = [
@@ -570,7 +562,7 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
       'return await this.passkeyPublic.bootstrapEcdsaSession(args);',
     );
     expect(source).toContain(
-      'return this.warmCapabilitiesPublic.persistThresholdEcdsaBootstrapChainAccount(args);',
+      'return this.warmCapabilitiesPublic.persistThresholdEcdsaBootstrapForWalletTarget(args);',
     );
     expect(source).toContain(
       'return this.warmCapabilitiesPublic.getWarmThresholdEd25519SessionStatus(nearAccountId);',
@@ -588,7 +580,7 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
       'await this.warmCapabilitiesPublic.hydrateSigningSession(args);',
     );
     expect(source).toContain(
-      'await this.warmCapabilitiesPublic.clearWarmSigningSessions(nearAccountId);',
+      'await this.warmCapabilitiesPublic.clearWarmSigningSessions(walletId);',
     );
     expect(source).not.toContain('return await provisionWarmEd25519Capability(');
     expect(source).not.toContain('return await bootstrapWarmEcdsaCapability(');
@@ -648,49 +640,50 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     expect(source).toContain('const sessionPublicDeps = createSessionPublicDeps({');
     expect(source).toContain('this.sessionPublic = createSessionPublicApi(sessionPublicDeps);');
     expect(source).toContain(
-      'return await this.sessionPublic.restorePersistedSessionsForAccount(args);',
+      'return await this.sessionPublic.restorePersistedSessionsForWallet(args);',
     );
     expect(source).toContain(
       'return await this.sessionPublic.readPersistedAvailableSigningLanes(args);',
     );
-    expect(source).not.toContain('this.emailOtpSessions.restorePersistedSessionsForAccount({');
-    expect(source).not.toContain('this.touchConfirm.restorePersistedSessionsForAccount?.({');
+    expect(source).not.toContain('this.emailOtpSessions.restorePersistedSessionsForWallet({');
+    expect(source).not.toContain('this.touchConfirm.restorePersistedSessionsForWallet?.({');
 
     expect(sessionAssembly).toContain('export function createSessionPublicDeps');
     expect(sessionAssembly).toContain('configuredThresholdEcdsaChainTargets');
-    expect(sessionAssembly).toContain('restorePersistedSessionsForAccount');
+    expect(sessionAssembly).toContain('restorePersistedSessionsForWallet');
   });
 
   test('session ECDSA record admin facade methods delegate through session public entrypoints', () => {
     const source = readRepoSource('client/src/core/signingEngine/SigningEngine.ts');
     const sessionPublic = readRepoSource('client/src/core/signingEngine/session/public.ts');
     const upsertMethod = extractMethodBlock(source, 'upsertThresholdEcdsaSessionFromBootstrap(');
-    const keyRefMethod = extractMethodBlock(source, 'getThresholdEcdsaKeyRefForAccountTarget(');
-    const listMethod = extractMethodBlock(source, 'listThresholdEcdsaSessionRecordsForSubject(args:');
-    const clearOneMethod = extractMethodBlock(source, 'clearThresholdEcdsaSessionRecordForAccount(');
+    const keyRefMethod = extractMethodBlock(source, 'getThresholdEcdsaKeyRefForSubjectTarget(');
+    const listMethod = extractMethodBlock(source, 'listThresholdEcdsaSessionRecordsForTarget(');
+    const clearOneMethod = extractMethodBlock(source, 'clearThresholdEcdsaSessionRecordForWallet(');
     const clearAllMethod = extractMethodBlock(source, 'clearAllThresholdEcdsaSessionRecords(): void');
 
     expect(source).toContain(
       'this.sessionPublic.upsertThresholdEcdsaSessionFromBootstrap(args);',
     );
     expect(source).toContain(
-      'return this.sessionPublic.getThresholdEcdsaKeyRefForAccountTarget(args);',
+      'return this.sessionPublic.getThresholdEcdsaKeyRefForSubjectTarget(args);',
     );
     expect(source).toContain(
-      'return this.sessionPublic.listThresholdEcdsaSessionRecordsForSubject(args);',
+      'return this.sessionPublic.listThresholdEcdsaSessionRecordsForTarget(args);',
     );
     expect(source).toContain(
-      'this.sessionPublic.clearThresholdEcdsaSessionRecordForAccount(nearAccountId);',
+      'this.sessionPublic.clearThresholdEcdsaSessionRecordForWallet(walletId);',
     );
     expect(source).toContain('this.sessionPublic.clearAllThresholdEcdsaSessionRecords();');
     expect(upsertMethod).not.toContain('upsertThresholdEcdsaSessionFromBootstrapValue(');
     expect(keyRefMethod).not.toContain('getThresholdEcdsaKeyRefByIdentityValue(');
     expect(listMethod).not.toContain('getThresholdEcdsaSessionRecordForTargetValue(');
-    expect(clearOneMethod).not.toContain('clearThresholdEcdsaSessionRecordForAccountValue(');
+    expect(clearOneMethod).not.toContain('clearThresholdEcdsaSessionRecordForWalletValue(');
     expect(clearAllMethod).not.toContain('clearAllThresholdEcdsaSessionRecordsValue(');
 
     expect(sessionPublic).toContain('export function upsertThresholdEcdsaSessionFromBootstrap');
-    expect(sessionPublic).toContain('export function getThresholdEcdsaKeyRefForAccountTarget');
+    expect(sessionPublic).toContain('export function getThresholdEcdsaKeyRefForSubjectTarget');
+    expect(sessionPublic).toContain('export function listThresholdEcdsaSessionRecordsForTarget');
     expect(sessionPublic).toContain('export function clearAllThresholdEcdsaSessionRecords');
   });
 
@@ -985,7 +978,7 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
       sealedRecovery: ['persistence'],
       operationState: ['identity', 'persistence', 'budget', 'planning'],
       warmCapabilities: ['availability', 'identity', 'persistence', 'operationState', 'budget'],
-      passkey: ['identity', 'persistence', 'operationState', 'warmCapabilities'],
+      passkey: ['identity', 'persistence', 'operationState', 'sealedRecovery', 'warmCapabilities'],
       emailOtp: ['availability', 'identity', 'persistence', 'sealedRecovery', 'warmCapabilities'],
     };
     const offenders: string[] = [];
@@ -1502,7 +1495,6 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
         'workers',
         'workerManager',
         'uiConfirm',
-        'walletAuth',
         'webauthnAuth',
         'interfaces',
         'nonce',
@@ -1517,7 +1509,6 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
         'nonce',
         'interfaces',
         'uiConfirm',
-        'walletAuth',
         'webauthnAuth',
         'workerManager',
       ],
@@ -1536,7 +1527,6 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
         'webauthnAuth',
         'workerManager',
       ],
-      walletAuth: ['interfaces'],
       webauthnAuth: [],
       workers: [],
     };
@@ -1565,16 +1555,6 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
 
   test('auth prompt and UI runtime boundaries stay one-way', () => {
     const forbiddenByRoot: Record<string, readonly string[]> = {
-      walletAuth: [
-        'stepUpConfirmation',
-        'uiConfirm',
-        'session',
-        'flows',
-        'threshold',
-        'chains',
-        'nonce',
-        'workerManager',
-      ],
       webauthnAuth: [
         'stepUpConfirmation',
         'uiConfirm',
@@ -1644,7 +1624,7 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
       'export async function requestEmailOtpExportAuthorization',
       'Enter email code to sign',
     ] as const;
-    const roots = ['flows', 'session', 'walletAuth'] as const;
+    const roots = ['flows', 'session'] as const;
     const offenders: string[] = [];
 
     for (const root of roots) {

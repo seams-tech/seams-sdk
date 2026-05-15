@@ -100,12 +100,21 @@ async function setupPasskeyEvmSigningSession(
         }
 
         const bootstrap = await seams.evm.bootstrapEcdsaSession({
-          nearAccountId: accountId,
-          options: {
-            relayerUrl,
-            ttlMs: 120_000,
-            remainingUses,
+          kind: 'reuse_warm_ecdsa_bootstrap',
+          walletSession: {
+            walletId: accountId,
+            walletSessionUserId: accountId,
           },
+          subjectId: accountId,
+          chainTarget: {
+            kind: 'evm' as const,
+            namespace: 'eip155' as const,
+            chainId: 11155111,
+            networkSlug: 'evm-11155111',
+          },
+          relayerUrl,
+          ttlMs: 120_000,
+          remainingUses,
         });
         if (!bootstrap?.thresholdEcdsaKeyRef?.ecdsaThresholdKeyId) {
           return { ok: false, error: 'EVM ECDSA bootstrap did not return keyRef' };
@@ -255,7 +264,8 @@ async function runPasskeyEvmSign(
                     ? {
                         chain: (record.ecdsaRestore as Record<string, unknown>).chain,
                         hasThresholdSessionAuthToken: Boolean(
-                          (record.ecdsaRestore as Record<string, unknown>).thresholdSessionAuthToken,
+                          (record.ecdsaRestore as Record<string, unknown>)
+                            .thresholdSessionAuthToken,
                         ),
                         hasClientVerifyingShare: Boolean(
                           (record.ecdsaRestore as Record<string, unknown>).clientVerifyingShareB64u,
@@ -270,12 +280,14 @@ async function runPasskeyEvmSign(
           }
         };
         readRuntimeDiagnostics = async (): Promise<Record<string, unknown>> => {
-          const thresholdStore = await import(
-            '/sdk/esm/core/signingEngine/session/persistence/records.js'
-          ).catch(() => null);
-          const sealedStore = await import(
-            '/sdk/esm/core/signingEngine/session/persistence/sealedSessionStore.js'
-          ).catch(() => null);
+          const thresholdStore =
+            await import('/sdk/esm/core/signingEngine/session/persistence/records.js').catch(
+              () => null,
+            );
+          const sealedStore =
+            await import('/sdk/esm/core/signingEngine/session/persistence/sealedSessionStore.js').catch(
+              () => null,
+            );
           const ecdsaRecords =
             thresholdStore &&
             typeof (thresholdStore as any).listThresholdEcdsaSessionRecordsForLookup === 'function'
@@ -287,7 +299,8 @@ async function runPasskeyEvmSign(
                 )
               : [];
           const identities =
-            sealedStore && typeof (sealedStore as any).listResolvedIdentitiesForAccount === 'function'
+            sealedStore &&
+            typeof (sealedStore as any).listResolvedIdentitiesForAccount === 'function'
               ? (sealedStore as any).listResolvedIdentitiesForAccount({
                   walletId: accountId,
                   curve: 'ecdsa',
@@ -322,7 +335,17 @@ async function runPasskeyEvmSign(
         const preSession = await seams.auth.getWalletSession(accountId).catch(() => null);
         const preSessionStatus = String(preSession?.signingSession?.status || '');
         const signed = await seams.tempo.signTempo({
-          nearAccountId: accountId,
+          walletSession: {
+            walletId: accountId,
+            walletSessionUserId: accountId,
+          },
+          subjectId: accountId,
+          chainTarget: {
+            kind: 'evm' as const,
+            namespace: 'eip155' as const,
+            chainId: 11155111,
+            networkSlug: 'ethereum-sepolia',
+          },
           request: {
             chain: 'evm' as const,
             kind: 'eip1559' as const,
@@ -556,10 +579,9 @@ test.describe('signing session regressions (wallet iframe)', () => {
         tag: 'reauth',
         remainingUses,
       });
-      expect(
-        reauthSign.ok,
-        reauthSign.error || JSON.stringify({ restoredSign, reauthSign }),
-      ).toBe(true);
+      expect(reauthSign.ok, reauthSign.error || JSON.stringify({ restoredSign, reauthSign })).toBe(
+        true,
+      );
       expect(reauthSign.kind).toBe('eip1559');
       expect(reauthSign.chain).toBe('evm');
       expect(String(reauthSign.error || '')).not.toContain('budget is exhausted');

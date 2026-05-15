@@ -1,3 +1,8 @@
+import type {
+  SigningSessionSealThresholdSessionStatus,
+  SigningSessionSealWalletBudgetStatus,
+} from '@server/threshold/session/signingSessionSeal/types';
+
 export function buildEcdsaCurveCollisionBudgetStatusFixture(label: string) {
   const nowMs = Date.now();
   const claims = {
@@ -20,20 +25,14 @@ export function buildEcdsaCurveCollisionBudgetStatusFixture(label: string) {
     participantIds: [1, 2],
   } as const;
 
-  const makeStatus = (input: {
-    curve?: 'ecdsa' | 'ed25519';
-    kind?: 'threshold_session' | 'wallet_budget';
+  const baseStatus = (input: {
+    curve: 'ecdsa' | 'ed25519';
     thresholdSessionId: string;
-    walletSigningSessionId?: string;
     relayerKeyId: string;
     remainingUses: number;
   }) => ({
-    kind: input.kind || 'threshold_session',
-    curve: input.curve || 'ecdsa',
+    curve: input.curve,
     thresholdSessionId: input.thresholdSessionId,
-    ...(input.walletSigningSessionId
-      ? { walletSigningSessionId: input.walletSigningSessionId }
-      : {}),
     userId: claims.walletId,
     expiresAtMs: nowMs + 60_000,
     remainingUses: input.remainingUses,
@@ -41,24 +40,46 @@ export function buildEcdsaCurveCollisionBudgetStatusFixture(label: string) {
     rpId: claims.rpId,
     participantIds: [...claims.participantIds],
   });
+  const makeThresholdStatus = (input: {
+    curve: 'ecdsa' | 'ed25519';
+    thresholdSessionId: string;
+    relayerKeyId: string;
+    remainingUses: number;
+  }): SigningSessionSealThresholdSessionStatus => ({
+    kind: 'threshold_session',
+    ...baseStatus(input),
+  });
+  const makeWalletBudgetStatus = (input: {
+    thresholdSessionId: string;
+    walletSigningSessionId: string;
+    relayerKeyId: string;
+    remainingUses: number;
+  }): SigningSessionSealWalletBudgetStatus => ({
+    kind: 'wallet_budget',
+    walletSigningSessionId: input.walletSigningSessionId,
+    ...baseStatus({
+      curve: 'ecdsa',
+      thresholdSessionId: input.thresholdSessionId,
+      relayerKeyId: input.relayerKeyId,
+      remainingUses: input.remainingUses,
+    }),
+  });
 
   return {
     claims,
-    wrongCurveStatus: makeStatus({
+    wrongCurveStatus: makeThresholdStatus({
       curve: 'ed25519',
       thresholdSessionId: claims.sessionId,
       relayerKeyId: `ed25519-relayer-key-curve-collision-${label}`,
       remainingUses: 3,
     }),
-    ecdsaStatus: makeStatus({
+    ecdsaStatus: makeThresholdStatus({
       curve: 'ecdsa',
       thresholdSessionId: claims.sessionId,
       relayerKeyId: claims.relayerKeyId,
       remainingUses: 3,
     }),
-    walletBudgetStatus: makeStatus({
-      kind: 'wallet_budget',
-      curve: 'ecdsa',
+    walletBudgetStatus: makeWalletBudgetStatus({
       thresholdSessionId: `wallet-signing:${claims.walletSigningSessionId}`,
       walletSigningSessionId: claims.walletSigningSessionId,
       relayerKeyId: `wallet-budget-relayer-key-curve-collision-${label}`,

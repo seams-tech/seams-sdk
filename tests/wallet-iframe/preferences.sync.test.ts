@@ -9,13 +9,13 @@ const WAIT_FOR_SOURCE = `(${waitFor.toString()})`;
 const PREFERENCES_PUSH_STUB = `
   // Extend the base wallet-service stub with preference RPCs + push updates.
   (function installPreferencesPushStub() {
-    const nearAccountId = 'alice.testnet';
+    const walletId = 'alice.testnet';
     let confirmationConfig = { behavior: 'requireClick', uiMode: 'modal', autoProceedDelay: 0 };
 
     const makeLoginSession = () => ({
       login: {
         isLoggedIn: true,
-        nearAccountId,
+        nearAccountId: walletId,
         publicKey: null,
         userData: null,
       },
@@ -36,7 +36,7 @@ const PREFERENCES_PUSH_STUB = `
         adoptedPort.postMessage({
           type: 'PREFERENCES_CHANGED',
           payload: {
-            nearAccountId,
+            walletId,
             confirmationConfig,
             updatedAt: Date.now(),
           }
@@ -177,7 +177,7 @@ test.describe('Wallet iframe preferences sync', () => {
             finalTheme: seams.theme,
             initialConfig,
             finalConfig: seams.getConfirmationConfig(),
-            currentUser: String(seams.preferences.getCurrentUserAccountId?.() || ''),
+            currentWallet: String(seams.preferences.getCurrentWalletId?.() || ''),
             seeded,
             mirrored,
           };
@@ -207,7 +207,7 @@ test.describe('Wallet iframe preferences sync', () => {
       uiMode: 'drawer',
       autoProceedDelay: 5,
     });
-    expect(result.currentUser).toBe('alice.testnet');
+    expect(result.currentWallet).toBe('alice.testnet');
 
     const indexedDbNoise = consoleErrors.find(
       (m) =>

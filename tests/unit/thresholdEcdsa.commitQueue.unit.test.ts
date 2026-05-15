@@ -29,7 +29,7 @@ test.describe('threshold ECDSA commit queue gate', () => {
     const first = withThresholdEcdsaCommitQueue({
       queueByKey,
       queueKey: 'session:tempo:tsess-1',
-      nearAccountId: 'alice.testnet',
+      walletId: 'alice.testnet',
       enabled: true,
       task: async () => {
         order.push('first:start');
@@ -42,7 +42,7 @@ test.describe('threshold ECDSA commit queue gate', () => {
     const second = withThresholdEcdsaCommitQueue({
       queueByKey,
       queueKey: 'session:tempo:tsess-1',
-      nearAccountId: 'alice.testnet',
+      walletId: 'alice.testnet',
       enabled: true,
       task: async () => {
         order.push('second:start');
@@ -67,7 +67,7 @@ test.describe('threshold ECDSA commit queue gate', () => {
     const first = withThresholdEcdsaCommitQueue({
       queueByKey,
       queueKey: 'session:tempo:tsess-1',
-      nearAccountId: 'alice.testnet',
+      walletId: 'alice.testnet',
       enabled: true,
       task: async () => {
         await blocker.promise;
@@ -80,7 +80,7 @@ test.describe('threshold ECDSA commit queue gate', () => {
       withThresholdEcdsaCommitQueue({
         queueByKey,
         queueKey: 'session:evm:tsess-2',
-        nearAccountId: 'alice.testnet',
+        walletId: 'alice.testnet',
         enabled: true,
         task: async () => 'evm-ok',
       }),
@@ -97,7 +97,7 @@ test.describe('threshold ECDSA commit queue gate', () => {
       withThresholdEcdsaCommitQueue({
         queueByKey,
         queueKey: 'session:tempo:tsess-1',
-        nearAccountId: 'alice.testnet',
+        walletId: 'alice.testnet',
         enabled: true,
         task: async () => {
           throw new Error('boom');
@@ -109,7 +109,7 @@ test.describe('threshold ECDSA commit queue gate', () => {
       withThresholdEcdsaCommitQueue({
         queueByKey,
         queueKey: 'session:tempo:tsess-1',
-        nearAccountId: 'alice.testnet',
+        walletId: 'alice.testnet',
         enabled: true,
         task: async () => 'after-failure',
       }),
@@ -123,7 +123,7 @@ test.describe('threshold ECDSA commit queue gate', () => {
     const first = withThresholdEcdsaCommitQueue({
       queueByKey,
       queueKey: 'session:tempo:tsess-1',
-      nearAccountId: 'alice.testnet',
+      walletId: 'alice.testnet',
       enabled: true,
       maxQueueLength: 1,
       task: async () => {
@@ -136,7 +136,7 @@ test.describe('threshold ECDSA commit queue gate', () => {
       withThresholdEcdsaCommitQueue({
         queueByKey,
         queueKey: 'session:tempo:tsess-1',
-        nearAccountId: 'alice.testnet',
+        walletId: 'alice.testnet',
         enabled: true,
         maxQueueLength: 1,
         task: async () => 'second-ok',
@@ -154,7 +154,7 @@ test.describe('threshold ECDSA commit queue gate', () => {
     const first = withThresholdEcdsaCommitQueue({
       queueByKey,
       queueKey: 'session:tempo:tsess-1',
-      nearAccountId: 'alice.testnet',
+      walletId: 'alice.testnet',
       enabled: true,
       task: async () => {
         await blocker.promise;
@@ -166,7 +166,7 @@ test.describe('threshold ECDSA commit queue gate', () => {
       withThresholdEcdsaCommitQueue({
         queueByKey,
         queueKey: 'session:tempo:tsess-1',
-        nearAccountId: 'alice.testnet',
+        walletId: 'alice.testnet',
         enabled: true,
         queueTimeoutMs: 10,
         task: async () => 'second-ok',
@@ -184,7 +184,7 @@ test.describe('threshold ECDSA commit queue gate', () => {
     const first = withThresholdEcdsaCommitQueue({
       queueByKey,
       queueKey: 'session:tempo:tsess-1',
-      nearAccountId: 'alice.testnet',
+      walletId: 'alice.testnet',
       enabled: true,
       task: async () => {
         await blocker.promise;
@@ -194,7 +194,7 @@ test.describe('threshold ECDSA commit queue gate', () => {
     const second = withThresholdEcdsaCommitQueue({
       queueByKey,
       queueKey: 'session:tempo:tsess-1',
-      nearAccountId: 'alice.testnet',
+      walletId: 'alice.testnet',
       enabled: true,
       task: async () => 'second-ok',
     });

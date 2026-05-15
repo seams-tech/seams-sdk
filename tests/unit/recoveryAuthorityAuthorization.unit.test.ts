@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { injectImportMap } from '../setup/bootstrap';
 
 const IMPORT_PATHS = {
-  server: '/sdk/esm/server/index.js',
+  server: '/sdk/esm/server/core/recoveryAuthorityAuthorization.js',
 } as const;
 
 test.describe('recovery authority authorization', () => {

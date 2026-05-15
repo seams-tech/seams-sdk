@@ -179,7 +179,9 @@ async function stagedBootstrapThresholdEcdsa(args: {
 
   ensureHssClientSignerWasm();
   const preparedClientSession = threshold_ecdsa_hss_prepare_session({
-    nearAccountId: args.userId,
+    walletSessionUserId: args.userId,
+    subjectId: args.userId,
+    chainTarget: 'evm:eip155:11155111',
     keyPurpose: 'evm-signing',
     keyVersion: 'v1',
     clientRootShare32B64u: args.clientRootShare32B64u,
@@ -277,7 +279,9 @@ async function stagedSessionBootstrapThresholdEcdsa(args: {
 
   ensureHssClientSignerWasm();
   const preparedClientSession = threshold_ecdsa_hss_prepare_session({
-    nearAccountId: args.userId,
+    walletSessionUserId: args.userId,
+    subjectId: args.userId,
+    chainTarget: 'evm:eip155:11155111',
     keyPurpose: 'evm-signing',
     keyVersion: 'v1',
     clientRootShare32B64u: args.clientRootShare32B64u,
@@ -367,7 +371,9 @@ async function stagedExplicitExportThresholdEcdsa(args: {
 
   ensureHssClientSignerWasm();
   const preparedClientSession = threshold_ecdsa_hss_prepare_session({
-    nearAccountId: args.userId,
+    walletSessionUserId: args.userId,
+    subjectId: args.userId,
+    chainTarget: 'evm:eip155:11155111',
     keyPurpose: 'evm-signing',
     keyVersion: 'v1',
     clientRootShare32B64u: args.clientRootShare32B64u,
@@ -469,7 +475,16 @@ async function deriveLocalThresholdBootstrap(args: {
     preferredShareIds: [1, 2],
     context: {
       signingRootId: TEST_SIGNING_ROOT_ID,
-      nearAccountId: args.userId,
+      walletSessionUserId: args.userId,
+      subjectId: args.userId,
+      chainTarget: {
+        kind: 'evm',
+        namespace: 'eip155',
+        chainId: 11155111,
+        networkSlug: 'sepolia',
+      },
+      ecdsaThresholdKeyId: args.relayerKeyId,
+      signingRootVersion: 'v1',
       keyPurpose: 'evm-signing',
       keyVersion: 'v1',
     },
@@ -478,9 +493,19 @@ async function deriveLocalThresholdBootstrap(args: {
   if (!derivedRelayerShare.ok) throw new Error(derivedRelayerShare.message);
   const clientRootShare32 = base64UrlDecode(args.clientRootShare32B64u);
   return await ecdsaHssBootstrapNonExportSign({
-    nearAccountId: args.userId,
+    walletSessionUserId: args.userId,
+    subjectId: args.userId,
+    chainTarget: {
+      kind: 'evm',
+      namespace: 'eip155',
+      chainId: 11155111,
+      networkSlug: 'sepolia',
+    },
     keyPurpose: 'evm-signing',
     keyVersion: 'v1',
+    ecdsaThresholdKeyId: args.relayerKeyId,
+    signingRootId: TEST_SIGNING_ROOT_ID,
+    signingRootVersion: 'v1',
     yClient32Le: clientRootShare32,
     yRelayer32Le: derivedRelayerShare.value,
   });

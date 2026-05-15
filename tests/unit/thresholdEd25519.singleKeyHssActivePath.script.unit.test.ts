@@ -12,6 +12,7 @@ import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/sessio
 import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
 import { runNearTransactionsWithActionsSigning as signTransactionsWithActions } from '@/core/signingEngine/flows/signNear/signTransactions';
 import { SigningEngine } from '@/core/signingEngine/SigningEngine';
+import { createRecoveryPublicApi } from '@/core/signingEngine/flows/recovery/public';
 import {
   clearAllStoredThresholdEd25519SessionRecords,
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
@@ -504,6 +505,115 @@ function makeIndexedDbThresholdDeps(publicKey: string) {
   };
 }
 
+function createNearEd25519ExportAvailableLanes() {
+  const stored = getStoredThresholdEd25519SessionRecordByThresholdSessionId(THRESHOLD_SESSION_ID);
+  const lane = stored
+    ? {
+        authMethod: stored.source === 'email_otp' ? 'email_otp' as const : 'passkey' as const,
+        curve: 'ed25519' as const,
+        chain: 'near' as const,
+        state: 'ready' as const,
+        source: 'runtime_session_record' as const,
+        walletSigningSessionId: String(stored.walletSigningSessionId || ''),
+        thresholdSessionId: String(stored.thresholdSessionId || ''),
+        remainingUses: stored.remainingUses,
+        expiresAtMs: stored.expiresAtMs,
+        updatedAtMs: stored.updatedAtMs,
+      }
+    : null;
+  return {
+    walletId: NEAR_ACCOUNT_ID,
+    generation: Date.now(),
+    ecdsa: {
+      targets: [],
+      lanesByTarget: {},
+      candidatesByTarget: {},
+    },
+    lanes: {
+      ed25519: {
+        near: lane || { curve: 'ed25519' as const, chain: 'near' as const, state: 'missing' as const },
+      },
+    },
+    candidates: {
+      ed25519: {
+        near: lane ? [lane] : [],
+      },
+    },
+  };
+}
+
+function installRecoveryPublicApiForTest(args: {
+  engine: any;
+  expectedPublicKey: string;
+  exportWorkerCalls?: Array<Record<string, unknown>>;
+}) {
+  args.engine.recoveryPublic = createRecoveryPublicApi({
+    laneSelection: {
+      readPersistedAvailableSigningLanes: async () => createNearEd25519ExportAvailableLanes() as any,
+      readPersistedAvailableSigningLanesForTargets: async () =>
+        createNearEd25519ExportAvailableLanes() as any,
+      restorePasskeyPersistedSessionForSigning: async () => ({ attempted: 0, restored: 0, deferred: 0 }),
+      restoreEmailOtpPersistedSessionForSigning: async () => ({ attempted: 0, restored: 0, deferred: 0 }),
+    },
+    nearSingleKeyHss: {
+      indexedDB: makeIndexedDbThresholdDeps(args.expectedPublicKey) as any,
+      touchConfirm: args.engine.touchConfirm,
+      emailOtpSessions: {
+        requestExportChallenge: async () => ({ challengeId: 'challenge-id' }),
+        recoverEd25519ExportPrfFirst: async () => ({ prfFirstB64u: PRF_FIRST_B64U }),
+      },
+      getSignerWorkerContext: () => ({
+        requestWorkerOperation: async ({ request }: any) => await invokeNearSignerWorkerDirect(request),
+      }),
+    },
+    ecdsa: {
+      sessionStore: {
+        get: async () => null,
+        set: async () => undefined,
+        delete: async () => undefined,
+        list: async () => [],
+      } as any,
+      touchConfirm: args.engine.touchConfirm,
+      getRpId: () => RP_ID,
+      emailOtp: {
+        requestExportChallenge: async () => ({ challengeId: 'challenge-id' }),
+        exportEcdsaKeyWithFreshEmailOtpLane: async () => {
+          throw new Error('ECDSA export is outside this test');
+        },
+        exportEcdsaKeyWithAuthorization: async () => {
+          throw new Error('ECDSA export is outside this test');
+        },
+      },
+      warmSessionPolicy: {
+        getWarmSession: async () => null,
+        resolveCurrentEcdsaRecord: async () => null,
+      },
+      getSignerWorkerContext: () => ({
+        requestWorkerOperation: async ({ request }: any) => await invokeNearSignerWorkerDirect(request),
+      }),
+    } as any,
+    touchConfirm: args.engine.touchConfirm,
+    getTheme: () => 'dark',
+    getSignerWorkerContext: () => ({
+      requestWorkerOperation: async ({ request }: any) => await invokeNearSignerWorkerDirect(request),
+    }),
+    privateKeyExportRecovery: {
+      indexedDB: makeIndexedDbThresholdDeps(args.expectedPublicKey) as any,
+      relayerUrl: RELAYER_URL,
+      getRpId: () => RP_ID,
+      getTheme: () => 'dark',
+      requestExportPrivateKeysWithUi: async (payload: Record<string, unknown>) => {
+        args.exportWorkerCalls?.push(payload);
+        return {
+          ok: true as const,
+          accountId: String(payload.nearAccountId || ''),
+          exportedSchemes: ['ed25519'] as const,
+        };
+      },
+    },
+  });
+}
+
 async function maybeServeLocalNearSignerWasm(url: string): Promise<Response | null> {
   if (!url.startsWith('file://') || !url.endsWith('/wasm_signer_worker_bg.wasm')) {
     return null;
@@ -631,6 +741,8 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
 
     try {
       persistWarmSessionEd25519Capability({
+        kind: 'jwt_passkey',
+        sessionKind: 'jwt',
         nearAccountId: NEAR_ACCOUNT_ID,
         rpId: RP_ID,
         relayerUrl: RELAYER_URL,
@@ -641,6 +753,7 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
         walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
         expiresAtMs: Date.now() + 60_000,
         remainingUses: 5,
+        xClientBaseB64u: expectedXClientBaseB64u,
         jwt: THRESHOLD_SESSION_JWT,
         source: 'bootstrap',
       });
@@ -792,11 +905,14 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
   test('forwards only xClientBaseB64u into the live signer worker payload', async () => {
     const { restore } = installMemorySessionStorage();
     const originalFetch = globalThis.fetch;
+    const seededXClientBaseB64u = Buffer.alloc(32, 23).toString('base64url');
 
     clearAllStoredThresholdEd25519SessionRecords();
-    seedThresholdEd25519Session({ xClientBaseB64u: Buffer.alloc(32, 23).toString('base64url') });
+    seedThresholdEd25519Session({ xClientBaseB64u: seededXClientBaseB64u });
 
     persistWarmSessionEd25519Capability({
+      kind: 'jwt_passkey',
+      sessionKind: 'jwt',
       nearAccountId: NEAR_ACCOUNT_ID,
       rpId: RP_ID,
       relayerUrl: RELAYER_URL,
@@ -807,6 +923,7 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
       walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
       expiresAtMs: Date.now() + 60_000,
       remainingUses: 5,
+      xClientBaseB64u: seededXClientBaseB64u,
       jwt: THRESHOLD_SESSION_JWT,
       source: 'bootstrap',
     });
@@ -936,11 +1053,14 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
     let hssFinalizeCalls = 0;
     let signWorkerCalls = 0;
     const hssCeremonyServer = createStubbedThresholdEd25519HssCeremonyServer();
+    const seededXClientBaseB64u = Buffer.alloc(32, 23).toString('base64url');
 
     clearAllStoredThresholdEd25519SessionRecords();
-    seedThresholdEd25519Session({ xClientBaseB64u: Buffer.alloc(32, 23).toString('base64url') });
+    seedThresholdEd25519Session({ xClientBaseB64u: seededXClientBaseB64u });
 
     persistWarmSessionEd25519Capability({
+      kind: 'jwt_passkey',
+      sessionKind: 'jwt',
       nearAccountId: NEAR_ACCOUNT_ID,
       rpId: RP_ID,
       relayerUrl: RELAYER_URL,
@@ -951,6 +1071,7 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
       walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
       expiresAtMs: Date.now() + 60_000,
       remainingUses: 5,
+      xClientBaseB64u: seededXClientBaseB64u,
       jwt: THRESHOLD_SESSION_JWT,
       source: 'bootstrap',
     });
@@ -1273,6 +1394,7 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
           return { requestId: String(request.requestId || ''), confirmed: true };
         },
       };
+      installRecoveryPublicApiForTest({ engine, expectedPublicKey, exportWorkerCalls });
 
       const result = await engine.exportKeypairWithUI({
         kind: 'near',
@@ -1372,6 +1494,7 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
           message: 'missing warm PRF',
         }),
       };
+      installRecoveryPublicApiForTest({ engine, expectedPublicKey: 'ed25519:unused' });
 
       await expect(
         engine.exportKeypairWithUI({
@@ -1403,6 +1526,8 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
     seedThresholdEd25519Session();
 
     persistWarmSessionEd25519Capability({
+      kind: 'jwt_passkey',
+      sessionKind: 'jwt',
       nearAccountId: NEAR_ACCOUNT_ID,
       rpId: RP_ID,
       relayerUrl: RELAYER_URL,
@@ -1608,6 +1733,7 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
           return { requestId: String(request.requestId || ''), confirmed: true };
         },
       };
+      installRecoveryPublicApiForTest({ engine, expectedPublicKey: thresholdPublicKey, exportWorkerCalls });
 
       const exportResult = await engine.exportKeypairWithUI({
         kind: 'near',

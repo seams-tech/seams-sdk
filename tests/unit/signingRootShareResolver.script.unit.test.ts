@@ -32,6 +32,20 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURE_PATH = resolve(__dirname, '../../crates/threshold-prf/fixtures/protocol-v1.json');
 const PROJECT_ID = 'project-alpha:dev';
 const SIGNING_ROOT_VERSION = 'root-v1';
+const ECDSA_HSS_CONTEXT = {
+  signingRootId: PROJECT_ID,
+  signingRootVersion: SIGNING_ROOT_VERSION,
+  walletSessionUserId: 'alice.near',
+  subjectId: 'alice-subject',
+  chainTarget: {
+    kind: 'evm' as const,
+    namespace: 'eip155' as const,
+    chainId: 11155111,
+  },
+  ecdsaThresholdKeyId: 'ecdsa-alpha',
+  keyPurpose: 'wallet',
+  keyVersion: 'v1',
+} as const;
 
 function vectorForPurpose(purpose: string): ThresholdPrfFixtureVector {
   const corpus = JSON.parse(readFileSync(FIXTURE_PATH, 'utf8')) as ThresholdPrfFixtureCorpus;
@@ -76,10 +90,7 @@ test('self-host signing-root resolver derives y_relayer directly from imported s
     resolver,
     preferredShareIds: [1, 2],
     context: {
-      signingRootId: PROJECT_ID,
-      nearAccountId: 'alice.near',
-      keyPurpose: 'wallet',
-      keyVersion: 'v1',
+      ...ECDSA_HSS_CONTEXT,
     },
   });
 
@@ -155,10 +166,7 @@ test('hosted signing-root resolver composes storage and decrypt adapters', async
     resolver,
     preferredShareIds: [1, 2],
     context: {
-      signingRootId: PROJECT_ID,
-      nearAccountId: 'alice.near',
-      keyPurpose: 'wallet',
-      keyVersion: 'v1',
+      ...ECDSA_HSS_CONTEXT,
     },
   });
 
@@ -199,10 +207,7 @@ test('sealed self-host signing-root resolver pins project scope while using call
     resolver,
     preferredShareIds: [1, 2],
     context: {
-      signingRootId: PROJECT_ID,
-      nearAccountId: 'alice.near',
-      keyPurpose: 'wallet',
-      keyVersion: 'v1',
+      ...ECDSA_HSS_CONTEXT,
     },
   });
 

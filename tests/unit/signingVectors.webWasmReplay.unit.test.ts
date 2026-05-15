@@ -109,7 +109,7 @@ test.describe('canonical vector replay via worker-facing wasm bindings', () => {
 
         const deriveKeypair = await deriveSecp256k1KeypairFromPrfSecondWasm({
           prfSecondB64u: toBase64Url(fromHex(secp.derive_keypair_from_prf_second.prf_second_hex)),
-          nearAccountId: secp.derive_keypair_from_prf_second.near_account_id,
+          walletSessionUserId: secp.derive_keypair_from_prf_second.near_account_id,
           workerCtx: workerCtx as any,
         });
         const deriveKeypairHex = `${deriveKeypair.privateKeyHex.replace(/^0x/i, '')}${deriveKeypair.publicKeyHex.replace(/^0x/i, '')}${deriveKeypair.ethereumAddress.replace(/^0x/i, '')}`;

@@ -33,7 +33,7 @@ test.describe('confirm-ui inline confirmer', () => {
           mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
         const buildCtxStub = (overrides: Record<string, unknown> = {}) => ({
           userPreferencesManager: {
-            getCurrentUserAccountId: () => 'alice.testnet',
+            getCurrentWalletId: () => 'alice.testnet',
             getConfirmationConfig: () => ({
               uiMode: 'modal',
               behavior: 'requireClick',
@@ -91,7 +91,7 @@ test.describe('confirm-ui inline confirmer', () => {
           mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
         const buildCtxStub = (overrides: Record<string, unknown> = {}) => ({
           userPreferencesManager: {
-            getCurrentUserAccountId: () => 'alice.testnet',
+            getCurrentWalletId: () => 'alice.testnet',
             getConfirmationConfig: () => ({
               uiMode: 'modal',
               behavior: 'requireClick',
@@ -105,7 +105,7 @@ test.describe('confirm-ui inline confirmer', () => {
           (window as any).ctxStub ||
           ((window as any).ctxStub = buildCtxStub({
             userPreferencesManager: {
-              getCurrentUserAccountId: () => 'alice.testnet',
+              getCurrentWalletId: () => 'alice.testnet',
               getConfirmationConfig: () => ({
                 uiMode: 'drawer',
                 behavior: 'requireClick',
@@ -158,7 +158,7 @@ test.describe('confirm-ui inline confirmer', () => {
           mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
         const buildCtxStub = (overrides: Record<string, unknown> = {}) => ({
           userPreferencesManager: {
-            getCurrentUserAccountId: () => 'alice.testnet',
+            getCurrentWalletId: () => 'alice.testnet',
             getConfirmationConfig: () => ({
               uiMode: 'modal',
               behavior: 'requireClick',
@@ -214,7 +214,7 @@ test.describe('confirm-ui inline confirmer', () => {
           mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
         const buildCtxStub = (overrides: Record<string, unknown> = {}) => ({
           userPreferencesManager: {
-            getCurrentUserAccountId: () => 'alice.testnet',
+            getCurrentWalletId: () => 'alice.testnet',
             getConfirmationConfig: () => ({
               uiMode: 'modal',
               behavior: 'requireClick',
@@ -267,7 +267,7 @@ test.describe('confirm-ui inline confirmer', () => {
           mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
         const buildCtxStub = (overrides: Record<string, unknown> = {}) => ({
           userPreferencesManager: {
-            getCurrentUserAccountId: () => 'alice.testnet',
+            getCurrentWalletId: () => 'alice.testnet',
             getConfirmationConfig: () => ({
               uiMode: 'modal',
               behavior: 'requireClick',
@@ -330,7 +330,7 @@ test.describe('confirm-ui inline confirmer', () => {
           mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
         const buildCtxStub = (overrides: Record<string, unknown> = {}) => ({
           userPreferencesManager: {
-            getCurrentUserAccountId: () => 'alice.testnet',
+            getCurrentWalletId: () => 'alice.testnet',
             getConfirmationConfig: () => ({
               uiMode: 'modal',
               behavior: 'requireClick',
@@ -391,7 +391,7 @@ test.describe('confirm-ui inline confirmer', () => {
           mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
         const buildCtxStub = (overrides: Record<string, unknown> = {}) => ({
           userPreferencesManager: {
-            getCurrentUserAccountId: () => 'alice.testnet',
+            getCurrentWalletId: () => 'alice.testnet',
             getConfirmationConfig: () => ({
               uiMode: 'modal',
               behavior: 'requireClick',
@@ -467,7 +467,7 @@ test.describe('confirm-ui inline confirmer', () => {
           mod as typeof import('@/core/signingEngine/uiConfirm/ui/confirm-ui');
         const buildCtxStub = (overrides: Record<string, unknown> = {}) => ({
           userPreferencesManager: {
-            getCurrentUserAccountId: () => 'alice.testnet',
+            getCurrentWalletId: () => 'alice.testnet',
             getConfirmationConfig: () => ({
               uiMode: 'modal',
               behavior: 'requireClick',
