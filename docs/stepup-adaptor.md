@@ -346,19 +346,19 @@ Exit criteria:
 - [x] Remove passkey-only gate flows from `walletAuth/*` adapter routing:
       recovery export confirmation, Ed25519 session mint, and passkey login
       session exchange now request passkey authorization directly.
-- [ ] Move remaining generic auth-method selection and wallet-policy logic out of
+- [x] Move remaining generic auth-method selection and wallet-policy logic out of
       `walletAuth/` and into either:
       `stepUpConfirmation/methodSelection.ts`,
       `stepUpConfirmation/types.ts`, or
       operation-local EVM-family step-up helpers.
-- [ ] Delete `walletAuth/` with no compatibility exports.
-- [ ] Add guard coverage blocking new imports from `walletAuth/*`.
+- [x] Delete `walletAuth/` with no compatibility exports.
+- [x] Add guard coverage blocking new imports from `walletAuth/*`.
 
 Exit criteria:
 
 - [ ] `webauthnAuth/` owns only low-level WebAuthn/passkey primitives.
-- [ ] Generic auth routing is no longer owned by `walletAuth/*`.
-- [ ] `walletAuth/` is deleted.
+- [x] Generic auth routing is no longer owned by `walletAuth/*`.
+- [x] `walletAuth/` is deleted.
 
 ### Phase 2: Define The Adaptor Contract
 
@@ -491,7 +491,7 @@ Exit criteria:
       `stepUpConfirmation/otpPrompt/*`,
       `stepUpConfirmation/passkeyPrompt/*`,
       and `SigningAuthPlanKind`.
-- [ ] Delete direct imports of `walletAuth/*` from signing-engine production
+- [x] Delete direct imports of `walletAuth/*` from signing-engine production
       code. `webauthnAuth/*` is the only remaining low-level WebAuthn owner.
 - [ ] Add guard tests for the deleted paths and blocked imports.
 - [ ] Update ownership READMEs and `docs/refactor-33.md` cross references.
@@ -501,7 +501,7 @@ Exit criteria:
 - [ ] Main signing flows call one step-up boundary.
 - [ ] Prompt modules are method-local implementation details.
 - [ ] Email OTP and passkey are symmetric at the flow boundary.
-- [ ] `walletAuth/` is deleted and blocked from reintroduction.
+- [x] `walletAuth/` is deleted and blocked from reintroduction.
 - [ ] Refactor 33 guard tests and `pnpm build:sdk` pass.
 
 ## Guard Tests
@@ -513,7 +513,7 @@ Add or extend `tests/unit/signingEngine.refactor33.guard.unit.test.ts`:
 - [ ] `flows/*` cannot switch on `SigningAuthPlanKind`.
 - [ ] `flows/emailOtp/` is a deleted path.
 - [ ] `flows/passkey/` is a blocked path.
-- [ ] `walletAuth/` is a deleted path.
+- [x] `walletAuth/` is a deleted path.
 - [ ] `stepUpConfirmation/*` may import low-level `webauthnAuth/*` primitives,
       but `webauthnAuth/*` cannot import `stepUpConfirmation/*`.
 - [ ] `stepUpConfirmation/requireStepUpAuth.ts` cannot import `flows/*`,

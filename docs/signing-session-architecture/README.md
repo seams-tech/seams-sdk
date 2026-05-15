@@ -141,6 +141,11 @@ Signing-session identity is protocol-specific after the system boundary.
 | Wallet signing session | `walletSigningSessionId` | Wallet-level budget and TTL id |
 | Threshold session | `thresholdSessionId` | Curve-specific signing session id |
 
+Funds-safety invariant: EVM SIGNERS MUST ALL SHARE THE SAME ADDRESS for the
+same wallet, subject, RP, signing root, and key version. `ThresholdEcdsaChainTarget`
+selects a concrete lane/session/budget/nonce scope; it must not select a
+different persistent ECDSA key or displayed owner address.
+
 NEAR Ed25519 lanes carry a NEAR account reference. ECDSA lanes carry a
 protocol-neutral subject and concrete chain target. A NEAR account id may appear
 in NEAR account operations and diagnostic context; it is not the ECDSA

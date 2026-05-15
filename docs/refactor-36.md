@@ -1907,6 +1907,485 @@ Outcome:
 - Future raw identity parsing must be added at a true boundary or the guard
   fails.
 
+### Phase 15: Stable ECDSA HSS Key Context
+
+Goal: fix the ECDSA HSS context regression by separating stable persistent key
+derivation context from volatile session/request authorization context.
+
+Reason: the current ECDSA HSS context includes `walletSigningSessionId` and
+`thresholdSessionId`. Those fields change across unlocks and session refreshes.
+Including them in persistent ECDSA key derivation makes the derived
+`clientVerifyingShareB64u`, threshold public key, and Ethereum address change
+for the same wallet/key/chain/root identity. That causes existing
+`ecdsaThresholdKeyId` records to fail reconnect with errors such as:
+
+```text
+threshold-ecdsa bootstrap client verifying share does not match integrated key record
+```
+
+Target invariant:
+
+```text
+same wallet + same subject + same ecdsaThresholdKeyId + same signing root
++ same key purpose/version
+=> same persistent ECDSA HSS key material
+```
+
+Session ids must authorize the lane and budget spend. They must not participate
+in persistent ECDSA key material derivation.
+
+Concrete `chainTarget` values belong to ECDSA lanes, sealed records, session
+policy, budgets, nonce handling, and signing requests. They must not change the
+underlying EVM-family threshold ECDSA address.
+
+Funds-safety invariant: EVM SIGNERS MUST ALL SHARE THE SAME ADDRESS for the
+same wallet, subject, RP, signing root, and key version. Tempo, Arc, Ethereum,
+and future EVM-family targets must reuse the same `ecdsaThresholdKeyId` and
+derive the same owner address. A concrete `chainTarget` may create a separate
+session, budget, nonce lane, sealed record, or signing request; it must never
+create a different persistent ECDSA signer address.
+
+Canonical rule:
+`docs/threshold-ecdsa/evm-family-address-invariant.md`.
+
+Target stable key context:
+
+```ts
+type ThresholdEcdsaHssStableKeyContext = {
+  walletSessionUserId: string;
+  subjectId: WalletSubjectId;
+  keyScope: 'evm-family';
+  ecdsaThresholdKeyId: string;
+  signingRootId: string;
+  signingRootVersion: string;
+  keyPurpose: 'evm-signing' | 'evm-export';
+  keyVersion: string;
+};
+```
+
+For v1, participant ids remain encoded as the fixed ECDSA HSS signer set
+`[1, 2]` inside the Rust context encoder. They are stable derivation material,
+but they are not caller-controlled session data.
+
+Target session/request context:
+
+```ts
+type ThresholdEcdsaHssSessionContext = {
+  sessionIdentity: EcdsaSessionIdentity;
+  walletSigningSessionId: WalletSigningSessionId;
+  thresholdSessionId: ThresholdEcdsaSessionId;
+  ttlMs: number;
+  remainingUses: number;
+  routeAuth: AppOrThresholdSessionAuth;
+};
+```
+
+Primary files:
+
+- `crates/ecdsa-hss/src/shared/context.rs`
+- `crates/ecdsa-hss/specs/protocol.md`
+- `crates/threshold-prf/docs/protocol.md`
+- `wasm/threshold_prf/src/lib.rs`
+- `crates/ecdsa-hss/src/fixtures.rs`
+- `crates/ecdsa-hss/tests/phase1_reference.rs`
+- `wasm/eth_signer/src/ecdsa_hss.rs`
+- `wasm/hss_client_signer/src/threshold_hss.rs`
+- `client/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts`
+- `client/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts`
+- `client/src/core/signingEngine/threshold/ecdsa/activation.ts`
+- `server/src/core/ThresholdService/ethSignerWasm.ts`
+- `server/src/core/ThresholdService/ecdsaSigningHandlers.ts`
+- `server/src/router/express/routes/thresholdEcdsa.ts`
+- `server/src/router/cloudflare/routes/thresholdEcdsa.ts`
+
+Tasks:
+
+- [x] Rename the Rust context type to make the invariant explicit:
+  `EcdsaHssContextV1` -> `EcdsaHssStableKeyContextV1`.
+- [x] Remove `wallet_signing_session_id` and `threshold_session_id` from
+  `EcdsaHssStableKeyContextV1`, `encode_context_v1(...)`, fixtures, and
+  protocol docs.
+- [x] Keep stable context fields that describe the persistent ECDSA key:
+  `wallet_session_user_id`, `subject_id`, EVM-family key scope,
+  `ecdsa_threshold_key_id`, `signing_root_id`, `signing_root_version`,
+  `key_purpose`, `key_version`, and participant ids.
+- [x] Add a separate route/session policy type for volatile authorization
+  fields. This type may carry `walletSigningSessionId`, `thresholdSessionId`,
+  TTL, remaining uses, and route auth, and it must not feed the HSS stable-key
+  derivation function.
+- [x] Update `wasm/eth_signer/src/ecdsa_hss.rs` and
+  `wasm/hss_client_signer/src/threshold_hss.rs` so client and server WASM
+  receive only stable key context fields for HSS key/share derivation.
+- [x] Update `wasm/threshold_prf/src/lib.rs` and
+  `server/src/core/ThresholdService/thresholdPrfWasm.ts` so ECDSA `yRelayer`
+  derivation uses the same stable key context.
+- [x] Update TypeScript boundary types:
+  `ThresholdEcdsaHssCanonicalContext` should become
+  `ThresholdEcdsaHssStableKeyContext`, and should reject session ids with
+  `never` fields in compile-only fixtures.
+- [x] Update ECDSA bootstrap/session activation code to pass stable key context
+  and session policy context as separate objects.
+- [x] Delete any login/unlock stale-key rotation or fresh registration-bootstrap
+  fallback. A verifier/share mismatch must fail closed with the original server
+  error.
+- [x] Add regression coverage proving session ids cannot enter stable ECDSA HSS
+  derivation. The context types reject `walletSigningSessionId` and
+  `thresholdSessionId` with `never`, and source guards reject concrete fields.
+- [x] Add regression tests proving stable ECDSA HSS output changes when
+  `ecdsaThresholdKeyId`, `signingRootId`, or `signingRootVersion` changes, and
+  does not change when only the concrete EVM-family `chainTarget` changes.
+- [x] Add client/server parity tests proving the browser WASM and server WASM
+  derive the same `clientVerifyingShareB64u`, threshold public key, and
+  Ethereum address from the same stable key context.
+- [x] Add source guards that reject `walletSigningSessionId` and
+  `thresholdSessionId` in ECDSA HSS stable-key context structs, payloads, and
+  fixture records.
+- [x] Decide the data reset policy for existing dev accounts whose integrated
+  ECDSA keys were generated under the volatile context. Since this repo is still
+  in development, prefer deleting incompatible IndexedDB/Postgres records and
+  re-registering over adding compatibility derivation paths.
+
+Follow-up: shared EVM-family ECDSA key ids
+
+The 2026-05-15 fresh-registration manual test exposed a second Phase 15 issue:
+post-registration ECDSA provisioning bootstrapped Tempo successfully, then
+reused the Tempo `ecdsaThresholdKeyId` for the EVM target while the stable HSS
+context still included concrete `chainTarget`. The product invariant is one
+threshold ECDSA signer address for the EVM-family wallet, so the fix is to make
+the key id and HSS context EVM-family scoped while leaving session/budget/record
+state target-scoped.
+
+This is a critical funds-safety invariant. Any future refactor that makes Tempo,
+Arc, Ethereum, or another EVM-family target resolve a different displayed signer
+address for the same wallet/subject/RP/signing root/key version must be treated
+as a release blocker.
+
+Observed failure:
+
+```text
+threshold-ecdsa bootstrap client verifying share does not match integrated key record
+```
+
+Fix tasks:
+
+- [x] Keep one shared `ecdsaThresholdKeyId` across configured EVM-family targets
+  in
+  `client/src/core/SeamsPasskey/registration.ts::provisionThresholdEcdsaAfterRegistration(...)`.
+  The first target may mint the key id; later targets must reuse it and assert
+  that the returned signer address is identical.
+- [x] Apply the same shared key-id rule to login ECDSA warmup in
+  `client/src/core/SeamsPasskey/login.ts`. `bootstrapConfiguredTargets(...)`
+  should use the same integrated key for Tempo and EVM while minting separate
+  session identities.
+- [x] Add `subjectId` and `chainTarget: ThresholdEcdsaChainTarget` to
+  `ThresholdEcdsaIntegratedKeyRecord` in `server/src/core/types.ts` and to the
+  server persistence/upsert path in
+  `server/src/core/ThresholdService/ThresholdSigningService.ts`.
+- [x] In `server/src/core/ThresholdService/ThresholdSigningService.ts`, scope a
+  requested `ecdsaThresholdKeyId` by wallet id, RP id, subject id, and signing
+  root. Concrete `chainTarget` checks remain on session policy and token claims,
+  not integrated key identity.
+- [x] Tighten registration-continuation integrated-key checks so reused keys
+  must match wallet id, RP id, and subject id.
+- [ ] Add regression coverage for a configured Tempo + EVM registration flow:
+  Tempo and EVM must receive the same shared `ecdsaThresholdKeyId` and signer
+  address, both finalize successfully, and both sealed records must be written
+  under their exact target keys.
+- [x] Add a server test proving that requesting an EVM bootstrap with an
+  integrated key first created from Tempo succeeds and preserves the requested
+  EVM lane target.
+- [x] Allow threshold-session-auth reconnect across EVM-family targets only when
+  the wallet/subject and shared `ecdsaThresholdKeyId` match. A Tempo
+  threshold-session token may authorize an Arc session bootstrap for the same
+  persistent EVM-family signer, while the new session policy still records the
+  exact Arc `chainTarget`.
+- [x] Fix the sealed persistence warning seen during registration:
+  `UiConfirm cannot resolve ECDSA sealed refresh purpose without chain target`.
+  The persistence path should receive the exact ECDSA `chainTarget` for
+  registration bootstrap records instead of deriving purpose from incomplete
+  session metadata.
+
+Implemented coverage:
+
+- `tests/unit/seamsPasskey.loginThresholdWarm.unit.test.ts` now asserts login
+  warm-up resolves concrete ECDSA targets before bootstrapping.
+- `tests/unit/thresholdEcdsa.hssBootstrapPolicy.unit.test.ts` now accepts an EVM
+  bootstrap request using an integrated key first created from Tempo.
+- The remaining unchecked item is the browser/full registration flow proving
+  fresh post-registration Tempo and EVM both finalize and persist exact target
+  sealed records in one pass.
+
+Follow-up: target-scoped registration budgets and exhausted-lane refresh
+
+The 2026-05-15 fresh-registration manual test confirmed the Phase 15 key-context
+fix, but exposed a budget/refresh issue. A fresh passkey account can register,
+sign NEAR, sign Tempo, and export Ed25519/ECDSA keys, while EVM signing can fail
+with:
+
+```text
+[SigningEngine][ecdsa] selected ECDSA lane budget is exhausted
+```
+
+The diagnostic showed exact EVM material was present and target-scoped:
+
+- `material.present: true`
+- `hasRecord: true`
+- `hasKeyRef: true`
+- exact EVM `chainTarget`
+- exact EVM `ecdsaThresholdKeyId`
+- `budget.kind: "exhausted"`
+
+This is no longer an HSS key-context mismatch. It is a wallet signing-session
+budget and refresh problem.
+
+Fix tasks:
+
+- [x] Make post-registration ECDSA wallet budgets target-scoped in
+  `client/src/core/SeamsPasskey/registration.ts`. Each configured ECDSA target
+  must receive its own `walletSigningSessionId` instead of sharing the
+  Ed25519/registration session budget or another target's ECDSA budget.
+- [x] Apply target-specific ECDSA provisioning defaults in
+  `client/src/core/SeamsPasskey/registration.ts` by reading
+  `signing.thresholdEcdsa.provisioningDefaults` for each concrete target and
+  passing target-specific `ttlMs` / `remainingUses` into
+  `bootstrapEcdsaSession(...)`.
+- [x] Change EVM-family ECDSA selection so
+  `ready_material + exhausted budget` routes to the normal step-up refresh path
+  instead of returning terminal `budget_blocked`. The current open target is
+  `client/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.ts`.
+- [x] Keep true `budget_unknown` as a failure unless the caller has a typed
+  reauth path that can prove a fresh exact lane will be provisioned. Do not
+  collapse unknown server state into exhausted-session refresh.
+- [ ] Add a regression proving fresh passkey registration followed by Tempo
+  signing and then EVM signing succeeds. If the EVM registration lane is
+  exhausted, the flow should step up and refresh EVM before signing.
+- [ ] Add a regression proving fresh passkey registration followed by ECDSA key
+  export and then EVM signing succeeds. If export consumes the initial EVM
+  budget, signing should step up and refresh EVM before signing.
+- [ ] Add an assertion that the refreshed EVM lane keeps the same shared
+  EVM-family `ecdsaThresholdKeyId` and exact EVM `chainTarget`, while minting a fresh
+  signing-session identity/budget.
+
+Current implementation check:
+
+- `client/src/core/SeamsPasskey/registration.ts` already generates a fresh
+  `walletSigningSessionId` per ECDSA target with
+  `generateWalletSigningSessionId()`.
+- `client/src/core/SeamsPasskey/registration.ts` already reads
+  `listThresholdEcdsaProvisionTargets(...)` and applies per-target
+  `signingSession.ttlMs` / `signingSession.remainingUses`.
+- `client/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.ts` now
+  returns `reauth_required` with reason `exhausted` when the selected lane is
+  exhausted, even if exact hot material is present.
+- `client/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.ts` keeps
+  `budget_blocked` reserved for true unknown budget state, and
+  `preparedSigning.ts` reports that branch as `budget_unknown`.
+- `tests/unit/ecdsaSelection.restorable.unit.test.ts` covers the exhausted
+  passkey lane with exact material and verifies it routes through reauth.
+- `client/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.typecheck.ts`
+  rejects an exhausted `budget_blocked` branch at compile time.
+
+Follow-up: Email OTP HSS bootstrap identity and server-planned context
+
+The 2026-05-15 Email OTP registration/unlock manual test exposed two boundary
+mistakes in the Phase 15 HSS cleanup.
+
+Confirmed failure modes:
+
+1. Email OTP registration and unlock sent the provider/app-session subject
+   (`google:...`) as ECDSA HSS `walletSessionUserId`. The ECDSA HSS request
+   then used provider identity where the server expects the wallet-scoped audit
+   identity (`<wallet>.w3a-relayer.testnet`). Server enrollment lookup could not
+   attach `emailOtpEnrollmentClaims`, and HSS prepare failed with:
+
+   ```text
+   email_otp_bootstrap requires validated Email OTP enrollment metadata
+   ```
+
+2. After the identity split was fixed, fresh Email OTP registration reached the
+   HSS client WASM with no `ecdsaThresholdKeyId`. Fresh bootstrap does not know
+   the first key id before `/threshold-ecdsa/hss/prepare`; the server computes
+   it and returns the canonical stable-key context in `prepare.hssContext`.
+   The Email OTP worker was bypassing that returned context and rebuilding the
+   HSS context from local request args, causing:
+
+   ```text
+   Invalid args: missing ecdsaThresholdKeyId
+   ```
+
+Root cause:
+
+Email OTP has two valid identity roles that must stay separate:
+
+- `emailOtpAuthSubjectId`: provider/app-session subject used for Email OTP
+  enrollment lookup, escrow, and recovery wrapping. For Google-backed OTP this
+  can be `google:<provider-user-id>`.
+- `walletSessionUserId`: wallet-scoped HSS audit/session identity used by
+  threshold ECDSA bootstrap, session policy, and server exact-lane validation.
+
+The client collapsed those roles into one field and sent provider identity into
+ECDSA HSS. The server also treated provider-scoped app-session JWTs as invalid
+unless the token carried `walletId`, instead of validating the provider subject
+against the active Email OTP enrollment for the requested wallet.
+
+The second failure was a context-source bug: the server owns the canonical HSS
+stable-key context for bootstrap, including the freshly computed
+`ecdsaThresholdKeyId`, signing root, subject, and EVM-family key scope. Client
+WASM must consume `prepare.hssContext` directly.
+
+Fix tasks:
+
+- [x] Split Email OTP ECDSA worker payloads so `walletSessionUserId` is the
+  wallet id and `userId`/`emailOtpAuthSubjectId` remains the provider subject.
+- [x] Keep enrollment/unlock escrow calls provider-scoped while passing
+  wallet-scoped identity into ECDSA HSS prepare/session policy.
+- [x] Update Express and Cloudflare threshold ECDSA routes to attach Email OTP
+  enrollment claims for provider-scoped app-session JWTs by looking up the
+  active enrollment with requested wallet id plus provider subject.
+- [x] Update `ThresholdSigningService` so `email_otp_bootstrap` accepts a
+  provider-scoped app session when the matched enrollment proves the wallet
+  binding and verifier metadata.
+- [x] Update the Email OTP worker to build the client HSS WASM session from
+  server-returned `prepare.hssContext` for bootstrap and explicit export,
+  rather than reconstructing stable-key context from local request args.
+
+Regression prevention:
+
+- Email OTP provider subject must never be used as ECDSA HSS
+  `walletSessionUserId`.
+- HSS stable-key context for any prepare/respond/finalize ceremony must come
+  from the server's `prepare.hssContext`. Fresh registration/bootstrap clients
+  must not independently invent or partially reconstruct `ecdsaThresholdKeyId`,
+  signing root, key purpose, key version, or EVM-family key scope.
+- Server routes should validate provider-scoped app-session auth through the
+  active Email OTP enrollment row for the requested wallet, then pass narrow
+  `emailOtpEnrollmentClaims` into the HSS service.
+- Add a regression after the runtime path settles: fresh Email OTP registration
+  and subsequent Email OTP unlock should both complete HSS prepare/respond/
+  finalize with wallet-scoped `walletSessionUserId`, provider-scoped enrollment
+  auth, and server-returned `hssContext`.
+
+Follow-up: raw EIP-1559 owner address vs smart-account address
+
+The 2026-05-15 Arc manual test exposed an address-selection funds-safety issue.
+Raw EIP-1559 signing must use the threshold ECDSA owner address end-to-end.
+ERC-4337 and counterfactual account flows may use the smart-account address
+through the smart-account path. Demo funding/preflight code resolves the
+threshold owner address, while nonce fallback could previously resolve the
+stored EVM chain-account row. For ERC-4337 rows that value can be the
+counterfactual account address, producing a funded-address/sender-address split.
+
+Confirmed failure mode:
+
+1. Registration stored two valid EVM-class address roles:
+   `ethereumAddress` as the threshold ECDSA owner/signer address, and
+   `accountAddress` as the chain-account row address. For ERC-4337 rows,
+   `accountAddress` may be the counterfactual smart-account address.
+2. Demo funding/preflight resolved the threshold owner address from
+   `bootstrap.keygen.ethereumAddress` or the ECDSA key ref.
+3. Restored ECDSA sealed records did not preserve `ethereumAddress`, so the
+   prepared signing material could be exact enough to sign while still missing
+   the owner address needed for raw EIP-1559 sender/nonce selection.
+4. Raw EIP-1559 nonce preparation then fell back to profile/chain-account
+   lookup. On Arc, that fallback could choose the ERC-4337 account row sender,
+   while the UI had funded the threshold owner address.
+5. The transaction was signed successfully, then broadcast failed with
+   insufficient funds because sender selection and funding/preflight had used
+   different address roles.
+
+Root cause:
+
+The code treated "EVM address" as a single value across two different domain
+roles. The correct model is:
+
+- `thresholdOwnerAddress`: threshold ECDSA signer/owner address. Raw EIP-1559
+  signing, raw nonce lanes, balance preflight, and funding UI use this address.
+- `smartAccountAddress`: ERC-4337/counterfactual account address. Smart-account
+  deployment and smart-account user operation flows use this address.
+
+The regression became visible after Phase 15 made key/session state more
+target-scoped, because restored raw ECDSA signing material could lose the owner
+address and silently fall back to account-row discovery.
+
+Fix tasks:
+
+- [x] Persist the threshold owner `ethereumAddress` in ECDSA sealed recovery
+  metadata so restored passkey and Email OTP lanes can republish exact owner
+  material.
+- [x] Reject current ECDSA sealed records that lack a valid owner
+  `ethereumAddress` at the persistence/recovery boundary.
+- [x] Republish `ethereumAddress` and `thresholdEcdsaPublicKeyB64u` from
+  passkey sealed recovery into the runtime ECDSA session record.
+- [x] Make raw EIP-1559 nonce preparation require a prepared threshold ECDSA
+  owner address. The path must fail closed instead of falling back to the
+  profile/chain-account row.
+- [x] Update sealed-session fixtures and request-boundary guards so new records
+  include owner address metadata and raw EIP-1559 keeps the owner-address
+  requirement.
+
+Regression prevention:
+
+- Raw EIP-1559 nonce preparation must require a prepared
+  `thresholdOwnerAddress`; no profile/chain-account fallback is allowed in that
+  path.
+- Sealed ECDSA recovery records must carry `ethereumAddress`, and boundary
+  parsers must reject current records that lack a valid owner address.
+- Address-bearing APIs should use role-specific names:
+  `thresholdOwnerAddress`, `smartAccountAddress`, `counterfactualAddress`, and
+  `chainAccountAddress`. Avoid generic `address` / `sender` in cross-boundary
+  types unless the branch name defines the role.
+- EVM-family tests should assert one shared threshold owner address across
+  Tempo and Arc for the same wallet/subject/signing root/key version.
+- Raw EIP-1559 tests should assert the managed nonce `sender` equals the
+  displayed/funded threshold owner address.
+- ERC-4337 tests should assert smart-account flows use the smart-account
+  address through smart-account-specific branches.
+- Guards should scan raw EIP-1559 paths for account-row fallback calls unless a
+  typed smart-account branch is in scope.
+
+Exit criteria:
+
+- Persistent ECDSA HSS key derivation has no session-lifecycle fields.
+- ECDSA HSS key ids are EVM-family scoped: one stable key identity per wallet,
+  subject, signing root, purpose, and key version.
+- ECDSA session ids appear only in session policy, budget, auth, and lane
+  activation types.
+- Reconnecting the same `ecdsaThresholdKeyId` across two fresh unlock sessions
+  produces the same client verifying share and threshold public key.
+- Existing verifier/share mismatch errors are surfaced directly and do not route
+  to `registration_bootstrap`.
+- SDK typecheck passes.
+- Relay server typecheck passes.
+- ECDSA HSS Rust fixture/reference tests pass.
+- Browser/server WASM parity tests pass.
+- Refactor 36 guard passes.
+
+## Runtime Bug Retrospective
+
+Manual wallet testing from 2026-05-14 through 2026-05-16 exposed these major
+boundary bugs while the refactor was landing.
+
+| Bug | Symptom | Root cause | Fix |
+| --- | --- | --- | --- |
+| Volatile fields in stable ECDSA HSS key context | Existing passkey accounts failed unlock with `threshold-ecdsa bootstrap client verifying share does not match integrated key record` | `walletSigningSessionId` and `thresholdSessionId` entered persistent ECDSA HSS key derivation, so reconnect derived different verifier material for the same stored key | Removed session lifecycle ids from stable ECDSA HSS key context across Rust, browser WASM, server wrappers, TS types, fixtures, and parity mirrors |
+| Cross-target ECDSA key-id reuse | Fresh passkey Tempo could work while Arc/EVM had no exact lane or verifier mismatch | Registration/login warm-up reused a Tempo `ecdsaThresholdKeyId` for Arc/EVM while target-scoped HSS context expected exact chain binding | Provisioned configured EVM-family targets separately while preserving one shared EVM-family key identity; added server key/target scope checks and target-aware sealed persistence |
+| Stale durable ECDSA records selected as authoritative | Signing selected `durable_sealed_record` lanes and then failed with missing exact runtime material | Available-lane discovery advertised stale records that could no longer restore into current exact runtime material | Hardened persistence/read boundaries so stale or incomplete ECDSA records are ignored/rejected, and selection requires exact target/session material |
+| Raw Arc sender address role confusion | Arc signed successfully, then broadcast failed with insufficient funds while the funded address differed from the nonce sender | Raw EIP-1559 fallback read chain-account/smart-account address when restored ECDSA material lost the threshold owner address | Persisted and republished `ethereumAddress`; raw EIP-1559 now requires the threshold owner address and fails closed without profile/account-row fallback |
+| Email OTP provider identity sent into ECDSA HSS | OTP registration/unlock failed with `email_otp_bootstrap requires validated Email OTP enrollment metadata` | Provider subject (`google:...`) and wallet-scoped HSS session identity were collapsed into one field | Split Email OTP provider/auth subject from wallet-scoped `walletSessionUserId`; server routes now attach enrollment claims by wallet plus provider subject |
+| Email OTP worker rebuilt server-owned HSS context | OTP registration advanced to `Invalid args: missing ecdsaThresholdKeyId` | Fresh Email OTP bootstrap tried to construct stable HSS context locally before the server returned the canonical key id/context | Worker now consumes the server `prepare.hssContext` for Email OTP HSS client WASM setup |
+| OTP ECDSA export lane ambiguity | ECDSA key export failed with `exact lane selection failed: ambiguous_candidates` | OTP accounts could expose both stale passkey and Email OTP ECDSA lanes for the same target | ECDSA export selection now prefers selectable Email OTP lanes and collapses duplicate runtime/durable candidates by exact identity/source/recency |
+| OTP post-exhaustion double prompt | Tempo/Arc after exhaustion showed two OTP step-up prompts for one operation | Generic budget-exhausted retry suppressed second prompts only for passkey reauth | Retry guard now suppresses fresh-auth retry after either Email OTP or passkey step-up has already occurred |
+| OTP post-exhaustion `not_found` on budget consume | First OTP post-exhaustion signing failed after step-up with `email_otp_worker signing-session consume returned not_found` | Email OTP worker signing consumed the worker-backed session, then wallet budget finalization tried to consume the same worker session again | Email OTP ECDSA success finalization records the wallet spend as externally consumed and skips a second worker-session consume |
+| OTP per-operation budget inherited exhausted session | First post-exhaustion OTP step-up failed with `wallet signing-session budget is exhausted`; second attempt succeeded and left spare budget | `loginWithEmailOtpEcdsaCapability` reused `routePlan.authLane.walletSigningSessionId` as the minted per-operation session id when route auth was a signing-session JWT | Per-operation Email OTP ECDSA minting now generates a fresh `walletSigningSessionId`; route auth remains authorization material only |
+
+Final manual status on 2026-05-16:
+
+- Passkey accounts: wallet unlock, NEAR signing, Tempo signing, Arc/EVM signing,
+  Ed25519 export, ECDSA export, and post-exhaustion ECDSA signing passed.
+- Email OTP accounts: wallet unlock, Ed25519 signing, Tempo signing, Arc/EVM
+  signing, Ed25519 export, ECDSA export, and post-exhaustion Ed25519/Tempo/Arc
+  signing passed with one step-up prompt per operation.
+
 ## Compile-Time Enforcement
 
 Use these TypeScript patterns consistently:

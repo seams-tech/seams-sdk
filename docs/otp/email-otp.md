@@ -60,6 +60,12 @@ Email OTP participates in two different identity planes.
 | ECDSA lane scope | `subjectId: WalletSubjectId` | Protocol-neutral threshold ECDSA principal |
 | ECDSA chain scope | `chainTarget: ThresholdEcdsaChainTarget` | Concrete EVM-family or Tempo target |
 
+Funds-safety invariant: EVM SIGNERS MUST ALL SHARE THE SAME ADDRESS for the
+same wallet, subject, RP, signing root, and key version. Email OTP and passkey
+ECDSA flows must converge on the same EVM-family `ecdsaThresholdKeyId` and owner
+address. `chainTarget` scopes sessions, budgets, nonce lanes, sealed records,
+and signing requests.
+
 ECDSA lane identity includes:
 
 ```ts

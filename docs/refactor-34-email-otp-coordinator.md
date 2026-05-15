@@ -2,7 +2,7 @@
 
 Date created: 2026-05-07
 Last refreshed: 2026-05-12
-Status: in progress
+Status: implementation complete; closure cleanup landed; focused validation passed; full-suite blockers remain
 
 ## Purpose
 
@@ -33,19 +33,34 @@ Current line counts:
 
 | File | Lines | Status |
 | --- | ---: | --- |
-| `session/emailOtp/EmailOtpThresholdSessionCoordinator.ts` | 2,105 | still too large |
+| `session/emailOtp/EmailOtpThresholdSessionCoordinator.ts` | 178 | facade |
 | `session/emailOtp/provisioning.ts` | 630 | extracted, needs helper split if it grows |
+| `session/emailOtp/sealedRestoreOrchestrator.ts` | 570 | extracted |
 | `session/emailOtp/exportRecovery.ts` | 475 | extracted, owns challenge and export flows |
-| `session/emailOtp/ecdsaRecovery.ts` | 287 | extracted method adapter |
+| `session/emailOtp/coordinatorRuntime.ts` | 415 | internal runtime assembly |
+| `stepUpConfirmation/walletAuthModeResolver.ts` | 302 | moved wallet-auth policy resolver |
+| `session/emailOtp/ecdsaRecovery.ts` | 304 | extracted method adapter and rehydration port binder |
+| `session/emailOtp/ecdsaPublication.ts` | 284 | extracted publication and sealed writeback |
+| `session/emailOtp/ecdsaLogin.ts` | 361 | extracted login and signing-login orchestration |
+| `session/emailOtp/ed25519Warmup.ts` | 268 | extracted warmup orchestration |
+| `session/emailOtp/ecdsaEnrollment.ts` | 242 | extracted enrollment worker orchestration |
 | `session/emailOtp/companionSessions.ts` | 205 | extracted |
 | `session/emailOtp/ecdsaBootstrapCommit.ts` | 199 | extracted commit helper |
 | `session/emailOtp/workerRequests.ts` | 190 | extracted worker RPC boundary |
+| `session/emailOtp/persistedSnapshot.ts` | 171 | extracted read model |
 | `session/emailOtp/status.ts` | 162 | extracted worker status/claim/consume calls |
+| `session/emailOtp/warmSessionRuntime.ts` | 152 | extracted warm-session runtime glue |
+| `session/emailOtp/exportRecoveryRuntime.ts` | 151 | extracted challenge/export runtime glue |
 | `session/emailOtp/ed25519Recovery.ts` | 125 | extracted method adapter |
 | `session/emailOtp/ed25519LocalMetadata.ts` | 119 | extracted |
+| `session/emailOtp/sealedRefreshPolicy.ts` | 123 | extracted |
 | `session/emailOtp/routePlan.ts` | 114 | extracted |
+| `session/emailOtp/ecdsaLifecycleRuntime.ts` | 108 | extracted ECDSA lifecycle runtime glue |
+| `session/emailOtp/ports.ts` | 98 | extracted coordinator port contract |
+| `session/emailOtp/sealedSessionRegistry.ts` | 96 | extracted sealed-session write registry |
 | `session/emailOtp/appSessionJwtCache.ts` | 95 | extracted |
 | `session/emailOtp/provisioning.typecheck.ts` | 59 | extracted type guard |
+| `session/emailOtp/runtimeConfig.ts` | 40 | extracted runtime config helper |
 
 Important current facts:
 
@@ -59,8 +74,8 @@ Important current facts:
   `stepUpConfirmation/methodRunners.ts` exist.
 - `webauthnAuth/*` exists and owns low-level WebAuthn/passkey browser
   primitives.
-- `walletAuth/` still exists with `index.ts`, `README.md`, and
-  `walletAuthModeResolver.ts`.
+- `walletAuth/` is deleted. Wallet-auth policy resolution now lives in
+  `stepUpConfirmation/walletAuthModeResolver.ts`.
 
 ## Completed Work
 
@@ -83,54 +98,53 @@ Important current facts:
   to `exportRecovery.ts`.
 - Extracted Ed25519 provisioning and local metadata persistence to
   `provisioning.ts` and `ed25519LocalMetadata.ts`.
+- Extracted sealed refresh policy writeback, sealed restore orchestration,
+  persisted lane snapshot reading, and ECDSA publication/sealed writeback to
+  `sealedRefreshPolicy.ts`, `sealedRestoreOrchestrator.ts`,
+  `persistedSnapshot.ts`, and `ecdsaPublication.ts`.
+- Extracted ECDSA Email OTP login and enrollment worker orchestration to
+  `ecdsaLogin.ts` and `ecdsaEnrollment.ts`.
+- Extracted Ed25519 pending warmup state, scheduling, provisioning facade, and
+  signing warmup orchestration to `ed25519Warmup.ts`.
+- Split `EmailOtpThresholdSessionCoordinatorDeps` into runtime, ECDSA,
+  Ed25519 persistence, and sealed-store port groups. Production assembly now
+  supplies concrete sealed-store and session-record lookup ports instead of
+  relying on coordinator fallbacks.
+- Deleted `walletAuth/`; moved wallet-auth policy resolution to
+  `stepUpConfirmation/walletAuthModeResolver.ts` and updated production
+  imports plus guards.
+- Extracted Email OTP runtime config checks to `runtimeConfig.ts`.
+- Narrowed Email OTP runtime config to a `getRpId()` port so the session
+  domain no longer imports broad `stepUpConfirmation/*` prompt modules.
+- Moved the ECDSA sealed material rehydration port binder into
+  `ecdsaRecovery.ts`; the coordinator now wires the sealed restore orchestrator
+  directly to the method adapter.
+- Moved coordinator port contracts to `ports.ts`.
+- Removed stale optional Email OTP identity fields from `SigningEngine`
+  internal login/enroll APIs by reusing the strict `emailOtpPublic.ts`
+  argument types.
+- Removed the coordinator runtime facade callback loop; the facade now
+  instantiates runtime once and runtime submodules call direct runtime methods.
+- Extracted warm-session worker client glue and sealed restore/policy
+  coordination to `warmSessionRuntime.ts`.
+- Moved ECDSA Email OTP signing-login orchestration into `ecdsaLogin.ts`.
+- Extracted challenge/export runtime glue to `exportRecoveryRuntime.ts`, ECDSA
+  lifecycle runtime glue to `ecdsaLifecycleRuntime.ts`, and sealed-session
+  write/attach/publication-port assembly to `sealedSessionRegistry.ts`.
+- Moved runtime assembly to `coordinatorRuntime.ts`; the public coordinator is
+  now a facade under the 250-line target.
+- Added the Email OTP coordinator facade guard for the 250-line size target and
+  direct side-effect/work-payload exclusions.
 - Added step-up adaptor primitives and started the WebAuthn split:
   `requireStepUpAuth`, `methodSelection`, `methodRunners`, and `webauthnAuth`.
 
 ## Remaining Hotspots
 
-The coordinator still owns too much behavior. The highest-value remaining
-slices are:
-
-1. Sealed refresh orchestration.
-   `tryRestoreEcdsaWarmSessionStatusFromSealedRecord`,
-   `restorePersistedSessionsForAccount`, `restorePersistedSessionForSigning`,
-   restore lease acquisition, diagnostics throttling, policy cleanup, and
-   restore attempt cache wiring still live in the coordinator.
-
-2. Persisted lane snapshot.
-   `readPersistedSessionSnapshot`, configured ECDSA snapshot targets, runtime
-   lane collection, and sealed-record listing logic still live in the
-   coordinator.
-
-3. ECDSA publication and sealed persistence.
-   `emailOtpEcdsaPublicationChainTargets`,
-   `commitEmailOtpEcdsaPublicationBootstraps`, and
-   `persistEmailOtpEcdsaSigningSessionSealForUnlock` still live in the
-   coordinator.
-
-4. ECDSA login and enrollment.
-   `loginWithEcdsaCapabilityInternal` and
-   `enrollAndLoginWithEcdsaCapabilityInternal` still assemble direct worker
-   payloads for `loginWithEmailOtpAndBootstrapEcdsaSession` and
-   `enrollEmailOtpWalletAndBootstrapEcdsaSession`.
-
-5. Ed25519 warmup orchestration.
-   The pending warmup map, scheduling, `loginWithEd25519CapabilityForSigning`,
-   and the coordinator wrapper around `provisionEmailOtpEd25519Capability`
-   remain in the coordinator.
-
-6. Runtime config helpers.
-   `requireRelayUrl`, `requireShamirPrimeB64u`, and `requireRpId` remain
-   private coordinator helpers and are passed down as callback ports.
-
-7. Dependency shape.
-   `EmailOtpThresholdSessionCoordinatorDeps` remains broad and still has
-   fallback dependency functions for sealed-store operations.
-
-8. Wallet auth cleanup.
-   `walletAuth/` remains. The WebAuthn primitive split is partially complete,
-   and `walletAuthModeResolver.ts` still needs removal or absorption into
-   step-up method selection.
+No blocking implementation hotspots remain for this refactor. Optional future
+cleanup can split large extracted modules such as `provisioning.ts` and
+`exportRecovery.ts` if they grow or start mixing new ownership boundaries.
+Broad full-suite validation still has cross-domain failure clusters outside the
+coordinator split and should be handled as follow-up validation triage.
 
 ## Current Target Shape
 
@@ -153,14 +167,20 @@ client/src/core/signingEngine/session/emailOtp/
   ed25519LocalMetadata.ts                    # done
   provisioning.typecheck.ts                  # done
 
-  persistedSnapshot.ts                       # remaining
-  sealedRestoreOrchestrator.ts               # remaining
-  sealedRefreshPolicy.ts                     # remaining
-  ecdsaPublication.ts                        # remaining
-  ecdsaLogin.ts                              # remaining
-  ecdsaEnrollment.ts                         # remaining
-  ed25519Warmup.ts                           # remaining
-  runtimeConfig.ts                           # optional, if config helpers stay shared
+  persistedSnapshot.ts                       # done
+  sealedRestoreOrchestrator.ts               # done
+  sealedRefreshPolicy.ts                     # done
+  ecdsaPublication.ts                        # done
+  ecdsaLogin.ts                              # done
+  ecdsaEnrollment.ts                         # done
+  ecdsaLifecycleRuntime.ts                   # done
+  ed25519Warmup.ts                           # done
+  runtimeConfig.ts                           # done
+  ports.ts                                   # done
+  warmSessionRuntime.ts                      # done
+  exportRecoveryRuntime.ts                   # done
+  sealedSessionRegistry.ts                   # done
+  coordinatorRuntime.ts                      # done internal runtime assembly
 ```
 
 Shared sealed-recovery code belongs under `session/sealedRecovery/*`. Email
@@ -263,55 +283,55 @@ Rules:
 
 | Phase | Status | Notes |
 | --- | --- | --- |
-| 1. Characterize and guard | partial | Refactor-33 guards cover live/deleted paths. Dedicated refactor-34 guard is still useful for coordinator size and direct worker-payload checks. |
-| 2. Extract pure boundary helpers | partial | App JWT helper moved. Registration HTTP helpers remain private in `provisioning.ts`; acceptable for now, split if provisioning grows. |
-| 3. Normalize auth route state | partial | `routePlan.ts` exists. ECDSA login/enrollment still accept broad optional args before normalization. |
-| 4. Split challenge issuance | mostly done | `exportRecovery.ts` owns transaction and export challenge functions. A separate `challengeRequests.ts` is optional if `exportRecovery.ts` grows. |
-| 5. Extract warm-session runtime accounting | partial | `status.ts` owns worker calls. Policy writeback and cleanup remain in the coordinator. |
-| 6. Extract sealed refresh restore | partial | Method adapters and shared sealed-recovery primitives exist. Orchestration, leases, diagnostics, and cache wiring remain in the coordinator. |
-| 7. Extract ECDSA lifecycle | partial | Export and commit helpers moved. Login, enrollment, publication target selection, and sealed persistence remain in the coordinator. |
-| 8. Extract Ed25519 lifecycle | partial | Provisioning moved. Warmup map, scheduling, and Ed25519 signing orchestration remain in the coordinator. |
+| 1. Characterize and guard | complete | Refactor-33 guards cover live/deleted paths. `emailOtpOperationSplit.guard.unit.test.ts` now guards coordinator size and direct worker-payload/side-effect exclusions. |
+| 2. Extract pure boundary helpers | complete | App JWT helper moved. Registration HTTP helpers remain private in `provisioning.ts`; split only if that module grows. |
+| 3. Normalize auth route state | complete | `routePlan.ts` owns route normalization before worker payload assembly. Broad coordinator args are limited to the facade boundary. |
+| 4. Split challenge issuance | complete | `exportRecovery.ts` owns transaction and export challenge functions, with runtime wiring in `exportRecoveryRuntime.ts`. |
+| 5. Extract warm-session runtime accounting | complete | `status.ts` owns pure status transitions, `warmSessionRuntime.ts` owns worker glue, and `sealedRefreshPolicy.ts` owns policy writeback and cleanup. |
+| 6. Extract sealed refresh restore | complete | `sealedRestoreOrchestrator.ts` owns restore command wrappers, sealed-record dispatch, leases, diagnostics, restore caches, and attempt tracking. |
+| 7. Extract ECDSA lifecycle | complete | Export, commit helpers, publication target selection, sealed persistence, login, enrollment, and facade runtime wiring moved out of the public coordinator. |
+| 8. Extract Ed25519 lifecycle | complete | Provisioning, local metadata, pending warmup state, scheduling, and Ed25519 signing orchestration moved. |
 | 9. Path cleanup | complete | Live path is `session/emailOtp/`; legacy Email OTP coordinator folders are deleted paths. |
-| 10. Shrink facade | open | Coordinator is 2,105 lines. Target remains under 250 lines. |
-| 11. Split wallet auth | partial | `webauthnAuth/` and step-up method modules exist. `walletAuth/` remains. |
+| 10. Shrink facade | complete | Coordinator is 178 lines, under the 250-line target. |
+| 11. Split wallet auth | complete | `webauthnAuth/` owns browser primitives, `stepUpConfirmation/walletAuthModeResolver.ts` owns wallet-auth policy resolution, and `walletAuth/` is deleted. |
 
 ## Next Implementation Order
 
-1. Extract `sealedRefreshPolicy.ts`.
+1. Extract `sealedRefreshPolicy.ts`. Completed.
    Move `cleanupSigningSession`, `recordSessionPolicyResult`,
    `recordSessionMaterialClaimed`, `recordSessionUseConsumed`, and
    `recordSessionMaterialRestored`. Give it a required sealed-store policy port
    rather than reading optional dependency fallbacks.
 
-2. Extract `sealedRestoreOrchestrator.ts`.
-   Move `tryRestoreEcdsaWarmSessionStatusFromSealedRecord`,
-   `restorePersistedSessionsForAccount`, `restorePersistedSessionForSigning`,
-   `restoreEmailOtpSealedRecordForAccount`, and ECDSA restore attempt cache
-   usage. Keep generic restore command code in `session/sealedRecovery/*`.
+2. Extract `sealedRestoreOrchestrator.ts`. Completed.
+   Moved account-scoped and signing-scoped restore command wrappers, sealed
+   restore dispatch, lease handling, diagnostics, restore cache, and ECDSA
+   restore attempt tracking. Keep generic restore command code in
+   `session/sealedRecovery/*`.
 
-3. Extract `persistedSnapshot.ts`.
+3. Extract `persistedSnapshot.ts`. Completed.
    Move `configuredEcdsaSnapshotChainTargets`, `readPersistedSessionSnapshot`,
    and runtime lane collection. Keep this read-only and dependent on `status.ts`
    for runtime claims.
 
-4. Extract `ecdsaPublication.ts`.
+4. Extract `ecdsaPublication.ts`. Completed.
    Move publication target selection, bootstrap commit sequencing, and sealed
    refresh persistence for session-retained ECDSA login.
 
-5. Extract `ecdsaLogin.ts` and `ecdsaEnrollment.ts`.
+5. Extract `ecdsaLogin.ts` and `ecdsaEnrollment.ts`. Completed.
    Normalize facade args into exact internal login/enrollment commands, then
    move the direct worker payload construction out of the coordinator.
 
-6. Extract `ed25519Warmup.ts`.
+6. Extract `ed25519Warmup.ts`. Completed.
    Move pending warmup state, schedule/wait helpers, and Ed25519 signing
    orchestration around `provisionEmailOtpEd25519Capability`.
 
-7. Narrow `EmailOtpThresholdSessionCoordinatorDeps`.
+7. Narrow `EmailOtpThresholdSessionCoordinatorDeps`. Completed.
    Split the broad dependency bag into config, worker, ECDSA commit, Ed25519
    persistence, sealed store, and app-session ports. Production assembly should
    provide concrete ports once.
 
-8. Finish `walletAuth/` deletion.
+8. Finish `walletAuth/` deletion. Completed.
    Move remaining method-selection behavior to `stepUpConfirmation`, keep
    WebAuthn primitives in `webauthnAuth`, update public exports, and add
    deleted-path guards.
@@ -331,8 +351,8 @@ Rules:
   primitive interface or chain types.
 - Step-up guard: `webauthnAuth/*` stays a browser primitive layer and cannot
   import step-up orchestration, flows, or session lifecycle modules.
-- Wallet-auth cleanup guard: after the final split, `walletAuth/` becomes a
-  deleted path with no compatibility exports.
+- Wallet-auth cleanup guard: `walletAuth/` stays a deleted path with no
+  compatibility exports.
 
 ## Tests and Verification
 
@@ -353,6 +373,32 @@ Run the full unit suite before marking the refactor complete:
 
 ```bash
 pnpm test:unit
+```
+
+Focused validation on 2026-05-12 passed:
+
+```bash
+pnpm -C sdk exec tsc -p tsconfig.build.json --noEmit
+pnpm -C sdk build:rolldown
+pnpm -C tests exec playwright test -c playwright.lite.config.ts ./unit/emailOtpThresholdSessionCoordinator.unit.test.ts --reporter=line
+pnpm -C tests exec playwright test -c playwright.lite.config.ts ./unit/emailOtpOperationSplit.guard.unit.test.ts --reporter=line
+pnpm -C tests exec playwright test -c playwright.lite.config.ts ./unit/thresholdEd25519.nearSigningQueue.guard.unit.test.ts --reporter=line
+pnpm -C tests exec playwright test -c playwright.lite.config.ts ./unit/sealedRecovery.methodAdapters.unit.test.ts --reporter=line
+pnpm -C tests exec playwright test -c playwright.lite.config.ts ./unit/stepUpAdaptor.methodSelection.unit.test.ts --reporter=line
+pnpm -C tests exec playwright test -c playwright.lite.config.ts ./unit/signingEngine.refactor33.guard.unit.test.ts:844 ./unit/signingEngine.refactor33.guard.unit.test.ts:943 ./unit/signingEngine.refactor33.guard.unit.test.ts:970 ./unit/signingEngine.refactor33.guard.unit.test.ts:1289 --reporter=line
+pnpm -C tests exec playwright test -c playwright.lite.config.ts ./unit/signingEngine.refactor36.guard.unit.test.ts --reporter=line
+pnpm -s check:signing-architecture
+git diff --check
+```
+
+Current broad-suite status:
+
+```text
+The broad lite suite still has cross-domain failure clusters outside this
+coordinator split. The latest triage run stopped after surfacing unrelated
+dashboard failures, stale ECDSA Tempo bootstrap helper failures, and an
+Ed25519 batch-signing stale runtime-policy-scope e2e failure. Keep those as
+validation follow-up work rather than refactor-34 implementation blockers.
 ```
 
 ## Regression Checklist

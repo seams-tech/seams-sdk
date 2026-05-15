@@ -330,8 +330,13 @@ Required indexes:
 
 - Unique `(rpId, credentialIdB64u)` for authenticator bindings.
 - Unique `(walletSubjectId, kind, nearAccountId, signerSlot)` for Ed25519 signer records.
-- Unique `(walletSubjectId, kind, chainTarget, ecdsaThresholdKeyId)` for ECDSA signer records.
+- Unique `(walletSubjectId, kind, chainTarget, ecdsaThresholdKeyId)` for ECDSA
+  lane/session records.
 - Unique ECDSA public key and owner address indexes within runtime scope.
+- Funds-safety invariant: EVM SIGNERS MUST ALL SHARE THE SAME ADDRESS for the
+  same wallet subject, RP, signing root, and key version. Registration may write
+  separate Tempo/EVM lane records, but those records must carry one shared
+  `ecdsaThresholdKeyId`, threshold public key, and owner address.
 
 ## Client API Changes
 

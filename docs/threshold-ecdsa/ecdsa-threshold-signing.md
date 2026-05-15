@@ -4,6 +4,11 @@ Last updated: 2026-04-08
 
 ## 1. Non-Negotiable Invariants
 
+- EVM SIGNERS MUST ALL SHARE THE SAME ADDRESS for the same wallet, subject, RP,
+  signing root, and key version. Tempo, Arc, Ethereum, and future EVM-family
+  targets reuse one `ecdsaThresholdKeyId`, threshold public key, and Ethereum
+  owner address. Chain targets partition sessions, budgets, nonce lanes, sealed
+  records, and signing requests only.
 - Threshold ECDSA signing reads `keyRef` and session state from one canonical store only.
 - `signTempo` does not trigger hidden bootstrap.
 - There is no legacy fallback for participant IDs, JWT, or session ID.
@@ -33,6 +38,12 @@ The SDK owns a single threshold ECDSA session record keyed by wallet/account con
 `ecdsaThresholdKeyId`, `groupPublicKeyB64u`, and `ethereumAddress` are the
 product-facing threshold identity seam for signing and later export-equivalence
 checks.
+
+For EVM-family targets, these fields are family-scoped. Records for Tempo, Arc,
+Ethereum, or another EVM-class target may carry different `chainTarget`,
+`thresholdSessionId`, `walletSigningSessionId`, and budget state, while the
+displayed signer address must remain identical for the same wallet/subject/RP
+and signing root.
 
 Backend bridge inputs still exist behind `keyRef.backendBinding` where the
 current signer backend needs them:
