@@ -7,35 +7,35 @@ import { decodeCoseP256PublicKeyWasm } from '../../chains/evm/ethSignerWasm';
 import type { KeyRef } from '../../interfaces/signing';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 
-export async function resolveWebAuthnP256KeyRefForNearAccount(args: {
+export async function resolveWebAuthnP256KeyRefForWallet(args: {
   indexedDB: UnifiedIndexedDBManager;
-  nearAccountId: string;
+  walletId: string;
   workerCtx: WorkerOperationContext;
   rpId?: string;
 }): Promise<KeyRef & { type: 'webauthnP256' }> {
-  const nearAccountId = toAccountId(args.nearAccountId);
+  const walletId = toAccountId(args.walletId);
   const context = await resolveProfileAccountContextFromCandidates(
     args.indexedDB.clientDB,
-    buildNearAccountRefs(nearAccountId),
+    buildNearAccountRefs(walletId),
   );
   if (!context?.profileId) {
-    throw new Error(`[multichain] no profile/account mapping found for account ${nearAccountId}`);
+    throw new Error(`[multichain] no profile/account mapping found for wallet ${walletId}`);
   }
 
   const authenticators = await args.indexedDB.clientDB.listProfileAuthenticators(context.profileId);
   if (!authenticators.length) {
-    throw new Error(`[multichain] no passkeys found for account ${nearAccountId}`);
+    throw new Error(`[multichain] no passkeys found for wallet ${walletId}`);
   }
 
   const { authenticatorsForPrompt } =
     await args.indexedDB.clientDB.selectProfileAuthenticatorsForPrompt({
       profileId: context.profileId,
       authenticators,
-      accountLabel: nearAccountId,
+      accountLabel: walletId,
     });
   const auth = authenticatorsForPrompt[0];
   if (!auth) {
-    throw new Error(`[multichain] missing authenticator for account ${nearAccountId}`);
+    throw new Error(`[multichain] missing authenticator for wallet ${walletId}`);
   }
 
   const { pubKeyX32, pubKeyY32 } = await decodeCoseP256PublicKeyWasm({

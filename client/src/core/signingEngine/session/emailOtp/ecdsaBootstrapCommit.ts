@@ -15,7 +15,7 @@ import type {
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import { withThresholdEcdsaBootstrapQueue } from '../warmCapabilities/ecdsaBootstrapQueue';
 import {
-  persistThresholdEcdsaBootstrapChainAccount,
+  persistThresholdEcdsaBootstrapForWalletTarget,
   type ThresholdEcdsaBootstrapIndexedDbPort,
   type ThresholdEcdsaSmartAccountBootstrapInput,
 } from '../warmCapabilities/ecdsaBootstrapPersistence';
@@ -27,7 +27,7 @@ import type { ThresholdEcdsaBootstrapParityArgs } from '../warmCapabilities/seal
 import type { WarmSessionEcdsaCapabilityState } from '../warmCapabilities/types';
 
 export type CommitWorkerProvisionedThresholdEcdsaSessionDeps = {
-  queueByAccount: Map<string, Promise<void>>;
+  queueByWallet: Map<string, Promise<void>>;
   indexedDB: ThresholdEcdsaBootstrapIndexedDbPort;
   ecdsaSessions: ThresholdEcdsaSessionStoreDeps;
   ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap: (
@@ -41,7 +41,7 @@ export type CommitEvmFamilyThresholdEcdsaSessionsDeps =
   };
 
 type CommitThresholdEcdsaSessionBaseArgs = {
-  nearAccountId: AccountId | string;
+  walletId: AccountId | string;
   chainTarget: ThresholdEcdsaChainTarget;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
   smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
@@ -62,7 +62,7 @@ type CommitWorkerProvisionedThresholdEcdsaSessionArgs =
   | CommitPasskeyThresholdEcdsaSessionArgs;
 
 type CommitEvmFamilyThresholdEcdsaSessionsBaseArgs = {
-  nearAccountId: AccountId | string;
+  walletId: AccountId | string;
   primaryChain: ThresholdEcdsaChainTarget;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
   smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
@@ -118,27 +118,27 @@ export async function commitWorkerProvisionedThresholdEcdsaSession(
   deps: CommitWorkerProvisionedThresholdEcdsaSessionDeps,
   args: CommitWorkerProvisionedThresholdEcdsaSessionArgs,
 ): Promise<ThresholdEcdsaSessionBootstrapResult> {
-  const nearAccountId = toAccountId(args.nearAccountId);
+  const walletId = toAccountId(args.walletId);
   if (args.source === 'email_otp') {
     await deps.ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap({
       kind: 'email_otp_bootstrap_parity',
-      nearAccountId,
+      walletId,
       chainTarget: args.chainTarget,
       authMethod: SIGNER_AUTH_METHODS.emailOtp,
     });
   } else {
     await deps.ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap({
       kind: 'default_bootstrap_parity',
-      nearAccountId,
+      walletId,
       chainTarget: args.chainTarget,
     });
   }
 
-  return await withThresholdEcdsaBootstrapQueue(deps.queueByAccount, nearAccountId, async () => {
+  return await withThresholdEcdsaBootstrapQueue(deps.queueByWallet, walletId, async () => {
     const canonicalBootstrap = canonicalizeWorkerProvisionedBootstrap(args.bootstrap);
-    await persistThresholdEcdsaBootstrapChainAccount({
+    await persistThresholdEcdsaBootstrapForWalletTarget({
       indexedDB: deps.indexedDB,
-      nearAccountId,
+      walletId,
       chainTarget: args.chainTarget,
       bootstrap: canonicalBootstrap,
       smartAccount: args.smartAccount,
@@ -146,7 +146,7 @@ export async function commitWorkerProvisionedThresholdEcdsaSession(
     });
     if (args.source === 'email_otp') {
       upsertThresholdEcdsaSessionFromBootstrap(deps.ecdsaSessions, {
-        nearAccountId,
+        walletId,
         chainTarget: args.chainTarget,
         bootstrap: canonicalBootstrap,
         source: 'email_otp',
@@ -154,7 +154,7 @@ export async function commitWorkerProvisionedThresholdEcdsaSession(
       });
     } else {
       upsertThresholdEcdsaSessionFromBootstrap(deps.ecdsaSessions, {
-        nearAccountId,
+        walletId,
         chainTarget: args.chainTarget,
         bootstrap: canonicalBootstrap,
         source: args.source,
@@ -174,7 +174,7 @@ export async function commitEvmFamilyThresholdEcdsaSessions(
   const bootstrap =
     args.source === 'email_otp'
       ? await commitWorkerProvisionedThresholdEcdsaSession(deps, {
-          nearAccountId: args.nearAccountId,
+          walletId: args.walletId,
           chainTarget: args.primaryChain,
           bootstrap: args.bootstrap,
           source: 'email_otp',
@@ -182,15 +182,16 @@ export async function commitEvmFamilyThresholdEcdsaSessions(
           smartAccount: args.smartAccount,
         })
       : await commitWorkerProvisionedThresholdEcdsaSession(deps, {
-          nearAccountId: args.nearAccountId,
+          walletId: args.walletId,
           chainTarget: args.primaryChain,
           bootstrap: args.bootstrap,
           source: args.source,
           smartAccount: args.smartAccount,
         });
   const warmCapability = await assertWarmThresholdEcdsaCapabilityReady(deps.warmCapabilityReader, {
-    nearAccountId: args.nearAccountId,
+    walletId: args.walletId,
     chainTarget: args.primaryChain,
+    bootstrap,
   });
   return {
     bootstrap,

@@ -21,6 +21,10 @@ import type {
 import type { WalletSession, RegistrationResult } from '../../types/seams';
 import type { ConfirmationConfig } from '../../types/signer-worker';
 import { toAccountId } from '../../types/accountIds';
+import {
+  nearAccountRefFromAccountId,
+  toWalletId,
+} from '../../signingEngine/interfaces/ecdsaChainTarget';
 import { SignedTransaction } from '../../rpcClients/near/NearClient';
 import type { NonceLeaseRef } from '../../signingEngine/nonce/NonceCoordinator';
 import {
@@ -106,7 +110,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
 
     PM_GET_WALLET_SESSION: async (req: Req<'PM_GET_WALLET_SESSION'>) => {
       const pm = getSeamsPasskey();
-      const result: WalletSession = await pm.auth.getWalletSession(req.payload?.nearAccountId);
+      const result: WalletSession = await pm.auth.getWalletSession(req.payload?.walletId);
       respondOkResult(req.requestId, result);
     },
 
@@ -233,7 +237,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const { nearAccountId, transactions, options } = req.payload!;
 
       const results = await pm.near.signTransactionsWithActions({
-        nearAccountId,
+        nearAccount: nearAccountRefFromAccountId(nearAccountId),
         transactions: transactions,
         options: {
           ...withProgress(req.requestId, options || {}),
@@ -249,7 +253,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const { nearAccountId, transactions, options } = req.payload || {};
 
       const results = await pm.near.signAndSendTransactions({
-        nearAccountId: nearAccountId as string,
+        nearAccount: nearAccountRefFromAccountId(nearAccountId),
         transactions: transactions || [],
         options: {
           ...withProgress(req.requestId, options || {}),
@@ -280,7 +284,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const { nearAccountId, receiverId, actionArgs, options } =
         req.payload || ({} as Partial<PMExecuteActionPayload>);
       const result = await pm.near.executeAction({
-        nearAccountId: nearAccountId as string,
+        nearAccount: nearAccountRefFromAccountId(nearAccountId),
         receiverId: receiverId as string,
         actionArgs: (actionArgs as ActionArgs | ActionArgs[])!,
         options: {
@@ -295,7 +299,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const pm = getSeamsPasskey();
       const { nearAccountId, delegate, options } = req.payload!;
       const result = await pm.near.signDelegateAction({
-        nearAccountId: nearAccountId,
+        nearAccount: nearAccountRefFromAccountId(nearAccountId),
         delegate,
         options: {
           ...withProgress(req.requestId, options || {}),
@@ -309,7 +313,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const pm = getSeamsPasskey();
       const { nearAccountId, params, options } = req.payload!;
       const result = await pm.near.signNEP413Message({
-        nearAccountId,
+        nearAccount: nearAccountRefFromAccountId(nearAccountId),
         params,
         options: {
           ...withProgress(req.requestId, options || {}),
@@ -321,10 +325,10 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
 
     PM_SIGN_TEMPO: async (req: Req<'PM_SIGN_TEMPO'>) => {
       const pm = getSeamsPasskey();
-      const { nearAccountId, subjectId, request, chainTarget, options } = req.payload!;
+      const { walletSession, subjectId, request, chainTarget, options } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
       const result = await pm.tempo.signTempo({
-        nearAccountId,
+        walletSession,
         subjectId,
         request,
         chainTarget,
@@ -342,10 +346,10 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
 
     PM_REPORT_TEMPO_BROADCAST_ACCEPTED: async (req: Req<'PM_REPORT_TEMPO_BROADCAST_ACCEPTED'>) => {
       const pm = getSeamsPasskey();
-      const { nearAccountId, signedResult, txHash } = req.payload!;
+      const { walletSession, signedResult, txHash } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
       await pm.tempo.reportBroadcastAccepted({
-        nearAccountId,
+        walletSession,
         signedResult,
         ...(txHash ? { txHash } : {}),
         options: {
@@ -360,10 +364,10 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
 
     PM_REPORT_TEMPO_BROADCAST_REJECTED: async (req: Req<'PM_REPORT_TEMPO_BROADCAST_REJECTED'>) => {
       const pm = getSeamsPasskey();
-      const { nearAccountId, signedResult, error } = req.payload!;
+      const { walletSession, signedResult, error } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
       await pm.tempo.reportBroadcastRejected({
-        nearAccountId,
+        walletSession,
         signedResult,
         ...(error ? { error } : {}),
         options: {
@@ -378,10 +382,10 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
 
     PM_REPORT_TEMPO_FINALIZED: async (req: Req<'PM_REPORT_TEMPO_FINALIZED'>) => {
       const pm = getSeamsPasskey();
-      const { nearAccountId, signedResult, txHash, receiptStatus } = req.payload!;
+      const { walletSession, signedResult, txHash, receiptStatus } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
       await pm.tempo.reportFinalized({
-        nearAccountId,
+        walletSession,
         signedResult,
         ...(txHash ? { txHash } : {}),
         ...(receiptStatus ? { receiptStatus } : {}),
@@ -399,10 +403,10 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       req: Req<'PM_REPORT_TEMPO_DROPPED_OR_REPLACED'>,
     ) => {
       const pm = getSeamsPasskey();
-      const { nearAccountId, signedResult, reason, txHash } = req.payload!;
+      const { walletSession, signedResult, reason, txHash } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
       await pm.tempo.reportDroppedOrReplaced({
-        nearAccountId,
+        walletSession,
         signedResult,
         reason,
         ...(txHash ? { txHash } : {}),
@@ -418,10 +422,10 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
 
     PM_RECONCILE_TEMPO_NONCE_LANE: async (req: Req<'PM_RECONCILE_TEMPO_NONCE_LANE'>) => {
       const pm = getSeamsPasskey();
-      const { nearAccountId, signedResult } = req.payload!;
+      const { walletSession, signedResult } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
       const result = await pm.tempo.reconcileNonceLane({
-        nearAccountId,
+        walletSession,
         signedResult,
         options: {
           onEvent: (ev) => {
@@ -519,10 +523,11 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       req: Req<'PM_PREFILL_THRESHOLD_ECDSA_PRESIGN_POOL'>,
     ) => {
       const pm = getSeamsPasskey();
-      const { nearAccountId, options } = req.payload!;
+      const { walletSession, subjectId, options } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
       const result = await pm.auth.prefillThresholdEcdsaPresignPool({
-        nearAccountId,
+        walletSession,
+        subjectId,
         chainTarget: options.chainTarget,
         ...(typeof options.waitForPoolReady === 'boolean'
           ? { waitForPoolReady: options.waitForPoolReady }
@@ -662,19 +667,23 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
 
     PM_SET_CONFIRM_BEHAVIOR: async (req: Req<'PM_SET_CONFIRM_BEHAVIOR'>) => {
       const pm = getSeamsPasskey();
-      const { behavior } = req.payload!;
+      const { behavior, walletId } = req.payload!;
+      if (walletId) {
+        pm.preferences.setCurrentWallet(toWalletId(walletId));
+      }
       pm.setConfirmBehavior(behavior);
       respondOk(req.requestId);
     },
 
     PM_SET_CONFIRMATION_CONFIG: async (req: Req<'PM_SET_CONFIRMATION_CONFIG'>) => {
       const pm = getSeamsPasskey();
-      const { nearAccountId } = req.payload || {};
+      const { walletId } = req.payload || {};
       const incoming = (req.payload?.config || {}) as Record<string, unknown>;
       let patch: Record<string, unknown> = { ...incoming };
-      if (nearAccountId) {
+      if (walletId) {
+        pm.preferences.setCurrentWallet(toWalletId(walletId));
         await pm.auth
-          .getWalletSession(nearAccountId)
+          .getWalletSession(walletId)
           .then(({ login }) => {
             const existing = (login?.userData?.preferences?.confirmationConfig || {}) as Record<
               string,

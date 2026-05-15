@@ -1,4 +1,3 @@
-import type { AccountId } from '@/core/types/accountIds';
 import type {
   ThresholdEcdsaCanonicalExportArtifact,
   ThresholdEcdsaSecp256k1KeyRef,
@@ -14,7 +13,7 @@ import {
   type ThresholdEcdsaSessionRecord,
 } from '../../session/persistence/records';
 import {
-  listExactSealedSessionsForAccount,
+  listExactSealedSessionsForWallet,
   type SigningSessionSealedStoreRecord,
 } from '../../session/persistence/sealedSessionStore';
 import {
@@ -37,7 +36,7 @@ export type ExactEcdsaExportLane = {
   ecdsaThresholdKeyId: string;
   signingRootId: string;
   signingRootVersion: string;
-  nearAccountId: AccountId;
+  walletId: string;
   authMethod: 'email_otp' | 'passkey';
   walletSigningSessionId: string;
   thresholdSessionId: string;
@@ -162,8 +161,8 @@ export async function resolveExactSealedEcdsaExportRecordForLane(
   exportLane: ExactEcdsaExportLane,
 ): Promise<SigningSessionSealedStoreRecord> {
   const matches = (
-    await listExactSealedSessionsForAccount({
-      accountId: String(exportLane.nearAccountId),
+    await listExactSealedSessionsForWallet({
+      walletId: exportLane.walletId,
       filter: {
         authMethod: exportLane.authMethod,
         curve: 'ecdsa',
@@ -179,7 +178,7 @@ export async function resolveExactSealedEcdsaExportRecordForLane(
       walletSigningSessionId === exportLane.walletSigningSessionId &&
       thresholdSessionId === exportLane.thresholdSessionId &&
       String(record.subjectId || '').trim() === String(exportLane.subjectId) &&
-      sealedAccountId === String(exportLane.nearAccountId) &&
+      sealedAccountId === exportLane.walletId &&
       signingRoot?.signingRootId === exportLane.signingRootId &&
       signingRoot.signingRootVersion === exportLane.signingRootVersion &&
       String(record.ecdsaRestore?.ecdsaThresholdKeyId || '').trim() ===

@@ -126,10 +126,11 @@ export function useSeamsContextValue(args: {
 
       if (result?.success) {
         await refreshLoginState(nearAccountId);
+        await refreshAccountData();
       }
       return result;
     },
-    [lock, refreshLoginState, seamsWithSdkFlow],
+    [lock, refreshAccountData, refreshLoginState, seamsWithSdkFlow],
   );
 
   const executeAction: SeamsContextType['executeAction'] = useCallback(
@@ -154,8 +155,8 @@ export function useSeamsContextValue(args: {
   );
 
   const getWalletSession: SeamsContextType['getWalletSession'] = useCallback(
-    (nearAccountId?: string) => {
-      return seams.auth.getWalletSession(nearAccountId);
+    (walletId?: string) => {
+      return seams.auth.getWalletSession(walletId);
     },
     [seams],
   );

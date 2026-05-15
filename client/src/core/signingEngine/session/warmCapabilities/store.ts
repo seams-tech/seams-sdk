@@ -1,10 +1,11 @@
 import type { AccountId } from '@/core/types/accountIds';
 import {
+  getStoredThresholdEcdsaSessionRecordForWalletChain,
+  listStoredThresholdEcdsaSessionRecordsForWallet,
   getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
   getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget,
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   getStoredThresholdEd25519SessionRecordForAccount,
-  listStoredThresholdEcdsaSessionRecordsForAccount,
   type ThresholdEcdsaSessionRecord,
   type ThresholdEd25519SessionRecord,
 } from '../persistence/records';
@@ -18,18 +19,20 @@ export type WarmSessionStoredCapabilityRecords = {
   };
 };
 
-export function readWarmSessionCapabilityRecordsForAccount(
-  nearAccountId: AccountId | string,
+export function readWarmSessionCapabilityRecordsForWallet(
+  walletId: AccountId | string,
 ): WarmSessionStoredCapabilityRecords {
-  const ecdsaRecords = listStoredThresholdEcdsaSessionRecordsForAccount(nearAccountId);
-  const readEcdsa = (kind: 'evm' | 'tempo'): ThresholdEcdsaSessionRecord | null =>
-    ecdsaRecords.find((record) => record.chainTarget.kind === kind) || null;
-
   return {
-    ed25519: getStoredThresholdEd25519SessionRecordForAccount(nearAccountId),
+    ed25519: getStoredThresholdEd25519SessionRecordForAccount(walletId),
     ecdsa: {
-      evm: readEcdsa('evm'),
-      tempo: readEcdsa('tempo'),
+      evm: getStoredThresholdEcdsaSessionRecordForWalletChain({
+        walletId,
+        chain: 'evm',
+      }),
+      tempo: getStoredThresholdEcdsaSessionRecordForWalletChain({
+        walletId,
+        chain: 'tempo',
+      }),
     },
   };
 }
@@ -51,4 +54,13 @@ export function readWarmSessionEcdsaRecordByThresholdSessionIdForTarget(args: {
   chainTarget: ThresholdEcdsaChainTarget;
 }): ThresholdEcdsaSessionRecord | null {
   return getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget(args);
+}
+
+export function listWarmSessionEcdsaRecordsForWalletTarget(args: {
+  walletId: AccountId | string;
+  chainTarget: ThresholdEcdsaChainTarget;
+}): ThresholdEcdsaSessionRecord[] {
+  return listStoredThresholdEcdsaSessionRecordsForWallet(args.walletId, {
+    chainTarget: args.chainTarget,
+  });
 }

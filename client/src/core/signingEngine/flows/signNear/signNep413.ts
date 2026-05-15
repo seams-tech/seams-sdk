@@ -46,6 +46,7 @@ import {
 import { runSigningConfirmationCommand } from '../shared/signingConfirmation';
 import { requireNearStepUpAuth } from './requireNearStepUpAuth';
 import { buildNearEd25519StepUpAuthorization } from './stepUpAuthorization';
+import type { NearAccountRef } from '../../interfaces/ecdsaChainTarget';
 
 /**
  * Sign a NEP-413 message using the user's passkey-derived private key
@@ -55,9 +56,11 @@ import { buildNearEd25519StepUpAuthorization } from './stepUpAuthorization';
  */
 export async function signNep413Message({
   ctx,
+  nearAccount,
   payload,
 }: {
   ctx: SigningRuntimeDeps;
+  nearAccount: NearAccountRef;
   payload: {
     message: string;
     recipient: string;
@@ -82,7 +85,7 @@ export async function signNep413Message({
   try {
     const sessionId = payload.sessionId ?? generateNearSigningSessionId();
     const relayerUrl = ctx.relayerUrl;
-    const nearAccountId = payload.accountId;
+    const nearAccountId = nearAccount.accountId;
     const touchConfirm = ctx.touchConfirm;
     if (!touchConfirm) {
       throw new Error('UiConfirm bridge not available for NEP-413 signing');
@@ -93,7 +96,7 @@ export async function signNep413Message({
     const thresholdAuthContext = await resolveNearThresholdSigningAuthContext({
       warmSessionReader: signingSessionCoordinator,
       usesNeeded,
-      nearAccountId,
+      nearAccount,
       operationLabel: 'NEP-413 signing',
     });
     const resolvedThresholdSigningSession = {
@@ -112,7 +115,7 @@ export async function signNep413Message({
     });
     const { thresholdKeyMaterial } = await resolveNearSigningMaterials({
       ctx,
-      nearAccountId,
+      nearAccount,
       signerSlot: payload.signerSlot,
       operationLabel: 'NEP-413 signing',
     });

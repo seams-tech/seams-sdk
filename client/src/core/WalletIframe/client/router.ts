@@ -113,6 +113,7 @@ import type {
 } from '../../signingEngine/SigningEngine';
 import type {
   ThresholdEcdsaChainTarget,
+  WalletSessionRef,
   WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
@@ -399,7 +400,7 @@ export class WalletIframeRouter {
   };
   private readonly listeners = {
     ready: new Set<() => void>(),
-    loginStatus: new Set<(status: { isLoggedIn: boolean; nearAccountId: string | null }) => void>(),
+    loginStatus: new Set<(status: { isLoggedIn: boolean; walletId: string | null }) => void>(),
     preferencesChanged: new Set<(payload: PreferencesChangedPayload) => void>(),
     registerOverlayResult: new Set<
       (payload: {
@@ -549,12 +550,12 @@ export class WalletIframeRouter {
         // Progress bus will hide after completion; hide defensively here
         this.hideFrameForActivation();
         if (ok) {
-          const acct = payload?.result?.nearAccountId;
-          void this.getWalletSession(acct)
+          const walletId = payload?.result?.nearAccountId;
+          void this.getWalletSession(walletId)
             .then(({ login: st }) => {
               this.emitLoginStatusChanged({
                 isLoggedIn: !!st.isLoggedIn,
-                nearAccountId: st.nearAccountId,
+                walletId: st.nearAccountId,
               });
             })
             .catch(() => {});
@@ -702,7 +703,7 @@ export class WalletIframeRouter {
 
   // Subscribe to wallet-host login status changes observed by this client
   onLoginStatusChanged(
-    listener: (status: { isLoggedIn: boolean; nearAccountId: string | null }) => void,
+    listener: (status: { isLoggedIn: boolean; walletId: string | null }) => void,
   ): () => void {
     this.listeners.loginStatus.add(listener);
     return () => {
@@ -720,7 +721,7 @@ export class WalletIframeRouter {
 
   private emitLoginStatusChanged(status: {
     isLoggedIn: boolean;
-    nearAccountId: string | null;
+    walletId: string | null;
   }): void {
     for (const cb of Array.from(this.listeners.loginStatus)) {
       try {
@@ -872,7 +873,7 @@ export class WalletIframeRouter {
 
       // Step 4: Update login status after successful registration
       const { login: st } = await this.getWalletSession(payload.nearAccountId);
-      this.emitLoginStatusChanged({ isLoggedIn: !!st.isLoggedIn, nearAccountId: st.nearAccountId });
+      this.emitLoginStatusChanged({ isLoggedIn: !!st.isLoggedIn, walletId: st.nearAccountId });
 
       return res?.result;
     } finally {
@@ -935,17 +936,17 @@ export class WalletIframeRouter {
         options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isUnlockFlowEvent) },
       });
       const { login: st } = await this.getWalletSession(payload.nearAccountId);
-      this.emitLoginStatusChanged({ isLoggedIn: !!st.isLoggedIn, nearAccountId: st.nearAccountId });
+      this.emitLoginStatusChanged({ isLoggedIn: !!st.isLoggedIn, walletId: st.nearAccountId });
       return res?.result;
     } finally {
       this.hideFrameForActivation();
     }
   }
 
-  async getWalletSession(nearAccountId?: string): Promise<WalletSession> {
+  async getWalletSession(walletId?: string): Promise<WalletSession> {
     const res = await this.post<WalletSession>({
       type: 'PM_GET_WALLET_SESSION',
-      payload: nearAccountId ? { nearAccountId } : undefined,
+      payload: walletId ? { walletId } : undefined,
     });
     return res.result;
   }
@@ -982,7 +983,7 @@ export class WalletIframeRouter {
   }
 
   async requestEmailOtpSigningSessionChallenge(payload: {
-    nearAccountId: string;
+    walletSession: WalletSessionRef;
     subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     onEvent?: (ev: UnlockFlowEvent) => void;
@@ -1057,13 +1058,13 @@ export class WalletIframeRouter {
         progressTimeoutExtensionFactor: 1,
       },
     );
-    const { login: st } = await this.getWalletSession(payload.nearAccountId);
-    this.emitLoginStatusChanged({ isLoggedIn: !!st.isLoggedIn, nearAccountId: st.nearAccountId });
+    const { login: st } = await this.getWalletSession(payload.walletSession.walletId);
+    this.emitLoginStatusChanged({ isLoggedIn: !!st.isLoggedIn, walletId: st.nearAccountId });
     return sanitizeEmailOtpIframeResult(res.result);
   }
 
   async refreshEmailOtpSigningSession(payload: {
-    nearAccountId: string;
+    walletSession: WalletSessionRef;
     subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     challengeId: string;
@@ -1084,8 +1085,8 @@ export class WalletIframeRouter {
         progressTimeoutExtensionFactor: 1,
       },
     );
-    const { login: st } = await this.getWalletSession(payload.nearAccountId);
-    this.emitLoginStatusChanged({ isLoggedIn: !!st.isLoggedIn, nearAccountId: st.nearAccountId });
+    const { login: st } = await this.getWalletSession(payload.walletSession.walletId);
+    this.emitLoginStatusChanged({ isLoggedIn: !!st.isLoggedIn, walletId: st.nearAccountId });
     return sanitizeEmailOtpIframeResult(res.result);
   }
 
@@ -1110,27 +1111,27 @@ export class WalletIframeRouter {
         progressTimeoutExtensionFactor: 1,
       },
     );
-    const { login: st } = await this.getWalletSession(payload.nearAccountId);
-    this.emitLoginStatusChanged({ isLoggedIn: !!st.isLoggedIn, nearAccountId: st.nearAccountId });
+    const { login: st } = await this.getWalletSession(payload.walletSession.walletId);
+    this.emitLoginStatusChanged({ isLoggedIn: !!st.isLoggedIn, walletId: st.nearAccountId });
     return sanitizeEmailOtpIframeResult(res.result);
   }
 
   async checkLoginStatus(): Promise<
-    PostResult<{ isLoggedIn: boolean; nearAccountId: string | null }>
+    PostResult<{ isLoggedIn: boolean; walletId: string | null }>
   > {
     const { login: st } = await this.getWalletSession();
     return {
       ok: true,
       result: {
         isLoggedIn: !!st.isLoggedIn,
-        nearAccountId: st.nearAccountId,
+        walletId: st.nearAccountId,
       },
     };
   }
 
   async lock(): Promise<PostResult<void>> {
     await this.post<void>({ type: 'PM_LOCK' });
-    this.emitLoginStatusChanged({ isLoggedIn: false, nearAccountId: null });
+    this.emitLoginStatusChanged({ isLoggedIn: false, walletId: null });
     return { ok: true, result: undefined };
   }
 
@@ -1172,7 +1173,7 @@ export class WalletIframeRouter {
   }
 
   async signTempo(payload: {
-    nearAccountId: string;
+    walletSession: WalletSessionRef;
     subjectId: WalletSubjectId;
     request: MultichainSigningRequest;
     chainTarget: ThresholdEcdsaChainTarget;
@@ -1185,7 +1186,7 @@ export class WalletIframeRouter {
       {
         type: 'PM_SIGN_TEMPO',
         payload: {
-          nearAccountId: payload.nearAccountId,
+          walletSession: payload.walletSession,
           subjectId: payload.subjectId,
           request: payload.request,
           chainTarget: payload.chainTarget,
@@ -1208,7 +1209,7 @@ export class WalletIframeRouter {
   }
 
   async reportTempoBroadcastAccepted(payload: {
-    nearAccountId: string;
+    walletSession: WalletSessionRef;
     signedResult: TempoSignedResult | EvmSignedResult;
     txHash?: `0x${string}`;
     options?: {
@@ -1218,7 +1219,7 @@ export class WalletIframeRouter {
     await this.post<void>({
       type: 'PM_REPORT_TEMPO_BROADCAST_ACCEPTED',
       payload: {
-        nearAccountId: payload.nearAccountId,
+        walletSession: payload.walletSession,
         signedResult: payload.signedResult,
         ...(payload.txHash ? { txHash: payload.txHash } : {}),
       },
@@ -1227,7 +1228,7 @@ export class WalletIframeRouter {
   }
 
   async reportTempoBroadcastRejected(payload: {
-    nearAccountId: string;
+    walletSession: WalletSessionRef;
     signedResult: TempoSignedResult | EvmSignedResult;
     error?: { code?: string; message?: string; details?: unknown };
     options?: {
@@ -1237,7 +1238,7 @@ export class WalletIframeRouter {
     await this.post<void>({
       type: 'PM_REPORT_TEMPO_BROADCAST_REJECTED',
       payload: {
-        nearAccountId: payload.nearAccountId,
+        walletSession: payload.walletSession,
         signedResult: payload.signedResult,
         ...(payload.error ? { error: payload.error } : {}),
       },
@@ -1246,7 +1247,7 @@ export class WalletIframeRouter {
   }
 
   async reportTempoFinalized(payload: {
-    nearAccountId: string;
+    walletSession: WalletSessionRef;
     signedResult: TempoSignedResult | EvmSignedResult;
     txHash?: `0x${string}`;
     receiptStatus?: 'success' | 'reverted';
@@ -1257,7 +1258,7 @@ export class WalletIframeRouter {
     await this.post<void>({
       type: 'PM_REPORT_TEMPO_FINALIZED',
       payload: {
-        nearAccountId: payload.nearAccountId,
+        walletSession: payload.walletSession,
         signedResult: payload.signedResult,
         ...(payload.txHash ? { txHash: payload.txHash } : {}),
         ...(payload.receiptStatus ? { receiptStatus: payload.receiptStatus } : {}),
@@ -1267,7 +1268,7 @@ export class WalletIframeRouter {
   }
 
   async reportTempoDroppedOrReplaced(payload: {
-    nearAccountId: string;
+    walletSession: WalletSessionRef;
     signedResult: TempoSignedResult | EvmSignedResult;
     reason: 'dropped' | 'replaced';
     txHash?: `0x${string}`;
@@ -1278,7 +1279,7 @@ export class WalletIframeRouter {
     await this.post<void>({
       type: 'PM_REPORT_TEMPO_DROPPED_OR_REPLACED',
       payload: {
-        nearAccountId: payload.nearAccountId,
+        walletSession: payload.walletSession,
         signedResult: payload.signedResult,
         reason: payload.reason,
         ...(payload.txHash ? { txHash: payload.txHash } : {}),
@@ -1288,7 +1289,7 @@ export class WalletIframeRouter {
   }
 
   async reconcileTempoNonceLane(payload: {
-    nearAccountId: string;
+    walletSession: WalletSessionRef;
     signedResult: TempoSignedResult | EvmSignedResult;
     options?: {
       onEvent?: (ev: SigningFlowEvent) => void;
@@ -1307,7 +1308,7 @@ export class WalletIframeRouter {
     }>({
       type: 'PM_RECONCILE_TEMPO_NONCE_LANE',
       payload: {
-        nearAccountId: payload.nearAccountId,
+        walletSession: payload.walletSession,
         signedResult: payload.signedResult,
       },
       options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isSigningFlowEvent) },
@@ -1363,18 +1364,18 @@ export class WalletIframeRouter {
   }
 
   async setConfirmBehavior(behavior: 'requireClick' | 'skipClick'): Promise<void> {
-    const { nearAccountId } = (await this.getWalletSession()).login;
+    const { nearAccountId: walletId } = (await this.getWalletSession()).login;
     await this.post<void>({
       type: 'PM_SET_CONFIRM_BEHAVIOR',
-      payload: { behavior, nearAccountId },
+      payload: { behavior, walletId },
     });
   }
 
   async setConfirmationConfig(config: ConfirmationConfig): Promise<void> {
-    const { nearAccountId } = (await this.getWalletSession()).login;
+    const { nearAccountId: walletId } = (await this.getWalletSession()).login;
     await this.post<void>({
       type: 'PM_SET_CONFIRMATION_CONFIG',
-      payload: { config, nearAccountId },
+      payload: { config, walletId },
     });
   }
 
@@ -1392,7 +1393,8 @@ export class WalletIframeRouter {
   }
 
   async prefillThresholdEcdsaPresignPool(payload: {
-    nearAccountId: string;
+    walletSession: WalletSessionRef;
+    subjectId: WalletSubjectId;
     options: {
       chainTarget: ThresholdEcdsaChainTarget;
       waitForPoolReady?: boolean;
@@ -1405,7 +1407,8 @@ export class WalletIframeRouter {
       {
         type: 'PM_PREFILL_THRESHOLD_ECDSA_PRESIGN_POOL',
         payload: {
-          nearAccountId: payload.nearAccountId,
+          walletSession: payload.walletSession,
+          subjectId: payload.subjectId,
           ...(payload.options ? { options: payload.options } : {}),
         },
       },

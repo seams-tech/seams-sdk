@@ -86,7 +86,7 @@ export type ThresholdEcdsaLoginPrefillResult =
 
 export type ThresholdEcdsaLoginPrefillDeps = {
   getWarmThresholdEcdsaSessionStatus: (
-    nearAccountId: AccountId | string,
+    walletId: AccountId | string,
     thresholdSessionId: string,
     chainTarget: ThresholdEcdsaChainTarget,
   ) => Promise<SigningSessionStatus | null>;
@@ -108,7 +108,7 @@ function isWarmSessionActive(
 export async function scheduleThresholdEcdsaLoginPresignPrefill(
   deps: ThresholdEcdsaLoginPrefillDeps,
   args: {
-    nearAccountId: AccountId | string;
+    walletId: AccountId | string;
     thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef;
     chainTarget: ThresholdEcdsaChainTarget;
     minRemainingUsesBeforePrefill?: number;
@@ -116,7 +116,7 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
 ): Promise<ThresholdEcdsaLoginPrefillResult> {
   let thresholdSessionId: string | undefined;
   try {
-    const nearAccountId = toAccountId(args.nearAccountId);
+    const walletId = toAccountId(args.walletId);
     const keyRef = args.thresholdEcdsaKeyRef;
     if (!keyRef || keyRef.type !== 'threshold-ecdsa-secp256k1') {
       return {
@@ -188,7 +188,7 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
     }
 
     const warmStatus = await deps.getWarmThresholdEcdsaSessionStatus(
-      nearAccountId,
+      walletId,
       thresholdSessionId,
       args.chainTarget,
     );

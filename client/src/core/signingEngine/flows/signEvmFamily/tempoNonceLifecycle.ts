@@ -21,7 +21,7 @@ type TempoManagedNonceDeps = EvmFamilyAccountMetadataDeps &
 
 export async function reserveManagedTempoNonceForRequest(args: {
   deps: TempoManagedNonceDeps;
-  nearAccountId: string;
+  walletId: string;
   request: TempoSigningRequest;
   operation: NonceOperationContext;
   senderHint?: `0x${string}`;
@@ -36,7 +36,7 @@ export async function reserveManagedTempoNonceForRequest(args: {
     chainId: args.request.tx.chainId,
     sender,
     nonceKey: args.request.tx.nonceKey,
-    nearAccountId: args.nearAccountId,
+    walletId: args.walletId,
   };
   let reservation: EvmFamilyManagedNonceReservation;
   try {

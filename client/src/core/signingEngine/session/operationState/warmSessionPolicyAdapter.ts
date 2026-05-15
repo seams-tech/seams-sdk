@@ -2,7 +2,10 @@ import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import type { ThresholdEcdsaSessionStoreSource } from '../identity/laneIdentity';
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type {
+  ThresholdEcdsaChainTarget,
+  WalletSubjectId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   applyEcdsaPostSignPolicy,
   assertEcdsaOperationAllowed,
@@ -24,27 +27,28 @@ type WarmSessionPolicyEnvelope = {
 };
 
 export type ApplyWarmEcdsaPostSignPolicyArgs = {
-  nearAccountId: AccountId | string;
+  walletId: AccountId | string;
   chainTarget: ThresholdEcdsaChainTarget;
   selectedRecord: ThresholdEcdsaSessionRecord;
   thresholdSessionId: string;
 };
 
 export type WarmSessionEcdsaCapabilityRef = {
-  nearAccountId: AccountId | string;
+  walletId: AccountId | string;
   chainTarget: ThresholdEcdsaChainTarget;
   thresholdSessionId: string;
 };
 
 export type WarmSessionPostSignPolicyAdapterDeps = {
-  getWarmSession: (nearAccountId: AccountId | string) => Promise<WarmSessionPolicyEnvelope>;
-  resolveCurrentEcdsaRecord: (args: {
-    nearAccountId: AccountId;
+  getWarmSession: (walletId: AccountId | string) => Promise<WarmSessionPolicyEnvelope>;
+  resolveExactEcdsaRecord: (args: {
+    walletId: AccountId;
     chainTarget: ThresholdEcdsaChainTarget;
+    thresholdSessionId: string;
     source?: ThresholdEcdsaSessionStoreSource;
   }) => ThresholdEcdsaSessionRecord | null;
   markEmailOtpSessionConsumed?: (args: {
-    nearAccountId: AccountId | string;
+    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     uses?: number;
   }) => void;
@@ -56,12 +60,12 @@ export type WarmSessionPostSignPolicyAdapterDeps = {
 
 async function resolveSecondaryEcdsaRecord(args: {
   getWarmSession: WarmSessionPostSignPolicyAdapterDeps['getWarmSession'];
-  accountId: AccountId;
+  walletId: AccountId;
   chainTarget: ThresholdEcdsaChainTarget;
   source: ThresholdEcdsaSessionStoreSource;
 }): Promise<ThresholdEcdsaSessionRecord | null> {
   if (args.source) return null;
-  const warmSession = await args.getWarmSession(args.accountId);
+  const warmSession = await args.getWarmSession(args.walletId);
   return args.chainTarget.kind === 'tempo'
     ? warmSession.capabilities.ecdsa.evm.record
     : warmSession.capabilities.ecdsa.tempo.record;
@@ -71,10 +75,10 @@ export async function applyWarmSessionEcdsaPostSignPolicy(
   deps: WarmSessionPostSignPolicyAdapterDeps,
   args: ApplyWarmEcdsaPostSignPolicyArgs,
 ): Promise<void> {
-  const accountId = toAccountId(args.nearAccountId);
+  const walletId = toAccountId(args.walletId);
   const secondaryRecord = await resolveSecondaryEcdsaRecord({
     getWarmSession: deps.getWarmSession,
-    accountId,
+    walletId,
     chainTarget: args.chainTarget,
     source: args.selectedRecord.source,
   });
@@ -96,22 +100,23 @@ export async function applyWarmSessionEcdsaPostSignPolicy(
 }
 
 export async function assertWarmSessionEcdsaOperationAllowed(
-  deps: Pick<WarmSessionPostSignPolicyAdapterDeps, 'getWarmSession' | 'resolveCurrentEcdsaRecord'>,
+  deps: Pick<WarmSessionPostSignPolicyAdapterDeps, 'getWarmSession' | 'resolveExactEcdsaRecord'>,
   args: WarmSessionEcdsaCapabilityRef & {
     operationLabel: string;
     source: ThresholdEcdsaSessionStoreSource;
     sensitivePolicy?: SensitiveOperationPolicy;
   },
 ): Promise<void> {
-  const accountId = toAccountId(args.nearAccountId);
-  const record = deps.resolveCurrentEcdsaRecord({
-    nearAccountId: accountId,
+  const walletId = toAccountId(args.walletId);
+  const record = deps.resolveExactEcdsaRecord({
+    walletId,
     chainTarget: args.chainTarget,
+    thresholdSessionId: args.thresholdSessionId,
     source: args.source,
   });
   const secondaryRecord = await resolveSecondaryEcdsaRecord({
     getWarmSession: deps.getWarmSession,
-    accountId,
+    walletId,
     chainTarget: args.chainTarget,
     source: args.source,
   });

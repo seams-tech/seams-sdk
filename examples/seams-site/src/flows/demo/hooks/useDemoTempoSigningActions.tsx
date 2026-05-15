@@ -1,5 +1,9 @@
 import { useCallback, useState } from 'react';
-import { createIntentId, toWalletSubjectId } from '@seams/sdk';
+import {
+  createIntentId,
+  walletSessionRefFromSession,
+  walletSubjectIdFromWalletProfile,
+} from '@seams/sdk';
 import { useSeams } from '@seams/sdk/react';
 import { toast } from 'sonner';
 
@@ -350,8 +354,11 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
       });
       const request = buildTempoEip1559GreetingRequest(requestedGreeting, feeCaps);
       const execution = await seams.tempo.executeEvmFamilyTransaction({
-        nearAccountId,
-        subjectId: toWalletSubjectId(nearAccountId),
+        walletSession: walletSessionRefFromSession({
+          walletId: nearAccountId,
+          userId: nearAccountId,
+        }),
+        subjectId: walletSubjectIdFromWalletProfile({ walletId: nearAccountId }),
         request,
         chainTarget: resolveDemoThresholdEcdsaChainTarget('tempo', frontendConfig.chains),
         finalization: {

@@ -3,13 +3,31 @@ import {
   isEvmChainNetwork,
   isTempoChainNetwork,
 } from '@/core/config/chains';
+import type { AccountId } from '@/core/types/accountIds';
 import type { SeamsChainConfig, SeamsChainNetwork } from '@/core/types/seams';
+
+export type WalletId = string & { readonly __brand: 'WalletId' };
 
 export type WalletSubjectId = string & { readonly __brand: 'WalletSubjectId' };
 
 export type NearAccountRef =
-  | { kind: 'named'; accountId: string }
-  | { kind: 'implicit'; accountId: string };
+  | { kind: 'named'; accountId: AccountId }
+  | { kind: 'implicit'; accountId: AccountId };
+
+export type WalletSessionRef = {
+  walletId: WalletId;
+  walletSessionUserId: string;
+};
+
+export type EcdsaCommandSubject = {
+  walletSession: WalletSessionRef;
+  subjectId: WalletSubjectId;
+};
+
+export type NearCommandSubject = {
+  walletSession: WalletSessionRef;
+  nearAccount: NearAccountRef;
+};
 
 export type EvmEip155ChainTarget = {
   kind: 'evm';
@@ -76,6 +94,10 @@ export function toWalletSubjectId(value: unknown): WalletSubjectId {
   return requireNonEmptyString(value, 'wallet subject id') as WalletSubjectId;
 }
 
+export function toWalletId(value: unknown): WalletId {
+  return requireNonEmptyString(value, 'wallet id') as WalletId;
+}
+
 export function walletSubjectIdFromAccountContext(args: {
   subjectId?: unknown;
   walletId?: unknown;
@@ -91,8 +113,42 @@ export function walletSubjectIdFromAccountContext(args: {
   return subjectId as WalletSubjectId;
 }
 
+export function walletSubjectIdFromWalletProfile(args: {
+  subjectId?: unknown;
+  walletId?: unknown;
+  profileId?: unknown;
+}): WalletSubjectId {
+  return walletSubjectIdFromAccountContext(args);
+}
+
+export function walletIdFromSessionValue(value: unknown): WalletId {
+  if (typeof value === 'object' && value !== null && 'walletId' in value) {
+    return toWalletId((value as { walletId?: unknown }).walletId);
+  }
+  if (typeof value === 'object' && value !== null) {
+    throw new Error('[wallet-session] missing wallet id');
+  }
+  return toWalletId(value);
+}
+
+export function walletSessionRefFromSession(value: {
+  walletId?: unknown;
+  walletSessionUserId?: unknown;
+  userId?: unknown;
+}): WalletSessionRef {
+  const walletSessionUserId =
+    nonEmptyString(value.walletSessionUserId) || nonEmptyString(value.userId);
+  if (!walletSessionUserId) {
+    throw new Error('[wallet-session] missing wallet session user id');
+  }
+  return {
+    walletId: walletIdFromSessionValue(value),
+    walletSessionUserId,
+  };
+}
+
 export function nearAccountRefFromAccountId(value: unknown): NearAccountRef {
-  const accountId = requireNonEmptyString(value, 'NEAR account id');
+  const accountId = requireNonEmptyString(value, 'NEAR account id') as AccountId;
   return accountId.length === 64 && /^[0-9a-f]+$/i.test(accountId)
     ? { kind: 'implicit', accountId }
     : { kind: 'named', accountId };

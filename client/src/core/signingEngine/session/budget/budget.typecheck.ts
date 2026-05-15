@@ -1,14 +1,16 @@
-import { SigningSessionIds } from '../operationState/types';
+import { toAccountId } from '@/core/types/accountIds';
+import { SigningOperationIntent, SigningSessionIds } from '../operationState/types';
 import type {
   AuthenticatedThresholdBudgetStatusCheck,
   ExternallyConsumedWalletBudgetSpend,
+  ReservedBudgetFinalizationSpend,
   ThresholdBudgetStatusCheck,
   ZeroWalletBudgetSpend,
 } from './budget';
 
 const validThresholdCheck: ThresholdBudgetStatusCheck = {
   kind: 'threshold_budget_status_check',
-  nearAccountId: 'wallet.testnet',
+  walletId: 'wallet.testnet',
   walletSigningSessionId: 'wallet-signing-session-1',
   targetThresholdSessionIds: ['threshold-session-1'],
 };
@@ -17,7 +19,7 @@ void validThresholdCheck;
 // @ts-expect-error authenticated threshold status checks require trustedStatusAuth
 const missingTrustedStatusAuth: AuthenticatedThresholdBudgetStatusCheck = {
   kind: 'authenticated_threshold_budget_status_check',
-  nearAccountId: 'wallet.testnet',
+  walletId: 'wallet.testnet',
   walletSigningSessionId: 'wallet-signing-session-1',
   targetThresholdSessionIds: ['threshold-session-1'],
 };
@@ -25,7 +27,7 @@ void missingTrustedStatusAuth;
 
 const emptyThresholdTargets: ThresholdBudgetStatusCheck = {
   kind: 'threshold_budget_status_check',
-  nearAccountId: 'wallet.testnet',
+  walletId: 'wallet.testnet',
   walletSigningSessionId: 'wallet-signing-session-1',
   // @ts-expect-error scoped threshold status checks require a non-empty target id tuple
   targetThresholdSessionIds: [],
@@ -65,5 +67,17 @@ const invalidZeroSpend: ZeroWalletBudgetSpend = {
   spend: externallyConsumedSpend.spend,
 };
 void invalidZeroSpend;
+
+// @ts-expect-error budget finalization spend requires selected lane identity
+const walletOnlyBudgetFinalizationSpend: ReservedBudgetFinalizationSpend['spend'] = {
+  operationId: SigningSessionIds.signingOperation('operation-1'),
+  walletId: toAccountId('wallet.testnet'),
+  walletSigningSessionId: SigningSessionIds.walletSigningSession('wallet-signing-session-1'),
+  thresholdSessionIds: [SigningSessionIds.thresholdEcdsaSession('threshold-session-1')],
+  backingMaterialSessionIds: [],
+  uses: 1,
+  reason: SigningOperationIntent.TransactionSign,
+};
+void walletOnlyBudgetFinalizationSpend;
 
 export {};

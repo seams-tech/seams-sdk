@@ -8,18 +8,20 @@ import type { ThresholdEcdsaSessionStoreSource } from '../identity/laneIdentity'
 import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
-  toWalletSubjectId,
   type ThresholdEcdsaChainTarget,
-  type WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
-  readWalletScopedLaneClaimsForAccount as readWalletScopedLaneClaimsForAccountCore,
+  buildDiscoveredLaneForRecord,
+  type DiscoveredSigningSessionLane,
+  readWalletScopedLaneClaimsForLanes,
+  readWalletScopedLaneClaimsForWallet as readWalletScopedLaneClaimsForWalletCore,
   resolveEmailOtpEcdsaWorkerSessionId,
 } from '../availability/readiness';
 import {
-  readWarmSessionCapabilityRecordsForAccount,
+  readWarmSessionCapabilityRecordsForWallet,
   readWarmSessionEd25519RecordByThresholdSessionId,
-  readWarmSessionEcdsaRecordByThresholdSessionId,
+  readWarmSessionEcdsaRecordByThresholdSessionIdForTarget,
+  listWarmSessionEcdsaRecordsForWalletTarget,
 } from './store';
 import {
   readWarmSessionClaim,
@@ -78,11 +80,9 @@ export function normalizeUsesNeeded(usesNeededRaw: unknown): number {
 
 export type WarmSessionStatusReaderDeps = {
   touchConfirm?: Parameters<typeof readWarmSessionClaim>[0];
-  readWalletScopedLaneClaimsForAccount?: typeof readWalletScopedLaneClaimsForAccountCore;
+  readWalletScopedLaneClaimsForWallet?: typeof readWalletScopedLaneClaimsForWalletCore;
+  readWalletScopedLaneClaimsForLanes?: typeof readWalletScopedLaneClaimsForLanes;
   getEmailOtpWarmSessionStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
-  listThresholdEcdsaSessionRecordsForSubject?: (args: {
-    subjectId: WalletSubjectId;
-  }) => ThresholdEcdsaSessionRecord[];
   getThresholdEcdsaSessionRecordByThresholdSessionId?: (
     thresholdSessionId: string,
   ) => ThresholdEcdsaSessionRecord | null;
@@ -93,16 +93,16 @@ export type WarmSigningStatusReader = ThresholdWarmSessionStatusReader & {
     record: ThresholdEcdsaSessionRecord,
   ) => Promise<WarmSessionPrfClaim | null>;
   readWalletScopedClaimsForRecords: (
-    nearAccountId: AccountId | string,
-    records: ReturnType<typeof readWarmSessionCapabilityRecordsForAccount>,
+    records: ReturnType<typeof readWarmSessionCapabilityRecordsForWallet>,
   ) => Promise<{
     ed25519Claim: WarmSessionPrfClaim | null;
     evmClaim: WarmSessionPrfClaim | null;
     tempoClaim: WarmSessionPrfClaim | null;
   }>;
-  resolveCurrentEcdsaRecord: (args: {
-    nearAccountId: AccountId;
+  resolveExactEcdsaRecord: (args: {
+    walletId: AccountId;
     chainTarget: ThresholdEcdsaChainTarget;
+    thresholdSessionId: string;
     source?: ThresholdEcdsaSessionStoreSource;
   }) => WarmSessionEcdsaPolicyRecordHint | null;
 };
@@ -110,8 +110,16 @@ export type WarmSigningStatusReader = ThresholdWarmSessionStatusReader & {
 export function createWarmSessionStatusReader(
   deps: WarmSessionStatusReaderDeps,
 ): WarmSigningStatusReader {
-  const readWalletScopedLaneClaimsForAccount =
-    deps.readWalletScopedLaneClaimsForAccount || readWalletScopedLaneClaimsForAccountCore;
+  const readWalletScopedLaneClaimsForWallet =
+    deps.readWalletScopedLaneClaimsForWallet || readWalletScopedLaneClaimsForWalletCore;
+  const readWalletScopedLaneClaimsForExactLanes =
+    deps.readWalletScopedLaneClaimsForLanes || readWalletScopedLaneClaimsForLanes;
+
+  function buildLanesForRecords(records: Array<ThresholdEcdsaSessionRecord | null>): DiscoveredSigningSessionLane[] {
+    return records
+      .map((record) => (record ? buildDiscoveredLaneForRecord(record) : null))
+      .filter((lane): lane is DiscoveredSigningSessionLane => lane !== null);
+  }
 
   async function readEcdsaWarmSessionClaimForRecord(
     record: ThresholdEcdsaSessionRecord,
@@ -130,17 +138,20 @@ export function createWarmSessionStatusReader(
   }
 
   async function readWalletScopedClaimsForRecords(
-    nearAccountId: AccountId | string,
-    records: ReturnType<typeof readWarmSessionCapabilityRecordsForAccount>,
+    records: ReturnType<typeof readWarmSessionCapabilityRecordsForWallet>,
   ): Promise<{
     ed25519Claim: WarmSessionPrfClaim | null;
     evmClaim: WarmSessionPrfClaim | null;
     tempoClaim: WarmSessionPrfClaim | null;
   }> {
-    const walletScopedClaims = await readWalletScopedLaneClaimsForAccount({
-      deps,
-      nearAccountId,
-    });
+    const exactLanes = [
+      records.ed25519 ? buildDiscoveredLaneForRecord(records.ed25519) : null,
+      records.ecdsa.evm ? buildDiscoveredLaneForRecord(records.ecdsa.evm) : null,
+      records.ecdsa.tempo ? buildDiscoveredLaneForRecord(records.ecdsa.tempo) : null,
+    ].filter((lane): lane is DiscoveredSigningSessionLane => lane !== null);
+    const walletScopedClaims = exactLanes.length
+      ? await readWalletScopedLaneClaimsForExactLanes({ deps, lanes: exactLanes })
+      : new Map<string, WarmSessionPrfClaim | null>();
     return {
       ed25519Claim:
         walletScopedClaims.get(String(records.ed25519?.thresholdSessionId || '').trim()) || null,
@@ -154,59 +165,51 @@ export function createWarmSessionStatusReader(
   }
 
   function listCurrentEcdsaRecords(args: {
-    nearAccountId: AccountId;
+    walletId: AccountId;
     chainTarget: ThresholdEcdsaChainTarget;
     source?: ThresholdEcdsaSessionStoreSource;
   }): WarmSessionEcdsaPolicyRecordHint[] {
-    const chain = args.chainTarget.kind;
     const recordsBySession = new Map<string, WarmSessionEcdsaPolicyRecordHint>();
-    if (typeof deps.listThresholdEcdsaSessionRecordsForSubject === 'function') {
-      const subjectId = toWalletSubjectId(args.nearAccountId);
-      for (const candidate of deps.listThresholdEcdsaSessionRecordsForSubject({
-        subjectId,
-      })) {
-        if (!thresholdEcdsaChainTargetsEqual(candidate.chainTarget, args.chainTarget)) continue;
-        if (args.source && candidate.source !== args.source) continue;
-        const sessionId = thresholdSessionIdFromEcdsaRecord(candidate);
-        const key = `${thresholdEcdsaChainTargetKey(candidate.chainTarget)}:${candidate.source}:${sessionId}`;
-        if (sessionId) recordsBySession.set(key, candidate);
-      }
-    }
-    const fallback = readWarmSessionCapabilityRecordsForAccount(args.nearAccountId).ecdsa[
-      chain
-    ];
-    if (fallback && (!args.source || fallback.source === args.source)) {
-      const sessionId = thresholdSessionIdFromEcdsaRecord(fallback);
-      if (sessionId)
-        recordsBySession.set(
-          `${thresholdEcdsaChainTargetKey(fallback.chainTarget)}:${fallback.source}:${sessionId}`,
-          fallback,
-        );
+    for (const candidate of listWarmSessionEcdsaRecordsForWalletTarget({
+      walletId: args.walletId,
+      chainTarget: args.chainTarget,
+    })) {
+      if (!thresholdEcdsaChainTargetsEqual(candidate.chainTarget, args.chainTarget)) continue;
+      if (args.source && candidate.source !== args.source) continue;
+      const sessionId = thresholdSessionIdFromEcdsaRecord(candidate);
+      const key = `${thresholdEcdsaChainTargetKey(candidate.chainTarget)}:${candidate.source}:${sessionId}`;
+      if (sessionId) recordsBySession.set(key, candidate);
     }
     return [...recordsBySession.values()];
   }
 
-  function resolveCurrentEcdsaRecord(args: {
-    nearAccountId: AccountId;
+  function resolveExactEcdsaRecord(args: {
+    walletId: AccountId;
     chainTarget: ThresholdEcdsaChainTarget;
+    thresholdSessionId: string;
     source?: ThresholdEcdsaSessionStoreSource;
   }): WarmSessionEcdsaPolicyRecordHint | null {
-    return listCurrentEcdsaRecords(args)[0] || null;
+    const record = resolveEcdsaRecordForSigningSession(args);
+    if (!record) return null;
+    if (args.source && record.source !== args.source) return null;
+    return record;
   }
 
   function resolveEcdsaRecordForSigningSession(args: {
-    nearAccountId: AccountId;
+    walletId: AccountId;
     chainTarget: ThresholdEcdsaChainTarget;
     thresholdSessionId: string;
   }): WarmSessionEcdsaPolicyRecordHint | null {
     const thresholdSessionId = String(args.thresholdSessionId || '').trim();
     if (!thresholdSessionId) return null;
 
-    const directRecord = readWarmSessionEcdsaRecordByThresholdSessionId(thresholdSessionId);
-    if (
-      directRecord?.chainTarget &&
-      thresholdEcdsaChainTargetsEqual(directRecord.chainTarget, args.chainTarget)
-    ) return directRecord;
+    const directRecord = readWarmSessionEcdsaRecordByThresholdSessionIdForTarget({
+      thresholdSessionId,
+      chainTarget: args.chainTarget,
+    });
+    if (directRecord && String(directRecord.walletId || '').trim() === String(args.walletId || '').trim()) {
+      return directRecord;
+    }
 
     const indexedRecord =
       typeof deps.getThresholdEcdsaSessionRecordByThresholdSessionId === 'function'
@@ -216,28 +219,22 @@ export function createWarmSessionStatusReader(
       indexedRecord &&
       indexedRecord.chainTarget &&
       thresholdEcdsaChainTargetsEqual(indexedRecord.chainTarget, args.chainTarget) &&
-      String(indexedRecord.nearAccountId || '').trim() === String(args.nearAccountId || '').trim()
+        String(indexedRecord.walletId || '').trim() === String(args.walletId || '').trim()
     ) {
       return indexedRecord;
     }
-
-    const storedRecord = readWarmSessionCapabilityRecordsForAccount(args.nearAccountId).ecdsa[
-      args.chainTarget.kind
-    ];
-    return String(storedRecord?.thresholdSessionId || '').trim() === thresholdSessionId
-      ? storedRecord
-      : null;
+    return null;
   }
 
   async function assertEcdsaSigningSessionReady(args: {
-    nearAccountId: AccountId | string;
+    walletId: AccountId | string;
     chainTarget: ThresholdEcdsaChainTarget;
     thresholdSessionId: unknown;
     usesNeeded?: number;
   }): Promise<Extract<WarmSessionStatusResult, { ok: true }>> {
     const thresholdSessionId = requireThresholdSigningSessionId(args.thresholdSessionId);
     const status = await getEcdsaSigningSessionStatus({
-      nearAccountId: args.nearAccountId,
+      walletId: args.walletId,
       chainTarget: args.chainTarget,
       thresholdSessionId,
     });
@@ -268,7 +265,7 @@ export function createWarmSessionStatusReader(
 
   async function getEd25519SigningSessionStatusForRecord(args: {
     nearAccountId: AccountId | string;
-    record: ReturnType<typeof readWarmSessionCapabilityRecordsForAccount>['ed25519'];
+    record: ReturnType<typeof readWarmSessionCapabilityRecordsForWallet>['ed25519'];
   }): Promise<SigningSessionStatus | null> {
     const record = args.record;
     const normalizedThresholdSessionId = String(record?.thresholdSessionId || '').trim();
@@ -285,8 +282,8 @@ export function createWarmSessionStatusReader(
           : {}),
       };
     }
-    const records = readWarmSessionCapabilityRecordsForAccount(toAccountId(args.nearAccountId));
-    const { ed25519Claim } = await readWalletScopedClaimsForRecords(args.nearAccountId, records);
+    const records = readWarmSessionCapabilityRecordsForWallet(toAccountId(args.nearAccountId));
+    const { ed25519Claim } = await readWalletScopedClaimsForRecords(records);
     const status = toSigningSessionStatus({
       sessionId: normalizedThresholdSessionId,
       claim: ed25519Claim,
@@ -320,7 +317,7 @@ export function createWarmSessionStatusReader(
   async function getEd25519SigningSessionStatus(
     nearAccountId: AccountId | string,
   ): Promise<SigningSessionStatus | null> {
-    const records = readWarmSessionCapabilityRecordsForAccount(toAccountId(nearAccountId));
+    const records = readWarmSessionCapabilityRecordsForWallet(toAccountId(nearAccountId));
     return await getEd25519SigningSessionStatusForRecord({
       nearAccountId,
       record: records.ed25519,
@@ -369,15 +366,15 @@ export function createWarmSessionStatusReader(
   }
 
   async function listEcdsaSigningSessionStatuses(args: {
-    nearAccountId: AccountId | string;
+    walletId: AccountId | string;
     chainTarget: ThresholdEcdsaChainTarget;
   }): Promise<WarmEcdsaRecordBackedSigningSessionStatus[]> {
-    const accountId = toAccountId(args.nearAccountId);
-    const records = listCurrentEcdsaRecords({ nearAccountId: accountId, chainTarget: args.chainTarget });
+    const walletId = toAccountId(args.walletId);
+    const records = listCurrentEcdsaRecords({ walletId, chainTarget: args.chainTarget });
     if (!records.length) return [];
-    const claimsByThresholdSessionId = await readWalletScopedLaneClaimsForAccount({
+    const claimsByThresholdSessionId = await readWalletScopedLaneClaimsForExactLanes({
       deps,
-      nearAccountId: accountId,
+      lanes: buildLanesForRecords(records),
     });
     return records.map((record) =>
       toEcdsaSigningSessionStatus({
@@ -390,17 +387,17 @@ export function createWarmSessionStatusReader(
   }
 
   async function getEcdsaSigningSessionStatus(args: {
-    nearAccountId: AccountId | string;
+    walletId: AccountId | string;
     chainTarget: ThresholdEcdsaChainTarget;
     thresholdSessionId: string;
   }): Promise<WarmEcdsaSigningSessionStatus | null> {
-    const accountId = toAccountId(args.nearAccountId);
+    const walletId = toAccountId(args.walletId);
     const expectedThresholdSessionId = String(args.thresholdSessionId || '').trim();
     if (!expectedThresholdSessionId) {
       throw new Error('[WarmSessionStatusReader] thresholdSessionId is required for ECDSA status');
     }
     const record = resolveEcdsaRecordForSigningSession({
-      nearAccountId: accountId,
+      walletId,
       chainTarget: args.chainTarget,
       thresholdSessionId: expectedThresholdSessionId,
     });
@@ -411,9 +408,9 @@ export function createWarmSessionStatusReader(
         chainTarget: args.chainTarget,
       };
     }
-    const claimsByThresholdSessionId = await readWalletScopedLaneClaimsForAccount({
+    const claimsByThresholdSessionId = await readWalletScopedLaneClaimsForExactLanes({
       deps,
-      nearAccountId: accountId,
+      lanes: buildLanesForRecords([record]),
     });
     return toEcdsaSigningSessionStatus({
       record,
@@ -431,6 +428,6 @@ export function createWarmSessionStatusReader(
     listEcdsaSigningSessionStatuses,
     readEcdsaWarmSessionClaimForRecord,
     readWalletScopedClaimsForRecords,
-    resolveCurrentEcdsaRecord,
+    resolveExactEcdsaRecord,
   };
 }

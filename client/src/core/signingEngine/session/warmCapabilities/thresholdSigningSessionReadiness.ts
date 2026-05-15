@@ -83,14 +83,14 @@ export async function isThresholdSigningSessionReady(args: {
 
 export async function assertThresholdSigningSessionReady(args: {
   signingSessionCoordinator: Pick<ThresholdWarmSessionStatusReader, 'assertEcdsaSigningSessionReady'>;
-  nearAccountId: string;
+  walletId: string;
   chainTarget: ThresholdEcdsaChainTarget;
   sessionId: unknown;
   usesNeeded?: number;
 }): Promise<Extract<WarmSessionStatusResult, { ok: true }>> {
   const thresholdSessionId = requireThresholdSigningSessionId(args.sessionId);
   return await args.signingSessionCoordinator.assertEcdsaSigningSessionReady({
-    nearAccountId: args.nearAccountId,
+    walletId: args.walletId,
     chainTarget: args.chainTarget,
     thresholdSessionId,
     usesNeeded: args.usesNeeded,

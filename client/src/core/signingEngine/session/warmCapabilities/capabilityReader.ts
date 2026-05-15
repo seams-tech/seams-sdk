@@ -18,7 +18,7 @@ export type WarmSessionCapabilityReaderFactoryDeps = Pick<
   };
 
 export function createWarmSessionCapabilityReader(
-  deps: WarmSessionCapabilityReaderFactoryDeps = {},
+  deps: WarmSessionCapabilityReaderFactoryDeps,
 ): WarmSessionCapabilityReader {
   const getEmailOtpWarmSessionStatus =
     deps.getEmailOtpWarmSessionStatus ||
@@ -35,8 +35,6 @@ export function createWarmSessionCapabilityReader(
   const statusReader = createWarmSessionStatusReader({
     touchConfirm: deps.touchConfirm,
     getEmailOtpWarmSessionStatus,
-    listThresholdEcdsaSessionRecordsForSubject:
-      deps.listThresholdEcdsaSessionRecordsForSubject,
     getThresholdEcdsaSessionRecordByThresholdSessionId:
       deps.getThresholdEcdsaSessionRecordByThresholdSessionId,
   });

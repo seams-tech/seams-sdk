@@ -9,7 +9,7 @@ export type ReserveNonceInput = {
   chainId: number;
   sender: `0x${string}`;
   nonceKey?: bigint;
-  nearAccountId?: string;
+  walletId?: string;
 };
 
 export type ManagedNonceReservationSnapshot = {
@@ -19,7 +19,7 @@ export type ManagedNonceReservationSnapshot = {
   sender: `0x${string}`;
   nonceKey?: string;
   nonce: string;
-  nearAccountId?: string;
+  walletId?: string;
   leaseId?: string;
   operationId?: string;
   operationFingerprint?: string;
@@ -63,7 +63,7 @@ type ChainWithChainId = Extract<SeamsChainConfig, { chainId: number }>;
 export function toManagedNonceReservationSnapshot(
   input: ManagedNonceReservation,
 ): ManagedNonceReservationSnapshot {
-  const nearAccountId = normalizeAccountId(input.nearAccountId);
+  const walletId = normalizeAccountId(input.walletId);
   const snapshot: ManagedNonceReservationSnapshot = {
     chain: input.chain,
     networkKey: String(input.networkKey || '').trim(),
@@ -76,8 +76,8 @@ export function toManagedNonceReservationSnapshot(
     snapshot.nonceKey = normalizeBigint(input.nonceKey, 'nonceKey').toString();
   }
 
-  if (nearAccountId) {
-    snapshot.nearAccountId = nearAccountId;
+  if (walletId) {
+    snapshot.walletId = walletId;
   }
   if (typeof input.leaseId === 'string' && input.leaseId.trim()) {
     snapshot.leaseId = input.leaseId.trim();
@@ -120,7 +120,7 @@ export function fromManagedNonceReservationSnapshot(
   const nonce = normalizeBigint(snapshot.nonce, 'nonce');
   const parsedNonceKey =
     snapshot.nonceKey == null ? undefined : normalizeBigint(snapshot.nonceKey, 'nonceKey');
-  const nearAccountId = normalizeAccountId(snapshot.nearAccountId);
+  const walletId = normalizeAccountId(snapshot.walletId);
   const leaseId = normalizeOptionalString(snapshot.leaseId);
   const operationId = normalizeOptionalString(snapshot.operationId);
   const operationFingerprint = normalizeOptionalString(snapshot.operationFingerprint);
@@ -133,7 +133,7 @@ export function fromManagedNonceReservationSnapshot(
     chainId,
     sender,
     ...(parsedNonceKey != null ? { nonceKey: parsedNonceKey } : {}),
-    ...(nearAccountId ? { nearAccountId } : {}),
+    ...(walletId ? { walletId } : {}),
     nonce,
     ...(leaseId ? { leaseId } : {}),
     ...(operationId ? { operationId } : {}),
@@ -149,7 +149,7 @@ type NormalizedInput = {
   chainId: number;
   sender: `0x${string}`;
   nonceKey: bigint;
-  nearAccountId?: string;
+  walletId?: string;
 };
 
 const DEFAULT_RPC_TIMEOUT_MS = 15_000;
@@ -391,7 +391,7 @@ function normalizeInput(input: ReserveNonceInput): NormalizedInput {
   const chainId = input.chainId;
   const sender = normalizeAddress(input.sender, 'sender');
   const nonceKey = chain === 'tempo' ? normalizeBigint(input.nonceKey, 'nonceKey') : 0n;
-  const nearAccountId = normalizeAccountId(input.nearAccountId);
+  const walletId = normalizeAccountId(input.walletId);
 
   return {
     chain,
@@ -399,7 +399,7 @@ function normalizeInput(input: ReserveNonceInput): NormalizedInput {
     chainId,
     sender,
     nonceKey,
-    ...(nearAccountId ? { nearAccountId } : {}),
+    ...(walletId ? { walletId } : {}),
   };
 }
 

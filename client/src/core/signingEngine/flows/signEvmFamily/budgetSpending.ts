@@ -14,6 +14,7 @@ import type { BudgetAdmittedOperation } from '../../session/operationState/trans
 import type { SelectedEcdsaLane } from '../../session/identity/laneIdentity';
 import type { ResolvedEvmFamilyEcdsaSigningLane } from './ecdsaLanes';
 import { buildEcdsaSessionIdentity } from '../../session/warmCapabilities/ecdsaProvisionPlan';
+import type { WalletSessionRef } from '../../interfaces/ecdsaChainTarget';
 
 export type EvmFamilyTransactionSigningOperationContext = SigningOperationContext & {
   operationFingerprint: SigningOperationFingerprint;
@@ -21,7 +22,7 @@ export type EvmFamilyTransactionSigningOperationContext = SigningOperationContex
 
 type EvmFamilyWalletSigningSessionBudgetArgs = {
   signingSessionCoordinator: SigningSessionCoordinator;
-  nearAccountId: string;
+  walletSession: WalletSessionRef;
   operation: EvmFamilyTransactionSigningOperationContext;
   admittedTransaction: BudgetAdmittedOperation<SelectedEcdsaLane>;
   finalizedSigningLane: ResolvedEvmFamilyEcdsaSigningLane;
@@ -54,7 +55,7 @@ function buildEvmFamilyBudgetFinalization(
     ...(args.operation.operationFingerprint
       ? { operationFingerprint: args.operation.operationFingerprint }
       : {}),
-    nearAccountId: args.finalizedSigningLane.accountId,
+    walletId: String(args.walletSession.walletId),
     walletSigningSessionId: args.finalizedSigningLane.walletSigningSessionId,
     lane: args.finalizedSigningLane,
     thresholdSessionIds: [args.finalizedSigningLane.thresholdSessionId],
@@ -62,6 +63,14 @@ function buildEvmFamilyBudgetFinalization(
     uses: 1,
     reason: args.operation.intent,
   };
+  if (args.finalizedSigningLane.authMethod === 'email_otp') {
+    return {
+      kind: 'externally_consumed_success',
+      spend,
+      ...(args.trustedStatusAuth ? { trustedStatusAuth: args.trustedStatusAuth } : {}),
+      alreadyConsumedThresholdSessionIds: [args.finalizedSigningLane.thresholdSessionId],
+    };
+  }
   if (args.reserved) {
     return {
       kind: 'reserved_success',
@@ -88,7 +97,7 @@ function createEvmFamilyTransactionBudgetFinalizer(args: EvmFamilyWalletSigningS
       finalization: buildEvmFamilyBudgetFinalization(args),
       onRecordSuccessError: (error) => {
         console.warn('[SigningEngine][ecdsa] failed to update wallet signing-session budget', {
-          nearAccountId: args.nearAccountId,
+          walletId: String(args.walletSession.walletId),
           chainTarget: selectedTransactionLane.chainTarget,
           walletSigningSessionId: resolvedIdentity.walletSigningSessionId,
           thresholdSessionId: resolvedIdentity.thresholdSessionId,
@@ -97,7 +106,7 @@ function createEvmFamilyTransactionBudgetFinalizer(args: EvmFamilyWalletSigningS
       },
       onRecordZeroSpendError: (error) => {
         console.warn('[SigningEngine][ecdsa] failed to record wallet signing-session zero spend', {
-          nearAccountId: args.nearAccountId,
+          walletId: String(args.walletSession.walletId),
           chainTarget: selectedTransactionLane.chainTarget,
           error: error instanceof Error ? error.message : String(error || 'unknown error'),
         });

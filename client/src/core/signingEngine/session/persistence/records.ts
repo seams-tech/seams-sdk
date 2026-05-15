@@ -43,7 +43,7 @@ import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signin
 export type ThresholdSessionCurve = 'ed25519' | 'ecdsa';
 
 export type ThresholdEcdsaSessionRecord = {
-  nearAccountId: AccountId;
+  walletId: AccountId;
   subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   relayerUrl: string;
@@ -65,7 +65,7 @@ export type ThresholdEcdsaSessionRecord = {
   expiresAtMs: number;
   remainingUses: number;
   thresholdEcdsaPublicKeyB64u?: string;
-  ethereumAddress?: string;
+  ethereumAddress: string;
   relayerVerifyingShareB64u?: string;
   emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
   updatedAtMs: number;
@@ -160,7 +160,7 @@ export function thresholdEcdsaLaneCandidateFromSessionRecord(args: {
     normalizeOptionalNonEmptyString(args.record.signingRootVersion) || 'default';
   return {
     kind: 'lane_candidate',
-    accountId: args.record.nearAccountId,
+    walletId: args.record.walletId,
     authMethod: thresholdEcdsaAuthMethodForRecord(args.record),
     curve: 'ecdsa',
     chain: args.record.chainTarget.kind,
@@ -242,7 +242,7 @@ const inMemoryEd25519RecordsByLane = new Map<string, ThresholdEd25519SessionReco
 const inMemoryEd25519LaneBySessionId = new Map<string, string>();
 
 type ThresholdEcdsaRuntimeRecordIndex = {
-  laneKeysByAccount: Map<string, Set<string>>;
+  laneKeysByWallet: Map<string, Set<string>>;
   laneKeysBySubject: Map<string, Set<string>>;
   laneKeysBySubjectTarget: Map<string, Set<string>>;
   laneKeysBySubjectTargetSource: Map<string, Set<string>>;
@@ -259,7 +259,7 @@ const ecdsaRecordIndexesByMap = new WeakMap<
 
 function createThresholdEcdsaRuntimeRecordIndex(): ThresholdEcdsaRuntimeRecordIndex {
   return {
-    laneKeysByAccount: new Map(),
+    laneKeysByWallet: new Map(),
     laneKeysBySubject: new Map(),
     laneKeysBySubjectTarget: new Map(),
     laneKeysBySubjectTargetSource: new Map(),
@@ -269,7 +269,7 @@ function createThresholdEcdsaRuntimeRecordIndex(): ThresholdEcdsaRuntimeRecordIn
 }
 
 function clearThresholdEcdsaRuntimeRecordIndex(index: ThresholdEcdsaRuntimeRecordIndex): void {
-  index.laneKeysByAccount.clear();
+  index.laneKeysByWallet.clear();
   index.laneKeysBySubject.clear();
   index.laneKeysBySubjectTarget.clear();
   index.laneKeysBySubjectTargetSource.clear();
@@ -330,8 +330,8 @@ function deleteIndexedLaneKey(
   if (!existing.size) indexMap.delete(indexKey);
 }
 
-function thresholdEcdsaAccountIndexKey(record: ThresholdEcdsaSessionRecord): string {
-  return ecdsaIndexKey([String(record.nearAccountId || '').trim()]);
+function thresholdEcdsaWalletIndexKey(record: ThresholdEcdsaSessionRecord): string {
+  return ecdsaIndexKey([String(record.walletId || '').trim()]);
 }
 
 function thresholdEcdsaThresholdSessionIndexKey(
@@ -370,7 +370,7 @@ function indexThresholdEcdsaRecord(
   laneKey: string,
   record: ThresholdEcdsaSessionRecord,
 ): void {
-  addIndexedLaneKey(index.laneKeysByAccount, thresholdEcdsaAccountIndexKey(record), laneKey);
+  addIndexedLaneKey(index.laneKeysByWallet, thresholdEcdsaWalletIndexKey(record), laneKey);
   addIndexedLaneKey(
     index.laneKeysByThresholdSessionId,
     thresholdEcdsaThresholdSessionIndexKey(record),
@@ -399,7 +399,7 @@ function deindexThresholdEcdsaRecord(
   laneKey: string,
   record: ThresholdEcdsaSessionRecord,
 ): void {
-  deleteIndexedLaneKey(index.laneKeysByAccount, thresholdEcdsaAccountIndexKey(record), laneKey);
+  deleteIndexedLaneKey(index.laneKeysByWallet, thresholdEcdsaWalletIndexKey(record), laneKey);
   deleteIndexedLaneKey(
     index.laneKeysByThresholdSessionId,
     thresholdEcdsaThresholdSessionIndexKey(record),
@@ -577,7 +577,7 @@ function matchesExpectedSigningRootBinding(
 
 function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSessionRecord {
   const obj = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
-  const nearAccountId = toAccountId(String(obj.nearAccountId || '').trim());
+  const walletId = toAccountId(String(obj.walletId || '').trim());
   const relayerUrl = String(obj.relayerUrl || '').trim();
   const ecdsaThresholdKeyId = normalizeOptionalNonEmptyString(obj.ecdsaThresholdKeyId);
   const relayerKeyId = String(obj.relayerKeyId || '').trim();
@@ -631,7 +631,8 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
     !thresholdSessionId ||
     !walletSigningSessionId ||
     !subjectId ||
-    !chainTarget
+    !chainTarget ||
+    !ethereumAddress
   ) {
     throw new Error('Invalid threshold ECDSA canonical session record');
   }
@@ -648,7 +649,7 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
   }
 
   return {
-    nearAccountId,
+    walletId,
     relayerUrl,
     ecdsaThresholdKeyId,
     signingRootId: signingRootBinding.signingRootId,
@@ -670,7 +671,7 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
     expiresAtMs,
     remainingUses,
     ...(thresholdEcdsaPublicKeyB64u ? { thresholdEcdsaPublicKeyB64u } : {}),
-    ...(ethereumAddress ? { ethereumAddress } : {}),
+    ethereumAddress,
     ...(relayerVerifyingShareB64u ? { relayerVerifyingShareB64u } : {}),
     ...(emailOtpAuthContext ? { emailOtpAuthContext } : {}),
     updatedAtMs,
@@ -1117,7 +1118,7 @@ function pickPreferredThresholdEcdsaSessionRecord(
 }
 
 function buildEcdsaRecordFromBootstrap(args: {
-  nearAccountId: AccountId | string;
+  walletId: AccountId | string;
   chainTarget: ThresholdEcdsaChainTarget;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
   source: ThresholdEcdsaSessionStoreSource;
@@ -1128,7 +1129,7 @@ function buildEcdsaRecordFromBootstrap(args: {
     shamirPrimeB64u?: string;
   };
 }): ThresholdEcdsaSessionRecord {
-  const accountId = toAccountId(args.nearAccountId);
+  const accountId = toAccountId(args.walletId);
   const keyRef = args.bootstrap.thresholdEcdsaKeyRef;
   const ecdsaThresholdKeyId = String(keyRef.ecdsaThresholdKeyId || '').trim();
   if (!ecdsaThresholdKeyId) {
@@ -1182,7 +1183,7 @@ function buildEcdsaRecordFromBootstrap(args: {
   }
 
   return normalizeThresholdEcdsaSessionRecord({
-    nearAccountId: accountId,
+    walletId: accountId,
     subjectId: keyRef.subjectId,
     chainTarget: args.chainTarget,
     relayerUrl: keyRef.relayerUrl,
@@ -1227,7 +1228,7 @@ function setEcdsaExportArtifactForLane(args: {
 export function upsertThresholdEcdsaSessionFromBootstrap(
   deps: ThresholdEcdsaSessionStoreDeps,
   args: {
-    nearAccountId: AccountId | string;
+    walletId: AccountId | string;
     chainTarget: ThresholdEcdsaChainTarget;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     source: ThresholdEcdsaSessionStoreSource;
@@ -1240,7 +1241,7 @@ export function upsertThresholdEcdsaSessionFromBootstrap(
 ): ThresholdEcdsaSessionRecord {
   const nowMs = Math.max(0, Math.floor((deps.now || Date.now)()));
   const record = buildEcdsaRecordFromBootstrap({
-    nearAccountId: args.nearAccountId,
+    walletId: args.walletId,
     chainTarget: args.chainTarget,
     bootstrap: args.bootstrap,
     source: args.source,
@@ -1372,7 +1373,7 @@ function thresholdEcdsaKeyRefFromRecord(
   const ecdsaHssExportArtifact = deps.exportArtifactsByLane?.get(laneKey);
   return {
     type: 'threshold-ecdsa-secp256k1',
-    userId: String(record.nearAccountId),
+    userId: String(record.walletId),
     subjectId: record.subjectId,
     chainTarget: record.chainTarget,
     relayerUrl: record.relayerUrl,
@@ -1500,21 +1501,21 @@ export function getPasskeyThresholdEcdsaKeyRefForSigning(
   return thresholdEcdsaKeyRefFromRecord(deps, record);
 }
 
-export function clearThresholdEcdsaSessionRecordForAccount(
+export function clearThresholdEcdsaSessionRecordForWallet(
   deps: ThresholdEcdsaSessionStoreDeps,
-  nearAccountId: AccountId | string,
+  walletId: AccountId | string,
 ): void {
-  const accountId = toAccountId(nearAccountId);
-  const accountKey = String(accountId);
-  const indexKey = ecdsaIndexKey([accountKey]);
+  const normalizedWalletId = toAccountId(walletId);
+  const walletKey = String(normalizedWalletId);
+  const indexKey = ecdsaIndexKey([walletKey]);
   const depsIndex = getThresholdEcdsaRuntimeRecordIndex(deps);
-  for (const laneKey of [...(depsIndex.laneKeysByAccount.get(indexKey) || [])]) {
+  for (const laneKey of [...(depsIndex.laneKeysByWallet.get(indexKey) || [])]) {
     const record = deps.recordsByLane.get(laneKey);
     if (record) deindexThresholdEcdsaRecord(depsIndex, laneKey, record);
     deps.recordsByLane.delete(laneKey);
     deps.exportArtifactsByLane?.delete(laneKey);
   }
-  for (const laneKey of [...(inMemoryEcdsaRecordIndex.laneKeysByAccount.get(indexKey) || [])]) {
+  for (const laneKey of [...(inMemoryEcdsaRecordIndex.laneKeysByWallet.get(indexKey) || [])]) {
     forgetInMemoryThresholdEcdsaRecord(laneKey);
   }
 }
@@ -1551,7 +1552,7 @@ export function clearThresholdEcdsaSessionRecordForLane(
   }
 }
 
-export function markThresholdEcdsaEmailOtpSessionConsumedForAccount(
+export function markThresholdEcdsaEmailOtpSessionConsumedForSubjectTarget(
   deps: ThresholdEcdsaSessionStoreDeps,
   args: {
     subjectId: WalletSubjectId;
@@ -1752,8 +1753,8 @@ export function listStoredThresholdEd25519SessionRecordsForAccount(
   }
 }
 
-export function listStoredThresholdEcdsaSessionRecordsForAccount(
-  nearAccountIdRaw: AccountId | string,
+export function listStoredThresholdEcdsaSessionRecordsForWallet(
+  walletIdRaw: AccountId | string,
   filter: {
     chainTarget?: ThresholdEcdsaChainTarget;
     source?: ThresholdEcdsaSessionStoreSource;
@@ -1761,17 +1762,17 @@ export function listStoredThresholdEcdsaSessionRecordsForAccount(
     signingRootVersion?: string;
   } = {},
 ): ThresholdEcdsaSessionRecord[] {
-  let accountKey = '';
+  let walletKey = '';
   try {
-    accountKey = String(toAccountId(nearAccountIdRaw)).trim();
+    walletKey = String(toAccountId(walletIdRaw)).trim();
   } catch {
     return [];
   }
-  if (!accountKey) return [];
+  if (!walletKey) return [];
 
   const records: ThresholdEcdsaSessionRecord[] = [];
   const seen = new Set<string>();
-  const laneKeys = inMemoryEcdsaRecordIndex.laneKeysByAccount.get(ecdsaIndexKey([accountKey]));
+  const laneKeys = inMemoryEcdsaRecordIndex.laneKeysByWallet.get(ecdsaIndexKey([walletKey]));
   const filterTargetKey = filter.chainTarget
     ? thresholdEcdsaChainTargetKey(filter.chainTarget)
     : null;
@@ -1870,6 +1871,41 @@ export function listThresholdEcdsaRuntimeLanesForSubject(
   );
 }
 
+export function listThresholdEcdsaRuntimeLanesForWallet(
+  deps: ThresholdEcdsaSessionStoreDeps,
+  walletIdRaw: AccountId | string,
+): ThresholdEcdsaRuntimeRecordCandidate[] {
+  const walletId = toAccountId(walletIdRaw);
+  const lanes: ThresholdEcdsaRuntimeRecordCandidate[] = [];
+  const seen = new Set<string>();
+  const indexKey = ecdsaIndexKey([String(walletId)]);
+  const depsIndex = getThresholdEcdsaRuntimeRecordIndex(deps);
+  for (const record of [
+    ...indexedThresholdEcdsaRecords({
+      recordsByLane: deps.recordsByLane,
+      laneKeys: depsIndex.laneKeysByWallet.get(indexKey),
+    }),
+    ...indexedThresholdEcdsaRecords({
+      recordsByLane: inMemoryEcdsaRecordsByLane,
+      laneKeys: inMemoryEcdsaRecordIndex.laneKeysByWallet.get(indexKey),
+    }),
+  ]) {
+    const lane = ecdsaRuntimeLaneFromRecord({
+      record,
+      subjectId: record.subjectId,
+    });
+    if (!lane) continue;
+    const laneKey = thresholdEcdsaLaneKey(lane);
+    if (seen.has(laneKey)) continue;
+    seen.add(laneKey);
+    lanes.push(lane);
+  }
+  return lanes.sort(
+    (left, right) =>
+      Math.floor(Number(right.updatedAtMs) || 0) - Math.floor(Number(left.updatedAtMs) || 0),
+  );
+}
+
 export function getThresholdEcdsaRuntimeRecordCandidateByKey(
   deps: ThresholdEcdsaSessionStoreDeps,
   args: { identity: ThresholdEcdsaSessionRecordKey },
@@ -1883,32 +1919,6 @@ export function getThresholdEcdsaRuntimeRecordCandidateByKey(
     subjectId: args.identity.subjectId,
   });
   return lane && thresholdEcdsaLaneKey(lane) === expectedKey ? lane : null;
-}
-
-export function listThresholdEcdsaSessionRecordsForSubject(
-  deps: ThresholdEcdsaSessionStoreDeps,
-  args: { subjectId: WalletSubjectId },
-): ThresholdEcdsaSessionRecord[] {
-  const recordsByKey = new Map<string, ThresholdEcdsaSessionRecord>();
-  const indexKey = ecdsaIndexKey([args.subjectId]);
-  const depsIndex = getThresholdEcdsaRuntimeRecordIndex(deps);
-  for (const record of [
-    ...indexedThresholdEcdsaRecords({
-      recordsByLane: deps.recordsByLane,
-      laneKeys: depsIndex.laneKeysBySubject.get(indexKey),
-    }),
-    ...indexedThresholdEcdsaRecords({
-      recordsByLane: inMemoryEcdsaRecordsByLane,
-      laneKeys: inMemoryEcdsaRecordIndex.laneKeysBySubject.get(indexKey),
-    }),
-  ]) {
-    if (record.subjectId !== args.subjectId) continue;
-    recordsByKey.set(getThresholdEcdsaSessionLaneKeyForRecord(record), record);
-  }
-  return [...recordsByKey.values()].sort(
-    (left, right) =>
-      Math.floor(Number(right.updatedAtMs) || 0) - Math.floor(Number(left.updatedAtMs) || 0),
-  );
 }
 
 export function getStoredThresholdEd25519SessionRecordForLane(args: {
@@ -2031,34 +2041,23 @@ export function clearAllStoredThresholdEd25519SessionRecords(): void {
   inMemoryEd25519LaneBySessionId.clear();
 }
 
-export function getStoredThresholdSessionRecordForAccount<
-  TCurve extends ThresholdSessionCurve,
->(args: {
-  curve: TCurve;
-  nearAccountId: AccountId | string;
-  chainTarget?: ThresholdEcdsaChainTarget;
+export function getStoredThresholdEcdsaSessionRecordForWalletChain(args: {
+  walletId: AccountId | string;
+  chain: ThresholdEcdsaChainTarget['kind'];
   signingRootId?: string;
   signingRootVersion?: string;
-}): ThresholdSessionRecordByCurve[TCurve] | null {
-  if (args.curve === 'ecdsa') {
-    const nearAccountId = toAccountId(args.nearAccountId);
-    let selected: ThresholdEcdsaSessionRecord | null = null;
-    const targetKey = args.chainTarget ? thresholdEcdsaChainTargetKey(args.chainTarget) : null;
-    for (const record of indexedThresholdEcdsaRecords({
-      recordsByLane: inMemoryEcdsaRecordsByLane,
-      laneKeys: inMemoryEcdsaRecordIndex.laneKeysByAccount.get(
-        ecdsaIndexKey([String(nearAccountId)]),
-      ),
-    })) {
-      if (targetKey && thresholdEcdsaChainTargetKey(record.chainTarget) !== targetKey) continue;
-      if (!matchesExpectedSigningRootBinding(record, args)) continue;
-      selected = pickPreferredThresholdEcdsaSessionRecord(selected, record);
-    }
-    return selected as ThresholdSessionRecordByCurve[TCurve] | null;
+}): ThresholdEcdsaSessionRecord | null {
+  const walletId = toAccountId(args.walletId);
+  let selected: ThresholdEcdsaSessionRecord | null = null;
+  for (const record of indexedThresholdEcdsaRecords({
+    recordsByLane: inMemoryEcdsaRecordsByLane,
+    laneKeys: inMemoryEcdsaRecordIndex.laneKeysByWallet.get(ecdsaIndexKey([String(walletId)])),
+  })) {
+    if (record.chainTarget.kind !== args.chain) continue;
+    if (!matchesExpectedSigningRootBinding(record, args)) continue;
+    selected = pickPreferredThresholdEcdsaSessionRecord(selected, record);
   }
-  return getStoredThresholdEd25519SessionRecordForAccount(args.nearAccountId) as
-    | ThresholdSessionRecordByCurve[TCurve]
-    | null;
+  return selected;
 }
 
 export function getStoredThresholdSessionRecordByThresholdSessionId<

@@ -37,11 +37,13 @@ import {
 } from '../indexedDB/normalization';
 import { SIGNER_AUTH_METHODS, SIGNER_KINDS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
 import {
-  toWalletSubjectId,
+  thresholdEcdsaChainTargetKey,
   type ThresholdEcdsaChainTarget,
+  walletSubjectIdFromWalletProfile,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../signingEngine/threshold/ecdsa/activation';
 import { buildEcdsaSessionIdentity } from '../signingEngine/session/warmCapabilities/ecdsaProvisionPlan';
+import { generateWalletSigningSessionId } from '../signingEngine/threshold/sessionPolicy';
 
 // Registration forces a visible, clickable confirmation for cross‑origin safety
 
@@ -218,7 +220,7 @@ export async function registerPasskeyInternal(
       },
     });
 
-    const signerSlot = 1;
+    let signerSlot = 1;
     let thresholdPrfFirstB64u: string | null = null;
 
     const rpId = signingEngine.getRpId();
@@ -314,11 +316,20 @@ export async function registerPasskeyInternal(
     // Store user data + authenticator locally.
 
     const localPersistenceStartedAt = performance.now();
-    await signingEngine.atomicStoreRegistrationData({
+    const storedRegistration = await signingEngine.atomicStoreRegistrationData({
       nearAccountId,
       credential,
       operationalPublicKey: completedThresholdEd25519Registration.operationalPublicKey,
     });
+    signerSlot = storedRegistration.signerSlot;
+    const persistedUser = await signingEngine.getUserBySignerSlot(nearAccountId, signerSlot);
+    if (!persistedUser) {
+      throw new Error(
+        `[Registration] profile/account mapping was not persisted for ${String(
+          nearAccountId,
+        )} signer slot ${signerSlot}`,
+      );
+    }
     await persistRegisteredThresholdEd25519Session({
       signingEngine,
       nearAccountId,
@@ -351,6 +362,7 @@ export async function registerPasskeyInternal(
       signingEngine,
       credential,
       nearAccountId,
+      signerSlot,
       registrationContinuation: accountAndRegistrationResult.registrationContinuation,
       registrationSessionPolicy: thresholdEd25519Registration.registrationInput.sessionPolicy,
       onEvent,
@@ -574,6 +586,7 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
   signingEngine: SigningEnginePublic;
   credential: WebAuthnRegistrationCredential;
   nearAccountId: AccountId;
+  signerSlot: number;
   registrationContinuation?: Awaited<
     ReturnType<typeof createAccountAndRegisterWithRelayServer>
   >['registrationContinuation'];
@@ -599,11 +612,6 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
   };
   const relayerUrl = String(args.context.configs.network.relayer.url || '').trim();
   const registrationContinuationToken = String(args.registrationContinuation?.token || '').trim();
-  const walletSigningSessionId = String(
-    args.registrationSessionPolicy.walletSigningSessionId ||
-      args.registrationSessionPolicy.sessionId ||
-      '',
-  ).trim();
   const remainingUses = Math.max(
     1,
     Math.floor(Number(args.registrationSessionPolicy.remainingUses) || 1),
@@ -636,18 +644,41 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
       throw new Error('Failed to derive threshold ECDSA client root share from credential');
     }
 
-    let canonicalEcdsaThresholdKeyId = '';
-    for (const target of listConfiguredThresholdEcdsaPublicationTargets(
+    const configuredTargets = listConfiguredThresholdEcdsaPublicationTargets(
       args.context.configs.network.chains,
-    )) {
-      const publicationChain = target.chainTarget.kind;
+    );
+    const continuationTargets = args.registrationContinuation?.thresholdEcdsaChainTargets || [];
+    const continuationTargetKeys = new Set(
+      continuationTargets.map((target) => thresholdEcdsaChainTargetKey(target)),
+    );
+    const missingContinuationTargets = configuredTargets
+      .map((target) => thresholdEcdsaChainTargetKey(target.chainTarget))
+      .filter((targetKey) => !continuationTargetKeys.has(targetKey));
+    if (missingContinuationTargets.length > 0) {
+      throw new Error(
+        `[Registration] ECDSA registration continuation is missing configured targets: ${missingContinuationTargets.join(
+          ', ',
+        )}`,
+      );
+    }
+    console.info('[Registration] threshold ECDSA provisioning targets', {
+      nearAccountId: args.nearAccountId,
+      targets: continuationTargets.map((chainTarget) => ({
+        targetKey: thresholdEcdsaChainTargetKey(chainTarget),
+        chainTarget,
+      })),
+    });
+
+    for (const chainTarget of continuationTargets) {
+      const publicationChain = chainTarget.kind;
       const bootstrapStartedAt = performance.now();
       const thresholdSessionId = createThresholdRegistrationEcdsaSessionId();
+      const walletSigningSessionId = generateWalletSigningSessionId();
       const bootstrap = await args.signingEngine.bootstrapEcdsaSession({
         kind: 'passkey_fresh_ecdsa_bootstrap',
-        nearAccountId: args.nearAccountId,
-        subjectId: toWalletSubjectId(args.nearAccountId),
-        chainTarget: target.chainTarget,
+        walletId: args.nearAccountId,
+        subjectId: walletSubjectIdFromWalletProfile({ walletId: args.nearAccountId }),
+        chainTarget,
         source: 'registration',
         relayerUrl,
         sessionKind: 'jwt',
@@ -655,9 +686,6 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
           thresholdSessionId,
           walletSigningSessionId,
         }),
-        ...(canonicalEcdsaThresholdKeyId
-          ? { ecdsaThresholdKeyId: canonicalEcdsaThresholdKeyId }
-          : {}),
         clientRootShare32B64u,
         routeAuth: {
           kind: 'registration_continuation',
@@ -670,13 +698,18 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
         Math.round(performance.now() - bootstrapStartedAt);
 
       const keyRef = bootstrap.thresholdEcdsaKeyRef;
-      canonicalEcdsaThresholdKeyId =
-        String(keyRef.ecdsaThresholdKeyId || canonicalEcdsaThresholdKeyId || '').trim();
+      const returnedEcdsaThresholdKeyId = String(keyRef.ecdsaThresholdKeyId || '').trim();
+      const ownerAddress = normalizeIndexedDbAccountAddress(
+        bootstrap.keygen.ethereumAddress || keyRef.ethereumAddress,
+      );
+      if (!returnedEcdsaThresholdKeyId || !ownerAddress) {
+        throw new Error('[Registration] threshold ECDSA bootstrap returned incomplete signer identity');
+      }
       await persistRegistrationThresholdEcdsaProfileSigner({
         nearAccountId: args.nearAccountId,
-        chainTarget: target.chainTarget,
+        chainTarget,
         bootstrap,
-        signerSlot: 1,
+        signerSlot: args.signerSlot,
       });
       const thresholdSessionAuthTokenSource = String(keyRef.thresholdSessionAuthToken || '').trim()
         ? 'ecdsa'
@@ -687,6 +720,9 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
         ecdsaThresholdKeyId: keyRef.ecdsaThresholdKeyId,
         relayerKeyId: keyRef.backendBinding?.relayerKeyId,
         thresholdSessionId: keyRef.thresholdSessionId,
+        walletSigningSessionId: keyRef.walletSigningSessionId,
+        remainingUses: bootstrap.session.remainingUses,
+        expiresAtMs: bootstrap.session.expiresAtMs,
         thresholdSessionAuthTokenSource,
         accountAddress:
           bootstrap.keygen.counterfactualAddress || bootstrap.keygen.ethereumAddress || null,

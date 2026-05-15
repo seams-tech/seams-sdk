@@ -4,7 +4,12 @@ import type {
   SigningSessionRetention,
   WalletAuthMethod,
 } from '@/core/types/seams';
-import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
+import type { TransactionContext } from '@/core/types/rpc';
+import type {
+  WebAuthnAuthenticationCredential,
+  WebAuthnRegistrationCredential,
+} from '@/core/types/webauthn';
+import type { NonceLeaseRef } from '../interfaces/nonceLease';
 
 export interface UserConfirmProgressEvent {
   requestId: string;
@@ -13,6 +18,31 @@ export interface UserConfirmProgressEvent {
   status: 'running' | 'succeeded' | 'failed';
   message?: string;
   data?: unknown;
+}
+
+export type SerializableCredential =
+  | WebAuthnAuthenticationCredential
+  | WebAuthnRegistrationCredential;
+
+export type ForbiddenMainThreadSecrets = {
+  prfOutput?: never;
+  prf_output?: never;
+  wrapKeySeed?: never;
+  wrapKeySalt?: never;
+  prfKey?: never;
+};
+
+export interface UserConfirmDecision extends ForbiddenMainThreadSecrets {
+  requestId: string;
+  intentDigest?: string;
+  confirmed: boolean;
+  credential?: SerializableCredential;
+  otpCode?: string;
+  emailOtpChallengeId?: string;
+  transactionContext?: TransactionContext;
+  nonceLeases?: NonceLeaseRef[];
+  _confirmHandle?: { close: (confirmed: boolean) => void };
+  error?: string;
 }
 
 export type SigningAuthMode = 'webauthn' | 'warmSession' | 'emailOtp';

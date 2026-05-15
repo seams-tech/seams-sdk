@@ -10,13 +10,13 @@ export function createSessionPublicDeps(args: {
   ecdsaSessions: ThresholdEcdsaSessionStoreDeps;
   touchConfirm: UiConfirmRuntimeBridgePort;
   emailOtpSessions: {
-    restorePersistedSessionsForAccount: SessionPublicDeps['restore']['emailOtp'];
+    restorePersistedSessionsForWallet: SessionPublicDeps['restore']['emailOtp'];
   };
   getWalletSigningBudgetStatus: WalletSigningBudgetAvailableStatusDeps['getAvailableStatus'];
 }): SessionPublicDeps {
-  const passkeyRestore = args.touchConfirm.restorePersistedSessionsForAccount
+  const passkeyRestore = args.touchConfirm.restorePersistedSessionsForWallet
     ? (restoreArgs: Parameters<NonNullable<SessionPublicDeps['restore']['passkey']>>[0]) =>
-        args.touchConfirm.restorePersistedSessionsForAccount!(restoreArgs)
+        args.touchConfirm.restorePersistedSessionsForWallet!(restoreArgs)
     : undefined;
 
   return {
@@ -30,7 +30,7 @@ export function createSessionPublicDeps(args: {
     getConfiguredEcdsaChainTargets: () =>
       configuredThresholdEcdsaChainTargets(args.seamsPasskeyConfigs.network.chains),
     restore: {
-      emailOtp: (restoreArgs) => args.emailOtpSessions.restorePersistedSessionsForAccount(restoreArgs),
+      emailOtp: (restoreArgs) => args.emailOtpSessions.restorePersistedSessionsForWallet(restoreArgs),
       ...(passkeyRestore ? { passkey: passkeyRestore } : {}),
     },
   };

@@ -51,8 +51,8 @@ export function createThresholdSessionActivationDeps(args: {
     getSignerWorkerContext: () => args.createArgs.signerWorkerManager.getContext(),
     getOrCreateActiveThresholdEcdsaSessionId: args.getOrCreateActiveThresholdEcdsaSessionId,
     defaultRelayerUrl: args.createArgs.seamsPasskeyConfigs.network.relayer?.url || '',
-    persistThresholdEcdsaBootstrapChainAccount:
-      args.createArgs.persistThresholdEcdsaBootstrapChainAccount,
+    persistThresholdEcdsaBootstrapForWalletTarget:
+      args.createArgs.persistThresholdEcdsaBootstrapForWalletTarget,
     upsertThresholdEcdsaSessionFromBootstrap: args.createArgs.upsertThresholdEcdsaSessionFromBootstrap,
   };
 }

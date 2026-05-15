@@ -413,7 +413,6 @@ export async function prepareTransactionSigningOperation<
     args.prepareBudgetIdentity &&
     thresholdOperation.signingSessionPlan.kind === SigningSessionPlanKind.WarmSession
       ? await args.coordinator.prepareBudgetIdentity({
-          nearAccountId: String(args.intent.walletId),
           lane: thresholdOperation.lane,
           operationUsesNeeded: args.intent.operationUsesNeeded,
         })

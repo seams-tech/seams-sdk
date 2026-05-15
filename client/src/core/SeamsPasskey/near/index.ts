@@ -31,6 +31,9 @@ import { toError } from '@shared/utils/errors';
 import type { NearSignerCapability } from '..';
 import { routeWalletIframeOrLocal, type WalletIframeRouteDeps } from '../walletIframeRoute';
 import {
+  type NearAccountRef,
+} from '../../signingEngine/interfaces/ecdsaChainTarget';
+import {
   signDelegateAction as signDelegateActionCore,
   sendDelegateActionViaRelayer as sendDelegateActionViaRelayerCore,
 } from './delegateAction';
@@ -55,17 +58,18 @@ export class NearSigner implements NearSignerCapability {
   }
 
   async executeAction(args: {
-    nearAccountId: string;
+    nearAccount: NearAccountRef;
     receiverId: string;
     actionArgs: ActionArgs | ActionArgs[];
     options: ActionHooksOptions;
   }): Promise<ActionResult> {
+    const nearAccountId = args.nearAccount.accountId;
     return await routeWalletIframeOrLocal({
       walletIframe: this.walletIframe,
-      nearAccountId: args.nearAccountId,
+      walletId: nearAccountId,
       remote: async (router) => {
         const res = await router.executeAction({
-          nearAccountId: args.nearAccountId,
+          nearAccountId,
           receiverId: args.receiverId,
           actionArgs: args.actionArgs,
           options: args.options,
@@ -82,7 +86,7 @@ export class NearSigner implements NearSignerCapability {
       local: async () => {
         return await executeAction({
           context: this.getContext(),
-          nearAccountId: toAccountId(args.nearAccountId),
+          nearAccountId,
           receiverId: toAccountId(args.receiverId),
           actionArgs: args.actionArgs,
           options: args.options,
@@ -92,15 +96,16 @@ export class NearSigner implements NearSignerCapability {
   }
 
   async signAndSendTransactions(args: {
-    nearAccountId: string;
+    nearAccount: NearAccountRef;
     transactions: TransactionInput[];
     options: SignAndSendTransactionHooksOptions;
   }): Promise<ActionResult[]> {
-    const { nearAccountId, transactions, options } = args;
+    const nearAccountId = args.nearAccount.accountId;
+    const { transactions, options } = args;
 
     return await routeWalletIframeOrLocal({
       walletIframe: this.walletIframe,
-      nearAccountId,
+      walletId: nearAccountId,
       remote: async (router) => {
         const routerOptions: SignAndSendTransactionHooksOptions = {
           ...options,
@@ -130,7 +135,7 @@ export class NearSigner implements NearSignerCapability {
         try {
           const txResults = await signAndSendTransactions({
             context: this.getContext(),
-            nearAccountId: toAccountId(nearAccountId),
+            nearAccountId,
             transactionInputs: transactions,
             options,
           });
@@ -146,13 +151,13 @@ export class NearSigner implements NearSignerCapability {
   }
 
   async signAndSendTransaction(args: {
-    nearAccountId: string;
+    nearAccount: NearAccountRef;
     receiverId: string;
     actions: ActionArgs[];
     options: SignAndSendTransactionHooksOptions;
   }): Promise<ActionResult> {
     const results = await this.signAndSendTransactions({
-      nearAccountId: args.nearAccountId,
+      nearAccount: args.nearAccount,
       transactions: [
         {
           receiverId: args.receiverId,
@@ -165,15 +170,16 @@ export class NearSigner implements NearSignerCapability {
   }
 
   async signTransactionsWithActions(args: {
-    nearAccountId: string;
+    nearAccount: NearAccountRef;
     transactions: TransactionInput[];
     options: SignTransactionHooksOptions;
   }): Promise<SignTransactionResult[]> {
-    const { nearAccountId, transactions, options } = args;
+    const nearAccountId = args.nearAccount.accountId;
+    const { transactions, options } = args;
 
     return await routeWalletIframeOrLocal({
       walletIframe: this.walletIframe,
-      nearAccountId,
+      walletId: nearAccountId,
       remote: async (router) => {
         const txs = transactions.map((t) => ({
           receiverId: t.receiverId,
@@ -203,7 +209,7 @@ export class NearSigner implements NearSignerCapability {
         try {
           return await signTransactionsWithActions({
             context: this.getContext(),
-            nearAccountId: toAccountId(nearAccountId),
+            nearAccountId,
             transactionInputs: transactions,
             options,
           });
@@ -253,15 +259,16 @@ export class NearSigner implements NearSignerCapability {
   }
 
   async signDelegateAction(args: {
-    nearAccountId: string;
+    nearAccount: NearAccountRef;
     delegate: DelegateActionInput;
     options: DelegateActionHooksOptions;
   }): Promise<SignDelegateActionResult> {
-    const { nearAccountId, delegate, options } = args;
+    const nearAccountId = args.nearAccount.accountId;
+    const { delegate, options } = args;
 
     return await routeWalletIframeOrLocal({
       walletIframe: this.walletIframe,
-      nearAccountId,
+      walletId: nearAccountId,
       remote: async (router) => {
         const result = await router.signDelegateAction({
           nearAccountId,
@@ -285,7 +292,7 @@ export class NearSigner implements NearSignerCapability {
       local: async () => {
         return await signDelegateActionCore({
           context: this.getContext(),
-          nearAccountId: toAccountId(nearAccountId),
+          nearAccountId,
           delegate,
           options,
         });
@@ -317,13 +324,14 @@ export class NearSigner implements NearSignerCapability {
   }
 
   async signAndSendDelegateAction(args: {
-    nearAccountId: string;
+    nearAccount: NearAccountRef;
     delegate: DelegateActionInput;
     relayerUrl: string;
     signal?: AbortSignal;
     options: SignAndSendDelegateActionHooksOptions;
   }): Promise<SignAndSendDelegateActionResult> {
-    const { nearAccountId, delegate, relayerUrl, signal, options } = args;
+    const nearAccountId = args.nearAccount.accountId;
+    const { delegate, relayerUrl, signal, options } = args;
 
     const signOptions: DelegateActionHooksOptions | undefined = options
       ? {
@@ -341,7 +349,7 @@ export class NearSigner implements NearSignerCapability {
     let signResult: SignDelegateActionResult;
     try {
       signResult = await this.signDelegateAction({
-        nearAccountId,
+        nearAccount: args.nearAccount,
         delegate,
         options: signOptions as DelegateActionHooksOptions,
       });
@@ -390,16 +398,17 @@ export class NearSigner implements NearSignerCapability {
   }
 
   async signNEP413Message(args: {
-    nearAccountId: string;
+    nearAccount: NearAccountRef;
     params: SignNEP413MessageParams;
     options: SignNEP413HooksOptions;
   }): Promise<SignNEP413MessageResult> {
+    const nearAccountId = args.nearAccount.accountId;
     return await routeWalletIframeOrLocal({
       walletIframe: this.walletIframe,
-      nearAccountId: args.nearAccountId,
+      walletId: nearAccountId,
       remote: async (router) => {
         const result = await router.signNep413Message({
-          nearAccountId: args.nearAccountId,
+          nearAccountId,
           message: args.params.message,
           recipient: args.params.recipient,
           state: args.params.state,
@@ -422,7 +431,7 @@ export class NearSigner implements NearSignerCapability {
       local: async () => {
         const res = await signNEP413MessageCore({
           context: this.getContext(),
-          nearAccountId: toAccountId(args.nearAccountId),
+          nearAccountId,
           params: args.params,
           options: args.options,
         });

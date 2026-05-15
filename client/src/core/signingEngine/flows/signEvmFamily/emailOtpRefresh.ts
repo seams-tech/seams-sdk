@@ -14,6 +14,7 @@ import type { EvmFamilyChain } from './types';
 import {
   thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
+  type WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
 import type { EvmFamilyEcdsaEmailOtpStepUpAuthorization } from './stepUpAuthorization';
@@ -31,12 +32,13 @@ export type EvmFamilyEmailOtpSigningRefreshResult = {
 };
 
 export async function completeEvmFamilyEmailOtpSigningRefresh(args: {
-  nearAccountId: string;
+  walletSession: WalletSessionRef;
   chain: EvmFamilyChain;
   chainTarget: ThresholdEcdsaChainTarget;
   emailOtpSigning: EvmFamilyEmailOtpSigningCompleter;
   authorization: EvmFamilyEcdsaEmailOtpStepUpAuthorization;
 }): Promise<EvmFamilyEmailOtpSigningRefreshResult> {
+  const walletId = String(args.walletSession.walletId);
   const completed = await args.emailOtpSigning.complete(
     args.authorization.otpCode,
     args.authorization.challengeId,
@@ -71,7 +73,7 @@ export async function completeEvmFamilyEmailOtpSigningRefresh(args: {
     sessionBudgetUses: 1,
   });
   const lane = buildEvmFamilyEcdsaSigningLaneContext({
-    nearAccountId: args.nearAccountId,
+    walletId,
     chain: args.chain,
     chainTarget: args.chainTarget,
     authMethod: SIGNER_AUTH_METHODS.emailOtp,

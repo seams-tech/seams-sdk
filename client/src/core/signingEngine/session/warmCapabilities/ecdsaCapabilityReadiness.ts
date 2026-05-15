@@ -1,29 +1,89 @@
 import type { AccountId } from '@/core/types/accountIds';
 import {
   thresholdEcdsaChainTargetKey,
+  thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
+import {
+  buildEcdsaSessionIdentity,
+  ecdsaSessionIdentitiesEqual,
+} from './ecdsaProvisionPlan';
 import type { WarmSessionEcdsaCapabilityState, WarmSessionEnvelope } from './types';
 
 export type EcdsaWarmCapabilityReader = {
-  getWarmSession: (nearAccountId: AccountId | string) => Promise<WarmSessionEnvelope>;
+  getWarmSession: (walletId: AccountId | string) => Promise<WarmSessionEnvelope>;
 };
+
+function normalizeSigningRootVersion(value: unknown): string {
+  return String(value || 'default').trim() || 'default';
+}
+
+function requireExactBootstrapCapability(args: {
+  walletId: AccountId | string;
+  chainTarget: ThresholdEcdsaChainTarget;
+  bootstrap: ThresholdEcdsaSessionBootstrapResult;
+  capability: WarmSessionEcdsaCapabilityState;
+}): WarmSessionEcdsaCapabilityState {
+  const { bootstrap, capability } = args;
+  if (capability.state !== 'ready' || !capability.record) {
+    throw new Error(
+      `[SigningEngine] Email OTP bootstrap did not reach warm-session ready state for ${String(
+        args.walletId,
+      )} (${thresholdEcdsaChainTargetKey(args.chainTarget)}, state=${capability.state})`,
+    );
+  }
+
+  const record = capability.record;
+  const keyRef = bootstrap.thresholdEcdsaKeyRef;
+  const recordIdentity = buildEcdsaSessionIdentity(record);
+  const bootstrapIdentity = buildEcdsaSessionIdentity({
+    thresholdSessionId: keyRef.thresholdSessionId || bootstrap.session.sessionId,
+    walletSigningSessionId:
+      keyRef.walletSigningSessionId || bootstrap.session.walletSigningSessionId,
+  });
+  const participantIdsMatch =
+    !record.participantIds?.length ||
+    !keyRef.participantIds?.length ||
+    record.participantIds.map((value) => Number(value)).join(',') ===
+      keyRef.participantIds.map((value) => Number(value)).join(',');
+
+  if (
+    !thresholdEcdsaChainTargetsEqual(record.chainTarget, args.chainTarget) ||
+    !thresholdEcdsaChainTargetsEqual(keyRef.chainTarget, args.chainTarget) ||
+    !ecdsaSessionIdentitiesEqual(recordIdentity, bootstrapIdentity) ||
+    String(record.subjectId || '').trim() !== String(keyRef.subjectId || '').trim() ||
+    String(record.ecdsaThresholdKeyId || '').trim() !==
+      String(keyRef.ecdsaThresholdKeyId || '').trim() ||
+    String(record.signingRootId || '').trim() !== String(keyRef.signingRootId || '').trim() ||
+    normalizeSigningRootVersion(record.signingRootVersion) !==
+      normalizeSigningRootVersion(keyRef.signingRootVersion) ||
+    !participantIdsMatch
+  ) {
+    throw new Error(
+      `[SigningEngine] Email OTP bootstrap produced non-exact warm ECDSA capability for ${String(
+        args.walletId,
+      )} (${thresholdEcdsaChainTargetKey(args.chainTarget)})`,
+    );
+  }
+
+  return capability;
+}
 
 export async function assertWarmThresholdEcdsaCapabilityReady(
   reader: EcdsaWarmCapabilityReader,
   args: {
-    nearAccountId: AccountId | string;
+    walletId: AccountId | string;
     chainTarget: ThresholdEcdsaChainTarget;
+    bootstrap: ThresholdEcdsaSessionBootstrapResult;
   },
 ): Promise<WarmSessionEcdsaCapabilityState> {
-  const warmSession = await reader.getWarmSession(args.nearAccountId);
+  const warmSession = await reader.getWarmSession(args.walletId);
   const capability = warmSession.capabilities.ecdsa[args.chainTarget.kind];
-  if (capability.state !== 'ready') {
-    throw new Error(
-      `[SigningEngine] Email OTP bootstrap did not reach warm-session ready state for ${String(
-        args.nearAccountId,
-      )} (${thresholdEcdsaChainTargetKey(args.chainTarget)}, state=${capability.state})`,
-    );
-  }
-  return capability;
+  return requireExactBootstrapCapability({
+    walletId: args.walletId,
+    chainTarget: args.chainTarget,
+    bootstrap: args.bootstrap,
+    capability,
+  });
 }

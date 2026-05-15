@@ -6,6 +6,7 @@ export type CanonicalWalletSignerErrorCode =
   | 'commit_queue_timeout'
   | 'threshold_ed25519_session_not_ready'
   | 'threshold_ecdsa_session_not_ready'
+  | 'stale_ecdsa_key_identity'
   | 'threshold_session_kind_mismatch'
   | 'session_not_ready'
   | 'fresh_email_otp_required'
@@ -25,6 +26,7 @@ const CANONICAL_SIGNER_CODES = new Set<CanonicalWalletSignerErrorCode>([
   'commit_queue_timeout',
   'threshold_ed25519_session_not_ready',
   'threshold_ecdsa_session_not_ready',
+  'stale_ecdsa_key_identity',
   'threshold_session_kind_mismatch',
   'session_not_ready',
   'fresh_email_otp_required',
@@ -79,6 +81,8 @@ const CANONICAL_SIGNER_ERROR_MESSAGES: Record<CanonicalWalletSignerErrorCode, st
     'Threshold Ed25519 signing session is not ready. Refresh the signing session and retry.',
   threshold_ecdsa_session_not_ready:
     'Threshold ECDSA signing session is not ready. Refresh the signing session and retry.',
+  stale_ecdsa_key_identity:
+    'The ECDSA signer identity is stale. Resync the wallet or relink this device before signing.',
   threshold_session_kind_mismatch:
     'Threshold signing session kind mismatch. Refresh the signing session and retry.',
   session_not_ready:
@@ -221,6 +225,15 @@ function inferCanonicalCodeFromRawCode(args: {
     (rawCode.includes('commit') && rawCode.includes('queue') && rawCode.includes('timeout'))
   ) {
     return 'commit_queue_timeout';
+  }
+
+  if (
+    rawCode === 'stale_ecdsa_key_identity' ||
+    (rawCode.includes('stale') &&
+      rawCode.includes('ecdsa') &&
+      (rawCode.includes('identity') || rawCode.includes('key')))
+  ) {
+    return 'stale_ecdsa_key_identity';
   }
 
   if (
@@ -370,6 +383,17 @@ function inferCanonicalCodeFromMessage(args: {
     message.includes('408')
   ) {
     return 'rpc_request_failed';
+  }
+
+  if (
+    (message.includes('threshold-ecdsa bootstrap') &&
+      message.includes('client verifying share') &&
+      message.includes('integrated key record')) ||
+    (message.includes('ecdsa') &&
+      message.includes('stale') &&
+      (message.includes('identity') || message.includes('key')))
+  ) {
+    return 'stale_ecdsa_key_identity';
   }
 
   if (

@@ -307,14 +307,14 @@ export class BudgetCoordinator implements SigningSessionBudget {
       spend.walletSigningSessionId,
       'walletSigningSessionId',
     );
-    const nearAccountId = normalizeRequired(spend.nearAccountId, 'nearAccountId') as AccountId;
+    const walletId = normalizeRequired(spend.walletId, 'walletId') as AccountId;
     this.emitTrace(input, 'wallet_signing_budget_spend_started');
     const budgetStatusCheck = buildSigningSessionBudgetStatusCheckForSpend({
       spend,
       trustedStatusAuth: input.trustedStatusAuth,
     });
     const status = await this.deps.consumeUse({
-      nearAccountId,
+      walletId,
       walletSigningSessionId,
       uses: spend.uses,
       reason: spend.reason,

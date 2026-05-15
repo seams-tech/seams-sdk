@@ -100,6 +100,7 @@ export function useDemoThresholdSigners(args: UseDemoThresholdSignersArgs) {
     arcEip1559FeeCaps,
     fetchArcGreeting,
     refreshThresholdEvmFundingAddress,
+    resolveThresholdSenderForEvmFamily,
   });
 
   const refreshTempoGreeting = useCallback(async () => {

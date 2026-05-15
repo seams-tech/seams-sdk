@@ -6,7 +6,7 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export type ThresholdEcdsaBootstrapParityArgs = {
-  nearAccountId: string;
+  walletId: string;
   chainTarget: ThresholdEcdsaChainTarget;
 } & (
   | {
@@ -59,7 +59,7 @@ export async function ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap
       console.warn(
         '[threshold-ecdsa] registration bootstrap skipped sealed-refresh startup parity enforcement',
         {
-          nearAccountId: String(args.nearAccountId || '').trim(),
+          walletId: String(args.walletId || '').trim(),
           chainTarget: thresholdEcdsaChainTargetKey(args.chainTarget),
           error: parityErrorMessage(error),
         },
@@ -73,7 +73,7 @@ export async function ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap
       console.warn(
         '[threshold-ecdsa] transaction bootstrap skipped retryable sealed-refresh capability fetch failure',
         {
-          nearAccountId: String(args.nearAccountId || '').trim(),
+          walletId: String(args.walletId || '').trim(),
           chainTarget: thresholdEcdsaChainTargetKey(args.chainTarget),
           error: parityErrorMessage(error),
         },
@@ -88,7 +88,7 @@ export async function ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap
       console.warn(
         '[threshold-ecdsa] Email OTP bootstrap skipped retryable sealed-refresh capability fetch failure',
         {
-          nearAccountId: String(args.nearAccountId || '').trim(),
+          walletId: String(args.walletId || '').trim(),
           chainTarget: thresholdEcdsaChainTargetKey(args.chainTarget),
           error: parityErrorMessage(error),
         },
@@ -102,7 +102,7 @@ export async function ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap
 export async function ensureSealedRefreshStartupParityForTransactionSigning(
   ensureParity: () => Promise<void>,
   args: {
-    nearAccountId: string;
+    walletId: string;
     chainTarget: ThresholdEcdsaChainTarget;
   },
 ): Promise<void> {
@@ -113,7 +113,7 @@ export async function ensureSealedRefreshStartupParityForTransactionSigning(
     console.warn(
       '[threshold-ecdsa] transaction signing skipped retryable sealed-refresh capability fetch failure',
       {
-        nearAccountId: String(args.nearAccountId || '').trim(),
+        walletId: String(args.walletId || '').trim(),
         chainTarget: thresholdEcdsaChainTargetKey(args.chainTarget),
         error: parityErrorMessage(error),
       },

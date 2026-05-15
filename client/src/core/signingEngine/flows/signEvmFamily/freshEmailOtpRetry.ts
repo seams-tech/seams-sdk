@@ -14,7 +14,7 @@ import type {
 
 export async function retryEvmFamilyWithFreshEmailOtpAuthWhenRequired(args: {
   error: unknown;
-  nearAccountId: string;
+  walletId: string;
   chain: EvmFamilyChain;
   senderSignatureAlgorithm: EvmFamilySenderSignatureAlgorithm;
   accountAuth: AccountAuthMetadata;
@@ -36,7 +36,7 @@ export async function retryEvmFamilyWithFreshEmailOtpAuthWhenRequired(args: {
   emitEvmFamilySigningEvent(args.onEvent, {
     phase: SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_CHALLENGE_STARTED,
     status: 'running',
-    accountId: args.nearAccountId,
+    accountId: args.walletId,
     message: 'Signing session expired; requesting Email OTP reauthorization',
     interaction: { kind: 'none', overlay: 'none' },
     data: { chain: args.chain, reason: 'threshold_session_expired' },

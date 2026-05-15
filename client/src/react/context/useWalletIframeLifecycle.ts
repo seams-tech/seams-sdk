@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import type { SeamsPasskey } from '@/core/SeamsPasskey';
-import { toAccountId } from '@/core/types/accountIds';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { LoginState } from '../types';
 import { isWalletSessionReadyForUi } from './walletSessionReadiness';
 
@@ -33,17 +33,17 @@ export function useWalletIframeLifecycle(args: {
         offReady = seams.onWalletIframeReady(() => setWalletIframeConnected(true));
 
         offLogin = seams.onWalletIframeLoginStatusChanged(
-          async (status: { isLoggedIn: boolean; nearAccountId: string | null }) => {
+          async (status: { isLoggedIn: boolean; walletId: string | null }) => {
             if (cancelled) return;
-            if (status?.isLoggedIn && status?.nearAccountId) {
-              const session = await seams.auth.getWalletSession(status.nearAccountId);
+            if (status?.isLoggedIn && status?.walletId) {
+              const session = await seams.auth.getWalletSession(status.walletId);
               const { login: state } = session;
               if (isWalletSessionReadyForUi({ session })) {
-                seams.preferences.setCurrentUser(toAccountId(status.nearAccountId));
+                seams.preferences.setCurrentWallet(toWalletId(status.walletId));
                 setLoginState((prev) => ({
                   ...prev,
                   isLoggedIn: true,
-                  nearAccountId: status.nearAccountId,
+                  nearAccountId: state.nearAccountId,
                   nearPublicKey: state.publicKey || null,
                   authMethod: session.authMethod || state.authMethod || null,
                   thresholdEcdsaEthereumAddress: state.thresholdEcdsaEthereumAddress || null,
@@ -78,13 +78,13 @@ export function useWalletIframeLifecycle(args: {
         // should update login state on the app origin as well.
         offPrefs = seams.onWalletIframePreferencesChanged(async (payload) => {
           if (cancelled) return;
-          const acct = payload?.nearAccountId;
-          if (acct) {
+          const walletId = payload?.walletId;
+          if (walletId) {
             try {
-              const session = await seams.auth.getWalletSession(acct);
+              const session = await seams.auth.getWalletSession(walletId);
               const { login: state } = session;
               if (isWalletSessionReadyForUi({ session }) && state?.nearAccountId) {
-                seams.preferences.setCurrentUser(toAccountId(state.nearAccountId));
+                seams.preferences.setCurrentWallet(toWalletId(walletId));
                 setLoginState((prev) => ({
                   ...prev,
                   isLoggedIn: true,

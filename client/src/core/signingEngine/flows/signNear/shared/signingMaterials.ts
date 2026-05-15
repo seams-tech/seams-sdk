@@ -4,6 +4,7 @@ import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { AccountId } from '@/core/types/accountIds';
 import { toAccountId } from '@/core/types/accountIds';
 import type { SigningRuntimeDeps } from '@/core/signingEngine/interfaces/runtime';
+import type { NearAccountRef } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   getPrfResultsFromCredential,
   redactCredentialExtensionOutputs,
@@ -45,12 +46,12 @@ export type ResolvedNearSigningMaterials = {
 
 export async function resolveNearSigningMaterials(args: {
   ctx: SigningRuntimeDeps;
-  nearAccountId: string;
+  nearAccount: NearAccountRef;
   signerSlot?: number;
   operationLabel: string;
   warnings?: string[];
 }): Promise<ResolvedNearSigningMaterials> {
-  const nearAccountId = toAccountId(args.nearAccountId);
+  const nearAccountId = toAccountId(args.nearAccount.accountId);
   const relayerUrl = args.ctx.relayerUrl;
   const warnings = args.warnings ?? [];
 

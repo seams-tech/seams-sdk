@@ -30,8 +30,6 @@ export function createSigningSessionCoordinatorPort(args: {
   return new SigningSessionCoordinator({
     getStatus: createArgs.getWalletSigningBudgetStatus,
     touchConfirm: createArgs.touchConfirm,
-    listThresholdEcdsaSessionRecordsForSubject: (subjectArgs) =>
-      createArgs.listThresholdEcdsaSessionRecordsForSubject(subjectArgs),
     getEmailOtpWarmSessionStatus,
     consumeEmailOtpWarmSessionUses: createArgs.consumeEmailOtpWarmSessionUses,
     clearThresholdEcdsaSessionRecordForLane: ({ subjectId, chainTarget, source }) =>

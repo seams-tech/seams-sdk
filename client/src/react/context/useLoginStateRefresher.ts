@@ -1,7 +1,7 @@
 import { useCallback, useEffect } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import type { SeamsPasskey } from '@/core/SeamsPasskey';
-import { toAccountId } from '@/core/types/accountIds';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { LoginState, SeamsContextType } from '../types';
 import { isWalletSessionReadyForUi } from './walletSessionReadiness';
 
@@ -13,7 +13,7 @@ export function useLoginStateRefresher(args: {
   const { seams, walletIframeConnected, setLoginState } = args;
 
   const refreshLoginState: SeamsContextType['refreshLoginState'] = useCallback(
-    async (nearAccountId?: string) => {
+    async (walletId?: string) => {
       try {
         if (walletIframeConnected) {
           try {
@@ -34,12 +34,12 @@ export function useLoginStateRefresher(args: {
           } catch {}
         }
 
-        const session = await seams.auth.getWalletSession(nearAccountId);
+        const session = await seams.auth.getWalletSession(walletId);
         const { login: ls } = session;
         if (isWalletSessionReadyForUi({ session })) {
           if (ls.nearAccountId) {
             try {
-              seams.preferences.setCurrentUser(toAccountId(ls.nearAccountId));
+              seams.preferences.setCurrentWallet(toWalletId(ls.nearAccountId));
             } catch {}
           }
           setLoginState((prevState) => ({

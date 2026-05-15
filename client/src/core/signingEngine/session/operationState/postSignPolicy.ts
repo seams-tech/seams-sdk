@@ -5,8 +5,11 @@ import {
 } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import type { ThresholdEcdsaSessionStoreSource } from '../identity/laneIdentity';
-import { WalletAuthPolicyError } from '../../walletAuth';
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { WalletAuthPolicyError } from '../../stepUpConfirmation/walletAuthModeResolver';
+import type {
+  ThresholdEcdsaChainTarget,
+  WalletSubjectId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export type EcdsaPostSignPolicyMaterialClearer = (args: {
   record: ThresholdEcdsaSessionRecord;
@@ -14,7 +17,8 @@ export type EcdsaPostSignPolicyMaterialClearer = (args: {
 }) => Promise<void>;
 
 export type EcdsaPostSignPolicySession = {
-  nearAccountId: AccountId;
+  walletId: AccountId;
+  subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   source: ThresholdEcdsaSessionStoreSource;
   thresholdSessionId: string;
@@ -32,7 +36,8 @@ export function ecdsaPostSignPolicySessionFromRecord(
 ): EcdsaPostSignPolicySession {
   const consumedAtMs = Math.floor(Number(record.emailOtpAuthContext?.consumedAtMs));
   return {
-    nearAccountId: record.nearAccountId,
+    walletId: record.walletId,
+    subjectId: record.subjectId,
     chainTarget: record.chainTarget,
     source: record.source,
     thresholdSessionId: String(record.thresholdSessionId || '').trim(),
@@ -63,7 +68,7 @@ export async function applyEcdsaPostSignPolicy(args: {
   selectedMaterial: EcdsaPostSignPolicyMaterial | null;
   secondaryMaterial: EcdsaPostSignPolicyMaterial | null;
   markEmailOtpSessionConsumed?: (args: {
-    nearAccountId: AccountId;
+    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     uses?: number;
   }) => void;
@@ -92,7 +97,7 @@ export async function applyEcdsaPostSignPolicy(args: {
 
   if (effectiveEmailOtpMaterial.session.emailOtpRetention !== 'single_use') return;
   args.markEmailOtpSessionConsumed?.({
-    nearAccountId: effectiveEmailOtpMaterial.session.nearAccountId,
+    subjectId: effectiveEmailOtpMaterial.session.subjectId,
     chainTarget: effectiveEmailOtpMaterial.session.chainTarget,
     uses: 1,
   });

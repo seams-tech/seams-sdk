@@ -113,14 +113,14 @@ export function buildThresholdEcdsaBootstrapUndeployedSignerSet(args: {
   };
 }
 
-async function ensureEmailOtpNearProfileAccountMapping(args: {
+async function ensureEmailOtpWalletProfileAccountMapping(args: {
   indexedDB: ThresholdEcdsaBootstrapIndexedDbPort;
-  nearAccountId: AccountId;
+  walletId: AccountId;
 }): Promise<void> {
-  const nearAccountId = toAccountId(String(args.nearAccountId || '').trim());
+  const walletId = toAccountId(String(args.walletId || '').trim());
   const existing = await resolveProfileAccountContextFromCandidates(
     args.indexedDB.clientDB as any,
-    buildNearAccountRefs(nearAccountId),
+    buildNearAccountRefs(walletId),
   );
   if (existing?.profileId) {
     const profile = await args.indexedDB.clientDB
@@ -134,14 +134,14 @@ async function ensureEmailOtpNearProfileAccountMapping(args: {
     return;
   }
 
-  const accountAddress = normalizeIndexedDbAccountAddress(nearAccountId);
+  const accountAddress = normalizeIndexedDbAccountAddress(walletId);
   if (!accountAddress) {
     throw new Error(
-      `[SigningEngine] cannot create Email OTP profile/account mapping for ${String(nearAccountId)}`,
+      `[SigningEngine] cannot create Email OTP profile/account mapping for ${String(walletId)}`,
     );
   }
-  const profileId = buildNearProfileId(nearAccountId);
-  const chainIdKey = inferNearChainIdKey(nearAccountId);
+  const profileId = buildNearProfileId(walletId);
+  const chainIdKey = inferNearChainIdKey(walletId);
   const useNetwork = chainIdKey.endsWith('mainnet') ? 'mainnet' : 'testnet';
 
   await args.indexedDB.clientDB.upsertProfile({
@@ -163,28 +163,28 @@ async function ensureEmailOtpNearProfileAccountMapping(args: {
   await args.indexedDB.clientDB.setLastProfileStateForProfile(profileId, 1);
 }
 
-export async function persistThresholdEcdsaBootstrapChainAccount(args: {
+export async function persistThresholdEcdsaBootstrapForWalletTarget(args: {
   indexedDB: ThresholdEcdsaBootstrapIndexedDbPort;
-  nearAccountId: AccountId;
+  walletId: AccountId;
   chainTarget: ThresholdEcdsaChainTarget;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
   smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
   deployment?: ThresholdEcdsaSmartAccountDeploymentInput;
   ensureEmailOtpNearAccountMapping?: boolean;
 }): Promise<void> {
-  const nearAccountId = toAccountId(String(args.nearAccountId || '').trim());
+  const walletId = toAccountId(String(args.walletId || '').trim());
   if (args.ensureEmailOtpNearAccountMapping) {
-    await ensureEmailOtpNearProfileAccountMapping({
+    await ensureEmailOtpWalletProfileAccountMapping({
       indexedDB: args.indexedDB,
-      nearAccountId,
+      walletId,
     });
   }
   const nearContext = await resolveProfileAccountContextFromCandidates(
     args.indexedDB.clientDB as any,
-    buildNearAccountRefs(nearAccountId),
+    buildNearAccountRefs(walletId),
   );
   if (!nearContext?.profileId) {
-    throw new Error(`[SigningEngine] missing profile/account mapping for ${String(nearAccountId)}`);
+    throw new Error(`[SigningEngine] missing profile/account mapping for ${String(walletId)}`);
   }
 
   const accountAddress = normalizeIndexedDbAccountAddress(

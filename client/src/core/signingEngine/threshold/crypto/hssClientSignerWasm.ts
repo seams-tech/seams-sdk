@@ -15,6 +15,11 @@ import {
   executeWorkerOperation,
   type WorkerOperationContext,
 } from '../../workerManager/executeWorkerOperation';
+import {
+  thresholdEcdsaChainTargetKey,
+  type ThresholdEcdsaChainTarget,
+  type WalletSubjectId,
+} from '../../interfaces/ecdsaChainTarget';
 
 const HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS = 20_000;
 
@@ -76,8 +81,15 @@ export type ThresholdEd25519SeedExportArtifact = {
   privateKey: string;
 };
 
-export type ThresholdEcdsaHssCanonicalContext = {
-  nearAccountId: string;
+export type ThresholdEcdsaHssStableKeyContext = {
+  walletSessionUserId: string;
+  subjectId: WalletSubjectId;
+  chainTarget: ThresholdEcdsaChainTarget;
+  ecdsaThresholdKeyId: string;
+  signingRootId: string;
+  signingRootVersion: string;
+  walletSigningSessionId?: never;
+  thresholdSessionId?: never;
   keyPurpose: string;
   keyVersion: string;
 };
@@ -372,7 +384,7 @@ export async function buildThresholdEd25519SeedExportArtifactWasm(input: {
 }
 
 export async function prepareThresholdEcdsaHssSessionWasm(input: {
-  context: ThresholdEcdsaHssCanonicalContext;
+  context: ThresholdEcdsaHssStableKeyContext;
   clientRootShare32?: Uint8Array;
   clientRootShare32B64u?: string;
   workerCtx: WorkerOperationContext;
@@ -386,7 +398,12 @@ export async function prepareThresholdEcdsaHssSessionWasm(input: {
         type: WorkerRequestType.PrepareThresholdEcdsaHssSession,
         timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
         payload: {
-          nearAccountId: input.context.nearAccountId,
+          walletSessionUserId: input.context.walletSessionUserId,
+          subjectId: input.context.subjectId,
+          chainTarget: thresholdEcdsaChainTargetKey(input.context.chainTarget),
+          ecdsaThresholdKeyId: input.context.ecdsaThresholdKeyId,
+          signingRootId: input.context.signingRootId,
+          signingRootVersion: input.context.signingRootVersion,
           keyPurpose: input.context.keyPurpose,
           keyVersion: input.context.keyVersion,
           ...clientRootSharePayload,

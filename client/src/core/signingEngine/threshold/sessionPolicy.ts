@@ -85,7 +85,7 @@ export type Ed25519SessionPolicy = {
 
 export type EcdsaSessionPolicy = {
   version: typeof THRESHOLD_SESSION_POLICY_VERSION;
-  userId: string;
+  walletSessionUserId: string;
   subjectId: WalletSubjectId;
   rpId: string;
   relayerKeyId: string;
@@ -205,7 +205,7 @@ export async function buildEd25519SessionPolicy(params: {
 }
 
 export async function buildEcdsaSessionPolicy(params: {
-  userId: string;
+  walletSessionUserId: string;
   subjectId: WalletSubjectId;
   rpId: string;
   relayerKeyId: string;
@@ -233,7 +233,7 @@ export async function buildEcdsaSessionPolicy(params: {
   const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(params.runtimePolicyScope);
   const policy: EcdsaSessionPolicy = {
     version: THRESHOLD_SESSION_POLICY_VERSION,
-    userId: params.userId,
+    walletSessionUserId: params.walletSessionUserId,
     subjectId: params.subjectId,
     rpId: params.rpId,
     relayerKeyId: params.relayerKeyId,

@@ -188,7 +188,7 @@ export type WarmSessionEcdsaCapabilityState =
   | WarmSessionNonEmailOtpEcdsaCapabilityState;
 
 export type WarmSessionEnvelope = {
-  accountId: AccountId;
+  walletId: AccountId;
   capabilities: {
     ed25519: WarmSessionEd25519CapabilityState;
     ecdsa: {
@@ -200,7 +200,7 @@ export type WarmSessionEnvelope = {
 };
 
 function assertCapabilityStateInvariant(args: {
-  accountId: AccountId;
+  walletId: AccountId;
   label: string;
   capability: WarmSessionEd25519CapabilityState | WarmSessionEcdsaCapabilityState;
 }): void {
@@ -236,9 +236,15 @@ function assertCapabilityStateInvariant(args: {
     return;
   }
 
-  if (String(record.nearAccountId) !== String(args.accountId)) {
+  if (capability.capability === 'ecdsa') {
+    if (String(capability.record.walletId) !== String(args.walletId)) {
+      throw new Error(
+        `[WarmSessionStore] invalid ${args.label} capability: record wallet does not match envelope wallet`,
+      );
+    }
+  } else if (String(capability.record.nearAccountId) !== String(args.walletId)) {
     throw new Error(
-      `[WarmSessionStore] invalid ${args.label} capability: record account does not match envelope account`,
+      `[WarmSessionStore] invalid ${args.label} capability: record wallet does not match envelope wallet`,
     );
   }
   if (!sessionId) {
@@ -337,17 +343,17 @@ export function assertWarmSessionEnvelopeInvariant(
   envelope: WarmSessionEnvelope,
 ): WarmSessionEnvelope {
   assertCapabilityStateInvariant({
-    accountId: envelope.accountId,
+    walletId: envelope.walletId,
     label: 'ed25519',
     capability: envelope.capabilities.ed25519,
   });
   assertCapabilityStateInvariant({
-    accountId: envelope.accountId,
+    walletId: envelope.walletId,
     label: 'ecdsa.evm',
     capability: envelope.capabilities.ecdsa.evm,
   });
   assertCapabilityStateInvariant({
-    accountId: envelope.accountId,
+    walletId: envelope.walletId,
     label: 'ecdsa.tempo',
     capability: envelope.capabilities.ecdsa.tempo,
   });
@@ -414,7 +420,7 @@ export type ProvisionWarmEd25519CapabilityResult =
   | ProvisionWarmEd25519CapabilityFailureResult;
 
 export type EnsureWarmEcdsaProvisionPlanReadyArgs = {
-  nearAccountId: AccountId | string;
+  walletId: AccountId | string;
   subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   plan: EcdsaSessionProvisionPlan;
@@ -439,14 +445,14 @@ export type EnsureWarmEcdsaCapabilityReadyResult = {
 };
 
 export type ApplyWarmEcdsaPostSignPolicyArgs = {
-  nearAccountId: AccountId | string;
+  walletId: AccountId | string;
   chainTarget: ThresholdEcdsaChainTarget;
   thresholdSessionId: string;
   selectedRecord: ThresholdEcdsaSessionRecord;
 };
 
 export type AssertWarmEcdsaOperationAllowedArgs = {
-  nearAccountId: AccountId | string;
+  walletId: AccountId | string;
   chainTarget: ThresholdEcdsaChainTarget;
   operationLabel: string;
   thresholdSessionId: string;
@@ -514,7 +520,7 @@ export type WarmEcdsaSigningSessionStatus =
   | WarmEcdsaMissingSigningSessionStatus;
 
 export type WarmSessionEcdsaCapabilityRef = {
-  nearAccountId: AccountId | string;
+  walletId: AccountId | string;
   chainTarget: ThresholdEcdsaChainTarget;
   thresholdSessionId: string;
 };
@@ -527,7 +533,7 @@ export type GetWarmEcdsaSigningSessionStatusArgs = Omit<
 };
 
 export type WarmSessionCapabilityReader = {
-  getWarmSession: (nearAccountId: AccountId | string) => Promise<WarmSessionEnvelope>;
+  getWarmSession: (walletId: AccountId | string) => Promise<WarmSessionEnvelope>;
   resolveEd25519RecordByThresholdSessionId: (
     thresholdSessionId: string,
   ) => WarmSessionEd25519CapabilityState['record'];
@@ -570,7 +576,7 @@ export type ThresholdWarmSessionStatusReader = {
     args: GetWarmEcdsaSigningSessionStatusArgs,
   ) => Promise<WarmEcdsaSigningSessionStatus | null>;
   listEcdsaSigningSessionStatuses: (args: {
-    nearAccountId: AccountId | string;
+    walletId: AccountId | string;
     chainTarget: ThresholdEcdsaChainTarget;
   }) => Promise<WarmEcdsaRecordBackedSigningSessionStatus[]>;
   assertEcdsaSigningSessionReady: (

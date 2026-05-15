@@ -1,15 +1,14 @@
 import type { AccountId } from '@/core/types/accountIds';
-import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
 import {
-  getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
-  getStoredThresholdEd25519SessionRecordByThresholdSessionId,
+  listStoredThresholdEcdsaSessionRecordsForWallet,
 } from '@/core/signingEngine/session/persistence/records';
-import {
-  thresholdEcdsaChainTargetKey,
-  toWalletSubjectId,
-  type WalletSubjectId,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
+  ThresholdEcdsaSessionRecord,
+  ThresholdEd25519SessionRecord,
+} from '@/core/signingEngine/session/persistence/records';
+import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type {
+  BuildCurrentSealedSessionRecordInput,
   BuildCurrentSealedSessionRecordBaseInput,
   SigningSessionSealedRecordFilter,
   SigningSessionSealedStoreRecord,
@@ -40,18 +39,17 @@ function buildCompanionSealedSessionUpdate(args: {
   updatedAtMs?: number;
   ecdsaRestore?: BuildCurrentSealedSessionRecordBaseInput['ecdsaRestore'];
   ed25519Restore?: BuildCurrentSealedSessionRecordBaseInput['ed25519Restore'];
-}): BuildCurrentSealedSessionRecordBaseInput & { curve: 'ed25519' | 'ecdsa' } {
+}): BuildCurrentSealedSessionRecordInput {
   const subjectId = String(args.subjectId || '').trim();
   if (!subjectId) {
     throw new Error('Companion sealed-session update requires subjectId');
   }
-  return {
+  const base = {
     thresholdSessionId:
       args.existingRecord.curve === 'ecdsa'
         ? String(args.existingRecord.thresholdSessionIds.ecdsa || '').trim()
         : String(args.existingRecord.thresholdSessionIds.ed25519 || '').trim(),
     sealedSecretB64u: args.existingRecord.sealedSecretB64u,
-    curve: args.existingRecord.curve,
     authMethod: args.existingRecord.authMethod,
     walletSigningSessionId: args.existingRecord.walletSigningSessionId,
     thresholdSessionIds: buildCompanionThresholdSessionIds({
@@ -59,41 +57,79 @@ function buildCompanionSealedSessionUpdate(args: {
       companionCurve: args.companionCurve,
       companionThresholdSessionId: args.companionThresholdSessionId,
     }),
-    subjectId,
-    walletId: args.existingRecord.walletId,
-    userId: args.existingRecord.userId,
-    signingRootId: args.existingRecord.signingRootId,
-    signingRootVersion: args.existingRecord.signingRootVersion,
-    relayerUrl: args.existingRecord.relayerUrl,
-    keyVersion: args.existingRecord.keyVersion,
-    shamirPrimeB64u: args.existingRecord.shamirPrimeB64u,
-    ecdsaRestore: args.ecdsaRestore || args.existingRecord.ecdsaRestore,
-    ed25519Restore: args.ed25519Restore || args.existingRecord.ed25519Restore,
+    ...(args.existingRecord.userId ? { userId: args.existingRecord.userId } : {}),
+    ...(args.existingRecord.keyVersion ? { keyVersion: args.existingRecord.keyVersion } : {}),
+    ...(args.existingRecord.shamirPrimeB64u
+      ? { shamirPrimeB64u: args.existingRecord.shamirPrimeB64u }
+      : {}),
     issuedAtMs: args.existingRecord.issuedAtMs,
     expiresAtMs: args.existingRecord.expiresAtMs,
     remainingUses: args.existingRecord.remainingUses,
     updatedAtMs: Math.floor(Number(args.updatedAtMs) || Date.now()),
   };
+  if (args.existingRecord.curve === 'ecdsa') {
+    const walletId = String(args.existingRecord.walletId || '').trim();
+    const signingRootId = String(args.existingRecord.signingRootId || '').trim();
+    const relayerUrl = String(args.existingRecord.relayerUrl || '').trim();
+    const ecdsaRestore = args.ecdsaRestore || args.existingRecord.ecdsaRestore;
+    if (!walletId || !signingRootId || !relayerUrl || !ecdsaRestore) {
+      throw new Error('ECDSA companion sealed-session update requires exact durable identity');
+    }
+    return {
+      ...base,
+      curve: 'ecdsa',
+      subjectId,
+      walletId,
+      signingRootId,
+      ...(args.existingRecord.signingRootVersion
+        ? { signingRootVersion: args.existingRecord.signingRootVersion }
+        : {}),
+      relayerUrl,
+      ecdsaRestore,
+      ...(args.ed25519Restore || args.existingRecord.ed25519Restore
+        ? { ed25519Restore: args.ed25519Restore || args.existingRecord.ed25519Restore }
+        : {}),
+    };
+  }
+  const relayerUrl = String(args.existingRecord.relayerUrl || '').trim();
+  const ed25519Restore = args.ed25519Restore || args.existingRecord.ed25519Restore;
+  if (!relayerUrl || !ed25519Restore) {
+    throw new Error('Ed25519 companion sealed-session update requires exact durable metadata');
+  }
+  return {
+    ...base,
+    curve: 'ed25519',
+    relayerUrl,
+    ed25519Restore,
+    ...(args.existingRecord.walletId ? { walletId: args.existingRecord.walletId } : {}),
+    ...(args.existingRecord.signingRootId
+      ? { signingRootId: args.existingRecord.signingRootId }
+      : {}),
+    ...(args.existingRecord.signingRootVersion
+      ? { signingRootVersion: args.existingRecord.signingRootVersion }
+      : {}),
+    ...(args.ecdsaRestore || args.existingRecord.ecdsaRestore
+      ? { ecdsaRestore: args.ecdsaRestore || args.existingRecord.ecdsaRestore }
+      : {}),
+  };
 }
 
 export function selectEmailOtpEcdsaRecordForEd25519Signing(args: {
-  nearAccountId: AccountId | string;
+  walletId: AccountId | string;
   walletSigningSessionFilter?: string | null;
-  listThresholdEcdsaSessionRecordsForSubject: (args: {
-    subjectId: WalletSubjectId;
-  }) => ThresholdEcdsaSessionRecord[];
+  listThresholdEcdsaSessionRecordsForWallet?: typeof listStoredThresholdEcdsaSessionRecordsForWallet;
 }): ThresholdEcdsaSessionRecord | null {
-  const subjectId = toWalletSubjectId(args.nearAccountId);
   const walletSigningSessionFilter = String(args.walletSigningSessionFilter || '').trim();
-  const records = args
-    .listThresholdEcdsaSessionRecordsForSubject({ subjectId })
-    .filter(
-      (record) =>
-        record.source === 'email_otp' &&
-        String(record.ecdsaThresholdKeyId || '').trim() &&
-        Array.isArray(record.participantIds) &&
-        record.participantIds.length > 0,
-    );
+  const records = (
+    args.listThresholdEcdsaSessionRecordsForWallet?.(args.walletId) ??
+    listStoredThresholdEcdsaSessionRecordsForWallet(args.walletId)
+  ).filter(
+    (record) =>
+      record.source === 'email_otp' &&
+      String(record.ecdsaThresholdKeyId || '').trim() &&
+      Array.isArray(record.participantIds) &&
+      record.participantIds.length > 0,
+  );
   if (!records.length) return null;
 
   const walletScopedRecords = walletSigningSessionFilter
@@ -122,13 +158,13 @@ async function readEmailOtpEcdsaCompanionSealCandidate(args: {
     thresholdSessionId: string,
     filter: SigningSessionSealedRecordFilter,
   ) => Promise<SigningSessionSealedStoreRecord | null>;
-  getThresholdEcdsaSessionRecordByThresholdSessionId?: (
+  getThresholdEcdsaSessionRecordByThresholdSessionId: (
     thresholdSessionId: string,
   ) => ThresholdEcdsaSessionRecord | null;
 }): Promise<EmailOtpEcdsaCompanionSealCandidate | null> {
-  const ecdsaRecord =
-    args.getThresholdEcdsaSessionRecordByThresholdSessionId?.(args.ecdsaThresholdSessionId) ||
-    getStoredThresholdEcdsaSessionRecordByThresholdSessionId(args.ecdsaThresholdSessionId);
+  const ecdsaRecord = args.getThresholdEcdsaSessionRecordByThresholdSessionId(
+    args.ecdsaThresholdSessionId,
+  );
   if (!ecdsaRecord || ecdsaRecord.source !== 'email_otp' || !ecdsaRecord.chainTarget) return null;
   const existingRecord = await args
     .readExactSealedSession(args.ecdsaThresholdSessionId, {
@@ -149,11 +185,14 @@ export async function attachEd25519SessionToEmailOtpSigningSessionSealBestEffort
     thresholdSessionId: string,
     filter: SigningSessionSealedRecordFilter,
   ) => Promise<SigningSessionSealedStoreRecord | null>;
-  getThresholdEcdsaSessionRecordByThresholdSessionId?: (
+  getThresholdEcdsaSessionRecordByThresholdSessionId: (
     thresholdSessionId: string,
   ) => ThresholdEcdsaSessionRecord | null;
+  getThresholdEd25519SessionRecordByThresholdSessionId: (
+    thresholdSessionId: string,
+  ) => ThresholdEd25519SessionRecord | null;
   registerSigningSession: (
-    record: BuildCurrentSealedSessionRecordBaseInput & { curve: 'ed25519' | 'ecdsa' },
+    record: BuildCurrentSealedSessionRecordInput,
   ) => Promise<void>;
 }): Promise<void> {
   if (args.sessionPersistenceMode !== 'sealed_refresh_v1') return;
@@ -168,7 +207,7 @@ export async function attachEd25519SessionToEmailOtpSigningSessionSealBestEffort
   });
   if (!candidate) return;
   const ed25519Record =
-    getStoredThresholdEd25519SessionRecordByThresholdSessionId(ed25519ThresholdSessionId);
+    args.getThresholdEd25519SessionRecordByThresholdSessionId(ed25519ThresholdSessionId);
   if (
     !ed25519Record ||
     ed25519Record.source !== 'email_otp' ||

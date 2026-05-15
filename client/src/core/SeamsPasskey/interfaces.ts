@@ -7,6 +7,8 @@ import type {
 import type {
   NearAccountRef,
   ThresholdEcdsaChainTarget,
+  WalletId,
+  WalletSessionRef,
   WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '../signingEngine/threshold/sessionPolicy';
@@ -80,7 +82,7 @@ import type {
 } from '@shared/utils/emailOtpDomain';
 
 export type SignTempoArgs = {
-  nearAccountId: string;
+  walletSession: WalletSessionRef;
   subjectId: WalletSubjectId;
   request: MultichainSigningRequest;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -99,7 +101,7 @@ export type TempoNonceLifecycleOptions = {
 };
 
 type ReportTempoNonceLifecycleBaseArgs = {
-  nearAccountId: string;
+  walletSession: WalletSessionRef;
   signedResult: TempoSignedResult | EvmSignedResult;
   options?: TempoNonceLifecycleOptions;
 };
@@ -139,7 +141,7 @@ export type FinalizedEvmTxPayloadVerification = {
 };
 
 export type ExecuteEvmFamilyTransactionArgs = {
-  nearAccountId: string;
+  walletSession: WalletSessionRef;
   subjectId: WalletSubjectId;
   request: MultichainSigningRequest;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -168,7 +170,8 @@ export type ExecuteEvmFamilyTransactionResult = {
 };
 
 export type BootstrapThresholdEcdsaSessionArgs = {
-  nearAccountId: string;
+  walletSession: WalletSessionRef;
+  subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   relayerUrl?: string;
   ecdsaThresholdKeyId?: string;
@@ -278,7 +281,7 @@ export type BootstrapThresholdEcdsaSessionArgs = {
         | { kind: 'app_session'; jwt: string }
         | { kind: 'threshold_session'; jwt: string };
       webauthnAuthentication?: never;
-      clientRootShare32B64u?: never;
+      clientRootShare32B64u: string;
       emailOtpAuthContext?: never;
     }
   | {
@@ -354,7 +357,7 @@ export type GoogleEmailOtpSessionExchangeResult = {
 };
 
 export type EmailOtpEcdsaCapabilityArgs = {
-  nearAccountId: string;
+  walletSession: WalletSessionRef;
   subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
@@ -395,11 +398,12 @@ export type EmailOtpEcdsaEnrollmentCapabilityResult = {
 export interface AuthCapability {
   unlock(nearAccountId: string, options?: LoginHooksOptions): Promise<LoginAndCreateSessionResult>;
   lock(): Promise<void>;
-  getWalletSession(nearAccountId?: string): Promise<WalletSession>;
+  getWalletSession(walletId?: string): Promise<WalletSession>;
   getRecentUnlocks(): Promise<GetRecentUnlocksResult>;
   hasPasskeyCredential(nearAccountId: AccountId): Promise<boolean>;
   prefillThresholdEcdsaPresignPool(args: {
-    nearAccountId: string;
+    walletSession: WalletSessionRef;
+    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     waitForPoolReady?: boolean;
     poolReadyTimeoutMs?: number;
@@ -420,13 +424,13 @@ export interface AuthCapability {
     onEvent?: (event: RegistrationFlowEvent) => void;
   }): Promise<EmailOtpChallengeResult>;
   requestEmailOtpSigningSessionChallenge(args: {
-    nearAccountId: string;
+    walletSession: WalletSessionRef;
     subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     onEvent?: (event: UnlockFlowEvent) => void;
   }): Promise<Pick<EmailOtpChallengeResult, 'challengeId' | 'emailHint'>>;
   refreshEmailOtpSigningSession(args: {
-    nearAccountId: string;
+    walletSession: WalletSessionRef;
     subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     challengeId: string;
@@ -475,27 +479,27 @@ export interface RegistrationCapability {
 
 export interface NearSignerCapability {
   executeAction(args: {
-    nearAccountId: string;
+    nearAccount: NearAccountRef;
     receiverId: string;
     actionArgs: ActionArgs | ActionArgs[];
     options: ActionHooksOptions;
   }): Promise<ActionResult>;
 
   signAndSendTransactions(args: {
-    nearAccountId: string;
+    nearAccount: NearAccountRef;
     transactions: TransactionInput[];
     options: SignAndSendTransactionHooksOptions;
   }): Promise<ActionResult[]>;
 
   signAndSendTransaction(args: {
-    nearAccountId: string;
+    nearAccount: NearAccountRef;
     receiverId: string;
     actions: ActionArgs[];
     options: SignAndSendTransactionHooksOptions;
   }): Promise<ActionResult>;
 
   signTransactionsWithActions(args: {
-    nearAccountId: string;
+    nearAccount: NearAccountRef;
     transactions: TransactionInput[];
     options: SignTransactionHooksOptions;
   }): Promise<SignTransactionResult[]>;
@@ -506,7 +510,7 @@ export interface NearSignerCapability {
   }): Promise<ActionResult>;
 
   signDelegateAction(args: {
-    nearAccountId: string;
+    nearAccount: NearAccountRef;
     delegate: DelegateActionInput;
     options: DelegateActionHooksOptions;
   }): Promise<SignDelegateActionResult>;
@@ -520,7 +524,7 @@ export interface NearSignerCapability {
   }): Promise<DelegateRelayResult>;
 
   signAndSendDelegateAction(args: {
-    nearAccountId: string;
+    nearAccount: NearAccountRef;
     delegate: DelegateActionInput;
     relayerUrl: string;
     signal?: AbortSignal;
@@ -528,7 +532,7 @@ export interface NearSignerCapability {
   }): Promise<SignAndSendDelegateActionResult>;
 
   signNEP413Message(args: {
-    nearAccountId: string;
+    nearAccount: NearAccountRef;
     params: SignNEP413MessageParams;
     options: SignNEP413HooksOptions;
   }): Promise<SignNEP413MessageResult>;
@@ -628,10 +632,10 @@ export interface KeyExportCapability {
 }
 
 export interface PreferencesCapability {
-  setCurrentUser(nearAccountId: AccountId): void;
-  getCurrentUserAccountId(): AccountId;
+  setCurrentWallet(walletId: WalletId): void;
+  getCurrentWalletId(): WalletId | null;
   onConfirmationConfigChange(callback: (config: ConfirmationConfig) => void): () => void;
-  onCurrentUserChange(callback: (nearAccountId: AccountId | null) => void): () => void;
+  onCurrentWalletChange(callback: (walletId: WalletId | null) => void): () => void;
   setConfirmBehavior(behavior: ConfirmationBehavior): void;
   setConfirmationConfig(config: ConfirmationConfig): void;
   getConfirmationConfig(): ConfirmationConfig;

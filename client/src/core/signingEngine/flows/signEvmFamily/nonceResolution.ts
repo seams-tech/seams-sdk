@@ -112,20 +112,20 @@ function pickPreferredSmartAccountRow(args: {
 
 export async function resolveManagedNonceSender(args: {
   deps: EvmFamilyAccountMetadataDeps;
-  nearAccountId: string;
+  walletId: string;
   request: EvmSigningRequest | TempoSigningRequest;
   senderHint?: `0x${string}`;
 }): Promise<`0x${string}`> {
   if (args.senderHint) return args.senderHint;
 
-  const nearAccountId = toAccountId(args.nearAccountId);
+  const walletId = toAccountId(args.walletId);
   const context = await resolveProfileAccountContextFromCandidates(
     args.deps.indexedDB.clientDB,
-    buildNearAccountRefs(nearAccountId),
+    buildNearAccountRefs(walletId),
   );
   if (!context?.profileId) {
     throw new Error(
-      `[SigningEngine] unable to resolve profile mapping for managed ${args.request.chain.toUpperCase()} nonce (${String(nearAccountId)})`,
+      `[SigningEngine] unable to resolve profile mapping for managed ${args.request.chain.toUpperCase()} nonce (${String(walletId)})`,
     );
   }
 

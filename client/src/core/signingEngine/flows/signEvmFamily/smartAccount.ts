@@ -25,7 +25,7 @@ export type EvmFamilySmartAccountDeps = {
 
 export async function ensureSmartAccountDeploymentReady(args: {
   deps: EvmFamilySmartAccountDeps;
-  nearAccountId: string;
+  walletId: string;
   request: TempoSigningRequest | EvmSigningRequest;
   thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
   onEvent?: EvmFamilyLifecycleEventCallback;
@@ -40,14 +40,14 @@ export async function ensureSmartAccountDeploymentReady(args: {
   emitEvmFamilySigningEvent(args.onEvent, {
     phase: SigningEventPhase.STEP_04_ACCOUNT_READINESS_STARTED,
     status: 'running',
-    accountId: args.nearAccountId,
+    accountId: args.walletId,
     interaction: { kind: 'none', overlay: 'none' },
     data: deploymentEventData,
   });
   try {
     const deployment = await ensureSmartAccountDeployed({
       clientDB: args.deps.indexedDB.clientDB,
-      nearAccountId: toAccountId(args.nearAccountId),
+      walletId: toAccountId(args.walletId),
       chainTargetCandidates: target.chainTargetCandidates,
       accountModelCandidates: target.accountModelCandidates,
       maxDeployAttempts: resolveSmartAccountDeploymentMaxAttempts(args.deps.seamsPasskeyConfigs),
@@ -100,7 +100,7 @@ export async function ensureSmartAccountDeploymentReady(args: {
         ? SigningEventPhase.STEP_04_ACCOUNT_READINESS_SUCCEEDED
         : SigningEventPhase.STEP_04_ACCOUNT_READINESS_SKIPPED,
       status: deploymentReady ? 'succeeded' : 'skipped',
-      accountId: args.nearAccountId,
+      accountId: args.walletId,
       interaction: { kind: 'none', overlay: 'none' },
       data: {
         ...deploymentEventData,
@@ -120,7 +120,7 @@ export async function ensureSmartAccountDeploymentReady(args: {
     emitEvmFamilySigningEvent(args.onEvent, {
       phase: SigningEventPhase.FAILED,
       status: 'failed',
-      accountId: args.nearAccountId,
+      accountId: args.walletId,
       interaction: { kind: 'none', overlay: 'hide' },
       data: deploymentEventData,
       error: { message: details },

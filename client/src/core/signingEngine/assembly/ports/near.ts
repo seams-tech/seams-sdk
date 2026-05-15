@@ -3,7 +3,7 @@ import type { AccountId } from '@/core/types/accountIds';
 import type { NearSigningApiDeps } from '../../interfaces/operationDeps';
 import { getStoredThresholdEd25519SessionRecordForAccount } from '../../session/persistence/records';
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
-import { resolveEvmFamilyTransactionAccountAuth } from '../../flows/signEvmFamily/accountAuth';
+import { resolveEvmFamilyTransactionWalletAuth } from '../../flows/signEvmFamily/accountAuth';
 import { createWarmSessionCapabilityReader } from '../../session/warmCapabilities/capabilityReader';
 import { createWarmSessionStatusReader } from '../../session/warmCapabilities/statusReader';
 import { generateSessionId as generateSessionIdValue } from '../../session/passkey/prfCache';
@@ -38,6 +38,7 @@ export function createNearSigningDeps(args: {
     getSignerWorkerContext: () => createArgs.signerWorkerManager.getContext(),
     requestEmailOtpTransactionSigningChallenge: ({ nearAccountId, chain, authLane }) =>
       createArgs.requestEmailOtpTransactionSigningChallenge?.({
+        kind: 'near_account_challenge',
         nearAccountId,
         chain,
         ...(authLane ? { authLane } : {}),
@@ -45,6 +46,7 @@ export function createNearSigningDeps(args: {
     resolveEmailOtpSigningSessionAuthLane: ({ thresholdSessionId, curve }) =>
       createWarmSessionCapabilityReader({
         touchConfirm: createArgs.touchConfirm,
+        getEmailOtpWarmSessionStatus,
       }).resolveEmailOtpSigningSessionAuthLane({ thresholdSessionId, curve }),
     isEmailOtpEd25519WarmupPending: ({ nearAccountId }) =>
       createArgs.isEmailOtpEd25519WarmupPending?.({ nearAccountId }) === true,
@@ -72,9 +74,9 @@ export function createNearSigningDeps(args: {
     readAvailableSigningLanesForSigning: (snapshotArgs) =>
       createArgs.readAvailableSigningLanesForSigning(snapshotArgs),
     resolveAccountAuthMethodForSigning: async ({ nearAccountId }) => {
-      const accountAuth = await resolveEvmFamilyTransactionAccountAuth({
+      const accountAuth = await resolveEvmFamilyTransactionWalletAuth({
         deps: { indexedDB: IndexedDBManager },
-        nearAccountId: String(nearAccountId),
+        walletId: String(nearAccountId),
         senderSignatureAlgorithm: 'secp256k1',
       });
       return accountAuth.primaryAuthMethod === 'email_otp' ? 'email_otp' : 'passkey';

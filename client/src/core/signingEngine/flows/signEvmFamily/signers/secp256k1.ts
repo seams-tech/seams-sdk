@@ -157,7 +157,7 @@ async function clearEmailOtpWorkerSessionBestEffort(args: {
 }
 
 export type ThresholdEcdsaCommitQueueEnqueueFn = <T>(args: {
-  nearAccountId: string;
+  walletId: string;
   thresholdSessionId: string;
   shouldAbort?: () => boolean;
   task: () => Promise<T>;
@@ -255,14 +255,14 @@ export class Secp256k1Engine implements Signer {
       }
 
       const resolvedAuthMaterial =
-        createWarmSessionCapabilityReader().resolveEcdsaAuthByThresholdSessionId(
+        createWarmSessionCapabilityReader({}).resolveEcdsaAuthByThresholdSessionId(
           keyRefThresholdSessionId,
         );
       const canonicalRecord = resolvedAuthMaterial?.record || null;
       const requestChain = inferThresholdEcdsaSessionChainFromLabel(req.label);
       const canonicalRecordMatchesKeyRefLane =
         !!canonicalRecord &&
-        String(canonicalRecord.nearAccountId || '') === String(keyRef.userId || '') &&
+        String(canonicalRecord.walletId || '') === String(keyRef.userId || '') &&
         (!requestChain || canonicalRecord.chainTarget.kind === requestChain) &&
         String(canonicalRecord.ecdsaThresholdKeyId || '') ===
           String(keyRef.ecdsaThresholdKeyId || '') &&
@@ -512,7 +512,7 @@ export class Secp256k1Engine implements Signer {
 
     if (this.enqueueThresholdEcdsaCommit) {
       return await this.enqueueThresholdEcdsaCommit({
-        nearAccountId: keyRef.userId,
+        walletId: keyRef.userId,
         thresholdSessionId: keyRefThresholdSessionId,
         shouldAbort: this.shouldAbort,
         task: runCommit,

@@ -34,7 +34,7 @@ export type SmartAccountDeployerResult = {
 };
 
 export type SmartAccountDeployerInput = {
-  nearAccountId: AccountId;
+  walletId: AccountId;
   chainTarget: ThresholdEcdsaChainTarget;
   account: ChainAccountRecord;
 };
@@ -258,7 +258,7 @@ async function upsertDeploymentCheckState(args: {
 
 export async function ensureSmartAccountDeployed(args: {
   clientDB: SmartAccountStatePort;
-  nearAccountId: AccountId | string;
+  walletId: AccountId | string;
   chainTargetCandidates: ThresholdEcdsaChainTarget[];
   accountModelCandidates: string[];
   deploy?: (input: SmartAccountDeployerInput) => Promise<SmartAccountDeployerResult>;
@@ -268,7 +268,7 @@ export async function ensureSmartAccountDeployed(args: {
   now?: () => number;
 }): Promise<EnsureSmartAccountDeployedResult> {
   const checkedAt = (args.now || Date.now)();
-  const nearAccountId = toAccountId(args.nearAccountId);
+  const walletId = toAccountId(args.walletId);
   const enforce = !!args.enforce;
   const maxDeployAttempts = normalizeSmartAccountDeploymentAttempts(args.maxDeployAttempts, 1);
   const targetsByKey = new Map<string, ThresholdEcdsaChainTarget>();
@@ -279,12 +279,12 @@ export async function ensureSmartAccountDeployed(args: {
 
   const context = await resolveProfileAccountContextFromCandidates(
     args.clientDB as any,
-    buildNearAccountRefs(nearAccountId),
+    buildNearAccountRefs(walletId),
   ).catch(() => null);
   if (!context?.profileId) {
     if (enforce) {
       throw new Error(
-        `[deployment] missing profile/account mapping for ${String(nearAccountId)}; cannot enforce smart-account deployment`,
+        `[deployment] missing profile/account mapping for ${String(walletId)}; cannot enforce smart-account deployment`,
       );
     }
     return { status: 'skipped_missing_context', checkedAt, attempts: 0 };
@@ -405,7 +405,7 @@ export async function ensureSmartAccountDeployed(args: {
           };
         }
         const deployResult = await args.deploy!({
-          nearAccountId,
+          walletId,
           chainTarget: resolvedChainTarget,
           account: current,
         });
@@ -420,7 +420,7 @@ export async function ensureSmartAccountDeployed(args: {
           if (typeof args.reportDeployed === 'function') {
             await args
               .reportDeployed({
-                nearAccountId,
+                walletId,
                 chainTarget: resolvedChainTarget,
                 account: deployed,
                 deploymentTxHash: normalizeOptionalNonEmptyString(deployResult.deploymentTxHash),

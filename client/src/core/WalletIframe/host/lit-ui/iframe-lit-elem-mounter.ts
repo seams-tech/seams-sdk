@@ -26,6 +26,7 @@
  */
 
 import type { SeamsPasskey } from '@/core/SeamsPasskey';
+import { nearAccountRefFromAccountId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { SignAndSendTransactionHooksOptions } from '@/core/types/sdkSentEvents';
 import {
   fromTransactionInputsWasm,
@@ -356,7 +357,7 @@ export function setupLitElemMounter(opts: SetupLitElemMounterOptions) {
           throw new Error('nearAccountId and transactions required');
         }
         return await pm.near.signAndSendTransactions({
-          nearAccountId,
+          nearAccount: nearAccountRefFromAccountId(nearAccountId),
           transactions,
           options,
         });

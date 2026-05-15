@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { toWalletSubjectId } from '@seams/sdk';
+import { walletSessionRefFromSession, walletSubjectIdFromWalletProfile } from '@seams/sdk';
 import { useSeams } from '@seams/sdk/react';
 import { toast } from 'sonner';
 import { resolveDemoThresholdEcdsaChainTarget } from '../demoChainTargets';
+
+const SESSION_STATUS_AUTO_REFRESH_MS = 15_000;
 
 export type DemoSigningSessionStatus = {
   sessionId: string;
@@ -125,8 +127,9 @@ export function useDemoSigningSession(args: UseDemoSigningSessionArgs) {
   useEffect(() => {
     if (!isLoggedIn || !nearAccountId) return undefined;
     const id = window.setInterval(() => {
+      if (document.visibilityState === 'hidden') return;
       void refreshSessionStatus({ silent: true });
-    }, 3000);
+    }, SESSION_STATUS_AUTO_REFRESH_MS);
     return () => window.clearInterval(id);
   }, [isLoggedIn, nearAccountId, refreshSessionStatus]);
 
@@ -144,7 +147,7 @@ export function useDemoSigningSession(args: UseDemoSigningSessionArgs) {
     setUnlockLoading(true);
     toast.loading('Creating signing session…', { id: 'unlock-session' });
     try {
-      const currentSession = walletSession ?? (await seams.auth.getWalletSession(nearAccountId));
+      const currentSession = await seams.auth.getWalletSession(nearAccountId);
       const authMethod =
         currentSession.authMethod ||
         currentSession.signingSession?.authMethod ||
@@ -156,8 +159,11 @@ export function useDemoSigningSession(args: UseDemoSigningSessionArgs) {
           throw new Error('Email OTP per-operation policy does not support reusable sessions');
         }
         const challenge = await seams.auth.requestEmailOtpSigningSessionChallenge({
-          nearAccountId,
-          subjectId: toWalletSubjectId(nearAccountId),
+          walletSession: walletSessionRefFromSession({
+            walletId: nearAccountId,
+            userId: nearAccountId,
+          }),
+          subjectId: walletSubjectIdFromWalletProfile({ walletId: nearAccountId }),
           chainTarget: resolveDemoThresholdEcdsaChainTarget('tempo'),
         });
         const emailHint = String(challenge.emailHint || '').trim();
@@ -172,8 +178,11 @@ export function useDemoSigningSession(args: UseDemoSigningSessionArgs) {
           throw new Error('Email OTP signing session requires a 6-digit code');
         }
         await seams.auth.refreshEmailOtpSigningSession({
-          nearAccountId,
-          subjectId: toWalletSubjectId(nearAccountId),
+          walletSession: walletSessionRefFromSession({
+            walletId: nearAccountId,
+            userId: nearAccountId,
+          }),
+          subjectId: walletSubjectIdFromWalletProfile({ walletId: nearAccountId }),
           chainTarget: resolveDemoThresholdEcdsaChainTarget('tempo'),
           challengeId: challenge.challengeId,
           otpCode,

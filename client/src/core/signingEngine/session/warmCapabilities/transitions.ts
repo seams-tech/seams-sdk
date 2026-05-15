@@ -17,7 +17,7 @@ export type WarmSessionTransitionCapabilitySnapshot = {
 };
 
 export type WarmSessionTransitionSnapshot = {
-  accountId: AccountId;
+  walletId: AccountId;
   capabilities: {
     ed25519: WarmSessionTransitionCapabilitySnapshot;
     ecdsa: {
@@ -31,14 +31,14 @@ export type WarmSessionTransitionSnapshot = {
 export type WarmSessionTransitionEvent =
   | {
       type: 'ed25519_capability_provisioned';
-      accountId: AccountId;
+      walletId: AccountId;
       thresholdSessionId: string;
       before: WarmSessionTransitionSnapshot;
       after: WarmSessionTransitionSnapshot;
     }
   | {
       type: 'ecdsa_capability_provisioned' | 'ecdsa_capability_reconnected';
-      accountId: AccountId;
+      walletId: AccountId;
       chainTarget: ThresholdEcdsaChainTarget;
       thresholdSessionId: string;
       before: WarmSessionTransitionSnapshot;
@@ -69,7 +69,7 @@ export function summarizeWarmSessionTransition(
   envelope: WarmSessionEnvelope,
 ): WarmSessionTransitionSnapshot {
   return {
-    accountId: envelope.accountId,
+    walletId: envelope.walletId,
     capabilities: {
       ed25519: summarizeWarmSessionCapabilityTransition(envelope.capabilities.ed25519),
       ecdsa: {
@@ -92,7 +92,7 @@ export function emitWarmSessionTransition(args: {
       void Promise.resolve(pending).catch((error) => {
         console.warn('[WarmSessionStore] warm-session transition callback failed', {
           type: args.event.type,
-          accountId: args.event.accountId,
+          walletId: args.event.walletId,
           error,
         });
       });
@@ -100,7 +100,7 @@ export function emitWarmSessionTransition(args: {
   } catch (error) {
     console.warn('[WarmSessionStore] warm-session transition callback failed', {
       type: args.event.type,
-      accountId: args.event.accountId,
+      walletId: args.event.walletId,
       error,
     });
   }

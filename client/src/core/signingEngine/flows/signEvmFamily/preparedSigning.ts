@@ -32,7 +32,9 @@ import {
 } from '../../session/operationState/transactionState';
 import { SigningSessionIds } from '../../session/operationState/types';
 import {
+  thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
+  type WalletSessionRef,
   type WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { type PreparedThresholdSigningOperation } from '../../session/operationState/preparedOperation';
@@ -71,7 +73,7 @@ import {
   resolveEvmFamilyEcdsaPlannerReadiness,
   type EvmFamilyPreConfirmSigningDeps,
 } from './authPlanning';
-import { resolveEvmFamilyTransactionAccountAuth } from './accountAuth';
+import { resolveEvmFamilyTransactionWalletAuth } from './accountAuth';
 import type { EvmFamilySigningTarget } from './types';
 
 function buildEvmFamilyTransactionSigningIntent(args: {
@@ -157,6 +159,38 @@ function summarizeEcdsaAvailableLane(
     expiresAtMs: lane.expiresAtMs,
     updatedAtMs: lane.updatedAtMs,
   };
+}
+
+function summarizeEcdsaAvailableCandidatesByTarget(
+  availableLanes: AvailableSigningLanes,
+): Record<string, unknown[]> {
+  return Object.fromEntries(
+    Object.entries(availableLanes.ecdsa.candidatesByTarget).map(([targetKey, candidates]) => [
+      targetKey,
+      candidates.map((candidate) => summarizeEcdsaAvailableLane(candidate)),
+    ]),
+  );
+}
+
+function emitVisibleEcdsaLaneDiagnostic(label: string, payload: Record<string, unknown>): void {
+  try {
+    console.warn(label, JSON.stringify(payload, null, 2));
+  } catch {
+    try {
+      console.warn(label, payload);
+    } catch {}
+  }
+}
+
+function summarizeEcdsaSelectedLanesByTarget(
+  availableLanes: AvailableSigningLanes,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(availableLanes.ecdsa.lanesByTarget).map(([targetKey, lane]) => [
+      targetKey,
+      summarizeEcdsaAvailableLane(lane),
+    ]),
+  );
 }
 
 function summarizeEcdsaLaneCandidate(
@@ -254,10 +288,7 @@ function readinessFromSelection(selection: EvmFamilyEcdsaSigningSelectionResult)
     case 'budget_blocked':
       return {
         readiness: {
-          status:
-            'status' in selection.budget && selection.budget.status === 'budget_unknown'
-              ? 'budget_unknown'
-              : 'exhausted',
+          status: 'budget_unknown',
           thresholdSessionId: selection.lane.thresholdSessionId,
         },
         expiresAtMs: Math.floor(Number(selection.material.record.expiresAtMs) || 0),
@@ -329,7 +360,7 @@ export type PrepareEvmFamilyEcdsaSigningDeps = EvmFamilyEcdsaSigningSelectionDep
 
 export async function prepareEvmFamilyEcdsaSigningSession(args: {
   deps: PrepareEvmFamilyEcdsaSigningDeps;
-  nearAccountId: string;
+  walletSession: WalletSessionRef;
   subjectId: WalletSubjectId;
   signingTarget: EvmFamilySigningTarget;
   diagnostics: Record<string, unknown>;
@@ -338,9 +369,10 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
 }): Promise<PreparedEvmFamilyEcdsaSigningSession> {
   const chainTarget = args.signingTarget;
   const chain = chainTarget.kind;
+  const walletId = String(args.walletSession.walletId);
   const preparedTransaction = await prepareTransactionSigningOperation({
     intent: buildEvmFamilyTransactionSigningIntent({
-      walletId: args.nearAccountId,
+      walletId,
       authSelectionPolicy: { kind: 'account_class', authMethod: 'passkey' },
       operationUsesNeeded: 1,
       signingTarget: args.signingTarget,
@@ -353,7 +385,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
     lifecycleAdapter: {
       prepare: async () => {
         const candidateAvailableLanes = await args.deps.readAvailableSigningLanesForSigning({
-          walletId: args.nearAccountId,
+          walletId,
           subjectId: args.subjectId,
           curve: 'ecdsa',
           ecdsaChainTargets: [chainTarget],
@@ -362,26 +394,39 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           availableLanes: candidateAvailableLanes,
           signingTarget: args.signingTarget,
         });
-        emitSigningSessionFlowTrace('evm-family', {
-          stage: 'ecdsa_prepare.available_lanes_read',
-          accountId: args.nearAccountId,
+        const laneReadDiagnostic = {
+          accountId: walletId,
+          subjectId: args.subjectId,
           chain,
           chainTarget,
+          targetKey: thresholdEcdsaChainTargetKey(chainTarget),
           candidateCount: ecdsaAvailableLaneCandidatesForTarget(
             candidateAvailableLanes,
             chainTarget,
           ).length,
           currentRuntimeLane: summarizeEcdsaAvailableLane(currentRuntimeLane),
+          selectedLanesByTarget: summarizeEcdsaSelectedLanesByTarget(candidateAvailableLanes),
+          candidatesByTarget: summarizeEcdsaAvailableCandidatesByTarget(candidateAvailableLanes),
+        };
+        if (laneReadDiagnostic.candidateCount === 0) {
+          emitVisibleEcdsaLaneDiagnostic(
+            '[ECDSA_LANE_READ_DIAGNOSTIC][no-candidates]',
+            laneReadDiagnostic,
+          );
+        }
+        emitSigningSessionFlowTrace('evm-family', {
+          stage: 'ecdsa_prepare.available_lanes_read',
+          ...laneReadDiagnostic,
         });
-        const accountAuth = await resolveEvmFamilyTransactionAccountAuth({
+        const accountAuth = await resolveEvmFamilyTransactionWalletAuth({
           deps: args.deps,
-          nearAccountId: args.nearAccountId,
+          walletId,
           senderSignatureAlgorithm: 'secp256k1',
         });
         const primaryAuthMethod =
           accountAuth.primaryAuthMethod === 'email_otp' ? 'email_otp' : 'passkey';
         const transactionIntent: TransactionSigningIntent = buildEvmFamilyTransactionSigningIntent({
-          walletId: args.nearAccountId,
+          walletId,
           authSelectionPolicy: { kind: 'account_class', authMethod: primaryAuthMethod },
           operationUsesNeeded: 1,
           signingTarget: args.signingTarget,
@@ -393,7 +438,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
         });
         emitSigningSessionFlowTrace('evm-family', {
           stage: 'ecdsa_prepare.lane_selected',
-          accountId: args.nearAccountId,
+          accountId: walletId,
           chain,
           chainTarget,
           primaryAuthMethod,
@@ -414,7 +459,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           if (selectedLane.failure.kind !== 'no_candidate') {
             emitSigningSessionFlowFailure('evm-family', {
               stage: 'ecdsa_prepare.lane_selection_failed',
-              accountId: args.nearAccountId,
+              accountId: walletId,
               chain,
               chainTarget,
               primaryAuthMethod,
@@ -441,17 +486,25 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           ? (selectedLane.lane as SelectedEcdsaLane)
           : null;
         if (!selectedAvailableLane || !laneCandidate || !transactionLane) {
-          emitSigningSessionFlowFailure('evm-family', {
+          const noLaneDiagnostic = {
             stage: 'ecdsa_prepare.exact_available_lane_missing',
-            accountId: args.nearAccountId,
+            accountId: walletId,
+            subjectId: args.subjectId,
             chain,
             chainTarget,
+            targetKey: thresholdEcdsaChainTargetKey(chainTarget),
             primaryAuthMethod,
             candidateCount: ecdsaAvailableLaneCandidatesForTarget(
               candidateAvailableLanes,
               chainTarget,
             ).length,
-          });
+            ecdsaTargets: candidateAvailableLanes.ecdsa.targets,
+            selectedLanesByTarget: summarizeEcdsaSelectedLanesByTarget(candidateAvailableLanes),
+            candidatesByTarget: summarizeEcdsaAvailableCandidatesByTarget(candidateAvailableLanes),
+            selectedLaneFailure: selectedLane.ok ? undefined : selectedLane.failure,
+          };
+          emitVisibleEcdsaLaneDiagnostic('[ECDSA_NO_LANE_DIAGNOSTIC]', noLaneDiagnostic);
+          emitSigningSessionFlowFailure('evm-family', noLaneDiagnostic);
           throw new Error(
             `[SigningEngine][ecdsa] transaction restore requires an exact available lane for ${chain}`,
           );
@@ -472,7 +525,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
         if (shouldRestoreAvailableLane) {
           emitSigningSessionFlowTrace('evm-family', {
             stage: 'ecdsa_prepare.restore_start',
-            accountId: args.nearAccountId,
+            accountId: walletId,
             chain,
             chainTarget,
             authMethod,
@@ -488,7 +541,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           };
           try {
             const result = await args.deps.restorePersistedSessionForSigning({
-              walletId: args.nearAccountId,
+              walletId,
               authMethod,
               curve: 'ecdsa',
               chainTarget,
@@ -502,7 +555,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
             restoreResults[authMethod] = { error: message };
             emitSigningSessionFlowFailure('evm-family', {
               stage: 'ecdsa_prepare.restore_failed',
-              accountId: args.nearAccountId,
+              accountId: walletId,
               chain,
               chainTarget,
               authMethod,
@@ -523,7 +576,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           }
           emitSigningSessionFlowTrace('evm-family', {
             stage: 'ecdsa_prepare.restore_succeeded',
-            accountId: args.nearAccountId,
+            accountId: walletId,
             chain,
             chainTarget,
             authMethod,
@@ -548,7 +601,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
 
         const selection = await resolveEvmFamilyEcdsaSigningSelection({
           deps: args.deps,
-          nearAccountId: args.nearAccountId,
+          walletId,
           subjectId: transactionLane.subjectId,
           chain,
           chainTarget,
@@ -559,7 +612,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
         });
         emitSigningSessionFlowTrace('evm-family', {
           stage: 'ecdsa_prepare.material_selected',
-          accountId: args.nearAccountId,
+          accountId: walletId,
           chain,
           chainTarget,
           selectionKind: selection.kind,
@@ -574,7 +627,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
         if (selection.kind === 'missing_material') {
           emitSigningSessionFlowFailure('evm-family', {
             stage: 'ecdsa_selection.exact_material_missing',
-            accountId: args.nearAccountId,
+            accountId: walletId,
             chain,
             chainTarget,
             authMethod: selection.authMethod,
@@ -588,7 +641,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
         if (selection.kind === 'budget_blocked') {
           emitSigningSessionFlowFailure('evm-family', {
             stage: 'ecdsa_prepare.selection_budget_blocked',
-            accountId: args.nearAccountId,
+            accountId: walletId,
             chain,
             chainTarget,
             authMethod: selection.authMethod,
@@ -597,13 +650,11 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
             budget: selection.budget,
           });
           throw new Error(
-            'status' in selection.budget && selection.budget.status === 'budget_unknown'
-              ? '[SigningEngine][ecdsa] selected ECDSA lane budget is budget_unknown'
-              : '[SigningEngine][ecdsa] selected ECDSA lane budget is exhausted',
+            '[SigningEngine][ecdsa] selected ECDSA lane budget is budget_unknown',
           );
         }
         const availableLanes = await args.deps.readAvailableSigningLanesForSigning({
-          walletId: args.nearAccountId,
+          walletId,
           subjectId: transactionLane.subjectId,
           curve: 'ecdsa',
           ecdsaChainTargets: [chainTarget],
@@ -642,7 +693,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
             : readinessFromSelection(selection);
         emitSigningSessionFlowTrace('evm-family', {
           stage: 'ecdsa_prepare.readiness',
-          accountId: args.nearAccountId,
+          accountId: walletId,
           chain,
           chainTarget,
           authMethod: selection.authMethod,

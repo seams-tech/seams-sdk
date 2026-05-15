@@ -74,8 +74,11 @@ import type {
 } from '../signingEngine/threshold/crypto/hssClientSignerWasm';
 import type { ThresholdEcdsaLoginPrefillResult } from '../signingEngine/SigningEngine';
 import {
+  nearAccountRefFromAccountId,
   thresholdEcdsaChainTargetFromRequest,
   type ThresholdEcdsaChainTarget,
+  type WalletId,
+  type WalletSessionRef,
   type WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EmailOtpWorkerProgressEvent } from '../signingEngine/workerManager/workerTypes';
@@ -150,19 +153,19 @@ export class SeamsPasskey {
       signingEngine: this.signingEngine,
       userPreferences: userPreferences,
       getTheme: () => this.theme,
-      refreshWalletSession: async (nearAccountId?: string) => {
-        await this.getWalletSession(nearAccountId);
+      refreshWalletSession: async (walletId?: string) => {
+        await this.getWalletSession(walletId);
       },
     });
     this.preferences = {
-      setCurrentUser: (nearAccountId: AccountId): void => {
-        userPreferences.setCurrentUser(nearAccountId);
+      setCurrentWallet: (walletId: WalletId): void => {
+        userPreferences.setCurrentWallet(walletId);
       },
-      getCurrentUserAccountId: (): AccountId => userPreferences.getCurrentUserAccountId(),
+      getCurrentWalletId: (): WalletId | null => userPreferences.getCurrentWalletId(),
       onConfirmationConfigChange: (callback): (() => void) =>
         userPreferences.onConfirmationConfigChange(callback),
-      onCurrentUserChange: (callback): (() => void) =>
-        userPreferences.onCurrentUserChange(callback),
+      onCurrentWalletChange: (callback): (() => void) =>
+        userPreferences.onCurrentWalletChange(callback),
       setConfirmBehavior: (behavior): void => {
         if (this.walletIframe.shouldUseWalletIframe()) {
           void (async () => {
@@ -192,7 +195,7 @@ export class SeamsPasskey {
     this.auth = {
       unlock: async (nearAccountId, options) => await this.unlock(nearAccountId, options),
       lock: async () => await this.lock(),
-      getWalletSession: async (nearAccountId) => await this.getWalletSession(nearAccountId),
+      getWalletSession: async (walletId) => await this.getWalletSession(walletId),
       getRecentUnlocks: async () => await this.getRecentUnlocks(),
       hasPasskeyCredential: async (nearAccountId) => await this.hasPasskeyCredential(nearAccountId),
       prefillThresholdEcdsaPresignPool: async (args) =>
@@ -255,8 +258,8 @@ export class SeamsPasskey {
    * Always warms local resources; initializes iframe when wallet mode is `iframe`.
    * Idempotent and safe to call multiple times.
    */
-  async initWalletIframe(nearAccountId?: string): Promise<void> {
-    await this.walletIframe.init(nearAccountId);
+  async initWalletIframe(walletId?: string): Promise<void> {
+    await this.walletIframe.init(walletId);
   }
 
   /** True when the wallet iframe client is connected and ready. */
@@ -271,7 +274,7 @@ export class SeamsPasskey {
 
   /** Subscribe to wallet-host login status updates. */
   onWalletIframeLoginStatusChanged(
-    listener: (status: { isLoggedIn: boolean; nearAccountId: string | null }) => void,
+    listener: (status: { isLoggedIn: boolean; walletId: string | null }) => void,
   ): () => void {
     return this.walletIframe.onLoginStatusChanged(listener);
   }
@@ -298,8 +301,8 @@ export class SeamsPasskey {
       walletIframe: this.walletIframe,
       signingEngine: this.signingEngine,
       nearClient: this.nearClient,
-      initWalletIframe: async (nearAccountId?: string) => {
-        await this.initWalletIframe(nearAccountId);
+      initWalletIframe: async (walletId?: string) => {
+        await this.initWalletIframe(walletId);
       },
     };
   }
@@ -510,8 +513,8 @@ export class SeamsPasskey {
   /**
    * Read wallet session state + warm signing session status (no prompts).
    */
-  async getWalletSession(nearAccountId?: string): Promise<WalletSession> {
-    return await getWalletSessionDomain(this.getAuthSessionDeps(), nearAccountId);
+  async getWalletSession(walletId?: string): Promise<WalletSession> {
+    return await getWalletSessionDomain(this.getAuthSessionDeps(), walletId);
   }
 
   /**
@@ -522,7 +525,8 @@ export class SeamsPasskey {
   }
 
   async prefillThresholdEcdsaPresignPool(args: {
-    nearAccountId: string;
+    walletSession: WalletSessionRef;
+    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     waitForPoolReady?: boolean;
     poolReadyTimeoutMs?: number;
@@ -851,30 +855,31 @@ export class SeamsPasskey {
   }
 
   async requestEmailOtpSigningSessionChallenge(args: {
-    nearAccountId: string;
+    walletSession: WalletSessionRef;
     subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     onEvent?: (event: UnlockFlowEvent) => void;
   }): Promise<{ challengeId: string; emailHint?: string }> {
-    const flowId = this.emailOtpUnlockFlowId(args.nearAccountId);
+    const walletId = args.walletSession.walletId;
+    const flowId = this.emailOtpUnlockFlowId(walletId);
     this.emitEmailOtpUnlockEvent(args.onEvent, {
       flowId,
-      accountId: args.nearAccountId,
+      accountId: walletId,
       authMethod: 'email_otp',
       phase: UnlockEventPhase.STEP_03_EMAIL_OTP_CHALLENGE_STARTED,
       status: 'running',
     });
     try {
       if (this.walletIframe.shouldUseWalletIframe()) {
-        const router = await this.walletIframe.requireRouter(args.nearAccountId);
+        const router = await this.walletIframe.requireRouter(walletId);
         const result = await router.requestEmailOtpSigningSessionChallenge({
-          nearAccountId: args.nearAccountId,
+          walletSession: args.walletSession,
           subjectId: args.subjectId,
           chainTarget: args.chainTarget,
         });
         this.emitEmailOtpUnlockEvent(args.onEvent, {
-          flowId: this.emailOtpUnlockFlowId(args.nearAccountId, result.challengeId),
-          accountId: args.nearAccountId,
+          flowId: this.emailOtpUnlockFlowId(walletId, result.challengeId),
+          accountId: walletId,
           authMethod: 'email_otp',
           phase: UnlockEventPhase.STEP_03_EMAIL_OTP_CHALLENGE_SENT,
           status: 'succeeded',
@@ -883,13 +888,13 @@ export class SeamsPasskey {
         return result;
       }
       const result = await this.signingEngine.requestEmailOtpSigningSessionChallenge({
-        nearAccountId: toAccountId(args.nearAccountId),
+        walletSession: args.walletSession,
         subjectId: args.subjectId,
         chainTarget: args.chainTarget,
       });
       this.emitEmailOtpUnlockEvent(args.onEvent, {
-        flowId: this.emailOtpUnlockFlowId(args.nearAccountId, result.challengeId),
-        accountId: args.nearAccountId,
+        flowId: this.emailOtpUnlockFlowId(walletId, result.challengeId),
+        accountId: walletId,
         authMethod: 'email_otp',
         phase: UnlockEventPhase.STEP_03_EMAIL_OTP_CHALLENGE_SENT,
         status: 'succeeded',
@@ -900,7 +905,7 @@ export class SeamsPasskey {
       const e = toError(error);
       this.emitEmailOtpUnlockFailure(args.onEvent, {
         flowId,
-        accountId: args.nearAccountId,
+        accountId: walletId,
         authMethod: 'email_otp',
         error: e,
       });
@@ -1080,7 +1085,7 @@ export class SeamsPasskey {
         return result;
       }
       const result = await this.signingEngine.enrollEmailOtpInternal({
-        nearAccountId: args.nearAccountId,
+        walletId: args.nearAccountId,
         otpCode: args.otpCode,
         ...(args.relayUrl ? { relayUrl: args.relayUrl } : {}),
         ...(args.challengeId ? { challengeId: args.challengeId } : {}),
@@ -1135,11 +1140,12 @@ export class SeamsPasskey {
   async loginWithEmailOtpEcdsaCapability(
     args: EmailOtpEcdsaCapabilityArgs,
   ): Promise<Awaited<ReturnType<SigningEngine['loginWithEmailOtpEcdsaCapabilityInternal']>>> {
-    const flowId = this.emailOtpUnlockFlowId(args.nearAccountId, args.challengeId);
+    const walletId = args.walletSession.walletId;
+    const flowId = this.emailOtpUnlockFlowId(walletId, args.challengeId);
     const chainTarget = requireConcreteEcdsaChainTarget(args.chainTarget, 'Email OTP ECDSA unlock');
     this.emitEmailOtpUnlockEvent(args.onEvent, {
       flowId,
-      accountId: args.nearAccountId,
+      accountId: walletId,
       authMethod: 'email_otp',
       phase: UnlockEventPhase.STEP_03_EMAIL_OTP_VERIFY_STARTED,
       status: 'running',
@@ -1148,13 +1154,13 @@ export class SeamsPasskey {
     });
     try {
       if (this.walletIframe.shouldUseWalletIframe()) {
-        const router = await this.walletIframe.requireRouter(args.nearAccountId);
+        const router = await this.walletIframe.requireRouter(walletId);
         const iframeArgs = { ...args, chainTarget };
         delete iframeArgs.onEvent;
         const result = await router.loginWithEmailOtpEcdsaCapability(iframeArgs);
         this.emitEmailOtpUnlockEvent(args.onEvent, {
           flowId,
-          accountId: args.nearAccountId,
+          accountId: walletId,
           authMethod: 'email_otp',
           phase: UnlockEventPhase.STEP_03_EMAIL_OTP_VERIFY_SUCCEEDED,
           status: 'succeeded',
@@ -1163,7 +1169,7 @@ export class SeamsPasskey {
         });
         this.emitEmailOtpUnlockEvent(args.onEvent, {
           flowId,
-          accountId: args.nearAccountId,
+          accountId: walletId,
           authMethod: 'email_otp',
           phase: UnlockEventPhase.STEP_05_ECDSA_SIGNING_SESSION_READY,
           status: 'succeeded',
@@ -1172,7 +1178,7 @@ export class SeamsPasskey {
         });
         this.emitEmailOtpUnlockEvent(args.onEvent, {
           flowId,
-          accountId: args.nearAccountId,
+          accountId: walletId,
           authMethod: 'email_otp',
           phase: UnlockEventPhase.STEP_07_COMPLETED,
           status: 'succeeded',
@@ -1184,7 +1190,7 @@ export class SeamsPasskey {
       const markWorkerProgress = (progress: EmailOtpWorkerProgressEvent) => {
         const phase = this.emitEmailOtpUnlockWorkerProgress(args.onEvent, {
           flowId,
-          accountId: args.nearAccountId,
+          accountId: walletId,
           challengeId: args.challengeId,
           chainTarget,
           progress,
@@ -1202,7 +1208,7 @@ export class SeamsPasskey {
       });
       emitIfWorkerProgressMissing({
         flowId,
-        accountId: args.nearAccountId,
+        accountId: walletId,
         authMethod: 'email_otp',
         phase: UnlockEventPhase.STEP_03_EMAIL_OTP_VERIFY_SUCCEEDED,
         status: 'succeeded',
@@ -1211,7 +1217,7 @@ export class SeamsPasskey {
       });
       emitIfWorkerProgressMissing({
         flowId,
-        accountId: args.nearAccountId,
+        accountId: walletId,
         authMethod: 'email_otp',
         phase: UnlockEventPhase.STEP_05_ECDSA_SIGNING_SESSION_READY,
         status: 'succeeded',
@@ -1220,7 +1226,7 @@ export class SeamsPasskey {
       });
       emitIfWorkerProgressMissing({
         flowId,
-        accountId: args.nearAccountId,
+        accountId: walletId,
         authMethod: 'email_otp',
         phase: UnlockEventPhase.STEP_07_COMPLETED,
         status: 'succeeded',
@@ -1231,7 +1237,7 @@ export class SeamsPasskey {
       const e = toError(error);
       this.emitEmailOtpUnlockFailure(args.onEvent, {
         flowId,
-        accountId: args.nearAccountId,
+        accountId: walletId,
         authMethod: 'email_otp',
         ...(args.challengeId ? { requestId: args.challengeId } : {}),
         error: e,
@@ -1241,7 +1247,7 @@ export class SeamsPasskey {
   }
 
   async refreshEmailOtpSigningSession(args: {
-    nearAccountId: string;
+    walletSession: WalletSessionRef;
     subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     challengeId: string;
@@ -1250,14 +1256,15 @@ export class SeamsPasskey {
     remainingUses?: number;
     onEvent?: (event: UnlockFlowEvent) => void;
   }): Promise<Awaited<ReturnType<SigningEngine['refreshEmailOtpSigningSession']>>> {
-    const flowId = this.emailOtpUnlockFlowId(args.nearAccountId, args.challengeId);
+    const walletId = args.walletSession.walletId;
+    const flowId = this.emailOtpUnlockFlowId(walletId, args.challengeId);
     const chainTarget = requireConcreteEcdsaChainTarget(
       args.chainTarget,
       'Email OTP signing-session refresh',
     );
     this.emitEmailOtpUnlockEvent(args.onEvent, {
       flowId,
-      accountId: args.nearAccountId,
+      accountId: walletId,
       authMethod: 'email_otp',
       phase: UnlockEventPhase.STEP_03_EMAIL_OTP_VERIFY_STARTED,
       status: 'running',
@@ -1267,9 +1274,9 @@ export class SeamsPasskey {
     try {
       const result = this.walletIframe.shouldUseWalletIframe()
         ? await (
-            await this.walletIframe.requireRouter(args.nearAccountId)
+            await this.walletIframe.requireRouter(walletId)
           ).refreshEmailOtpSigningSession({
-            nearAccountId: args.nearAccountId,
+            walletSession: args.walletSession,
             subjectId: args.subjectId,
             chainTarget,
             challengeId: args.challengeId,
@@ -1280,7 +1287,7 @@ export class SeamsPasskey {
               : {}),
           })
         : await this.signingEngine.refreshEmailOtpSigningSession({
-            nearAccountId: toAccountId(args.nearAccountId),
+            walletSession: args.walletSession,
             subjectId: args.subjectId,
             chainTarget,
             challengeId: args.challengeId,
@@ -1292,7 +1299,7 @@ export class SeamsPasskey {
           });
       this.emitEmailOtpUnlockEvent(args.onEvent, {
         flowId,
-        accountId: args.nearAccountId,
+        accountId: walletId,
         authMethod: 'email_otp',
         phase: UnlockEventPhase.STEP_03_EMAIL_OTP_VERIFY_SUCCEEDED,
         status: 'succeeded',
@@ -1301,7 +1308,7 @@ export class SeamsPasskey {
       });
       this.emitEmailOtpUnlockEvent(args.onEvent, {
         flowId,
-        accountId: args.nearAccountId,
+        accountId: walletId,
         authMethod: 'email_otp',
         phase: UnlockEventPhase.STEP_05_ECDSA_SIGNING_SESSION_READY,
         status: 'succeeded',
@@ -1310,7 +1317,7 @@ export class SeamsPasskey {
       });
       this.emitEmailOtpUnlockEvent(args.onEvent, {
         flowId,
-        accountId: args.nearAccountId,
+        accountId: walletId,
         authMethod: 'email_otp',
         phase: UnlockEventPhase.STEP_07_COMPLETED,
         status: 'succeeded',
@@ -1321,7 +1328,7 @@ export class SeamsPasskey {
       const e = toError(error);
       this.emitEmailOtpUnlockFailure(args.onEvent, {
         flowId,
-        accountId: args.nearAccountId,
+        accountId: walletId,
         authMethod: 'email_otp',
         requestId: args.challengeId,
         error: e,
@@ -1335,14 +1342,15 @@ export class SeamsPasskey {
   ): Promise<
     Awaited<ReturnType<SigningEngine['enrollAndLoginWithEmailOtpEcdsaCapabilityInternal']>>
   > {
-    const flowId = this.emailOtpRegistrationFlowId(args.nearAccountId, args.challengeId);
+    const walletId = args.walletSession.walletId;
+    const flowId = this.emailOtpRegistrationFlowId(walletId, args.challengeId);
     const chainTarget = requireConcreteEcdsaChainTarget(
       args.chainTarget,
       'Email OTP ECDSA enrollment',
     );
     this.emitEmailOtpRegistrationEvent(args.onEvent, {
       flowId,
-      accountId: args.nearAccountId,
+      accountId: walletId,
       authMethod: 'email_otp',
       phase: RegistrationEventPhase.STEP_04_OTP_VERIFY_STARTED,
       status: 'running',
@@ -1356,14 +1364,14 @@ export class SeamsPasskey {
             '[SeamsPasskey] Wallet iframe Email OTP enrollment owns client secret generation; clientSecret32 is not accepted from the app origin.',
           );
         }
-        const router = await this.walletIframe.requireRouter(args.nearAccountId);
+        const router = await this.walletIframe.requireRouter(walletId);
         const iframeArgs = { ...args, chainTarget };
         delete iframeArgs.clientSecret32;
         delete iframeArgs.onEvent;
         const result = await router.enrollAndLoginWithEmailOtpEcdsaCapability(iframeArgs);
         this.emitEmailOtpRegistrationEvent(args.onEvent, {
           flowId,
-          accountId: args.nearAccountId,
+          accountId: walletId,
           authMethod: 'email_otp',
           phase: RegistrationEventPhase.STEP_04_OTP_VERIFY_SUCCEEDED,
           status: 'succeeded',
@@ -1373,7 +1381,7 @@ export class SeamsPasskey {
         });
         this.emitEmailOtpRegistrationEvent(args.onEvent, {
           flowId,
-          accountId: args.nearAccountId,
+          accountId: walletId,
           authMethod: 'email_otp',
           phase: RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_STARTED,
           status: 'running',
@@ -1381,7 +1389,7 @@ export class SeamsPasskey {
         });
         this.emitEmailOtpRegistrationEvent(args.onEvent, {
           flowId,
-          accountId: args.nearAccountId,
+          accountId: walletId,
           authMethod: 'email_otp',
           phase: RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_SUCCEEDED,
           status: 'succeeded',
@@ -1390,7 +1398,7 @@ export class SeamsPasskey {
         });
         this.emitEmailOtpRegistrationEvent(args.onEvent, {
           flowId,
-          accountId: args.nearAccountId,
+          accountId: walletId,
           authMethod: 'email_otp',
           phase: RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_STARTED,
           status: 'running',
@@ -1399,7 +1407,7 @@ export class SeamsPasskey {
         });
         this.emitEmailOtpRegistrationEvent(args.onEvent, {
           flowId,
-          accountId: args.nearAccountId,
+          accountId: walletId,
           authMethod: 'email_otp',
           phase: RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_SUCCEEDED,
           status: 'succeeded',
@@ -1408,7 +1416,7 @@ export class SeamsPasskey {
         });
         this.emitEmailOtpRegistrationEvent(args.onEvent, {
           flowId,
-          accountId: args.nearAccountId,
+          accountId: walletId,
           authMethod: 'email_otp',
           phase: RegistrationEventPhase.STEP_11_COMPLETED,
           status: 'succeeded',
@@ -1420,7 +1428,7 @@ export class SeamsPasskey {
       const markWorkerProgress = (progress: EmailOtpWorkerProgressEvent) => {
         const phase = this.emitEmailOtpRegistrationWorkerProgress(args.onEvent, {
           flowId,
-          accountId: args.nearAccountId,
+          accountId: walletId,
           challengeId: args.challengeId,
           chainTarget,
           progress,
@@ -1438,7 +1446,7 @@ export class SeamsPasskey {
       });
       emitIfWorkerProgressMissing({
         flowId,
-        accountId: args.nearAccountId,
+        accountId: walletId,
         authMethod: 'email_otp',
         phase: RegistrationEventPhase.STEP_04_OTP_VERIFY_SUCCEEDED,
         status: 'succeeded',
@@ -1448,7 +1456,7 @@ export class SeamsPasskey {
       });
       emitIfWorkerProgressMissing({
         flowId,
-        accountId: args.nearAccountId,
+        accountId: walletId,
         authMethod: 'email_otp',
         phase: RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_STARTED,
         status: 'running',
@@ -1456,7 +1464,7 @@ export class SeamsPasskey {
       });
       emitIfWorkerProgressMissing({
         flowId,
-        accountId: args.nearAccountId,
+        accountId: walletId,
         authMethod: 'email_otp',
         phase: RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_SUCCEEDED,
         status: 'succeeded',
@@ -1465,7 +1473,7 @@ export class SeamsPasskey {
       });
       emitIfWorkerProgressMissing({
         flowId,
-        accountId: args.nearAccountId,
+        accountId: walletId,
         authMethod: 'email_otp',
         phase: RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_STARTED,
         status: 'running',
@@ -1474,7 +1482,7 @@ export class SeamsPasskey {
       });
       emitIfWorkerProgressMissing({
         flowId,
-        accountId: args.nearAccountId,
+        accountId: walletId,
         authMethod: 'email_otp',
         phase: RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_SUCCEEDED,
         status: 'succeeded',
@@ -1483,7 +1491,7 @@ export class SeamsPasskey {
       });
       this.emitEmailOtpRegistrationEvent(args.onEvent, {
         flowId,
-        accountId: args.nearAccountId,
+        accountId: walletId,
         authMethod: 'email_otp',
         phase: RegistrationEventPhase.STEP_11_COMPLETED,
         status: 'succeeded',
@@ -1494,7 +1502,7 @@ export class SeamsPasskey {
       const e = toError(error);
       this.emitEmailOtpRegistrationFailure(args.onEvent, {
         flowId,
-        accountId: args.nearAccountId,
+        accountId: walletId,
         authMethod: 'email_otp',
         ...(args.challengeId ? { requestId: args.challengeId } : {}),
         error: e,
@@ -1663,7 +1671,7 @@ export class SeamsPasskey {
 
     // Use NEAR signer executeAction with DeleteKey action
     return this.near.executeAction({
-      nearAccountId: accountId,
+      nearAccount: nearAccountRefFromAccountId(accountId),
       receiverId: accountId,
       actionArgs: {
         type: ActionType.DeleteKey,

@@ -1,3 +1,3 @@
 export * from './SigningEngine';
 export * from './interfaces';
-export * from './walletAuth';
+export * from './stepUpConfirmation/walletAuthModeResolver';

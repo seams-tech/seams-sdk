@@ -102,25 +102,25 @@ export function initWalletIFrame(): void {
       // Bridge wallet-host preferences to the parent app so app UI can mirror wallet host state.
       ctx.prefsUnsubscribe?.();
       const emitPreferencesChanged = () => {
-        const id = String(up.getCurrentUserAccountId?.() || '').trim();
-        const nearAccountId = id ? id : null;
+        const id = String(up.getCurrentWalletId?.() || '').trim();
+        const walletId = id ? id : null;
         post({
           type: 'PREFERENCES_CHANGED',
           payload: {
-            nearAccountId,
+            walletId,
             confirmationConfig: up.getConfirmationConfig(),
             updatedAt: Date.now(),
           } satisfies PreferencesChangedPayload,
         });
       };
       const unsubCfg = up.onConfirmationConfigChange?.(() => emitPreferencesChanged()) || null;
-      const unsubCurrentUser = up.onCurrentUserChange?.(() => emitPreferencesChanged()) || null;
+      const unsubCurrentWallet = up.onCurrentWalletChange?.(() => emitPreferencesChanged()) || null;
       ctx.prefsUnsubscribe = () => {
         try {
           unsubCfg?.();
         } catch {}
         try {
-          unsubCurrentUser?.();
+          unsubCurrentWallet?.();
         } catch {}
       };
       // Emit a best-effort snapshot as soon as the host is ready.

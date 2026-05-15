@@ -1,4 +1,3 @@
-import type { AccountId } from '@/core/types/accountIds';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import type { ThresholdEcdsaActivationRequest } from '../../session/passkey/ecdsaSessionProvision';
 import { clearThresholdEcdsaClientPresignaturesForLane } from '../../threshold/ecdsa/presignPool';
@@ -49,8 +48,8 @@ export type EvmFamilyWarmSessionServicesDeps = EvmFamilyEcdsaSessionReaderDeps &
     WarmSessionStatusReader &
     Partial<WarmSessionPersistedRestorer> &
     Partial<WarmSessionMaterialClearer>;
-  markThresholdEcdsaEmailOtpSessionConsumedForAccount?: (args: {
-    nearAccountId: string;
+  markThresholdEcdsaEmailOtpSessionConsumedForSubjectTarget?: (args: {
+    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     uses?: number;
   }) => void;
@@ -100,12 +99,12 @@ export function createEvmFamilyWarmSessionServices(
         .catch(() => undefined);
     }
   };
-  const listThresholdEcdsaKeyRefsForAccountTarget = ({
+  const listThresholdEcdsaKeyRefsForWalletTarget = ({
     subjectId,
     chainTarget,
     source,
   }: {
-    nearAccountId: AccountId | string;
+    walletId: string;
     subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     source?: ThresholdEcdsaSessionStoreSource;
@@ -136,7 +135,7 @@ export function createEvmFamilyWarmSessionServices(
     getEmailOtpWarmSessionStatus,
   });
   return {
-    getWarmSession: (nearAccountId) => capabilityReader.getWarmSession(nearAccountId),
+    getWarmSession: (walletId) => capabilityReader.getWarmSession(walletId),
     resolveEcdsaSealTransportByThresholdSessionId: (args) =>
       capabilityReader.resolveEcdsaSealTransportByThresholdSessionId(args),
     assertEcdsaSigningSessionReady: (readyArgs) =>
@@ -146,13 +145,14 @@ export function createEvmFamilyWarmSessionServices(
     ensureEcdsaCapabilityReady: (readyArgs) =>
       ensureWarmEcdsaCapabilityReady(
         {
-          getWarmSession: (nearAccountId) => capabilityReader.getWarmSession(nearAccountId),
-          listThresholdEcdsaKeyRefsForAccountTarget,
+          getWarmSession: (walletId) => capabilityReader.getWarmSession(walletId),
+          listThresholdEcdsaKeyRefsForWalletTarget,
           canProvisionEcdsaCapability: true,
           provisionThresholdEcdsaSession: (provisionRequest) =>
             deps.provisionThresholdEcdsaSession(provisionRequest),
-          resolveCurrentEcdsaRecord: (recordArgs) =>
-            statusReader.resolveCurrentEcdsaRecord(recordArgs),
+          touchConfirm: deps.touchConfirm,
+          resolveExactEcdsaRecord: (recordArgs) =>
+            statusReader.resolveExactEcdsaRecord(recordArgs),
           readEcdsaCapabilityByThresholdSessionId: (thresholdSessionId) =>
             capabilityReader.getEcdsaCapabilityByThresholdSessionId(thresholdSessionId),
           reconnectInFlightByCapability,
@@ -162,10 +162,10 @@ export function createEvmFamilyWarmSessionServices(
     applyEcdsaPostSignPolicy: (policyArgs) =>
       applyWarmSessionEcdsaPostSignPolicy(
         {
-          getWarmSession: (nearAccountId) => capabilityReader.getWarmSession(nearAccountId),
-          resolveCurrentEcdsaRecord: (recordArgs) =>
-            statusReader.resolveCurrentEcdsaRecord(recordArgs),
-          markEmailOtpSessionConsumed: deps.markThresholdEcdsaEmailOtpSessionConsumedForAccount,
+          getWarmSession: (walletId) => capabilityReader.getWarmSession(walletId),
+          resolveExactEcdsaRecord: (recordArgs) =>
+            statusReader.resolveExactEcdsaRecord(recordArgs),
+          markEmailOtpSessionConsumed: deps.markThresholdEcdsaEmailOtpSessionConsumedForSubjectTarget,
           clearEcdsaEphemeralMaterial: ({ record, thresholdSessionId }) =>
             clearEcdsaEphemeralMaterial(record, thresholdSessionId),
         },
@@ -174,9 +174,9 @@ export function createEvmFamilyWarmSessionServices(
     assertEcdsaOperationAllowed: (operationArgs) =>
       assertWarmSessionEcdsaOperationAllowed(
         {
-          getWarmSession: (nearAccountId) => capabilityReader.getWarmSession(nearAccountId),
-          resolveCurrentEcdsaRecord: (recordArgs) =>
-            statusReader.resolveCurrentEcdsaRecord(recordArgs),
+          getWarmSession: (walletId) => capabilityReader.getWarmSession(walletId),
+          resolveExactEcdsaRecord: (recordArgs) =>
+            statusReader.resolveExactEcdsaRecord(recordArgs),
         },
         operationArgs,
       ),

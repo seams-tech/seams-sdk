@@ -24,6 +24,7 @@ import { getLastLoggedInSignerSlot } from '../../webauthnAuth/device/signerSlot'
 import type { ProfileAuthenticatorRecord } from '@/core/indexedDB/passkeyClientDB.types';
 import type { IDBPDatabase } from 'idb';
 import type { RegistrationAccountLifecycleDeps } from '../../interfaces/operationDeps';
+import { toWalletId } from '../../interfaces/ecdsaChainTarget';
 
 export type StoreAuthenticatorInput = {
   credentialId: string;
@@ -33,7 +34,11 @@ export type StoreAuthenticatorInput = {
   nearAccountId: AccountId;
   registered: string;
   syncedAt: string;
-  signerSlot?: number;
+  signerSlot: number;
+};
+
+export type StoredRegistrationData = {
+  signerSlot: number;
 };
 
 async function resolveNearProfileContext(
@@ -153,6 +158,10 @@ export async function storeUserData(
       ...(userData.preferences ? { preferences: userData.preferences } : {}),
     });
   }
+  await deps.indexedDB.clientDB.setLastProfileStateForProfile(
+    profileId,
+    activation.signerSlot,
+  );
 
   return { signerSlot: activation.signerSlot };
 }
@@ -285,7 +294,7 @@ export async function initializeCurrentUser(
   }
 
   // Set as current user for immediate use
-  deps.userPreferencesManager.setCurrentUser(accountId);
+  deps.userPreferencesManager.setCurrentWallet(toWalletId(accountId));
   // Ensure confirmation preferences are loaded before callers read them (best-effort)
   await deps.userPreferencesManager.reloadUserSettings().catch(() => undefined);
 
@@ -334,12 +343,13 @@ export async function storeAuthenticator(
   authenticatorData: StoreAuthenticatorInput,
 ): Promise<void> {
   const signerSlot = Number(authenticatorData.signerSlot);
-  const normalizedSignerSlot =
-    Number.isSafeInteger(signerSlot) && signerSlot >= 1 ? signerSlot : 1;
+  if (!Number.isSafeInteger(signerSlot) || signerSlot < 1) {
+    throw new Error('PasskeyClientDB: authenticator signerSlot must be an integer >= 1');
+  }
   const authData = {
     ...authenticatorData,
     nearAccountId: toAccountId(authenticatorData.nearAccountId),
-    signerSlot: normalizedSignerSlot,
+    signerSlot,
   };
   const context = await resolveNearProfileContext(deps, authData.nearAccountId);
   if (!context?.profileId) {
@@ -400,8 +410,8 @@ export async function atomicStoreRegistrationData(
     credential: WebAuthnRegistrationCredential;
     operationalPublicKey: string;
   },
-): Promise<void> {
-  await atomicOperation(deps, async () => {
+): Promise<StoredRegistrationData> {
+  return await atomicOperation(deps, async () => {
     // Store credential for authentication
     const credentialId: string = args.credential.rawId;
     const attestationB64u: string = args.credential.response.attestationObject;
@@ -409,7 +419,7 @@ export async function atomicStoreRegistrationData(
     const credentialPublicKey = await deps.extractCosePublicKey(attestationB64u);
 
     // Persist profile/account mapping first.
-    await storeUserData(deps, {
+    const activation = await storeUserData(deps, {
       nearAccountId: args.nearAccountId,
       signerSlot: 1,
       operationalPublicKey: args.operationalPublicKey,
@@ -429,8 +439,9 @@ export async function atomicStoreRegistrationData(
       name: `Passkey for ${extractUsername(args.nearAccountId)}`,
       registered: new Date().toISOString(),
       syncedAt: new Date().toISOString(),
+      signerSlot: activation.signerSlot,
     });
 
-    return true;
+    return { signerSlot: activation.signerSlot };
   });
 }

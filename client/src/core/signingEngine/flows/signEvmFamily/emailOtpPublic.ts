@@ -8,6 +8,7 @@ import type { EmailOtpBootstrapRecovery } from '../../stepUpConfirmation/otpProm
 import type { ThresholdEcdsaSessionStoreDeps } from '../../session/persistence/records';
 import type {
   ThresholdEcdsaChainTarget,
+  WalletSessionRef,
   WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
@@ -21,7 +22,7 @@ import {
 } from './emailOtpSigningSession';
 
 export type LoginWithEmailOtpEcdsaCapabilityInternalArgs = {
-  nearAccountId: AccountId | string;
+  walletSession: WalletSessionRef;
   subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
@@ -47,7 +48,7 @@ export type LoginWithEmailOtpEcdsaCapabilityInternalResult = {
 };
 
 export type EnrollEmailOtpInternalArgs = {
-  nearAccountId: AccountId | string;
+  walletId: AccountId | string;
   otpCode: string;
   relayUrl?: string;
   challengeId?: string;
@@ -58,7 +59,7 @@ export type EnrollEmailOtpInternalArgs = {
 };
 
 export type EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs = {
-  nearAccountId: AccountId | string;
+  walletSession: WalletSessionRef;
   subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
@@ -117,7 +118,7 @@ export async function loginWithEmailOtpEcdsaCapabilityInternal(
 export async function requestEmailOtpSigningSessionChallenge(
   deps: EmailOtpPublicDeps,
   args: {
-    nearAccountId: AccountId | string;
+    walletSession: WalletSessionRef;
     subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
   },
@@ -132,14 +133,18 @@ export async function requestEmailOtpSigningSessionChallenge(
           deps.emailOtpSessions.loginWithEcdsaCapabilityInternal(loginArgs),
       },
     },
-    args,
+    {
+      walletSession: args.walletSession,
+      subjectId: args.subjectId,
+      chainTarget: args.chainTarget,
+    },
   );
 }
 
 export async function refreshEmailOtpSigningSession(
   deps: EmailOtpPublicDeps,
   args: {
-    nearAccountId: AccountId | string;
+    walletSession: WalletSessionRef;
     subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     challengeId: string;
@@ -158,7 +163,15 @@ export async function refreshEmailOtpSigningSession(
           deps.emailOtpSessions.loginWithEcdsaCapabilityInternal(loginArgs),
       },
     },
-    args,
+    {
+      walletSession: args.walletSession,
+      subjectId: args.subjectId,
+      chainTarget: args.chainTarget,
+      challengeId: args.challengeId,
+      otpCode: args.otpCode,
+      ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
+      ...(typeof args.remainingUses === 'number' ? { remainingUses: args.remainingUses } : {}),
+    },
   );
 }
 
@@ -166,7 +179,7 @@ export async function enrollEmailOtpInternal(
   deps: EmailOtpPublicDeps,
   args: EnrollEmailOtpInternalArgs,
 ): Promise<EnrollEmailOtpInternalResult> {
-  const nearAccountId = toAccountId(args.nearAccountId);
+  const walletId = toAccountId(args.walletId);
   const relayUrl = String(args.relayUrl || deps.relayerUrl || '').trim();
   if (!relayUrl) {
     throw new Error('Missing relayer url (configs.network.relayer.url)');
@@ -177,8 +190,8 @@ export async function enrollEmailOtpInternal(
   }
   return await enrollEmailOtpWallet({
     relayUrl,
-    walletId: String(nearAccountId),
-    userId: String(nearAccountId),
+    walletId: String(walletId),
+    userId: String(walletId),
     challengeId: args.challengeId,
     otpCode: args.otpCode,
     shamirPrimeB64u,
@@ -202,12 +215,12 @@ export function createEmailOtpPublicApi(deps: EmailOtpPublicDeps) {
       args: LoginWithEmailOtpEcdsaCapabilityInternalArgs,
     ) => loginWithEmailOtpEcdsaCapabilityInternal(deps, args),
     requestEmailOtpSigningSessionChallenge: (args: {
-      nearAccountId: AccountId | string;
+      walletSession: WalletSessionRef;
       subjectId: WalletSubjectId;
       chainTarget: ThresholdEcdsaChainTarget;
     }) => requestEmailOtpSigningSessionChallenge(deps, args),
     refreshEmailOtpSigningSession: (args: {
-      nearAccountId: AccountId | string;
+      walletSession: WalletSessionRef;
       subjectId: WalletSubjectId;
       chainTarget: ThresholdEcdsaChainTarget;
       challengeId: string;

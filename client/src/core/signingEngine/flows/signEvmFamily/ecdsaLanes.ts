@@ -103,7 +103,7 @@ export function summarizeEvmFamilyEcdsaLane(
   if (!lane) return { present: false };
   return {
     present: true,
-    accountId: lane.accountId,
+    walletId: lane.walletId,
     authMethod: lane.authMethod,
     curve: lane.curve,
     chain: lane.chain,
@@ -212,7 +212,7 @@ export function requireResolvedEvmFamilyEcdsaSigningLane(args: {
   }
 
   const selectedLane = selectedEcdsaLane({
-    accountId: lane.accountId,
+    walletId: lane.walletId,
     authMethod: lane.authMethod,
     walletSigningSessionId: laneIdentity.walletSigningSessionId,
     thresholdSessionId: laneIdentity.thresholdSessionId,
@@ -281,7 +281,7 @@ export function selectedEvmFamilyEcdsaLaneForMaterialIdentity(args: {
     );
   }
   return selectedEcdsaLane({
-    accountId: args.lane.accountId,
+    walletId: args.lane.walletId,
     subjectId,
     authMethod: args.lane.authMethod,
     chainTarget: args.chainTarget,
@@ -319,7 +319,7 @@ export type EvmFamilyEcdsaSigningLaneMaterial =
 
 export function buildEvmFamilyEcdsaSigningLaneContext(
   args: {
-    nearAccountId: string;
+    walletId: string;
     chain: EvmFamilyChain;
     chainTarget: ThresholdEcdsaChainTarget;
     authMethod: EvmFamilyEcdsaAuthMethod;
@@ -348,7 +348,7 @@ export function buildEvmFamilyEcdsaSigningLaneContext(
     logEvmFamilyEcdsaLaneDiagnostic(
       'cannot build signing lane from incomplete record/keyRef session identity',
       {
-        nearAccountId: args.nearAccountId,
+        walletId: args.walletId,
         chain: args.chain,
         chainTarget: args.chainTarget,
         authMethod: args.authMethod,
@@ -367,7 +367,7 @@ export function buildEvmFamilyEcdsaSigningLaneContext(
     logEvmFamilyEcdsaLaneDiagnostic(
       'cannot build signing lane from mismatched record/keyRef session identity',
       {
-        nearAccountId: args.nearAccountId,
+        walletId: args.walletId,
         chain: args.chain,
         chainTarget: args.chainTarget,
         authMethod: args.authMethod,
@@ -382,7 +382,7 @@ export function buildEvmFamilyEcdsaSigningLaneContext(
     logEvmFamilyEcdsaLaneDiagnostic(
       'cannot build signing lane from mismatched record/keyRef subject ids',
       {
-        nearAccountId: args.nearAccountId,
+        walletId: args.walletId,
         chain: args.chain,
         chainTarget: args.chainTarget,
         authMethod: args.authMethod,
@@ -401,7 +401,7 @@ export function buildEvmFamilyEcdsaSigningLaneContext(
     logEvmFamilyEcdsaLaneDiagnostic(
       'cannot build signing lane from mismatched record/keyRef threshold key ids',
       {
-        nearAccountId: args.nearAccountId,
+        walletId: args.walletId,
         chain: args.chain,
         chainTarget: args.chainTarget,
         authMethod: args.authMethod,
@@ -416,7 +416,7 @@ export function buildEvmFamilyEcdsaSigningLaneContext(
     logEvmFamilyEcdsaLaneDiagnostic(
       'cannot build signing lane from mismatched record/keyRef signing roots',
       {
-        nearAccountId: args.nearAccountId,
+        walletId: args.walletId,
         chain: args.chain,
         chainTarget: args.chainTarget,
         authMethod: args.authMethod,
@@ -435,7 +435,7 @@ export function buildEvmFamilyEcdsaSigningLaneContext(
     logEvmFamilyEcdsaLaneDiagnostic(
       'cannot build signing lane from mismatched record/keyRef signing root versions',
       {
-        nearAccountId: args.nearAccountId,
+        walletId: args.walletId,
         chain: args.chain,
         chainTarget: args.chainTarget,
         authMethod: args.authMethod,
@@ -449,7 +449,7 @@ export function buildEvmFamilyEcdsaSigningLaneContext(
   const sessionIdentity = recordIdentity || keyRefIdentity;
   if (!sessionIdentity) {
     logEvmFamilyEcdsaLaneDiagnostic('cannot build signing lane without ECDSA session identity', {
-      nearAccountId: args.nearAccountId,
+      walletId: args.walletId,
       chain: args.chain,
       authMethod: args.authMethod,
       source: args.source,
@@ -469,7 +469,7 @@ export function buildEvmFamilyEcdsaSigningLaneContext(
     logEvmFamilyEcdsaLaneDiagnostic(
       'cannot build signing lane without full ECDSA material identity',
       {
-        nearAccountId: args.nearAccountId,
+        walletId: args.walletId,
         chain: args.chain,
         authMethod: args.authMethod,
         source: args.source,
@@ -482,7 +482,7 @@ export function buildEvmFamilyEcdsaSigningLaneContext(
   }
 
   const base = {
-    accountId: toAccountId(args.nearAccountId),
+    walletId: toAccountId(args.walletId),
     subjectId: subjectId as WalletSubjectId,
     ecdsaThresholdKeyId,
     walletSigningSessionId: SigningSessionIds.walletSigningSession(
@@ -849,8 +849,8 @@ function getSelectedEcdsaRecordLaneMismatchReason(args: {
   if (lane.chain !== 'tempo' && lane.chain !== 'evm') {
     return 'lane chain is not an EVM-family chain';
   }
-  if (String(record.nearAccountId || '') !== String(lane.accountId)) {
-    return 'account id mismatch';
+  if (String(record.walletId || '') !== String(lane.walletId)) {
+    return 'wallet id mismatch';
   }
   if (
     !ecdsaMaterialSourceMatchesAuth({
@@ -892,8 +892,8 @@ function getSelectedEcdsaKeyRefLaneMismatchReason(args: {
   if (lane.curve !== 'ecdsa') {
     return 'lane is not an ECDSA transaction lane';
   }
-  if (String(keyRef.userId || '') !== String(lane.accountId)) {
-    return 'account id mismatch';
+  if (String(keyRef.userId || '') !== String(lane.walletId)) {
+    return 'wallet id mismatch';
   }
   const laneIdentity = buildEcdsaSessionIdentity(lane);
   const keyRefIdentity = tryBuildEcdsaSessionIdentity(keyRef);

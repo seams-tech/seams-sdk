@@ -95,7 +95,7 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(
     chainId: args.chainId,
   });
   const source = requireEcdsaStoreSource(args.lane);
-  const nearAccountId = String(args.lane.accountId);
+  const walletId = String(args.lane.walletId);
   const reconnectSessionIdentity = buildEcdsaSessionIdentity({
     thresholdSessionId: args.reconnectSessionIdentity.thresholdSessionId,
     walletSigningSessionId: args.reconnectSessionIdentity.walletSigningSessionId,
@@ -152,7 +152,7 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(
   }
   try {
     console.info('[SigningEngine][ecdsa][reconnect-selected-lane]', {
-      nearAccountId,
+      walletId,
       chain,
       chainId: args.chainId,
       source,
@@ -169,7 +169,7 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(
   } catch {}
 
   const readyCapability = await warmSessionServices.ensureEcdsaCapabilityReady({
-    nearAccountId,
+    walletId,
     subjectId: args.lane.subjectId,
     chainTarget,
     plan: reconnectPlan,
@@ -184,7 +184,7 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(
         emitEvmFamilySigningEvent(args.onEvent, {
           phase: SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_STARTED,
           status: 'running',
-          accountId: nearAccountId,
+          accountId: walletId,
           interaction: { kind: 'none', overlay: 'none' },
           data: { chain },
         });
@@ -217,7 +217,7 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(
   emitEvmFamilySigningEvent(args.onEvent, {
     phase: SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_SUCCEEDED,
     status: 'succeeded',
-    accountId: nearAccountId,
+    accountId: walletId,
     interaction: { kind: 'none', overlay: 'none' },
     data: { chain },
   });

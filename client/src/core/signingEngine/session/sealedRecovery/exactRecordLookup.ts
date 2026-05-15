@@ -98,7 +98,7 @@ export function buildRestoreWorkItemLookupResult(
       };
 }
 
-function accountPurposeForAcceptedRecord(args: {
+function listedPurposeForAcceptedRecord(args: {
   walletId: string;
   record: SealedRecoveryRecord;
   reason: Extract<RestorePersistedSessionPurpose['reason'], 'session_status'>;
@@ -160,7 +160,7 @@ function accountPurposeForAcceptedRecord(args: {
   ];
 }
 
-export function buildRestoreWorkItemLookupResultsForAccountRecord(args: {
+export function buildRestoreWorkItemLookupResultsForListedRecord(args: {
   walletId: string;
   record: RawSigningSessionSealedStoreRecord;
   reason: Extract<RestorePersistedSessionPurpose['reason'], 'session_status'>;
@@ -176,7 +176,7 @@ export function buildRestoreWorkItemLookupResultsForAccountRecord(args: {
       },
     ];
   }
-  const workItems = accountPurposeForAcceptedRecord({
+  const workItems = listedPurposeForAcceptedRecord({
     walletId: args.walletId,
     record: normalized.record,
     reason: args.reason,

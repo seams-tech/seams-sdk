@@ -12,14 +12,9 @@ import {
 import type {
   NearEmailOtpSigningHook,
   NearPasskeyEd25519ReconnectHook,
+  NearPasskeyReconnectPlan,
 } from '@/core/signingEngine/interfaces/near';
 import type { NearTransactionSigningLane } from '@/core/signingEngine/session/operationState/lanes';
-
-export type NearPasskeyReconnectPlan = {
-  sessionId: string;
-  walletSigningSessionId: string;
-  sessionPolicyDigest32: string;
-};
 
 type NearPreparedStepUpAuthBase = {
   confirmationAuthPayload: { signingAuthPlan: SigningAuthPlan };

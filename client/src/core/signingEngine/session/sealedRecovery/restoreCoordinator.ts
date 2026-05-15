@@ -1,7 +1,7 @@
 import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildRestoreWorkItemLookupResult,
-  buildRestoreWorkItemLookupResultsForAccountRecord,
+  buildRestoreWorkItemLookupResultsForListedRecord,
   type RestoreWorkItemLookupResult,
 } from './exactRecordLookup';
 import type {
@@ -9,9 +9,9 @@ import type {
   RestorePersistedSessionForSigningPorts,
   RestorePersistedSessionForSigningResult,
   RestorePersistedSessionPurpose,
-  RestorePersistedSessionsForAccountInput,
-  RestorePersistedSessionsForAccountPorts,
-  RestorePersistedSessionsForAccountResult,
+  RestorePersistedSessionsForWalletInput,
+  RestorePersistedSessionsForWalletPorts,
+  RestorePersistedSessionsForWalletResult,
   SigningSessionRestoreAttemptRegistry,
   SigningSessionRestoreCache,
 } from './types';
@@ -132,11 +132,11 @@ export async function restorePersistedSessionForSigningCommand(
   input: RestorePersistedSessionForSigningInput,
   ports: RestorePersistedSessionForSigningPorts,
 ): Promise<RestorePersistedSessionForSigningResult> {
-  const accountId = String(input.walletId || '').trim();
-  if (!accountId) return { attempted: 0, restored: 0, deferred: 0 };
+  const walletId = String(input.walletId || '').trim();
+  if (!walletId) return { attempted: 0, restored: 0, deferred: 0 };
   const normalizedInput: RestorePersistedSessionForSigningInput = {
     ...input,
-    walletId: accountId,
+    walletId,
   };
   if (ports.cache?.hasKnownMissing(normalizedInput)) {
     return { attempted: 0, restored: 0, deferred: 0 };
@@ -145,22 +145,22 @@ export async function restorePersistedSessionForSigningCommand(
   let records;
   try {
     if (normalizedInput.curve === 'ecdsa') {
-      records = await ports.listExactSealedSessionsForAccount({
-        walletId: accountId,
+      records = await ports.listExactSealedSessionsForWallet({
+        walletId,
         authMethod: normalizedInput.authMethod,
         curve: 'ecdsa',
         chainTarget: normalizedInput.chainTarget,
       });
     } else {
-      records = await ports.listExactSealedSessionsForAccount({
-        walletId: accountId,
+      records = await ports.listExactSealedSessionsForWallet({
+        walletId,
         authMethod: normalizedInput.authMethod,
         curve: 'ed25519',
       });
     }
   } catch (error) {
     ports.onListError?.({
-      accountId,
+      walletId,
       target:
         normalizedInput.curve === 'ecdsa'
           ? thresholdEcdsaChainTargetKey(normalizedInput.chainTarget)
@@ -176,7 +176,7 @@ export async function restorePersistedSessionForSigningCommand(
   );
   for (const lookup of exactPurposeLookups) {
     if (lookup.kind !== 'rejected') continue;
-    ports.onRejectedRecord?.({ accountId, rejection: lookup.rejection });
+    ports.onRejectedRecord?.({ walletId, rejection: lookup.rejection });
   }
   const exactPurposeWorkItems = exactPurposeLookups
     .filter(isMatchedRestoreWorkItemLookup)
@@ -192,7 +192,7 @@ export async function restorePersistedSessionForSigningCommand(
     exactPurposeWorkItems.map(async ({ record, purpose }) => {
       if (ports.cache?.hasSuccessfulRestore(normalizedInput, record)) return;
       attempted += 1;
-      const result = await ports.restoreSealedRecordForAccount({ accountId, record, purpose });
+      const result = await ports.restoreSealedRecordForWallet({ walletId, record, purpose });
       if (result === 'restored') {
         restored += 1;
         ports.cache?.rememberSuccessfulRestore(normalizedInput, record);
@@ -206,14 +206,14 @@ export async function restorePersistedSessionForSigningCommand(
   return { attempted, restored, deferred };
 }
 
-export async function restorePersistedSessionsForAccountCommand(
-  input: RestorePersistedSessionsForAccountInput,
-  ports: RestorePersistedSessionsForAccountPorts,
-): Promise<RestorePersistedSessionsForAccountResult> {
-  const accountId = String(input.walletId || '').trim();
+export async function restorePersistedSessionsForWalletCommand(
+  input: RestorePersistedSessionsForWalletInput,
+  ports: RestorePersistedSessionsForWalletPorts,
+): Promise<RestorePersistedSessionsForWalletResult> {
+  const walletId = String(input.walletId || '').trim();
   const maxRecords = Math.max(0, Math.floor(input.maxRecords ?? 10));
   const empty = { listed: 0, attempted: 0, restored: 0, deferred: 0, skipped: 0, truncated: 0 };
-  if (!accountId || maxRecords <= 0) return empty;
+  if (!walletId || maxRecords <= 0) return empty;
 
   let records;
   try {
@@ -222,14 +222,14 @@ export async function restorePersistedSessionsForAccountCommand(
       : (['email_otp', 'passkey'] as const);
     const listed = await Promise.all(
       authMethods.flatMap((authMethod) => [
-        ports.listExactSealedSessionsForAccount({
-          walletId: accountId,
+        ports.listExactSealedSessionsForWallet({
+          walletId,
           authMethod,
           curve: 'ed25519',
         }),
         ...input.ecdsaChainTargets.map((chainTarget) =>
-          ports.listExactSealedSessionsForAccount({
-            walletId: accountId,
+          ports.listExactSealedSessionsForWallet({
+            walletId,
             authMethod,
             curve: 'ecdsa',
             chainTarget,
@@ -239,32 +239,32 @@ export async function restorePersistedSessionsForAccountCommand(
     );
     records = listed.flat();
   } catch (error) {
-    ports.onListError?.({ accountId, error });
+    ports.onListError?.({ walletId, error });
     return empty;
   }
 
   const seenWorkItems = new Set<string>();
   const workItems = records
     .flatMap((record) => [
-      ...buildRestoreWorkItemLookupResultsForAccountRecord({
-        walletId: accountId,
-        record,
-        reason: 'session_status',
-        requestedCurve: 'ed25519',
-      }),
-      ...input.ecdsaChainTargets.flatMap((chainTarget) =>
-        buildRestoreWorkItemLookupResultsForAccountRecord({
-          walletId: accountId,
+        ...buildRestoreWorkItemLookupResultsForListedRecord({
+          walletId,
           record,
           reason: 'session_status',
-          requestedCurve: 'ecdsa',
+          requestedCurve: 'ed25519',
+        }),
+        ...input.ecdsaChainTargets.flatMap((chainTarget) =>
+          buildRestoreWorkItemLookupResultsForListedRecord({
+            walletId,
+            record,
+            reason: 'session_status',
+            requestedCurve: 'ecdsa',
           requestedChainTarget: chainTarget,
         }),
       ),
     ])
     .filter((lookup) => {
       if (lookup.kind !== 'rejected') return true;
-      ports.onRejectedRecord?.({ accountId, rejection: lookup.rejection });
+      ports.onRejectedRecord?.({ walletId, rejection: lookup.rejection });
       return false;
     })
     .filter(isMatchedRestoreWorkItemLookup)
@@ -295,7 +295,7 @@ export async function restorePersistedSessionsForAccountCommand(
         return;
       }
       attempted += 1;
-      const result = await ports.restoreSealedRecordForAccount({ accountId, record, purpose });
+      const result = await ports.restoreSealedRecordForWallet({ walletId, record, purpose });
       if (result === 'restored') {
         restored += 1;
         ports.cache?.rememberSuccessfulRestore(purpose, record);

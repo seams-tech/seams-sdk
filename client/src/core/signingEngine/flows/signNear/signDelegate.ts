@@ -64,6 +64,7 @@ import {
 import { runSigningConfirmationCommand } from '../shared/signingConfirmation';
 import { requireNearStepUpAuth } from './requireNearStepUpAuth';
 import { buildNearEd25519StepUpAuthorization } from './stepUpAuthorization';
+import type { NearAccountRef } from '../../interfaces/ecdsaChainTarget';
 
 function emitNearSigningEvent(
   onEvent: ((event: SigningFlowEvent) => void) | undefined,
@@ -83,6 +84,7 @@ function emitNearSigningEvent(
 
 export async function runNearDelegateActionSigning({
   ctx,
+  nearAccount,
   delegate,
   rpcCall,
   onEvent,
@@ -93,6 +95,7 @@ export async function runNearDelegateActionSigning({
   signerSlot,
 }: {
   ctx: SigningRuntimeDeps;
+  nearAccount: NearAccountRef;
   delegate: DelegateActionInput;
   rpcCall: RpcCallPayload;
   onEvent?: (update: SigningFlowEvent) => void;
@@ -108,7 +111,7 @@ export async function runNearDelegateActionSigning({
   logs?: string[];
 }> {
   const sessionId = providedSessionId ?? generateNearSigningSessionId();
-  const nearAccountId = toAccountId(rpcCall.nearAccountId || delegate.senderId);
+  const nearAccountId = toAccountId(nearAccount.accountId);
   const relayerUrl = ctx.relayerUrl;
 
   const resolvedRpcCall = {
@@ -129,7 +132,7 @@ export async function runNearDelegateActionSigning({
   const thresholdAuthContext = await resolveNearThresholdSigningAuthContext({
     warmSessionReader: signingSessionCoordinator,
     usesNeeded,
-    nearAccountId,
+    nearAccount,
     operationLabel: 'delegate signing',
   });
   const resolvedThresholdSigningSession = {
@@ -156,7 +159,7 @@ export async function runNearDelegateActionSigning({
   });
   const { thresholdKeyMaterial } = await resolveNearSigningMaterials({
     ctx,
-    nearAccountId,
+    nearAccount,
     signerSlot,
     operationLabel: 'delegate signing',
     warnings,

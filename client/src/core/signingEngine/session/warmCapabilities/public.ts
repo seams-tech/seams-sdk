@@ -1,6 +1,10 @@
 import type { AccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
+import type {
+  ThresholdEcdsaChainTarget,
+  WalletSubjectId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import {
   buildWalletBudgetStatusCheckForSession,
@@ -24,8 +28,8 @@ import type {
   ThresholdWarmSessionStatusReader,
 } from './types';
 
-export type PersistThresholdEcdsaBootstrapChainAccountInput = {
-  nearAccountId: AccountId | string;
+export type PersistThresholdEcdsaBootstrapForWalletTargetInput = {
+  walletId: AccountId | string;
   chainTarget: ThresholdEcdsaChainTarget;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
   smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
@@ -41,13 +45,7 @@ export type HydrateSigningSessionInput = {
   prfFirstB64u: string;
   expiresAtMs: number;
   remainingUses: number;
-  transport?: {
-    curve?: 'ed25519' | 'ecdsa';
-    relayerUrl?: string;
-    thresholdSessionAuthToken?: string;
-    keyVersion?: string;
-    shamirPrimeB64u?: string;
-  };
+  transport?: WarmSessionSealTransportInput;
 };
 
 export type WarmCapabilitiesPublicDeps = {
@@ -55,14 +53,14 @@ export type WarmCapabilitiesPublicDeps = {
     ThresholdWarmSessionStatusReader,
     'getEd25519SigningSessionStatus' | 'getEcdsaSigningSessionStatus' | 'listEcdsaSigningSessionStatuses'
   >;
-  persistThresholdEcdsaBootstrapChainAccount: (
-    args: PersistThresholdEcdsaBootstrapChainAccountInput,
+  persistThresholdEcdsaBootstrapForWalletTarget: (
+    args: PersistThresholdEcdsaBootstrapForWalletTargetInput,
   ) => Promise<void>;
   hydrateSigningSession: (args: HydrateSigningSessionInput) => Promise<void>;
-  clearWarmSigningSessions: (nearAccountId?: AccountId | string) => Promise<void>;
+  clearWarmSigningSessions: (walletId?: AccountId | string) => Promise<void>;
   getWalletSigningBudgetStatus: WalletSigningBudgetAvailableStatusDeps['getAvailableStatus'];
-  resolveCanonicalThresholdEcdsaSessionIdForChain: (
-    nearAccountId: AccountId | string,
+  resolveCanonicalThresholdEcdsaSessionIdForSubjectTarget: (
+    subjectId: WalletSubjectId,
     chainTarget: ThresholdEcdsaChainTarget,
   ) => string | null;
   getSignerWorkerContext: Parameters<
@@ -76,11 +74,11 @@ export type WarmCapabilitiesPublicDeps = {
   >[0]['thresholdEcdsaPresignPoolPolicy'];
 };
 
-export async function persistThresholdEcdsaBootstrapChainAccount(
+export async function persistThresholdEcdsaBootstrapForWalletTarget(
   deps: WarmCapabilitiesPublicDeps,
-  args: PersistThresholdEcdsaBootstrapChainAccountInput,
+  args: PersistThresholdEcdsaBootstrapForWalletTargetInput,
 ): Promise<void> {
-  await deps.persistThresholdEcdsaBootstrapChainAccount(args);
+  await deps.persistThresholdEcdsaBootstrapForWalletTarget(args);
 }
 
 export async function getWarmThresholdEd25519SessionStatus(
@@ -92,7 +90,7 @@ export async function getWarmThresholdEd25519SessionStatus(
   const walletSigningSessionId = String(record?.walletSigningSessionId || '').trim();
   const budgetStatusCheck = walletSigningSessionId
     ? buildWalletBudgetStatusCheckForSession({
-        nearAccountId,
+        walletId: nearAccountId,
         walletSigningSessionId,
       })
     : null;
@@ -110,12 +108,12 @@ export async function getWarmThresholdEd25519SessionStatus(
 
 export async function getWarmThresholdEcdsaSessionStatus(
   deps: WarmCapabilitiesPublicDeps,
-  nearAccountId: AccountId | string,
+  walletId: AccountId | string,
   chainTarget: ThresholdEcdsaChainTarget,
   thresholdSessionId: string,
 ): Promise<WarmEcdsaSigningSessionStatus | null> {
   const status = await deps.statusReader.getEcdsaSigningSessionStatus({
-    nearAccountId,
+    walletId,
     chainTarget,
     thresholdSessionId,
   });
@@ -125,7 +123,7 @@ export async function getWarmThresholdEcdsaSessionStatus(
           getAvailableStatus: deps.getWalletSigningBudgetStatus,
         },
         buildThresholdBudgetStatusCheck({
-          nearAccountId,
+          walletId,
           walletSigningSessionId: status.walletSigningSessionId,
           targetThresholdSessionIds: [thresholdSessionId],
         }),
@@ -137,11 +135,11 @@ export async function getWarmThresholdEcdsaSessionStatus(
 
 export async function listWarmThresholdEcdsaSessionStatuses(
   deps: WarmCapabilitiesPublicDeps,
-  nearAccountId: AccountId | string,
+  walletId: AccountId | string,
   chainTarget: ThresholdEcdsaChainTarget,
 ): Promise<WarmEcdsaSigningSessionStatus[]> {
   const statuses = await deps.statusReader.listEcdsaSigningSessionStatuses({
-    nearAccountId,
+    walletId,
     chainTarget,
   });
   return await Promise.all(
@@ -151,7 +149,7 @@ export async function listWarmThresholdEcdsaSessionStatuses(
           getAvailableStatus: deps.getWalletSigningBudgetStatus,
         },
         buildThresholdBudgetStatusCheck({
-          nearAccountId,
+          walletId,
           walletSigningSessionId: status.walletSigningSessionId,
           targetThresholdSessionIds: [status.sessionId],
         }),
@@ -170,7 +168,7 @@ function isRecordBackedEcdsaStatus(
 export async function scheduleThresholdEcdsaLoginPresignPrefill(
   deps: WarmCapabilitiesPublicDeps,
   args: {
-    nearAccountId: AccountId | string;
+    walletId: AccountId | string;
     chainTarget: ThresholdEcdsaChainTarget;
     thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef;
     minRemainingUsesBeforePrefill?: number;
@@ -179,12 +177,12 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
   return await scheduleThresholdEcdsaLoginPresignPrefillValue(
     {
       getWarmThresholdEcdsaSessionStatus: async (
-        nearAccountIdArg: AccountId | string,
+        walletIdArg: AccountId | string,
         thresholdSessionId: string,
         chainTargetArg: ThresholdEcdsaChainTarget,
       ) => {
-        const canonicalSessionId = deps.resolveCanonicalThresholdEcdsaSessionIdForChain(
-          nearAccountIdArg,
+        const canonicalSessionId = deps.resolveCanonicalThresholdEcdsaSessionIdForSubjectTarget(
+          args.thresholdEcdsaKeyRef.subjectId,
           chainTargetArg,
         );
         if (canonicalSessionId && canonicalSessionId !== String(thresholdSessionId || '').trim()) {
@@ -194,7 +192,7 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
           };
         }
         return await deps.statusReader.getEcdsaSigningSessionStatus({
-          nearAccountId: nearAccountIdArg,
+          walletId: walletIdArg,
           chainTarget: chainTargetArg,
           thresholdSessionId,
         });
@@ -216,38 +214,38 @@ export async function hydrateSigningSession(
 
 export async function clearWarmSigningSessions(
   deps: WarmCapabilitiesPublicDeps,
-  nearAccountId?: AccountId | string,
+  walletId?: AccountId | string,
 ): Promise<void> {
-  await deps.clearWarmSigningSessions(nearAccountId);
+  await deps.clearWarmSigningSessions(walletId);
 }
 
 export type { ThresholdEcdsaLoginPrefillResult };
 
 export function createWarmCapabilitiesPublicApi(deps: WarmCapabilitiesPublicDeps) {
   return {
-    persistThresholdEcdsaBootstrapChainAccount: (
-      args: PersistThresholdEcdsaBootstrapChainAccountInput,
-    ) => persistThresholdEcdsaBootstrapChainAccount(deps, args),
+    persistThresholdEcdsaBootstrapForWalletTarget: (
+      args: PersistThresholdEcdsaBootstrapForWalletTargetInput,
+    ) => persistThresholdEcdsaBootstrapForWalletTarget(deps, args),
     getWarmThresholdEd25519SessionStatus: (nearAccountId: AccountId | string) =>
       getWarmThresholdEd25519SessionStatus(deps, nearAccountId),
     getWarmThresholdEcdsaSessionStatus: (
-      nearAccountId: AccountId | string,
+      walletId: AccountId | string,
       chainTarget: ThresholdEcdsaChainTarget,
       thresholdSessionId: string,
-    ) => getWarmThresholdEcdsaSessionStatus(deps, nearAccountId, chainTarget, thresholdSessionId),
+    ) => getWarmThresholdEcdsaSessionStatus(deps, walletId, chainTarget, thresholdSessionId),
     listWarmThresholdEcdsaSessionStatuses: (
-      nearAccountId: AccountId | string,
+      walletId: AccountId | string,
       chainTarget: ThresholdEcdsaChainTarget,
-    ) => listWarmThresholdEcdsaSessionStatuses(deps, nearAccountId, chainTarget),
+    ) => listWarmThresholdEcdsaSessionStatuses(deps, walletId, chainTarget),
     scheduleThresholdEcdsaLoginPresignPrefill: (args: {
-      nearAccountId: AccountId | string;
+      walletId: AccountId | string;
       chainTarget: ThresholdEcdsaChainTarget;
       thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef;
       minRemainingUsesBeforePrefill?: number;
     }) => scheduleThresholdEcdsaLoginPresignPrefill(deps, args),
     hydrateSigningSession: (args: HydrateSigningSessionInput) => hydrateSigningSession(deps, args),
-    clearWarmSigningSessions: (nearAccountId?: AccountId | string) =>
-      clearWarmSigningSessions(deps, nearAccountId),
+    clearWarmSigningSessions: (walletId?: AccountId | string) =>
+      clearWarmSigningSessions(deps, walletId),
   };
 }
 

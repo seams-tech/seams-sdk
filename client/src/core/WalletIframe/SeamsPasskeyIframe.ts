@@ -23,7 +23,12 @@ import type {
   ThresholdEcdsaLoginPrefillResult,
   ThresholdEcdsaSessionBootstrapResult,
 } from '../signingEngine/SigningEngine';
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type {
+  NearAccountRef,
+  ThresholdEcdsaChainTarget,
+  WalletSessionRef,
+  WalletSubjectId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   ThresholdEd25519HssFinalizedReportEnvelope,
   ThresholdEd25519HssPreparedSessionEnvelope,
@@ -186,7 +191,7 @@ export class SeamsPasskeyIframe {
       signAndSendTransactions: async (args) => await this.signAndSendTransactionsDomain(args),
       signAndSendTransaction: async (args) => {
         const results = await this.signAndSendTransactionsDomain({
-          nearAccountId: args.nearAccountId,
+          nearAccount: args.nearAccount,
           transactions: [
             {
               receiverId: args.receiverId,
@@ -330,7 +335,7 @@ export class SeamsPasskeyIframe {
   }
 
   onLoginStatusChanged(
-    cb: (status: { isLoggedIn: boolean; nearAccountId: string | null }) => void,
+    cb: (status: { isLoggedIn: boolean; walletId: string | null }) => void,
   ): () => void {
     return this.router.onLoginStatusChanged(cb);
   }
@@ -414,7 +419,7 @@ export class SeamsPasskeyIframe {
     await this.router.lock();
   }
 
-  async getWalletSession(nearAccountId?: string): Promise<WalletSession> {
+  async getWalletSession(walletId?: string): Promise<WalletSession> {
     if (!this.router.isReady()) {
       const login: LoginState = {
         isLoggedIn: false,
@@ -424,11 +429,12 @@ export class SeamsPasskeyIframe {
       } as LoginState;
       return { login, signingSession: null };
     }
-    return await this.router.getWalletSession(nearAccountId);
+    return await this.router.getWalletSession(walletId);
   }
 
   async prefillThresholdEcdsaPresignPool(args: {
-    nearAccountId: string;
+    walletSession: WalletSessionRef;
+    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     waitForPoolReady?: boolean;
     poolReadyTimeoutMs?: number;
@@ -437,7 +443,8 @@ export class SeamsPasskeyIframe {
   }): Promise<ThresholdEcdsaLoginPrefillResult> {
     await this.requireRouterReady();
     return await this.router.prefillThresholdEcdsaPresignPool({
-      nearAccountId: args.nearAccountId,
+      walletSession: args.walletSession,
+      subjectId: args.subjectId,
       options: {
         chainTarget: args.chainTarget,
         ...(typeof args.waitForPoolReady === 'boolean'
@@ -457,7 +464,7 @@ export class SeamsPasskeyIframe {
   }
 
   private async signTransactionsWithActionsDomain(args: {
-    nearAccountId: string;
+    nearAccount: NearAccountRef;
     transactions: TransactionInput[];
     options: SignTransactionHooksOptions;
   }): Promise<SignTransactionResult[]> {
@@ -469,7 +476,7 @@ export class SeamsPasskeyIframe {
       // - Handle transaction signing in secure iframe context
       // - Bridge progress events back to parent
       const res = await this.router.signTransactionsWithActions({
-        nearAccountId: args.nearAccountId,
+        nearAccountId: args.nearAccount.accountId,
         transactions: args.transactions,
         options: {
           signerSlot: args.options?.signerSlot,
@@ -489,13 +496,13 @@ export class SeamsPasskeyIframe {
   }
 
   private async signNEP413MessageDomain(args: {
-    nearAccountId: string;
+    nearAccount: NearAccountRef;
     params: SignNEP413MessageParams;
     options: SignNEP413HooksOptions;
   }): Promise<SignNEP413MessageResult> {
     try {
       const res = await this.router.signNep413Message({
-        nearAccountId: args.nearAccountId,
+        nearAccountId: args.nearAccount.accountId,
         message: args.params.message,
         recipient: args.params.recipient,
         state: args.params.state,
@@ -517,7 +524,7 @@ export class SeamsPasskeyIframe {
   }
 
   private async signDelegateActionDomain(args: {
-    nearAccountId: string;
+    nearAccount: NearAccountRef;
     delegate: DelegateActionInput;
     options: DelegateActionHooksOptions;
   }): Promise<SignDelegateActionResult> {
@@ -525,7 +532,7 @@ export class SeamsPasskeyIframe {
     try {
       await this.requireRouterReady();
       const res = (await this.router.signDelegateAction({
-        nearAccountId: args.nearAccountId,
+        nearAccountId: args.nearAccount.accountId,
         delegate: args.delegate,
         options: {
           signerSlot: options?.signerSlot,
@@ -569,13 +576,13 @@ export class SeamsPasskeyIframe {
   }
 
   private async signAndSendDelegateActionDomain(args: {
-    nearAccountId: string;
+    nearAccount: NearAccountRef;
     delegate: DelegateActionInput;
     relayerUrl: string;
     signal?: AbortSignal;
     options: SignAndSendDelegateActionHooksOptions;
   }): Promise<SignAndSendDelegateActionResult> {
-    const { nearAccountId, delegate, relayerUrl, signal, options } = args;
+    const { nearAccount, delegate, relayerUrl, signal, options } = args;
 
     const signOptions: DelegateActionHooksOptions | undefined = options
       ? {
@@ -592,7 +599,7 @@ export class SeamsPasskeyIframe {
     let signResult: SignDelegateActionResult;
     try {
       signResult = await this.signDelegateActionDomain({
-        nearAccountId,
+        nearAccount,
         delegate,
         options: signOptions as DelegateActionHooksOptions,
       });
@@ -642,7 +649,7 @@ export class SeamsPasskeyIframe {
   private async signTempoDomain(args: SignTempoArgs): Promise<TempoSignedResult | EvmSignedResult> {
     await this.requireRouterReady();
     return await this.router.signTempo({
-      nearAccountId: args.nearAccountId,
+      walletSession: args.walletSession,
       subjectId: args.subjectId,
       request: args.request,
       chainTarget: args.chainTarget,
@@ -679,7 +686,7 @@ export class SeamsPasskeyIframe {
   ): Promise<void> {
     await this.requireRouterReady();
     await this.router.reportTempoBroadcastAccepted({
-      nearAccountId: args.nearAccountId,
+      walletSession: args.walletSession,
       signedResult: args.signedResult,
       ...(args.txHash ? { txHash: args.txHash } : {}),
       options: {
@@ -693,7 +700,7 @@ export class SeamsPasskeyIframe {
   ): Promise<void> {
     await this.requireRouterReady();
     await this.router.reportTempoBroadcastRejected({
-      nearAccountId: args.nearAccountId,
+      walletSession: args.walletSession,
       signedResult: args.signedResult,
       ...(args.error == null
         ? {}
@@ -733,7 +740,7 @@ export class SeamsPasskeyIframe {
   private async reportTempoFinalizedDomain(args: ReportTempoFinalizedArgs): Promise<void> {
     await this.requireRouterReady();
     await this.router.reportTempoFinalized({
-      nearAccountId: args.nearAccountId,
+      walletSession: args.walletSession,
       signedResult: args.signedResult,
       ...(args.txHash ? { txHash: args.txHash } : {}),
       ...(args.receiptStatus ? { receiptStatus: args.receiptStatus } : {}),
@@ -748,7 +755,7 @@ export class SeamsPasskeyIframe {
   ): Promise<void> {
     await this.requireRouterReady();
     await this.router.reportTempoDroppedOrReplaced({
-      nearAccountId: args.nearAccountId,
+      walletSession: args.walletSession,
       signedResult: args.signedResult,
       reason: args.reason,
       ...(args.txHash ? { txHash: args.txHash } : {}),
@@ -763,7 +770,7 @@ export class SeamsPasskeyIframe {
   ): Promise<TempoNonceLaneStatus> {
     await this.requireRouterReady();
     return await this.router.reconcileTempoNonceLane({
-      nearAccountId: args.nearAccountId,
+      walletSession: args.walletSession,
       signedResult: args.signedResult,
       options: {
         onEvent: args.options?.onEvent,
@@ -875,14 +882,14 @@ export class SeamsPasskeyIframe {
     }
   }
   private async executeActionDomain(args: {
-    nearAccountId: string;
+    nearAccount: NearAccountRef;
     receiverId: string;
     actionArgs: ActionArgs | ActionArgs[];
     options: ActionHooksOptions;
   }): Promise<ActionResult> {
     try {
       const res = await this.router.executeAction({
-        nearAccountId: args.nearAccountId,
+        nearAccountId: args.nearAccount.accountId,
         receiverId: args.receiverId,
         actionArgs: args.actionArgs,
         options: args.options,
@@ -944,14 +951,14 @@ export class SeamsPasskeyIframe {
 
   // Utility: sign and send in one call via wallet iframe (single before/after)
   private async signAndSendTransactionsDomain(args: {
-    nearAccountId: string;
+    nearAccount: NearAccountRef;
     transactions: TransactionInput[];
     options: SignAndSendTransactionHooksOptions;
   }): Promise<ActionResult[]> {
     const options = args.options;
     try {
       const res = await this.router.signAndSendTransactions({
-        nearAccountId: args.nearAccountId,
+        nearAccountId: args.nearAccount.accountId,
         transactions: args.transactions,
         // Default to sequential execution when executionWait is not provided
         options,

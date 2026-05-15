@@ -1,4 +1,5 @@
 import type { AccountId } from '../../../types/accountIds';
+import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
 import type { ProfileAuthenticatorRecord } from '../../../indexedDB';
 import {
   type WebAuthnAuthenticatorRecord,
@@ -39,14 +40,7 @@ export type ThresholdWarmSessionMaterialPort = {
     prfFirstB64u: string;
     expiresAtMs: number;
     remainingUses: number;
-    transport?: {
-      curve?: 'ed25519' | 'ecdsa';
-      relayerUrl?: string;
-      walletSigningSessionId?: string;
-      thresholdSessionAuthToken?: string;
-      keyVersion?: string;
-      shamirPrimeB64u?: string;
-    };
+    transport?: WarmSessionSealTransportInput;
   }) => Promise<void>;
   claimWarmSessionMaterial?: (args: { sessionId: string; uses?: number }) => Promise<{
     ok: boolean;
@@ -65,7 +59,7 @@ export type ThresholdWarmSessionMaterialPort = {
   }>;
   persistSigningSessionSealForThresholdSession?: (args: {
     sessionId: string;
-    transport?: import('@/core/types/secure-confirm-worker').WarmSessionSealTransportInput;
+    transport?: WarmSessionSealTransportInput;
   }) => Promise<{
     ok: boolean;
     code?: string;

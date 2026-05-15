@@ -20,7 +20,7 @@ export type NonceLifecycleMetricEvent = {
   sender: `0x${string}`;
   nonce: string;
   nonceKey?: string;
-  nearAccountId?: string;
+  walletId?: string;
   txHash?: `0x${string}`;
   blockedNonce?: string;
   errorCode?: string;
@@ -40,7 +40,7 @@ export function emitNonceLifecycleMetric(event: NonceLifecycleMetricEvent): void
       sender: String(event.sender || '').trim().toLowerCase(),
       nonce,
       ...(event.nonceKey ? { nonceKey: String(event.nonceKey || '').trim() } : {}),
-      ...(event.nearAccountId ? { nearAccountId: String(event.nearAccountId || '').trim() } : {}),
+      ...(event.walletId ? { walletId: String(event.walletId || '').trim() } : {}),
       ...(event.txHash ? { txHash: String(event.txHash || '').trim().toLowerCase() } : {}),
       ...(event.blockedNonce ? { blockedNonce: String(event.blockedNonce || '').trim() } : {}),
       ...(event.errorCode ? { errorCode: String(event.errorCode || '').trim().toLowerCase() } : {}),

@@ -41,7 +41,10 @@ import {
   SigningSessionPlanKind,
   SigningSessionIds,
 } from '@/core/signingEngine/session/operationState/types';
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type {
+  NearAccountRef,
+  ThresholdEcdsaChainTarget,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export type NearThresholdSigningAuthPlan = {
   sessionId: string;
@@ -144,11 +147,11 @@ export function createNearSigningSessionCoordinator(
 
 export async function resolveNearThresholdSigningAuthContext(args: {
   warmSessionReader: WarmSessionCapabilityReader & ThresholdWarmSessionStatusReader;
-  nearAccountId: string;
+  nearAccount: NearAccountRef;
   operationLabel: string;
   usesNeeded?: number;
 }): Promise<NearThresholdSigningAuthContext> {
-  const accountId = String(args.nearAccountId || '').trim();
+  const accountId = String(args.nearAccount.accountId || '').trim();
   const warmSession = await args.warmSessionReader.getWarmSession(accountId);
   const capability = warmSession.capabilities.ed25519;
   const record = capability.record;

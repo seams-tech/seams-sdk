@@ -8,7 +8,7 @@ export type WalletIframeRouteDeps = Pick<
 
 type WalletIframeRouteArgs<TResult> = {
   walletIframe: WalletIframeRouteDeps;
-  nearAccountId?: string;
+  walletId?: string;
   local: () => Promise<TResult>;
   remote: (router: WalletIframeRouter) => Promise<TResult>;
   onRemoteError?: (error: unknown) => Promise<never> | never;
@@ -26,7 +26,7 @@ export async function routeWalletIframeOrLocal<TResult>(
   }
 
   try {
-    const router = await args.walletIframe.requireRouter(args.nearAccountId);
+    const router = await args.walletIframe.requireRouter(args.walletId);
     return await args.remote(router);
   } catch (error: unknown) {
     if (args.onRemoteError) {

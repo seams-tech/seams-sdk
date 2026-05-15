@@ -12,8 +12,8 @@ import type {
   ThresholdEcdsaThresholdSessionAuthReconnectRequest,
 } from './ecdsaSessionProvision';
 
-const nearAccountId = 'wallet.testnet';
-const subjectId = toWalletSubjectId(nearAccountId);
+const walletId = 'wallet.testnet';
+const subjectId = toWalletSubjectId(walletId);
 const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'evm',
   chainId: 11155111,
@@ -43,7 +43,7 @@ const emailOtpAuthContext = {
 } satisfies ThresholdEcdsaEmailOtpAuthContext;
 
 const activationCommon = {
-  nearAccountId,
+  walletId,
   subjectId,
   chainTarget,
   relayerUrl: 'https://relay.example',
@@ -78,6 +78,7 @@ void ({
   sessionIdentity,
   sessionKind: 'jwt',
   thresholdSessionAuth,
+  clientRootShare32B64u: 'client-root',
 } satisfies ThresholdEcdsaThresholdSessionAuthReconnectRequest);
 
 void ({

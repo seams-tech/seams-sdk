@@ -3,13 +3,12 @@ import type {
   ThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
 import {
-  getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   upsertStoredThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
 import type {
   RestorePersistedEd25519SessionPurpose,
-  RestoreSealedRecordForAccountResult,
+  RestoreSealedRecordResult,
 } from '@/core/signingEngine/session/sealedRecovery/types';
 import {
   recordAndVerifyRestoredWarmSessions,
@@ -71,7 +70,7 @@ export async function restoreEmailOtpEd25519SealedRecordForAccount(args: {
   accountId: string;
   record: EmailOtpEd25519SealedRecoveryRecord;
   purpose: EmailOtpEd25519RestorePurpose;
-  getThresholdEcdsaSessionRecordByThresholdSessionId?: (
+  getThresholdEcdsaSessionRecordByThresholdSessionId: (
     thresholdSessionId: string,
   ) => ThresholdEcdsaSessionRecord | null;
   readWarmSessionStatusFromWorker: (sessionId: string) => Promise<WarmSessionStatusResult>;
@@ -82,7 +81,7 @@ export async function restoreEmailOtpEd25519SealedRecordForAccount(args: {
   restoreEcdsaSigningSessionMaterialFromSealedRecord: (
     args: EmailOtpEcdsaSealedRecoveryRecordInput,
   ) => Promise<EmailOtpThresholdEcdsaRehydrateResult | null>;
-}): Promise<RestoreSealedRecordForAccountResult> {
+}): Promise<RestoreSealedRecordResult> {
   const ed25519Record = buildEmailOtpEd25519RecordFromSealedRestoreMetadata(args);
   if (!ed25519Record) return 'deferred';
   const existingStatus = await args
@@ -92,9 +91,9 @@ export async function restoreEmailOtpEd25519SealedRecordForAccount(args: {
   const ecdsaSealedRecord = args.record.companionEcdsaRecovery;
   if (!ecdsaSealedRecord) return 'deferred';
   const ecdsaThresholdSessionId = ecdsaSealedRecord.thresholdSessionId;
-  const ecdsaRecord =
-    args.getThresholdEcdsaSessionRecordByThresholdSessionId?.(ecdsaThresholdSessionId) ||
-    getStoredThresholdEcdsaSessionRecordByThresholdSessionId(ecdsaThresholdSessionId);
+  const ecdsaRecord = args.getThresholdEcdsaSessionRecordByThresholdSessionId(
+    ecdsaThresholdSessionId,
+  );
   const restored = await args
     .restoreEcdsaSigningSessionMaterialFromSealedRecord({
       sealedRecord: ecdsaSealedRecord,

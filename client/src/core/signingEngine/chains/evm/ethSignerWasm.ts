@@ -152,13 +152,13 @@ export async function secp256k1PrivateKey32ToPublicKey33Wasm(args: {
 
 export async function deriveSecp256k1KeypairFromPrfSecondWasm(args: {
   prfSecondB64u: string;
-  nearAccountId: string;
+  walletSessionUserId: string;
   workerCtx: WorkerOperationContext;
 }): Promise<{ privateKeyHex: string; publicKeyHex: string; ethereumAddress: string }> {
   const prfSecondB64u = String(args.prfSecondB64u || '').trim();
   if (!prfSecondB64u) throw new Error('Missing prfSecondB64u');
-  const nearAccountId = String(args.nearAccountId || '').trim();
-  if (!nearAccountId) throw new Error('Missing nearAccountId');
+  const walletSessionUserId = String(args.walletSessionUserId || '').trim();
+  if (!walletSessionUserId) throw new Error('Missing walletSessionUserId');
 
   const prfSecond = base64UrlDecode(prfSecondB64u);
   if (prfSecond.length === 0) {
@@ -173,7 +173,7 @@ export async function deriveSecp256k1KeypairFromPrfSecondWasm(args: {
         type: 'deriveSecp256k1KeypairFromPrfSecond',
         payload: {
           prfSecond: prfSecondCopy.buffer,
-          nearAccountId,
+          walletSessionUserId,
         },
         timeoutMs: ETH_SIGNER_WORKER_TIMEOUT_MS,
         transfer: [prfSecondCopy.buffer],

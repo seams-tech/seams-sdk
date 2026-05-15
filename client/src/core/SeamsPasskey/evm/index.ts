@@ -1,7 +1,6 @@
 import { toAccountId } from '../../types/accountIds';
 import type { EvmSignerCapability } from '..';
 import { routeWalletIframeOrLocal, type WalletIframeRouteDeps } from '../walletIframeRoute';
-import { toWalletSubjectId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
 import { buildEcdsaSessionIdentity } from '@/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan';
 
@@ -14,8 +13,8 @@ function toLocalBootstrapRequest(
   args: Parameters<EvmSignerCapability['bootstrapEcdsaSession']>[0],
 ): EcdsaBootstrapRequest {
   const common = {
-    nearAccountId: toAccountId(args.nearAccountId),
-    subjectId: toWalletSubjectId(args.nearAccountId),
+    walletId: toAccountId(args.walletSession.walletId),
+    subjectId: args.subjectId,
     chainTarget: args.chainTarget,
     source: args.source,
     relayerUrl: args.relayerUrl,
@@ -76,6 +75,7 @@ function toLocalBootstrapRequest(
         ...common,
         sessionKind: args.sessionKind,
         sessionIdentity: buildEcdsaSessionIdentity(args.sessionIdentity),
+        clientRootShare32B64u: args.clientRootShare32B64u,
         routeAuth: args.routeAuth,
       };
     case 'email_otp_ecdsa_bootstrap':
@@ -129,7 +129,7 @@ export class EvmSigner implements EvmSignerCapability {
 
     return await routeWalletIframeOrLocal({
       walletIframe: this.walletIframe,
-      nearAccountId: args.nearAccountId,
+      walletId: String(args.walletSession.walletId),
       remote: async (router) => {
         return await router.bootstrapEcdsaSession(bootstrapArgs);
       },

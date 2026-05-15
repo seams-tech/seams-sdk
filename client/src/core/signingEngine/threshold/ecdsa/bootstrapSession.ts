@@ -77,7 +77,7 @@ async function requestManagedRegistrationBootstrapGrant(args: {
   relayerUrl: string;
   environmentId: string;
   publishableKey: string;
-  nearAccountId: string;
+  walletId: string;
   rpId: string;
 }): Promise<{ token: string; runtimePolicyScope: ThresholdRuntimePolicyScope }> {
   const data = await postJsonExpectOk({
@@ -86,7 +86,7 @@ async function requestManagedRegistrationBootstrapGrant(args: {
     operation: 'Managed registration bootstrap grant',
     body: {
       environmentId: args.environmentId,
-      newAccountId: args.nearAccountId,
+      newAccountId: args.walletId,
       rpId: args.rpId,
       flow: 'registration_v1',
     },
@@ -287,7 +287,7 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
     const resolvedClientRootShare = await resolveThresholdEcdsaClientRootShare({
       indexedDB: args.indexedDB,
       touchIdPrompt: args.touchIdPrompt,
-      userId,
+      walletId: userId,
       challengeB64u,
       providedClientRootShare32,
       providedClientRootShare32B64u,
@@ -318,7 +318,7 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
             relayerUrl: args.relayerUrl,
             environmentId: runtimeEnvironmentId,
             publishableKey: runtimeScopePublishableKey,
-            nearAccountId: userId,
+            walletId: userId,
             rpId,
           })
         : null;
@@ -343,7 +343,7 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
           : undefined;
     const sessionPolicy = {
       version: THRESHOLD_SESSION_POLICY_VERSION,
-      userId,
+      walletSessionUserId: userId,
       subjectId: args.subjectId,
       rpId,
       chainTarget: args.chainTarget,
@@ -422,22 +422,18 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
     }
     const preparedServerSessionB64u = String(prepare.preparedServerSessionB64u || '').trim();
     const serverAssistInitB64u = String(prepare.serverAssistInitB64u || '').trim();
-    if (!preparedServerSessionB64u || !serverAssistInitB64u) {
+    if (!preparedServerSessionB64u || !serverAssistInitB64u || !prepare.hssContext) {
       return {
         ok: false,
         code: 'internal',
-        message: 'Threshold bootstrap prepare response missing staged transport inputs',
+        message: 'Threshold bootstrap prepare response missing staged transport inputs or HSS context',
       };
     }
 
     let preparedClientSession;
     try {
       preparedClientSession = await prepareThresholdEcdsaHssSessionWasm({
-        context: {
-          nearAccountId: userId,
-          keyPurpose: 'evm-signing',
-          keyVersion: 'v1',
-        },
+        context: prepare.hssContext,
         clientRootShare32,
         workerCtx: args.workerCtx,
       });

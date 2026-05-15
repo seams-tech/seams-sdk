@@ -12,6 +12,7 @@ import type { ThresholdEd25519SessionRecord } from '../../session/persistence/re
 import { getStoredThresholdEd25519SessionRecordForLane } from '../../session/persistence/records';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
+import type { RequestEmailOtpChallengeArgs } from '../../session/emailOtp/exportRecoveryRuntime';
 import type { ExactNearEd25519ExportLane } from './exportLaneSelection';
 import {
   isExportViewerSessionOpen,
@@ -36,12 +37,9 @@ export type NearEd25519SingleKeyExportDeps = {
   touchConfirm: Parameters<typeof showNearEd25519ExportViewer>[0]['touchConfirm'];
   theme?: ThemeName;
   emailOtpSessions: {
-    requestExportChallenge: (args: {
-      nearAccountId: AccountId | string;
-      chain: 'near';
-      routeAuth?: AppOrThresholdSessionAuth;
-      authLane?: EmailOtpAuthLane;
-    }) => Promise<{ challengeId: string; emailHint?: string }>;
+    requestExportChallenge: (
+      args: RequestEmailOtpChallengeArgs,
+    ) => Promise<{ challengeId: string; emailHint?: string }>;
     recoverEd25519ExportPrfFirst: (args: {
       nearAccountId: AccountId | string;
       challengeId: string;
@@ -326,15 +324,18 @@ export async function tryExportNearEd25519SingleKeyHssWithAuthorization(
           touchConfirm: deps.touchConfirm,
           requestExportChallenge: (request) =>
             deps.emailOtpSessions.requestExportChallenge({
-              ...request,
+              kind: 'near_account_challenge',
               nearAccountId,
               chain: 'near',
+              ...(request.routeAuth ? { routeAuth: request.routeAuth } : {}),
+              ...(request.authLane ? { authLane: request.authLane } : {}),
             }),
         },
-        {
-          nearAccountId,
-          chain: 'near',
-          publicKey: expectedPublicKey,
+    {
+      kind: 'near_account_export_auth',
+      nearAccountId,
+      chain: 'near',
+      publicKey: expectedPublicKey,
           curve: 'ed25519',
           authLane: exportSigningSessionAuthLane,
         },

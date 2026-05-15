@@ -7,7 +7,7 @@ import type { ThresholdEcdsaSecp256k1KeyRef } from '../../signingEngine/interfac
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../signingEngine/threshold/ecdsa/activation';
 import {
   thresholdEcdsaChainTargetKey,
-  toWalletSubjectId,
+  walletSubjectIdFromWalletProfile,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaSessionStoreSource } from '../../signingEngine/session/identity/laneIdentity';
@@ -50,13 +50,13 @@ export type PreparedLinkDeviceLinkedAccount = {
 
 type LinkDeviceThresholdEcdsaSigningPort = {
   upsertThresholdEcdsaSessionFromBootstrap: (args: {
-    nearAccountId: AccountId | string;
+    walletId: AccountId | string;
     chainTarget: ThresholdEcdsaChainTarget;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     source: ThresholdEcdsaSessionStoreSource;
   }) => void;
-  persistThresholdEcdsaBootstrapChainAccount: (args: {
-    nearAccountId: AccountId | string;
+  persistThresholdEcdsaBootstrapForWalletTarget: (args: {
+    walletId: AccountId | string;
     chainTarget: ThresholdEcdsaChainTarget;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     smartAccount?: {
@@ -88,12 +88,12 @@ function dedupeLinkedAccounts(
 }
 
 function buildThresholdEcdsaBootstrap(args: {
-  nearAccountId: AccountId | string;
+  walletId: AccountId | string;
   relayerUrl: string;
   chainTarget: ThresholdEcdsaChainTarget;
   thresholdEcdsa: PreparedLinkDeviceThresholdEcdsa;
 }): ThresholdEcdsaSessionBootstrapResult {
-  const nearAccountId = toAccountId(args.nearAccountId);
+  const walletId = toAccountId(args.walletId);
   const session = args.thresholdEcdsa.session || {};
   const ecdsaThresholdKeyId = String(args.thresholdEcdsa.ecdsaThresholdKeyId || '').trim();
   const signingRootId = String(args.thresholdEcdsa.signingRootId || '').trim();
@@ -159,8 +159,8 @@ function buildThresholdEcdsaBootstrap(args: {
 
   const thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef = {
     type: 'threshold-ecdsa-secp256k1',
-    userId: nearAccountId,
-    subjectId: toWalletSubjectId(nearAccountId),
+    userId: walletId,
+    subjectId: walletSubjectIdFromWalletProfile({ walletId }),
     chainTarget: args.chainTarget,
     relayerUrl: String(args.relayerUrl || '').trim(),
     ecdsaThresholdKeyId,
@@ -209,7 +209,7 @@ function buildThresholdEcdsaBootstrap(args: {
 export async function persistLinkDeviceThresholdEcdsaBootstrap(args: {
   indexedDB: UnifiedIndexedDBManager;
   signingEngine: LinkDeviceThresholdEcdsaSigningPort;
-  nearAccountId: AccountId | string;
+  walletId: AccountId | string;
   relayerUrl: string;
   signerSlot: number;
   rpId: string;
@@ -220,7 +220,7 @@ export async function persistLinkDeviceThresholdEcdsaBootstrap(args: {
   const linkedAccounts = dedupeLinkedAccounts(args.linkedAccounts || []);
   if (linkedAccounts.length === 0) return;
 
-  const nearAccountId = toAccountId(args.nearAccountId);
+  const walletId = toAccountId(args.walletId);
   const thresholdOwnerAddress = String(args.thresholdEcdsa.ethereumAddress || '').trim();
   const uniqueTargetKeys = [
     ...new Set(linkedAccounts.map((account) => thresholdEcdsaChainTargetKey(account.chainTarget))),
@@ -233,7 +233,7 @@ export async function persistLinkDeviceThresholdEcdsaBootstrap(args: {
     const existing = bootstrapByTargetKey.get(targetKey);
     if (existing) return existing;
     const bootstrap = buildThresholdEcdsaBootstrap({
-      nearAccountId,
+      walletId,
       relayerUrl: args.relayerUrl,
       chainTarget,
       thresholdEcdsa: args.thresholdEcdsa,
@@ -250,7 +250,7 @@ export async function persistLinkDeviceThresholdEcdsaBootstrap(args: {
     if (!account) continue;
     const bootstrap = bootstrapForTarget(account.chainTarget);
     args.signingEngine.upsertThresholdEcdsaSessionFromBootstrap({
-      nearAccountId,
+      walletId,
       chainTarget: account.chainTarget,
       bootstrap,
       source: 'manual-bootstrap',
@@ -259,8 +259,8 @@ export async function persistLinkDeviceThresholdEcdsaBootstrap(args: {
 
   for (const account of linkedAccounts) {
     const bootstrap = bootstrapForTarget(account.chainTarget);
-    await args.signingEngine.persistThresholdEcdsaBootstrapChainAccount({
-      nearAccountId,
+    await args.signingEngine.persistThresholdEcdsaBootstrapForWalletTarget({
+      walletId,
       chainTarget: account.chainTarget,
       bootstrap,
       smartAccount: {
@@ -277,10 +277,10 @@ export async function persistLinkDeviceThresholdEcdsaBootstrap(args: {
 
   const nearContext = await resolveProfileAccountContextFromCandidates(
     args.indexedDB.clientDB,
-    buildNearAccountRefs(nearAccountId),
+    buildNearAccountRefs(walletId),
   );
   if (!nearContext?.profileId) {
-    throw new Error(`[link-device] missing profile/account mapping for ${String(nearAccountId)}`);
+    throw new Error(`[link-device] missing profile/account mapping for ${String(walletId)}`);
   }
 
   for (const account of linkedAccounts) {

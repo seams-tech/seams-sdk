@@ -1,6 +1,7 @@
 import type { AccountId } from '@/core/types/accountIds';
 import { toAccountId } from '@/core/types/accountIds';
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
+import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import {
@@ -24,11 +25,16 @@ import {
 } from '@shared/threshold/participants';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type {
+  BuildCurrentSealedSessionRecordInput,
   BuildCurrentSealedSessionRecordBaseInput,
   SigningSessionRestoreLeaseHandle,
   SigningSessionSealedRecordFilter,
   SigningSessionSealedStoreRecord,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
+import type {
+  ThresholdEcdsaSessionRecord,
+  ThresholdEd25519SessionRecord,
+} from '@/core/signingEngine/session/persistence/records';
 import type { PersistWarmSessionEd25519CapabilityArgs } from '../warmCapabilities/persistence';
 import { attachEd25519SessionToEmailOtpSigningSessionSealBestEffort } from './companionSessions';
 
@@ -185,24 +191,21 @@ export async function provisionEmailOtpEd25519Capability(args: {
     prfFirstB64u: string;
     expiresAtMs: number;
     remainingUses: number;
-    transport?: {
-      curve?: 'ed25519' | 'ecdsa';
-      relayerUrl?: string;
-      thresholdSessionAuthToken?: string;
-      keyVersion?: string;
-      shamirPrimeB64u?: string;
-    };
+    transport?: WarmSessionSealTransportInput;
   }) => Promise<void>;
   sessionPersistenceMode?: string | null;
   readExactSealedSession: (
     thresholdSessionId: string,
     filter: SigningSessionSealedRecordFilter,
   ) => Promise<SigningSessionSealedStoreRecord | null>;
-  getThresholdEcdsaSessionRecordByThresholdSessionId?: (
+  getThresholdEcdsaSessionRecordByThresholdSessionId: (
     thresholdSessionId: string,
-  ) => { source?: string; chainTarget?: unknown; subjectId?: string } | null;
+  ) => ThresholdEcdsaSessionRecord | null;
+  getThresholdEd25519SessionRecordByThresholdSessionId: (
+    thresholdSessionId: string,
+  ) => ThresholdEd25519SessionRecord | null;
   registerSigningSession: (
-    record: BuildCurrentSealedSessionRecordBaseInput & { curve: 'ed25519' | 'ecdsa' },
+    record: BuildCurrentSealedSessionRecordInput,
   ) => Promise<void>;
 }): Promise<EmailOtpThresholdEd25519ProvisioningResult> {
   const input = normalizeEmailOtpEd25519ProvisioningInput(args.input);
@@ -442,9 +445,9 @@ export async function provisionEmailOtpEd25519Capability(args: {
       ed25519ThresholdSessionId: sessionId,
       readExactSealedSession: args.readExactSealedSession,
       getThresholdEcdsaSessionRecordByThresholdSessionId:
-        args.getThresholdEcdsaSessionRecordByThresholdSessionId as
-          | ((thresholdSessionId: string) => any)
-          | undefined,
+        args.getThresholdEcdsaSessionRecordByThresholdSessionId,
+      getThresholdEd25519SessionRecordByThresholdSessionId:
+        args.getThresholdEd25519SessionRecordByThresholdSessionId,
       registerSigningSession: args.registerSigningSession,
     });
   }
@@ -493,9 +496,9 @@ export async function provisionEmailOtpEd25519Capability(args: {
       ed25519ThresholdSessionId: sessionId,
       readExactSealedSession: args.readExactSealedSession,
       getThresholdEcdsaSessionRecordByThresholdSessionId:
-        args.getThresholdEcdsaSessionRecordByThresholdSessionId as
-          | ((thresholdSessionId: string) => any)
-          | undefined,
+        args.getThresholdEcdsaSessionRecordByThresholdSessionId,
+      getThresholdEd25519SessionRecordByThresholdSessionId:
+        args.getThresholdEd25519SessionRecordByThresholdSessionId,
       registerSigningSession: args.registerSigningSession,
     });
   }

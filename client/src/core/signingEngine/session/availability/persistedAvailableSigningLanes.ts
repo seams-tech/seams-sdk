@@ -14,7 +14,7 @@ import {
   type ThresholdEcdsaSessionStoreDeps,
 } from '../persistence/records';
 import {
-  listExactSealedSessionsForAccount,
+  listExactSealedSessionsForWallet,
   type SigningSessionSealedStoreRecord,
 } from '../persistence/sealedSessionStore';
 import {
@@ -65,7 +65,7 @@ function applyWalletBudgetStatusToRuntimeClaim(args: {
   }
   if (budgetStatus.status === 'expired') return { state: 'expired', sessionId: args.sessionId };
   if (budgetStatus.status === 'exhausted') {
-    return { state: 'exhausted', sessionId: args.sessionId };
+    return { state: 'exhausted', sessionId: args.sessionId, remainingUses: 0 };
   }
   return {
     state: 'unavailable',
@@ -104,7 +104,7 @@ export async function readPersistedAvailableSigningLanesForTargets(
     ecdsaChainTargets: readonly ThresholdEcdsaChainTarget[];
   },
 ): Promise<AvailableSigningLanes> {
-  const accountId = String(toAccountId(args.walletId) || '').trim();
+  const walletId = String(toAccountId(args.walletId) || '').trim();
   const pushRuntimeEcdsaRecord = (
     records: AvailableSigningLanesRuntimeEcdsaRecord[],
     seen: Set<string>,
@@ -119,18 +119,18 @@ export async function readPersistedAvailableSigningLanesForTargets(
   return await readAvailableSigningLanes(
     {
       ...args,
-      walletId: accountId,
+      walletId,
       subjectId: args.subjectId,
       ecdsaChainTargets: args.ecdsaChainTargets,
     },
     {
-      listSealedRecordsForAccount: async ({ accountId: recordAccountId, filter }) => {
+      listSealedRecordsForWallet: async ({ walletId: recordWalletId, filter }) => {
         const listByAuthMethod = async (
           authMethod: 'email_otp' | 'passkey',
         ): Promise<SigningSessionSealedStoreRecord[]> => {
           if (filter.curve === 'ecdsa') {
-            return await listExactSealedSessionsForAccount({
-              accountId: recordAccountId,
+            return await listExactSealedSessionsForWallet({
+              walletId: recordWalletId,
               filter: {
                 authMethod,
                 curve: 'ecdsa',
@@ -138,8 +138,8 @@ export async function readPersistedAvailableSigningLanesForTargets(
               },
             });
           }
-          return await listExactSealedSessionsForAccount({
-            accountId: recordAccountId,
+          return await listExactSealedSessionsForWallet({
+            walletId: recordWalletId,
             filter: { authMethod, curve: 'ed25519' },
           });
         };
@@ -169,6 +169,11 @@ export async function readPersistedAvailableSigningLanesForTargets(
             signingRootVersion: runtimeLane.signingRootVersion,
             thresholdSessionId: runtimeLane.thresholdSessionId,
             walletSigningSessionId: runtimeLane.walletSigningSessionId,
+            ...(runtimeLane.remainingUses == null
+              ? {}
+              : { remainingUses: runtimeLane.remainingUses }),
+            ...(runtimeLane.expiresAtMs == null ? {} : { expiresAtMs: runtimeLane.expiresAtMs }),
+            ...(runtimeLane.updatedAtMs == null ? {} : { updatedAtMs: runtimeLane.updatedAtMs }),
           });
         }
         return records;
@@ -194,6 +199,9 @@ export async function readPersistedAvailableSigningLanesForTargets(
             chain: 'near',
             thresholdSessionId: runtimeRecord.thresholdSessionId,
             walletSigningSessionId: runtimeRecord.walletSigningSessionId,
+            remainingUses: runtimeRecord.remainingUses,
+            expiresAtMs: runtimeRecord.expiresAtMs,
+            updatedAtMs: runtimeRecord.updatedAtMs,
           });
         }
         return records;
@@ -223,9 +231,9 @@ export async function readPersistedAvailableSigningLanesForTargets(
                 ? await deps
                     .getWalletSigningBudgetStatus(
                       buildThresholdBudgetStatusCheck({
-                      nearAccountId: accountId,
-                      walletSigningSessionId,
-                      targetThresholdSessionIds: [sessionId],
+                        walletId,
+                        walletSigningSessionId,
+                        targetThresholdSessionIds: [sessionId],
                       }),
                     )
                     .catch(() => null)

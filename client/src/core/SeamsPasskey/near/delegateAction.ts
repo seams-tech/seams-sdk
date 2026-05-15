@@ -12,6 +12,7 @@ import { toError } from '@shared/utils/errors';
 import type { WasmSignedDelegate } from '../../types/signer-worker';
 import { isObject } from '@shared/utils/validation';
 import { resolvePrimaryNearRpcUrl } from '../../config/chains';
+import { nearAccountRefFromAccountId } from '../../signingEngine/interfaces/ecdsaChainTarget';
 import { emitNearSigningEvent } from './signingEventHelpers';
 
 async function yieldForUiPaint(): Promise<void> {
@@ -68,6 +69,7 @@ export async function signDelegateAction(args: {
       chain: 'near',
       kind: 'delegateAction',
       args: {
+        nearAccount: nearAccountRefFromAccountId(nearAccountId),
         delegate: resolvedDelegate,
         rpcCall: {
           nearRpcUrl: resolvePrimaryNearRpcUrl(context.configs.network.chains),

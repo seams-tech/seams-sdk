@@ -55,7 +55,6 @@ export type ThresholdEcdsaEmailOtpAuthContext = {
 
 export type BaseSelectedLane = {
   kind: 'selected_lane';
-  accountId: AccountId;
   authMethod: SigningAuthMethod;
   curve: SigningCurve;
   walletSigningSessionId: WalletSigningSessionId;
@@ -65,12 +64,14 @@ export type BaseSelectedLane = {
 export type SelectedEd25519Lane = BaseSelectedLane & {
   curve: 'ed25519';
   chain: 'near';
+  accountId: AccountId;
   thresholdSessionId: ThresholdEd25519SessionId;
 };
 
 export type SelectedEcdsaLane = BaseSelectedLane & {
   curve: 'ecdsa';
   chain: 'evm' | 'tempo';
+  walletId: AccountId;
   subjectId: WalletSubjectId;
   thresholdSessionId: ThresholdEcdsaSessionId;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -89,7 +90,7 @@ export type SelectedEd25519LaneInput = {
 };
 
 export type SelectedEcdsaLaneInput = {
-  accountId: AccountId;
+  walletId: AccountId;
   authMethod: SigningAuthMethod;
   walletSigningSessionId: unknown;
   thresholdSessionId: unknown;
@@ -121,10 +122,10 @@ export function selectedEd25519Lane(input: SelectedEd25519LaneInput): SelectedEd
 export function selectedEcdsaLane(input: SelectedEcdsaLaneInput): SelectedEcdsaLane {
   return {
     kind: 'selected_lane',
-    accountId: input.accountId,
     authMethod: input.authMethod,
     curve: 'ecdsa',
     chain: input.chainTarget.kind,
+    walletId: input.walletId,
     walletSigningSessionId: SigningSessionIds.walletSigningSession(input.walletSigningSessionId),
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(input.thresholdSessionId),
     subjectId: toWalletSubjectId(input.subjectId),
@@ -151,7 +152,6 @@ export type LaneCandidateSource =
 
 export type BaseLaneCandidate = {
   kind: 'lane_candidate';
-  accountId: AccountId;
   authMethod: SigningAuthMethod;
   curve: SigningCurve;
   walletSigningSessionId: string;
@@ -164,6 +164,7 @@ export type BaseLaneCandidate = {
 };
 
 export type Ed25519LaneCandidate = BaseLaneCandidate & {
+  accountId: AccountId;
   curve: 'ed25519';
   chain: 'near';
 };
@@ -171,6 +172,7 @@ export type Ed25519LaneCandidate = BaseLaneCandidate & {
 export type EcdsaLaneCandidate = BaseLaneCandidate & {
   curve: 'ecdsa';
   chain: 'evm' | 'tempo';
+  walletId: AccountId;
   subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   ecdsaThresholdKeyId: string;

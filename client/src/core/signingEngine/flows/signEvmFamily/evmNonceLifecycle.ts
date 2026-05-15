@@ -17,7 +17,7 @@ import {
 
 export async function resolveManagedEvmNonceReservationInput(args: {
   deps: EvmFamilyAccountMetadataDeps & EvmFamilyNonceNetworkDeps;
-  nearAccountId: string;
+  walletId: string;
   request: EvmSigningRequest;
   senderHint?: `0x${string}`;
 }): Promise<ReserveNonceInput> {
@@ -30,7 +30,7 @@ export async function resolveManagedEvmNonceReservationInput(args: {
     }),
     chainId: args.request.tx.chainId,
     sender,
-    nearAccountId: args.nearAccountId,
+    walletId: args.walletId,
   };
 }
 

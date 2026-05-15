@@ -20,6 +20,7 @@ import { signingAuthPlanFromSigningSessionPlan } from '../shared/signingConfirma
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
 import type {
   ThresholdEcdsaChainTarget,
+  WalletSessionRef,
   WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
@@ -55,7 +56,7 @@ export type EvmFamilyWarmSessionReadinessDeps = EvmFamilyPreConfirmSigningDeps;
 
 export type EvmFamilyConfirmedEmailOtpDeps = {
   requestEmailOtpTransactionSigningChallenge?: (args: {
-    nearAccountId: string;
+    walletSession: WalletSessionRef;
     chain: EvmFamilyChain;
     authLane?: EmailOtpAuthLane;
   }) => Promise<{ challengeId: string; emailHint?: string }>;
@@ -65,7 +66,7 @@ export type EvmFamilyConfirmedEmailOtpDeps = {
     chain: EvmFamilyChain;
   }) => EmailOtpAuthLane | null | Promise<EmailOtpAuthLane | null>;
   loginWithEmailOtpEcdsaCapabilityForSigning?: (args: {
-    nearAccountId: string;
+    walletSession: WalletSessionRef;
     subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     challengeId: string;
@@ -83,7 +84,7 @@ export type EvmFamilyTransactionStepUpDeps = EvmFamilyPreConfirmSigningDeps;
 type ResolveEvmFamilyTransactionStepUpBaseArgs = {
   deps: EvmFamilyTransactionStepUpDeps;
   confirmedDeps: EvmFamilyConfirmedSigningDeps;
-  nearAccountId: string;
+  walletSession: WalletSessionRef;
   chain: EvmFamilyChain;
   chainTarget: ThresholdEcdsaChainTarget;
   accountAuth: AccountAuthMetadata;
@@ -183,6 +184,7 @@ export async function resolveEvmFamilyTransactionStepUp(
     ) => Promise<EmailOtpEcdsaSigningBootstrapResult>;
   };
 }> {
+  const walletId = String(args.walletSession.walletId);
   const preparedEcdsaMetadata =
     args.senderSignatureAlgorithm === 'secp256k1'
       ? (args.preparedOperation.metadata as {
@@ -210,7 +212,8 @@ export async function resolveEvmFamilyTransactionStepUp(
   const emailOtpAuthBridge =
     args.senderSignatureAlgorithm === 'secp256k1'
       ? createEmailOtpEcdsaTransactionSigningBridge({
-          nearAccountId: args.nearAccountId,
+          walletId,
+          walletSession: args.walletSession,
           chain: args.chain,
           chainTarget: args.chainTarget,
           selectedLane: preparedEcdsaLane,
@@ -236,7 +239,7 @@ export async function resolveEvmFamilyTransactionStepUp(
     if (signingSessionPlan.kind === SigningSessionPlanKind.WarmSession) {
       plannedEcdsaSigningAuthPlan = signingAuthPlanFromSigningSessionPlan({
         plan: signingSessionPlan,
-        accountId: args.nearAccountId,
+        accountId: walletId,
         intent: signingIntent,
         ...(signingCurve ? { curve: signingCurve } : {}),
         ...(preparedOperation.metadata.signingRootId
@@ -248,14 +251,14 @@ export async function resolveEvmFamilyTransactionStepUp(
     } else if (signingSessionPlan.kind === SigningSessionPlanKind.EmailOtpReauth) {
       plannedEcdsaSigningAuthPlan = signingAuthPlanFromSigningSessionPlan({
         plan: signingSessionPlan,
-        accountId: args.nearAccountId,
+        accountId: walletId,
         intent: signingIntent,
         ...(signingCurve ? { curve: signingCurve } : {}),
       });
     } else if (signingSessionPlan.kind === SigningSessionPlanKind.PasskeyReauth) {
       plannedEcdsaSigningAuthPlan = signingAuthPlanFromSigningSessionPlan({
         plan: signingSessionPlan,
-        accountId: args.nearAccountId,
+        accountId: walletId,
         intent: signingIntent,
         ...(signingCurve ? { curve: signingCurve } : {}),
       });

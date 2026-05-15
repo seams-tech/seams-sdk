@@ -3,6 +3,7 @@
  */
 
 import type { TouchIdPrompt } from '../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
+import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
 import type { NearClient } from '../../rpcClients/near/NearClient';
 import type { UnifiedIndexedDBManager } from '../../indexedDB';
 import type { UserPreferencesManager } from '../session/userPreferences';
@@ -31,8 +32,8 @@ import type {
   WarmSessionSealAndPersistResult,
 } from '@/core/types/secure-confirm-worker';
 import type {
-  RestorePersistedSessionsForAccountInput,
-  RestorePersistedSessionsForAccountResult,
+  RestorePersistedSessionsForWalletInput,
+  RestorePersistedSessionsForWalletResult,
   RestorePersistedSessionForSigningInput,
 } from '../session/sealedRecovery/types';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -79,14 +80,7 @@ export interface WarmSessionMaterialWriter {
     prfFirstB64u: string;
     expiresAtMs: number;
     remainingUses: number;
-    transport?: {
-      curve?: 'ed25519' | 'ecdsa';
-      relayerUrl?: string;
-      walletSigningSessionId?: string;
-      thresholdSessionAuthToken?: string;
-      keyVersion?: string;
-      shamirPrimeB64u?: string;
-    };
+    transport?: WarmSessionSealTransportInput;
   }): Promise<void>;
 }
 
@@ -133,7 +127,7 @@ export interface WarmSessionSealPersister {
   ): Promise<WarmSessionSealAndPersistResult>;
   persistSigningSessionSealForThresholdSession(args: {
     sessionId: string;
-    transport?: import('@/core/types/secure-confirm-worker').WarmSessionSealTransportInput;
+    transport?: WarmSessionSealTransportInput;
   }): Promise<WarmSessionSealAndPersistResult>;
 }
 
@@ -144,11 +138,11 @@ export interface WarmSessionRehydrator {
 }
 
 export interface WarmSessionPersistedRestorer {
-  restorePersistedSessionsForAccount?(
+  restorePersistedSessionsForWallet?(
     args: {
       authMethod?: 'passkey';
-    } & RestorePersistedSessionsForAccountInput,
-  ): Promise<RestorePersistedSessionsForAccountResult>;
+    } & RestorePersistedSessionsForWalletInput,
+  ): Promise<RestorePersistedSessionsForWalletResult>;
   restorePersistedSessionForSigning(
     args: {
       authMethod: 'passkey';

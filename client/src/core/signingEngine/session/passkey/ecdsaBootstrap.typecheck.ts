@@ -9,7 +9,7 @@ import type {
 import { buildEcdsaSessionIdentity } from '../warmCapabilities/ecdsaProvisionPlan';
 import { SigningSessionIds } from '../operationState/types';
 
-declare const nearAccountId: AccountId;
+declare const walletId: AccountId;
 declare const subjectId: WalletSubjectId;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const webauthnAuthentication: WebAuthnAuthenticationCredential;
@@ -22,7 +22,7 @@ const sessionIdentity = buildEcdsaSessionIdentity({
 
 const validReuseBootstrap = {
   kind: 'reuse_warm_ecdsa_bootstrap',
-  nearAccountId,
+  walletId,
   subjectId,
   chainTarget,
   source: 'manual-bootstrap',
@@ -31,7 +31,7 @@ const validReuseBootstrap = {
 
 const validPasskeyFreshBootstrap = {
   kind: 'passkey_fresh_ecdsa_bootstrap',
-  nearAccountId,
+  walletId,
   subjectId,
   chainTarget,
   source: 'registration',
@@ -46,7 +46,7 @@ const validPasskeyFreshBootstrap = {
 
 const validPasskeyFreshWebAuthnBootstrap = {
   kind: 'passkey_fresh_ecdsa_bootstrap',
-  nearAccountId,
+  walletId,
   subjectId,
   chainTarget,
   source: 'login',
@@ -58,7 +58,7 @@ const validPasskeyFreshWebAuthnBootstrap = {
 
 const validPasskeyFreshCookieBootstrap = {
   kind: 'passkey_fresh_ecdsa_bootstrap',
-  nearAccountId,
+  walletId,
   subjectId,
   chainTarget,
   source: 'login',
@@ -69,7 +69,7 @@ const validPasskeyFreshCookieBootstrap = {
 
 const validCookieReconnectBootstrap = {
   kind: 'passkey_cookie_reconnect_ecdsa_bootstrap',
-  nearAccountId,
+  walletId,
   subjectId,
   chainTarget,
   sessionKind: 'cookie',
@@ -78,7 +78,22 @@ const validCookieReconnectBootstrap = {
 
 const validThresholdSessionReconnectBootstrap = {
   kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
-  nearAccountId,
+  walletId,
+  subjectId,
+  chainTarget,
+  sessionKind: 'jwt',
+  sessionIdentity,
+  clientRootShare32B64u: 'client-root-share',
+  routeAuth: {
+    kind: 'threshold_session',
+    jwt: 'threshold-session-jwt',
+  },
+} satisfies EcdsaBootstrapRequest;
+
+// @ts-expect-error threshold-session reconnect requires the primed ECDSA client root share
+const invalidThresholdSessionReconnectWithoutClientRootShare: EcdsaBootstrapRequest = {
+  kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
+  walletId,
   subjectId,
   chainTarget,
   sessionKind: 'jwt',
@@ -87,11 +102,11 @@ const validThresholdSessionReconnectBootstrap = {
     kind: 'threshold_session',
     jwt: 'threshold-session-jwt',
   },
-} satisfies EcdsaBootstrapRequest;
+};
 
 const validEmailOtpBootstrap = {
   kind: 'email_otp_ecdsa_bootstrap',
-  nearAccountId,
+  walletId,
   subjectId,
   chainTarget,
   source: 'email_otp',
@@ -117,7 +132,7 @@ void validEmailOtpBootstrap;
 // @ts-expect-error passkey fresh bootstrap rejects threshold-session auth reconnect material
 const invalidPasskeyFreshWithThresholdSessionAuth: EcdsaBootstrapRequest = {
   kind: 'passkey_fresh_ecdsa_bootstrap',
-  nearAccountId,
+  walletId,
   subjectId,
   chainTarget,
   sessionKind: 'jwt',
@@ -132,7 +147,7 @@ const invalidPasskeyFreshWithThresholdSessionAuth: EcdsaBootstrapRequest = {
 // @ts-expect-error jwt passkey fresh bootstrap requires route auth or WebAuthn auth
 const invalidPasskeyFreshWithoutJwtAuth: EcdsaBootstrapRequest = {
   kind: 'passkey_fresh_ecdsa_bootstrap',
-  nearAccountId,
+  walletId,
   subjectId,
   chainTarget,
   sessionKind: 'jwt',
@@ -142,7 +157,7 @@ const invalidPasskeyFreshWithoutJwtAuth: EcdsaBootstrapRequest = {
 
 const invalidPasskeyFreshWithMixedAuth: EcdsaBootstrapRequest = {
   kind: 'passkey_fresh_ecdsa_bootstrap',
-  nearAccountId,
+  walletId,
   subjectId,
   chainTarget,
   sessionKind: 'jwt',
@@ -158,7 +173,7 @@ const invalidPasskeyFreshWithMixedAuth: EcdsaBootstrapRequest = {
 
 const invalidCookieReconnectWithoutWalletSession: EcdsaBootstrapRequest = {
   kind: 'passkey_cookie_reconnect_ecdsa_bootstrap',
-  nearAccountId,
+  walletId,
   subjectId,
   chainTarget,
   sessionKind: 'cookie',
@@ -171,11 +186,12 @@ const invalidCookieReconnectWithoutWalletSession: EcdsaBootstrapRequest = {
 // @ts-expect-error threshold-session reconnect rejects WebAuthn authentication
 const invalidThresholdSessionReconnectWithWebauthn: EcdsaBootstrapRequest = {
   kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
-  nearAccountId,
+  walletId,
   subjectId,
   chainTarget,
   sessionKind: 'jwt',
   sessionIdentity,
+  clientRootShare32B64u: 'client-root-share',
   routeAuth: {
     kind: 'threshold_session',
     jwt: 'threshold-session-jwt',
@@ -186,7 +202,7 @@ const invalidThresholdSessionReconnectWithWebauthn: EcdsaBootstrapRequest = {
 // @ts-expect-error Email OTP bootstrap requires Email OTP auth context
 const invalidEmailOtpBootstrapWithoutAuthContext: EcdsaBootstrapRequest = {
   kind: 'email_otp_ecdsa_bootstrap',
-  nearAccountId,
+  walletId,
   subjectId,
   chainTarget,
   sessionKind: 'jwt',
@@ -197,7 +213,7 @@ const invalidEmailOtpBootstrapWithoutAuthContext: EcdsaBootstrapRequest = {
 // @ts-expect-error reuse bootstrap rejects client root share material
 const invalidReuseBootstrapWithClientRootShare: EcdsaBootstrapRequest = {
   kind: 'reuse_warm_ecdsa_bootstrap',
-  nearAccountId,
+  walletId,
   subjectId,
   chainTarget,
   clientRootShare32B64u: 'client-root-share',

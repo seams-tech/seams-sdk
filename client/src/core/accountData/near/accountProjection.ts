@@ -289,9 +289,35 @@ export async function listNearAccountProjections(
   }
 
   const users: ClientUserData[] = [];
+  const seenSignerRefs = new Set<string>();
   for (const accountId of accountCandidates) {
-    const projected = await getNearAccountProjection(clientDB, accountId).catch(() => null);
-    if (projected) users.push(projected);
+    const projection = await resolveProfileAccountProjection(clientDB, {
+      accountRefs: getNearChainCandidates(accountId).map((chainIdKey) => ({
+        chainIdKey,
+        accountAddress: normalizeAccountAddress(accountId),
+      })),
+    }).catch(() => null);
+    if (!projection) continue;
+
+    const activeSigners = projection.activeSigners
+      .filter(
+        (signer) =>
+          signer.signerKind === SIGNER_KINDS.thresholdEd25519 &&
+          toWalletAuthMethod(signer.signerAuthMethod),
+      )
+      .slice()
+      .sort((a, b) => a.signerSlot - b.signerSlot);
+    for (const signer of activeSigners) {
+      const signerSlot = Number(signer.signerSlot);
+      if (!Number.isSafeInteger(signerSlot) || signerSlot < 1) continue;
+      const signerRef = `${String(accountId)}:${signerSlot}`;
+      if (seenSignerRefs.has(signerRef)) continue;
+      seenSignerRefs.add(signerRef);
+      const projected = await getNearAccountProjection(clientDB, accountId, signerSlot).catch(
+        () => null,
+      );
+      if (projected) users.push(projected);
+    }
   }
   return users;
 }

@@ -1,4 +1,3 @@
-import type { AccountId } from '@/core/types/accountIds';
 import {
   thresholdEcdsaHssFinalize,
   thresholdEcdsaHssPrepare,
@@ -28,7 +27,7 @@ export type EcdsaHssExplicitExportDeps = {
 export async function exportEcdsaHssKeyWithThresholdSession(
   deps: EcdsaHssExplicitExportDeps,
   args: {
-    nearAccountId: AccountId;
+    walletSessionUserId: string;
     subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     rpId: string;
@@ -58,7 +57,7 @@ export async function exportEcdsaHssKeyWithThresholdSession(
 
   const signerWorkerCtx = deps.getSignerWorkerContext();
   const prepare = await thresholdEcdsaHssPrepare(currentRelayerUrl, {
-    walletSessionUserId: String(args.nearAccountId),
+    walletSessionUserId: args.walletSessionUserId,
     subjectId: args.subjectId,
     rpId: args.rpId,
     chainTarget: args.chainTarget,
@@ -73,16 +72,14 @@ export async function exportEcdsaHssKeyWithThresholdSession(
   const ceremonyId = String(prepare.ceremonyId || '').trim();
   const preparedServerSessionB64u = String(prepare.preparedServerSessionB64u || '').trim();
   const serverAssistInitB64u = String(prepare.serverAssistInitB64u || '').trim();
-  if (!ceremonyId || !preparedServerSessionB64u || !serverAssistInitB64u) {
-    throw new Error('Threshold explicit export prepare response missing staged transport inputs');
+  if (!ceremonyId || !preparedServerSessionB64u || !serverAssistInitB64u || !prepare.hssContext) {
+    throw new Error(
+      'Threshold explicit export prepare response missing staged transport inputs or HSS context',
+    );
   }
 
   const preparedClientSession = await prepareThresholdEcdsaHssSessionWasm({
-    context: {
-      nearAccountId: String(args.nearAccountId),
-      keyPurpose: 'evm-signing',
-      keyVersion: 'v1',
-    },
+    context: prepare.hssContext,
     clientRootShare32B64u: args.clientRootShare32B64u,
     workerCtx: signerWorkerCtx,
   });

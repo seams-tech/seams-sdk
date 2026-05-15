@@ -107,11 +107,17 @@ export { toAccountId } from './core/types/accountIds';
 export {
   nearAccountRefFromAccountId,
   thresholdEcdsaChainTargetFromConfig,
+  walletSessionRefFromSession,
   toWalletSubjectId,
+  walletSubjectIdFromWalletProfile,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 export type {
+  EcdsaCommandSubject,
   NearAccountRef,
+  NearCommandSubject,
   ThresholdEcdsaChainTarget,
+  WalletId,
+  WalletSessionRef,
   WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 

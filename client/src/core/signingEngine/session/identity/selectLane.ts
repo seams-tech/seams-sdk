@@ -188,7 +188,7 @@ function selectedLaneFromCandidate(candidate: LaneCandidate): SelectedLane {
     });
   }
   return selectedEcdsaLane({
-    accountId: candidate.accountId,
+    walletId: candidate.walletId,
     authMethod: candidate.authMethod,
     walletSigningSessionId: candidate.walletSigningSessionId,
     thresholdSessionId: candidate.thresholdSessionId,

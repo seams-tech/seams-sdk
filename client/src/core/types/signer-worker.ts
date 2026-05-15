@@ -170,14 +170,24 @@ export interface WasmBuildThresholdEd25519SeedExportArtifactResult {
   privateKey: string;
 }
 export interface WasmPrepareThresholdEcdsaHssSessionRequest {
-  nearAccountId: string;
+  walletSessionUserId: string;
+  subjectId: string;
+  chainTarget: string;
+  ecdsaThresholdKeyId: string;
+  signingRootId: string;
+  signingRootVersion: string;
   keyPurpose: string;
   keyVersion: string;
   clientRootShare32?: Uint8Array;
   clientRootShare32B64u?: string;
 }
 export interface WasmPrepareThresholdEcdsaHssSessionResult {
-  nearAccountId: string;
+  walletSessionUserId: string;
+  subjectId: string;
+  chainTarget: string;
+  ecdsaThresholdKeyId: string;
+  signingRootId: string;
+  signingRootVersion: string;
   keyPurpose: string;
   keyVersion: string;
   contextBindingB64u: string;

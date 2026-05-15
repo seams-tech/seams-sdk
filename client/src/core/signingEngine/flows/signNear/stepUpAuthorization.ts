@@ -1,36 +1,24 @@
 import { normalizeAuthenticationCredential } from '@/core/signingEngine/webauthnAuth/credentials/helpers';
-import type { ConfirmTransactionSigningOperationResult } from '@/core/signingEngine/stepUpConfirmation/confirmOperation';
+import type { ConfirmTransactionSigningOperationResult } from '../shared/signingConfirmation';
+import type { NearPreparedStepUpAuth } from './requireNearStepUpAuth';
 import type {
+  NearEd25519EmailOtpStepUpAuthorization,
+  NearEd25519PasskeyStepUpAuthorization,
+  NearEd25519StepUpAuthorization,
+  NearEd25519WarmSessionStepUpAuthorization,
   NearPasskeyReconnectPlan,
-  NearPreparedStepUpAuth,
-} from './requireNearStepUpAuth';
+} from '@/core/signingEngine/interfaces/near';
 import type {
   EmailOtpConfirmPrompt,
-  EmailOtpStepUpAuthorization,
-  PasskeyStepUpAuthorization,
-  SigningAuthPlan,
-  WarmSessionStepUpAuthorization,
 } from '@/core/signingEngine/stepUpConfirmation/types';
 
-export type NearEd25519WarmSessionStepUpAuthorization = WarmSessionStepUpAuthorization<
-  Extract<SigningAuthPlan, { kind: 'warmSession' }>
->;
-
-export type NearEd25519EmailOtpStepUpAuthorization = EmailOtpStepUpAuthorization<
-  Extract<SigningAuthPlan, { kind: 'emailOtpReauth' }>
->;
-
-export type NearEd25519PasskeyStepUpAuthorization = PasskeyStepUpAuthorization<
-  Extract<SigningAuthPlan, { kind: 'passkeyReauth' }>,
-  {
-    plannedPasskeyReconnect: NearPasskeyReconnectPlan;
-  }
->;
-
-export type NearEd25519StepUpAuthorization =
-  | NearEd25519WarmSessionStepUpAuthorization
-  | NearEd25519EmailOtpStepUpAuthorization
-  | NearEd25519PasskeyStepUpAuthorization;
+export type {
+  NearEd25519EmailOtpStepUpAuthorization,
+  NearEd25519PasskeyStepUpAuthorization,
+  NearEd25519StepUpAuthorization,
+  NearEd25519WarmSessionStepUpAuthorization,
+  NearPasskeyReconnectPlan,
+} from '@/core/signingEngine/interfaces/near';
 
 export function buildNearEd25519StepUpAuthorization(args: {
   prepared: NearPreparedStepUpAuth;

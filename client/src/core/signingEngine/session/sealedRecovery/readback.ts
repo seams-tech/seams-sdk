@@ -1,5 +1,5 @@
 import type { WarmSessionStatusResult } from '../../uiConfirm/types';
-import type { RestoreSealedRecordForAccountResult } from './types';
+import type { RestoreSealedRecordResult } from './types';
 
 export type RestoredWarmSessionStatus = {
   ok: true;
@@ -16,7 +16,7 @@ export async function recordAndVerifyRestoredWarmSessions(args: {
   ) => Promise<void>;
   verifySessionId: string;
   readWarmSessionStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
-}): Promise<RestoreSealedRecordForAccountResult> {
+}): Promise<RestoreSealedRecordResult> {
   const normalizedSessionIds = [...new Set(args.sessionIds.map((value) => String(value || '').trim()))]
     .filter(Boolean);
   for (const sessionId of normalizedSessionIds) {

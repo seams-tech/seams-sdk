@@ -1,4 +1,5 @@
 import type {
+  BudgetBlockedEvmFamilyEcdsaSigningSelection,
   ReadyEvmFamilyEcdsaSigningSelection,
   ReauthRequiredEvmFamilyEcdsaSigningSelection,
 } from './ecdsaSelection';
@@ -49,5 +50,17 @@ const invalidReadySelection: ReadyEvmFamilyEcdsaSigningSelection = {
   diagnostics: readySelection.diagnostics,
 };
 void invalidReadySelection;
+
+const invalidBudgetBlockedSelection: BudgetBlockedEvmFamilyEcdsaSigningSelection = {
+  kind: 'budget_blocked',
+  accountAuth: readySelection.accountAuth,
+  authMethod: 'passkey',
+  lane: readySelection.lane,
+  material: readyMaterial,
+  // @ts-expect-error exhausted budgets must route through reauth_required
+  budget: { kind: 'exhausted', remainingUses: 0 },
+  diagnostics: readySelection.diagnostics,
+};
+void invalidBudgetBlockedSelection;
 
 export {};

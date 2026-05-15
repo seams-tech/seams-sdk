@@ -136,6 +136,30 @@ function hasErrorCode(error: unknown, expected: string): boolean {
   return normalized === normalizeToken(expected);
 }
 
+function errorDiagnostic(error: unknown): { code?: string; message: string; details?: unknown } {
+  if (error instanceof Error) {
+    const code = String((error as { code?: unknown }).code || '').trim();
+    const details =
+      'details' in error ? (error as { details?: unknown }).details : undefined;
+    return {
+      ...(code ? { code } : {}),
+      message: error.message,
+      ...(details !== undefined ? { details } : {}),
+    };
+  }
+  if (error && typeof error === 'object') {
+    const value = error as { code?: unknown; message?: unknown; details?: unknown };
+    const code = String(value.code || '').trim();
+    const message = String(value.message || '').trim();
+    return {
+      ...(code ? { code } : {}),
+      message: message || String(error),
+      ...(value.details !== undefined ? { details: value.details } : {}),
+    };
+  }
+  return { message: String(error || 'unknown error') };
+}
+
 function messageIncludesNonceLaneBlocked(error: unknown): boolean {
   const message = normalizeToken(
     error instanceof Error
@@ -283,7 +307,7 @@ async function verifyFinalizedPayload(args: {
 
 async function reportBroadcastFailure(args: {
   capability: TempoLifecycleCapability;
-  nearAccountId: string;
+  walletSession: ExecuteEvmFamilyTransactionArgs['walletSession'];
   signedResult: TempoSignedResult | EvmSignedResult;
   error: unknown;
   broadcastAccepted: boolean;
@@ -292,7 +316,7 @@ async function reportBroadcastFailure(args: {
 }): Promise<void> {
   if (!args.broadcastAccepted) {
     await args.capability.reportBroadcastRejected({
-      nearAccountId: args.nearAccountId,
+      walletSession: args.walletSession,
       signedResult: args.signedResult,
       error: args.error,
       options: { onEvent: args.onEvent },
@@ -303,7 +327,7 @@ async function reportBroadcastFailure(args: {
   const droppedOrReplacedReason = extractDroppedOrReplacedReason(args.error);
   if (droppedOrReplacedReason) {
     await args.capability.reportDroppedOrReplaced({
-      nearAccountId: args.nearAccountId,
+      walletSession: args.walletSession,
       signedResult: args.signedResult,
       reason: droppedOrReplacedReason,
       ...(args.txHash ? { txHash: args.txHash } : {}),
@@ -314,7 +338,7 @@ async function reportBroadcastFailure(args: {
 
   try {
     await args.capability.reconcileNonceLane({
-      nearAccountId: args.nearAccountId,
+      walletSession: args.walletSession,
       signedResult: args.signedResult,
       options: { onEvent: args.onEvent },
     });
@@ -324,7 +348,7 @@ async function reportBroadcastFailure(args: {
       messageIncludesNonceLaneBlocked(reconcileError)
     ) {
       await args.capability.reportDroppedOrReplaced({
-        nearAccountId: args.nearAccountId,
+        walletSession: args.walletSession,
         signedResult: args.signedResult,
         reason: 'dropped',
         ...(args.txHash ? { txHash: args.txHash } : {}),
@@ -373,6 +397,7 @@ export async function executeEvmFamilyTransactionLifecycle(args: {
   input: ExecuteEvmFamilyTransactionArgs;
 }): Promise<ExecuteEvmFamilyTransactionResult> {
   const onEvent = args.input.options?.onEvent;
+  const walletId = String(args.input.walletSession.walletId);
   throwIfCancelled(args.input.options?.shouldAbort);
 
   let signedResult: TempoSignedResult | EvmSignedResult | null = null;
@@ -380,7 +405,7 @@ export async function executeEvmFamilyTransactionLifecycle(args: {
   let broadcastAccepted = false;
   let finalizedReported = false;
   const emit = (event: Omit<CreateSigningFlowEventInput, 'flowId' | 'accountId'>): void =>
-    emitLifecycleEvent(onEvent, args.input.nearAccountId, event);
+    emitLifecycleEvent(onEvent, walletId, event);
   const forwardSigningEvent = (event: TempoNonceLifecycleEvent): void => {
     if (event.phase === SigningEventPhase.STEP_15_COMPLETED) return;
     try {
@@ -397,7 +422,7 @@ export async function executeEvmFamilyTransactionLifecycle(args: {
     const client = createEvmClient({ rpcUrl });
 
     signedResult = await args.capability.signTempo({
-      nearAccountId: args.input.nearAccountId,
+      walletSession: args.input.walletSession,
       subjectId: args.input.subjectId,
       request,
       chainTarget: args.input.chainTarget,
@@ -428,7 +453,7 @@ export async function executeEvmFamilyTransactionLifecycle(args: {
       }),
     );
     await args.capability.reportBroadcastAccepted({
-      nearAccountId: args.input.nearAccountId,
+      walletSession: args.input.walletSession,
       signedResult,
       txHash,
       options: { ...(onEvent ? { onEvent } : {}) },
@@ -499,7 +524,7 @@ export async function executeEvmFamilyTransactionLifecycle(args: {
     const status = normalizeToken(receipt.status);
     if (status && status !== '0x1' && status !== '0x01') {
       await args.capability.reportFinalized({
-        nearAccountId: args.input.nearAccountId,
+        walletSession: args.input.walletSession,
         signedResult,
         txHash,
         receiptStatus: 'reverted',
@@ -531,7 +556,7 @@ export async function executeEvmFamilyTransactionLifecycle(args: {
     }
 
     await args.capability.reportFinalized({
-      nearAccountId: args.input.nearAccountId,
+      walletSession: args.input.walletSession,
       signedResult,
       txHash,
       receiptStatus: 'success',
@@ -597,11 +622,47 @@ export async function executeEvmFamilyTransactionLifecycle(args: {
       payloadVerification,
     };
   } catch (error: unknown) {
+    try {
+      const stage = !signedResult
+        ? 'sign'
+        : !broadcastAccepted
+          ? 'broadcast'
+          : finalizedReported
+            ? 'post_finalization'
+            : 'finalization';
+      console.warn('[EvmFamilyLifecycle][failure]', {
+        stage,
+        walletId,
+        requestChain: args.input.request.chain,
+        requestKind: args.input.request.kind,
+        requestChainId: args.input.request.tx.chainId,
+        chainTarget: args.input.chainTarget,
+        signed: Boolean(signedResult),
+        ...(signedResult?.managedNonce
+          ? {
+              managedNonce: {
+                chain: signedResult.managedNonce.chain,
+                networkKey: signedResult.managedNonce.networkKey,
+                chainId: signedResult.managedNonce.chainId,
+                sender: signedResult.managedNonce.sender,
+                nonce: signedResult.managedNonce.nonce.toString(),
+                ...(signedResult.managedNonce.nonceKey != null
+                  ? { nonceKey: signedResult.managedNonce.nonceKey.toString() }
+                  : {}),
+              },
+            }
+          : {}),
+        broadcastAccepted,
+        finalizedReported,
+        ...(txHash ? { txHash } : {}),
+        error: errorDiagnostic(error),
+      });
+    } catch {}
     if (!finalizedReported && signedResult) {
       await withLifecycleTimeout({
         promise: reportBroadcastFailure({
           capability: args.capability,
-          nearAccountId: args.input.nearAccountId,
+          walletSession: args.input.walletSession,
           signedResult,
           error,
           broadcastAccepted,

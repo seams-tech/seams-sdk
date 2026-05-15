@@ -9,7 +9,7 @@ export interface PasskeyAuthMenuRuntime {
   targetAccountId: string;
   accountOptions?: StoredAccountOption[];
   setInputUsername: (v: string) => void;
-  refreshLoginState: (nearAccountId?: string) => Promise<void>;
+  refreshLoginState: (walletId?: string) => Promise<void>;
   sdkFlow: SDKFlowRuntime;
   displayPostfix?: string;
   isUsingExistingAccount?: boolean;

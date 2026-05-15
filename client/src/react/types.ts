@@ -31,6 +31,7 @@ import type {
 } from '../core/types/seams';
 import type { DeviceLinkingQRData, StartDevice2LinkingFlowArgs } from '../core/types/linkDevice';
 import type { AccessKeyList } from '../core/rpcClients/near/NearClient';
+import type { NearAccountRef } from '../core/signingEngine/interfaces/ecdsaChainTarget';
 
 // === React states types ===
 
@@ -148,7 +149,7 @@ export interface SeamsContextType {
 
   // Execute actions
   executeAction: (args: {
-    nearAccountId: string;
+    nearAccount: NearAccountRef;
     receiverId: string;
     actionArgs: ActionArgs;
     options?: ActionHooksOptions;
@@ -156,14 +157,14 @@ export interface SeamsContextType {
 
   // NEP-413 message signing
   signNEP413Message: (args: {
-    nearAccountId: string;
+    nearAccount: NearAccountRef;
     params: SignNEP413MessageParams;
     options?: SignNEP413HooksOptions;
   }) => Promise<SignNEP413MessageResult>;
 
   // Delegate action signing (NEP-461)
   signDelegateAction: (args: {
-    nearAccountId: string;
+    nearAccount: NearAccountRef;
     delegate: DelegateActionInput;
     options?: DelegateActionHooksOptions;
   }) => Promise<{
@@ -186,8 +187,8 @@ export interface SeamsContextType {
   // Wallet iframe connectivity (true when service client handshake completes)
   walletIframeConnected: boolean;
 
-  getWalletSession: (nearAccountId?: string) => Promise<WalletSession>;
-  refreshLoginState: (nearAccountId?: string) => Promise<void>;
+  getWalletSession: (walletId?: string) => Promise<WalletSession>;
+  refreshLoginState: (walletId?: string) => Promise<void>;
 
   // Account input management
   // UI account name input state (form/input tracking)

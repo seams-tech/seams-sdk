@@ -15,9 +15,9 @@ export type EvmFamilyAccountMetadataDeps = {
   indexedDB: UnifiedIndexedDBManager;
 };
 
-export async function resolveEvmFamilyTransactionAccountAuth(args: {
+export async function resolveEvmFamilyTransactionWalletAuth(args: {
   deps: EvmFamilyAccountMetadataDeps;
-  nearAccountId: string;
+  walletId: string;
   senderSignatureAlgorithm: 'secp256k1' | 'webauthnP256';
   sessionSource?: string;
   isEmailOtpThresholdContext?: boolean;
@@ -26,10 +26,10 @@ export async function resolveEvmFamilyTransactionAccountAuth(args: {
     return resolveAccountAuthMetadataForSignerSource();
   }
 
-  const accountId = toAccountId(args.nearAccountId);
+  const walletId = toAccountId(args.walletId);
   const context = await resolveProfileAccountContextFromCandidates(
     args.deps.indexedDB.clientDB,
-    buildNearAccountRefs(accountId),
+    buildNearAccountRefs(walletId),
   ).catch(() => null);
   if (context?.profileId) {
     const [profile, activeSigners, lastProfileState] = await Promise.all([

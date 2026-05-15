@@ -54,18 +54,20 @@ export function createEvmFamilySigningDeps(args: {
     getThresholdEcdsaSessionRecordByKey: (identity) =>
       createArgs.getThresholdEcdsaSessionRecordByKey(identity),
     getThresholdEcdsaKeyRefByKey: (identity) => createArgs.getThresholdEcdsaKeyRefByKey(identity),
-    requestEmailOtpTransactionSigningChallenge: ({ nearAccountId, chain, authLane }) =>
+    requestEmailOtpTransactionSigningChallenge: ({ walletSession, chain, authLane }) =>
       createArgs.requestEmailOtpTransactionSigningChallenge?.({
-        nearAccountId,
+        kind: 'wallet_session_challenge',
+        walletSession,
         chain,
         ...(authLane ? { authLane } : {}),
       }) || Promise.reject(new Error('Email OTP signing challenge is not configured')),
     resolveEmailOtpSigningSessionAuthLane: ({ thresholdSessionId, curve }) =>
       createWarmSessionCapabilityReader({
         touchConfirm: createArgs.touchConfirm,
+        getEmailOtpWarmSessionStatus,
       }).resolveEmailOtpSigningSessionAuthLane({ thresholdSessionId, curve }),
     loginWithEmailOtpEcdsaCapabilityForSigning: ({
-      nearAccountId,
+      walletSession,
       subjectId,
       chainTarget,
       challengeId,
@@ -74,7 +76,7 @@ export function createEvmFamilySigningDeps(args: {
       authLane,
     }) =>
       createArgs.loginWithEmailOtpEcdsaCapabilityForSigning?.({
-        nearAccountId,
+        walletSession,
         subjectId,
         chainTarget,
         challengeId,
@@ -86,13 +88,13 @@ export function createEvmFamilySigningDeps(args: {
       createArgs.restorePersistedSessionForSigning(restoreArgs),
     readAvailableSigningLanesForSigning: (snapshotArgs) =>
       createArgs.readAvailableSigningLanesForSigning(snapshotArgs),
-    markThresholdEcdsaEmailOtpSessionConsumedForAccount: ({
-      nearAccountId,
+    markThresholdEcdsaEmailOtpSessionConsumedForSubjectTarget: ({
+      subjectId,
       chainTarget,
       uses,
     }) =>
-      createArgs.markThresholdEcdsaEmailOtpSessionConsumedForAccount?.({
-        nearAccountId,
+      createArgs.markThresholdEcdsaEmailOtpSessionConsumedForSubjectTarget?.({
+        subjectId,
         chainTarget,
         uses,
       }),

@@ -18,8 +18,11 @@ import {
   SEAMS_SMART_ACCOUNT_REMOVE_OWNER_ABI,
 } from '@shared/utils/evmSmartAccountSpec';
 import {
+  nearAccountRefFromAccountId,
+  type NearAccountRef,
   thresholdEcdsaChainTargetFromChainFamily,
-  toWalletSubjectId,
+  toWalletId,
+  walletSubjectIdFromWalletProfile,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 const ADD_OWNER_SELECTOR = getSeamsSmartAccountMethodSelector('addOwner');
@@ -151,7 +154,7 @@ export function createLocalDeployedSignerMutationRuntime(args: {
         context: args.context,
         confirmationConfig: args.confirmationConfig,
         onEvent: args.onEvent,
-        nearAccountId: input.ownerAccountId,
+        nearAccount: nearAccountRefFromAccountId(input.ownerAccountId),
         chainAccount: input.chainAccount,
         signerAddress: normalizeAddress(input.signer.signerId),
         buildCalldata: buildAddOwnerCalldata,
@@ -164,7 +167,7 @@ export function createLocalDeployedSignerMutationRuntime(args: {
         context: args.context,
         confirmationConfig: args.confirmationConfig,
         onEvent: args.onEvent,
-        nearAccountId: input.ownerAccountId,
+        nearAccount: nearAccountRefFromAccountId(input.ownerAccountId),
         chainAccount: input.chainAccount,
         signerAddress: normalizeAddress(input.signer.signerId),
         buildCalldata: buildRemoveOwnerCalldata,
@@ -179,13 +182,14 @@ async function executeDeployedSignerMutation(args: {
   context: PasskeyManagerContext;
   confirmationConfig?: Partial<ConfirmationConfig>;
   onEvent?: (event: SigningFlowEvent) => void;
-  nearAccountId: string;
+  nearAccount: NearAccountRef;
   chainAccount: ChainAccountRecord;
   signerAddress: `0x${string}`;
   buildCalldata: (address: `0x${string}`) => `0x${string}`;
   abi: EvmContractAbi;
   gasLimit: bigint;
 }): Promise<{ txHash?: string | null }> {
+  const nearAccountId = args.nearAccount.accountId;
   const chainId = parseChainIdFromKey(args.chainAccount.chainIdKey);
   const chainTarget = thresholdEcdsaChainTargetFromChainFamily({ chain: 'evm', chainId });
   const rpcUrl = resolveRpcUrl({ context: args.context, chainId });
@@ -197,7 +201,7 @@ async function executeDeployedSignerMutation(args: {
     capability: {
       signTempo: async (signArgs) =>
         await args.context.signingEngine.signTempo({
-          nearAccountId: signArgs.nearAccountId,
+          walletSession: signArgs.walletSession,
           subjectId: signArgs.subjectId,
           request: signArgs.request,
           chainTarget: signArgs.chainTarget,
@@ -206,20 +210,49 @@ async function executeDeployedSignerMutation(args: {
           onEvent: signArgs.options?.onEvent,
         }),
       reportBroadcastAccepted: async (reportArgs) =>
-        await args.context.signingEngine.reportTempoBroadcastAccepted(reportArgs),
+        await args.context.signingEngine.reportTempoBroadcastAccepted({
+          walletId: String(reportArgs.walletSession.walletId),
+          signedResult: reportArgs.signedResult,
+          ...(reportArgs.txHash ? { txHash: reportArgs.txHash } : {}),
+          onEvent: reportArgs.options?.onEvent,
+        }),
       reportBroadcastRejected: async (reportArgs) =>
-        await args.context.signingEngine.reportTempoBroadcastRejected(reportArgs),
+        await args.context.signingEngine.reportTempoBroadcastRejected({
+          walletId: String(reportArgs.walletSession.walletId),
+          signedResult: reportArgs.signedResult,
+          ...(reportArgs.error !== undefined ? { error: reportArgs.error } : {}),
+          onEvent: reportArgs.options?.onEvent,
+        }),
       reportFinalized: async (reportArgs) =>
-        await args.context.signingEngine.reportTempoFinalized(reportArgs),
+        await args.context.signingEngine.reportTempoFinalized({
+          walletId: String(reportArgs.walletSession.walletId),
+          signedResult: reportArgs.signedResult,
+          ...(reportArgs.txHash ? { txHash: reportArgs.txHash } : {}),
+          ...(reportArgs.receiptStatus ? { receiptStatus: reportArgs.receiptStatus } : {}),
+          onEvent: reportArgs.options?.onEvent,
+        }),
       reportDroppedOrReplaced: async (reportArgs) =>
-        await args.context.signingEngine.reportTempoDroppedOrReplaced(reportArgs),
+        await args.context.signingEngine.reportTempoDroppedOrReplaced({
+          walletId: String(reportArgs.walletSession.walletId),
+          signedResult: reportArgs.signedResult,
+          reason: reportArgs.reason,
+          ...(reportArgs.txHash ? { txHash: reportArgs.txHash } : {}),
+          onEvent: reportArgs.options?.onEvent,
+        }),
       reconcileNonceLane: async (reportArgs) =>
-        await args.context.signingEngine.reconcileTempoNonceLane(reportArgs),
+        await args.context.signingEngine.reconcileTempoNonceLane({
+          walletId: String(reportArgs.walletSession.walletId),
+          signedResult: reportArgs.signedResult,
+          onEvent: reportArgs.options?.onEvent,
+        }),
     },
     chains: args.context.configs.network.chains,
     input: {
-      nearAccountId: args.nearAccountId,
-      subjectId: toWalletSubjectId(args.nearAccountId),
+      walletSession: {
+        walletId: toWalletId(nearAccountId),
+        walletSessionUserId: String(nearAccountId),
+      },
+      subjectId: walletSubjectIdFromWalletProfile({ walletId: nearAccountId }),
       chainTarget,
       request: {
         chain: 'evm',

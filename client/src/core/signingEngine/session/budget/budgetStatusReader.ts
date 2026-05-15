@@ -7,10 +7,8 @@ import {
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   getStoredThresholdEd25519SessionRecordForAccount,
   getThresholdEcdsaSessionRecordByThresholdSessionId,
-  listThresholdEcdsaRuntimeLanesForSubject,
   type ThresholdEcdsaSessionStoreDeps,
 } from '../persistence/records';
-import { toWalletSubjectId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildWalletBudgetStatusCheck,
   type SigningSessionBudgetStatusAuth,
@@ -45,6 +43,11 @@ type TrustedBudgetStatusFetchResult = {
   status: SigningSessionStatus | null;
   authRejected: boolean;
 };
+
+const inFlightTrustedBudgetStatusFetches = new Map<
+  string,
+  Promise<TrustedBudgetStatusFetchResult>
+>();
 
 type TrustedBudgetStatusPayload =
   | {
@@ -87,7 +90,7 @@ export async function readTrustedWalletSigningBudgetStatus(
   const resolvedAuth =
     providedAuth ||
     resolveWalletSigningBudgetStatusAuth(deps, {
-      nearAccountId: args.nearAccountId,
+      walletId: args.walletId,
       walletSigningSessionId,
       targetThresholdSessionIds,
     });
@@ -102,7 +105,7 @@ export async function readTrustedWalletSigningBudgetStatus(
   }
 
   const fallbackAuth = resolveWalletSigningBudgetStatusAuth(deps, {
-    nearAccountId: args.nearAccountId,
+    walletId: args.walletId,
     walletSigningSessionId,
     targetThresholdSessionIds,
   });
@@ -209,6 +212,41 @@ async function fetchTrustedWalletSigningBudgetStatus(args: {
   auth: TrustedBudgetStatusAuth;
   walletSigningSessionId: string;
 }): Promise<TrustedBudgetStatusFetchResult> {
+  const key = trustedBudgetStatusFetchKey(args);
+  const inFlight = inFlightTrustedBudgetStatusFetches.get(key);
+  if (inFlight) return await inFlight;
+
+  const fetchPromise = fetchTrustedWalletSigningBudgetStatusOnce(args);
+  inFlightTrustedBudgetStatusFetches.set(key, fetchPromise);
+  try {
+    return await fetchPromise;
+  } finally {
+    if (inFlightTrustedBudgetStatusFetches.get(key) === fetchPromise) {
+      inFlightTrustedBudgetStatusFetches.delete(key);
+    }
+  }
+}
+
+function trustedBudgetStatusFetchKey(args: {
+  auth: TrustedBudgetStatusAuth;
+  walletSigningSessionId: string;
+}): string {
+  if (args.auth.kind === 'threshold_scoped') {
+    return [
+      args.auth.kind,
+      args.auth.relayerUrl,
+      args.auth.thresholdSessionId,
+      args.auth.thresholdSessionAuthToken || '',
+      args.walletSigningSessionId,
+    ].join('\x1f');
+  }
+  return [args.auth.kind, args.auth.relayerUrl, args.walletSigningSessionId].join('\x1f');
+}
+
+async function fetchTrustedWalletSigningBudgetStatusOnce(args: {
+  auth: TrustedBudgetStatusAuth;
+  walletSigningSessionId: string;
+}): Promise<TrustedBudgetStatusFetchResult> {
   const thresholdSessionAuthToken =
     args.auth.kind === 'threshold_scoped' ? args.auth.thresholdSessionAuthToken : undefined;
   const response = await fetch(
@@ -257,14 +295,14 @@ async function fetchTrustedWalletSigningBudgetStatus(args: {
 function resolveWalletSigningBudgetStatusAuth(
   deps: TrustedWalletSigningBudgetStatusDeps,
   args: {
-    nearAccountId: AccountId | string;
+    walletId: AccountId | string;
     walletSigningSessionId: string;
     targetThresholdSessionIds?: string[];
   },
 ): TrustedBudgetStatusAuth | null {
-  const accountId = toAccountId(args.nearAccountId);
+  const walletId = toAccountId(args.walletId);
   const walletSigningSessionId = String(args.walletSigningSessionId || '').trim();
-  if (!accountId || !walletSigningSessionId) return null;
+  if (!walletId || !walletSigningSessionId) return null;
   const targetThresholdIds = new Set(
     (args.targetThresholdSessionIds || [])
       .map((value) => String(value || '').trim())
@@ -309,17 +347,7 @@ function resolveWalletSigningBudgetStatusAuth(
       getStoredThresholdEcdsaSessionRecordByThresholdSessionId(targetThresholdSessionId),
     );
   }
-  pushCandidate(getStoredThresholdEd25519SessionRecordForAccount(accountId));
-  for (const runtimeLane of listThresholdEcdsaRuntimeLanesForSubject(deps.ecdsaSessions, {
-    subjectId: toWalletSubjectId(accountId),
-  })) {
-    pushCandidate(
-      getThresholdEcdsaSessionRecordByThresholdSessionId(
-        deps.ecdsaSessions,
-        runtimeLane.thresholdSessionId,
-      ),
-    );
-  }
+  pushCandidate(getStoredThresholdEd25519SessionRecordForAccount(walletId));
   return (
     candidates.find((candidate) => candidate.exactTarget && candidate.thresholdSessionAuthToken) ||
     candidates.find((candidate) => candidate.exactTarget) ||
@@ -358,13 +386,13 @@ export function mergeWalletSigningBudgetStatus<TStatus extends SigningSessionSta
 }
 
 export function buildWalletBudgetStatusCheckForSession(args: {
-  nearAccountId: AccountId | string;
+  walletId: AccountId | string;
   walletSigningSessionId: string;
 }): SigningSessionBudgetStatusCheck | null {
   const walletSigningSessionId = String(args.walletSigningSessionId || '').trim();
   if (!walletSigningSessionId) return null;
   return buildWalletBudgetStatusCheck({
-    nearAccountId: args.nearAccountId,
+    walletId: args.walletId,
     walletSigningSessionId,
   });
 }

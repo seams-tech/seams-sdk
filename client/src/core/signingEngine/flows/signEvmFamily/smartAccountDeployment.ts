@@ -135,7 +135,7 @@ export async function deploySmartAccountForChain(
     };
   }
   const body = {
-    nearAccountId: String(input.nearAccountId || '').trim(),
+    walletId: String(input.walletId || '').trim(),
     chainTarget: input.chainTarget,
     accountAddress: String(input.account.accountAddress || '').trim(),
     accountModel: String(input.account.accountModel || '').trim(),

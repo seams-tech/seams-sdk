@@ -1,5 +1,4 @@
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
-import type { ConfirmIntentDigestSigningOperationResult } from '@/core/signingEngine/stepUpConfirmation/confirmOperation';
 import type {
   UiConfirmSigningPort,
   UiConfirmSecureConfirmationPort,
@@ -61,6 +60,7 @@ import {
   completeEvmFamilyThresholdEcdsaAdmissionAfterConfirmation,
 } from './thresholdAdmission';
 import {
+  type ConfirmIntentDigestSigningOperationResult,
   createSigningConfirmationCommandHandler,
   inferDigest32FromSignRequest,
   makeRequestId,
@@ -88,7 +88,7 @@ type EvmFamilySigningWebAuthnMode<TRequest> =
       validateIntent: (intent: SigningIntent<unknown, unknown>) => void;
       resolveKeyRef: (args: {
         ctx: UiConfirmContext;
-        nearAccountId: string;
+        walletId: string;
         workerCtx: WorkerOperationContext;
         signReq: Extract<SignRequest, { kind: 'webauthn' }>;
         credential: WebAuthnAuthenticationCredential;
@@ -124,7 +124,7 @@ export type SignEvmFamilyWithUiConfirmArgs<TRequest> = {
   touchConfirm: UiConfirmSigningPort &
     UiConfirmSecureConfirmationPort &
     WarmSessionStatusReader;
-  nearAccountId: string;
+  walletId: string;
   request: TRequest & { senderSignatureAlgorithm: string };
   engines: SignerMap<SignRequest, KeyRef, SignatureBytes>;
   onEvent?: (event: SigningFlowEvent) => void;
@@ -152,7 +152,7 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
 }): Promise<TResult> {
   const { config, input } = args;
   const sessionId = makeRequestId('intent');
-  const flowId = `signing:${config.flowName}:${input.nearAccountId}:${sessionId}`;
+  const flowId = `signing:${config.flowName}:${input.walletId}:${sessionId}`;
   const hasThresholdEcdsaRequest = input.request.senderSignatureAlgorithm === 'secp256k1';
   const thresholdEcdsaStepUp = input.thresholdEcdsaStepUp;
   const thresholdEcdsaStepUpRuntime =
@@ -175,7 +175,7 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
         createSigningFlowEvent({
           ...event,
           flowId,
-          accountId: input.nearAccountId,
+          accountId: input.walletId,
           authMethod,
         }),
       );
@@ -241,7 +241,7 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
   try {
     eagerDisplayModel = config.buildDisplayModel({
       request: input.request,
-      signerAccount: input.nearAccountId,
+      signerAccount: input.walletId,
       title: config.title,
       subtitle: config.body,
     });
@@ -324,7 +324,7 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
     const displayModel = config.buildDisplayModel({
       request: preparedRequest,
       intentDigest: intentDigestHex,
-      signerAccount: input.nearAccountId,
+      signerAccount: input.walletId,
       title: config.title,
       subtitle: config.body,
     });
@@ -429,7 +429,7 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
         sessionId,
         chain: config.targetKind,
         kind: 'intentDigest',
-        signerAccountId: input.nearAccountId,
+        signerAccountId: input.walletId,
         challengeB64u: PENDING_CHALLENGE_B64U,
         intentDigest: PENDING_INTENT_DIGEST,
         ...(eagerDisplayModel ? { displayModel: eagerDisplayModel } : {}),
@@ -564,7 +564,7 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
         keyRef = (
           await config.webauthn.resolveKeyRef({
             ctx: input.ctx,
-            nearAccountId: input.nearAccountId,
+            walletId: input.walletId,
             workerCtx: input.workerCtx,
             signReq,
             credential: normalizeAuthenticationCredential(confirmation.credential),

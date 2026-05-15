@@ -4,8 +4,10 @@ import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/p
 import type { ThresholdEd25519SessionRecord } from '@/core/signingEngine/session/persistence/records';
 import type {
   ThresholdEcdsaChainTarget,
+  WalletSessionRef,
   WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { walletSessionRefFromSession } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
@@ -24,6 +26,7 @@ import {
   type EmailOtpRoutePlan,
   type EmailOtpSigningSessionAuthLane,
 } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
+import type { RequestEmailOtpChallengeArgs } from './exportRecoveryRuntime';
 
 type EmailOtpEcdsaRouteChain = ThresholdEcdsaChainTarget['kind'];
 type EmailOtpRouteChain = 'near' | EmailOtpEcdsaRouteChain;
@@ -45,7 +48,7 @@ type EmailOtpWorkerPorts = {
   requireRelayUrl: () => string;
   requireShamirPrimeB64u: () => string;
   resolveAppSessionJwt: (args: {
-    nearAccountId: AccountId | string;
+    walletSession: WalletSessionRef;
     relayUrl: string;
   }) => Promise<string>;
   buildRoutePlan: (args: {
@@ -132,11 +135,11 @@ async function requestEmailOtpChallengeWithRoutePlan(
     'getSignerWorkerContext' | 'requireRelayUrl' | 'appSessionJwtFromLane'
   >,
   args: {
-    nearAccountId: AccountId | string;
+    walletId: AccountId | string;
     routePlan: EmailOtpRoutePlan;
   },
 ): Promise<{ challengeId: string; emailHint?: string; appSessionJwt?: string }> {
-  const nearAccountId = toAccountId(args.nearAccountId);
+  const walletId = toAccountId(args.walletId);
   const relayUrl = ports.requireRelayUrl();
   const workerCtx = ports.getSignerWorkerContext();
   if (!workerCtx) {
@@ -149,7 +152,7 @@ async function requestEmailOtpChallengeWithRoutePlan(
       timeoutMs: 30_000,
       payload: {
         relayUrl,
-        walletId: String(nearAccountId),
+        walletId: String(walletId),
         routePlan: args.routePlan,
         otpChannel: EMAIL_OTP_CHANNEL,
       },
@@ -169,14 +172,27 @@ async function requestEmailOtpChallengeWithRoutePlan(
   };
 }
 
+function resolveChallengeWalletSession(args: RequestEmailOtpChallengeArgs): WalletSessionRef {
+  switch (args.kind) {
+    case 'wallet_session_challenge':
+      return args.walletSession;
+    case 'near_account_challenge':
+      return walletSessionRefFromSession({
+        walletId: args.nearAccountId,
+        walletSessionUserId: args.nearAccountId,
+      });
+  }
+}
+
+function resolveChallengeWalletId(args: RequestEmailOtpChallengeArgs): AccountId {
+  return toAccountId(
+    args.kind === 'wallet_session_challenge' ? args.walletSession.walletId : args.nearAccountId,
+  );
+}
+
 export async function requestTransactionSigningChallenge(
   ports: EmailOtpWorkerPorts,
-  args: {
-    nearAccountId: AccountId | string;
-    chain: EmailOtpRouteChain;
-    routeAuth?: AppOrThresholdSessionAuth;
-    authLane?: EmailOtpAuthLane;
-  },
+  args: RequestEmailOtpChallengeArgs,
 ): Promise<{ challengeId: string; emailHint?: string }> {
   const providedAuthLane = args.authLane;
   const providedRouteAuth = providedAuthLane
@@ -189,7 +205,7 @@ export async function requestTransactionSigningChallenge(
           authLane:
             resolveEmailOtpAuthLane({
               appSessionJwt: await ports.resolveAppSessionJwt({
-                nearAccountId: args.nearAccountId,
+                walletSession: resolveChallengeWalletSession(args),
                 relayUrl: ports.requireRelayUrl(),
               }),
               sessionKind: 'jwt',
@@ -207,7 +223,7 @@ export async function requestTransactionSigningChallenge(
           operation: WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
         });
   const challenge = await requestEmailOtpChallengeWithRoutePlan(ports, {
-    nearAccountId: args.nearAccountId,
+    walletId: resolveChallengeWalletId(args),
     routePlan,
   });
   return { challengeId: challenge.challengeId, ...(challenge.emailHint ? { emailHint: challenge.emailHint } : {}) };
@@ -215,12 +231,7 @@ export async function requestTransactionSigningChallenge(
 
 export async function requestExportChallenge(
   ports: EmailOtpWorkerPorts,
-  args: {
-    nearAccountId: AccountId | string;
-    chain: EmailOtpRouteChain;
-    routeAuth?: AppOrThresholdSessionAuth;
-    authLane?: EmailOtpAuthLane;
-  },
+  args: RequestEmailOtpChallengeArgs,
 ): Promise<{ challengeId: string; emailHint?: string }> {
   const providedAuthLane = args.authLane;
   const providedRouteAuth = providedAuthLane
@@ -233,7 +244,7 @@ export async function requestExportChallenge(
           authLane:
             resolveEmailOtpAuthLane({
               appSessionJwt: await ports.resolveAppSessionJwt({
-                nearAccountId: args.nearAccountId,
+                walletSession: resolveChallengeWalletSession(args),
                 relayUrl: ports.requireRelayUrl(),
               }),
               sessionKind: 'jwt',
@@ -251,7 +262,7 @@ export async function requestExportChallenge(
           operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
         });
   const challenge = await requestEmailOtpChallengeWithRoutePlan(ports, {
-    nearAccountId: args.nearAccountId,
+    walletId: resolveChallengeWalletId(args),
     routePlan,
   });
   return { challengeId: challenge.challengeId, ...(challenge.emailHint ? { emailHint: challenge.emailHint } : {}) };
@@ -329,7 +340,7 @@ export async function exportEcdsaKeyWithAuthorization(
     'getSignerWorkerContext' | 'requireRelayUrl' | 'requireShamirPrimeB64u' | 'buildSigningSessionRoutePlan'
   >,
   args: {
-    nearAccountId: AccountId | string;
+    walletSession: WalletSessionRef;
     challengeId: string;
     otpCode: string;
     record: ThresholdEcdsaSessionRecord;
@@ -338,7 +349,6 @@ export async function exportEcdsaKeyWithAuthorization(
     authLane?: EmailOtpAuthLane;
   },
 ): Promise<EmailOtpEcdsaExportArtifact> {
-  const nearAccountId = toAccountId(args.nearAccountId);
   const relayUrl = String(args.record.relayerUrl || ports.requireRelayUrl()).trim();
   const shamirPrimeB64u = String(ports.requireShamirPrimeB64u()).trim();
   const ecdsaThresholdKeyId = String(args.record.ecdsaThresholdKeyId || '').trim();
@@ -378,8 +388,10 @@ export async function exportEcdsaKeyWithAuthorization(
       timeoutMs: 60_000,
       payload: {
         relayUrl,
-        walletId: String(nearAccountId),
-        userId: String(args.record.emailOtpAuthContext?.authSubjectId || nearAccountId),
+        walletId: args.walletSession.walletId,
+        userId: String(
+          args.record.emailOtpAuthContext?.authSubjectId || args.walletSession.walletSessionUserId,
+        ),
         challengeId: args.challengeId,
         otpCode: args.otpCode,
         shamirPrimeB64u,
@@ -401,7 +413,7 @@ export async function exportEcdsaKeyWithAuthorization(
 export async function exportEcdsaKeyWithFreshEmailOtpLane(
   ports: Pick<EmailOtpWorkerPorts, 'requireRelayUrl' | 'resolveAppSessionJwt' | 'buildRoutePlan'>,
   args: {
-    nearAccountId: AccountId | string;
+    walletSession: WalletSessionRef;
     subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     challengeId: string;
@@ -411,7 +423,7 @@ export async function exportEcdsaKeyWithFreshEmailOtpLane(
     authSubjectId?: string;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     loginWithEcdsaCapabilityInternal: (args: {
-      nearAccountId: AccountId | string;
+      walletSession: WalletSessionRef;
       subjectId: WalletSubjectId;
       chainTarget: ThresholdEcdsaChainTarget;
       relayUrl: string;
@@ -435,7 +447,7 @@ export async function exportEcdsaKeyWithFreshEmailOtpLane(
   const relayUrl = ports.requireRelayUrl();
   const operation = WALLET_EMAIL_OTP_EXPORT_OPERATION;
   const appSessionJwt = await ports.resolveAppSessionJwt({
-    nearAccountId: args.nearAccountId,
+    walletSession: args.walletSession,
     relayUrl,
   });
   const routePlan = ports.buildRoutePlan({
@@ -450,7 +462,7 @@ export async function exportEcdsaKeyWithFreshEmailOtpLane(
     operation,
   });
   const result = await args.loginWithEcdsaCapabilityInternal({
-    nearAccountId: args.nearAccountId,
+    walletSession: args.walletSession,
     subjectId: args.subjectId,
     relayUrl,
     chainTarget: args.chainTarget,

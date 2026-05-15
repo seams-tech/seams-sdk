@@ -527,7 +527,7 @@ function mountHostElement({
   const element = document.createElement(W3A_TX_CONFIRMER_ID) as HostTxConfirmerElement;
   element.variant = resolvedVariant;
   element.nearAccountId =
-    nearAccountIdOverride || ctx.userPreferencesManager.getCurrentUserAccountId() || '';
+    nearAccountIdOverride || ctx.userPreferencesManager.getCurrentWalletId() || '';
   element.txSigningRequests = txSigningRequests;
   element.model = model;
 

@@ -119,7 +119,54 @@ export type SigningSessionSealedRecordFilter =
       chainTarget: ThresholdEcdsaChainTarget;
     };
 
-export type ListExactSigningSessionSealedRecordsForAccountFilter = SigningSessionSealedRecordFilter;
+export type ListExactSigningSessionSealedRecordsForWalletFilter = SigningSessionSealedRecordFilter;
+
+type BuildCurrentSealedSessionRecordCommonInput = {
+  thresholdSessionId: string;
+  sealedSecretB64u: string;
+  authMethod: 'passkey' | 'email_otp';
+  walletSigningSessionId: string;
+  thresholdSessionIds?: {
+    ed25519?: string;
+    ecdsa?: string;
+  };
+  keyVersion?: string;
+  shamirPrimeB64u?: string;
+  issuedAtMs?: number;
+  expiresAtMs: number;
+  remainingUses: number;
+  updatedAtMs?: number;
+};
+
+export type BuildCurrentEd25519SealedSessionRecordInput =
+  BuildCurrentSealedSessionRecordCommonInput & {
+    curve: 'ed25519';
+    walletId?: string;
+    userId?: string;
+    subjectId?: never;
+    signingRootId?: string;
+    signingRootVersion?: string;
+    relayerUrl: string;
+    ecdsaRestore?: SealedSigningSessionEcdsaRestoreMetadata;
+    ed25519Restore: SealedSigningSessionEd25519RestoreMetadata;
+  };
+
+export type BuildCurrentEcdsaSealedSessionRecordInput =
+  BuildCurrentSealedSessionRecordCommonInput & {
+    curve: 'ecdsa';
+    subjectId: string;
+    walletId: string;
+    userId?: string;
+    signingRootId: string;
+    signingRootVersion?: string;
+    relayerUrl: string;
+    ecdsaRestore: SealedSigningSessionEcdsaRestoreMetadata;
+    ed25519Restore?: SealedSigningSessionEd25519RestoreMetadata;
+  };
+
+export type BuildCurrentSealedSessionRecordInput =
+  | BuildCurrentEd25519SealedSessionRecordInput
+  | BuildCurrentEcdsaSealedSessionRecordInput;
 
 export type BuildCurrentSealedSessionRecordBaseInput = {
   thresholdSessionId: string;
@@ -145,15 +192,6 @@ export type BuildCurrentSealedSessionRecordBaseInput = {
   remainingUses: number;
   updatedAtMs?: number;
 };
-
-export type BuildCurrentSealedSessionRecordInput =
-  | (BuildCurrentSealedSessionRecordBaseInput & {
-      curve: 'ed25519';
-    })
-  | (BuildCurrentSealedSessionRecordBaseInput & {
-      curve: 'ecdsa';
-      subjectId: string;
-    });
 
 export type SealedStoreResolvedSigningSessionIdentity =
   | {
@@ -319,6 +357,13 @@ function normalizeCurve(value: unknown): 'ed25519' | 'ecdsa' | undefined {
   return curve === 'ed25519' || curve === 'ecdsa' ? curve : undefined;
 }
 
+function normalizeEthereumAddress(value: unknown): `0x${string}` | undefined {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
+  return /^0x[0-9a-f]{40}$/.test(normalized) ? (normalized as `0x${string}`) : undefined;
+}
+
 function resolveSealedRecordCurve(args: {
   curve?: 'ed25519' | 'ecdsa';
   thresholdSessionIds: { ed25519?: string; ecdsa?: string };
@@ -351,7 +396,11 @@ function normalizeEcdsaRestoreMetadata(
   const sessionKind =
     sessionKindRaw === 'cookie' || sessionKindRaw === 'jwt' ? sessionKindRaw : undefined;
   const ecdsaThresholdKeyId = normalizeOptionalNonEmptyString(obj.ecdsaThresholdKeyId);
+  const ethereumAddress = normalizeEthereumAddress(obj.ethereumAddress);
   const relayerKeyId = normalizeOptionalNonEmptyString(obj.relayerKeyId);
+  const thresholdEcdsaPublicKeyB64u = normalizeOptionalNonEmptyString(
+    obj.thresholdEcdsaPublicKeyB64u,
+  );
   const participantIds = Array.isArray(obj.participantIds)
     ? obj.participantIds
         .map((participantId) => Math.floor(Number(participantId)))
@@ -361,6 +410,7 @@ function normalizeEcdsaRestoreMetadata(
     !chainTarget ||
     !sessionKind ||
     !ecdsaThresholdKeyId ||
+    !ethereumAddress ||
     !relayerKeyId ||
     !participantIds.length
   ) {
@@ -373,8 +423,10 @@ function normalizeEcdsaRestoreMetadata(
     ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
     sessionKind,
     ecdsaThresholdKeyId,
+    ethereumAddress,
     relayerKeyId,
     ...(clientVerifyingShareB64u ? { clientVerifyingShareB64u } : {}),
+    ...(thresholdEcdsaPublicKeyB64u ? { thresholdEcdsaPublicKeyB64u } : {}),
     participantIds,
     ...(obj.runtimePolicyScope && typeof obj.runtimePolicyScope === 'object'
       ? { runtimePolicyScope: obj.runtimePolicyScope }
@@ -1450,12 +1502,12 @@ export async function readExactSealedSession(
   }
 }
 
-export async function listExactSealedSessionsForAccount(args: {
-  accountId: string;
-  filter: ListExactSigningSessionSealedRecordsForAccountFilter;
+export async function listExactSealedSessionsForWallet(args: {
+  walletId: string;
+  filter: ListExactSigningSessionSealedRecordsForWalletFilter;
 }): Promise<CurrentSealedSessionRecord[]> {
-  const accountId = normalizeOptionalNonEmptyString(args.accountId);
-  if (!accountId) return [];
+  const walletId = normalizeOptionalNonEmptyString(args.walletId);
+  if (!walletId) return [];
   const purpose = requireSealedRecordPurpose(args.filter, 'list exact account records');
   const chainTarget = args.filter.curve === 'ecdsa' ? args.filter.chainTarget : undefined;
   const db = await openSigningSessionSealsDb();
@@ -1490,7 +1542,7 @@ export async function listExactSealedSessionsForAccount(args: {
         continue;
       }
       const record = classification.record;
-      if (record.walletId !== accountId && record.userId !== accountId) continue;
+      if (record.walletId !== walletId && record.userId !== walletId) continue;
       if (record.authMethod !== purpose.authMethod) continue;
       if (!record.thresholdSessionIds[purpose.curve]) continue;
       if (

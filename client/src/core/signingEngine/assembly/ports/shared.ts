@@ -39,6 +39,7 @@ import {
   toWalletSubjectId,
   type ThresholdEcdsaChainTarget,
   type ThresholdEcdsaSessionRecordKey,
+  type WalletSessionRef,
   type WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { UserPreferencesManager } from '../../session/userPreferences';
@@ -49,6 +50,7 @@ import type {
 } from '../../session/warmCapabilities/types';
 import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
+import type { RequestEmailOtpChallengeArgs } from '../../session/emailOtp/exportRecoveryRuntime';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import type { ThresholdEd25519LifecycleDeps } from '../../threshold/ed25519/hssLifecycle';
 import type {
@@ -64,7 +66,7 @@ import {
 } from '../warmup';
 
 export type SignTempoPortInput = {
-  nearAccountId: string;
+  walletSession: WalletSessionRef;
   subjectId: WalletSubjectId;
   request: TempoSigningRequest | EvmSigningRequest;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -102,7 +104,7 @@ export type CreateSigningEnginePortsArgs = {
   signTempo: SigningEngineConveniencePorts['signTempo'];
   extractCosePublicKey: (attestationObjectBase64url: string) => Promise<Uint8Array>;
   initializeCurrentUser: WorkerResourceWarmupDeps['initializeCurrentUser'];
-  persistThresholdEcdsaBootstrapChainAccount: ThresholdSessionActivationDeps['persistThresholdEcdsaBootstrapChainAccount'];
+  persistThresholdEcdsaBootstrapForWalletTarget: ThresholdSessionActivationDeps['persistThresholdEcdsaBootstrapForWalletTarget'];
   upsertThresholdEcdsaSessionFromBootstrap: ThresholdSessionActivationDeps['upsertThresholdEcdsaSessionFromBootstrap'];
   listThresholdEcdsaKeyRefsForTarget: (args: {
     subjectId: WalletSubjectId;
@@ -113,9 +115,6 @@ export type CreateSigningEnginePortsArgs = {
     subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     source?: ThresholdEcdsaSessionStoreSource;
-  }) => ThresholdEcdsaSessionRecord[];
-  listThresholdEcdsaSessionRecordsForSubject: (args: {
-    subjectId: WalletSubjectId;
   }) => ThresholdEcdsaSessionRecord[];
   getThresholdEcdsaSessionRecordByKey: (
     identity: ThresholdEcdsaSessionRecordKey,
@@ -141,11 +140,9 @@ export type CreateSigningEnginePortsArgs = {
     chainTarget: ThresholdEcdsaChainTarget;
     source: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
   }) => ThresholdEcdsaSessionRecord;
-  requestEmailOtpTransactionSigningChallenge?: (args: {
-    nearAccountId: AccountId | string;
-    chain: 'near' | 'tempo' | 'evm';
-    authLane?: EmailOtpAuthLane;
-  }) => Promise<{ challengeId: string; emailHint?: string; appSessionJwt?: string }>;
+  requestEmailOtpTransactionSigningChallenge?: (
+    args: RequestEmailOtpChallengeArgs,
+  ) => Promise<{ challengeId: string; emailHint?: string; appSessionJwt?: string }>;
   isEmailOtpEd25519WarmupPending?: (args: { nearAccountId: AccountId | string }) => boolean;
   waitForPendingEmailOtpEd25519Warmup?: (args: {
     nearAccountId: AccountId | string;
@@ -162,7 +159,7 @@ export type CreateSigningEnginePortsArgs = {
     args: ProvisionWarmEd25519CapabilityArgs,
   ) => Promise<ProvisionWarmEd25519CapabilityResult>;
   loginWithEmailOtpEcdsaCapabilityForSigning?: (args: {
-    nearAccountId: AccountId | string;
+    walletSession: WalletSessionRef;
     subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     challengeId: string;
@@ -176,8 +173,8 @@ export type CreateSigningEnginePortsArgs = {
   readAvailableSigningLanesForSigning: (
     args: ReadAvailableSigningLanesForSigningInput,
   ) => Promise<AvailableSigningLanes>;
-  markThresholdEcdsaEmailOtpSessionConsumedForAccount?: (args: {
-    nearAccountId: AccountId | string;
+  markThresholdEcdsaEmailOtpSessionConsumedForSubjectTarget?: (args: {
+    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     uses?: number;
   }) => void;
@@ -196,7 +193,7 @@ export type CreateSigningEnginePortsArgs = {
   ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
   withThresholdEcdsaCommitQueue: <T>(args: {
     queueKey: string;
-    nearAccountId: AccountId | string;
+    walletId: AccountId | string;
     enabled: boolean;
     shouldAbort?: () => boolean;
     maxQueueLength?: number;
@@ -231,8 +228,8 @@ export type SigningEnginePorts = {
   registrationSessionDeps: RegistrationSessionDeps;
   thresholdSessionActivationDeps: ThresholdSessionActivationDeps;
   nearKeyOpsDeps: NearKeyOpsDeps;
-  resolveCanonicalThresholdEcdsaSessionIdForChain: (
-    nearAccountId: AccountId | string,
+  resolveCanonicalThresholdEcdsaSessionIdForSubjectTarget: (
+    subjectId: WalletSubjectId,
     chainTarget: ThresholdEcdsaChainTarget,
   ) => string | null;
   signingSessionCoordinator: SigningSessionCoordinator;
@@ -244,14 +241,14 @@ export function resolveNearRpcUrl(args: CreateSigningEnginePortsArgs): string {
   return resolvePrimaryNearRpcUrl(args.seamsPasskeyConfigs.network.chains);
 }
 
-export function createResolveCanonicalThresholdEcdsaSessionIdForChain(
+export function createResolveCanonicalThresholdEcdsaSessionIdForSubjectTarget(
   args: CreateSigningEnginePortsArgs,
-): SigningEnginePorts['resolveCanonicalThresholdEcdsaSessionIdForChain'] {
-  return (nearAccountId, chainTarget) => {
+): SigningEnginePorts['resolveCanonicalThresholdEcdsaSessionIdForSubjectTarget'] {
+  return (subjectId, chainTarget) => {
     for (const source of THRESHOLD_ECDSA_PASSKEY_SESSION_STORE_SOURCES) {
       try {
         const keyRefs = args.listThresholdEcdsaKeyRefsForTarget({
-          subjectId: toWalletSubjectId(nearAccountId),
+          subjectId: toWalletSubjectId(subjectId),
           chainTarget,
           source,
         });

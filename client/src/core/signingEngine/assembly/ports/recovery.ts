@@ -44,7 +44,7 @@ export function createRecoveryPublicDeps(args: {
   };
   warmSessionPolicy: {
     getWarmSession: WarmSessionCapabilityReader['getWarmSession'];
-    resolveCurrentEcdsaRecord: WarmSigningStatusReader['resolveCurrentEcdsaRecord'];
+    resolveExactEcdsaRecord: WarmSigningStatusReader['resolveExactEcdsaRecord'];
   };
   getWalletSigningBudgetStatus: WalletSigningBudgetAvailableStatusDeps['getAvailableStatus'];
 }): RecoveryPublicDeps {

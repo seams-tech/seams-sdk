@@ -1,4 +1,5 @@
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
+import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
 import type {
   ThresholdEcdsaSessionRecord,
   ThresholdEd25519SessionRecord,
@@ -8,7 +9,6 @@ import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/ses
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import {
   thresholdEcdsaChainTargetsEqual,
-  toWalletSubjectId,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WarmSessionEcdsaCapabilityState } from '@/core/signingEngine/session/warmCapabilities/types';
@@ -31,11 +31,11 @@ export type EmailOtpEcdsaSealedRecoveryRecordInput = {
   ed25519Record?: ThresholdEd25519SessionRecord | null;
 };
 
-export type EmailOtpEcdsaSealedRecoveryInput = {
+export type EmailOtpEcdsaSealedRecoveryPorts = {
   configs: SeamsConfigsReadonly;
   getSignerWorkerContext: () => WorkerOperationContext | null | undefined;
   commitEvmFamilyThresholdEcdsaSessions: (args: {
-    nearAccountId: string;
+    walletId: string;
     primaryChain: ThresholdEcdsaChainTarget;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     source: 'email_otp';
@@ -50,18 +50,29 @@ export type EmailOtpEcdsaSealedRecoveryInput = {
     prfFirstB64u: string;
     expiresAtMs: number;
     remainingUses: number;
-    transport?: {
-      curve?: 'ed25519' | 'ecdsa';
-      relayerUrl?: string;
-      thresholdSessionAuthToken?: string;
-      keyVersion?: string;
-      shamirPrimeB64u?: string;
-    };
+    transport?: WarmSessionSealTransportInput;
   }) => Promise<void>;
   requireRpId: (operation: string) => string;
-} & EmailOtpEcdsaSealedRecoveryRecordInput & {
+};
+
+export type EmailOtpEcdsaSealedRecoveryInput = EmailOtpEcdsaSealedRecoveryPorts &
+  EmailOtpEcdsaSealedRecoveryRecordInput & {
   smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
 };
+
+export function createEmailOtpEcdsaSigningSessionMaterialRestorer(
+  ports: EmailOtpEcdsaSealedRecoveryPorts,
+): (
+  args: EmailOtpEcdsaSealedRecoveryRecordInput & {
+    smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
+  },
+) => Promise<EmailOtpThresholdEcdsaRehydrateResult | null> {
+  return async (args) =>
+    await restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord({
+      ...ports,
+      ...args,
+    });
+}
 
 export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord(
   args: EmailOtpEcdsaSealedRecoveryInput,
@@ -156,7 +167,7 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
     ecdsaRecord?.ecdsaThresholdKeyId || sealedRecord.ecdsaThresholdKeyId;
   const restoreRelayerKeyId = ecdsaRecord?.relayerKeyId || sealedRecord.relayerKeyId;
   const restoreParticipantIds = ecdsaRecord?.participantIds || sealedRecord.participantIds;
-  const restoreSubjectId = toWalletSubjectId(ecdsaRecord?.subjectId || sealedRecord.subjectId);
+  const restoreSubjectId = ecdsaRecord?.subjectId || sealedRecord.subjectId;
   const restoreSessionKind = ecdsaRecord?.thresholdSessionKind || sealedRecord.sessionKind || 'jwt';
   const restoreRuntimePolicyScope =
     ecdsaRecord?.runtimePolicyScope || sealedRecord.runtimePolicyScope;
@@ -225,7 +236,7 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
   }
 
   const { bootstrap, warmCapability } = await args.commitEvmFamilyThresholdEcdsaSessions({
-    nearAccountId: ecdsaRecord?.nearAccountId || sealedRecord.walletId,
+    walletId: ecdsaRecord?.walletId || sealedRecord.walletId,
     primaryChain: restoreChainTarget,
     bootstrap: restored.bootstrap,
     source: 'email_otp',

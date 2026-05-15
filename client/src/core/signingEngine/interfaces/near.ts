@@ -10,7 +10,13 @@ import type {
   WasmSignedDelegate,
 } from '@/core/types/signer-worker';
 import type { SigningRuntimeDeps } from './runtime';
-import type { SigningAuthPlan } from '../stepUpConfirmation/types';
+import type { NearAccountRef } from './ecdsaChainTarget';
+import type {
+  EmailOtpStepUpAuthorization,
+  PasskeyStepUpAuthorization,
+  SigningAuthPlan,
+  WarmSessionStepUpAuthorization,
+} from '../stepUpConfirmation/types';
 import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
 import type { SigningSessionCoordinator } from '../session/SigningSessionCoordinator';
 import type {
@@ -23,11 +29,6 @@ import type {
   BudgetAdmittedOperation,
   PreparedTransactionOperation,
 } from '../session/operationState/transactionState';
-import type {
-  NearEd25519EmailOtpStepUpAuthorization,
-  NearEd25519PasskeyStepUpAuthorization,
-} from '../flows/signNear/stepUpAuthorization';
-
 type NearResolvedEd25519SessionAuth =
   | {
       sessionKind: 'jwt';
@@ -37,6 +38,32 @@ type NearResolvedEd25519SessionAuth =
       sessionKind: 'cookie';
       thresholdSessionAuthToken?: undefined;
     };
+
+export type NearPasskeyReconnectPlan = {
+  sessionId: string;
+  walletSigningSessionId: string;
+  sessionPolicyDigest32: string;
+};
+
+export type NearEd25519WarmSessionStepUpAuthorization = WarmSessionStepUpAuthorization<
+  Extract<SigningAuthPlan, { kind: 'warmSession' }>
+>;
+
+export type NearEd25519EmailOtpStepUpAuthorization = EmailOtpStepUpAuthorization<
+  Extract<SigningAuthPlan, { kind: 'emailOtpReauth' }>
+>;
+
+export type NearEd25519PasskeyStepUpAuthorization = PasskeyStepUpAuthorization<
+  Extract<SigningAuthPlan, { kind: 'passkeyReauth' }>,
+  {
+    plannedPasskeyReconnect: NearPasskeyReconnectPlan;
+  }
+>;
+
+export type NearEd25519StepUpAuthorization =
+  | NearEd25519WarmSessionStepUpAuthorization
+  | NearEd25519EmailOtpStepUpAuthorization
+  | NearEd25519PasskeyStepUpAuthorization;
 
 export type NearResolvedEd25519SigningSessionState = NearResolvedEd25519SessionAuth & {
   thresholdSessionId: string;
@@ -98,6 +125,7 @@ export type NearEd25519TransactionSigningBoundary = NearEd25519TransactionAdmiss
 
 export type NearTransactionsWithActionsPayload = {
   ctx: SigningRuntimeDeps;
+  nearAccount: NearAccountRef;
   transactions: TransactionInputWasm[];
   rpcCall: RpcCallPayload;
   onEvent?: (update: SigningFlowEvent) => void;
@@ -118,6 +146,7 @@ export type NearTransactionsWithActionsPayload = {
 
 export type NearDelegateActionPayload = {
   ctx: SigningRuntimeDeps;
+  nearAccount: NearAccountRef;
   delegate: DelegateActionInput;
   rpcCall: RpcCallPayload;
   onEvent?: (update: SigningFlowEvent) => void;
@@ -130,6 +159,7 @@ export type NearDelegateActionPayload = {
 
 export type NearNep413Payload = {
   ctx: SigningRuntimeDeps;
+  nearAccount: NearAccountRef;
   payload: {
     message: string;
     recipient: string;

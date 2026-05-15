@@ -37,7 +37,7 @@ export type EvmFamilyNonceLifecycleDeps = {
 
 function toEvmFamilyManagedNonceReservationFromSignedResult(args: {
   signedResult: TempoSignedResult | EvmSignedResult;
-  nearAccountId: string;
+  walletId: string;
 }): EvmFamilyManagedNonceReservation {
   const snapshot = (args.signedResult as { managedNonce?: unknown }).managedNonce;
   if (!snapshot || typeof snapshot !== 'object') {
@@ -49,7 +49,7 @@ function toEvmFamilyManagedNonceReservationFromSignedResult(args: {
     );
     return {
       ...parsed,
-      ...(String(parsed.nearAccountId || '').trim() ? {} : { nearAccountId: args.nearAccountId }),
+      ...(String(parsed.walletId || '').trim() ? {} : { walletId: args.walletId }),
     };
   } catch (error: unknown) {
     throw new Error(
@@ -86,7 +86,7 @@ export async function reportEvmFamilyBroadcastAccepted(
 ): Promise<void> {
   const reservation = toEvmFamilyManagedNonceReservationFromSignedResult({
     signedResult: args.signedResult,
-    nearAccountId: args.nearAccountId,
+    walletId: args.walletId,
   });
 
   emitEvmFamilyBroadcastEvent(args.onEvent, {
@@ -134,7 +134,7 @@ export async function reportEvmFamilyBroadcastRejected(
 ): Promise<void> {
   const reservation = toEvmFamilyManagedNonceReservationFromSignedResult({
     signedResult: args.signedResult,
-    nearAccountId: args.nearAccountId,
+    walletId: args.walletId,
   });
   emitEvmFamilyBroadcastEvent(args.onEvent, {
     phase: SigningEventPhase.STEP_12_BROADCAST_REJECTED,
@@ -221,7 +221,7 @@ export async function reportEvmFamilyFinalized(
   void args.receiptStatus;
   const reservation = toEvmFamilyManagedNonceReservationFromSignedResult({
     signedResult: args.signedResult,
-    nearAccountId: args.nearAccountId,
+    walletId: args.walletId,
   });
   const txHash =
     args.txHash ||
@@ -245,7 +245,7 @@ export async function reportEvmFamilyDroppedOrReplaced(
 ): Promise<void> {
   const reservation = toEvmFamilyManagedNonceReservationFromSignedResult({
     signedResult: args.signedResult,
-    nearAccountId: args.nearAccountId,
+    walletId: args.walletId,
   });
   emitEvmFamilyBroadcastEvent(args.onEvent, {
     phase:
@@ -303,7 +303,7 @@ export async function reconcileEvmFamilyNonceLane(
 ): Promise<EvmFamilyNonceLaneStatus> {
   const reservation = toEvmFamilyManagedNonceReservationFromSignedResult({
     signedResult: args.signedResult,
-    nearAccountId: args.nearAccountId,
+    walletId: args.walletId,
   });
   emitEvmFamilyBroadcastEvent(args.onEvent, {
     phase: SigningEventPhase.STEP_13_NONCE_RECONCILE_STARTED,

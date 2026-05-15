@@ -17,8 +17,8 @@ chain operation modules.
 
 ## Entrypoints
 
-`public.ts` owns the generic session-facing facade methods for account-wide
-restore, available-lane reads, and ECDSA session-record admin methods.
+`public.ts` owns the generic session-facing facade methods for mixed wallet /
+NEAR restore, available-lane reads, and ECDSA session-record admin methods.
 
 Current child owners are explicit folders:
 `identity/*`, `availability/*`, `planning/*`, `budget/*`, `persistence/*`,

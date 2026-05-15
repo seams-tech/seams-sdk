@@ -23,41 +23,41 @@ export type ThresholdEcdsaCommitQueueKeyInput = {
 export type ThresholdEcdsaCommitQueueByKey = ThresholdCommitQueueByKey;
 
 export function createThresholdEcdsaCommitQueueOverflowError(
-  nearAccountId: AccountId | string,
+  walletId: AccountId | string,
   queueKey: string,
   maxQueueLength: number,
 ): ThresholdEcdsaCommitQueueError {
-  const accountId = String(toAccountId(nearAccountId));
+  const normalizedWalletId = String(toAccountId(walletId));
   const err = new Error(
-    `[SigningEngine] threshold ECDSA commit queue overflow for ${accountId} (queueKey=${queueKey}, max=${maxQueueLength})`,
+    `[SigningEngine] threshold ECDSA commit queue overflow for ${normalizedWalletId} (queueKey=${queueKey}, max=${maxQueueLength})`,
   ) as ThresholdEcdsaCommitQueueError;
   err.code = 'commit_queue_overflow';
   return err;
 }
 
 export function createThresholdEcdsaCommitQueueTimeoutError(
-  nearAccountId: AccountId | string,
+  walletId: AccountId | string,
   queueKey: string,
   timeoutMs: number,
 ): ThresholdEcdsaCommitQueueError {
-  const accountId = String(toAccountId(nearAccountId));
+  const normalizedWalletId = String(toAccountId(walletId));
   const err = new Error(
-    `[SigningEngine] threshold ECDSA commit queue timeout for ${accountId} (queueKey=${queueKey}, waited>${timeoutMs}ms before start)`,
+    `[SigningEngine] threshold ECDSA commit queue timeout for ${normalizedWalletId} (queueKey=${queueKey}, waited>${timeoutMs}ms before start)`,
   ) as ThresholdEcdsaCommitQueueError;
   err.code = 'commit_queue_timeout';
   return err;
 }
 
 export function createThresholdEcdsaCommitQueueCancelledError(
-  nearAccountId: AccountId | string,
+  walletId: AccountId | string,
   queueKey: string,
   reason: ThresholdCommitQueueCancelledReason = 'cancelled',
 ): ThresholdEcdsaCommitQueueError {
-  const accountId = String(toAccountId(nearAccountId));
+  const normalizedWalletId = String(toAccountId(walletId));
   const message =
     reason === 'queue_cleared'
-      ? `[SigningEngine] threshold ECDSA queued commit cancelled for ${accountId} (queueKey=${queueKey}, queue_cleared)`
-      : `[SigningEngine] threshold ECDSA queued commit cancelled for ${accountId} (queueKey=${queueKey})`;
+      ? `[SigningEngine] threshold ECDSA queued commit cancelled for ${normalizedWalletId} (queueKey=${queueKey}, queue_cleared)`
+      : `[SigningEngine] threshold ECDSA queued commit cancelled for ${normalizedWalletId} (queueKey=${queueKey})`;
   const err = new Error(message) as ThresholdEcdsaCommitQueueError;
   err.code = 'cancelled';
   return err;
@@ -83,7 +83,7 @@ export function clearThresholdEcdsaCommitQueue(
 export async function withThresholdEcdsaCommitQueue<T>(args: {
   queueByKey: ThresholdEcdsaCommitQueueByKey;
   queueKey: string;
-  nearAccountId: AccountId | string;
+  walletId: AccountId | string;
   enabled: boolean;
   shouldAbort?: () => boolean;
   maxQueueLength?: number;
@@ -94,7 +94,7 @@ export async function withThresholdEcdsaCommitQueue<T>(args: {
   if (!queueKey) {
     throw new Error('[SigningEngine] threshold ECDSA commit queue requires non-empty queueKey');
   }
-  const accountKey = String(toAccountId(args.nearAccountId));
+  const walletKey = String(toAccountId(args.walletId));
   return await withThresholdCommitQueue({
     queueByKey: args.queueByKey,
     queueKey,
@@ -105,11 +105,11 @@ export async function withThresholdEcdsaCommitQueue<T>(args: {
     task: args.task,
     errors: {
       makeOverflowError: (queueKey, maxQueueLength) =>
-        createThresholdEcdsaCommitQueueOverflowError(accountKey, queueKey, maxQueueLength),
+        createThresholdEcdsaCommitQueueOverflowError(walletKey, queueKey, maxQueueLength),
       makeTimeoutError: (queueKey, timeoutMs) =>
-        createThresholdEcdsaCommitQueueTimeoutError(accountKey, queueKey, timeoutMs),
+        createThresholdEcdsaCommitQueueTimeoutError(walletKey, queueKey, timeoutMs),
       makeCancelledError: (queueKey, reason) =>
-        createThresholdEcdsaCommitQueueCancelledError(accountKey, queueKey, reason),
+        createThresholdEcdsaCommitQueueCancelledError(walletKey, queueKey, reason),
     },
   });
 }

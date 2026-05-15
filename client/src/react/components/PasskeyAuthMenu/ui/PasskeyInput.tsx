@@ -32,7 +32,8 @@ function groupAccountOptions(accountOptions?: StoredAccountOption[]): AccountOpt
   for (const option of accountOptions ?? []) {
     const nearAccountId = String(option.nearAccountId || '').trim();
     if (!nearAccountId) continue;
-    uniqueAccounts.set(nearAccountId, {
+    const authMethodKey = option.authMethod || 'passkey';
+    uniqueAccounts.set(`${nearAccountId}:${authMethodKey}`, {
       nearAccountId,
       ...(typeof option.signerSlot === 'number' ? { signerSlot: option.signerSlot } : {}),
       ...(option.authMethod ? { authMethod: option.authMethod } : {}),
@@ -210,7 +211,7 @@ export const PasskeyInput: React.FC<PasskeyInputProps> = ({
                       const selected = account.nearAccountId.toLowerCase() === value.toLowerCase();
                       return (
                         <button
-                          key={account.nearAccountId}
+                          key={`${account.nearAccountId}:${account.authMethod || 'passkey'}`}
                           type="button"
                           role="option"
                           aria-selected={selected}

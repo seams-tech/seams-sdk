@@ -34,6 +34,11 @@ import {
   runSigningOperationCommand,
 } from './signingStateMachine';
 
+export type {
+  ConfirmIntentDigestSigningOperationResult,
+  ConfirmTransactionSigningOperationResult,
+} from '@/core/signingEngine/stepUpConfirmation/confirmOperation';
+
 export function makeRequestId(prefix: string): string {
   const c = globalThis.crypto;
   if (c?.randomUUID && typeof c.randomUUID === 'function') return c.randomUUID();

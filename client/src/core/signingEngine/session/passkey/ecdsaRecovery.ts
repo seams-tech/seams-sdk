@@ -8,7 +8,6 @@ import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/typ
 import { toAccountId } from '@/core/types/accountIds';
 import {
   thresholdEcdsaChainTargetsEqual,
-  toWalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EcdsaThresholdKeyId } from '@/core/signingEngine/session/identity/laneIdentity';
 import { publishResolvedIdentity } from '@/core/signingEngine/session/persistence/sealedSessionStore';
@@ -22,6 +21,17 @@ type PasskeySessionRestoreIdentity = {
   walletSigningSessionId: string;
   thresholdSessionId: string;
 };
+
+function isPermanentSealedSessionRehydrateFailure(status: WarmSessionStatusResult): boolean {
+  if (status.ok) return false;
+  return (
+    status.code === 'expired' ||
+    status.code === 'exhausted' ||
+    status.code === 'not_found' ||
+    status.code === 'invalid_args' ||
+    status.code === 'invalid_response'
+  );
+}
 
 export type PasskeyEcdsaPrfClaimArgs = PasskeySessionRestoreIdentity & {
   chainTarget: ThresholdEcdsaChainTarget;
@@ -69,8 +79,8 @@ export async function claimPasskeyEcdsaPrfFirst(args: PasskeyEcdsaPrfClaimArgs):
   });
 }
 
-export async function restorePasskeyEcdsaSealedRecordForAccount(args: {
-  accountId: string;
+export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
+  walletId: string;
   record: PasskeyEcdsaSealedRecoveryRecord;
   purpose: RestorePersistedEcdsaSessionPurpose & { authMethod: 'passkey' };
   transport: WarmSessionSealTransportInput;
@@ -105,8 +115,8 @@ export async function restorePasskeyEcdsaSealedRecordForAccount(args: {
     upsertStoredThresholdEcdsaSessionRecord(
       { recordsByLane: new Map() },
       {
-        nearAccountId: toAccountId(args.accountId),
-        subjectId: toWalletSubjectId(args.accountId),
+        walletId: toAccountId(args.walletId),
+        subjectId: args.record.subjectId,
         chainTarget: args.record.chainTarget,
         relayerUrl: args.record.relayerUrl,
         ecdsaThresholdKeyId: args.record.ecdsaThresholdKeyId as EcdsaThresholdKeyId,
@@ -117,6 +127,10 @@ export async function restorePasskeyEcdsaSealedRecordForAccount(args: {
         relayerKeyId: args.record.relayerKeyId,
         clientVerifyingShareB64u: args.record.clientVerifyingShareB64u,
         participantIds: [...args.record.participantIds],
+        ...(args.record.thresholdEcdsaPublicKeyB64u
+          ? { thresholdEcdsaPublicKeyB64u: args.record.thresholdEcdsaPublicKeyB64u }
+          : {}),
+        ethereumAddress: args.record.ethereumAddress,
         ...(args.record.runtimePolicyScope ? { runtimePolicyScope: args.record.runtimePolicyScope } : {}),
         thresholdSessionKind: args.record.sessionKind,
         thresholdSessionId,
@@ -135,7 +149,7 @@ export async function restorePasskeyEcdsaSealedRecordForAccount(args: {
       },
     );
     publishResolvedIdentity({
-      walletId: args.accountId,
+      walletId: args.walletId,
       authMethod: 'passkey',
       curve: 'ecdsa',
       chainTarget: args.purpose.chainTarget,
@@ -161,7 +175,7 @@ export async function restorePasskeyEcdsaSealedRecordForAccount(args: {
     },
   });
   if (!rehydrated.ok) {
-    if (rehydrated.code === 'expired') {
+    if (isPermanentSealedSessionRehydrateFailure(rehydrated)) {
       await args.deletePersistedRecord().catch(() => undefined);
     }
     await args.recordSessionMaterialRestored(rehydrated);

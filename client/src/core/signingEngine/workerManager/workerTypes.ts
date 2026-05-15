@@ -12,6 +12,7 @@ import type {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import type { WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
+import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 import type { EmailOtpRoutePlan } from '../stepUpConfirmation/otpPrompt/authLane';
 
 /**
@@ -63,7 +64,7 @@ export interface EthSignerWorkerOperationMap {
     result: ArrayBuffer;
   };
   deriveSecp256k1KeypairFromPrfSecond: {
-    payload: { prfSecond: ArrayBuffer; nearAccountId: string };
+    payload: { prfSecond: ArrayBuffer; walletSessionUserId: string };
     result: {
       privateKey32: ArrayBuffer;
       publicKey33: ArrayBuffer;
@@ -210,6 +211,7 @@ export interface EmailOtpWorkerOperationMap {
       enrollmentSealKeyVersion: string;
       clientUnlockPublicKeyB64u: string;
       unlockKeyVersion: string;
+      clientRootShare32B64u: string;
     };
   };
   verifyEmailOtpCode: {
@@ -287,6 +289,42 @@ export interface EmailOtpWorkerOperationMap {
         unlockSignatureB64u: string;
         thresholdEd25519PrfFirstB64u: string;
       };
+      clientRootShare32B64u: string;
+    };
+  };
+  bootstrapEmailOtpEcdsaSessionsFromClientRootShare: {
+    payload: {
+      relayUrl: string;
+      walletId: string;
+      subjectId: WalletSubjectId;
+      walletSessionUserId: string;
+      userId?: string;
+      rpId: string;
+      clientRootShare32B64u: string;
+      chainTarget: ThresholdEcdsaChainTarget;
+      publicationChainTargets: ThresholdEcdsaChainTarget[];
+      ecdsaThresholdKeyId?: string;
+      participantIds?: number[];
+      sessionKind?: 'jwt' | 'cookie';
+      sessionId?: string;
+      walletSigningSessionId?: string;
+      routeAuth?: AppOrThresholdSessionAuth;
+      ttlMs?: number;
+      remainingUses?: number;
+      runtimePolicyScope?: ThresholdRuntimePolicyScope;
+      includeEcdsaExportArtifact?: boolean;
+    };
+    result: {
+      bootstraps: ThresholdEcdsaSessionBootstrapResult[];
+      ecdsaHssExportArtifact?: {
+        artifactKind: 'ecdsa-hss-secp256k1-key-v1';
+        chainTarget: ThresholdEcdsaChainTarget;
+        signingRootId: string;
+        signingRootVersion?: string;
+        publicKeyHex: string;
+        privateKeyHex: string;
+        ethereumAddress: string;
+      };
     };
   };
   recoverEmailOtpEd25519ExportPrfFirst: {
@@ -304,92 +342,6 @@ export interface EmailOtpWorkerOperationMap {
     result: {
       challengeId: string;
       thresholdEd25519PrfFirstB64u: string;
-    };
-  };
-  loginWithEmailOtpAndBootstrapEcdsaSession: {
-    payload: {
-      relayUrl: string;
-      walletId: string;
-      subjectId: WalletSubjectId;
-      userId?: string;
-      challengeId?: string;
-      otpCode: string;
-      shamirPrimeB64u: string;
-      otpChannel?: WalletEmailOtpChannel;
-      rpId: string;
-      chainTarget: ThresholdEcdsaChainTarget;
-      publicationChainTargets: ThresholdEcdsaChainTarget[];
-      ecdsaThresholdKeyId?: string;
-      participantIds?: number[];
-      sessionKind?: 'jwt' | 'cookie';
-      sessionId?: string;
-      walletSigningSessionId?: string;
-      routePlan: EmailOtpRoutePlan;
-      ttlMs?: number;
-      remainingUses?: number;
-      runtimePolicyScope?: ThresholdRuntimePolicyScope;
-      includeEcdsaExportArtifact?: boolean;
-    };
-    result: {
-      recovery: {
-        challengeId: string;
-        enrollmentSealKeyVersion: string;
-        unlockChallengeId: string;
-        unlockChallengeB64u: string;
-        clientUnlockPublicKeyB64u: string;
-        unlockSignatureB64u: string;
-        thresholdEd25519PrfFirstB64u: string;
-      };
-      ecdsaClientRootShare32B64u: string;
-      bootstraps: ThresholdEcdsaSessionBootstrapResult[];
-      ecdsaHssExportArtifact?: {
-        artifactKind: 'ecdsa-hss-secp256k1-key-v1';
-        chainTarget: ThresholdEcdsaChainTarget;
-        signingRootId: string;
-        signingRootVersion?: string;
-        publicKeyHex: string;
-        privateKeyHex: string;
-        ethereumAddress: string;
-      };
-    };
-  };
-  enrollEmailOtpWalletAndBootstrapEcdsaSession: {
-    payload: {
-      relayUrl: string;
-      walletId: string;
-      subjectId: WalletSubjectId;
-      userId?: string;
-      challengeId?: string;
-      otpCode: string;
-      shamirPrimeB64u: string;
-      appSessionJwt?: string;
-      otpChannel?: WalletEmailOtpChannel;
-      clientSecret32?: ArrayBuffer;
-      rpId: string;
-      chainTarget: ThresholdEcdsaChainTarget;
-      publicationChainTargets: ThresholdEcdsaChainTarget[];
-      ecdsaThresholdKeyId?: string;
-      participantIds?: number[];
-      sessionKind?: 'jwt' | 'cookie';
-      sessionId?: string;
-      walletSigningSessionId?: string;
-      routePlan: EmailOtpRoutePlan;
-      ttlMs?: number;
-      remainingUses?: number;
-      runtimePolicyScope?: ThresholdRuntimePolicyScope;
-    };
-    result: {
-      enrollment: {
-        thresholdEcdsaClientVerifyingShareB64u: string;
-        thresholdEd25519PrfFirstB64u: string;
-        recoveryKeys: string[];
-        challengeId: string;
-        otpChannel: WalletEmailOtpChannel;
-        enrollmentSealKeyVersion: string;
-        clientUnlockPublicKeyB64u: string;
-        unlockKeyVersion: string;
-      };
-      bootstraps: ThresholdEcdsaSessionBootstrapResult[];
     };
   };
   getEmailOtpWarmSessionStatus: {

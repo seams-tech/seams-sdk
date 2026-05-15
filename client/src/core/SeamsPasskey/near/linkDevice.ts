@@ -39,8 +39,12 @@ import {
 import {
   THRESHOLD_SESSION_POLICY_VERSION,
   generateThresholdSessionId,
+  generateWalletSigningSessionId,
 } from '../../signingEngine/threshold/sessionPolicy';
 import {
+  nearAccountRefFromAccountId,
+  toWalletSubjectId,
+  type NearAccountRef,
   thresholdEcdsaChainTargetFromRequest,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -404,6 +408,7 @@ export class LinkDeviceFlow {
     });
 
     const nearAccountId = toAccountId(String(session.accountId));
+    const nearAccount = nearAccountRefFromAccountId(nearAccountId);
     const relayerUrl = String(this.context?.configs?.network.relayer?.url || '').trim();
     if (!relayerUrl) throw new Error('Missing relayer url (configs.network.relayer.url)');
     if (!session.tempPrivateKey) {
@@ -464,9 +469,12 @@ export class LinkDeviceFlow {
     let thresholdEcdsaClientRootShare32B64u: string | null = null;
     let thresholdEcdsaSessionPolicy: {
       version: 'threshold_session_v1';
-      userId: string;
+      walletSessionUserId: string;
+      subjectId: string;
+      chainTarget: ThresholdEcdsaChainTarget;
       rpId: string;
       sessionId: string;
+      walletSigningSessionId: string;
       participantIds?: number[];
       ttlMs: number;
       remainingUses: number;
@@ -483,9 +491,12 @@ export class LinkDeviceFlow {
       }
       thresholdEcdsaSessionPolicy = {
         version: THRESHOLD_SESSION_POLICY_VERSION,
-        userId: String(nearAccountId),
+        walletSessionUserId: String(nearAccountId),
+        subjectId: toWalletSubjectId(String(nearAccountId)),
+        chainTarget: thresholdEcdsaPrimaryProvisionTarget.chainTarget,
         rpId,
         sessionId: generateThresholdSessionId(),
+        walletSigningSessionId: generateWalletSigningSessionId(),
         participantIds: [...thresholdEcdsaPrimaryProvisionTarget.options.participantIds],
         ttlMs: coercePositiveInt(
           thresholdEcdsaPrimaryProvisionTarget.options.signingSession.ttlMs,
@@ -621,7 +632,9 @@ export class LinkDeviceFlow {
     ];
 
     // The AddKey propagation can take a moment; retry longer than default to avoid flakiness.
-    const txContext = await this.fetchNonceBlockHashForKey(nearAccountId, ephemeralPublicKey, {
+    const txContext = await this.fetchNonceBlockHashForKey({
+      nearAccount,
+      publicKey: ephemeralPublicKey,
       attempts: 24,
       delayMs: 500,
       finality: 'optimistic',
@@ -701,7 +714,7 @@ export class LinkDeviceFlow {
       await persistLinkDeviceThresholdEcdsaBootstrap({
         indexedDB: IndexedDBManager,
         signingEngine: this.context.signingEngine,
-        nearAccountId,
+        walletId: nearAccountId,
         relayerUrl,
         signerSlot: resolvedSignerSlot,
         rpId,
@@ -712,7 +725,7 @@ export class LinkDeviceFlow {
     }
 
     // Auto-login: set last-user + warm login state so the device is immediately usable.
-    await this.attemptAutoLogin({ accountId: nearAccountId, signerSlot: resolvedSignerSlot });
+    await this.attemptAutoLogin({ nearAccount, signerSlot: resolvedSignerSlot });
 
     if (this.session?.tempPrivateKey) {
       this.session.tempPrivateKey = '';
@@ -740,12 +753,12 @@ export class LinkDeviceFlow {
    * Auto-login is simply: set last-user pointer + initialize current user state for signing.
    */
   private async attemptAutoLogin(input: {
-    accountId: string;
+    nearAccount: NearAccountRef;
     signerSlot: number;
   }): Promise<void> {
     try {
       if (this.cancelled) return;
-      const nearAccountId = toAccountId(String(input.accountId));
+      const nearAccountId = input.nearAccount.accountId;
       const signerSlot = coerceSignerSlot(input.signerSlot);
 
       console.debug('[LinkDeviceFlow] auto-login start', {
@@ -792,7 +805,7 @@ export class LinkDeviceFlow {
         phase: LinkDeviceEventPhase.STEP_07_AUTO_UNLOCK_STARTED,
         status: 'skipped',
         message: msg,
-        accountId: String(input.accountId),
+        accountId: String(input.nearAccount.accountId),
         data: {
           role: 'display',
           autoUnlockFailed: true,
@@ -803,15 +816,20 @@ export class LinkDeviceFlow {
   }
 
   private async fetchNonceBlockHashForKey(
-    nearAccountId: string,
-    publicKey: string,
-    opts?: { attempts?: number; delayMs?: number; finality?: 'optimistic' | 'final' },
+    input: {
+      nearAccount: NearAccountRef;
+      publicKey: string;
+      attempts?: number;
+      delayMs?: number;
+      finality?: 'optimistic' | 'final';
+    },
   ): Promise<{ nextNonce: string; blockHash: string }> {
-    const attempts = Math.max(1, Math.floor(opts?.attempts ?? 6));
-    const delayMs = Math.max(50, Math.floor(opts?.delayMs ?? 250));
-    const finality = opts?.finality ?? 'final';
+    const nearAccountId = input.nearAccount.accountId;
+    const attempts = Math.max(1, Math.floor(input.attempts ?? 6));
+    const delayMs = Math.max(50, Math.floor(input.delayMs ?? 250));
+    const finality = input.finality ?? 'final';
 
-    const pk = ensureEd25519Prefix(publicKey);
+    const pk = ensureEd25519Prefix(input.publicKey);
     if (!pk) throw new Error('Missing publicKey for tx context fetch');
 
     let lastErr: unknown = null;

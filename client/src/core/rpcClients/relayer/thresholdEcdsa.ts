@@ -16,7 +16,7 @@ import type {
 
 type ThresholdSessionPolicyV1 = {
   version: 'threshold_session_v1';
-  userId: string;
+  walletSessionUserId: string;
   subjectId: WalletSubjectId;
   rpId: string;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -36,6 +36,16 @@ type ThresholdEcdsaHssPrepareHttpResponse = {
   ceremonyId?: string;
   preparedServerSessionB64u?: string;
   serverAssistInitB64u?: string;
+  hssContext?: {
+    walletSessionUserId: string;
+    subjectId: WalletSubjectId;
+    chainTarget: ThresholdEcdsaChainTarget;
+    ecdsaThresholdKeyId: string;
+    signingRootId: string;
+    signingRootVersion: string;
+    keyPurpose: string;
+    keyVersion: string;
+  };
 };
 
 type ThresholdEcdsaHssRespondHttpResponse = {
@@ -261,6 +271,7 @@ export async function thresholdEcdsaHssPrepare(
       ceremonyId: json.ceremonyId,
       preparedServerSessionB64u: json.preparedServerSessionB64u,
       serverAssistInitB64u: json.serverAssistInitB64u,
+      hssContext: json.hssContext,
     };
   } catch (error: unknown) {
     return { ok: false, error: errorMessage(error) || 'Failed to prepare threshold-ecdsa hss bootstrap' };

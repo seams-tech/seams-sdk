@@ -3,6 +3,10 @@ import { ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap } from '../.
 import { commitEvmFamilyThresholdEcdsaSessions } from '../../session/emailOtp/ecdsaBootstrapCommit';
 import { persistWarmSessionEd25519Capability } from '../../session/warmCapabilities/persistence';
 import { cacheSigningSessionPrfFirst } from '../../session/passkey/prfCache';
+import {
+  getStoredThresholdEd25519SessionRecordByThresholdSessionId,
+  listStoredThresholdEcdsaSessionRecordsForWallet,
+} from '../../session/persistence/records';
 import { createWarmSessionAwareUiConfirm } from '../../uiConfirm/warmSessionUiConfirm';
 import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/types';
 import {
@@ -10,6 +14,15 @@ import {
   type EmailOtpThresholdSessionCoordinatorDeps,
 } from '../../session/emailOtp/EmailOtpThresholdSessionCoordinator';
 import { persistEmailOtpThresholdEd25519LocalMetadata } from '../../session/emailOtp/ed25519LocalMetadata';
+import {
+  acquireSigningSessionRestoreLease,
+  deleteExactSealedSession,
+  listExactSealedSessionsForWallet,
+  releaseSigningSessionRestoreLease,
+  readExactSealedSession,
+  updateExactSealedSessionPolicy,
+  writeExactSealedSession,
+} from '../../session/persistence/sealedSessionStore';
 import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { SignerWorkerManager } from '../../workerManager/SignerWorkerManager';
 import type { WarmSigningPorts } from './warmSigning';
@@ -27,10 +40,9 @@ export function createStepUpRuntime(args: {
   indexedDB: SigningEnginePorts['indexedDB'];
   baseTouchConfirm: UiConfirmRuntimeBridgePort;
   getSignerWorkerContext: EmailOtpThresholdSessionCoordinatorDeps['getSignerWorkerContext'];
-  thresholdEcdsaBootstrapQueueByAccount: Map<string, Promise<void>>;
+  thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>>;
   getEcdsaSessions: () => WarmSigningPorts['ecdsaSessions'];
   getWarmCapabilityReader: () => WarmSigningPorts['capabilityReader'];
-  listThresholdEcdsaSessionRecordsForSubject: WarmSigningPorts['listThresholdEcdsaSessionRecordsForSubject'];
   getThresholdEcdsaSessionRecordByThresholdSessionId:
     WarmSigningPorts['getThresholdEcdsaSessionRecordByThresholdSessionId'];
   ensureSealedRefreshStartupParity: () => Promise<void>;
@@ -38,12 +50,12 @@ export function createStepUpRuntime(args: {
   const emailOtpSessions = new EmailOtpThresholdSessionCoordinator({
     configs: args.seamsPasskeyConfigs,
     signerWorkerManager: args.signerWorkerManager,
-    touchIdPrompt: args.touchIdPrompt,
+    getRpId: () => args.touchIdPrompt.getRpId(),
     getSignerWorkerContext: args.getSignerWorkerContext,
     commitEvmFamilyThresholdEcdsaSessions: (commitArgs) =>
       commitEvmFamilyThresholdEcdsaSessions(
         {
-          queueByAccount: args.thresholdEcdsaBootstrapQueueByAccount,
+          queueByWallet: args.thresholdEcdsaBootstrapQueueByWallet,
           indexedDB: args.indexedDB,
           ecdsaSessions: args.getEcdsaSessions(),
           warmCapabilityReader: args.getWarmCapabilityReader(),
@@ -55,16 +67,25 @@ export function createStepUpRuntime(args: {
         },
         commitArgs,
       ),
-    listThresholdEcdsaSessionRecordsForSubject: (subjectArgs) =>
-      args.listThresholdEcdsaSessionRecordsForSubject(subjectArgs),
+    listThresholdEcdsaSessionRecordsForWallet: (walletId) =>
+      listStoredThresholdEcdsaSessionRecordsForWallet(walletId),
     getThresholdEcdsaSessionRecordByThresholdSessionId: (thresholdSessionId) =>
       args.getThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId),
+    getThresholdEd25519SessionRecordByThresholdSessionId: (thresholdSessionId) =>
+      getStoredThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId),
     persistEmailOtpThresholdEd25519LocalMetadata: (persistArgs) =>
       persistEmailOtpThresholdEd25519LocalMetadata(args.indexedDB, persistArgs),
     persistWarmSessionEd25519Capability: (persistArgs) =>
       persistWarmSessionEd25519Capability(persistArgs),
     hydrateSigningSession: (hydrateArgs) =>
       cacheSigningSessionPrfFirst(args.baseTouchConfirm, hydrateArgs),
+    writeExactSealedSession,
+    readExactSealedSession,
+    listExactSealedSessionsForWallet,
+    acquireSigningSessionRestoreLease,
+    releaseSigningSessionRestoreLease,
+    deleteExactSealedSession,
+    updateExactSealedSessionPolicy,
   });
 
   const touchConfirm = createWarmSessionAwareUiConfirm({

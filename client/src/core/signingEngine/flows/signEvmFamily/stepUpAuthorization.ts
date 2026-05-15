@@ -1,5 +1,5 @@
 import { normalizeAuthenticationCredential } from '@/core/signingEngine/webauthnAuth/credentials/helpers';
-import type { ConfirmIntentDigestSigningOperationResult } from '@/core/signingEngine/stepUpConfirmation/confirmOperation';
+import type { ConfirmIntentDigestSigningOperationResult } from '../shared/signingConfirmation';
 import type { EvmFamilyPasskeyReconnectPlan, EvmFamilyPreparedStepUpAuth } from './requireEvmFamilyStepUpAuth';
 import type {
   EmailOtpConfirmPrompt,

@@ -1,6 +1,6 @@
 import { base64UrlDecode } from '@shared/utils/base64';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
-import { collectAuthenticationCredentialForChallengeB64u } from '../../webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
+import { collectAuthenticationCredentialForWalletChallengeB64u } from '../../webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import {
   getPrfFirstB64uFromCredential,
   type ThresholdIndexedDbPort,
@@ -17,7 +17,7 @@ function cloneFixed32Bytes(value: Uint8Array, label: string): Uint8Array {
 export async function resolveThresholdEcdsaClientRootShare(args: {
   indexedDB: ThresholdIndexedDbPort;
   touchIdPrompt: ThresholdWebAuthnPromptPort;
-  userId: string;
+  walletId: string;
   challengeB64u?: string;
   providedClientRootShare32?: Uint8Array;
   providedClientRootShare32B64u?: string;
@@ -110,10 +110,10 @@ export async function resolveThresholdEcdsaClientRootShare(args: {
     };
   }
 
-  const credential = await collectAuthenticationCredentialForChallengeB64u({
+  const credential = await collectAuthenticationCredentialForWalletChallengeB64u({
     indexedDB: args.indexedDB,
     touchIdPrompt: args.touchIdPrompt,
-    nearAccountId: args.userId,
+    walletId: args.walletId,
     challengeB64u,
   });
   const prfFirstB64u = getPrfFirstB64uFromCredential(credential);

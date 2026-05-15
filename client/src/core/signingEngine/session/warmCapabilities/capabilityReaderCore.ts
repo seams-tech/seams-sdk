@@ -5,7 +5,7 @@ import {
 } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { ThresholdSessionSealTransportAuthMaterial } from '../persistence/records';
 import {
-  readWarmSessionCapabilityRecordsForAccount,
+  readWarmSessionCapabilityRecordsForWallet,
   readWarmSessionEcdsaRecordByThresholdSessionIdForTarget,
   readWarmSessionEcdsaRecordByThresholdSessionId,
   readWarmSessionEd25519RecordByThresholdSessionId,
@@ -44,7 +44,7 @@ export type WarmSessionCapabilityReaderCoreDeps = {
 };
 
 export type WarmSessionCapabilityReaderCore = {
-  getWarmSession: (nearAccountId: AccountId | string) => Promise<WarmSessionEnvelope>;
+  getWarmSession: (walletId: AccountId | string) => Promise<WarmSessionEnvelope>;
   resolveEd25519RecordByThresholdSessionId: (
     thresholdSessionId: string,
   ) => WarmSessionEd25519CapabilityState['record'];
@@ -162,19 +162,19 @@ export function createWarmSessionCapabilityReaderCore(
     };
   }
 
-  async function getWarmSession(nearAccountId: AccountId | string): Promise<WarmSessionEnvelope> {
-    const accountId = toAccountId(nearAccountId);
-    const records = readWarmSessionCapabilityRecordsForAccount(accountId);
+  async function getWarmSession(walletId: AccountId | string): Promise<WarmSessionEnvelope> {
+    const normalizedWalletId = toAccountId(walletId);
+    const records = readWarmSessionCapabilityRecordsForWallet(normalizedWalletId);
 
     const ed25519Auth = resolveEd25519AuthMaterial(records.ed25519);
     const evmAuth = resolveEcdsaAuthMaterial(records.ecdsa.evm);
     const tempoAuth = resolveEcdsaAuthMaterial(records.ecdsa.tempo);
 
     const { ed25519Claim, evmClaim, tempoClaim } =
-      await deps.statusReader.readWalletScopedClaimsForRecords(accountId, records);
+      await deps.statusReader.readWalletScopedClaimsForRecords(records);
 
     return assertWarmSessionEnvelopeInvariant({
-      accountId,
+      walletId: normalizedWalletId,
       capabilities: {
         ed25519: buildEd25519CapabilityState({
           record: records.ed25519,

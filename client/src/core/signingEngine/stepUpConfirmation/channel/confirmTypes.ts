@@ -2,17 +2,20 @@ import { TransactionInputWasm } from '@/core/types';
 import { ConfirmationConfig } from '@/core/types';
 import { TransactionContext } from '@/core/types/rpc';
 import { RpcCallPayload } from '@/core/types/signer-worker';
-import {
-  WebAuthnAuthenticationCredential,
-  WebAuthnRegistrationCredential,
-} from '@/core/types/webauthn';
 import type { TxDisplayModel } from '@/core/signingEngine/interfaces/display';
 import { isObject, isString } from '@shared/utils/validation';
-import type { NonceLeaseRef } from '../../interfaces/nonceLease';
 import type {
   EmailOtpConfirmPrompt,
+  SerializableCredential,
   SigningAuthPlan,
+  UserConfirmDecision,
   UserConfirmProgressEvent,
+} from '../types';
+
+export type {
+  ForbiddenMainThreadSecrets,
+  SerializableCredential,
+  UserConfirmDecision,
 } from '../types';
 
 // === SECURE CONFIRM TYPES (V2) ===
@@ -35,28 +38,6 @@ export interface UserConfirmPromptEnvelope {
  * request/response envelopes. PRF outputs are extracted from credentials and
  * passed directly to signer-worker payloads in wallet origin only.
  */
-export type ForbiddenMainThreadSecrets = {
-  prfOutput?: never;
-  prf_output?: never;
-  wrapKeySeed?: never;
-  wrapKeySalt?: never;
-  prfKey?: never;
-};
-
-export interface UserConfirmDecision extends ForbiddenMainThreadSecrets {
-  requestId: string;
-  intentDigest?: string;
-  confirmed: boolean;
-  credential?: SerializableCredential; // Serialized WebAuthn credential
-  otpCode?: string;
-  emailOtpChallengeId?: string;
-  transactionContext?: TransactionContext; // NEAR data fetched during confirmation
-  nonceLeases?: NonceLeaseRef[];
-  // This is a private field used to close the confirmation modal
-  _confirmHandle?: { close: (confirmed: boolean) => void };
-  error?: string;
-}
-
 export interface UserConfirmResponseEnvelope {
   type: UserConfirmMessageType.USER_PASSKEY_CONFIRM_RESPONSE;
   requestId: string;
@@ -277,11 +258,6 @@ export function isUserConfirmRequestV2(x: unknown): x is UserConfirmRequest {
     (x as { payload?: unknown }).payload != null
   );
 }
-
-// Serialized WebAuthn credential (authentication or registration)
-export type SerializableCredential =
-  | WebAuthnAuthenticationCredential
-  | WebAuthnRegistrationCredential;
 
 // Discriminated unions to bind `type` to payload shape
 export type UserConfirmRequestByType<TType extends UserConfirmationType> = UserConfirmRequest<

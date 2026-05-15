@@ -1,4 +1,5 @@
-import type { AccountId } from '@/core/types/accountIds';
+import type { WalletSessionRef } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { walletSessionRefFromSession } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EmailOtpAuthLane } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import { authLaneAppSessionJwt } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import {
@@ -17,19 +18,19 @@ export class EmailOtpAppSessionJwtCache {
     } = {},
   ) {}
 
-  remember(args: { nearAccountId: AccountId | string; appSessionJwt?: string }): void {
+  remember(args: { walletSession: WalletSessionRef; appSessionJwt?: string }): void {
     const jwt = String(args.appSessionJwt || '').trim();
     if (!jwt || !isAppSessionJwt(jwt)) return;
-    const accountId = String(args.nearAccountId || '').trim();
+    const accountId = String(args.walletSession.walletId || '').trim();
     if (!accountId) return;
     this.byAccount.set(accountId, jwt);
   }
 
   async resolve(args: {
-    nearAccountId: AccountId | string;
+    walletSession: WalletSessionRef;
     relayUrl: string;
   }): Promise<string> {
-    const accountId = String(args.nearAccountId || '').trim();
+    const accountId = String(args.walletSession.walletId || '').trim();
     const cached = accountId ? String(this.byAccount.get(accountId) || '').trim() : '';
     if (cached && isAppSessionJwt(cached) && isSessionJwtUnexpired(cached, { skewMs: 30_000 })) {
       return cached;
@@ -44,7 +45,13 @@ export class EmailOtpAppSessionJwtCache {
           ...(refreshCandidate ? { appSessionJwt: refreshCandidate } : {}),
         });
     if (accountId && refreshed) {
-      this.remember({ nearAccountId: accountId, appSessionJwt: refreshed });
+      this.remember({
+        walletSession: walletSessionRefFromSession({
+          walletId: accountId,
+          walletSessionUserId: args.walletSession.walletSessionUserId,
+        }),
+        appSessionJwt: refreshed,
+      });
     }
     return refreshed;
   }

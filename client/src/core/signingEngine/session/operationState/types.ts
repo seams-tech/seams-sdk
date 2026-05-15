@@ -39,7 +39,6 @@ export type SigningOperationIntent =
   (typeof SigningOperationIntent)[keyof typeof SigningOperationIntent];
 
 type BaseSigningSessionPlanningLane = {
-  accountId: AccountId;
   authMethod: SigningAuthMethod;
   curve: SigningCurve;
   keyKind: SigningKeyKind;
@@ -57,6 +56,8 @@ export type Ed25519SigningSessionPlanningLane = BaseSigningSessionPlanningLane &
   curve: 'ed25519';
   keyKind: 'threshold_ed25519';
   chainFamily: 'near';
+  accountId: AccountId;
+  walletId?: never;
   chainTarget?: never;
   subjectId?: never;
   ecdsaThresholdKeyId?: never;
@@ -69,6 +70,8 @@ export type EcdsaSigningSessionPlanningLane = BaseSigningSessionPlanningLane & {
   curve: 'ecdsa';
   keyKind: 'threshold_ecdsa_secp256k1';
   chainFamily: ThresholdEcdsaChainTarget['kind'];
+  walletId: AccountId;
+  accountId?: never;
   chainTarget: ThresholdEcdsaChainTarget;
   subjectId: WalletSubjectId;
   ecdsaThresholdKeyId: string;
@@ -81,19 +84,40 @@ export type SigningSessionPlanningLane =
   | Ed25519SigningSessionPlanningLane
   | EcdsaSigningSessionPlanningLane;
 
-export type SelectedSigningLaneIdentity = {
-  accountId: AccountId;
+type BaseSelectedSigningLaneIdentity = {
   authMethod: SigningAuthMethod;
-  curve: SigningCurve;
-  chainFamily: SigningChainFamily;
   walletSigningSessionId: WalletSigningSessionId;
-  thresholdSessionId: ThresholdSessionId;
 };
 
-export type SelectedSigningSessionPlanningLane =
-  SigningSessionPlanningLane & SelectedSigningLaneIdentity;
+export type SelectedEd25519SigningLaneIdentity = BaseSelectedSigningLaneIdentity & {
+  curve: 'ed25519';
+  chainFamily: 'near';
+  accountId: AccountId;
+  thresholdSessionId: ThresholdEd25519SessionId;
+};
 
-export type ResolvedSigningSessionIdentity = SelectedSigningLaneIdentity & {
+export type SelectedEcdsaSigningLaneIdentity = BaseSelectedSigningLaneIdentity & {
+  curve: 'ecdsa';
+  chainFamily: ThresholdEcdsaChainTarget['kind'];
+  walletId: AccountId;
+  thresholdSessionId: ThresholdEcdsaSessionId;
+};
+
+export type SelectedSigningLaneIdentity =
+  | SelectedEd25519SigningLaneIdentity
+  | SelectedEcdsaSigningLaneIdentity;
+
+export type SelectedEd25519SigningSessionPlanningLane =
+  Ed25519SigningSessionPlanningLane & SelectedEd25519SigningLaneIdentity;
+
+export type SelectedEcdsaSigningSessionPlanningLane =
+  EcdsaSigningSessionPlanningLane & SelectedEcdsaSigningLaneIdentity;
+
+export type SelectedSigningSessionPlanningLane =
+  | SelectedEd25519SigningSessionPlanningLane
+  | SelectedEcdsaSigningSessionPlanningLane;
+
+type BaseResolvedSigningSessionIdentity = BaseSelectedSigningLaneIdentity & {
   keyKind: SigningKeyKind;
   sessionOrigin: SigningSessionOrigin;
   storageSource: SigningSessionStorageSource;
@@ -103,17 +127,19 @@ export type ResolvedSigningSessionIdentity = SelectedSigningLaneIdentity & {
   signingRootVersion?: string;
 };
 
-export type ResolvedEd25519SigningSessionIdentity = ResolvedSigningSessionIdentity & {
+export type ResolvedEd25519SigningSessionIdentity = BaseResolvedSigningSessionIdentity & {
   curve: 'ed25519';
   keyKind: 'threshold_ed25519';
   chainFamily: 'near';
+  accountId: AccountId;
   thresholdSessionId: ThresholdEd25519SessionId;
 };
 
-export type ResolvedEcdsaSigningSessionIdentity = ResolvedSigningSessionIdentity & {
+export type ResolvedEcdsaSigningSessionIdentity = BaseResolvedSigningSessionIdentity & {
   curve: 'ecdsa';
   keyKind: 'threshold_ecdsa_secp256k1';
   chainFamily: ThresholdEcdsaChainTarget['kind'];
+  walletId: AccountId;
   chainTarget: ThresholdEcdsaChainTarget;
   subjectId: WalletSubjectId;
   ecdsaThresholdKeyId: string;
@@ -121,6 +147,10 @@ export type ResolvedEcdsaSigningSessionIdentity = ResolvedSigningSessionIdentity
   signingRootVersion: string;
   thresholdSessionId: ThresholdEcdsaSessionId;
 };
+
+export type ResolvedSigningSessionIdentity =
+  | ResolvedEd25519SigningSessionIdentity
+  | ResolvedEcdsaSigningSessionIdentity;
 
 export type SigningOperationContext = {
   operationId: SigningOperationId;
@@ -149,7 +179,7 @@ export type SigningKeyRefIntent =
 export type WalletSigningSpendPlan = {
   operationId: SigningOperationId;
   operationFingerprint?: SigningOperationFingerprint;
-  nearAccountId: AccountId;
+  walletId: AccountId;
   walletSigningSessionId: WalletSigningSessionId;
   lane: SelectedSigningSessionPlanningLane;
   thresholdSessionIds: readonly ThresholdSessionId[];
@@ -210,17 +240,22 @@ export type SigningSessionPlan =
       reason: SigningSessionNotReadyReason;
     };
 
-export type SigningLaneSummary = Pick<
+type BaseSigningLaneSummary = Pick<
   SigningSessionPlanningLane,
-  | 'accountId'
-  | 'authMethod'
-  | 'curve'
-  | 'keyKind'
-  | 'chainFamily'
-  | 'sessionOrigin'
-  | 'storageSource'
-  | 'retention'
+  'authMethod' | 'curve' | 'keyKind' | 'chainFamily' | 'sessionOrigin' | 'storageSource' | 'retention'
 >;
+
+export type Ed25519SigningLaneSummary = BaseSigningLaneSummary & {
+  curve: 'ed25519';
+  accountId: AccountId;
+};
+
+export type EcdsaSigningLaneSummary = BaseSigningLaneSummary & {
+  curve: 'ecdsa';
+  walletId: AccountId;
+};
+
+export type SigningLaneSummary = Ed25519SigningLaneSummary | EcdsaSigningLaneSummary;
 
 export type SigningPlanSummary = {
   kind: SigningSessionPlan['kind'];
@@ -263,8 +298,7 @@ export const SigningSessionIds = {
 } as const;
 
 export function summarizeSigningLane(lane: SigningSessionPlanningLane): SigningLaneSummary {
-  return {
-    accountId: lane.accountId,
+  const summary = {
     authMethod: lane.authMethod,
     curve: lane.curve,
     keyKind: lane.keyKind,
@@ -272,7 +306,18 @@ export function summarizeSigningLane(lane: SigningSessionPlanningLane): SigningL
     sessionOrigin: lane.sessionOrigin,
     storageSource: lane.storageSource,
     retention: lane.retention,
-  };
+  } as const;
+  return lane.curve === 'ecdsa'
+    ? {
+        ...summary,
+        curve: 'ecdsa',
+        walletId: lane.walletId,
+      }
+    : {
+        ...summary,
+        curve: 'ed25519',
+        accountId: lane.accountId,
+      };
 }
 
 function normalizeLaneIdentityField(value: unknown): string {
@@ -284,7 +329,6 @@ export function findSigningLaneIdentityMismatch(
   b: SigningSessionPlanningLane,
 ): string | null {
   const fields: Array<keyof SigningSessionPlanningLane> = [
-    'accountId',
     'authMethod',
     'curve',
     'keyKind',
@@ -299,6 +343,15 @@ export function findSigningLaneIdentityMismatch(
     'signingRootId',
     'signingRootVersion',
   ];
+  if (a.curve === 'ecdsa' && b.curve === 'ecdsa') {
+    if (normalizeLaneIdentityField(a.walletId) !== normalizeLaneIdentityField(b.walletId)) {
+      return 'walletId';
+    }
+  } else if (a.curve === 'ed25519' && b.curve === 'ed25519') {
+    if (normalizeLaneIdentityField(a.accountId) !== normalizeLaneIdentityField(b.accountId)) {
+      return 'accountId';
+    }
+  }
   for (const field of fields) {
     if (normalizeLaneIdentityField(a[field]) !== normalizeLaneIdentityField(b[field])) {
       return String(field);
@@ -334,9 +387,9 @@ export function normalizeWalletSigningSpendPlan(
     input.operationFingerprint != null
       ? SigningSessionIds.signingOperationFingerprint(input.operationFingerprint)
       : undefined;
-  const nearAccountId = toAccountId(input.nearAccountId || lane.accountId);
-  const laneAccountId = toAccountId(lane.accountId);
-  if (String(nearAccountId) !== String(laneAccountId)) {
+  const laneWalletId = toAccountId(lane.curve === 'ecdsa' ? lane.walletId : lane.accountId);
+  const walletId = toAccountId(input.walletId || laneWalletId);
+  if (String(walletId) !== String(laneWalletId)) {
     throw new Error('[SigningSession] wallet signing spend account does not match lane');
   }
   const walletSigningSessionId = SigningSessionIds.walletSigningSession(
@@ -356,17 +409,25 @@ export function normalizeWalletSigningSpendPlan(
   if (input.reason !== SigningOperationIntent.TransactionSign) {
     throw new Error('[SigningSession] wallet signing spend reason is invalid');
   }
+  const normalizedLane: SelectedSigningSessionPlanningLane =
+    lane.curve === 'ecdsa'
+      ? {
+          ...lane,
+          walletId,
+          walletSigningSessionId,
+        }
+      : {
+          ...lane,
+          accountId: walletId,
+          walletSigningSessionId,
+        };
   return {
     ...input,
     operationId,
     ...(operationFingerprint ? { operationFingerprint } : {}),
-    nearAccountId,
+    walletId,
     walletSigningSessionId,
-    lane: {
-      ...lane,
-      accountId: nearAccountId,
-      walletSigningSessionId,
-    },
+    lane: normalizedLane,
     thresholdSessionIds: uniqueBrandedStrings(
       input.thresholdSessionIds,
       (value) => toRequiredBrandedString(value, 'thresholdSessionId') as ThresholdSessionId,

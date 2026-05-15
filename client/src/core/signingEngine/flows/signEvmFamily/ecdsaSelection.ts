@@ -7,7 +7,7 @@ import {
   buildTempoTransactionSigningLane,
 } from '../../session/operationState/lanes';
 import {
-  resolveEvmFamilyTransactionAccountAuth,
+  resolveEvmFamilyTransactionWalletAuth,
   type EvmFamilyAccountMetadataDeps,
 } from './accountAuth';
 import {
@@ -99,7 +99,7 @@ export type BudgetBlockedEvmFamilyEcdsaSigningSelection = {
   authMethod: EvmFamilyEcdsaAuthMethod;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
   material: ReadyEcdsaMaterial;
-  budget: WalletBudgetUnknown | { kind: 'exhausted'; remainingUses: 0 };
+  budget: WalletBudgetUnknown;
   diagnostics: EcdsaSelectionDiagnostics;
 };
 
@@ -118,7 +118,7 @@ export type EvmFamilyEcdsaSigningSelectionResult =
   | BudgetBlockedEvmFamilyEcdsaSigningSelection
   | MissingMaterialEvmFamilyEcdsaSigningSelection;
 
-function accountAuthWithSelectedPrimary(
+function walletAuthWithSelectedPrimary(
   accountAuth: AccountAuthMetadata,
   authMethod: EvmFamilyEcdsaAuthMethod,
 ): AccountAuthMetadata {
@@ -130,11 +130,7 @@ function accountAuthWithSelectedPrimary(
 }
 
 function exactEcdsaCandidateRequiresHotMaterial(candidate: EcdsaLaneCandidate): boolean {
-  return (
-    candidate.state === 'ready' ||
-    candidate.state === 'restorable' ||
-    candidate.state === 'deferred'
-  );
+  return candidate.state === 'ready';
 }
 
 function signingLaneFromExactLaneCandidate(
@@ -145,7 +141,7 @@ function signingLaneFromExactLaneCandidate(
       ? buildTempoTransactionSigningLane
       : buildEvmTransactionSigningLane;
   const base = {
-    accountId: candidate.accountId,
+    walletId: candidate.walletId,
     subjectId: candidate.subjectId,
     chainTarget: candidate.chainTarget,
     ecdsaThresholdKeyId: candidate.ecdsaThresholdKeyId,
@@ -323,7 +319,7 @@ function selectPasskeyMaterialForCandidate(args: {
   };
 }
 
-function selectSessionSourceForAccountAuth(args: {
+function selectSessionSourceForWalletAuth(args: {
   emailOtpRecord?: ThresholdEcdsaSessionRecord;
   emailOtpKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
   selectedPasskeyMaterial?: PasskeyVisibleMaterial;
@@ -347,7 +343,7 @@ function selectSessionSourceForAccountAuth(args: {
 
 export async function resolveEvmFamilyEcdsaSigningSelection(args: {
   deps: EvmFamilyEcdsaSigningSelectionDeps;
-  nearAccountId: string;
+  walletId: string;
   subjectId: WalletSubjectId;
   chain: EvmFamilyChain;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -414,24 +410,24 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
     chainTarget: args.chainTarget,
   });
 
-  const accountAuthInputs = selectSessionSourceForAccountAuth({
+  const walletAuthInputs = selectSessionSourceForWalletAuth({
     ...(emailOtpRecord ? { emailOtpRecord } : {}),
     ...(emailOtpKeyRef ? { emailOtpKeyRef } : {}),
     ...(selectedPasskeyMaterial.selected
       ? { selectedPasskeyMaterial: selectedPasskeyMaterial.selected }
       : {}),
   });
-  const accountAuth = await resolveEvmFamilyTransactionAccountAuth({
+  const walletAuth = await resolveEvmFamilyTransactionWalletAuth({
     deps: args.deps,
-    nearAccountId: args.nearAccountId,
+    walletId: args.walletId,
     senderSignatureAlgorithm: args.senderSignatureAlgorithm,
-    ...(accountAuthInputs.sessionSource ? { sessionSource: accountAuthInputs.sessionSource } : {}),
-    ...(typeof accountAuthInputs.isEmailOtpThresholdContext === 'boolean'
-      ? { isEmailOtpThresholdContext: accountAuthInputs.isEmailOtpThresholdContext }
+    ...(walletAuthInputs.sessionSource ? { sessionSource: walletAuthInputs.sessionSource } : {}),
+    ...(typeof walletAuthInputs.isEmailOtpThresholdContext === 'boolean'
+      ? { isEmailOtpThresholdContext: walletAuthInputs.isEmailOtpThresholdContext }
       : {}),
   });
-  const selectedAccountAuth = accountAuthWithSelectedPrimary(
-    accountAuth,
+  const selectedAccountAuth = walletAuthWithSelectedPrimary(
+    walletAuth,
     args.laneCandidate.authMethod,
   );
 
@@ -447,7 +443,7 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
   });
   try {
     console.info('[SigningEngine][ecdsa][selection]', {
-      nearAccountId: args.nearAccountId,
+      walletId: args.walletId,
       chain: args.chain,
       requestedAuthMethod: args.authMethod,
       selectedAuthMethod: args.laneCandidate.authMethod,
@@ -483,17 +479,6 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
   }
 
   if (args.laneCandidate.state === 'exhausted') {
-    if (exactCandidateMaterial.kind === 'ready_material') {
-      return {
-        kind: 'budget_blocked',
-        accountAuth: selectedAccountAuth,
-        authMethod: args.laneCandidate.authMethod as EvmFamilyEcdsaAuthMethod,
-        lane,
-        material: exactCandidateMaterial,
-        budget: { kind: 'exhausted', remainingUses: 0 },
-        diagnostics,
-      };
-    }
     return {
       kind: 'reauth_required',
       accountAuth: selectedAccountAuth,

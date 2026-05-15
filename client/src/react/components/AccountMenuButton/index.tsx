@@ -18,13 +18,14 @@ import { LinkedDevicesModal } from './LinkedDevicesModal';
 import { ExportKeyTypeModal } from './ExportKeyTypeModal';
 import './Web3AuthProfileButton.css';
 import { Theme, useTheme } from '../theme';
-import { AccountId, toAccountId } from '@/core/types/accountIds';
+import { AccountId } from '@/core/types/accountIds';
 import { KeyExportEventPhase, type KeyExportFlowEvent } from '@/core/types/sdkSentEvents';
 import { requirePrimaryChainByFamily } from '@/core/config/chains';
 import {
   nearAccountRefFromAccountId,
   thresholdEcdsaChainTargetFromConfig,
-  toWalletSubjectId,
+  toWalletId,
+  walletSubjectIdFromWalletProfile,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 function resolveDefaultPortalTarget(
@@ -142,7 +143,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
     let cancelled = false;
 
     if (AccountId.validate(loggedInAccountId).valid) {
-      seams.preferences.setCurrentUser(toAccountId(loggedInAccountId));
+      seams.preferences.setCurrentWallet(toWalletId(loggedInAccountId));
     }
     setCurrentConfirmConfig(seams.getConfirmationConfig());
 
@@ -231,7 +232,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
               }
             : {
                 kind: 'ecdsa',
-                subjectId: toWalletSubjectId(nearAccountId),
+                subjectId: walletSubjectIdFromWalletProfile({ walletId: nearAccountId }),
                 walletSessionUserId: nearAccountId,
                 chainTarget: thresholdEcdsaChainTargetFromConfig(
                   requirePrimaryChainByFamily(seams.configs.network.chains, 'evm'),

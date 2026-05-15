@@ -13,6 +13,7 @@ import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold
 import type { ThresholdEcdsaHssRouteAuth } from '@/core/rpcClients/relayer/thresholdEcdsa';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import {
+  thresholdEcdsaChainTargetKey,
   type WalletSubjectId,
   type EvmEip155ChainTarget,
   type TempoChainTarget,
@@ -22,6 +23,8 @@ import {
 export type ThresholdEcdsaEvmChainTarget = EvmEip155ChainTarget;
 export type ThresholdEcdsaTempoChainTarget = TempoChainTarget;
 export type ThresholdEcdsaActivationChain = ThresholdEcdsaChainTarget['kind'];
+
+export const STALE_ECDSA_KEY_IDENTITY_ERROR_CODE = 'stale_ecdsa_key_identity' as const;
 
 export const TEMPO_TESTNET_CHAIN_ID = 42431;
 export const TEMPO_ECDSA_CHAIN_TARGET: ThresholdEcdsaTempoChainTarget = {
@@ -55,13 +58,13 @@ export type ActivateEcdsaSessionDeps = {
   touchIdPrompt: ThresholdWebAuthnPromptPort;
   workerCtx: WorkerOperationContext;
   getOrCreateActiveThresholdEcdsaSessionId: (
-    nearAccountId: AccountId,
+    walletId: AccountId,
     chainTarget: ThresholdEcdsaChainTarget,
   ) => string;
 };
 
 export type ActivateEcdsaSessionRequest = {
-  nearAccountId: AccountId | string;
+  walletId: AccountId | string;
   subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   relayerUrl: string;
@@ -83,11 +86,43 @@ export type ActivateEcdsaSessionRequest = {
   remainingUses?: number;
 };
 
+function isStaleEcdsaIntegratedKeyBootstrapFailure(args: {
+  code?: unknown;
+  message?: unknown;
+}): boolean {
+  const code = String(args.code || '').trim();
+  const message = String(args.message || '')
+    .trim()
+    .toLowerCase();
+  return (
+    code === 'stale_session_state' &&
+    message.includes('threshold-ecdsa bootstrap') &&
+    message.includes('client verifying share') &&
+    message.includes('integrated key record')
+  );
+}
+
+function createThresholdEcdsaBootstrapFailure(args: {
+  code?: unknown;
+  message?: unknown;
+}): Error & { code: string } {
+  const message = String(args.message || args.code || 'threshold-ecdsa bootstrap failed').trim();
+  const code = isStaleEcdsaIntegratedKeyBootstrapFailure(args)
+    ? STALE_ECDSA_KEY_IDENTITY_ERROR_CODE
+    : String(args.code || 'threshold_ecdsa_bootstrap_failed').trim() ||
+      'threshold_ecdsa_bootstrap_failed';
+  const error = new Error(message || 'threshold-ecdsa bootstrap failed') as Error & {
+    code: string;
+  };
+  error.code = code;
+  return error;
+}
+
 export async function activateEcdsaSession(
   deps: ActivateEcdsaSessionDeps,
   args: ActivateEcdsaSessionRequest,
 ): Promise<ThresholdEcdsaSessionActivationResult> {
-  const nearAccountId = toAccountId(args.nearAccountId);
+  const walletId = toAccountId(args.walletId);
   const subjectId = args.subjectId;
   const chainTarget = args.chainTarget;
 
@@ -100,7 +135,7 @@ export async function activateEcdsaSession(
     relayerUrl: args.relayerUrl,
     chainTarget,
     chainId: chainTarget.chainId,
-    userId: nearAccountId,
+    userId: walletId,
     subjectId,
     participantIds: args.participantIds,
     sessionKind: args.sessionKind,
@@ -113,28 +148,62 @@ export async function activateEcdsaSession(
     remainingUses: args.remainingUses,
     workerCtx: deps.workerCtx,
   };
-  const bootstrap = args.thresholdSessionAuth
-    ? await bootstrapEcdsaSession({
-        ...baseBootstrapArgs,
-        bootstrapAuth: args.thresholdSessionAuth,
-        ecdsaThresholdKeyId: requestedEcdsaThresholdKeyId,
-        sessionId: requestedSessionId,
-        walletSigningSessionId: requestedWalletSigningSessionId,
-      })
-    : await bootstrapEcdsaSession({
-        ...baseBootstrapArgs,
-        ...(requestedEcdsaThresholdKeyId
-          ? { ecdsaThresholdKeyId: requestedEcdsaThresholdKeyId }
-          : {}),
-        sessionId:
-          requestedSessionId ||
-          deps.getOrCreateActiveThresholdEcdsaSessionId(nearAccountId, chainTarget),
-        ...(requestedWalletSigningSessionId
-          ? { walletSigningSessionId: requestedWalletSigningSessionId }
-          : {}),
+  const bootstrapRequestSummary = {
+    walletId,
+    subjectId,
+    chainTarget,
+    targetKey: thresholdEcdsaChainTargetKey(chainTarget),
+    hasRequestedEcdsaThresholdKeyId: Boolean(requestedEcdsaThresholdKeyId),
+    requestedSessionId: requestedSessionId || null,
+    requestedWalletSigningSessionId: requestedWalletSigningSessionId || null,
+    sessionKind: args.sessionKind || 'jwt',
+    authKind: args.thresholdSessionAuth?.kind || 'none',
+    hasClientRootShare32B64u: Boolean(String(args.clientRootShare32B64u || '').trim()),
+    hasWebAuthnAuthentication: Boolean(args.webauthnAuthentication),
+  };
+  let bootstrap: Awaited<ReturnType<typeof bootstrapEcdsaSession>>;
+  try {
+    bootstrap = args.thresholdSessionAuth
+      ? await bootstrapEcdsaSession({
+          ...baseBootstrapArgs,
+          bootstrapAuth: args.thresholdSessionAuth,
+          ecdsaThresholdKeyId: requestedEcdsaThresholdKeyId,
+          sessionId: requestedSessionId,
+          walletSigningSessionId: requestedWalletSigningSessionId,
+        })
+      : await bootstrapEcdsaSession({
+          ...baseBootstrapArgs,
+          ...(requestedEcdsaThresholdKeyId
+            ? { ecdsaThresholdKeyId: requestedEcdsaThresholdKeyId }
+            : {}),
+          sessionId:
+            requestedSessionId ||
+            deps.getOrCreateActiveThresholdEcdsaSessionId(walletId, chainTarget),
+          ...(requestedWalletSigningSessionId
+            ? { walletSigningSessionId: requestedWalletSigningSessionId }
+            : {}),
+        });
+  } catch (error: unknown) {
+    try {
+      console.warn('[threshold-ecdsa][bootstrap][exception]', {
+        ...bootstrapRequestSummary,
+        message: error instanceof Error ? error.message : String(error),
       });
+    } catch {}
+    throw error;
+  }
   if (!bootstrap.ok) {
-    throw new Error(bootstrap.message || bootstrap.code || 'threshold-ecdsa bootstrap failed');
+    try {
+      console.warn('[threshold-ecdsa][bootstrap][failure]', {
+        ...bootstrapRequestSummary,
+        code: bootstrap.code || '',
+        message: bootstrap.message || '',
+      });
+    } catch {}
+    throw createThresholdEcdsaBootstrapFailure({
+      code: bootstrap.code,
+      message: bootstrap.message,
+    });
   }
 
   const ecdsaThresholdKeyId = String(bootstrap.ecdsaThresholdKeyId || '').trim();
@@ -225,7 +294,7 @@ export async function activateEcdsaSession(
 
   const thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef = {
     type: 'threshold-ecdsa-secp256k1',
-    userId: nearAccountId,
+    userId: walletId,
     subjectId,
     chainTarget,
     relayerUrl: args.relayerUrl,

@@ -309,7 +309,8 @@ export function usePasskeyAuthMenuController(
       for (const option of runtime.accountOptions ?? []) {
         const nearAccountId = String(option.nearAccountId || '').trim();
         if (!nearAccountId) continue;
-        byAccountId.set(nearAccountId, {
+        const authMethodKey = option.authMethod || 'passkey';
+        byAccountId.set(`${nearAccountId}:${authMethodKey}`, {
           nearAccountId,
           ...(typeof option.signerSlot === 'number' ? { signerSlot: option.signerSlot } : {}),
           ...(option.authMethod ? { authMethod: option.authMethod } : {}),

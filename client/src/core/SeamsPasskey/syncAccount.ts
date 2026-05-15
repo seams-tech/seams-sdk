@@ -31,7 +31,10 @@ import {
   normalizeIndexedDbChainIdKey,
   toIndexedDbChainTargetKey,
 } from '../indexedDB/normalization';
-import { thresholdEcdsaChainTargetFromRequest } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  thresholdEcdsaChainTargetFromRequest,
+  type ThresholdEcdsaChainTarget,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export interface SyncAccountResult {
   success: boolean;
@@ -44,17 +47,24 @@ export interface SyncAccountResult {
   };
 }
 
-async function persistSyncedThresholdEcdsaAccountSigners(args: {
+export type RelayThresholdEcdsaAccountSigner = {
+  ecdsaThresholdKeyId: string;
+  chainTarget: ThresholdEcdsaChainTarget;
+  accountAddress: string;
+  ownerAddress: string;
+};
+
+export async function ingestRelayThresholdEcdsaAccountSigners(args: {
   nearAccountId: AccountId;
   signerSlot: number;
   records: unknown[];
-}): Promise<void> {
+}): Promise<RelayThresholdEcdsaAccountSigner[]> {
+  const relaySigners: RelayThresholdEcdsaAccountSigner[] = [];
   const continuity = await resolveNearAccountProfileContinuity(
     IndexedDBManager.clientDB,
     args.nearAccountId,
-  );
-  const profileId = String(continuity?.profile.profileId || '').trim();
-  if (!profileId) return;
+  ).catch(() => null);
+  const profileId = String(continuity?.profile?.profileId || '').trim();
 
   for (const rawRecord of args.records) {
     if (!isObject(rawRecord)) continue;
@@ -88,6 +98,15 @@ async function persistSyncedThresholdEcdsaAccountSigners(args: {
     ) {
       continue;
     }
+
+    relaySigners.push({
+      ecdsaThresholdKeyId,
+      chainTarget,
+      accountAddress,
+      ownerAddress: signerId,
+    });
+
+    if (!profileId) continue;
 
     const metadataSignerSlot = Number(metadata.signerSlot);
     const signerSlot =
@@ -141,6 +160,8 @@ async function persistSyncedThresholdEcdsaAccountSigners(args: {
       mutation: { routeThroughOutbox: false },
     });
   }
+
+  return relaySigners;
 }
 
 export async function syncAccount(
@@ -382,7 +403,7 @@ export async function syncAccount(
       ? verifyJson.smartAccountSigners
       : [];
     if (syncedSmartAccountSigners.length) {
-      await persistSyncedThresholdEcdsaAccountSigners({
+      await ingestRelayThresholdEcdsaAccountSigners({
         nearAccountId: normalizedAccountId,
         signerSlot,
         records: syncedSmartAccountSigners,

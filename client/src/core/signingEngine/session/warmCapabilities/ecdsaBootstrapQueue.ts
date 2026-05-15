@@ -1,12 +1,12 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 
 export async function withThresholdEcdsaBootstrapQueue<T>(
-  queueByAccount: Map<string, Promise<void>>,
-  nearAccountId: AccountId | string,
+  queueByWallet: Map<string, Promise<void>>,
+  walletId: AccountId | string,
   task: () => Promise<T>,
 ): Promise<T> {
-  const accountKey = String(toAccountId(String(nearAccountId || '').trim()));
-  const previous = queueByAccount.get(accountKey) || Promise.resolve();
+  const walletKey = String(toAccountId(String(walletId || '').trim()));
+  const previous = queueByWallet.get(walletKey) || Promise.resolve();
   const waitForPrevious = previous.catch(() => undefined);
 
   let release!: () => void;
@@ -14,15 +14,15 @@ export async function withThresholdEcdsaBootstrapQueue<T>(
     release = resolve;
   });
   const next = waitForPrevious.then(() => gate);
-  queueByAccount.set(accountKey, next);
+  queueByWallet.set(walletKey, next);
 
   await waitForPrevious;
   try {
     return await task();
   } finally {
     release();
-    if (queueByAccount.get(accountKey) === next) {
-      queueByAccount.delete(accountKey);
+    if (queueByWallet.get(walletKey) === next) {
+      queueByWallet.delete(walletKey);
     }
   }
 }

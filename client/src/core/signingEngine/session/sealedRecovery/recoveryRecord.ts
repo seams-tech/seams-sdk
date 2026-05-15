@@ -23,8 +23,10 @@ type RawEcdsaRestoreMetadata = {
   thresholdSessionAuthToken?: unknown;
   sessionKind?: unknown;
   ecdsaThresholdKeyId?: unknown;
+  ethereumAddress?: unknown;
   relayerKeyId?: unknown;
   clientVerifyingShareB64u?: unknown;
+  thresholdEcdsaPublicKeyB64u?: unknown;
   participantIds?: unknown;
   runtimePolicyScope?: unknown;
 };
@@ -102,6 +104,8 @@ type EcdsaSealedRecoveryRecordBase = SealedRecoveryRecordBase & {
   signingRootId: string;
   signingRootVersion: string;
   ecdsaThresholdKeyId: string;
+  ethereumAddress: `0x${string}`;
+  thresholdEcdsaPublicKeyB64u?: string;
   participantIds: readonly number[];
   relayerUrl: string;
   relayerKeyId: string;
@@ -188,6 +192,13 @@ function normalizeThresholdSessionIds(record: RawSigningSessionSealedStoreRecord
 
 function normalizeSessionKind(value: unknown): ThresholdSessionKind | null {
   return value === 'jwt' || value === 'cookie' ? value : null;
+}
+
+function normalizeEthereumAddress(value: unknown): `0x${string}` | null {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
+  return /^0x[0-9a-f]{40}$/.test(normalized) ? (normalized as `0x${string}`) : null;
 }
 
 function normalizeThresholdSessionAuthOrReject(args: {
@@ -284,6 +295,10 @@ export function normalizeSealedRecoveryRecord(
     const relayerUrl = normalizeNonEmptyString(raw.relayerUrl);
     const relayerKeyId = normalizeNonEmptyString(restore?.relayerKeyId);
     const ecdsaThresholdKeyId = normalizeNonEmptyString(restore?.ecdsaThresholdKeyId);
+    const ethereumAddress = normalizeEthereumAddress(restore?.ethereumAddress);
+    const thresholdEcdsaPublicKeyB64u = normalizeNonEmptyString(
+      restore?.thresholdEcdsaPublicKeyB64u,
+    );
     const participantIds = normalizeParticipantIds(restore?.participantIds);
     const clientVerifyingShareB64u = normalizeNonEmptyString(restore?.clientVerifyingShareB64u);
     const sessionKind = normalizeSessionKind(restore?.sessionKind);
@@ -303,6 +318,7 @@ export function normalizeSealedRecoveryRecord(
       !relayerUrl ||
       !relayerKeyId ||
       !ecdsaThresholdKeyId ||
+      !ethereumAddress ||
       !participantIds.length ||
       !clientVerifyingShareB64u
     ) {
@@ -342,6 +358,8 @@ export function normalizeSealedRecoveryRecord(
             signingRootId,
             signingRootVersion,
             ecdsaThresholdKeyId,
+            ethereumAddress,
+            ...(thresholdEcdsaPublicKeyB64u ? { thresholdEcdsaPublicKeyB64u } : {}),
             participantIds,
             relayerUrl,
             relayerKeyId,
@@ -372,6 +390,8 @@ export function normalizeSealedRecoveryRecord(
             signingRootId,
             signingRootVersion,
             ecdsaThresholdKeyId,
+            ethereumAddress,
+            ...(thresholdEcdsaPublicKeyB64u ? { thresholdEcdsaPublicKeyB64u } : {}),
             participantIds,
             relayerUrl,
             relayerKeyId,
@@ -429,6 +449,7 @@ export function normalizeSealedRecoveryRecord(
       !normalizeNonEmptyString(raw.relayerUrl) ||
       !normalizeNonEmptyString(ecdsaRestore.relayerKeyId) ||
       !normalizeNonEmptyString(ecdsaRestore.ecdsaThresholdKeyId) ||
+      !normalizeEthereumAddress(ecdsaRestore.ethereumAddress) ||
       !normalizeParticipantIds(ecdsaRestore.participantIds).length ||
       !normalizeNonEmptyString(ecdsaRestore.clientVerifyingShareB64u)
     ) {
@@ -473,6 +494,14 @@ export function normalizeSealedRecoveryRecord(
       signingRootId: normalizeNonEmptyString(raw.signingRootId)!,
       signingRootVersion: normalizeNonEmptyString(raw.signingRootVersion)!,
       ecdsaThresholdKeyId: normalizeNonEmptyString(ecdsaRestore.ecdsaThresholdKeyId)!,
+      ethereumAddress: normalizeEthereumAddress(ecdsaRestore.ethereumAddress)!,
+      ...(normalizeNonEmptyString(ecdsaRestore.thresholdEcdsaPublicKeyB64u)
+        ? {
+            thresholdEcdsaPublicKeyB64u: normalizeNonEmptyString(
+              ecdsaRestore.thresholdEcdsaPublicKeyB64u,
+            )!,
+          }
+        : {}),
       participantIds: normalizeParticipantIds(ecdsaRestore.participantIds),
       relayerUrl,
       relayerKeyId: normalizeNonEmptyString(ecdsaRestore.relayerKeyId)!,

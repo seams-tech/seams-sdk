@@ -40,9 +40,12 @@ export async function signNearWithUiConfirm<TRequest extends NearSigningRequest>
 function validateTransactionsWithActionsRequest(
   payload: Extract<NearSigningRequest, { kind: 'transactionsWithActions' }>['payload'],
 ): void {
-  const nearAccountId = String(payload.rpcCall?.nearAccountId || '').trim();
+  const nearAccountId = String(payload.nearAccount?.accountId || '').trim();
   if (!nearAccountId) {
-    throw new Error('[NearSigningFlow] nearAccountId is required');
+    throw new Error('[NearSigningFlow] nearAccount is required');
+  }
+  if (String(payload.rpcCall?.nearAccountId || '').trim() !== nearAccountId) {
+    throw new Error('[NearSigningFlow] rpcCall.nearAccountId must match nearAccount.accountId');
   }
   const transactions = Array.isArray(payload.transactions) ? payload.transactions : [];
   if (transactions.length === 0) {
@@ -66,11 +69,12 @@ function validateNearTransactionInput(tx: TransactionInputWasm, txIndex: number)
 function validateDelegateActionRequest(
   payload: Extract<NearSigningRequest, { kind: 'delegateAction' }>['payload'],
 ): void {
-  const nearAccountId = String(
-    payload.rpcCall?.nearAccountId || payload.delegate?.senderId || '',
-  ).trim();
+  const nearAccountId = String(payload.nearAccount?.accountId || '').trim();
   if (!nearAccountId) {
-    throw new Error('[NearSigningFlow] nearAccountId is required');
+    throw new Error('[NearSigningFlow] nearAccount is required');
+  }
+  if (String(payload.rpcCall?.nearAccountId || '').trim() !== nearAccountId) {
+    throw new Error('[NearSigningFlow] rpcCall.nearAccountId must match nearAccount.accountId');
   }
   const receiverId = String(payload.delegate?.receiverId || '').trim();
   if (!receiverId) {
@@ -86,9 +90,12 @@ function validateDelegateActionRequest(
 function validateNep413Request(
   payload: Extract<NearSigningRequest, { kind: 'nep413' }>['payload'],
 ): void {
-  const nearAccountId = String(payload.payload?.accountId || '').trim();
+  const nearAccountId = String(payload.nearAccount?.accountId || '').trim();
   if (!nearAccountId) {
-    throw new Error('[NearSigningFlow] accountId is required for NEP-413');
+    throw new Error('[NearSigningFlow] nearAccount is required for NEP-413');
+  }
+  if (String(payload.payload?.accountId || '').trim() !== nearAccountId) {
+    throw new Error('[NearSigningFlow] payload.accountId must match nearAccount.accountId');
   }
   const recipient = String(payload.payload?.recipient || '').trim();
   if (!recipient) {

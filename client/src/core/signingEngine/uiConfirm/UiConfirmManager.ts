@@ -26,12 +26,12 @@ import {
   buildCurrentSealedSessionRecord,
   clearAllSealedSessions,
   deleteExactSealedSession,
-  listExactSealedSessionsForAccount,
+  listExactSealedSessionsForWallet,
   readExactSealedSession,
   releaseSigningSessionRestoreLease,
   updateExactSealedSessionPolicy,
   writeExactSealedSession,
-  type BuildCurrentSealedSessionRecordBaseInput,
+  type BuildCurrentSealedSessionRecordInput,
   type SigningSessionSealedStoreRecord,
   type SigningSessionSealedRecordFilter,
 } from '../session/persistence/sealedSessionStore';
@@ -65,18 +65,18 @@ import type {
   UiConfirmManager,
 } from './types';
 import {
-  restorePersistedSessionsForAccountCommand,
+  restorePersistedSessionsForWalletCommand,
   restorePersistedSessionForSigningCommand,
 } from '../session/sealedRecovery/restoreCoordinator';
-import { restorePasskeyEcdsaSealedRecordForAccount } from '../session/passkey/ecdsaRecovery';
+import { restorePasskeyEcdsaSealedRecordForWallet } from '../session/passkey/ecdsaRecovery';
 import { restorePasskeyEd25519SealedRecordForAccount } from '../session/passkey/ed25519Recovery';
 import type {
-  RestorePersistedSessionsForAccountInput,
-  RestorePersistedSessionsForAccountResult,
+  RestorePersistedSessionsForWalletInput,
+  RestorePersistedSessionsForWalletResult,
   RestorePersistedSessionForSigningInput,
   RestorePersistedSessionForSigningResult,
   RestorePersistedSessionPurpose,
-  RestoreSealedRecordForAccountResult,
+  RestoreSealedRecordResult,
 } from '../session/sealedRecovery/types';
 import type {
   SealedRecoveryRecord,
@@ -465,22 +465,74 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         curve: purpose.curve,
       }),
     });
-    await this.registerSigningSession({
-      thresholdSessionId: args.thresholdSessionId,
-      sealedSecretB64u: existing.sealedSecretB64u,
-      curve: existing.curve || purpose.curve,
-      authMethod: 'passkey',
-      walletSigningSessionId: existing.walletSigningSessionId,
-      thresholdSessionIds: existing.thresholdSessionIds,
-      ...refreshedMetadata,
-      relayerUrl: existing.relayerUrl,
-      keyVersion: existing.keyVersion,
-      shamirPrimeB64u: existing.shamirPrimeB64u,
-      issuedAtMs: existing.issuedAtMs,
-      expiresAtMs: args.expiresAtMs,
-      remainingUses: args.remainingUses,
-      updatedAtMs: Date.now(),
-    });
+    const refreshedCurve = existing.curve || purpose.curve;
+    if (refreshedCurve === 'ecdsa') {
+      const walletId = String(refreshedMetadata.walletId || '').trim();
+      const subjectId = String(refreshedMetadata.subjectId || '').trim();
+      const signingRootId = String(refreshedMetadata.signingRootId || '').trim();
+      const relayerUrl = String(existing.relayerUrl || '').trim();
+      if (!walletId || !subjectId || !signingRootId || !relayerUrl || !refreshedMetadata.ecdsaRestore) {
+        throw new Error('[SigningSessionSealedStore] invalid ECDSA sealed session refresh metadata');
+      }
+      await this.registerSigningSession({
+        thresholdSessionId: args.thresholdSessionId,
+        sealedSecretB64u: existing.sealedSecretB64u,
+        curve: 'ecdsa',
+        authMethod: 'passkey',
+        walletSigningSessionId: existing.walletSigningSessionId,
+        thresholdSessionIds: existing.thresholdSessionIds,
+        walletId,
+        subjectId,
+        ...(refreshedMetadata.userId ? { userId: refreshedMetadata.userId } : {}),
+        signingRootId,
+        ...(refreshedMetadata.signingRootVersion
+          ? { signingRootVersion: refreshedMetadata.signingRootVersion }
+          : {}),
+        relayerUrl,
+        keyVersion: existing.keyVersion,
+        shamirPrimeB64u: existing.shamirPrimeB64u,
+        ecdsaRestore: refreshedMetadata.ecdsaRestore,
+        ...(refreshedMetadata.ed25519Restore
+          ? { ed25519Restore: refreshedMetadata.ed25519Restore }
+          : {}),
+        issuedAtMs: existing.issuedAtMs,
+        expiresAtMs: args.expiresAtMs,
+        remainingUses: args.remainingUses,
+        updatedAtMs: Date.now(),
+      });
+    } else {
+      const relayerUrl = String(existing.relayerUrl || '').trim();
+      if (!relayerUrl || !refreshedMetadata.ed25519Restore) {
+        throw new Error('[SigningSessionSealedStore] invalid Ed25519 sealed session refresh metadata');
+      }
+      await this.registerSigningSession({
+        thresholdSessionId: args.thresholdSessionId,
+        sealedSecretB64u: existing.sealedSecretB64u,
+        curve: 'ed25519',
+        authMethod: 'passkey',
+        walletSigningSessionId: existing.walletSigningSessionId,
+        thresholdSessionIds: existing.thresholdSessionIds,
+        ...(refreshedMetadata.walletId ? { walletId: refreshedMetadata.walletId } : {}),
+        ...(refreshedMetadata.userId ? { userId: refreshedMetadata.userId } : {}),
+        ...(refreshedMetadata.signingRootId
+          ? { signingRootId: refreshedMetadata.signingRootId }
+          : {}),
+        ...(refreshedMetadata.signingRootVersion
+          ? { signingRootVersion: refreshedMetadata.signingRootVersion }
+          : {}),
+        relayerUrl,
+        keyVersion: existing.keyVersion,
+        shamirPrimeB64u: existing.shamirPrimeB64u,
+        ...(refreshedMetadata.ecdsaRestore
+          ? { ecdsaRestore: refreshedMetadata.ecdsaRestore }
+          : {}),
+        ed25519Restore: refreshedMetadata.ed25519Restore,
+        issuedAtMs: existing.issuedAtMs,
+        expiresAtMs: args.expiresAtMs,
+        remainingUses: args.remainingUses,
+        updatedAtMs: Date.now(),
+      });
+    }
   }
 
   private async recordSessionPolicyResult(args: {
@@ -557,20 +609,9 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
   }
 
   private async registerSigningSession(
-    record: BuildCurrentSealedSessionRecordBaseInput & { curve: 'ed25519' | 'ecdsa' },
+    record: BuildCurrentSealedSessionRecordInput,
   ): Promise<void> {
-    const currentRecord = buildCurrentSealedSessionRecord(
-      record.curve === 'ecdsa'
-        ? {
-            ...record,
-            curve: 'ecdsa',
-            subjectId: String(record.subjectId || '').trim(),
-          }
-        : {
-            ...record,
-            curve: 'ed25519',
-          },
-    );
+    const currentRecord = buildCurrentSealedSessionRecord(record);
     if (!currentRecord) {
       throw new Error('[SigningSessionSealedStore] invalid sealed session record write input');
     }
@@ -725,13 +766,17 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
             })
           : null
         : null;
-    const accountId = String(ed25519Record?.nearAccountId || ecdsaRecord?.nearAccountId || '').trim();
+    const accountId = String(ed25519Record?.nearAccountId || ecdsaRecord?.walletId || '').trim();
     const subjectId = String(ecdsaRecord?.subjectId || '').trim();
     const signingRootId = String(ecdsaRecord?.signingRootId || '').trim();
     const signingRootVersion = String(ecdsaRecord?.signingRootVersion || '').trim();
+    const ethereumAddress = String(ecdsaRecord?.ethereumAddress || '')
+      .trim()
+      .toLowerCase();
     const ecdsaRestore =
       ecdsaRecord &&
-      ecdsaRecord.chainTarget
+      ecdsaRecord.chainTarget &&
+      /^0x[0-9a-f]{40}$/.test(ethereumAddress)
         ? {
             chainTarget: ecdsaRecord.chainTarget,
             ...(ecdsaRecord.thresholdSessionAuthToken
@@ -739,8 +784,12 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
               : {}),
             sessionKind: ecdsaRecord.thresholdSessionKind,
             ecdsaThresholdKeyId: ecdsaRecord.ecdsaThresholdKeyId,
+            ethereumAddress,
             relayerKeyId: ecdsaRecord.relayerKeyId,
             clientVerifyingShareB64u: ecdsaRecord.clientVerifyingShareB64u,
+            ...(ecdsaRecord.thresholdEcdsaPublicKeyB64u
+              ? { thresholdEcdsaPublicKeyB64u: ecdsaRecord.thresholdEcdsaPublicKeyB64u }
+              : {}),
             participantIds: ecdsaRecord.participantIds,
             ...(ecdsaRecord.runtimePolicyScope
               ? { runtimePolicyScope: ecdsaRecord.runtimePolicyScope }
@@ -787,11 +836,11 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     }).catch(() => undefined);
   }
 
-  private async restorePasskeySealedRecordForAccount(args: {
-    accountId: string;
+  private async restorePasskeySealedRecordForWallet(args: {
+    walletId: string;
     record: SealedRecoveryRecord;
     purpose: RestorePersistedSessionPurpose;
-  }): Promise<RestoreSealedRecordForAccountResult> {
+  }): Promise<RestoreSealedRecordResult> {
     if (!this.isSealedRefreshModeEnabled()) return 'deferred';
     if (args.purpose.authMethod !== 'passkey') return 'deferred';
     const thresholdSessionId = String(args.purpose.thresholdSessionId || '').trim();
@@ -842,6 +891,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           thresholdSessionId,
           {
             curve,
+            ...(chainTarget ? { chainTarget } : {}),
             relayerUrl: args.record.relayerUrl,
             walletSigningSessionId: args.purpose.walletSigningSessionId,
             keyVersion: args.record.keyVersion,
@@ -863,8 +913,8 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           args.purpose.authMethod === 'passkey' &&
           args.record.authMethod === 'passkey' &&
           args.record.curve === 'ecdsa'
-          ? await restorePasskeyEcdsaSealedRecordForAccount({
-              accountId: args.accountId,
+          ? await restorePasskeyEcdsaSealedRecordForWallet({
+              walletId: args.walletId,
               record: args.record,
               purpose: { ...args.purpose, authMethod: 'passkey' },
               transport,
@@ -912,7 +962,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
               args.record.authMethod === 'passkey' &&
               args.record.curve === 'ed25519'
             ? await restorePasskeyEd25519SealedRecordForAccount({
-                accountId: args.accountId,
+                accountId: args.walletId,
                 record: args.record,
                 purpose: { ...args.purpose, authMethod: 'passkey' },
                 transport,
@@ -1046,9 +1096,9 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       return { attempted: 0, restored: 0, deferred: 0 };
     }
     return await restorePersistedSessionForSigningCommand(args, {
-      listExactSealedSessionsForAccount: async (filter) => {
-        return await listExactSealedSessionsForAccount({
-          accountId: filter.walletId,
+      listExactSealedSessionsForWallet: async (filter) => {
+        return await listExactSealedSessionsForWallet({
+          walletId: filter.walletId,
             filter:
               filter.curve === 'ecdsa'
               ? {
@@ -1059,11 +1109,15 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
               : { authMethod: filter.authMethod, curve: 'ed25519' },
         });
       },
-      restoreSealedRecordForAccount: (restoreArgs) =>
-        this.restorePasskeySealedRecordForAccount(restoreArgs),
-      onListError: ({ accountId, target, reason, error }) => {
+      restoreSealedRecordForWallet: (restoreArgs) =>
+        this.restorePasskeySealedRecordForWallet({
+          walletId: restoreArgs.walletId,
+          record: restoreArgs.record,
+          purpose: restoreArgs.purpose,
+        }),
+      onListError: ({ walletId, target, reason, error }) => {
         console.warn('[UiConfirm] passkey signing-session restore list failed', {
-          accountId,
+          walletId,
           target,
           reason,
           error: error instanceof Error ? error.message : String(error || 'unknown error'),
@@ -1072,26 +1126,26 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     });
   };
 
-  restorePersistedSessionsForAccount = async (
+  restorePersistedSessionsForWallet = async (
     args: {
       authMethod?: 'passkey';
-    } & RestorePersistedSessionsForAccountInput,
-  ): Promise<RestorePersistedSessionsForAccountResult> => {
+    } & RestorePersistedSessionsForWalletInput,
+  ): Promise<RestorePersistedSessionsForWalletResult> => {
     if (args.authMethod && args.authMethod !== 'passkey') {
       return { listed: 0, attempted: 0, restored: 0, deferred: 0, skipped: 0, truncated: 0 };
     }
     if (!this.isSealedRefreshModeEnabled()) {
       return { listed: 0, attempted: 0, restored: 0, deferred: 0, skipped: 0, truncated: 0 };
     }
-    return await restorePersistedSessionsForAccountCommand(
+    return await restorePersistedSessionsForWalletCommand(
       {
         ...args,
         authMethod: 'passkey',
       },
       {
-        listExactSealedSessionsForAccount: async (filter) =>
-          await listExactSealedSessionsForAccount({
-            accountId: filter.walletId,
+        listExactSealedSessionsForWallet: async (filter) =>
+          await listExactSealedSessionsForWallet({
+            walletId: filter.walletId,
             filter:
               filter.curve === 'ecdsa'
                 ? {
@@ -1101,11 +1155,15 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
                   }
                 : { authMethod: 'passkey', curve: 'ed25519' },
           }),
-        restoreSealedRecordForAccount: (restoreArgs) =>
-          this.restorePasskeySealedRecordForAccount(restoreArgs),
-        onListError: ({ accountId, error }) => {
+        restoreSealedRecordForWallet: (restoreArgs) =>
+          this.restorePasskeySealedRecordForWallet({
+            walletId: restoreArgs.walletId,
+            record: restoreArgs.record,
+            purpose: restoreArgs.purpose,
+          }),
+        onListError: ({ walletId, error }) => {
           console.warn('[UiConfirm] passkey account signing-session restore list failed', {
-            accountId,
+            walletId,
             error: error instanceof Error ? error.message : String(error || 'unknown error'),
           });
         },
@@ -1272,22 +1330,74 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           existing: existingRecord,
           refreshed: recordMetadata,
         });
-        await this.registerSigningSession({
-          thresholdSessionId,
-          sealedSecretB64u: existingRecord.sealedSecretB64u,
-          curve: existingRecord.curve || curve,
-          authMethod: 'passkey',
-          walletSigningSessionId,
-          thresholdSessionIds: existingRecord.thresholdSessionIds,
-          ...refreshedMetadata,
-          relayerUrl: existingRecord.relayerUrl,
-          keyVersion: existingRecord.keyVersion,
-          shamirPrimeB64u: existingRecord.shamirPrimeB64u,
-          issuedAtMs: existingRecord.issuedAtMs,
-          expiresAtMs: nextExpiresAtMs,
-          remainingUses: nextRemainingUses,
-          updatedAtMs: Date.now(),
-        });
+        const persistedCurve = existingRecord.curve || curve;
+        if (persistedCurve === 'ecdsa') {
+          const walletId = String(refreshedMetadata.walletId || '').trim();
+          const subjectId = String(refreshedMetadata.subjectId || '').trim();
+          const signingRootId = String(refreshedMetadata.signingRootId || '').trim();
+          const relayerUrl = String(existingRecord.relayerUrl || '').trim();
+          if (!walletId || !subjectId || !signingRootId || !relayerUrl || !refreshedMetadata.ecdsaRestore) {
+            throw new Error('[SigningSessionSealedStore] invalid ECDSA persisted-session refresh metadata');
+          }
+          await this.registerSigningSession({
+            thresholdSessionId,
+            sealedSecretB64u: existingRecord.sealedSecretB64u,
+            curve: 'ecdsa',
+            authMethod: 'passkey',
+            walletSigningSessionId,
+            thresholdSessionIds: existingRecord.thresholdSessionIds,
+            walletId,
+            subjectId,
+            ...(refreshedMetadata.userId ? { userId: refreshedMetadata.userId } : {}),
+            signingRootId,
+            ...(refreshedMetadata.signingRootVersion
+              ? { signingRootVersion: refreshedMetadata.signingRootVersion }
+              : {}),
+            relayerUrl,
+            keyVersion: existingRecord.keyVersion,
+            shamirPrimeB64u: existingRecord.shamirPrimeB64u,
+            ecdsaRestore: refreshedMetadata.ecdsaRestore,
+            ...(refreshedMetadata.ed25519Restore
+              ? { ed25519Restore: refreshedMetadata.ed25519Restore }
+              : {}),
+            issuedAtMs: existingRecord.issuedAtMs,
+            expiresAtMs: nextExpiresAtMs,
+            remainingUses: nextRemainingUses,
+            updatedAtMs: Date.now(),
+          });
+        } else {
+          const relayerUrl = String(existingRecord.relayerUrl || '').trim();
+          if (!relayerUrl || !refreshedMetadata.ed25519Restore) {
+            throw new Error('[SigningSessionSealedStore] invalid Ed25519 persisted-session refresh metadata');
+          }
+          await this.registerSigningSession({
+            thresholdSessionId,
+            sealedSecretB64u: existingRecord.sealedSecretB64u,
+            curve: 'ed25519',
+            authMethod: 'passkey',
+            walletSigningSessionId,
+            thresholdSessionIds: existingRecord.thresholdSessionIds,
+            ...(refreshedMetadata.walletId ? { walletId: refreshedMetadata.walletId } : {}),
+            ...(refreshedMetadata.userId ? { userId: refreshedMetadata.userId } : {}),
+            ...(refreshedMetadata.signingRootId
+              ? { signingRootId: refreshedMetadata.signingRootId }
+              : {}),
+            ...(refreshedMetadata.signingRootVersion
+              ? { signingRootVersion: refreshedMetadata.signingRootVersion }
+              : {}),
+            relayerUrl,
+            keyVersion: existingRecord.keyVersion,
+            shamirPrimeB64u: existingRecord.shamirPrimeB64u,
+            ...(refreshedMetadata.ecdsaRestore
+              ? { ecdsaRestore: refreshedMetadata.ecdsaRestore }
+              : {}),
+            ed25519Restore: refreshedMetadata.ed25519Restore,
+            issuedAtMs: existingRecord.issuedAtMs,
+            expiresAtMs: nextExpiresAtMs,
+            remainingUses: nextRemainingUses,
+            updatedAtMs: Date.now(),
+          });
+        }
         return {
           ok: true,
           sealedSecretB64u: existingRecord.sealedSecretB64u,
@@ -1355,25 +1465,69 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       });
       if (!sealed.ok) return sealed;
 
-      await this.registerSigningSession({
-        thresholdSessionId,
-        sealedSecretB64u: sealed.sealedSecretB64u,
-        curve,
-        authMethod: 'passkey',
-        walletSigningSessionId,
-        ...recordMetadata,
-        thresholdSessionIds: {
-          ...(curve === 'ed25519'
-            ? { ed25519: thresholdSessionId }
-            : { ecdsa: thresholdSessionId }),
-        },
-        relayerUrl,
-        keyVersion: sealed.keyVersion,
-        shamirPrimeB64u,
-        expiresAtMs: sealed.expiresAtMs,
-        remainingUses: sealed.remainingUses,
-        updatedAtMs: Date.now(),
-      });
+      if (curve === 'ecdsa') {
+        const walletId = String(recordMetadata.walletId || '').trim();
+        const subjectId = String(recordMetadata.subjectId || '').trim();
+        const signingRootId = String(recordMetadata.signingRootId || '').trim();
+        if (!walletId || !subjectId || !signingRootId || !recordMetadata.ecdsaRestore) {
+          throw new Error('[SigningSessionSealedStore] missing ECDSA passkey seal metadata');
+        }
+        await this.registerSigningSession({
+          thresholdSessionId,
+          sealedSecretB64u: sealed.sealedSecretB64u,
+          curve: 'ecdsa',
+          authMethod: 'passkey',
+          walletSigningSessionId,
+          walletId,
+          subjectId,
+          ...(recordMetadata.userId ? { userId: recordMetadata.userId } : {}),
+          signingRootId,
+          ...(recordMetadata.signingRootVersion
+            ? { signingRootVersion: recordMetadata.signingRootVersion }
+            : {}),
+          ecdsaRestore: recordMetadata.ecdsaRestore,
+          ...(recordMetadata.ed25519Restore
+            ? { ed25519Restore: recordMetadata.ed25519Restore }
+            : {}),
+          thresholdSessionIds: { ecdsa: thresholdSessionId },
+          relayerUrl,
+          keyVersion: sealed.keyVersion,
+          shamirPrimeB64u,
+          expiresAtMs: sealed.expiresAtMs,
+          remainingUses: sealed.remainingUses,
+          updatedAtMs: Date.now(),
+        });
+      } else {
+        if (!recordMetadata.ed25519Restore) {
+          throw new Error('[SigningSessionSealedStore] missing Ed25519 passkey seal metadata');
+        }
+        await this.registerSigningSession({
+          thresholdSessionId,
+          sealedSecretB64u: sealed.sealedSecretB64u,
+          curve: 'ed25519',
+          authMethod: 'passkey',
+          walletSigningSessionId,
+          ...(recordMetadata.walletId ? { walletId: recordMetadata.walletId } : {}),
+          ...(recordMetadata.userId ? { userId: recordMetadata.userId } : {}),
+          ...(recordMetadata.signingRootId
+            ? { signingRootId: recordMetadata.signingRootId }
+            : {}),
+          ...(recordMetadata.signingRootVersion
+            ? { signingRootVersion: recordMetadata.signingRootVersion }
+            : {}),
+          ...(recordMetadata.ecdsaRestore
+            ? { ecdsaRestore: recordMetadata.ecdsaRestore }
+            : {}),
+          ed25519Restore: recordMetadata.ed25519Restore,
+          thresholdSessionIds: { ed25519: thresholdSessionId },
+          relayerUrl,
+          keyVersion: sealed.keyVersion,
+          shamirPrimeB64u,
+          expiresAtMs: sealed.expiresAtMs,
+          remainingUses: sealed.remainingUses,
+          updatedAtMs: Date.now(),
+        });
+      }
       const persistedRecord = await this.readPasskeySealedRecord(
         thresholdSessionId,
         curve,

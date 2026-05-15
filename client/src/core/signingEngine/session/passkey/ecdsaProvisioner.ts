@@ -24,6 +24,7 @@ import {
   buildEcdsaSessionIdentity,
   ecdsaSessionIdentitiesEqual,
   ecdsaSessionIdentityMatches,
+  type EcdsaSessionIdentity,
   getEcdsaSessionProvisionIdentity,
   tryBuildEcdsaSessionIdentity,
   type EcdsaSessionProvisionPlan,
@@ -46,11 +47,13 @@ import type {
   ThresholdEcdsaPasskeyActivationRequest,
   ThresholdEcdsaThresholdSessionAuthReconnectRequest,
 } from './ecdsaSessionProvision';
+import { claimPasskeyEcdsaPrfFirst } from './ecdsaRecovery';
+import type { PasskeyWarmSessionRecoveryPorts } from './prfClaim';
 
 export type WarmSessionEcdsaProvisionerDeps = {
-  getWarmSession: (nearAccountId: AccountId | string) => Promise<WarmSessionEnvelope>;
-  listThresholdEcdsaKeyRefsForAccountTarget?: (args: {
-    nearAccountId: AccountId | string;
+  getWarmSession: (walletId: AccountId | string) => Promise<WarmSessionEnvelope>;
+  listThresholdEcdsaKeyRefsForWalletTarget?: (args: {
+    walletId: AccountId | string;
     subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     source?: ThresholdEcdsaSessionStoreSource;
@@ -58,9 +61,9 @@ export type WarmSessionEcdsaProvisionerDeps = {
 };
 
 export type WarmSessionEcdsaReconnectDeps = {
-  getWarmSession: (nearAccountId: AccountId | string) => Promise<WarmSessionEnvelope>;
-  listThresholdEcdsaKeyRefsForAccountTarget?: (args: {
-    nearAccountId: AccountId | string;
+  getWarmSession: (walletId: AccountId | string) => Promise<WarmSessionEnvelope>;
+  listThresholdEcdsaKeyRefsForWalletTarget?: (args: {
+    walletId: AccountId | string;
     subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     source?: ThresholdEcdsaSessionStoreSource;
@@ -69,9 +72,11 @@ export type WarmSessionEcdsaReconnectDeps = {
   provisionThresholdEcdsaSession: (
     args: ThresholdEcdsaActivationRequest,
   ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
-  resolveCurrentEcdsaRecord: (args: {
-    nearAccountId: AccountId;
+  touchConfirm: PasskeyWarmSessionRecoveryPorts;
+  resolveExactEcdsaRecord: (args: {
+    walletId: AccountId;
     chainTarget: ThresholdEcdsaChainTarget;
+    thresholdSessionId: string;
     source?: ThresholdEcdsaSessionStoreSource;
   }) => ThresholdEcdsaSessionRecord | null;
   readEcdsaCapabilityByThresholdSessionId: (
@@ -82,9 +87,16 @@ export type WarmSessionEcdsaReconnectDeps = {
 };
 
 type EcdsaProvisionActivationCommon = {
-  nearAccountId: AccountId;
+  walletId: AccountId;
+  subjectId: WalletSubjectId;
+  chainTarget: ThresholdEcdsaChainTarget;
   relayerUrl: string;
   source: ThresholdEcdsaSessionStoreSource;
+  ecdsaThresholdKeyId: string;
+  participantIds: readonly number[];
+  sessionIdentity: EcdsaSessionIdentity;
+  sessionKind: 'cookie' | 'jwt';
+  sessionBudgetUses: number;
   runtimePolicy: ThresholdEcdsaActivationPolicy;
   runtimeScopeBootstrap?: ThresholdEcdsaActivationRuntimeScopeBootstrap;
   operationIntent?: SigningOperationIntent;
@@ -92,25 +104,41 @@ type EcdsaProvisionActivationCommon = {
   assertNotCancelled?: () => void;
 };
 
-type PasskeyEcdsaActivation = ThresholdEcdsaPasskeyActivationRequest &
-  Pick<EcdsaProvisionActivationCommon, 'beforeProvision' | 'assertNotCancelled'> & {
-    plan: Extract<EcdsaSessionProvisionPlan, { kind: 'passkey_ecdsa_session_provision' }>;
-  };
+type PasskeyEcdsaActivation = EcdsaProvisionActivationCommon & {
+  kind: 'passkey_ecdsa_activation';
+  clientRootShare32B64u: string;
+  webauthnAuthentication: Extract<
+    ThresholdEcdsaPasskeyActivationRequest,
+    { kind: 'passkey_ecdsa_activation' }
+  >['webauthnAuthentication'];
+  plan: Extract<EcdsaSessionProvisionPlan, { kind: 'passkey_ecdsa_session_provision' }>;
+};
 
-type EmailOtpEcdsaActivation = ThresholdEcdsaEmailOtpActivationRequest &
-  Pick<EcdsaProvisionActivationCommon, 'beforeProvision' | 'assertNotCancelled'> & {
-    plan: Extract<EcdsaSessionProvisionPlan, { kind: 'email_otp_ecdsa_session_provision' }>;
-  };
+type EmailOtpEcdsaActivation = EcdsaProvisionActivationCommon & {
+  kind: 'email_otp_ecdsa_activation';
+  clientRootShare32B64u: string;
+  emailOtpAuthContext: Extract<
+    ThresholdEcdsaEmailOtpActivationRequest,
+    { kind: 'email_otp_ecdsa_activation' }
+  >['emailOtpAuthContext'];
+  plan: Extract<EcdsaSessionProvisionPlan, { kind: 'email_otp_ecdsa_session_provision' }>;
+};
 
-type CookieEcdsaActivation = ThresholdEcdsaCookieReconnectRequest &
-  Pick<EcdsaProvisionActivationCommon, 'beforeProvision' | 'assertNotCancelled'> & {
-    plan: Extract<EcdsaSessionProvisionPlan, { kind: 'cookie_ecdsa_reconnect' }>;
-  };
+type CookieEcdsaActivation = EcdsaProvisionActivationCommon & {
+  kind: 'cookie_reconnect';
+  sessionKind: 'cookie';
+  plan: Extract<EcdsaSessionProvisionPlan, { kind: 'cookie_ecdsa_reconnect' }>;
+};
 
-type ThresholdSessionAuthEcdsaActivation = ThresholdEcdsaThresholdSessionAuthReconnectRequest &
-  Pick<EcdsaProvisionActivationCommon, 'beforeProvision' | 'assertNotCancelled'> & {
-    plan: Extract<EcdsaSessionProvisionPlan, { kind: 'threshold_session_auth_ecdsa_reconnect' }>;
-  };
+type ThresholdSessionAuthEcdsaActivation = EcdsaProvisionActivationCommon & {
+  kind: 'threshold_session_auth_reconnect';
+  sessionKind: 'jwt';
+  thresholdSessionAuth: Extract<
+    ThresholdEcdsaThresholdSessionAuthReconnectRequest,
+    { kind: 'threshold_session_auth_reconnect' }
+  >['thresholdSessionAuth'];
+  plan: Extract<EcdsaSessionProvisionPlan, { kind: 'threshold_session_auth_ecdsa_reconnect' }>;
+};
 
 type EcdsaProvisionActivation =
   | PasskeyEcdsaActivation
@@ -126,7 +154,7 @@ type EcdsaActivationOptions = Pick<
 >;
 
 function assertPersistedEcdsaWarmSessionRecord(args: {
-  nearAccountId: AccountId;
+  walletId: AccountId;
   expectedSessionId: string;
   persistedSessionIdRaw: unknown;
   fallbackPersistedSessionIdRaw?: unknown;
@@ -137,7 +165,7 @@ function assertPersistedEcdsaWarmSessionRecord(args: {
   }
   const fallbackPersistedSessionId = String(args.fallbackPersistedSessionIdRaw || '').trim();
   throw new Error(
-    `[WarmSessionStore] provisioned ECDSA capability was not persisted for ${args.nearAccountId} (expected sessionId=${args.expectedSessionId}, found=${persistedSessionId || fallbackPersistedSessionId || 'missing'})`,
+    `[WarmSessionStore] provisioned ECDSA capability was not persisted for ${args.walletId} (expected sessionId=${args.expectedSessionId}, found=${persistedSessionId || fallbackPersistedSessionId || 'missing'})`,
   );
 }
 
@@ -195,21 +223,21 @@ function hasEcdsaKeyRefSigningMaterial(keyRef: ThresholdEcdsaSecp256k1KeyRef | n
 }
 
 function readEcdsaKeyRefCandidates(
-  deps: Pick<WarmSessionEcdsaProvisionerDeps, 'listThresholdEcdsaKeyRefsForAccountTarget'>,
+  deps: Pick<WarmSessionEcdsaProvisionerDeps, 'listThresholdEcdsaKeyRefsForWalletTarget'>,
   args: {
-    nearAccountId: AccountId;
+    walletId: AccountId;
     subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     source?: ThresholdEcdsaSessionStoreSource;
   },
 ): EcdsaKeyRefCandidate[] {
-  if (typeof deps.listThresholdEcdsaKeyRefsForAccountTarget !== 'function') return [];
+  if (typeof deps.listThresholdEcdsaKeyRefsForWalletTarget !== 'function') return [];
   const candidates: EcdsaKeyRefCandidate[] = [];
   const seen = new Set<string>();
   let listed: EcdsaKeyRefCandidate[] = [];
   try {
-    listed = deps.listThresholdEcdsaKeyRefsForAccountTarget({
-      nearAccountId: args.nearAccountId,
+    listed = deps.listThresholdEcdsaKeyRefsForWalletTarget({
+      walletId: args.walletId,
       subjectId: args.subjectId,
       chainTarget: args.chainTarget,
       ...(args.source ? { source: args.source } : {}),
@@ -280,7 +308,7 @@ function buildActivationOptions(
 }
 
 function buildPasskeyEcdsaActivation(args: {
-  nearAccountId: AccountId;
+  walletId: AccountId;
   relayerUrl: string;
   source: ThresholdEcdsaSessionStoreSource;
   runtimePolicy: EcdsaActivationPolicy;
@@ -289,7 +317,7 @@ function buildPasskeyEcdsaActivation(args: {
 }): PasskeyEcdsaActivation {
   const activation: PasskeyEcdsaActivation = {
     kind: 'passkey_ecdsa_activation',
-    nearAccountId: args.nearAccountId,
+    walletId: args.walletId,
     subjectId: args.plan.subjectId,
     chainTarget: args.plan.chainTarget,
     relayerUrl: args.relayerUrl,
@@ -320,7 +348,7 @@ function buildPasskeyEcdsaActivation(args: {
 }
 
 function buildEmailOtpEcdsaActivation(args: {
-  nearAccountId: AccountId;
+  walletId: AccountId;
   relayerUrl: string;
   source: ThresholdEcdsaSessionStoreSource;
   runtimePolicy: EcdsaActivationPolicy;
@@ -329,7 +357,7 @@ function buildEmailOtpEcdsaActivation(args: {
 }): EmailOtpEcdsaActivation {
   const activation: EmailOtpEcdsaActivation = {
     kind: 'email_otp_ecdsa_activation',
-    nearAccountId: args.nearAccountId,
+    walletId: args.walletId,
     subjectId: args.plan.subjectId,
     chainTarget: args.plan.chainTarget,
     relayerUrl: args.relayerUrl,
@@ -360,7 +388,7 @@ function buildEmailOtpEcdsaActivation(args: {
 }
 
 function buildThresholdSessionAuthEcdsaActivation(args: {
-  nearAccountId: AccountId;
+  walletId: AccountId;
   relayerUrl: string;
   source: ThresholdEcdsaSessionStoreSource;
   runtimePolicy: EcdsaActivationPolicy;
@@ -369,7 +397,7 @@ function buildThresholdSessionAuthEcdsaActivation(args: {
 }): ThresholdSessionAuthEcdsaActivation {
   const activation: ThresholdSessionAuthEcdsaActivation = {
     kind: 'threshold_session_auth_reconnect',
-    nearAccountId: args.nearAccountId,
+    walletId: args.walletId,
     subjectId: args.plan.subjectId,
     chainTarget: args.plan.chainTarget,
     relayerUrl: args.relayerUrl,
@@ -399,7 +427,7 @@ function buildThresholdSessionAuthEcdsaActivation(args: {
 }
 
 function buildCookieEcdsaActivation(args: {
-  nearAccountId: AccountId;
+  walletId: AccountId;
   relayerUrl: string;
   source: ThresholdEcdsaSessionStoreSource;
   runtimePolicy: EcdsaActivationPolicy;
@@ -408,7 +436,7 @@ function buildCookieEcdsaActivation(args: {
 }): CookieEcdsaActivation {
   const activation: CookieEcdsaActivation = {
     kind: 'cookie_reconnect',
-    nearAccountId: args.nearAccountId,
+    walletId: args.walletId,
     subjectId: args.plan.subjectId,
     chainTarget: args.plan.chainTarget,
     relayerUrl: args.relayerUrl,
@@ -437,7 +465,7 @@ function buildCookieEcdsaActivation(args: {
 }
 
 async function provisionEcdsaActivation(
-  deps: Pick<WarmSessionEcdsaReconnectDeps, 'provisionThresholdEcdsaSession'>,
+  deps: Pick<WarmSessionEcdsaReconnectDeps, 'provisionThresholdEcdsaSession' | 'touchConfirm'>,
   activation: EcdsaProvisionActivation,
 ): Promise<ThresholdEcdsaSessionBootstrapResult> {
   await activation.beforeProvision?.();
@@ -463,7 +491,7 @@ async function provisionPasskeyEcdsaSession(
   const plan = activation.plan;
   const request: ThresholdEcdsaPasskeyActivationRequest = {
     kind: 'passkey_ecdsa_activation',
-    nearAccountId: activation.nearAccountId,
+    walletId: activation.walletId,
     subjectId: plan.subjectId,
     chainTarget: plan.chainTarget,
     source: activation.source,
@@ -485,13 +513,22 @@ async function provisionPasskeyEcdsaSession(
 }
 
 async function reconnectThresholdSessionAuthEcdsaSession(
-  deps: Pick<WarmSessionEcdsaReconnectDeps, 'provisionThresholdEcdsaSession'>,
+  deps: Pick<WarmSessionEcdsaReconnectDeps, 'provisionThresholdEcdsaSession' | 'touchConfirm'>,
   activation: ThresholdSessionAuthEcdsaActivation,
 ): Promise<ThresholdEcdsaSessionBootstrapResult> {
   const plan = activation.plan;
+  const clientRootShare32B64u = await claimPasskeyEcdsaPrfFirst({
+    touchConfirm: deps.touchConfirm,
+    walletId: activation.walletId,
+    walletSigningSessionId: plan.existingSessionIdentity.walletSigningSessionId,
+    thresholdSessionId: plan.existingSessionIdentity.thresholdSessionId,
+    chainTarget: plan.chainTarget,
+    errorContext: 'threshold-ecdsa authorization bootstrap',
+    uses: 1,
+  });
   const request: ThresholdEcdsaThresholdSessionAuthReconnectRequest = {
     kind: 'threshold_session_auth_reconnect',
-    nearAccountId: activation.nearAccountId,
+    walletId: activation.walletId,
     subjectId: plan.subjectId,
     chainTarget: plan.chainTarget,
     source: activation.source,
@@ -506,6 +543,7 @@ async function reconnectThresholdSessionAuthEcdsaSession(
       ? { runtimeScopeBootstrap: activation.runtimeScopeBootstrap }
       : {}),
     ...(activation.operationIntent ? { operationIntent: activation.operationIntent } : {}),
+    clientRootShare32B64u,
     thresholdSessionAuth: plan.thresholdSessionAuth,
   };
   return await deps.provisionThresholdEcdsaSession(request);
@@ -518,7 +556,7 @@ async function reconnectCookieEcdsaSession(
   const plan = activation.plan;
   const request: ThresholdEcdsaCookieReconnectRequest = {
     kind: 'cookie_reconnect',
-    nearAccountId: activation.nearAccountId,
+    walletId: activation.walletId,
     subjectId: plan.subjectId,
     chainTarget: plan.chainTarget,
     source: activation.source,
@@ -544,7 +582,7 @@ async function provisionEmailOtpEcdsaSession(
   const plan = activation.plan;
   const request: ThresholdEcdsaEmailOtpActivationRequest = {
     kind: 'email_otp_ecdsa_activation',
-    nearAccountId: activation.nearAccountId,
+    walletId: activation.walletId,
     subjectId: plan.subjectId,
     chainTarget: plan.chainTarget,
     source: activation.source,
@@ -568,21 +606,21 @@ async function provisionEmailOtpEcdsaSession(
 export async function tryReuseReadyWarmEcdsaBootstrap(
   deps: WarmSessionEcdsaProvisionerDeps,
   args: {
-    nearAccountId: AccountId | string;
+    walletId: AccountId | string;
     subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     source?: ThresholdEcdsaSessionStoreSource;
   },
 ): Promise<ThresholdEcdsaSessionBootstrapResult | null> {
-  const nearAccountId = toAccountId(args.nearAccountId);
+  const walletId = toAccountId(args.walletId);
   const keyRefCandidates = readEcdsaKeyRefCandidates(deps, {
-    nearAccountId,
+    walletId,
     subjectId: args.subjectId,
     chainTarget: args.chainTarget,
     ...(args.source ? { source: args.source } : {}),
   });
   if (!keyRefCandidates.length) return null;
-  const warmSession = await deps.getWarmSession(nearAccountId);
+  const warmSession = await deps.getWarmSession(walletId);
   for (const candidate of keyRefCandidates) {
     if (!hasEcdsaKeyRefSigningMaterial(candidate.keyRef)) {
       continue;
@@ -622,7 +660,7 @@ function requireActivationRelayerUrl(args: {
 }
 
 function buildEcdsaCapabilityInflightKey(args: {
-  nearAccountId: AccountId;
+  walletId: AccountId;
   chainTarget: ThresholdEcdsaChainTarget;
   usesNeeded?: number;
   sessionBudgetUses: number;
@@ -633,7 +671,7 @@ function buildEcdsaCapabilityInflightKey(args: {
   const usesNeeded = Math.floor(Number(args.usesNeeded) || 0);
   const sessionBudgetUses = Math.floor(Number(args.sessionBudgetUses) || 0);
   return [
-    String(args.nearAccountId),
+    String(args.walletId),
     thresholdEcdsaChainTargetKey(args.chainTarget),
     String(usesNeeded > 0 ? usesNeeded : 1),
     String(sessionBudgetUses > 0 ? sessionBudgetUses : 1),
@@ -646,15 +684,15 @@ export async function ensureWarmEcdsaCapabilityReady(
   deps: WarmSessionEcdsaReconnectDeps,
   args: EnsureWarmEcdsaProvisionPlanReadyArgs,
 ): Promise<EnsureWarmEcdsaCapabilityReadyResult> {
-  const nearAccountId = toAccountId(args.nearAccountId);
+  const walletId = toAccountId(args.walletId);
   const chainTarget = args.chainTarget;
   const chain = chainTarget.kind;
   const chainId = chainTarget.chainId;
-  const warmSession = await deps.getWarmSession(nearAccountId);
+  const warmSession = await deps.getWarmSession(walletId);
   const keyRefCandidates: EcdsaKeyRefCandidate[] = args.keyRef
     ? [{ source: args.source || 'manual-bootstrap', keyRef: args.keyRef }]
     : readEcdsaKeyRefCandidates(deps, {
-        nearAccountId,
+        walletId,
         subjectId: args.subjectId,
         chainTarget,
         ...(args.source ? { source: args.source } : {}),
@@ -744,15 +782,16 @@ export async function ensureWarmEcdsaCapabilityReady(
       '[WarmSessionStore] provisionThresholdEcdsaSession is required to reconnect ECDSA capability',
     );
   }
-  if (typeof deps.listThresholdEcdsaKeyRefsForAccountTarget !== 'function') {
+  if (typeof deps.listThresholdEcdsaKeyRefsForWalletTarget !== 'function') {
     throw new Error(
-      '[WarmSessionStore] listThresholdEcdsaKeyRefsForAccountTarget is required to resolve ECDSA capability',
+      '[WarmSessionStore] listThresholdEcdsaKeyRefsForWalletTarget is required to resolve ECDSA capability',
     );
   }
 
-  const reconnectRecord = deps.resolveCurrentEcdsaRecord({
-    nearAccountId,
+  const reconnectRecord = deps.resolveExactEcdsaRecord({
+    walletId,
     chainTarget,
+    thresholdSessionId: getEcdsaSessionProvisionIdentity(args.plan).thresholdSessionId,
     ...(args.source ? { source: args.source } : {}),
   });
   const secondaryRecord = args.source
@@ -791,7 +830,7 @@ export async function ensureWarmEcdsaCapabilityReady(
     reconnectRecord?.source === 'email_otp' ? reconnectRecord : secondaryEmailOtpRecord;
 
   const inflightKey = buildEcdsaCapabilityInflightKey({
-    nearAccountId,
+    walletId,
     chainTarget,
     usesNeeded: args.usesNeeded,
     sessionBudgetUses: args.sessionBudgetUses,
@@ -803,7 +842,7 @@ export async function ensureWarmEcdsaCapabilityReady(
       const plannedIdentity = getEcdsaSessionProvisionIdentity(args.plan);
       try {
         console.info('[threshold-ecdsa][reconnect-provision][diagnostic]', {
-          nearAccountId: String(nearAccountId),
+          walletId: String(walletId),
           chain,
           chainId,
           requestedLaneIdentity: plannedIdentity,
@@ -868,7 +907,7 @@ export async function ensureWarmEcdsaCapabilityReady(
       const activation =
         effectivePlan.kind === 'passkey_ecdsa_session_provision'
           ? buildPasskeyEcdsaActivation({
-              nearAccountId,
+              walletId,
               relayerUrl,
               source: activationSource,
               runtimePolicy: activationPolicy,
@@ -877,7 +916,7 @@ export async function ensureWarmEcdsaCapabilityReady(
             })
           : effectivePlan.kind === 'email_otp_ecdsa_session_provision'
             ? buildEmailOtpEcdsaActivation({
-                nearAccountId,
+                walletId,
                 relayerUrl,
                 source: activationSource,
                 runtimePolicy: activationPolicy,
@@ -886,7 +925,7 @@ export async function ensureWarmEcdsaCapabilityReady(
               })
             : effectivePlan.kind === 'threshold_session_auth_ecdsa_reconnect'
               ? buildThresholdSessionAuthEcdsaActivation({
-                  nearAccountId,
+                  walletId,
                   relayerUrl,
                   source: activationSource,
                   runtimePolicy: activationPolicy,
@@ -894,7 +933,7 @@ export async function ensureWarmEcdsaCapabilityReady(
                   plan: effectivePlan,
                 })
               : buildCookieEcdsaActivation({
-                  nearAccountId,
+                  walletId,
                   relayerUrl,
                   source: activationSource,
                   runtimePolicy: activationPolicy,
@@ -905,7 +944,7 @@ export async function ensureWarmEcdsaCapabilityReady(
       args.assertNotCancelled?.();
 
       const refreshedKeyRef = provisioned.thresholdEcdsaKeyRef;
-      const refreshedWarmSession = await deps.getWarmSession(nearAccountId);
+      const refreshedWarmSession = await deps.getWarmSession(walletId);
       let refreshedCapability = getMatchingReadyEcdsaCapability({
         warmSession: refreshedWarmSession,
         chainTarget,
@@ -939,7 +978,7 @@ export async function ensureWarmEcdsaCapabilityReady(
         onTransition: deps.onTransition,
         event: {
           type: 'ecdsa_capability_reconnected',
-          accountId: nearAccountId,
+          walletId,
           chainTarget,
           thresholdSessionId: refreshedIdentity.thresholdSessionId,
           before: summarizeWarmSessionTransition(warmSession),

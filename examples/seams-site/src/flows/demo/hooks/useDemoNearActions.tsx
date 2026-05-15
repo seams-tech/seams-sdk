@@ -7,6 +7,7 @@ import {
   TxExecutionStatus,
   useSeams,
 } from '@seams/sdk/react';
+import { nearAccountRefFromAccountId } from '@seams/sdk';
 import type { ActionArgs, FunctionCallAction } from '@seams/sdk/react';
 
 import { DEMO_CONTRACT_ID, NEAR_EXPLORER_BASE_URL } from '@/shared/types';
@@ -64,7 +65,7 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
     let signingFailureMessage: string | null = null;
     try {
       await seams.near.signAndSendTransactions({
-        nearAccountId: nearAccountId!,
+        nearAccount: nearAccountRefFromAccountId(nearAccountId!),
         transactions: [
           {
             receiverId: DEMO_CONTRACT_ID,
@@ -163,7 +164,7 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
 
       const delegateAction = createGreetingAction(greetingInput, { postfix: 'Delegate' });
       const result = await seams.near.signDelegateAction({
-        nearAccountId: nearAccountId!,
+        nearAccount: nearAccountRefFromAccountId(nearAccountId!),
         delegate: {
           senderId: nearAccountId!,
           receiverId: DEMO_CONTRACT_ID,

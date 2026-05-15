@@ -17,6 +17,7 @@ import type { ThresholdRuntimePolicyScope } from '../../signingEngine/threshold/
 import type {
   NearAccountRef,
   ThresholdEcdsaChainTarget,
+  WalletSessionRef,
   WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EmailOtpAuthPolicy, SeamsConfigsInput } from '../../types/seams';
@@ -103,7 +104,7 @@ export interface ReadyPayload {
 }
 
 export interface PreferencesChangedPayload {
-  nearAccountId: string | null;
+  walletId: string | null;
   confirmationConfig: ConfirmationConfig;
   updatedAt: number;
 }
@@ -206,7 +207,7 @@ export interface PMSignNep413Payload {
 }
 
 export interface PMSignTempoPayload {
-  nearAccountId: string;
+  walletSession: WalletSessionRef;
   subjectId: WalletSubjectId;
   request: MultichainSigningRequest;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -216,7 +217,7 @@ export interface PMSignTempoPayload {
 }
 
 export interface PMTempoNonceLifecyclePayloadBase {
-  nearAccountId: string;
+  walletSession: WalletSessionRef;
   signedResult: TempoSignedResult | EvmSignedResult;
 }
 
@@ -276,16 +277,16 @@ export interface PMExportThresholdEd25519SeedFromHssReportUiPayload {
 
 export interface PMSetConfirmBehaviorPayload {
   behavior: 'requireClick' | 'skipClick';
-  nearAccountId?: string;
+  walletId?: string;
 }
 
 export interface PMSetConfirmationConfigPayload {
   config: Partial<ConfirmationConfig>;
-  nearAccountId?: string;
+  walletId?: string;
 }
 
 export interface PMGetWalletSessionPayload {
-  nearAccountId?: string;
+  walletId?: string;
 }
 
 export interface PMEmailOtpChallengePayload {
@@ -296,7 +297,7 @@ export interface PMEmailOtpChallengePayload {
 }
 
 export interface PMEmailOtpSigningSessionChallengePayload {
-  nearAccountId: string;
+  walletSession: WalletSessionRef;
   subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
 }
@@ -319,7 +320,7 @@ export interface PMEnrollEmailOtpPayload {
 }
 
 export interface PMEmailOtpEcdsaCapabilityPayload {
-  nearAccountId: string;
+  walletSession: WalletSessionRef;
   subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
@@ -339,7 +340,7 @@ export interface PMEmailOtpEcdsaCapabilityPayload {
 }
 
 export interface PMRefreshEmailOtpSigningSessionPayload {
-  nearAccountId: string;
+  walletSession: WalletSessionRef;
   subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   challengeId: string;
@@ -351,7 +352,8 @@ export interface PMRefreshEmailOtpSigningSessionPayload {
 export interface PMEmailOtpEcdsaEnrollmentCapabilityPayload extends PMEmailOtpEcdsaCapabilityPayload {}
 
 export interface PMPrefillThresholdEcdsaPresignPoolPayload {
-  nearAccountId: string;
+  walletSession: WalletSessionRef;
+  subjectId: WalletSubjectId;
   options: {
     chainTarget: ThresholdEcdsaChainTarget;
     waitForPoolReady?: boolean;

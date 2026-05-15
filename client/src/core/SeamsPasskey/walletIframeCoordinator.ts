@@ -1,7 +1,6 @@
 import type { SigningEnginePublic } from '../signingEngine/SigningEngine';
 import type { UserPreferencesManager } from '../signingEngine/session/userPreferences';
-import type { AccountId } from '../types/accountIds';
-import { toAccountId } from '../types/accountIds';
+import { toWalletId } from '../signingEngine/interfaces/ecdsaChainTarget';
 import type { ThemeName, SeamsConfigsReadonly } from '../types/seams';
 import { cloneAuthenticatorOptions } from '../types/authenticatorOptions';
 import type { WalletIframeRouter } from '../WalletIframe/client/router';
@@ -13,7 +12,7 @@ export interface WalletIframeCoordinatorDeps {
   signingEngine: SigningEnginePublic;
   userPreferences: UserPreferencesManager;
   getTheme: () => ThemeName;
-  refreshWalletSession: (nearAccountId?: string) => Promise<void>;
+  refreshWalletSession: (walletId?: string) => Promise<void>;
 }
 
 let warnedAboutSameOriginWallet = false;
@@ -27,7 +26,7 @@ export class WalletIframeCoordinator {
   private readonly signingEngine: SigningEnginePublic;
   private readonly userPreferences: UserPreferencesManager;
   private readonly getTheme: () => ThemeName;
-  private readonly refreshWalletSession: (nearAccountId?: string) => Promise<void>;
+  private readonly refreshWalletSession: (walletId?: string) => Promise<void>;
 
   private iframeRouter: WalletIframeRouter | null = null;
   private walletIframeInitInFlight: Promise<void> | null = null;
@@ -60,7 +59,7 @@ export class WalletIframeCoordinator {
   }
 
   onLoginStatusChanged(
-    listener: (status: { isLoggedIn: boolean; nearAccountId: string | null }) => void,
+    listener: (status: { isLoggedIn: boolean; walletId: string | null }) => void,
   ): () => void {
     const router = this.iframeRouter;
     if (!router) return () => {};
@@ -73,13 +72,13 @@ export class WalletIframeCoordinator {
     return router.onPreferencesChanged(listener);
   }
 
-  async init(nearAccountId?: string): Promise<void> {
+  async init(walletId?: string): Promise<void> {
     const walletOriginConfigured = this.configs.wallet.mode === 'iframe';
     // Warm local critical resources (nonce coordinator, workers) regardless of iframe usage.
     // In iframe mode, avoid persisting user state (lastUserAccountId, preferences) on the app origin.
     const shouldAvoidLocalUserState = walletOriginConfigured && !__isWalletIframeHostMode();
     await this.signingEngine.warmCriticalResources(
-      shouldAvoidLocalUserState ? undefined : nearAccountId,
+      shouldAvoidLocalUserState ? undefined : walletId,
     );
 
     // Guardrail: when running inside the wallet service iframe host, never attempt to
@@ -92,7 +91,7 @@ export class WalletIframeCoordinator {
     const walletIframeConfig = this.configs.wallet.iframe;
     const walletOrigin = walletIframeConfig?.origin;
     if (!walletOrigin) {
-      await this.refreshWalletSession(nearAccountId);
+      await this.refreshWalletSession(walletId);
       return;
     }
 
@@ -177,21 +176,21 @@ export class WalletIframeCoordinator {
       const cfg = await this.iframeRouter.getConfirmationConfig().catch(() => null);
       if (cfg) {
         this.userPreferences.applyWalletHostConfirmationConfig({
-          nearAccountId: nearAccountId ? toAccountId(nearAccountId) : null,
+          walletId: walletId ? toWalletId(walletId) : null,
           confirmationConfig: cfg,
         });
       }
     }
 
-    await this.refreshWalletSession(nearAccountId);
+    await this.refreshWalletSession(walletId);
   }
 
-  async requireRouter(nearAccountId?: string): Promise<WalletIframeRouter> {
+  async requireRouter(walletId?: string): Promise<WalletIframeRouter> {
     if (!this.shouldUseWalletIframe()) {
       throw new Error('[SeamsPasskey] Wallet iframe is not configured.');
     }
     if (!this.iframeRouter) {
-      await this.init(nearAccountId);
+      await this.init(walletId);
     }
     if (!this.iframeRouter) {
       throw new Error('[SeamsPasskey] Wallet iframe is configured but unavailable.');
@@ -204,10 +203,10 @@ export class WalletIframeCoordinator {
       return;
     }
     const unsubscribe = router.onPreferencesChanged?.((payload) => {
-      const id = payload?.nearAccountId;
-      const nearAccountId: AccountId | null = id ? toAccountId(id) : null;
+      const id = payload?.walletId;
+      const walletId = id ? toWalletId(id) : null;
       this.userPreferences.applyWalletHostConfirmationConfig({
-        nearAccountId,
+        walletId,
         confirmationConfig: payload?.confirmationConfig,
       });
     });

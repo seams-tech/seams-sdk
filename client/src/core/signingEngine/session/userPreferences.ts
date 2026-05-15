@@ -1,16 +1,22 @@
 import { ConfirmationConfig, DEFAULT_CONFIRMATION_CONFIG } from '../../types/signer-worker';
 import type { AccountId } from '../../types/accountIds';
+import { toAccountId } from '../../types/accountIds';
 import { IndexedDBManager, type IndexedDBEvent } from '../../indexedDB';
 import { buildNearAccountRefs } from '../../accountData/near/accountRefs';
 import { getLastSelectedNearAccount, updateNearAccountPreferences } from '../../accountData/near/accountProjection';
 import { resolveProfileAccountContextFromCandidates } from '../../indexedDB/profileAccountProjection';
+import { toWalletId, type WalletId } from '../interfaces/ecdsaChainTarget';
+
+function hostedWalletIdAsNearAccountId(walletId: WalletId): AccountId {
+  return toAccountId(walletId);
+}
 
 export class UserPreferencesManager {
   private confirmationConfigChangeListeners: Set<(config: ConfirmationConfig) => void> =
     new Set();
-  private currentUserChangeListeners: Set<(nearAccountId: AccountId | null) => void> = new Set();
+  private currentWalletChangeListeners: Set<(walletId: WalletId | null) => void> = new Set();
 
-  private currentUserAccountId: AccountId | undefined;
+  private currentWalletId: WalletId | undefined;
   private confirmationConfig: ConfirmationConfig = DEFAULT_CONFIRMATION_CONFIG;
   private unsubscribeFromIndexedDB?: () => void;
 
@@ -25,10 +31,10 @@ export class UserPreferencesManager {
     };
   }
 
-  onCurrentUserChange(callback: (nearAccountId: AccountId | null) => void): () => void {
-    this.currentUserChangeListeners.add(callback);
+  onCurrentWalletChange(callback: (walletId: WalletId | null) => void): () => void {
+    this.currentWalletChangeListeners.add(callback);
     return () => {
-      this.currentUserChangeListeners.delete(callback);
+      this.currentWalletChangeListeners.delete(callback);
     };
   }
 
@@ -39,11 +45,11 @@ export class UserPreferencesManager {
     }
   }
 
-  private notifyCurrentUserChange(nearAccountId: AccountId | null): void {
-    if (this.currentUserChangeListeners.size === 0) return;
-    for (const listener of this.currentUserChangeListeners) {
+  private notifyCurrentWalletChange(walletId: WalletId | null): void {
+    if (this.currentWalletChangeListeners.size === 0) return;
+    for (const listener of this.currentWalletChangeListeners) {
       try {
-        listener(nearAccountId);
+        listener(walletId);
       } catch {}
     }
   }
@@ -90,13 +96,19 @@ export class UserPreferencesManager {
     switch (event.type) {
       case 'preferences-updated':
       case 'user-updated':
-        if (event.accountId === this.currentUserAccountId) {
+        if (
+          this.currentWalletId &&
+          event.accountId === hostedWalletIdAsNearAccountId(this.currentWalletId)
+        ) {
           await this.reloadUserSettings();
         }
         break;
       case 'user-deleted':
-        if (event.accountId === this.currentUserAccountId) {
-          this.currentUserAccountId = undefined;
+        if (
+          this.currentWalletId &&
+          event.accountId === hostedWalletIdAsNearAccountId(this.currentWalletId)
+        ) {
+          this.currentWalletId = undefined;
           this.confirmationConfig = DEFAULT_CONFIRMATION_CONFIG;
         }
         break;
@@ -109,17 +121,11 @@ export class UserPreferencesManager {
       this.unsubscribeFromIndexedDB = undefined;
     }
     this.confirmationConfigChangeListeners.clear();
-    this.currentUserChangeListeners.clear();
+    this.currentWalletChangeListeners.clear();
   }
 
-  getCurrentUserAccountId(): AccountId {
-    if (!this.currentUserAccountId) {
-      console.debug(
-        '[UserPreferencesManager]: getCurrentUserAccountId called with no current user; returning empty id',
-      );
-      return '' as AccountId;
-    }
-    return this.currentUserAccountId;
+  getCurrentWalletId(): WalletId | null {
+    return this.currentWalletId ?? null;
   }
 
   getConfirmationConfig(): ConfirmationConfig {
@@ -129,21 +135,21 @@ export class UserPreferencesManager {
   applyWalletHostConfirmationConfig(
     args:
       | {
-          nearAccountId?: AccountId | null;
+          walletId?: WalletId | null;
           confirmationConfig: ConfirmationConfig;
         }
       | undefined,
   ): void {
-    const nearAccountId = args?.nearAccountId;
+    const walletId = args?.walletId;
     const confirmationConfig = args?.confirmationConfig ?? DEFAULT_CONFIRMATION_CONFIG;
     const sanitized = this.sanitizeConfirmationConfig(confirmationConfig);
     const next = this.mergeConfirmationConfig(DEFAULT_CONFIRMATION_CONFIG, sanitized);
 
-    if (nearAccountId) {
-      const prev = this.currentUserAccountId;
-      this.currentUserAccountId = nearAccountId;
-      if (!prev || String(prev) !== String(nearAccountId)) {
-        this.notifyCurrentUserChange(nearAccountId);
+    if (walletId) {
+      const prev = this.currentWalletId;
+      this.currentWalletId = walletId;
+      if (!prev || String(prev) !== String(walletId)) {
+        this.notifyCurrentWalletChange(walletId);
       }
     }
 
@@ -151,14 +157,14 @@ export class UserPreferencesManager {
     this.notifyConfirmationConfigChange(this.confirmationConfig);
   }
 
-  setCurrentUser(nearAccountId: AccountId): void {
-    const prev = this.currentUserAccountId;
-    this.currentUserAccountId = nearAccountId;
-    if (!prev || String(prev) !== String(nearAccountId)) {
-      this.notifyCurrentUserChange(nearAccountId);
+  setCurrentWallet(walletId: WalletId): void {
+    const prev = this.currentWalletId;
+    this.currentWalletId = walletId;
+    if (!prev || String(prev) !== String(walletId)) {
+      this.notifyCurrentWalletChange(walletId);
     }
     if (!IndexedDBManager.clientDB.isDisabled()) {
-      void this.loadSettingsForUser(nearAccountId).catch(() => undefined);
+      void this.loadSettingsForWallet(walletId).catch(() => undefined);
     }
   }
 
@@ -171,8 +177,9 @@ export class UserPreferencesManager {
     this.notifyConfirmationConfigChange(this.confirmationConfig);
   }
 
-  private async loadSettingsForUser(nearAccountId: AccountId): Promise<void> {
+  private async loadSettingsForWallet(walletId: WalletId): Promise<void> {
     if (IndexedDBManager.clientDB.isDisabled()) return;
+    const nearAccountId = hostedWalletIdAsNearAccountId(walletId);
     const context = await resolveProfileAccountContextFromCandidates(
       IndexedDBManager.clientDB,
       buildNearAccountRefs(nearAccountId),
@@ -184,7 +191,9 @@ export class UserPreferencesManager {
   }
 
   async reloadUserSettings(): Promise<void> {
-    await this.loadSettingsForUser(this.getCurrentUserAccountId());
+    const walletId = this.getCurrentWalletId();
+    if (!walletId) return;
+    await this.loadSettingsForWallet(walletId);
   }
 
   setConfirmBehavior(behavior: 'requireClick' | 'skipClick'): void {
@@ -209,7 +218,7 @@ export class UserPreferencesManager {
       console.debug('[SigningEngine]: No last user found, using default settings');
       return;
     }
-    this.currentUserAccountId = last.nearAccountId;
+    this.currentWalletId = toWalletId(last.nearAccountId);
     const profile = await IndexedDBManager.clientDB.getProfile(last.profileId).catch(() => null);
     if (!profile) {
       console.debug('[SigningEngine]: No profile found for last user, using default settings');
@@ -220,14 +229,15 @@ export class UserPreferencesManager {
 
   async saveUserSettings(): Promise<void> {
     try {
-      const accountId: AccountId | undefined = this.currentUserAccountId ?? undefined;
-      if (!accountId) {
+      const walletId = this.currentWalletId ?? undefined;
+      if (!walletId) {
         console.warn(
-          '[UserPreferences]: No current user set; keeping confirmation config in memory only',
+          '[UserPreferences]: No current wallet set; keeping confirmation config in memory only',
         );
         return;
       }
 
+      const accountId = hostedWalletIdAsNearAccountId(walletId);
       await updateNearAccountPreferences(IndexedDBManager.clientDB, accountId, {
         confirmationConfig: this.confirmationConfig,
       });

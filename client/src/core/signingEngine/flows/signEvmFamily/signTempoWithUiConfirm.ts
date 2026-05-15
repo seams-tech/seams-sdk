@@ -15,7 +15,7 @@ import {
   signEvmFamilyWithUiConfirm,
   type SignEvmFamilyWithUiConfirmArgs,
 } from './signingFlow';
-import { resolveWebAuthnP256KeyRefForNearAccount } from './webauthnP256KeyRef';
+import { resolveWebAuthnP256KeyRefForWallet } from './webauthnP256KeyRef';
 
 export async function signTempoWithUiConfirm(
   args: SignEvmFamilyWithUiConfirmArgs<TempoSigningRequest | EvmSigningRequest>,
@@ -58,10 +58,10 @@ export async function signTempoWithUiConfirm(
             throw new Error('[chains] multiple WebAuthn sign requests are not supported yet');
           }
         },
-        resolveKeyRef: async ({ ctx, nearAccountId, workerCtx, signReq, credential }) => {
-          const webauthnKeyRef = await resolveWebAuthnP256KeyRefForNearAccount({
+        resolveKeyRef: async ({ ctx, walletId, workerCtx, signReq, credential }) => {
+          const webauthnKeyRef = await resolveWebAuthnP256KeyRefForWallet({
             indexedDB: ctx.indexedDB,
-            nearAccountId,
+            walletId,
             workerCtx,
             rpId: signReq.rpId,
           });

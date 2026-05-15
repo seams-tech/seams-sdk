@@ -35,7 +35,7 @@ export type SigningSessionBudgetTraceEvent = {
     | 'wallet_signing_budget_spend_failed'
     | 'wallet_signing_budget_zero_spend_recorded';
   operationId: SigningOperationId;
-  nearAccountId: AccountId;
+  walletId: AccountId;
   lane: SigningLaneSummary;
   reason: WalletSigningSpendPlan['reason'];
   uses: WalletSigningSpendPlan['uses'];
@@ -129,7 +129,7 @@ export type SigningSessionBudgetReservation = {
 
 export type WalletBudgetStatusCheck = {
   kind: 'wallet_budget_status_check';
-  nearAccountId: AccountId | string;
+  walletId: AccountId | string;
   walletSigningSessionId: WalletSigningSessionId | string;
   targetBackingMaterialSessionIds?: never;
   targetThresholdSessionIds?: never;
@@ -138,7 +138,7 @@ export type WalletBudgetStatusCheck = {
 
 export type BackingMaterialBudgetStatusCheck = {
   kind: 'backing_material_budget_status_check';
-  nearAccountId: AccountId | string;
+  walletId: AccountId | string;
   walletSigningSessionId: WalletSigningSessionId | string;
   targetBackingMaterialSessionIds: readonly [
     BackingMaterialSessionId | string,
@@ -150,7 +150,7 @@ export type BackingMaterialBudgetStatusCheck = {
 
 export type ThresholdBudgetStatusCheck = {
   kind: 'threshold_budget_status_check';
-  nearAccountId: AccountId | string;
+  walletId: AccountId | string;
   walletSigningSessionId: WalletSigningSessionId | string;
   targetThresholdSessionIds: readonly [ThresholdSessionId | string, ...(ThresholdSessionId | string)[]];
   targetBackingMaterialSessionIds?: never;
@@ -159,7 +159,7 @@ export type ThresholdBudgetStatusCheck = {
 
 export type AuthenticatedThresholdBudgetStatusCheck = {
   kind: 'authenticated_threshold_budget_status_check';
-  nearAccountId: AccountId | string;
+  walletId: AccountId | string;
   walletSigningSessionId: WalletSigningSessionId | string;
   targetThresholdSessionIds: readonly [ThresholdSessionId | string, ...(ThresholdSessionId | string)[]];
   trustedStatusAuth: SigningSessionBudgetStatusAuth;
@@ -183,7 +183,7 @@ export type SigningSessionBudgetStatusAuth = {
 };
 
 export type SigningSessionBudgetConsumer = (args: {
-  nearAccountId: AccountId | string;
+  walletId: AccountId | string;
   walletSigningSessionId: string;
   uses: number;
   reason: WalletSigningSpendPlan['reason'];
@@ -455,7 +455,7 @@ export function createSigningSessionBudgetTraceEvent(
   return {
     event,
     operationId: spend.operationId,
-    nearAccountId: spend.nearAccountId,
+    walletId: spend.walletId,
     lane: summarizeSigningLane(spend.lane),
     reason: spend.reason,
     uses: spend.uses,
@@ -476,7 +476,7 @@ export function createZeroSpendTraceEvent(
   return {
     event,
     operationId: input.operationId,
-    nearAccountId: input.lane.accountId as AccountId,
+    walletId: input.lane.curve === 'ecdsa' ? input.lane.walletId : input.lane.accountId,
     lane: summarizeSigningLane(input.lane),
     reason: SigningOperationIntent.TransactionSign,
     uses: 1,
@@ -508,7 +508,7 @@ export function buildWalletSigningSpendPlan(
     ...(operation.operationFingerprint
       ? { operationFingerprint: operation.operationFingerprint }
       : {}),
-    nearAccountId: lane.accountId,
+    walletId: lane.curve === 'ecdsa' ? lane.walletId : lane.accountId,
     walletSigningSessionId: lane.walletSigningSessionId,
     lane,
     thresholdSessionIds: uniqueDefined([lane.thresholdSessionId]),
@@ -519,12 +519,12 @@ export function buildWalletSigningSpendPlan(
 }
 
 export function buildWalletBudgetStatusCheck(args: {
-  nearAccountId: AccountId | string;
+  walletId: AccountId | string;
   walletSigningSessionId: WalletSigningSessionId | string;
 }): WalletBudgetStatusCheck {
   return {
     kind: 'wallet_budget_status_check',
-    nearAccountId: args.nearAccountId,
+    walletId: args.walletId,
     walletSigningSessionId: normalizeRequired(
       args.walletSigningSessionId,
       'walletSigningSessionId',
@@ -533,7 +533,7 @@ export function buildWalletBudgetStatusCheck(args: {
 }
 
 export function buildBackingMaterialBudgetStatusCheck(args: {
-  nearAccountId: AccountId | string;
+  walletId: AccountId | string;
   walletSigningSessionId: WalletSigningSessionId | string;
   targetBackingMaterialSessionIds: readonly (BackingMaterialSessionId | string)[];
 }): BackingMaterialBudgetStatusCheck {
@@ -545,7 +545,7 @@ export function buildBackingMaterialBudgetStatusCheck(args: {
   }
   return {
     kind: 'backing_material_budget_status_check',
-    nearAccountId: args.nearAccountId,
+    walletId: args.walletId,
     walletSigningSessionId: normalizeRequired(
       args.walletSigningSessionId,
       'walletSigningSessionId',
@@ -558,7 +558,7 @@ export function buildBackingMaterialBudgetStatusCheck(args: {
 }
 
 export function buildThresholdBudgetStatusCheck(args: {
-  nearAccountId: AccountId | string;
+  walletId: AccountId | string;
   walletSigningSessionId: WalletSigningSessionId | string;
   targetThresholdSessionIds: readonly (ThresholdSessionId | string)[];
 }): ThresholdBudgetStatusCheck {
@@ -570,7 +570,7 @@ export function buildThresholdBudgetStatusCheck(args: {
   }
   return {
     kind: 'threshold_budget_status_check',
-    nearAccountId: args.nearAccountId,
+    walletId: args.walletId,
     walletSigningSessionId: normalizeRequired(
       args.walletSigningSessionId,
       'walletSigningSessionId',
@@ -580,7 +580,7 @@ export function buildThresholdBudgetStatusCheck(args: {
 }
 
 export function buildAuthenticatedThresholdBudgetStatusCheck(args: {
-  nearAccountId: AccountId | string;
+  walletId: AccountId | string;
   walletSigningSessionId: WalletSigningSessionId | string;
   targetThresholdSessionIds: readonly (ThresholdSessionId | string)[];
   trustedStatusAuth: SigningSessionBudgetStatusAuth;
@@ -588,7 +588,7 @@ export function buildAuthenticatedThresholdBudgetStatusCheck(args: {
   const thresholdCheck = buildThresholdBudgetStatusCheck(args);
   return {
     kind: 'authenticated_threshold_budget_status_check',
-    nearAccountId: thresholdCheck.nearAccountId,
+    walletId: thresholdCheck.walletId,
     walletSigningSessionId: thresholdCheck.walletSigningSessionId,
     targetThresholdSessionIds: thresholdCheck.targetThresholdSessionIds,
     trustedStatusAuth: args.trustedStatusAuth,
@@ -601,7 +601,7 @@ export function buildSigningSessionBudgetStatusCheckForSpend(args: {
 }): SigningSessionBudgetStatusCheck {
   if (args.trustedStatusAuth) {
     return buildAuthenticatedThresholdBudgetStatusCheck({
-      nearAccountId: args.spend.nearAccountId,
+      walletId: args.spend.walletId,
       walletSigningSessionId: args.spend.walletSigningSessionId,
       targetThresholdSessionIds: args.spend.thresholdSessionIds,
       trustedStatusAuth: args.trustedStatusAuth,
@@ -609,20 +609,20 @@ export function buildSigningSessionBudgetStatusCheckForSpend(args: {
   }
   if (args.spend.thresholdSessionIds.length) {
     return buildThresholdBudgetStatusCheck({
-      nearAccountId: args.spend.nearAccountId,
+      walletId: args.spend.walletId,
       walletSigningSessionId: args.spend.walletSigningSessionId,
       targetThresholdSessionIds: args.spend.thresholdSessionIds,
     });
   }
   if (args.spend.backingMaterialSessionIds.length) {
     return buildBackingMaterialBudgetStatusCheck({
-      nearAccountId: args.spend.nearAccountId,
+      walletId: args.spend.walletId,
       walletSigningSessionId: args.spend.walletSigningSessionId,
       targetBackingMaterialSessionIds: args.spend.backingMaterialSessionIds,
     });
   }
   return buildWalletBudgetStatusCheck({
-    nearAccountId: args.spend.nearAccountId,
+    walletId: args.spend.walletId,
     walletSigningSessionId: args.spend.walletSigningSessionId,
   });
 }

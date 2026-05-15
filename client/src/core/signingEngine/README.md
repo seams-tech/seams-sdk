@@ -30,15 +30,14 @@ flows or `SigningEngine`.
   operation-id binding.
 - `session/budget/`: wallet signing-session budget reads, projection,
   reservation, and spend finalization.
-- `stepUpConfirmation/`: confirmation contracts, email-OTP/passkey prompts, intent
-  digest preparation, and channel message contracts.
+- `stepUpConfirmation/`: confirmation contracts, email-OTP/passkey prompts,
+  wallet-auth policy resolution, intent digest preparation, and channel message
+  contracts.
 - `chains/`: chain-specific payload, display, nonce, and WASM adaptor code.
 - `threshold/`: threshold protocol clients and protocol material handling.
 - `workers/` and `workerManager/`: worker operation dispatch, worker types, and
   host-side worker transport.
 - `nonce/`: nonce reservation and lifecycle coordination.
-- `walletAuth/`: higher-level wallet auth policy helpers and the remaining
-  legacy auth-plan resolver path.
 - `webauthnAuth/`: low-level WebAuthn/passkey browser primitives.
 - `interfaces/accountAuthMetadata.ts`: neutral account-auth metadata
   normalized for step-up method selection and operation planning.
@@ -52,8 +51,8 @@ cross-operation lifecycle ownership, which is why Email OTP has
 `session/emailOtp/` and passkey currently has no `sessionPasskey/`. The ongoing
 step-up adaptor refactor has already moved neutral account-auth metadata into
 `interfaces/accountAuthMetadata.ts`, moved low-level WebAuthn
-primitives into `webauthnAuth/`, and is shrinking `walletAuth/` toward the
-remaining legacy resolver only.
+primitives into `webauthnAuth/`, and moved wallet-auth policy resolution into
+`stepUpConfirmation/`.
 
 ## Import Direction
 
@@ -67,7 +66,6 @@ flowchart TD
   INIT --> THRESHOLD["threshold/"]
   INIT --> CHAINS["chains/"]
   INIT --> WORKERS["workers/ + workerManager/"]
-  INIT --> AUTH["walletAuth/"]
   INIT --> UI["uiConfirm/"]
   INIT --> NONCE["nonce/"]
   INIT --> IFACE["interfaces/"]
@@ -78,7 +76,6 @@ flowchart TD
   OPS --> CHAINS
   OPS --> WORKERS
   OPS --> NONCE
-  CONF --> AUTH
   CONF --> WEBAUTHN
   CONF --> IFACE
   UI --> CONF

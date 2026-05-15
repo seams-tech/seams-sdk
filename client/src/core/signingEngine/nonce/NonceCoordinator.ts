@@ -2177,7 +2177,7 @@ export function evmReserveNonceInputToLane(input: ReserveNonceInput): EvmNonceLa
     chainId: input.chainId,
     sender: input.sender,
     ...(input.nonceKey != null ? { nonceKey: input.nonceKey } : {}),
-    ...(input.nearAccountId ? { accountId: input.nearAccountId } : {}),
+    ...(input.walletId ? { accountId: input.walletId } : {}),
   };
 }
 
@@ -2215,7 +2215,7 @@ function evmLaneToReserveNonceInput(lane: EvmNonceLane): ReserveNonceInput {
     chainId: lane.chainId,
     sender: lane.sender,
     ...(lane.nonceKey != null ? { nonceKey: lane.nonceKey } : {}),
-    ...(lane.accountId ? { nearAccountId: lane.accountId } : {}),
+    ...(lane.accountId ? { walletId: lane.accountId } : {}),
   };
 }
 

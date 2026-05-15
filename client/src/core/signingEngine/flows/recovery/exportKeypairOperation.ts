@@ -60,7 +60,7 @@ async function exportKeypairWithFlowId(
   const walletSessionUserId = toAccountId(args.walletSessionUserId);
   const exportTarget = ecdsaSigningTargetFromChainTarget(args.chainTarget);
   const exportLane = await restoreEcdsaSessionForExport(deps.laneSelection, {
-    nearAccountId: walletSessionUserId,
+    walletId: walletSessionUserId,
     subjectId: args.subjectId,
     signingTarget: exportTarget,
   });
@@ -70,7 +70,7 @@ async function exportKeypairWithFlowId(
   );
   if (exportMaterial.kind === 'fresh_email_otp') {
     return await exportThresholdEcdsaKeyWithFreshEmailOtpAuthorization(deps.ecdsa, {
-      nearAccountId: walletSessionUserId,
+      walletSessionUserId,
       exportLane,
       material: exportMaterial,
       options: {
@@ -82,7 +82,7 @@ async function exportKeypairWithFlowId(
     });
   }
   return await exportThresholdEcdsaKeyWithAuthorization(deps.ecdsa, {
-    nearAccountId: walletSessionUserId,
+    walletSessionUserId,
     keyRef: exportMaterial.keyRef,
     exportLane,
     options: {

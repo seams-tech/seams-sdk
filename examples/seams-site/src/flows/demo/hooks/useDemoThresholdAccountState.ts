@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useSeams } from '@seams/sdk/react';
+import { walletSessionRefFromSession, walletSubjectIdFromWalletProfile } from '@seams/sdk';
 import { toast } from 'sonner';
 
 import { FRONTEND_CONFIG, type FrontendConfig } from '@/config';
@@ -39,25 +40,28 @@ export function useDemoThresholdAccountState(args: UseDemoThresholdAccountStateA
       const bootstrap =
         chain === 'tempo'
           ? await seams.tempo.bootstrapEcdsaSession({
-              nearAccountId,
-              options: {
-                chainTarget: resolveDemoThresholdEcdsaChainTarget('tempo', frontendConfig.chains),
-                ...(frontendConfig.relayerUrl ? { relayerUrl: frontendConfig.relayerUrl } : {}),
-              },
+              kind: 'reuse_warm_ecdsa_bootstrap',
+              walletSession: walletSessionRefFromSession({
+                walletId: nearAccountId,
+                walletSessionUserId: nearAccountId,
+              }),
+              subjectId: walletSubjectIdFromWalletProfile({ walletId: nearAccountId }),
+              chainTarget: resolveDemoThresholdEcdsaChainTarget('tempo', frontendConfig.chains),
+              ...(frontendConfig.relayerUrl ? { relayerUrl: frontendConfig.relayerUrl } : {}),
             })
           : await seams.evm.bootstrapEcdsaSession({
-              nearAccountId,
-              options: {
-                chainTarget: resolveDemoThresholdEcdsaChainTarget('evm', frontendConfig.chains),
-                ...(frontendConfig.relayerUrl ? { relayerUrl: frontendConfig.relayerUrl } : {}),
-              },
+              kind: 'reuse_warm_ecdsa_bootstrap',
+              walletSession: walletSessionRefFromSession({
+                walletId: nearAccountId,
+                walletSessionUserId: nearAccountId,
+              }),
+              subjectId: walletSubjectIdFromWalletProfile({ walletId: nearAccountId }),
+              chainTarget: resolveDemoThresholdEcdsaChainTarget('evm', frontendConfig.chains),
+              ...(frontendConfig.relayerUrl ? { relayerUrl: frontendConfig.relayerUrl } : {}),
             });
 
       const maybeAddress = String(
-        bootstrap.keygen.counterfactualAddress ||
-          bootstrap.keygen.ethereumAddress ||
-          bootstrap.thresholdEcdsaKeyRef.ethereumAddress ||
-          '',
+        bootstrap.keygen.ethereumAddress || bootstrap.thresholdEcdsaKeyRef.ethereumAddress || '',
       ).trim();
       if (!isEvmAddress(maybeAddress)) {
         throw new Error('Threshold ECDSA bootstrap did not return a usable EVM sender address');
@@ -76,10 +80,10 @@ export function useDemoThresholdAccountState(args: UseDemoThresholdAccountStateA
       }
 
       try {
-        let address = await readWalletSessionThresholdEvmFundingAddress();
-        if ((!address || !isEvmAddress(address)) && opts?.bootstrap) {
-          address = await ensureThresholdEcdsaReadyForChain(opts.chain || 'tempo');
-        }
+        const requestedChain = opts?.chain || 'evm';
+        let address = opts?.bootstrap
+          ? await ensureThresholdEcdsaReadyForChain(requestedChain)
+          : await readWalletSessionThresholdEvmFundingAddress();
         const normalized = isEvmAddress(String(address || '').trim()) ? String(address).trim() : null;
         setThresholdEvmFundingAddress(normalized);
         return normalized;
@@ -103,6 +107,18 @@ export function useDemoThresholdAccountState(args: UseDemoThresholdAccountStateA
       bootstrapIfMissing?: boolean;
     }): Promise<EvmAddress> => {
       const requestedChain = opts?.chain || 'tempo';
+      if (opts?.bootstrapIfMissing) {
+        const storedAddress = await readWalletSessionThresholdEvmFundingAddress();
+        if (storedAddress && isEvmAddress(storedAddress)) {
+          setThresholdEvmFundingAddress(storedAddress);
+          return storedAddress;
+        }
+        const exactSender = await ensureThresholdEcdsaReadyForChain(requestedChain);
+        if (!exactSender || !isEvmAddress(exactSender)) {
+          throw new Error('Threshold EVM sender address is unavailable');
+        }
+        return exactSender;
+      }
       let thresholdSender = isEvmAddress(String(thresholdEvmFundingAddress || '').trim())
         ? thresholdEvmFundingAddress
         : null;
@@ -116,12 +132,10 @@ export function useDemoThresholdAccountState(args: UseDemoThresholdAccountStateA
         }
       }
       if (!thresholdSender) {
-        thresholdSender = opts?.bootstrapIfMissing
-          ? await ensureThresholdEcdsaReadyForChain(requestedChain)
-          : await refreshThresholdEvmFundingAddress({
-              bootstrap: false,
-              chain: requestedChain,
-            });
+        thresholdSender = await refreshThresholdEvmFundingAddress({
+          bootstrap: false,
+          chain: requestedChain,
+        });
       }
       if (!thresholdSender || !isEvmAddress(thresholdSender)) {
         throw new Error('Threshold EVM sender address is unavailable');
@@ -194,7 +208,7 @@ export function useDemoThresholdAccountState(args: UseDemoThresholdAccountStateA
 
   useEffect(() => {
     if (!isLoggedIn || !nearAccountId) return;
-    void refreshThresholdEvmFundingAddress();
+    void refreshThresholdEvmFundingAddress({ bootstrap: true, chain: 'evm' });
   }, [isLoggedIn, nearAccountId, refreshThresholdEvmFundingAddress]);
 
   useEffect(() => {

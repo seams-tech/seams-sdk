@@ -123,3 +123,29 @@ export async function collectAuthenticationCredentialForChallengeB64u<
 
   return serialized;
 }
+
+export async function collectAuthenticationCredentialForWalletChallengeB64u<
+  TAuth extends WebAuthnAuthenticatorRecord = ProfileAuthenticatorRecord,
+>(args: {
+  indexedDB: WebAuthnIndexedDbPort<TAuth>;
+  touchIdPrompt: Pick<WebAuthnPromptPort, 'getAuthenticationCredentialsSerializedForChallengeB64u'>;
+  walletId: AccountId | string;
+  challengeB64u: string;
+  onBeforePrompt?: (info: {
+    authenticators: TAuth[];
+    authenticatorsForPrompt: TAuth[];
+    challengeB64u: string;
+  }) => void;
+  includeSecondPrfOutput?: boolean;
+}): Promise<WebAuthnAuthenticationCredential> {
+  return await collectAuthenticationCredentialForChallengeB64u({
+    indexedDB: args.indexedDB,
+    touchIdPrompt: args.touchIdPrompt,
+    nearAccountId: args.walletId,
+    challengeB64u: args.challengeB64u,
+    ...(args.onBeforePrompt ? { onBeforePrompt: args.onBeforePrompt } : {}),
+    ...(typeof args.includeSecondPrfOutput === 'boolean'
+      ? { includeSecondPrfOutput: args.includeSecondPrfOutput }
+      : {}),
+  });
+}

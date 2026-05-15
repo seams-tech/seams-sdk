@@ -98,6 +98,7 @@ import {
 import { requireNearStepUpAuth } from './requireNearStepUpAuth';
 import { runSigningConfirmationCommand } from '../shared/signingConfirmation';
 import { buildNearEd25519StepUpAuthorization } from './stepUpAuthorization';
+import type { NearAccountRef } from '../../interfaces/ecdsaChainTarget';
 
 function emitNearSigningEvent(
   onEvent: ((event: SigningFlowEvent) => void) | undefined,
@@ -158,6 +159,7 @@ function createNearTransactionSigningOperationId(): SigningOperationId {
 
 export async function runNearTransactionsWithActionsSigning({
   ctx,
+  nearAccount,
   transactions,
   rpcCall,
   onEvent,
@@ -175,6 +177,7 @@ export async function runNearTransactionsWithActionsSigning({
   passkeyEd25519Reconnect,
 }: {
   ctx: SigningRuntimeDeps;
+  nearAccount: NearAccountRef;
   transactions: TransactionInputWasm[];
   rpcCall: RpcCallPayload;
   onEvent?: (update: SigningFlowEvent) => void;
@@ -204,7 +207,7 @@ export async function runNearTransactionsWithActionsSigning({
     signingOperationId = signingOperationId || createNearTransactionSigningOperationId();
     return signingOperationId;
   };
-  const nearAccountId = toAccountId(rpcCall.nearAccountId);
+  const nearAccountId = toAccountId(nearAccount.accountId);
   const relayerUrl = ctx.relayerUrl;
   const ed25519WarmupPromise =
     ed25519Warmup?.isPending() === true
@@ -239,7 +242,7 @@ export async function runNearTransactionsWithActionsSigning({
   });
   const { thresholdKeyMaterial } = await resolveNearSigningMaterials({
     ctx,
-    nearAccountId,
+    nearAccount,
     signerSlot,
     operationLabel: 'signing',
     warnings,
@@ -264,7 +267,7 @@ export async function runNearTransactionsWithActionsSigning({
     nearRpcUrl:
       rpcCall.nearRpcUrl ||
       resolvePrimaryNearRpcUrl(PASSKEY_MANAGER_DEFAULT_CONFIGS.network.chains),
-    nearAccountId: rpcCall.nearAccountId,
+    nearAccountId,
   } as RpcCallPayload;
   const { txSigningRequests, confirmationTransactions } = buildNearTransactionSigningPayloads({
     nearAccountId: String(resolvedRpcCall.nearAccountId),
@@ -644,7 +647,6 @@ export async function runNearTransactionsWithActionsSigning({
     lane: NearTransactionSigningLane,
   ): Promise<BudgetAdmittedOperation<SelectedEd25519Lane>> => {
     const budgetIdentity = await sessionCoordinator.prepareBudgetIdentity({
-      nearAccountId,
       lane,
       ...(trustedBudgetStatusAuth ? { trustedStatusAuth: trustedBudgetStatusAuth } : {}),
       operationUsesNeeded: 1,
@@ -694,7 +696,7 @@ export async function runNearTransactionsWithActionsSigning({
         spend: {
           operationId: confirmationOperationId,
           ...(operationFingerprint ? { operationFingerprint } : {}),
-          nearAccountId,
+          walletId: nearAccountId,
           walletSigningSessionId: buildBudgetSigningLane().walletSigningSessionId,
           lane: buildBudgetSigningLane(),
           thresholdSessionIds: [operationState.lane.thresholdSessionId],

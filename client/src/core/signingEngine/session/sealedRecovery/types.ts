@@ -88,14 +88,14 @@ export type RestorePersistedSessionWorkItem = {
   purpose: RestorePersistedSessionPurpose;
 };
 
-export type RestorePersistedSessionsForAccountInput = {
+export type RestorePersistedSessionsForWalletInput = {
   walletId: string;
   ecdsaChainTargets: readonly ThresholdEcdsaChainTarget[];
   authMethod?: 'email_otp' | 'passkey';
   maxRecords?: number;
 };
 
-export type RestorePersistedSessionsForAccountResult = {
+export type RestorePersistedSessionsForWalletResult = {
   listed: number;
   attempted: number;
   restored: number;
@@ -104,7 +104,7 @@ export type RestorePersistedSessionsForAccountResult = {
   truncated: number;
 };
 
-export type RestoreSealedRecordForAccountResult = 'restored' | 'ready' | 'deferred';
+export type RestoreSealedRecordResult = 'restored' | 'ready' | 'deferred';
 
 export type SigningSessionRestoreCache = {
   hasKnownMissing: (input: RestorePersistedSessionForSigningInput) => boolean;
@@ -130,39 +130,39 @@ export type SigningSessionRestoreAttemptRegistry = {
 };
 
 export type RestorePersistedSessionForSigningPorts = {
-  listExactSealedSessionsForAccount: (
+  listExactSealedSessionsForWallet: (
     args: RestoreSealedSessionListInput,
   ) => Promise<RawSigningSessionSealedStoreRecord[]>;
-  restoreSealedRecordForAccount: (args: {
-    accountId: string;
+  restoreSealedRecordForWallet: (args: {
+    walletId: string;
     record: SealedRecoveryRecord;
     purpose: RestorePersistedSessionPurpose;
-  }) => Promise<RestoreSealedRecordForAccountResult>;
+  }) => Promise<RestoreSealedRecordResult>;
   onListError?: (args: {
-    accountId: string;
+    walletId: string;
     target: string;
     reason: RestorePersistedSessionForSigningInput['reason'];
     error: unknown;
   }) => void;
   onRejectedRecord?: (args: {
-    accountId: string;
+    walletId: string;
     rejection: RejectedSealedRecoveryRecord;
   }) => void;
   cache?: SigningSessionRestoreCache;
 };
 
-export type RestorePersistedSessionsForAccountPorts = {
-  listExactSealedSessionsForAccount: (
+export type RestorePersistedSessionsForWalletPorts = {
+  listExactSealedSessionsForWallet: (
     args: RestoreSealedSessionListInput,
   ) => Promise<RawSigningSessionSealedStoreRecord[]>;
-  restoreSealedRecordForAccount: (args: {
-    accountId: string;
+  restoreSealedRecordForWallet: (args: {
+    walletId: string;
     record: SealedRecoveryRecord;
     purpose: RestorePersistedSessionPurpose;
-  }) => Promise<RestoreSealedRecordForAccountResult>;
-  onListError?: (args: { accountId: string; error: unknown }) => void;
+  }) => Promise<RestoreSealedRecordResult>;
+  onListError?: (args: { walletId: string; error: unknown }) => void;
   onRejectedRecord?: (args: {
-    accountId: string;
+    walletId: string;
     rejection: RejectedSealedRecoveryRecord;
   }) => void;
   cache?: SigningSessionRestoreCache;

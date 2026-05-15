@@ -10,7 +10,7 @@ import {
   type RegistrationFlowEvent,
   type UnlockFlowEvent,
 } from '@seams/sdk/react';
-import { toWalletSubjectId } from '@seams/sdk';
+import { toWalletSubjectId, walletSessionRefFromSession } from '@seams/sdk';
 import React from 'react';
 import { toast } from 'sonner';
 
@@ -453,7 +453,10 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
           );
           if (otpFlow === 'enroll') {
             await seams.auth.enrollAndLoginWithEmailOtpEcdsaCapability({
-              nearAccountId: walletId,
+              walletSession: walletSessionRefFromSession({
+                walletId,
+                userId: exchange.session.userId,
+              }),
               subjectId: toWalletSubjectId(walletId),
               chainTarget: resolveDemoThresholdEcdsaChainTarget('tempo'),
               challengeId: challenge.challengeId,
@@ -474,7 +477,10 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
             });
           } else {
             await seams.auth.loginWithEmailOtpEcdsaCapability({
-              nearAccountId: walletId,
+              walletSession: walletSessionRefFromSession({
+                walletId,
+                userId: exchange.session.userId,
+              }),
               subjectId: toWalletSubjectId(walletId),
               chainTarget: resolveDemoThresholdEcdsaChainTarget('tempo'),
               challengeId: challenge.challengeId,

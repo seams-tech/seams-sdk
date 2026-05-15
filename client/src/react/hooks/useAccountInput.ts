@@ -51,7 +51,7 @@ export interface UseAccountInputOptions {
    * (e.g. `w3a-relayer.testnet` for `alice.w3a-relayer.testnet`).
    */
   accountDomain?: string;
-  currentNearAccountId?: string | null;
+  currentWalletId?: string | null;
   isLoggedIn: boolean;
 }
 
@@ -87,7 +87,8 @@ function normalizeStoredAccountOptions(input: {
   for (const account of accounts) {
     const nearAccountId = String(account.nearAccountId || '').trim();
     if (!nearAccountId) continue;
-    byAccountId.set(nearAccountId, {
+    const authMethodKey = account.authMethod || 'passkey';
+    byAccountId.set(`${nearAccountId}:${authMethodKey}`, {
       nearAccountId,
       ...(typeof account.signerSlot === 'number' ? { signerSlot: account.signerSlot } : {}),
       ...(account.authMethod ? { authMethod: account.authMethod } : {}),
@@ -99,7 +100,7 @@ function normalizeStoredAccountOptions(input: {
 export function useAccountInput({
   seams,
   accountDomain,
-  currentNearAccountId,
+  currentWalletId,
   isLoggedIn,
 }: UseAccountInputOptions): UseAccountInputReturn {
   const [discoveredRelayerAccount, setDiscoveredRelayerAccount] = useState<string>('');
@@ -333,9 +334,9 @@ export function useAccountInput({
     const initializeAccountInput = async () => {
       await refreshAccountData();
 
-      if (isLoggedIn && currentNearAccountId) {
+      if (isLoggedIn && currentWalletId) {
         // User is logged in, show their username
-        const username = extractUsernameFromAccountId(currentNearAccountId);
+        const username = extractUsernameFromAccountId(currentWalletId);
         setState((prevState) => ({ ...prevState, inputUsername: username }));
       } else {
         // No logged-in user, try to get last used account
@@ -352,13 +353,13 @@ export function useAccountInput({
     };
 
     initializeAccountInput();
-  }, [awaitWalletIframeIfNeeded, currentNearAccountId, isLoggedIn, refreshAccountData, seams]);
+  }, [awaitWalletIframeIfNeeded, currentWalletId, isLoggedIn, refreshAccountData, seams]);
 
   // onLock: reset to last used account
   useEffect(() => {
     const handleLockReset = async () => {
-      // Only reset if user just locked (isLoggedIn is false but we had a nearAccountId before)
-      if (!isLoggedIn && !currentNearAccountId) {
+      // Only reset if user just locked (isLoggedIn is false but we had a wallet id before)
+      if (!isLoggedIn && !currentWalletId) {
         try {
           await awaitWalletIframeIfNeeded();
           const recentUnlocks = await seams.auth.getRecentUnlocks();
@@ -376,7 +377,7 @@ export function useAccountInput({
     };
 
     handleLockReset();
-  }, [awaitWalletIframeIfNeeded, currentNearAccountId, isLoggedIn, seams]);
+  }, [awaitWalletIframeIfNeeded, currentWalletId, isLoggedIn, seams]);
 
   // Update derived state when dependencies change
   useEffect(() => {

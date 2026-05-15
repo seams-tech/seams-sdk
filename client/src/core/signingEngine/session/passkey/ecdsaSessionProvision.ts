@@ -24,7 +24,7 @@ import type { ThresholdRuntimePolicyScope, ThresholdSessionKind } from '../../th
 import type { WalletSubjectId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export type ProvisionThresholdEcdsaSessionDeps = {
-  queueByAccount: Map<string, Promise<void>>;
+  queueByWallet: Map<string, Promise<void>>;
   activationDeps: ThresholdSessionActivationDeps;
   touchConfirm: WarmSessionSealPersistPorts;
   resolveSealTransport: (args: {
@@ -43,7 +43,7 @@ export type ThresholdEcdsaActivationRuntimeScopeBootstrap = {
 };
 
 type ThresholdEcdsaActivationRequestCommon = {
-  nearAccountId: AccountId | string;
+  walletId: AccountId | string;
   subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   relayerUrl: string;
@@ -84,8 +84,8 @@ export type ThresholdEcdsaThresholdSessionAuthReconnectRequest =
     sessionIdentity: EcdsaSessionIdentity;
     sessionKind: 'jwt';
     thresholdSessionAuth: VerifiedEcdsaThresholdSessionAuth;
+    clientRootShare32B64u: string;
     webauthnAuthentication?: never;
-    clientRootShare32B64u?: never;
     emailOtpAuthContext?: never;
   };
 
@@ -150,7 +150,7 @@ function toBootstrapEcdsaSessionRequest(
         return applyCommonActivationRequestFields(
           {
             kind: 'passkey_fresh_ecdsa_bootstrap',
-            nearAccountId: request.nearAccountId,
+            walletId: request.walletId,
             subjectId: request.subjectId,
             chainTarget: request.chainTarget,
             source: request.source,
@@ -169,7 +169,7 @@ function toBootstrapEcdsaSessionRequest(
       return applyCommonActivationRequestFields(
         {
           kind: 'passkey_fresh_ecdsa_bootstrap',
-          nearAccountId: request.nearAccountId,
+          walletId: request.walletId,
           subjectId: request.subjectId,
           chainTarget: request.chainTarget,
           source: request.source,
@@ -188,7 +188,7 @@ function toBootstrapEcdsaSessionRequest(
       return applyCommonActivationRequestFields(
         {
           kind: 'email_otp_ecdsa_bootstrap',
-          nearAccountId: request.nearAccountId,
+          walletId: request.walletId,
           subjectId: request.subjectId,
           chainTarget: request.chainTarget,
           source: 'email_otp',
@@ -207,7 +207,7 @@ function toBootstrapEcdsaSessionRequest(
       return applyCommonActivationRequestFields(
         {
           kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
-          nearAccountId: request.nearAccountId,
+          walletId: request.walletId,
           subjectId: request.subjectId,
           chainTarget: request.chainTarget,
           source: request.source,
@@ -217,6 +217,7 @@ function toBootstrapEcdsaSessionRequest(
           sessionKind: request.sessionKind,
           sessionIdentity: request.sessionIdentity,
           remainingUses: request.sessionBudgetUses,
+          clientRootShare32B64u: request.clientRootShare32B64u,
           routeAuth: {
             kind: 'threshold_session',
             jwt: request.thresholdSessionAuth.thresholdSessionAuthToken,
@@ -228,7 +229,7 @@ function toBootstrapEcdsaSessionRequest(
       return applyCommonActivationRequestFields(
         {
           kind: 'passkey_cookie_reconnect_ecdsa_bootstrap',
-          nearAccountId: request.nearAccountId,
+          walletId: request.walletId,
           subjectId: request.subjectId,
           chainTarget: request.chainTarget,
           source: request.source,
@@ -250,8 +251,8 @@ export async function provisionThresholdEcdsaSessionFromBootstrapArgs(
   deps: ProvisionThresholdEcdsaSessionDeps,
   request: EcdsaBootstrapRequest,
 ): Promise<ThresholdEcdsaSessionBootstrapResult> {
-  const nearAccountId = toAccountId(request.nearAccountId);
-  return await withThresholdEcdsaBootstrapQueue(deps.queueByAccount, nearAccountId, async () => {
+  const walletId = toAccountId(request.walletId);
+  return await withThresholdEcdsaBootstrapQueue(deps.queueByWallet, walletId, async () => {
     const bootstrap = await bootstrapEcdsaSessionValue(deps.activationDeps, request);
     const thresholdSessionId = String(bootstrap.thresholdEcdsaKeyRef.thresholdSessionId || '').trim();
     if (thresholdSessionId) {

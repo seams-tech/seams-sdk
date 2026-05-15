@@ -53,7 +53,7 @@ export const SeamsContextProvider: React.FC<SeamsContextProviderProps> = ({
     ...(hasExplicitAccountDomainOverride
       ? { accountDomain: seams.configs.network.relayer.accountId }
       : {}),
-    currentNearAccountId: loginState.nearAccountId,
+    currentWalletId: loginState.nearAccountId,
     isLoggedIn: loginState.isLoggedIn,
   });
 

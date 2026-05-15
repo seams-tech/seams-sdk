@@ -5,10 +5,9 @@ import type {
 } from '../../uiConfirm/types';
 import {
   getStoredThresholdEd25519SessionRecordForAccount,
-  listThresholdEcdsaRuntimeLanesForSubject,
+  listThresholdEcdsaRuntimeLanesForWallet,
   type ThresholdEcdsaSessionStoreDeps,
 } from '../persistence/records';
-import { toWalletSubjectId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export type ClearWarmSigningSessionsDeps = {
   touchConfirm: WarmSessionMaterialClearer | WarmSessionMaterialClearAll;
@@ -32,20 +31,21 @@ function hasWarmSessionMaterialClearer(value: unknown): value is WarmSessionMate
   );
 }
 
-function collectWarmSigningSessionIdsForAccount(
+function collectWarmSigningSessionIdsForWallet(
   deps: Pick<ClearWarmSigningSessionsDeps, 'ecdsaSessions'>,
-  nearAccountId: AccountId | string,
+  walletId: AccountId | string,
 ): string[] {
   const sessionIds = new Set<string>();
   const ed25519SessionId = String(
-    getStoredThresholdEd25519SessionRecordForAccount(nearAccountId)?.thresholdSessionId || '',
+    getStoredThresholdEd25519SessionRecordForAccount(walletId)?.thresholdSessionId || '',
   ).trim();
   if (ed25519SessionId) {
     sessionIds.add(ed25519SessionId);
   }
-  for (const runtimeLane of listThresholdEcdsaRuntimeLanesForSubject(deps.ecdsaSessions, {
-    subjectId: toWalletSubjectId(nearAccountId),
-  })) {
+  for (const runtimeLane of listThresholdEcdsaRuntimeLanesForWallet(
+    deps.ecdsaSessions,
+    walletId,
+  )) {
     const ecdsaSessionId = String(runtimeLane.thresholdSessionId || '').trim();
     if (ecdsaSessionId) {
       sessionIds.add(ecdsaSessionId);
@@ -56,15 +56,14 @@ function collectWarmSigningSessionIdsForAccount(
 
 export async function clearWarmSigningSessions(
   deps: ClearWarmSigningSessionsDeps,
-  nearAccountId?: AccountId | string,
+  walletId?: AccountId | string,
 ): Promise<void> {
-  if (nearAccountId == null && hasWarmSessionMaterialClearAll(deps.touchConfirm)) {
+  if (walletId == null && hasWarmSessionMaterialClearAll(deps.touchConfirm)) {
     await deps.touchConfirm.clearAllWarmSessionMaterial().catch(() => undefined);
     return;
   }
 
-  const sessionIds =
-    nearAccountId != null ? collectWarmSigningSessionIdsForAccount(deps, nearAccountId) : [];
+  const sessionIds = walletId != null ? collectWarmSigningSessionIdsForWallet(deps, walletId) : [];
   if (!hasWarmSessionMaterialClearer(deps.touchConfirm)) return;
   const touchConfirm = deps.touchConfirm;
 

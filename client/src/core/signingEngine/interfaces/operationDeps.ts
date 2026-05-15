@@ -27,6 +27,7 @@ import type {
 import type { RestorePersistedSessionForSigningInput } from '../session/sealedRecovery/types';
 import type {
   ThresholdEcdsaChainTarget,
+  WalletSessionRef,
   WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { UserPreferencesManager } from '../session/userPreferences';
@@ -181,7 +182,7 @@ export type EvmFamilySigningDeps = EvmFamilyEcdsaSessionReaderDeps & {
   getSignerWorkerContext: () => SignerWorkerManagerContext;
   withThresholdEcdsaCommitQueue: <T>(args: {
     queueKey: string;
-    nearAccountId: string;
+    walletId: string;
     enabled: boolean;
     shouldAbort?: () => boolean;
     maxQueueLength?: number;
@@ -189,7 +190,7 @@ export type EvmFamilySigningDeps = EvmFamilyEcdsaSessionReaderDeps & {
     task: () => Promise<T>;
   }) => Promise<T>;
   requestEmailOtpTransactionSigningChallenge?: (args: {
-    nearAccountId: string;
+    walletSession: WalletSessionRef;
     chain: EvmFamilyChain;
     authLane?: EmailOtpAuthLane;
   }) => Promise<{ challengeId: string; emailHint?: string }>;
@@ -199,7 +200,7 @@ export type EvmFamilySigningDeps = EvmFamilyEcdsaSessionReaderDeps & {
     chain: EvmFamilyChain;
   }) => EmailOtpAuthLane | null;
   loginWithEmailOtpEcdsaCapabilityForSigning?: (args: {
-    nearAccountId: string;
+    walletSession: WalletSessionRef;
     subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     challengeId: string;
@@ -215,8 +216,8 @@ export type EvmFamilySigningDeps = EvmFamilyEcdsaSessionReaderDeps & {
     args: Extract<ReadAvailableSigningLanesForSigningInput, { curve: 'ecdsa' }>,
   ) => Promise<AvailableSigningLanes>;
   getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
-  markThresholdEcdsaEmailOtpSessionConsumedForAccount?: (args: {
-    nearAccountId: string;
+  markThresholdEcdsaEmailOtpSessionConsumedForSubjectTarget?: (args: {
+    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     uses?: number;
   }) => void;
@@ -243,7 +244,7 @@ export type PrivateKeyExportRecoveryDeps = {
 
 export type RegistrationAccountLifecycleDeps = {
   indexedDB: UnifiedIndexedDBManager;
-  userPreferencesManager: Pick<UserPreferencesManager, 'setCurrentUser' | 'reloadUserSettings'>;
+  userPreferencesManager: Pick<UserPreferencesManager, 'setCurrentWallet' | 'reloadUserSettings'>;
   nonceCoordinator: Pick<
     NonceCoordinator,
     'initializeNearAccessKey' | 'prefetchNearContext'

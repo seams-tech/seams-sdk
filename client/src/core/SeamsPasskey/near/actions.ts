@@ -17,6 +17,7 @@ import {
 } from '../../types/sdkSentEvents';
 import { toError, getNearShortErrorMessage } from '@shared/utils/errors';
 import { resolvePrimaryNearRpcUrl } from '../../config/chains';
+import { nearAccountRefFromAccountId } from '../../signingEngine/interfaces/ecdsaChainTarget';
 import { emitNearSigningEvent } from './signingEventHelpers';
 
 function resolveSignedTransactionAccountId(signedTransaction: SignedTransaction): string {
@@ -466,6 +467,7 @@ export async function signTransactionsWithActionsInternal({
       chain: 'near',
       kind: 'transactionsWithActions',
       args: {
+        nearAccount: nearAccountRefFromAccountId(nearAccountId),
         transactions: transactionInputsWasm,
         rpcCall: {
           nearRpcUrl: resolvePrimaryNearRpcUrl(context.configs.network.chains),

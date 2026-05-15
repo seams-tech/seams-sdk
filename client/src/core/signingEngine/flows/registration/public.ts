@@ -27,6 +27,7 @@ import {
   storeAuthenticator as storeAuthenticatorValue,
   storeUserData as storeUserDataValue,
   updateLastLogin as updateLastLoginValue,
+  type StoredRegistrationData,
   type StoreAuthenticatorInput,
 } from './accountLifecycle';
 import {
@@ -35,6 +36,7 @@ import {
 } from './session';
 
 export type { StoreAuthenticatorInput };
+export type { StoredRegistrationData };
 
 export type RegistrationPublicDeps = {
   accountLifecycle: RegistrationAccountLifecycleDeps;
@@ -125,7 +127,7 @@ export function atomicStoreRegistrationData(
     credential: WebAuthnRegistrationCredential;
     operationalPublicKey: string;
   },
-): Promise<void> {
+): Promise<StoredRegistrationData> {
   return atomicStoreRegistrationDataValue(deps.accountLifecycle, args);
 }
 

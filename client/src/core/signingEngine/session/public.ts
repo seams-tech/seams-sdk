@@ -15,15 +15,16 @@ import type {
   AvailableSigningLanes,
 } from './availability/availableSigningLanes';
 import type {
-  RestorePersistedSessionsForAccountInput,
-  RestorePersistedSessionsForAccountResult,
+  RestorePersistedSessionsForWalletInput,
+  RestorePersistedSessionsForWalletResult,
 } from './sealedRecovery/types';
 import {
   clearAllThresholdEcdsaSessionRecords as clearAllThresholdEcdsaSessionRecordsValue,
-  clearThresholdEcdsaSessionRecordForAccount as clearThresholdEcdsaSessionRecordForAccountValue,
+  clearThresholdEcdsaSessionRecordForWallet as clearThresholdEcdsaSessionRecordForWalletValue,
   getThresholdEcdsaKeyRefByKey as getThresholdEcdsaKeyRefByKeyValue,
   getThresholdEcdsaSessionRecordForTarget as getThresholdEcdsaSessionRecordForTargetValue,
-  listThresholdEcdsaSessionRecordsForSubject as listThresholdEcdsaSessionRecordsForSubjectValue,
+  listThresholdEcdsaSessionRecordsForTarget as listThresholdEcdsaSessionRecordsForTargetValue,
+  listStoredThresholdEcdsaSessionRecordsForWallet,
   upsertThresholdEcdsaSessionFromBootstrap as upsertThresholdEcdsaSessionFromBootstrapValue,
   type ThresholdEcdsaSessionRecord,
   type ThresholdEcdsaSessionStoreDeps,
@@ -34,7 +35,7 @@ import type {
 } from './identity/laneIdentity';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
 
-const EMPTY_RESTORE_PERSISTED_SESSIONS_FOR_ACCOUNT_RESULT: RestorePersistedSessionsForAccountResult = {
+const EMPTY_RESTORE_PERSISTED_SESSIONS_FOR_WALLET_RESULT: RestorePersistedSessionsForWalletResult = {
   listed: 0,
   attempted: 0,
   restored: 0,
@@ -53,38 +54,52 @@ export type SessionPublicDeps = {
   };
   restore: {
     emailOtp: (
-      args: RestorePersistedSessionsForAccountInput & {
+      args: RestorePersistedSessionsForWalletInput & {
         walletId: string;
         authMethod: 'email_otp';
       },
-    ) => Promise<RestorePersistedSessionsForAccountResult>;
+    ) => Promise<RestorePersistedSessionsForWalletResult>;
     passkey?: (
-      args: RestorePersistedSessionsForAccountInput & {
+      args: RestorePersistedSessionsForWalletInput & {
         walletId: string;
         authMethod: 'passkey';
       },
-    ) => Promise<RestorePersistedSessionsForAccountResult>;
+    ) => Promise<RestorePersistedSessionsForWalletResult>;
   };
 };
 
 export type UpsertThresholdEcdsaSessionFromBootstrapInput = {
-  nearAccountId: AccountId | string;
+  walletId: AccountId | string;
   chainTarget: ThresholdEcdsaChainTarget;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
   source: ThresholdEcdsaSessionStoreSource;
   emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
 };
 
-export type GetThresholdEcdsaKeyRefForAccountTargetInput = {
-  nearAccountId: AccountId | string;
+export type GetThresholdEcdsaKeyRefForSubjectTargetInput = {
+  subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   source: ThresholdEcdsaSessionStoreSource;
 };
 
-function mergeRestorePersistedSessionsForAccountResults(
-  results: readonly RestorePersistedSessionsForAccountResult[],
-): RestorePersistedSessionsForAccountResult {
-  return results.reduce<RestorePersistedSessionsForAccountResult>(
+export type GetThresholdEcdsaKeyRefForWalletTargetInput = {
+  walletId: AccountId | string;
+  chainTarget: ThresholdEcdsaChainTarget;
+  source: ThresholdEcdsaSessionStoreSource;
+};
+
+export type ListThresholdEcdsaSessionRecordsForTargetInput = {
+  subjectId: WalletSubjectId;
+  chainTarget: ThresholdEcdsaChainTarget;
+  signingRootId?: string;
+  signingRootVersion?: string;
+  source?: ThresholdEcdsaSessionStoreSource;
+};
+
+function mergeRestorePersistedSessionsForWalletResults(
+  results: readonly RestorePersistedSessionsForWalletResult[],
+): RestorePersistedSessionsForWalletResult {
+  return results.reduce<RestorePersistedSessionsForWalletResult>(
     (acc, result) => ({
       listed: acc.listed + result.listed,
       attempted: acc.attempted + result.attempted,
@@ -93,16 +108,16 @@ function mergeRestorePersistedSessionsForAccountResults(
       skipped: acc.skipped + result.skipped,
       truncated: acc.truncated + result.truncated,
     }),
-    EMPTY_RESTORE_PERSISTED_SESSIONS_FOR_ACCOUNT_RESULT,
+    EMPTY_RESTORE_PERSISTED_SESSIONS_FOR_WALLET_RESULT,
   );
 }
 
-export async function restorePersistedSessionsForAccount(
+export async function restorePersistedSessionsForWallet(
   deps: SessionPublicDeps,
-  args: RestorePersistedSessionsForAccountInput,
-): Promise<RestorePersistedSessionsForAccountResult> {
+  args: RestorePersistedSessionsForWalletInput,
+): Promise<RestorePersistedSessionsForWalletResult> {
   const walletId = String(toAccountId(args.walletId) || '').trim();
-  if (!walletId) return EMPTY_RESTORE_PERSISTED_SESSIONS_FOR_ACCOUNT_RESULT;
+  if (!walletId) return EMPTY_RESTORE_PERSISTED_SESSIONS_FOR_WALLET_RESULT;
 
   const authMethods = args.authMethod ? [args.authMethod] : (['email_otp', 'passkey'] as const);
   const results = await Promise.all(
@@ -119,12 +134,12 @@ export async function restorePersistedSessionsForAccount(
           ...args,
           walletId,
           authMethod,
-        })) ?? EMPTY_RESTORE_PERSISTED_SESSIONS_FOR_ACCOUNT_RESULT
+        })) ?? EMPTY_RESTORE_PERSISTED_SESSIONS_FOR_WALLET_RESULT
       );
     }),
   );
 
-  return mergeRestorePersistedSessionsForAccountResults(results);
+  return mergeRestorePersistedSessionsForWalletResults(results);
 }
 
 export async function readPersistedAvailableSigningLanes(
@@ -143,17 +158,21 @@ export function upsertThresholdEcdsaSessionFromBootstrap(
   args: UpsertThresholdEcdsaSessionFromBootstrapInput,
 ): void {
   upsertThresholdEcdsaSessionFromBootstrapValue(deps.ecdsaSessions, {
-    ...args,
+    walletId: args.walletId,
+    chainTarget: args.chainTarget,
+    bootstrap: args.bootstrap,
+    source: args.source,
+    ...(args.emailOtpAuthContext ? { emailOtpAuthContext: args.emailOtpAuthContext } : {}),
     ...(deps.signingSessionSeal ? { signingSessionSeal: deps.signingSessionSeal } : {}),
   });
 }
 
-export function getThresholdEcdsaKeyRefForAccountTarget(
+export function getThresholdEcdsaKeyRefForSubjectTarget(
   deps: SessionPublicDeps,
-  args: GetThresholdEcdsaKeyRefForAccountTargetInput,
+  args: GetThresholdEcdsaKeyRefForSubjectTargetInput,
 ): ThresholdEcdsaSecp256k1KeyRef {
   const record = getThresholdEcdsaSessionRecordForTargetValue(deps.ecdsaSessions, {
-    subjectId: toWalletSubjectId(args.nearAccountId),
+    subjectId: toWalletSubjectId(args.subjectId),
     chainTarget: args.chainTarget,
     source: args.source,
   });
@@ -174,18 +193,51 @@ export function getThresholdEcdsaKeyRefForAccountTarget(
   );
 }
 
-export function listThresholdEcdsaSessionRecordsForSubject(
+export function getThresholdEcdsaKeyRefForWalletTarget(
   deps: SessionPublicDeps,
-  args: { subjectId: WalletSubjectId },
-): ThresholdEcdsaSessionRecord[] {
-  return listThresholdEcdsaSessionRecordsForSubjectValue(deps.ecdsaSessions, args);
+  args: GetThresholdEcdsaKeyRefForWalletTargetInput,
+): ThresholdEcdsaSecp256k1KeyRef {
+  const records = listStoredThresholdEcdsaSessionRecordsForWallet(args.walletId, {
+    chainTarget: args.chainTarget,
+    source: args.source,
+  });
+  if (records.length !== 1) {
+    throw new Error(
+      records.length > 1
+        ? `[SigningEngine] ambiguous threshold ECDSA keyRef for wallet ${String(args.walletId)} ${thresholdEcdsaChainTargetKey(args.chainTarget)}`
+        : `[SigningEngine] missing threshold ECDSA keyRef for wallet ${String(args.walletId)} ${thresholdEcdsaChainTargetKey(args.chainTarget)}`,
+    );
+  }
+  const record = records[0]!;
+  const selected = getThresholdEcdsaKeyRefByKeyValue(deps.ecdsaSessions, {
+    subjectId: record.subjectId,
+    authMethod: record.source === 'email_otp' ? 'email_otp' : 'passkey',
+    curve: 'ecdsa',
+    chainTarget: record.chainTarget,
+    ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
+    signingRootId: record.signingRootId,
+    signingRootVersion: record.signingRootVersion || 'default',
+    walletSigningSessionId: record.walletSigningSessionId,
+    thresholdSessionId: record.thresholdSessionId,
+  })?.keyRef;
+  if (selected) return selected;
+  throw new Error(
+    `[SigningEngine] missing threshold ECDSA keyRef for wallet ${String(args.walletId)} ${thresholdEcdsaChainTargetKey(args.chainTarget)}`,
+  );
 }
 
-export function clearThresholdEcdsaSessionRecordForAccount(
+export function listThresholdEcdsaSessionRecordsForTarget(
   deps: SessionPublicDeps,
-  nearAccountId: AccountId | string,
+  args: ListThresholdEcdsaSessionRecordsForTargetInput,
+): ThresholdEcdsaSessionRecord[] {
+  return listThresholdEcdsaSessionRecordsForTargetValue(deps.ecdsaSessions, args);
+}
+
+export function clearThresholdEcdsaSessionRecordForWallet(
+  deps: SessionPublicDeps,
+  walletId: AccountId | string,
 ): void {
-  clearThresholdEcdsaSessionRecordForAccountValue(deps.ecdsaSessions, nearAccountId);
+  clearThresholdEcdsaSessionRecordForWalletValue(deps.ecdsaSessions, walletId);
 }
 
 export function clearAllThresholdEcdsaSessionRecords(deps: SessionPublicDeps): void {
@@ -194,21 +246,25 @@ export function clearAllThresholdEcdsaSessionRecords(deps: SessionPublicDeps): v
 
 export function createSessionPublicApi(deps: SessionPublicDeps) {
   return {
-    restorePersistedSessionsForAccount: (args: RestorePersistedSessionsForAccountInput) =>
-      restorePersistedSessionsForAccount(deps, args),
+    restorePersistedSessionsForWallet: (args: RestorePersistedSessionsForWalletInput) =>
+      restorePersistedSessionsForWallet(deps, args),
     readPersistedAvailableSigningLanes: (
       args: Omit<ReadAvailableSigningLanesInput, 'ecdsaChainTargets'>,
     ) => readPersistedAvailableSigningLanes(deps, args),
     upsertThresholdEcdsaSessionFromBootstrap: (
       args: UpsertThresholdEcdsaSessionFromBootstrapInput,
     ) => upsertThresholdEcdsaSessionFromBootstrap(deps, args),
-    getThresholdEcdsaKeyRefForAccountTarget: (
-      args: GetThresholdEcdsaKeyRefForAccountTargetInput,
-    ) => getThresholdEcdsaKeyRefForAccountTarget(deps, args),
-    listThresholdEcdsaSessionRecordsForSubject: (args: { subjectId: WalletSubjectId }) =>
-      listThresholdEcdsaSessionRecordsForSubject(deps, args),
-    clearThresholdEcdsaSessionRecordForAccount: (nearAccountId: AccountId | string) =>
-      clearThresholdEcdsaSessionRecordForAccount(deps, nearAccountId),
+    getThresholdEcdsaKeyRefForWalletTarget: (
+      args: GetThresholdEcdsaKeyRefForWalletTargetInput,
+    ) => getThresholdEcdsaKeyRefForWalletTarget(deps, args),
+    getThresholdEcdsaKeyRefForSubjectTarget: (
+      args: GetThresholdEcdsaKeyRefForSubjectTargetInput,
+    ) => getThresholdEcdsaKeyRefForSubjectTarget(deps, args),
+    listThresholdEcdsaSessionRecordsForTarget: (
+      args: ListThresholdEcdsaSessionRecordsForTargetInput,
+    ) => listThresholdEcdsaSessionRecordsForTarget(deps, args),
+    clearThresholdEcdsaSessionRecordForWallet: (walletId: AccountId | string) =>
+      clearThresholdEcdsaSessionRecordForWallet(deps, walletId),
     clearAllThresholdEcdsaSessionRecords: () => clearAllThresholdEcdsaSessionRecords(deps),
   };
 }
@@ -216,8 +272,8 @@ export function createSessionPublicApi(deps: SessionPublicDeps) {
 export type SessionPublicApi = ReturnType<typeof createSessionPublicApi>;
 
 export type {
-  RestorePersistedSessionsForAccountInput,
-  RestorePersistedSessionsForAccountResult,
+  RestorePersistedSessionsForWalletInput,
+  RestorePersistedSessionsForWalletResult,
 } from './sealedRecovery/types';
 export type {
   EmailOtpEcdsaSealedRecoveryRecord,

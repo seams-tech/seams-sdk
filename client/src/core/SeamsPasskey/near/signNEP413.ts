@@ -3,6 +3,7 @@ import type { SignNEP413HooksOptions } from '../../types/sdkSentEvents';
 import { SigningEventPhase } from '../../types/sdkSentEvents';
 import type { AccountId } from '../../types/accountIds';
 import { base64Encode } from '@shared/utils/encoders';
+import { nearAccountRefFromAccountId } from '../../signingEngine/interfaces/ecdsaChainTarget';
 import { emitNearSigningEvent } from './signingEventHelpers';
 
 /**
@@ -111,11 +112,11 @@ export async function signNEP413Message(args: {
       chain: 'near',
       kind: 'nep413',
       args: {
+        nearAccount: nearAccountRefFromAccountId(nearAccountId),
         message: params.message,
         recipient: params.recipient,
         nonce,
         state: params.state || null,
-        accountId: nearAccountId,
         signerSlot: hasValidSignerSlot ? signerSlot : undefined,
         title: confirmerText?.title,
         body: confirmerText?.body,

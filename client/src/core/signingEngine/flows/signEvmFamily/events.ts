@@ -20,7 +20,7 @@ export function toNonceLifecycleMetricBase(
     chainId: reservation.chainId,
     sender: reservation.sender,
     nonce: reservation.nonce.toString(),
-    ...(reservation.nearAccountId ? { nearAccountId: reservation.nearAccountId } : {}),
+    ...(reservation.walletId ? { walletId: reservation.walletId } : {}),
   };
   return reservation.nonceKey != null
     ? { ...base, nonceKey: reservation.nonceKey.toString() }

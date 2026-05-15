@@ -70,7 +70,7 @@ export async function provisionWarmEd25519Capability(
     onTransition: deps.onTransition,
     event: {
       type: 'ed25519_capability_provisioned',
-      accountId: nearAccountId,
+      walletId: nearAccountId,
       thresholdSessionId: expectedSessionId,
       before: summarizeWarmSessionTransition(beforeWarmSession),
       after: summarizeWarmSessionTransition(afterWarmSession),

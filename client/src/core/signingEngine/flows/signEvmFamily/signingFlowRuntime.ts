@@ -40,7 +40,10 @@ import type {
   EvmFamilyThresholdEcdsaReauthResult,
 } from './thresholdAdmission';
 import type { EvmFamilyThresholdEcdsaStepUpRuntime } from './requireEvmFamilyStepUpAuth';
-import { type ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type {
+  ThresholdEcdsaChainTarget,
+  WalletSessionRef,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildEvmFamilyPasskeyEcdsaProvisionPlan,
   buildEvmFamilyWarmSessionReconnectPlan,
@@ -61,7 +64,7 @@ type ThresholdEcdsaPresignRefillEvent = {
 };
 
 type ThresholdEcdsaCommitQueueArgs = {
-  nearAccountId: string;
+  walletId: string;
   thresholdSessionId: string;
   shouldAbort?: () => boolean;
   task: () => Promise<unknown>;
@@ -90,7 +93,7 @@ function requirePlannedReconnectSessionIdentity(args: {
 
 export async function createEvmFamilySigningFlowRuntime(args: {
   deps: EvmFamilySigningDeps;
-  nearAccountId: string;
+  walletSession: WalletSessionRef;
   request: TempoSigningRequest | EvmSigningRequest;
   chainTarget: ThresholdEcdsaChainTarget;
   senderSignatureAlgorithm: EvmFamilySenderSignatureAlgorithm;
@@ -114,6 +117,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
   const signerWorkerCtx = args.deps.getSignerWorkerContext();
   const ctx = args.deps.touchConfirm.getContext();
   const warmSessionServices = createEvmFamilyWarmSessionServices(args.deps);
+  const walletId = String(args.walletSession.walletId);
   const requestChainId = args.chainTarget.chainId;
   const requestChainTarget = args.chainTarget;
   const runRuntimeCommand = async <T>(
@@ -179,11 +183,11 @@ export async function createEvmFamilySigningFlowRuntime(args: {
             '[SigningEngine] passkey ECDSA reconnect requires threshold key identity',
           );
         }
-        const { policy, sessionPolicyDigest32 } = await buildEcdsaSessionPolicy({
-          userId: args.nearAccountId,
-          subjectId: lane.subjectId,
-          rpId,
-          relayerKeyId,
+	        const { policy, sessionPolicyDigest32 } = await buildEcdsaSessionPolicy({
+	          walletSessionUserId: walletId,
+	          subjectId: lane.subjectId,
+	          rpId,
+	          relayerKeyId,
           chainTarget: lane.chainTarget,
           ecdsaThresholdKeyId,
           ...(record?.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
@@ -227,7 +231,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
         });
         emitSigningSessionFlowTrace('evm-family', {
           stage: 'ecdsa_runtime.passkey_reconnect_start',
-          accountId: args.nearAccountId,
+          accountId: walletId,
           chain: args.request.chain,
           chainId: requestChainId,
           lane: {
@@ -261,7 +265,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
         });
         emitSigningSessionFlowTrace('evm-family', {
           stage: 'ecdsa_runtime.passkey_reconnect_admitted',
-          accountId: args.nearAccountId,
+          accountId: walletId,
           chain: args.request.chain,
           chainId: requestChainId,
           keyRef: {
@@ -351,7 +355,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
     ctx,
     touchConfirm: args.deps.touchConfirm,
     workerCtx: signerWorkerCtx,
-    nearAccountId: args.nearAccountId,
+    walletId,
     onEvent: args.onEvent,
     engines: {
       secp256k1: new Secp256k1Engine({
@@ -368,7 +372,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
             emitEvmFamilySigningEvent(args.onEvent, {
               phase: SigningEventPhase.STEP_08_PRESIGN_REFILL_SCHEDULED,
               status: 'running',
-              accountId: args.nearAccountId,
+              accountId: walletId,
               message: result.scheduled
                 ? `Scheduled threshold presign refill (${trigger})`
                 : `Skipped threshold presign refill (${trigger}): ${result.reason}`,
@@ -387,21 +391,21 @@ export async function createEvmFamilySigningFlowRuntime(args: {
             emitEvmFamilySigningEvent(args.onEvent, {
               phase: SigningEventPhase.STEP_10_COMMIT_QUEUED,
               status: 'running',
-              accountId: args.nearAccountId,
+              accountId: walletId,
               interaction: { kind: 'none', overlay: 'none' },
               data: { queueKey, chain: args.request.chain },
             });
           } catch {}
           return await args.deps.withThresholdEcdsaCommitQueue({
             queueKey,
-            nearAccountId: queueArgs.nearAccountId,
+            walletId: queueArgs.walletId,
             enabled: true,
             shouldAbort: queueArgs.shouldAbort,
             task: async () => {
               throwIfEvmFamilySigningCancelled(queueArgs.shouldAbort);
               await assertThresholdSigningSessionReady({
                 signingSessionCoordinator: warmSessionServices,
-                nearAccountId: String(queueArgs.nearAccountId),
+                walletId: String(queueArgs.walletId),
                 chainTarget: requestChainTarget,
                 sessionId: thresholdSessionId,
                 usesNeeded: 1,
@@ -410,14 +414,14 @@ export async function createEvmFamilySigningFlowRuntime(args: {
                 emitEvmFamilySigningEvent(args.onEvent, {
                   phase: SigningEventPhase.STEP_10_COMMIT_STARTED,
                   status: 'running',
-                  accountId: args.nearAccountId,
+                  accountId: walletId,
                   interaction: { kind: 'none', overlay: 'none' },
                   data: { queueKey, chain: args.request.chain },
                 });
               } catch {}
               await ensureSmartAccountDeploymentReady({
                 deps: args.deps,
-                nearAccountId: args.nearAccountId,
+                walletId,
                 request: args.request,
                 onEvent: args.onEvent,
                 ...(args.getThresholdEcdsaKeyRef()

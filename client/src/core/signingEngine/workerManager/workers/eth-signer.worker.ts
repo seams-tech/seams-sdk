@@ -39,7 +39,7 @@ type EthSignerWorkerRequest =
       type: 'deriveSecp256k1KeypairFromPrfSecond';
       payload: {
         prfSecond: unknown;
-        nearAccountId: string;
+        walletSessionUserId: string;
       };
     }
   | {
@@ -398,9 +398,13 @@ self.addEventListener('message', async (event: MessageEvent) => {
       }
       case 'deriveSecp256k1KeypairFromPrfSecond': {
         const prfSecond = toU8(msg.payload.prfSecond);
-        const nearAccountId = String(msg.payload.nearAccountId || '').trim();
+        const walletSessionUserId = String(msg.payload.walletSessionUserId || '').trim();
         try {
-          const out = derive_secp256k1_keypair_from_prf_second(prfSecond, nearAccountId) as Uint8Array;
+          // The current WASM export keeps the legacy parameter name; this worker boundary carries wallet-session identity.
+          const out = derive_secp256k1_keypair_from_prf_second(
+            prfSecond,
+            walletSessionUserId,
+          ) as Uint8Array;
           if (out.length !== 85) {
             throw new Error(
               `derive_secp256k1_keypair_from_prf_second must return 85 bytes (got ${out.length})`,

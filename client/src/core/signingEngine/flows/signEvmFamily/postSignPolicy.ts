@@ -4,7 +4,7 @@ import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/
 
 type EvmFamilyEcdsaPostSignPolicyRunner = {
   applyEcdsaPostSignPolicy: (args: {
-    nearAccountId: string;
+    walletId: string;
     chainTarget: ThresholdEcdsaChainTarget;
     thresholdSessionId: string;
     selectedRecord: ThresholdEcdsaSessionRecord;
@@ -13,7 +13,7 @@ type EvmFamilyEcdsaPostSignPolicyRunner = {
 
 export async function applySuccessfulEvmFamilyEcdsaPostSignPolicy(args: {
   postSignPolicy: EvmFamilyEcdsaPostSignPolicyRunner;
-  nearAccountId: string;
+  walletId: string;
   chainTarget: ThresholdEcdsaChainTarget;
   ecdsaSigningLane: ResolvedEvmFamilyEcdsaSigningLane;
   selectedRecord: ThresholdEcdsaSessionRecord;
@@ -21,7 +21,7 @@ export async function applySuccessfulEvmFamilyEcdsaPostSignPolicy(args: {
   // Post-sign cleanup is security-sensitive: it must operate on the exact
   // lane used after any OTP/passkey reauth, not a generic threshold-session id.
   await args.postSignPolicy.applyEcdsaPostSignPolicy({
-    nearAccountId: args.nearAccountId,
+    walletId: args.walletId,
     chainTarget: args.chainTarget,
     thresholdSessionId: String(args.ecdsaSigningLane.thresholdSessionId),
     selectedRecord: args.selectedRecord,
