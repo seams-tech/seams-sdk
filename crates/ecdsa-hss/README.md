@@ -138,6 +138,8 @@ Current performance notes:
   [docs/plans/integration-seam-design-memo.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/docs/plans/integration-seam-design-memo.md)
 - Boundary note:
   [docs/plans/boundary.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/docs/plans/boundary.md)
+- True server-blindness plan:
+  [docs/plans/true-server-blindness.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/docs/plans/true-server-blindness.md)
 - Refactor 1:
   [docs/plans/refactor-1.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/docs/plans/refactor-1.md)
 - Optimization V1 summary:

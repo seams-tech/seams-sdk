@@ -70,7 +70,9 @@ Today that command:
 - copies the generated Lean package into `EcdsaHss/`
 - builds the Lean workspace
 
-It is still not part of the default gated `ecdsa-hss` proof path yet.
+It is part of the default crate-local `ecdsa-hss` proof path through
+`just ecdsa-hss-fv`; its scope remains limited to boundary extraction and the
+Lean workspace build.
 
 The setup script for the extraction toolchain is:
 
