@@ -261,6 +261,28 @@ It should explicitly not try to prove:
 - [ ] keep side-channel resistance in a separate security-engineering plan
       rather than this formal-verification phase
 
+### Phase 6: True-Blind ECDSA HSS V2
+
+This phase is the Lean-first track for replacing joined-root ECDSA HSS
+derivation with role-local additive share derivation.
+
+- [x] add the initial Lean scaffold in
+      [lean-privacy/EcdsaHssPrivacy/TrueBlindV2.lean](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/lean-privacy/EcdsaHssPrivacy/TrueBlindV2.lean)
+- [x] model role-local client and server private inputs
+- [x] model role-local `x_client` and `x_relayer` derived shares
+- [x] model non-export client and server views
+- [x] model explicit-export client and server views
+- [x] add first exclusion theorems for forbidden fields in non-export views
+- [x] add named algebraic obligations for public-key agreement and export
+      verification
+- [ ] replace named algebraic obligations with concrete Lean relations over
+      scalar addition and public-key addition
+- [ ] define `F_ecdsa_hss_true_blind_v2` as the ideal functionality
+- [ ] add simulator definitions from own share plus public identity
+- [ ] add non-derivability theorems for client-secret and server-secret variation
+- [ ] update the Verus mirror only after the Lean v2 boundary settles
+- [ ] extract the v2 Rust boundary with Aeneas after implementation lands
+
 ## Current Recommendation
 
 If we want verification work that helps implementation soonest, do this:

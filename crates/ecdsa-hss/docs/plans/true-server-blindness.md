@@ -112,6 +112,8 @@ The main performance budget is:
 
 Do proof work before changing production Rust.
 
+- [x] Add the initial v2 Lean scaffold:
+  [TrueBlindV2.lean](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/lean-privacy/EcdsaHssPrivacy/TrueBlindV2.lean).
 - [ ] Freeze the new ideal functionality in Lean:
   `F_ecdsa_hss_true_blind_v2`.
 - [ ] Model private inputs:

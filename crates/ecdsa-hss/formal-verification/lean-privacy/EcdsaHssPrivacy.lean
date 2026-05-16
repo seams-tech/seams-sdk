@@ -4,3 +4,4 @@ import EcdsaHssPrivacy.Simulators
 import EcdsaHssPrivacy.Assumptions
 import EcdsaHssPrivacy.Goals
 import EcdsaHssPrivacy.AeneasBridge
+import EcdsaHssPrivacy.TrueBlindV2

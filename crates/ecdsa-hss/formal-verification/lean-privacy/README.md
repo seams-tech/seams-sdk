@@ -81,6 +81,24 @@ Current decision:
   side-channel claims out of this track
 - keep implementation-facing algebraic proofs in Verus
 
+## True-Blind V2 Scaffold
+
+The v2 true server-blindness scaffold starts in
+[EcdsaHssPrivacy/TrueBlindV2.lean](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/lean-privacy/EcdsaHssPrivacy/TrueBlindV2.lean).
+
+That module is the Lean-first target for the next ECDSA HSS protocol shape:
+
+- client derives only `x_client`
+- server derives only `x_relayer`
+- public identity is `X = x_clientG + x_relayerG`
+- non-export server view excludes `y_client`, `x_client`, and canonical `x`
+- non-export client view excludes `y_relayer` and `x_relayer`
+- explicit export reconstructs canonical `x` in the client export view
+
+The first scaffold intentionally carries the group/arithmetic facts as named
+obligations. The next step is to refine those obligations into concrete Lean
+relations before changing production Rust.
+
 See:
 
 - [docs/implementation-plan.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/lean-privacy/docs/implementation-plan.md)

@@ -268,3 +268,32 @@ Status:
 - transport/persisted-state exclusion theorems now exist in `lean-privacy/`
 - executable anti-drift checks now exist in
   [verus/tests/anti_drift.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/verus/tests/anti_drift.rs)
+
+## FV-ECDSA-HSS-010
+
+Target:
+
+- v2 true server-blindness model
+
+Property:
+
+- client derives `x_client` from client-owned material
+- server derives `x_relayer` from server-owned material
+- non-export server views exclude `y_client`, `x_client`, and canonical `x`
+- non-export client views exclude `y_relayer` and `x_relayer`
+- public identity is shared through `X = x_clientG + x_relayerG`
+- explicit export reconstructs canonical `x` in the client export view
+
+Planned track:
+
+- Lean privacy scaffold first
+- Rust implementation after the v2 Lean boundary has stable definitions
+- Aeneas bridge after the Rust boundary exists
+
+Status:
+
+- initial Lean scaffold exists at
+  [lean-privacy/EcdsaHssPrivacy/TrueBlindV2.lean](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/lean-privacy/EcdsaHssPrivacy/TrueBlindV2.lean)
+- current scaffold includes role-local input/share models, non-export
+  client/server views, explicit-export views, exclusion theorems, and named
+  algebraic obligations for additive public-key agreement and export verification
