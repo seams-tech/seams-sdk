@@ -3,102 +3,116 @@
 `ecdsa-hss` is the secp256k1 / ECDSA sibling to
 [ed25519-hss](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss).
 
-The goal is not to add another EVM recovery key. The goal is to replace the
-current two-key EVM model with one canonical secp256k1 key that is:
+The crate derives one canonical hidden secp256k1 private scalar `x` for each
+stable EVM-family key identity. That key is:
 
 - threshold-signable
-- exportable
-- deterministic
+- explicitly exportable through the `ExplicitKeyExport` operation
+- deterministic from client/server root-share material and stable key context
 - server-blind
 
-The intended contribution is:
+The crate provides:
 
-- one canonical secp256k1 private key `x`
-- one corresponding secp256k1 public key and Ethereum address
-- threshold ECDSA signing uses shares of that same `x`
-- export returns that same `x`
-- the server can participate in setup and signing flows without seeing `x`
+- one canonical secp256k1 private scalar `x`
+- one corresponding compressed secp256k1 public key `X = x * G`
+- one Ethereum address derived from `X`
+- additive 2-party signing shares `x_client` and `x_relayer`
+- mapped private-share inputs for the `threshold-signatures` ECDSA backend
+- explicit export output that returns the same canonical `x`
 
-This crate now has a crate-local reference implementation for the one-key
-bootstrap, sign, and explicit export lifecycle. The SDK/server staged
-`ecdsa-hss` seam is now live and test-backed; remaining work is rollout/QA and
-broader product cleanup, not the old bootstrap cutover itself.
+## V1 Scope
 
-## Why This Exists
+The v1 implementation is fixed to:
 
-Today the repo's EVM threshold path effectively has two key lanes:
+- signer set `{client=1, relayer=2}`
+- 2-of-2 threshold ECDSA
+- secp256k1 / Ethereum address derivation
+- stable key scope `evm-family`
+- direct additive-share derivation from canonical `x`
+- the existing `threshold-signatures` sign-time backend through the
+  additive-share mapping layer
 
-- a threshold ECDSA signing key
-- a separate deterministic exportable secp256k1 key
+The core invariant is:
 
-`ecdsa-hss` exists to remove that split.
+```text
+x = x_client + x_relayer mod n
+pub(x) = pub(x_client) + pub(x_relayer)
+threshold_ethereum_address = addr(pub(x))
+exported_private_key = x
+```
 
-The working v1 design target is:
+## Architecture
 
-- derive a canonical hidden secp256k1 scalar `x`
-- derive additive 2-party shares of `x`
-- keep v1 scope fixed to the current 2-of-2 signer set `{client=1, relayer=2}`
-- reuse the current `threshold-signatures`-based EVM threshold ECDSA backend through the
-  existing additive-share mapping layer
-- keep resharing as a fallback only if direct additive-share integration fails
+The v1 lifecycle is:
 
-## Current Status
+1. Client and relayer provide root-share inputs.
+2. `ecdsa-hss` encodes the stable key context.
+3. `ecdsa-hss` derives canonical scalar `x`.
+4. `ecdsa-hss` derives additive shares `x_client` and `x_relayer`.
+5. The additive shares are mapped into `threshold-signatures` participant-share
+   encoding.
+6. Threshold ECDSA presign/sign runs with the mapped shares and public key
+   `X = x * G`.
+7. Explicit export returns canonical `x` and verifies that `pub(x)` matches the
+   threshold signing identity.
 
-Current status:
+The sign-time backend seam is:
 
-- specs and core design memos are now written
-- a reference staged derivation path now exists in the crate
-- a crate-local EVM-threshold bootstrap entrypoint now exists
-- a crate-local EVM-threshold sign bridge now exists
-- a crate-local explicit export entrypoint now exists
-- the preferred share-derivation design is direct additive shares from
-  canonical `x`
-- public-key-preserving resharing remains the fallback path
-- the current threshold ECDSA backend seam is now frozen as:
-  - shared threshold identity
-  - client presign input
-  - relayer presign input
-- crate-local bootstrap -> sign -> export regressions now prove the one-key
-  identity across:
-  - generic non-export bootstrap
-  - registration bootstrap
-  - session bootstrap
-- the agreed formal-verification scope is now complete:
-  - Verus stable slice is complete for the frozen implementation-facing scope
-  - the Lean boundary bridge is complete for the server-visible staged boundary
-  - the Lean privacy pass is complete for the frozen server-visible staged
-    boundary scope
-- crate-local benchmark work is now in a good stopping place for the crate
-  phase:
-  - derivation/bootstrap/export are all sub-millisecond
-  - the only remaining hotspot is the upstream threshold-signatures triples
-    phase at roughly `~40 ms` full sign latency
-- a first wasm baseline now also exists through
-  [wasm/eth_signer](/Users/pta/Dev/rust/simple-threshold-signer/wasm/eth_signer):
-  - bootstrap/export remain sub-millisecond
-  - full non-export sign is about `~120 ms` in the current Node-hosted wasm
-    runtime
-  - profiled wasm sign runs show almost all of that cost is still the
-    presign/triples roundtrip, not input parsing or final signature assembly
+- shared threshold identity:
+  - `group_public_key33`
+  - `ethereum_address20`
+  - fixed participant IDs `{1, 2}`
+- client presign input:
+  - additive share `x_client`
+  - mapped threshold private share for participant `1`
+  - client verifying share public key
+- relayer presign input:
+  - additive share `x_relayer`
+  - mapped threshold private share for participant `2`
+  - relayer verifying share public key
 
-This crate should not be treated as production-ready yet.
+## Output Policy
 
-For the crate itself, the agreed formal-verification reconciliation is now
-done. The remaining unchecked items are optional parity/performance follow-up
-or product cutover work, not core crate implementation gaps.
+The operation type controls what leaves the HSS boundary:
 
-Current crate stop point:
+- `RegistrationBootstrap`, `SessionBootstrap`, and `NonExportSign` return
+  threshold material only.
+- `ExplicitKeyExport` returns threshold material and canonical `x`.
 
-- implementation-complete enough for crate review
-- native and wasm baselines are established
-- optimization is paused at an acceptable crate-phase stopping point
-- the agreed formal-verification scope is complete and green
-- remaining proof caveats are explicit trusted assumptions inside the current
-  Verus slice, plus intentionally deferred broader privacy/runtime scope
+Server-retained state contains:
 
-Product integration and rollout state are tracked separately in
+- relayer threshold share
+- relayer public key
+- threshold public key
+- threshold Ethereum address
+- retry counter
+
+Server-retained state excludes canonical `x`.
+
+## Status
+
+The crate-local reference implementation includes:
+
+- staged derivation
+- EVM-threshold bootstrap
+- EVM-threshold sign bridge
+- explicit export
+- bootstrap -> sign -> export regression coverage
+- Verus coverage for the frozen implementation-facing scope
+- Lean boundary and privacy checks for the frozen server-visible staged boundary
+- native and wasm performance baselines
+
+The crate is ready for crate-level review. Product rollout, QA, and integration
+tracking live in
 [docs/plans/sdk-server-integration-plan.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/docs/plans/sdk-server-integration-plan.md).
-This README stays crate-scoped.
+
+Current performance notes:
+
+- derivation, bootstrap, and export are sub-millisecond in native benchmarks
+- full native sign latency is dominated by upstream `threshold-signatures`
+  triples/presign work, roughly `~40 ms`
+- Node-hosted wasm non-export sign is about `~120 ms`
+- wasm profiling shows most sign cost lives in presign/triples roundtrip
 
 ## Docs
 
@@ -112,7 +126,7 @@ This README stays crate-scoped.
   [specs/protocol.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/specs/protocol.md)
 - Export semantics:
   [specs/export.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/specs/export.md)
-- Integration with the current threshold ECDSA backend:
+- Integration with the threshold ECDSA backend:
   [specs/integration-near-threshold.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/specs/integration-near-threshold.md)
 - Implementation plan:
   [docs/plans/implementation-plan.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/docs/plans/implementation-plan.md)
@@ -128,39 +142,3 @@ This README stays crate-scoped.
   [docs/plans/refactor-1.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/docs/plans/refactor-1.md)
 - Optimization V1 summary:
   [docs/plans/optimization-v1.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/docs/plans/optimization-v1.md)
-
-## Intended v1 Architecture
-
-The intended v1 shape is:
-
-1. Client and server hold root-share material.
-2. `ecdsa-hss` deterministically derives one canonical hidden secp256k1 secret
-   `x`.
-3. `ecdsa-hss` derives additive 2-party shares of `x`.
-4. Those additive shares are adapted into the current threshold ECDSA backend.
-5. Threshold signing and export both refer to the same logical key.
-
-The crate does not aim to be:
-
-- a generic ECDSA MPC framework
-- a generic garbling framework
-- a sidecar export layer for a separate threshold key
-
-## Working v1 Decision
-
-The current working decision is:
-
-- canonical export object: scalar-first
-- primary share-derivation path: direct additive-share derivation from
-  canonical `x`
-- fallback path: public-key-preserving resharing into the current backend only
-  if direct additive shares prove incompatible
-
-## Non-Goals
-
-`ecdsa-hss` should not:
-
-- preserve the current "threshold key plus sidecar export key" model
-- add legacy compatibility branches for the old two-key EVM flow
-- weaken the export/signing boundary to save implementation time
-- replace the current threshold ECDSA backend before reuse has been ruled out
