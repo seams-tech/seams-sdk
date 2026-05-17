@@ -2,7 +2,24 @@ import EcdsaHss
 
 namespace EcdsaHssBoundary
 
+open Aeneas Aeneas.Std
 open ecdsa_hss
+
+instance {α : Type u} {n : Aeneas.Std.Usize} [DecidableEq α] :
+    DecidableEq (Aeneas.Std.Array α n) := by
+  unfold Aeneas.Std.Array
+  infer_instance
+
+instance {α : Type u} {n : Aeneas.Std.Usize} [Repr α] :
+    Repr (Aeneas.Std.Array α n) where
+  reprPrec value prec := reprPrec value.val prec
+
+deriving instance DecidableEq for wire.ServerEvalOperationV1
+deriving instance Repr for wire.ServerEvalOperationV1
+deriving instance DecidableEq for wire.AllowedOutputKindV1
+deriving instance Repr for wire.AllowedOutputKindV1
+deriving instance DecidableEq for shared.context.EcdsaHssStableKeyContextV1
+deriving instance Repr for shared.context.EcdsaHssStableKeyContextV1
 
 /-- The initial extraction target is intentionally narrow. -/
 inductive ExtractionTarget where
@@ -18,22 +35,22 @@ structure OperationBoundaryModel where
 
 /-- Handwritten boundary model for the visible non-export output. -/
 structure NonExportBoundaryModel where
-  xClient32 : Array UInt8 32#usize
-  clientPublicKey33 : Array UInt8 33#usize
-  thresholdPublicKey33 : Array UInt8 33#usize
-  thresholdEthereumAddress20 : Array UInt8 20#usize
+  xClient32 : Array Std.U8 32#usize
+  clientPublicKey33 : Array Std.U8 33#usize
+  thresholdPublicKey33 : Array Std.U8 33#usize
+  thresholdEthereumAddress20 : Array Std.U8 20#usize
   retryCounter : UInt32
   deriving DecidableEq, Repr
 
 /-- Handwritten boundary model for the visible explicit-export output. -/
 structure ExplicitExportBoundaryModel where
-  canonicalX32 : Array UInt8 32#usize
-  canonicalPublicKey33 : Array UInt8 33#usize
-  canonicalEthereumAddress20 : Array UInt8 20#usize
-  xClient32 : Array UInt8 32#usize
-  clientPublicKey33 : Array UInt8 33#usize
-  thresholdPublicKey33 : Array UInt8 33#usize
-  thresholdEthereumAddress20 : Array UInt8 20#usize
+  canonicalX32 : Array Std.U8 32#usize
+  canonicalPublicKey33 : Array Std.U8 33#usize
+  canonicalEthereumAddress20 : Array Std.U8 20#usize
+  xClient32 : Array Std.U8 32#usize
+  clientPublicKey33 : Array Std.U8 33#usize
+  thresholdPublicKey33 : Array Std.U8 33#usize
+  thresholdEthereumAddress20 : Array Std.U8 20#usize
   retryCounter : UInt32
   deriving DecidableEq, Repr
 
@@ -47,18 +64,18 @@ inductive ClientBoundaryModel where
 structure FinalizeBoundaryModel where
   operation : wire.ServerEvalOperationV1
   rawRootMaterialDropped : Bool
-  thresholdPublicKey33 : Array UInt8 33#usize
-  thresholdEthereumAddress20 : Array UInt8 20#usize
+  thresholdPublicKey33 : Array Std.U8 33#usize
+  thresholdEthereumAddress20 : Array Std.U8 20#usize
   retryCounter : UInt32
   deriving DecidableEq, Repr
 
 /-- Handwritten boundary model for finalized retained server state. -/
 structure RetainedStateBoundaryModel where
   rawRootMaterialDropped : Bool
-  relayerThresholdShare32 : Array UInt8 32#usize
-  relayerPublicKey33 : Array UInt8 33#usize
-  thresholdPublicKey33 : Array UInt8 33#usize
-  thresholdEthereumAddress20 : Array UInt8 20#usize
+  relayerThresholdShare32 : Array Std.U8 32#usize
+  relayerPublicKey33 : Array Std.U8 33#usize
+  thresholdPublicKey33 : Array Std.U8 33#usize
+  thresholdEthereumAddress20 : Array Std.U8 20#usize
   retryCounter : UInt32
   deriving DecidableEq, Repr
 
@@ -74,9 +91,9 @@ structure RespondBoundaryModel where
 structure HiddenEvalInputBoundaryModel where
   operation : wire.ServerEvalOperationV1
   allowedOutputKind : wire.AllowedOutputKindV1
-  context : shared.context.EcdsaHssContextV1
-  yClient32Le : Array UInt8 32#usize
-  yRelayer32Le : Array UInt8 32#usize
+  context : shared.context.EcdsaHssStableKeyContextV1
+  yClient32Le : Array Std.U8 32#usize
+  yRelayer32Le : Array Std.U8 32#usize
   deriving DecidableEq, Repr
 
 /-- Handwritten boundary model for transport-visible response fields. -/
@@ -90,10 +107,10 @@ structure HiddenEvalTransportBoundaryModel where
 structure HiddenEvalPersistedStateBoundaryModel where
   operation : wire.ServerEvalOperationV1
   rawRootMaterialDropped : Bool
-  relayerThresholdShare32 : Array UInt8 32#usize
-  relayerPublicKey33 : Array UInt8 33#usize
-  thresholdPublicKey33 : Array UInt8 33#usize
-  thresholdEthereumAddress20 : Array UInt8 20#usize
+  relayerThresholdShare32 : Array Std.U8 32#usize
+  relayerPublicKey33 : Array Std.U8 33#usize
+  thresholdPublicKey33 : Array Std.U8 33#usize
+  thresholdEthereumAddress20 : Array Std.U8 20#usize
   retryCounter : UInt32
   deriving DecidableEq, Repr
 

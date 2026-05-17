@@ -1,6 +1,6 @@
 # `ecdsa-hss` Proof Inventory
 
-Last updated: 2026-04-09
+Last updated: 2026-05-17
 
 This inventory tracks the narrow stable-slice proof targets for
 [crates/ecdsa-hss](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss).
@@ -23,11 +23,16 @@ The current verification posture is:
   - additive-share derivation shape
   - fixed participant-ID mapping shape for the current backend seam
   - explicit-export output-policy shape
+  - initial true-blind role-local boundary mirror
 - Lean boundary extraction now exists for the frozen server-visible staged
   boundary
 - Lean privacy theorems now exist for the same frozen staged boundary,
   including widened client/server view models, non-derivability theorems, and
   the explicit-export exception
+- Verus now mirrors the settled true-blind role-local boundary contract for
+  Rust-facing anti-drift checks before the production rewrite
+- protocol, export, and security docs now define the role-local additive
+  boundary as the production target
 
 ## FV-ECDSA-HSS-001
 
@@ -48,6 +53,7 @@ Planned Verus module:
 Status:
 
 - field-order, participant-layout, and determinism lemmas exist
+- the encoded key scope is fixed to `evm-family` in the Verus mirror
 - fixture parity is wired to the committed corpus
 - the current parity bridge checks byte encoding, scalar range, and additive reconstruction on committed fixtures
 
@@ -273,7 +279,7 @@ Status:
 
 Target:
 
-- v2 true server-blindness model
+- true server-blindness model
 
 Property:
 
@@ -283,17 +289,80 @@ Property:
 - non-export client views exclude `y_relayer` and `x_relayer`
 - public identity is shared through `X = x_clientG + x_relayerG`
 - explicit export reconstructs canonical `x` in the client export view
+- explicit export wires require a digest-valid authorization envelope bound to
+  the export public transcript
 
 Planned track:
 
 - Lean privacy scaffold first
-- Rust implementation after the v2 Lean boundary has stable definitions
+- Rust implementation after the Lean boundary has stable definitions
 - Aeneas bridge after the Rust boundary exists
 
 Status:
 
 - initial Lean scaffold exists at
-  [lean-privacy/EcdsaHssPrivacy/TrueBlindV2.lean](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/lean-privacy/EcdsaHssPrivacy/TrueBlindV2.lean)
+  [lean-privacy/EcdsaHssPrivacy/TrueBlind.lean](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/lean-privacy/EcdsaHssPrivacy/TrueBlind.lean)
 - current scaffold includes role-local input/share models, non-export
   client/server views, explicit-export views, exclusion theorems, and named
   algebraic obligations for additive public-key agreement and export verification
+- the model now includes scalar addition modulo the secp256k1 group order,
+  abstract base multiplication/public-key addition primitives, concrete
+  public-key agreement predicates, export reconstruction predicates, and a
+  `wellFormedExecutionState` predicate that packages the true-blind algebraic
+  requirements
+- the model now defines `F_ecdsa_hss_true_blind`, ideal non-export/export views,
+  and observable-only simulators for those views
+- first non-export view-invariance theorems now prove that changing client-side
+  secrets cannot change the server view when the server share and public identity
+  are fixed, and changing server-side secrets cannot change the client view when
+  the client share and public identity are fixed
+- derivation assumptions now explicitly name the future Rust/Verus obligations:
+  client-share public-key agreement, server-share public-key agreement, and the
+  secp256k1 additive public-key law
+- the ideal functionality now has well-formedness theorems under those
+  assumptions, plus export reconstruction and shared-public-identity theorems
+- typed operation views now make the non-export and explicit-export disclosure
+  policy explicit, including proofs that non-export client operations expose no
+  relayer share or canonical scalar, explicit client export exposes the intended
+  relayer share and reconstructed scalar, and server operation views expose no
+  canonical scalar
+- public transcript fields are now modeled explicitly as context binding, public
+  share keys, threshold public key, address, operation kind, and transcript
+  digest, with proofs that transcripts expose no root/share/canonical-secret
+  payloads
+- the Lean role-local boundary contract now exists at
+  [lean-privacy/EcdsaHssPrivacy/TrueBlindBoundary.lean](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/lean-privacy/EcdsaHssPrivacy/TrueBlindBoundary.lean)
+- the boundary contract models client bootstrap wire, server bootstrap wire,
+  role-local retained client/server state, explicit export wire, and client
+  export reconstruction
+- boundary-contract theorems now prove that non-export wire/state shapes exclude
+  forbidden root/share/canonical-secret payloads, explicit export wire releases
+  only the relayer share needed for export, and client reconstruction from that
+  wire matches the ideal explicit-export client view
+- an authorized explicit-export envelope now binds export authorization to the
+  explicit-export public transcript
+- active wire-envelope theorems now prove that only explicit export can carry the
+  relayer export share and every active wire envelope excludes client
+  root/share material plus canonical `x`
+- bound explicit-export session theorems now tie client retained state, export
+  authorization, and export wire to the same public identity/context before
+  client-side reconstruction
+- bound-session reconstruction theorems now prove the reconstructed view
+  preserves the authorized public identity, matches the ideal explicit-export
+  client view for same-state sessions, and verifies against public key `X`
+- bound role-local signing-session theorems now tie retained client/server state
+  to the same public identity/context before non-export signing composition
+- mismatch-prevention theorems now prove that different public identities or
+  different context bindings prevent construction of a bound role-local signing
+  session
+- export authorization theorems now prove state-created explicit-export
+  envelopes carry valid authorization digests, malformed digests prevent valid
+  explicit-export envelopes, and any valid role-local envelope carrying a
+  relayer export share must be an authorized explicit-export wire
+- state-derived signing-session theorems now prove the composed role-local scalar
+  matches the ideal reconstructed scalar and verifies against public key `X`
+- the Verus mirror now exists at
+  [verus/src/shared/true_blind_boundary.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/verus/src/shared/true_blind_boundary.rs)
+- Verus mirror proofs cover active wire forbidden-field exclusion,
+  explicit-export authorization binding, explicit-export-only relayer-share
+  release, and role-local signing-session identity/context binding

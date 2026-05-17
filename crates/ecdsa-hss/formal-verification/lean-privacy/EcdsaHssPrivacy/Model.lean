@@ -3,11 +3,12 @@ import EcdsaHssBoundary.Scope
 namespace EcdsaHssPrivacy
 
 open EcdsaHssBoundary
+open Aeneas Aeneas.Std
 open ecdsa_hss
 
-abbrev Bytes32 := Array UInt8 32#usize
-abbrev Bytes33 := Array UInt8 33#usize
-abbrev Bytes20 := Array UInt8 20#usize
+abbrev Bytes32 := Array Std.U8 32#usize
+abbrev Bytes33 := Array Std.U8 33#usize
+abbrev Bytes20 := Array Std.U8 20#usize
 
 /-- Minimum client-secret state for the widened privacy model. -/
 structure ClientSecretState where

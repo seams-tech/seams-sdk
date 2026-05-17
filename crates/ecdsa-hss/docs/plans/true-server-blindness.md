@@ -49,8 +49,8 @@ Relevant existing material:
 Use role-local additive derivation as the production design:
 
 ```text
-x_client = H_scalar("ecdsa-hss:v2:client-share", context, y_client)
-x_relayer = H_scalar("ecdsa-hss:v2:relayer-share", context, y_relayer)
+x_client = H_scalar("ecdsa-hss:client-share", context, y_client)
+x_relayer = H_scalar("ecdsa-hss:relayer-share", context, y_relayer)
 x = x_client + x_relayer mod n
 X = xG = x_clientG + x_relayerG
 address = ethereum_address(X)
@@ -112,75 +112,191 @@ The main performance budget is:
 
 Do proof work before changing production Rust.
 
-- [x] Add the initial v2 Lean scaffold:
-  [TrueBlindV2.lean](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/lean-privacy/EcdsaHssPrivacy/TrueBlindV2.lean).
-- [ ] Freeze the new ideal functionality in Lean:
-  `F_ecdsa_hss_true_blind_v2`.
-- [ ] Model private inputs:
+- [x] Add the initial true-blind Lean scaffold:
+  [TrueBlind.lean](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/lean-privacy/EcdsaHssPrivacy/TrueBlind.lean).
+- [x] Add scalar-addition and public-key agreement relations for the true-blind model.
+- [x] Define `F_ecdsa_hss_true_blind` as the ideal functionality.
+- [x] Freeze the new ideal functionality in Lean:
+  `F_ecdsa_hss_true_blind`.
+- [x] Model private inputs:
   `y_client`, `y_relayer`.
-- [ ] Model role-local derived shares:
+- [x] Model role-local derived shares:
   `x_client`, `x_relayer`.
-- [ ] Model public outputs:
+- [x] Model public outputs:
   `X_client = x_clientG`, `X_relayer = x_relayerG`, `X = X_client + X_relayer`,
   and Ethereum address.
-- [ ] Model explicit export as a separate operation that releases
+- [x] Model explicit export as a separate operation that releases
   `x_relayer` only to the authorized client export view.
-- [ ] Prove the additive identity:
+- [x] Prove the additive identity:
 
   ```text
   X = (x_client + x_relayer)G
   X = x_clientG + x_relayerG
   ```
 
-- [ ] Prove the non-export server view excludes `y_client`, `x_client`, and
+- [x] Prove the non-export server view excludes `y_client`, `x_client`, and
   canonical `x`.
-- [ ] Prove the non-export client view excludes `y_relayer` and `x_relayer`.
-- [ ] Prove explicit export gives the client enough material to reconstruct `x`
+- [x] Prove the non-export client view excludes `y_relayer` and `x_relayer`.
+- [x] Prove explicit export gives the client enough material to reconstruct `x`
   and verify `xG == X`.
-- [ ] Prove export and threshold signing share the same public key `X`.
-- [ ] Define allowed public transcript fields:
+- [x] Prove export and threshold signing share the same public key `X`.
+- [x] Add observable-only simulators for non-export and explicit-export views.
+- [x] Add first non-export view-invariance theorems for client-secret and
+  server-secret variation.
+- [x] Add explicit derivation assumptions for client-share agreement,
+  server-share agreement, and the secp256k1 additive public-key law.
+- [x] Prove ideal-functionality well-formedness, export reconstruction, and
+  shared-public-identity properties under those assumptions.
+- [x] Add typed operation views for non-export and explicit export, with proved
+  disclosure rules for export-only material.
+- [x] Define allowed public transcript fields:
   context binding, public share commitments, public key `X`, address, operation,
   and transcript digests.
-- [ ] Define forbidden production fields in the server view:
+- [x] Define forbidden production fields in the server view:
   `y_client`, `x_client`, and canonical `x`.
-- [ ] Define forbidden production fields in the client non-export view:
+- [x] Define forbidden production fields in the client non-export view:
   `y_relayer` and `x_relayer`.
-- [ ] Run the Lean privacy build:
+- [x] Run the targeted Lean true-blind build:
 
   ```sh
-  cd crates/ecdsa-hss/formal-verification
-  make lean-check
+  cd crates/ecdsa-hss/formal-verification/lean-privacy
+  lake build EcdsaHssPrivacy.TrueBlindBoundary
   ```
+- [x] Add the Lean role-local boundary contract:
+  [TrueBlindBoundary.lean](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/lean-privacy/EcdsaHssPrivacy/TrueBlindBoundary.lean).
+- [x] Model client bootstrap wire, server bootstrap wire, role-local retained
+  client/server state, explicit export wire, and client export reconstruction.
+- [x] Prove those boundary shapes exclude forbidden root/share/canonical-secret
+  payloads.
+- [x] Prove client export reconstruction from the explicit export wire matches the
+  ideal explicit-export client view and verifies against public key `X`.
+- [x] Add an authorized explicit-export wire envelope with a transcript-bound
+  authorization witness.
+- [x] Prove only the explicit-export wire envelope can carry the relayer export
+  share.
+- [x] Prove every active wire envelope excludes client root/share material and
+  canonical `x`.
+- [x] Add a bound explicit-export session tying client retained state, export
+  authorization, and export wire to the same public identity/context.
+- [x] Prove bound-session reconstruction preserves the authorized public identity
+  and matches the ideal explicit-export client view.
+- [x] Add a bound role-local signing-session model tying retained client/server
+  state to the same public identity/context.
+- [x] Prove mismatched public identity or context prevents constructing a bound
+  role-local signing session.
+- [x] Prove state-derived role-local signing sessions reconstruct the same scalar
+  and verify against public key `X`.
+- [x] Add a digest-valid export authorization predicate for explicit export
+  envelopes.
+- [x] Prove state-created explicit export envelopes carry valid authorization
+  digests.
+- [x] Prove malformed authorization digests prevent valid explicit export
+  envelopes.
+- [x] Prove any valid role-local wire envelope carrying the relayer export share
+  must be an authorized explicit-export wire.
 
 ## Phase 2: Boundary Contract
 
 Turn the Lean model into a concrete implementation contract.
 
-- [ ] Update
+- [x] Update
   [formal-verification/docs/proof-inventory.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/docs/proof-inventory.md)
-  with the v2 true-blind proof targets.
-- [ ] Update
+  with the true-blind proof targets.
+- [x] Update
   [formal-verification/docs/implementation-plan.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/docs/implementation-plan.md)
   with the Lean-first order.
-- [ ] Update
+- [x] Update
   [specs/protocol.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/specs/protocol.md)
   so the production protocol is defined by role-local additive derivation.
-- [ ] Update
+- [x] Update
   [specs/export.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/specs/export.md)
   so export is client-side reconstruction from `x_client` and an export-authorized
   relayer share.
-- [ ] Update
+- [x] Update
   [security.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/security.md)
   with the hard invariant that the live server process cannot reconstruct
   canonical `x`.
-- [ ] Define one active v2 wire shape.
+- [x] Define one active role-local wire shape in Lean.
+- [x] Define export authorization as transcript-bound in Lean.
+- [x] Define the Lean same-identity/session-binding contract for explicit export.
+- [x] Define the Lean same-identity/session-binding contract for non-export
+  role-local signing.
+- [x] Add an initial Verus mirror for the settled Lean boundary contract:
+  [true_blind_boundary.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/verus/src/shared/true_blind_boundary.rs).
+- [x] Prove Verus mirror claims for active wire forbidden-field exclusion,
+  explicit-export authorization binding, explicit-export-only relayer-share
+  release, and role-local signing-session identity/context binding.
+- [x] Align the Verus context mirror and fixture parity tests with the fixed
+  `evm-family` key scope used for EVM-family addresses.
 - [ ] Delete v1 request/response compatibility from production boundaries.
 - [ ] Define reference-only code paths for fixture generation and algebraic tests.
+
+## Immediate Next Steps
+
+- [x] Update protocol, export, and security docs to use the role-local
+  derivation contract proved in Lean and mirrored in Verus.
+- [ ] Replace production Rust boundaries so non-export server paths accept only
+  server-owned inputs and public client commitments.
+- [ ] Extend Verus from the boundary mirror into role-local derivation,
+  public-key addition, export isolation, and production anti-drift checks.
+- [ ] Extract the implemented Rust boundary with Aeneas and bridge it back to the
+  Lean true-blind model.
+
+Validation note at this pause point:
+
+- `lake build EcdsaHssPrivacy.TrueBlindBoundary` passes for the Lean true-blind
+  model and boundary contract.
+- `lake build EcdsaHssPrivacy.Views` passes for the older privacy view module
+  after Lean 4.28 proof cleanup.
+- The full generated boundary bridge remains pending until the role-local Rust
+  boundary implementation lands and is extracted back through Aeneas.
+- `just ecdsa-hss-fv-verus` and `just ecdsa-hss-fv-parity` pass for the
+  formal-verification mirror.
+- `cargo test -q --manifest-path crates/ecdsa-hss/Cargo.toml` currently fails
+  in unmodified production reference tests because
+  [tests/phase1_reference.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/tests/phase1_reference.rs)
+  still expects the old chain-specific context field
+  `evm:eip155:11155111`, while
+  [src/shared/context.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/shared/context.rs)
+  encodes the fixed EVM-family key scope `evm-family`. Resolving this belongs to
+  the Rust implementation/test phase.
 
 ## Phase 3: Rust Implementation
 
 After Lean proof obligations and the boundary contract are in place, update Rust.
+This is the current pause point: the checklist below starts production Rust
+changes and remains pending.
 
+Implementation order:
+
+1. Update
+   [src/shared/derive.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/shared/derive.rs)
+   with role-local client and relayer share derivation helpers:
+   `derive_client_share`, `derive_relayer_share`, public identity composition,
+   and client-side export reconstruction.
+2. Update
+   [src/wire/mod.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/wire/mod.rs)
+   so server request types carry public client commitments and transcript
+   metadata instead of plaintext client root material.
+3. Update
+   [src/server/mod.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/server/mod.rs)
+   so `prepare` derives and retains only relayer-owned share state, and
+   `respond` composes public identity without reconstructing canonical `x`.
+4. Update
+   [src/client/mod.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/client/mod.rs)
+   so non-export client output is produced from local client share state plus
+   server public identity, and explicit export reconstructs `x` client-side.
+5. Update
+   [src/integration/mod.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/integration/mod.rs)
+   so Cait-Sith adapter construction receives role-local client material from
+   the client side and relayer material from retained server state.
+6. Move any joined-root reconstruction that remains useful for fixture
+   generation into reference-only fixture helpers, outside production server
+   boundaries.
+
+- [ ] Add role-local client/relayer share derivation helpers, public identity
+  composition, and client-side explicit export reconstruction in
+  [src/shared/derive.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/shared/derive.rs).
 - [ ] Replace canonical derivation from joined roots in
   [src/shared/derive.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/shared/derive.rs)
   with role-local additive share derivation.
@@ -191,8 +307,8 @@ After Lean proof obligations and the boundary contract are in place, update Rust
   request types so the server never receives plaintext client root material.
 - [ ] Replace
   [src/client/mod.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/client/mod.rs)
-  outputs so non-export returns only `x_client`, `X_client`, shared public key
-  `X`, address, and verification data.
+  transport outputs so non-export returns public verification data only while the
+  client retains `x_client` locally.
 - [ ] Replace
   [src/server/mod.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/server/mod.rs)
   retained state so it stores only `x_relayer`, `X_relayer`, shared public key
@@ -200,11 +316,11 @@ After Lean proof obligations and the boundary contract are in place, update Rust
 - [ ] Update
   [src/integration/mod.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/integration/mod.rs)
   so Cait-Sith receives mapped shares derived from role-local additive shares.
-- [ ] Update explicit export so the server returns only an export-authorized
-  relayer share payload.
+- [ ] Update explicit export so the server response carries a relayer export
+  share payload instead of canonical `x`.
 - [ ] Move full-key reconstruction to the client export runtime.
 - [ ] Delete old fixtures tied to joined-root v1 derivation.
-- [ ] Regenerate fixtures for v2 additive derivation.
+- [ ] Regenerate fixtures for additive derivation.
 - [ ] Update WASM bindings so browser code exposes only client-role derivation
   and export reconstruction.
 - [ ] Update server bindings so server code exposes only relayer-role derivation
@@ -327,7 +443,7 @@ Todo:
 - [ ] Measure first presign after bootstrap.
 - [ ] Measure normal presign/sign with persisted shares.
 - [ ] Confirm round-trip count matches the current signing path.
-- [ ] Confirm triple/presign behavior is unchanged by HSS v2.
+- [ ] Confirm triple/presign behavior is unchanged by role-local HSS.
 
 ### Stage 6: Explicit Export
 
@@ -392,7 +508,7 @@ After the Rust rewrite, link implementation back to the proof artifacts.
   export.
 - [ ] Add regression tests that no server API returns `privateKeyHex` or
   canonical `x`.
-- [ ] Delete tests whose only purpose is preserving v1 joined-root behavior.
+- [ ] Delete tests whose only purpose is preserving joined-root behavior.
 - [ ] Run the crate test suite:
 
   ```sh
@@ -401,7 +517,7 @@ After the Rust rewrite, link implementation back to the proof artifacts.
 
 ## Phase 6: Product Integration
 
-- [ ] Update server ECDSA HSS routes to accept only v2 role-local protocol
+- [ ] Update server ECDSA HSS routes to accept only role-local protocol
   messages.
 - [ ] Update client signing-engine ECDSA bootstrap to derive and retain
   `x_client` locally.
@@ -409,8 +525,8 @@ After the Rust rewrite, link implementation back to the proof artifacts.
   audit metadata.
 - [ ] Update passkey and Email OTP ECDSA bootstrap flows.
 - [ ] Update explicit export flow so the client reconstructs `x`.
-- [ ] Delete IndexedDB v1 ECDSA account records and compatibility readers.
-- [ ] Delete server-side v1 migration and compatibility logic.
+- [ ] Delete old IndexedDB ECDSA account records and compatibility readers.
+- [ ] Delete server-side migration and compatibility logic.
 - [ ] Update docs to state that existing ECDSA HSS accounts must be recreated.
 
 ## Phase 7: Performance Benchmarks
@@ -462,16 +578,16 @@ and tests pass.
 
 ## Completion Criteria
 
-- [ ] Lean privacy theorems for true ECDSA HSS server blindness pass.
-- [ ] Rust implementation exposes one active v2 production protocol shape.
+- [x] Lean privacy theorems for true ECDSA HSS server blindness pass.
+- [ ] Rust implementation exposes one active production protocol shape.
 - [ ] Production server cannot reconstruct canonical `x`.
 - [ ] Production client cannot reconstruct `x_relayer` in non-export flows.
 - [ ] Explicit export reconstructs canonical `x` client-side.
 - [ ] Threshold signing and export verify against the same public key `X` and
   Ethereum address.
-- [ ] Old v1 account, wire, fixture, migration, and IndexedDB compatibility paths
+- [ ] Old account, wire, fixture, migration, and IndexedDB compatibility paths
   are deleted.
 - [ ] Aeneas/Lean boundary bridge passes.
-- [ ] Verus checks pass.
+- [x] Verus checks pass.
 - [ ] Rust tests pass.
 - [ ] Native and browser benchmark results are committed.

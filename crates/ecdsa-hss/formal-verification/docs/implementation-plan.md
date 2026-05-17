@@ -1,6 +1,6 @@
 # `ecdsa-hss` Formal Verification Implementation Plan
 
-Last updated: 2026-04-09
+Last updated: 2026-05-17
 
 ## Decision
 
@@ -9,9 +9,9 @@ The recommended verification strategy is:
 - **Verus first**
 - **Aeneas + Lean later**
 
-This is not because Aeneas + Lean is weaker. It is because the first
-high-value proof targets for `ecdsa-hss` are implementation-facing algebraic
-invariants over Rust-shaped code and data.
+The first high-value proof targets for the existing `ecdsa-hss` implementation
+are implementation-facing algebraic invariants over Rust-shaped code and data.
+Aeneas + Lean remains valuable once a stable boundary slice exists.
 
 ## Why Verus Is The Better First Tool
 
@@ -261,13 +261,13 @@ It should explicitly not try to prove:
 - [ ] keep side-channel resistance in a separate security-engineering plan
       rather than this formal-verification phase
 
-### Phase 6: True-Blind ECDSA HSS V2
+### Phase 6: True-Blind ECDSA HSS
 
 This phase is the Lean-first track for replacing joined-root ECDSA HSS
 derivation with role-local additive share derivation.
 
 - [x] add the initial Lean scaffold in
-      [lean-privacy/EcdsaHssPrivacy/TrueBlindV2.lean](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/lean-privacy/EcdsaHssPrivacy/TrueBlindV2.lean)
+      [lean-privacy/EcdsaHssPrivacy/TrueBlind.lean](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/lean-privacy/EcdsaHssPrivacy/TrueBlind.lean)
 - [x] model role-local client and server private inputs
 - [x] model role-local `x_client` and `x_relayer` derived shares
 - [x] model non-export client and server views
@@ -275,28 +275,67 @@ derivation with role-local additive share derivation.
 - [x] add first exclusion theorems for forbidden fields in non-export views
 - [x] add named algebraic obligations for public-key agreement and export
       verification
-- [ ] replace named algebraic obligations with concrete Lean relations over
+- [x] replace named algebraic obligations with concrete Lean relations over
       scalar addition and public-key addition
-- [ ] define `F_ecdsa_hss_true_blind_v2` as the ideal functionality
-- [ ] add simulator definitions from own share plus public identity
-- [ ] add non-derivability theorems for client-secret and server-secret variation
-- [ ] update the Verus mirror only after the Lean v2 boundary settles
-- [ ] extract the v2 Rust boundary with Aeneas after implementation lands
+- [x] define `F_ecdsa_hss_true_blind` as the ideal functionality
+- [x] add simulator definitions from own share plus public identity
+- [x] add first non-derivability theorems for client-secret and server-secret
+      variation over non-export views
+- [x] add explicit derivation assumptions for the Rust/Verus proof boundary
+- [x] prove ideal-functionality well-formedness under those assumptions
+- [x] prove export reconstruction and shared-public-identity properties for the
+      ideal functionality
+- [x] add typed operation views and prove the disclosure policy for non-export
+      and explicit-export flows
+- [x] model allowed public transcript fields and prove transcripts exclude
+      root/share/canonical-secret payloads
+- [x] add the Lean role-local boundary contract for client bootstrap wire, server
+      bootstrap wire, retained client/server state, explicit export wire, and
+      client export reconstruction
+- [x] prove the role-local boundary contract excludes forbidden
+      root/share/canonical-secret payloads
+- [x] prove client export reconstruction from the explicit export wire matches
+      the ideal explicit-export client view and verifies against public key `X`
+- [x] add an authorized explicit-export envelope with transcript-bound
+      authorization
+- [x] prove only explicit-export wire can carry the relayer export share
+- [x] prove all active wire-envelope variants exclude client root/share material
+      and canonical `x`
+- [x] add a bound explicit-export session tying client retained state, export
+      authorization, and export wire to the same public identity/context
+- [x] prove bound-session reconstruction preserves the authorized public identity
+      and matches the ideal explicit-export client view
+- [x] add a bound role-local signing-session model tying retained client/server
+      state to the same public identity/context
+- [x] prove mismatched public identity or context prevents constructing a bound
+      role-local signing session
+- [x] prove state-derived role-local signing sessions reconstruct the same scalar
+      and verify against public key `X`
+- [x] add a digest-valid export authorization predicate for explicit-export
+      envelopes
+- [x] prove state-created export envelopes carry valid authorization digests
+- [x] prove malformed authorization digests prevent valid explicit-export
+      envelopes
+- [x] prove a valid role-local envelope carrying the relayer export share must be
+      an authorized explicit-export wire
+- [x] update the Verus mirror now that the Lean boundary has settled
+- [x] align the Verus context mirror with the fixed `evm-family` key scope
+- [ ] extract the Rust boundary with Aeneas after implementation lands
 
 ## Current Recommendation
 
-If we want verification work that helps implementation soonest, do this:
+For the true-blind replacement, continue in this order:
 
-1. start with Verus
-2. prove canonical `x`, additive-share derivation, and mapping correctness
-3. generate the fixture corpus in parallel
-4. add Aeneas + Lean only after the Rust boundary is stable enough to extract
-5. after the current frozen boundary work is complete, expand next into
-   hidden-eval/compiler-boundary correctness and transport/state exclusion
+1. implement the role-local Rust protocol
+2. extend Verus to cover role-local derivation, public-key addition, export
+   isolation, and production anti-drift checks
+3. extract the Rust boundary with Aeneas
+4. bridge the generated boundary back to the Lean model
 
 ## Short Answer
 
 Which is better for `ecdsa-hss` right now?
 
-- **Verus** for the first implementation-proof pass
-- **both** eventually, but only after the boundary is stable
+- **Lean first** for the true-blind replacement boundary
+- **Verus next** for implementation-facing Rust invariants
+- **Aeneas + Lean bridge** after the Rust boundary exists

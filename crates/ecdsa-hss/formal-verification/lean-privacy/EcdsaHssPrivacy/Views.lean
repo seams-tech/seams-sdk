@@ -145,19 +145,15 @@ theorem clientObservableProfile_eq_of_shared_client_boundary
     (left right : ProtocolExecutionState)
     (hBoundary : statesShareClientVisibleBoundary left right) :
     clientObservableProfile left = clientObservableProfile right := by
-  cases left
-  cases right
-  cases hBoundary
-  rfl
+  simpa [clientObservableProfile, statesShareClientVisibleBoundary]
+    using hBoundary
 
 theorem serverObservableProfile_eq_of_shared_server_boundary
     (left right : ProtocolExecutionState)
     (hBoundary : statesShareServerVisibleBoundary left right) :
     serverObservableProfile left = serverObservableProfile right := by
-  cases left
-  cases right
-  cases hBoundary
-  rfl
+  simpa [serverObservableProfile, statesShareServerVisibleBoundary]
+    using hBoundary
 
 theorem nonExportClientView_exists_exactly_for_non_export
     (state : ProtocolExecutionState) :
@@ -165,7 +161,11 @@ theorem nonExportClientView_exists_exactly_for_non_export
       match state.boundary.clientOutput with
       | ClientBoundaryModel.nonExport _ => true
       | ClientBoundaryModel.explicitExport _ => false := by
-  cases state.boundary.clientOutput <;> rfl
+  cases state with
+  | mk boundary canonicalX32 clientSecrets serverSecrets =>
+    cases boundary with
+    | mk operation clientOutput finalize retained =>
+      cases clientOutput <;> rfl
 
 theorem explicitExportClientView_exists_exactly_for_explicit_export
     (state : ProtocolExecutionState) :
@@ -173,7 +173,11 @@ theorem explicitExportClientView_exists_exactly_for_explicit_export
       match state.boundary.clientOutput with
       | ClientBoundaryModel.nonExport _ => false
       | ClientBoundaryModel.explicitExport _ => true := by
-  cases state.boundary.clientOutput <;> rfl
+  cases state with
+  | mk boundary canonicalX32 clientSecrets serverSecrets =>
+    cases boundary with
+    | mk operation clientOutput finalize retained =>
+      cases clientOutput <;> rfl
 
 theorem nonExportServerView_exists_exactly_for_threshold_only_output
     (state : ProtocolExecutionState) :
@@ -181,7 +185,13 @@ theorem nonExportServerView_exists_exactly_for_threshold_only_output
       match state.boundary.operation.allowedOutputKind with
       | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialOnly => true
       | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialAndCanonicalSecret => false := by
-  cases state.boundary.operation.allowedOutputKind <;> rfl
+  cases state with
+  | mk boundary canonicalX32 clientSecrets serverSecrets =>
+    cases boundary with
+    | mk operation clientOutput finalize retained =>
+      cases operation with
+      | mk operation allowedOutputKind =>
+        cases allowedOutputKind <;> rfl
 
 theorem explicitExportServerView_exists_exactly_for_export_output
     (state : ProtocolExecutionState) :
@@ -189,7 +199,13 @@ theorem explicitExportServerView_exists_exactly_for_export_output
       match state.boundary.operation.allowedOutputKind with
       | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialOnly => false
       | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialAndCanonicalSecret => true := by
-  cases state.boundary.operation.allowedOutputKind <;> rfl
+  cases state with
+  | mk boundary canonicalX32 clientSecrets serverSecrets =>
+    cases boundary with
+    | mk operation clientOutput finalize retained =>
+      cases operation with
+      | mk operation allowedOutputKind =>
+        cases allowedOutputKind <;> rfl
 
 def statesShareHiddenEvalBoundary
     (left right : HiddenEvalExecutionState) : Prop :=
