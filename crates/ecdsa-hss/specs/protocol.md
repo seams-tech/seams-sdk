@@ -1,21 +1,23 @@
 # Protocol Spec
 
-This document defines the current working protocol shape for `ecdsa-hss`.
+This document defines the target protocol shape for `ecdsa-hss`.
 
-It freezes the current reference lifecycle and invariants for the first
-implementation pass, but it does not yet freeze every byte-level wire
-encoding.
+The production design is role-local additive derivation: the client derives the
+client ECDSA share locally, the server derives the relayer ECDSA share locally,
+and the live server process never reconstructs the canonical secp256k1 private
+scalar.
 
 ## Purpose
 
-`ecdsa-hss` exists to produce one canonical secp256k1 key for EVM use that is:
+`ecdsa-hss` produces one canonical secp256k1 key for EVM use that is:
 
 - threshold-signable
-- exportable
+- exportable by the authorized client
 - deterministic
-- server-blind
+- server-blind during non-export and export-preparation flows
 
-The protocol must not preserve a separate threshold-signing key and export key.
+The protocol must preserve one logical EVM key for both threshold signing and
+explicit export.
 
 ## Parties
 
@@ -24,27 +26,43 @@ The protocol must not preserve a separate threshold-signing key and export key.
 
 ## Canonical Key Object
 
-The current working v1 spec chooses:
+The canonical key identity is the logical secp256k1 scalar:
 
-- canonical export object: secp256k1 private scalar `x`
+```text
+x = x_client + x_relayer mod n
+```
 
-This means the protocol's canonical key identity is:
+where:
 
-- `x`
-- public key `X = x * G`
-- Ethereum address derived from `X`
+- `n` is the secp256k1 group order
+- `x_client` is derived by the client from client-owned material
+- `x_relayer` is derived by the server from server-owned material
 
-## Fixed v1 Input Domain
+The public identity is:
 
-The fixed-function input domain for v1 is:
+```text
+X_client = x_client * G
+X_relayer = x_relayer * G
+X = X_client + X_relayer
+X = (x_client + x_relayer) * G
+address = ethereum_address(X)
+```
 
-- `y_client`: 32-byte little-endian integer
-- `y_relayer`: 32-byte little-endian integer
+The scalar `x` is a logical/export scalar. The server process must never compute
+or retain it.
 
-Those values are interpreted modulo `2^256` for the fixed hidden derivation
-step.
+## Fixed Input Domain
 
-The fixed v1 context binding tuple is:
+The role-local input domain is:
+
+- `y_client`: client-owned 32-byte local derivation input
+- `y_relayer`: server-owned 32-byte local derivation input
+
+`y_client` is accepted only by the client role. `y_relayer` is accepted only by
+the server role. A production request path must not accept both values in one
+process.
+
+The fixed context binding tuple is:
 
 - `scheme_id = "ecdsa-hss-v1"`
 - `curve = "secp256k1"`
@@ -58,18 +76,19 @@ The fixed v1 context binding tuple is:
 - `key_version`
 - `participant_ids = [1, 2]`
 
-This context is part of deterministic derivation. Changing it changes the
-derived key.
+This context is part of deterministic role-local derivation. Changing any field
+except the concrete EVM chain target changes the derived key.
 
 Funds-safety invariant: every EVM-class target for the same wallet, subject,
-RP, signing root, and key version MUST derive the same threshold ECDSA public
+RP, signing root, and key version must derive the same threshold ECDSA public
 key and Ethereum address. The fixed `key_scope = "evm-family"` field is the
-stable EVM-family key scope. Concrete chain targets must stay out of the stable
-key context.
+stable EVM-family key scope. Concrete chain targets stay out of the stable key
+context. Cross-chain replay protection belongs to EVM transaction chain IDs and
+typed-data domain separation.
 
 ## `encode_context_v1` Byte Contract
 
-`encode_context_v1` is now frozen for v1.
+`encode_context_v1` is frozen for the current context format.
 
 The byte encoding is:
 
@@ -89,7 +108,7 @@ The byte encoding is:
 
 ### String Encoding
 
-The v1 string fields are:
+The string fields are:
 
 - `scheme_id`
 - `curve`
@@ -105,28 +124,28 @@ The v1 string fields are:
 Each string field is encoded as:
 
 - `u16be(length_in_bytes)`
-- followed by raw ASCII bytes
+- raw ASCII bytes
 
-v1 validation rules:
+Validation rules:
 
 - all string fields must be non-empty
 - all string fields must be ASCII-only
-- no Unicode normalization is performed
-- non-ASCII input is invalid for v1
+- Unicode normalization is forbidden
+- non-ASCII input is invalid
 
-This is intentionally strict so Rust, TypeScript, and future native runtimes
-can generate exactly the same vectors.
+This is intentionally strict so Rust, TypeScript, and native runtimes generate
+exactly the same vectors.
 
 ### Participant ID Encoding
 
-For v1, `participant_ids` is fixed to `[1, 2]`.
+The participant IDs are fixed to `[1, 2]`.
 
-It is encoded as:
+They are encoded as:
 
 - `u8(count)`
-- followed by `count` participant IDs as `u16be`
+- `count` participant IDs as `u16be`
 
-So the participant-id bytes are always:
+The participant-id bytes are always:
 
 - `0x02 || 0x0001 || 0x0002`
 
@@ -154,119 +173,143 @@ There is:
 - no locale dependence
 - no platform-specific text normalization
 
-## Canonical `x` Derivation Contract
+## Role-Local Share Derivation
 
-The working v1 canonical-key derivation is:
+Define:
 
-1. `m = y_client + y_relayer mod 2^256`
-2. `d = LE32(m)`
-3. `context = encode_context_v1(...)`
-4. `h_x = SHA-512("ecdsa-hss:v1:canonical-x" || context || d)`
-5. `x = 1 + (BE512(h_x) mod (n - 1))`
+```text
+H_scalar(domain, context, input) =
+  1 + (BE512(SHA-512(domain || context || input)) mod (n - 1))
+```
 
-Where:
+The production share derivation is:
 
-- `n` is the secp256k1 group order
-- `BE512(h_x)` interprets the 64-byte SHA-512 digest as a big-endian integer
+```text
+context = encode_context_v1(...)
+x_client = H_scalar("ecdsa-hss:client-share", context, y_client)
+x_relayer = H_scalar("ecdsa-hss:relayer-share", context, y_relayer)
+```
 
-This construction is the current working v1 contract because it guarantees:
+This guarantees each role-local share is a valid non-zero secp256k1 scalar.
 
-- deterministic derivation
-- domain separation from other protocol uses of `d`
-- `x` is always a valid non-zero secp256k1 scalar
+The public identity is derived without reconstructing `x`:
 
-This contract is now the Phase 1 fixed-function target for fixtures and
-reference vectors.
+```text
+X_client = x_client * G
+X_relayer = x_relayer * G
+X = X_client + X_relayer
+address = ethereum_address(X)
+```
+
+The server retains only:
+
+- `x_relayer`
+- `X_relayer`
+- `X_client`
+- `X`
+- `address`
+- context binding and audit metadata
+
+The client retains only:
+
+- `x_client`
+- `X_client`
+- `X_relayer`
+- `X`
+- `address`
+- context binding and local audit metadata
 
 ## Single-Key Invariant
 
-The protocol is correct only if all three are the same logical key:
+The protocol is correct only if all three refer to the same logical key:
 
-1. the exported private key
+1. the client-reconstructed export scalar
 2. the threshold signing public key
 3. the Ethereum address used for threshold signing
 
 In shorthand:
 
-- export returns `x`
-- threshold signing public key must equal `x * G`
-- threshold signing address must equal `addr(x * G)`
+```text
+x_export = x_client + x_relayer_export mod n
+x_export * G == X
+ethereum_address(X) == expected_address
+```
 
 ## Operations
 
-The working protocol defines four logical operation classes:
+The protocol defines four logical operation classes.
 
 ### 1. RegistrationBootstrap
 
 Purpose:
 
-- derive canonical hidden key material for a newly registered account
-- derive threshold signing shares from that same canonical key
+- establish the role-local client and relayer shares for a newly registered
+  account
+- establish shared public identity `X` and address
 
 Output policy:
 
 - must not return canonical `x`
+- must not send `y_client` or `x_client` to the server
+- must not send `y_relayer` or `x_relayer` to the client
 
 ### 2. SessionBootstrap
 
 Purpose:
 
-- restore or reconnect the threshold-signing session using the canonical-key
-  model
-
-Output policy:
-
-- must not return canonical `x`
-
-### 3. NonExportSign
-
-Purpose:
-
-- produce threshold ECDSA signatures using shares derived from canonical `x`
+- restore or reconnect a threshold-signing session using persisted role-local
+  shares and shared public identity
 
 Output policy:
 
 - must not return canonical `x`
 - must not return export-capable material
 
+### 3. NonExportSign
+
+Purpose:
+
+- produce threshold ECDSA signatures using role-local shares that compose to the
+  canonical logical key
+
+Output policy:
+
+- must not return canonical `x`
+- must not return `x_relayer` to the client
+- must not expose export-capable material through retry, abort, or session
+  cleanup paths
+
 ### 4. ExplicitKeyExport
 
 Purpose:
 
-- intentionally disclose canonical `x` to the client
+- intentionally let the authorized client reconstruct canonical `x`
 
 Output policy:
 
-- may return canonical `x`
-- must be explicit and policy-bound
+- server may release only an export-authorized relayer share envelope
+- client reconstructs `x = x_client + x_relayer_export mod n`
+- export must be explicit, policy-bound, transcript-bound, and auditable
 
 ## High-Level Lifecycle
 
-The working lifecycle is:
+The target lifecycle is:
 
-1. Client and server contribute root-share material.
-2. `ecdsa-hss` derives one canonical hidden secp256k1 secret `x`.
-3. `ecdsa-hss` derives threshold signing share material from that same `x`.
-4. The threshold ECDSA backend signs using shares derived from `x`.
-5. Explicit export returns `x`.
+1. Client derives `x_client` locally from `y_client` and context.
+2. Server derives `x_relayer` locally from `y_relayer` and context.
+3. Client and server exchange public share commitments and transcript metadata.
+4. Both roles verify the same public identity `X` and address.
+5. Non-export signing maps role-local shares into the Cait-Sith backend share
+   format.
+6. Explicit export returns an authorized relayer export share to the client.
+7. The client reconstructs and verifies `x` locally.
 
-The intended v1 path is:
-
-- direct additive-share derivation from canonical `x`
-- reuse of the current threshold ECDSA backend through the existing additive
-  share mapping layer
-
-The fallback path is:
-
-- public-key-preserving resharing into the current backend if direct additive
-  shares are insufficient
-
-## Fixed v1 Scope
+## Fixed Scope
 
 The first implementation pass is intentionally narrower than generic threshold
 ECDSA.
 
-v1 scope is:
+Scope:
 
 - fixed 2-of-2 only
 - fixed participant IDs:
@@ -274,145 +317,124 @@ v1 scope is:
   - relayer = `2`
 - integration through the existing 2-party additive-share mapping layer
 
-Out of scope for v1:
+Out of scope:
 
 - generalized `t-of-n`
 - alternate participant-ID layouts
 - a second share-mapping implementation path
 
-## Share-Derivation Working Model
+## Backend Share Mapping
 
-The working v1 model is:
+The threshold backend receives mapped shares derived from:
 
-- derive additive 2-party shares `x_client` and `x_relayer`
-- enforce:
-  - `x = x_client + x_relayer mod n`
-- adapt those shares into the current threshold ECDSA backend
+```text
+x_client
+x_relayer
+```
 
-The material split is also fixed for v1:
+The mapping layer must preserve the effective signing key:
 
-- export-capable material:
-  - canonical secp256k1 scalar `x`
-- threshold-signing-only material:
-  - `x_client`
+```text
+effective_backend_secret == x_client + x_relayer mod n
+backend_public_key == X
+backend_address == ethereum_address(X)
+```
+
+If backend compatibility requires resharing, the resharing step must preserve
+the same `X` and address.
+
+## Wire And Retained-State Contract
+
+The active role-local boundary shape is:
+
+- client bootstrap wire:
+  - context binding
+  - `X_client`
+  - transcript digest
+- server bootstrap wire:
+  - public transcript with context binding, `X_client`, `X_relayer`, `X`,
+    address, operation kind, and transcript digest
+- non-export retained server state:
   - `x_relayer`
-  - mapped backend shares derived from `x_client` / `x_relayer`
-  - threshold public key
-  - threshold Ethereum address
+  - public identity
+  - accepted transcript
+- non-export retained client state:
+  - `x_client`
+  - public identity
+  - accepted transcript
+- explicit export wire:
+  - export-authorized `x_relayer`
+  - public transcript
 
-This document treats that as the intended implementation target.
+Every active wire envelope must exclude:
 
-If that path fails backend compatibility review, the protocol will be revised
-to include a resharing layer while preserving the same public key.
+- client root material
+- client share material
+- canonical `x`
 
-## Frozen v1 Additive-Share Contract
+Only the explicit export wire envelope may carry `x_relayer` to the client, and
+that envelope must bind to the same public identity and context as the client
+retained state.
 
-The direct additive-share path is now frozen as the working v1 target.
+## Required Equivalence Checks
 
-The share-derivation function is:
+The implementation must check:
 
-- `derive_additive_shares_v1(x, context) -> (x_client, x_relayer, retry_counter)`
+- `pub(x_client) == X_client`
+- `pub(x_relayer) == X_relayer`
+- `X_client + X_relayer == X`
+- `ethereum_address(X) == expected_address`
+- explicit export reconstructs `x_export`
+- `x_export * G == X`
+- `ethereum_address(x_export * G) == expected_address`
 
-with the following deterministic algorithm:
+These are main protocol identity checks.
 
-1. `x_bytes = BE32(x)`
-2. for `counter = 0, 1, 2, ...`:
-   - `h_share = SHA-512("ecdsa-hss:v1:additive-share:client" || context || BE32(counter) || x_bytes)`
-   - `candidate = 1 + (BE512(h_share) mod (n - 1))`
-   - if `candidate == x`, continue
-   - otherwise accept:
-     - `x_client = candidate`
-     - `x_relayer = (x - x_client) mod n`
-     - return `(x_client, x_relayer, counter)`
+## Fixture And Reference Requirements
 
-This contract guarantees:
+The current committed fixture corpus covers the existing fixed-function slice:
 
-- `x = x_client + x_relayer mod n`
-- `x_client` is a valid non-zero secp256k1 scalar
-- `x_relayer` is a valid non-zero secp256k1 scalar
-- derivation is deterministic for the same canonical `x` and context
-- derivation is domain-separated from canonical-`x` derivation
+- [fixtures/phase1_v1.json](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/fixtures/phase1_v1.json)
 
-The only rejection condition is:
-
-- `candidate == x`
-
-That condition is required because otherwise `x_relayer` would be zero, and the
-current additive-share mapping layer rejects zero/out-of-range shares.
-
-## Share-Derivation Readiness Gate
-
-The direct additive-share path is not ready for implementation until the share
-derivation contract is frozen more precisely than "derive additive shares from
-`x`."
-
-Before Phase 2 or Phase 3 begins, the implementation must produce fixtures and
-reference vectors for the frozen contracts above, including:
+Before the Rust role-local implementation lands, generate a new role-local
+fixture corpus covering:
 
 - `y_client`
 - `y_relayer`
 - `context`
 - `encode_context_v1(context)` bytes
-- `d`
-- canonical `x`
-- compressed public key
-- Ethereum address
-- `retry_counter`
 - `x_client`
 - `x_relayer`
+- `X_client`
+- `X_relayer`
+- `X`
+- Ethereum address
 - mapped backend shares for participant IDs `{1, 2}`
+- explicit export reconstruction `x_export`
 
-This vector corpus is mandatory because the current additive-share mapping layer
-rejects zero or out-of-range shares, and the one-key invariant depends on exact
-cross-runtime agreement.
-
-Current published fixture corpus:
-
-- [fixtures/protocol-v1.json](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/fixtures/protocol-v1.json)
-
-## Boundary Model
-
-The protocol should follow the same boundary discipline that worked in
-`ed25519-hss`:
-
-- explicit staged server-owned execution
-- early dropping of raw root-share material
-- no joined-input legacy seam
-- no export-capable output in non-export operations
-
-The exact prepare/respond/finalize wire shape will be frozen once the first
-implementation lands. The lifecycle and output rules above are already part of
-the intended spec.
-
-## Required Equivalence Checks
-
-The implementation must be able to check all of:
-
-- exported `x` derives the expected public key
-- exported `x` derives the expected Ethereum address
-- threshold signing public key equals the public key derived from exported `x`
-- threshold signing address equals the address derived from exported `x`
-
-These are not optional tests. They are the main protocol identity checks.
+Reference-only code may reconstruct `x` for fixture generation and algebraic
+tests. Production server code must never do so.
 
 ## Non-Goals
 
-This protocol does not aim to:
+This protocol excludes:
 
-- define a generic ECDSA MPC framework
-- define a generic wallet derivation framework
-- preserve the current two-key EVM model
-- expose export-capable output during normal signing
+- a generic ECDSA MPC framework
+- a generic wallet derivation framework
+- the old two-key EVM model
+- export-capable output during normal signing
 
 ## Open Byte-Level Items
 
-These items are intentionally left for the first implementation pass:
+These items remain for the implementation pass:
 
 - exact wire payload encoding
 - exact retained-state serialization format
+- exact context-binding digest function used in public transcripts
+- exact export-authorization digest format
 
-Those are implementation-level details still to be frozen. The lifecycle and
-single-key invariant in this document are already the design source of truth.
+The lifecycle, role-local share contract, and single-key invariant in this
+document are the design source of truth.
 
 ## Related Docs
 

@@ -1,8 +1,8 @@
-use ecdsa_hss::shared::context::{
-    ECDSA_HSS_V1_CONTEXT_DOMAIN_TAG, ECDSA_HSS_V1_CURVE, ECDSA_HSS_V1_PARTICIPANT_IDS,
-    ECDSA_HSS_V1_SCHEME_ID,
-};
 use ecdsa_hss::fixtures::{FixtureCorpusFile, FixtureRecord, FIXTURE_FORMAT_VERSION};
+use ecdsa_hss::shared::context::{
+    ECDSA_HSS_V1_CONTEXT_DOMAIN_TAG, ECDSA_HSS_V1_CURVE, ECDSA_HSS_V1_KEY_SCOPE,
+    ECDSA_HSS_V1_PARTICIPANT_IDS, ECDSA_HSS_V1_SCHEME_ID,
+};
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::SecretKey;
 use num_bigint::BigUint;
@@ -30,7 +30,9 @@ fn hex_to_bytes(hex: &str) -> Vec<u8> {
     assert!(normalized.len() % 2 == 0, "hex must have even length");
     (0..normalized.len())
         .step_by(2)
-        .map(|idx| u8::from_str_radix(&normalized[idx..idx + 2], 16).expect("hex byte should parse"))
+        .map(|idx| {
+            u8::from_str_radix(&normalized[idx..idx + 2], 16).expect("hex byte should parse")
+        })
         .collect()
 }
 
@@ -76,7 +78,7 @@ fn encode_context_v1(record: &FixtureRecord) -> Vec<u8> {
     out.extend_from_slice(&encode_ascii_field(ECDSA_HSS_V1_CURVE));
     out.extend_from_slice(&encode_ascii_field(&record.context.wallet_session_user_id));
     out.extend_from_slice(&encode_ascii_field(&record.context.subject_id));
-    out.extend_from_slice(&encode_ascii_field(&record.context.chain_target));
+    out.extend_from_slice(&encode_ascii_field(ECDSA_HSS_V1_KEY_SCOPE));
     out.extend_from_slice(&encode_ascii_field(&record.context.ecdsa_threshold_key_id));
     out.extend_from_slice(&encode_ascii_field(&record.context.signing_root_id));
     out.extend_from_slice(&encode_ascii_field(&record.context.signing_root_version));
@@ -86,7 +88,10 @@ fn encode_context_v1(record: &FixtureRecord) -> Vec<u8> {
     out
 }
 
-fn derive_canonical_x_v1(record: &FixtureRecord, context_bytes: &[u8]) -> ([u8; 32], [u8; 32], [u8; 32]) {
+fn derive_canonical_x_v1(
+    record: &FixtureRecord,
+    context_bytes: &[u8],
+) -> ([u8; 32], [u8; 32], [u8; 32]) {
     let y_client = bytes_to_biguint_le(&hex_to_bytes(&record.inputs.y_client32_le_hex));
     let y_relayer = bytes_to_biguint_le(&hex_to_bytes(&record.inputs.y_relayer32_le_hex));
     let two_256 = BigUint::from(1u8) << 256usize;
@@ -130,14 +135,19 @@ fn derive_additive_shares_v1(x_be: &[u8; 32], context_bytes: &[u8]) -> (u32, [u8
             (&x + &order) - &candidate
         };
         let x_relayer_be = biguint_to_32_be(&x_relayer);
-        assert_ne!(x_relayer, BigUint::from(0u8), "relayer share must be non-zero");
+        assert_ne!(
+            x_relayer,
+            BigUint::from(0u8),
+            "relayer share must be non-zero"
+        );
         return (counter, x_client_be, x_relayer_be);
     }
     unreachable!("u32 counter space should not exhaust")
 }
 
 fn derive_public_key_and_address(x_be: &[u8; 32]) -> (String, String) {
-    let secret_key = SecretKey::from_slice(x_be).expect("fixture x should be a valid secp256k1 scalar");
+    let secret_key =
+        SecretKey::from_slice(x_be).expect("fixture x should be a valid secp256k1 scalar");
     let compressed = secret_key.public_key().to_encoded_point(true);
     let uncompressed = secret_key.public_key().to_encoded_point(false);
 
@@ -146,14 +156,20 @@ fn derive_public_key_and_address(x_be: &[u8; 32]) -> (String, String) {
     let digest = hasher.finalize();
     let address = &digest[digest.len() - 20..];
 
-    (bytes_to_hex(compressed.as_bytes()), format!("0x{}", bytes_to_hex(address)))
+    (
+        bytes_to_hex(compressed.as_bytes()),
+        format!("0x{}", bytes_to_hex(address)),
+    )
 }
 
 #[test]
 fn phase1_fixture_corpus_matches_frozen_derivation_rules() {
     let corpus = fixture_corpus();
     assert_eq!(corpus.format_version, FIXTURE_FORMAT_VERSION);
-    assert!(!corpus.fixtures.is_empty(), "fixture corpus should not be empty");
+    assert!(
+        !corpus.fixtures.is_empty(),
+        "fixture corpus should not be empty"
+    );
 
     for fixture in corpus.fixtures.iter() {
         let context_bytes = encode_context_v1(fixture);
@@ -165,7 +181,12 @@ fn phase1_fixture_corpus_matches_frozen_derivation_rules() {
         );
 
         let (m_le, d_le, x_be) = derive_canonical_x_v1(fixture, &context_bytes);
-        assert_eq!(bytes_to_hex(&d_le), fixture.outputs.d32_hex, "{} d drifted", fixture.name);
+        assert_eq!(
+            bytes_to_hex(&d_le),
+            fixture.outputs.d32_hex,
+            "{} d drifted",
+            fixture.name
+        );
         assert_eq!(
             bytes_to_hex(&x_be),
             fixture.outputs.x32_hex,
@@ -175,13 +196,21 @@ fn phase1_fixture_corpus_matches_frozen_derivation_rules() {
         assert_eq!(m_le, d_le, "{} m and d should match in v1", fixture.name);
         let x_big = BigUint::from_bytes_be(&x_be);
         let order = secp256k1_order();
-        assert!(x_big > BigUint::from(0u8), "{} canonical x must be non-zero", fixture.name);
-        assert!(x_big < order, "{} canonical x must be in scalar range", fixture.name);
+        assert!(
+            x_big > BigUint::from(0u8),
+            "{} canonical x must be non-zero",
+            fixture.name
+        );
+        assert!(
+            x_big < order,
+            "{} canonical x must be in scalar range",
+            fixture.name
+        );
 
-        let (retry_counter, x_client_be, x_relayer_be) = derive_additive_shares_v1(&x_be, &context_bytes);
+        let (retry_counter, x_client_be, x_relayer_be) =
+            derive_additive_shares_v1(&x_be, &context_bytes);
         assert_eq!(
-            retry_counter,
-            fixture.outputs.retry_counter,
+            retry_counter, fixture.outputs.retry_counter,
             "{} retry counter drifted",
             fixture.name
         );
@@ -211,8 +240,7 @@ fn phase1_fixture_corpus_matches_frozen_derivation_rules() {
             fixture.name
         );
         assert_eq!(
-            reconstructed,
-            x_big,
+            reconstructed, x_big,
             "{} additive shares must reconstruct the canonical scalar",
             fixture.name
         );
@@ -234,10 +262,10 @@ fn phase1_fixture_corpus_matches_frozen_derivation_rules() {
             fixture.name
         );
 
-        let (compressed_public_key_hex, ethereum_address_hex) = derive_public_key_and_address(&x_be);
+        let (compressed_public_key_hex, ethereum_address_hex) =
+            derive_public_key_and_address(&x_be);
         assert_eq!(
-            compressed_public_key_hex,
-            fixture.outputs.public_key33_hex,
+            compressed_public_key_hex, fixture.outputs.public_key33_hex,
             "{} public key drifted",
             fixture.name
         );

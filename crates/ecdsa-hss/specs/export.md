@@ -1,49 +1,69 @@
 # Export Spec
 
-This document defines the intended export semantics for `ecdsa-hss`.
+This document defines export semantics for the role-local `ecdsa-hss`
+protocol.
 
 ## Purpose
 
-Export in `ecdsa-hss` means:
+Export lets the authorized client reconstruct the same secp256k1 private scalar
+that threshold signing uses logically:
 
-- disclose the canonical secp256k1 private key used by threshold signing
+```text
+x = x_client + x_relayer mod n
+```
 
-It does not mean:
+The server participates by releasing an explicit export share. The server never
+computes or returns canonical `x`.
 
-- disclose a sidecar recovery key
-- disclose a different deterministic key
-- disclose backend-specific share state instead of the canonical key
+Excluded export meanings:
+
+- a sidecar recovery key
+- a different deterministic key
+- a backend-specific threshold share artifact
+- a presignature or Cait-Sith session artifact
 
 ## Canonical Export Object
 
-The current working v1 export object is:
+The canonical export object is:
 
-- canonical secp256k1 private scalar `x`
+- secp256k1 private scalar `x`
 
-Export should therefore return:
+The client reconstructs it as:
 
-- `x` as a 32-byte big-endian scalar
-- enough public metadata to verify what key was exported
+```text
+x_export = x_client + x_relayer_export mod n
+```
 
-Recommended export metadata:
+The exported artifact delivered to wallet/import UI may contain:
 
+- `x_export` as a 32-byte big-endian scalar
 - compressed public key
 - Ethereum address
 - account identity and key version context
+- export transcript metadata
+
+The server-side export response may contain only:
+
+- export-authorized `x_relayer_export`
+- public transcript and authorization metadata
 
 ## Export Invariant
 
 The exported object is correct only if:
 
-- `pub(x)` equals the threshold signing public key
-- `addr(pub(x))` equals the threshold signing address
+```text
+x_export * G == X
+ethereum_address(X) == expected_address
+```
 
-So the export path must verify:
+The client export runtime must verify:
 
-- exported private key public key equivalence
-- exported private key address equivalence
-
-before final delivery.
+- `x_export` is a valid non-zero secp256k1 scalar
+- `x_export * G` equals the threshold signing public key
+- `ethereum_address(x_export * G)` equals the threshold signing address
+- the export transcript public identity matches the retained client public
+  identity
+- the export authorization binds to the same context and operation kind
 
 ## Export Policy
 
@@ -52,14 +72,16 @@ Export must be:
 - explicit
 - user-confirmed
 - operation-bound
+- transcript-bound
+- auditable
 
 The implementation must distinguish:
 
 - non-export signing operations
 - explicit export operations
 
-Signing-only flows must not be able to request export-capable output by adding
-an optional flag or reading leftover staged state.
+Signing-only flows must reject export-capable output requests, optional export
+flags, stale export envelopes, and leftover staged state.
 
 ## Non-Export Rule
 
@@ -67,58 +89,57 @@ The non-export rule is:
 
 - `RegistrationBootstrap`, `SessionBootstrap`, and `NonExportSign` must not
   return canonical `x`
-- those operations must not return any output equivalent to `x`
+- those operations must not return `x_relayer` to the client
+- those operations must not return any output that lets the client reconstruct
+  `x`
 
-Only `ExplicitKeyExport` may return canonical `x`.
+Only `ExplicitKeyExport` may release `x_relayer_export` to the client, and the
+client reconstructs `x` locally.
 
 ## Export Surface
 
-The product boundary is now frozen at the policy level.
+The product boundary is frozen at the policy level.
 
-The working spec requires:
+The production export surface requires:
 
 - a dedicated export operation type
 - explicit user confirmation
+- a transcript-bound export authorization witness
 - audit or telemetry distinction between signing and export
+- session cleanup that burns failed export state
 
-The export path must not be a hidden feature of:
+The export path must be unreachable from:
 
 - bootstrap
 - sign
 - recovery refresh
+- non-export retry/abort cleanup
 
-The crate-side v1 export boundary is:
-
-- `export_evm_threshold_v1(...)`
-- `export_from_respond_response_v1(...)`
-
-Those entrypoints must reject non-export responses and must only succeed for
-`ExplicitKeyExport`.
+Existing crate export entrypoints must be replaced or constrained so they reject
+non-export responses and accept only `ExplicitKeyExport` transcripts.
 
 ## Confirmation Requirements
 
-v1 export confirmation is now frozen as:
+Export confirmation requires:
 
-- export must be initiated from a dedicated export UI action
-- export must require an interactive user-confirmation step
-- the confirmation step must be separate from normal signing confirmation
-- the confirmation UI must identify:
-  - account identity
-  - target chain family: EVM / secp256k1
-  - threshold public key or a stable preview of it
-  - Ethereum address
-- the confirmation UI must make clear that the threshold private key is being
-  exported, not a sidecar recovery key
+- a dedicated export UI action
+- an interactive user-confirmation step
+- confirmation that is separate from normal signing confirmation
+- visible account identity
+- target chain family: EVM / secp256k1
+- threshold public key or stable preview
+- Ethereum address
+- clear wording that the threshold private key will be reconstructed on the
+  client
 
-The implementation must not allow:
+The implementation must reject:
 
-- piggybacking export on a signing confirmation
+- export piggybacked on a signing confirmation
 - hidden export through bootstrap or session refresh
 - background export without an interactive confirmation boundary
+- export retries that reuse failed export session state
 
 ## Audit And Telemetry Requirements
-
-v1 export telemetry is also frozen at the product-policy level.
 
 The product must emit an export-distinct audit or telemetry event that is
 separate from normal signing.
@@ -130,91 +151,67 @@ Minimum required fields:
 - device number or equivalent local device identifier when available
 - scheme family: `secp256k1`
 - operation kind: `ExplicitKeyExport`
+- public key or address fingerprint
+- export authorization digest
 - result: success or failure
 - failure code when export is denied or fails
 - timestamp
 
-The telemetry surface must not contain:
+The telemetry surface must exclude:
 
 - canonical `x`
-- additive-share material
+- `x_client`
+- `x_relayer`
 - backend threshold private shares
 - raw root-share material
 
-Structured logs are acceptable as the first implementation surface as long as
-they obey the field and redaction rules above.
+Structured logs are acceptable as the first implementation surface if they obey
+the field and redaction rules above.
 
 ## Delivery Format
 
-The exact wire/UI format is still open, but the semantic content is fixed:
+The semantic export content is fixed:
 
-- export returns canonical `x`
-- not a backend share
-- not a presign artifact
-- not an unrelated recovery key
+- client-side output is canonical `x_export`
+- server-side output is only the export-authorized relayer share envelope
+- public metadata must be sufficient for client verification
 
-If the product later wraps `x` in an encrypted backup artifact, the artifact is
-only valid if decrypting it yields the same canonical `x`.
+If the product wraps `x_export` in an encrypted backup artifact, the artifact is
+valid only if decrypting it yields the same scalar that verifies against `X`.
 
 ## Export Safety Checks
 
-Before the export result is accepted, the implementation should check:
+Before the export result is accepted, the implementation must check:
 
-1. exported `x` is a valid non-zero secp256k1 scalar
-2. exported `x` derives the expected public key
-3. exported `x` derives the expected Ethereum address
-4. derived public key/address match the threshold-signing identity for that
-   account
+1. export authorization operation kind is `ExplicitKeyExport`
+2. export authorization public identity matches the retained client identity
+3. export authorization context binding matches the retained client context
+4. server export envelope transcript matches the authorization transcript
+5. reconstructed `x_export` is a valid non-zero secp256k1 scalar
+6. `x_export * G == X`
+7. `ethereum_address(X) == expected_address`
+
+Failed checks must burn the export session and any received export share. Retry
+must start from a fresh explicit export session.
 
 ## Migration Rule
 
-The `ecdsa-hss` export path is intended to replace the current separate
-`prfSecond`-derived EVM export lane.
+The `ecdsa-hss` export path replaces the separate `prfSecond`-derived EVM export
+lane.
 
-So once `ecdsa-hss` is fully integrated:
+Cutover rules:
 
-- export should disclose the threshold ECDSA key
-- the sidecar export lane should be removed
-
-The migration rule is now frozen as:
-
-- there is no in-place migration from the old two-key EVM model to
-  `ecdsa-hss`
-- existing users must re-register to enter the one-key `ecdsa-hss` model
+- new `ecdsa-hss` accounts use only the role-local one-key export lane
+- existing accounts must re-register to enter the `ecdsa-hss` one-key model
 - `ecdsa-hss` accounts must never generate or consume `prfSecond`-derived EVM
   export artifacts
-- old `prfSecond`-derived EVM export artifacts remain legacy-only and are not a
-  valid export format for `ecdsa-hss`
-
-That means:
-
-- old accounts remain on the old model until re-registration
-- new `ecdsa-hss` accounts use only the one-key export lane
 - product cutover must remove the sidecar export lane from the new-account path
-- until that canonical one-key export lane is live in product, new
-  `ecdsa-hss` accounts must fail closed at the legacy export boundary and must
-  never fall back to `prfSecond`
+- until role-local export is live in product, new `ecdsa-hss` accounts must
+  fail closed at the old export boundary
 
-Current runtime status:
-
-- the worker/export UI path accepts a canonical
-  `ecdsa-hss-secp256k1-key-v1` artifact
-- the public bootstrap/session activation APIs accept that same artifact shape
-  so registration/login flows can thread it into active session state
-- bootstrap carrying that artifact must classify the resulting key model as
-  `ecdsa-hss-one-key-v1`
-- registration and login warm-up flows may obtain that artifact only through an
-  explicit product-side resolver seam; there is no implicit fallback producer
-- if no resolver is installed, or if it returns `null`, runtime logs must make
-  it explicit that the legacy product lane is still active
-- product config may require one-key cutover for new EVM registrations via an
-  explicit `thresholdEcdsaNewAccountKeyMode` setting
-- when that setting requires `ecdsa-hss-one-key-v1`, registration must fail
-  closed if the canonical artifact resolver does not return an artifact
-- the remaining cutover task is sourcing that artifact from real `ecdsa-hss`
-  account state instead of the old sidecar export flow
-- active EVM session state may carry that artifact in memory only; the private
-  key material must not be serialized into browser storage
+Active EVM session state may carry the reconstructed export artifact in memory
+only during the explicit export flow. Private key material must not be serialized
+into browser storage.
 
 ## Related Docs
 

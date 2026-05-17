@@ -5,9 +5,17 @@ This file is the security-focused entrypoint for
 Protocol shape and lifecycle live in
 [specs/protocol.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/specs/protocol.md).
 
-This is the security-focused design and review document for the current
-`ecdsa-hss` crate. It records the intended security model for the implemented
-reference lifecycle and the remaining properties that still need verification.
+The target `ecdsa-hss` design uses role-local additive derivation:
+
+```text
+x_client = H_scalar("ecdsa-hss:client-share", context, y_client)
+x_relayer = H_scalar("ecdsa-hss:relayer-share", context, y_relayer)
+x = x_client + x_relayer mod n
+X = x_clientG + x_relayerG
+```
+
+The server derives and stores only its relayer share. The client reconstructs
+canonical `x` only during explicit export.
 
 ## Threat Model
 
@@ -16,13 +24,13 @@ Two parties participate in the lifecycle:
 - client
 - server / relayer
 
-The intended system derives one canonical hidden secp256k1 secret `x` and then
-uses threshold signing shares derived from that same key.
+The main product requirements are:
 
-The main product requirement is stronger than "threshold signing works":
-
-- export and threshold signing must refer to the same logical key
-- the server must not learn the canonical exportable secret
+- export and threshold signing refer to the same logical key
+- the live server process never learns canonical `x`
+- non-export client flows never learn `x_relayer`
+- explicit export releases `x_relayer` only to the authorized client export
+  runtime
 
 ## Core Security Goals
 
@@ -33,15 +41,18 @@ protocol.
 
 That means:
 
-- exported key = canonical secret `x`
-- threshold signing public key = `x * G`
-- threshold signing address = Ethereum address derived from `x * G`
+```text
+x_export = x_client + x_relayer_export mod n
+x_export * G == threshold signing public key
+ethereum_address(x_export * G) == threshold signing address
+```
 
-If export and threshold signing use different keys, the protocol has failed.
+If export and threshold signing use different public keys or addresses, the
+protocol has failed.
 
 ### 2. Server-Blindness
 
-The server must not learn canonical `x`, even when it:
+The live server process must never learn canonical `x`, even when it:
 
 - participates in key setup
 - participates in threshold signing
@@ -49,16 +60,40 @@ The server must not learn canonical `x`, even when it:
 
 The server may hold:
 
-- its own root-share material
-- its own threshold-share material
-- staged server-owned continuation state
+- its own local derivation input
+- `x_relayer`
+- relayer public key
+- threshold public key
+- threshold Ethereum address
+- accepted public transcript and audit metadata
 
-The server must not hold:
+The server must reject and must not retain:
 
 - plaintext canonical `x`
+- `x_client`
+- client root material
 - an export-capable reconstruction of `x`
 
-### 3. Standard EVM Compatibility
+Hard invariant: no production server request path may combine client-owned
+secret input with server-owned secret input in a way that reconstructs
+canonical `x`.
+
+### 3. Client Non-Export Privacy
+
+During registration, session bootstrap, and non-export signing, the client may
+hold:
+
+- its own local derivation input
+- `x_client`
+- client public key
+- relayer public key
+- threshold public key
+- threshold Ethereum address
+- accepted public transcript and local audit metadata
+
+The client must not receive `x_relayer` outside an explicit export envelope.
+
+### 4. Standard EVM Compatibility
 
 The signing output must remain standard secp256k1 ECDSA compatible for:
 
@@ -66,150 +101,166 @@ The signing output must remain standard secp256k1 ECDSA compatible for:
 - public-key recovery
 - standard RPC and wallet tooling
 
-### 4. Explicit Export Policy
+### 5. Explicit Export Policy
 
 Export must be:
 
 - explicit
 - policy-bound
+- transcript-bound
 - auditable
 
-Signing flows must not accidentally produce export-capable output.
+Signing flows must never produce export-capable output.
 
-## Working v1 Boundary
+## Role-Local Boundary
 
-The working v1 boundary is:
+The target boundary is:
 
-- non-export flows must never deliver canonical `x` to the client
-- non-export flows may deliver only the minimum signing/share material needed
-  for threshold ECDSA operation
-- export flows may intentionally deliver `x` to the client
-- the server must still never see `x`
+- non-export server flows accept only server-owned secret inputs plus public
+  client commitments
+- non-export server flows retain only relayer-owned share state plus public
+  identity
+- non-export client flows retain only client-owned share state plus public
+  identity
+- export flows release only an export-authorized relayer share envelope
+- client export runtime reconstructs `x` and verifies it against public key `X`
 
-This is the ECDSA analog of the `ExplicitKeyExport` exception in
-[ed25519-hss/security.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/security.md).
+This is the hard security property for the Rust rewrite:
+
+```text
+No live server path can reconstruct canonical x.
+```
+
+Reference-only fixture code may reconstruct `x` for algebraic tests. Production
+server code must not contain that path.
 
 ## Retained-State Rule
 
-The intended retained-state rule is:
+The retained-state rule is:
 
-- after the server-owned staged boundary begins, raw root-share material should
-  be dropped as early as possible
-- later stages should advance from server-owned continuation state rather than
-  stored plaintext root material
+- after role-local derivation, raw root material is dropped as early as possible
+- server state advances from `x_relayer` and public identity
+- client state advances from `x_client` and public identity
+- failed export, signing, presign, or retry sessions burn their role-local
+  session state
 
-The exact retained-state exceptions will be frozen in the implementation/specs
-once the staged ECDSA-HSS flow is implemented.
+Server retained state must exclude:
 
-Current product-boundary note:
+- client root material
+- `x_client`
+- canonical `x`
 
-- deferred first-time ECDSA bootstrap is intentionally supported
-- that means registration and an authenticated first `session_bootstrap` may
-  both act as first-bootstrap entrypoints before an `ecdsaThresholdKeyId`
-  exists
-- after that point, resume/export flows are expected to use persisted
-  server-owned key material rather than first-bootstrap derivation
-- the staged `prepare/respond/finalize` SDK/server wire now uses hidden-eval
-  envelopes only; raw client root material is no longer allowed on that staged
-  transport
-- this narrower transport proof does not claim every product boundary is root-share-free:
-  registration and recovery payloads may still carry client root material at
-  their own separate boundary outside the staged `ecdsa-hss` transport
+Client non-export retained state must exclude:
 
-## Current Working Assumptions
+- server root material
+- `x_relayer`
 
-The design currently assumes:
+Explicit export is the only allowed client-side `x_relayer` disclosure path.
 
-- the canonical export object is a scalar `x`, not a seed
-- direct additive-share derivation from `x` is the preferred path
-- the first implementation pass is fixed 2-of-2 with participant IDs
-  `{client=1, relayer=2}`
-- the existing `near/threshold-signatures` ECDSA backend is reused if direct
-  additive-share integration works cleanly
+## Public Transcript Binding
 
-If that backend cannot consume the derived additive shares without violating
-the single-key invariant, public-key-preserving resharing is the fallback.
+Every active protocol transcript must bind:
+
+- context binding
+- client public key
+- relayer public key
+- threshold public key
+- threshold Ethereum address
+- operation kind
+- transcript digest
+
+Explicit export additionally requires an authorization witness bound to the
+same public identity and context. A mismatch in public identity or context must
+prevent export reconstruction and non-export signing composition.
 
 ## Main Security Risks
 
 ### Risk 1: Recreating The Two-Key Model
 
-If threshold signing and export end up on separate derivation lanes, the crate
-has recreated the current EVM problem.
+If threshold signing and export use separate derivation lanes, the crate
+recreates the old EVM safety issue.
 
 Mitigation:
 
-- define the single-key invariant in the specs
+- define the single-key invariant in specs
 - test public-key and address equivalence everywhere
+- reject any design that preserves separate signing and export keys
 
 ### Risk 2: Server-Blindness Drift
 
-It is easy to accidentally retain too much root material on the server for
-convenience or performance.
+Convenience APIs can accidentally accept both client-owned and server-owned
+secret inputs in one process.
 
 Mitigation:
 
-- define retained-state rules early
-- add boundary tests before optimization work
+- production server APIs accept only relayer-owned secret input
+- client-owned secret fields are absent from server request types
+- Verus and tests fail if server-visible state gains client-owned secrets or
+  canonical `x`
 
-### Risk 3: Backend-Mismatch Drift
+### Risk 3: Export-Authorization Drift
 
-If the current threshold ECDSA backend cannot represent the same logical key as
-the exported secret, forcing integration will break the design.
+Export can become unsafe if retries, aborts, or stale envelopes reuse failed
+state.
 
 Mitigation:
 
-- treat direct additive-share integration as the preferred path
-- treat resharing as the fallback
-- reject any design that preserves separate signing and export keys
+- bind export authorization to the public transcript
+- burn failed export sessions
+- require fresh export state for retry
+- audit export separately from signing
+
+### Risk 4: Backend-Mismatch Drift
+
+The threshold ECDSA backend must represent the same logical key as the exported
+scalar.
+
+Mitigation:
+
+- map role-local additive shares into backend shares with fixed participant IDs
+  `{1, 2}`
+- prove and test `backend_public_key == X`
+- preserve `X` and address if resharing is introduced
 
 ## Current Implementation Review Findings
 
 The current crate has been reviewed against its runtime boundary and core
-cryptographic helpers.
+cryptographic helpers. These findings remain relevant during the role-local
+rewrite.
 
 ### Finding 1: Secret-dependent big-integer arithmetic
 
-The original reference implementation used `BigUint` in the canonical-scalar
+The original reference implementation used `BigUint` in canonical-scalar
 reduction, additive-share derivation, and 2P backend-share mapping.
 
 Why it mattered:
 
-- `BigUint` arithmetic is not intended to be constant-time
+- `BigUint` arithmetic is variable-time
 - secret-derived comparisons and modular operations widened the timing/cache
   exposure surface
-- the current backend-share mapper used variable-time exponentiation to compute
-  the inverse Lagrange coefficient
+- the backend-share mapper used variable-time exponentiation to compute the
+  inverse Lagrange coefficient
 
 Implemented mitigation:
 
 - reduced secret scalar arithmetic now uses fixed-width `k256` secp256k1 scalar
-  types instead of `BigUint`
+  types
 - the 2P backend-share mapper now uses constant-time scalar inversion and
   multiplication on `k256` scalars
-- canonical-scalar reduction now uses `k256` wide reduction instead of
-  hand-rolled big-integer modulo arithmetic
-
-Residual note:
-
-- additive-share derivation still uses the frozen deterministic retry rule when
-  the candidate client share equals `x`
-- that branch is acceptable for the current fixed-function slice because the
-  retry counter is itself an explicit protocol output, not hidden server-only
-  state
+- canonical-scalar reduction now uses `k256` wide reduction
 
 ### Finding 2: Boundary helpers trusted response tuples too much
 
 The original integration helpers accepted `RespondResponseV1` values after only
-finalize-envelope validation, then reused the supplied key/share fields without
-recomputing the cryptographic relationships between them.
+finalize-envelope validation, then reused supplied key/share fields without
+recomputing cryptographic relationships between them.
 
 Why it mattered:
 
-- a malformed or malicious response could carry inconsistent secret/public
-  tuples across the client/server seam
-- explicit export checked public-key/address equality, but did not prove
-  `canonical_x32 -> canonical_public_key33 -> canonical_ethereum_address20`
+- malformed responses could carry inconsistent secret/public tuples across the
+  client/server seam
+- explicit export checked some public identity fields without fully tying the
+  canonical scalar to the expected public key and address
 
 Implemented mitigation:
 
@@ -220,8 +271,8 @@ Implemented mitigation:
   - `addr(threshold_public_key33) == threshold_ethereum_address20`
   - `pub(canonical_x32) == canonical_public_key33`
   - `addr(canonical_public_key33) == canonical_ethereum_address20`
-- the client-output threshold identity is now checked against the retained
-  server identity instead of being trusted directly
+- the client-output threshold identity is checked against retained server
+  identity
 
 ### Finding 3: Secret-bearing structs were not zeroized
 
@@ -232,8 +283,7 @@ vectors without drop-time zeroization.
 Why it mattered:
 
 - secret material remained in heap/stack allocations longer than necessary
-- intermediate staging objects widened the memory exposure window for root and
-  threshold key material
+- intermediate staging objects widened the memory exposure window
 
 Implemented mitigation:
 
@@ -244,18 +294,17 @@ Implemented mitigation:
 
 ## Intended Verification Targets
 
-The highest-priority future proof/audit targets are:
+The highest-priority proof/audit targets are:
 
-- exported private key public key == threshold signing public key
-- exported private key address == threshold signing address
+- exported private key public key equals threshold signing public key
+- exported private key address equals threshold signing address
 - server never learns canonical `x`
 - non-export signing flows never expose export-capable output
 - retained state does not preserve forbidden root material past the accepted
   boundary
+- mismatched public identity or context prevents signing and export composition
 
 ## Current FV Status
-
-The agreed current formal-verification scope is now complete.
 
 Completed:
 
@@ -270,6 +319,10 @@ Completed:
 - Lean privacy theorems for the same frozen server-visible staged boundary
 - widened Lean privacy theorems over paired full execution states and explicit
   secret-reconstruction-style client/server view models
+- Lean true-blind model for role-local client/server shares, explicit export,
+  public transcript binding, and signing-session identity/context binding
+- Verus mirror for the settled true-blind boundary contract, including active
+  wire forbidden-field exclusion and explicit-export-only relayer share release
 
 Important caveat:
 
@@ -281,9 +334,13 @@ Important caveat:
   - the tie from backend group public key derivation to the effective group
     secret
 
-That means the current FV pass is strong and useful for the agreed stable
-slice, but it is not a claim that every cryptographic primitive boundary is
-fully reduced to proof without trusted assumptions.
+Remaining verification work:
+
+- extend Verus from the boundary mirror into role-local derivation and
+  public-key addition
+- add production anti-drift checks for role-local server/client types
+- extract the implemented Rust boundary with Aeneas
+- bridge the generated boundary back to the Lean true-blind model
 
 Still intentionally out of scope:
 

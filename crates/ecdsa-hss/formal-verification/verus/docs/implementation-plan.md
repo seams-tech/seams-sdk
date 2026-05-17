@@ -1,6 +1,6 @@
 # `ecdsa-hss` Verus Implementation Plan
 
-Last updated: 2026-04-08
+Last updated: 2026-05-17
 
 This document is the Verus-local implementation plan for the narrow stable
 slice.
@@ -19,6 +19,7 @@ the specs:
 3. additive-share derivation shape
 4. fixed participant-ID mapping shape into the current backend seam
 5. explicit-export output-policy shape
+6. initial true-blind role-local boundary shape
 
 ## Phase 0: Bootstrap
 
@@ -53,12 +54,27 @@ the specs:
 - [x] prove non-export operations cannot return canonical `x`
 - [x] prove retained-state exclusions for forbidden root material
 
-## Non-Goals For This Crate
+## Phase 4: True-Blind Boundary Mirror
 
-This bootstrap should not try to prove:
+- [x] add `src/shared/true_blind_boundary.rs`
+- [x] mirror the settled Lean true-blind boundary contract in Rust-shaped Verus
+      types
+- [x] prove active wire envelopes exclude client root material, client share
+      material, and canonical `x`
+- [x] prove relayer export share release is restricted to explicit-export wire
+      envelopes
+- [x] prove explicit-export authorization and wire envelopes bind to the same
+      public transcript
+- [x] prove role-local signing sessions require matching public identity and
+      context binding
+- [x] align the context encoding model with the fixed `evm-family` key scope
 
-- server-blindness
-- retained-state privacy
+## Remaining Scope
+
+Remaining outside this bootstrap:
+
+- full production server-blindness after the Rust rewrite
+- retained-state privacy beyond the modeled boundary shape
 - full Rust boundary extraction
 - full integration/runtime correctness
 

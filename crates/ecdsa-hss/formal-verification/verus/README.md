@@ -10,9 +10,10 @@ Current bootstrap scope:
 - additive-share derivation with explicit retry/share-construction logic
 - fixed participant-ID mapping with the actual `{1,2}` 2P mapping formula
 - explicit-export output-policy shape
+- initial true-blind role-local boundary mirror
 
-This is intentionally not the full privacy/boundary stack yet. The Aeneas +
-Lean tracks stay deferred until there is a stable Rust boundary to extract.
+This is intentionally narrower than the full privacy/boundary stack. The Aeneas
++ Lean bridge stays deferred until there is a stable Rust boundary to extract.
 
 ## Recommended Layout
 
@@ -20,6 +21,7 @@ Lean tracks stay deferred until there is a stable Rust boundary to extract.
 - `src/lib.rs`
 - `src/shared/context.rs`
 - `src/shared/derivation.rs`
+- `src/shared/true_blind_boundary.rs`
 - `src/integration/share_mapping.rs`
 - `src/server/policy.rs`
 - `src/server/state.rs`
@@ -36,6 +38,7 @@ pretending the full protocol is already implemented.
 - the narrow stable-slice mirror exists under:
   - `src/shared/context.rs`
   - `src/shared/derivation.rs`
+  - `src/shared/true_blind_boundary.rs`
   - `src/integration/share_mapping.rs`
   - `src/server/policy.rs`
   - `src/server/state.rs`
@@ -65,17 +68,19 @@ Verus crate. `just ecdsa-hss-fv` runs the executable FV test suite first
 The current Verus boundary is frozen at:
 
 - context encoding shape
+- fixed `evm-family` key-scope encoding for EVM-family addresses
 - canonical `x` derivation shape
 - additive-share derivation with explicit retry/share-construction logic
 - fixed participant-ID mapping with the actual `{1, 2}` mapping formula
 - explicit-export output-policy shape
 - finalized retained-state exclusion shape
+- true-blind role-local wire/session boundary shape
 
-It does not yet try to prove:
+Remaining outside this scope:
 
 - cryptographic privacy claims
 - backend-equivalence theorems beyond the current fixed-ID seam
-- retained-state privacy claims
+- retained-state privacy claims beyond the modeled boundary shape
 - end-to-end integration behavior
 
 See:

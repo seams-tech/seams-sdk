@@ -51,6 +51,10 @@ pub open spec fn participant_id_bytes_v1_spec() -> Seq<u8> {
     seq![2u8, 0u8, 1u8, 0u8, 2u8]
 }
 
+pub open spec fn key_scope_bytes_v1_spec() -> Seq<u8> {
+    seq![101u8, 118u8, 109u8, 45u8, 102u8, 97u8, 109u8, 105u8, 108u8, 121u8]
+}
+
 pub open spec fn u16be_bytes_v1_spec(len: nat) -> Seq<u8>
     recommends len <= 0xffff,
 {
@@ -62,13 +66,17 @@ pub open spec fn encoded_ascii_field_v1_spec(value: String) -> Seq<u8> {
     u16be_bytes_v1_spec(bytes.len() as nat) + bytes
 }
 
+pub open spec fn encoded_key_scope_field_v1_spec() -> Seq<u8> {
+    u16be_bytes_v1_spec(10nat) + key_scope_bytes_v1_spec()
+}
+
 pub open spec fn encode_context_v1_spec(context: CanonicalContextV1) -> Seq<u8> {
     domain_tag_v1_spec()
         + encoded_ascii_field_v1_spec(context.scheme_id)
         + encoded_ascii_field_v1_spec(context.curve)
         + encoded_ascii_field_v1_spec(context.wallet_session_user_id)
         + encoded_ascii_field_v1_spec(context.subject_id)
-        + encoded_ascii_field_v1_spec(context.chain_target)
+        + encoded_key_scope_field_v1_spec()
         + encoded_ascii_field_v1_spec(context.ecdsa_threshold_key_id)
         + encoded_ascii_field_v1_spec(context.signing_root_id)
         + encoded_ascii_field_v1_spec(context.signing_root_version)
@@ -85,7 +93,7 @@ pub proof fn encode_context_v1_has_fixed_field_order(context: CanonicalContextV1
                 + encoded_ascii_field_v1_spec(context.curve)
                 + encoded_ascii_field_v1_spec(context.wallet_session_user_id)
                 + encoded_ascii_field_v1_spec(context.subject_id)
-                + encoded_ascii_field_v1_spec(context.chain_target)
+                + encoded_key_scope_field_v1_spec()
                 + encoded_ascii_field_v1_spec(context.ecdsa_threshold_key_id)
                 + encoded_ascii_field_v1_spec(context.signing_root_id)
                 + encoded_ascii_field_v1_spec(context.signing_root_version)
@@ -112,6 +120,15 @@ pub proof fn fixed_participant_layout_is_client_then_relayer(context: CanonicalC
     ensures
         context.participant_ids[0] == 1u16,
         context.participant_ids[1] == 2u16,
+{
+}
+
+pub proof fn encoded_key_scope_field_is_fixed_v1()
+    ensures
+        key_scope_bytes_v1_spec()
+            == seq![101u8, 118u8, 109u8, 45u8, 102u8, 97u8, 109u8, 105u8, 108u8, 121u8],
+        encoded_key_scope_field_v1_spec()
+            == seq![0u8, 10u8, 101u8, 118u8, 109u8, 45u8, 102u8, 97u8, 109u8, 105u8, 108u8, 121u8],
 {
 }
 
