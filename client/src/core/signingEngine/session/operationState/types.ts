@@ -5,6 +5,7 @@ import type {
   ThresholdEd25519SessionStoreSource,
 } from '../identity/laneIdentity';
 import type { ThresholdEcdsaChainTarget, WalletSubjectId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { EvmFamilyEcdsaKeyIdentity } from '../identity/evmFamilyEcdsaIdentity';
 
 export type Brand<TValue, TBrand extends string> = TValue & { readonly __brand: TBrand };
 
@@ -70,6 +71,7 @@ export type EcdsaSigningSessionPlanningLane = BaseSigningSessionPlanningLane & {
   curve: 'ecdsa';
   keyKind: 'threshold_ecdsa_secp256k1';
   chainFamily: ThresholdEcdsaChainTarget['kind'];
+  key: EvmFamilyEcdsaKeyIdentity;
   walletId: AccountId;
   accountId?: never;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -176,17 +178,34 @@ export type SigningKeyRefIntent =
       authMethod: SigningAuthMethod;
     };
 
-export type WalletSigningSpendPlan = {
+export type Ed25519WalletSigningSpendPlan = {
   operationId: SigningOperationId;
   operationFingerprint?: SigningOperationFingerprint;
   walletId: AccountId;
   walletSigningSessionId: WalletSigningSessionId;
-  lane: SelectedSigningSessionPlanningLane;
-  thresholdSessionIds: readonly ThresholdSessionId[];
+  lane: SelectedEd25519SigningSessionPlanningLane;
+  thresholdSessionIds: readonly ThresholdEd25519SessionId[];
   backingMaterialSessionIds: readonly BackingMaterialSessionId[];
   uses: 1;
   reason: SigningOperationIntent;
 };
+
+export type EcdsaWalletSigningSpendPlan = {
+  operationId: SigningOperationId;
+  operationFingerprint?: SigningOperationFingerprint;
+  walletId: AccountId;
+  walletSigningSessionId: WalletSigningSessionId;
+  lane: SelectedEcdsaSigningSessionPlanningLane;
+  ecdsaKey: EvmFamilyEcdsaKeyIdentity;
+  thresholdSessionIds: readonly ThresholdEcdsaSessionId[];
+  backingMaterialSessionIds: readonly BackingMaterialSessionId[];
+  uses: 1;
+  reason: SigningOperationIntent;
+};
+
+export type WalletSigningSpendPlan =
+  | Ed25519WalletSigningSpendPlan
+  | EcdsaWalletSigningSpendPlan;
 
 export type EmailOtpChallengePlan = {
   challengeId?: EmailOtpChallengeId;
@@ -421,6 +440,10 @@ export function normalizeWalletSigningSpendPlan(
           accountId: walletId,
           walletSigningSessionId,
         };
+  const ecdsaKey =
+    normalizedLane.curve === 'ecdsa'
+      ? normalizeEcdsaSpendKey(input, normalizedLane)
+      : undefined;
   return {
     ...input,
     operationId,
@@ -428,6 +451,7 @@ export function normalizeWalletSigningSpendPlan(
     walletId,
     walletSigningSessionId,
     lane: normalizedLane,
+    ...(ecdsaKey ? { ecdsaKey } : {}),
     thresholdSessionIds: uniqueBrandedStrings(
       input.thresholdSessionIds,
       (value) => toRequiredBrandedString(value, 'thresholdSessionId') as ThresholdSessionId,
@@ -440,11 +464,39 @@ export function normalizeWalletSigningSpendPlan(
     ),
     uses: 1,
     reason: SigningOperationIntent.TransactionSign,
-  };
+  } as WalletSigningSpendPlan;
+}
+
+function normalizeEcdsaSpendKey(
+  input: WalletSigningSpendPlan,
+  lane: SelectedEcdsaSigningSessionPlanningLane,
+): EvmFamilyEcdsaKeyIdentity {
+  const key = (input as { ecdsaKey?: EvmFamilyEcdsaKeyIdentity }).ecdsaKey;
+  if (!key) {
+    throw new Error('[SigningSession] ECDSA wallet signing spend requires shared key identity');
+  }
+  const mismatches: string[] = [];
+  if (String(key.walletId) !== String(lane.walletId)) mismatches.push('walletId');
+  if (String(key.subjectId) !== String(lane.subjectId)) mismatches.push('subjectId');
+  if (String(key.ecdsaThresholdKeyId) !== String(lane.ecdsaThresholdKeyId)) {
+    mismatches.push('ecdsaThresholdKeyId');
+  }
+  if (String(key.signingRootId) !== String(lane.signingRootId)) {
+    mismatches.push('signingRootId');
+  }
+  if (String(key.signingRootVersion) !== String(lane.signingRootVersion)) {
+    mismatches.push('signingRootVersion');
+  }
+  if (mismatches.length) {
+    throw new Error(
+      `[SigningSession] ECDSA wallet signing spend key does not match lane: ${mismatches.join(',')}`,
+    );
+  }
+  return key;
 }
 
 function uniqueBrandedStrings<TValue extends string>(
-  values: readonly TValue[],
+  values: readonly unknown[],
   normalize: (value: unknown) => TValue,
   label: string,
 ): TValue[] {

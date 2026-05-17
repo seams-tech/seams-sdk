@@ -75,8 +75,7 @@ import {
   type EvmFamilyThresholdEcdsaStepUp,
 } from './requireEvmFamilyStepUpAuth';
 import { buildEvmFamilyEcdsaStepUpAuthorization } from './stepUpAuthorization';
-
-export type EvmFamilySigningAuthSideEffect = 'passkey_reauth' | 'threshold_reconnect';
+import type { EvmFamilySigningAuthSideEffect } from './freshAuthRetryPolicy';
 
 type EvmFamilySigningWebAuthnMode<TRequest> =
   | {
@@ -445,6 +444,7 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
       },
     });
     confirmation = await runConfirmation();
+    notifyAuthSideEffectStarted('auth_confirmed');
     stepUpAuthorization = buildEvmFamilyEcdsaStepUpAuthorization({
       prepared: stepUp,
       confirmation,

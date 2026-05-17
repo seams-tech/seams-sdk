@@ -14,7 +14,12 @@ export type SigningBoundaryTraceEvent = {
   event: 'pre_confirm_readiness_checked' | 'auth_side_effect_started';
   lane?: SigningLaneSummary;
   readinessStatus?: string;
-  sideEffect?: 'email_otp_challenge' | 'passkey_reauth' | 'threshold_reconnect';
+  sideEffect?:
+    | 'auth_prompt_shown'
+    | 'email_otp_challenge'
+    | 'passkey_reauth'
+    | 'auth_confirmed'
+    | 'threshold_reconnect';
   phase: 'pre_confirm' | 'confirmed';
 };
 

@@ -13,7 +13,6 @@ import {
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type { WarmSessionEcdsaCapabilityState } from '@/core/signingEngine/session/warmCapabilities/types';
-import type { ThresholdEcdsaSmartAccountBootstrapInput } from '@/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import { configuredEmailOtpEcdsaSnapshotChainTargets } from './persistedSnapshot';
 import { ecdsaBootstrapWithWalletSigningSessionId } from './routePlan';
@@ -35,7 +34,6 @@ export type EmailOtpEcdsaPublicationPorts = {
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     source: 'email_otp';
     emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
-    smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
   }) => Promise<{
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     warmCapability: WarmSessionEcdsaCapabilityState;
@@ -80,7 +78,6 @@ export async function commitEmailOtpEcdsaPublicationBootstraps(
     emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
     relayerUrl: string;
     shamirPrimeB64u: string;
-    smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
   },
   ports: EmailOtpEcdsaPublicationPorts,
 ): Promise<{
@@ -114,7 +111,6 @@ export async function commitEmailOtpEcdsaPublicationBootstraps(
       bootstrap: workerBootstrap,
       source: 'email_otp',
       emailOtpAuthContext: args.emailOtpAuthContext,
-      ...(index === 0 && args.smartAccount ? { smartAccount: args.smartAccount } : {}),
     });
     await persistEmailOtpEcdsaSigningSessionSealForUnlock(
       {
@@ -173,6 +169,7 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
   ).trim();
   const keyVersion = String(ports.configs.signing.sessionSeal?.keyVersion || '').trim();
   const sessionKind = keyRef.thresholdSessionKind || (thresholdSessionAuthToken ? 'jwt' : 'cookie');
+  const rpId = String(args.bootstrap.keygen.rpId || '').trim();
   const ecdsaThresholdKeyId = String(keyRef.ecdsaThresholdKeyId || '').trim();
   const ethereumAddress = normalizeEthereumAddress(keyRef.ethereumAddress);
   const thresholdEcdsaPublicKeyB64u = String(keyRef.thresholdEcdsaPublicKeyB64u || '').trim();
@@ -184,6 +181,7 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
     : [];
   if (
     !ecdsaThresholdKeyId ||
+    !rpId ||
     !ethereumAddress ||
     !relayerKeyId ||
     !participantIds.length ||
@@ -255,6 +253,7 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
     ...sealedRecordBase,
     ecdsaRestore: {
       chainTarget: actualChainTarget,
+      rpId,
       ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
       sessionKind,
       ecdsaThresholdKeyId,

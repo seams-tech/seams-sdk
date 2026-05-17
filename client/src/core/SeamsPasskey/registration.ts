@@ -44,6 +44,12 @@ import {
 import type { ThresholdEcdsaSessionBootstrapResult } from '../signingEngine/threshold/ecdsa/activation';
 import { buildEcdsaSessionIdentity } from '../signingEngine/session/warmCapabilities/ecdsaProvisionPlan';
 import { generateWalletSigningSessionId } from '../signingEngine/threshold/sessionPolicy';
+import {
+  buildEvmFamilyEcdsaKeyIdentity,
+  buildEvmFamilyEcdsaSessionLanePolicy,
+  deriveEvmFamilyKeyFingerprint,
+  type EvmFamilyEcdsaKeyIdentity,
+} from '../signingEngine/session/identity/evmFamilyEcdsaIdentity';
 
 // Registration forces a visible, clickable confirmation for cross‑origin safety
 
@@ -57,6 +63,7 @@ function createThresholdRegistrationEcdsaSessionId(): string {
 async function persistRegistrationThresholdEcdsaProfileSigner(args: {
   nearAccountId: AccountId;
   chainTarget: ThresholdEcdsaChainTarget;
+  key: EvmFamilyEcdsaKeyIdentity;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
   signerSlot: number;
 }): Promise<void> {
@@ -71,14 +78,13 @@ async function persistRegistrationThresholdEcdsaProfileSigner(args: {
 
   const keyRef = args.bootstrap.thresholdEcdsaKeyRef;
   const ecdsaThresholdKeyId = String(keyRef.ecdsaThresholdKeyId || '').trim();
+  if (ecdsaThresholdKeyId !== String(args.key.ecdsaThresholdKeyId)) {
+    throw new Error('[Registration] threshold ECDSA profile signer key id mismatches shared key');
+  }
   const ownerAddress = normalizeIndexedDbAccountAddress(
     args.bootstrap.keygen.ethereumAddress || keyRef.ethereumAddress,
   );
-  const accountAddress = normalizeIndexedDbAccountAddress(
-    args.bootstrap.keygen.counterfactualAddress ||
-      args.bootstrap.keygen.ethereumAddress ||
-      keyRef.ethereumAddress,
-  );
+  const accountAddress = ownerAddress;
   const relayerKeyId = String(
     args.bootstrap.keygen.relayerKeyId || keyRef.backendBinding?.relayerKeyId || '',
   ).trim();
@@ -93,7 +99,8 @@ async function persistRegistrationThresholdEcdsaProfileSigner(args: {
   }
 
   const signerSlot = Math.max(1, Math.floor(Number(args.signerSlot) || 1));
-  const accountModel = args.chainTarget.kind === 'evm' ? 'erc4337' : 'tempo-native';
+  const accountModel = 'threshold-ecdsa';
+  const evmFamilyKeyFingerprint = deriveEvmFamilyKeyFingerprint(args.key);
   await IndexedDBManager.clientDB.upsertAccountSigner({
     profileId,
     chainIdKey: toIndexedDbChainTargetKey(args.chainTarget),
@@ -107,21 +114,40 @@ async function persistRegistrationThresholdEcdsaProfileSigner(args: {
     status: 'active',
     metadata: {
       accountModel,
+      accountAddress,
       ownerAddress,
+      thresholdOwnerAddress: String(args.key.thresholdOwnerAddress),
+      keyScope: args.key.keyScope,
+      evmFamilyKeyFingerprint,
+      walletId: String(args.key.walletId),
+      subjectId: String(args.key.subjectId),
+      rpId: String(args.key.rpId),
       ecdsaThresholdKeyId,
+      signingRootId: String(args.key.signingRootId),
+      signingRootVersion: String(args.key.signingRootVersion),
       relayerKeyId,
       thresholdEcdsaPublicKeyB64u,
       signerSlot,
       chainTarget: args.chainTarget,
+      targetMembership: {
+        targetKey: thresholdEcdsaChainTargetKey(args.chainTarget),
+        chainTarget: args.chainTarget,
+      },
+      sharedEvmFamilyKey: {
+        walletId: String(args.key.walletId),
+        subjectId: String(args.key.subjectId),
+        rpId: String(args.key.rpId),
+        keyScope: args.key.keyScope,
+        ecdsaThresholdKeyId,
+        signingRootId: String(args.key.signingRootId),
+        signingRootVersion: String(args.key.signingRootVersion),
+        participantIds: args.key.participantIds.map((participantId) => Number(participantId)),
+        thresholdOwnerAddress: String(args.key.thresholdOwnerAddress),
+        evmFamilyKeyFingerprint,
+      },
       chainId: args.chainTarget.chainId,
       ...(Array.isArray(participantIds) && participantIds.length
         ? { participantIds: [...participantIds] }
-        : {}),
-      ...(args.bootstrap.keygen.factory ? { factory: args.bootstrap.keygen.factory } : {}),
-      ...(args.bootstrap.keygen.entryPoint ? { entryPoint: args.bootstrap.keygen.entryPoint } : {}),
-      ...(args.bootstrap.keygen.salt ? { salt: args.bootstrap.keygen.salt } : {}),
-      ...(args.bootstrap.keygen.counterfactualAddress
-        ? { counterfactualAddress: args.bootstrap.keygen.counterfactualAddress }
         : {}),
     },
     mutation: { routeThroughOutbox: false },
@@ -362,6 +388,7 @@ export async function registerPasskeyInternal(
       signingEngine,
       credential,
       nearAccountId,
+      rpId,
       signerSlot,
       registrationContinuation: accountAndRegistrationResult.registrationContinuation,
       registrationSessionPolicy: thresholdEd25519Registration.registrationInput.sessionPolicy,
@@ -586,6 +613,7 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
   signingEngine: SigningEnginePublic;
   credential: WebAuthnRegistrationCredential;
   nearAccountId: AccountId;
+  rpId: string;
   signerSlot: number;
   registrationContinuation?: Awaited<
     ReturnType<typeof createAccountAndRegisterWithRelayServer>
@@ -669,31 +697,55 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
       })),
     });
 
+    const subjectId = walletSubjectIdFromWalletProfile({ walletId: args.nearAccountId });
+    let sharedKeyIdentity: EvmFamilyEcdsaKeyIdentity | null = null;
     for (const chainTarget of continuationTargets) {
       const publicationChain = chainTarget.kind;
       const bootstrapStartedAt = performance.now();
       const thresholdSessionId = createThresholdRegistrationEcdsaSessionId();
       const walletSigningSessionId = generateWalletSigningSessionId();
-      const bootstrap = await args.signingEngine.bootstrapEcdsaSession({
-        kind: 'passkey_fresh_ecdsa_bootstrap',
-        walletId: args.nearAccountId,
-        subjectId: walletSubjectIdFromWalletProfile({ walletId: args.nearAccountId }),
-        chainTarget,
-        source: 'registration',
-        relayerUrl,
-        sessionKind: 'jwt',
-        sessionIdentity: buildEcdsaSessionIdentity({
-          thresholdSessionId,
-          walletSigningSessionId,
-        }),
-        clientRootShare32B64u,
-        routeAuth: {
-          kind: 'registration_continuation',
-          token: registrationContinuationToken,
-        },
-        ttlMs,
-        remainingUses,
-      });
+      const lanePolicy = sharedKeyIdentity
+        ? buildEvmFamilyEcdsaSessionLanePolicy({
+            chainTarget,
+            thresholdSessionId,
+            walletSigningSessionId,
+            thresholdSessionKind: 'jwt',
+            ttlMs,
+            remainingUses,
+          })
+        : null;
+      const routeAuth = {
+        kind: 'registration_continuation' as const,
+        token: registrationContinuationToken,
+      };
+      const bootstrap =
+        sharedKeyIdentity && lanePolicy
+          ? await args.signingEngine.bootstrapEcdsaSession({
+              kind: 'passkey_fresh_ecdsa_bootstrap',
+              source: 'registration',
+              relayerUrl,
+              key: sharedKeyIdentity,
+              lanePolicy,
+              clientRootShare32B64u,
+              routeAuth,
+            })
+          : await args.signingEngine.bootstrapEcdsaSession({
+              kind: 'passkey_fresh_ecdsa_bootstrap',
+              walletId: args.nearAccountId,
+              subjectId,
+              chainTarget,
+              source: 'registration',
+              relayerUrl,
+              sessionKind: 'jwt',
+              sessionIdentity: buildEcdsaSessionIdentity({
+                thresholdSessionId,
+                walletSigningSessionId,
+              }),
+              clientRootShare32B64u,
+              routeAuth,
+              ttlMs,
+              remainingUses,
+            });
       timings[`bootstrapThresholdEcdsa${publicationChain === 'tempo' ? 'Tempo' : 'Evm'}Ms`] =
         Math.round(performance.now() - bootstrapStartedAt);
 
@@ -705,15 +757,35 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
       if (!returnedEcdsaThresholdKeyId || !ownerAddress) {
         throw new Error('[Registration] threshold ECDSA bootstrap returned incomplete signer identity');
       }
+      const returnedKeyIdentity = buildEvmFamilyEcdsaKeyIdentity({
+        walletId: args.nearAccountId,
+        subjectId,
+        rpId: args.rpId,
+        ecdsaThresholdKeyId: keyRef.ecdsaThresholdKeyId,
+        signingRootId: keyRef.signingRootId,
+        signingRootVersion: keyRef.signingRootVersion || 'default',
+        participantIds: keyRef.participantIds || bootstrap.keygen.participantIds,
+        thresholdOwnerAddress: bootstrap.keygen.ethereumAddress || keyRef.ethereumAddress,
+      });
+      if (!sharedKeyIdentity) {
+        sharedKeyIdentity = returnedKeyIdentity;
+      } else if (
+        deriveEvmFamilyKeyFingerprint(sharedKeyIdentity) !==
+        deriveEvmFamilyKeyFingerprint(returnedKeyIdentity)
+      ) {
+        throw new Error('[Registration] threshold ECDSA bootstrap returned divergent shared key identity');
+      }
       await persistRegistrationThresholdEcdsaProfileSigner({
         nearAccountId: args.nearAccountId,
         chainTarget,
+        key: sharedKeyIdentity,
         bootstrap,
         signerSlot: args.signerSlot,
       });
       const thresholdSessionAuthTokenSource = String(keyRef.thresholdSessionAuthToken || '').trim()
         ? 'ecdsa'
         : 'none';
+      const accountAddressForLog = ownerAddress || null;
       console.info('[Registration] threshold ECDSA background provisioned', {
         nearAccountId: args.nearAccountId,
         chain: publicationChain,
@@ -724,8 +796,7 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
         remainingUses: bootstrap.session.remainingUses,
         expiresAtMs: bootstrap.session.expiresAtMs,
         thresholdSessionAuthTokenSource,
-        accountAddress:
-          bootstrap.keygen.counterfactualAddress || bootstrap.keygen.ethereumAddress || null,
+        accountAddress: accountAddressForLog,
         durationMs:
           timings[`bootstrapThresholdEcdsa${publicationChain === 'tempo' ? 'Tempo' : 'Evm'}Ms`],
       });

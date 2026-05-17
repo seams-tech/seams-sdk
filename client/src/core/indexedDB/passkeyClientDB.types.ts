@@ -5,7 +5,6 @@ import type {
   SignerAuthMethod,
   SignerKind,
   SignerSource,
-  UndeployedSmartAccountSignerSet,
 } from '@shared/utils';
 
 export interface PasskeyCredentialRecord {
@@ -61,7 +60,7 @@ export interface AccountRef {
   accountAddress: AccountAddress;
 }
 
-export type AccountModel = 'near-native' | 'erc4337' | 'tempo-native' | string;
+export type AccountModel = 'near-native' | 'threshold-ecdsa' | string;
 export type AccountSignerType = 'passkey' | 'threshold' | 'session' | 'recovery' | string;
 export type AccountSignerStatus = 'active' | 'pending' | 'revoked';
 export type { SignerAuthMethod, SignerKind, SignerSource };
@@ -110,14 +109,6 @@ export interface ChainAccountRecord {
   isPrimary?: boolean;
   createdAt: number;
   updatedAt: number;
-  factory?: string;
-  entryPoint?: string;
-  salt?: string;
-  counterfactualAddress?: string;
-  deployed?: boolean;
-  deploymentTxHash?: string;
-  lastDeploymentCheckAt?: number;
-  undeployedSignerSet?: UndeployedSmartAccountSignerSet;
 }
 
 export interface AccountSignerRecord {
@@ -174,14 +165,6 @@ export type UpsertChainAccountInput = {
   accountAddress: AccountAddress;
   accountModel: AccountModel;
   isPrimary?: boolean;
-  factory?: string | null;
-  entryPoint?: string | null;
-  salt?: string | null;
-  counterfactualAddress?: string | null;
-  deployed?: boolean;
-  deploymentTxHash?: string | null;
-  lastDeploymentCheckAt?: number | null;
-  undeployedSignerSet?: UndeployedSmartAccountSignerSet | null;
 };
 
 export type UpsertAccountSignerInput = {

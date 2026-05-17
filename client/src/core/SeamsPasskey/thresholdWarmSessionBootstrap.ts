@@ -469,6 +469,7 @@ export async function persistRegisteredThresholdEd25519Session(args: {
     remainingUses,
     transport: {
       curve: 'ed25519',
+      walletId: String(args.nearAccountId),
       relayerUrl: args.relayerUrl,
       ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
       ...(jwt ? { thresholdSessionAuthToken: jwt } : {}),
@@ -717,6 +718,7 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
     remainingUses,
     transport: {
       curve: 'ed25519',
+      walletId: String(args.nearAccountId),
       relayerUrl: String(args.relayerUrl || '').trim(),
       ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
       ...(sessionAuthToken ? { thresholdSessionAuthToken: sessionAuthToken } : {}),

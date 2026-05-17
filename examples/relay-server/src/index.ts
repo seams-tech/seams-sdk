@@ -6,8 +6,6 @@ import {
   createInMemoryConsoleSponsorshipSpendCapService,
   createPostgresConsoleSponsorshipSpendCapService,
   createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship,
-  createRecoveryAuthorityIntervalRunner,
-  createEvmSmartAccountDeployHandler,
   createEcdsaAuthSessionStore,
   createHostedSigningRootShareResolver,
   createSigningSessionSealPolicyFromThresholdAuthSessionStores,
@@ -108,14 +106,9 @@ const relayDotenvPath = resolve(relayServerDir, '.env');
 dotenv.config({ path: relayDotenvPath, override: true });
 
 let server: ReturnType<Express['listen']> | null = null;
-let recoveryAuthorityRunner: ReturnType<typeof createRecoveryAuthorityIntervalRunner> | null = null;
 
 function shutdown(signal: string) {
   console.log(`[shutdown] received ${signal}, closing server...`);
-  if (recoveryAuthorityRunner) {
-    recoveryAuthorityRunner.stop();
-    recoveryAuthorityRunner = null;
-  }
   if (!server) {
     process.exit(0);
   }
@@ -913,14 +906,6 @@ async function main() {
   }
   const sponsoredEvmCallConfig = await resolveSponsoredEvmCallConfigFromEnv(env);
   const requiresAtomicSponsoredSettlement = Boolean(sponsoredEvmCallConfig);
-  const recoveryAuthorityContinuationEnabled = parseBooleanFlag(
-    env.RECOVERY_AUTHORITY_CONTINUATION_ENABLED,
-  );
-  const recoveryAuthorityContinuationIntervalMs =
-    parseOptionalPositiveInteger(env.RECOVERY_AUTHORITY_CONTINUATION_INTERVAL_MS) || 30_000;
-  const recoveryAuthorityContinuationLimit = parseOptionalPositiveInteger(
-    env.RECOVERY_AUTHORITY_CONTINUATION_LIMIT,
-  );
   const sponsorshipRealPricing = resolveCoinGeckoSponsoredExecutionPricingFromEnv(env);
   const sponsorshipStaticPricing = resolveStaticSponsoredExecutionPricingFromEnv(env);
   const sponsorshipPricing = sponsorshipRealPricing || sponsorshipStaticPricing;
@@ -1553,33 +1538,6 @@ async function main() {
     );
   }
 
-  if (recoveryAuthorityContinuationEnabled) {
-    recoveryAuthorityRunner = createRecoveryAuthorityIntervalRunner(authService, {
-      logger: console,
-      intervalMs: recoveryAuthorityContinuationIntervalMs,
-      ...(typeof recoveryAuthorityContinuationLimit === 'number'
-        ? { limit: recoveryAuthorityContinuationLimit }
-        : {}),
-      sponsorship:
-        sponsoredEvmCallConfig && consoleRuntimeSnapshots
-          ? {
-              logger: console as any,
-              billing: consoleBilling,
-              ledger: consoleSponsoredCalls,
-              runtimeSnapshots: consoleRuntimeSnapshots,
-              config: sponsoredEvmCallConfig,
-              spendCaps: consoleSponsorshipSpendCaps,
-              pricing: sponsorshipPricing,
-              prepaidReservations: consoleBillingPrepaidReservations,
-              observabilityIngestion: consoleObservabilityIngestion,
-              webhooks: consoleWebhooks,
-              webhookActorUserId: 'recovery-authority',
-              webhookRoles: ['system'],
-            }
-          : null,
-    });
-  }
-
   app.use((_req, res, next) => {
     res.setHeader('referrer-policy', 'no-referrer');
     res.setHeader('permissions-policy', 'geolocation=(), microphone=(), camera=()');
@@ -1625,14 +1583,6 @@ async function main() {
       ...(relayApiKeyUsageMeter ? { apiKeyUsageMeter: relayApiKeyUsageMeter } : {}),
       bootstrapGrantBroker: relayBootstrapGrantBroker,
       bootstrapTokenStore: consoleBootstrapTokens,
-      ...(sponsoredEvmCallConfig
-        ? {
-            smartAccountDeploy: createEvmSmartAccountDeployHandler({
-              config: sponsoredEvmCallConfig,
-              logger: console,
-            }),
-          }
-        : {}),
       sponsoredEvmCall: {
         apiKeys: consoleApiKeys,
         billing: consoleBilling,
@@ -1718,17 +1668,6 @@ async function main() {
     console.log(
       `Relay usage meter (billing linkage): ${relayApiKeyUsageMeter ? 'enabled' : 'disabled'}`,
     );
-    console.log(
-      `Recovery authority continuation: ${
-        recoveryAuthorityRunner
-          ? `enabled (interval_ms=${recoveryAuthorityContinuationIntervalMs}${
-              recoveryAuthorityContinuationLimit
-                ? ` limit=${recoveryAuthorityContinuationLimit}`
-                : ''
-            })`
-          : 'disabled'
-      }`,
-    );
     console.log(`Console core backend: ${consolePostgresUrl ? 'postgres' : 'memory'}`);
     if (consolePostgresUrl) {
       console.log(`Console core namespace: ${consoleCoreNamespace}`);
@@ -1806,7 +1745,6 @@ async function main() {
         console.log(`AuthService started with relayer account: ${relayer.accountId}`),
       )
       .catch((err: Error) => console.error('AuthService initial check failed:', err));
-    recoveryAuthorityRunner?.start();
   };
 
   const requestedListenHost = config.host || '0.0.0.0';

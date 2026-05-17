@@ -55,12 +55,10 @@ await registerPasskey(nextAccountId, {
   signerOptions: {
     tempo: {
       enabled: true,
-      participantIds: [1, 2],
       signingSession: { kind: 'jwt', ttlMs: 30 * 60 * 1000, remainingUses: 12 },
     },
     evm: {
       enabled: true,
-      participantIds: [1, 2],
       signingSession: { kind: 'jwt', ttlMs: 30 * 60 * 1000, remainingUses: 12 },
     },
   },
@@ -89,7 +87,43 @@ export function LoginButton(props: { nearAccountId: string }) {
 }
 ```
 
-## 3. Bootstrap Tempo/EVM Threshold Session (if needed)
+## 3. ECDSA Command Subject Helpers
+
+Tempo and EVM-family calls use a wallet-session command subject plus a concrete
+chain target.
+
+```ts
+import {
+  walletSessionRefFromSession,
+  walletSubjectIdFromWalletProfile,
+  type ThresholdEcdsaChainTarget,
+} from '@seams/sdk';
+
+export function ecdsaCommandSubject(accountId: string) {
+  return {
+    walletSession: walletSessionRefFromSession({
+      walletId: accountId,
+      walletSessionUserId: accountId,
+    }),
+    subjectId: walletSubjectIdFromWalletProfile({ walletId: accountId }),
+  };
+}
+
+export const TEMPO_CHAIN_TARGET = {
+  kind: 'tempo',
+  chainId: 42431,
+  networkSlug: 'tempo-testnet',
+} satisfies ThresholdEcdsaChainTarget;
+
+export const ETHEREUM_SEPOLIA_CHAIN_TARGET = {
+  kind: 'evm',
+  namespace: 'eip155',
+  chainId: 11155111,
+  networkSlug: 'ethereum-sepolia',
+} satisfies ThresholdEcdsaChainTarget;
+```
+
+## 4. Bootstrap Tempo/EVM Threshold Session (if needed)
 
 ```tsx
 import { useSeams } from '@seams/sdk/react';
@@ -99,8 +133,15 @@ export function BootstrapTempoEvmSession(props: { nearAccountId: string }) {
 
   async function onBootstrap(): Promise<void> {
     await seams.tempo.bootstrapEcdsaSession({
-      nearAccountId: props.nearAccountId,
-      options: { chain: 'tempo' },
+      kind: 'reuse_warm_ecdsa_bootstrap',
+      ...ecdsaCommandSubject(props.nearAccountId),
+      chainTarget: TEMPO_CHAIN_TARGET,
+    });
+
+    await seams.evm.bootstrapEcdsaSession({
+      kind: 'reuse_warm_ecdsa_bootstrap',
+      ...ecdsaCommandSubject(props.nearAccountId),
+      chainTarget: ETHEREUM_SEPOLIA_CHAIN_TARGET,
     });
   }
 
@@ -108,7 +149,7 @@ export function BootstrapTempoEvmSession(props: { nearAccountId: string }) {
 }
 ```
 
-## 4. Sign a NEAR Transaction (Threshold Ed25519)
+## 5. Sign a NEAR Transaction (Threshold Ed25519)
 
 ```tsx
 import { ActionType, useSeams } from '@seams/sdk/react';
@@ -141,7 +182,7 @@ export function SignNear(props: { nearAccountId: string }) {
 }
 ```
 
-## 5. Sign a Tempo Transaction (Threshold secp256k1)
+## 6. Sign a Tempo Transaction (Threshold secp256k1)
 
 Nonce management is engine-owned for default Tempo/EVM signing flows. Do not fetch nonces in app code.
 
@@ -173,7 +214,8 @@ export function SignTempo(props: { nearAccountId: string }) {
     const setGreetingInput = encodeSetGreetingInput('hello from tempo');
 
     const signed = await seams.tempo.signTempo({
-      nearAccountId: props.nearAccountId,
+      ...ecdsaCommandSubject(props.nearAccountId),
+      chainTarget: TEMPO_CHAIN_TARGET,
       request: {
         chain: 'tempo',
         kind: 'tempoTransaction',
@@ -221,7 +263,8 @@ export function SetTempoFeeToken(props: { nearAccountId: string }) {
     });
 
     const signed = await seams.tempo.signTempo({
-      nearAccountId: props.nearAccountId,
+      ...ecdsaCommandSubject(props.nearAccountId),
+      chainTarget: TEMPO_CHAIN_TARGET,
       request: {
         chain: 'evm',
         kind: 'eip1559',
@@ -247,7 +290,7 @@ export function SetTempoFeeToken(props: { nearAccountId: string }) {
 }
 ```
 
-## 6. Sign an EVM EIP-1559 Transaction (Threshold secp256k1)
+## 7. Sign an EVM EIP-1559 Transaction (Threshold secp256k1)
 
 For standard flows, nonce reservation is handled by the signing engine. Manual nonce injection is advanced-only.
 This example uses Ethereum Sepolia to make the EVM family/network split explicit.
@@ -262,7 +305,8 @@ export function SignEvm(props: { nearAccountId: string }) {
 
   async function onSignEvm(): Promise<void> {
     const signed = await seams.tempo.signTempo({
-      nearAccountId: props.nearAccountId,
+      ...ecdsaCommandSubject(props.nearAccountId),
+      chainTarget: ETHEREUM_SEPOLIA_CHAIN_TARGET,
       request: {
         chain: 'evm',
         kind: 'eip1559',
@@ -299,13 +343,13 @@ export function SignEvm(props: { nearAccountId: string }) {
 ## Troubleshooting
 
 - `threshold session expired` or `No cached threshold-ecdsa session token`
-  - Re-bootstrap the chain signer with `bootstrapEcdsaSession({ chain: 'tempo' | 'evm' })`, then retry signing.
+  - Re-bootstrap the chain signer with `kind: 'reuse_warm_ecdsa_bootstrap'`, `walletSession`, `subjectId`, and the concrete `chainTarget`, then retry signing.
 - Missing Tempo/EVM session after reload
-  - Re-bootstrap with `bootstrapEcdsaSession()` before signing.
+  - Re-bootstrap the matching `seams.tempo` or `seams.evm` signer before signing.
 - Signing fails right after unlock due to session state
-  - Run `seams.auth.unlock()` first for warm session state, then `bootstrapEcdsaSession()` if ECDSA session state is missing.
+  - Run `seams.auth.unlock()` first for warm session state, then bootstrap the missing ECDSA chain target.
 - Repeated failures on one chain only
-  - Re-provision only that chain (`chain: 'tempo'` or `chain: 'evm'`) to refresh the threshold session/keyRef pair.
+  - Bootstrap that concrete `chainTarget` again to refresh the threshold session lane.
 
 ## Next Steps
 

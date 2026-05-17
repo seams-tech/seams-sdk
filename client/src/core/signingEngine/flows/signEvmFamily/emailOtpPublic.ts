@@ -13,7 +13,6 @@ import type {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
-import type { ThresholdEcdsaSmartAccountBootstrapInput } from '../../session/warmCapabilities/ecdsaBootstrapPersistence';
 import type { WarmSessionEcdsaCapabilityState } from '../../session/warmCapabilities/types';
 import type { EmailOtpWorkerProgressEvent } from '../../workerManager/workerTypes';
 import {
@@ -37,7 +36,6 @@ export type LoginWithEmailOtpEcdsaCapabilityInternalArgs = {
   ttlMs?: number;
   remainingUses?: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
   onProgress?: (progress: EmailOtpWorkerProgressEvent) => void;
 };
 
@@ -77,7 +75,6 @@ export type EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs = {
   clientSecret32?: Uint8Array;
   otpChannel?: WalletEmailOtpChannel;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
   registrationAttemptId?: string;
   onProgress?: (progress: EmailOtpWorkerProgressEvent) => void;
 };

@@ -28,7 +28,7 @@ Current entrypoint: `signEvmFamily.ts`.
 Supporting entrypoints: `signingFlow.ts`, `signEvmWithUiConfirm.ts`,
 `signTempoWithUiConfirm.ts`, `nonceLifecycleAdapter.ts`,
 `emailOtpPublic.ts`, and
-`smartAccountDeployment.ts`.
+`transactionExecutor.ts`.
 
 ## Stage Order
 
@@ -41,8 +41,7 @@ Supporting entrypoints: `signingFlow.ts`, `signEvmWithUiConfirm.ts`,
    `signTempoWithUiConfirm.ts`.
 5. Threshold admission: `thresholdAdmission.ts`, `budgetSpending.ts`,
    `warmSessionServices.ts`.
-6. Payload preparation: `preparedSigning.ts`, `smartAccount.ts`,
-   `smartAccountDeployment*.ts`.
+6. Payload preparation: `preparedSigning.ts`, `transactionExecutor.ts`.
 7. Nonce: `nonceLifecycleAdapter.ts`, `evmNonceLifecycle.ts`,
    `tempoNonceLifecycle.ts`, `nonceResolution.ts`, `nonceMetrics.ts`.
 8. Signing: `signingFlowRuntime.ts`, `transactionExecutor.ts`,

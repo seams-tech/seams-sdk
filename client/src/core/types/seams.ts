@@ -99,36 +99,18 @@ export interface SigningSessionSealConfig {
  *   provisioningDefaults?: {
  *     tempo: {
  *       enabled: boolean;
- *       participantIds: readonly number[];
  *       signingSession: {
  *         kind: 'jwt' | 'cookie';
  *         ttlMs: number;
  *         remainingUses: number;
- *       };
- *       smartAccount?: {
- *         chainId: number;
- *         factory?: string;
- *         entryPoint?: string;
- *         salt?: string;
- *         counterfactualAddress?: string;
- *       };
- *     };
+ *       }; *     };
  *     evm: {
  *       enabled: boolean;
- *       participantIds: readonly number[];
  *       signingSession: {
  *         kind: 'jwt' | 'cookie';
  *         ttlMs: number;
  *         remainingUses: number;
- *       };
- *       smartAccount?: {
- *         chainId: number;
- *         factory?: string;
- *         entryPoint?: string;
- *         salt?: string;
- *         counterfactualAddress?: string;
- *       };
- *     };
+ *       }; *     };
  *   };
  *   iframeWallet?: {
  *     walletOrigin?: string;
@@ -139,9 +121,6 @@ export interface SigningSessionSealConfig {
  *   relayer?: {
  *     url?: string;
  *     delegateActionRoute?: string;
- *     smartAccountDeployRoute?: string;
- *     smartAccountDeploymentMode?: 'observe' | 'enforce';
- *     smartAccountDeploymentMaxAttempts?: number;
  *     emailRecovery?: {
  *       minBalanceYocto?: string;
  *       pollingIntervalMs?: number;
@@ -230,13 +209,11 @@ export interface SeamsConfigsInput {
    * - `tempo`: `EcdsaSignerProvisioningPolicy`
    * - `evm`: `EcdsaSignerProvisioningPolicy`
    *
-   * `EcdsaSignerProvisioningPolicy` contains:
-   * - `enabled`: enable/disable provisioning on that chain.
-   * - `participantIds`: participant IDs used for threshold key/session setup.
-   * - `signingSession.kind`: `'jwt' | 'cookie'` for the minted signer session.
+ * `EcdsaSignerProvisioningPolicy` contains:
+ * - `enabled`: enable/disable provisioning on that chain.
+ * - `signingSession.kind`: `'jwt' | 'cookie'` for the minted signer session.
    * - `signingSession.ttlMs`: session expiration window in milliseconds.
    * - `signingSession.remainingUses`: max allowed signer operations for the session.
-   * - `smartAccount?`: optional EVM/Tempo smart-account deployment hints.
    *
    * Used when a registration call does not provide per-call overrides via
    * `RegistrationHooksOptions.signerOptions`.
@@ -267,13 +244,7 @@ export interface SeamsConfigsInput {
  *       accountId: string;
  *       url: string;
  *       routes: {
- *         delegateAction: string;
- *         smartAccountDeploy: string;
- *       };
- *       smartAccountDeployment: {
- *         mode: 'observe' | 'enforce';
- *         maxAttempts: number;
- *       };
+ *         delegateAction: string; *       };
  *       emailRecovery: {
  *         minBalanceYocto: string;
  *         pollingIntervalMs: number;
@@ -646,28 +617,6 @@ export interface SeamsRelayerConfigInput {
    * Defaults to '/signed-delegate'.
    */
   delegateActionRoute?: string;
-  /**
-   * Relative path for a custom smart-account deployment endpoint.
-   *
-   * Built-in relay routers do not expose a public smart-account deployment route.
-   * Leave this unset unless your integration intentionally provides one.
-   */
-  smartAccountDeployRoute?: string;
-  /**
-   * Smart-account deployment gate mode for EVM/Tempo sends.
-   * - `observe`: stamp checks and continue signing without blocking undeployed accounts.
-   * - `enforce`: require successful deploy-on-first-use before signing proceeds.
-   *
-   * Defaults to `observe`.
-   */
-  smartAccountDeploymentMode?: 'observe' | 'enforce';
-  /**
-   * Maximum deploy attempts for deploy-on-first-use in enforce mode.
-   * Must be an integer in [1, 5]; invalid values fail config resolution.
-   *
-   * Defaults to `2`.
-   */
-  smartAccountDeploymentMaxAttempts?: number;
   emailRecovery?: {
     minBalanceYocto?: string;
     pollingIntervalMs?: number;
@@ -681,12 +630,6 @@ export interface SeamsRelayerConfigInput {
 
 export interface SeamsRelayerRoutesConfig {
   delegateAction: string;
-  smartAccountDeploy: string;
-}
-
-export interface SeamsSmartAccountDeploymentConfig {
-  mode: 'observe' | 'enforce';
-  maxAttempts: number;
 }
 
 export interface SeamsRelayerEmailRecoveryConfig {
@@ -703,7 +646,6 @@ export interface SeamsRelayerConfig {
   accountId: string;
   url: string;
   routes: SeamsRelayerRoutesConfig;
-  smartAccountDeployment: SeamsSmartAccountDeploymentConfig;
   emailRecovery: SeamsRelayerEmailRecoveryConfig;
 }
 

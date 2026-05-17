@@ -108,7 +108,7 @@ function requireRecordBackedEmailOtpSigningSessionAuthLane(args: {
       : resolveEmailOtpAuthLane({
           routeAuth: args.routeAuth,
           thresholdSessionId: args.recordIdentity.thresholdSessionId,
-          walletSigningSessionId: args.recordIdentity.walletSigningSessionId,
+          authorizingWalletSigningSessionId: args.recordIdentity.walletSigningSessionId,
           curve: args.recordIdentity.chain === 'near' ? 'ed25519' : 'ecdsa',
           chainTarget:
             args.recordIdentity.chain === 'near' ? undefined : args.recordIdentity.chainTarget,

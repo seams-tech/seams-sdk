@@ -11,7 +11,10 @@ import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy'
 import type { ThresholdEd25519SessionRecord } from '../../session/persistence/records';
 import { getStoredThresholdEd25519SessionRecordForLane } from '../../session/persistence/records';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
-import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
+import {
+  toAuthorizingWalletSigningSessionId,
+  type EmailOtpAuthLane,
+} from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { RequestEmailOtpChallengeArgs } from '../../session/emailOtp/exportRecoveryRuntime';
 import type { ExactNearEd25519ExportLane } from './exportLaneSelection';
 import {
@@ -316,7 +319,9 @@ export async function tryExportNearEd25519SingleKeyHssWithAuthorization(
           'exportThresholdSessionAuthToken',
         ),
         thresholdSessionId,
-        walletSigningSessionId,
+        authorizingWalletSigningSessionId: toAuthorizingWalletSigningSessionId(
+          walletSigningSessionId,
+        ),
         curve: 'ed25519' as const,
       };
       const authorization = await requestEmailOtpKeyExportAuthorization(

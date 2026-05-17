@@ -146,10 +146,6 @@ export default {
 - POST `/threshold/signing-session-seal/apply-server-seal` — optional signing-session sealed-refresh route
 - POST `/threshold/signing-session-seal/remove-server-seal` — optional signing-session sealed-refresh route
 
-Smart-account deployment is an internal relay hook now. If you provide `smartAccountDeploy` to
-`createRelayRouter(..., { smartAccountDeploy })` or `createCloudflareRouter(..., { smartAccountDeploy })`,
-invoke it from your own registration or provisioning flow instead of expecting a public relay route.
-
 ## Sessions
 
 You have two integration styles:

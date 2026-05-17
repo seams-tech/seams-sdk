@@ -246,7 +246,7 @@ Completed:
   - `GET /console/gas/readiness`
   - `GET /console/export/governance`
   - responses are org-scoped and support context filtering (`projectId` / `environmentId` where applicable).
-- Console router coverage now includes the new config modules (`gas-sponsorship`, `smart-wallets`, `settings`, `key-exports`, `runtime-snapshots`) across:
+- Console router coverage now includes the new config modules (`gas-sponsorship`, `settings`, `key-exports`, `runtime-snapshots`) across:
   - service-not-wired (`*_not_configured`) behavior,
   - scaffold CRUD success paths,
   - mutation RBAC denies (`forbidden`) by role,
@@ -259,7 +259,7 @@ Completed:
   - `POST /console/runtime-snapshots/publish`
   - `POST /console/runtime-snapshots/publish-current`
   - snapshots include `snapshotId`, monotonically increasing `version` per environment scope, `effectiveAt`, `checksum`, and resolved payload envelope.
-  - `publish-current` generates payload server-side from currently configured policy/settings/gas/smart-wallet modules (with explicit `not_configured` module markers when optional services are absent).
+  - `publish-current` generates payload server-side from currently configured policy/settings/gas modules (with explicit `not_configured` module markers when optional services are absent).
 - Dashboard policy engine page now consumes `GET /console/policy/coverage` for policy assignment coverage and unassigned wallet sampling.
 - Dashboard policy engine page now consumes policy lifecycle APIs:
   - `GET /console/policies`
@@ -272,9 +272,8 @@ Completed:
   - `DELETE /console/policies/assignments/:id`
   - draft creation, rule updates, simulation, publish, assignment upsert, and assignment delete actions are wired while keeping coverage insights.
   - policy publish controls now integrate with the approval queue and forward the selected approved request id (`approvalId`) to publish when approvals are configured.
-- Dashboard gas sponsorship and smart-wallet page now consumes live policy-backed APIs:
+- Dashboard gas sponsorship page now consumes live policy-backed APIs:
   - gas sponsorship flows use `GET/POST/PATCH /console/policies` with `kind=GAS_SPONSORSHIP`, plus `POST /console/policies/:id/publish`
-  - smart-wallet flows use `GET/POST/PATCH /console/smart-wallets`
   - the dedicated gas page remains a thin adapter over policy APIs, with role-gated actions plus scope-aware payloads.
 - Dashboard export keys page now consumes live key export workflow APIs:
   - `GET /console/key-exports`
@@ -293,7 +292,7 @@ Completed:
   - `GET /console/audit/evidence`
   - timeline/evidence filters and context-scoped investigation tables are wired in UI.
 - Browser-level dashboard API wiring coverage now validates the new page flows:
-  - `/dashboard/gas-smart-wallets`: gas policy create + mutation flow against mocked `/console/policies` endpoints using `kind=GAS_SPONSORSHIP`.
+  - `/dashboard/gas-sponsorship`: gas policy create + mutation flow against mocked `/console/policies` endpoints using `kind=GAS_SPONSORSHIP`.
   - `/dashboard/policy-engine`: approval-backed policy publish flow forwards the selected `approvalId` to `/console/policies/:id/publish`.
   - `/dashboard/export-keys`: key export create + MFA-gated approval flow against mocked `/console/key-exports` endpoints.
   - `/dashboard/approvals`: approval request create + MFA-gated approve + reject + filter flows against mocked `/console/approvals` endpoints.
@@ -301,14 +300,14 @@ Completed:
   - e2e wiring assertions validate `approvalId` forwarding on key-export approve requests.
 - Cross-org isolation coverage is implemented for webhook and billing routes (including invoice, payment-intent, overview, and MAW usage paths) with Postgres-backed integration tests.
 - CI now executes Postgres-backed console isolation coverage (`console-router`) in `threshold-signing-core`.
-- Dedicated Postgres tenant-isolation harness tests are implemented at the console service layer (org/project/environment, wallets, API keys, webhooks, billing, policy-backed gas sponsorship, smart wallets, settings, key exports, runtime snapshots) and wired into the CI-gated console Postgres suite.
+- Dedicated Postgres tenant-isolation harness tests are implemented at the console service layer (org/project/environment, wallets, API keys, webhooks, billing, policy-backed gas sponsorship, settings, key exports, runtime snapshots) and wired into the CI-gated console Postgres suite.
 - Cross-org mutation denial coverage is implemented for org/project/environment services and routes.
 - Direct Postgres FK denial coverage is implemented for invalid cross-org wallet lineage inserts.
 
 Recently completed hardening:
 
 - DB-level tenant context primitives are now introduced (`app.console_namespace`, `app.console_org_id`) with transaction-scoped Postgres client wiring across runtime snapshots, org/project/environment, wallets, API keys, policies, webhooks, config modules, and billing operations.
-- RLS policy enforcement is now active for `console_runtime_snapshots`, `console_organizations`, `console_projects`, `console_environments`, `console_wallet_index`, `console_api_keys`, `console_smart_wallet_configs`, `console_environment_settings`, `console_key_exports`, `console_policies`, `console_policy_versions`, `console_policy_assignments`, `console_webhook_endpoints`, `console_webhook_deliveries`, `console_webhook_attempts`, `console_webhook_dead_letters`, `console_billing_accounts`, `console_billing_credit_purchases`, `console_billing_ledger_accounts`, `console_billing_ledger_entries`, `console_billing_ledger_postings`, `console_usage_meter_events`, `console_usage_rollups_monthly`, `console_invoices`, `console_invoice_line_items`, and `console_stripe_webhook_events`, with dedicated DB-level policy tests for each completed slice.
+- RLS policy enforcement is now active for `console_runtime_snapshots`, `console_organizations`, `console_projects`, `console_environments`, `console_wallet_index`, `console_api_keys`, `console_environment_settings`, `console_key_exports`, `console_policies`, `console_policy_versions`, `console_policy_assignments`, `console_webhook_endpoints`, `console_webhook_deliveries`, `console_webhook_attempts`, `console_webhook_dead_letters`, `console_billing_accounts`, `console_billing_credit_purchases`, `console_billing_ledger_accounts`, `console_billing_ledger_entries`, `console_billing_ledger_postings`, `console_usage_meter_events`, `console_usage_rollups_monthly`, `console_invoices`, `console_invoice_line_items`, and `console_stripe_webhook_events`, with dedicated DB-level policy tests for each completed slice.
 - Monthly billing finalization now runs with explicit org targets (`orgIds`) to remain compatible with FORCE-RLS billing tables.
 - Stripe webhook reconciliation now resolves prepaid purchase settlement without the removed payment-intent/provider-ref tables.
 - Runtime snapshot publish now writes tenant-scoped outbox events (`console_runtime_snapshot_outbox`) and a cron-dispatch runner exists with org-targeted advisory-lock execution (default runner requires an explicit dispatch callback).
@@ -442,15 +441,13 @@ Key outputs:
 - Jobs:
   - policy publish propagation and snapshot generation
 
-### `/dashboard/gas-smart-wallets`
+### `/dashboard/gas-sponsorship`
 
 - APIs:
   - `GET /console/gas/readiness` (implemented)
   - gas sponsorship flows use `GET/POST/PATCH /console/policies` with `kind=GAS_SPONSORSHIP` and `POST /console/policies/:id/publish`
-  - `GET/POST/PATCH /console/smart-wallets` (scaffolded; in-memory + postgres service + router wiring)
 - Data:
   - sponsorship budget and telemetry tables
-  - smart-wallet configuration tables
 - Jobs:
   - spend rollup and threshold alerting
 
@@ -687,14 +684,12 @@ Exit criteria:
 - Internal manual adjustments are append-only and audited.
 - Non-admin users cannot access internal adjustment routes.
 
-### Milestone 4: Export Keys + Gas Sponsorship + Smart Wallet Controls (2-3 weeks)
+### Milestone 4: Export Keys + Gas Sponsorship Controls (2-3 weeks)
 
 Frontend:
 
 - Export settings modes and approval workflow UX.
 - Gas sponsorship controls with budget dashboards.
-- Smart wallet mode controls and fallback settings.
-
 Backend:
 
 - Implement:
@@ -702,7 +697,6 @@ Backend:
   - `POST /console/key-exports/:id/approve`
   - gas sponsorship policy CRUD through `GET/POST/PATCH /console/policies` with `kind=GAS_SPONSORSHIP`
   - `POST /console/policies/:id/publish` for gas publish
-  - `GET/POST/PATCH /console/smart-wallets`
 - Add step-up and approval guardrails for export actions.
 - Enforce default key-export approval: `2 admin + MFA + reason`.
 
@@ -714,7 +708,7 @@ Data:
 Exit criteria:
 
 - Sensitive export changes require policy-defined approvals.
-- Sponsorship and smart wallet controls affect runtime config snapshots.
+- Sponsorship controls affect runtime config snapshots.
 
 ### Milestone 5: Governance Hardening (2-4 weeks)
 
@@ -774,7 +768,7 @@ Runtime consumers read full versioned environment snapshots:
   - `checksum`
 - Payload includes resolved runtime config:
   - effective policy assignment + limits
-  - gas sponsorship + smart-wallet controls
+  - gas sponsorship controls
 
 ### Billing journal contract
 

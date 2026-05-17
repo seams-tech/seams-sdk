@@ -1590,13 +1590,15 @@ export class SeamsPasskey {
             kind: 'ecdsa' as const,
             subjectId: input.subjectId,
             chainTarget: input.chainTarget,
-            walletSessionUserId: String(input.walletSessionUserId || '').trim(),
+            walletSession: input.walletSession,
             options: resolvedOptions,
           };
     const routerAccountId =
       resolvedInput.kind === 'near'
         ? resolvedInput.nearAccount.accountId
-        : resolvedInput.walletSessionUserId;
+        : String(
+            resolvedInput.walletSession.walletSessionUserId || resolvedInput.walletSession.walletId,
+          ).trim();
     if (!routerAccountId) {
       throw new Error('[SeamsPasskey] key export requires wallet session user context');
     }

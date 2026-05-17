@@ -32,7 +32,6 @@ const footerGroups: FooterGroup[] = [
       { label: 'Consumer Apps', to: '/solutions/#consumer-apps' },
       { label: 'Stablecoin Payments', to: '/solutions/#stablecoin-payments' },
       { label: 'Treasury & Payouts', to: '/solutions/#treasury-and-payouts' },
-      { label: 'Smart Accounts', to: '/solutions/' },
     ],
   },
   {

@@ -23,6 +23,9 @@ import {
   type EvmFamilyEcdsaAvailableLane,
 } from '../../session/identity/selectLane';
 import {
+  deriveEvmFamilyKeyFingerprint,
+} from '../../session/identity/evmFamilyEcdsaIdentity';
+import {
   prepareTransactionSigningOperation,
   type EvmFamilyEcdsaTransactionSigningIntent,
   type PreparedTransactionBudgetState,
@@ -145,14 +148,20 @@ function summarizeEcdsaAvailableLane(
       state: lane.state,
     };
   }
+  const evmFamilyKeyFingerprint =
+    'key' in lane && lane.key ? deriveEvmFamilyKeyFingerprint(lane.key) : undefined;
   return {
     present: true,
     authMethod: lane.authMethod,
     curve: lane.curve,
     chain: lane.chainTarget?.kind,
     chainTarget: lane.chainTarget,
+    ...(evmFamilyKeyFingerprint ? { evmFamilyKeyFingerprint } : {}),
     state: lane.state,
     source: lane.source,
+    ...(lane.source === 'evm_family_shared_key'
+      ? { sourceChainTarget: lane.sourceChainTarget }
+      : {}),
     walletSigningSessionId: lane.walletSigningSessionId,
     thresholdSessionId: lane.thresholdSessionId,
     remainingUses: lane.remainingUses,
@@ -203,6 +212,9 @@ function summarizeEcdsaLaneCandidate(
     curve: candidate.curve,
     chain: candidate.chainTarget.kind,
     chainTarget: candidate.chainTarget,
+    ...(candidate.source === 'evm_family_shared_key'
+      ? { sourceChainTarget: candidate.sourceChainTarget }
+      : {}),
     state: candidate.state,
     source: candidate.source,
     walletSigningSessionId: candidate.walletSigningSessionId,
@@ -522,12 +534,17 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           laneCandidate.state === 'restorable' ||
           laneCandidate.state === 'deferred' ||
           !hasExactHotMaterial;
+        const restoreChainTarget =
+          selectedAvailableLane.source === 'evm_family_shared_key'
+            ? selectedAvailableLane.sourceChainTarget
+            : chainTarget;
         if (shouldRestoreAvailableLane) {
           emitSigningSessionFlowTrace('evm-family', {
             stage: 'ecdsa_prepare.restore_start',
             accountId: walletId,
             chain,
             chainTarget,
+            restoreChainTarget,
             authMethod,
             hasExactHotMaterial,
             selectedAvailableLane: summarizeEcdsaAvailableLane(selectedAvailableLane),
@@ -544,7 +561,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
               walletId,
               authMethod,
               curve: 'ecdsa',
-              chainTarget,
+              chainTarget: restoreChainTarget,
               walletSigningSessionId: laneCandidate.walletSigningSessionId,
               thresholdSessionId: laneCandidate.thresholdSessionId,
               reason: 'transaction',
@@ -558,6 +575,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
               accountId: walletId,
               chain,
               chainTarget,
+              restoreChainTarget,
               authMethod,
               selectedAvailableLane: summarizeEcdsaAvailableLane(selectedAvailableLane),
               selectedLaneCandidate: summarizeEcdsaLaneCandidate(laneCandidate),
@@ -579,6 +597,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
             accountId: walletId,
             chain,
             chainTarget,
+            restoreChainTarget,
             authMethod,
             selectedAvailableLane: summarizeEcdsaAvailableLane(selectedAvailableLane),
             selectedLaneCandidate: summarizeEcdsaLaneCandidate(laneCandidate),

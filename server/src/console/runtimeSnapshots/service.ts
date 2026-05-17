@@ -48,7 +48,6 @@ function clonePayload(input: ConsoleRuntimeSnapshotPayload): ConsoleRuntimeSnaps
   return {
     policy: cloneObject(input.policy),
     gasSponsorship: cloneObject(input.gasSponsorship),
-    smartWallets: cloneObject(input.smartWallets),
     ...(input.metadata ? { metadata: cloneObject(input.metadata) } : {}),
   };
 }

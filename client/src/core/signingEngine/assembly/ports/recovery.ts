@@ -1,6 +1,7 @@
 import { IndexedDBManager } from '@/core/indexedDB';
 import type { PrivateKeyExportRecoveryDeps } from '../../interfaces/operationDeps';
 import { configuredThresholdEcdsaChainTargets } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   readPersistedAvailableSigningLanes,
   readPersistedAvailableSigningLanesForTargets,
@@ -51,6 +52,23 @@ export function createRecoveryPublicDeps(args: {
   const configuredChainTargets = configuredThresholdEcdsaChainTargets(
     args.seamsPasskeyConfigs.network.chains,
   );
+  const completeConfiguredEcdsaTargets = <
+    TArgs extends { ecdsaChainTargets: readonly (typeof configuredChainTargets)[number][] },
+  >(
+    availableLanesArgs: TArgs,
+  ): TArgs => {
+    const targetsByKey = new Map<string, (typeof configuredChainTargets)[number]>();
+    for (const chainTarget of [
+      ...availableLanesArgs.ecdsaChainTargets,
+      ...configuredChainTargets,
+    ]) {
+      targetsByKey.set(thresholdEcdsaChainTargetKey(chainTarget), chainTarget);
+    }
+    return {
+      ...availableLanesArgs,
+      ecdsaChainTargets: [...targetsByKey.values()],
+    };
+  };
   return {
     laneSelection: {
       readPersistedAvailableSigningLanes: (availableLanesArgs) =>
@@ -70,7 +88,7 @@ export function createRecoveryPublicDeps(args: {
             statusReader: args.touchConfirm,
             getWalletSigningBudgetStatus: args.getWalletSigningBudgetStatus,
           },
-          availableLanesArgs,
+          completeConfiguredEcdsaTargets(availableLanesArgs),
         ),
       restorePasskeyPersistedSessionForSigning: (restoreArgs) =>
         args.touchConfirm.restorePersistedSessionForSigning(restoreArgs),

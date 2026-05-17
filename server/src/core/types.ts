@@ -612,7 +612,6 @@ export interface CreateAccountAndRegisterRequest {
       relayerKeyId?: string;
     };
     session_kind: 'jwt' | 'cookie';
-    smart_account_targets?: CreateAccountAndRegisterSmartAccountTarget[];
   };
   registration_continuation?: {
     threshold_ecdsa_chain_targets: ThresholdEcdsaChainTarget[];
@@ -631,26 +630,6 @@ export interface CreateAccountAndRegisterRequest {
    */
   expected_origin?: string;
   authenticator_options?: AuthenticatorOptions;
-}
-
-export interface CreateAccountAndRegisterSmartAccountTarget {
-  chainTarget: import('./smartAccountChainTarget').SmartAccountChainTarget;
-  factory?: string;
-  entry_point?: string;
-  recovery_authority?: string;
-  salt?: string;
-  counterfactual_address?: string;
-}
-
-export interface CreateAccountAndRegisterSmartAccountDeployment {
-  chainTarget: import('./smartAccountChainTarget').SmartAccountChainTarget;
-  accountAddress: string;
-  accountModel: 'erc4337' | 'tempo-native';
-  deployed: boolean;
-  deploymentTxHash?: string;
-  code?: string;
-  message?: string;
-  counterfactualAddress?: string;
 }
 
 // Result type for atomic account creation and registration
@@ -696,7 +675,6 @@ export interface CreateAccountAndRegisterResult {
       jwt?: string;
     };
   };
-  smartAccountDeployments?: CreateAccountAndRegisterSmartAccountDeployment[];
   registrationContinuation?: {
     token: string;
     expiresAtMs: number;
@@ -1106,10 +1084,6 @@ export interface ThresholdEcdsaHssFinalizeResponse {
   relayerKeyId?: string;
   relayerVerifyingShareB64u?: string;
   chainId?: number;
-  factory?: string;
-  entryPoint?: string;
-  salt?: string;
-  counterfactualAddress?: string;
   sessionId?: string;
   walletSigningSessionId?: string;
   subjectId?: string;

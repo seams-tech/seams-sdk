@@ -32,6 +32,7 @@ export type EmailOtpEcdsaWarmSessionRestore = {
   signingRootId: string;
   signingRootVersion?: string;
   ecdsaThresholdKeyId: string;
+  ethereumAddress: string;
   relayerKeyId: string;
   participantIds?: number[];
   derivationPath?: string;

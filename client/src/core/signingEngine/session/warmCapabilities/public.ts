@@ -12,7 +12,10 @@ import {
   mergeWalletSigningBudgetStatus,
   type WalletSigningBudgetAvailableStatusDeps,
 } from '../budget/budgetStatusReader';
-import { buildThresholdBudgetStatusCheck } from '../budget/budget';
+import {
+  buildEcdsaLaneBudgetStatusCheck,
+  buildThresholdBudgetStatusCheck,
+} from '../budget/budget';
 import {
   getStoredThresholdEd25519SessionRecordForAccount as getStoredThresholdEd25519SessionRecordForAccountValue,
 } from '../persistence/records';
@@ -21,7 +24,6 @@ import {
   type ThresholdEcdsaLoginPrefillResult,
 } from './ecdsaLoginPrefill';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
-import type { ThresholdEcdsaSmartAccountBootstrapInput } from './ecdsaBootstrapPersistence';
 import type {
   WarmEcdsaRecordBackedSigningSessionStatus,
   WarmEcdsaSigningSessionStatus,
@@ -32,11 +34,6 @@ export type PersistThresholdEcdsaBootstrapForWalletTargetInput = {
   walletId: AccountId | string;
   chainTarget: ThresholdEcdsaChainTarget;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
-  smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
-  deployment?: {
-    deployed: boolean;
-    deploymentTxHash?: string;
-  };
   ensureEmailOtpNearAccountMapping?: boolean;
 };
 
@@ -122,10 +119,11 @@ export async function getWarmThresholdEcdsaSessionStatus(
         {
           getAvailableStatus: deps.getWalletSigningBudgetStatus,
         },
-        buildThresholdBudgetStatusCheck({
-          walletId,
+        buildEcdsaLaneBudgetStatusCheck({
+          key: status.key,
+          chainTarget: status.chainTarget,
           walletSigningSessionId: status.walletSigningSessionId,
-          targetThresholdSessionIds: [thresholdSessionId],
+          thresholdSessionId,
         }),
       )
     : null;
@@ -148,10 +146,11 @@ export async function listWarmThresholdEcdsaSessionStatuses(
         {
           getAvailableStatus: deps.getWalletSigningBudgetStatus,
         },
-        buildThresholdBudgetStatusCheck({
-          walletId,
+        buildEcdsaLaneBudgetStatusCheck({
+          key: status.key,
+          chainTarget: status.chainTarget,
           walletSigningSessionId: status.walletSigningSessionId,
-          targetThresholdSessionIds: [status.sessionId],
+          thresholdSessionId: status.sessionId,
         }),
       );
       return mergeWalletSigningBudgetStatus(status, walletBudgetStatus);

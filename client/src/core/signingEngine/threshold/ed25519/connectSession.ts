@@ -189,11 +189,15 @@ export async function connectEd25519Session(args: {
     sessionKind,
     relayerKeyId: args.relayerKeyId,
     sessionPolicy: policy,
-    ...(appSessionJwt || args.useAppSessionCookie === true
+    ...(appSessionJwt
       ? {
-          ...(appSessionJwt ? { appSessionJwt } : {}),
-          ...(args.useAppSessionCookie ? { useAppSessionCookie: args.useAppSessionCookie } : {}),
+          appSessionJwt,
         }
+      : args.useAppSessionCookie === true
+        ? {
+            useAppSessionCookie: true,
+            webauthnAuthentication: credential,
+          }
       : { webauthnAuthentication: credential }),
     runtimeEnvironmentId: args.runtimeScopeBootstrap?.environmentId,
     publishableKey: args.runtimeScopeBootstrap?.publishableKey,

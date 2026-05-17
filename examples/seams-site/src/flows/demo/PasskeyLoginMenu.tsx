@@ -318,14 +318,6 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     if (!appSessionJwt) {
       throw new Error('Google SSO did not return an app session token for Email OTP wallet access');
     }
-    const emailOtpSigningSessionPolicy =
-      args.emailOtpAuthPolicy === 'per_operation'
-        ? null
-        : {
-            ttlMs: FRONTEND_CONFIG.signingSessionDefaults.ttlMs,
-            remainingUses: FRONTEND_CONFIG.signingSessionDefaults.remainingUses,
-          };
-
     let googleResolution = exchange.session.googleEmailOtpResolution;
     let otpFlow: 'enroll' | 'login' =
       googleResolution?.mode === 'register_started' ? 'enroll' : 'login';
@@ -462,17 +454,11 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
               challengeId: challenge.challengeId,
               otpCode,
               relayUrl: relayerBaseUrl,
-              sessionKind: 'jwt',
               appSessionJwt,
-              routeAuth: { kind: 'app_session', jwt: appSessionJwt },
               emailOtpAuthPolicy: args.emailOtpAuthPolicy,
-              ...(emailOtpSigningSessionPolicy || {}),
               onEvent: handleGoogleEmailOtpEvent,
               ...(googleResolution?.registrationAttemptId
                 ? { registrationAttemptId: googleResolution.registrationAttemptId }
-                : {}),
-              ...(exchange.session.runtimePolicyScope
-                ? { runtimePolicyScope: exchange.session.runtimePolicyScope }
                 : {}),
             });
           } else {
@@ -486,15 +472,9 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
               challengeId: challenge.challengeId,
               otpCode,
               relayUrl: relayerBaseUrl,
-              sessionKind: 'jwt',
               appSessionJwt,
-              routeAuth: { kind: 'app_session', jwt: appSessionJwt },
               emailOtpAuthPolicy: args.emailOtpAuthPolicy,
-              ...(emailOtpSigningSessionPolicy || {}),
               onEvent: handleGoogleEmailOtpUnlockEvent,
-              ...(exchange.session.runtimePolicyScope
-                ? { runtimePolicyScope: exchange.session.runtimePolicyScope }
-                : {}),
             });
           }
           await refreshLoginState(walletId);

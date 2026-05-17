@@ -7,6 +7,7 @@ import {
   buildNearTransactionSigningLane,
 } from '@/core/signingEngine/session/operationState/lanes';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
+import type { UiConfirmSigningSessionPort } from '@/core/signingEngine/uiConfirm/types';
 import type { WarmSessionCapabilityReader } from '@/core/signingEngine/session/warmCapabilities/types';
 import type { NearResolvedEd25519SigningSessionState } from '@/core/signingEngine/interfaces/near';
 import { THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR } from './thresholdAuthMode';
@@ -80,6 +81,52 @@ export function resolveThresholdEd25519SessionStateFromRecord(
         ...common,
         sessionKind,
       };
+}
+
+export async function refreshPasskeyEd25519SealedRecordAfterClientBase(args: {
+  touchConfirm?: Pick<UiConfirmSigningSessionPort, 'persistSigningSessionSealForThresholdSession'>;
+  nearAccountId: string;
+  thresholdSessionState: ResolvedThresholdEd25519SessionState;
+  thresholdSessionId: string;
+  xClientBaseB64u: string | undefined;
+}): Promise<void> {
+  if (args.thresholdSessionState.signingLane.authMethod !== 'passkey') return;
+  const persist = args.touchConfirm?.persistSigningSessionSealForThresholdSession;
+  if (typeof persist !== 'function') return;
+  const thresholdSessionId = String(args.thresholdSessionId || '').trim();
+  const walletSigningSessionId = String(
+    args.thresholdSessionState.walletSigningSessionId || '',
+  ).trim();
+  const relayerUrl = String(args.thresholdSessionState.relayerUrl || '').trim();
+  const xClientBaseB64u = String(args.xClientBaseB64u || '').trim();
+  if (!thresholdSessionId || !walletSigningSessionId || !relayerUrl || !xClientBaseB64u) return;
+  const result = await persist({
+    sessionId: thresholdSessionId,
+    transport: {
+      curve: 'ed25519',
+      walletId: String(args.nearAccountId || '').trim(),
+      relayerUrl,
+      walletSigningSessionId,
+      ...(args.thresholdSessionState.sessionKind === 'jwt'
+        ? { thresholdSessionAuthToken: args.thresholdSessionState.thresholdSessionAuthToken }
+        : {}),
+    },
+  }).catch((error: unknown) => {
+    console.warn('[SigningEngine][near] failed to refresh passkey Ed25519 sealed restore metadata', {
+      nearAccountId: args.nearAccountId,
+      thresholdSessionId,
+      error: error instanceof Error ? error.message : String(error || 'unknown error'),
+    });
+    return null;
+  });
+  if (result && !result.ok && result.code !== 'not_enabled') {
+    console.warn('[SigningEngine][near] passkey Ed25519 sealed restore metadata refresh failed', {
+      nearAccountId: args.nearAccountId,
+      thresholdSessionId,
+      code: result.code,
+      message: result.message,
+    });
+  }
 }
 
 export function requireResolvedThresholdEd25519SessionState(args: {

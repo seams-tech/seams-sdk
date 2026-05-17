@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useSeams } from '@seams/sdk/react';
-import { walletSessionRefFromSession, walletSubjectIdFromWalletProfile } from '@seams/sdk';
 import { toast } from 'sonner';
 
 import { FRONTEND_CONFIG, type FrontendConfig } from '@/config';
 import { isEvmAddress, readTempoTokenBalanceRaw, readTempoUserFeeToken } from '../demoEvmHelpers';
-import { resolveDemoThresholdEcdsaChainTarget } from '../demoChainTargets';
 import type { EvmAddress } from './demoThresholdTypes';
 
 type UseDemoThresholdAccountStateArgs = {
@@ -16,11 +14,11 @@ type UseDemoThresholdAccountStateArgs = {
 };
 
 export function useDemoThresholdAccountState(args: UseDemoThresholdAccountStateArgs) {
-  const { isLoggedIn, nearAccountId, seams, frontendConfig = FRONTEND_CONFIG } = args;
-  const [thresholdEvmFundingAddress, setThresholdEvmFundingAddress] = useState<string | null>(null);
+  const { isLoggedIn, nearAccountId, seams } = args;
+  const [thresholdOwnerAddress, setThresholdOwnerAddress] = useState<string | null>(null);
   const [tempoUserFeeToken, setTempoUserFeeToken] = useState<EvmAddress | null>(null);
 
-  const readWalletSessionThresholdEvmFundingAddress = useCallback(async () => {
+  const readWalletSessionThresholdOwnerAddress = useCallback(async () => {
     if (!isLoggedIn || !nearAccountId) {
       return null;
     }
@@ -33,126 +31,62 @@ export function useDemoThresholdAccountState(args: UseDemoThresholdAccountStateA
     }
   }, [isLoggedIn, nearAccountId, seams]);
 
-  const ensureThresholdEcdsaReadyForChain = useCallback(
-    async (chain: 'tempo' | 'evm'): Promise<string | null> => {
-      if (!isLoggedIn || !nearAccountId) return null;
+  const refreshThresholdOwnerAddress = useCallback(async () => {
+    if (!isLoggedIn || !nearAccountId) {
+      setThresholdOwnerAddress(null);
+      return null;
+    }
 
-      const bootstrap =
-        chain === 'tempo'
-          ? await seams.tempo.bootstrapEcdsaSession({
-              kind: 'reuse_warm_ecdsa_bootstrap',
-              walletSession: walletSessionRefFromSession({
-                walletId: nearAccountId,
-                walletSessionUserId: nearAccountId,
-              }),
-              subjectId: walletSubjectIdFromWalletProfile({ walletId: nearAccountId }),
-              chainTarget: resolveDemoThresholdEcdsaChainTarget('tempo', frontendConfig.chains),
-              ...(frontendConfig.relayerUrl ? { relayerUrl: frontendConfig.relayerUrl } : {}),
-            })
-          : await seams.evm.bootstrapEcdsaSession({
-              kind: 'reuse_warm_ecdsa_bootstrap',
-              walletSession: walletSessionRefFromSession({
-                walletId: nearAccountId,
-                walletSessionUserId: nearAccountId,
-              }),
-              subjectId: walletSubjectIdFromWalletProfile({ walletId: nearAccountId }),
-              chainTarget: resolveDemoThresholdEcdsaChainTarget('evm', frontendConfig.chains),
-              ...(frontendConfig.relayerUrl ? { relayerUrl: frontendConfig.relayerUrl } : {}),
-            });
+    try {
+      const address = await readWalletSessionThresholdOwnerAddress();
+      const normalized = isEvmAddress(String(address || '').trim()) ? String(address).trim() : null;
+      setThresholdOwnerAddress(normalized);
+      return normalized;
+    } catch {
+      setThresholdOwnerAddress(null);
+      return null;
+    }
+  }, [isLoggedIn, nearAccountId, readWalletSessionThresholdOwnerAddress]);
 
-      const maybeAddress = String(
-        bootstrap.keygen.ethereumAddress || bootstrap.thresholdEcdsaKeyRef.ethereumAddress || '',
-      ).trim();
-      if (!isEvmAddress(maybeAddress)) {
-        throw new Error('Threshold ECDSA bootstrap did not return a usable EVM sender address');
-      }
-      setThresholdEvmFundingAddress(maybeAddress);
-      return maybeAddress;
-    },
-    [frontendConfig.chains, frontendConfig.relayerUrl, isLoggedIn, nearAccountId, seams],
-  );
-
-  const refreshThresholdEvmFundingAddress = useCallback(
-    async (opts?: { bootstrap?: boolean; chain?: 'tempo' | 'evm' }) => {
-      if (!isLoggedIn || !nearAccountId) {
-        setThresholdEvmFundingAddress(null);
-        return null;
-      }
-
-      try {
-        const requestedChain = opts?.chain || 'evm';
-        let address = opts?.bootstrap
-          ? await ensureThresholdEcdsaReadyForChain(requestedChain)
-          : await readWalletSessionThresholdEvmFundingAddress();
-        const normalized = isEvmAddress(String(address || '').trim()) ? String(address).trim() : null;
-        setThresholdEvmFundingAddress(normalized);
-        return normalized;
-      } catch (error: unknown) {
-        setThresholdEvmFundingAddress(null);
-        if (opts?.bootstrap) throw error;
-        return null;
-      }
-    },
-    [
-      ensureThresholdEcdsaReadyForChain,
-      isLoggedIn,
-      nearAccountId,
-      readWalletSessionThresholdEvmFundingAddress,
-    ],
-  );
-
-  const resolveThresholdSenderForEvmFamily = useCallback(
+  const resolveThresholdOwnerAddressForEvmFamily = useCallback(
     async (opts?: {
       chain?: 'tempo' | 'evm';
       bootstrapIfMissing?: boolean;
     }): Promise<EvmAddress> => {
-      const requestedChain = opts?.chain || 'tempo';
       if (opts?.bootstrapIfMissing) {
-        const storedAddress = await readWalletSessionThresholdEvmFundingAddress();
+        const storedAddress = await readWalletSessionThresholdOwnerAddress();
         if (storedAddress && isEvmAddress(storedAddress)) {
-          setThresholdEvmFundingAddress(storedAddress);
+          setThresholdOwnerAddress(storedAddress);
           return storedAddress;
         }
-        const exactSender = await ensureThresholdEcdsaReadyForChain(requestedChain);
-        if (!exactSender || !isEvmAddress(exactSender)) {
-          throw new Error('Threshold EVM sender address is unavailable');
-        }
-        return exactSender;
+        throw new Error('Threshold EVM owner address is unavailable');
       }
-      let thresholdSender = isEvmAddress(String(thresholdEvmFundingAddress || '').trim())
-        ? thresholdEvmFundingAddress
+      let resolvedThresholdOwnerAddress = isEvmAddress(String(thresholdOwnerAddress || '').trim())
+        ? thresholdOwnerAddress
         : null;
-      if (!thresholdSender) {
-        const storedAddress = await readWalletSessionThresholdEvmFundingAddress();
-        thresholdSender = isEvmAddress(String(storedAddress || '').trim())
+      if (!resolvedThresholdOwnerAddress) {
+        const storedAddress = await readWalletSessionThresholdOwnerAddress();
+        resolvedThresholdOwnerAddress = isEvmAddress(String(storedAddress || '').trim())
           ? String(storedAddress).trim()
           : null;
-        if (thresholdSender) {
-          setThresholdEvmFundingAddress(thresholdSender);
+        if (resolvedThresholdOwnerAddress) {
+          setThresholdOwnerAddress(resolvedThresholdOwnerAddress);
         }
       }
-      if (!thresholdSender) {
-        thresholdSender = await refreshThresholdEvmFundingAddress({
-          bootstrap: false,
-          chain: requestedChain,
-        });
+      if (!resolvedThresholdOwnerAddress) {
+        resolvedThresholdOwnerAddress = await refreshThresholdOwnerAddress();
       }
-      if (!thresholdSender || !isEvmAddress(thresholdSender)) {
-        throw new Error('Threshold EVM sender address is unavailable');
+      if (!resolvedThresholdOwnerAddress || !isEvmAddress(resolvedThresholdOwnerAddress)) {
+        throw new Error('Threshold EVM owner address is unavailable');
       }
-      return thresholdSender;
+      return resolvedThresholdOwnerAddress;
     },
-    [
-      ensureThresholdEcdsaReadyForChain,
-      readWalletSessionThresholdEvmFundingAddress,
-      refreshThresholdEvmFundingAddress,
-      thresholdEvmFundingAddress,
-    ],
+    [readWalletSessionThresholdOwnerAddress, refreshThresholdOwnerAddress, thresholdOwnerAddress],
   );
 
   const refreshTempoUserFeeToken = useCallback(
     async (opts?: { silent?: boolean; userAddress?: EvmAddress | null }) => {
-      const maybeAddress = String(opts?.userAddress || thresholdEvmFundingAddress || '').trim();
+      const maybeAddress = String(opts?.userAddress || thresholdOwnerAddress || '').trim();
       if (!isEvmAddress(maybeAddress)) {
         setTempoUserFeeToken(null);
         return null;
@@ -174,7 +108,7 @@ export function useDemoThresholdAccountState(args: UseDemoThresholdAccountStateA
         return null;
       }
     },
-    [thresholdEvmFundingAddress],
+    [thresholdOwnerAddress],
   );
 
   const refreshTempoUserFeeTokenBalance = useCallback(
@@ -183,7 +117,7 @@ export function useDemoThresholdAccountState(args: UseDemoThresholdAccountStateA
       userAddress?: EvmAddress | null;
       feeToken?: EvmAddress | null;
     }) => {
-      const maybeAddress = String(opts?.userAddress || thresholdEvmFundingAddress || '').trim();
+      const maybeAddress = String(opts?.userAddress || thresholdOwnerAddress || '').trim();
       const maybeToken = String(opts?.feeToken || tempoUserFeeToken || '').trim();
       if (!isEvmAddress(maybeAddress) || !isEvmAddress(maybeToken)) {
         return null;
@@ -203,28 +137,27 @@ export function useDemoThresholdAccountState(args: UseDemoThresholdAccountStateA
         return null;
       }
     },
-    [tempoUserFeeToken, thresholdEvmFundingAddress],
+    [tempoUserFeeToken, thresholdOwnerAddress],
   );
 
   useEffect(() => {
     if (!isLoggedIn || !nearAccountId) return;
-    void refreshThresholdEvmFundingAddress({ bootstrap: true, chain: 'evm' });
-  }, [isLoggedIn, nearAccountId, refreshThresholdEvmFundingAddress]);
+    void refreshThresholdOwnerAddress();
+  }, [isLoggedIn, nearAccountId, refreshThresholdOwnerAddress]);
 
   useEffect(() => {
-    if (!thresholdEvmFundingAddress || !isEvmAddress(thresholdEvmFundingAddress)) {
+    if (!thresholdOwnerAddress || !isEvmAddress(thresholdOwnerAddress)) {
       setTempoUserFeeToken(null);
       return;
     }
-    void refreshTempoUserFeeToken({ silent: true, userAddress: thresholdEvmFundingAddress });
-  }, [refreshTempoUserFeeToken, thresholdEvmFundingAddress]);
+    void refreshTempoUserFeeToken({ silent: true, userAddress: thresholdOwnerAddress });
+  }, [refreshTempoUserFeeToken, thresholdOwnerAddress]);
 
   return {
-    thresholdEvmFundingAddress,
+    thresholdOwnerAddress,
     tempoUserFeeToken,
-    ensureThresholdEcdsaReadyForChain,
-    refreshThresholdEvmFundingAddress,
-    resolveThresholdSenderForEvmFamily,
+    refreshThresholdOwnerAddress,
+    resolveThresholdOwnerAddressForEvmFamily,
     refreshTempoUserFeeToken,
     refreshTempoUserFeeTokenBalance,
   };

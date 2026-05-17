@@ -18,6 +18,7 @@ import type {
   EvmFamilyEcdsaPasskeyStepUpAuthorization,
   EvmFamilyEcdsaWarmSessionStepUpAuthorization,
 } from './stepUpAuthorization';
+import type { EvmFamilySigningAuthSideEffect } from './freshAuthRetryPolicy';
 
 export type EvmFamilyPasskeyReconnectPlan = {
   sessionId: string;
@@ -55,7 +56,7 @@ export type EvmFamilyThresholdEcdsaStepUpRuntime = {
   emailOtpSigning?: EvmFamilyEmailOtpStepUpRuntime;
   passkeyReconnect?: EvmFamilyPasskeyStepUpRuntime;
   thresholdReconnect?: EvmFamilyThresholdReconnectRuntime;
-  onAuthSideEffectStarted?: (sideEffect: 'passkey_reauth' | 'threshold_reconnect') => void;
+  onAuthSideEffectStarted?: (sideEffect: EvmFamilySigningAuthSideEffect) => void;
 };
 
 export type EvmFamilyThresholdEcdsaStepUp =

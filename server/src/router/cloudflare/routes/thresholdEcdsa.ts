@@ -28,6 +28,7 @@ import {
   signThresholdSessionAuthToken,
   validateThresholdEcdsaAuthorizeInputs,
   validateThresholdEcdsaSessionInputs,
+  validateThresholdEd25519SessionTokenInputs,
 } from '../../commonRouterUtils';
 import { validateRuntimeSnapshotExpectation } from '../../runtimeSnapshotConsumer';
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
@@ -292,6 +293,7 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
 
   const pathname = ctx.pathname;
   if (
+    pathname !== '/threshold-ecdsa/key-identities' &&
     pathname !== '/threshold-ecdsa/hss/prepare' &&
     pathname !== '/threshold-ecdsa/hss/respond' &&
     pathname !== '/threshold-ecdsa/hss/finalize' &&
@@ -318,6 +320,46 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
     return json(resolved, { status: thresholdEcdsaStatusCode(resolved) });
   }
   const scheme = resolved.scheme;
+
+  if (pathname === '/threshold-ecdsa/key-identities') {
+    const validated = await validateThresholdEd25519SessionTokenInputs({
+      body,
+      headers: Object.fromEntries(ctx.request.headers.entries()),
+      session: ctx.opts.session,
+    });
+    if (!validated.ok) {
+      return json(validated, { status: thresholdEcdsaStatusCode(validated) });
+    }
+    if (validated.claims.thresholdExpiresAtMs <= Date.now()) {
+      const result = {
+        ok: false,
+        code: 'unauthorized' as const,
+        message: 'Threshold Ed25519 session is expired',
+      };
+      return json(result, { status: thresholdEcdsaStatusCode(result) });
+    }
+    const bodyRecord =
+      body && typeof body === 'object' && !Array.isArray(body)
+        ? (body as Record<string, unknown>)
+        : {};
+    const keyInventory = await ctx.service.listThresholdEcdsaKeyIdentityTargetsForUser({
+      userId: validated.claims.walletId,
+      rpId: validated.claims.rpId,
+      keyTargets: Array.isArray(bodyRecord.keyTargets) ? bodyRecord.keyTargets : [],
+    });
+    ctx.logger.info('[threshold-ecdsa][key-identities][diagnostic]', {
+      walletId: validated.claims.walletId,
+      ...keyInventory.diagnostics,
+    });
+    return json(
+      {
+        ok: true,
+        ecdsaKeyIdentityTargets: keyInventory.records,
+        diagnostics: keyInventory.diagnostics,
+      },
+      { status: 200 },
+    );
+  }
 
   if (pathname === '/threshold-ecdsa/hss/prepare') {
     if (!scheme.hss) {

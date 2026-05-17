@@ -186,7 +186,7 @@ export class EmailOtpEd25519Warmup {
                 : resolveEmailOtpAuthLane({
                     routeAuth: providedRouteAuth,
                     thresholdSessionId: args.record.thresholdSessionId,
-                    walletSigningSessionId: args.record.walletSigningSessionId,
+                    authorizingWalletSigningSessionId: args.record.walletSigningSessionId,
                     curve: 'ed25519',
                   }),
             ),

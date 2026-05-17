@@ -1,0 +1,120 @@
+import {
+  toWalletSubjectId,
+  type WalletSubjectId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type {
+  EcdsaThresholdKeyId,
+  EvmFamilyEcdsaKeyIdentity,
+  EvmFamilyEcdsaSessionLanePolicy,
+  SigningRootId,
+  SigningRootVersion,
+  ThresholdEcdsaSessionId,
+  ThresholdOwnerAddress,
+  WalletSigningSessionId,
+} from './evmFamilyEcdsaIdentity';
+
+export type {
+  EcdsaThresholdKeyId,
+  SigningRootId,
+  SigningRootVersion,
+  ThresholdEcdsaSessionId,
+  ThresholdOwnerAddress,
+  WalletSigningSessionId,
+  WalletSubjectId,
+};
+
+export type WalletSessionUserId = string & { readonly __brand: 'WalletSessionUserId' };
+export type EmailOtpAuthSubjectId = string & { readonly __brand: 'EmailOtpAuthSubjectId' };
+
+export type EmailOtpRegistrationBootstrap = {
+  operation: 'email_otp_bootstrap';
+  ecdsaThresholdKeyId?: never;
+  key?: never;
+  lanePolicy?: never;
+};
+
+export type EmailOtpExistingKeyBootstrap = {
+  operation: 'email_otp_bootstrap';
+  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  key?: never;
+  lanePolicy?: never;
+};
+
+export type SessionBootstrap = {
+  operation: 'session_bootstrap';
+  key: EvmFamilyEcdsaKeyIdentity;
+  lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
+  ecdsaThresholdKeyId?: never;
+  walletSessionUserId?: never;
+  subjectId?: never;
+  rpId?: never;
+  chainTarget?: never;
+  participantIds?: never;
+  sessionKind?: never;
+  sessionId?: never;
+  walletSigningSessionId?: never;
+  runtimePolicyScope?: never;
+  ttlMs?: never;
+  remainingUses?: never;
+};
+
+export type EmailOtpHssBootstrapLifecycle =
+  | EmailOtpRegistrationBootstrap
+  | EmailOtpExistingKeyBootstrap
+  | SessionBootstrap;
+
+function requiredEmailOtpHssString(value: unknown, field: string): string {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) {
+    throw new Error(`[email-otp-hss] ${field} is required`);
+  }
+  return normalized;
+}
+
+function rejectProviderScopedWalletIdentity(value: string, field: string): void {
+  if (/^[a-z][a-z0-9+.-]*:/i.test(value)) {
+    throw new Error(`[email-otp-hss] ${field} must be a wallet-scoped identity`);
+  }
+}
+
+export function toWalletSessionUserId(value: unknown): WalletSessionUserId {
+  const normalized = requiredEmailOtpHssString(value, 'walletSessionUserId');
+  rejectProviderScopedWalletIdentity(normalized, 'walletSessionUserId');
+  return normalized as WalletSessionUserId;
+}
+
+export function toEmailOtpAuthSubjectId(value: unknown): EmailOtpAuthSubjectId {
+  return requiredEmailOtpHssString(value, 'authSubjectId') as EmailOtpAuthSubjectId;
+}
+
+export function toEcdsaHssWalletSubjectId(value: unknown): WalletSubjectId {
+  return toWalletSubjectId(value);
+}
+
+export function toEcdsaHssThresholdKeyId(value: unknown): EcdsaThresholdKeyId {
+  return requiredEmailOtpHssString(value, 'ecdsaThresholdKeyId') as EcdsaThresholdKeyId;
+}
+
+export function toEcdsaHssSigningRootId(value: unknown): SigningRootId {
+  return requiredEmailOtpHssString(value, 'signingRootId') as SigningRootId;
+}
+
+export function toEcdsaHssSigningRootVersion(value: unknown): SigningRootVersion {
+  return requiredEmailOtpHssString(value, 'signingRootVersion') as SigningRootVersion;
+}
+
+export function toEcdsaHssThresholdSessionId(value: unknown): ThresholdEcdsaSessionId {
+  return requiredEmailOtpHssString(value, 'thresholdSessionId') as ThresholdEcdsaSessionId;
+}
+
+export function toEcdsaHssWalletSigningSessionId(value: unknown): WalletSigningSessionId {
+  return requiredEmailOtpHssString(value, 'walletSigningSessionId') as WalletSigningSessionId;
+}
+
+export function toEcdsaHssThresholdOwnerAddress(value: unknown): ThresholdOwnerAddress {
+  const normalized = requiredEmailOtpHssString(value, 'thresholdOwnerAddress').toLowerCase();
+  if (!/^0x[0-9a-f]{40}$/.test(normalized)) {
+    throw new Error('[email-otp-hss] thresholdOwnerAddress must be an EVM address');
+  }
+  return normalized as ThresholdOwnerAddress;
+}

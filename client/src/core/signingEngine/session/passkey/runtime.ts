@@ -52,6 +52,7 @@ export async function ensureEcdsaPrfSealPersisted(args: {
           sessionId: thresholdSessionId,
           transport: {
             curve: sealTransport.curve,
+            ...(sealTransport.walletId ? { walletId: sealTransport.walletId } : {}),
             chainTarget: sealTransport.chainTarget,
             relayerUrl: sealTransport.relayerUrl,
             ...(sealTransport.walletSigningSessionId
@@ -79,6 +80,7 @@ export async function ensureEcdsaPrfSealPersisted(args: {
           sessionId: thresholdSessionId,
           transport: {
             curve: sealTransport.curve,
+            ...(sealTransport.walletId ? { walletId: sealTransport.walletId } : {}),
             chainTarget: sealTransport.chainTarget,
             relayerUrl: sealTransport.relayerUrl,
             ...(sealTransport.walletSigningSessionId

@@ -72,13 +72,6 @@ import {
   type ConsoleWebhookService,
 } from '../../console/webhooks';
 import {
-  isConsoleSmartWalletError,
-  parseCreateConsoleSmartWalletRequest,
-  parseListConsoleSmartWalletRequest,
-  parseUpdateConsoleSmartWalletRequest,
-  type ConsoleSmartWalletService,
-} from '../../console/smartWallets';
-import {
   isConsoleKeyExportError,
   parseApproveConsoleKeyExportRequest,
   parseCreateConsoleKeyExportRequest,
@@ -215,7 +208,6 @@ export interface ExpressConsoleContext {
   policies: ConsolePolicyService | null;
   apiKeys: ConsoleApiKeyService | null;
   webhooks: ConsoleWebhookService | null;
-  smartWallets: ConsoleSmartWalletService | null;
   keyExports: ConsoleKeyExportService | null;
   runtimeSnapshots: ConsoleRuntimeSnapshotService | null;
   teamRbac: ConsoleTeamRbacService | null;
@@ -511,24 +503,6 @@ function sendPolicyError(res: Response, error: unknown): void {
 
 function sendWebhookError(res: Response, error: unknown): void {
   if (isConsoleWebhookError(error)) {
-    res.status(error.status).json({
-      ok: false,
-      code: error.code,
-      message: error.message,
-      ...(error.details ? { details: error.details } : {}),
-    });
-    return;
-  }
-
-  res.status(500).json({
-    ok: false,
-    code: 'internal',
-    message: error instanceof Error ? error.message : String(error),
-  });
-}
-
-function sendSmartWalletError(res: Response, error: unknown): void {
-  if (isConsoleSmartWalletError(error)) {
     res.status(error.status).json({
       ok: false,
       code: error.code,
@@ -856,19 +830,6 @@ function requireWebhookService(
     ok: false,
     code: 'webhooks_not_configured',
     message: 'Webhook service is not configured on this server',
-  });
-  return null;
-}
-
-function requireSmartWalletService(
-  res: Response,
-  ctx: ExpressConsoleContext,
-): ConsoleSmartWalletService | null {
-  if (ctx.smartWallets) return ctx.smartWallets;
-  res.status(501).json({
-    ok: false,
-    code: 'smart_wallets_not_configured',
-    message: 'Smart wallet service is not configured on this server',
   });
   return null;
 }
@@ -3217,67 +3178,6 @@ function registerConsoleInsightsRoutes(router: ExpressRouter, ctx: ExpressConsol
   });
 }
 
-function registerConsoleSmartWalletRoutes(router: ExpressRouter, ctx: ExpressConsoleContext): void {
-  router.get('/console/smart-wallets', async (req: Request, res: Response) => {
-    const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims) return;
-    const smartWallets = requireSmartWalletService(res, ctx);
-    if (!smartWallets) return;
-    try {
-      const request = parseListConsoleSmartWalletRequest((req as any).query || {});
-      const configs = await smartWallets.listConfigs(toBillingContext(claims), request);
-      res.status(200).json({ ok: true, configs });
-    } catch (error: unknown) {
-      sendSmartWalletError(res, error);
-    }
-  });
-
-  router.post('/console/smart-wallets', async (req: Request, res: Response) => {
-    const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims) return;
-    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
-    const smartWallets = requireSmartWalletService(res, ctx);
-    if (!smartWallets) return;
-    try {
-      const request = parseCreateConsoleSmartWalletRequest((req as any).body);
-      const config = await smartWallets.createConfig(toBillingContext(claims), request);
-      res.status(201).json({ ok: true, config });
-    } catch (error: unknown) {
-      sendSmartWalletError(res, error);
-    }
-  });
-
-  router.patch('/console/smart-wallets/:id', async (req: Request, res: Response) => {
-    const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims) return;
-    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
-    const smartWallets = requireSmartWalletService(res, ctx);
-    if (!smartWallets) return;
-    const configId = readPathParam(req, 'id');
-    if (!configId) {
-      res
-        .status(400)
-        .json({ ok: false, code: 'invalid_path', message: 'Missing smart-wallet config id' });
-      return;
-    }
-    try {
-      const request = parseUpdateConsoleSmartWalletRequest((req as any).body);
-      const config = await smartWallets.updateConfig(toBillingContext(claims), configId, request);
-      if (!config) {
-        res.status(404).json({
-          ok: false,
-          code: 'smart_wallet_config_not_found',
-          message: `Smart-wallet config ${configId} was not found`,
-        });
-        return;
-      }
-      res.status(200).json({ ok: true, config });
-    } catch (error: unknown) {
-      sendSmartWalletError(res, error);
-    }
-  });
-}
-
 function registerConsoleKeyExportRoutes(router: ExpressRouter, ctx: ExpressConsoleContext): void {
   router.get('/console/key-exports', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
@@ -3426,7 +3326,6 @@ function registerConsoleRuntimeSnapshotRoutes(
         environmentId: request.environmentId,
         ...(request.projectId ? { projectId: request.projectId } : {}),
         policies: ctx.policies,
-        smartWallets: ctx.smartWallets,
       });
       const snapshot = await runtimeSnapshots.publishSnapshot(toBillingContext(claims), {
         ...request,
@@ -4694,7 +4593,6 @@ export function createConsoleRouter(opts: ConsoleRouterOptions = {}): ExpressRou
   const policies = opts.policies === undefined ? null : opts.policies;
   const apiKeys = opts.apiKeys === undefined ? null : opts.apiKeys;
   const webhooks = opts.webhooks === undefined ? null : opts.webhooks;
-  const smartWallets = opts.smartWallets === undefined ? null : opts.smartWallets;
   const keyExports = opts.keyExports === undefined ? null : opts.keyExports;
   const runtimeSnapshots = opts.runtimeSnapshots === undefined ? null : opts.runtimeSnapshots;
   const teamRbac = opts.teamRbac === undefined ? null : opts.teamRbac;
@@ -4723,7 +4621,6 @@ export function createConsoleRouter(opts: ConsoleRouterOptions = {}): ExpressRou
     policies,
     apiKeys,
     webhooks,
-    smartWallets,
     keyExports,
     runtimeSnapshots,
     teamRbac,
@@ -4760,7 +4657,6 @@ export function createConsoleRouter(opts: ConsoleRouterOptions = {}): ExpressRou
   registerConsoleWalletRoutes(router, ctx);
   registerConsolePolicyRoutes(router, ctx);
   registerConsoleInsightsRoutes(router, ctx);
-  registerConsoleSmartWalletRoutes(router, ctx);
   registerConsoleKeyExportRoutes(router, ctx);
   registerConsoleRuntimeSnapshotRoutes(router, ctx);
   registerConsoleApiKeyRoutes(router, ctx);

@@ -27,7 +27,6 @@ export async function handleCreateAccountAndRegisterUser(
       bootstrapTokenStore: ctx.opts.bootstrapTokenStore,
       orgProjectEnv: ctx.opts.orgProjectEnv,
       session: ctx.opts.session,
-      smartAccountDeploy: ctx.opts.smartAccountDeploy,
     },
     sourceIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
   });

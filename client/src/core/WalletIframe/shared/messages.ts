@@ -13,7 +13,6 @@ import type {
   ThresholdEd25519HssFinalizedReportEnvelope,
   ThresholdEd25519HssPreparedSessionEnvelope,
 } from '../../signingEngine/threshold/crypto/hssClientSignerWasm';
-import type { ThresholdRuntimePolicyScope } from '../../signingEngine/threshold/sessionPolicy';
 import type {
   NearAccountRef,
   ThresholdEcdsaChainTarget,
@@ -22,7 +21,6 @@ import type {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EmailOtpAuthPolicy, SeamsConfigsInput } from '../../types/seams';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
-import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 import type { WalletFlowEvent } from '../../types/sdkSentEvents';
 
 export type WalletProtocolVersion = '1.0.0';
@@ -259,7 +257,7 @@ export type PMExportKeypairUiPayload =
       kind: 'ecdsa';
       subjectId: WalletSubjectId;
       chainTarget: ThresholdEcdsaChainTarget;
-      walletSessionUserId: string;
+      walletSession: WalletSessionRef;
       options: {
         variant?: 'modal' | 'drawer';
         theme?: 'dark' | 'light';
@@ -329,14 +327,6 @@ export interface PMEmailOtpEcdsaCapabilityPayload {
   otpCode: string;
   shamirPrimeB64u?: string;
   appSessionJwt?: string;
-  routeAuth?: AppOrThresholdSessionAuth;
-  ecdsaThresholdKeyId?: string;
-  participantIds?: number[];
-  sessionKind?: 'jwt' | 'cookie';
-  sessionId?: string;
-  ttlMs?: number;
-  remainingUses?: number;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
 }
 
 export interface PMRefreshEmailOtpSigningSessionPayload {

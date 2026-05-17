@@ -173,8 +173,6 @@ export function createWarmCapabilitiesPublicDeps(args: {
         walletId: toAccountId(persistArgs.walletId),
         chainTarget: persistArgs.chainTarget,
         bootstrap: persistArgs.bootstrap,
-        smartAccount: persistArgs.smartAccount,
-        deployment: persistArgs.deployment,
         ensureEmailOtpNearAccountMapping: persistArgs.ensureEmailOtpNearAccountMapping,
       }),
     hydrateSigningSession: async (hydrateArgs: HydrateSigningSessionInput) =>

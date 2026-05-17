@@ -1,4 +1,3 @@
-import type { AccountId } from '../types/accountIds';
 import { SIGNER_KINDS } from '@shared/utils/signerDomain';
 import { toTrimmedString } from '@shared/utils/validation';
 import type { PasskeyClientDBManager } from './passkeyClientDB/manager';
@@ -30,29 +29,6 @@ export interface UnifiedIndexedDBManagerDeps {
   clientDB: PasskeyClientDBManager;
   accountKeyMaterialDB: AccountKeyMaterialDBManager;
 }
-
-type DeployedSignerMutationRuntime = {
-  resolveOwnerAccountId: (args: {
-    profileId: string;
-    op: SignerOpOutboxRecord;
-    signer: AccountSignerRecord;
-    chainAccount: ChainAccountRecord;
-  }) => Promise<AccountId | null>;
-  executeDeployedAddSigner: (args: {
-    ownerAccountId: AccountId;
-    op: SignerOpOutboxRecord;
-    signer: AccountSignerRecord;
-    chainAccount: ChainAccountRecord;
-    now: number;
-  }) => Promise<{ txHash?: string | null }>;
-  executeDeployedRemoveSigner?: (args: {
-    ownerAccountId: AccountId;
-    op: SignerOpOutboxRecord;
-    signer: AccountSignerRecord;
-    chainAccount: ChainAccountRecord;
-    now: number;
-  }) => Promise<{ txHash?: string | null }>;
-};
 
 export type LocalSignerReconciliationIssueCode =
   | 'duplicate_active_signer_slot'
@@ -456,7 +432,6 @@ export class UnifiedIndexedDBManager {
   async repairSignerMutationSagasWithRuntime(args?: {
     limit?: number;
     now?: number;
-    runtime?: DeployedSignerMutationRuntime;
   }): Promise<{
     scanned: number;
     confirmed: number;
@@ -556,135 +531,11 @@ export class UnifiedIndexedDBManager {
             await markFailed('Missing key material for signer operation');
             continue;
           }
-          if (chainAccount.deployed === true) {
-            if (signer.status === 'active') {
-              await markConfirmed();
-              continue;
-            }
-            if (!args?.runtime?.resolveOwnerAccountId) {
-              await markFailed(
-                'Deployed smart-account signer mutation requires an owner-account resolver',
-              );
-              continue;
-            }
-            const ownerAccountId = await args.runtime.resolveOwnerAccountId({
-              profileId: profileIdRaw,
-              op,
-              signer,
-              chainAccount,
-            });
-            if (!ownerAccountId) {
-              await markDeadLetter('Missing owner account row for deployed signer operation');
-              continue;
-            }
-            if (!args?.runtime?.executeDeployedAddSigner) {
-              await markFailed(
-                'Deployed smart-account signer mutation requires the owner-management executor',
-              );
-              continue;
-            }
-            const executed = await args.runtime.executeDeployedAddSigner({
-              ownerAccountId,
-              op,
-              signer,
-              chainAccount,
-              now,
-            });
-            await this.clientDB.setAccountSignerStatus({
-              chainIdKey: op.chainIdKey,
-              accountAddress: op.accountAddress,
-              signerId: op.signerId,
-              status: 'active',
-              mutation: { routeThroughOutbox: false },
-            });
-            await this.clientDB.setSignerOperationStatus({
-              opId: op.opId,
-              status: 'confirmed',
-              lastError: null,
-              nextAttemptAt: now,
-              ...(executed?.txHash ? { txHash: executed.txHash } : {}),
-            });
-            summary.confirmed += 1;
-            continue;
-          }
           await markConfirmed();
           continue;
         }
 
         if (op.opType === 'revoke-signer') {
-          const chainAccount =
-            signer && signer.profileId
-              ? await this.clientDB.getChainAccount({
-                  profileId: signer.profileId,
-                  chainIdKey: op.chainIdKey,
-                  accountAddress: op.accountAddress,
-                })
-              : null;
-          if (signer && chainAccount?.deployed === true) {
-            if (!args?.runtime?.resolveOwnerAccountId) {
-              await markFailed(
-                'Deployed smart-account signer mutation requires an owner-account resolver',
-              );
-              continue;
-            }
-            const ownerAccountId = await args.runtime.resolveOwnerAccountId({
-              profileId: signer.profileId,
-              op,
-              signer,
-              chainAccount,
-            });
-            if (!ownerAccountId) {
-              await markDeadLetter('Missing owner account row for deployed signer operation');
-              continue;
-            }
-            if (!args?.runtime?.executeDeployedRemoveSigner) {
-              await markFailed(
-                'Deployed smart-account signer mutation requires the owner-management executor',
-              );
-              continue;
-            }
-            const executed = await args.runtime.executeDeployedRemoveSigner({
-              ownerAccountId,
-              op,
-              signer,
-              chainAccount,
-              now,
-            });
-            if (signer.status !== 'revoked') {
-              await this.clientDB.setAccountSignerStatus({
-                chainIdKey: op.chainIdKey,
-                accountAddress: op.accountAddress,
-                signerId: op.signerId,
-                status: 'revoked',
-                removedAt: now,
-                mutation: { routeThroughOutbox: false },
-              });
-            }
-            if (profileIdRaw && signerSlot != null) {
-              const keys = await this.accountKeyMaterialDB.listKeyMaterialByProfileAndSignerSlot(
-                profileIdRaw,
-                signerSlot,
-                op.chainIdKey,
-              );
-              for (const key of keys) {
-                await this.accountKeyMaterialDB.deleteKeyMaterial(
-                  key.profileId,
-                  key.signerSlot,
-                  key.chainIdKey,
-                  key.keyKind,
-                );
-              }
-            }
-            await this.clientDB.setSignerOperationStatus({
-              opId: op.opId,
-              status: 'confirmed',
-              lastError: null,
-              nextAttemptAt: now,
-              ...(executed?.txHash ? { txHash: executed.txHash } : {}),
-            });
-            summary.confirmed += 1;
-            continue;
-          }
           if (signer) {
             if (signer.status !== 'revoked') {
               await this.clientDB.setAccountSignerStatus({

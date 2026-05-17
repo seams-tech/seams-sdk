@@ -5,8 +5,8 @@ import { LoadingButton } from '@/components/LoadingButton';
 import Refresh from '@/components/icons/Refresh';
 
 type ThresholdSignerSectionProps = {
-  thresholdEvmFundingAddress: string | null;
-  onCopyFundingAddress: () => void;
+  thresholdOwnerAddress: string | null;
+  onCopyThresholdOwnerAddress: () => void;
   onSetTempoFeeToken: () => void | Promise<void>;
   tempoFeeTokenConfigLoading: boolean;
   tempoFeeTokenConfigTarget: 'alpha' | null;
@@ -41,21 +41,21 @@ export function ThresholdSignerSection(props: ThresholdSignerSectionProps) {
       <h2 className="demo-subtitle">Tempo + EVM Threshold Signers</h2>
       <div className="action-text funding-instructions">
         <span>
-          Fund this threshold EVM signer address with Arc native gas. Tempo setUserToken is
+          Fund this threshold owner address with Arc native gas. Tempo setUserToken is
           configured via the buttons below.
         </span>
         <div className="funding-address-row">
           <span className="funding-address-text">
-            {props.thresholdEvmFundingAddress ||
+            {props.thresholdOwnerAddress ||
               'Address unavailable. Use Tempo or EVM once to bootstrap threshold ECDSA.'}
           </span>
-          {props.thresholdEvmFundingAddress ? (
+          {props.thresholdOwnerAddress ? (
             <CopyButton
-              text={props.thresholdEvmFundingAddress}
-              ariaLabel="Copy funding address"
+              text={props.thresholdOwnerAddress}
+              ariaLabel="Copy threshold owner address"
               className="funding-address-copy"
               size={18}
-              onCopy={props.onCopyFundingAddress}
+              onCopy={props.onCopyThresholdOwnerAddress}
             />
           ) : (
             <span className="funding-address-copy-placeholder" aria-hidden="true" />

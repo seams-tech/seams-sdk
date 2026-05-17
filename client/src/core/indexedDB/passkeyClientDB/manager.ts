@@ -179,9 +179,7 @@ export class PasskeyClientDBManager {
     this.chainAccountRepository = createChainAccountRepository({
       getDB: () => this.getDB(),
       chainAccountsStore: DB_CONFIG.chainAccountsStore,
-      accountSignersStore: DB_CONFIG.accountSignersStore,
       profilesStore: DB_CONFIG.profilesStore,
-      signerOpsOutboxStore: DB_CONFIG.signerOpsOutboxStore,
       createConstraintError: (code, message, details) =>
         new DBConstraintError(code, message, details),
     });
@@ -323,71 +321,8 @@ export class PasskeyClientDBManager {
     return this.profileRepository.upsertProfile(input);
   }
 
-  private isDeployableSmartAccountModel(accountModel: AccountModel): boolean {
-    const normalized = normalizeAccountModel(accountModel);
-    return normalized === 'erc4337' || normalized === 'tempo-native';
-  }
-
-  private async reconcilePendingSignerStateOnDeployment(args: {
-    tx: any;
-    previous?: ChainAccountRecord;
-    next: ChainAccountRecord;
-    now: number;
-  }): Promise<void> {
-    if (args.next.deployed !== true || args.previous?.deployed === true) return;
-    if (!this.isDeployableSmartAccountModel(args.next.accountModel)) return;
-
-    const signerStore = args.tx.objectStore(DB_CONFIG.accountSignersStore);
-    const pendingSigners = (await signerStore
-      .index('chainIdKey_accountAddress_status')
-      .getAll([
-        args.next.chainIdKey,
-        args.next.accountAddress,
-        'pending',
-      ])) as AccountSignerRecord[];
-    if (!pendingSigners.length) return;
-
-    const promotedSignerIds = new Set<string>();
-    for (const signer of pendingSigners) {
-      const promoted: AccountSignerRecord = {
-        ...signer,
-        status: 'active',
-        updatedAt: args.now,
-      };
-      await this.accountSignerRepository.putPreparedAccountSignerInTransaction({
-        store: signerStore,
-        next: promoted,
-        accountModel: args.next.accountModel,
-        existingSignerId: signer.signerId,
-        existingStatus: signer.status,
-      });
-      promotedSignerIds.add(promoted.signerId);
-    }
-
-    const outboxStore = args.tx.objectStore(DB_CONFIG.signerOpsOutboxStore);
-    const queuedOps = (await outboxStore
-      .index('chainIdKey_accountAddress')
-      .getAll([args.next.chainIdKey, args.next.accountAddress])) as SignerOpOutboxRecord[];
-    for (const op of queuedOps) {
-      if (!promotedSignerIds.has(toTrimmedString(op.signerId || ''))) continue;
-      if (op.opType !== 'add-signer' && op.opType !== 'activate-recovery-signer') continue;
-      if (op.status === 'confirmed' || op.status === 'dead-letter') continue;
-      await outboxStore.put({
-        ...op,
-        status: 'confirmed',
-        nextAttemptAt: args.now,
-        updatedAt: args.now,
-        lastError: undefined,
-        ...(args.next.deploymentTxHash ? { txHash: args.next.deploymentTxHash } : {}),
-      } satisfies SignerOpOutboxRecord);
-    }
-  }
-
   async upsertChainAccount(input: UpsertChainAccountInput): Promise<ChainAccountRecord> {
-    return this.chainAccountRepository.upsertChainAccount(input, {
-      reconcilePendingSignerStateOnDeployment: (args) =>
-        this.reconcilePendingSignerStateOnDeployment(args),
-    });
+    return this.chainAccountRepository.upsertChainAccount(input);
   }
 
   async listChainAccountsByProfile(profileId: string): Promise<ChainAccountRecord[]> {

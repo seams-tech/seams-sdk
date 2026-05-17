@@ -26,7 +26,6 @@ import {
   buildEcdsaReconnectMaterial,
   buildEcdsaSessionProvisionPlan,
   buildEcdsaSessionIdentity,
-  buildEcdsaSigningKeyContext,
   getEcdsaSessionProvisionIdentity,
   type EcdsaSessionProvisionPlan,
 } from '../../session/warmCapabilities/ecdsaProvisionPlan';
@@ -128,21 +127,24 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(
   const reconnectPlan =
     args.mode === 'planned_reconnect'
       ? args.reconnectPlan
-      : buildEcdsaSessionProvisionPlan({
-          kind: 'ecdsa_session_reconnect',
-          subjectId: args.lane.subjectId,
-          chainTarget,
-          sessionIdentity: reconnectSessionIdentity,
-          signingKeyContext: buildEcdsaSigningKeyContext({
-            keyRef: resolvedKeyRef,
-            record: selectedRecord || null,
-          }),
-          sessionBudgetUses,
-          reconnectMaterial: buildEcdsaReconnectMaterial({
-            keyRef: resolvedKeyRef,
-            record: selectedRecord || null,
-          }),
-        });
+      : (() => {
+          if (!resolvedKeyRef || !selectedRecord) {
+            throw new Error(
+              '[SigningEngine][ecdsa] derived reconnect planning requires exact record and keyRef material',
+            );
+          }
+          return buildEcdsaSessionProvisionPlan({
+            kind: 'ecdsa_session_reconnect',
+            subjectId: args.lane.subjectId,
+            chainTarget,
+            sessionIdentity: reconnectSessionIdentity,
+            sessionBudgetUses,
+            reconnectMaterial: buildEcdsaReconnectMaterial({
+              keyRef: resolvedKeyRef,
+              record: selectedRecord,
+            }),
+          });
+        })();
   const reconnectPlanIdentity = getEcdsaSessionProvisionIdentity(reconnectPlan);
   if (
     reconnectPlanIdentity.thresholdSessionId !== thresholdSessionId ||

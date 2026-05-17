@@ -106,13 +106,10 @@ export async function readEmailOtpPersistedSessionSnapshot(
         )) {
           if (runtimeLane.authMethod !== 'email_otp') continue;
           const record: AvailableSigningLanesRuntimeEcdsaRecord = {
-            subjectId: runtimeLane.subjectId,
+            key: runtimeLane.key,
             authMethod: 'email_otp',
             curve: 'ecdsa',
             chainTarget: runtimeLane.chainTarget,
-            ecdsaThresholdKeyId: runtimeLane.ecdsaThresholdKeyId,
-            signingRootId: runtimeLane.signingRootId,
-            signingRootVersion: runtimeLane.signingRootVersion,
             thresholdSessionId: runtimeLane.thresholdSessionId,
             walletSigningSessionId: runtimeLane.walletSigningSessionId,
             ...(runtimeLane.remainingUses == null

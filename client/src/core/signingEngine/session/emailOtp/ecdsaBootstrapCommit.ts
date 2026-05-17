@@ -17,7 +17,6 @@ import { withThresholdEcdsaBootstrapQueue } from '../warmCapabilities/ecdsaBoots
 import {
   persistThresholdEcdsaBootstrapForWalletTarget,
   type ThresholdEcdsaBootstrapIndexedDbPort,
-  type ThresholdEcdsaSmartAccountBootstrapInput,
 } from '../warmCapabilities/ecdsaBootstrapPersistence';
 import {
   assertWarmThresholdEcdsaCapabilityReady,
@@ -44,7 +43,6 @@ type CommitThresholdEcdsaSessionBaseArgs = {
   walletId: AccountId | string;
   chainTarget: ThresholdEcdsaChainTarget;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
-  smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
 };
 
 type CommitEmailOtpThresholdEcdsaSessionArgs = CommitThresholdEcdsaSessionBaseArgs & {
@@ -65,7 +63,6 @@ type CommitEvmFamilyThresholdEcdsaSessionsBaseArgs = {
   walletId: AccountId | string;
   primaryChain: ThresholdEcdsaChainTarget;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
-  smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
 };
 
 type CommitEmailOtpEvmFamilyThresholdEcdsaSessionsArgs =
@@ -141,7 +138,6 @@ export async function commitWorkerProvisionedThresholdEcdsaSession(
       walletId,
       chainTarget: args.chainTarget,
       bootstrap: canonicalBootstrap,
-      smartAccount: args.smartAccount,
       ensureEmailOtpNearAccountMapping: args.source === SIGNER_AUTH_METHODS.emailOtp,
     });
     if (args.source === 'email_otp') {
@@ -179,14 +175,12 @@ export async function commitEvmFamilyThresholdEcdsaSessions(
           bootstrap: args.bootstrap,
           source: 'email_otp',
           emailOtpAuthContext: args.emailOtpAuthContext,
-          smartAccount: args.smartAccount,
         })
       : await commitWorkerProvisionedThresholdEcdsaSession(deps, {
           walletId: args.walletId,
           chainTarget: args.primaryChain,
           bootstrap: args.bootstrap,
           source: args.source,
-          smartAccount: args.smartAccount,
         });
   const warmCapability = await assertWarmThresholdEcdsaCapabilityReady(deps.warmCapabilityReader, {
     walletId: args.walletId,

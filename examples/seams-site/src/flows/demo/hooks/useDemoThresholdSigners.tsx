@@ -38,10 +38,10 @@ export function useDemoThresholdSigners(args: UseDemoThresholdSignersArgs) {
     fetchArcGreeting,
   } = useDemoEvmGreetings({ isLoggedIn, nearAccountId });
   const {
-    thresholdEvmFundingAddress,
+    thresholdOwnerAddress,
     tempoUserFeeToken,
-    refreshThresholdEvmFundingAddress,
-    resolveThresholdSenderForEvmFamily,
+    refreshThresholdOwnerAddress,
+    resolveThresholdOwnerAddressForEvmFamily,
     refreshTempoUserFeeToken,
     refreshTempoUserFeeTokenBalance,
   } = useDemoThresholdAccountState({
@@ -66,7 +66,7 @@ export function useDemoThresholdSigners(args: UseDemoThresholdSignersArgs) {
     nearAccountId,
     seams,
     tempoEip1559FeeCaps,
-    resolveThresholdSenderForEvmFamily,
+    resolveThresholdOwnerAddressForEvmFamily,
     refreshTempoUserFeeToken,
     refreshTempoUserFeeTokenBalance,
   });
@@ -86,10 +86,10 @@ export function useDemoThresholdSigners(args: UseDemoThresholdSignersArgs) {
     tempoGreetingInput,
     tempoEip1559FeeCaps,
     tempoUserFeeToken,
-    resolveThresholdSenderForEvmFamily,
+    resolveThresholdOwnerAddressForEvmFamily,
     refreshTempoUserFeeTokenBalance,
     fetchTempoGreeting,
-    refreshThresholdEvmFundingAddress,
+    refreshThresholdOwnerAddress,
   });
 
   const { evmThresholdSignLoading, handleSignEvmThresholdTx } = useDemoArcSigningActions({
@@ -99,8 +99,8 @@ export function useDemoThresholdSigners(args: UseDemoThresholdSignersArgs) {
     arcGreetingInput,
     arcEip1559FeeCaps,
     fetchArcGreeting,
-    refreshThresholdEvmFundingAddress,
-    resolveThresholdSenderForEvmFamily,
+    refreshThresholdOwnerAddress,
+    resolveThresholdOwnerAddressForEvmFamily,
   });
 
   const refreshTempoGreeting = useCallback(async () => {
@@ -124,7 +124,7 @@ export function useDemoThresholdSigners(args: UseDemoThresholdSignersArgs) {
     arcGreetingLoading,
     tempoGreetingError,
     arcGreetingError,
-    thresholdEvmFundingAddress,
+    thresholdOwnerAddress,
     tempoFeeTokenIsAlpha,
     handleSetTempoFeeTokenAlphaUsd,
     handleTempoDripToken,

@@ -102,7 +102,7 @@ export function PricingPage(): React.JSX.Element {
               </p>
               <ul className="pricing-feature-list">
                 <li>Custom policy engine with staged rollouts</li>
-                <li>Gas sponsorship and smart wallet orchestration</li>
+                <li>Gas sponsorship controls</li>
                 <li>Dedicated SLA, onboarding, and architecture reviews</li>
                 <li>Advanced RBAC, audit logs, and export controls</li>
               </ul>
@@ -168,7 +168,7 @@ export function PricingPage(): React.JSX.Element {
                   <td>Custom workflows and approvals</td>
                 </tr>
                 <tr>
-                  <td>Gas sponsorship / smart wallets</td>
+                  <td>Gas sponsorship</td>
                   <td>Supported</td>
                   <td>Advanced orchestration</td>
                 </tr>

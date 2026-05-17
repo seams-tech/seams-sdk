@@ -3,7 +3,6 @@ import type { ThresholdEcdsaHssRouteAuth } from '@/core/rpcClients/relayer/thres
 import type { SigningSessionStatus } from '@/core/types/seams';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
-import type { ThresholdEcdsaSmartAccountBootstrapInput } from './ecdsaBootstrapPersistence';
 import type { EcdsaSessionProvisionPlan } from './ecdsaProvisionPlan';
 import type {
   ThresholdEcdsaSessionAuthTokenSource,
@@ -13,6 +12,7 @@ import type {
 } from '../persistence/records';
 import type {
   ThresholdEcdsaEmailOtpAuthContext,
+  SelectedEcdsaLane,
   ThresholdEcdsaSessionStoreSource,
   ThresholdEd25519SessionStoreSource,
 } from '../identity/laneIdentity';
@@ -27,7 +27,14 @@ import type {
 } from '../../threshold/sessionPolicy';
 import type { WarmSessionStatusResult } from '../../uiConfirm/types';
 import type { SigningOperationIntent } from '../operationState/types';
-import type { ThresholdEcdsaChainTarget, WalletSubjectId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  thresholdEcdsaChainTargetsEqual,
+  type ThresholdEcdsaChainTarget,
+  type WalletSubjectId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type {
+  EvmFamilyEcdsaKeyIdentity,
+} from '../identity/evmFamilyEcdsaIdentity';
 
 export type WarmSessionCapability = 'ed25519' | 'ecdsa';
 export type WarmSessionPrfClaimState = 'missing' | 'warm' | 'expired' | 'exhausted' | 'unavailable';
@@ -158,6 +165,8 @@ export type WarmSessionEd25519CapabilityState =
 type WarmSessionMissingEcdsaCapabilityState = {
   capability: 'ecdsa';
   record: null;
+  key: null;
+  lane: null;
   auth: null;
   prfClaim: null;
   emailOtpAuthContext?: never;
@@ -167,6 +176,8 @@ type WarmSessionMissingEcdsaCapabilityState = {
 type WarmSessionEmailOtpEcdsaCapabilityState = {
   capability: 'ecdsa';
   record: ThresholdEcdsaSessionRecord;
+  key: EvmFamilyEcdsaKeyIdentity;
+  lane: SelectedEcdsaLane;
   auth: WarmSessionEcdsaAuthMaterial | null;
   prfClaim: WarmSessionPrfClaim | null;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
@@ -176,6 +187,8 @@ type WarmSessionEmailOtpEcdsaCapabilityState = {
 type WarmSessionNonEmailOtpEcdsaCapabilityState = {
   capability: 'ecdsa';
   record: ThresholdEcdsaSessionRecord;
+  key: EvmFamilyEcdsaKeyIdentity;
+  lane: SelectedEcdsaLane;
   auth: WarmSessionEcdsaAuthMaterial | null;
   prfClaim: WarmSessionPrfClaim | null;
   emailOtpAuthContext?: never;
@@ -233,13 +246,67 @@ function assertCapabilityStateInvariant(args: {
         `[WarmSessionStore] invalid ${args.label} capability: missing record cannot have email-otp auth context`,
       );
     }
+    if (capability.capability === 'ecdsa') {
+      if (capability.key || capability.lane) {
+        throw new Error(
+          `[WarmSessionStore] invalid ${args.label} capability: missing ECDSA record cannot carry key/lane identity`,
+        );
+      }
+    }
     return;
   }
 
   if (capability.capability === 'ecdsa') {
+    if (!capability.key || !capability.lane) {
+      throw new Error(
+        `[WarmSessionStore] invalid ${args.label} capability: ECDSA record requires key/lane identity`,
+      );
+    }
     if (String(capability.record.walletId) !== String(args.walletId)) {
       throw new Error(
         `[WarmSessionStore] invalid ${args.label} capability: record wallet does not match envelope wallet`,
+      );
+    }
+    if (String(capability.key.walletId) !== String(args.walletId)) {
+      throw new Error(
+        `[WarmSessionStore] invalid ${args.label} capability: key wallet does not match envelope wallet`,
+      );
+    }
+    if (String(capability.key.subjectId) !== String(capability.record.subjectId)) {
+      throw new Error(
+        `[WarmSessionStore] invalid ${args.label} capability: key subject does not match record subject`,
+      );
+    }
+    if (
+      String(capability.key.thresholdOwnerAddress).toLowerCase() !==
+      String(capability.record.ethereumAddress).toLowerCase()
+    ) {
+      throw new Error(
+        `[WarmSessionStore] invalid ${args.label} capability: key owner address does not match record owner address`,
+      );
+    }
+    if (!thresholdEcdsaChainTargetsEqual(capability.lane.chainTarget, capability.record.chainTarget)) {
+      throw new Error(
+        `[WarmSessionStore] invalid ${args.label} capability: lane chain target does not match record chain target`,
+      );
+    }
+    if (String(capability.lane.thresholdSessionId) !== String(capability.record.thresholdSessionId)) {
+      throw new Error(
+        `[WarmSessionStore] invalid ${args.label} capability: lane thresholdSessionId does not match record`,
+      );
+    }
+    if (
+      String(capability.lane.walletSigningSessionId) !==
+      String(capability.record.walletSigningSessionId)
+    ) {
+      throw new Error(
+        `[WarmSessionStore] invalid ${args.label} capability: lane walletSigningSessionId does not match record`,
+      );
+    }
+    const expectedAuthMethod = capability.record.source === 'email_otp' ? 'email_otp' : 'passkey';
+    if (capability.lane.authMethod !== expectedAuthMethod) {
+      throw new Error(
+        `[WarmSessionStore] invalid ${args.label} capability: lane authMethod does not match record source`,
       );
     }
   } else if (String(capability.record.nearAccountId) !== String(args.walletId)) {
@@ -314,16 +381,17 @@ function assertCapabilityStateInvariant(args: {
     record.source === 'email_otp' &&
     emailOtpAuthContext?.retention === 'single_use' &&
     Number(emailOtpAuthContext.consumedAtMs) > 0;
-  const emailOtpHasWorkerOwnedClientBase =
-    record.source === 'email_otp' &&
+  const recordBackedEd25519ClientBase =
+    capability.capability === 'ed25519' &&
     !emailOtpSingleUseConsumed &&
-    Boolean(String((record as { xClientBaseB64u?: unknown }).xClientBaseB64u || '').trim());
+    Boolean(String((record as { xClientBaseB64u?: unknown }).xClientBaseB64u || '').trim()) &&
+    (record.source === 'email_otp' || record.thresholdSessionKind === 'cookie');
   const expectedState =
     !auth || (requiresAuthToken && !hasAuthToken)
       ? 'auth_missing'
       : emailOtpSingleUseConsumed
         ? 'prf_missing'
-        : emailOtpHasWorkerOwnedClientBase
+        : recordBackedEd25519ClientBase
           ? 'ready'
           : !prfClaim
             ? 'prf_missing'
@@ -503,6 +571,8 @@ export type ClaimWarmSessionPrfArgs =
   | WalletScopedEcdsaWarmSessionPrfClaimArgs;
 
 export type WarmEcdsaRecordBackedSigningSessionStatus = SigningSessionStatus & {
+  key: EvmFamilyEcdsaKeyIdentity;
+  lane: SelectedEcdsaLane;
   chainTarget: ThresholdEcdsaChainTarget;
   source: ThresholdEcdsaSessionStoreSource;
   walletSigningSessionId: string;

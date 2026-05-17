@@ -188,15 +188,16 @@ function selectedLaneFromCandidate(candidate: LaneCandidate): SelectedLane {
     });
   }
   return selectedEcdsaLane({
+    key: candidate.key,
     walletId: candidate.walletId,
     authMethod: candidate.authMethod,
     walletSigningSessionId: candidate.walletSigningSessionId,
     thresholdSessionId: candidate.thresholdSessionId,
-    subjectId: candidate.subjectId,
+    subjectId: candidate.key.subjectId,
     chainTarget: candidate.chainTarget,
-    ecdsaThresholdKeyId: candidate.ecdsaThresholdKeyId,
-    signingRootId: candidate.signingRootId,
-    signingRootVersion: candidate.signingRootVersion,
+    ecdsaThresholdKeyId: candidate.key.ecdsaThresholdKeyId,
+    signingRootId: candidate.key.signingRootId,
+    signingRootVersion: candidate.key.signingRootVersion,
   });
 }
 
@@ -230,6 +231,7 @@ function candidateSourcePriority(candidate: ConcreteTransactionCandidate): numbe
       return 2;
     case 'durable_sealed_record':
       return 1;
+    case 'evm_family_shared_key':
     default:
       return 0;
   }

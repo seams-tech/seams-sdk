@@ -1,8 +1,4 @@
 import type { NormalizedLogger } from './logger';
-import {
-  smartAccountChainTargetFromValue,
-  type SmartAccountChainTarget,
-} from './smartAccountChainTarget';
 import type { ThresholdStoreConfigInput } from './types';
 import { THRESHOLD_PREFIX_DEFAULT } from './defaultConfigsServer';
 import { isObject as isObjectLoose, toOptionalTrimmedString } from '@shared/utils/validation';
@@ -26,7 +22,6 @@ export type DeviceLinkingSessionRecord = {
   signerSlot?: number;
   addKeyTxHash?: string;
   preparedThresholdEcdsa?: DeviceLinkingPreparedThresholdEcdsaRecord;
-  preparedLinkedAccounts?: DeviceLinkingPreparedLinkedAccountRecord[];
 };
 
 export type DeviceLinkingPreparedThresholdEcdsaRecord = {
@@ -36,17 +31,6 @@ export type DeviceLinkingPreparedThresholdEcdsaRecord = {
   thresholdEcdsaPublicKeyB64u: string;
   ethereumAddress: string;
   participantIds?: number[];
-};
-
-export type DeviceLinkingPreparedLinkedAccountRecord = {
-  chainIdKey: string;
-  chainTarget: SmartAccountChainTarget;
-  accountAddress: string;
-  accountModel: 'erc4337' | 'tempo-native';
-  factory?: string;
-  entryPoint?: string;
-  salt?: string;
-  counterfactualAddress?: string;
 };
 
 export interface DeviceLinkingSessionStore {
@@ -113,38 +97,6 @@ function parsePreparedThresholdEcdsaRecord(
   };
 }
 
-function parsePreparedLinkedAccounts(
-  raw: unknown,
-): DeviceLinkingPreparedLinkedAccountRecord[] | undefined {
-  if (!Array.isArray(raw)) return undefined;
-  const out: DeviceLinkingPreparedLinkedAccountRecord[] = [];
-  for (const value of raw) {
-    if (!isObject(value)) continue;
-    const chainIdKey = toOptionalTrimmedString(value.chainIdKey)?.toLowerCase() || '';
-    const chainTarget = smartAccountChainTargetFromValue(value.chainTarget);
-    const accountAddress = toOptionalTrimmedString(value.accountAddress);
-    const accountModel = toOptionalTrimmedString(value.accountModel);
-    if (!chainIdKey || !accountAddress) continue;
-    if (!chainTarget) continue;
-    if (accountModel !== 'erc4337' && accountModel !== 'tempo-native') continue;
-    out.push({
-      chainIdKey,
-      chainTarget,
-      accountAddress,
-      accountModel,
-      ...(toOptionalTrimmedString(value.factory) ? { factory: toOptionalTrimmedString(value.factory)! } : {}),
-      ...(toOptionalTrimmedString(value.entryPoint)
-        ? { entryPoint: toOptionalTrimmedString(value.entryPoint)! }
-        : {}),
-      ...(toOptionalTrimmedString(value.salt) ? { salt: toOptionalTrimmedString(value.salt)! } : {}),
-      ...(toOptionalTrimmedString(value.counterfactualAddress)
-        ? { counterfactualAddress: toOptionalTrimmedString(value.counterfactualAddress)! }
-        : {}),
-    });
-  }
-  return out.length > 0 ? out : undefined;
-}
-
 function parseDeviceLinkingSessionRecord(raw: unknown): DeviceLinkingSessionRecord | null {
   if (!isObject(raw)) return null;
   const version = toOptionalTrimmedString(raw.version);
@@ -179,7 +131,6 @@ function parseDeviceLinkingSessionRecord(raw: unknown): DeviceLinkingSessionReco
       : undefined;
   const addKeyTxHash = toOptionalTrimmedString(raw.addKeyTxHash);
   const preparedThresholdEcdsa = parsePreparedThresholdEcdsaRecord(raw.preparedThresholdEcdsa);
-  const preparedLinkedAccounts = parsePreparedLinkedAccounts(raw.preparedLinkedAccounts);
 
   const out: DeviceLinkingSessionRecord = {
     version: 'device_linking_session_v1',
@@ -194,7 +145,6 @@ function parseDeviceLinkingSessionRecord(raw: unknown): DeviceLinkingSessionReco
     ...(signerSlot ? { signerSlot } : {}),
     ...(addKeyTxHash ? { addKeyTxHash } : {}),
     ...(preparedThresholdEcdsa ? { preparedThresholdEcdsa } : {}),
-    ...(preparedLinkedAccounts ? { preparedLinkedAccounts } : {}),
   };
 
   return out;

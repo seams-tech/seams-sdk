@@ -158,6 +158,14 @@ export function resolveEcdsaAuthMaterial(
   };
 }
 
+function hasRecordBackedEd25519ClientBase(
+  record: WarmSessionEd25519CapabilityState['record'],
+): boolean {
+  if (!record) return false;
+  if (!String(record.xClientBaseB64u || '').trim()) return false;
+  return record.source === 'email_otp' || record.thresholdSessionKind === 'cookie';
+}
+
 export function deriveEd25519CapabilityState(args: {
   record: WarmSessionEd25519CapabilityState['record'];
   auth: WarmSessionEd25519AuthMaterial | null;
@@ -177,7 +185,7 @@ export function deriveEd25519CapabilityState(args: {
   ) {
     return 'prf_missing';
   }
-  if (args.record.source === 'email_otp' && String(args.record.xClientBaseB64u || '').trim()) {
+  if (hasRecordBackedEd25519ClientBase(args.record)) {
     return 'ready';
   }
   if (!args.prfClaim) return 'prf_missing';
@@ -295,6 +303,7 @@ export function resolveEcdsaSealTransport(args: {
   const walletSigningSessionId = args.record.walletSigningSessionId;
   return {
     curve: 'ecdsa',
+    walletId: String(args.record.walletId),
     chainTarget: args.record.chainTarget,
     relayerUrl,
     ...(walletSigningSessionId ? { walletSigningSessionId } : {}),

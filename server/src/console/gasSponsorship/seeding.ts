@@ -1,7 +1,6 @@
 import type { ConsoleOrgProjectEnvService, ConsoleOrgProjectEnvContext } from '../orgProjectEnv';
 import type { ConsoleRuntimeSnapshotService } from '../runtimeSnapshots';
 import type { ConsolePolicyService } from '../policies';
-import type { ConsoleSmartWalletService } from '../smartWallets';
 import { ensureTempoTestnetOnboardingPolicyForEnvironment } from './onboarding';
 import { resolveConsoleRuntimeSnapshotPayload } from '../../router/runtimeSnapshotPayload';
 
@@ -18,7 +17,6 @@ async function publishCurrentEnvironmentSnapshot(input: {
   environment: { id: string; projectId: string };
   runtimeSnapshots: ConsoleRuntimeSnapshotService;
   policies: ConsolePolicyService;
-  smartWallets?: ConsoleSmartWalletService | null;
 }): Promise<void> {
   const payload = await resolveConsoleRuntimeSnapshotPayload({
     orgId: input.ctx.orgId,
@@ -27,7 +25,6 @@ async function publishCurrentEnvironmentSnapshot(input: {
     environmentId: input.environment.id,
     projectId: input.environment.projectId,
     policies: input.policies,
-    ...(input.smartWallets ? { smartWallets: input.smartWallets } : {}),
   });
   await input.runtimeSnapshots.publishSnapshot(toSnapshotContext(input.ctx), {
     environmentId: input.environment.id,
@@ -42,7 +39,6 @@ async function seedEnvironment(input: {
   policies: ConsolePolicyService;
   runtimeSnapshots: ConsoleRuntimeSnapshotService;
   faucetContractAddress: `0x${string}`;
-  smartWallets?: ConsoleSmartWalletService | null;
 }): Promise<void> {
   await ensureTempoTestnetOnboardingPolicyForEnvironment({
     policies: input.policies,
@@ -60,7 +56,6 @@ async function seedEnvironment(input: {
     environment: input.environment,
     runtimeSnapshots: input.runtimeSnapshots,
     policies: input.policies,
-    ...(input.smartWallets ? { smartWallets: input.smartWallets } : {}),
   });
 }
 
@@ -69,7 +64,6 @@ export function createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship(
   policies: ConsolePolicyService;
   runtimeSnapshots: ConsoleRuntimeSnapshotService;
   faucetContractAddress: `0x${string}`;
-  smartWallets?: ConsoleSmartWalletService | null;
 }): ConsoleOrgProjectEnvService {
   return {
     ...input.base,
@@ -84,7 +78,6 @@ export function createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship(
           policies: input.policies,
           runtimeSnapshots: input.runtimeSnapshots,
           faucetContractAddress: input.faucetContractAddress,
-          ...(input.smartWallets ? { smartWallets: input.smartWallets } : {}),
         });
       }
       return project;
@@ -97,7 +90,6 @@ export function createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship(
         policies: input.policies,
         runtimeSnapshots: input.runtimeSnapshots,
         faucetContractAddress: input.faucetContractAddress,
-        ...(input.smartWallets ? { smartWallets: input.smartWallets } : {}),
       });
       return environment;
     },
@@ -111,7 +103,6 @@ export async function ensureTempoOnboardingSponsorshipForExistingEnvironments(in
   ctx: ConsoleOrgProjectEnvContext;
   faucetContractAddress: `0x${string}`;
   projectId?: string;
-  smartWallets?: ConsoleSmartWalletService | null;
 }): Promise<void> {
   const environments = await input.orgProjectEnv.listEnvironments(input.ctx, {
     ...(input.projectId ? { projectId: input.projectId } : {}),
@@ -124,7 +115,6 @@ export async function ensureTempoOnboardingSponsorshipForExistingEnvironments(in
       policies: input.policies,
       runtimeSnapshots: input.runtimeSnapshots,
       faucetContractAddress: input.faucetContractAddress,
-      ...(input.smartWallets ? { smartWallets: input.smartWallets } : {}),
     });
   }
 }
@@ -136,7 +126,6 @@ export async function ensureTempoOnboardingSponsorshipForAllOrganizations(input:
   faucetContractAddress: `0x${string}`;
   actorUserId?: string;
   roles?: string[];
-  smartWallets?: ConsoleSmartWalletService | null;
 }): Promise<void> {
   const organizations = await input.orgProjectEnv.searchOrganizations({ query: '', limit: 1_000 });
   for (const organization of organizations) {
@@ -150,7 +139,6 @@ export async function ensureTempoOnboardingSponsorshipForAllOrganizations(input:
         roles: input.roles ? [...input.roles] : ['owner', 'admin'],
       },
       faucetContractAddress: input.faucetContractAddress,
-      ...(input.smartWallets ? { smartWallets: input.smartWallets } : {}),
     });
   }
 }

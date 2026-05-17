@@ -66,11 +66,6 @@ function parsePayload(raw: unknown): ConsoleRuntimeSnapshotPayload {
     'payload.gasSponsorship',
     'invalid_body',
   );
-  const smartWallets = requireObjectField(
-    value.smartWallets,
-    'payload.smartWallets',
-    'invalid_body',
-  );
   const metadata =
     value.metadata === undefined
       ? undefined
@@ -78,7 +73,6 @@ function parsePayload(raw: unknown): ConsoleRuntimeSnapshotPayload {
   return {
     policy,
     gasSponsorship,
-    smartWallets,
     ...(metadata ? { metadata } : {}),
   };
 }

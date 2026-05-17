@@ -78,13 +78,6 @@ export interface NearActionOperation extends BaseDisplayOperation {
     | 'signedDelegate';
 }
 
-export interface Erc4337Operation extends BaseDisplayOperation {
-  kind: 'evm.erc4337';
-  entryPoint?: string;
-  smartAccount?: string;
-  callType?: 'execute' | 'executeBatch' | 'custom';
-}
-
 export interface TempoTypedOperation extends BaseDisplayOperation {
   kind: 'tempo.eip2718';
   txTypeHex?: string;
@@ -107,7 +100,6 @@ export interface RawFallbackOperation extends BaseDisplayOperation {
 
 export type TxDisplayOperation =
   | NearActionOperation
-  | Erc4337Operation
   | TempoTypedOperation
   | GenericContractCallOperation
   | RawFallbackOperation;

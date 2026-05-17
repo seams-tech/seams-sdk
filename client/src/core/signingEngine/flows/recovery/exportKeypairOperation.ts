@@ -1,7 +1,9 @@
 import { toAccountId } from '@/core/types/accountIds';
+import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   ecdsaSigningTargetFromChainTarget,
   resolveEcdsaExportMaterialForLane,
+  type EcdsaExportMaterial,
 } from './ecdsaExportMaterial';
 import {
   exportThresholdEcdsaKeyWithAuthorization,
@@ -17,6 +19,7 @@ import {
   runKeyExportWithFlowEvents,
   type SigningEngineExportKeypairWithUIInput,
 } from './keyExportFlow';
+import { deriveEvmFamilyKeyFingerprint } from '../../session/identity/evmFamilyEcdsaIdentity';
 import {
   tryExportNearEd25519SingleKeyHssWithAuthorization,
   type NearEd25519SingleKeyExportDeps,
@@ -30,6 +33,41 @@ export type ExportKeypairWithUIDeps = {
 
 type ExportedKeySchemes = Array<'ed25519' | 'secp256k1'>;
 type ExportKeypairResult = { accountId: string; exportedSchemes: ExportedKeySchemes };
+
+function emitEcdsaExportFailureDiagnostics(args: {
+  input: Extract<SigningEngineExportKeypairWithUIInput, { kind: 'ecdsa' }>;
+  flowId: string;
+  exportLane?: Awaited<ReturnType<typeof restoreEcdsaSessionForExport>>;
+  exportMaterial?: EcdsaExportMaterial;
+  error: unknown;
+}): void {
+  const keyFingerprint =
+    args.exportMaterial?.kind === 'ready'
+      ? deriveEvmFamilyKeyFingerprint(args.exportMaterial.readyMaterial.key)
+      : args.exportLane
+        ? deriveEvmFamilyKeyFingerprint(args.exportLane.key)
+        : undefined;
+  try {
+    console.warn('[SigningEngine][ecdsa-export][failure]', {
+      operationId: args.flowId,
+      authMethod: args.exportLane?.session.authMethod,
+      ...(keyFingerprint ? { evmFamilyKeyFingerprint: keyFingerprint } : {}),
+      chainTargetKey: thresholdEcdsaChainTargetKey(args.input.chainTarget),
+      ecdsaThresholdKeyId:
+        args.exportLane?.key.ecdsaThresholdKeyId ||
+        (args.exportMaterial?.kind === 'ready'
+          ? args.exportMaterial.readyMaterial.key.ecdsaThresholdKeyId
+          : args.exportMaterial?.kind === 'fresh_email_otp'
+            ? args.exportMaterial.ecdsaThresholdKeyId
+            : undefined),
+      walletSigningSessionId: args.exportLane?.session.walletSigningSessionId,
+      thresholdSessionId: args.exportLane?.session.thresholdSessionId,
+      budgetProjectionVersion: undefined,
+      freshAuthRetrySideEffectState: 'not_applicable',
+      error: args.error instanceof Error ? args.error.message : String(args.error || 'unknown error'),
+    });
+  } catch {}
+}
 
 async function exportKeypairWithFlowId(
   deps: ExportKeypairWithUIDeps,
@@ -57,22 +95,45 @@ async function exportKeypairWithFlowId(
     throw new Error('NEAR Ed25519 export now requires the canonical single-key HSS export path');
   }
 
-  const walletSessionUserId = toAccountId(args.walletSessionUserId);
-  const exportTarget = ecdsaSigningTargetFromChainTarget(args.chainTarget);
-  const exportLane = await restoreEcdsaSessionForExport(deps.laneSelection, {
-    walletId: walletSessionUserId,
-    subjectId: args.subjectId,
-    signingTarget: exportTarget,
-  });
-  const exportMaterial = await resolveEcdsaExportMaterialForLane(
-    deps.ecdsa.sessionStore,
-    exportLane,
+  const walletSessionUserId = toAccountId(
+    args.walletSession.walletSessionUserId || args.walletSession.walletId,
   );
-  if (exportMaterial.kind === 'fresh_email_otp') {
-    return await exportThresholdEcdsaKeyWithFreshEmailOtpAuthorization(deps.ecdsa, {
-      walletSessionUserId,
+  const exportTarget = ecdsaSigningTargetFromChainTarget(args.chainTarget);
+  const rpId = String(deps.ecdsa.getRpId() || '').trim();
+  if (!rpId) {
+    throw new Error('Missing rpId for threshold-ecdsa export material resolution');
+  }
+  let exportLane: Awaited<ReturnType<typeof restoreEcdsaSessionForExport>> | undefined;
+  let exportMaterial: EcdsaExportMaterial | undefined;
+  try {
+    exportLane = await restoreEcdsaSessionForExport(deps.laneSelection, {
+      walletId: walletSessionUserId,
+      rpId,
+      subjectId: args.subjectId,
+      signingTarget: exportTarget,
+    });
+    exportMaterial = await resolveEcdsaExportMaterialForLane(
+      deps.ecdsa.sessionStore,
       exportLane,
-      material: exportMaterial,
+      rpId,
+    );
+    if (exportMaterial.kind === 'fresh_email_otp') {
+      return await exportThresholdEcdsaKeyWithFreshEmailOtpAuthorization(deps.ecdsa, {
+        walletSessionUserId,
+        exportLane,
+        material: exportMaterial,
+        options: {
+          variant: args.options.variant,
+          theme: args.options.theme,
+        },
+        flowId: args.flowId,
+        onEvent: args.options.onEvent,
+      });
+    }
+    return await exportThresholdEcdsaKeyWithAuthorization(deps.ecdsa, {
+      walletSessionUserId,
+      material: exportMaterial.readyMaterial,
+      exportLane,
       options: {
         variant: args.options.variant,
         theme: args.options.theme,
@@ -80,18 +141,16 @@ async function exportKeypairWithFlowId(
       flowId: args.flowId,
       onEvent: args.options.onEvent,
     });
+  } catch (error: unknown) {
+    emitEcdsaExportFailureDiagnostics({
+      input: args,
+      flowId: args.flowId,
+      ...(exportLane ? { exportLane } : {}),
+      ...(exportMaterial ? { exportMaterial } : {}),
+      error,
+    });
+    throw error;
   }
-  return await exportThresholdEcdsaKeyWithAuthorization(deps.ecdsa, {
-    walletSessionUserId,
-    keyRef: exportMaterial.keyRef,
-    exportLane,
-    options: {
-      variant: args.options.variant,
-      theme: args.options.theme,
-    },
-    flowId: args.flowId,
-    onEvent: args.options.onEvent,
-  });
 }
 
 export async function exportKeypairWithUI(

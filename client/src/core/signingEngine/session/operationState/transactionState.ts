@@ -102,16 +102,94 @@ export type SignedTransactionOperation<
   result: TResult;
 };
 
+export type PreparedNoBudgetLifecycle<TLane extends TransactionLane = TransactionLane> = {
+  kind: 'PreparedNoBudget';
+  operation: PreparedTransactionOperation<TLane>;
+  reason: 'budget_identity_not_prepared';
+  state?: never;
+  authPlan?: never;
+  result?: never;
+  finalizedAtMs?: never;
+};
+
+export type BudgetAdmittedLifecycle<TLane extends TransactionLane = TransactionLane> = {
+  kind: 'BudgetAdmitted';
+  operation: BudgetAdmittedOperation<TLane>;
+  state: TransactionBudgetAdmittedState<TLane>;
+  reason?: never;
+  authPlan?: never;
+  result?: never;
+  finalizedAtMs?: never;
+};
+
+export type StepUpConfirmedLifecycle<
+  TLane extends TransactionLane = TransactionLane,
+  TAuthPlan = unknown,
+> = {
+  kind: 'StepUpConfirmed';
+  operation: BudgetAdmittedTransactionOperation<TLane, TAuthPlan>;
+  authPlan: TAuthPlan;
+  reason?: never;
+  state?: never;
+  result?: never;
+  finalizedAtMs?: never;
+};
+
+export type ReauthAdmittedLifecycle<
+  TLane extends TransactionLane = TransactionLane,
+  TAuthPlan = unknown,
+> = {
+  kind: 'ReauthAdmitted';
+  previousOperation: BudgetAdmittedOperation<TLane>;
+  operation: BudgetAdmittedTransactionOperation<TLane, TAuthPlan>;
+  authPlan: TAuthPlan;
+  reason?: never;
+  state?: never;
+  result?: never;
+  finalizedAtMs?: never;
+};
+
+export type SignedWalletSigningBudgetLifecycle<
+  TLane extends TransactionLane = TransactionLane,
+  TResult = unknown,
+> = {
+  kind: 'Signed';
+  operation: SignedTransactionOperation<TLane, TResult>;
+  result: TResult;
+  reason?: never;
+  state?: never;
+  authPlan?: never;
+  finalizedAtMs?: never;
+};
+
+export type FinalizedWalletSigningBudgetLifecycle<
+  TLane extends TransactionLane = TransactionLane,
+  TResult = unknown,
+> = {
+  kind: 'Finalized';
+  operation: SignedTransactionOperation<TLane, TResult>;
+  result: TResult;
+  finalizedAtMs: number;
+  reason?: never;
+  state?: never;
+  authPlan?: never;
+};
+
+export type WalletSigningBudgetLifecycle<
+  TLane extends TransactionLane = TransactionLane,
+  TAuthPlan = unknown,
+  TResult = unknown,
+> =
+  | PreparedNoBudgetLifecycle<TLane>
+  | BudgetAdmittedLifecycle<TLane>
+  | StepUpConfirmedLifecycle<TLane, TAuthPlan>
+  | ReauthAdmittedLifecycle<TLane, TAuthPlan>
+  | SignedWalletSigningBudgetLifecycle<TLane, TResult>
+  | FinalizedWalletSigningBudgetLifecycle<TLane, TResult>;
+
 export type PreparedTransactionBudgetState<TLane extends TransactionLane = TransactionLane> =
-  | {
-      kind: 'admitted';
-      operation: BudgetAdmittedOperation<TLane>;
-      state: TransactionBudgetAdmittedState<TLane>;
-    }
-  | {
-      kind: 'not_admitted';
-      reason: 'budget_identity_not_prepared';
-    };
+  | BudgetAdmittedLifecycle<TLane>
+  | PreparedNoBudgetLifecycle<TLane>;
 
 export type TransactionSigningExecutor<TLane extends TransactionLane, TPayload, TResult> = {
   sign(operation: BudgetAdmittedOperation<TLane>, payload: TPayload): Promise<TResult>;
@@ -301,9 +379,62 @@ export function recordPreparedTransactionBudgetAdmission<TLane extends Transacti
   operation: BudgetAdmittedOperation<TLane>,
 ): PreparedTransactionBudgetState<TLane> {
   return {
-    kind: 'admitted',
+    kind: 'BudgetAdmitted',
     operation,
     state: recordTransactionBudgetAdmission(operation),
+  };
+}
+
+export function recordPreparedTransactionNoBudget<TLane extends TransactionLane>(
+  operation: PreparedTransactionOperation<TLane>,
+  reason: PreparedNoBudgetLifecycle<TLane>['reason'],
+): PreparedNoBudgetLifecycle<TLane> {
+  return {
+    kind: 'PreparedNoBudget',
+    operation,
+    reason,
+  };
+}
+
+export function isPreparedTransactionBudgetAdmitted<TLane extends TransactionLane>(
+  budget: PreparedTransactionBudgetState<TLane>,
+): budget is BudgetAdmittedLifecycle<TLane> {
+  return budget.kind === 'BudgetAdmitted';
+}
+
+export function recordTransactionStepUpConfirmed<
+  TLane extends TransactionLane,
+  TAuthPlan,
+>(
+  operation: BudgetAdmittedOperation<TLane>,
+  authPlan: TAuthPlan,
+): StepUpConfirmedLifecycle<TLane, TAuthPlan> {
+  return {
+    kind: 'StepUpConfirmed',
+    operation: {
+      ...operation,
+      authPlan,
+    },
+    authPlan,
+  };
+}
+
+export function recordTransactionReauthAdmitted<
+  TLane extends TransactionLane,
+  TAuthPlan,
+>(
+  previousOperation: BudgetAdmittedOperation<TLane>,
+  operation: BudgetAdmittedOperation<TLane>,
+  authPlan: TAuthPlan,
+): ReauthAdmittedLifecycle<TLane, TAuthPlan> {
+  return {
+    kind: 'ReauthAdmitted',
+    previousOperation,
+    operation: {
+      ...operation,
+      authPlan,
+    },
+    authPlan,
   };
 }
 
@@ -314,6 +445,38 @@ export function recordTransactionSigned<TLane extends TransactionLane>(
   return {
     ...operation,
     result,
+  };
+}
+
+export function recordSignedWalletSigningBudgetLifecycle<
+  TLane extends TransactionLane,
+  TResult,
+>(
+  operation: BudgetAdmittedOperation<TLane>,
+  result: TResult,
+): SignedWalletSigningBudgetLifecycle<TLane, TResult> {
+  return {
+    kind: 'Signed',
+    operation: recordTransactionSigned(operation, result) as SignedTransactionOperation<
+      TLane,
+      TResult
+    >,
+    result,
+  };
+}
+
+export function recordFinalizedWalletSigningBudgetLifecycle<
+  TLane extends TransactionLane,
+  TResult,
+>(
+  operation: SignedTransactionOperation<TLane, TResult>,
+  finalizedAtMs: number,
+): FinalizedWalletSigningBudgetLifecycle<TLane, TResult> {
+  return {
+    kind: 'Finalized',
+    operation,
+    result: operation.result,
+    finalizedAtMs,
   };
 }
 
@@ -424,10 +587,7 @@ export async function prepareTransactionSigningOperation<
           budgetIdentity,
         }),
       )
-    : ({
-        kind: 'not_admitted',
-        reason: 'budget_identity_not_prepared',
-      } satisfies PreparedTransactionBudgetState<TLane>);
+    : recordPreparedTransactionNoBudget(transactionOperation, 'budget_identity_not_prepared');
 
   return {
     thresholdOperation,

@@ -12,17 +12,11 @@ import {
   resolveBoolean,
   resolveChains,
   resolveIntegerInRange,
-  resolveSmartAccountDeploymentMode,
   resolveTheme,
   resolveThemePalette,
   toColorTokenRecord,
   type IntRange,
 } from './configHelpers';
-
-const RELAYER_SMART_ACCOUNT_DEPLOYMENT_MAX_ATTEMPTS_RANGE: IntRange = {
-  min: 1,
-  max: 5,
-};
 
 const THRESHOLD_ECDSA_PRESIGN_POOL_LIMITS = {
   targetDepth: { min: 1, max: 64 } satisfies IntRange,
@@ -180,19 +174,6 @@ export function buildConfigsFromDefaults(args: {
     toTrimmedString(defaults.network.relayer.accountId);
   const relayerDelegateActionRoute =
     overrides.relayer?.delegateActionRoute ?? defaults.network.relayer.routes.delegateAction;
-  const relayerSmartAccountDeployRoute =
-    overrides.relayer?.smartAccountDeployRoute ??
-    defaults.network.relayer.routes.smartAccountDeploy;
-  const smartAccountDeploymentMode = resolveSmartAccountDeploymentMode(
-    overrides.relayer?.smartAccountDeploymentMode,
-    defaults.network.relayer.smartAccountDeployment.mode,
-  );
-  const smartAccountDeploymentMaxAttempts = resolveIntegerInRange({
-    value: overrides.relayer?.smartAccountDeploymentMaxAttempts,
-    fallback: defaults.network.relayer.smartAccountDeployment.maxAttempts,
-    range: RELAYER_SMART_ACCOUNT_DEPLOYMENT_MAX_ATTEMPTS_RANGE,
-    path: 'relayer.smartAccountDeploymentMaxAttempts',
-  });
 
   const signingSessionPersistenceMode = resolveSigningSessionPersistenceMode({
     value: overrides.signingSessionPersistenceMode,
@@ -288,11 +269,6 @@ export function buildConfigsFromDefaults(args: {
         url: relayerUrl,
         routes: {
           delegateAction: relayerDelegateActionRoute,
-          smartAccountDeploy: relayerSmartAccountDeployRoute,
-        },
-        smartAccountDeployment: {
-          mode: smartAccountDeploymentMode,
-          maxAttempts: smartAccountDeploymentMaxAttempts,
         },
         emailRecovery: {
           minBalanceYocto:

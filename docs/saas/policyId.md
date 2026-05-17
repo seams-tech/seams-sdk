@@ -38,7 +38,6 @@ If a subsystem still has its own standalone config identity, it must use subsyst
 
 - `configId`
 - `configName`
-- `smartWalletConfigId`
 
 Do not introduce new generic `policyId` fields unless they point to `console_policies.id`.
 

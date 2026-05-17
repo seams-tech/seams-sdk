@@ -28,7 +28,7 @@ type UseDemoTempoFeeTokenActionsArgs = {
   nearAccountId?: string | null;
   seams: ReturnType<typeof useSeams>['seams'];
   tempoEip1559FeeCaps: Eip1559FeeCaps;
-  resolveThresholdSenderForEvmFamily: (opts?: {
+  resolveThresholdOwnerAddressForEvmFamily: (opts?: {
     chain?: 'tempo' | 'evm';
     bootstrapIfMissing?: boolean;
   }) => Promise<EvmAddress>;
@@ -49,7 +49,7 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
     nearAccountId,
     seams,
     tempoEip1559FeeCaps,
-    resolveThresholdSenderForEvmFamily,
+    resolveThresholdOwnerAddressForEvmFamily,
     refreshTempoUserFeeToken,
     refreshTempoUserFeeTokenBalance,
   } = args;
@@ -72,9 +72,9 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
         description: null,
       });
       let executedTxHash: `0x${string}` | undefined;
-      let thresholdSenderForAttempt: EvmAddress | null = null;
+      let thresholdOwnerAddressForAttempt: EvmAddress | null = null;
       let selectedFeeTokenBalanceRaw: bigint | null = null;
-      let senderNativeBalanceRaw: bigint | null = null;
+      let thresholdOwnerNativeBalanceRaw: bigint | null = null;
       try {
         const tempoFeeToken = config.token;
         const feeCaps = await resolveClickTimeEip1559FeeCaps({
@@ -89,25 +89,25 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
           to: request.tx.to,
           input: request.tx.data || '0x',
         };
-        const thresholdSenderPromise = resolveThresholdSenderForEvmFamily({
+        const thresholdOwnerAddressPromise = resolveThresholdOwnerAddressForEvmFamily({
           chain: 'tempo',
         })
-          .then((sender) => {
-            thresholdSenderForAttempt = sender;
-            return sender;
+          .then((ownerAddress) => {
+            thresholdOwnerAddressForAttempt = ownerAddress;
+            return ownerAddress;
           })
           .catch(() => null);
         const diagnosticsPromise = (async () => {
-          const thresholdSender = await thresholdSenderPromise;
-          if (!thresholdSender) return;
+          const thresholdOwnerAddress = await thresholdOwnerAddressPromise;
+          if (!thresholdOwnerAddress) return;
           selectedFeeTokenBalanceRaw = await readTempoTokenBalanceRaw({
             rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-            userAddress: thresholdSender,
+            userAddress: thresholdOwnerAddress,
             tokenAddress: tempoFeeToken,
           }).catch(() => null);
-          senderNativeBalanceRaw = await readEvmNativeBalance({
+          thresholdOwnerNativeBalanceRaw = await readEvmNativeBalance({
             rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-            address: thresholdSender,
+            address: thresholdOwnerAddress,
             blockTag: 'latest',
           }).catch(() => null);
         })().catch(() => undefined);
@@ -133,24 +133,24 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
               }),
           },
           postFinalizationCheck: async () => {
-            const thresholdSender = await thresholdSenderPromise;
-            const refreshedFeeToken = thresholdSender
+            const thresholdOwnerAddress = await thresholdOwnerAddressPromise;
+            const refreshedFeeToken = thresholdOwnerAddress
               ? await refreshTempoUserFeeToken({
                   silent: true,
-                  userAddress: thresholdSender,
+                  userAddress: thresholdOwnerAddress,
                 })
               : null;
-            if (thresholdSender) {
+            if (thresholdOwnerAddress) {
               await refreshTempoUserFeeTokenBalance({
                 silent: true,
-                userAddress: thresholdSender,
+                userAddress: thresholdOwnerAddress,
                 feeToken: tempoFeeToken,
               });
             }
             const refreshedMatchesTarget =
               !!refreshedFeeToken &&
               refreshedFeeToken.toLowerCase() === tempoFeeToken.toLowerCase();
-            if (thresholdSender && !refreshedMatchesTarget) {
+            if (thresholdOwnerAddress && !refreshedMatchesTarget) {
               throw new Error(
                 `setUserToken transaction finalized, but refreshed userTokens(address) reports ${refreshedFeeToken ? compactHex(refreshedFeeToken) : 'not set'} instead of ${compactHex(tempoFeeToken)}.`,
               );
@@ -201,9 +201,9 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
             atIso: new Date().toISOString(),
             error: resolvedError,
             message,
-            thresholdSenderForAttempt,
+            thresholdOwnerAddressForAttempt,
             selectedFeeTokenBalanceRaw,
-            senderNativeBalanceRaw,
+            thresholdOwnerNativeBalanceRaw,
             txHash: executedTxHash,
           });
           return;
@@ -218,7 +218,7 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
         const insufficient = parseInsufficientFundsError(message);
         if (insufficient) {
           toast.error(
-            `Tempo sender has insufficient native gas balance (have ${formatWeiToEth(insufficient.haveWei)}, need ${formatWeiToEth(insufficient.wantWei)} native tokens).`,
+            `Tempo threshold owner has insufficient native gas balance (have ${formatWeiToEth(insufficient.haveWei)}, need ${formatWeiToEth(insufficient.wantWei)} native tokens).`,
             { id: toastId, description: null },
           );
         } else {
@@ -231,9 +231,9 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
           atIso: new Date().toISOString(),
           error: resolvedError,
           message,
-          thresholdSenderForAttempt,
+          thresholdOwnerAddressForAttempt,
           selectedFeeTokenBalanceRaw,
-          senderNativeBalanceRaw,
+          thresholdOwnerNativeBalanceRaw,
         });
       } finally {
         setTempoFeeTokenConfigLoading(false);
@@ -245,7 +245,7 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
       nearAccountId,
       refreshTempoUserFeeToken,
       refreshTempoUserFeeTokenBalance,
-      resolveThresholdSenderForEvmFamily,
+      resolveThresholdOwnerAddressForEvmFamily,
       seams,
       tempoEip1559FeeCaps,
     ],

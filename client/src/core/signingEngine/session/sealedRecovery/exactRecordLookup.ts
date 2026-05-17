@@ -28,27 +28,45 @@ function exactPurposeForAcceptedRecord(
   record: SealedRecoveryRecord,
 ): RestorePersistedSessionWorkItem | null {
   if (record.authMethod !== input.authMethod) return null;
-  const exactRecord =
-    input.curve === 'ecdsa'
-      ? record.curve === 'ecdsa'
-        ? thresholdEcdsaChainTargetsEqual(record.chainTarget, input.chainTarget)
-          ? record
-          : null
-        : record.curve === 'ed25519' &&
-            record.authMethod === 'email_otp' &&
-            record.companionEcdsaRecovery &&
-            thresholdEcdsaChainTargetsEqual(
-              record.companionEcdsaRecovery.chainTarget,
-              input.chainTarget,
-            )
-          ? record.companionEcdsaRecovery
-          : null
-      : record.curve === 'ed25519'
-        ? record
-        : null;
-  if (!exactRecord) return null;
-  const thresholdSessionId = exactRecord.thresholdSessionId;
-  const walletSigningSessionId = exactRecord.walletSigningSessionId;
+  let exactRecord: SealedRecoveryRecord | null = null;
+  let thresholdSessionId: string | null = null;
+  let walletSigningSessionId: string | null = null;
+
+  if (input.curve === 'ecdsa') {
+    if (record.curve === 'ecdsa') {
+      if (!thresholdEcdsaChainTargetsEqual(record.chainTarget, input.chainTarget)) return null;
+      exactRecord = record;
+      thresholdSessionId = record.thresholdSessionId;
+      walletSigningSessionId = record.walletSigningSessionId;
+    } else if (
+      record.curve === 'ed25519' &&
+      record.authMethod === 'email_otp' &&
+      record.companionEcdsaRecovery &&
+      thresholdEcdsaChainTargetsEqual(record.companionEcdsaRecovery.chainTarget, input.chainTarget)
+    ) {
+      exactRecord = record.companionEcdsaRecovery;
+      thresholdSessionId = record.companionEcdsaRecovery.thresholdSessionId;
+      walletSigningSessionId = record.companionEcdsaRecovery.walletSigningSessionId;
+    } else {
+      return null;
+    }
+  } else if (record.curve === 'ed25519') {
+    exactRecord = record;
+    thresholdSessionId = record.thresholdSessionId;
+    walletSigningSessionId = record.walletSigningSessionId;
+  } else if (
+    record.curve === 'ecdsa' &&
+    record.authMethod === 'email_otp' &&
+    record.companionEd25519Recovery
+  ) {
+    exactRecord = record;
+    thresholdSessionId = record.companionEd25519Recovery.thresholdSessionId;
+    walletSigningSessionId = record.walletSigningSessionId;
+  } else {
+    return null;
+  }
+
+  if (!exactRecord || !thresholdSessionId || !walletSigningSessionId) return null;
   if (walletSigningSessionId !== input.walletSigningSessionId) return null;
   if (thresholdSessionId !== input.thresholdSessionId) return null;
   return {
@@ -107,15 +125,28 @@ function listedPurposeForAcceptedRecord(args: {
 }): RestorePersistedSessionWorkItem[] {
   const acceptedRecord = args.record;
   if (args.requestedCurve === 'ed25519') {
-    if (acceptedRecord.curve !== 'ed25519') return [];
-    const walletSigningSessionId = acceptedRecord.walletSigningSessionId;
-    const thresholdSessionId = acceptedRecord.thresholdSessionId;
+    const ed25519Record =
+      acceptedRecord.curve === 'ed25519'
+        ? acceptedRecord
+        : acceptedRecord.curve === 'ecdsa' &&
+            acceptedRecord.authMethod === 'email_otp' &&
+            acceptedRecord.companionEd25519Recovery
+          ? acceptedRecord
+          : null;
+    if (!ed25519Record) return [];
+    const walletSigningSessionId = ed25519Record.walletSigningSessionId;
+    const thresholdSessionId = (() => {
+      if (ed25519Record.curve === 'ed25519') return ed25519Record.thresholdSessionId;
+      const companionEd25519Recovery = ed25519Record.companionEd25519Recovery;
+      return companionEd25519Recovery ? companionEd25519Recovery.thresholdSessionId : null;
+    })();
+    if (!thresholdSessionId) return [];
     return [
       {
-        record: acceptedRecord,
+        record: ed25519Record,
         purpose: {
           walletId: args.walletId,
-          authMethod: acceptedRecord.authMethod,
+          authMethod: ed25519Record.authMethod,
           curve: 'ed25519',
           chain: 'near',
           walletSigningSessionId,

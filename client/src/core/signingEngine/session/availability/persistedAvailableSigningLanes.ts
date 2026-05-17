@@ -3,9 +3,15 @@ import type { AccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WarmSessionStatusResult } from '../../uiConfirm/types';
 import { resolveEmailOtpEcdsaWorkerSessionId } from './readiness';
-import { buildThresholdBudgetStatusCheck, type SigningSessionBudgetStatusCheck } from '../budget/budget';
+import {
+  buildEcdsaLaneBudgetStatusCheck,
+  buildThresholdBudgetStatusCheck,
+  type SigningSessionBudgetStatusCheck,
+} from '../budget/budget';
+import { buildEvmFamilyEcdsaKeyIdentityFromRecord } from '../identity/evmFamilyEcdsaIdentity';
 import {
   getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
@@ -14,6 +20,7 @@ import {
   type ThresholdEcdsaSessionStoreDeps,
 } from '../persistence/records';
 import {
+  listEcdsaSealedSessionsForWallet,
   listExactSealedSessionsForWallet,
   type SigningSessionSealedStoreRecord,
 } from '../persistence/sealedSessionStore';
@@ -92,7 +99,14 @@ export async function readPersistedAvailableSigningLanesForSigning(
 ): Promise<AvailableSigningLanes> {
   if (args.curve === 'ecdsa') {
     const { curve, ...availableLanesArgs } = args;
-    return await readPersistedAvailableSigningLanesForTargets(deps, availableLanesArgs);
+    const ecdsaChainTargetsByKey = new Map<string, ThresholdEcdsaChainTarget>();
+    for (const chainTarget of [...args.ecdsaChainTargets, ...defaultEcdsaChainTargets]) {
+      ecdsaChainTargetsByKey.set(thresholdEcdsaChainTargetKey(chainTarget), chainTarget);
+    }
+    return await readPersistedAvailableSigningLanesForTargets(deps, {
+      ...availableLanesArgs,
+      ecdsaChainTargets: [...ecdsaChainTargetsByKey.values()],
+    });
   }
   const { curve, ...availableLanesArgs } = args;
   return await readPersistedAvailableSigningLanes(deps, availableLanesArgs, defaultEcdsaChainTargets);
@@ -138,10 +152,28 @@ export async function readPersistedAvailableSigningLanesForTargets(
               },
             });
           }
-          return await listExactSealedSessionsForWallet({
+          const ed25519Records = await listExactSealedSessionsForWallet({
             walletId: recordWalletId,
             filter: { authMethod, curve: 'ed25519' },
           });
+          if (authMethod !== 'email_otp') return ed25519Records;
+          const companionEcdsaRecords = (
+            await Promise.all(
+              args.ecdsaChainTargets.map(async (chainTarget) =>
+                await listExactSealedSessionsForWallet({
+                  walletId: recordWalletId,
+                  filter: {
+                    authMethod: 'email_otp',
+                    curve: 'ecdsa',
+                    chainTarget,
+                  },
+                }),
+              ),
+            )
+          )
+            .flat()
+            .filter((record) => String(record.thresholdSessionIds?.ed25519 || '').trim().length > 0);
+          return [...ed25519Records, ...companionEcdsaRecords];
         };
         if (filter.authMethod) {
           return await listByAuthMethod(filter.authMethod);
@@ -149,6 +181,25 @@ export async function readPersistedAvailableSigningLanesForTargets(
         const [emailOtpRecords, passkeyRecords] = await Promise.all([
           listByAuthMethod('email_otp'),
           listByAuthMethod('passkey'),
+        ]);
+        return [...emailOtpRecords, ...passkeyRecords];
+      },
+      listEcdsaSealedRecordsForWallet: async ({ walletId: recordWalletId, filter }) => {
+        if (filter.authMethod) {
+          return await listEcdsaSealedSessionsForWallet({
+            walletId: recordWalletId,
+            filter,
+          });
+        }
+        const [emailOtpRecords, passkeyRecords] = await Promise.all([
+          listEcdsaSealedSessionsForWallet({
+            walletId: recordWalletId,
+            filter: { authMethod: 'email_otp', curve: 'ecdsa' },
+          }),
+          listEcdsaSealedSessionsForWallet({
+            walletId: recordWalletId,
+            filter: { authMethod: 'passkey', curve: 'ecdsa' },
+          }),
         ]);
         return [...emailOtpRecords, ...passkeyRecords];
       },
@@ -160,13 +211,10 @@ export async function readPersistedAvailableSigningLanesForTargets(
         })) {
           if (args.authMethod && args.authMethod !== runtimeLane.authMethod) continue;
           pushRuntimeEcdsaRecord(records, seen, {
-            subjectId: runtimeLane.subjectId,
+            key: runtimeLane.key,
             authMethod: runtimeLane.authMethod,
             curve: 'ecdsa',
             chainTarget: runtimeLane.chainTarget,
-            ecdsaThresholdKeyId: runtimeLane.ecdsaThresholdKeyId,
-            signingRootId: runtimeLane.signingRootId,
-            signingRootVersion: runtimeLane.signingRootVersion,
             thresholdSessionId: runtimeLane.thresholdSessionId,
             walletSigningSessionId: runtimeLane.walletSigningSessionId,
             ...(runtimeLane.remainingUses == null
@@ -230,11 +278,21 @@ export async function readPersistedAvailableSigningLanesForTargets(
               walletSigningSessionId && deps.getWalletSigningBudgetStatus
                 ? await deps
                     .getWalletSigningBudgetStatus(
-                      buildThresholdBudgetStatusCheck({
-                        walletId,
-                        walletSigningSessionId,
-                        targetThresholdSessionIds: [sessionId],
-                      }),
+                      ecdsaRecord
+                        ? buildEcdsaLaneBudgetStatusCheck({
+                            key: buildEvmFamilyEcdsaKeyIdentityFromRecord({
+                              record: ecdsaRecord,
+                              rpId: ecdsaRecord.rpId,
+                            }),
+                            chainTarget: ecdsaRecord.chainTarget,
+                            walletSigningSessionId,
+                            thresholdSessionId: ecdsaRecord.thresholdSessionId,
+                          })
+                        : buildThresholdBudgetStatusCheck({
+                            walletId,
+                            walletSigningSessionId,
+                            targetThresholdSessionIds: [sessionId],
+                          }),
                     )
                     .catch(() => null)
                 : null;

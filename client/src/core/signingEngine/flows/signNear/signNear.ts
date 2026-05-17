@@ -18,7 +18,10 @@ import {
   SENSITIVE_OPERATION_POLICIES,
   type SensitiveOperationPolicy,
 } from '@shared/utils/signerDomain';
-import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
+import {
+  toAuthorizingWalletSigningSessionId,
+  type EmailOtpAuthLane,
+} from '../../stepUpConfirmation/otpPrompt/authLane';
 import {
   SigningAuthPlanKind,
   type SigningAuthPlan,
@@ -526,7 +529,7 @@ function emailOtpEd25519AuthLaneFromRecord(
     kind: 'signing_session',
     jwt,
     thresholdSessionId,
-    walletSigningSessionId,
+    authorizingWalletSigningSessionId: toAuthorizingWalletSigningSessionId(walletSigningSessionId),
     curve: 'ed25519',
   };
 }
@@ -867,6 +870,26 @@ function concreteNearEd25519AvailableAuthMethods(
   return [...methods].sort();
 }
 
+function hasSharedEmailOtpAndPasskeyEd25519LaneIdentity(
+  availableLanes: AvailableSigningLanes | null,
+): boolean {
+  const authMethodsByIdentity = new Map<string, Set<'email_otp' | 'passkey'>>();
+  for (const lane of availableLanes?.candidates.ed25519.near || []) {
+    if (lane.authMethod !== 'email_otp' && lane.authMethod !== 'passkey') continue;
+    const walletSigningSessionId = String(lane.walletSigningSessionId || '').trim();
+    const thresholdSessionId = String(lane.thresholdSessionId || '').trim();
+    if (!walletSigningSessionId || !thresholdSessionId) continue;
+    const identityKey = `${walletSigningSessionId}:${thresholdSessionId}`;
+    const authMethods = authMethodsByIdentity.get(identityKey) || new Set<'email_otp' | 'passkey'>();
+    authMethods.add(lane.authMethod);
+    authMethodsByIdentity.set(identityKey, authMethods);
+  }
+  for (const authMethods of authMethodsByIdentity.values()) {
+    if (authMethods.has('email_otp') && authMethods.has('passkey')) return true;
+  }
+  return false;
+}
+
 function verifiedRuntimeNearEd25519AvailableLanes(args: {
   availableLanes: AvailableSigningLanes | null;
   nearAccountId: AccountId;
@@ -875,6 +898,7 @@ function verifiedRuntimeNearEd25519AvailableLanes(args: {
   for (const lane of args.availableLanes?.candidates.ed25519.near || []) {
     if (lane.authMethod !== 'email_otp' && lane.authMethod !== 'passkey') continue;
     if (lane.source !== 'runtime_session_record' && lane.source !== 'runtime_and_durable') continue;
+    if (lane.source === 'runtime_session_record' && lane.state !== 'ready') continue;
     const walletSigningSessionId = String(lane.walletSigningSessionId || '').trim();
     const thresholdSessionId = String(lane.thresholdSessionId || '').trim();
     if (!walletSigningSessionId || !thresholdSessionId) continue;
@@ -914,6 +938,10 @@ async function selectSelectedEd25519LaneFromAvailableLanes(args: {
   if (runtimeLanes.length === 1) {
     const runtimeLane = runtimeLanes[0]!;
     return selectByAuthMethod(runtimeLane.authMethod, runtimeLane);
+  }
+  if (hasSharedEmailOtpAndPasskeyEd25519LaneIdentity(args.availableLanes)) {
+    const emailOtpSelection = selectByAuthMethod('email_otp');
+    if (emailOtpSelection) return emailOtpSelection;
   }
 
   const accountSelectedAuthMethod = await args.deps
@@ -1059,7 +1087,27 @@ async function restoreNearEd25519SelectedSigningSession(args: {
     return;
   }
   if (args.candidate?.source === 'runtime_session_record' && args.candidate.state === 'ready') {
-    return;
+    const thresholdSessionId = String(selectedLane.thresholdSessionId || '').trim();
+    const liveStatus =
+      thresholdSessionId && typeof args.deps.getWarmThresholdEd25519SessionStatusForSession === 'function'
+        ? await args.deps
+            .getWarmThresholdEd25519SessionStatusForSession({
+              nearAccountId,
+              thresholdSessionId,
+            })
+            .catch(() => null)
+        : null;
+    const liveSessionId = String(liveStatus?.sessionId || '')
+      .replace(/^threshold-ed25519:/, '')
+      .trim();
+    const liveRemainingUses = Math.floor(Number(liveStatus?.remainingUses) || 0);
+    if (
+      liveStatus?.status === 'active' &&
+      (!liveSessionId || liveSessionId === thresholdSessionId) &&
+      liveRemainingUses >= 1
+    ) {
+      return;
+    }
   }
   await args.deps.restorePersistedSessionForSigning({
     walletId: nearAccountId,
@@ -1102,29 +1150,6 @@ async function prepareNearEd25519TransactionOperation(args: {
     nearAccountId,
   });
   if (!selectedSessionLane || !recordForLifecycle) {
-    console.warn('[SigningEngine][near] Ed25519 signing lane selection missing session', {
-      nearAccountId,
-      hasSelectedLane: Boolean(selectedSessionLane),
-      selectedLane: selectedSessionLane
-        ? {
-            authMethod: selectedSessionLane.authMethod,
-            thresholdSessionId: String(selectedSessionLane.thresholdSessionId || ''),
-            walletSigningSessionId: String(selectedSessionLane.walletSigningSessionId || ''),
-          }
-        : null,
-      hasRuntimeRecord: Boolean(recordForLifecycle),
-      runtimeRecord: recordForLifecycle
-        ? {
-            source: recordForLifecycle.source,
-            thresholdSessionId: recordForLifecycle.thresholdSessionId,
-            walletSigningSessionId: recordForLifecycle.walletSigningSessionId,
-            remainingUses: recordForLifecycle.remainingUses,
-            expiresAtMs: recordForLifecycle.expiresAtMs,
-          }
-        : null,
-      availableLane: args.availableLanes?.lanes.ed25519.near || null,
-      selectedLaneCandidate: args.selectedLane.candidate,
-    });
     throw new Error('[SigningEngine][near] signing session is not ready: missing_session');
   }
   const lane = buildNearTransactionSigningLaneForSelectedLane({
@@ -1373,7 +1398,8 @@ export async function signTransactionsWithActions(
           signingSessionPlan: preparedSigningSession.preparedOperation.signingSessionPlan,
           signingAuthPlan,
           signingLane,
-          initialBudgetAdmittedOperation: budget.kind === 'admitted' ? budget.operation : null,
+          initialBudgetAdmittedOperation:
+            budget.kind === 'BudgetAdmitted' ? budget.operation : null,
         };
         const payload: NearTransactionsWithActionsPayload = {
           ctx,

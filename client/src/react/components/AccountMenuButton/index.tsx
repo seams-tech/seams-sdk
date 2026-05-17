@@ -25,6 +25,7 @@ import {
   nearAccountRefFromAccountId,
   thresholdEcdsaChainTargetFromConfig,
   toWalletId,
+  walletSessionRefFromSession,
   walletSubjectIdFromWalletProfile,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
@@ -233,7 +234,10 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
             : {
                 kind: 'ecdsa',
                 subjectId: walletSubjectIdFromWalletProfile({ walletId: nearAccountId }),
-                walletSessionUserId: nearAccountId,
+                walletSession: walletSessionRefFromSession({
+                  walletId: nearAccountId,
+                  walletSessionUserId: nearAccountId,
+                }),
                 chainTarget: thresholdEcdsaChainTargetFromConfig(
                   requirePrimaryChainByFamily(seams.configs.network.chains, 'evm'),
                 ),

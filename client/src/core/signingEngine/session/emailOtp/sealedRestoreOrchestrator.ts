@@ -427,13 +427,36 @@ export class EmailOtpSealedRestoreOrchestrator {
   }): Promise<RestoreSealedRecordResult> {
     if (args.purpose.authMethod !== 'email_otp') return 'deferred';
     if (isEmailOtpEd25519RestorePurpose(args.purpose)) {
-      if (args.record.authMethod !== 'email_otp' || args.record.curve !== 'ed25519') {
+      if (args.record.authMethod !== 'email_otp') {
         return 'deferred';
       }
-      return await this.restoreEd25519SealedRecordForAccount({
-        accountId: args.walletId,
+      if (args.record.curve === 'ed25519') {
+        return await this.restoreEd25519SealedRecordForAccount({
+          accountId: args.walletId,
+          record: args.record,
+          purpose: args.purpose,
+        });
+      }
+      if (
+        args.record.curve !== 'ecdsa' ||
+        !args.record.companionEd25519Recovery ||
+        args.record.walletSigningSessionId !== args.purpose.walletSigningSessionId ||
+        args.record.companionEd25519Recovery.thresholdSessionId !== args.purpose.thresholdSessionId
+      ) {
+        return 'deferred';
+      }
+      return await this.restoreEcdsaSealedRecordForWallet({
+        walletId: args.walletId,
         record: args.record,
-        purpose: args.purpose,
+        purpose: {
+          walletId: args.walletId,
+          authMethod: 'email_otp',
+          curve: 'ecdsa',
+          chainTarget: args.record.chainTarget,
+          walletSigningSessionId: args.record.walletSigningSessionId,
+          thresholdSessionId: args.record.thresholdSessionId,
+          reason: args.purpose.reason,
+        },
       });
     }
     if (args.purpose.curve !== 'ecdsa') return 'deferred';

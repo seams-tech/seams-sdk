@@ -5,14 +5,19 @@ import {
   SigningOperationIntent,
   summarizeSigningLane,
   type BackingMaterialSessionId,
+  type EcdsaWalletSigningSpendPlan,
+  type Ed25519WalletSigningSpendPlan,
   type SelectedSigningSessionPlanningLane,
   type SigningLaneSummary,
   type SigningOperationContext,
   type SigningOperationId,
+  type ThresholdEcdsaSessionId,
   type ThresholdSessionId,
   type WalletSigningSessionId,
   type WalletSigningSpendPlan,
 } from '../operationState/types';
+import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { EvmFamilyEcdsaKeyIdentity } from '../identity/evmFamilyEcdsaIdentity';
 import { budgetUnknownSigningSessionStatus } from './budgetProjection';
 
 export type SigningSessionBudgetZeroSpendReason =
@@ -166,11 +171,37 @@ export type AuthenticatedThresholdBudgetStatusCheck = {
   targetBackingMaterialSessionIds?: never;
 };
 
+export type EcdsaLaneBudgetStatusCheck = {
+  kind: 'ecdsa_lane_budget_status_check';
+  key: EvmFamilyEcdsaKeyIdentity;
+  chainTarget: ThresholdEcdsaChainTarget;
+  walletSigningSessionId: WalletSigningSessionId | string;
+  thresholdSessionId: ThresholdEcdsaSessionId | string;
+  walletId?: never;
+  targetThresholdSessionIds?: never;
+  targetBackingMaterialSessionIds?: never;
+  trustedStatusAuth?: never;
+};
+
+export type AuthenticatedEcdsaLaneBudgetStatusCheck = {
+  kind: 'authenticated_ecdsa_lane_budget_status_check';
+  key: EvmFamilyEcdsaKeyIdentity;
+  chainTarget: ThresholdEcdsaChainTarget;
+  walletSigningSessionId: WalletSigningSessionId | string;
+  thresholdSessionId: ThresholdEcdsaSessionId | string;
+  trustedStatusAuth: SigningSessionBudgetStatusAuth;
+  walletId?: never;
+  targetThresholdSessionIds?: never;
+  targetBackingMaterialSessionIds?: never;
+};
+
 export type SigningSessionBudgetStatusCheck =
   | WalletBudgetStatusCheck
   | BackingMaterialBudgetStatusCheck
   | ThresholdBudgetStatusCheck
-  | AuthenticatedThresholdBudgetStatusCheck;
+  | AuthenticatedThresholdBudgetStatusCheck
+  | EcdsaLaneBudgetStatusCheck
+  | AuthenticatedEcdsaLaneBudgetStatusCheck;
 
 export type SigningSessionBudgetStatusReader = (
   args: SigningSessionBudgetStatusCheck,
@@ -502,8 +533,9 @@ export function normalizeStringList(values: readonly string[] | undefined): stri
 export function buildWalletSigningSpendPlan(
   operation: SigningOperationContext,
   lane: SelectedSigningSessionPlanningLane,
+  identity?: { ecdsaKey: EvmFamilyEcdsaKeyIdentity },
 ): WalletSigningSpendPlan {
-  return {
+  const base = {
     operationId: operation.operationId,
     ...(operation.operationFingerprint
       ? { operationFingerprint: operation.operationFingerprint }
@@ -516,6 +548,14 @@ export function buildWalletSigningSpendPlan(
     uses: 1,
     reason: operation.intent,
   };
+  return normalizeWalletSigningSpendPlan(
+    lane.curve === 'ecdsa'
+      ? ({
+          ...base,
+          ecdsaKey: identity?.ecdsaKey,
+        } as EcdsaWalletSigningSpendPlan)
+      : (base as Ed25519WalletSigningSpendPlan),
+  );
 }
 
 export function buildWalletBudgetStatusCheck(args: {
@@ -595,10 +635,138 @@ export function buildAuthenticatedThresholdBudgetStatusCheck(args: {
   };
 }
 
+export function isEcdsaLaneBudgetStatusCheck(
+  args: SigningSessionBudgetStatusCheck,
+): args is EcdsaLaneBudgetStatusCheck | AuthenticatedEcdsaLaneBudgetStatusCheck {
+  return (
+    args.kind === 'ecdsa_lane_budget_status_check' ||
+    args.kind === 'authenticated_ecdsa_lane_budget_status_check'
+  );
+}
+
+export function assertBudgetStatusCheckHasConcreteLaneIdentity(
+  args: SigningSessionBudgetStatusCheck,
+): void {
+  if (!isEcdsaLaneBudgetStatusCheck(args)) return;
+  normalizeRequired(args.walletSigningSessionId, 'walletSigningSessionId');
+  normalizeRequired(args.thresholdSessionId, 'thresholdSessionId');
+  if (!args.key) {
+    throw new Error('[SigningSessionBudget] ECDSA budget status requires shared key identity');
+  }
+  if (!args.chainTarget || (args.chainTarget.kind !== 'evm' && args.chainTarget.kind !== 'tempo')) {
+    throw new Error('[SigningSessionBudget] ECDSA budget status requires concrete chain target');
+  }
+}
+
+export function walletIdForBudgetStatusCheck(
+  args: SigningSessionBudgetStatusCheck,
+): AccountId | string {
+  return isEcdsaLaneBudgetStatusCheck(args) ? args.key.walletId : args.walletId;
+}
+
+export function thresholdSessionIdsForBudgetStatusCheck(
+  args: SigningSessionBudgetStatusCheck,
+): string[] {
+  if (isEcdsaLaneBudgetStatusCheck(args)) {
+    return [normalizeRequired(args.thresholdSessionId, 'thresholdSessionId')];
+  }
+  return args.kind === 'threshold_budget_status_check' ||
+    args.kind === 'authenticated_threshold_budget_status_check'
+    ? [...args.targetThresholdSessionIds].map((value) => normalizeRequired(value, 'thresholdSessionId'))
+    : [];
+}
+
+export function buildEcdsaLaneBudgetStatusCheck(args: {
+  key: EvmFamilyEcdsaKeyIdentity;
+  chainTarget: ThresholdEcdsaChainTarget;
+  walletSigningSessionId: WalletSigningSessionId | string;
+  thresholdSessionId: ThresholdEcdsaSessionId | string;
+}): EcdsaLaneBudgetStatusCheck {
+  return buildEcdsaLaneBudgetStatusCheckInternal({
+    kind: 'ecdsa_lane_budget_status_check',
+    key: args.key,
+    chainTarget: args.chainTarget,
+    walletSigningSessionId: args.walletSigningSessionId,
+    thresholdSessionId: args.thresholdSessionId,
+  });
+}
+
+export function buildAuthenticatedEcdsaLaneBudgetStatusCheck(args: {
+  key: EvmFamilyEcdsaKeyIdentity;
+  chainTarget: ThresholdEcdsaChainTarget;
+  walletSigningSessionId: WalletSigningSessionId | string;
+  thresholdSessionId: ThresholdEcdsaSessionId | string;
+  trustedStatusAuth: SigningSessionBudgetStatusAuth;
+}): AuthenticatedEcdsaLaneBudgetStatusCheck {
+  return {
+    ...buildEcdsaLaneBudgetStatusCheckInternal({
+      kind: 'authenticated_ecdsa_lane_budget_status_check',
+      key: args.key,
+      chainTarget: args.chainTarget,
+      walletSigningSessionId: args.walletSigningSessionId,
+      thresholdSessionId: args.thresholdSessionId,
+    }),
+    trustedStatusAuth: args.trustedStatusAuth,
+  };
+}
+
+function buildEcdsaLaneBudgetStatusCheckInternal<
+  TKind extends EcdsaLaneBudgetStatusCheck['kind'] | AuthenticatedEcdsaLaneBudgetStatusCheck['kind'],
+>(args: {
+  kind: TKind;
+  key: EvmFamilyEcdsaKeyIdentity;
+  chainTarget: ThresholdEcdsaChainTarget;
+  walletSigningSessionId: WalletSigningSessionId | string;
+  thresholdSessionId: ThresholdEcdsaSessionId | string;
+}): TKind extends EcdsaLaneBudgetStatusCheck['kind']
+  ? EcdsaLaneBudgetStatusCheck
+  : Omit<AuthenticatedEcdsaLaneBudgetStatusCheck, 'trustedStatusAuth'> {
+  const walletSigningSessionId = normalizeRequired(
+    args.walletSigningSessionId,
+    'walletSigningSessionId',
+  ) as WalletSigningSessionId;
+  const thresholdSessionId = normalizeRequired(
+    args.thresholdSessionId,
+    'thresholdSessionId',
+  ) as ThresholdEcdsaSessionId;
+  if (!args.key) {
+    throw new Error('[SigningSessionBudget] ECDSA budget status requires shared key identity');
+  }
+  if (!args.chainTarget || (args.chainTarget.kind !== 'evm' && args.chainTarget.kind !== 'tempo')) {
+    throw new Error('[SigningSessionBudget] ECDSA budget status requires concrete chain target');
+  }
+  return {
+    kind: args.kind,
+    key: args.key,
+    chainTarget: args.chainTarget,
+    walletSigningSessionId,
+    thresholdSessionId,
+  } as TKind extends EcdsaLaneBudgetStatusCheck['kind']
+    ? EcdsaLaneBudgetStatusCheck
+    : Omit<AuthenticatedEcdsaLaneBudgetStatusCheck, 'trustedStatusAuth'>;
+}
+
 export function buildSigningSessionBudgetStatusCheckForSpend(args: {
   spend: WalletSigningSpendPlan;
   trustedStatusAuth?: SigningSessionBudgetStatusAuth;
 }): SigningSessionBudgetStatusCheck {
+  if (isEcdsaWalletSigningSpendPlan(args.spend)) {
+    if (args.trustedStatusAuth) {
+      return buildAuthenticatedEcdsaLaneBudgetStatusCheck({
+        key: args.spend.ecdsaKey,
+        chainTarget: args.spend.lane.chainTarget,
+        walletSigningSessionId: args.spend.walletSigningSessionId,
+        thresholdSessionId: args.spend.lane.thresholdSessionId,
+        trustedStatusAuth: args.trustedStatusAuth,
+      });
+    }
+    return buildEcdsaLaneBudgetStatusCheck({
+      key: args.spend.ecdsaKey,
+      chainTarget: args.spend.lane.chainTarget,
+      walletSigningSessionId: args.spend.walletSigningSessionId,
+      thresholdSessionId: args.spend.lane.thresholdSessionId,
+    });
+  }
   if (args.trustedStatusAuth) {
     return buildAuthenticatedThresholdBudgetStatusCheck({
       walletId: args.spend.walletId,
@@ -625,6 +793,12 @@ export function buildSigningSessionBudgetStatusCheckForSpend(args: {
     walletId: args.spend.walletId,
     walletSigningSessionId: args.spend.walletSigningSessionId,
   });
+}
+
+function isEcdsaWalletSigningSpendPlan(
+  spend: WalletSigningSpendPlan,
+): spend is EcdsaWalletSigningSpendPlan {
+  return spend.lane.curve === 'ecdsa';
 }
 
 function uniqueDefined<TValue extends string>(values: readonly (TValue | undefined)[]): TValue[] {

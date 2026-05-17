@@ -35,6 +35,7 @@ export type UserConfirmWorkerMessageType =
 export type WarmSessionSealTransportInput =
   | {
       curve: 'ed25519';
+      walletId?: string;
       relayerUrl: string;
       walletSigningSessionId?: string;
       thresholdSessionAuthToken?: string;
@@ -43,6 +44,7 @@ export type WarmSessionSealTransportInput =
     }
   | {
       curve: 'ecdsa';
+      walletId?: string;
       chainTarget: ThresholdEcdsaChainTarget;
       relayerUrl: string;
       walletSigningSessionId?: string;

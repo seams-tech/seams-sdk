@@ -1,12 +1,38 @@
 import { toAccountId } from '@/core/types/accountIds';
 import { SigningOperationIntent, SigningSessionIds } from '../operationState/types';
 import type {
+  BudgetAdmittedLifecycle,
+  PreparedTransactionOperation,
+  TransactionBudgetAdmittedState,
+  WalletSigningBudgetLifecycle,
+} from '../operationState/transactionState';
+import { thresholdEcdsaChainTargetFromChainFamily } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { buildEvmFamilyEcdsaKeyIdentity } from '../identity/evmFamilyEcdsaIdentity';
+import type {
+  EcdsaLaneBudgetStatusCheck,
   AuthenticatedThresholdBudgetStatusCheck,
   ExternallyConsumedWalletBudgetSpend,
   ReservedBudgetFinalizationSpend,
   ThresholdBudgetStatusCheck,
   ZeroWalletBudgetSpend,
 } from './budget';
+
+const ecdsaChainTarget = thresholdEcdsaChainTargetFromChainFamily({
+  chain: 'tempo',
+  chainId: 42431,
+  networkSlug: 'tempo-moderato',
+});
+
+const ecdsaKey = buildEvmFamilyEcdsaKeyIdentity({
+  walletId: 'wallet.testnet',
+  subjectId: 'wallet.testnet',
+  rpId: 'localhost',
+  ecdsaThresholdKeyId: 'ecdsa-key-1',
+  signingRootId: 'project:dev',
+  signingRootVersion: 'default',
+  participantIds: [1, 2],
+  thresholdOwnerAddress: `0x${'11'.repeat(20)}`,
+});
 
 const validThresholdCheck: ThresholdBudgetStatusCheck = {
   kind: 'threshold_budget_status_check',
@@ -15,6 +41,26 @@ const validThresholdCheck: ThresholdBudgetStatusCheck = {
   targetThresholdSessionIds: ['threshold-session-1'],
 };
 void validThresholdCheck;
+
+const validEcdsaLaneCheck: EcdsaLaneBudgetStatusCheck = {
+  kind: 'ecdsa_lane_budget_status_check',
+  key: ecdsaKey,
+  chainTarget: ecdsaChainTarget,
+  walletSigningSessionId: 'wallet-signing-session-1',
+  thresholdSessionId: 'threshold-session-1',
+};
+void validEcdsaLaneCheck;
+
+const invalidEcdsaLaneCheck: EcdsaLaneBudgetStatusCheck = {
+  kind: 'ecdsa_lane_budget_status_check',
+  key: ecdsaKey,
+  chainTarget: ecdsaChainTarget,
+  walletSigningSessionId: 'wallet-signing-session-1',
+  thresholdSessionId: 'threshold-session-1',
+  // @ts-expect-error ECDSA budget checks require concrete lane threshold identity
+  targetThresholdSessionIds: ['threshold-session-1'],
+};
+void invalidEcdsaLaneCheck;
 
 // @ts-expect-error authenticated threshold status checks require trustedStatusAuth
 const missingTrustedStatusAuth: AuthenticatedThresholdBudgetStatusCheck = {
@@ -79,5 +125,44 @@ const walletOnlyBudgetFinalizationSpend: ReservedBudgetFinalizationSpend['spend'
   reason: SigningOperationIntent.TransactionSign,
 };
 void walletOnlyBudgetFinalizationSpend;
+
+declare const preparedTransactionOperation: PreparedTransactionOperation;
+declare const budgetAdmittedOperation: BudgetAdmittedLifecycle['operation'];
+declare const budgetAdmittedState: TransactionBudgetAdmittedState;
+
+const preparedNoBudgetLifecycle: WalletSigningBudgetLifecycle = {
+  kind: 'PreparedNoBudget',
+  operation: preparedTransactionOperation,
+  reason: 'budget_identity_not_prepared',
+};
+void preparedNoBudgetLifecycle;
+
+// @ts-expect-error prepared no-budget lifecycle cannot carry a signed result
+const invalidPreparedNoBudgetLifecycle: WalletSigningBudgetLifecycle = {
+  kind: 'PreparedNoBudget',
+  operation: preparedTransactionOperation,
+  reason: 'budget_identity_not_prepared',
+  result: {},
+};
+void invalidPreparedNoBudgetLifecycle;
+
+const invalidBudgetAdmittedLifecycle: WalletSigningBudgetLifecycle = {
+  kind: 'BudgetAdmitted',
+  operation: budgetAdmittedOperation,
+  state: budgetAdmittedState,
+  // @ts-expect-error budget-admitted lifecycle cannot carry a no-budget reason
+  reason: 'budget_identity_not_prepared',
+};
+void invalidBudgetAdmittedLifecycle;
+
+// @ts-expect-error step-up-confirmed lifecycle must carry the confirmed auth plan
+const invalidStepUpConfirmedLifecycle: WalletSigningBudgetLifecycle = {
+  kind: 'StepUpConfirmed',
+  operation: {
+    ...budgetAdmittedOperation,
+    authPlan: {},
+  },
+};
+void invalidStepUpConfirmedLifecycle;
 
 export {};

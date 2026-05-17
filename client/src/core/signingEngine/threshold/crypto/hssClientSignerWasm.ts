@@ -16,10 +16,22 @@ import {
   type WorkerOperationContext,
 } from '../../workerManager/executeWorkerOperation';
 import {
+  thresholdEcdsaChainTargetFromRequest,
   thresholdEcdsaChainTargetKey,
   type ThresholdEcdsaChainTarget,
   type WalletSubjectId,
 } from '../../interfaces/ecdsaChainTarget';
+import {
+  toEcdsaHssSigningRootId,
+  toEcdsaHssSigningRootVersion,
+  toEcdsaHssThresholdKeyId,
+  toEcdsaHssWalletSubjectId,
+  toWalletSessionUserId,
+  type EcdsaThresholdKeyId,
+  type SigningRootId,
+  type SigningRootVersion,
+  type WalletSessionUserId,
+} from '../../session/identity/emailOtpHssIdentity';
 
 const HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS = 20_000;
 
@@ -82,16 +94,22 @@ export type ThresholdEd25519SeedExportArtifact = {
 };
 
 export type ThresholdEcdsaHssStableKeyContext = {
-  walletSessionUserId: string;
+  walletSessionUserId: WalletSessionUserId;
   subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
-  ecdsaThresholdKeyId: string;
-  signingRootId: string;
-  signingRootVersion: string;
+  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  signingRootId: SigningRootId;
+  signingRootVersion: SigningRootVersion;
   walletSigningSessionId?: never;
   thresholdSessionId?: never;
   keyPurpose: string;
   keyVersion: string;
+};
+
+declare const serverPlannedEcdsaHssContextBrand: unique symbol;
+
+export type ServerPlannedEcdsaHssContext = ThresholdEcdsaHssStableKeyContext & {
+  readonly [serverPlannedEcdsaHssContextBrand]: true;
 };
 
 export type ThresholdEcdsaHssPreparedSessionEnvelope = {
@@ -140,6 +158,61 @@ function normalizeParticipantIds(value: unknown): number[] {
     return Array.from(value as ArrayLike<number>, (entry) => Number(entry));
   }
   return [];
+}
+
+function readThresholdEcdsaHssChainTarget(value: unknown): ThresholdEcdsaChainTarget {
+  if (typeof value !== 'object' || value === null) {
+    throw new Error('[email-otp-hss] chainTarget is required');
+  }
+  const record = value as Record<string, unknown>;
+  return thresholdEcdsaChainTargetFromRequest({
+    chain: record.chain,
+    kind: record.kind,
+    namespace: record.namespace,
+    chainId: record.chainId,
+    networkSlug: record.networkSlug,
+  });
+}
+
+function buildThresholdEcdsaHssStableKeyContext(input: {
+  walletSessionUserId: unknown;
+  subjectId: unknown;
+  chainTarget: unknown;
+  ecdsaThresholdKeyId: unknown;
+  signingRootId: unknown;
+  signingRootVersion: unknown;
+  keyPurpose: unknown;
+  keyVersion: unknown;
+}): ThresholdEcdsaHssStableKeyContext {
+  const keyPurpose = String(input.keyPurpose || '').trim();
+  const keyVersion = String(input.keyVersion || '').trim();
+  if (!keyPurpose) throw new Error('[email-otp-hss] keyPurpose is required');
+  if (!keyVersion) throw new Error('[email-otp-hss] keyVersion is required');
+  return {
+    walletSessionUserId: toWalletSessionUserId(input.walletSessionUserId),
+    subjectId: toEcdsaHssWalletSubjectId(input.subjectId),
+    chainTarget: readThresholdEcdsaHssChainTarget(input.chainTarget),
+    ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId(input.ecdsaThresholdKeyId),
+    signingRootId: toEcdsaHssSigningRootId(input.signingRootId),
+    signingRootVersion: toEcdsaHssSigningRootVersion(input.signingRootVersion),
+    keyPurpose,
+    keyVersion,
+  };
+}
+
+export function parseServerPlannedEcdsaHssContext(input: {
+  walletSessionUserId: unknown;
+  subjectId: unknown;
+  chainTarget: unknown;
+  ecdsaThresholdKeyId: unknown;
+  signingRootId: unknown;
+  signingRootVersion: unknown;
+  keyPurpose: unknown;
+  keyVersion: unknown;
+}): ServerPlannedEcdsaHssContext {
+  // Provider subjects authorize Email OTP enrollment. Wallet/session IDs scope
+  // HSS audit and session policy. Server prepare owns ECDSA HSS key context.
+  return buildThresholdEcdsaHssStableKeyContext(input) as ServerPlannedEcdsaHssContext;
 }
 
 export async function deriveThresholdEd25519HssClientInputsWasm(args: {
@@ -384,7 +457,7 @@ export async function buildThresholdEd25519SeedExportArtifactWasm(input: {
 }
 
 export async function prepareThresholdEcdsaHssSessionWasm(input: {
-  context: ThresholdEcdsaHssStableKeyContext;
+  context: ServerPlannedEcdsaHssContext;
   clientRootShare32?: Uint8Array;
   clientRootShare32B64u?: string;
   workerCtx: WorkerOperationContext;

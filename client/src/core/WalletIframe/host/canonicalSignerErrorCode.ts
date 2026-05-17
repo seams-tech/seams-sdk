@@ -12,8 +12,6 @@ export type CanonicalWalletSignerErrorCode =
   | 'fresh_email_otp_required'
   | 'passkey_step_up_required'
   | 'operation_blocked_by_policy'
-  | 'deployment_in_progress'
-  | 'deployment_failed'
   | 'nonce_conflict_retryable'
   | 'nonce_lane_blocked'
   | 'rpc_request_failed'
@@ -32,8 +30,6 @@ const CANONICAL_SIGNER_CODES = new Set<CanonicalWalletSignerErrorCode>([
   'fresh_email_otp_required',
   'passkey_step_up_required',
   'operation_blocked_by_policy',
-  'deployment_in_progress',
-  'deployment_failed',
   'nonce_conflict_retryable',
   'nonce_lane_blocked',
   'rpc_request_failed',
@@ -93,8 +89,6 @@ const CANONICAL_SIGNER_ERROR_MESSAGES: Record<CanonicalWalletSignerErrorCode, st
     'Passkey authentication is required before this operation can continue.',
   operation_blocked_by_policy:
     'This operation is blocked by wallet policy.',
-  deployment_in_progress: 'Smart-account deployment is already in progress.',
-  deployment_failed: 'Smart-account deployment failed before signing.',
   nonce_conflict_retryable: 'Nonce conflict detected. Refresh nonce state and retry the request.',
   nonce_lane_blocked:
     'Nonce lane is blocked by unresolved in-flight transaction(s). Reconcile lane state and retry.',
@@ -253,23 +247,6 @@ function inferCanonicalCodeFromRawCode(args: {
   }
 
   if (
-    rawCode === 'deployment_in_progress' ||
-    ((rawCode.includes('deployment') || rawCode.includes('deploy')) && rawCode.includes('progress'))
-  ) {
-    return 'deployment_in_progress';
-  }
-
-  if (
-    rawCode === 'deployment_failed' ||
-    rawCode === 'deploy_failed' ||
-    ((rawCode.includes('deployment') || rawCode.includes('deploy')) &&
-      rawCode.includes('failed')) ||
-    ((rawCode.includes('deployment') || rawCode.includes('deploy')) && rawCode.includes('error'))
-  ) {
-    return 'deployment_failed';
-  }
-
-  if (
     rawCode === 'nonce_conflict_retryable' ||
     ((rawCode.includes('nonce') || rawCode.includes('already_known')) &&
       (rawCode.includes('conflict') ||
@@ -349,13 +326,6 @@ function inferCanonicalCodeFromMessage(args: {
     (message.includes('threshold ecdsa') || message.includes('threshold signing'))
   ) {
     return 'commit_queue_timeout';
-  }
-
-  if (message.includes('smart-account deployment') || message.includes('[deployment]')) {
-    if (message.includes('in progress') || message.includes('already in progress')) {
-      return 'deployment_in_progress';
-    }
-    return 'deployment_failed';
   }
 
   if (

@@ -11,6 +11,7 @@ import type { EvmFamilyNonceLifecycleDeps } from './nonceLifecycleAdapter';
 import {
   resolveManagedNonceSender,
   resolveNonceNetworkKey,
+  type EvmFamilyManagedNonceSenderIdentity,
   type EvmFamilyAccountMetadataDeps,
   type EvmFamilyNonceNetworkDeps,
 } from './nonceResolution';
@@ -24,9 +25,11 @@ export async function reserveManagedTempoNonceForRequest(args: {
   walletId: string;
   request: TempoSigningRequest;
   operation: NonceOperationContext;
-  senderHint?: `0x${string}`;
+  senderIdentity: EvmFamilyManagedNonceSenderIdentity;
 }): Promise<{ request: TempoSigningRequest; reservation: EvmFamilyManagedNonceReservation }> {
-  const sender = await resolveManagedNonceSender(args);
+  const sender = await resolveManagedNonceSender({
+    senderIdentity: args.senderIdentity,
+  });
   const reservationInput: ReserveNonceInput = {
     chain: 'tempo',
     networkKey: resolveNonceNetworkKey({

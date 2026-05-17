@@ -1,14 +1,16 @@
 import { toAccountId } from '@/core/types/accountIds';
+import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/types';
 import { SigningOperationIntent } from '../operationState/types';
-import type {
-  ThresholdEcdsaSessionBootstrapResult,
-} from '../../threshold/ecdsa/activation';
+import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import {
   listThresholdEcdsaKeyRefsForTarget,
+  thresholdEcdsaSessionRecordReadModel,
   type ThresholdEcdsaSessionStoreDeps,
 } from '../persistence/records';
 import {
+  ecdsaBootstrapChainTarget,
+  ecdsaBootstrapWalletId,
   type EcdsaBootstrapRequest,
   type ThresholdSessionActivationDeps,
 } from './ecdsaBootstrap';
@@ -25,9 +27,8 @@ import {
   type ProvisionThresholdEcdsaSessionDeps,
 } from './ecdsaSessionProvision';
 import { buildEcdsaSessionIdentity } from '../warmCapabilities/ecdsaProvisionPlan';
-import type {
-  WarmSessionCapabilityReader,
-} from '../warmCapabilities/types';
+import type { WarmSessionCapabilityReader } from '../warmCapabilities/types';
+import { buildEvmFamilyEcdsaSessionLanePolicy } from '../identity/evmFamilyEcdsaIdentity';
 
 export type BootstrapWarmEcdsaCapabilityDeps = {
   ensureSealedRefreshStartupParity: () => Promise<void>;
@@ -53,36 +54,38 @@ function createProvisionThresholdEcdsaSessionDeps(
   };
 }
 
-function parityArgsFromBootstrapRequest(request: EcdsaBootstrapRequest): Parameters<
-  typeof ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap
->[1] {
+function parityArgsFromBootstrapRequest(
+  request: EcdsaBootstrapRequest,
+): Parameters<typeof ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap>[1] {
+  const walletId = ecdsaBootstrapWalletId(request);
+  const chainTarget = ecdsaBootstrapChainTarget(request);
   if (request.source === 'registration') {
     return {
       kind: 'registration_bootstrap_parity',
-      walletId: request.walletId,
-      chainTarget: request.chainTarget,
+      walletId,
+      chainTarget,
     };
   }
   if (request.operationIntent === SigningOperationIntent.TransactionSign) {
     return {
       kind: 'transaction_bootstrap_parity',
-      walletId: request.walletId,
-      chainTarget: request.chainTarget,
+      walletId,
+      chainTarget,
       operationIntent: SigningOperationIntent.TransactionSign,
     };
   }
   if (request.kind === 'email_otp_ecdsa_bootstrap') {
     return {
       kind: 'email_otp_bootstrap_parity',
-      walletId: request.walletId,
-      chainTarget: request.chainTarget,
+      walletId,
+      chainTarget,
       authMethod: 'email_otp',
     };
   }
   return {
     kind: 'default_bootstrap_parity',
-    walletId: request.walletId,
-    chainTarget: request.chainTarget,
+    walletId,
+    chainTarget,
   };
 }
 
@@ -117,14 +120,12 @@ async function bootstrapPasskeyCookieReconnect(
     chainTarget: request.chainTarget,
     source: request.source,
     relayerUrl: request.relayerUrl,
-    ecdsaThresholdKeyId: request.ecdsaThresholdKeyId,
-    participantIds: request.participantIds,
+    ...(request.keyIntent ? { keyIntent: request.keyIntent } : {}),
     operationIntent: request.operationIntent,
     runtimePolicyScope: request.runtimePolicyScope,
     runtimeScopeBootstrap: request.runtimeScopeBootstrap,
     ttlMs: request.ttlMs,
     remainingUses: request.remainingUses,
-    smartAccount: request.smartAccount,
     sessionKind: request.sessionKind,
     sessionIdentity: request.sessionIdentity,
     clientRootShare32B64u,
@@ -137,23 +138,44 @@ async function bootstrapReuseWarmEcdsaCapability(
   request: Extract<EcdsaBootstrapRequest, { kind: 'reuse_warm_ecdsa_bootstrap' }>,
 ): Promise<ThresholdEcdsaSessionBootstrapResult> {
   const chainTarget = request.chainTarget;
-  const reusableBootstrap = await tryReuseReadyWarmEcdsaBootstrap(
-    {
-      getWarmSession: (warmSessionWalletId) => deps.capabilityReader.getWarmSession(warmSessionWalletId),
-      listThresholdEcdsaKeyRefsForWalletTarget: ({ subjectId, chainTarget, source }) =>
-        listThresholdEcdsaKeyRefsForTarget(deps.ecdsaSessions, {
-          subjectId,
+  const tryReusableBootstrap = async (): Promise<ThresholdEcdsaSessionBootstrapResult | null> =>
+    await tryReuseReadyWarmEcdsaBootstrap(
+      {
+        getWarmSession: (warmSessionWalletId) =>
+          deps.capabilityReader.getWarmSession(warmSessionWalletId),
+        listThresholdEcdsaKeyRefsForWalletTarget: ({ subjectId, chainTarget, source }) =>
+          listThresholdEcdsaKeyRefsForTarget(deps.ecdsaSessions, {
+            subjectId,
+            chainTarget,
+            ...(source ? { source } : {}),
+          }),
+      },
+      {
+        walletId,
+        subjectId: request.subjectId,
+        chainTarget,
+        source: request.source,
+      },
+    );
+  let reusableBootstrap = await tryReusableBootstrap();
+  if (reusableBootstrap) return reusableBootstrap;
+  if (typeof deps.touchConfirm.restorePersistedSessionsForWallet === 'function') {
+    await deps.touchConfirm
+      .restorePersistedSessionsForWallet({
+        walletId,
+        authMethod: 'passkey',
+        ecdsaChainTargets: [chainTarget],
+        maxRecords: 1,
+      })
+      .catch((error: unknown) => {
+        console.warn('[SigningEngine][ecdsa] reuse warm sealed restore failed', {
+          walletId,
           chainTarget,
-          ...(source ? { source } : {}),
-        }),
-    },
-    {
-      walletId,
-      subjectId: request.subjectId,
-      chainTarget,
-      source: request.source,
-    },
-  );
+          error: error instanceof Error ? error.message : String(error || 'unknown error'),
+        });
+      });
+  }
+  reusableBootstrap = await tryReusableBootstrap();
   if (reusableBootstrap) return reusableBootstrap;
 
   const warmSession = await deps.capabilityReader.getWarmSession(walletId);
@@ -161,11 +183,15 @@ async function bootstrapReuseWarmEcdsaCapability(
     warmSession,
     chainTarget,
   });
-  const primaryWarmCapability = primary.prfClaim?.state === 'warm' ? primary : null;
-  const reusableWarmCapability = primaryWarmCapability;
-  const preferredRecord = primary.record || secondary.record || null;
+  const primaryPasskeyCapability =
+    primary.record?.source === 'email_otp' ? null : primary.record ? primary : null;
+  const reusableWarmCapability =
+    primaryPasskeyCapability?.prfClaim?.state === 'warm' ? primaryPasskeyCapability : null;
+  const reconnectableCapability = reusableWarmCapability || primaryPasskeyCapability;
+  const preferredRecord =
+    reconnectableCapability?.record || primary.record || secondary.record || null;
   const participantIds =
-    normalizeParticipantIds(request.participantIds) ||
+    normalizeParticipantIds(request.keyIntent?.participantIds) ||
     normalizeParticipantIds(primary.record?.participantIds) ||
     normalizeParticipantIds(secondary.record?.participantIds);
   const relayerUrl =
@@ -176,18 +202,35 @@ async function bootstrapReuseWarmEcdsaCapability(
     throw new Error('Missing relayer url (configs.network.relayer.url)');
   }
   const ecdsaThresholdKeyId =
-    toOptionalNonEmptyString(request.ecdsaThresholdKeyId) ||
+    toOptionalNonEmptyString(request.keyIntent?.ecdsaThresholdKeyId) ||
     toOptionalNonEmptyString(primary.record?.ecdsaThresholdKeyId) ||
     toOptionalNonEmptyString(secondary.record?.ecdsaThresholdKeyId);
-  const reusableSessionId = toOptionalNonEmptyString(reusableWarmCapability?.record?.thresholdSessionId);
+  const reusableSessionId = toOptionalNonEmptyString(
+    reconnectableCapability?.record?.thresholdSessionId,
+  );
   const reusableWalletSigningSessionId = toOptionalNonEmptyString(
-    reusableWarmCapability?.record?.walletSigningSessionId,
+    reconnectableCapability?.record?.walletSigningSessionId,
   );
   const reusableThresholdSessionAuthToken = toOptionalNonEmptyString(
-    reusableWarmCapability?.auth?.thresholdSessionAuthToken,
+    reconnectableCapability?.auth?.thresholdSessionAuthToken,
   );
 
   if (reusableSessionId && reusableWalletSigningSessionId && reusableThresholdSessionAuthToken) {
+    if (!preferredRecord) {
+      throw new Error(
+        '[SigningEngine][ecdsa] reusable threshold-session bootstrap requires a canonical ECDSA record',
+      );
+    }
+    const readModel = thresholdEcdsaSessionRecordReadModel(preferredRecord);
+    const lanePolicy = buildEvmFamilyEcdsaSessionLanePolicy({
+      chainTarget: request.chainTarget,
+      thresholdSessionId: reusableSessionId,
+      walletSigningSessionId: reusableWalletSigningSessionId,
+      thresholdSessionKind: 'jwt',
+      ttlMs: request.ttlMs || Math.max(1, readModel.lane.expiresAtMs - Date.now()),
+      remainingUses: request.remainingUses || readModel.lane.remainingUses,
+      ...(request.runtimePolicyScope ? { runtimePolicyScope: request.runtimePolicyScope } : {}),
+    });
     const clientRootShare32B64u = await claimPasskeyEcdsaPrfFirst({
       touchConfirm: deps.touchConfirm,
       walletId,
@@ -199,24 +242,12 @@ async function bootstrapReuseWarmEcdsaCapability(
     });
     return await bootstrapDirectEcdsaRequest(deps, {
       kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
-      walletId,
-      subjectId: request.subjectId,
-      chainTarget: request.chainTarget,
       source: request.source,
       relayerUrl,
-      ecdsaThresholdKeyId: ecdsaThresholdKeyId || undefined,
-      participantIds: participantIds || undefined,
+      key: readModel.key,
+      lanePolicy,
       operationIntent: request.operationIntent,
-      runtimePolicyScope: request.runtimePolicyScope,
       runtimeScopeBootstrap: request.runtimeScopeBootstrap,
-      ttlMs: request.ttlMs,
-      remainingUses: request.remainingUses,
-      smartAccount: request.smartAccount,
-      sessionKind: 'jwt',
-      sessionIdentity: buildEcdsaSessionIdentity({
-        thresholdSessionId: reusableSessionId,
-        walletSigningSessionId: reusableWalletSigningSessionId,
-      }),
       routeAuth: {
         kind: 'threshold_session',
         jwt: reusableThresholdSessionAuthToken,
@@ -233,14 +264,20 @@ async function bootstrapReuseWarmEcdsaCapability(
       chainTarget: request.chainTarget,
       source: request.source,
       relayerUrl,
-      ecdsaThresholdKeyId: ecdsaThresholdKeyId || undefined,
-      participantIds: participantIds || undefined,
+      ...(ecdsaThresholdKeyId && participantIds
+        ? {
+            keyIntent: {
+              kind: 'existing_ecdsa_key',
+              ecdsaThresholdKeyId,
+              participantIds,
+            },
+          }
+        : {}),
       operationIntent: request.operationIntent,
       runtimePolicyScope: request.runtimePolicyScope,
       runtimeScopeBootstrap: request.runtimeScopeBootstrap,
       ttlMs: request.ttlMs,
       remainingUses: request.remainingUses,
-      smartAccount: request.smartAccount,
       sessionKind: 'cookie',
       sessionIdentity: buildEcdsaSessionIdentity({
         thresholdSessionId: reusableSessionId,
@@ -250,7 +287,9 @@ async function bootstrapReuseWarmEcdsaCapability(
   }
 
   throw new Error(
-    '[SigningEngine][ecdsa] reuse_warm_ecdsa_bootstrap requires a reusable or reconnectable ECDSA lane',
+    `[SigningEngine][ecdsa] reuse_warm_ecdsa_bootstrap requires restored passkey ECDSA material for ${thresholdEcdsaChainTargetKey(
+      chainTarget,
+    )}`,
   );
 }
 
@@ -262,7 +301,7 @@ export async function bootstrapWarmEcdsaCapability(
     deps.ensureSealedRefreshStartupParity,
     parityArgsFromBootstrapRequest(request),
   );
-  const walletId = toAccountId(request.walletId);
+  const walletId = toAccountId(ecdsaBootstrapWalletId(request));
   switch (request.kind) {
     case 'reuse_warm_ecdsa_bootstrap':
       return await bootstrapReuseWarmEcdsaCapability(deps, walletId, request);

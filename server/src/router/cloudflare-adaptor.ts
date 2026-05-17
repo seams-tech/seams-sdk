@@ -378,26 +378,6 @@ export type {
   PostgresConsoleSponsorshipSpendCapServiceOptions,
 } from '../console/sponsorshipSpendCaps';
 export type {
-  ConsoleSmartWalletScopeType,
-  ConsoleSmartWalletMode,
-  ConsoleSmartWalletAccountType,
-  ConsoleSmartWalletPaymasterMode,
-  ConsoleSmartWalletFallbackBehavior,
-  ConsoleSmartWalletEntryPointVersion,
-  ConsoleSmartWalletBundlerConfig,
-  ConsoleSmartWalletConfig,
-  ListConsoleSmartWalletRequest,
-  CreateConsoleSmartWalletRequest,
-  UpdateConsoleSmartWalletRequest,
-} from '../console/smartWallets';
-export type {
-  ConsoleSmartWalletContext,
-  ConsoleSmartWalletService,
-  InMemoryConsoleSmartWalletServiceOptions,
-  PostgresConsoleSmartWalletSchemaOptions,
-  PostgresConsoleSmartWalletServiceOptions,
-} from '../console/smartWallets';
-export type {
   ConsoleKeyExportMode,
   ConsoleKeyExportStatus,
   ConsoleKeyExportConstraints,
@@ -597,16 +577,6 @@ export {
   isConsoleSponsorshipSpendCapError,
   ConsoleSponsorshipSpendCapError,
 } from '../console/sponsorshipSpendCaps';
-export {
-  createInMemoryConsoleSmartWalletService,
-  ensureConsoleSmartWalletsPostgresSchema,
-  createPostgresConsoleSmartWalletService,
-  parseListConsoleSmartWalletRequest,
-  parseCreateConsoleSmartWalletRequest,
-  parseUpdateConsoleSmartWalletRequest,
-  isConsoleSmartWalletError,
-  ConsoleSmartWalletError,
-} from '../console/smartWallets';
 export {
   createInMemoryConsoleKeyExportService,
   ensureConsoleKeyExportsPostgresSchema,

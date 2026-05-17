@@ -22,7 +22,10 @@ import {
   resolveNearSigningMaterials,
   toCredentialForRelayJson,
 } from './shared/signingMaterials';
-import { requireResolvedThresholdEd25519SessionState } from './shared/thresholdSessionAuth';
+import {
+  refreshPasskeyEd25519SealedRecordAfterClientBase,
+  requireResolvedThresholdEd25519SessionState,
+} from './shared/thresholdSessionAuth';
 import { buildNearWorkerSigningEnvelope } from '../../chains/near/workerRequest';
 import {
   buildNearThresholdSigningAuthPlan,
@@ -213,6 +216,13 @@ export async function signNep413Message({
           prfFirstB64u,
           persistClientBase: thresholdSessionState.persistClientBase,
         });
+        await refreshPasskeyEd25519SealedRecordAfterClientBase({
+          touchConfirm,
+          nearAccountId,
+          thresholdSessionState,
+          thresholdSessionId: canonicalThresholdSessionId,
+          xClientBaseB64u,
+        });
         return {
           canonicalThresholdSessionId,
           thresholdSessionState,
@@ -297,6 +307,13 @@ export async function signNep413Message({
                 ),
                 prfFirstB64u,
                 persistClientBase: thresholdSessionState.persistClientBase,
+              });
+              await refreshPasskeyEd25519SealedRecordAfterClientBase({
+                touchConfirm,
+                nearAccountId,
+                thresholdSessionState,
+                thresholdSessionId: canonicalThresholdSessionId,
+                xClientBaseB64u: repairedXClientBaseB64u,
               });
               requestPayload = buildRequestPayload(repairedXClientBaseB64u);
               return await executeNep413Request(requestPayload);

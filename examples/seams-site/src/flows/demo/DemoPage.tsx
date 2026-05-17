@@ -105,8 +105,8 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
       />
 
       <ThresholdSignerSection
-        thresholdEvmFundingAddress={thresholdSigners.thresholdEvmFundingAddress}
-        onCopyFundingAddress={() => {
+        thresholdOwnerAddress={thresholdSigners.thresholdOwnerAddress}
+        onCopyThresholdOwnerAddress={() => {
           toast.success('Address copied');
         }}
         onSetTempoFeeToken={thresholdSigners.handleSetTempoFeeTokenAlphaUsd}

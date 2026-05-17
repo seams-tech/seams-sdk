@@ -33,8 +33,15 @@ const missingHotMaterialSelection: ReauthRequiredEvmFamilyEcdsaSigningSelection 
       thresholdSessionId: 'threshold-session-1',
       walletSigningSessionId: 'wallet-signing-session-1',
     }),
+    hasRecord: false,
+    hasKeyRef: false,
   },
   reason: 'missing_hot_material',
+  reauthAuthority: {
+    kind: 'email_otp_signing_session',
+    thresholdSessionId: 'threshold-session-1',
+    chainTarget: {} as ReauthRequiredEvmFamilyEcdsaSigningSelection['lane']['chainTarget'],
+  },
   diagnostics: {} as ReauthRequiredEvmFamilyEcdsaSigningSelection['diagnostics'],
 };
 void missingHotMaterialSelection;

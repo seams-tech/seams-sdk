@@ -5,7 +5,6 @@ import { toAccountId } from '../../types/accountIds';
 import { routeWalletIframeOrLocal, type WalletIframeRouteDeps } from '../walletIframeRoute';
 import { thresholdEcdsaChainTargetFromRequest } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
-import { buildEcdsaSessionIdentity } from '@/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan';
 import type {
   ExecuteEvmFamilyTransactionArgs,
   ExecuteEvmFamilyTransactionResult,
@@ -28,86 +27,17 @@ type ChainSignerDeps = {
 function toLocalBootstrapRequest(
   args: Parameters<TempoSignerCapability['bootstrapEcdsaSession']>[0],
 ): EcdsaBootstrapRequest {
-  const common = {
+  return {
+    kind: 'reuse_warm_ecdsa_bootstrap',
     walletId: toAccountId(args.walletSession.walletId),
     subjectId: args.subjectId,
     chainTarget: args.chainTarget,
     source: args.source,
     relayerUrl: args.relayerUrl,
-    ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
-    participantIds: args.participantIds,
     runtimeScopeBootstrap: args.runtimeScopeBootstrap,
     ttlMs: args.ttlMs,
     remainingUses: args.remainingUses,
-    smartAccount: args.smartAccount ? { ...args.smartAccount } : undefined,
-  } as const;
-  switch (args.kind) {
-    case 'reuse_warm_ecdsa_bootstrap':
-      return {
-        kind: 'reuse_warm_ecdsa_bootstrap',
-        ...common,
-      };
-    case 'passkey_fresh_ecdsa_bootstrap':
-      if (args.sessionKind === 'cookie') {
-        return {
-          kind: 'passkey_fresh_ecdsa_bootstrap',
-          ...common,
-          sessionKind: args.sessionKind,
-          sessionIdentity: buildEcdsaSessionIdentity(args.sessionIdentity),
-          clientRootShare32B64u: args.clientRootShare32B64u,
-          ...('webauthnAuthentication' in args && args.webauthnAuthentication
-            ? { webauthnAuthentication: args.webauthnAuthentication }
-            : {}),
-        };
-      }
-      if ('routeAuth' in args && args.routeAuth) {
-        return {
-          kind: 'passkey_fresh_ecdsa_bootstrap',
-          ...common,
-          sessionKind: args.sessionKind,
-          sessionIdentity: buildEcdsaSessionIdentity(args.sessionIdentity),
-          clientRootShare32B64u: args.clientRootShare32B64u,
-          routeAuth: args.routeAuth,
-        };
-      }
-      return {
-        kind: 'passkey_fresh_ecdsa_bootstrap',
-        ...common,
-        sessionKind: args.sessionKind,
-        sessionIdentity: buildEcdsaSessionIdentity(args.sessionIdentity),
-        clientRootShare32B64u: args.clientRootShare32B64u,
-        webauthnAuthentication: args.webauthnAuthentication,
-      };
-    case 'passkey_cookie_reconnect_ecdsa_bootstrap':
-      return {
-        kind: 'passkey_cookie_reconnect_ecdsa_bootstrap',
-        ...common,
-        sessionKind: args.sessionKind,
-        sessionIdentity: buildEcdsaSessionIdentity(args.sessionIdentity),
-      };
-    case 'threshold_session_auth_reconnect_ecdsa_bootstrap':
-      return {
-        kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
-        ...common,
-        sessionKind: args.sessionKind,
-        sessionIdentity: buildEcdsaSessionIdentity(args.sessionIdentity),
-        clientRootShare32B64u: args.clientRootShare32B64u,
-        routeAuth: args.routeAuth,
-      };
-    case 'email_otp_ecdsa_bootstrap':
-      return {
-        kind: 'email_otp_ecdsa_bootstrap',
-        ...common,
-        source: 'email_otp',
-        sessionKind: args.sessionKind,
-        sessionIdentity: buildEcdsaSessionIdentity(args.sessionIdentity),
-        clientRootShare32B64u: args.clientRootShare32B64u,
-        routeAuth: args.routeAuth,
-        emailOtpAuthContext: args.emailOtpAuthContext,
-      };
-  }
-  args satisfies never;
-  throw new Error('[SeamsPasskey][tempo] unsupported bootstrap request');
+  };
 }
 
 function toSerializableError(

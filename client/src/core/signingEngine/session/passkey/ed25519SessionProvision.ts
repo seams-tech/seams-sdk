@@ -2,7 +2,7 @@ import { toAccountId } from '@/core/types/accountIds';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { connectEd25519Session } from '../../threshold/ed25519/connectSession';
 import {
-  cacheSigningSessionPrfFirstBestEffort,
+  cacheSigningSessionPrfFirst,
   generateSessionId,
 } from './prfCache';
 import {
@@ -20,7 +20,7 @@ type ConnectEd25519SessionInput = Parameters<typeof connectEd25519Session>[0];
 export type ProvisionThresholdEd25519SessionDeps = {
   indexedDB: ConnectEd25519SessionInput['indexedDB'];
   touchIdPrompt: ConnectEd25519SessionInput['touchIdPrompt'];
-  touchConfirm: Parameters<typeof cacheSigningSessionPrfFirstBestEffort>[0];
+  touchConfirm: Parameters<typeof cacheSigningSessionPrfFirst>[0];
   defaultRelayerUrl: string;
   getSignerWorkerContext: () => ConnectEd25519SessionInput['workerCtx'];
   persistWarmSessionEd25519Capability?: (
@@ -84,6 +84,7 @@ export async function provisionThresholdEd25519Session(
   const expiresAtMs = Number(connected.expiresAtMs);
   const remainingUses = Number(connected.remainingUses);
   const jwt = String(connected.jwt || '').trim();
+  const prfFirstB64u = String(connected.ecdsaHssClientRootShare32B64u || '').trim();
   if (
     !resolvedSessionId ||
     !walletSigningSessionId ||
@@ -138,20 +139,33 @@ export async function provisionThresholdEd25519Session(
     });
   }
 
-  const prfFirstB64u = String(connected.ecdsaHssClientRootShare32B64u || '').trim();
   if (prfFirstB64u) {
-    await cacheSigningSessionPrfFirstBestEffort(deps.touchConfirm, {
-      sessionId: resolvedSessionId,
-      prfFirstB64u,
-      expiresAtMs,
-      remainingUses,
-      transport: {
-        curve: 'ed25519',
-        relayerUrl,
-        walletSigningSessionId,
-        thresholdSessionAuthToken: jwt,
-      },
-    });
+    try {
+      await cacheSigningSessionPrfFirst(deps.touchConfirm, {
+        sessionId: resolvedSessionId,
+        prfFirstB64u,
+        expiresAtMs,
+        remainingUses,
+        transport: {
+          curve: 'ed25519',
+          walletId: String(nearAccountId),
+          relayerUrl,
+          walletSigningSessionId,
+          ...(jwt ? { thresholdSessionAuthToken: jwt } : {}),
+        },
+      });
+    } catch (error: unknown) {
+      const details = String(
+        error && typeof error === 'object' && 'message' in error
+          ? (error as { message?: unknown }).message
+          : error || '',
+      ).trim();
+      return {
+        ok: false,
+        code: 'warm_session_cache_failed',
+        message: details || 'Threshold Ed25519 session material could not be cached',
+      };
+    }
   }
 
   return {

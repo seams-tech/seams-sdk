@@ -1,11 +1,13 @@
 import type { AccountAuthMetadata } from '@/core/signingEngine/interfaces/accountAuthMetadata';
 import { SigningEventPhase } from '@/core/types/sdkSentEvents';
-import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { EvmSignedResult } from '../../chains/evm/evmAdapter';
 import type { TempoSignedResult } from '../../chains/tempo/tempoAdapter';
-import { isThresholdSessionAuthUnavailableError } from '../../threshold/sessionPolicy';
-import { isFreshEmailOtpReauthRequiredError } from './errors';
 import { emitEvmFamilySigningEvent } from './events';
+import {
+  classifyEvmFamilyFreshAuthRetry,
+  type EvmFamilyFreshAuthRetryDecision,
+  type EvmFamilyFreshAuthRetrySideEffectState,
+} from './freshAuthRetryPolicy';
 import type {
   EvmFamilyChain,
   EvmFamilyLifecycleEventCallback,
@@ -20,18 +22,22 @@ export async function retryEvmFamilyWithFreshEmailOtpAuthWhenRequired(args: {
   accountAuth: AccountAuthMetadata;
   alreadyRetryingFreshEmailOtpAuth?: boolean;
   hasEmailOtpSigningPlan?: boolean;
+  sideEffectState: EvmFamilyFreshAuthRetrySideEffectState;
+  onDecision?: (decision: EvmFamilyFreshAuthRetryDecision) => void;
   onEvent?: EvmFamilyLifecycleEventCallback;
   retry: () => Promise<TempoSignedResult | EvmSignedResult>;
 }): Promise<TempoSignedResult | EvmSignedResult | null> {
-  if (args.alreadyRetryingFreshEmailOtpAuth || args.hasEmailOtpSigningPlan) return null;
-  if (args.senderSignatureAlgorithm !== 'secp256k1') return null;
-  if (
-    !isThresholdSessionAuthUnavailableError(args.error) &&
-    !isFreshEmailOtpReauthRequiredError(args.error)
-  ) {
-    return null;
-  }
-  if (args.accountAuth.primaryAuthMethod !== SIGNER_AUTH_METHODS.emailOtp) return null;
+  const decision = classifyEvmFamilyFreshAuthRetry({
+    trigger: 'email_otp_auth_unavailable',
+    error: args.error,
+    senderSignatureAlgorithm: args.senderSignatureAlgorithm,
+    accountAuth: args.accountAuth,
+    alreadyRetryingFreshAuth: args.alreadyRetryingFreshEmailOtpAuth,
+    hasEmailOtpSigningPlan: args.hasEmailOtpSigningPlan,
+    sideEffectState: args.sideEffectState,
+  });
+  args.onDecision?.(decision);
+  if (decision.kind !== 'retry') return null;
 
   emitEvmFamilySigningEvent(args.onEvent, {
     phase: SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_CHALLENGE_STARTED,

@@ -247,7 +247,6 @@ export async function exchangeSession(
   jwt?: string;
   sessionUserId?: string;
   sessionExpiresAt?: string;
-  smartAccountSigners?: unknown[];
   error?: string;
 }> {
   try {
@@ -329,16 +328,11 @@ export async function exchangeSession(
         ? String(sessionObj.expiresAt)
         : undefined;
     const jwt = typeof data.jwt === 'string' ? data.jwt : undefined;
-    const smartAccountSigners = Array.isArray(data.smartAccountSigners)
-      ? data.smartAccountSigners
-      : undefined;
-
     return {
       success: true,
       ...(sessionUserId ? { sessionUserId } : {}),
       ...(sessionExpiresAt ? { sessionExpiresAt } : {}),
       ...(jwt ? { jwt } : {}),
-      ...(smartAccountSigners ? { smartAccountSigners } : {}),
     };
   } catch (error: unknown) {
     return { success: false, error: errorMessage(error) || 'Failed to exchange session token' };

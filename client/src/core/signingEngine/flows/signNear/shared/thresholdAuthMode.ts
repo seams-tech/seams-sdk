@@ -69,11 +69,13 @@ type NearSigningSessionCoordinatorPort = Parameters<
     : never
   : never;
 
+type NearWarmSessionReader = WarmSessionCapabilityReader &
+  ThresholdWarmSessionStatusReader &
+  Partial<WarmSessionPersistedRestorer>;
+
 export function createNearSigningSessionCoordinator(
   touchConfirm: NearSigningSessionCoordinatorPort,
-): WarmSessionCapabilityReader &
-  ThresholdWarmSessionStatusReader &
-  Pick<WarmSessionProvisioner, 'claimPrfFirstByThresholdSessionId'> {
+): NearWarmSessionReader & Pick<WarmSessionProvisioner, 'claimPrfFirstByThresholdSessionId'> {
   const getEmailOtpWarmSessionStatus = async (
     sessionId: string,
   ): Promise<WarmSessionStatusResult> => {
@@ -95,6 +97,12 @@ export function createNearSigningSessionCoordinator(
       touchConfirm,
       getEmailOtpWarmSessionStatus,
     }),
+    ...(typeof touchConfirm?.restorePersistedSessionForSigning === 'function'
+      ? {
+          restorePersistedSessionForSigning:
+            touchConfirm.restorePersistedSessionForSigning.bind(touchConfirm),
+        }
+      : {}),
     claimPrfFirstByThresholdSessionId: async (claimArgs) => {
       let consume = claimArgs.consume;
       if (typeof consume !== 'boolean') {
@@ -120,16 +128,16 @@ export function createNearSigningSessionCoordinator(
             consume,
           });
         case 'wallet_scoped_ecdsa_claim':
-        return await claimPasskeyEcdsaPrfFirst({
-          touchConfirm,
-          walletId: claimArgs.walletId,
-          walletSigningSessionId: claimArgs.walletSigningSessionId,
-          thresholdSessionId: claimArgs.thresholdSessionId,
-          chainTarget: claimArgs.chainTarget,
-          errorContext: claimArgs.errorContext,
-          uses: claimArgs.uses,
-          consume,
-        });
+          return await claimPasskeyEcdsaPrfFirst({
+            touchConfirm,
+            walletId: claimArgs.walletId,
+            walletSigningSessionId: claimArgs.walletSigningSessionId,
+            thresholdSessionId: claimArgs.thresholdSessionId,
+            chainTarget: claimArgs.chainTarget,
+            errorContext: claimArgs.errorContext,
+            uses: claimArgs.uses,
+            consume,
+          });
         case 'wallet_scoped_ed25519_claim':
           return await claimPasskeyEd25519PrfFirst({
             touchConfirm,
@@ -146,7 +154,7 @@ export function createNearSigningSessionCoordinator(
 }
 
 export async function resolveNearThresholdSigningAuthContext(args: {
-  warmSessionReader: WarmSessionCapabilityReader & ThresholdWarmSessionStatusReader;
+  warmSessionReader: NearWarmSessionReader;
   nearAccount: NearAccountRef;
   operationLabel: string;
   usesNeeded?: number;
@@ -282,7 +290,7 @@ export function buildNearThresholdSigningAuthPlan(args: {
 }
 
 async function resolvePlannerReadinessForEd25519(args: {
-  warmSessionReader: WarmSessionCapabilityReader & ThresholdWarmSessionStatusReader;
+  warmSessionReader: NearWarmSessionReader;
   nearAccountId: string;
   capability: Awaited<
     ReturnType<WarmSessionCapabilityReader['getWarmSession']>
@@ -351,6 +359,20 @@ async function resolvePlannerReadinessForEd25519(args: {
     return buildReadiness({ status: 'ready', remainingUses });
   }
 
+  if (!isEmailOtpSession) {
+    await restorePasskeyEd25519SessionBeforePlanning(args).catch((error) => {
+      if (!args.operationLabel) return;
+      console.warn(
+        `[SigningEngine][near] ${args.operationLabel} sealed session restore failed before auth planning`,
+        {
+          nearAccountId: args.nearAccountId,
+          sessionId: args.sessionId,
+          error: error instanceof Error ? error.message : String(error || 'unknown error'),
+        },
+      );
+    });
+  }
+
   const status = await args.warmSessionReader.getEd25519SigningSessionStatusForSession({
     nearAccountId: args.nearAccountId,
     thresholdSessionId: args.sessionId,
@@ -371,9 +393,14 @@ async function resolvePlannerReadinessForEd25519(args: {
     if (isEmailOtpSession) {
       return buildReadiness({ status: 'missing_session', remainingUses: 0 });
     }
+    const remainingUses = Math.floor(Number(status.remainingUses) || 0);
+    if (remainingUses < normalizeUsesNeeded(args.usesNeeded)) {
+      return buildReadiness({ status: 'exhausted', remainingUses });
+    }
     return buildReadiness({
-      status: 'missing_session',
-      remainingUses: Math.floor(Number(status.remainingUses) || 0),
+      status: 'ready',
+      remainingUses,
+      expiresAtMs: Math.floor(Number(status.expiresAtMs) || resolveExpiresAtMs()),
     });
   }
   if (args.capability.state === 'missing') {
@@ -397,6 +424,32 @@ async function resolvePlannerReadinessForEd25519(args: {
     );
   }
   return buildReadiness({ status: 'missing_session', remainingUses: 0 });
+}
+
+async function restorePasskeyEd25519SessionBeforePlanning(args: {
+  warmSessionReader: NearWarmSessionReader;
+  nearAccountId: string;
+  capability: Awaited<
+    ReturnType<WarmSessionCapabilityReader['getWarmSession']>
+  >['capabilities']['ed25519'];
+  sessionId: string;
+}): Promise<void> {
+  if (args.capability.prfClaim?.state === 'warm') return;
+  const record = args.capability.record;
+  if (!record || record.source === 'email_otp') return;
+  if (typeof args.warmSessionReader.restorePersistedSessionForSigning !== 'function') return;
+  const walletSigningSessionId = String(record.walletSigningSessionId || '').trim();
+  const thresholdSessionId = String(record.thresholdSessionId || args.sessionId || '').trim();
+  if (!walletSigningSessionId || !thresholdSessionId) return;
+  await args.warmSessionReader.restorePersistedSessionForSigning({
+    walletId: args.nearAccountId,
+    authMethod: 'passkey',
+    curve: 'ed25519',
+    chain: 'near',
+    walletSigningSessionId,
+    thresholdSessionId,
+    reason: 'transaction',
+  });
 }
 
 function normalizeUsesNeeded(usesNeededRaw: unknown): number {

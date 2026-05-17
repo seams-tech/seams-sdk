@@ -6,14 +6,26 @@ import {
   getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   getStoredThresholdEd25519SessionRecordForAccount,
-  getThresholdEcdsaSessionRecordByThresholdSessionId,
   type ThresholdEcdsaSessionStoreDeps,
+  type ThresholdEcdsaSessionRecord,
 } from '../persistence/records';
 import {
+  assertBudgetStatusCheckHasConcreteLaneIdentity,
   buildWalletBudgetStatusCheck,
+  isEcdsaLaneBudgetStatusCheck,
+  thresholdSessionIdsForBudgetStatusCheck,
+  walletIdForBudgetStatusCheck,
+  type AuthenticatedEcdsaLaneBudgetStatusCheck,
+  type EcdsaLaneBudgetStatusCheck,
   type SigningSessionBudgetStatusAuth,
   type SigningSessionBudgetStatusCheck,
 } from './budget';
+import {
+  thresholdEcdsaChainTargetsEqual,
+  type ThresholdEcdsaChainTarget,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { EvmFamilyEcdsaKeyIdentity } from '../identity/evmFamilyEcdsaIdentity';
+import { budgetUnknownSigningSessionStatus } from './budgetProjection';
 
 export type WalletSigningBudgetAvailableStatusDeps = {
   getAvailableStatus: (
@@ -35,6 +47,9 @@ type ThresholdScopedBudgetStatusAuth = {
   relayerUrl: string;
   thresholdSessionId: string;
   thresholdSessionAuthToken?: string;
+  curve?: 'ecdsa' | 'ed25519';
+  chainTarget?: ThresholdEcdsaChainTarget;
+  key?: EvmFamilyEcdsaKeyIdentity;
 };
 
 type TrustedBudgetStatusAuth = BudgetStatusAuth | ThresholdScopedBudgetStatusAuth;
@@ -53,6 +68,10 @@ type TrustedBudgetStatusPayload =
   | {
       kind: 'not_found';
       status: SigningSessionStatus & { status: 'not_found' };
+    }
+  | {
+      kind: 'budget_unknown';
+      status: SigningSessionStatus & { status: 'budget_unknown' };
     }
   | {
       kind: 'current';
@@ -76,23 +95,23 @@ export async function readTrustedWalletSigningBudgetStatus(
   deps: TrustedWalletSigningBudgetStatusDeps,
   args: SigningSessionBudgetStatusCheck,
 ): Promise<SigningSessionStatus | null> {
+  assertBudgetStatusCheckHasConcreteLaneIdentity(args);
   const walletSigningSessionId = String(args.walletSigningSessionId || '').trim();
   if (!walletSigningSessionId) return null;
-  const targetThresholdSessionIds =
-    args.kind === 'threshold_budget_status_check' ||
-    args.kind === 'authenticated_threshold_budget_status_check'
-      ? [...args.targetThresholdSessionIds]
-      : undefined;
+  const targetThresholdSessionIds = thresholdSessionIdsForBudgetStatusCheck(args);
+  const ecdsaLaneCheck = isEcdsaLaneBudgetStatusCheck(args) ? args : undefined;
   const providedAuth =
-    args.kind === 'authenticated_threshold_budget_status_check'
-      ? normalizeBudgetStatusAuth(args.trustedStatusAuth)
+    args.kind === 'authenticated_threshold_budget_status_check' ||
+    args.kind === 'authenticated_ecdsa_lane_budget_status_check'
+      ? normalizeBudgetStatusAuth(args.trustedStatusAuth, ecdsaLaneCheck)
       : null;
   const resolvedAuth =
     providedAuth ||
     resolveWalletSigningBudgetStatusAuth(deps, {
-      walletId: args.walletId,
+      walletId: walletIdForBudgetStatusCheck(args),
       walletSigningSessionId,
       targetThresholdSessionIds,
+      ecdsaLaneCheck,
     });
   if (!resolvedAuth?.relayerUrl) return null;
 
@@ -105,9 +124,10 @@ export async function readTrustedWalletSigningBudgetStatus(
   }
 
   const fallbackAuth = resolveWalletSigningBudgetStatusAuth(deps, {
-    walletId: args.walletId,
+    walletId: walletIdForBudgetStatusCheck(args),
     walletSigningSessionId,
     targetThresholdSessionIds,
+    ecdsaLaneCheck,
   });
   if (!fallbackAuth?.relayerUrl || sameBudgetStatusAuth(providedAuth, fallbackAuth)) {
     return initial.status;
@@ -121,10 +141,17 @@ export async function readTrustedWalletSigningBudgetStatus(
 
 function normalizeBudgetStatusAuth(
   trustedStatusAuth: SigningSessionBudgetStatusAuth | undefined,
+  ecdsaLaneCheck?: EcdsaLaneBudgetStatusCheck | AuthenticatedEcdsaLaneBudgetStatusCheck,
 ): ThresholdScopedBudgetStatusAuth | null {
   const relayerUrl = String(trustedStatusAuth?.relayerUrl || '').trim();
   const thresholdSessionId = String(trustedStatusAuth?.thresholdSessionId || '').trim();
   if (!relayerUrl || !thresholdSessionId) return null;
+  if (
+    ecdsaLaneCheck &&
+    thresholdSessionId !== String(ecdsaLaneCheck.thresholdSessionId || '').trim()
+  ) {
+    return null;
+  }
   const thresholdSessionAuthToken = String(
     trustedStatusAuth?.thresholdSessionAuthToken || '',
   ).trim();
@@ -133,6 +160,13 @@ function normalizeBudgetStatusAuth(
     relayerUrl,
     thresholdSessionId,
     ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
+    ...(ecdsaLaneCheck
+      ? {
+          curve: 'ecdsa' as const,
+          chainTarget: ecdsaLaneCheck.chainTarget,
+          key: ecdsaLaneCheck.key,
+        }
+      : {}),
   };
 }
 
@@ -164,6 +198,15 @@ function parseTrustedBudgetStatusPayload(args: {
   const status = String(record.status || '').trim();
   if (status === 'not_found') {
     const statusCode = String(record.statusCode || '').trim();
+    if (statusCode === 'unauthorized') {
+      return {
+        kind: 'budget_unknown',
+        status: budgetUnknownSigningSessionStatus({
+          walletSigningSessionId,
+          reason: 'status_unavailable',
+        }) as SigningSessionStatus & { status: 'budget_unknown' },
+      };
+    }
     return {
       kind: 'not_found',
       status: {
@@ -261,14 +304,27 @@ async function fetchTrustedWalletSigningBudgetStatusOnce(args: {
       body: JSON.stringify({
         walletSigningSessionId: args.walletSigningSessionId,
         ...(args.auth.kind === 'threshold_scoped'
-          ? { thresholdSessionId: args.auth.thresholdSessionId }
+          ? {
+              thresholdSessionId: args.auth.thresholdSessionId,
+              ...(args.auth.curve ? { curve: args.auth.curve } : {}),
+              ...(args.auth.chainTarget ? { chainTarget: args.auth.chainTarget } : {}),
+            }
           : {}),
       }),
     },
   );
   const json = (await response.json().catch(() => null)) as Record<string, unknown> | null;
   if (!response.ok || !json || json.ok === false) {
-    if (response.status === 401 || response.status === 403 || response.status === 404) {
+    if (response.status === 401 || response.status === 403) {
+      return {
+        status: budgetUnknownSigningSessionStatus({
+          walletSigningSessionId: args.walletSigningSessionId,
+          reason: 'status_unavailable',
+        }),
+        authRejected: true,
+      };
+    }
+    if (response.status === 404) {
       return {
         status: {
           sessionId: args.walletSigningSessionId,
@@ -298,6 +354,7 @@ function resolveWalletSigningBudgetStatusAuth(
     walletId: AccountId | string;
     walletSigningSessionId: string;
     targetThresholdSessionIds?: string[];
+    ecdsaLaneCheck?: EcdsaLaneBudgetStatusCheck | AuthenticatedEcdsaLaneBudgetStatusCheck;
   },
 ): TrustedBudgetStatusAuth | null {
   const walletId = toAccountId(args.walletId);
@@ -335,10 +392,33 @@ function resolveWalletSigningBudgetStatusAuth(
       kind: 'threshold_scoped',
       relayerUrl,
       thresholdSessionId,
+      ...(args.ecdsaLaneCheck
+        ? {
+            curve: 'ecdsa' as const,
+            chainTarget: args.ecdsaLaneCheck.chainTarget,
+            key: args.ecdsaLaneCheck.key,
+          }
+        : {}),
       ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
       exactTarget,
     });
   };
+  if (args.ecdsaLaneCheck) {
+    if (targetThresholdIds.size !== 1) return null;
+    for (const targetThresholdSessionId of targetThresholdIds) {
+      const record = getStoredThresholdEcdsaSessionRecordByThresholdSessionId(
+        targetThresholdSessionId,
+      );
+      if (record && ecdsaRecordMatchesBudgetLane(record, args.ecdsaLaneCheck)) {
+        pushCandidate(record);
+      }
+    }
+    return (
+      candidates.find((candidate) => candidate.exactTarget && candidate.thresholdSessionAuthToken) ||
+      candidates.find((candidate) => candidate.exactTarget) ||
+      null
+    );
+  }
   for (const targetThresholdSessionId of targetThresholdIds) {
     pushCandidate(
       getStoredThresholdEd25519SessionRecordByThresholdSessionId(targetThresholdSessionId),
@@ -357,11 +437,28 @@ function resolveWalletSigningBudgetStatusAuth(
   );
 }
 
+function ecdsaRecordMatchesBudgetLane(
+  record: ThresholdEcdsaSessionRecord,
+  lane: EcdsaLaneBudgetStatusCheck | AuthenticatedEcdsaLaneBudgetStatusCheck,
+): boolean {
+  return (
+    String(record.walletId) === String(lane.key.walletId) &&
+    String(record.subjectId) === String(lane.key.subjectId) &&
+    String(record.walletSigningSessionId) === String(lane.walletSigningSessionId) &&
+    String(record.thresholdSessionId) === String(lane.thresholdSessionId) &&
+    String(record.ecdsaThresholdKeyId) === String(lane.key.ecdsaThresholdKeyId) &&
+    String(record.signingRootId) === String(lane.key.signingRootId) &&
+    String(record.signingRootVersion || 'default') === String(lane.key.signingRootVersion) &&
+    thresholdEcdsaChainTargetsEqual(record.chainTarget, lane.chainTarget)
+  );
+}
+
 export function mergeWalletSigningBudgetStatus<TStatus extends SigningSessionStatus>(
   status: TStatus,
   budgetStatus: SigningSessionStatus | null,
 ): TStatus {
   if (!budgetStatus) return status;
+  if (budgetStatus.status === 'budget_unknown') return status;
   if (budgetStatus.status !== 'active') {
     return {
       ...status,

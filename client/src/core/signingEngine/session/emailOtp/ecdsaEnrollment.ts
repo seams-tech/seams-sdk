@@ -2,6 +2,10 @@ import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { EmailOtpAuthPolicy, SeamsConfigsReadonly } from '@/core/types/seams';
 import type { EmailOtpEnrollmentResult } from '@/core/SeamsPasskey/emailOtp';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
+import {
+  toEmailOtpAuthSubjectId,
+  toWalletSessionUserId,
+} from '@/core/signingEngine/session/identity/emailOtpHssIdentity';
 import type {
   ThresholdEcdsaChainTarget,
   WalletSessionRef,
@@ -11,7 +15,6 @@ import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold
 import { generateWalletSigningSessionId } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type { WarmSessionEcdsaCapabilityState } from '@/core/signingEngine/session/warmCapabilities/types';
-import type { ThresholdEcdsaSmartAccountBootstrapInput } from '@/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { EmailOtpWorkerProgressEvent } from '@/core/signingEngine/workerManager/workerTypes';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
@@ -34,6 +37,7 @@ import {
 } from './ecdsaPublication';
 import { enrollEmailOtpWalletWithRoutePlan } from './walletEnrollment';
 import {
+  buildEmailOtpEcdsaMintingSession,
   buildFreshEmailOtpRoutePlan,
   routeAuthFromEmailOtpRoutePlan,
   thresholdSessionAuthFromEcdsaBootstrap,
@@ -71,7 +75,6 @@ export type EnrollAndLoginEmailOtpEcdsaCapabilityArgs = {
   clientSecret32?: Uint8Array;
   otpChannel?: WalletEmailOtpChannel;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
   registrationAttemptId?: string;
   onProgress?: (progress: EmailOtpWorkerProgressEvent) => void;
 };
@@ -125,10 +128,12 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
           throw new Error('Email OTP registration requires route auth');
         })(),
     });
-  const walletSigningSessionId =
-    routePlan.authLane.kind === 'signing_session'
-      ? routePlan.authLane.walletSigningSessionId
-      : generateWalletSigningSessionId();
+  const mintingSession = buildEmailOtpEcdsaMintingSession({
+    emailOtpAuthPolicy,
+    routePlan,
+    generateWalletSigningSessionId,
+  });
+  const walletSigningSessionId = mintingSession.walletSigningSessionId;
   const routeAuth = routeAuthFromEmailOtpRoutePlan(routePlan);
   const workerCtx = ports.getSignerWorkerContext();
   if (!workerCtx) {
@@ -140,16 +145,19 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
     ports.rememberAppSessionJwt({ walletSession: args.walletSession, appSessionJwt });
   }
   const authSubjectId = appSessionSubjectFromEmailOtpAuthLane(routePlan.authLane);
+  const emailOtpContextAuthSubjectId = authSubjectId
+    ? toEmailOtpAuthSubjectId(authSubjectId)
+    : undefined;
   const remainingUses =
     typeof args.remainingUses === 'number'
       ? args.remainingUses
       : emailOtpAuthPolicy === 'per_operation'
         ? 1
         : undefined;
-  const emailOtpAuthSubjectId = String(
+  const emailOtpAuthSubjectId = toEmailOtpAuthSubjectId(
     args.walletSession.walletSessionUserId || walletId,
-  ).trim();
-  const walletSessionUserId = String(args.walletSession.walletId || walletId).trim();
+  );
+  const walletSessionUserId = toWalletSessionUserId(args.walletSession.walletId || walletId);
   const publicationChainTargets = emailOtpEcdsaPublicationChainTargets({
     configs: ports.configs,
     primaryChain: chainTarget,
@@ -199,7 +207,7 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
   });
     const resolvedEmailOtpAuthContext = {
       ...emailOtpAuthContext,
-      ...(authSubjectId ? { authSubjectId } : {}),
+      ...(emailOtpContextAuthSubjectId ? { authSubjectId: emailOtpContextAuthSubjectId } : {}),
     };
     const { bootstrap, warmCapability } = await commitEmailOtpEcdsaPublicationBootstraps(
       {
@@ -210,7 +218,6 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
         emailOtpAuthContext: resolvedEmailOtpAuthContext,
         relayerUrl: relayUrl,
         shamirPrimeB64u,
-        ...(args.smartAccount ? { smartAccount: args.smartAccount } : {}),
       },
       ports.publicationPorts,
     );

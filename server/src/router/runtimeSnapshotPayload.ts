@@ -5,7 +5,6 @@ import {
 } from '../console/gasSponsorship';
 import type { ConsolePolicy, ConsolePolicyService } from '../console/policies';
 import type { ConsoleRuntimeSnapshotPayload } from '../console/runtimeSnapshots';
-import type { ConsoleSmartWalletService } from '../console/smartWallets';
 
 export interface ResolveConsoleRuntimeSnapshotPayloadInput {
   orgId: string;
@@ -14,7 +13,6 @@ export interface ResolveConsoleRuntimeSnapshotPayloadInput {
   environmentId: string;
   projectId?: string;
   policies?: ConsolePolicyService | null;
-  smartWallets?: ConsoleSmartWalletService | null;
   now?: () => Date;
 }
 
@@ -170,35 +168,14 @@ export async function resolveConsoleRuntimeSnapshotPayload(
     };
   })();
 
-  const smartWalletPromise = (async () => {
-    if (!input.smartWallets) {
-      return {
-        status: 'not_configured',
-        configCount: 0,
-        configs: [] as unknown[],
-      };
-    }
-    const configs = await input.smartWallets.listConfigs(ctx, {
-      environmentId: input.environmentId,
-      ...(input.projectId ? { projectId: input.projectId } : {}),
-    });
-    return {
-      status: 'resolved',
-      configCount: configs.length,
-      configs,
-    };
-  })();
-
-  const [policy, gasSponsorship, smartWallets] = await Promise.all([
+  const [policy, gasSponsorship] = await Promise.all([
     policyPromise,
     gasPromise,
-    smartWalletPromise,
   ]);
 
   return {
     policy,
     gasSponsorship,
-    smartWallets,
     metadata: {
       source: 'server_publish_current_v1',
       generatedAt: now,

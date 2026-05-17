@@ -104,7 +104,7 @@ type UseDemoTempoSigningActionsArgs = {
   tempoGreetingInput: string;
   tempoEip1559FeeCaps: Eip1559FeeCaps;
   tempoUserFeeToken: EvmAddress | null;
-  resolveThresholdSenderForEvmFamily: (opts?: {
+  resolveThresholdOwnerAddressForEvmFamily: (opts?: {
     chain?: 'tempo' | 'evm';
     bootstrapIfMissing?: boolean;
   }) => Promise<EvmAddress>;
@@ -114,7 +114,7 @@ type UseDemoTempoSigningActionsArgs = {
     feeToken?: EvmAddress | null;
   }) => Promise<bigint | null>;
   fetchTempoGreeting: (opts?: { silent?: boolean }) => Promise<string | null>;
-  refreshThresholdEvmFundingAddress: () => Promise<string | null>;
+  refreshThresholdOwnerAddress: () => Promise<string | null>;
 };
 
 export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs) {
@@ -127,10 +127,10 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
     tempoGreetingInput,
     tempoEip1559FeeCaps,
     tempoUserFeeToken,
-    resolveThresholdSenderForEvmFamily,
+    resolveThresholdOwnerAddressForEvmFamily,
     refreshTempoUserFeeTokenBalance,
     fetchTempoGreeting,
-    refreshThresholdEvmFundingAddress,
+    refreshThresholdOwnerAddress,
   } = args;
 
   const [tempoThresholdSignLoading, setTempoThresholdSignLoading] = useState(false);
@@ -149,7 +149,7 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
     setTempoDripLoading(true);
     toast.loading('Requesting Tempo token drip…', { id: toastId, description: null });
     let executedTxHash: `0x${string}` | undefined;
-    let thresholdSenderForAttempt: EvmAddress | null = null;
+    let thresholdOwnerAddressForAttempt: EvmAddress | null = null;
     let dripTokensForAttempt: EvmAddress[] = [];
     try {
       const managedRegistration = tempoSponsorshipConfig;
@@ -165,23 +165,23 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
         ? configuredTokenRaw
         : TEMPO_ALPHA_USD_FEE_TOKEN;
       dripTokensForAttempt = [dripToken];
-      const thresholdSender = await resolveThresholdSenderForEvmFamily({
+      const thresholdOwnerAddress = await resolveThresholdOwnerAddressForEvmFamily({
         chain: 'tempo',
         bootstrapIfMissing: true,
       });
-      if (!isEvmAddress(thresholdSender)) {
-        throw new Error('Unable to resolve the Tempo threshold sender address.');
+      if (!isEvmAddress(thresholdOwnerAddress)) {
+        throw new Error('Unable to resolve the Tempo threshold owner address.');
       }
-      thresholdSenderForAttempt = thresholdSender;
+      thresholdOwnerAddressForAttempt = thresholdOwnerAddress;
       const alreadyDripped = await readTempoFaucetHasDripped({
         rpcUrl: frontendConfig.tempoRpcUrl,
         contract: TEMPO_GREETING_CONTRACT,
-        account: thresholdSender,
+        account: thresholdOwnerAddress,
       });
       if (alreadyDripped) {
         const tokenBalance = await refreshTempoUserFeeTokenBalance({
           silent: true,
-          userAddress: thresholdSender,
+          userAddress: thresholdOwnerAddress,
           feeToken: dripToken,
         });
         toast.success('Tempo drip already claimed for this wallet', {
@@ -189,7 +189,7 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
           description: (
             <span>
               Wallet:&nbsp;
-              <code>{compactHex(thresholdSender)}</code>
+              <code>{compactHex(thresholdOwnerAddress)}</code>
               <br />
               Token:&nbsp;
               <code>{compactHex(dripToken)}</code>
@@ -212,11 +212,11 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
         body: JSON.stringify({
           environmentId: managedRegistration.environmentId,
           nearAccountId,
-          walletAddress: thresholdSender,
+          walletAddress: thresholdOwnerAddress,
           chainId: 42_431,
           call: {
             to: TEMPO_GREETING_CONTRACT,
-            data: encodeTempoDripToInput(thresholdSender, dripTokensForAttempt),
+            data: encodeTempoDripToInput(thresholdOwnerAddress, dripTokensForAttempt),
             gasLimit: TEMPO_DRIP_GAS_LIMIT.toString(10),
             value: '0',
           },
@@ -248,7 +248,7 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
       executedTxHash = txHash as `0x${string}`;
       await refreshTempoUserFeeTokenBalance({
         silent: true,
-        userAddress: thresholdSender,
+        userAddress: thresholdOwnerAddress,
         feeToken: dripToken,
       });
       const txUrl = buildEvmExplorerTxUrl({
@@ -291,20 +291,20 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
           ? (String((resolvedError as { txHash?: unknown }).txHash || '').trim() as `0x${string}`)
           : undefined;
       let resolvedMessage = message;
-      if (errorCode === 'tx_reverted' && thresholdSenderForAttempt) {
+      if (errorCode === 'tx_reverted' && thresholdOwnerAddressForAttempt) {
         try {
           const alreadyDripped = await readTempoFaucetHasDripped({
             rpcUrl: frontendConfig.tempoRpcUrl,
             contract: TEMPO_GREETING_CONTRACT,
-            account: thresholdSenderForAttempt,
+            account: thresholdOwnerAddressForAttempt,
           });
           if (alreadyDripped) {
             const tokenBalance = await refreshTempoUserFeeTokenBalance({
               silent: true,
-              userAddress: thresholdSenderForAttempt,
+              userAddress: thresholdOwnerAddressForAttempt,
               feeToken: dripTokensForAttempt[0] || TEMPO_ALPHA_USD_FEE_TOKEN,
             });
-            resolvedMessage = `Faucet already claimed for ${compactHex(thresholdSenderForAttempt)} (balance ${formatTempoFeeTokenAmount(tokenBalance)} AlphaUSD).`;
+            resolvedMessage = `Faucet already claimed for ${compactHex(thresholdOwnerAddressForAttempt)} (balance ${formatTempoFeeTokenAmount(tokenBalance)} AlphaUSD).`;
           }
         } catch {}
       }
@@ -333,7 +333,7 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
     isLoggedIn,
     nearAccountId,
     refreshTempoUserFeeTokenBalance,
-    resolveThresholdSenderForEvmFamily,
+    resolveThresholdOwnerAddressForEvmFamily,
     tempoSponsorshipConfig,
     tempoUserFeeToken,
   ]);
@@ -382,7 +382,7 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
             fetchGreeting: fetchTempoGreeting,
             expectedGreeting: requestedGreeting,
           });
-          await refreshThresholdEvmFundingAddress();
+          await refreshThresholdOwnerAddress();
         },
       });
       const txUrl = buildEvmExplorerTxUrl({
@@ -438,7 +438,7 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
       const insufficient = parseInsufficientFundsError(message);
       if (insufficient) {
         toast.error(
-          `Tempo sender has insufficient native gas balance (have ${formatWeiToEth(insufficient.haveWei)}, need ${formatWeiToEth(insufficient.wantWei)} native tokens).`,
+          `Tempo threshold owner has insufficient native gas balance (have ${formatWeiToEth(insufficient.haveWei)}, need ${formatWeiToEth(insufficient.wantWei)} native tokens).`,
           { id: toastId, description: null },
         );
       } else {
@@ -452,7 +452,7 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
     fetchTempoGreeting,
     frontendConfig,
     nearAccountId,
-    refreshThresholdEvmFundingAddress,
+    refreshThresholdOwnerAddress,
     seams,
     tempoEip1559FeeCaps,
     tempoGreetingInput,

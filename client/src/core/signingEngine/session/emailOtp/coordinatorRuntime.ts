@@ -21,7 +21,6 @@ import {
   type AvailableSigningLanes,
 } from '@/core/signingEngine/session/availability/availableSigningLanes';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
-import type { ThresholdEcdsaSmartAccountBootstrapInput } from '@/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence';
 
 import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import {

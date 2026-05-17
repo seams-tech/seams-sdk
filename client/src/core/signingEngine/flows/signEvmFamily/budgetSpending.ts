@@ -13,6 +13,7 @@ import {
 import type { BudgetAdmittedOperation } from '../../session/operationState/transactionState';
 import type { SelectedEcdsaLane } from '../../session/identity/laneIdentity';
 import type { ResolvedEvmFamilyEcdsaSigningLane } from './ecdsaLanes';
+import type { EvmFamilyEcdsaKeyIdentity } from '../../session/identity/evmFamilyEcdsaIdentity';
 import { buildEcdsaSessionIdentity } from '../../session/warmCapabilities/ecdsaProvisionPlan';
 import type { WalletSessionRef } from '../../interfaces/ecdsaChainTarget';
 
@@ -26,6 +27,7 @@ type EvmFamilyWalletSigningSessionBudgetArgs = {
   operation: EvmFamilyTransactionSigningOperationContext;
   admittedTransaction: BudgetAdmittedOperation<SelectedEcdsaLane>;
   finalizedSigningLane: ResolvedEvmFamilyEcdsaSigningLane;
+  key: EvmFamilyEcdsaKeyIdentity;
   trustedStatusAuth?: SigningSessionBudgetStatusAuth;
   reserved?: boolean;
   error?: unknown;
@@ -58,6 +60,7 @@ function buildEvmFamilyBudgetFinalization(
     walletId: String(args.walletSession.walletId),
     walletSigningSessionId: args.finalizedSigningLane.walletSigningSessionId,
     lane: args.finalizedSigningLane,
+    ecdsaKey: args.key,
     thresholdSessionIds: [args.finalizedSigningLane.thresholdSessionId],
     backingMaterialSessionIds: [],
     uses: 1,

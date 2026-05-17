@@ -31,9 +31,7 @@ import type {
   WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { UserPreferencesManager } from '../session/userPreferences';
-import type {
-  WarmSessionEcdsaCapabilityState,
-} from '../session/warmCapabilities/types';
+import type { WarmSessionEcdsaCapabilityState } from '../session/warmCapabilities/types';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
 import type {
   UiConfirmContextPort,
@@ -123,10 +121,7 @@ export type NearSigningApiDeps = {
   }) => Promise<T>;
 };
 
-export type PasskeyEcdsaSessionStoreSource = Exclude<
-  ThresholdEcdsaSessionStoreSource,
-  'email_otp'
->;
+export type PasskeyEcdsaSessionStoreSource = Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
 
 export type EcdsaSigningLookupArgs = {
   subjectId: WalletSubjectId;
@@ -198,7 +193,8 @@ export type EvmFamilySigningDeps = EvmFamilyEcdsaSessionReaderDeps & {
     thresholdSessionId: string;
     curve: 'ecdsa';
     chain: EvmFamilyChain;
-  }) => EmailOtpAuthLane | null;
+    chainTarget: ThresholdEcdsaChainTarget;
+  }) => EmailOtpAuthLane | null | Promise<EmailOtpAuthLane | null>;
   loginWithEmailOtpEcdsaCapabilityForSigning?: (args: {
     walletSession: WalletSessionRef;
     subjectId: WalletSubjectId;
@@ -245,10 +241,7 @@ export type PrivateKeyExportRecoveryDeps = {
 export type RegistrationAccountLifecycleDeps = {
   indexedDB: UnifiedIndexedDBManager;
   userPreferencesManager: Pick<UserPreferencesManager, 'setCurrentWallet' | 'reloadUserSettings'>;
-  nonceCoordinator: Pick<
-    NonceCoordinator,
-    'initializeNearAccessKey' | 'prefetchNearContext'
-  >;
+  nonceCoordinator: Pick<NonceCoordinator, 'initializeNearAccessKey' | 'prefetchNearContext'>;
   extractCosePublicKey: (attestationObjectBase64url: string) => Promise<Uint8Array>;
 };
 

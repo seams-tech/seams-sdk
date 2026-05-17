@@ -12,9 +12,7 @@ import type {
   WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '../signingEngine/threshold/sessionPolicy';
-import type { ThresholdEcdsaEmailOtpAuthContext } from '../signingEngine/session/identity/laneIdentity';
 import type { WarmSessionEcdsaCapabilityState } from '../signingEngine/session/warmCapabilities/types';
-import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 import type { NearClient, SignedTransaction } from '../rpcClients/near/NearClient';
 import type {
   ActionResult,
@@ -72,10 +70,7 @@ import type {
   StartDevice2LinkingFlowArgs,
   StartDevice2LinkingFlowResults,
 } from '../types/linkDevice';
-import type {
-  WebAuthnAuthenticationCredential,
-  WebAuthnRegistrationCredential,
-} from '../types/webauthn';
+import type { WebAuthnRegistrationCredential } from '../types/webauthn';
 import type {
   WalletEmailOtpChannel,
   WalletEmailOtpLoginOperation,
@@ -174,135 +169,23 @@ export type BootstrapThresholdEcdsaSessionArgs = {
   subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   relayerUrl?: string;
-  ecdsaThresholdKeyId?: string;
-  participantIds?: number[];
   runtimeScopeBootstrap?: {
     environmentId: string;
     publishableKey: string;
   };
   ttlMs?: number;
   remainingUses?: number;
-  smartAccount?: {
-    chainId: number;
-    factory?: string;
-    entryPoint?: string;
-    salt?: string;
-    counterfactualAddress?: string;
-  };
-} & (
-  | {
-      kind: 'reuse_warm_ecdsa_bootstrap';
-      source?: 'login' | 'registration' | 'manual-bootstrap' | 'email_otp';
-      sessionKind?: never;
-      sessionIdentity?: never;
-      routeAuth?: never;
-      webauthnAuthentication?: never;
-      clientRootShare32B64u?: never;
-      emailOtpAuthContext?: never;
-    }
-  | {
-      kind: 'passkey_fresh_ecdsa_bootstrap';
-      source?: 'login' | 'registration' | 'manual-bootstrap' | 'email_otp';
-      sessionKind: 'jwt';
-      sessionIdentity: {
-        thresholdSessionId: string;
-        walletSigningSessionId: string;
-      };
-      clientRootShare32B64u: string;
-      routeAuth:
-        | { kind: 'app_session'; jwt: string }
-        | { kind: 'bootstrap_grant'; token: string }
-        | { kind: 'publishable_key'; token: string }
-        | { kind: 'registration_continuation'; token: string };
-      webauthnAuthentication?: never;
-      emailOtpAuthContext?: never;
-    }
-  | {
-      kind: 'passkey_fresh_ecdsa_bootstrap';
-      source?: 'login' | 'registration' | 'manual-bootstrap' | 'email_otp';
-      sessionKind: 'jwt';
-      sessionIdentity: {
-        thresholdSessionId: string;
-        walletSigningSessionId: string;
-      };
-      clientRootShare32B64u: string;
-      webauthnAuthentication: WebAuthnAuthenticationCredential;
-      routeAuth?: never;
-      emailOtpAuthContext?: never;
-    }
-  | {
-      kind: 'passkey_fresh_ecdsa_bootstrap';
-      source?: 'login' | 'registration' | 'manual-bootstrap' | 'email_otp';
-      sessionKind: 'cookie';
-      sessionIdentity: {
-        thresholdSessionId: string;
-        walletSigningSessionId: string;
-      };
-      clientRootShare32B64u: string;
-      routeAuth?: never;
-      webauthnAuthentication?: never;
-      emailOtpAuthContext?: never;
-    }
-  | {
-      kind: 'passkey_fresh_ecdsa_bootstrap';
-      source?: 'login' | 'registration' | 'manual-bootstrap' | 'email_otp';
-      sessionKind: 'cookie';
-      sessionIdentity: {
-        thresholdSessionId: string;
-        walletSigningSessionId: string;
-      };
-      clientRootShare32B64u: string;
-      webauthnAuthentication: WebAuthnAuthenticationCredential;
-      routeAuth?: never;
-      emailOtpAuthContext?: never;
-    }
-  | {
-      kind: 'passkey_cookie_reconnect_ecdsa_bootstrap';
-      source?: 'login' | 'registration' | 'manual-bootstrap' | 'email_otp';
-      sessionKind: 'cookie';
-      sessionIdentity: {
-        thresholdSessionId: string;
-        walletSigningSessionId: string;
-      };
-      routeAuth?: never;
-      webauthnAuthentication?: never;
-      clientRootShare32B64u?: never;
-      emailOtpAuthContext?: never;
-    }
-  | {
-      kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap';
-      source?: 'login' | 'registration' | 'manual-bootstrap' | 'email_otp';
-      sessionKind: 'jwt';
-      sessionIdentity: {
-        thresholdSessionId: string;
-        walletSigningSessionId: string;
-      };
-      routeAuth:
-        | { kind: 'app_session'; jwt: string }
-        | { kind: 'threshold_session'; jwt: string };
-      webauthnAuthentication?: never;
-      clientRootShare32B64u: string;
-      emailOtpAuthContext?: never;
-    }
-  | {
-      kind: 'email_otp_ecdsa_bootstrap';
-      source: 'email_otp';
-      sessionKind: 'jwt' | 'cookie';
-      sessionIdentity: {
-        thresholdSessionId: string;
-        walletSigningSessionId: string;
-      };
-      clientRootShare32B64u: string;
-      emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
-      webauthnAuthentication?: never;
-      routeAuth?:
-        | { kind: 'app_session'; jwt: string }
-        | { kind: 'threshold_session'; jwt: string }
-        | { kind: 'bootstrap_grant'; token: string }
-        | { kind: 'publishable_key'; token: string }
-        | { kind: 'registration_continuation'; token: string };
-    }
-);
+  kind: 'reuse_warm_ecdsa_bootstrap';
+  source?: 'login' | 'registration' | 'manual-bootstrap' | 'email_otp';
+  ecdsaThresholdKeyId?: never;
+  participantIds?: never;
+  sessionKind?: never;
+  sessionIdentity?: never;
+  routeAuth?: never;
+  webauthnAuthentication?: never;
+  clientRootShare32B64u?: never;
+  emailOtpAuthContext?: never;
+};
 
 export type EmailOtpChallengeResult = {
   challengeId: string;
@@ -366,15 +249,7 @@ export type EmailOtpEcdsaCapabilityArgs = {
   otpCode: string;
   shamirPrimeB64u?: string;
   appSessionJwt?: string;
-  routeAuth?: AppOrThresholdSessionAuth;
-  ecdsaThresholdKeyId?: string;
-  participantIds?: number[];
-  sessionKind?: 'jwt' | 'cookie';
-  sessionId?: string;
-  ttlMs?: number;
-  remainingUses?: number;
   registrationAttemptId?: string;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   onEvent?: (event: UnlockFlowEvent) => void;
 };
 
@@ -615,8 +490,7 @@ export type ExportKeypairWithUIInput =
       kind: 'ecdsa';
       subjectId: WalletSubjectId;
       chainTarget: ThresholdEcdsaChainTarget;
-      // This is UI/auth-session context only. It must not be used as ECDSA lane identity.
-      walletSessionUserId: string;
+      walletSession: WalletSessionRef;
       options: ThresholdEd25519SeedExportUiOptions;
     };
 

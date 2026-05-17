@@ -29,7 +29,6 @@ export const ROUTE_SERVICE_KEYS = [
   'relayWebhooks',
   'runtimeSnapshots',
   'session',
-  'smartWallets',
   'sponsoredCalls',
   'teamRbac',
   'threshold',

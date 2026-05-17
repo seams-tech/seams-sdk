@@ -33,7 +33,7 @@ export type WaitForEvmTransactionReceiptArgs = {
   signal?: AbortSignal;
   maxFeePerGasHint?: bigint;
   confirmations?: number;
-  senderHint?: `0x${string}`;
+  transactionSenderAddress?: `0x${string}`;
   nonceHint?: bigint;
 };
 
@@ -385,8 +385,8 @@ export function createEvmClient(args: {
     let txMissingWithoutEverSeenStreak = 0;
     let txMissingLikelyReplacedStreak = 0;
     let txMissingNonceGapStreak = 0;
-    if (toAddressOrNull(waitArgs.senderHint)) {
-      observedTxFrom = waitArgs.senderHint as `0x${string}`;
+    if (toAddressOrNull(waitArgs.transactionSenderAddress)) {
+      observedTxFrom = waitArgs.transactionSenderAddress as `0x${string}`;
     }
     if (typeof waitArgs.nonceHint === 'bigint' && waitArgs.nonceHint >= 0n) {
       observedTxNonce = waitArgs.nonceHint;

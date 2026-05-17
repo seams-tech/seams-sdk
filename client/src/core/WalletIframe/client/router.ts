@@ -368,8 +368,6 @@ const CANONICAL_SIGNER_BOUNDARY_MESSAGES: Record<string, string> = {
     'Threshold signing session kind mismatch. Refresh the signing session and retry.',
   session_not_ready:
     'Threshold signing session is not ready. Refresh the signing session and retry.',
-  deployment_in_progress: 'Smart-account deployment is already in progress.',
-  deployment_failed: 'Smart-account deployment failed before signing.',
   nonce_conflict_retryable: 'Nonce conflict detected. Refresh nonce state and retry the request.',
   rpc_request_failed: 'RPC request failed. Retry the request or use another RPC endpoint.',
   cancelled: 'Request cancelled.',
@@ -1692,7 +1690,7 @@ export class WalletIframeRouter {
             kind: 'ecdsa' as const,
             subjectId: input.subjectId,
             chainTarget: input.chainTarget,
-            walletSessionUserId: input.walletSessionUserId,
+            walletSession: input.walletSession,
             options: messageOptions,
           };
     await this.post<void>({

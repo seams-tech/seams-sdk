@@ -60,7 +60,6 @@ import type {
   AccountCreationResult,
   CreateAccountAndRegisterRequest,
   CreateAccountAndRegisterResult,
-  CreateAccountAndRegisterSmartAccountTarget,
   OidcExchangeIssuerConfig,
   ThresholdRuntimePolicyScope,
   WebAuthnAuthenticationCredential,
@@ -170,7 +169,6 @@ import {
 } from './ThresholdService/ethSignerWasm';
 import {
   createDeviceLinkingSessionStore,
-  type DeviceLinkingPreparedLinkedAccountRecord,
   type DeviceLinkingPreparedThresholdEcdsaRecord,
   type DeviceLinkingSessionRecord,
   type DeviceLinkingSessionStore,
@@ -181,16 +179,6 @@ import {
   type NearPublicKeyRecord,
   type NearPublicKeyStore,
 } from './NearPublicKeyStore';
-import {
-  createAccountSignerStore,
-  type AccountSignerRecord,
-  type AccountSignerStore,
-} from './AccountSignerStore';
-import {
-  createSmartAccountRecoverySubjectStore,
-  type SmartAccountRecoverySubjectRecord,
-  type SmartAccountRecoverySubjectStore,
-} from './SmartAccountRecoverySubjectStore';
 import {
   createRecoverySessionStore,
   type RecoverySessionStatus,
@@ -209,17 +197,16 @@ import {
   type LinkIdentityResult,
   type UnlinkIdentityResult,
 } from './IdentityStore';
-import { buildRegistrationSmartAccountRecords } from './smartAccountRegistrationRecords';
 import {
-  buildLinkDeviceSmartAccountRecords,
-  type LinkedSmartAccountRecord,
-} from './smartAccountLinkDeviceRecords';
+  thresholdEcdsaChainTargetFromValue,
+  thresholdEcdsaChainTargetKey,
+  type ThresholdEcdsaChainTarget,
+} from './thresholdEcdsaChainTarget';
 import {
   buildPreparedRecoverySessionRecord,
   DEFAULT_RECOVERY_SESSION_TTL_MS,
 } from './recoverySessionRecords';
 import { buildRecoveryExecutionRecord } from './recoveryExecutionRecords';
-import { syncCanonicalSmartAccountDeploymentManifest } from '../router/smartAccountDeploymentManifest';
 
 const ACCOUNT_CREATE_BROADCAST_WAIT_UNTIL: TxExecutionStatus = 'EXECUTED_OPTIMISTIC';
 const ACCOUNT_CREATE_FAST_KEY_VISIBILITY_CHECK = {
@@ -239,6 +226,66 @@ function isObject(v: unknown): v is Record<string, unknown> {
 
 function logDuration(timings: Record<string, number>, key: string, startedAtMs: number): void {
   timings[key] = Date.now() - startedAtMs;
+}
+
+type ThresholdEcdsaKeyInventoryDiagnostics = {
+  userId: string;
+  inputCount: number;
+  returnedCount: number;
+  thresholdServicePresent: boolean;
+  rejected: Record<string, number>;
+};
+
+type ThresholdEcdsaKeyInventoryTarget = {
+  ecdsaThresholdKeyId: string;
+  chainTarget: ThresholdEcdsaChainTarget;
+};
+
+type ThresholdEcdsaKeyInventoryRecord = {
+  ecdsaThresholdKeyId: string;
+  chainTarget: ThresholdEcdsaChainTarget;
+  targetKey: string;
+  accountAddress: string;
+  ownerAddress: string;
+  relayerKeyId: string;
+  thresholdEcdsaPublicKeyB64u: string;
+  key: {
+    walletId: string;
+    subjectId: string;
+    rpId: string;
+    keyScope: 'evm-family';
+    ecdsaThresholdKeyId: string;
+    signingRootId: string;
+    signingRootVersion: string;
+    participantIds: number[];
+    thresholdOwnerAddress: string;
+  };
+};
+
+function incrementCount(bucket: Record<string, number>, reason: string): void {
+  bucket[reason] = (bucket[reason] || 0) + 1;
+}
+
+function parseThresholdEcdsaKeyInventoryTarget(
+  raw: unknown,
+): { ok: true; value: ThresholdEcdsaKeyInventoryTarget } | { ok: false; reason: string } {
+  if (!isObject(raw)) return { ok: false, reason: 'non_object' };
+  const ecdsaThresholdKeyId = toOptionalTrimmedString(raw.ecdsaThresholdKeyId);
+  if (!ecdsaThresholdKeyId) return { ok: false, reason: 'missing_ecdsa_threshold_key_id' };
+  const chainTarget = thresholdEcdsaChainTargetFromValue(raw.chainTarget);
+  if (!chainTarget) return { ok: false, reason: 'invalid_chain_target' };
+  return {
+    ok: true,
+    value: {
+      ecdsaThresholdKeyId,
+      chainTarget,
+    },
+  };
+}
+
+function normalizeEvmAddress(value: unknown): string {
+  const normalized = toOptionalTrimmedString(value)?.toLowerCase() || '';
+  return /^0x[0-9a-f]{40}$/.test(normalized) ? normalized : '';
 }
 
 function decodeBase64UrlOrBase64(input: string, fieldName: string): Uint8Array {
@@ -699,10 +746,6 @@ export class AuthService {
   private deviceLinkingSessionStore: DeviceLinkingSessionStore | null = null;
   private nearPublicKeyStoreInitialized = false;
   private nearPublicKeyStore: NearPublicKeyStore | null = null;
-  private accountSignerStoreInitialized = false;
-  private accountSignerStore: AccountSignerStore | null = null;
-  private smartAccountRecoverySubjectStoreInitialized = false;
-  private smartAccountRecoverySubjectStore: SmartAccountRecoverySubjectStore | null = null;
   private recoverySessionStoreInitialized = false;
   private recoverySessionStore: RecoverySessionStore | null = null;
   private recoveryExecutionStoreInitialized = false;
@@ -2534,48 +2577,6 @@ export class AuthService {
     }
   }
 
-  private getAccountSignerStore(): AccountSignerStore {
-    if (this.accountSignerStoreInitialized && this.accountSignerStore) {
-      return this.accountSignerStore;
-    }
-    if (this.accountSignerStoreInitialized) {
-      this.accountSignerStore = createAccountSignerStore({
-        config: this.config.thresholdStore || null,
-        logger: this.logger,
-        isNode: this.isNodeEnvironment(),
-      });
-      return this.accountSignerStore;
-    }
-    this.accountSignerStoreInitialized = true;
-    this.accountSignerStore = createAccountSignerStore({
-      config: this.config.thresholdStore || null,
-      logger: this.logger,
-      isNode: this.isNodeEnvironment(),
-    });
-    return this.accountSignerStore;
-  }
-
-  private getSmartAccountRecoverySubjectStore(): SmartAccountRecoverySubjectStore {
-    if (this.smartAccountRecoverySubjectStoreInitialized && this.smartAccountRecoverySubjectStore) {
-      return this.smartAccountRecoverySubjectStore;
-    }
-    if (this.smartAccountRecoverySubjectStoreInitialized) {
-      this.smartAccountRecoverySubjectStore = createSmartAccountRecoverySubjectStore({
-        config: this.config.thresholdStore || null,
-        logger: this.logger,
-        isNode: this.isNodeEnvironment(),
-      });
-      return this.smartAccountRecoverySubjectStore;
-    }
-    this.smartAccountRecoverySubjectStoreInitialized = true;
-    this.smartAccountRecoverySubjectStore = createSmartAccountRecoverySubjectStore({
-      config: this.config.thresholdStore || null,
-      logger: this.logger,
-      isNode: this.isNodeEnvironment(),
-    });
-    return this.smartAccountRecoverySubjectStore;
-  }
-
   private getRecoverySessionStore(): RecoverySessionStore {
     if (this.recoverySessionStoreInitialized && this.recoverySessionStore) {
       return this.recoverySessionStore;
@@ -2616,143 +2617,6 @@ export class AuthService {
       isNode: this.isNodeEnvironment(),
     });
     return this.recoveryExecutionStore;
-  }
-
-  async listAccountSignersByUser(input: {
-    userId: string;
-  }): Promise<
-    | { ok: true; records: Awaited<ReturnType<AccountSignerStore['listByUserId']>> }
-    | { ok: false; code: 'invalid_args' | 'internal'; message: string }
-  > {
-    try {
-      const userId = toOptionalTrimmedString(input.userId);
-      if (!userId) return { ok: false, code: 'invalid_args', message: 'Missing userId' };
-      const store = this.getAccountSignerStore();
-      const records = await store.listByUserId(userId);
-      return { ok: true, records };
-    } catch (e: unknown) {
-      return {
-        ok: false,
-        code: 'internal',
-        message: errorMessage(e) || 'Failed to list account signers',
-      };
-    }
-  }
-
-  async listAccountSignersByAccount(input: {
-    chainIdKey: string;
-    accountAddress: string;
-  }): Promise<
-    | { ok: true; records: Awaited<ReturnType<AccountSignerStore['listByAccount']>> }
-    | { ok: false; code: 'invalid_args' | 'internal'; message: string }
-  > {
-    try {
-      const chainIdKey = toOptionalTrimmedString(input.chainIdKey);
-      const accountAddress = toOptionalTrimmedString(input.accountAddress);
-      if (!chainIdKey || !accountAddress) {
-        return { ok: false, code: 'invalid_args', message: 'Missing account signer account key' };
-      }
-      const store = this.getAccountSignerStore();
-      const records = await store.listByAccount({ chainIdKey, accountAddress });
-      return { ok: true, records };
-    } catch (e: unknown) {
-      return {
-        ok: false,
-        code: 'internal',
-        message: errorMessage(e) || 'Failed to list account signers by account',
-      };
-    }
-  }
-
-  async putAccountSigner(
-    input: AccountSignerRecord,
-  ): Promise<
-    | { ok: true; record: AccountSignerRecord }
-    | { ok: false; code: 'invalid_args' | 'internal'; message: string }
-  > {
-    try {
-      const store = this.getAccountSignerStore();
-      await store.put(input);
-      return { ok: true, record: input };
-    } catch (e: unknown) {
-      return {
-        ok: false,
-        code: 'internal',
-        message: errorMessage(e) || 'Failed to write account signer',
-      };
-    }
-  }
-
-  async listSmartAccountRecoverySubjects(input: { nearAccountId: string }): Promise<
-    | {
-        ok: true;
-        records: Awaited<ReturnType<SmartAccountRecoverySubjectStore['listByNearAccountId']>>;
-      }
-    | { ok: false; code: 'invalid_args' | 'internal'; message: string }
-  > {
-    try {
-      const nearAccountId = toOptionalTrimmedString(input.nearAccountId);
-      if (!nearAccountId) {
-        return { ok: false, code: 'invalid_args', message: 'Missing nearAccountId' };
-      }
-      const store = this.getSmartAccountRecoverySubjectStore();
-      const records = await store.listByNearAccountId(nearAccountId);
-      return { ok: true, records };
-    } catch (e: unknown) {
-      return {
-        ok: false,
-        code: 'internal',
-        message: errorMessage(e) || 'Failed to list smart-account recovery subjects',
-      };
-    }
-  }
-
-  async getSmartAccountRecoverySubjectByAccount(input: {
-    chainIdKey: string;
-    accountAddress: string;
-  }): Promise<
-    | { ok: true; record: Awaited<ReturnType<SmartAccountRecoverySubjectStore['getByAccount']>> }
-    | { ok: false; code: 'invalid_args' | 'internal'; message: string }
-  > {
-    try {
-      const chainIdKey = toOptionalTrimmedString(input.chainIdKey);
-      const accountAddress = toOptionalTrimmedString(input.accountAddress);
-      if (!chainIdKey || !accountAddress) {
-        return {
-          ok: false,
-          code: 'invalid_args',
-          message: 'Missing smart-account recovery subject key',
-        };
-      }
-      const store = this.getSmartAccountRecoverySubjectStore();
-      const record = await store.getByAccount({ chainIdKey, accountAddress });
-      return { ok: true, record };
-    } catch (e: unknown) {
-      return {
-        ok: false,
-        code: 'internal',
-        message: errorMessage(e) || 'Failed to read smart-account recovery subject',
-      };
-    }
-  }
-
-  async putSmartAccountRecoverySubject(
-    input: SmartAccountRecoverySubjectRecord,
-  ): Promise<
-    | { ok: true; record: SmartAccountRecoverySubjectRecord }
-    | { ok: false; code: 'invalid_args' | 'internal'; message: string }
-  > {
-    try {
-      const store = this.getSmartAccountRecoverySubjectStore();
-      await store.put(input);
-      return { ok: true, record: input };
-    } catch (e: unknown) {
-      return {
-        ok: false,
-        code: 'internal',
-        message: errorMessage(e) || 'Failed to write smart-account recovery subject',
-      };
-    }
   }
 
   async getRecoverySession(input: {
@@ -3009,60 +2873,6 @@ export class AuthService {
         code: 'internal',
         message: errorMessage(e) || 'Failed to persist recovery execution',
       };
-    }
-  }
-
-  private async persistRegistrationSmartAccountRecords(input: {
-    userId: string;
-    nearAccountId: string;
-    signerSlot: number;
-    credentialIdB64u: string;
-    rpId: string;
-    thresholdEcdsaKeygen: {
-      ecdsaThresholdKeyId?: string;
-      relayerKeyId: string;
-      thresholdEcdsaPublicKeyB64u: string;
-      ethereumAddress: string;
-      participantIds?: number[];
-    };
-    smartAccountTargets?: CreateAccountAndRegisterSmartAccountTarget[];
-    nowMs: number;
-  }): Promise<void> {
-    const records = buildRegistrationSmartAccountRecords({
-      userId: input.userId,
-      nearAccountId: input.nearAccountId,
-      signerSlot: input.signerSlot,
-      credentialIdB64u: input.credentialIdB64u,
-      rpId: input.rpId,
-      ecdsaThresholdKeyId: input.thresholdEcdsaKeygen.ecdsaThresholdKeyId,
-      relayerKeyId: input.thresholdEcdsaKeygen.relayerKeyId,
-      thresholdEcdsaPublicKeyB64u: input.thresholdEcdsaKeygen.thresholdEcdsaPublicKeyB64u,
-      thresholdOwnerAddress: input.thresholdEcdsaKeygen.ethereumAddress,
-      participantIds: input.thresholdEcdsaKeygen.participantIds,
-      smartAccountTargets: input.smartAccountTargets,
-      nowMs: input.nowMs,
-    });
-
-    if (records.accountSigners.length === 0 && records.recoverySubjects.length === 0) {
-      return;
-    }
-
-    const signerStore = this.getAccountSignerStore();
-    const recoverySubjectStore = this.getSmartAccountRecoverySubjectStore();
-
-    for (const record of records.accountSigners) {
-      await signerStore.put(record);
-    }
-    for (const record of records.recoverySubjects) {
-      await recoverySubjectStore.put(record);
-    }
-    for (const record of records.recoverySubjects) {
-      await syncCanonicalSmartAccountDeploymentManifest({
-        authService: this,
-        chainIdKey: record.chainIdKey,
-        accountAddress: record.accountAddress,
-        materializedAtMs: input.nowMs,
-      });
     }
   }
 
@@ -3779,25 +3589,6 @@ export class AuthService {
             });
           }
         })();
-
-        if (thresholdEcdsaKeygen) {
-          const smartAccountPersistenceStartedAt = Date.now();
-          await this.persistRegistrationSmartAccountRecords({
-            userId: accountId,
-            nearAccountId: accountId,
-            signerSlot,
-            credentialIdB64u,
-            rpId,
-            thresholdEcdsaKeygen,
-            smartAccountTargets: (request as any)?.threshold_ecdsa?.smart_account_targets,
-            nowMs: now,
-          });
-          logDuration(
-            registrationTimings,
-            'thresholdEcdsaSmartAccountPersistenceMs',
-            smartAccountPersistenceStartedAt,
-          );
-        }
 
         this.logger.info(`Registration completed: ${result.transaction.hash}`);
         this.logger.info('[AuthService] atomic registration timings', {
@@ -7362,19 +7153,99 @@ export class AuthService {
     }
   }
 
-  async listActiveSmartAccountSignersForUser(userId: string): Promise<AccountSignerRecord[]> {
-    const normalizedUserId = String(userId || '').trim();
-    if (!normalizedUserId) return [];
-    return (await this.getAccountSignerStore().listByUserId(normalizedUserId)).filter((record) => {
-      if (record.status !== 'active') return false;
-      if (record.signerType !== 'threshold') return false;
-      const metadata = record.metadata || {};
-      return Boolean(
-        String(metadata.ecdsaThresholdKeyId || '').trim() &&
-          String(metadata.thresholdEcdsaPublicKeyB64u || '').trim() &&
-          metadata.chainTarget,
+  async listThresholdEcdsaKeyIdentityTargetsForUser(input: {
+    userId: string;
+    rpId: string;
+    keyTargets: readonly unknown[];
+  }): Promise<{
+    records: ThresholdEcdsaKeyInventoryRecord[];
+    diagnostics: ThresholdEcdsaKeyInventoryDiagnostics;
+  }> {
+    const userId = toOptionalTrimmedString(input.userId);
+    const rpId = toOptionalTrimmedString(input.rpId);
+    const threshold = this.getThresholdSigningService();
+    const diagnostics: ThresholdEcdsaKeyInventoryDiagnostics = {
+      userId: userId || '',
+      inputCount: input.keyTargets.length,
+      returnedCount: 0,
+      thresholdServicePresent: Boolean(threshold),
+      rejected: {},
+    };
+    if (!userId || !rpId) {
+      incrementCount(diagnostics.rejected, 'missing_scope');
+      return { records: [], diagnostics };
+    }
+    if (!threshold) {
+      incrementCount(diagnostics.rejected, 'threshold_service_missing');
+      return { records: [], diagnostics };
+    }
+
+    const records: ThresholdEcdsaKeyInventoryRecord[] = [];
+    const seen = new Set<string>();
+    for (const rawTarget of input.keyTargets) {
+      const parsed = parseThresholdEcdsaKeyInventoryTarget(rawTarget);
+      if (!parsed.ok) {
+        incrementCount(diagnostics.rejected, parsed.reason);
+        continue;
+      }
+      const targetKey = thresholdEcdsaChainTargetKey(parsed.value.chainTarget);
+      const requestKey = `${targetKey}::${parsed.value.ecdsaThresholdKeyId}`;
+      if (seen.has(requestKey)) {
+        incrementCount(diagnostics.rejected, 'duplicate_target_key');
+        continue;
+      }
+      seen.add(requestKey);
+      const identity = await threshold.getEcdsaKeyIdentityMetadata({
+        walletSessionUserId: userId,
+        rpId,
+        ecdsaThresholdKeyId: parsed.value.ecdsaThresholdKeyId,
+      });
+      if (!identity) {
+        incrementCount(diagnostics.rejected, 'identity_not_found');
+        continue;
+      }
+      if (
+        identity.walletId !== userId ||
+        identity.subjectId !== userId ||
+        identity.rpId !== rpId ||
+        identity.ecdsaThresholdKeyId !== parsed.value.ecdsaThresholdKeyId
+      ) {
+        incrementCount(diagnostics.rejected, 'identity_mismatch');
+        continue;
+      }
+      const ownerAddress = normalizeEvmAddress(identity.thresholdOwnerAddress);
+      const relayerKeyId = toOptionalTrimmedString(identity.relayerKeyId);
+      const thresholdEcdsaPublicKeyB64u = toOptionalTrimmedString(
+        identity.thresholdEcdsaPublicKeyB64u,
       );
-    });
+      if (!ownerAddress || !relayerKeyId || !thresholdEcdsaPublicKeyB64u) {
+        incrementCount(diagnostics.rejected, 'incomplete_identity');
+        continue;
+      }
+      records.push({
+        ecdsaThresholdKeyId: identity.ecdsaThresholdKeyId,
+        chainTarget: parsed.value.chainTarget,
+        targetKey,
+        accountAddress: ownerAddress,
+        ownerAddress,
+        relayerKeyId,
+        thresholdEcdsaPublicKeyB64u,
+        key: {
+          walletId: identity.walletId,
+          subjectId: identity.subjectId,
+          rpId: identity.rpId,
+          keyScope: identity.keyScope,
+          ecdsaThresholdKeyId: identity.ecdsaThresholdKeyId,
+          signingRootId: identity.signingRootId,
+          signingRootVersion: identity.signingRootVersion,
+          participantIds: [...identity.participantIds],
+          thresholdOwnerAddress: ownerAddress,
+        },
+      });
+    }
+    diagnostics.returnedCount = records.length;
+    this.logger.info('[threshold-ecdsa-key-inventory][diagnostic]', diagnostics);
+    return { records, diagnostics };
   }
 
   async verifyWebAuthnSyncAccount(request: {
@@ -7412,7 +7283,6 @@ export class AuthService {
         jwt?: string;
       };
     };
-    smartAccountSigners?: AccountSignerRecord[];
     code?: string;
     message?: string;
   }> {
@@ -7607,8 +7477,6 @@ export class AuthService {
         thresholdEd25519Session = normalizedSession;
       }
 
-      const smartAccountSigners = await this.listActiveSmartAccountSignersForUser(binding.userId);
-
       return {
         ok: true,
         verified: true,
@@ -7627,7 +7495,6 @@ export class AuthService {
               },
             }
           : {}),
-        ...(smartAccountSigners.length ? { smartAccountSigners } : {}),
       };
     } catch (e: unknown) {
       return {
@@ -7722,9 +7589,6 @@ export class AuthService {
         ...(existing?.addKeyTxHash ? { addKeyTxHash: existing.addKeyTxHash } : {}),
         ...(existing?.preparedThresholdEcdsa
           ? { preparedThresholdEcdsa: existing.preparedThresholdEcdsa }
-          : {}),
-        ...(existing?.preparedLinkedAccounts
-          ? { preparedLinkedAccounts: existing.preparedLinkedAccounts }
           : {}),
       };
 
@@ -7847,9 +7711,6 @@ export class AuthService {
         ...(existing?.preparedThresholdEcdsa
           ? { preparedThresholdEcdsa: existing.preparedThresholdEcdsa }
           : {}),
-        ...(existing?.preparedLinkedAccounts
-          ? { preparedLinkedAccounts: existing.preparedLinkedAccounts }
-          : {}),
       };
 
       await store.put(session);
@@ -7939,7 +7800,6 @@ export class AuthService {
             jwt?: string;
           };
         };
-        linkedAccounts?: LinkedSmartAccountRecord[];
       }
     | { ok: false; code: string; message: string }
   > {
@@ -8313,37 +8173,6 @@ export class AuthService {
         source: 'WebAuthn registration NEAR public key metadata persistence',
       });
 
-      let linkedAccounts: LinkedSmartAccountRecord[] | undefined;
-      if (thresholdEcdsaKeygen) {
-        const recoverySubjects =
-          await this.getSmartAccountRecoverySubjectStore().listByNearAccountId(accountId);
-        const built = buildLinkDeviceSmartAccountRecords({
-          userId: accountId,
-          signerSlot,
-          credentialIdB64u,
-          rpId,
-          relayerKeyId: thresholdEcdsaKeygen.relayerKeyId,
-          thresholdEcdsaPublicKeyB64u: thresholdEcdsaKeygen.thresholdEcdsaPublicKeyB64u,
-          thresholdOwnerAddress: thresholdEcdsaKeygen.ethereumAddress,
-          participantIds: thresholdEcdsaKeygen.participantIds,
-          recoverySubjects,
-          nowMs: now,
-        });
-        const signerStore = this.getAccountSignerStore();
-        for (const record of built.accountSigners) {
-          await signerStore.put(record);
-        }
-        for (const account of built.linkedAccounts) {
-          await syncCanonicalSmartAccountDeploymentManifest({
-            authService: this,
-            chainIdKey: account.chainIdKey,
-            accountAddress: account.accountAddress,
-            materializedAtMs: now,
-          });
-        }
-        linkedAccounts = built.linkedAccounts;
-      }
-
       if (sessionId) {
         const sessionStore = this.getDeviceLinkingSessionStore();
         const existingSession = await sessionStore.get(sessionId);
@@ -8375,24 +8204,9 @@ export class AuthService {
                   : {}),
               }
             : undefined;
-        const preparedLinkedAccounts: DeviceLinkingPreparedLinkedAccountRecord[] | undefined =
-          linkedAccounts?.map((account) => ({
-            chainIdKey: account.chainIdKey,
-            chainTarget: account.chainTarget,
-            accountAddress: account.accountAddress,
-            accountModel: account.accountModel,
-            ...(account.factory ? { factory: account.factory } : {}),
-            ...(account.entryPoint ? { entryPoint: account.entryPoint } : {}),
-            ...(account.salt ? { salt: account.salt } : {}),
-            ...(account.counterfactualAddress
-              ? { counterfactualAddress: account.counterfactualAddress }
-              : {}),
-          })) || undefined;
-
         await sessionStore.put({
           ...existingSession,
           ...(preparedThresholdEcdsa ? { preparedThresholdEcdsa } : {}),
-          ...(preparedLinkedAccounts ? { preparedLinkedAccounts } : {}),
         });
       }
 
@@ -8421,7 +8235,6 @@ export class AuthService {
               },
             }
           : {}),
-        ...(linkedAccounts ? { linkedAccounts } : {}),
       };
     } catch (e: unknown) {
       return {

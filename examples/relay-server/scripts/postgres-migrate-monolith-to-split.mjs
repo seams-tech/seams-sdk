@@ -15,7 +15,6 @@ import {
   ensureConsolePoliciesPostgresSchema,
   ensureConsoleRuntimeSnapshotsPostgresSchema,
   ensureConsoleSettingsPostgresSchema,
-  ensureConsoleSmartWalletsPostgresSchema,
   ensureConsoleTeamRbacPostgresSchema,
   ensureConsoleWalletsPostgresSchema,
   ensureConsoleWebhooksPostgresSchema,
@@ -129,7 +128,6 @@ async function ensureSplitSchemas(input) {
   await ensureConsoleApiKeysPostgresSchema({ postgresUrl: consoleUrl, logger });
   await ensureConsoleBillingPostgresSchema({ postgresUrl: consoleUrl, logger });
   await ensureConsoleWebhooksPostgresSchema({ postgresUrl: consoleUrl, logger });
-  await ensureConsoleSmartWalletsPostgresSchema({ postgresUrl: consoleUrl, logger });
   await ensureConsoleSettingsPostgresSchema({ postgresUrl: consoleUrl, logger });
   await ensureConsoleKeyExportsPostgresSchema({ postgresUrl: consoleUrl, logger });
   await ensureConsoleRuntimeSnapshotsPostgresSchema({ postgresUrl: consoleUrl, logger });

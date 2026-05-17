@@ -432,46 +432,6 @@ export async function ensurePostgresSchema(input: {
     `);
 
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS account_signers (
-        namespace TEXT NOT NULL,
-        user_id TEXT NOT NULL,
-        chain_id_key TEXT NOT NULL,
-        account_address TEXT NOT NULL,
-        signer_id TEXT NOT NULL,
-        record_json JSONB NOT NULL,
-        created_at_ms BIGINT NOT NULL,
-        updated_at_ms BIGINT NOT NULL,
-        PRIMARY KEY (namespace, user_id, chain_id_key, account_address, signer_id)
-      )
-    `);
-    await pool.query(`
-      CREATE INDEX IF NOT EXISTS account_signers_user_idx
-      ON account_signers (namespace, user_id, chain_id_key, account_address)
-    `);
-    await pool.query(`
-      CREATE INDEX IF NOT EXISTS account_signers_account_idx
-      ON account_signers (namespace, chain_id_key, account_address, signer_id)
-    `);
-
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS smart_account_recovery_subjects (
-        namespace TEXT NOT NULL,
-        user_id TEXT NOT NULL,
-        near_account_id TEXT NOT NULL,
-        chain_id_key TEXT NOT NULL,
-        account_address TEXT NOT NULL,
-        record_json JSONB NOT NULL,
-        created_at_ms BIGINT NOT NULL,
-        updated_at_ms BIGINT NOT NULL,
-        PRIMARY KEY (namespace, chain_id_key, account_address)
-      )
-    `);
-    await pool.query(`
-      CREATE INDEX IF NOT EXISTS smart_account_recovery_subjects_near_idx
-      ON smart_account_recovery_subjects (namespace, near_account_id, chain_id_key, account_address)
-    `);
-
-    await pool.query(`
       CREATE TABLE IF NOT EXISTS recovery_sessions (
         namespace TEXT NOT NULL,
         session_id TEXT NOT NULL,

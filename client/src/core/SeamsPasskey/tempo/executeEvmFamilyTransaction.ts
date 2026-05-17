@@ -215,12 +215,12 @@ function resolveRpcUrlForRequest(args: {
   throw new Error(`[TempoSigner] unable to resolve RPC URL for ${targetKey}`);
 }
 
-function extractManagedNonceHints(signedResult: TempoSignedResult | EvmSignedResult): {
-  senderHint?: `0x${string}`;
+function extractManagedNonceReceiptWaitIdentity(signedResult: TempoSignedResult | EvmSignedResult): {
+  managedNonceSenderAddress?: `0x${string}`;
   nonceHint?: bigint;
 } {
   const senderRaw = String(signedResult?.managedNonce?.sender || '').trim();
-  const senderHint = /^0x[0-9a-fA-F]{40}$/.test(senderRaw)
+  const managedNonceSenderAddress = /^0x[0-9a-fA-F]{40}$/.test(senderRaw)
     ? (senderRaw as `0x${string}`)
     : undefined;
   let nonceHint: bigint | undefined;
@@ -232,7 +232,7 @@ function extractManagedNonceHints(signedResult: TempoSignedResult | EvmSignedRes
     }
   } catch {}
   return {
-    ...(senderHint ? { senderHint } : {}),
+    ...(managedNonceSenderAddress ? { managedNonceSenderAddress } : {}),
     ...(typeof nonceHint === 'bigint' ? { nonceHint } : {}),
   };
 }
@@ -494,6 +494,7 @@ export async function executeEvmFamilyTransactionLifecycle(args: {
         Number(args.input.finalization?.confirmations ?? DEFAULT_FINALIZATION_CONFIRMATIONS) || 0,
       ),
     );
+    const receiptWaitIdentity = extractManagedNonceReceiptWaitIdentity(signedResult);
     const receipt = await withLifecycleTimeout({
       promise: client
         .waitForTransactionReceipt({
@@ -503,7 +504,12 @@ export async function executeEvmFamilyTransactionLifecycle(args: {
           confirmations: finalizationConfirmations,
           maxFeePerGasHint: request.tx.maxFeePerGas,
           signal: abortController.signal,
-          ...extractManagedNonceHints(signedResult),
+          ...(receiptWaitIdentity.managedNonceSenderAddress
+            ? { transactionSenderAddress: receiptWaitIdentity.managedNonceSenderAddress }
+            : {}),
+          ...(typeof receiptWaitIdentity.nonceHint === 'bigint'
+            ? { nonceHint: receiptWaitIdentity.nonceHint }
+            : {}),
         })
         .finally(() => {
           if (abortInterval) {

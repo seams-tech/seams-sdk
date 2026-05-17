@@ -8,28 +8,23 @@ import {
   type CookieSessionAuth,
 } from '@shared/utils/sessionTokens';
 import { redactCredentialExtensionOutputs } from '../../signingEngine/webauthnAuth/credentials/credentialExtensions';
-import type { ThresholdRuntimePolicyScope } from '../../signingEngine/threshold/sessionPolicy';
+import type { EcdsaHssSessionPolicy } from '../../signingEngine/threshold/sessionPolicy';
 import type {
   ThresholdEcdsaChainTarget,
   WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type {
+  EcdsaThresholdKeyId,
+  WalletSessionUserId,
+} from '@/core/signingEngine/session/identity/emailOtpHssIdentity';
+import {
+  parseServerPlannedEcdsaHssContext,
+  type ServerPlannedEcdsaHssContext,
+} from '@/core/signingEngine/threshold/crypto/hssClientSignerWasm';
 
-type ThresholdSessionPolicyV1 = {
-  version: 'threshold_session_v1';
-  walletSessionUserId: string;
-  subjectId: WalletSubjectId;
-  rpId: string;
-  chainTarget: ThresholdEcdsaChainTarget;
-  ecdsaThresholdKeyId?: string;
-  sessionId: string;
-  walletSigningSessionId: string;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  participantIds?: number[];
-  ttlMs: number;
-  remainingUses: number;
-};
+type ThresholdSessionPolicyV1 = EcdsaHssSessionPolicy;
 
-type ThresholdEcdsaHssPrepareHttpResponse = {
+type RawThresholdEcdsaHssPrepareHttpResponse = {
   ok?: boolean;
   code?: string;
   message?: string;
@@ -46,6 +41,13 @@ type ThresholdEcdsaHssPrepareHttpResponse = {
     keyPurpose: string;
     keyVersion: string;
   };
+};
+
+type ThresholdEcdsaHssPrepareHttpResponse = Omit<
+  RawThresholdEcdsaHssPrepareHttpResponse,
+  'hssContext'
+> & {
+  hssContext?: ServerPlannedEcdsaHssContext;
 };
 
 type ThresholdEcdsaHssRespondHttpResponse = {
@@ -68,10 +70,6 @@ type ThresholdEcdsaHssFinalizeHttpResponse = {
   relayerKeyId?: string;
   relayerVerifyingShareB64u?: string;
   chainId?: number;
-  factory?: string;
-  entryPoint?: string;
-  salt?: string;
-  counterfactualAddress?: string;
   sessionId?: string;
   walletSigningSessionId?: string;
   subjectId?: string;
@@ -88,7 +86,7 @@ type ThresholdEcdsaHssFinalizeHttpResponse = {
 };
 
 type ThresholdEcdsaHssPrepareRequestBase = {
-  walletSessionUserId: string;
+  walletSessionUserId: WalletSessionUserId;
   rpId: string;
   webauthnAuthentication?: WebAuthnAuthenticationCredential;
   runtimeEnvironmentId?: string;
@@ -106,21 +104,21 @@ type ThresholdEcdsaHssPrepareRequest =
       operation: 'email_otp_bootstrap';
       keygenSessionId: string;
       sessionPolicy: ThresholdSessionPolicyV1;
-      ecdsaThresholdKeyId?: string;
+      ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
       auth?: ThresholdEcdsaHssRouteAuth;
     })
   | (ThresholdEcdsaHssPrepareRequestBase & {
       operation: 'session_bootstrap';
       keygenSessionId: string;
       sessionPolicy: ThresholdSessionPolicyV1;
-      ecdsaThresholdKeyId: string;
+      ecdsaThresholdKeyId: EcdsaThresholdKeyId;
       auth: ThresholdEcdsaHssRouteAuth;
     })
   | (ThresholdEcdsaHssPrepareRequestBase & {
       operation: 'explicit_key_export';
       subjectId: WalletSubjectId;
       chainTarget: ThresholdEcdsaChainTarget;
-      ecdsaThresholdKeyId: string;
+      ecdsaThresholdKeyId: EcdsaThresholdKeyId;
       auth: ThresholdEcdsaHssRouteAuth;
     });
 
@@ -256,7 +254,7 @@ export async function thresholdEcdsaHssPrepare(
         body,
       }),
     );
-    const json = await parseRelayJson<ThresholdEcdsaHssPrepareHttpResponse>(response);
+    const json = await parseRelayJson<RawThresholdEcdsaHssPrepareHttpResponse>(response);
     if (!response.ok) {
       return {
         ok: false,
@@ -271,7 +269,9 @@ export async function thresholdEcdsaHssPrepare(
       ceremonyId: json.ceremonyId,
       preparedServerSessionB64u: json.preparedServerSessionB64u,
       serverAssistInitB64u: json.serverAssistInitB64u,
-      hssContext: json.hssContext,
+      hssContext: json.hssContext
+        ? parseServerPlannedEcdsaHssContext(json.hssContext)
+        : undefined,
     };
   } catch (error: unknown) {
     return { ok: false, error: errorMessage(error) || 'Failed to prepare threshold-ecdsa hss bootstrap' };
@@ -366,10 +366,6 @@ export async function thresholdEcdsaHssFinalize(
       relayerKeyId: json.relayerKeyId,
       relayerVerifyingShareB64u: json.relayerVerifyingShareB64u,
       chainId: json.chainId,
-      factory: json.factory,
-      entryPoint: json.entryPoint,
-      salt: json.salt,
-      counterfactualAddress: json.counterfactualAddress,
       sessionId: json.sessionId,
       walletSigningSessionId: json.walletSigningSessionId,
       subjectId: json.subjectId,

@@ -30,6 +30,167 @@ import {
   createCloudflareDurableObjectThresholdEd25519Stores,
 } from './CloudflareDurableObjectStore';
 
+type ThresholdEcdsaSharedIdentityGuard = {
+  contextKey: string;
+  identityValue: string;
+};
+
+const ECDSA_SHARED_IDENTITY_CONFLICT_MESSAGE =
+  '[threshold-ecdsa] EVM-family key identity already exists for wallet/subject/rp/signing root';
+
+const REDIS_ECDSA_SHARED_IDENTITY_PUT_SCRIPT = `
+local existing = redis.call("GET", KEYS[2])
+if existing and existing ~= ARGV[2] then
+  return "conflict"
+end
+redis.call("SET", KEYS[1], ARGV[1])
+redis.call("SET", KEYS[2], ARGV[2])
+return "ok"
+`;
+
+const REDIS_ECDSA_SHARED_IDENTITY_DEL_SCRIPT = `
+redis.call("DEL", KEYS[1])
+if redis.call("GET", KEYS[2]) == ARGV[1] then
+  redis.call("DEL", KEYS[2])
+end
+return "ok"
+`;
+
+function ecdsaIdentityPart(value: unknown): string {
+  return encodeURIComponent(String(value ?? '').trim());
+}
+
+function ecdsaSigningRootVersion(record: ThresholdEcdsaIntegratedKeyRecord): string {
+  return String(record.signingRootVersion || '').trim() || 'default';
+}
+
+function ecdsaParticipantIdsKey(record: ThresholdEcdsaIntegratedKeyRecord): string {
+  return record.participantIds.map((id) => String(Number(id))).join(',');
+}
+
+function thresholdEcdsaSharedIdentityGuard(
+  record: ThresholdEcdsaIntegratedKeyRecord,
+): ThresholdEcdsaSharedIdentityGuard {
+  return {
+    contextKey: [
+      'evm-family',
+      record.walletSessionUserId,
+      record.subjectId,
+      record.rpId,
+      record.signingRootId,
+      ecdsaSigningRootVersion(record),
+    ]
+      .map(ecdsaIdentityPart)
+      .join('|'),
+    identityValue: [
+      record.ecdsaThresholdKeyId,
+      String(record.ethereumAddress || '').trim().toLowerCase(),
+      ecdsaParticipantIdsKey(record),
+    ]
+      .map(ecdsaIdentityPart)
+      .join('|'),
+  };
+}
+
+function assertNoThresholdEcdsaSharedIdentityConflict(
+  incoming: ThresholdEcdsaIntegratedKeyRecord,
+  existing: ThresholdEcdsaIntegratedKeyRecord,
+): void {
+  const incomingGuard = thresholdEcdsaSharedIdentityGuard(incoming);
+  const existingGuard = thresholdEcdsaSharedIdentityGuard(existing);
+  if (
+    incomingGuard.contextKey === existingGuard.contextKey &&
+    incomingGuard.identityValue !== existingGuard.identityValue
+  ) {
+    throw new Error(ECDSA_SHARED_IDENTITY_CONFLICT_MESSAGE);
+  }
+}
+
+function thresholdEcdsaSharedIdentityIndexKey(
+  keyPrefix: string,
+  guard: ThresholdEcdsaSharedIdentityGuard,
+): string {
+  return `${keyPrefix}shared-identity:${guard.contextKey}`;
+}
+
+function ensureParsedThresholdEcdsaKeyRecord(
+  record: ThresholdEcdsaIntegratedKeyRecord,
+): ThresholdEcdsaIntegratedKeyRecord {
+  const parsed = parseCurrentThresholdEcdsaKeyRecord(record);
+  if (!parsed) throw new Error('Invalid threshold-ecdsa integrated key record');
+  return parsed;
+}
+
+async function upstashSetEcdsaRecordWithIdentityGuard(args: {
+  client: UpstashRedisRestClient;
+  recordKey: string;
+  identityKey: string;
+  record: ThresholdEcdsaIntegratedKeyRecord;
+  identityValue: string;
+}): Promise<void> {
+  const result = await args.client.eval(
+    REDIS_ECDSA_SHARED_IDENTITY_PUT_SCRIPT,
+    [args.recordKey, args.identityKey],
+    [JSON.stringify(args.record), args.identityValue],
+  );
+  if (String(result || '') === 'conflict') {
+    throw new Error(ECDSA_SHARED_IDENTITY_CONFLICT_MESSAGE);
+  }
+}
+
+async function upstashDeleteEcdsaRecordWithIdentityGuard(args: {
+  client: UpstashRedisRestClient;
+  recordKey: string;
+  identityKey: string;
+  identityValue: string;
+}): Promise<void> {
+  await args.client.eval(
+    REDIS_ECDSA_SHARED_IDENTITY_DEL_SCRIPT,
+    [args.recordKey, args.identityKey],
+    [args.identityValue],
+  );
+}
+
+async function redisSetEcdsaRecordWithIdentityGuard(args: {
+  client: RedisTcpClient;
+  recordKey: string;
+  identityKey: string;
+  record: ThresholdEcdsaIntegratedKeyRecord;
+  identityValue: string;
+}): Promise<void> {
+  const resp = await args.client.send([
+    'EVAL',
+    REDIS_ECDSA_SHARED_IDENTITY_PUT_SCRIPT,
+    '2',
+    args.recordKey,
+    args.identityKey,
+    JSON.stringify(args.record),
+    args.identityValue,
+  ]);
+  if (resp.type === 'error') throw new Error(`Redis EVAL error: ${resp.value}`);
+  const result = resp.type === 'bulk' || resp.type === 'simple' ? resp.value : '';
+  if (result === 'conflict') {
+    throw new Error(ECDSA_SHARED_IDENTITY_CONFLICT_MESSAGE);
+  }
+}
+
+async function redisDeleteEcdsaRecordWithIdentityGuard(args: {
+  client: RedisTcpClient;
+  recordKey: string;
+  identityKey: string;
+  identityValue: string;
+}): Promise<void> {
+  const resp = await args.client.send([
+    'EVAL',
+    REDIS_ECDSA_SHARED_IDENTITY_DEL_SCRIPT,
+    '2',
+    args.recordKey,
+    args.identityKey,
+    args.identityValue,
+  ]);
+  if (resp.type === 'error') throw new Error(`Redis EVAL error: ${resp.value}`);
+}
+
 export type ThresholdEd25519KeyRecord = {
   nearAccountId: string;
   rpId: string;
@@ -214,7 +375,14 @@ class InMemoryThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
   ): Promise<void> {
     const id = ecdsaThresholdKeyId;
     if (!id) throw new Error('Missing ecdsaThresholdKeyId');
-    this.map.set(id, record);
+    const parsed = ensureParsedThresholdEcdsaKeyRecord(record);
+    for (const [storedId, storedRecord] of this.map.entries()) {
+      if (storedId === id) continue;
+      const existing = parseCurrentThresholdEcdsaKeyRecord(storedRecord);
+      if (!existing) continue;
+      assertNoThresholdEcdsaSharedIdentityConflict(parsed, existing);
+    }
+    this.map.set(id, parsed);
   }
 
   async del(ecdsaThresholdKeyId: string): Promise<void> {
@@ -256,13 +424,32 @@ class UpstashRedisRestThresholdEcdsaIntegratedKeyStore
   ): Promise<void> {
     const id = ecdsaThresholdKeyId;
     if (!id) throw new Error('Missing ecdsaThresholdKeyId');
-    await this.client.setJson(this.key(id), record);
+    const parsed = ensureParsedThresholdEcdsaKeyRecord(record);
+    const guard = thresholdEcdsaSharedIdentityGuard(parsed);
+    await upstashSetEcdsaRecordWithIdentityGuard({
+      client: this.client,
+      recordKey: this.key(id),
+      identityKey: thresholdEcdsaSharedIdentityIndexKey(this.keyPrefix, guard),
+      record: parsed,
+      identityValue: guard.identityValue,
+    });
   }
 
   async del(ecdsaThresholdKeyId: string): Promise<void> {
     const id = ecdsaThresholdKeyId;
     if (!id) return;
-    await this.client.del(this.key(id));
+    const record = parseCurrentThresholdEcdsaKeyRecord(await this.client.getJson(this.key(id)));
+    if (!record) {
+      await this.client.del(this.key(id));
+      return;
+    }
+    const guard = thresholdEcdsaSharedIdentityGuard(record);
+    await upstashDeleteEcdsaRecordWithIdentityGuard({
+      client: this.client,
+      recordKey: this.key(id),
+      identityKey: thresholdEcdsaSharedIdentityIndexKey(this.keyPrefix, guard),
+      identityValue: guard.identityValue,
+    });
   }
 }
 
@@ -294,13 +481,32 @@ class RedisTcpThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
   ): Promise<void> {
     const id = ecdsaThresholdKeyId;
     if (!id) throw new Error('Missing ecdsaThresholdKeyId');
-    await redisSetJson(this.client, this.key(id), record);
+    const parsed = ensureParsedThresholdEcdsaKeyRecord(record);
+    const guard = thresholdEcdsaSharedIdentityGuard(parsed);
+    await redisSetEcdsaRecordWithIdentityGuard({
+      client: this.client,
+      recordKey: this.key(id),
+      identityKey: thresholdEcdsaSharedIdentityIndexKey(this.keyPrefix, guard),
+      record: parsed,
+      identityValue: guard.identityValue,
+    });
   }
 
   async del(ecdsaThresholdKeyId: string): Promise<void> {
     const id = ecdsaThresholdKeyId;
     if (!id) return;
-    await redisDel(this.client, this.key(id));
+    const record = parseCurrentThresholdEcdsaKeyRecord(await redisGetJson(this.client, this.key(id)));
+    if (!record) {
+      await redisDel(this.client, this.key(id));
+      return;
+    }
+    const guard = thresholdEcdsaSharedIdentityGuard(record);
+    await redisDeleteEcdsaRecordWithIdentityGuard({
+      client: this.client,
+      recordKey: this.key(id),
+      identityKey: thresholdEcdsaSharedIdentityIndexKey(this.keyPrefix, guard),
+      identityValue: guard.identityValue,
+    });
   }
 }
 
@@ -325,6 +531,19 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
             record_json JSONB NOT NULL,
             PRIMARY KEY (namespace, relayer_key_id)
           )
+        `);
+        await pool.query('DROP INDEX IF EXISTS threshold_ecdsa_keys_shared_identity_uidx');
+        await pool.query(`
+          CREATE INDEX IF NOT EXISTS threshold_ecdsa_keys_shared_identity_idx
+          ON threshold_ecdsa_keys (
+            namespace,
+            (COALESCE(record_json->>'walletSessionUserId', record_json->>'userId')),
+            (record_json->>'subjectId'),
+            (record_json->>'rpId'),
+            (record_json->>'signingRootId'),
+            (COALESCE(NULLIF(record_json->>'signingRootVersion', ''), 'default'))
+          )
+          WHERE record_json->>'version' = 'threshold_ecdsa_hss_key_v1'
         `);
       })().catch((error) => {
         this.ensureTablePromise = null;
@@ -358,15 +577,50 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
     if (!parsed) throw new Error('Invalid threshold-ecdsa integrated key record');
     await this.ensureTable();
     const pool = await this.poolPromise;
-    await pool.query(
+    const { rows } = await pool.query(
       `
-        INSERT INTO threshold_ecdsa_keys (namespace, relayer_key_id, record_json)
-        VALUES ($1, $2, $3)
-        ON CONFLICT (namespace, relayer_key_id)
-        DO UPDATE SET record_json = EXCLUDED.record_json
+        SELECT relayer_key_id, record_json
+        FROM threshold_ecdsa_keys
+        WHERE namespace = $1
+          AND relayer_key_id <> $2
+          AND record_json->>'version' = 'threshold_ecdsa_hss_key_v1'
+          AND COALESCE(record_json->>'walletSessionUserId', record_json->>'userId') = $3
+          AND record_json->>'subjectId' = $4
+          AND record_json->>'rpId' = $5
+          AND record_json->>'signingRootId' = $6
+          AND COALESCE(NULLIF(record_json->>'signingRootVersion', ''), 'default') = $7
+        LIMIT 1
       `,
-      [this.namespace, id, parsed],
+      [
+        this.namespace,
+        id,
+        parsed.walletSessionUserId,
+        parsed.subjectId,
+        parsed.rpId,
+        parsed.signingRootId,
+        ecdsaSigningRootVersion(parsed),
+      ],
     );
+    const conflicting = parseCurrentThresholdEcdsaKeyRecord(rows[0]?.record_json);
+    if (conflicting) {
+      assertNoThresholdEcdsaSharedIdentityConflict(parsed, conflicting);
+    }
+    try {
+      await pool.query(
+        `
+          INSERT INTO threshold_ecdsa_keys (namespace, relayer_key_id, record_json)
+          VALUES ($1, $2, $3)
+          ON CONFLICT (namespace, relayer_key_id)
+          DO UPDATE SET record_json = EXCLUDED.record_json
+        `,
+        [this.namespace, id, parsed],
+      );
+    } catch (error) {
+      if (String(error).includes('threshold_ecdsa_keys_shared_identity_uidx')) {
+        throw new Error(ECDSA_SHARED_IDENTITY_CONFLICT_MESSAGE);
+      }
+      throw error;
+    }
   }
 
   async del(ecdsaThresholdKeyId: string): Promise<void> {

@@ -312,7 +312,7 @@ UX rules:
 
 These are current cleanup targets. They should be removed during the refactor, not preserved behind compatibility flags.
 
-- `examples/seams-site/src/pages/dashboard/routes/gas-smart-wallets/page.tsx`
+- `examples/seams-site/src/pages/dashboard/routes/gas-sponsorship/page.tsx`
   - currently keeps sponsorship authorization in a separate dashboard surface
   - long term, policy-owned sponsorship editing should move into the policy engine workspace
 - `examples/seams-site/src/pages/dashboard/routes/policy-engine/consolePoliciesApi.ts`

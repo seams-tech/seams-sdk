@@ -3,6 +3,7 @@ import {
   resolveEmailOtpAuthLane,
   type EmailOtpAuthLane,
 } from '../../stepUpConfirmation/otpPrompt/authLane';
+import { selectedEcdsaLane } from '../identity/laneIdentity';
 import type { ThresholdSessionSealTransportAuthMaterial } from '../persistence/records';
 import {
   readWarmSessionCapabilityRecordsForWallet,
@@ -20,6 +21,7 @@ import {
   type WarmSessionReadPorts,
 } from './readModel';
 import { tryBuildEcdsaSessionIdentity } from './ecdsaProvisionPlan';
+import { buildEvmFamilyEcdsaKeyIdentityFromRecord } from '../identity/evmFamilyEcdsaIdentity';
 import { assertWarmSessionEnvelopeInvariant } from './types';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
@@ -130,6 +132,8 @@ export function createWarmSessionCapabilityReaderCore(
       return {
         capability: 'ecdsa',
         record: null,
+        key: null,
+        lane: null,
         auth: null,
         prfClaim: null,
         state: 'missing',
@@ -138,6 +142,23 @@ export function createWarmSessionCapabilityReaderCore(
     if (state === 'missing') {
       throw new Error('[WarmSessionStore] ECDSA capability state cannot be missing with a record');
     }
+    const key = buildEvmFamilyEcdsaKeyIdentityFromRecord({
+      record: args.record,
+      rpId: args.record.rpId,
+    });
+    const lane = selectedEcdsaLane({
+      key,
+      walletId: toAccountId(args.record.walletId),
+      authMethod: args.record.source === 'email_otp' ? 'email_otp' : 'passkey',
+      walletSigningSessionId: args.record.walletSigningSessionId,
+      thresholdSessionId: args.record.thresholdSessionId,
+      subjectId: args.record.subjectId,
+      chainTarget: args.record.chainTarget,
+      ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
+      signingRootId: key.signingRootId,
+      signingRootVersion: key.signingRootVersion,
+    });
+
     if (args.record.source === 'email_otp') {
       if (!args.record.emailOtpAuthContext) {
         throw new Error(
@@ -147,6 +168,8 @@ export function createWarmSessionCapabilityReaderCore(
       return {
         capability: 'ecdsa',
         record: args.record,
+        key,
+        lane,
         auth: args.auth,
         prfClaim: args.prfClaim,
         emailOtpAuthContext: args.record.emailOtpAuthContext,
@@ -156,6 +179,8 @@ export function createWarmSessionCapabilityReaderCore(
     return {
       capability: 'ecdsa',
       record: args.record,
+      key,
+      lane,
       auth: args.auth,
       prfClaim: args.prfClaim,
       state,
@@ -237,7 +262,7 @@ export function createWarmSessionCapabilityReaderCore(
       const lane = resolveEmailOtpAuthLane({
         routeAuth: jwt ? { kind: 'threshold_session', jwt } : undefined,
         thresholdSessionId,
-        walletSigningSessionId: record?.walletSigningSessionId,
+        authorizingWalletSigningSessionId: record?.walletSigningSessionId,
         curve: 'ed25519',
       });
       return record?.source === 'email_otp' &&
@@ -253,7 +278,7 @@ export function createWarmSessionCapabilityReaderCore(
     const lane = resolveEmailOtpAuthLane({
       routeAuth: { kind: 'threshold_session', jwt },
       thresholdSessionId: identity.thresholdSessionId,
-      walletSigningSessionId: identity.walletSigningSessionId,
+      authorizingWalletSigningSessionId: identity.walletSigningSessionId,
       curve: 'ecdsa',
       chainTarget: record.chainTarget,
     });

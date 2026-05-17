@@ -2,6 +2,7 @@ import type { NormalizedLogger } from '../../logger';
 import type { CloudflareDurableObjectNamespaceLike, ThresholdStoreConfigInput } from '../../types';
 import { THRESHOLD_DO_OBJECT_NAME_DEFAULT } from '../../defaultConfigsServer';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
+import { parseCurrentThresholdEcdsaKeyRecord } from '../postgresRecords';
 import {
   parseThresholdEcdsaIntegratedKeyRecord,
   isObject,
@@ -60,6 +61,20 @@ type DoResp<T> = DoOk<T> | DoErr;
 type DoGetRequest = { op: 'get'; key: string };
 type DoSetRequest = { op: 'set'; key: string; value: unknown; ttlMs?: number };
 type DoDelRequest = { op: 'del'; key: string };
+type DoSetWithIdentityGuardRequest = {
+  op: 'setWithIdentityGuard';
+  key: string;
+  identityKey: string;
+  identityValue: string;
+  value: unknown;
+  ttlMs?: number;
+};
+type DoDelWithIdentityGuardRequest = {
+  op: 'delWithIdentityGuard';
+  key: string;
+  identityKey: string;
+  identityValue: string;
+};
 type DoGetDelRequest = { op: 'getdel'; key: string };
 type DoAuthConsumeUseCountRequest = { op: 'authConsumeUseCount'; key: string };
 type DoAuthConsumeUseCountOnceRequest = {
@@ -98,6 +113,8 @@ type DoRequest =
   | DoGetRequest
   | DoSetRequest
   | DoDelRequest
+  | DoSetWithIdentityGuardRequest
+  | DoDelWithIdentityGuardRequest
   | DoGetDelRequest
   | DoAuthConsumeUseCountRequest
   | DoAuthConsumeUseCountOnceRequest
@@ -112,6 +129,54 @@ type DoAuthEntry = {
   remainingUses: number;
   expiresAtMs: number;
 };
+
+type ThresholdEcdsaSharedIdentityGuard = {
+  contextKey: string;
+  identityValue: string;
+};
+
+function ecdsaIdentityPart(value: unknown): string {
+  return encodeURIComponent(String(value ?? '').trim());
+}
+
+function ecdsaSigningRootVersion(record: ThresholdEcdsaIntegratedKeyRecord): string {
+  return String(record.signingRootVersion || '').trim() || 'default';
+}
+
+function ecdsaParticipantIdsKey(record: ThresholdEcdsaIntegratedKeyRecord): string {
+  return record.participantIds.map((id) => String(Number(id))).join(',');
+}
+
+function thresholdEcdsaSharedIdentityGuard(
+  record: ThresholdEcdsaIntegratedKeyRecord,
+): ThresholdEcdsaSharedIdentityGuard {
+  return {
+    contextKey: [
+      'evm-family',
+      record.walletSessionUserId,
+      record.subjectId,
+      record.rpId,
+      record.signingRootId,
+      ecdsaSigningRootVersion(record),
+    ]
+      .map(ecdsaIdentityPart)
+      .join('|'),
+    identityValue: [
+      record.ecdsaThresholdKeyId,
+      String(record.ethereumAddress || '').trim().toLowerCase(),
+      ecdsaParticipantIdsKey(record),
+    ]
+      .map(ecdsaIdentityPart)
+      .join('|'),
+  };
+}
+
+function thresholdEcdsaSharedIdentityIndexKey(
+  keyPrefix: string,
+  guard: ThresholdEcdsaSharedIdentityGuard,
+): string {
+  return `${keyPrefix}shared-identity:${guard.contextKey}`;
+}
 
 function isDurableObjectNamespaceLike(v: unknown): v is CloudflareDurableObjectNamespaceLike {
   return (
@@ -480,14 +545,35 @@ export class CloudflareDurableObjectThresholdEcdsaIntegratedKeyStore implements 
   async put(ecdsaThresholdKeyId: string, record: ThresholdEcdsaIntegratedKeyRecord): Promise<void> {
     const id = toOptionalTrimmedString(ecdsaThresholdKeyId);
     if (!id) throw new Error('Missing ecdsaThresholdKeyId');
-    const resp = await callDo<void>(this.stub, { op: 'set', key: this.key(id), value: record });
+    const parsed = parseCurrentThresholdEcdsaKeyRecord(record);
+    if (!parsed) throw new Error('Invalid threshold-ecdsa integrated key record');
+    const guard = thresholdEcdsaSharedIdentityGuard(parsed);
+    const resp = await callDo<void>(this.stub, {
+      op: 'setWithIdentityGuard',
+      key: this.key(id),
+      identityKey: thresholdEcdsaSharedIdentityIndexKey(this.keyPrefix, guard),
+      identityValue: guard.identityValue,
+      value: parsed,
+    });
     if (!resp.ok) throw new Error(resp.message);
   }
 
   async del(ecdsaThresholdKeyId: string): Promise<void> {
     const id = toOptionalTrimmedString(ecdsaThresholdKeyId);
     if (!id) return;
-    const resp = await callDo<void>(this.stub, { op: 'del', key: this.key(id) });
+    const existing = await this.get(id);
+    if (!existing) {
+      const resp = await callDo<void>(this.stub, { op: 'del', key: this.key(id) });
+      if (!resp.ok) throw new Error(resp.message);
+      return;
+    }
+    const guard = thresholdEcdsaSharedIdentityGuard(existing);
+    const resp = await callDo<void>(this.stub, {
+      op: 'delWithIdentityGuard',
+      key: this.key(id),
+      identityKey: thresholdEcdsaSharedIdentityIndexKey(this.keyPrefix, guard),
+      identityValue: guard.identityValue,
+    });
     if (!resp.ok) throw new Error(resp.message);
   }
 }

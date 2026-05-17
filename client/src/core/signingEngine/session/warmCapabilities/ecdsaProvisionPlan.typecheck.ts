@@ -1,6 +1,9 @@
 import { toWalletSubjectId, thresholdEcdsaChainTargetFromChainFamily } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { toAccountId } from '@/core/types/accountIds';
+import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '../identity/laneIdentity';
+import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import {
   buildEcdsaReconnectMaterial,
   buildEcdsaSessionIdentity,
@@ -42,6 +45,47 @@ const emailOtpAuthContext = {
   reason: 'sign',
   authMethod: 'email_otp',
 } satisfies ThresholdEcdsaEmailOtpAuthContext;
+const reconnectKeyRef = {
+  type: 'threshold-ecdsa-secp256k1',
+  userId: 'alice.testnet',
+  subjectId,
+  chainTarget,
+  relayerUrl: 'https://relayer.test',
+  ecdsaThresholdKeyId: 'ecdsa-key-1',
+  signingRootId: 'signing-root-1',
+  signingRootVersion: 'v1',
+  backendBinding: {
+    relayerKeyId: 'relayer-key-1',
+    clientVerifyingShareB64u: 'share',
+  },
+  participantIds: [1, 2],
+  thresholdSessionKind: 'jwt',
+  thresholdSessionAuthToken: 'jwt-token',
+  thresholdSessionId: identity.thresholdSessionId,
+  walletSigningSessionId: identity.walletSigningSessionId,
+} satisfies ThresholdEcdsaSecp256k1KeyRef;
+const reconnectRecord = {
+  walletId: toAccountId('alice.testnet'),
+  subjectId,
+  rpId: 'example.localhost',
+  chainTarget,
+  relayerUrl: 'https://relayer.test',
+  ecdsaThresholdKeyId: 'ecdsa-key-1',
+  signingRootId: 'signing-root-1',
+  signingRootVersion: 'v1',
+  relayerKeyId: 'relayer-key-1',
+  clientVerifyingShareB64u: 'share',
+  participantIds: [1, 2],
+  thresholdSessionKind: 'jwt',
+  thresholdSessionAuthToken: 'jwt-token',
+  thresholdSessionId: identity.thresholdSessionId,
+  walletSigningSessionId: identity.walletSigningSessionId,
+  expiresAtMs: 1,
+  remainingUses: 1,
+  ethereumAddress: `0x${'11'.repeat(20)}`,
+  updatedAtMs: 1,
+  source: 'login',
+} satisfies ThresholdEcdsaSessionRecord;
 
 void buildPasskeyEcdsaSessionProvision({
   subjectId,
@@ -71,32 +115,20 @@ void buildThresholdSessionAuthEcdsaReconnect({
   subjectId,
   chainTarget,
   existingSessionIdentity: identity,
-  signingKeyContext,
   sessionBudgetUses: 1,
   reconnectMaterial: buildEcdsaReconnectMaterial({
-    keyRef: {
-      type: 'threshold-ecdsa-secp256k1',
-      userId: 'alice.testnet',
-      subjectId,
-      chainTarget,
-      relayerUrl: 'https://relayer.test',
-      ecdsaThresholdKeyId: 'ecdsa-key-1',
-      signingRootId: 'signing-root-1',
-      signingRootVersion: 'v1',
-      backendBinding: {
-        relayerKeyId: 'relayer-key-1',
-        clientVerifyingShareB64u: 'share',
-      },
-      participantIds: [1, 2],
-      thresholdSessionKind: 'jwt',
-      thresholdSessionAuthToken: 'jwt-token',
-      thresholdSessionId: identity.thresholdSessionId,
-      walletSigningSessionId: identity.walletSigningSessionId,
-    },
+    keyRef: reconnectKeyRef,
+    record: reconnectRecord,
   }),
   // @ts-expect-error reconnect must not accept WebAuthn auth material
   webauthnAuthentication,
 });
+
+// @ts-expect-error reconnect material requires a persisted ECDSA record
+void buildEcdsaReconnectMaterial({ keyRef: reconnectKeyRef });
+
+// @ts-expect-error reconnect material requires an ECDSA key ref
+void buildEcdsaReconnectMaterial({ record: reconnectRecord });
 
 void buildEmailOtpEcdsaSessionProvision({
   subjectId,
@@ -116,7 +148,6 @@ void buildEcdsaSessionProvisionPlan({
   subjectId,
   chainTarget,
   sessionIdentity: identity,
-  signingKeyContext,
   sessionBudgetUses: 1,
   // @ts-expect-error reconnect planning requires record or key-ref material
   reconnectMaterial: {},
@@ -134,25 +165,8 @@ void buildEcdsaSessionProvisionPlan({
   clientRootShare32B64u: 'client-root',
   webauthnAuthentication,
   reconnectMaterial: buildEcdsaReconnectMaterial({
-    keyRef: {
-      type: 'threshold-ecdsa-secp256k1',
-      userId: 'alice.testnet',
-      subjectId,
-      chainTarget,
-      relayerUrl: 'https://relayer.test',
-      ecdsaThresholdKeyId: 'ecdsa-key-1',
-      signingRootId: 'signing-root-1',
-      signingRootVersion: 'v1',
-      backendBinding: {
-        relayerKeyId: 'relayer-key-1',
-        clientVerifyingShareB64u: 'share',
-      },
-      participantIds: [1, 2],
-      thresholdSessionKind: 'jwt',
-      thresholdSessionAuthToken: 'jwt-token',
-      thresholdSessionId: identity.thresholdSessionId,
-      walletSigningSessionId: identity.walletSigningSessionId,
-    },
+    keyRef: reconnectKeyRef,
+    record: reconnectRecord,
   }),
 });
 

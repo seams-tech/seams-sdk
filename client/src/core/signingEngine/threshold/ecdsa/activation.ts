@@ -19,6 +19,12 @@ import {
   type TempoChainTarget,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type {
+  EvmFamilyEcdsaKeyIdentity,
+  EvmFamilyEcdsaSessionLanePolicy,
+} from '../../session/identity/evmFamilyEcdsaIdentity';
+import { deriveEvmFamilyKeyFingerprint } from '../../session/identity/evmFamilyEcdsaIdentity';
+import type { ExistingEcdsaBootstrapKeyIntent } from '../../session/passkey/ecdsaBootstrap';
 
 export type ThresholdEcdsaEvmChainTarget = EvmEip155ChainTarget;
 export type ThresholdEcdsaTempoChainTarget = TempoChainTarget;
@@ -63,28 +69,65 @@ export type ActivateEcdsaSessionDeps = {
   ) => string;
 };
 
-export type ActivateEcdsaSessionRequest = {
-  walletId: AccountId | string;
-  subjectId: WalletSubjectId;
-  chainTarget: ThresholdEcdsaChainTarget;
+type ActivateEcdsaSessionRequestCommon = {
   relayerUrl: string;
-  ecdsaThresholdKeyId?: string;
-  participantIds?: number[];
-  sessionKind?: 'jwt' | 'cookie';
-  sessionId?: string;
-  walletSigningSessionId?: string;
   clientRootShare32?: Uint8Array;
   clientRootShare32B64u?: string;
   webauthnAuthentication?: WebAuthnAuthenticationCredential;
-  thresholdSessionAuth?: ThresholdEcdsaHssRouteAuth;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   runtimeScopeBootstrap?: {
     environmentId: string;
     publishableKey: string;
   };
+};
+
+type ActivateEcdsaRegistrationSessionPlan = {
+  kind: 'requested_session';
+  sessionKind: 'jwt' | 'cookie';
+  sessionId: string;
+  walletSigningSessionId: string;
+};
+
+type ActivateEcdsaRegistrationRequest = ActivateEcdsaSessionRequestCommon & {
+  kind: 'registration_bootstrap';
+  walletId: AccountId | string;
+  subjectId: WalletSubjectId;
+  chainTarget: ThresholdEcdsaChainTarget;
+  keyIntent?: ExistingEcdsaBootstrapKeyIntent;
+  sessionPlan?: ActivateEcdsaRegistrationSessionPlan;
+  thresholdSessionAuth?: ThresholdEcdsaHssRouteAuth;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   ttlMs?: number;
   remainingUses?: number;
+  key?: never;
+  lanePolicy?: never;
+  ecdsaThresholdKeyId?: never;
+  participantIds?: never;
+  sessionKind?: never;
+  sessionId?: never;
+  walletSigningSessionId?: never;
 };
+
+type ActivateEcdsaExistingSessionRequest = ActivateEcdsaSessionRequestCommon & {
+  kind: 'session_bootstrap';
+  key: EvmFamilyEcdsaKeyIdentity;
+  lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
+  thresholdSessionAuth: ThresholdEcdsaHssRouteAuth;
+  walletId?: never;
+  subjectId?: never;
+  chainTarget?: never;
+  ecdsaThresholdKeyId?: never;
+  participantIds?: never;
+  sessionKind?: never;
+  sessionId?: never;
+  walletSigningSessionId?: never;
+  runtimePolicyScope?: never;
+  ttlMs?: never;
+  remainingUses?: never;
+};
+
+export type ActivateEcdsaSessionRequest =
+  | ActivateEcdsaRegistrationRequest
+  | ActivateEcdsaExistingSessionRequest;
 
 function isStaleEcdsaIntegratedKeyBootstrapFailure(args: {
   code?: unknown;
@@ -118,17 +161,62 @@ function createThresholdEcdsaBootstrapFailure(args: {
   return error;
 }
 
+function inferThresholdEcdsaBootstrapAuthMethod(
+  args: ActivateEcdsaSessionRequest,
+): 'passkey' | 'email_otp' | 'unknown' {
+  if (args.webauthnAuthentication) return 'passkey';
+  if ('thresholdSessionAuth' in args && args.thresholdSessionAuth) return 'email_otp';
+  return 'unknown';
+}
+
+function normalizeExactActivationOwnerAddress(value: unknown, field: string): string {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!/^0x[0-9a-f]{40}$/.test(normalized)) {
+    throw new Error(`threshold-ecdsa exact activation returned invalid ${field}`);
+  }
+  return normalized;
+}
+
+function resolveExactActivationOwnerAddress(args: {
+  key: EvmFamilyEcdsaKeyIdentity;
+  bootstrapOwnerAddress: unknown;
+}): string {
+  const trustedOwnerAddress = normalizeExactActivationOwnerAddress(
+    args.bootstrapOwnerAddress,
+    'server owner address',
+  );
+  const expectedOwnerAddress = normalizeExactActivationOwnerAddress(
+    args.key.thresholdOwnerAddress,
+    'key owner address',
+  );
+  if (trustedOwnerAddress !== expectedOwnerAddress) {
+    throw new Error(
+      'threshold-ecdsa exact activation owner address mismatches server bootstrap result',
+    );
+  }
+  return trustedOwnerAddress;
+}
+
 export async function activateEcdsaSession(
   deps: ActivateEcdsaSessionDeps,
   args: ActivateEcdsaSessionRequest,
 ): Promise<ThresholdEcdsaSessionActivationResult> {
-  const walletId = toAccountId(args.walletId);
-  const subjectId = args.subjectId;
-  const chainTarget = args.chainTarget;
+  const exactActivation = args.kind === 'session_bootstrap';
+  const walletId = toAccountId(exactActivation ? String(args.key.walletId) : args.walletId);
+  const subjectId = exactActivation ? args.key.subjectId : args.subjectId;
+  const chainTarget = exactActivation ? args.lanePolicy.chainTarget : args.chainTarget;
 
-  const requestedSessionId = String(args.sessionId || '').trim();
-  const requestedWalletSigningSessionId = String(args.walletSigningSessionId || '').trim();
-  const requestedEcdsaThresholdKeyId = String(args.ecdsaThresholdKeyId || '').trim();
+  const requestedSessionId = String(
+    exactActivation ? args.lanePolicy.thresholdSessionId : args.sessionPlan?.sessionId || '',
+  ).trim();
+  const requestedWalletSigningSessionId = String(
+    exactActivation
+      ? args.lanePolicy.walletSigningSessionId
+      : args.sessionPlan?.walletSigningSessionId || '',
+  ).trim();
+  const requestedEcdsaThresholdKeyId = String(
+    exactActivation ? args.key.ecdsaThresholdKeyId : args.keyIntent?.ecdsaThresholdKeyId || '',
+  ).trim();
   const baseBootstrapArgs = {
     indexedDB: deps.indexedDB,
     touchIdPrompt: deps.touchIdPrompt,
@@ -137,15 +225,21 @@ export async function activateEcdsaSession(
     chainId: chainTarget.chainId,
     userId: walletId,
     subjectId,
-    participantIds: args.participantIds,
-    sessionKind: args.sessionKind,
+    participantIds: exactActivation
+      ? undefined
+      : args.keyIntent
+        ? [...args.keyIntent.participantIds]
+        : undefined,
+    sessionKind: exactActivation
+      ? args.lanePolicy.thresholdSessionKind
+      : args.sessionPlan?.sessionKind,
     clientRootShare32: args.clientRootShare32,
     clientRootShare32B64u: args.clientRootShare32B64u,
     webauthnAuthentication: args.webauthnAuthentication,
-    runtimePolicyScope: args.runtimePolicyScope,
+    runtimePolicyScope: exactActivation ? undefined : args.runtimePolicyScope,
     runtimeScopeBootstrap: args.runtimeScopeBootstrap,
-    ttlMs: args.ttlMs,
-    remainingUses: args.remainingUses,
+    ttlMs: exactActivation ? undefined : args.ttlMs,
+    remainingUses: exactActivation ? undefined : args.remainingUses,
     workerCtx: deps.workerCtx,
   };
   const bootstrapRequestSummary = {
@@ -153,24 +247,50 @@ export async function activateEcdsaSession(
     subjectId,
     chainTarget,
     targetKey: thresholdEcdsaChainTargetKey(chainTarget),
+    operationId: requestedSessionId || null,
+    authMethod: inferThresholdEcdsaBootstrapAuthMethod(args),
+    ...(exactActivation ? { evmFamilyKeyFingerprint: deriveEvmFamilyKeyFingerprint(args.key) } : {}),
+    chainTargetKey: thresholdEcdsaChainTargetKey(chainTarget),
+    ecdsaThresholdKeyId: requestedEcdsaThresholdKeyId || null,
+    walletSigningSessionId: requestedWalletSigningSessionId || null,
+    thresholdSessionId: requestedSessionId || null,
+    budgetProjectionVersion: undefined,
+    freshAuthRetrySideEffectState: 'not_applicable',
     hasRequestedEcdsaThresholdKeyId: Boolean(requestedEcdsaThresholdKeyId),
     requestedSessionId: requestedSessionId || null,
     requestedWalletSigningSessionId: requestedWalletSigningSessionId || null,
-    sessionKind: args.sessionKind || 'jwt',
+    sessionKind: exactActivation
+      ? args.lanePolicy.thresholdSessionKind
+      : args.sessionPlan?.sessionKind || 'jwt',
     authKind: args.thresholdSessionAuth?.kind || 'none',
     hasClientRootShare32B64u: Boolean(String(args.clientRootShare32B64u || '').trim()),
     hasWebAuthnAuthentication: Boolean(args.webauthnAuthentication),
   };
   let bootstrap: Awaited<ReturnType<typeof bootstrapEcdsaSession>>;
   try {
-    bootstrap = args.thresholdSessionAuth
+    if (
+      !exactActivation &&
+      args.thresholdSessionAuth &&
+      requestedEcdsaThresholdKeyId &&
+      requestedSessionId &&
+      requestedWalletSigningSessionId
+    ) {
+      throw new Error(
+        'Threshold ECDSA session bootstrap requires shared key identity and lane policy',
+      );
+    }
+    bootstrap = exactActivation
       ? await bootstrapEcdsaSession({
           ...baseBootstrapArgs,
           bootstrapAuth: args.thresholdSessionAuth,
-          ecdsaThresholdKeyId: requestedEcdsaThresholdKeyId,
-          sessionId: requestedSessionId,
-          walletSigningSessionId: requestedWalletSigningSessionId,
+          key: args.key,
+          lanePolicy: args.lanePolicy,
         })
+      : args.thresholdSessionAuth
+        ? await bootstrapEcdsaSession({
+            ...baseBootstrapArgs,
+            bootstrapAuth: args.thresholdSessionAuth,
+          })
       : await bootstrapEcdsaSession({
           ...baseBootstrapArgs,
           ...(requestedEcdsaThresholdKeyId
@@ -206,7 +326,9 @@ export async function activateEcdsaSession(
     });
   }
 
-  const ecdsaThresholdKeyId = String(bootstrap.ecdsaThresholdKeyId || '').trim();
+  const ecdsaThresholdKeyId = String(
+    exactActivation ? args.key.ecdsaThresholdKeyId : bootstrap.ecdsaThresholdKeyId || '',
+  ).trim();
   if (!ecdsaThresholdKeyId) {
     throw new Error('threshold-ecdsa bootstrap returned empty ecdsaThresholdKeyId');
   }
@@ -245,17 +367,31 @@ export async function activateEcdsaSession(
   if (!Number.isFinite(remainingUses)) {
     throw new Error('threshold-ecdsa bootstrap returned invalid remainingUses');
   }
-  const participantIds = normalizeThresholdEd25519ParticipantIds(
-    Array.isArray(args.participantIds) ? args.participantIds : bootstrap.participantIds,
-  );
+    const participantIds = exactActivation
+    ? args.key.participantIds.map((participantId) => Number(participantId))
+    : normalizeThresholdEd25519ParticipantIds(
+        Array.isArray(args.keyIntent?.participantIds)
+          ? args.keyIntent.participantIds
+          : bootstrap.participantIds,
+      );
   if (!participantIds) {
     throw new Error('threshold-ecdsa bootstrap returned empty participantIds');
   }
-  const signingRootId = String(bootstrap.signingRootId || '').trim();
+  const signingRootId = String(
+    exactActivation ? args.key.signingRootId : bootstrap.signingRootId || '',
+  ).trim();
   if (!signingRootId) {
     throw new Error('threshold-ecdsa bootstrap returned empty signingRootId');
   }
-  const signingRootVersion = String(bootstrap.signingRootVersion || '').trim();
+  const signingRootVersion = String(
+    exactActivation ? args.key.signingRootVersion : bootstrap.signingRootVersion || '',
+  ).trim();
+  const thresholdOwnerAddress = exactActivation
+    ? resolveExactActivationOwnerAddress({
+        key: args.key,
+        bootstrapOwnerAddress: bootstrap.ethereumAddress,
+      })
+    : String(bootstrap.ethereumAddress || '').trim();
 
   const keygen: EcdsaKeygenSuccess = {
     ok: true,
@@ -266,16 +402,10 @@ export async function activateEcdsaSession(
     ...(clientAdditiveShare32B64u ? { clientAdditiveShare32B64u } : {}),
     relayerKeyId,
     thresholdEcdsaPublicKeyB64u: bootstrap.thresholdEcdsaPublicKeyB64u,
-    ethereumAddress: bootstrap.ethereumAddress,
+    ...(thresholdOwnerAddress ? { ethereumAddress: thresholdOwnerAddress } : {}),
     relayerVerifyingShareB64u: bootstrap.relayerVerifyingShareB64u,
     participantIds,
     ...(typeof bootstrap.chainId === 'number' ? { chainId: bootstrap.chainId } : {}),
-    ...(typeof bootstrap.factory === 'string' ? { factory: bootstrap.factory } : {}),
-    ...(typeof bootstrap.entryPoint === 'string' ? { entryPoint: bootstrap.entryPoint } : {}),
-    ...(typeof bootstrap.salt === 'string' ? { salt: bootstrap.salt } : {}),
-    ...(typeof bootstrap.counterfactualAddress === 'string'
-      ? { counterfactualAddress: bootstrap.counterfactualAddress }
-      : {}),
     ...(bootstrap.code ? { code: bootstrap.code } : {}),
     ...(bootstrap.message ? { message: bootstrap.message } : {}),
   };
@@ -310,14 +440,14 @@ export async function activateEcdsaSession(
     ...(typeof bootstrap.thresholdEcdsaPublicKeyB64u === 'string' && bootstrap.thresholdEcdsaPublicKeyB64u.trim()
       ? { thresholdEcdsaPublicKeyB64u: bootstrap.thresholdEcdsaPublicKeyB64u.trim() }
       : {}),
-    ...(typeof bootstrap.ethereumAddress === 'string' && bootstrap.ethereumAddress.trim()
-      ? { ethereumAddress: bootstrap.ethereumAddress.trim() }
-      : {}),
+    ...(thresholdOwnerAddress ? { ethereumAddress: thresholdOwnerAddress } : {}),
     ...(typeof bootstrap.relayerVerifyingShareB64u === 'string' &&
     bootstrap.relayerVerifyingShareB64u.trim()
       ? { relayerVerifyingShareB64u: bootstrap.relayerVerifyingShareB64u.trim() }
       : {}),
-    thresholdSessionKind: args.sessionKind || 'jwt',
+    thresholdSessionKind: exactActivation
+      ? args.lanePolicy.thresholdSessionKind
+      : args.sessionPlan?.sessionKind || 'jwt',
     thresholdSessionId: sessionId,
     walletSigningSessionId,
     ...(typeof session.jwt === 'string' && session.jwt.trim()

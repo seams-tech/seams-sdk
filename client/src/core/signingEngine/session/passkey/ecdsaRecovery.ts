@@ -117,6 +117,7 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
       {
         walletId: toAccountId(args.walletId),
         subjectId: args.record.subjectId,
+        rpId: args.record.rpId,
         chainTarget: args.record.chainTarget,
         relayerUrl: args.record.relayerUrl,
         ecdsaThresholdKeyId: args.record.ecdsaThresholdKeyId as EcdsaThresholdKeyId,

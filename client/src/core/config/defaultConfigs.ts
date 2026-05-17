@@ -27,7 +27,6 @@ export const DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY: ThresholdEcdsaPresignP
 export const DEFAULT_THRESHOLD_ECDSA_PROVISIONING_DEFAULTS: EcdsaSignerProvisioningDefaults = {
   tempo: {
     enabled: true,
-    participantIds: [1, 2],
     signingSession: {
       kind: 'jwt',
       ttlMs: 24 * 60 * 60 * 1000,
@@ -36,7 +35,6 @@ export const DEFAULT_THRESHOLD_ECDSA_PROVISIONING_DEFAULTS: EcdsaSignerProvision
   },
   evm: {
     enabled: true,
-    participantIds: [1, 2],
     signingSession: {
       kind: 'jwt',
       ttlMs: 24 * 60 * 60 * 1000,
@@ -108,11 +106,6 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: SeamsConfigsReadonly = {
       url: '',
       routes: {
         delegateAction: '/signed-delegate',
-        smartAccountDeploy: '',
-      },
-      smartAccountDeployment: {
-        mode: 'observe',
-        maxAttempts: 2,
       },
       emailRecovery: {
         // Require at least 0.01 NEAR available to start email recovery.
@@ -145,13 +138,12 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: SeamsConfigsReadonly = {
     },
     sessionPersistenceMode: 'none',
     sessionSeal: {},
-    thresholdEcdsa: {
-      // Presign pool controls Cait Sith background presignature pool refill behavior.
-      // It is separate from threshold-ECDSA `provisioningDefaults`
-      // (participant IDs, signing session defaults, smart-account hints).
-      presignPool: DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY,
-      provisioningDefaults: DEFAULT_THRESHOLD_ECDSA_PROVISIONING_DEFAULTS,
-    },
+      thresholdEcdsa: {
+        // Presign pool controls Cait Sith background presignature pool refill behavior.
+        // It is separate from threshold-ECDSA `provisioningDefaults`.
+        presignPool: DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY,
+        provisioningDefaults: DEFAULT_THRESHOLD_ECDSA_PROVISIONING_DEFAULTS,
+      },
   },
   // Configure iframeWallet in application code to point at your dedicated wallet origin when available.
   wallet: {

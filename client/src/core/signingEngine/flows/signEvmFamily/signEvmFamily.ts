@@ -40,7 +40,6 @@ import {
 } from '../../session/operationState/trace';
 import { computeSigningOperationFingerprint } from '../../session/planning/operationFingerprint';
 import {
-  isSigningSessionBudgetExhaustedError,
   type SigningSessionBudgetStatusAuth,
   type SigningSessionPreparedBudgetIdentity,
   type SigningSessionBudgetReservation,
@@ -69,6 +68,7 @@ import type {
   PasskeyEcdsaSigningLookupArgs,
 } from '../../interfaces/operationDeps';
 import {
+  thresholdEcdsaChainTargetKey,
   type ThresholdEcdsaChainTarget,
   type WalletSessionRef,
   type WalletSubjectId,
@@ -86,12 +86,12 @@ import {
   type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
 import {
-  buildEcdsaMaterialStateForCandidate,
+  buildEcdsaMaterialStateForResolvedLane,
   getEcdsaMaterialKeyRef,
   getEcdsaMaterialRecord,
   requireReadyEcdsaMaterial,
-  type ReadyEcdsaMaterial,
-  type EcdsaMaterialState,
+  requireReadyEcdsaMaterialForResolvedLane,
+  summarizeEcdsaMaterialState,
 } from './ecdsaMaterialState';
 import { resolveEvmFamilyTransactionWalletAuth } from './accountAuth';
 import {
@@ -124,6 +124,7 @@ import {
   finalizeSignedTransactionOperation,
   prepareTransactionSigningOperation,
   recordPreparedTransactionBudgetAdmission,
+  recordPreparedTransactionNoBudget,
   replacePreparedTransactionLane,
   signPreparedTransactionOperation,
   type BudgetAdmittedOperation,
@@ -132,6 +133,13 @@ import { completeEvmFamilyEmailOtpSigningRefresh } from './emailOtpRefresh';
 import type { EvmFamilyEcdsaEmailOtpStepUpAuthorization } from './stepUpAuthorization';
 import { createEvmFamilySigningFlowRuntime } from './signingFlowRuntime';
 import { retryEvmFamilyWithFreshEmailOtpAuthWhenRequired } from './freshEmailOtpRetry';
+import {
+  classifyEvmFamilyFreshAuthRetry,
+  nextEvmFamilyFreshAuthRetrySideEffectState,
+  type EvmFamilyFreshAuthRetryDecision,
+  type EvmFamilyFreshAuthRetrySideEffectState,
+  type EvmFamilySigningAuthSideEffect,
+} from './freshAuthRetryPolicy';
 import { emitEvmFamilySigningEvent, emitEvmFamilySigningOperationTrace } from './events';
 import { toOptionalEvmAddress } from './addresses';
 import {
@@ -140,6 +148,7 @@ import {
   ensureEvmFamilyConfirmationOperationId,
   type EvmFamilySigningOperationIds,
 } from './operationIds';
+import { deriveEvmFamilyKeyFingerprint } from '../../session/identity/evmFamilyEcdsaIdentity';
 import {
   reconcileEvmFamilyNonceLane,
   reportEvmFamilyBroadcastAccepted,
@@ -170,7 +179,7 @@ function ecdsaTransactionReadinessFromBudgetIdentity(
 function getAdmittedEcdsaBudgetIdentity(
   prepared: PreparedEvmFamilyEcdsaSigningSession,
 ): SigningSessionPreparedBudgetIdentity | null {
-  return prepared.budget.kind === 'admitted'
+  return prepared.budget.kind === 'BudgetAdmitted'
     ? prepared.budget.operation.budgetAdmission.budgetIdentity
     : null;
 }
@@ -272,7 +281,6 @@ async function signEvmFamilyAttempt(
   let accountAuth: AccountAuthMetadata | undefined;
   let ecdsaSigningLane: ResolvedEvmFamilyEcdsaSigningLane | undefined;
   let selectedEcdsaAuthMethod: EvmFamilyEcdsaAuthMethod | undefined;
-  let emailOtpReauthRecord: ThresholdEcdsaSessionRecord | undefined;
   let preparedEcdsaSigningSession: PreparedEvmFamilyEcdsaSigningSession | undefined;
   const ecdsaAttemptDiagnostics: Record<string, unknown> = {
     walletId,
@@ -308,9 +316,78 @@ async function signEvmFamilyAttempt(
     operationFingerprint,
     intent: SigningOperationIntent.TransactionSign,
   });
+  const derivePreparedEvmFamilyKeyFingerprint = (
+    prepared: PreparedEvmFamilyEcdsaSigningSession | undefined,
+  ): string | undefined =>
+    prepared && prepared.material.kind === 'ready_material'
+      ? deriveEvmFamilyKeyFingerprint(prepared.material.readyMaterial.key)
+      : undefined;
+  const buildBudgetFailureDiagnostics = (
+    prepared: PreparedEvmFamilyEcdsaSigningSession | undefined,
+  ): Record<string, unknown> => {
+    const admittedBudgetIdentity = prepared ? getAdmittedEcdsaBudgetIdentity(prepared) : null;
+    const material = prepared?.material;
+    const keyFingerprint = derivePreparedEvmFamilyKeyFingerprint(prepared);
+    return {
+      ...(operationIds.confirmationOperationId
+        ? { operationId: String(operationIds.confirmationOperationId) }
+        : {}),
+      authMethod: prepared?.authMethod || selectedEcdsaAuthMethod,
+      ...(keyFingerprint ? { evmFamilyKeyFingerprint: keyFingerprint } : {}),
+      chainTargetKey: thresholdEcdsaChainTargetKey(
+        prepared?.signingLane.chainTarget || requestChainTarget,
+      ),
+      ecdsaThresholdKeyId:
+        prepared?.signingLane.ecdsaThresholdKeyId ||
+        (material && material.kind !== 'missing'
+          ? material.signingKeyContext.ecdsaThresholdKeyId
+          : undefined),
+      walletSigningSessionId: prepared
+        ? String(prepared.signingLane.walletSigningSessionId)
+        : material
+          ? material.identity.walletSigningSessionId
+          : undefined,
+      thresholdSessionId: prepared
+        ? String(prepared.signingLane.thresholdSessionId)
+        : material
+          ? material.identity.thresholdSessionId
+          : undefined,
+      budgetProjectionVersion: admittedBudgetIdentity?.projectionVersion,
+      freshAuthRetrySideEffectState,
+    };
+  };
+  let freshAuthRetrySideEffectState: EvmFamilyFreshAuthRetrySideEffectState =
+    'no_auth_side_effect_started';
+  const markFreshAuthRetrySideEffect = (sideEffect: EvmFamilySigningAuthSideEffect): void => {
+    freshAuthRetrySideEffectState = nextEvmFamilyFreshAuthRetrySideEffectState({
+      current: freshAuthRetrySideEffectState,
+      sideEffect,
+    });
+  };
+  const recordFreshAuthRetryDecision = (
+    decision: EvmFamilyFreshAuthRetryDecision,
+    error: unknown,
+  ): void => {
+    const errorMessage = error instanceof Error ? error.message : String(error || 'unknown error');
+    ecdsaAttemptDiagnostics.freshAuthRetry = {
+      decision,
+      sideEffectState: freshAuthRetrySideEffectState,
+      errorMessage,
+    };
+    emitSigningSessionFlowTrace('evm-family', {
+      stage: 'fresh_auth_retry.decision',
+      accountId: walletId,
+      chain: requestChain,
+      chainTarget: requestChainTarget,
+      decision,
+      sideEffectState: freshAuthRetrySideEffectState,
+      errorMessage,
+    });
+  };
   let confirmationDisplayed = false;
   const markConfirmationDisplayed = (): SigningOperationId => {
     confirmationDisplayed = true;
+    markFreshAuthRetrySideEffect('auth_prompt_shown');
     return ensureConfirmationOperationId();
   };
   if (args.request.senderSignatureAlgorithm === 'secp256k1') {
@@ -325,11 +402,6 @@ async function signEvmFamilyAttempt(
     });
     ecdsaSigningLane = preparedEcdsaSigningSession.signingLane;
     selectedEcdsaAuthMethod = preparedEcdsaSigningSession.authMethod;
-    emailOtpReauthRecord =
-      preparedEcdsaSigningSession.selection.kind === 'reauth_required' &&
-      preparedEcdsaSigningSession.authMethod === SIGNER_AUTH_METHODS.emailOtp
-        ? getEcdsaMaterialRecord(preparedEcdsaSigningSession.selection.material)
-        : undefined;
     accountAuth = preparedEcdsaSigningSession.accountAuth;
     thresholdEcdsaRecord = getEcdsaMaterialRecord(preparedEcdsaSigningSession.material);
     thresholdEcdsaKeyRef = getEcdsaMaterialKeyRef(preparedEcdsaSigningSession.material);
@@ -338,6 +410,13 @@ async function signEvmFamilyAttempt(
       accountId: walletId,
       chain: requestChain,
       chainTarget: requestChainTarget,
+      ...(derivePreparedEvmFamilyKeyFingerprint(preparedEcdsaSigningSession)
+        ? {
+            evmFamilyKeyFingerprint: derivePreparedEvmFamilyKeyFingerprint(
+              preparedEcdsaSigningSession,
+            ),
+          }
+        : {}),
       authMethod: selectedEcdsaAuthMethod,
       lane: summarizeEvmFamilyEcdsaLane(ecdsaSigningLane),
       warmRecord: summarizeEvmFamilyEcdsaSessionRecord(thresholdEcdsaRecord),
@@ -367,71 +446,6 @@ async function signEvmFamilyAttempt(
 
   throwIfEvmFamilySigningCancelled(args.shouldAbort);
 
-  const resolvePreparedWarmRecord = (
-    prepared: PreparedEvmFamilyEcdsaSigningSession | undefined,
-  ): ThresholdEcdsaSessionRecord | undefined =>
-    prepared ? getEcdsaMaterialRecord(prepared.material) : undefined;
-  const resolvePreparedWarmKeyRef = (
-    prepared: PreparedEvmFamilyEcdsaSigningSession | undefined,
-  ): ThresholdEcdsaSecp256k1KeyRef | undefined =>
-    prepared ? getEcdsaMaterialKeyRef(prepared.material) : undefined;
-  const buildPreparedMaterialForLane = (argsForMaterial: {
-    lane: ResolvedEvmFamilyEcdsaSigningLane;
-    authMethod: EvmFamilyEcdsaAuthMethod;
-    source: ThresholdEcdsaSessionStoreSource;
-    record?: ThresholdEcdsaSessionRecord;
-    keyRef?: ThresholdEcdsaSecp256k1KeyRef;
-  }): EcdsaMaterialState =>
-    buildEcdsaMaterialStateForCandidate({
-      candidate: {
-        kind: 'lane_candidate',
-        walletId: argsForMaterial.lane.walletId,
-        authMethod: argsForMaterial.authMethod,
-        curve: 'ecdsa',
-        chain: requestChain,
-        walletSigningSessionId: String(argsForMaterial.lane.walletSigningSessionId),
-        thresholdSessionId: String(argsForMaterial.lane.thresholdSessionId),
-        state: 'ready',
-        remainingUses: null,
-        expiresAtMs: null,
-        updatedAtMs: null,
-        source: 'runtime_session_record',
-        subjectId: argsForMaterial.lane.subjectId,
-        chainTarget: argsForMaterial.lane.chainTarget,
-        ecdsaThresholdKeyId: argsForMaterial.lane.ecdsaThresholdKeyId,
-        signingRootId: argsForMaterial.lane.signingRootId,
-        signingRootVersion: argsForMaterial.lane.signingRootVersion,
-      },
-      record: argsForMaterial.record,
-      keyRef: argsForMaterial.keyRef,
-      authMethod: argsForMaterial.authMethod,
-      source: argsForMaterial.source,
-      chainTarget: argsForMaterial.lane.chainTarget,
-    });
-  const requirePreparedReadyMaterialForLane = (argsForMaterial: {
-    lane: ResolvedEvmFamilyEcdsaSigningLane;
-    authMethod: EvmFamilyEcdsaAuthMethod;
-    source: ThresholdEcdsaSessionStoreSource;
-    record?: ThresholdEcdsaSessionRecord;
-    keyRef?: ThresholdEcdsaSecp256k1KeyRef;
-    context: string;
-  }): ReadyEcdsaMaterial =>
-    requireReadyEcdsaMaterial(
-      buildPreparedMaterialForLane({
-        lane: argsForMaterial.lane,
-        authMethod: argsForMaterial.authMethod,
-        source: argsForMaterial.source,
-        record: argsForMaterial.record,
-        keyRef: argsForMaterial.keyRef,
-      }),
-      argsForMaterial.context,
-    );
-  const resolveEmailOtpReauthRecord = (): ThresholdEcdsaSessionRecord | undefined =>
-    (preparedEcdsaSigningSession?.selection.kind === 'reauth_required' &&
-    preparedEcdsaSigningSession.authMethod === SIGNER_AUTH_METHODS.emailOtp
-      ? getEcdsaMaterialRecord(preparedEcdsaSigningSession.selection.material)
-      : undefined) ||
-    (selectedEcdsaAuthMethod === SIGNER_AUTH_METHODS.emailOtp ? emailOtpReauthRecord : undefined);
   const requestEmailOtpTransactionSigningChallenge =
     deps.requestEmailOtpTransactionSigningChallenge;
   const loginWithEmailOtpEcdsaCapabilityForSigning =
@@ -559,48 +573,62 @@ async function signEvmFamilyAttempt(
       context: argsForRefresh.context,
       diagnostics: argsForRefresh.diagnostics,
     });
+    if (prepared.selection.authMethod !== argsForRefresh.authMethod) {
+      throw new Error(
+        '[SigningEngine][ecdsa] refreshed signing session auth method changed within one operation',
+      );
+    }
+    const refreshedMaterial = buildEcdsaMaterialStateForResolvedLane({
+      lane: signingLane,
+      authMethod: argsForRefresh.authMethod,
+      source: argsForRefresh.source,
+      record: thresholdEcdsaRecord,
+      keyRef: thresholdEcdsaKeyRef,
+    });
+    const refreshedSelection =
+      prepared.selection.kind === 'ready'
+        ? {
+            ...prepared.selection,
+            source: argsForRefresh.source,
+            lane: signingLane,
+            material: requireReadyEcdsaMaterialForResolvedLane({
+              lane: signingLane,
+              authMethod: argsForRefresh.authMethod,
+              source: argsForRefresh.source,
+              record: thresholdEcdsaRecord,
+              keyRef: thresholdEcdsaKeyRef,
+              context: argsForRefresh.context,
+            }),
+          }
+        : prepared.selection.authMethod === SIGNER_AUTH_METHODS.emailOtp
+          ? {
+              ...prepared.selection,
+              authMethod: SIGNER_AUTH_METHODS.emailOtp,
+              lane: signingLane,
+              material: refreshedMaterial,
+              reauthAuthority: {
+                ...prepared.selection.reauthAuthority,
+                thresholdSessionId: String(signingLane.thresholdSessionId),
+              },
+            }
+          : {
+              ...prepared.selection,
+              authMethod: SIGNER_AUTH_METHODS.passkey,
+              lane: signingLane,
+              material: refreshedMaterial,
+            };
     const updatedPrepared = {
       ...preparedWithoutBudget,
       accountAuth: resolvedAccountAuth,
       authMethod: argsForRefresh.authMethod,
       source: argsForRefresh.source,
-      material: buildPreparedMaterialForLane({
-        lane: signingLane,
-        authMethod: argsForRefresh.authMethod,
-        source: argsForRefresh.source,
-        record: thresholdEcdsaRecord,
-        keyRef: thresholdEcdsaKeyRef,
-      }),
-      selection:
-        prepared.selection.kind === 'ready'
-          ? {
-              ...prepared.selection,
-              authMethod: argsForRefresh.authMethod,
-              source: argsForRefresh.source,
-              lane: signingLane,
-              material: requirePreparedReadyMaterialForLane({
-                lane: signingLane,
-                authMethod: argsForRefresh.authMethod,
-                source: argsForRefresh.source,
-                record: thresholdEcdsaRecord,
-                keyRef: thresholdEcdsaKeyRef,
-                context: argsForRefresh.context,
-              }),
-            }
-          : {
-              ...prepared.selection,
-              authMethod: argsForRefresh.authMethod,
-              lane: signingLane,
-              material: buildPreparedMaterialForLane({
-                lane: signingLane,
-                authMethod: argsForRefresh.authMethod,
-                source: argsForRefresh.source,
-                record: thresholdEcdsaRecord,
-                keyRef: thresholdEcdsaKeyRef,
-              }),
-            },
+      material: refreshedMaterial,
+      selection: refreshedSelection,
       signingLane,
-      budget: { kind: 'not_admitted' as const, reason: 'budget_identity_not_prepared' as const },
+      budget: recordPreparedTransactionNoBudget(
+        prepared.transactionOperation,
+        'budget_identity_not_prepared',
+      ),
     };
     assertPreparedEcdsaOperationLane(updatedPrepared, argsForRefresh.context);
     const admittedBudgetIdentity = getAdmittedEcdsaBudgetIdentity(prepared);
@@ -702,7 +730,7 @@ async function signEvmFamilyAttempt(
       },
     });
     const preparedOperation = preparedTransaction.thresholdOperation;
-    const readyMaterial = requirePreparedReadyMaterialForLane({
+    const readyMaterial = requireReadyEcdsaMaterialForResolvedLane({
       lane: preparedOperation.lane,
       authMethod: argsForRefresh.authMethod,
       source: argsForRefresh.source,
@@ -734,20 +762,7 @@ async function signEvmFamilyAttempt(
             expiresAtMs: null,
             updatedAtMs: null,
           },
-          exactCandidateMaterial: {
-            present: true,
-            kind: argsForRefresh.record && argsForRefresh.keyRef ? 'ready_material' : argsForRefresh.record ? 'record_only' : 'key_ref_only',
-            authMethod: argsForRefresh.authMethod,
-            source: argsForRefresh.source,
-            chainTarget: requestChainTarget,
-            thresholdSessionId: String(preparedOperation.lane.thresholdSessionId),
-            walletSigningSessionId: String(preparedOperation.lane.walletSigningSessionId),
-            signingRootId: preparedOperation.lane.signingRootId,
-            signingRootVersion: preparedOperation.lane.signingRootVersion,
-            ecdsaThresholdKeyId: preparedOperation.lane.ecdsaThresholdKeyId,
-            hasRecord: Boolean(argsForRefresh.record),
-            hasKeyRef: Boolean(argsForRefresh.keyRef),
-          },
+          exactCandidateMaterial: summarizeEcdsaMaterialState(readyMaterial),
           visibleEmailOtpMaterial: { present: false },
           visiblePasskeyMaterials: [],
           selectedPasskeyMaterial: { present: false },
@@ -782,6 +797,15 @@ async function signEvmFamilyAttempt(
       String(prepared.transactionOperation.lane.thresholdSessionId) ===
         String(prepared.signingLane.thresholdSessionId)
     ) {
+      emitSigningSessionFlowTrace('evm-family', {
+        stage: 'ecdsa_attempt.budget_admission_reused',
+        accountId: walletId,
+        chain: args.request.chain,
+        chainTarget: requestChainTarget,
+        lane: summarizeEvmFamilyEcdsaLane(prepared.signingLane),
+        budgetKind: prepared.budget.kind,
+        ...buildBudgetFailureDiagnostics(prepared),
+      });
       return prepared;
     }
     const budgetIdentity = await signingSessionCoordinator.prepareBudgetIdentity({
@@ -797,15 +821,24 @@ async function signEvmFamilyAttempt(
       trustedStatusAuth || prepared.budgetStatusAuth,
     );
     assertPreparedEcdsaOperationLane(updatedPrepared, 'budget identity preparation');
+    emitSigningSessionFlowTrace('evm-family', {
+      stage: 'ecdsa_attempt.budget_admitted',
+      accountId: walletId,
+      chain: args.request.chain,
+      chainTarget: requestChainTarget,
+      lane: summarizeEvmFamilyEcdsaLane(updatedPrepared.signingLane),
+      budgetKind: updatedPrepared.budget.kind,
+      ...buildBudgetFailureDiagnostics(updatedPrepared),
+    });
     return updatedPrepared;
   };
   function assertPreparedEcdsaBudgetAdmitted(
     prepared: PreparedEvmFamilyEcdsaSigningSession,
     context: string,
   ): asserts prepared is PreparedEvmFamilyEcdsaSigningSession & {
-    budget: Extract<PreparedEvmFamilyEcdsaSigningSession['budget'], { kind: 'admitted' }>;
+    budget: Extract<PreparedEvmFamilyEcdsaSigningSession['budget'], { kind: 'BudgetAdmitted' }>;
   } {
-    if (prepared.budget.kind === 'admitted') {
+    if (prepared.budget.kind === 'BudgetAdmitted') {
       return;
     }
     emitSigningSessionFlowFailure('evm-family', {
@@ -815,6 +848,7 @@ async function signEvmFamilyAttempt(
       context,
       lane: summarizeEvmFamilyEcdsaLane(prepared.signingLane),
       budgetKind: prepared.budget.kind,
+      ...buildBudgetFailureDiagnostics(prepared),
     });
     throw new Error(`[SigningEngine][ecdsa] ${context} requires admitted budget state`);
   }
@@ -822,13 +856,17 @@ async function signEvmFamilyAttempt(
     expectedPrepared: PreparedEvmFamilyEcdsaSigningSession | undefined,
     context: string,
   ): PreparedEvmFamilyEcdsaSigningSession & {
-    budget: Extract<PreparedEvmFamilyEcdsaSigningSession['budget'], { kind: 'admitted' }>;
+    budget: Extract<PreparedEvmFamilyEcdsaSigningSession['budget'], { kind: 'BudgetAdmitted' }>;
   } => {
     const prepared = expectedPrepared || getPreparedEcdsaSigningSession();
     assertPreparedEcdsaOperationLane(prepared, context);
     assertPreparedEcdsaBudgetAdmitted(prepared, context);
     return prepared;
   };
+  const requirePreparedEcdsaBudgetKey = (
+    prepared: PreparedEvmFamilyEcdsaSigningSession,
+    context: string,
+  ) => requireReadyEcdsaMaterial(prepared.material, context).readyMaterial.key;
   const getResolvedEcdsaSigningLane = (): ResolvedEvmFamilyEcdsaSigningLane =>
     getPreparedEcdsaSigningSession().signingLane;
   const getPreparedEcdsaSigningSessionIfEcdsa = ():
@@ -869,7 +907,6 @@ async function signEvmFamilyAttempt(
           ecdsaSigningLane = refreshed.lane;
           thresholdEcdsaRecord = refreshed.record;
           selectedEcdsaAuthMethod = SIGNER_AUTH_METHODS.emailOtp;
-          emailOtpReauthRecord = thresholdEcdsaRecord;
           emitSigningSessionFlowTrace('evm-family', {
             stage: 'ecdsa_attempt.email_otp_reauth_refreshed',
             accountId: walletId,
@@ -898,13 +935,14 @@ async function signEvmFamilyAttempt(
             preparedAfterReauth,
             trustedBudgetStatusAuthFromEcdsaKeyRef(refreshed.keyRef),
           );
-          if (admittedAfterReauth.budget.kind !== 'admitted') {
+          if (admittedAfterReauth.budget.kind !== 'BudgetAdmitted') {
             emitSigningSessionFlowFailure('evm-family', {
               stage: 'ecdsa_attempt.email_otp_reauth_not_admitted',
               accountId: walletId,
               chain: args.request.chain,
               lane: summarizeEvmFamilyEcdsaLane(admittedAfterReauth.signingLane),
               budgetKind: admittedAfterReauth.budget.kind,
+              ...buildBudgetFailureDiagnostics(admittedAfterReauth),
             });
             throw new Error(
               '[SigningEngine][ecdsa] Email OTP reauth did not produce budget-admitted operation',
@@ -914,13 +952,24 @@ async function signEvmFamilyAttempt(
             stage: 'ecdsa_attempt.email_otp_reauth_admitted',
             accountId: walletId,
             chain: args.request.chain,
+            ...(derivePreparedEvmFamilyKeyFingerprint(admittedAfterReauth)
+              ? {
+                  evmFamilyKeyFingerprint:
+                    derivePreparedEvmFamilyKeyFingerprint(admittedAfterReauth),
+                }
+              : {}),
             lane: summarizeEvmFamilyEcdsaLane(admittedAfterReauth.signingLane),
             budgetKind: admittedAfterReauth.budget.kind,
           });
           preparedEcdsaSigningSession = admittedAfterReauth;
           ecdsaSigningLane = admittedAfterReauth.signingLane;
           selectedEcdsaAuthMethod = admittedAfterReauth.authMethod;
+          const readyMaterial = requireReadyEcdsaMaterial(
+            admittedAfterReauth.material,
+            'Email OTP ECDSA reauth completion',
+          ).readyMaterial;
           return {
+            readyMaterial,
             keyRef: refreshed.keyRef,
             operation: {
               ...admittedAfterReauth.budget.operation,
@@ -943,17 +992,22 @@ async function signEvmFamilyAttempt(
     confirmationConfigOverride: args.confirmationConfigOverride,
     shouldAbort: args.shouldAbort,
     onEvent: args.onEvent,
+    onAuthSideEffectStarted: markFreshAuthRetrySideEffect,
     getThresholdEcdsaKeyRef: () => thresholdEcdsaKeyRef,
     setThresholdEcdsaKeyRef: async ({ keyRef, signingSessionIdentity }) => {
       thresholdEcdsaKeyRef = keyRef;
       if (args.request.senderSignatureAlgorithm === 'secp256k1' && preparedEcdsaSigningSession) {
         const currentPrepared = preparedEcdsaSigningSession;
-        const refreshedThresholdSessionId = String(signingSessionIdentity.thresholdSessionId || '').trim();
+        const refreshedThresholdSessionId = String(
+          signingSessionIdentity.thresholdSessionId || '',
+        ).trim();
         const refreshedWalletSigningSessionId = String(
           signingSessionIdentity.walletSigningSessionId || '',
         ).trim();
         if (!refreshedThresholdSessionId || !refreshedWalletSigningSessionId) {
-          throw new Error('[SigningEngine][ecdsa] keyRef update requires explicit session identity');
+          throw new Error(
+            '[SigningEngine][ecdsa] keyRef update requires explicit session identity',
+          );
         }
         const replacedLaneIdentity =
           refreshedThresholdSessionId !== String(currentPrepared.signingLane.thresholdSessionId) ||
@@ -979,40 +1033,40 @@ async function signEvmFamilyAttempt(
             );
           }
           updatedPrepared = await replacePreparedEcdsaSigningOperationAfterReauth({
-              authMethod: currentPrepared.authMethod,
-              source: currentPrepared.source,
-              signingLane: refreshedLane,
-              record: refreshedRecord,
-              keyRef,
-              ...(trustedBudgetStatusAuthFromEcdsaKeyRef(keyRef)
-                ? { trustedStatusAuth: trustedBudgetStatusAuthFromEcdsaKeyRef(keyRef) }
-                : {}),
-              diagnostics: {
-                ...ecdsaAttemptDiagnostics,
-                updatedKeyRef: summarizeEvmFamilyEcdsaKeyRef(keyRef),
-              },
-            });
+            authMethod: currentPrepared.authMethod,
+            source: currentPrepared.source,
+            signingLane: refreshedLane,
+            record: refreshedRecord,
+            keyRef,
+            ...(trustedBudgetStatusAuthFromEcdsaKeyRef(keyRef)
+              ? { trustedStatusAuth: trustedBudgetStatusAuthFromEcdsaKeyRef(keyRef) }
+              : {}),
+            diagnostics: {
+              ...ecdsaAttemptDiagnostics,
+              updatedKeyRef: summarizeEvmFamilyEcdsaKeyRef(keyRef),
+            },
+          });
         } else {
           updatedPrepared = updatePreparedEcdsaSigningSessionForSameOperation({
-              authMethod: currentPrepared.authMethod,
-              source: currentPrepared.source,
-              context: 'EVM-family signing keyRef update',
-              diagnostics: {
-                ...ecdsaAttemptDiagnostics,
-                updatedKeyRef: summarizeEvmFamilyEcdsaKeyRef(keyRef),
-              },
-              signingSessionIdentity: {
-                thresholdSessionId: refreshedThresholdSessionId,
-                walletSigningSessionId: refreshedWalletSigningSessionId,
-              },
-              forceRefreshBudgetIdentity: true,
-            });
+            authMethod: currentPrepared.authMethod,
+            source: currentPrepared.source,
+            context: 'EVM-family signing keyRef update',
+            diagnostics: {
+              ...ecdsaAttemptDiagnostics,
+              updatedKeyRef: summarizeEvmFamilyEcdsaKeyRef(keyRef),
+            },
+            signingSessionIdentity: {
+              thresholdSessionId: refreshedThresholdSessionId,
+              walletSigningSessionId: refreshedWalletSigningSessionId,
+            },
+            forceRefreshBudgetIdentity: true,
+          });
         }
         const admittedPrepared = await admitPreparedEcdsaTransactionBudget(
           updatedPrepared,
           trustedBudgetStatusAuthFromEcdsaKeyRef(keyRef),
         );
-        if (admittedPrepared.budget.kind !== 'admitted') {
+        if (admittedPrepared.budget.kind !== 'BudgetAdmitted') {
           throw new Error(
             '[SigningEngine][ecdsa] keyRef refresh did not produce budget-admitted operation',
           );
@@ -1022,9 +1076,16 @@ async function signEvmFamilyAttempt(
         selectedEcdsaAuthMethod = admittedPrepared.authMethod;
         thresholdEcdsaRecord = getEcdsaMaterialRecord(admittedPrepared.material);
         thresholdEcdsaKeyRef = getEcdsaMaterialKeyRef(admittedPrepared.material);
+        const readyMaterial = requireReadyEcdsaMaterial(
+          admittedPrepared.material,
+          'EVM-family signing keyRef refresh',
+        ).readyMaterial;
         return {
-          ...admittedPrepared.budget.operation,
-          authPlan: signingAuthPlan,
+          readyMaterial,
+          operation: {
+            ...admittedPrepared.budget.operation,
+            authPlan: signingAuthPlan,
+          },
         };
       }
       throw new Error('[SigningEngine][ecdsa] keyRef refresh requires prepared ECDSA session');
@@ -1044,6 +1105,8 @@ async function signEvmFamilyAttempt(
       accountAuth: resolvedAccountAuth,
       alreadyRetryingFreshEmailOtpAuth: attempt.retryingFreshAuth,
       hasEmailOtpSigningPlan: !!emailOtpSigning,
+      sideEffectState: freshAuthRetrySideEffectState,
+      onDecision: (decision) => recordFreshAuthRetryDecision(decision, error),
       onEvent: args.onEvent,
       retry: async () => {
         const result = await signEvmFamilyAttempt(deps, args, {
@@ -1062,16 +1125,18 @@ async function signEvmFamilyAttempt(
   ): Promise<TempoSignedResult | EvmSignedResult | null> => {
     const emailOtpRetry = await retryWithFreshEmailOtpAuth(error);
     if (emailOtpRetry) return emailOtpRetry;
-    if (
-      attempt.retryingFreshAuth ||
-      args.request.senderSignatureAlgorithm !== 'secp256k1' ||
-      // Retrying after confirmed step-up would show another auth prompt for the same operation.
-      isEmailOtpSigningAuthPlan(signingAuthPlan) ||
-      isPasskeySigningAuthPlan(signingAuthPlan) ||
-      !isSigningSessionBudgetExhaustedError(error)
-    ) {
-      return null;
-    }
+    const decision = classifyEvmFamilyFreshAuthRetry({
+      trigger: 'wallet_signing_budget_exhausted',
+      error,
+      senderSignatureAlgorithm: args.request.senderSignatureAlgorithm,
+      accountAuth: resolvedAccountAuth,
+      alreadyRetryingFreshAuth: attempt.retryingFreshAuth,
+      hasStepUpAuthPlan:
+        isEmailOtpSigningAuthPlan(signingAuthPlan) || isPasskeySigningAuthPlan(signingAuthPlan),
+      sideEffectState: freshAuthRetrySideEffectState,
+    });
+    recordFreshAuthRetryDecision(decision, error);
+    if (decision.kind !== 'retry') return null;
     emitEvmFamilyFreshAuthRetryEvent({
       walletId,
       chain: args.request.chain,
@@ -1095,15 +1160,49 @@ async function signEvmFamilyAttempt(
       expectedPrepared,
       'successful wallet signing-session spend',
     );
-    await recordSuccessfulEvmFamilyWalletSigningSessionSpend({
-      signingSessionCoordinator,
-      walletSession: args.walletSession,
-      operation: createTransactionSigningOperation(),
-      admittedTransaction: prepared.budget.operation,
-      finalizedSigningLane: prepared.signingLane,
+    const budgetDiagnostics = buildBudgetFailureDiagnostics(prepared);
+    emitSigningSessionFlowTrace('evm-family', {
+      stage: 'ecdsa_attempt.budget_finalization_started',
+      accountId: walletId,
+      chain: args.request.chain,
+      chainTarget: requestChainTarget,
+      lane: summarizeEvmFamilyEcdsaLane(prepared.signingLane),
       reserved: walletSigningSessionBudgetReserved,
-      ...(prepared.budgetStatusAuth ? { trustedStatusAuth: prepared.budgetStatusAuth } : {}),
+      ...budgetDiagnostics,
     });
+    try {
+      await recordSuccessfulEvmFamilyWalletSigningSessionSpend({
+        signingSessionCoordinator,
+        walletSession: args.walletSession,
+        operation: createTransactionSigningOperation(),
+        admittedTransaction: prepared.budget.operation,
+        finalizedSigningLane: prepared.signingLane,
+        key: requirePreparedEcdsaBudgetKey(prepared, 'successful wallet signing-session spend'),
+        reserved: walletSigningSessionBudgetReserved,
+        ...(prepared.budgetStatusAuth ? { trustedStatusAuth: prepared.budgetStatusAuth } : {}),
+      });
+      emitSigningSessionFlowTrace('evm-family', {
+        stage: 'ecdsa_attempt.budget_finalized',
+        accountId: walletId,
+        chain: args.request.chain,
+        chainTarget: requestChainTarget,
+        lane: summarizeEvmFamilyEcdsaLane(prepared.signingLane),
+        reserved: walletSigningSessionBudgetReserved,
+        ...budgetDiagnostics,
+      });
+    } catch (error: unknown) {
+      emitSigningSessionFlowFailure('evm-family', {
+        stage: 'ecdsa_attempt.budget_finalization_failed',
+        accountId: walletId,
+        chain: args.request.chain,
+        chainTarget: requestChainTarget,
+        lane: summarizeEvmFamilyEcdsaLane(prepared.signingLane),
+        reserved: walletSigningSessionBudgetReserved,
+        error: error instanceof Error ? error.message : String(error || 'unknown error'),
+        ...budgetDiagnostics,
+      });
+      throw error;
+    }
   };
   let walletSigningSessionBudgetReserved = false;
   const reserveWalletSigningSessionBudget = async (
@@ -1130,6 +1229,7 @@ async function signEvmFamilyAttempt(
       operation: createTransactionSigningOperation(),
       admittedTransaction: operation,
       finalizedSigningLane: prepared.signingLane,
+      key: requirePreparedEcdsaBudgetKey(prepared, 'wallet signing-session reservation'),
       ...(prepared.budgetStatusAuth ? { trustedStatusAuth: prepared.budgetStatusAuth } : {}),
     });
     walletSigningSessionBudgetReserved = Boolean(reservation);
@@ -1143,7 +1243,16 @@ async function signEvmFamilyAttempt(
     if (args.request.senderSignatureAlgorithm !== 'secp256k1') return;
     const prepared = expectedPrepared || getPreparedEcdsaSigningSession();
     assertPreparedEcdsaOperationLane(prepared, 'failed spend finalization');
-    if (prepared.budget.kind !== 'admitted') return;
+    if (prepared.budget.kind !== 'BudgetAdmitted') return;
+    emitSigningSessionFlowTrace('evm-family', {
+      stage: 'ecdsa_attempt.budget_zero_spend_recorded',
+      accountId: walletId,
+      chain: args.request.chain,
+      chainTarget: requestChainTarget,
+      lane: summarizeEvmFamilyEcdsaLane(prepared.signingLane),
+      error: error instanceof Error ? error.message : String(error || 'unknown error'),
+      ...buildBudgetFailureDiagnostics(prepared),
+    });
     recordFailedEvmFamilyWalletSigningSessionSpend({
       signingSessionCoordinator,
       walletSession: args.walletSession,
@@ -1151,6 +1260,7 @@ async function signEvmFamilyAttempt(
       error,
       admittedTransaction: prepared.budget.operation,
       finalizedSigningLane: prepared.signingLane,
+      key: requirePreparedEcdsaBudgetKey(prepared, 'failed wallet signing-session spend'),
       ...(prepared.budgetStatusAuth ? { trustedStatusAuth: prepared.budgetStatusAuth } : {}),
     });
   };
@@ -1187,6 +1297,18 @@ async function signEvmFamilyAttempt(
       ? { walletSigningSessionId: String(preparedNonceSession.signingLane.walletSigningSessionId) }
       : {}),
   };
+  if (preparedNonceSession) {
+    const nonceFingerprint = derivePreparedEvmFamilyKeyFingerprint(preparedNonceSession);
+    emitSigningSessionFlowTrace('evm-family', {
+      stage: 'ecdsa_attempt.nonce_operation_prepared',
+      accountId: walletId,
+      chain: requestChain,
+      chainTarget: requestChainTarget,
+      ...(nonceFingerprint ? { evmFamilyKeyFingerprint: nonceFingerprint } : {}),
+      walletSigningSessionId: String(preparedNonceSession.signingLane.walletSigningSessionId),
+      thresholdSessionId: String(preparedNonceSession.signingLane.thresholdSessionId),
+    });
+  }
   const preparedExecutorSession = getPreparedEcdsaSigningSessionIfEcdsa();
   const requireThresholdEcdsaStepUpRuntime = () => {
     const runtime = flowArgs.thresholdEcdsaStepUpRuntime;
@@ -1198,7 +1320,7 @@ async function signEvmFamilyAttempt(
     return runtime;
   };
   const thresholdEcdsaStepUp: EvmFamilyThresholdEcdsaStepUp = preparedExecutorSession
-    ? preparedExecutorSession.budget.kind === 'admitted'
+    ? preparedExecutorSession.budget.kind === 'BudgetAdmitted'
       ? {
           kind: 'required_admitted',
           authPlan: {
@@ -1231,12 +1353,9 @@ async function signEvmFamilyAttempt(
     if (!signingSessionPlan) {
       throw new Error('[SigningEngine][ecdsa] prepared executor requires a signing session plan');
     }
-    const preparedEmailOtpReauthRecord = resolveEmailOtpReauthRecord();
-    const thresholdOwnerAddress =
-      toOptionalEvmAddress(resolvePreparedWarmKeyRef(preparedExecutorSession)?.ethereumAddress) ||
-      toOptionalEvmAddress(resolvePreparedWarmRecord(preparedExecutorSession)?.ethereumAddress) ||
-      toOptionalEvmAddress(preparedEmailOtpReauthRecord?.ethereumAddress) ||
-      null;
+    const thresholdOwnerAddress = toOptionalEvmAddress(
+      preparedExecutorSession.signingLane.key.thresholdOwnerAddress,
+    );
     if (!thresholdOwnerAddress) {
       throw new Error(
         '[SigningEngine][ecdsa] prepared EVM-family signing requires threshold owner address',
@@ -1271,7 +1390,7 @@ async function signEvmFamilyAttempt(
   if (preparedExecutorSession) {
     let result: EvmSignedResult | TempoSignedResult;
     try {
-      if (preparedExecutorSession.budget.kind === 'admitted') {
+      if (preparedExecutorSession.budget.kind === 'BudgetAdmitted') {
         const signedOperation = await signPreparedTransactionOperation(
           preparedExecutorSession.budget.operation,
           executePayload,

@@ -19,6 +19,10 @@ import type {
   WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
+import {
+  toEcdsaHssThresholdKeyId,
+  toWalletSessionUserId,
+} from '../../session/identity/emailOtpHssIdentity';
 
 export type EcdsaHssExplicitExportDeps = {
   getSignerWorkerContext: () => WorkerOperationContext;
@@ -45,6 +49,7 @@ export async function exportEcdsaHssKeyWithThresholdSession(
   ).trim();
   const currentRelayerUrl = String(args.keyRef.relayerUrl || '').trim();
   const currentThresholdKeyId = String(args.keyRef.ecdsaThresholdKeyId || '').trim();
+  const walletSessionUserId = toWalletSessionUserId(args.walletSessionUserId);
   const sessionKind = args.keyRef.thresholdSessionKind === 'cookie' ? 'cookie' : 'jwt';
   if (
     !currentThresholdSessionId ||
@@ -57,12 +62,12 @@ export async function exportEcdsaHssKeyWithThresholdSession(
 
   const signerWorkerCtx = deps.getSignerWorkerContext();
   const prepare = await thresholdEcdsaHssPrepare(currentRelayerUrl, {
-    walletSessionUserId: args.walletSessionUserId,
+    walletSessionUserId,
     subjectId: args.subjectId,
     rpId: args.rpId,
     chainTarget: args.chainTarget,
     operation: 'explicit_key_export',
-    ecdsaThresholdKeyId: currentThresholdKeyId,
+    ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId(currentThresholdKeyId),
     auth: { kind: 'threshold_session', jwt: currentThresholdSessionAuthToken },
     sessionKind,
   });

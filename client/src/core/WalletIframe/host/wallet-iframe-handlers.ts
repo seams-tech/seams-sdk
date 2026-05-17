@@ -457,7 +457,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
                 kind: 'ecdsa',
                 subjectId: payload.subjectId,
                 chainTarget: payload.chainTarget,
-                walletSessionUserId: payload.walletSessionUserId,
+                walletSession: payload.walletSession,
                 options: {
                   ...payload.options,
                   onEvent: (event) => postProgress(req.requestId, event),

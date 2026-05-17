@@ -7,6 +7,10 @@ import {
   type EmailOtpEcdsaSessionProvision,
 } from '../../session/warmCapabilities/ecdsaProvisionPlan';
 import {
+  resolveReadyEvmFamilyEcdsaMaterial,
+  type ReadyEvmFamilyEcdsaMaterial,
+} from '../../session/identity/evmFamilyEcdsaIdentity';
+import {
   buildEvmFamilyEcdsaSigningLaneContext,
   type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
@@ -25,6 +29,7 @@ export type EvmFamilyEmailOtpSigningCompleter = {
 };
 
 export type EvmFamilyEmailOtpSigningRefreshResult = {
+  readyMaterial: ReadyEvmFamilyEcdsaMaterial;
   keyRef: ThresholdEcdsaSecp256k1KeyRef;
   record: ThresholdEcdsaSessionRecord;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
@@ -64,6 +69,25 @@ export async function completeEvmFamilyEmailOtpSigningRefresh(args: {
   if (!ecdsaSessionIdentitiesEqual(recordIdentity, keyRefIdentity)) {
     throw new Error('[SigningEngine][ecdsa] Email OTP refresh returned mismatched ECDSA identity');
   }
+  const materialResolution = resolveReadyEvmFamilyEcdsaMaterial({
+    record,
+    keyRef,
+    rpId: record.rpId,
+    expected: {
+      walletId: record.walletId,
+      subjectId: record.subjectId,
+      chainTarget: args.chainTarget,
+      authMethod: SIGNER_AUTH_METHODS.emailOtp,
+      source: SIGNER_AUTH_METHODS.emailOtp,
+      thresholdSessionId: recordIdentity.thresholdSessionId,
+      walletSigningSessionId: recordIdentity.walletSigningSessionId,
+    },
+  });
+  if (materialResolution.kind !== 'ready') {
+    throw new Error(
+      `[SigningEngine][ecdsa] Email OTP refresh did not return ready ECDSA material: ${materialResolution.kind}`,
+    );
+  }
   const provisionPlan = buildEvmFamilyEmailOtpEcdsaProvisionPlan({
     authorization: args.authorization,
     keyRef,
@@ -78,12 +102,16 @@ export async function completeEvmFamilyEmailOtpSigningRefresh(args: {
     chainTarget: args.chainTarget,
     authMethod: SIGNER_AUTH_METHODS.emailOtp,
     source: SIGNER_AUTH_METHODS.emailOtp,
-    material: 'record_and_key_ref',
-    record,
-    keyRef,
+    material: materialResolution.material,
   });
   if (!lane) {
     throw new Error('[SigningEngine][ecdsa] Email OTP refresh did not return exact ECDSA lane');
   }
-  return { keyRef, record, lane, provisionPlan };
+  return {
+    readyMaterial: materialResolution.material,
+    keyRef,
+    record,
+    lane,
+    provisionPlan,
+  };
 }

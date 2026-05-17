@@ -21,6 +21,7 @@ import {
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import { thresholdEcdsaChainTargetsEqual } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaChainTarget, WalletSubjectId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { EvmFamilyEcdsaKeyIdentity } from '../identity/evmFamilyEcdsaIdentity';
 import type {
   BackingMaterialSessionId,
   SelectedEcdsaSigningSessionPlanningLane,
@@ -48,6 +49,7 @@ type BaseEd25519SigningLaneInput = BaseSigningLaneInput & {
   accountId: AccountId;
 };
 type BaseEcdsaSigningLaneInput = BaseSigningLaneInput & {
+  key: EvmFamilyEcdsaKeyIdentity;
   walletId: AccountId;
 };
 export type NearTransactionSigningLane = SelectedEd25519Lane & SelectedSigningSessionPlanningLane;
@@ -141,6 +143,7 @@ export function buildEcdsaPasskeySigningLane(
   return buildSigningLane<EcdsaTransactionSigningLane>({
     ...input,
     ...selectedEcdsaLane({
+      key: input.key,
       walletId: input.walletId,
       authMethod: 'passkey',
       walletSigningSessionId: input.walletSigningSessionId,
@@ -164,6 +167,7 @@ export function buildEcdsaEmailOtpSigningLane(
   return buildSigningLane<EcdsaTransactionSigningLane>({
     ...input,
     ...selectedEcdsaLane({
+      key: input.key,
       walletId: input.walletId,
       authMethod: 'email_otp',
       walletSigningSessionId: input.walletSigningSessionId,
@@ -670,21 +674,21 @@ function validateLaneCandidateForSigningLane(
         'Session record chain target does not match selected lane',
       );
     }
-    if (String(candidate.subjectId) !== String(lane.subjectId)) {
+    if (String(candidate.key.subjectId) !== String(lane.subjectId)) {
       return readError(
         lane,
         'record_mismatch',
         'Session record wallet subject does not match selected lane',
       );
     }
-    if (String(candidate.ecdsaThresholdKeyId) !== String(lane.ecdsaThresholdKeyId)) {
+    if (String(candidate.key.ecdsaThresholdKeyId) !== String(lane.ecdsaThresholdKeyId)) {
       return readError(
         lane,
         'record_mismatch',
         'Session record ECDSA key does not match selected lane',
       );
     }
-    if (String(candidate.signingRootId) !== String(lane.signingRootId)) {
+    if (String(candidate.key.signingRootId) !== String(lane.signingRootId)) {
       return readError(
         lane,
         'record_mismatch',
@@ -692,7 +696,7 @@ function validateLaneCandidateForSigningLane(
       );
     }
     if (
-      normalizedOptionalString(candidate.signingRootVersion) !==
+      normalizedOptionalString(candidate.key.signingRootVersion) !==
       normalizedOptionalString(lane.signingRootVersion)
     ) {
       return readError(

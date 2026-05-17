@@ -23,7 +23,10 @@ import {
   type EvmFamilyNonceLifecycleDeps,
 } from './nonceLifecycleAdapter';
 import {
+  resolveProfileChainAccountNonceSenderIdentity,
+  thresholdOwnerNonceSenderIdentity,
   resolveNonceNetworkKeyForError,
+  type EvmFamilyManagedNonceSenderIdentity,
   type EvmFamilyAccountMetadataDeps,
   type EvmFamilyNonceNetworkDeps,
 } from './nonceResolution';
@@ -86,7 +89,6 @@ type EvmFamilyTransactionSigningConfig<TRequest extends EvmFamilyTransactionSign
     walletId: string;
     request: TRequest;
     nonceOperation: NonceOperationContext;
-    ecdsaSignerAddress?: `0x${string}`;
   }) => Promise<{
     request: TRequest;
     reservation: EvmFamilyManagedNonceReservation;
@@ -95,28 +97,45 @@ type EvmFamilyTransactionSigningConfig<TRequest extends EvmFamilyTransactionSign
     deps: EvmFamilyTransactionExecutorDeps;
     walletId: string;
     request: TRequest;
-    ecdsaSignerAddress?: `0x${string}`;
   }) => void;
 };
 
-function resolveThresholdEcdsaSignerAddress(args: {
+function resolveThresholdOwnerNonceSenderIdentity(args: {
   state: EvmFamilyExecutorThresholdEcdsaState;
-}): `0x${string}` | undefined {
+}): EvmFamilyManagedNonceSenderIdentity | undefined {
   if (args.state.kind === 'not_required') return undefined;
-  return args.state.thresholdOwnerAddress;
+  return thresholdOwnerNonceSenderIdentity(args.state.thresholdOwnerAddress);
 }
 
-function requireRawEip1559ThresholdOwnerAddress(args: {
+function requireRawEip1559ThresholdOwnerNonceSenderIdentity(args: {
   state: EvmFamilyExecutorThresholdEcdsaState;
   walletId: string;
   chainTarget: ThresholdEcdsaChainTarget;
-}): `0x${string}` | undefined {
+}): EvmFamilyManagedNonceSenderIdentity {
   if (args.state.kind === 'not_required') {
     throw new Error(
       `[SigningEngine][evm-family] raw EIP-1559 signing requires prepared threshold ECDSA owner address for ${args.walletId}`,
     );
   }
-  return args.state.thresholdOwnerAddress;
+  return thresholdOwnerNonceSenderIdentity(args.state.thresholdOwnerAddress);
+}
+
+function resolvePreparedNonceSenderIdentity(args: {
+  state: EvmFamilyExecutorThresholdEcdsaState;
+}): EvmFamilyManagedNonceSenderIdentity | undefined {
+  return resolveThresholdOwnerNonceSenderIdentity(args);
+}
+
+function resolveFallbackChainAccountNonceSenderIdentity(args: {
+  deps: EvmFamilyTransactionExecutorDeps;
+  walletId: string;
+  chainTarget: ThresholdEcdsaChainTarget;
+}): Promise<EvmFamilyManagedNonceSenderIdentity> {
+  return resolveProfileChainAccountNonceSenderIdentity({
+    deps: args.deps,
+    walletId: args.walletId,
+    chainTarget: args.chainTarget,
+  });
 }
 
 async function executeConfiguredEvmFamilyTransactionSigning<
@@ -126,14 +145,10 @@ async function executeConfiguredEvmFamilyTransactionSigning<
   config: EvmFamilyTransactionSigningConfig<TRequest>,
 ): Promise<EvmFamilyTransactionSigningResult> {
   const signWithUiConfirm = await config.loadSigner();
-  const ecdsaSignerAddress = resolveThresholdEcdsaSignerAddress({
-    state: args.thresholdEcdsaState,
-  });
   config.reconcileNonceLane?.({
     deps: args.deps,
     walletId: args.walletId,
     request: args.request,
-    ...(ecdsaSignerAddress ? { ecdsaSignerAddress } : {}),
   });
 
   try {
@@ -149,7 +164,6 @@ async function executeConfiguredEvmFamilyTransactionSigning<
           walletId: args.walletId,
           request: args.request,
           nonceOperation: args.nonceOperation,
-          ...(ecdsaSignerAddress ? { ecdsaSignerAddress } : {}),
         }),
       releaseNonceReservation: async (reservation: EvmFamilyManagedNonceReservation) => {
         await releaseEvmFamilyNonceReservation(args.deps, reservation);
@@ -211,28 +225,47 @@ export async function executeEvmFamilyTransactionSigning(args: {
   if (args.chainTarget.kind === 'evm' || args.request.kind === 'eip1559') {
     let reservationInputPromise: ReturnType<typeof resolveManagedEvmNonceReservationInput> | null =
       null;
-    const rawEip1559OwnerAddress =
+    let fallbackSenderIdentityPromise: Promise<EvmFamilyManagedNonceSenderIdentity> | null = null;
+    const rawEip1559SenderIdentity =
       args.request.kind === 'eip1559'
-        ? requireRawEip1559ThresholdOwnerAddress({
+        ? requireRawEip1559ThresholdOwnerNonceSenderIdentity({
             state: args.thresholdEcdsaState,
             walletId: args.walletId,
             chainTarget: args.chainTarget,
           })
         : undefined;
+    const preparedSenderIdentity = resolvePreparedNonceSenderIdentity({
+      state: args.thresholdEcdsaState,
+    });
+    const getSenderIdentity = (nonceArgs: {
+      deps: EvmFamilyTransactionExecutorDeps;
+      walletId: string;
+    }): Promise<EvmFamilyManagedNonceSenderIdentity> => {
+      const exactSenderIdentity = rawEip1559SenderIdentity || preparedSenderIdentity;
+      if (exactSenderIdentity) return Promise.resolve(exactSenderIdentity);
+      if (!fallbackSenderIdentityPromise) {
+        fallbackSenderIdentityPromise = resolveFallbackChainAccountNonceSenderIdentity({
+          deps: nonceArgs.deps,
+          walletId: nonceArgs.walletId,
+          chainTarget: args.chainTarget,
+        });
+      }
+      return fallbackSenderIdentityPromise;
+    };
     const getReservationInput = (nonceArgs: {
       deps: EvmFamilyTransactionExecutorDeps;
       walletId: string;
       request: EvmSigningRequest;
-      ecdsaSignerAddress?: `0x${string}`;
     }) => {
       if (!reservationInputPromise) {
-        const senderHint = rawEip1559OwnerAddress || nonceArgs.ecdsaSignerAddress;
-        reservationInputPromise = resolveManagedEvmNonceReservationInput({
-          deps: nonceArgs.deps,
-          walletId: nonceArgs.walletId,
-          request: nonceArgs.request,
-          ...(senderHint ? { senderHint } : {}),
-        });
+        reservationInputPromise = getSenderIdentity(nonceArgs).then((senderIdentity) =>
+          resolveManagedEvmNonceReservationInput({
+            deps: nonceArgs.deps,
+            walletId: nonceArgs.walletId,
+            request: nonceArgs.request,
+            senderIdentity,
+          }),
+        );
       }
       return reservationInputPromise;
     };
@@ -266,6 +299,25 @@ export async function executeEvmFamilyTransactionSigning(args: {
       },
     );
   }
+  let tempoFallbackSenderIdentityPromise: Promise<EvmFamilyManagedNonceSenderIdentity> | null =
+    null;
+  const tempoPreparedSenderIdentity = resolvePreparedNonceSenderIdentity({
+    state: args.thresholdEcdsaState,
+  });
+  const getTempoSenderIdentity = (nonceArgs: {
+    deps: EvmFamilyTransactionExecutorDeps;
+    walletId: string;
+  }): Promise<EvmFamilyManagedNonceSenderIdentity> => {
+    if (tempoPreparedSenderIdentity) return Promise.resolve(tempoPreparedSenderIdentity);
+    if (!tempoFallbackSenderIdentityPromise) {
+      tempoFallbackSenderIdentityPromise = resolveFallbackChainAccountNonceSenderIdentity({
+        deps: nonceArgs.deps,
+        walletId: nonceArgs.walletId,
+        chainTarget: args.chainTarget,
+      });
+    }
+    return tempoFallbackSenderIdentityPromise;
+  };
   return await executeConfiguredEvmFamilyTransactionSigning(
     {
       ...args,
@@ -274,14 +326,16 @@ export async function executeEvmFamilyTransactionSigning(args: {
     {
       targetKind: 'tempo',
       loadSigner: loadSignTempoWithUiConfirm,
-      prepareRequestWithManagedNonce: async (nonceArgs) =>
-        await reserveManagedTempoNonceForRequest({
+      prepareRequestWithManagedNonce: async (nonceArgs) => {
+        const senderIdentity = await getTempoSenderIdentity(nonceArgs);
+        return await reserveManagedTempoNonceForRequest({
           deps: nonceArgs.deps,
           walletId: nonceArgs.walletId,
           request: nonceArgs.request,
           operation: nonceArgs.nonceOperation,
-          ...(nonceArgs.ecdsaSignerAddress ? { senderHint: nonceArgs.ecdsaSignerAddress } : {}),
-        }),
+          senderIdentity,
+        });
+      },
     },
   );
 }

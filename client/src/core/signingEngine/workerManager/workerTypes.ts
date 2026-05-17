@@ -413,6 +413,7 @@ export interface EmailOtpWorkerOperationMap {
         signingRootId: string;
         signingRootVersion?: string;
         ecdsaThresholdKeyId: string;
+        ethereumAddress: string;
         relayerKeyId: string;
         participantIds?: number[];
         derivationPath?: string;

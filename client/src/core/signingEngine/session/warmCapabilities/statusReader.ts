@@ -3,8 +3,13 @@ import type { SigningSessionStatus } from '@/core/types/seams';
 import type { WarmSessionStatusResult } from '../../uiConfirm/types';
 import type {
   ThresholdEcdsaSessionRecord,
+  ThresholdEd25519SessionRecord,
 } from '../persistence/records';
-import type { ThresholdEcdsaSessionStoreSource } from '../identity/laneIdentity';
+import {
+  selectedEcdsaLane,
+  type ThresholdEcdsaSessionStoreSource,
+} from '../identity/laneIdentity';
+import { buildEvmFamilyEcdsaKeyIdentityFromRecord } from '../identity/evmFamilyEcdsaIdentity';
 import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
@@ -226,6 +231,34 @@ export function createWarmSessionStatusReader(
     return null;
   }
 
+  function hasRecordBackedEd25519Status(
+    record: ThresholdEd25519SessionRecord | null | undefined,
+  ): record is ThresholdEd25519SessionRecord {
+    if (!record || !String(record.xClientBaseB64u || '').trim()) return false;
+    if (record.source === 'email_otp') {
+      return record.emailOtpAuthContext?.retention === 'session';
+    }
+    return record.thresholdSessionKind === 'cookie';
+  }
+
+  function toRecordBackedEd25519Status(
+    record: ThresholdEd25519SessionRecord,
+    thresholdSessionId: string,
+  ): SigningSessionStatus {
+    const remainingUses = Math.floor(Number(record.remainingUses) || 0);
+    const expiresAtMs = Math.floor(Number(record.expiresAtMs) || 0);
+    return {
+      sessionId: thresholdSessionId,
+      status: expiresAtMs > 0 && Date.now() >= expiresAtMs ? 'expired' : 'active',
+      authMethod: record.source === 'email_otp' ? 'email_otp' : 'passkey',
+      ...(record.emailOtpAuthContext?.retention
+        ? { retention: record.emailOtpAuthContext.retention }
+        : {}),
+      ...(remainingUses > 0 ? { remainingUses } : {}),
+      ...(expiresAtMs > 0 ? { expiresAtMs } : {}),
+    };
+  }
+
   async function assertEcdsaSigningSessionReady(args: {
     walletId: AccountId | string;
     chainTarget: ThresholdEcdsaChainTarget;
@@ -292,24 +325,9 @@ export function createWarmSessionStatusReader(
     });
     if (
       (status.status === 'not_found' || status.status === 'exhausted') &&
-      record?.source === 'email_otp' &&
-      record.emailOtpAuthContext?.retention === 'session' &&
-      record.xClientBaseB64u
+      hasRecordBackedEd25519Status(record)
     ) {
-      const remainingUses = Math.floor(Number(record.remainingUses) || 0);
-      const expiresAtMs = Math.floor(Number(record.expiresAtMs) || 0);
-      // Email OTP Ed25519 material is record-backed, not PRF-claim-backed.
-      // Missing/exhausted worker material should not become terminal here:
-      // the wallet budget route is the authority for remaining uses and will
-      // force step-up when the selected wallet session is actually exhausted.
-      return {
-        sessionId: normalizedThresholdSessionId,
-        status: expiresAtMs > 0 && Date.now() >= expiresAtMs ? 'expired' : 'active',
-        authMethod: 'email_otp',
-        retention: record.emailOtpAuthContext.retention,
-        ...(remainingUses > 0 ? { remainingUses } : {}),
-        ...(expiresAtMs > 0 ? { expiresAtMs } : {}),
-      };
+      return toRecordBackedEd25519Status(record, normalizedThresholdSessionId);
     }
     return status;
   }
@@ -352,12 +370,29 @@ export function createWarmSessionStatusReader(
     claim: WarmSessionPrfClaim | null;
   }): WarmEcdsaRecordBackedSigningSessionStatus {
     const identity = buildEcdsaSessionIdentity(args.record);
+    const key = buildEvmFamilyEcdsaKeyIdentityFromRecord({
+      record: args.record,
+      rpId: args.record.rpId,
+    });
     return {
       ...toSigningSessionStatus({
         sessionId: identity.thresholdSessionId,
         claim: args.claim,
         authMethod: args.record.source === 'email_otp' ? 'email_otp' : 'passkey',
         retention: args.record.emailOtpAuthContext?.retention || null,
+      }),
+      key,
+      lane: selectedEcdsaLane({
+        key,
+        walletId: args.record.walletId,
+        authMethod: args.record.source === 'email_otp' ? 'email_otp' : 'passkey',
+        walletSigningSessionId: identity.walletSigningSessionId,
+        thresholdSessionId: identity.thresholdSessionId,
+        subjectId: args.record.subjectId,
+        chainTarget: args.record.chainTarget,
+        ecdsaThresholdKeyId: args.record.ecdsaThresholdKeyId,
+        signingRootId: args.record.signingRootId,
+        signingRootVersion: args.record.signingRootVersion,
       }),
       chainTarget: args.record.chainTarget,
       source: args.record.source,

@@ -10,10 +10,15 @@ import {
 } from './planning/planner';
 import {
   assertPreparedBudgetProjectionVersion,
+  buildAuthenticatedEcdsaLaneBudgetStatusCheck,
   buildAuthenticatedThresholdBudgetStatusCheck,
   buildBackingMaterialBudgetStatusCheck,
+  buildEcdsaLaneBudgetStatusCheck,
   buildThresholdBudgetStatusCheck,
   buildWalletBudgetStatusCheck,
+  isEcdsaLaneBudgetStatusCheck,
+  thresholdSessionIdsForBudgetStatusCheck,
+  walletIdForBudgetStatusCheck,
   isSigningSessionBudgetExhaustedError,
   isSigningSessionBudgetUnknownError,
   normalizeRequired,
@@ -467,6 +472,23 @@ function buildBudgetStatusCheckForLane(args: {
   trustedStatusAuth?: SigningSessionBudgetStatusAuth;
 }): SigningSessionBudgetStatusCheck {
   const walletId = args.lane.curve === 'ecdsa' ? args.lane.walletId : args.lane.accountId;
+  if (args.lane.curve === 'ecdsa') {
+    if (args.trustedStatusAuth) {
+      return buildAuthenticatedEcdsaLaneBudgetStatusCheck({
+        key: args.lane.key,
+        chainTarget: args.lane.chainTarget,
+        walletSigningSessionId: args.lane.walletSigningSessionId,
+        thresholdSessionId: args.lane.thresholdSessionId,
+        trustedStatusAuth: args.trustedStatusAuth,
+      });
+    }
+    return buildEcdsaLaneBudgetStatusCheck({
+      key: args.lane.key,
+      chainTarget: args.lane.chainTarget,
+      walletSigningSessionId: args.lane.walletSigningSessionId,
+      thresholdSessionId: args.lane.thresholdSessionId,
+    });
+  }
   if (args.trustedStatusAuth && args.lane.thresholdSessionId) {
     return buildAuthenticatedThresholdBudgetStatusCheck({
       walletId,
@@ -502,6 +524,16 @@ function buildLegacyStatusQueryFromBudgetStatusCheck(args: SigningSessionBudgetS
   targetThresholdSessionIds?: string[];
   trustedStatusAuth?: SigningSessionBudgetStatusAuth;
 } {
+  if (isEcdsaLaneBudgetStatusCheck(args)) {
+    return {
+      walletId: walletIdForBudgetStatusCheck(args),
+      walletSigningSessionId: args.walletSigningSessionId,
+      targetThresholdSessionIds: thresholdSessionIdsForBudgetStatusCheck(args),
+      ...(args.kind === 'authenticated_ecdsa_lane_budget_status_check'
+        ? { trustedStatusAuth: args.trustedStatusAuth }
+        : {}),
+    };
+  }
   if (args.kind === 'authenticated_threshold_budget_status_check') {
     return {
       walletId: args.walletId,

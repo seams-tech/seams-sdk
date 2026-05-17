@@ -1,7 +1,6 @@
 import { buildNearAccountRefs } from '@/core/accountData/near/accountRefs';
 import { chainFamilyFromNetwork } from '@/core/config/chains';
 import {
-  normalizeIndexedDbAccountModel,
   toIndexedDbChainTargetKey,
 } from '@/core/indexedDB/normalization';
 import type { ChainAccountRecord } from '@/core/indexedDB/passkeyClientDB.types';
@@ -10,8 +9,8 @@ import { toAccountId } from '@/core/types/accountIds';
 import type { SeamsChainConfig, SeamsConfigsReadonly } from '@/core/types/seams';
 import type { EvmSigningRequest } from '../../chains/evm/types';
 import type { TempoSigningRequest } from '../../chains/tempo/types';
+import type { ThresholdEcdsaChainTarget } from '../../interfaces/ecdsaChainTarget';
 import type { EvmFamilyAccountMetadataDeps } from './accountAuth';
-import { deriveSmartAccountDeploymentTargetFromSigningRequest } from './smartAccountDeploymentState';
 import { toOptionalEvmAddress } from './addresses';
 
 export type { EvmFamilyAccountMetadataDeps };
@@ -97,27 +96,61 @@ function tryResolveNonceNetworkKey(args: {
   return null;
 }
 
-function pickPreferredSmartAccountRow(args: {
-  rows: ChainAccountRecord[];
-  accountModelCandidates: readonly string[];
-}): ChainAccountRecord | null {
-  const modelSet = new Set(args.accountModelCandidates.map(normalizeIndexedDbAccountModel));
-  const filtered = args.rows.filter((row) =>
-    modelSet.has(normalizeIndexedDbAccountModel(row.accountModel)),
-  );
-  const source = filtered.length ? filtered : args.rows;
-  if (!source.length) return null;
-  return source.find((row) => !!row.isPrimary) || source[0] || null;
+export type EvmFamilyManagedNonceSenderIdentity =
+  | {
+      kind: 'threshold_owner';
+      thresholdOwnerAddress: `0x${string}`;
+      chainAccountAddress?: never;
+    }
+  | {
+      kind: 'chain_account';
+      chainAccountAddress: `0x${string}`;
+      thresholdOwnerAddress?: never;
+    };
+
+function pickPreferredChainAccountRow(rows: ChainAccountRecord[]): ChainAccountRecord | null {
+  if (!rows.length) return null;
+  return rows.find((row) => !!row.isPrimary) || rows[0] || null;
 }
 
-export async function resolveManagedNonceSender(args: {
+export function thresholdOwnerNonceSenderIdentity(
+  thresholdOwnerAddress: `0x${string}`,
+): EvmFamilyManagedNonceSenderIdentity {
+  return {
+    kind: 'threshold_owner',
+    thresholdOwnerAddress,
+  };
+}
+
+export function chainAccountNonceSenderIdentity(
+  chainAccountAddress: `0x${string}`,
+): EvmFamilyManagedNonceSenderIdentity {
+  return {
+    kind: 'chain_account',
+    chainAccountAddress,
+  };
+}
+
+function senderAddressFromIdentity(
+  senderIdentity: EvmFamilyManagedNonceSenderIdentity,
+): `0x${string}` {
+  switch (senderIdentity.kind) {
+    case 'threshold_owner':
+      return senderIdentity.thresholdOwnerAddress;
+    case 'chain_account':
+      return senderIdentity.chainAccountAddress;
+    default: {
+      const _exhaustive: never = senderIdentity;
+      return _exhaustive;
+    }
+  }
+}
+
+export async function resolveProfileChainAccountNonceSenderIdentity(args: {
   deps: EvmFamilyAccountMetadataDeps;
   walletId: string;
-  request: EvmSigningRequest | TempoSigningRequest;
-  senderHint?: `0x${string}`;
-}): Promise<`0x${string}`> {
-  if (args.senderHint) return args.senderHint;
-
+  chainTarget: ThresholdEcdsaChainTarget;
+}): Promise<EvmFamilyManagedNonceSenderIdentity> {
   const walletId = toAccountId(args.walletId);
   const context = await resolveProfileAccountContextFromCandidates(
     args.deps.indexedDB.clientDB,
@@ -125,29 +158,28 @@ export async function resolveManagedNonceSender(args: {
   );
   if (!context?.profileId) {
     throw new Error(
-      `[SigningEngine] unable to resolve profile mapping for managed ${args.request.chain.toUpperCase()} nonce (${String(walletId)})`,
+      `[SigningEngine] unable to resolve profile mapping for managed nonce (${String(walletId)})`,
     );
   }
 
-  const target = deriveSmartAccountDeploymentTargetFromSigningRequest(args.request);
-  for (const chainTarget of target.chainTargetCandidates) {
-    const chainIdKey = toIndexedDbChainTargetKey(chainTarget);
-    const rows = await args.deps.indexedDB.clientDB
-      .listChainAccountsByProfileAndChain(context.profileId, chainIdKey)
-      .catch(() => []);
-    if (!rows.length) continue;
-    const selected = pickPreferredSmartAccountRow({
-      rows,
-      accountModelCandidates: target.accountModelCandidates,
-    });
-    const sender = toOptionalEvmAddress(selected?.accountAddress);
-    if (sender) return sender;
-  }
+  const chainIdKey = toIndexedDbChainTargetKey(args.chainTarget);
+  const rows = await args.deps.indexedDB.clientDB
+    .listChainAccountsByProfileAndChain(context.profileId, chainIdKey)
+    .catch(() => []);
+  const selected = pickPreferredChainAccountRow(rows);
+  const chainAccountAddress = toOptionalEvmAddress(selected?.accountAddress);
+  if (chainAccountAddress) return chainAccountNonceSenderIdentity(chainAccountAddress);
 
   const contextMappedSender = toOptionalEvmAddress(context.accountRef.accountAddress);
-  if (contextMappedSender) return contextMappedSender;
+  if (contextMappedSender) return chainAccountNonceSenderIdentity(contextMappedSender);
 
   throw new Error(
-    `[SigningEngine] unable to resolve managed ${args.request.chain.toUpperCase()} nonce sender (no usable sender row for ${context.profileId})`,
+    `[SigningEngine] unable to resolve managed nonce chain account for ${context.profileId} (${chainIdKey})`,
   );
+}
+
+export async function resolveManagedNonceSender(args: {
+  senderIdentity: EvmFamilyManagedNonceSenderIdentity;
+}): Promise<`0x${string}`> {
+  return senderAddressFromIdentity(args.senderIdentity);
 }

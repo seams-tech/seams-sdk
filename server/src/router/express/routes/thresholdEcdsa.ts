@@ -28,6 +28,7 @@ import {
   signThresholdSessionAuthToken,
   validateThresholdEcdsaAuthorizeInputs,
   validateThresholdEcdsaSessionInputs,
+  validateThresholdEd25519SessionTokenInputs,
 } from '../../commonRouterUtils';
 import { validateRuntimeSnapshotExpectation } from '../../runtimeSnapshotConsumer';
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
@@ -371,6 +372,42 @@ export function registerThresholdEcdsaRoutes(
       const health = await scheme.healthz();
       if (health.ok) return { ok: true, configured: true };
       return { ...(health.code ? health : NOT_IMPLEMENTED), configured: true };
+    });
+  });
+
+  router.post('/threshold-ecdsa/key-identities', async (req: Request, res: Response) => {
+    await handle(ctx, req, res, '/threshold-ecdsa/key-identities', {}, async () => {
+      const validated = await validateThresholdEd25519SessionTokenInputs({
+        body: req.body || {},
+        headers: req.headers || {},
+        session: ctx.opts.session,
+      });
+      if (!validated.ok) return validated;
+      if (validated.claims.thresholdExpiresAtMs <= Date.now()) {
+        return {
+          ok: false,
+          code: 'unauthorized' as const,
+          message: 'Threshold Ed25519 session is expired',
+        };
+      }
+      const bodyRecord =
+        req.body && typeof req.body === 'object' && !Array.isArray(req.body)
+          ? (req.body as Record<string, unknown>)
+          : {};
+      const keyInventory = await ctx.service.listThresholdEcdsaKeyIdentityTargetsForUser({
+        userId: validated.claims.walletId,
+        rpId: validated.claims.rpId,
+        keyTargets: Array.isArray(bodyRecord.keyTargets) ? bodyRecord.keyTargets : [],
+      });
+      ctx.logger.info('[threshold-ecdsa][key-identities][diagnostic]', {
+        walletId: validated.claims.walletId,
+        ...keyInventory.diagnostics,
+      });
+      return {
+        ok: true,
+        ecdsaKeyIdentityTargets: keyInventory.records,
+        diagnostics: keyInventory.diagnostics,
+      };
     });
   });
 

@@ -786,12 +786,9 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         ...(oidcEmail ? { email: oidcEmail } : {}),
         ...(oidcName ? { name: oidcName } : {}),
       };
-      const smartAccountSigners =
-        provider === 'passkey' ? await ctx.service.listActiveSmartAccountSignersForUser(userId) : [];
       const responseBody = {
         ok: true,
         session: sessionBody,
-        ...(smartAccountSigners.length ? { smartAccountSigners } : {}),
       };
       await emitRelayWebhookEvent({
         logger: ctx.logger,

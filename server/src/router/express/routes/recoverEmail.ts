@@ -4,12 +4,9 @@ import type { ExpressRelayContext } from '../createRelayRouter';
 import {
   markTrackedRecoverySessionVerified,
   recordTrackedNearRecoveryExecution,
-  queueTrackedSmartAccountRecoveryExecutions,
   resolveTrackedNearRecoveryExecution,
   transitionTrackedRecoverySession,
 } from '../../recoveryExecutionTracking';
-import { dispatchRecoveryAuthorityTick } from '../../recoveryAuthorityDispatch';
-import { buildRecoveryAuthoritySponsorshipRuntime } from '../../recoveryAuthoritySponsorship';
 
 export function registerRecoverEmailRoute(router: ExpressRouter, ctx: ExpressRelayContext): void {
   // Email recovery hook (DKIM/TEE flow):
@@ -61,20 +58,17 @@ export function registerRecoverEmailRoute(router: ExpressRouter, ctx: ExpressRel
         }
       };
 
-      const queueEvmContinuation = async (transactionHash?: string): Promise<void> => {
+      const markNearRecoverySubmitted = async (transactionHash?: string): Promise<void> => {
         try {
-          await queueTrackedSmartAccountRecoveryExecutions(ctx.service, trackedRecovery, {
-            nearTransactionHash: transactionHash,
-          });
-          await dispatchRecoveryAuthorityTick(ctx.service, {
-            logger: ctx.logger,
-            sponsorship: buildRecoveryAuthoritySponsorshipRuntime({
-              logger: ctx.logger,
-              opts: ctx.opts,
-            }),
+          await transitionTrackedRecoverySession(ctx.service, trackedRecovery, {
+            status: 'near_recovered',
+            metadataPatch: {
+              ...(transactionHash ? { nearRecoveryTransactionHash: transactionHash } : {}),
+              nearRecoverySubmittedAtMs: Date.now(),
+            },
           });
         } catch (err: unknown) {
-          ctx.logger.warn('[recover-email] failed to queue linked EVM recovery executions', {
+          ctx.logger.warn('[recover-email] failed to mark NEAR recovery submitted', {
             accountId,
             sessionId: trackedRecovery?.sessionId,
             error: err instanceof Error ? err.message : String(err || 'unknown error'),
@@ -126,7 +120,7 @@ export function registerRecoverEmailRoute(router: ExpressRouter, ctx: ExpressRel
                   },
             );
             if (result?.success) {
-              await queueEvmContinuation(result.transactionHash);
+              await markNearRecoverySubmitted(result.transactionHash);
             } else {
               await markRecoveryFailed(
                 'near_email_recovery_submit_failed',
@@ -178,7 +172,7 @@ export function registerRecoverEmailRoute(router: ExpressRouter, ctx: ExpressRel
             },
       );
       if (result.success) {
-        await queueEvmContinuation(result.transactionHash);
+        await markNearRecoverySubmitted(result.transactionHash);
       } else {
         await markRecoveryFailed(
           'near_email_recovery_submit_failed',

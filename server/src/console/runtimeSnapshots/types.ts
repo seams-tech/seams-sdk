@@ -1,7 +1,6 @@
 export interface ConsoleRuntimeSnapshotPayload {
   policy: Record<string, unknown>;
   gasSponsorship: Record<string, unknown>;
-  smartWallets: Record<string, unknown>;
   metadata?: Record<string, unknown>;
 }
 

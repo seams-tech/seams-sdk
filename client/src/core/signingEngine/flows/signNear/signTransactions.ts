@@ -45,6 +45,7 @@ import {
   toCredentialForRelayJson,
 } from './shared/signingMaterials';
 import {
+  refreshPasskeyEd25519SealedRecordAfterClientBase,
   requireResolvedThresholdEd25519SessionState,
   resolveThresholdEd25519SessionStateFromRecord,
   type ResolvedThresholdEd25519SessionState,
@@ -602,6 +603,13 @@ export async function runNearTransactionsWithActionsSigning({
           prfFirstB64u,
           persistClientBase: thresholdSessionState.persistClientBase,
         }));
+      await refreshPasskeyEd25519SealedRecordAfterClientBase({
+        touchConfirm,
+        nearAccountId,
+        thresholdSessionState,
+        thresholdSessionId: canonicalThresholdSessionId,
+        xClientBaseB64u,
+      });
       emitNearSigningEvent(onEvent, nearAccountId, {
         phase: SigningEventPhase.STEP_08_SIGNER_PREPARE_SUCCEEDED,
         status: 'succeeded',
@@ -941,6 +949,13 @@ export async function runNearTransactionsWithActionsSigning({
                     },
                   }
                 : {}),
+            });
+            await refreshPasskeyEd25519SealedRecordAfterClientBase({
+              touchConfirm,
+              nearAccountId,
+              thresholdSessionState,
+              thresholdSessionId: canonicalThresholdSessionId,
+              xClientBaseB64u: repairedXClientBaseB64u,
             });
             requestPayload = buildRequestPayload(repairedXClientBaseB64u);
             const signedOperation = await signPreparedTransactionOperation(

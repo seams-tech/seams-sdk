@@ -28,9 +28,11 @@ import {
   toSigningSessionStatus,
   toWarmSessionClaimFromStatusResult,
 } from '../warmCapabilities/readModel';
-import type {
-  SigningSessionBudgetStatusAuth,
-  SigningSessionBudgetStatusCheck,
+import {
+  isEcdsaLaneBudgetStatusCheck,
+  thresholdSessionIdsForBudgetStatusCheck,
+  type SigningSessionBudgetStatusAuth,
+  type SigningSessionBudgetStatusCheck,
 } from '../budget/budget';
 import type { SigningSessionReadiness } from '../planning/planner';
 import {
@@ -615,8 +617,11 @@ function targetSessionSetsForBudgetStatusCheck(check: SigningSessionBudgetStatus
         : new Set<string>(),
     thresholdSessionIds:
       check.kind === 'threshold_budget_status_check' ||
-      check.kind === 'authenticated_threshold_budget_status_check'
-        ? new Set(check.targetThresholdSessionIds.map(normalizeNonEmpty).filter(Boolean))
+      check.kind === 'authenticated_threshold_budget_status_check' ||
+      isEcdsaLaneBudgetStatusCheck(check)
+        ? new Set(
+            thresholdSessionIdsForBudgetStatusCheck(check).map(normalizeNonEmpty).filter(Boolean),
+          )
         : new Set<string>(),
   };
 }

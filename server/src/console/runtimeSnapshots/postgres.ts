@@ -75,7 +75,6 @@ function clonePayload(input: ConsoleRuntimeSnapshotPayload): ConsoleRuntimeSnaps
   return {
     policy: cloneObject(input.policy),
     gasSponsorship: cloneObject(input.gasSponsorship),
-    smartWallets: cloneObject(input.smartWallets),
     ...(input.metadata ? { metadata: cloneObject(input.metadata) } : {}),
   };
 }
@@ -86,7 +85,6 @@ function parsePayload(raw: unknown): ConsoleRuntimeSnapshotPayload {
   return {
     policy: parseJsonObject(row.policy),
     gasSponsorship: parseJsonObject(row.gasSponsorship),
-    smartWallets: parseJsonObject(row.smartWallets),
     ...(metadataRaw && typeof metadataRaw === 'object' && !Array.isArray(metadataRaw)
       ? { metadata: parseJsonObject(metadataRaw) }
       : {}),

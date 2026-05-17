@@ -5,10 +5,9 @@ import type { SignerWorkerManagerContext } from '../../workerManager/SignerWorke
 import type { ThresholdWarmSessionMaterialPort } from '../../threshold/crypto/webauthn';
 import {
   activateEcdsaSession,
+  type ActivateEcdsaSessionRequest,
   type ThresholdEcdsaSessionBootstrapResult,
 } from '../../threshold/ecdsa/activation';
-import type { ThresholdEcdsaSmartAccountBootstrapInput } from '../warmCapabilities/ecdsaBootstrapPersistence';
-export type { ThresholdEcdsaSmartAccountBootstrapInput } from '../warmCapabilities/ecdsaBootstrapPersistence';
 import type {
   ThresholdEcdsaEmailOtpAuthContext,
   ThresholdEcdsaSessionStoreSource,
@@ -19,10 +18,7 @@ import type {
   ThresholdSessionKind,
 } from '../../threshold/sessionPolicy';
 import type { ThresholdEcdsaHssRouteAuth } from '@/core/rpcClients/relayer/thresholdEcdsa';
-import type {
-  AppOrThresholdSessionAuth,
-  AppSessionJwtAuth,
-} from '@shared/utils/sessionTokens';
+import type { AppOrThresholdSessionAuth, AppSessionJwtAuth } from '@shared/utils/sessionTokens';
 import type { SigningOperationIntent } from '../operationState/types';
 import type {
   ThresholdEcdsaChainTarget,
@@ -33,25 +29,61 @@ import {
   type EcdsaSessionIdentity,
 } from '../warmCapabilities/ecdsaProvisionPlan';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
+import type {
+  EvmFamilyEcdsaKeyIdentity,
+  EvmFamilyEcdsaSessionLanePolicy,
+} from '../identity/evmFamilyEcdsaIdentity';
 
-type EcdsaBootstrapRequestBase = {
-  walletId: AccountId | string;
-  subjectId: WalletSubjectId;
-  chainTarget: ThresholdEcdsaChainTarget;
+export type ExistingEcdsaBootstrapKeyIntent = {
+  kind: 'existing_ecdsa_key';
+  ecdsaThresholdKeyId: string;
+  participantIds: readonly number[];
+};
+
+type EcdsaBootstrapRequestCommon = {
   source?: ThresholdEcdsaSessionStoreSource;
   relayerUrl?: string;
-  ecdsaThresholdKeyId?: string;
-  participantIds?: number[];
   operationIntent?: SigningOperationIntent;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   runtimeScopeBootstrap?: {
     environmentId: string;
     publishableKey: string;
   };
+};
+
+type EcdsaBootstrapTargetIdentity = {
+  walletId: AccountId | string;
+  subjectId: WalletSubjectId;
+  chainTarget: ThresholdEcdsaChainTarget;
+  key?: never;
+  lanePolicy?: never;
+};
+
+type EcdsaBootstrapExactIdentity = {
+  key: EvmFamilyEcdsaKeyIdentity;
+  lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
+  walletId?: never;
+  subjectId?: never;
+  chainTarget?: never;
+  keyIntent?: never;
+  sessionKind?: never;
+  sessionIdentity?: never;
+  runtimePolicyScope?: never;
+  ttlMs?: never;
+  remainingUses?: never;
+};
+
+type EcdsaBootstrapRegistrationPolicy = {
+  keyIntent?: ExistingEcdsaBootstrapKeyIntent;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   ttlMs?: number;
   remainingUses?: number;
-  smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
 };
+
+type EcdsaBootstrapTargetRequestBase = EcdsaBootstrapRequestCommon &
+  EcdsaBootstrapTargetIdentity &
+  EcdsaBootstrapRegistrationPolicy;
+
+type EcdsaBootstrapExactRequestBase = EcdsaBootstrapRequestCommon & EcdsaBootstrapExactIdentity;
 
 type PasskeyFreshBootstrapRouteAuth =
   | AppSessionJwtAuth
@@ -66,7 +98,7 @@ export type EcdsaBootstrapSessionIdentityInput = {
   walletSigningSessionId: EcdsaSessionIdentity['walletSigningSessionId'] | string;
 };
 
-export type ReuseWarmEcdsaBootstrapRequest = EcdsaBootstrapRequestBase & {
+export type ReuseWarmEcdsaBootstrapRequest = EcdsaBootstrapTargetRequestBase & {
   kind: 'reuse_warm_ecdsa_bootstrap';
   sessionKind?: never;
   sessionIdentity?: never;
@@ -76,37 +108,45 @@ export type ReuseWarmEcdsaBootstrapRequest = EcdsaBootstrapRequestBase & {
   emailOtpAuthContext?: never;
 };
 
-type PasskeyFreshEcdsaBootstrapRequestBase = EcdsaBootstrapRequestBase & {
+type PasskeyFreshEcdsaBootstrapTargetRequestBase = EcdsaBootstrapTargetRequestBase & {
   kind: 'passkey_fresh_ecdsa_bootstrap';
   sessionIdentity: EcdsaBootstrapSessionIdentityInput;
   clientRootShare32B64u: string;
   emailOtpAuthContext?: never;
 };
 
+type PasskeyFreshEcdsaBootstrapExactRequest = EcdsaBootstrapExactRequestBase & {
+  kind: 'passkey_fresh_ecdsa_bootstrap';
+  routeAuth: PasskeyFreshBootstrapRouteAuth;
+  clientRootShare32B64u: string;
+  webauthnAuthentication?: WebAuthnAuthenticationCredential;
+  emailOtpAuthContext?: never;
+};
+
 export type PasskeyFreshEcdsaBootstrapRequest =
-  | (PasskeyFreshEcdsaBootstrapRequestBase & {
+  | PasskeyFreshEcdsaBootstrapExactRequest
+  | (PasskeyFreshEcdsaBootstrapTargetRequestBase & {
       sessionKind: 'jwt';
       routeAuth: PasskeyFreshBootstrapRouteAuth;
       webauthnAuthentication?: never;
     })
-  | (PasskeyFreshEcdsaBootstrapRequestBase & {
+  | (PasskeyFreshEcdsaBootstrapTargetRequestBase & {
       sessionKind: 'jwt';
       webauthnAuthentication: WebAuthnAuthenticationCredential;
       routeAuth?: never;
     })
-  | (PasskeyFreshEcdsaBootstrapRequestBase & {
+  | (PasskeyFreshEcdsaBootstrapTargetRequestBase & {
       sessionKind: Extract<ThresholdSessionKind, 'cookie'>;
       routeAuth?: never;
       webauthnAuthentication?: never;
     })
-  | (PasskeyFreshEcdsaBootstrapRequestBase & {
+  | (PasskeyFreshEcdsaBootstrapTargetRequestBase & {
       sessionKind: Extract<ThresholdSessionKind, 'cookie'>;
       webauthnAuthentication: WebAuthnAuthenticationCredential;
       routeAuth?: never;
     });
 
-export type PasskeyCookieReconnectEcdsaBootstrapRequest =
-  EcdsaBootstrapRequestBase & {
+export type PasskeyCookieReconnectEcdsaBootstrapRequest = EcdsaBootstrapTargetRequestBase & {
   kind: 'passkey_cookie_reconnect_ecdsa_bootstrap';
   sessionKind: 'cookie';
   sessionIdentity: EcdsaBootstrapSessionIdentityInput;
@@ -116,27 +156,33 @@ export type PasskeyCookieReconnectEcdsaBootstrapRequest =
   emailOtpAuthContext?: never;
 };
 
-export type ThresholdSessionAuthReconnectEcdsaBootstrapRequest =
-  EcdsaBootstrapRequestBase & {
-    kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap';
-    sessionKind: 'jwt';
-    sessionIdentity: EcdsaBootstrapSessionIdentityInput;
-    routeAuth: AppOrThresholdSessionAuth;
-    webauthnAuthentication?: never;
-    clientRootShare32B64u: string;
-    emailOtpAuthContext?: never;
-  };
-
-export type EmailOtpEcdsaBootstrapRequest = EcdsaBootstrapRequestBase & {
-  kind: 'email_otp_ecdsa_bootstrap';
-  source: 'email_otp';
-  sessionKind: ThresholdSessionKind;
-  sessionIdentity: EcdsaBootstrapSessionIdentityInput;
-  emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
-  clientRootShare32B64u: string;
+export type ThresholdSessionAuthReconnectEcdsaBootstrapRequest = EcdsaBootstrapExactRequestBase & {
+  kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap';
+  routeAuth: ThresholdEcdsaHssRouteAuth;
   webauthnAuthentication?: never;
-  routeAuth?: EmailOtpBootstrapRouteAuth;
+  clientRootShare32B64u: string;
+  emailOtpAuthContext?: never;
 };
+
+export type EmailOtpEcdsaBootstrapRequest =
+  | (EcdsaBootstrapTargetRequestBase & {
+      kind: 'email_otp_ecdsa_bootstrap';
+      source: 'email_otp';
+      sessionKind: ThresholdSessionKind;
+      sessionIdentity: EcdsaBootstrapSessionIdentityInput;
+      emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
+      clientRootShare32B64u: string;
+      webauthnAuthentication?: never;
+      routeAuth?: EmailOtpBootstrapRouteAuth;
+    })
+  | (EcdsaBootstrapExactRequestBase & {
+      kind: 'email_otp_ecdsa_bootstrap';
+      source: 'email_otp';
+      emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
+      clientRootShare32B64u: string;
+      webauthnAuthentication?: never;
+      routeAuth: EmailOtpBootstrapRouteAuth;
+    });
 
 export type EcdsaBootstrapRequest =
   | ReuseWarmEcdsaBootstrapRequest
@@ -162,11 +208,6 @@ export type ThresholdSessionActivationDeps = {
     walletId: AccountId | string;
     chainTarget: ThresholdEcdsaChainTarget;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
-    smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
-    deployment?: {
-      deployed: boolean;
-      deploymentTxHash?: string;
-    };
   }) => Promise<void>;
   upsertThresholdEcdsaSessionFromBootstrap: (
     args:
@@ -215,68 +256,149 @@ function resolveRelayerUrl(
   return relayerUrl;
 }
 
+function hasExactEcdsaBootstrapIdentity(
+  request: EcdsaBootstrapRequest,
+): request is Extract<EcdsaBootstrapRequest, { key: EvmFamilyEcdsaKeyIdentity }> {
+  return 'key' in request && Boolean(request.key);
+}
+
+export function ecdsaBootstrapWalletId(request: EcdsaBootstrapRequest): AccountId | string {
+  return hasExactEcdsaBootstrapIdentity(request) ? request.key.walletId : request.walletId;
+}
+
+export function ecdsaBootstrapSubjectId(request: EcdsaBootstrapRequest): WalletSubjectId {
+  return hasExactEcdsaBootstrapIdentity(request) ? request.key.subjectId : request.subjectId;
+}
+
+export function ecdsaBootstrapChainTarget(
+  request: EcdsaBootstrapRequest,
+): ThresholdEcdsaChainTarget {
+  return hasExactEcdsaBootstrapIdentity(request)
+    ? request.lanePolicy.chainTarget
+    : request.chainTarget;
+}
+
+function ecdsaBootstrapSessionIdentityFromLanePolicy(
+  lanePolicy: EvmFamilyEcdsaSessionLanePolicy,
+): EcdsaSessionIdentity {
+  return buildEcdsaSessionIdentity({
+    thresholdSessionId: lanePolicy.thresholdSessionId,
+    walletSigningSessionId: lanePolicy.walletSigningSessionId,
+  });
+}
+
 function toActivateEcdsaSessionRequest(
   request: EcdsaBootstrapRequest,
   relayerUrl: string,
-) {
-  const base = {
-    walletId: request.walletId,
-    subjectId: request.subjectId,
-    chainTarget: request.chainTarget,
-    relayerUrl,
-    ecdsaThresholdKeyId: request.ecdsaThresholdKeyId,
-    participantIds: request.participantIds ? [...request.participantIds] : undefined,
-    runtimePolicyScope: request.runtimePolicyScope,
-    runtimeScopeBootstrap: request.runtimeScopeBootstrap,
-    ttlMs: request.ttlMs,
-    remainingUses: request.remainingUses,
+): ActivateEcdsaSessionRequest {
+  const registrationBase = (
+    targetRequest: Extract<EcdsaBootstrapRequest, { walletId: AccountId | string }>,
+  ): Extract<ActivateEcdsaSessionRequest, { kind: 'registration_bootstrap' }> => {
+    const sessionPlan =
+      'sessionIdentity' in targetRequest && targetRequest.sessionIdentity
+        ? {
+            kind: 'requested_session' as const,
+            sessionKind: targetRequest.sessionKind,
+            sessionId: buildEcdsaSessionIdentity(targetRequest.sessionIdentity).thresholdSessionId,
+            walletSigningSessionId: buildEcdsaSessionIdentity(targetRequest.sessionIdentity)
+              .walletSigningSessionId,
+          }
+        : undefined;
+    return {
+      kind: 'registration_bootstrap',
+      walletId: targetRequest.walletId,
+      subjectId: targetRequest.subjectId,
+      chainTarget: targetRequest.chainTarget,
+      relayerUrl,
+      ...(targetRequest.keyIntent ? { keyIntent: targetRequest.keyIntent } : {}),
+      ...(sessionPlan ? { sessionPlan } : {}),
+      runtimePolicyScope: targetRequest.runtimePolicyScope,
+      runtimeScopeBootstrap: targetRequest.runtimeScopeBootstrap,
+      ttlMs: targetRequest.ttlMs,
+      remainingUses: targetRequest.remainingUses,
+    };
+  };
+  const exactSessionRequest = (
+    exactRequest: Extract<EcdsaBootstrapRequest, { key: EvmFamilyEcdsaKeyIdentity }>,
+    thresholdSessionAuth: ThresholdEcdsaHssRouteAuth,
+    clientRootShare32B64u: string,
+    webauthnAuthentication: WebAuthnAuthenticationCredential | undefined,
+  ): ActivateEcdsaSessionRequest => {
+    return {
+      kind: 'session_bootstrap',
+      relayerUrl,
+      key: exactRequest.key,
+      lanePolicy: exactRequest.lanePolicy,
+      clientRootShare32B64u,
+      ...(webauthnAuthentication ? { webauthnAuthentication } : {}),
+      thresholdSessionAuth,
+      runtimeScopeBootstrap: exactRequest.runtimeScopeBootstrap,
+    };
   };
   switch (request.kind) {
     case 'reuse_warm_ecdsa_bootstrap':
-      return base;
+      return registrationBase(request);
     case 'passkey_fresh_ecdsa_bootstrap': {
+      if (hasExactEcdsaBootstrapIdentity(request)) {
+        return exactSessionRequest(
+          request,
+          request.routeAuth,
+          request.clientRootShare32B64u,
+          request.webauthnAuthentication,
+        );
+      }
       const passkeyFreshIdentity = buildEcdsaSessionIdentity(request.sessionIdentity);
+      const routeAuth = 'routeAuth' in request && request.routeAuth ? request.routeAuth : undefined;
+      const webauthnAuthentication =
+        'webauthnAuthentication' in request && request.webauthnAuthentication
+          ? request.webauthnAuthentication
+          : undefined;
       return {
-        ...base,
-        sessionKind: request.sessionKind,
-        sessionId: passkeyFreshIdentity.thresholdSessionId,
-        walletSigningSessionId: passkeyFreshIdentity.walletSigningSessionId,
+        ...registrationBase(request),
+        sessionPlan: {
+          kind: 'requested_session' as const,
+          sessionKind: request.sessionKind,
+          sessionId: passkeyFreshIdentity.thresholdSessionId,
+          walletSigningSessionId: passkeyFreshIdentity.walletSigningSessionId,
+        },
         clientRootShare32B64u: request.clientRootShare32B64u,
-        ...('routeAuth' in request && request.routeAuth
-          ? { thresholdSessionAuth: request.routeAuth }
-          : {}),
-        ...('webauthnAuthentication' in request && request.webauthnAuthentication
-          ? { webauthnAuthentication: request.webauthnAuthentication }
-          : {}),
+        ...(routeAuth ? { thresholdSessionAuth: routeAuth } : {}),
+        ...(webauthnAuthentication ? { webauthnAuthentication } : {}),
       };
     }
     case 'passkey_cookie_reconnect_ecdsa_bootstrap': {
       const cookieReconnectIdentity = buildEcdsaSessionIdentity(request.sessionIdentity);
       return {
-        ...base,
-        sessionKind: request.sessionKind,
-        sessionId: cookieReconnectIdentity.thresholdSessionId,
-        walletSigningSessionId: cookieReconnectIdentity.walletSigningSessionId,
+        ...registrationBase(request),
+        sessionPlan: {
+          kind: 'requested_session' as const,
+          sessionKind: request.sessionKind,
+          sessionId: cookieReconnectIdentity.thresholdSessionId,
+          walletSigningSessionId: cookieReconnectIdentity.walletSigningSessionId,
+        },
       };
     }
     case 'threshold_session_auth_reconnect_ecdsa_bootstrap': {
-      const thresholdReconnectIdentity = buildEcdsaSessionIdentity(request.sessionIdentity);
-      return {
-        ...base,
-        sessionKind: request.sessionKind,
-        sessionId: thresholdReconnectIdentity.thresholdSessionId,
-        walletSigningSessionId: thresholdReconnectIdentity.walletSigningSessionId,
-        clientRootShare32B64u: request.clientRootShare32B64u,
-        thresholdSessionAuth: request.routeAuth,
-      };
+      return exactSessionRequest(request, request.routeAuth, request.clientRootShare32B64u, undefined);
     }
     case 'email_otp_ecdsa_bootstrap': {
+      if (hasExactEcdsaBootstrapIdentity(request)) {
+        return exactSessionRequest(
+          request,
+          request.routeAuth,
+          request.clientRootShare32B64u,
+          undefined,
+        );
+      }
       const emailOtpIdentity = buildEcdsaSessionIdentity(request.sessionIdentity);
       return {
-        ...base,
-        sessionKind: request.sessionKind,
-        sessionId: emailOtpIdentity.thresholdSessionId,
-        walletSigningSessionId: emailOtpIdentity.walletSigningSessionId,
+        ...registrationBase(request),
+        sessionPlan: {
+          kind: 'requested_session' as const,
+          sessionKind: request.sessionKind,
+          sessionId: emailOtpIdentity.thresholdSessionId,
+          walletSigningSessionId: emailOtpIdentity.walletSigningSessionId,
+        },
         clientRootShare32B64u: request.clientRootShare32B64u,
         thresholdSessionAuth: request.routeAuth,
       };
@@ -302,7 +424,7 @@ async function normalizeRuntimeEcdsaBootstrapRequest(
     };
   }
 
-  const sessionIdentity = buildEcdsaSessionIdentity(request.sessionIdentity);
+  const sessionIdentity = ecdsaBootstrapSessionIdentityFromLanePolicy(request.lanePolicy);
   const claimedMaterial =
     typeof deps.touchConfirm.claimWarmSessionMaterial === 'function'
       ? await deps.touchConfirm.claimWarmSessionMaterial({
@@ -314,7 +436,6 @@ async function normalizeRuntimeEcdsaBootstrapRequest(
   if (claimedMaterial?.ok && claimedClientRootShare32B64u) {
     return {
       ...request,
-      sessionIdentity,
       clientRootShare32B64u: claimedClientRootShare32B64u,
     };
   }
@@ -329,8 +450,8 @@ export async function bootstrapEcdsaSessionValue(
   request: EcdsaBootstrapRequest,
 ): Promise<ThresholdEcdsaSessionBootstrapResult> {
   const normalizedRequest = await normalizeRuntimeEcdsaBootstrapRequest(deps, request);
-  const walletId = toAccountId(normalizedRequest.walletId);
-  const chainTarget = normalizedRequest.chainTarget;
+  const walletId = toAccountId(ecdsaBootstrapWalletId(normalizedRequest));
+  const chainTarget = ecdsaBootstrapChainTarget(normalizedRequest);
   const relayerUrl = resolveRelayerUrl(normalizedRequest.relayerUrl, deps.defaultRelayerUrl);
 
   const signerWorkerCtx = deps.getSignerWorkerContext();
@@ -348,21 +469,24 @@ export async function bootstrapEcdsaSessionValue(
     activationDeps,
     toActivateEcdsaSessionRequest(normalizedRequest, relayerUrl),
   );
-  await deps.touchConfirm.putWarmSessionMaterial({
-    sessionId: activation.session.sessionId,
-    prfFirstB64u: activation.clientRootShare32B64u,
-    expiresAtMs: Number(activation.session.expiresAtMs),
-    remainingUses: Number(activation.session.remainingUses),
-    transport: {
-      curve: 'ecdsa',
-      chainTarget,
-      relayerUrl,
-      walletSigningSessionId: activation.session.walletSigningSessionId,
-      ...(typeof activation.session.jwt === 'string' && activation.session.jwt.trim()
-        ? { thresholdSessionAuthToken: activation.session.jwt.trim() }
-        : {}),
-    },
-  }).catch(() => undefined);
+  await deps.touchConfirm
+    .putWarmSessionMaterial({
+      sessionId: activation.session.sessionId,
+      prfFirstB64u: activation.clientRootShare32B64u,
+      expiresAtMs: Number(activation.session.expiresAtMs),
+      remainingUses: Number(activation.session.remainingUses),
+      transport: {
+        curve: 'ecdsa',
+        walletId: String(walletId),
+        chainTarget,
+        relayerUrl,
+        walletSigningSessionId: activation.session.walletSigningSessionId,
+        ...(typeof activation.session.jwt === 'string' && activation.session.jwt.trim()
+          ? { thresholdSessionAuthToken: activation.session.jwt.trim() }
+          : {}),
+      },
+    })
+    .catch(() => undefined);
   const { clientRootShare32B64u: _clientRootShare32B64u, ...bootstrap } = activation;
   const thresholdEcdsaKeyRef = requireCanonicalThresholdEcdsaKeyRefIdentity(
     bootstrap.thresholdEcdsaKeyRef,
@@ -376,7 +500,6 @@ export async function bootstrapEcdsaSessionValue(
     walletId,
     chainTarget,
     bootstrap: canonicalBootstrap,
-    smartAccount: normalizedRequest.smartAccount,
   });
   if (normalizedRequest.kind === 'email_otp_ecdsa_bootstrap') {
     deps.upsertThresholdEcdsaSessionFromBootstrap({

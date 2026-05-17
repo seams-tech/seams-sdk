@@ -157,7 +157,7 @@ export async function restorePasskeyEd25519SealedRecordForAccount(args: {
       relayerKeyId: args.record.relayerKeyId,
       participantIds: [...args.record.participantIds],
       ...(args.record.runtimePolicyScope ? { runtimePolicyScope: args.record.runtimePolicyScope } : {}),
-      xClientBaseB64u: args.record.xClientBaseB64u,
+      ...(args.record.xClientBaseB64u ? { xClientBaseB64u: args.record.xClientBaseB64u } : {}),
       thresholdSessionKind: args.record.sessionKind,
       thresholdSessionId,
       walletSigningSessionId,

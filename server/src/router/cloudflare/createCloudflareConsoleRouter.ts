@@ -70,13 +70,6 @@ import {
   type ConsoleWebhookService,
 } from '../../console/webhooks';
 import {
-  isConsoleSmartWalletError,
-  parseCreateConsoleSmartWalletRequest,
-  parseListConsoleSmartWalletRequest,
-  parseUpdateConsoleSmartWalletRequest,
-  type ConsoleSmartWalletService,
-} from '../../console/smartWallets';
-import {
   isConsoleKeyExportError,
   parseApproveConsoleKeyExportRequest,
   parseCreateConsoleKeyExportRequest,
@@ -221,7 +214,6 @@ export interface CloudflareConsoleContext {
   policies: ConsolePolicyService | null;
   apiKeys: ConsoleApiKeyService | null;
   webhooks: ConsoleWebhookService | null;
-  smartWallets: ConsoleSmartWalletService | null;
   keyExports: ConsoleKeyExportService | null;
   runtimeSnapshots: ConsoleRuntimeSnapshotService | null;
   teamRbac: ConsoleTeamRbacService | null;
@@ -518,29 +510,6 @@ function sendPolicyError(error: unknown): Response {
 
 function sendWebhookError(error: unknown): Response {
   if (isConsoleWebhookError(error)) {
-    return json(
-      {
-        ok: false,
-        code: error.code,
-        message: error.message,
-        ...(error.details ? { details: error.details } : {}),
-      },
-      { status: error.status },
-    );
-  }
-
-  return json(
-    {
-      ok: false,
-      code: 'internal',
-      message: error instanceof Error ? error.message : String(error),
-    },
-    { status: 500 },
-  );
-}
-
-function sendSmartWalletError(error: unknown): Response {
-  if (isConsoleSmartWalletError(error)) {
     return json(
       {
         ok: false,
@@ -916,20 +885,6 @@ function requireWebhookService(ctx: CloudflareConsoleContext): ConsoleWebhookSer
       ok: false,
       code: 'webhooks_not_configured',
       message: 'Webhook service is not configured on this server',
-    },
-    { status: 501 },
-  );
-}
-
-function requireSmartWalletService(
-  ctx: CloudflareConsoleContext,
-): ConsoleSmartWalletService | Response {
-  if (ctx.smartWallets) return ctx.smartWallets;
-  return json(
-    {
-      ok: false,
-      code: 'smart_wallets_not_configured',
-      message: 'Smart wallet service is not configured on this server',
     },
     { status: 501 },
   );
@@ -2134,10 +2089,6 @@ function isConsoleWebhookPath(pathname: string): boolean {
   return pathname.startsWith('/console/webhooks');
 }
 
-function isConsoleSmartWalletPath(pathname: string): boolean {
-  return pathname === '/console/smart-wallets' || pathname.startsWith('/console/smart-wallets/');
-}
-
 function isConsoleKeyExportPath(pathname: string): boolean {
   return pathname === '/console/key-exports' || pathname.startsWith('/console/key-exports/');
 }
@@ -2146,67 +2097,6 @@ function isConsoleRuntimeSnapshotPath(pathname: string): boolean {
   return (
     pathname === '/console/runtime-snapshots' || pathname.startsWith('/console/runtime-snapshots/')
   );
-}
-
-async function handleConsoleSmartWallets(ctx: CloudflareConsoleContext): Promise<Response | null> {
-  if (!isConsoleSmartWalletPath(ctx.pathname)) return null;
-
-  const auth = await requireConsoleAuth(ctx);
-  if (!auth.ok) return auth.response;
-
-  const smartWalletsOrResponse = requireSmartWalletService(ctx);
-  if (smartWalletsOrResponse instanceof Response) return smartWalletsOrResponse;
-  const smartWallets = smartWalletsOrResponse;
-  const configMatch = ctx.pathname.match(/^\/console\/smart-wallets\/([^/]+)$/);
-
-  try {
-    if (ctx.method === 'GET' && ctx.pathname === '/console/smart-wallets') {
-      const request = parseListConsoleSmartWalletRequest({
-        scopeType: ctx.url.searchParams.get('scopeType') || undefined,
-        projectId: ctx.url.searchParams.get('projectId') || undefined,
-        environmentId: ctx.url.searchParams.get('environmentId') || undefined,
-        policyId: ctx.url.searchParams.get('policyId') || undefined,
-        walletSegmentId: ctx.url.searchParams.get('walletSegmentId') || undefined,
-      });
-      const configs = await smartWallets.listConfigs(toBillingContext(auth.claims), request);
-      return json({ ok: true, configs }, { status: 200 });
-    }
-
-    if (ctx.method === 'POST' && ctx.pathname === '/console/smart-wallets') {
-      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
-      if (routePolicy) return routePolicy;
-      const request = parseCreateConsoleSmartWalletRequest(await readJson(ctx.request));
-      const config = await smartWallets.createConfig(toBillingContext(auth.claims), request);
-      return json({ ok: true, config }, { status: 201 });
-    }
-
-    if (ctx.method === 'PATCH' && configMatch) {
-      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
-      if (routePolicy) return routePolicy;
-      const configId = decodePathPart(configMatch[1]);
-      const request = parseUpdateConsoleSmartWalletRequest(await readJson(ctx.request));
-      const config = await smartWallets.updateConfig(
-        toBillingContext(auth.claims),
-        configId,
-        request,
-      );
-      if (!config) {
-        return json(
-          {
-            ok: false,
-            code: 'smart_wallet_config_not_found',
-            message: `Smart-wallet config ${configId} was not found`,
-          },
-          { status: 404 },
-        );
-      }
-      return json({ ok: true, config }, { status: 200 });
-    }
-  } catch (error: unknown) {
-    return sendSmartWalletError(error);
-  }
-
-  return new Response('Not Found', { status: 404 });
 }
 
 async function handleConsoleKeyExports(ctx: CloudflareConsoleContext): Promise<Response | null> {
@@ -2347,7 +2237,6 @@ async function handleConsoleRuntimeSnapshots(
         environmentId: request.environmentId,
         ...(request.projectId ? { projectId: request.projectId } : {}),
         policies: ctx.policies,
-        smartWallets: ctx.smartWallets,
       });
       const snapshot = await runtimeSnapshots.publishSnapshot(toBillingContext(auth.claims), {
         ...request,
@@ -4513,7 +4402,6 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
   const policies = opts.policies === undefined ? null : opts.policies;
   const apiKeys = opts.apiKeys === undefined ? null : opts.apiKeys;
   const webhooks = opts.webhooks === undefined ? null : opts.webhooks;
-  const smartWallets = opts.smartWallets === undefined ? null : opts.smartWallets;
   const keyExports = opts.keyExports === undefined ? null : opts.keyExports;
   const runtimeSnapshots = opts.runtimeSnapshots === undefined ? null : opts.runtimeSnapshots;
   const teamRbac = opts.teamRbac === undefined ? null : opts.teamRbac;
@@ -4545,7 +4433,6 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
     handleConsoleWallets,
     handleConsolePolicies,
     handleConsoleInsights,
-    handleConsoleSmartWallets,
     handleConsoleKeyExports,
     handleConsoleRuntimeSnapshots,
     handleConsoleApiKeys,
@@ -4587,7 +4474,6 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
       policies,
       apiKeys,
       webhooks,
-      smartWallets,
       keyExports,
       runtimeSnapshots,
       teamRbac,

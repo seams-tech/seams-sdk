@@ -57,7 +57,6 @@ function buildCompanionSealedSessionUpdate(args: {
       companionCurve: args.companionCurve,
       companionThresholdSessionId: args.companionThresholdSessionId,
     }),
-    ...(args.existingRecord.userId ? { userId: args.existingRecord.userId } : {}),
     ...(args.existingRecord.keyVersion ? { keyVersion: args.existingRecord.keyVersion } : {}),
     ...(args.existingRecord.shamirPrimeB64u
       ? { shamirPrimeB64u: args.existingRecord.shamirPrimeB64u }
@@ -91,17 +90,18 @@ function buildCompanionSealedSessionUpdate(args: {
         : {}),
     };
   }
+  const walletId = String(args.existingRecord.walletId || '').trim();
   const relayerUrl = String(args.existingRecord.relayerUrl || '').trim();
   const ed25519Restore = args.ed25519Restore || args.existingRecord.ed25519Restore;
-  if (!relayerUrl || !ed25519Restore) {
+  if (!walletId || !relayerUrl || !ed25519Restore) {
     throw new Error('Ed25519 companion sealed-session update requires exact durable metadata');
   }
   return {
     ...base,
     curve: 'ed25519',
+    walletId,
     relayerUrl,
     ed25519Restore,
-    ...(args.existingRecord.walletId ? { walletId: args.existingRecord.walletId } : {}),
     ...(args.existingRecord.signingRootId
       ? { signingRootId: args.existingRecord.signingRootId }
       : {}),
@@ -218,6 +218,8 @@ export async function attachEd25519SessionToEmailOtpSigningSessionSealBestEffort
   }
   const subjectId = String(candidate.existingRecord.subjectId || candidate.ecdsaRecord.subjectId || '').trim();
   if (!subjectId) return;
+  const xClientBaseB64u = String(ed25519Record.xClientBaseB64u || '').trim();
+  if (!xClientBaseB64u) return;
   await args.registerSigningSession(
     buildCompanionSealedSessionUpdate({
       existingRecord: candidate.existingRecord,
@@ -235,9 +237,7 @@ export async function attachEd25519SessionToEmailOtpSigningSessionSealBestEffort
         ...(ed25519Record.runtimePolicyScope
           ? { runtimePolicyScope: ed25519Record.runtimePolicyScope }
           : {}),
-        ...(ed25519Record.xClientBaseB64u
-          ? { xClientBaseB64u: ed25519Record.xClientBaseB64u }
-          : {}),
+        xClientBaseB64u,
       },
     }),
   );

@@ -1,6 +1,5 @@
 import type { CloudflareCronOptions } from '@seams/sdk/server/router/cloudflare';
 import type { ConsoleObservabilityIngestionService } from '@seams/sdk/server/router/express';
-import type { RecoveryAuthoritySponsorshipRuntime } from '@seams/sdk/server';
 import type { WorkerCronFeatureFlags } from './cronFlags';
 
 export interface WorkerCronConfigEnv {
@@ -23,8 +22,6 @@ export interface WorkerCronConfigEnv {
   WEBHOOK_RETRY_MAX_ATTEMPTS?: string;
   WEBHOOK_RETRY_INITIAL_BACKOFF_MS?: string;
   WEBHOOK_RETRY_MAX_BACKOFF_MS?: string;
-  RECOVERY_AUTHORITY_CONTINUATION_CRONS?: string;
-  RECOVERY_AUTHORITY_CONTINUATION_LIMIT?: string;
 }
 
 interface RuntimeSnapshotOutboxEventShape {
@@ -53,7 +50,6 @@ export function createWorkerCronOptions(
   cronFlags: WorkerCronFeatureFlags,
   runtimeSnapshotOutboxSink: RuntimeSnapshotOutboxSink,
   observabilityIngestion?: ConsoleObservabilityIngestionService | null,
-  sponsorship?: RecoveryAuthoritySponsorshipRuntime | null,
 ): CloudflareCronOptions {
   return {
     enabled: cronFlags.cronEnabled,
@@ -95,14 +91,6 @@ export function createWorkerCronOptions(
           initialBackoffMs: parseOptionalPositiveInt(env.WEBHOOK_RETRY_INITIAL_BACKOFF_MS),
           maxBackoffMs: parseOptionalPositiveInt(env.WEBHOOK_RETRY_MAX_BACKOFF_MS),
           observabilityIngestion: observabilityIngestion || null,
-        }
-      : undefined,
-    recoveryAuthorityContinuation: cronFlags.recoveryAuthorityContinuationEnabled
-      ? {
-          enabled: true,
-          cronExpressions: parseCsv(env.RECOVERY_AUTHORITY_CONTINUATION_CRONS),
-          limit: parseOptionalPositiveInt(env.RECOVERY_AUTHORITY_CONTINUATION_LIMIT),
-          sponsorship: sponsorship || null,
         }
       : undefined,
   };

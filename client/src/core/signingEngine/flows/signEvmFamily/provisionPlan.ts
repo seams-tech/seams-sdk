@@ -28,8 +28,8 @@ export type EvmFamilyWarmSessionReconnectPlan =
 export function buildEvmFamilyWarmSessionReconnectPlan(args: {
   authorization: EvmFamilyEcdsaWarmSessionStepUpAuthorization;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
-  keyRef?: ThresholdEcdsaSecp256k1KeyRef;
-  record?: ThresholdEcdsaSessionRecord | null;
+  keyRef: ThresholdEcdsaSecp256k1KeyRef;
+  record: ThresholdEcdsaSessionRecord;
   sessionBudgetUses: number;
 }): EvmFamilyWarmSessionReconnectPlan {
   return buildThresholdSessionAuthEcdsaReconnect({
@@ -38,10 +38,6 @@ export function buildEvmFamilyWarmSessionReconnectPlan(args: {
     existingSessionIdentity: buildEcdsaSessionIdentity({
       thresholdSessionId: args.lane.thresholdSessionId,
       walletSigningSessionId: args.lane.walletSigningSessionId,
-    }),
-    signingKeyContext: buildEcdsaSigningKeyContext({
-      keyRef: args.keyRef,
-      record: args.record,
     }),
     sessionBudgetUses: args.sessionBudgetUses,
     reconnectMaterial: buildEcdsaReconnectMaterial({

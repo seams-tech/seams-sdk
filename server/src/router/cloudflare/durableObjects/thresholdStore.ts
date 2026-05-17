@@ -32,6 +32,15 @@ type DoReq =
   | { op: 'get'; key: string }
   | { op: 'set'; key: string; value: unknown; ttlMs?: number }
   | { op: 'del'; key: string }
+  | {
+      op: 'setWithIdentityGuard';
+      key: string;
+      identityKey: string;
+      identityValue: string;
+      value: unknown;
+      ttlMs?: number;
+    }
+  | { op: 'delWithIdentityGuard'; key: string; identityKey: string; identityValue: string }
   | { op: 'getdel'; key: string }
   | { op: 'authConsumeUseCount'; key: string }
   | { op: 'authConsumeUseCountOnce'; key: string; idempotencyKey: string }
@@ -350,10 +359,47 @@ export class ThresholdStoreDurableObject {
       );
       return json(ok(true));
     }
+    if (op === 'setWithIdentityGuard') {
+      const key = toKey((req as { key?: unknown }).key);
+      const identityKey = toKey((req as { identityKey?: unknown }).identityKey);
+      const identityValue = toKey((req as { identityValue?: unknown }).identityValue);
+      if (!key) return json(err('invalid_body', 'Missing key'));
+      if (!identityKey) return json(err('invalid_body', 'Missing identityKey'));
+      if (!identityValue) return json(err('invalid_body', 'Missing identityValue'));
+      const ttl = toTtlSeconds((req as { ttlMs?: unknown }).ttlMs);
+      const result = await withTxn(this.state, async (store) => {
+        const existing = await store.get(identityKey);
+        if (existing !== null && existing !== undefined && existing !== identityValue) {
+          return err(
+            'conflict',
+            '[threshold-ecdsa] EVM-family key identity already exists for wallet/subject/rp/signing root',
+          );
+        }
+        await store.put(key, (req as { value?: unknown }).value, ttl ? { expirationTtl: ttl } : undefined);
+        await store.put(identityKey, identityValue);
+        return ok(true);
+      });
+      return json(result);
+    }
     if (op === 'del') {
       const key = toKey((req as { key?: unknown }).key);
       if (!key) return json(err('invalid_body', 'Missing key'));
       await this.state.storage.delete(key);
+      return json(ok(true));
+    }
+    if (op === 'delWithIdentityGuard') {
+      const key = toKey((req as { key?: unknown }).key);
+      const identityKey = toKey((req as { identityKey?: unknown }).identityKey);
+      const identityValue = toKey((req as { identityValue?: unknown }).identityValue);
+      if (!key) return json(err('invalid_body', 'Missing key'));
+      if (!identityKey) return json(err('invalid_body', 'Missing identityKey'));
+      if (!identityValue) return json(err('invalid_body', 'Missing identityValue'));
+      await withTxn(this.state, async (store) => {
+        await store.delete(key);
+        if ((await store.get(identityKey)) === identityValue) {
+          await store.delete(identityKey);
+        }
+      });
       return json(ok(true));
     }
     if (op === 'getdel') {

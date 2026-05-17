@@ -2,18 +2,20 @@ import type { AccountId } from '@/core/types/accountIds';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { WalletSubjectId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type {
-  EcdsaBootstrapRequest,
-  ThresholdEcdsaSmartAccountBootstrapInput,
-} from './ecdsaBootstrap';
+import type { EcdsaBootstrapRequest } from './ecdsaBootstrap';
 import { buildEcdsaSessionIdentity } from '../warmCapabilities/ecdsaProvisionPlan';
 import { SigningSessionIds } from '../operationState/types';
+import type {
+  EvmFamilyEcdsaKeyIdentity,
+  EvmFamilyEcdsaSessionLanePolicy,
+} from '../identity/evmFamilyEcdsaIdentity';
 
 declare const walletId: AccountId;
 declare const subjectId: WalletSubjectId;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const webauthnAuthentication: WebAuthnAuthenticationCredential;
-declare const smartAccount: ThresholdEcdsaSmartAccountBootstrapInput;
+declare const key: EvmFamilyEcdsaKeyIdentity;
+declare const lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
 
 const sessionIdentity = buildEcdsaSessionIdentity({
   thresholdSessionId: 'threshold-session-id',
@@ -26,8 +28,18 @@ const validReuseBootstrap = {
   subjectId,
   chainTarget,
   source: 'manual-bootstrap',
-  smartAccount,
 } satisfies EcdsaBootstrapRequest;
+
+const forbiddenProjectionField = ['smart', 'Account'].join('') as `${'smart'}${'Account'}`;
+const invalidReuseBootstrapWithProjectionField = {
+  kind: 'reuse_warm_ecdsa_bootstrap',
+  walletId,
+  subjectId,
+  chainTarget,
+  // @ts-expect-error Base ECDSA bootstrap rejects projection fields.
+  [forbiddenProjectionField]: { chainId: 1313 },
+} satisfies EcdsaBootstrapRequest;
+void invalidReuseBootstrapWithProjectionField;
 
 const validPasskeyFreshBootstrap = {
   kind: 'passkey_fresh_ecdsa_bootstrap',
@@ -78,11 +90,8 @@ const validCookieReconnectBootstrap = {
 
 const validThresholdSessionReconnectBootstrap = {
   kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
-  walletId,
-  subjectId,
-  chainTarget,
-  sessionKind: 'jwt',
-  sessionIdentity,
+  key,
+  lanePolicy,
   clientRootShare32B64u: 'client-root-share',
   routeAuth: {
     kind: 'threshold_session',
@@ -90,14 +99,21 @@ const validThresholdSessionReconnectBootstrap = {
   },
 } satisfies EcdsaBootstrapRequest;
 
+const validCookieThresholdSessionReconnectBootstrap = {
+  kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
+  key,
+  lanePolicy,
+  clientRootShare32B64u: 'client-root-share',
+  routeAuth: {
+    kind: 'cookie',
+  },
+} satisfies EcdsaBootstrapRequest;
+
 // @ts-expect-error threshold-session reconnect requires the primed ECDSA client root share
 const invalidThresholdSessionReconnectWithoutClientRootShare: EcdsaBootstrapRequest = {
   kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
-  walletId,
-  subjectId,
-  chainTarget,
-  sessionKind: 'jwt',
-  sessionIdentity,
+  key,
+  lanePolicy,
   routeAuth: {
     kind: 'threshold_session',
     jwt: 'threshold-session-jwt',
@@ -186,11 +202,8 @@ const invalidCookieReconnectWithoutWalletSession: EcdsaBootstrapRequest = {
 // @ts-expect-error threshold-session reconnect rejects WebAuthn authentication
 const invalidThresholdSessionReconnectWithWebauthn: EcdsaBootstrapRequest = {
   kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
-  walletId,
-  subjectId,
-  chainTarget,
-  sessionKind: 'jwt',
-  sessionIdentity,
+  key,
+  lanePolicy,
   clientRootShare32B64u: 'client-root-share',
   routeAuth: {
     kind: 'threshold_session',

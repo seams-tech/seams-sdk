@@ -29,8 +29,8 @@ type UseDemoArcSigningActionsArgs = {
   arcGreetingInput: string;
   arcEip1559FeeCaps: Eip1559FeeCaps;
   fetchArcGreeting: (opts?: { silent?: boolean }) => Promise<string | null>;
-  refreshThresholdEvmFundingAddress: () => Promise<string | null>;
-  resolveThresholdSenderForEvmFamily: (opts?: {
+  refreshThresholdOwnerAddress: () => Promise<string | null>;
+  resolveThresholdOwnerAddressForEvmFamily: (opts?: {
     chain?: 'tempo' | 'evm';
     bootstrapIfMissing?: boolean;
   }) => Promise<EvmAddress>;
@@ -39,23 +39,23 @@ type UseDemoArcSigningActionsArgs = {
 type ArcNativeGasPreflightFailure = Error & {
   code: 'arc_native_gas_insufficient';
   details: {
-    sender: EvmAddress;
+    thresholdOwnerAddress: EvmAddress;
     balanceWei: bigint;
     requiredWei: bigint;
   };
 };
 
 function createArcNativeGasPreflightFailure(args: {
-  sender: EvmAddress;
+  thresholdOwnerAddress: EvmAddress;
   balanceWei: bigint;
   requiredWei: bigint;
 }): ArcNativeGasPreflightFailure {
   const error = new Error(
-    `ARC sender ${args.sender} has insufficient native gas balance (have ${formatWeiToEth(args.balanceWei)}, need ${formatWeiToEth(args.requiredWei)} native tokens).`,
+    `ARC threshold owner ${args.thresholdOwnerAddress} has insufficient native gas balance (have ${formatWeiToEth(args.balanceWei)}, need ${formatWeiToEth(args.requiredWei)} native tokens).`,
   ) as ArcNativeGasPreflightFailure;
   error.code = 'arc_native_gas_insufficient';
   error.details = {
-    sender: args.sender,
+    thresholdOwnerAddress: args.thresholdOwnerAddress,
     balanceWei: args.balanceWei,
     requiredWei: args.requiredWei,
   };
@@ -80,8 +80,8 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
     arcGreetingInput,
     arcEip1559FeeCaps,
     fetchArcGreeting,
-    refreshThresholdEvmFundingAddress,
-    resolveThresholdSenderForEvmFamily,
+    refreshThresholdOwnerAddress,
+    resolveThresholdOwnerAddressForEvmFamily,
   } = args;
 
   const [evmThresholdSignLoading, setEvmThresholdSignLoading] = useState(false);
@@ -94,7 +94,7 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
     } catch {}
     setEvmThresholdSignLoading(true);
     toast.loading('Signing EVM transaction…', { id: toastId, description: null });
-    let arcSenderForAttempt: EvmAddress | null = null;
+    let arcThresholdOwnerAddressForAttempt: EvmAddress | null = null;
     try {
       const requestedGreeting = arcGreetingInput.trim();
       const feeCaps = await resolveClickTimeEip1559FeeCaps({
@@ -102,20 +102,20 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
         fallbackFeeCaps: arcEip1559FeeCaps,
       });
       const request = buildDemoEip1559Request(requestedGreeting, feeCaps);
-      const arcSender = await resolveThresholdSenderForEvmFamily({
+      const arcThresholdOwnerAddress = await resolveThresholdOwnerAddressForEvmFamily({
         chain: 'evm',
         bootstrapIfMissing: true,
       });
-      arcSenderForAttempt = arcSender;
+      arcThresholdOwnerAddressForAttempt = arcThresholdOwnerAddress;
       const requiredNativeWei = request.tx.gasLimit * request.tx.maxFeePerGas + request.tx.value;
       const arcNativeBalanceWei = await readEvmNativeBalance({
         rpcUrl: FRONTEND_CONFIG.arcRpcUrl,
-        address: arcSender,
+        address: arcThresholdOwnerAddress,
         blockTag: 'pending',
       });
       if (arcNativeBalanceWei < requiredNativeWei) {
         throw createArcNativeGasPreflightFailure({
-          sender: arcSender,
+          thresholdOwnerAddress: arcThresholdOwnerAddress,
           balanceWei: arcNativeBalanceWei,
           requiredWei: requiredNativeWei,
         });
@@ -149,7 +149,7 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
             fetchGreeting: fetchArcGreeting,
             expectedGreeting: requestedGreeting,
           });
-          await refreshThresholdEvmFundingAddress();
+          await refreshThresholdOwnerAddress();
         },
       });
       const txUrl = buildEvmExplorerTxUrl({
@@ -201,7 +201,7 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
         toast.error(resolvedError.message, { id: toastId, description: null });
         console.error('[DemoPage][ArcNativeGasPreflightFailure]', {
           atIso: new Date().toISOString(),
-          sender: resolvedError.details.sender,
+          thresholdOwnerAddress: resolvedError.details.thresholdOwnerAddress,
           balanceWei: resolvedError.details.balanceWei.toString(),
           requiredWei: resolvedError.details.requiredWei.toString(),
         });
@@ -210,12 +210,12 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
       const insufficient = parseInsufficientFundsError(message);
       if (insufficient) {
         toast.error(
-          `ARC sender${arcSenderForAttempt ? ` ${arcSenderForAttempt}` : ''} has insufficient native gas balance (have ${formatWeiToEth(insufficient.haveWei)}, need ${formatWeiToEth(insufficient.wantWei)} native tokens).`,
+          `ARC threshold owner${arcThresholdOwnerAddressForAttempt ? ` ${arcThresholdOwnerAddressForAttempt}` : ''} has insufficient native gas balance (have ${formatWeiToEth(insufficient.haveWei)}, need ${formatWeiToEth(insufficient.wantWei)} native tokens).`,
           { id: toastId, description: null },
         );
         console.error('[DemoPage][ArcBroadcastInsufficientFunds]', {
           atIso: new Date().toISOString(),
-          sender: arcSenderForAttempt,
+          thresholdOwnerAddress: arcThresholdOwnerAddressForAttempt,
           haveWei: insufficient.haveWei.toString(),
           wantWei: insufficient.wantWei.toString(),
           error: resolvedError,
@@ -232,8 +232,8 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
     canSignEvm,
     fetchArcGreeting,
     nearAccountId,
-    refreshThresholdEvmFundingAddress,
-    resolveThresholdSenderForEvmFamily,
+    refreshThresholdOwnerAddress,
+    resolveThresholdOwnerAddressForEvmFamily,
     seams,
   ]);
 

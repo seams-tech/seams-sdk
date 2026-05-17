@@ -58,13 +58,6 @@ export type ThresholdEcdsaSessionRecordKey = {
   thresholdSessionId: string;
 };
 
-export type ThresholdEcdsaRuntimeRecordCandidate = ThresholdEcdsaSessionRecordKey & {
-  source: 'runtime_session_record';
-  remainingUses?: number;
-  expiresAtMs?: number;
-  updatedAtMs?: number;
-};
-
 type BoundaryEcdsaChainFamily = 'evm' | 'tempo';
 
 function nonEmptyString(value: unknown): string | null {

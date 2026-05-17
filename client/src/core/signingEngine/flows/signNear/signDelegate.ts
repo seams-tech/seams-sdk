@@ -38,7 +38,10 @@ import {
   resolveNearSigningMaterials,
   toCredentialForRelayJson,
 } from './shared/signingMaterials';
-import { requireResolvedThresholdEd25519SessionState } from './shared/thresholdSessionAuth';
+import {
+  refreshPasskeyEd25519SealedRecordAfterClientBase,
+  requireResolvedThresholdEd25519SessionState,
+} from './shared/thresholdSessionAuth';
 import { buildNearWorkerSigningEnvelope } from '../../chains/near/workerRequest';
 import { buildNearDelegateSigningPayloads } from '../../chains/near/payloads';
 import {
@@ -324,6 +327,13 @@ export async function runNearDelegateActionSigning({
         prfFirstB64u,
         persistClientBase: thresholdSessionState.persistClientBase,
       });
+      await refreshPasskeyEd25519SealedRecordAfterClientBase({
+        touchConfirm,
+        nearAccountId,
+        thresholdSessionState,
+        thresholdSessionId: canonicalThresholdSessionId,
+        xClientBaseB64u,
+      });
       emitNearSigningEvent(onEvent, nearAccountId, {
         phase: SigningEventPhase.STEP_08_SIGNER_PREPARE_SUCCEEDED,
         status: 'succeeded',
@@ -442,6 +452,13 @@ export async function runNearDelegateActionSigning({
                     },
                   }
                 : {}),
+            });
+            await refreshPasskeyEd25519SealedRecordAfterClientBase({
+              touchConfirm,
+              nearAccountId,
+              thresholdSessionState,
+              thresholdSessionId: canonicalThresholdSessionId,
+              xClientBaseB64u: repairedXClientBaseB64u,
             });
             requestPayload = buildRequestPayload(repairedXClientBaseB64u);
             return await executeDelegateRequest(requestPayload);

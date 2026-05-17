@@ -43,7 +43,7 @@ export const USER_WALLETS_LIST_KPIS = [
   {
     label: 'Total wallets',
     value: '24,581',
-    hint: 'Includes EOA and smart wallets',
+    hint: 'Across tracked wallet accounts',
   },
   {
     label: 'Funded wallets',

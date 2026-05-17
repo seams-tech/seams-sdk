@@ -8,7 +8,6 @@ import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/ses
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WarmSessionEcdsaCapabilityState } from '@/core/signingEngine/session/warmCapabilities/types';
-import type { ThresholdEcdsaSmartAccountBootstrapInput } from '@/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import {
   buildCurrentSealedSessionRecord,
@@ -32,7 +31,6 @@ export class EmailOtpSealedSessionRegistry {
         bootstrap: ThresholdEcdsaSessionBootstrapResult;
         source: 'email_otp';
         emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
-        smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
       }) => Promise<{
         bootstrap: ThresholdEcdsaSessionBootstrapResult;
         warmCapability: WarmSessionEcdsaCapabilityState;

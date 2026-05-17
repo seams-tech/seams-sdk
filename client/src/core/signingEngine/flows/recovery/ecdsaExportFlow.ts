@@ -1,22 +1,27 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import { KeyExportEventPhase } from '@/core/types/sdkSentEvents';
 import type { ThemeName, WalletAuthCurve } from '@/core/types/seams';
-import { walletSessionRefFromSession } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  walletSessionRefFromSession,
+  type ThresholdEcdsaChainTarget,
+  type WalletSubjectId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   SENSITIVE_OPERATION_POLICIES,
   SIGNER_AUTH_METHODS,
 } from '@shared/utils/signerDomain';
 import { requireThresholdSessionAuthToken } from '@shared/utils/sessionTokens';
-import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
+import {
+  toAuthorizingWalletSigningSessionId,
+  type EmailOtpAuthLane,
+} from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
 import type { WarmSessionPostSignPolicyAdapterDeps } from '../../session/operationState/warmSessionPolicyAdapter';
 import { assertWarmSessionEcdsaOperationAllowed } from '../../session/operationState/warmSessionPolicyAdapter';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
+import type { ReadyEvmFamilyEcdsaMaterial } from '../../session/identity/evmFamilyEcdsaIdentity';
 import {
-  assertEcdsaExportKeyRefMatchesLane,
   ecdsaExportBoundaryChain,
-  resolveEcdsaExportRecordForLane,
   type EcdsaExportSessionStoreDeps,
   type ExactEcdsaExportLane,
   type FreshEmailOtpEcdsaExportMaterial,
@@ -51,8 +56,8 @@ export type EcdsaExportFlowDeps = {
     requestExportChallenge: Parameters<typeof requestEmailOtpKeyExportAuthorization>[0]['requestExportChallenge'];
     exportEcdsaKeyWithFreshEmailOtpLane: (args: {
       walletSession: ReturnType<typeof walletSessionRefFromSession>;
-      subjectId: ExactEcdsaExportLane['subjectId'];
-      chainTarget: ExactEcdsaExportLane['chainTarget'];
+      subjectId: WalletSubjectId;
+      chainTarget: ThresholdEcdsaChainTarget;
       challengeId: string;
       otpCode: string;
       ecdsaThresholdKeyId: string;
@@ -129,7 +134,7 @@ async function showEcdsaExportArtifact(
     { touchConfirm: deps.touchConfirm, theme: deps.theme },
     {
       nearAccountId: toAccountId(args.walletSessionUserId),
-      chainTarget: args.exportLane.chainTarget,
+      chainTarget: args.exportLane.session.chainTarget,
       publicKeyHex: String(args.artifact.publicKeyHex || '').trim(),
       privateKeyHex: String(args.artifact.privateKeyHex || '').trim(),
       ethereumAddress: String(args.artifact.ethereumAddress || '').trim(),
@@ -152,7 +157,7 @@ export async function exportThresholdEcdsaKeyWithFreshEmailOtpAuthorization(
     onEvent?: KeyExportEventCallback;
   },
 ): Promise<{ accountId: string; exportedSchemes: ExportedKeySchemes }> {
-  if (args.exportLane.authMethod !== 'email_otp' || args.material.kind !== 'fresh_email_otp') {
+  if (args.exportLane.session.authMethod !== 'email_otp' || args.material.kind !== 'fresh_email_otp') {
     throw new Error('[SigningEngine][ecdsa-export] fresh export requires Email OTP lane');
   }
   const exportChain = ecdsaExportBoundaryChain(args.exportLane);
@@ -183,7 +188,7 @@ export async function exportThresholdEcdsaKeyWithFreshEmailOtpAuthorization(
       walletId: args.walletSessionUserId,
       walletSessionUserId: args.walletSessionUserId,
     }),
-    subjectId: args.exportLane.subjectId,
+    subjectId: args.exportLane.key.subjectId,
     chainTarget: args.material.chainTarget,
     challengeId: authorization.challengeId,
     otpCode: authorization.otpCode,
@@ -216,23 +221,20 @@ export async function exportThresholdEcdsaKeyWithAuthorization(
   deps: EcdsaExportFlowDeps,
   args: {
     walletSessionUserId: string;
-    keyRef: ThresholdEcdsaSecp256k1KeyRef;
+    material: ReadyEvmFamilyEcdsaMaterial;
     exportLane: ExactEcdsaExportLane;
     options: EcdsaExportOptions;
     flowId: string;
     onEvent?: KeyExportEventCallback;
   },
 ): Promise<{ accountId: string; exportedSchemes: ExportedKeySchemes }> {
-  assertEcdsaExportKeyRefMatchesLane({
-    keyRef: args.keyRef,
-    exportLane: args.exportLane,
-  });
+  const keyRef = args.material.keyRef;
   const exportChain = ecdsaExportBoundaryChain(args.exportLane);
-  const currentRecord = resolveEcdsaExportRecordForLane(deps.sessionStore, args.exportLane);
+  const currentRecord = args.material.record;
   const exportPublicKey =
-    String(args.keyRef.ecdsaHssExportArtifact?.publicKeyHex || '').trim() ||
-    String(args.keyRef.ecdsaThresholdKeyId || '').trim() ||
-    String(args.keyRef.ethereumAddress || '').trim() ||
+    String(keyRef.ecdsaHssExportArtifact?.publicKeyHex || '').trim() ||
+    String(keyRef.ecdsaThresholdKeyId || '').trim() ||
+    String(keyRef.ethereumAddress || '').trim() ||
     '(threshold export key)';
 
   if (currentRecord.source === SIGNER_AUTH_METHODS.emailOtp) {
@@ -251,9 +253,11 @@ export async function exportThresholdEcdsaKeyWithAuthorization(
         'exportThresholdSessionAuthToken',
       ),
       thresholdSessionId: currentRecord.thresholdSessionId,
-      walletSigningSessionId,
+      authorizingWalletSigningSessionId: toAuthorizingWalletSigningSessionId(
+        walletSigningSessionId,
+      ),
       curve: 'ecdsa' as const,
-      chainTarget: args.exportLane.chainTarget,
+      chainTarget: args.exportLane.session.chainTarget,
     };
     const authorization = await requestEmailOtpKeyExportAuthorization(
       {
@@ -312,8 +316,8 @@ export async function exportThresholdEcdsaKeyWithAuthorization(
   try {
     await assertWarmSessionEcdsaOperationAllowed(deps.warmSessionPolicy, {
       walletId: args.walletSessionUserId,
-      chainTarget: args.exportLane.chainTarget,
-      thresholdSessionId: args.keyRef.thresholdSessionId,
+      chainTarget: args.exportLane.session.chainTarget,
+      thresholdSessionId: keyRef.thresholdSessionId,
       operationLabel: 'threshold-ecdsa key export',
       source: currentRecord.source,
       sensitivePolicy: SENSITIVE_OPERATION_POLICIES.requirePasskey,
@@ -333,7 +337,7 @@ export async function exportThresholdEcdsaKeyWithAuthorization(
     {
       walletSessionUserId: args.walletSessionUserId,
       publicKey: exportPublicKey,
-      chainTarget: args.exportLane.chainTarget,
+      chainTarget: args.exportLane.session.chainTarget,
       flowId: args.flowId,
       onEvent: args.onEvent,
     },
@@ -350,7 +354,7 @@ export async function exportThresholdEcdsaKeyWithAuthorization(
     onEvent: args.onEvent,
   });
 
-  const cachedArtifact = args.keyRef.ecdsaHssExportArtifact;
+  const cachedArtifact = keyRef.ecdsaHssExportArtifact;
   if (cachedArtifact) {
     emitEcdsaMaterialSucceeded({
       flowId: args.flowId,
@@ -377,10 +381,10 @@ export async function exportThresholdEcdsaKeyWithAuthorization(
     { getSignerWorkerContext: deps.getSignerWorkerContext },
     {
       walletSessionUserId: args.walletSessionUserId,
-      subjectId: args.exportLane.subjectId,
-      chainTarget: args.exportLane.chainTarget,
+      subjectId: args.exportLane.key.subjectId,
+      chainTarget: args.exportLane.session.chainTarget,
       rpId,
-      keyRef: args.keyRef,
+      keyRef,
       clientRootShare32B64u: yClient32LeB64u,
     },
   );

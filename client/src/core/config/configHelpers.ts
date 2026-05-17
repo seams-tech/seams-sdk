@@ -109,32 +109,17 @@ export function resolveThemePalette(args: {
   return 'default';
 }
 
-export function resolveSmartAccountDeploymentMode(
-  value: unknown,
-  fallback: 'observe' | 'enforce',
-): 'observe' | 'enforce' {
-  if (value == null) return fallback;
-  if (value === 'observe' || value === 'enforce') return value;
-  throw new Error(
-    "[configPresets] Invalid config: relayer.smartAccountDeploymentMode must be 'observe' or 'enforce'",
-  );
-}
-
 export function copyEcdsaSignerProvisioningDefaults(
   value: EcdsaSignerProvisioningDefaults,
 ): EcdsaSignerProvisioningDefaults {
   return {
     tempo: {
       ...value.tempo,
-      participantIds: [...value.tempo.participantIds],
       signingSession: { ...value.tempo.signingSession },
-      ...(value.tempo.smartAccount ? { smartAccount: { ...value.tempo.smartAccount } } : {}),
     },
     evm: {
       ...value.evm,
-      participantIds: [...value.evm.participantIds],
       signingSession: { ...value.evm.signingSession },
-      ...(value.evm.smartAccount ? { smartAccount: { ...value.evm.smartAccount } } : {}),
     },
   };
 }

@@ -1,4 +1,5 @@
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
+import type { ReadyEvmFamilyEcdsaMaterial } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { SelectedEcdsaLane } from '../../session/identity/laneIdentity';
 import type { BudgetAdmittedTransactionOperation } from '../../session/operationState/transactionState';
 import type { SigningAuthPlan } from '../../stepUpConfirmation/types';
@@ -14,6 +15,7 @@ export type EvmFamilyThresholdEcdsaOperation = BudgetAdmittedTransactionOperatio
 >;
 
 export type EvmFamilyThresholdEcdsaReauthResult = {
+  readyMaterial: ReadyEvmFamilyEcdsaMaterial;
   keyRef: ThresholdEcdsaSecp256k1KeyRef;
   operation: EvmFamilyThresholdEcdsaOperation;
 };
@@ -114,7 +116,7 @@ export async function completeEvmFamilyThresholdEcdsaAdmissionAfterConfirmation(
       throw new Error('[chains] Email OTP admission requires Email OTP confirmation');
     }
     const result = await args.mode.emailOtpSigning.complete(args.confirmation.authorization);
-    if (!result?.keyRef || !result?.operation) {
+    if (!result?.readyMaterial || !result?.keyRef || !result?.operation) {
       throw new Error('[chains] Email OTP ECDSA reauth must return admitted operation');
     }
     return { source: 'email_otp', result };
@@ -129,7 +131,7 @@ export async function completeEvmFamilyThresholdEcdsaAdmissionAfterConfirmation(
       authorization: args.confirmation.authorization,
       usesNeeded: args.usesNeeded,
     });
-    if (!result?.keyRef || !result?.operation) {
+    if (!result?.readyMaterial || !result?.keyRef || !result?.operation) {
       throw new Error('[chains] passkey ECDSA reconnect must return admitted operation');
     }
     if (!args.confirmation.authorization.plannedPasskeyReconnect) {
@@ -165,7 +167,7 @@ export async function completeEvmFamilyThresholdEcdsaAdmissionAfterConfirmation(
       authorization: args.confirmation.authorization,
       usesNeeded: args.usesNeeded,
     });
-    if (!result?.keyRef || !result?.operation) {
+    if (!result?.readyMaterial || !result?.keyRef || !result?.operation) {
       throw new Error('[chains] threshold ECDSA reconnect must return admitted operation');
     }
     return { source: 'threshold_reconnect', result };

@@ -4,12 +4,9 @@ import { json, readJson } from '../http';
 import {
   markTrackedRecoverySessionVerified,
   recordTrackedNearRecoveryExecution,
-  queueTrackedSmartAccountRecoveryExecutions,
   resolveTrackedNearRecoveryExecution,
   transitionTrackedRecoverySession,
 } from '../../recoveryExecutionTracking';
-import { dispatchRecoveryAuthorityTick } from '../../recoveryAuthorityDispatch';
-import { buildRecoveryAuthoritySponsorshipRuntime } from '../../recoveryAuthoritySponsorship';
 
 export async function handleRecoverEmail(ctx: CloudflareRelayContext): Promise<Response | null> {
   if (ctx.method !== 'POST' || ctx.pathname !== '/recover-email') return null;
@@ -60,20 +57,17 @@ export async function handleRecoverEmail(ctx: CloudflareRelayContext): Promise<R
     }
   };
 
-  const queueEvmContinuation = async (transactionHash?: string): Promise<void> => {
+  const markNearRecoverySubmitted = async (transactionHash?: string): Promise<void> => {
     try {
-      await queueTrackedSmartAccountRecoveryExecutions(ctx.service, trackedRecovery, {
-        nearTransactionHash: transactionHash,
-      });
-      await dispatchRecoveryAuthorityTick(ctx.service, {
-        logger: ctx.logger,
-        sponsorship: buildRecoveryAuthoritySponsorshipRuntime({
-          logger: ctx.logger,
-          opts: ctx.opts,
-        }),
+      await transitionTrackedRecoverySession(ctx.service, trackedRecovery, {
+        status: 'near_recovered',
+        metadataPatch: {
+          ...(transactionHash ? { nearRecoveryTransactionHash: transactionHash } : {}),
+          nearRecoverySubmittedAtMs: Date.now(),
+        },
       });
     } catch (err: unknown) {
-      ctx.logger.warn('[recover-email] failed to queue linked EVM recovery executions', {
+      ctx.logger.warn('[recover-email] failed to mark NEAR recovery submitted', {
         accountId,
         sessionId: trackedRecovery?.sessionId,
         error: err instanceof Error ? err.message : String(err || 'unknown error'),
@@ -128,7 +122,7 @@ export async function handleRecoverEmail(ctx: CloudflareRelayContext): Promise<R
                 },
           );
           if (result?.success) {
-            await queueEvmContinuation(result.transactionHash);
+            await markNearRecoverySubmitted(result.transactionHash);
           } else {
             await markRecoveryFailed(
               'near_email_recovery_submit_failed',
@@ -179,7 +173,7 @@ export async function handleRecoverEmail(ctx: CloudflareRelayContext): Promise<R
         },
   );
   if (result.success) {
-    await queueEvmContinuation(result.transactionHash);
+    await markNearRecoverySubmitted(result.transactionHash);
   } else {
     await markRecoveryFailed(
       'near_email_recovery_submit_failed',

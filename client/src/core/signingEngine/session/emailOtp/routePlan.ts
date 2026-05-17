@@ -1,4 +1,5 @@
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
+import type { EmailOtpAuthPolicy } from '@/core/types/seams';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 import type {
   WalletEmailOtpExportOperation,
@@ -9,9 +10,12 @@ import {
   authLaneToRouteAuth,
   buildEmailOtpRoutePlan,
   routeFamilyForAuthLane,
+  toMintedWalletSigningSessionId,
+  type AuthorizingWalletSigningSessionId,
   type EmailOtpAuthLane,
   type EmailOtpRoutePlan,
   type EmailOtpSigningSessionAuthLane,
+  type MintedWalletSigningSessionId,
 } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 
 export type EmailOtpSigningSessionChallengeOperation =
@@ -60,6 +64,80 @@ export function routeAuthFromEmailOtpRoutePlan(
   routePlan: EmailOtpRoutePlan,
 ): AppOrThresholdSessionAuth | undefined {
   return authLaneToRouteAuth(routePlan.authLane);
+}
+
+export type EmailOtpEcdsaMintingSession =
+  | {
+      kind: 'per_operation';
+      walletSigningSessionId: MintedWalletSigningSessionId;
+      authorizingWalletSigningSessionId?: AuthorizingWalletSigningSessionId;
+    }
+  | {
+      kind: 'session';
+      walletSigningSessionId: MintedWalletSigningSessionId;
+      authorizingWalletSigningSessionId?: AuthorizingWalletSigningSessionId;
+    };
+
+export function authorizingWalletSigningSessionIdFromRoutePlan(
+  routePlan: EmailOtpRoutePlan,
+): AuthorizingWalletSigningSessionId | undefined {
+  return routePlan.authLane.kind === 'signing_session'
+    ? routePlan.authLane.authorizingWalletSigningSessionId
+    : undefined;
+}
+
+export function assertPerOperationEmailOtpMintDoesNotReuseAuthorizingSession(args: {
+  mintedWalletSigningSessionId: MintedWalletSigningSessionId;
+  authorizingWalletSigningSessionId?: AuthorizingWalletSigningSessionId;
+}): void {
+  if (!args.authorizingWalletSigningSessionId) return;
+  if (String(args.mintedWalletSigningSessionId) === String(args.authorizingWalletSigningSessionId)) {
+    throw new Error(
+      'Email OTP per-operation ECDSA minting must create a fresh wallet signing-session id',
+    );
+  }
+}
+
+export function buildPerOperationEmailOtpEcdsaMintingSession(args: {
+  routePlan: EmailOtpRoutePlan;
+  generateWalletSigningSessionId: () => string;
+}): Extract<EmailOtpEcdsaMintingSession, { kind: 'per_operation' }> {
+  const mintedWalletSigningSessionId = toMintedWalletSigningSessionId(
+    args.generateWalletSigningSessionId(),
+  );
+  const authorizingWalletSigningSessionId = authorizingWalletSigningSessionIdFromRoutePlan(
+    args.routePlan,
+  );
+  assertPerOperationEmailOtpMintDoesNotReuseAuthorizingSession({
+    mintedWalletSigningSessionId,
+    ...(authorizingWalletSigningSessionId ? { authorizingWalletSigningSessionId } : {}),
+  });
+  return {
+    kind: 'per_operation',
+    walletSigningSessionId: mintedWalletSigningSessionId,
+    ...(authorizingWalletSigningSessionId ? { authorizingWalletSigningSessionId } : {}),
+  };
+}
+
+export function buildEmailOtpEcdsaMintingSession(args: {
+  emailOtpAuthPolicy: EmailOtpAuthPolicy;
+  routePlan: EmailOtpRoutePlan;
+  generateWalletSigningSessionId: () => string;
+}): EmailOtpEcdsaMintingSession {
+  if (args.emailOtpAuthPolicy === 'per_operation') {
+    return buildPerOperationEmailOtpEcdsaMintingSession({
+      routePlan: args.routePlan,
+      generateWalletSigningSessionId: args.generateWalletSigningSessionId,
+    });
+  }
+  const authorizingWalletSigningSessionId = authorizingWalletSigningSessionIdFromRoutePlan(
+    args.routePlan,
+  );
+  return {
+    kind: 'session',
+    walletSigningSessionId: toMintedWalletSigningSessionId(args.generateWalletSigningSessionId()),
+    ...(authorizingWalletSigningSessionId ? { authorizingWalletSigningSessionId } : {}),
+  };
 }
 
 export function thresholdSessionAuthFromEcdsaBootstrap(

@@ -37,16 +37,21 @@ import type { EvmSignedResult } from './chains/evm/evmAdapter';
 import type { TempoSigningRequest } from './chains/tempo/types';
 import type { TempoSignedResult } from './chains/tempo/tempoAdapter';
 import type { EcdsaBootstrapRequest } from './session/passkey/ecdsaBootstrap';
+import { claimWarmSessionPrfFirst } from './session/passkey/prfClaim';
+import type {
+  EvmFamilyEcdsaKeyIdentity,
+  EvmFamilyEcdsaSessionLanePolicy,
+} from './session/identity/evmFamilyEcdsaIdentity';
 import {
   createThresholdEd25519PublicApi,
   type ThresholdEd25519PublicApi,
 } from './threshold/ed25519/public';
 import {
   persistThresholdEcdsaBootstrapForWalletTarget as persistThresholdEcdsaBootstrapForWalletTargetValue,
-  type ThresholdEcdsaSmartAccountBootstrapInput,
 } from './session/warmCapabilities/ecdsaBootstrapPersistence';
 import {
   clearThresholdEcdsaSessionRecordForLane as clearThresholdEcdsaSessionRecordForLaneValue,
+  getStoredThresholdEd25519SessionRecordForAccount,
   getEmailOtpThresholdEcdsaKeyRefForSigning as getEmailOtpThresholdEcdsaKeyRefForSigningValue,
   getEmailOtpThresholdEcdsaSessionRecordForSigning as getEmailOtpThresholdEcdsaSessionRecordForSigningValue,
   getPasskeyThresholdEcdsaKeyRefForSigning as getPasskeyThresholdEcdsaKeyRefForSigningValue,
@@ -68,6 +73,7 @@ import type {
 } from './session/identity/laneIdentity';
 import {
   configuredThresholdEcdsaChainTargets,
+  thresholdEcdsaChainTargetKey,
   toWalletSubjectId,
   type ThresholdEcdsaChainTarget,
   type WalletSessionRef,
@@ -135,6 +141,7 @@ import {
 import { initializeSigningEngineRuntime } from './assembly/createSigningEngineRuntime';
 import { createManagerAssembly } from './assembly/createManagers';
 import { verifySealedRefreshStartupParity } from '../rpcClients/relayer/sealedRefreshCapabilities';
+import type { ThresholdEcdsaHssRouteAuth } from '../rpcClients/relayer/thresholdEcdsa';
 import type { WarmSessionEcdsaCapabilityState } from './session/warmCapabilities/types';
 import type {
   ProvisionWarmEd25519CapabilityResult,
@@ -180,6 +187,22 @@ export type { ThresholdEcdsaSessionBootstrapResult } from './threshold/ecdsa/act
 export type { EmailOtpBootstrapRecovery } from './stepUpConfirmation/otpPrompt/bootstrapRecovery';
 export type { NearSignIntentRequest, NearSignIntentResult } from './flows/signNear/signNear';
 export type { ThresholdEcdsaLoginPrefillResult } from './session/warmCapabilities/ecdsaLoginPrefill';
+
+export type BootstrapLoginEcdsaSessionFromRestoredEd25519Args = {
+  walletId: AccountId | string;
+  subjectId: WalletSubjectId;
+  chainTarget: ThresholdEcdsaChainTarget;
+  relayerUrl: string;
+  key: EvmFamilyEcdsaKeyIdentity;
+  lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
+  ttlMs: number;
+  remainingUses: number;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  runtimeScopeBootstrap?: {
+    environmentId: string;
+    publishableKey: string;
+  };
+};
 
 /**
  * SigningEngine is the signing composition root:
@@ -358,8 +381,6 @@ export class SigningEngine {
           walletId: toAccountId(args.walletId),
           chainTarget: args.chainTarget,
           bootstrap: args.bootstrap,
-          smartAccount: args.smartAccount,
-          deployment: args.deployment,
         }),
       upsertThresholdEcdsaSessionFromBootstrap: (args) =>
         upsertThresholdEcdsaSessionFromBootstrapValue(this.warmSigning.ecdsaSessions, args),
@@ -746,6 +767,75 @@ export class SigningEngine {
     return await this.passkeyPublic.bootstrapEcdsaSession(args);
   }
 
+  async bootstrapLoginEcdsaSessionFromRestoredEd25519(
+    args: BootstrapLoginEcdsaSessionFromRestoredEd25519Args,
+  ): Promise<ThresholdEcdsaSessionBootstrapResult> {
+    const walletId = toAccountId(args.walletId);
+    const restoredEd25519 = getStoredThresholdEd25519SessionRecordForAccount(walletId);
+    if (!restoredEd25519) {
+      throw new Error('[SigningEngine][ecdsa] restored Ed25519 session record is required');
+    }
+    if (restoredEd25519.source === 'email_otp' || restoredEd25519.emailOtpAuthContext) {
+      throw new Error('[SigningEngine][ecdsa] restored passkey Ed25519 material is required');
+    }
+    if (String(restoredEd25519.nearAccountId) !== String(walletId)) {
+      throw new Error('[SigningEngine][ecdsa] restored Ed25519 wallet identity mismatch');
+    }
+    if (String(args.key.walletId) !== String(walletId)) {
+      throw new Error('[SigningEngine][ecdsa] ECDSA key wallet identity mismatch');
+    }
+    if (String(args.key.subjectId) !== String(args.subjectId)) {
+      throw new Error('[SigningEngine][ecdsa] ECDSA key subject identity mismatch');
+    }
+    if (
+      thresholdEcdsaChainTargetKey(args.lanePolicy.chainTarget) !==
+      thresholdEcdsaChainTargetKey(args.chainTarget)
+    ) {
+      throw new Error('[SigningEngine][ecdsa] ECDSA lane policy target mismatch');
+    }
+    if (args.lanePolicy.thresholdSessionKind !== restoredEd25519.thresholdSessionKind) {
+      throw new Error('[SigningEngine][ecdsa] restored Ed25519 session kind mismatch');
+    }
+    if (
+      Number(args.lanePolicy.ttlMs) !== Number(args.ttlMs) ||
+      Number(args.lanePolicy.remainingUses) !== Number(args.remainingUses)
+    ) {
+      throw new Error('[SigningEngine][ecdsa] ECDSA lane policy session budget mismatch');
+    }
+
+    let routeAuth: ThresholdEcdsaHssRouteAuth;
+    if (restoredEd25519.thresholdSessionKind === 'cookie') {
+      routeAuth = { kind: 'cookie' };
+    } else {
+      const jwt = String(restoredEd25519.thresholdSessionAuthToken || '').trim();
+      if (!jwt) {
+        throw new Error('[SigningEngine][ecdsa] restored Ed25519 JWT auth token is required');
+      }
+      routeAuth = { kind: 'threshold_session', jwt };
+    }
+
+    const clientRootShare32B64u = await claimWarmSessionPrfFirst({
+      touchConfirm: this.touchConfirm,
+      thresholdSessionId: restoredEd25519.thresholdSessionId,
+      errorContext: 'restored Ed25519 login session ECDSA bootstrap',
+      uses: 1,
+      consume: false,
+      curve: 'ed25519',
+      chain: 'near',
+    });
+
+    return await this.passkeyPublic.bootstrapEcdsaSession({
+      kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
+      source: 'login',
+      relayerUrl: args.relayerUrl,
+      key: args.key,
+      lanePolicy: args.lanePolicy,
+      clientRootShare32B64u,
+      routeAuth,
+      ...(args.runtimeScopeBootstrap ? { runtimeScopeBootstrap: args.runtimeScopeBootstrap } : {}),
+    });
+  }
+
   async loginWithEmailOtpEcdsaCapabilityInternal(
     args: LoginWithEmailOtpEcdsaCapabilityInternalArgs,
   ): Promise<LoginWithEmailOtpEcdsaCapabilityInternalResult> {
@@ -835,11 +925,6 @@ export class SigningEngine {
     walletId: AccountId | string;
     chainTarget: ThresholdEcdsaChainTarget;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
-    smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
-    deployment?: {
-      deployed: boolean;
-      deploymentTxHash?: string;
-    };
     ensureEmailOtpNearAccountMapping?: boolean;
   }): Promise<void> {
     return this.warmCapabilitiesPublic.persistThresholdEcdsaBootstrapForWalletTarget(args);
@@ -1010,6 +1095,7 @@ export type SigningEnginePublic = Pick<
   | 'generateEphemeralNearKeypair'
   | 'connectEd25519Session'
   | 'bootstrapEcdsaSession'
+  | 'bootstrapLoginEcdsaSessionFromRestoredEd25519'
   | 'upsertThresholdEcdsaSessionFromBootstrap'
   | 'getThresholdEcdsaKeyRefForWalletTarget'
   | 'getThresholdEcdsaKeyRefForSubjectTarget'

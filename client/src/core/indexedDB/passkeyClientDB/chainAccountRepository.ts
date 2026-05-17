@@ -1,6 +1,4 @@
 import type { IDBPDatabase } from 'idb';
-import { normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
-import type { UndeployedSmartAccountSignerSet } from '@shared/utils';
 import { toTrimmedString } from '@shared/utils/validation';
 import type {
   AccountModel,
@@ -22,20 +20,8 @@ type CreateConstraintError = (
   details?: Record<string, unknown>,
 ) => Error;
 
-type ReconcilePendingSignerStateOnDeployment = (args: {
-  tx: any;
-  previous?: ChainAccountRecord;
-  next: ChainAccountRecord;
-  now: number;
-}) => Promise<void>;
-
 export type ChainAccountRepository = {
-  upsertChainAccount(
-    input: UpsertChainAccountInput,
-    options?: {
-      reconcilePendingSignerStateOnDeployment?: ReconcilePendingSignerStateOnDeployment;
-    },
-  ): Promise<ChainAccountRecord>;
+  upsertChainAccount(input: UpsertChainAccountInput): Promise<ChainAccountRecord>;
   listChainAccountsByProfile(profileId: string): Promise<ChainAccountRecord[]>;
   listChainAccountsByProfileAndChain(
     profileId: string,
@@ -60,92 +46,14 @@ export type ChainAccountRepository = {
   }): Promise<ChainAccountRecord>;
 };
 
-function normalizeUndeployedSmartAccountSignerSet(
-  value: unknown,
-): UndeployedSmartAccountSignerSet | undefined {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
-  const raw = value as Record<string, unknown>;
-  const ownerAddresses = Array.isArray(raw.ownerAddresses)
-    ? raw.ownerAddresses.map((entry) => normalizeAccountAddress(entry)).filter((entry) => !!entry)
-    : [];
-  const activeOwnerAddresses = Array.isArray(raw.activeOwnerAddresses)
-    ? raw.activeOwnerAddresses
-        .map((entry) => normalizeAccountAddress(entry))
-        .filter((entry) => !!entry)
-    : [];
-  const pendingOwnerAddresses = Array.isArray(raw.pendingOwnerAddresses)
-    ? raw.pendingOwnerAddresses
-        .map((entry) => normalizeAccountAddress(entry))
-        .filter((entry) => !!entry)
-    : [];
-  const owners = Array.isArray(raw.owners)
-    ? raw.owners
-        .map((entry) => {
-          if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
-          const candidate = entry as Record<string, unknown>;
-          const signerId = normalizeAccountAddress(candidate.signerId);
-          const signerType = normalizeOptionalNonEmptyString(candidate.signerType) || 'threshold';
-          const status = normalizeOptionalNonEmptyString(candidate.status);
-          if (!signerId || (status !== 'active' && status !== 'pending')) return null;
-          const signerSlotRaw = Number(candidate.signerSlot);
-          const participantIds = Array.isArray(candidate.participantIds)
-            ? candidate.participantIds
-                .map((candidateValue) => Math.floor(Number(candidateValue)))
-                .filter((candidateValue) => Number.isFinite(candidateValue) && candidateValue > 0)
-            : [];
-          return {
-            signerId,
-            signerType,
-            status,
-            ...(Number.isFinite(signerSlotRaw) && signerSlotRaw > 0
-              ? { signerSlot: Math.floor(signerSlotRaw) }
-              : {}),
-            ...(normalizeOptionalNonEmptyString(candidate.relayerKeyId)
-              ? { relayerKeyId: normalizeOptionalNonEmptyString(candidate.relayerKeyId)! }
-              : {}),
-            ...(normalizeOptionalNonEmptyString(candidate.thresholdEcdsaPublicKeyB64u)
-              ? {
-                  thresholdEcdsaPublicKeyB64u: normalizeOptionalNonEmptyString(
-                    candidate.thresholdEcdsaPublicKeyB64u,
-                  )!,
-                }
-              : {}),
-            ...(normalizeOptionalNonEmptyString(candidate.credentialIdB64u)
-              ? { credentialIdB64u: normalizeOptionalNonEmptyString(candidate.credentialIdB64u)! }
-              : {}),
-            ...(normalizeOptionalNonEmptyString(candidate.rpId)
-              ? { rpId: normalizeOptionalNonEmptyString(candidate.rpId)! }
-              : {}),
-            ...(participantIds.length ? { participantIds } : {}),
-          };
-        })
-        .filter((entry) => !!entry)
-    : [];
-  if (!ownerAddresses.length && !owners.length) return undefined;
-  return {
-    version: 'undeployed_smart_account_signer_set_v1',
-    ownerAddresses,
-    activeOwnerAddresses,
-    pendingOwnerAddresses,
-    owners: owners as UndeployedSmartAccountSignerSet['owners'],
-  };
-}
-
 export function createChainAccountRepository(args: {
   getDB: () => Promise<IDBPDatabase>;
   chainAccountsStore: string;
-  accountSignersStore: string;
   profilesStore: string;
-  signerOpsOutboxStore: string;
   createConstraintError: CreateConstraintError;
 }): ChainAccountRepository {
   return {
-    async upsertChainAccount(
-      input: UpsertChainAccountInput,
-      options?: {
-        reconcilePendingSignerStateOnDeployment?: ReconcilePendingSignerStateOnDeployment;
-      },
-    ): Promise<ChainAccountRecord> {
+    async upsertChainAccount(input: UpsertChainAccountInput): Promise<ChainAccountRecord> {
       const profileId = toTrimmedString(input.profileId || '');
       const chainIdKey = normalizeChainIdKey(input.chainIdKey);
       const accountAddress = normalizeAccountAddress(input.accountAddress);
@@ -166,65 +74,11 @@ export function createChainAccountRepository(args: {
           { profileId, chainIdKey, accountAddress },
         );
       }
-      const tx = db.transaction(
-        [args.chainAccountsStore, args.accountSignersStore, args.signerOpsOutboxStore],
-        'readwrite',
-      );
+      const tx = db.transaction(args.chainAccountsStore, 'readwrite');
       const store = tx.objectStore(args.chainAccountsStore);
       const existing = (await store.get([profileId, chainIdKey, accountAddress])) as
         | ChainAccountRecord
         | undefined;
-      const factory =
-        input.factory === null
-          ? undefined
-          : normalizeOptionalNonEmptyString(input.factory ?? existing?.factory);
-      const entryPoint =
-        input.entryPoint === null
-          ? undefined
-          : normalizeOptionalNonEmptyString(input.entryPoint ?? existing?.entryPoint);
-      const salt =
-        input.salt === null
-          ? undefined
-          : normalizeOptionalNonEmptyString(input.salt ?? existing?.salt);
-      const counterfactualAddressInput =
-        input.counterfactualAddress === null
-          ? undefined
-          : (input.counterfactualAddress ?? existing?.counterfactualAddress);
-      const isSmartAccountModel = accountModel === 'erc4337' || accountModel === 'tempo-native';
-      const hasSmartAccountShape = Boolean(
-        factory || entryPoint || salt || counterfactualAddressInput || isSmartAccountModel,
-      );
-      const counterfactualAddress = hasSmartAccountShape
-        ? normalizeAccountAddress(counterfactualAddressInput || accountAddress)
-        : undefined;
-      const deployed =
-        typeof input.deployed === 'boolean'
-          ? input.deployed
-          : typeof existing?.deployed === 'boolean'
-            ? existing.deployed
-            : hasSmartAccountShape
-              ? false
-              : undefined;
-      const deploymentTxHash =
-        input.deploymentTxHash === null
-          ? undefined
-          : normalizeOptionalNonEmptyString(input.deploymentTxHash ?? existing?.deploymentTxHash);
-      const deploymentCheckCandidate =
-        input.lastDeploymentCheckAt === null
-          ? undefined
-          : typeof input.lastDeploymentCheckAt === 'number'
-            ? input.lastDeploymentCheckAt
-            : existing?.lastDeploymentCheckAt;
-      const lastDeploymentCheckAt =
-        typeof deploymentCheckCandidate === 'number' && Number.isFinite(deploymentCheckCandidate)
-          ? deploymentCheckCandidate
-          : undefined;
-      const undeployedSignerSet =
-        input.undeployedSignerSet === null
-          ? undefined
-          : normalizeUndeployedSmartAccountSignerSet(
-              input.undeployedSignerSet ?? existing?.undeployedSignerSet,
-            );
       const next: ChainAccountRecord = {
         profileId,
         chainIdKey,
@@ -233,14 +87,6 @@ export function createChainAccountRepository(args: {
         isPrimary: input.isPrimary ?? existing?.isPrimary ?? false,
         createdAt: existing?.createdAt ?? now,
         updatedAt: now,
-        ...(factory ? { factory } : {}),
-        ...(entryPoint ? { entryPoint } : {}),
-        ...(salt ? { salt } : {}),
-        ...(counterfactualAddress ? { counterfactualAddress } : {}),
-        ...(typeof deployed === 'boolean' ? { deployed } : {}),
-        ...(deploymentTxHash ? { deploymentTxHash } : {}),
-        ...(typeof lastDeploymentCheckAt === 'number' ? { lastDeploymentCheckAt } : {}),
-        ...(undeployedSignerSet ? { undeployedSignerSet } : {}),
       };
 
       if (next.isPrimary) {
@@ -260,12 +106,6 @@ export function createChainAccountRepository(args: {
       }
 
       await store.put(next);
-      await options?.reconcilePendingSignerStateOnDeployment?.({
-        tx,
-        previous: existing,
-        next,
-        now,
-      });
       await tx.done;
       return next;
     },

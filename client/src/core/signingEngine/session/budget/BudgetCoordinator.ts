@@ -3,6 +3,7 @@ import type { SigningSessionStatus } from '@/core/types/seams';
 import { normalizeWalletSigningSpendPlan } from '../operationState/types';
 import {
   applySigningSessionBudgetReservationsToStatus,
+  assertBudgetStatusCheckHasConcreteLaneIdentity,
   assertPreparedBudgetProjectionVersion,
   assertSigningSessionBudgetReservationAvailable,
   assertWalletSigningOperationFingerprintMatches,
@@ -130,6 +131,7 @@ export class BudgetCoordinator implements SigningSessionBudget {
   async getAvailableStatus(
     input: Parameters<SigningSessionBudget['getAvailableStatus']>[0],
   ): ReturnType<SigningSessionBudget['getAvailableStatus']> {
+    assertBudgetStatusCheckHasConcreteLaneIdentity(input);
     const walletSigningSessionId = normalizeRequired(input.walletSigningSessionId, 'walletSigningSessionId');
     const status = await this.deps.readStatus({
       ...input,

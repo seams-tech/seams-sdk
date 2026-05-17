@@ -111,7 +111,6 @@ Code references:
 - contains:
   - `policy`: published transaction policies plus assignments for the runtime scope
   - `gasSponsorship`: published gas policies plus relayer-ready sponsored call policy projections
-  - `smartWallets`: smart wallet config payload
 
 `resolveConsoleRuntimeSnapshotPayload`
 
@@ -241,7 +240,6 @@ Relevant code:
 2. `resolveConsoleRuntimeSnapshotPayload` loads:
    - published transaction policies and assignments for the requested scope
    - published `GAS_SPONSORSHIP` policies for the requested scope
-   - smart wallet config state
 3. Gas policies are projected through `projectConsoleGasSponsorshipPolicyProjection`.
 4. Projections are converted into relayer-ready `sponsoredCallPolicies` with `resolveSponsoredCallPoliciesFromProjections`.
 5. The assembled `ConsoleRuntimeSnapshotPayload` is published as the next runtime snapshot.

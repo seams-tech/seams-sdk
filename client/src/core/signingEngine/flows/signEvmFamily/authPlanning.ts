@@ -64,6 +64,7 @@ export type EvmFamilyConfirmedEmailOtpDeps = {
     thresholdSessionId: string;
     curve: 'ecdsa';
     chain: EvmFamilyChain;
+    chainTarget: ThresholdEcdsaChainTarget;
   }) => EmailOtpAuthLane | null | Promise<EmailOtpAuthLane | null>;
   loginWithEmailOtpEcdsaCapabilityForSigning?: (args: {
     walletSession: WalletSessionRef;
@@ -219,6 +220,11 @@ export async function resolveEvmFamilyTransactionStepUp(
           selectedLane: preparedEcdsaLane,
           material: preparedMaterial,
           signingSessionRecord: emailOtpReauthRecord || null,
+          reauthSource:
+            preparedSelection?.kind === 'reauth_required' &&
+            preparedSelection.authMethod === SIGNER_AUTH_METHODS.emailOtp
+              ? { kind: 'selection', authority: preparedSelection.reauthAuthority }
+              : { kind: 'material' },
           onEvent: args.onEvent,
           requestEmailOtpTransactionSigningChallenge:
             confirmedEmailOtpDeps.requestEmailOtpTransactionSigningChallenge,

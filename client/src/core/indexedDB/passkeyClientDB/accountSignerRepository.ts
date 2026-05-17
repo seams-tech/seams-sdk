@@ -47,7 +47,7 @@ const ACCOUNT_MODEL_CAPABILITY_MATRIX: Record<string, AccountModelCapabilities> 
     supportsSessionSigner: true,
     supportsRecoverySigner: true,
   },
-  erc4337: {
+  'threshold-ecdsa': {
     supportsMultiSigner: true,
     supportsAddRemoveSigner: true,
     supportsSessionSigner: true,

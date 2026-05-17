@@ -45,13 +45,11 @@ import {
   nearAccountRefFromAccountId,
   toWalletSubjectId,
   type NearAccountRef,
-  thresholdEcdsaChainTargetFromRequest,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { listThresholdEcdsaProvisionTargets } from '../thresholdEcdsaProvisioning';
 import {
   persistLinkDeviceThresholdEcdsaBootstrap,
-  type PreparedLinkDeviceLinkedAccount,
   type PreparedLinkDeviceThresholdEcdsa,
 } from '../evm/linkDeviceThresholdEcdsa';
 
@@ -85,51 +83,6 @@ function coercePositiveInt(value: unknown, fallback: number): number {
   const n = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(n) || n <= 0) return Math.max(1, Math.floor(fallback));
   return Math.floor(n);
-}
-
-function parsePreparedLinkedAccounts(raw: unknown): PreparedLinkDeviceLinkedAccount[] {
-  if (!Array.isArray(raw)) return [];
-  const out: PreparedLinkDeviceLinkedAccount[] = [];
-  for (const value of raw) {
-    if (!isObject(value)) continue;
-    const chainIdKey = String(value.chainIdKey || '')
-      .trim()
-      .toLowerCase();
-    const accountAddress = String(value.accountAddress || '').trim();
-    const accountModel = String(value.accountModel || '').trim();
-    let chainTarget: ThresholdEcdsaChainTarget;
-    try {
-      chainTarget = thresholdEcdsaChainTargetFromRequest(
-        isObject(value.chainTarget)
-          ? (value.chainTarget as Record<string, unknown>)
-          : {
-              chain: value.chain,
-              chainId: value.chainId,
-            },
-      );
-    } catch {
-      continue;
-    }
-    if (!chainIdKey || !accountAddress) continue;
-    if (accountModel !== 'erc4337' && accountModel !== 'tempo-native') continue;
-    out.push({
-      chainTarget,
-      chainIdKey,
-      accountAddress,
-      accountModel,
-      ...(typeof value.factory === 'string' && value.factory.trim()
-        ? { factory: value.factory.trim() }
-        : {}),
-      ...(typeof value.entryPoint === 'string' && value.entryPoint.trim()
-        ? { entryPoint: value.entryPoint.trim() }
-        : {}),
-      ...(typeof value.salt === 'string' && value.salt.trim() ? { salt: value.salt.trim() } : {}),
-      ...(typeof value.counterfactualAddress === 'string' && value.counterfactualAddress.trim()
-        ? { counterfactualAddress: value.counterfactualAddress.trim() }
-        : {}),
-    });
-  }
-  return out;
 }
 
 // Lazy-load QRCode to keep it an optional peer and reduce baseline bundle size.
@@ -497,7 +450,6 @@ export class LinkDeviceFlow {
         rpId,
         sessionId: generateThresholdSessionId(),
         walletSigningSessionId: generateWalletSigningSessionId(),
-        participantIds: [...thresholdEcdsaPrimaryProvisionTarget.options.participantIds],
         ttlMs: coercePositiveInt(
           thresholdEcdsaPrimaryProvisionTarget.options.signingSession.ttlMs,
           24 * 60 * 60 * 1000,
@@ -556,8 +508,6 @@ export class LinkDeviceFlow {
     if (!thresholdSession) {
       throw new Error('link-device/prepare did not return threshold session bootstrap data');
     }
-    const credentialIdB64u = String(prepareObj.credentialIdB64u || '').trim();
-    const linkedAccounts = parsePreparedLinkedAccounts(prepareObj.linkedAccounts);
     const thresholdEcdsaSection: PreparedLinkDeviceThresholdEcdsa | null = isObject(
       prepareObj.thresholdEcdsa,
     )
@@ -707,20 +657,13 @@ export class LinkDeviceFlow {
         ? thresholdSection.participantIds
         : undefined,
     });
-    if (
-      thresholdEcdsaSection &&
-      linkedAccounts.length > 0
-    ) {
+    if (thresholdEcdsaSection && thresholdEcdsaSessionPolicy) {
       await persistLinkDeviceThresholdEcdsaBootstrap({
-        indexedDB: IndexedDBManager,
         signingEngine: this.context.signingEngine,
         walletId: nearAccountId,
         relayerUrl,
-        signerSlot: resolvedSignerSlot,
-        rpId,
-        credentialIdB64u,
+        chainTarget: thresholdEcdsaSessionPolicy.chainTarget,
         thresholdEcdsa: thresholdEcdsaSection,
-        linkedAccounts,
       });
     }
 

@@ -1214,37 +1214,6 @@ export function createConsoleRouteDefinitions(): RouteDefinition[] {
       },
     ),
     consoleRoute(
-      'console_smart_wallets_list',
-      'GET',
-      '/console/smart-wallets',
-      'List smart-wallet configurations',
-      {
-        requiredServices: ['smartWallets'],
-      },
-    ),
-    consoleRoute(
-      'console_smart_wallets_create',
-      'POST',
-      '/console/smart-wallets',
-      'Create smart-wallet configuration',
-      {
-        roles: CONSOLE_CONFIG_MUTATION_ROLES,
-        forbiddenMessage: 'Only owner, admin, or security_admin can mutate console configuration',
-        requiredServices: ['smartWallets'],
-      },
-    ),
-    consoleRoute(
-      'console_smart_wallets_update',
-      'PATCH',
-      '/console/smart-wallets/:id',
-      'Update smart-wallet configuration',
-      {
-        roles: CONSOLE_CONFIG_MUTATION_ROLES,
-        forbiddenMessage: 'Only owner, admin, or security_admin can mutate console configuration',
-        requiredServices: ['smartWallets'],
-      },
-    ),
-    consoleRoute(
       'console_runtime_snapshots_list',
       'GET',
       '/console/runtime-snapshots',
@@ -1571,30 +1540,6 @@ export function createRelayRouteDefinitions(
           'Link-device routes are intentionally public for now and rely on opaque session identifiers.',
       },
       ['authService'],
-    ),
-    publicRoute(
-      'smart_account_deployment_manifest',
-      'POST',
-      '/smart-account/deployment/manifest',
-      'Read canonical smart-account deployment manifest',
-      {
-        plane: 'public',
-        rationale:
-          'Smart-account deployment manifests are relay-public routes gated by threshold session authorization.',
-      },
-      ['authService', 'session'],
-    ),
-    publicRoute(
-      'smart_account_deployment_observe',
-      'POST',
-      '/smart-account/deployment/observe',
-      'Report canonical smart-account deployment observation',
-      {
-        plane: 'public',
-        rationale:
-          'Smart-account deployment observations are relay-public routes gated by threshold session authorization.',
-      },
-      ['authService', 'session'],
     ),
     publicRoute(
       'email_recovery_prepare',

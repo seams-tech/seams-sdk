@@ -54,7 +54,6 @@ export type {
   EnqueueSignerOperationInput,
 } from './passkeyClientDB.types';
 
-export type { UndeployedSmartAccountSignerSet } from '@shared/utils';
 
 export type {
   KeyMaterialAlgorithm,

@@ -24,9 +24,6 @@ import type { ConsoleWalletService } from '../console/wallets';
 import type { ConsoleOrgProjectEnvService } from '../console/orgProjectEnv';
 import type { SponsoredEvmCallExecutorConfig } from '../sponsorship/evmRelay';
 import type { SponsorshipSpendPricingService } from '../sponsorship';
-import type { CanonicalSmartAccountDeploymentManifest } from '../core/smartAccountDeploymentManifest';
-import type { CanonicalEvmSmartAccountDeploymentPlan } from '../core/evmSmartAccountDeploymentPlan';
-import type { SmartAccountChainTarget } from '../core/smartAccountChainTarget';
 import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
 import { WALLET_EMAIL_OTP_EXPORT_OPERATION } from '@shared/utils/emailOtpDomain';
 import type { ApiCredentialScope } from '../../../shared/src/console/apiKeyScopes';
@@ -376,22 +373,6 @@ export interface RelayBootstrapGrantBroker {
   ): Promise<RelayBootstrapGrantIssueResult>;
 }
 
-export interface SmartAccountDeployRequest {
-  walletId: string;
-  chainTarget: SmartAccountChainTarget;
-  accountAddress: string;
-  accountModel: string;
-  deploymentManifest: CanonicalSmartAccountDeploymentManifest;
-  evmDeploymentPlan?: CanonicalEvmSmartAccountDeploymentPlan;
-}
-
-export interface SmartAccountDeployResult {
-  ok: boolean;
-  deploymentTxHash?: string;
-  code?: string;
-  message?: string;
-}
-
 export type ThresholdSchemeModuleById<S extends ThresholdSchemeId> = Extract<
   ThresholdAnySchemeModule,
   { schemeId: S }
@@ -507,17 +488,6 @@ export interface RelayRouterOptions {
    * Default `basePath` is `/threshold/signing-session-seal`.
    */
   signingSessionSeal?: SigningSessionSealRoutesOptions | null;
-  /**
-   * Optional internal smart-account deploy hook.
-   *
-   * This hook is for internal registration or provisioning flows.
-   * It is not exposed as a public relay route.
-   */
-  smartAccountDeploy?:
-    | ((
-        request: SmartAccountDeployRequest,
-      ) => Promise<SmartAccountDeployResult> | SmartAccountDeployResult)
-    | null;
   /**
    * Optional ROR configuration for `GET /.well-known/webauthn`.
    * When omitted, the endpoint responds with an empty allowlist.
