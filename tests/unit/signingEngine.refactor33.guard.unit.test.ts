@@ -575,7 +575,7 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
       'await this.warmCapabilitiesPublic.hydrateSigningSession(args);',
     );
     expect(source).toContain(
-      'await this.warmCapabilitiesPublic.clearWarmSigningSessions(walletId);',
+      'await this.warmCapabilitiesPublic.clearVolatileWarmSigningMaterial(walletId);',
     );
     expect(source).not.toContain('return await provisionWarmEd25519Capability(');
     expect(source).not.toContain('return await bootstrapWarmEcdsaCapability(');

@@ -588,7 +588,7 @@ export async function runEmailOtpEcdsaTempoFlow(
         };
       }
 
-      await signingEngine.clearWarmSigningSessions(accountId).catch(() => undefined);
+      await signingEngine.clearVolatileWarmSigningMaterial(accountId).catch(() => undefined);
 
       const firstLoginOtp = await requestLoginOtp();
       const loginOtp =

@@ -75,7 +75,14 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               };
             }
 
-            const login = await seams.unlock(accountId);
+            const login = await seams.unlock(accountId, {
+              session: {
+                kind: 'jwt',
+                relayUrl: relayerUrl,
+                exchange: { type: 'passkey_assertion' },
+              },
+              signingSession: { ttlMs: 120_000, remainingUses: 3 },
+            });
             if (!login?.success) {
               return {
                 ok: false,
@@ -289,6 +296,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               behavior: 'skipClick' as const,
               autoProceedDelay: 0,
             };
+            const events: Array<{ phase: string; status: string; authMethod: string }> = [];
             const accountId = `sealedrefresh${Date.now()}.w3a-v1.testnet`;
             const seams = new SeamsPasskey({
               nearNetwork: 'testnet',
@@ -333,11 +341,26 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               };
             }
 
-            const login = await seams.unlock(accountId);
+            const login = await seams.unlock(accountId, {
+              session: {
+                kind: 'jwt',
+                relayUrl: relayerUrl,
+                exchange: { type: 'passkey_assertion' },
+              },
+              signingSession: { ttlMs: 120_000, remainingUses: 3 },
+              onEvent: (event: any) => {
+                events.push({
+                  phase: String(event?.phase || ''),
+                  status: String(event?.status || ''),
+                  authMethod: String(event?.authMethod || ''),
+                });
+              },
+            });
             if (!login?.success) {
               return {
                 ok: false,
                 error: String(login?.error || 'unlock failed'),
+                events,
               };
             }
 
@@ -346,6 +369,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               ok: true,
               accountId,
               sessionStatus: String(session?.signingSession?.status || ''),
+              events,
             };
           } catch (error: unknown) {
             return {
@@ -372,7 +396,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
       expect(loginPhase.ok, loginPhase.error || JSON.stringify(loginPhase)).toBe(true);
       expect(loginPhase.sessionStatus).toBe('active');
       const getCallsAfterLogin = await readWebAuthnGetCallCount(page);
-      expect(getCallsAfterLogin).toBeGreaterThan(0);
+      const persistenceAfterLogin = await readWalletIframeThresholdPersistence(page);
 
       const firstSignPromise = page.evaluate(
         async ({
@@ -506,8 +530,17 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
         timeoutMs: 120_000,
         intervalMs: 250,
       });
-      expect(firstSign.ok, JSON.stringify({ firstSign })).toBe(true);
+      expect(
+        firstSign.ok,
+        JSON.stringify({
+          firstSign,
+          loginPhase,
+          persistenceAfterLogin,
+          signingSessionSealRouteCounts: harness.signingSessionSealRouteCounts,
+        }),
+      ).toBe(true);
       const getCallsAfterLoginAndFirstSign = await readWebAuthnGetCallCount(page);
+      expect(getCallsAfterLoginAndFirstSign).toBeGreaterThanOrEqual(getCallsAfterLogin);
       const persistenceBeforeReload = await readWalletIframeThresholdPersistence(page);
       await page.waitForTimeout(400);
       expect(harness.signingSessionSealRouteCounts.applyServerSealCalls).toBeGreaterThan(0);

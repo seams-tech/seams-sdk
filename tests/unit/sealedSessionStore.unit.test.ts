@@ -215,7 +215,10 @@ test.describe('signing session sealed store', () => {
 
         const passkeyEcdsa = { authMethod: 'passkey', curve: 'ecdsa', chain: 'tempo', chainTarget: ECDSA_RESTORE.chainTarget };
         const read = await mod.readExactSealedSession(thresholdSessionId, passkeyEcdsa);
-        await mod.deleteExactSealedSession(thresholdSessionId, passkeyEcdsa);
+        await mod.deleteExactSealedSession(thresholdSessionId, passkeyEcdsa, {
+          deleteResolvedIdentity: true,
+          resolvedIdentityDeleteReason: 'durable_record_deleted',
+        });
         const afterDelete = await mod.readExactSealedSession(
           thresholdSessionId,
           passkeyEcdsa,
@@ -745,12 +748,19 @@ test.describe('signing session sealed store', () => {
           ownerId: 'unit-test',
           ttlMs: 15_000,
         });
-        await mod.deleteExactSealedSession(thresholdSessionId, {
-          authMethod: 'email_otp',
-          curve: 'ecdsa',
-          chain: 'tempo',
-          chainTarget: ECDSA_RESTORE.chainTarget,
-        });
+        await mod.deleteExactSealedSession(
+          thresholdSessionId,
+          {
+            authMethod: 'email_otp',
+            curve: 'ecdsa',
+            chain: 'tempo',
+            chainTarget: ECDSA_RESTORE.chainTarget,
+          },
+          {
+            deleteResolvedIdentity: true,
+            resolvedIdentityDeleteReason: 'durable_record_deleted',
+          },
+        );
         const emailAfterDelete = await mod.readExactSealedSession(thresholdSessionId, {
           authMethod: 'email_otp',
           curve: 'ecdsa',
@@ -1469,18 +1479,32 @@ test.describe('signing session sealed store', () => {
           remainingUses: 0,
           updatedAtMs: Date.now(),
         });
-        await mod.deleteExactSealedSession('link-device-operation-session', {
-          authMethod: 'email_otp',
-          curve: 'ecdsa',
-          chain: 'tempo',
-          chainTarget: ECDSA_RESTORE.chainTarget,
-        });
-        await mod.deleteExactSealedSession('add-signer-operation-session', {
-          authMethod: 'email_otp',
-          curve: 'ecdsa',
-          chain: 'tempo',
-          chainTarget: ECDSA_RESTORE.chainTarget,
-        });
+        await mod.deleteExactSealedSession(
+          'link-device-operation-session',
+          {
+            authMethod: 'email_otp',
+            curve: 'ecdsa',
+            chain: 'tempo',
+            chainTarget: ECDSA_RESTORE.chainTarget,
+          },
+          {
+            deleteResolvedIdentity: true,
+            resolvedIdentityDeleteReason: 'durable_record_deleted',
+          },
+        );
+        await mod.deleteExactSealedSession(
+          'add-signer-operation-session',
+          {
+            authMethod: 'email_otp',
+            curve: 'ecdsa',
+            chain: 'tempo',
+            chainTarget: ECDSA_RESTORE.chainTarget,
+          },
+          {
+            deleteResolvedIdentity: true,
+            resolvedIdentityDeleteReason: 'durable_record_deleted',
+          },
+        );
 
         return {
           byEcdsa: await mod.readExactSealedSession('transaction-ecdsa-session', {
@@ -1666,10 +1690,17 @@ test.describe('signing session sealed store', () => {
           updatedAtMs: 55_555,
         })!);
 
-        await mod.deleteExactSealedSession('preserve-identity-ed25519-session', {
-          authMethod: 'passkey',
-          curve: 'ed25519',
-        });
+        await mod.deleteExactSealedSession(
+          'preserve-identity-ed25519-session',
+          {
+            authMethod: 'passkey',
+            curve: 'ed25519',
+          },
+          {
+            deleteResolvedIdentity: true,
+            resolvedIdentityDeleteReason: 'durable_record_deleted',
+          },
+        );
         const recordAfterExplicitDelete = await mod.readExactSealedSession(
           'preserve-identity-ed25519-session',
           {

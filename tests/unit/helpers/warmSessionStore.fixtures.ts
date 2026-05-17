@@ -4,6 +4,7 @@ import type {
 } from '@/core/signingEngine/uiConfirm/types';
 import type {
   WarmSessionMaterialClaimer,
+  VolatileWarmSessionMaterialClearer,
   WarmSessionSealPersister,
 } from '@/core/signingEngine/uiConfirm/types';
 import type {
@@ -34,6 +35,8 @@ import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/typ
 import {
   createWarmSessionCapabilityReader,
 } from '@/core/signingEngine/session/warmCapabilities/capabilityReader';
+import { createClearVolatileWarmSessionMaterialCommand } from '@/core/signingEngine/session/warmCapabilities/volatileWarmMaterialCommands';
+import { parseVolatileWarmSessionId } from '@/core/signingEngine/session/warmCapabilities/volatileWarmSessionId';
 import {
   buildEcdsaReconnectMaterial,
   buildEcdsaSessionProvisionPlan,
@@ -532,14 +535,13 @@ type WarmSessionTestServicesDeps = {
       WarmSessionStatusReader &
         WarmSessionStatusBatchReader &
         WarmSessionMaterialClaimer &
-        WarmSessionSealPersister & {
-          clearWarmSessionMaterial(args: { sessionId: string }): Promise<void>;
-        },
+        WarmSessionSealPersister &
+        VolatileWarmSessionMaterialClearer,
       | 'getWarmSessionStatus'
       | 'getWarmSessionStatuses'
       | 'claimWarmSessionMaterial'
       | 'sealAndPersistWarmSessionMaterial'
-      | 'clearWarmSessionMaterial'
+      | 'clearVolatileWarmSessionMaterial'
     >
   >;
   clearThresholdEcdsaSessionRecordForLane?: (args: {
@@ -547,9 +549,11 @@ type WarmSessionTestServicesDeps = {
     chainTarget: ThresholdEcdsaChainTarget;
     source?: ThresholdEcdsaSessionStoreSource;
   }) => void;
-  markThresholdEcdsaEmailOtpSessionConsumedForAccount?: (args: {
+  markThresholdEcdsaEmailOtpSessionConsumedForLane?: (args: {
     subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
+    walletSigningSessionId: string;
+    thresholdSessionId: string;
     uses?: number;
   }) => void;
   clearThresholdEcdsaSigningArtifactsForLane?: (args: {
@@ -716,7 +720,7 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
     record: ThresholdEcdsaSessionRecord;
     thresholdSessionId?: string;
   }): Promise<void> => {
-    const thresholdSessionId = String(args.thresholdSessionId || '').trim();
+    const thresholdSessionId = parseVolatileWarmSessionId(args.thresholdSessionId);
     if (typeof deps.clearThresholdEcdsaSigningArtifactsForLane === 'function') {
       await Promise.resolve(
         deps.clearThresholdEcdsaSigningArtifactsForLane({
@@ -724,9 +728,14 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
         }),
       ).catch(() => undefined);
     }
-    if (thresholdSessionId && typeof deps.touchConfirm?.clearWarmSessionMaterial === 'function') {
+    if (
+      thresholdSessionId &&
+      typeof deps.touchConfirm?.clearVolatileWarmSessionMaterial === 'function'
+    ) {
       await deps.touchConfirm
-        .clearWarmSessionMaterial({ sessionId: thresholdSessionId })
+        .clearVolatileWarmSessionMaterial(
+          createClearVolatileWarmSessionMaterialCommand(thresholdSessionId),
+        )
         .catch(() => undefined);
     }
   };
@@ -984,7 +993,7 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
           getWarmSession,
           resolveExactEcdsaRecord: (recordArgs) =>
             statusReader.resolveExactEcdsaRecord(recordArgs),
-          markEmailOtpSessionConsumed: deps.markThresholdEcdsaEmailOtpSessionConsumedForAccount,
+          markEmailOtpSessionConsumed: deps.markThresholdEcdsaEmailOtpSessionConsumedForLane,
           clearEcdsaEphemeralMaterial,
         },
         {

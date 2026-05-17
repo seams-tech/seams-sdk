@@ -404,4 +404,34 @@ test.describe('ECDSA restorable lane selection', () => {
     expect(selection.material.keyRef.chainTarget).toEqual(chainTarget);
     expect(selection.diagnostics.selectedPasskeyMaterial).toEqual({ present: false });
   });
+
+  test('routes exhausted shared Tempo Email OTP lanes to source-chain OTP reauth', async () => {
+    const input: EcdsaLaneCandidate = {
+      ...emailOtpSharedTempoCandidate(),
+      state: 'exhausted',
+      remainingUses: 0,
+    };
+
+    const selection = await resolveEvmFamilyEcdsaSigningSelection({
+      deps: selectionDeps(),
+      walletId: 'restorable.testnet',
+      subjectId: toWalletSubjectId('restorable.testnet'),
+      chain: 'tempo',
+      chainTarget: tempoChainTarget,
+      senderSignatureAlgorithm: 'secp256k1',
+      authMethod: 'email_otp',
+      laneCandidate: input,
+    });
+
+    expect(selection.kind).toBe('reauth_required');
+    if (selection.kind !== 'reauth_required') return;
+    expect(selection.authMethod).toBe('email_otp');
+    expect(selection.reason).toBe('exhausted');
+    expect(selection.reauthAuthority).toEqual({
+      kind: 'email_otp_signing_session',
+      thresholdSessionId: 'tsess-restorable',
+      chainTarget,
+    });
+    expect(selection.diagnostics.selectedPasskeyMaterial).toEqual({ present: false });
+  });
 });

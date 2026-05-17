@@ -295,7 +295,7 @@ test.describe('near signing session selection', () => {
                   code: 'unexpected',
                   message: 'should not consume',
                 }),
-                clearWarmSessionMaterial: async () => undefined,
+                clearVolatileWarmSessionMaterial: async () => undefined,
                 orchestrateSigningConfirmation: async () => ({
                   intentDigest: 'intent-digest-b64u',
                   transactionContext: {
@@ -487,7 +487,7 @@ test.describe('near signing session selection', () => {
                   code: 'unexpected',
                   message: 'should not claim with cached client base',
                 }),
-                clearWarmSessionMaterial: async () => undefined,
+                clearVolatileWarmSessionMaterial: async () => undefined,
                 orchestrateSigningConfirmation: async (params: any) => {
                   confirmationCount += 1;
                   expect(params?.signingAuthPlan?.kind).toBe('warmSession');
@@ -728,7 +728,7 @@ test.describe('near signing session selection', () => {
                   code: 'unexpected',
                   message: 'should not claim',
                 }),
-                clearWarmSessionMaterial: async () => undefined,
+                clearVolatileWarmSessionMaterial: async () => undefined,
                 orchestrateSigningConfirmation: async (params: any) => {
                   order.push('confirm');
                   expect(params?.emailOtpPrompt?.challengeId).toBe(
@@ -1013,7 +1013,7 @@ test.describe('near signing session selection', () => {
                   code: 'unexpected',
                   message: 'should not claim',
                 }),
-                clearWarmSessionMaterial: async () => undefined,
+                clearVolatileWarmSessionMaterial: async () => undefined,
                 orchestrateSigningConfirmation: async (params: any) => {
                   expect(params?.emailOtpPrompt?.challengeId).toBe(
                     'otp-missing-runtime-challenge',
@@ -1251,7 +1251,7 @@ test.describe('near signing session selection', () => {
                   code: 'unexpected',
                   message: 'should not claim',
                 }),
-                clearWarmSessionMaterial: async () => undefined,
+                clearVolatileWarmSessionMaterial: async () => undefined,
                 orchestrateSigningConfirmation: async (params: any) => {
                   confirmationAuthPlans.push(String(params?.signingAuthPlan?.kind || ''));
                   emailOtpPrompts.push(String(params?.emailOtpPrompt?.challengeId || ''));
@@ -1526,7 +1526,7 @@ test.describe('near signing session selection', () => {
                   code: 'unexpected',
                   message: 'should not claim',
                 }),
-                clearWarmSessionMaterial: async () => undefined,
+                clearVolatileWarmSessionMaterial: async () => undefined,
                 orchestrateSigningConfirmation: async (params: any) => {
                   confirmationAuthPlans.push(String(params?.signingAuthPlan?.kind || ''));
                   expect(params?.signingAuthPlan?.kind).toBe(SigningAuthPlanKind.WarmSession);
@@ -1781,7 +1781,7 @@ test.describe('near signing session selection', () => {
                   code: 'unexpected',
                   message: 'should not claim',
                 }),
-                clearWarmSessionMaterial: async () => undefined,
+                clearVolatileWarmSessionMaterial: async () => undefined,
                 orchestrateSigningConfirmation: async () => ({
                   intentDigest: 'intent-digest-b64u',
                   transactionContext: {
@@ -1983,7 +1983,7 @@ test.describe('near signing session selection', () => {
                   code: 'unexpected',
                   message: 'should not claim',
                 }),
-                clearWarmSessionMaterial: async () => undefined,
+                clearVolatileWarmSessionMaterial: async () => undefined,
                 orchestrateSigningConfirmation: async () => ({
                   intentDigest: 'intent-digest-b64u',
                   transactionContext: {
@@ -2204,7 +2204,7 @@ test.describe('near signing session selection', () => {
                   code: 'unexpected',
                   message: 'should not claim',
                 }),
-                clearWarmSessionMaterial: async () => undefined,
+                clearVolatileWarmSessionMaterial: async () => undefined,
                 orchestrateSigningConfirmation: async (params: any) => {
                   order.push(params?.emailOtpPrompt ? 'confirm:otp' : 'confirm:warm');
                   return {
@@ -2413,7 +2413,7 @@ test.describe('near signing session selection', () => {
           remainingUses: 3,
           expiresAtMs,
         }),
-        clearWarmSessionMaterial: async () => undefined,
+        clearVolatileWarmSessionMaterial: async () => undefined,
       } as any);
 
       const context = await resolveNearThresholdSigningAuthContext({

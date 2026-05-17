@@ -336,7 +336,7 @@ test.describe('UserConfirm worker router', () => {
         const p2 = (manager as any)
           .sendMessage(
             {
-              type: 'WARM_SESSION_MATERIAL_CLEAR',
+              type: 'WARM_SESSION_VOLATILE_MATERIAL_CLEAR',
               id: 'req-error-2',
               payload: { sessionId: 's1' },
             },
@@ -483,7 +483,12 @@ test.describe('UserConfirm worker router', () => {
           throw new Error(`No worker message posted at index ${index}`);
         };
 
-        await sealedStoreMod.clearAllSealedSessions();
+        await new Promise<void>((resolve, reject) => {
+          const request = indexedDB.deleteDatabase('seams_wallet_v1');
+          request.onsuccess = () => resolve();
+          request.onerror = () => reject(request.error || new Error('Failed to clear sealed session test database'));
+          request.onblocked = () => resolve();
+        });
         (manager as any).worker = fakeWorker;
         (manager as any).attachWorkerRouter(fakeWorker);
 
@@ -609,7 +614,12 @@ test.describe('UserConfirm worker router', () => {
           throw new Error(`No worker message posted at index ${index}`);
         };
 
-        await sealedStoreMod.clearAllSealedSessions();
+        await new Promise<void>((resolve, reject) => {
+          const request = indexedDB.deleteDatabase('seams_wallet_v1');
+          request.onsuccess = () => resolve();
+          request.onerror = () => reject(request.error || new Error('Failed to clear sealed session test database'));
+          request.onblocked = () => resolve();
+        });
         await sealedStoreMod.writeExactSealedSession(sealedStoreMod.buildCurrentSealedSessionRecord({
           walletId: 'account.testnet',
           thresholdSessionId: 'session-rehydrate',
@@ -780,7 +790,12 @@ test.describe('UserConfirm worker router', () => {
           updatedAtMs: Date.now(),
           source: 'login',
         });
-        await sealedStoreMod.clearAllSealedSessions();
+        await new Promise<void>((resolve, reject) => {
+          const request = indexedDB.deleteDatabase('seams_wallet_v1');
+          request.onsuccess = () => resolve();
+          request.onerror = () => reject(request.error || new Error('Failed to clear sealed session test database'));
+          request.onblocked = () => resolve();
+        });
 
         const listeners: Record<'message' | 'error', Array<(event: any) => void>> = {
           message: [],
@@ -896,7 +911,12 @@ test.describe('UserConfirm worker router', () => {
           exportArtifactsByLane: new Map<string, unknown>(),
         };
         sessionStoreMod.clearAllThresholdEcdsaSessionRecords(deps);
-        await sealedStoreMod.clearAllSealedSessions();
+        await new Promise<void>((resolve, reject) => {
+          const request = indexedDB.deleteDatabase('seams_wallet_v1');
+          request.onsuccess = () => resolve();
+          request.onerror = () => reject(request.error || new Error('Failed to clear sealed session test database'));
+          request.onblocked = () => resolve();
+        });
         sessionStoreMod.upsertThresholdEcdsaSessionFromBootstrap(deps, {
           walletId: 'alice.testnet',
           chainTarget: {
@@ -1153,7 +1173,12 @@ test.describe('UserConfirm worker router', () => {
         (manager as any).worker = fakeWorker;
         (manager as any).attachWorkerRouter(fakeWorker);
 
-        await sealedStoreMod.clearAllSealedSessions();
+        await new Promise<void>((resolve, reject) => {
+          const request = indexedDB.deleteDatabase('seams_wallet_v1');
+          request.onsuccess = () => resolve();
+          request.onerror = () => reject(request.error || new Error('Failed to clear sealed session test database'));
+          request.onblocked = () => resolve();
+        });
         sessionStoreMod.clearAllStoredThresholdEd25519SessionRecords();
         sessionStoreMod.upsertStoredThresholdEd25519SessionRecord({
           nearAccountId: 'account.testnet',
@@ -1293,7 +1318,12 @@ test.describe('UserConfirm worker router', () => {
           throw new Error(`No worker message posted at index ${index}`);
         };
 
-        await sealedStoreMod.clearAllSealedSessions();
+        await new Promise<void>((resolve, reject) => {
+          const request = indexedDB.deleteDatabase('seams_wallet_v1');
+          request.onsuccess = () => resolve();
+          request.onerror = () => reject(request.error || new Error('Failed to clear sealed session test database'));
+          request.onblocked = () => resolve();
+        });
         sessionStoreMod.clearAllStoredThresholdEd25519SessionRecords();
         sessionStoreMod.upsertStoredThresholdEd25519SessionRecord({
           nearAccountId: 'account.testnet',
@@ -1422,7 +1452,12 @@ test.describe('UserConfirm worker router', () => {
           throw new Error(`No worker message posted at index ${index}`);
         };
 
-        await sealedStoreMod.clearAllSealedSessions();
+        await new Promise<void>((resolve, reject) => {
+          const request = indexedDB.deleteDatabase('seams_wallet_v1');
+          request.onsuccess = () => resolve();
+          request.onerror = () => reject(request.error || new Error('Failed to clear sealed session test database'));
+          request.onblocked = () => resolve();
+        });
         await sealedStoreMod.writeExactSealedSession(sealedStoreMod.buildCurrentSealedSessionRecord({
           walletId: 'account.testnet',
           thresholdSessionId: 'session-single-flight-remove',
@@ -1592,7 +1627,12 @@ test.describe('UserConfirm worker router', () => {
           throw new Error(`No worker message posted at index ${index}`);
         };
 
-        await sealedStoreMod.clearAllSealedSessions();
+        await new Promise<void>((resolve, reject) => {
+          const request = indexedDB.deleteDatabase('seams_wallet_v1');
+          request.onsuccess = () => resolve();
+          request.onerror = () => reject(request.error || new Error('Failed to clear sealed session test database'));
+          request.onblocked = () => resolve();
+        });
         await sealedStoreMod.writeExactSealedSession(sealedStoreMod.buildCurrentSealedSessionRecord({
           walletId: 'account.testnet',
           thresholdSessionId: 'session-cross-manager-remove',
@@ -1757,7 +1797,12 @@ test.describe('UserConfirm worker router', () => {
           throw new Error(`No worker message posted at index ${index}`);
         };
 
-        await sealedStoreMod.clearAllSealedSessions();
+        await new Promise<void>((resolve, reject) => {
+          const request = indexedDB.deleteDatabase('seams_wallet_v1');
+          request.onsuccess = () => resolve();
+          request.onerror = () => reject(request.error || new Error('Failed to clear sealed session test database'));
+          request.onblocked = () => resolve();
+        });
         await sealedStoreMod.writeExactSealedSession(sealedStoreMod.buildCurrentSealedSessionRecord({
           subjectId: 'account.testnet',
           thresholdSessionId: 'session-no-rehydrate',
@@ -1957,7 +2002,12 @@ test.describe('UserConfirm worker router', () => {
           throw new Error(`No worker message posted at index ${index}`);
         };
 
-        await sealedStoreMod.clearAllSealedSessions();
+        await new Promise<void>((resolve, reject) => {
+          const request = indexedDB.deleteDatabase('seams_wallet_v1');
+          request.onsuccess = () => resolve();
+          request.onerror = () => reject(request.error || new Error('Failed to clear sealed session test database'));
+          request.onblocked = () => resolve();
+        });
         await sealedStoreMod.writeExactSealedSession(sealedStoreMod.buildCurrentSealedSessionRecord({
           walletId: 'account.testnet',
           thresholdSessionId: 'session-expired',

@@ -14,6 +14,8 @@ import {
   createSigningSessionSealShamir3PassCipherAdapter,
 } from '@server/threshold/session/signingSessionSeal';
 import { walletSigningBudgetSessionId } from '@server/core/ThresholdService/walletSigningBudget';
+import { signRegistrationContinuationJwt } from '@server/router/commonRouterUtils';
+import type { SessionAdapter } from '@server/router/relay';
 import { startExpressRouter } from '../relayer/helpers';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
 import {
@@ -90,7 +92,7 @@ async function installThresholdRegistrationBootstrapMock(
   input: {
     relayerBaseUrl: string;
     threshold: unknown;
-    session: { signJwt: (sub: string, extra?: Record<string, unknown>) => Promise<string> };
+    session: SessionAdapter;
     runtimePolicyScope: {
       orgId: string;
       projectId: string;
@@ -340,6 +342,35 @@ async function installThresholdRegistrationBootstrapMock(
       };
     }
 
+    const continuationTargetsRaw =
+      payload?.registration_continuation &&
+      typeof payload.registration_continuation === 'object' &&
+      Array.isArray(payload.registration_continuation.threshold_ecdsa_chain_targets)
+        ? payload.registration_continuation.threshold_ecdsa_chain_targets
+        : [];
+    const registrationContinuation =
+      continuationTargetsRaw.length > 0
+        ? await signRegistrationContinuationJwt({
+            session: input.session,
+            walletId: accountId,
+            rpId,
+            subjectId: accountId,
+            thresholdEcdsaChainTargets: continuationTargetsRaw,
+            runtimePolicyScope: input.runtimePolicyScope,
+          })
+        : null;
+    if (registrationContinuation && !registrationContinuation.ok) {
+      await route.fulfill({
+        status: registrationContinuation.status,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+        body: JSON.stringify({
+          success: false,
+          error: registrationContinuation.message,
+        }),
+      });
+      return;
+    }
+
     await route.fulfill({
       status: 200,
       headers: { 'Content-Type': 'application/json', ...corsHeaders },
@@ -348,6 +379,15 @@ async function installThresholdRegistrationBootstrapMock(
         transactionHash: `mock_atomic_tx_${Date.now()}`,
         ...(thresholdEdResponse ? { thresholdEd25519: thresholdEdResponse } : {}),
         ...(thresholdEcdsaResponse ? { thresholdEcdsa: thresholdEcdsaResponse } : {}),
+        ...(registrationContinuation
+          ? {
+              registrationContinuation: {
+                token: registrationContinuation.jwt,
+                expiresAtMs: registrationContinuation.expiresAtMs,
+                thresholdEcdsaChainTargets: registrationContinuation.thresholdEcdsaChainTargets,
+              },
+            }
+          : {}),
       }),
     });
   });
@@ -665,12 +705,91 @@ export async function readWalletIframeThresholdPersistence(page: Page): Promise<
     localSealIndex: string | null;
     sessionEd25519Index: string | null;
     sessionSealIndex: string | null;
+    sealedRecords: Array<{
+      storeKey: string;
+      walletId: string;
+      authMethod: string;
+      curve: string;
+      thresholdSessionIds: Record<string, unknown>;
+      chainTargetKey: string;
+      remainingUses: number | null;
+    }>;
   }>
 > {
   return await Promise.all(
     page.frames().map(async (frame) => {
       return await frame
-        .evaluate(() => {
+        .evaluate(async () => {
+          const readSealedRecords = async (): Promise<
+            Array<{
+              storeKey: string;
+              walletId: string;
+              authMethod: string;
+              curve: string;
+              thresholdSessionIds: Record<string, unknown>;
+              chainTargetKey: string;
+              remainingUses: number | null;
+            }>
+          > => {
+            try {
+              const request = indexedDB.open('seams_wallet_v1');
+              const db = await new Promise<IDBDatabase>((resolve, reject) => {
+                request.onerror = () => reject(request.error);
+                request.onsuccess = () => resolve(request.result);
+              });
+              try {
+                if (!db.objectStoreNames.contains('signing_session_seals_v1')) return [];
+                const tx = db.transaction('signing_session_seals_v1', 'readonly');
+                const store = tx.objectStore('signing_session_seals_v1');
+                const getAll = store.getAll();
+                const rows = await new Promise<unknown[]>((resolve, reject) => {
+                  getAll.onerror = () => reject(getAll.error);
+                  getAll.onsuccess = () => resolve(Array.isArray(getAll.result) ? getAll.result : []);
+                });
+                return rows
+                  .filter((row): row is Record<string, unknown> => {
+                    return !!row && typeof row === 'object' && !Array.isArray(row);
+                  })
+                  .map((row) => {
+                    const ecdsaRestore =
+                      row.ecdsaRestore && typeof row.ecdsaRestore === 'object'
+                        ? (row.ecdsaRestore as Record<string, unknown>)
+                        : null;
+                    const chainTarget =
+                      ecdsaRestore?.chainTarget && typeof ecdsaRestore.chainTarget === 'object'
+                        ? (ecdsaRestore.chainTarget as Record<string, unknown>)
+                        : null;
+                    const kind = String(chainTarget?.kind || '').trim();
+                    const chainId = Number(chainTarget?.chainId);
+                    const chainTargetKey =
+                      kind === 'tempo'
+                        ? `tempo:${chainId}`
+                        : kind === 'evm'
+                          ? `evm:eip155:${chainId}`
+                          : '';
+                    const thresholdSessionIds =
+                      row.thresholdSessionIds && typeof row.thresholdSessionIds === 'object'
+                        ? (row.thresholdSessionIds as Record<string, unknown>)
+                        : {};
+                    const remainingUses = Number(row.remainingUses);
+                    return {
+                      storeKey: String(row.storeKey || ''),
+                      walletId: String(row.walletId || ''),
+                      authMethod: String(row.authMethod || ''),
+                      curve: String(row.curve || ''),
+                      thresholdSessionIds,
+                      chainTargetKey,
+                      remainingUses: Number.isFinite(remainingUses) ? Math.floor(remainingUses) : null,
+                    };
+                  });
+              } finally {
+                db.close();
+              }
+            } catch {
+              return [];
+            }
+          };
+
           return {
             origin: String(window.location?.origin || 'unknown'),
             localEd25519Index:
@@ -681,6 +800,7 @@ export async function readWalletIframeThresholdPersistence(page: Page): Promise<
               window.sessionStorage?.getItem?.('seams:threshold-ed25519-session:v1:index') || null,
             sessionSealIndex:
               window.sessionStorage?.getItem?.('seams:signing-session-sealed:v1:index') || null,
+            sealedRecords: await readSealedRecords(),
           };
         })
         .catch(() => ({
@@ -689,6 +809,7 @@ export async function readWalletIframeThresholdPersistence(page: Page): Promise<
           localSealIndex: null,
           sessionEd25519Index: null,
           sessionSealIndex: null,
+          sealedRecords: [],
         }));
     }),
   );

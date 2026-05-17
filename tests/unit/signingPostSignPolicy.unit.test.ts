@@ -72,6 +72,8 @@ test.describe('SigningPostSignPolicy', () => {
     const consumed: Array<{
       subjectId: WalletSubjectId;
       chainTarget: ThresholdEcdsaChainTarget;
+      walletSigningSessionId: string;
+      thresholdSessionId: string;
       uses?: number;
     }> = [];
     const cleared: Array<{
@@ -97,7 +99,13 @@ test.describe('SigningPostSignPolicy', () => {
     });
 
     expect(consumed).toEqual([
-      { subjectId: toWalletSubjectId('alice.testnet'), chainTarget: EVM_CHAIN_TARGET, uses: 1 },
+      {
+        subjectId: toWalletSubjectId('alice.testnet'),
+        chainTarget: EVM_CHAIN_TARGET,
+        walletSigningSessionId: 'wallet-otp-session',
+        thresholdSessionId: 'otp-session',
+        uses: 1,
+      },
     ]);
     expect(cleared).toEqual([
       {

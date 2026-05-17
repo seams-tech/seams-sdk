@@ -110,7 +110,7 @@ async function mountVisibleEmailOtpUnlockPrompt(
       const pm = new SeamsPasskey(sdkConfig);
       await pm
         .getContext()
-        .signingEngine.clearWarmSigningSessions(accountId)
+        .signingEngine.clearVolatileWarmSigningMaterial(accountId)
         .catch(() => undefined);
 
       (window as any).__emailOtpVisibleUnlock = {

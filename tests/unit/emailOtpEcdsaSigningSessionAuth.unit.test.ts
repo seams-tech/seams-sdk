@@ -7,6 +7,7 @@ import { SigningSessionIds } from '@/core/signingEngine/session/operationState/t
 import { createEmailOtpEcdsaTransactionSigningBridge } from '@/core/signingEngine/flows/signEvmFamily/emailOtpSigningSession';
 import { buildCurrentSealedSessionRecord } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import { emailOtpEcdsaSigningSessionAuthLaneFromSealedRecord } from '@/core/signingEngine/session/emailOtp/sealedSigningSessionAuth';
+import { EMAIL_OTP_SIGNING_SESSION_AUTH_UNAVAILABLE } from '@/core/signingEngine/session/emailOtp/exportRecovery';
 import {
   toAuthorizingWalletSigningSessionId,
   type EmailOtpAuthLane,
@@ -82,7 +83,12 @@ test('Email OTP ECDSA bridge uses selected sealed-lane authority when hot materi
       challengeCalls.push(receivedAuthLane);
       return { challengeId: 'challenge-1', emailHint: 'o***@example.test' };
     },
-    resolveEmailOtpSigningSessionAuthLane: ({ thresholdSessionId: sessionId, chainTarget }) => {
+    resolveEmailOtpSigningSessionAuthLane: ({
+      walletId: resolvedWalletId,
+      thresholdSessionId: sessionId,
+      chainTarget,
+    }) => {
+      expect(resolvedWalletId).toBe(walletId);
       expect(sessionId).toBe(thresholdSessionId);
       expect(chainTarget).toEqual(sourceChainTarget);
       return authLane;
@@ -103,6 +109,59 @@ test('Email OTP ECDSA bridge uses selected sealed-lane authority when hot materi
 
   expect(challengeCalls).toEqual([authLane]);
   expect(loginCalls).toEqual([authLane]);
+});
+
+test('Email OTP ECDSA selected-lane reauth requires signing-session authority', async () => {
+  const walletId = toAccountId('otp-refresh.testnet');
+  const ecdsaWalletId = toWalletId(walletId);
+  const subjectId = toWalletSubjectId('otp-refresh.testnet');
+  const thresholdSessionId = SigningSessionIds.thresholdEcdsaSession('tsess-sealed-ecdsa');
+  const walletSigningSessionId = SigningSessionIds.walletSigningSession('wsess-sealed-wallet');
+  let challengeCalls = 0;
+  const bridge = createEmailOtpEcdsaTransactionSigningBridge({
+    walletId,
+    walletSession: { walletId: ecdsaWalletId, walletSessionUserId: walletId },
+    chain: 'tempo',
+    chainTarget: tempoChainTarget,
+    selectedLane: buildTempoTransactionSigningLane({
+      key: buildEvmFamilyEcdsaKeyIdentity({
+        walletId: ecdsaWalletId,
+        subjectId,
+        rpId: 'example.localhost',
+        ecdsaThresholdKeyId: 'ehss-email-otp',
+        signingRootId: 'proj_local:dev',
+        signingRootVersion: 'default',
+        participantIds: [1, 2],
+        thresholdOwnerAddress: `0x${'aa'.repeat(20)}`,
+      }),
+      walletId,
+      subjectId,
+      authMethod: 'email_otp',
+      chainTarget: tempoChainTarget,
+      ecdsaThresholdKeyId: 'ehss-email-otp',
+      signingRootId: 'proj_local:dev',
+      signingRootVersion: 'default',
+      walletSigningSessionId,
+      thresholdSessionId,
+    }),
+    signingSessionRecord: null,
+    reauthSource: {
+      kind: 'selection',
+      authority: {
+        kind: 'email_otp_signing_session',
+        thresholdSessionId,
+        chainTarget: sourceChainTarget,
+      },
+    },
+    requestEmailOtpTransactionSigningChallenge: async () => {
+      challengeCalls += 1;
+      return { challengeId: 'challenge-1', emailHint: 'o***@example.test' };
+    },
+    resolveEmailOtpSigningSessionAuthLane: () => null,
+  });
+
+  await expect(bridge.challenge()).rejects.toThrow(EMAIL_OTP_SIGNING_SESSION_AUTH_UNAVAILABLE);
+  expect(challengeCalls).toBe(0);
 });
 
 test('sealed Email OTP ECDSA auth lane remains available after wallet signing budget exhaustion', () => {

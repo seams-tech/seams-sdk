@@ -241,7 +241,13 @@ test.describe('WarmSessionStore capability resolution', () => {
     expect('thresholdSessionAuth' in evmBootstrap).toBe(false);
     expect(tempoBootstrap).toMatchObject({
       kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
-      sessionIdentity: {
+      key: {
+        ecdsaThresholdKeyId: 'ek-shared-bootstrap',
+      },
+      lanePolicy: {
+        chainTarget: {
+          kind: 'tempo',
+        },
         thresholdSessionId: 'ecdsa-warm-session',
         walletSigningSessionId: 'wsess-ecdsa-warm-session',
       },
@@ -249,7 +255,6 @@ test.describe('WarmSessionStore capability resolution', () => {
         kind: 'threshold_session',
         jwt: expect.any(String),
       },
-      ecdsaThresholdKeyId: 'ek-shared-bootstrap',
     });
   });
 

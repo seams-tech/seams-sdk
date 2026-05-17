@@ -11,7 +11,7 @@ test.describe('signing session PRF cache utilities', () => {
     await page.goto('/');
   });
 
-  test('cache and clear helpers operate only on PRF claim state', async ({ page }) => {
+  test('cache helper operates only on PRF claim state', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.signingSessionState);
@@ -22,7 +22,6 @@ test.describe('signing session PRF cache utilities', () => {
           expiresAtMs: number;
           remainingUses: number;
         }> = [];
-        const clearCalls: string[] = [];
 
         await mod.cacheSigningSessionPrfFirst(
           {
@@ -43,24 +42,7 @@ test.describe('signing session PRF cache utilities', () => {
           },
         );
 
-        await mod.clearSigningSessionPrfFirstBestEffort(
-          {
-            clearWarmSessionMaterial: async ({ sessionId }: { sessionId: string }) => {
-              clearCalls.push(sessionId);
-            },
-          },
-          'session-hydrated',
-        );
-        await mod.clearSigningSessionPrfFirstBestEffort(
-          {
-            clearWarmSessionMaterial: async ({ sessionId }: { sessionId: string }) => {
-              clearCalls.push(`unexpected:${sessionId}`);
-            },
-          },
-          '',
-        );
-
-        return { putCalls, clearCalls };
+        return { putCalls };
       },
       { paths: IMPORT_PATHS },
     );
@@ -73,33 +55,38 @@ test.describe('signing session PRF cache utilities', () => {
         remainingUses: 2,
       },
     ]);
-    expect(result.clearCalls).toEqual(['session-hydrated']);
   });
 
   test('generateSessionId falls back when crypto.randomUUID is unavailable', async ({ page }) => {
-    const sessionId = await page.evaluate(async ({ paths }) => {
-      const mod = await import(paths.signingSessionState);
-      const originalCrypto = globalThis.crypto;
-      Object.defineProperty(globalThis, 'crypto', {
-        configurable: true,
-        value: {},
-      });
-      try {
-        return mod.generateSessionId('threshold-ed25519');
-      } finally {
+    const sessionId = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.signingSessionState);
+        const originalCrypto = globalThis.crypto;
         Object.defineProperty(globalThis, 'crypto', {
           configurable: true,
-          value: originalCrypto,
+          value: {},
         });
-      }
-    }, { paths: IMPORT_PATHS });
+        try {
+          return mod.generateSessionId('threshold-ed25519');
+        } finally {
+          Object.defineProperty(globalThis, 'crypto', {
+            configurable: true,
+            value: originalCrypto,
+          });
+        }
+      },
+      { paths: IMPORT_PATHS },
+    );
 
     expect(sessionId).toContain('threshold-ed25519-');
   });
 
   test('threshold warm-session bootstrap uses hydrate seam without active-pointer flags', () => {
     const source = fs.readFileSync(
-      path.resolve(process.cwd(), '../client/src/core/SeamsPasskey/thresholdWarmSessionBootstrap.ts'),
+      path.resolve(
+        process.cwd(),
+        '../client/src/core/SeamsPasskey/thresholdWarmSessionBootstrap.ts',
+      ),
       'utf8',
     );
 
@@ -109,19 +96,19 @@ test.describe('signing session PRF cache utilities', () => {
     expect(source).not.toContain('signingEngine.putWarmSessionMaterial(');
   });
 
-  test('signing engine global clear path wipes all worker PRF cache entries', () => {
+  test('signing engine global clear path wipes all volatile worker PRF cache entries', () => {
     const source = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../client/src/core/signingEngine/session/warmCapabilities/clearWarmSigningSessions.ts',
+        '../client/src/core/signingEngine/session/warmCapabilities/clearVolatileWarmSigningMaterial.ts',
       ),
       'utf8',
     );
 
     expect(source).toContain(
-      'if (walletId == null && hasWarmSessionMaterialClearAll(deps.touchConfirm))',
+      'if (walletId == null && hasVolatileWarmSessionMaterialClearAll(deps.touchConfirm))',
     );
-    expect(source).toContain('clearAllWarmSessionMaterial');
+    expect(source).toContain('clearAllVolatileWarmSessionMaterial');
   });
 
   test('single warm material clear leaves durable Shamir3pass restore records intact', () => {
@@ -129,16 +116,98 @@ test.describe('signing session PRF cache utilities', () => {
       path.resolve(process.cwd(), '../client/src/core/signingEngine/uiConfirm/UiConfirmManager.ts'),
       'utf8',
     );
-    const clearStart = source.indexOf('clearWarmSessionMaterial = async');
-    const deleteStart = source.indexOf('deletePersistedWarmSessionMaterial = async');
+    const clearStart = source.indexOf('clearVolatileWarmSessionMaterial = async');
+    const deleteStart = source.indexOf('deleteDurableSealedSessionRecord = async');
     const clearBlock = source.slice(clearStart, deleteStart);
-    const deleteBlock = source.slice(deleteStart, source.indexOf('clearAllWarmSessionMaterial = async'));
+    const deleteBlock = source.slice(
+      deleteStart,
+      source.indexOf('clearAllVolatileWarmSessionMaterial = async'),
+    );
 
     expect(clearStart).toBeGreaterThan(0);
     expect(deleteStart).toBeGreaterThan(clearStart);
-    expect(clearBlock).toContain("type: 'WARM_SESSION_MATERIAL_CLEAR'");
-    expect(clearBlock).not.toContain('cleanupSigningSession');
-    expect(deleteBlock).toContain('cleanupSigningSession');
+    expect(clearBlock).toContain("type: 'WARM_SESSION_VOLATILE_MATERIAL_CLEAR'");
+    expect(clearBlock).not.toContain('deleteDurableSealedSessionRecordFromStore');
+    expect(clearBlock).not.toContain('deleteExactSealedSession');
+    expect(deleteBlock).toContain('runDurableSealedSessionDelete');
+    expect(deleteBlock).not.toContain("type: 'WARM_SESSION_DELETE_PERSISTED'");
+  });
+
+  test('volatile all-clear cannot delete durable sealed records', () => {
+    const source = fs.readFileSync(
+      path.resolve(process.cwd(), '../client/src/core/signingEngine/uiConfirm/UiConfirmManager.ts'),
+      'utf8',
+    );
+    const allClearStart = source.indexOf('clearAllVolatileWarmSessionMaterial = async');
+    const end = source.indexOf('async requestUserConfirmation', allClearStart);
+    const allClearBlock = source.slice(allClearStart, end);
+
+    expect(allClearStart).toBeGreaterThan(0);
+    expect(allClearBlock).toContain("type: 'WARM_SESSION_VOLATILE_MATERIAL_CLEAR_ALL'");
+    expect(allClearBlock).not.toContain('clearAllSealedSessions');
+    expect(allClearBlock).not.toContain('deleteExactSealedSession');
+  });
+
+  test('durable sealed-session delete no longer uses session-id-only worker payloads', () => {
+    const workerTypesSource = fs.readFileSync(
+      path.resolve(process.cwd(), '../client/src/core/types/secure-confirm-worker.ts'),
+      'utf8',
+    );
+    const uiConfirmTypesSource = fs.readFileSync(
+      path.resolve(process.cwd(), '../client/src/core/signingEngine/uiConfirm/types.ts'),
+      'utf8',
+    );
+
+    expect(workerTypesSource).not.toContain('WARM_SESSION_DELETE_PERSISTED');
+    expect(workerTypesSource).not.toContain('WarmSessionDeletePersistedPayload');
+    expect(uiConfirmTypesSource).toContain('DeleteDurableSealedSessionCommand');
+    expect(uiConfirmTypesSource).toContain('DurableSealedSessionRecordDeleter');
+    expect(uiConfirmTypesSource).not.toContain('WarmSessionPersistedRecordDeleter');
+  });
+
+  test('durable and volatile command parsers reject cross-lifetime payloads', () => {
+    const durableCommandSource = fs.readFileSync(
+      path.resolve(
+        process.cwd(),
+        '../client/src/core/signingEngine/session/persistence/durableSealedSessionCommands.ts',
+      ),
+      'utf8',
+    );
+    const volatileCommandSource = fs.readFileSync(
+      path.resolve(
+        process.cwd(),
+        '../client/src/core/signingEngine/session/warmCapabilities/volatileWarmMaterialCommands.ts',
+      ),
+      'utf8',
+    );
+
+    expect(durableCommandSource).toContain("raw.kind !== 'delete_durable_sealed_session'");
+    expect(durableCommandSource).toContain('if (raw.scope != null) return null;');
+    expect(durableCommandSource).toContain('parseDurableSealedSessionDeleteReason');
+    expect(volatileCommandSource).toContain("raw.kind !== 'clear_volatile_warm_material'");
+    expect(volatileCommandSource).toContain('raw.durableRecord != null');
+    expect(volatileCommandSource).toContain('raw.deleteReason != null');
+  });
+
+  test('volatile worker clear payloads use the boundary command parser', () => {
+    const workerSource = fs.readFileSync(
+      path.resolve(
+        process.cwd(),
+        '../client/src/core/signingEngine/workerManager/workers/passkey-confirm.worker.ts',
+      ),
+      'utf8',
+    );
+    const volatileCommandSource = fs.readFileSync(
+      path.resolve(
+        process.cwd(),
+        '../client/src/core/signingEngine/session/warmCapabilities/volatileWarmMaterialCommands.ts',
+      ),
+      'utf8',
+    );
+
+    expect(workerSource).toContain('parseClearVolatileWarmMaterialCommand');
+    expect(volatileCommandSource).toContain('parseVolatileWarmSessionScope');
+    expect(volatileCommandSource).toContain('createClearAllVolatileWarmSessionMaterialCommand');
   });
 
   test('reuse warm ECDSA bootstrap restores sealed material and fails closed instead of fresh prompting', () => {
@@ -149,16 +218,36 @@ test.describe('signing session PRF cache utilities', () => {
       ),
       'utf8',
     );
-    const reuseStart = source.indexOf('async function bootstrapReuseWarmEcdsaCapability');
+    const reuseStart = source.indexOf('async function bootstrapReuseWarmEcdsaCapabilityNoPrompt');
     const publicStart = source.indexOf('export async function bootstrapWarmEcdsaCapability');
     const reuseBlock = source.slice(reuseStart, publicStart);
 
     expect(reuseStart).toBeGreaterThan(0);
     expect(publicStart).toBeGreaterThan(reuseStart);
     expect(reuseBlock).toContain('restorePersistedSessionsForWallet');
-    expect(reuseBlock).not.toContain('return await bootstrapDirectEcdsaRequest(deps, request);');
-    expect(reuseBlock).toContain(
-      'reuse_warm_ecdsa_bootstrap requires restored passkey ECDSA material',
+    expect(reuseBlock).toContain("code: 'missing_exact_material'");
+    expect(source).not.toContain('claimPasskeyEcdsaPrfFirst');
+    expect(reuseBlock).not.toContain('TouchIdPrompt');
+    expect(reuseBlock).not.toContain('collectAuthenticationCredential');
+    expect(reuseBlock).not.toContain('claimPasskeyEcdsaPrfFirst({');
+    expect(reuseBlock).not.toContain('bootstrapPasskeyCookieReconnect(');
+    expect(reuseBlock).not.toContain('bootstrapDirectEcdsaRequest(');
+    expect(reuseBlock).not.toContain('freshBootstrap');
+  });
+
+  test('demo threshold owner display reads do not bootstrap ECDSA sessions', () => {
+    const source = fs.readFileSync(
+      path.resolve(
+        process.cwd(),
+        '../examples/seams-site/src/flows/demo/hooks/useDemoThresholdAccountState.ts',
+      ),
+      'utf8',
     );
+
+    expect(source).toContain('ThresholdOwnerAddressReadResult');
+    expect(source).toContain('thresholdEcdsaEthereumAddress');
+    expect(source).not.toContain('bootstrapEcdsaSession');
+    expect(source).not.toContain('reuse_warm_ecdsa_bootstrap');
+    expect(source).not.toContain('bootstrapIfMissing');
   });
 });

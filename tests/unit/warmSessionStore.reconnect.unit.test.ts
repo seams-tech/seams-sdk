@@ -13,8 +13,274 @@ import {
   buildEcdsaSessionIdentity,
   buildEcdsaSessionProvisionPlan,
 } from '@/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan';
+import {
+  bootstrapReuseWarmEcdsaCapabilityNoPrompt,
+  type NoPromptWarmSessionDeps,
+} from '@/core/signingEngine/session/passkey/ecdsaWarmCapabilityBootstrap';
+import { toAccountId } from '@/core/types/accountIds';
+import { toWalletSubjectId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+
+const unusedNoPromptReconnectDeps: Pick<
+  NoPromptWarmSessionDeps,
+  'claimEcdsaClientRootShare' | 'reconnectWithThresholdSessionAuth'
+> = {
+  claimEcdsaClientRootShare: async () => {
+    throw new Error('claimEcdsaClientRootShare should not be called');
+  },
+  reconnectWithThresholdSessionAuth: async () => {
+    throw new Error('reconnectWithThresholdSessionAuth should not be called');
+  },
+};
 
 test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
+  test('no-prompt reuse restores exact ECDSA material without prompt ports', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    const walletId = toAccountId('no-prompt-restore.testnet');
+    const chainTarget = testEcdsaChainTarget('evm');
+    const bootstrap = createThresholdEcdsaBootstrapFixture({
+      nearAccountId: String(walletId),
+      chain: 'evm',
+      ecdsaThresholdKeyId: 'ek-no-prompt-restore',
+      sessionId: 'no-prompt-restore-session',
+      sessionAuthToken: 'jwt:no-prompt-restore-session',
+    });
+    const fixture = createWarmSessionUiConfirmFixture({
+      claimsBySessionId: {},
+    });
+    const store = createWarmSessionTestServices({
+      touchConfirm: fixture.touchConfirm,
+    });
+
+    let restoreCalls = 0;
+    const result = await bootstrapReuseWarmEcdsaCapabilityNoPrompt(
+      {
+        getWarmSession: store.getWarmSession,
+        ecdsaSessions: ecdsaStore,
+        ...unusedNoPromptReconnectDeps,
+        restorePersistedSessionsForWallet: async (args) => {
+          restoreCalls += 1;
+          expect(args).toMatchObject({
+            walletId,
+            authMethod: 'passkey',
+            ecdsaChainTargets: [chainTarget],
+            maxRecords: 1,
+          });
+          const record = seedEcdsaWarmSessionRecord(ecdsaStore, {
+            nearAccountId: String(walletId),
+            chain: 'evm',
+            source: 'login',
+            bootstrap,
+          });
+          fixture.claimsBySessionId[record.thresholdSessionId] = {
+            state: 'warm',
+            remainingUses: 3,
+            expiresAtMs: record.expiresAtMs || Date.now() + 120_000,
+          };
+          return {
+            listed: 1,
+            attempted: 1,
+            restored: 1,
+            deferred: 0,
+            skipped: 0,
+            truncated: 0,
+          };
+        },
+      },
+      walletId,
+      {
+        kind: 'reuse_warm_ecdsa_bootstrap',
+        walletId,
+        subjectId: toWalletSubjectId(walletId),
+        chainTarget,
+        source: 'login',
+      },
+    );
+
+    expect(restoreCalls).toBe(1);
+    expect(result).toMatchObject({
+      ok: true,
+      source: 'sealed_restore',
+      bootstrap: {
+        thresholdEcdsaKeyRef: {
+          ecdsaThresholdKeyId: 'ek-no-prompt-restore',
+          thresholdSessionId: 'no-prompt-restore-session',
+        },
+      },
+    });
+  });
+
+  test('no-prompt reuse reconnects restored passkey ECDSA material without prompt ports', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    const walletId = toAccountId('no-prompt-reconnect.testnet');
+    const chainTarget = testEcdsaChainTarget('tempo');
+    const restoredBootstrap = createThresholdEcdsaBootstrapFixture({
+      nearAccountId: String(walletId),
+      chain: 'tempo',
+      ecdsaThresholdKeyId: 'ek-no-prompt-reconnect',
+      sessionId: 'no-prompt-reconnect-restored-session',
+      sessionAuthToken: 'jwt:no-prompt-reconnect-restored-session',
+    });
+    const reconnectedBootstrap = createThresholdEcdsaBootstrapFixture({
+      nearAccountId: String(walletId),
+      chain: 'tempo',
+      ecdsaThresholdKeyId: 'ek-no-prompt-reconnect',
+      sessionId: 'no-prompt-reconnect-refreshed-session',
+      sessionAuthToken: 'jwt:no-prompt-reconnect-refreshed-session',
+    });
+    const fixture = createWarmSessionUiConfirmFixture({
+      claimsBySessionId: {},
+    });
+    const store = createWarmSessionTestServices({
+      touchConfirm: fixture.touchConfirm,
+    });
+
+    let restoreCalls = 0;
+    let claimCalls = 0;
+    let reconnectCalls = 0;
+    const result = await bootstrapReuseWarmEcdsaCapabilityNoPrompt(
+      {
+        getWarmSession: store.getWarmSession,
+        ecdsaSessions: ecdsaStore,
+        restorePersistedSessionsForWallet: async (args) => {
+          restoreCalls += 1;
+          expect(args).toMatchObject({
+            kind: 'restore_wallet_ecdsa_signing_sessions',
+            walletId,
+            authMethod: 'passkey',
+            ecdsaChainTargets: [chainTarget],
+            maxRecords: 1,
+          });
+          const record = seedEcdsaWarmSessionRecord(ecdsaStore, {
+            nearAccountId: String(walletId),
+            chain: 'tempo',
+            source: 'login',
+            bootstrap: restoredBootstrap,
+          });
+          delete record.clientAdditiveShare32B64u;
+          fixture.claimsBySessionId[record.thresholdSessionId] = {
+            state: 'warm',
+            remainingUses: 3,
+            expiresAtMs: record.expiresAtMs || Date.now() + 120_000,
+            prfFirstB64u: 'restored-prf-first',
+          };
+          return {
+            listed: 1,
+            attempted: 1,
+            restored: 1,
+            deferred: 0,
+            skipped: 0,
+            truncated: 0,
+          };
+        },
+        claimEcdsaClientRootShare: async (args) => {
+          claimCalls += 1;
+          expect(args).toMatchObject({
+            kind: 'claim_no_prompt_ecdsa_client_root_share',
+            walletId,
+            walletSigningSessionId:
+              restoredBootstrap.thresholdEcdsaKeyRef.walletSigningSessionId,
+            thresholdSessionId: 'no-prompt-reconnect-restored-session',
+            chainTarget,
+            uses: 1,
+          });
+          return 'restored-prf-first';
+        },
+        reconnectWithThresholdSessionAuth: async (request) => {
+          reconnectCalls += 1;
+          expect(request).toMatchObject({
+            kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
+            source: 'login',
+            key: {
+              walletId,
+              ecdsaThresholdKeyId: 'ek-no-prompt-reconnect',
+            },
+            lanePolicy: {
+              chainTarget,
+              thresholdSessionId: 'no-prompt-reconnect-restored-session',
+              walletSigningSessionId:
+                restoredBootstrap.thresholdEcdsaKeyRef.walletSigningSessionId,
+            },
+            routeAuth: {
+              kind: 'threshold_session',
+            },
+            clientRootShare32B64u: 'restored-prf-first',
+          });
+          return reconnectedBootstrap;
+        },
+      },
+      walletId,
+      {
+        kind: 'reuse_warm_ecdsa_bootstrap',
+        walletId,
+        subjectId: toWalletSubjectId(walletId),
+        chainTarget,
+        source: 'login',
+      },
+    );
+
+    expect(restoreCalls).toBe(1);
+    expect(claimCalls).toBe(1);
+    expect(reconnectCalls).toBe(1);
+    expect(result).toMatchObject({
+      ok: true,
+      source: 'sealed_restore',
+      bootstrap: {
+        thresholdEcdsaKeyRef: {
+          ecdsaThresholdKeyId: 'ek-no-prompt-reconnect',
+          thresholdSessionId: 'no-prompt-reconnect-refreshed-session',
+        },
+      },
+    });
+  });
+
+  test('no-prompt reuse fails closed when exact material is missing', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    const walletId = toAccountId('no-prompt-missing.testnet');
+    const chainTarget = testEcdsaChainTarget('tempo');
+    const store = createWarmSessionTestServices();
+
+    let restoreCalls = 0;
+    const result = await bootstrapReuseWarmEcdsaCapabilityNoPrompt(
+      {
+        getWarmSession: store.getWarmSession,
+        ecdsaSessions: ecdsaStore,
+        ...unusedNoPromptReconnectDeps,
+        restorePersistedSessionsForWallet: async () => {
+          restoreCalls += 1;
+          return {
+            listed: 0,
+            attempted: 0,
+            restored: 0,
+            deferred: 0,
+            skipped: 0,
+            truncated: 0,
+          };
+        },
+      },
+      walletId,
+      {
+        kind: 'reuse_warm_ecdsa_bootstrap',
+        walletId,
+        subjectId: toWalletSubjectId(walletId),
+        chainTarget,
+        source: 'login',
+      },
+    );
+
+    expect(restoreCalls).toBe(1);
+    expect(result).toEqual({
+      ok: false,
+      code: 'missing_exact_material',
+      chainTargetKey: 'tempo:42431',
+    });
+  });
+
   test('reuses a matching ready ECDSA capability without reconnecting', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);

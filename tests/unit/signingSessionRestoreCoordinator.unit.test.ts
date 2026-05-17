@@ -591,6 +591,7 @@ test.describe('restorePersistedSessionsForWalletCommand', () => {
 
     const result = await restorePersistedSessionsForWalletCommand(
       {
+        kind: 'restore_wallet_ecdsa_signing_sessions',
         walletId: 'restore.testnet',
         ecdsaChainTargets: TEST_ECDSA_CHAIN_TARGET_LIST,
         authMethod: 'email_otp',
@@ -629,6 +630,7 @@ test.describe('restorePersistedSessionsForWalletCommand', () => {
     let restoreCalls = 0;
 
     const input = {
+      kind: 'restore_wallet_ecdsa_signing_sessions' as const,
       walletId: 'restore.testnet',
       ecdsaChainTargets: TEST_ECDSA_CHAIN_TARGET_LIST,
       authMethod: 'email_otp' as const,
@@ -682,6 +684,7 @@ test.describe('restorePersistedSessionsForWalletCommand', () => {
 
     const result = await restorePersistedSessionsForWalletCommand(
       {
+        kind: 'restore_wallet_all_signing_sessions',
         walletId: 'restore.testnet',
         ecdsaChainTargets: TEST_ECDSA_CHAIN_TARGET_LIST,
         authMethod: 'passkey',
@@ -767,6 +770,7 @@ test.describe('restorePersistedSessionsForWalletCommand', () => {
 
     const result = await restorePersistedSessionsForWalletCommand(
       {
+        kind: 'restore_wallet_all_signing_sessions',
         walletId: 'restore.testnet',
         ecdsaChainTargets: TEST_ECDSA_CHAIN_TARGET_LIST,
         authMethod: 'email_otp',

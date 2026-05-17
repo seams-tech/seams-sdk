@@ -984,7 +984,7 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
               remainingUses: 4,
               expiresAtMs: Date.now() + 60_000,
             }),
-            clearWarmSessionMaterial: async () => undefined,
+            clearVolatileWarmSessionMaterial: async () => undefined,
             orchestrateSigningConfirmation: async () => ({
               intentDigest: 'intent-digest-b64u',
               transactionContext: {
@@ -1161,7 +1161,7 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
               remainingUses: 4,
               expiresAtMs: Date.now() + 60_000,
             }),
-            clearWarmSessionMaterial: async () => undefined,
+            clearVolatileWarmSessionMaterial: async () => undefined,
             orchestrateSigningConfirmation: async () => ({
               intentDigest: 'intent-digest-b64u',
               transactionContext: {
@@ -1627,7 +1627,7 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
               remainingUses: 4,
               expiresAtMs: Date.now() + 60_000,
             }),
-            clearWarmSessionMaterial: async () => undefined,
+            clearVolatileWarmSessionMaterial: async () => undefined,
             orchestrateSigningConfirmation: async () => ({
               intentDigest: 'intent-digest-b64u',
               transactionContext: {

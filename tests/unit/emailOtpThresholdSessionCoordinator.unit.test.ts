@@ -433,7 +433,7 @@ function createCoordinator(overrides?: {
       overrides?.listExactSealedSessionsForWallet || defaultListExactSealedSessionsForWallet,
     acquireSigningSessionRestoreLease: overrides?.acquireSigningSessionRestoreLease || (async () => null),
     releaseSigningSessionRestoreLease: overrides?.releaseSigningSessionRestoreLease || (async () => {}),
-    deleteExactSealedSession: async () => {},
+    deleteDurableSealedSessionRecord: async () => {},
     updateExactSealedSessionPolicy: async () => {},
   });
   const runtime = (coordinator as any).runtime;
@@ -2100,11 +2100,13 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
     });
 
     await coordinator.restorePersistedSessionsForWallet({
+      kind: 'restore_wallet_all_signing_sessions',
       walletId: 'alice.testnet',
       authMethod: 'email_otp',
       ecdsaChainTargets: [tempoChainTarget, evmChainTarget],
     });
     await coordinator.restorePersistedSessionsForWallet({
+      kind: 'restore_wallet_all_signing_sessions',
       walletId: 'alice.testnet',
       authMethod: 'email_otp',
       ecdsaChainTargets: [tempoChainTarget, evmChainTarget],

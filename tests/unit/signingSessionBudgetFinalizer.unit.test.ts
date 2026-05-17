@@ -21,18 +21,28 @@ import {
   type NearTransactionSigningLane,
 } from '../../client/src/core/signingEngine/session/operationState/lanes';
 
-function makeLane(): NearTransactionSigningLane {
+function makeLane(args?: {
+  walletSigningSessionId?: string;
+  thresholdSessionId?: string;
+}): NearTransactionSigningLane {
   return buildNearTransactionSigningLane({
     accountId: toAccountId('alice.testnet'),
     authMethod: 'passkey',
-    walletSigningSessionId: SigningSessionIds.walletSigningSession('wallet-session-1'),
-    thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-1'),
+    walletSigningSessionId: SigningSessionIds.walletSigningSession(
+      args?.walletSigningSessionId || 'wallet-session-1',
+    ),
+    thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
+      args?.thresholdSessionId || 'threshold-session-1',
+    ),
     storageSource: 'login',
   });
 }
 
-function makeSpend(): WalletSigningSpendPlan {
-  const lane = makeLane();
+function makeSpend(args?: {
+  walletSigningSessionId?: string;
+  thresholdSessionId?: string;
+}): WalletSigningSpendPlan {
+  const lane = makeLane(args);
   return {
     operationId: SigningSessionIds.signingOperation('operation-1'),
     operationFingerprint: SigningSessionIds.signingOperationFingerprint('fingerprint-1'),
@@ -245,6 +255,74 @@ test.describe('budget coordinator reserved success handling', () => {
     await coordinator.recordSuccess(finalization);
 
     expect(consumeUseCalls).toHaveLength(1);
+  });
+
+  test('accepts reserved_success when another spend advances the projection before finalization', async () => {
+    const consumeUseCalls: string[] = [];
+    const coordinator = new BudgetCoordinator({
+      async readStatus() {
+        return {
+          sessionId: 'wallet-session-1',
+          status: 'active',
+          projectionVersion: 'projection-1',
+          remainingUses: 3,
+          expiresAtMs: 1_900_000_000_000,
+        };
+      },
+      async consumeUse(args) {
+        consumeUseCalls.push(args.walletSigningSessionId);
+        return {
+          sessionId: args.walletSigningSessionId,
+          status: 'active',
+          projectionVersion: 'projection-3',
+          remainingUses: 1,
+          expiresAtMs: 1_900_000_000_000,
+        };
+      },
+    });
+    const reserved = makeReservedSuccess();
+    await coordinator.reserve({
+      spend: reserved.spend,
+      expectedBudgetProjectionVersion: reserved.expectedBudgetProjectionVersion,
+      trustedStatusAuth: reserved.trustedStatusAuth,
+    });
+
+    await coordinator.recordSuccess({
+      ...reserved,
+      expectedBudgetProjectionVersion: 'projection-2',
+    });
+
+    expect(consumeUseCalls).toEqual(['wallet-session-1']);
+  });
+
+  test('rejects reserved_success when finalization changes the reserved spend identity', async () => {
+    const coordinator = new BudgetCoordinator({
+      async readStatus() {
+        return {
+          sessionId: 'wallet-session-1',
+          status: 'active',
+          projectionVersion: 'projection-1',
+          remainingUses: 3,
+          expiresAtMs: 1_900_000_000_000,
+        };
+      },
+      async consumeUse() {
+        throw new Error('consumeUse should not run');
+      },
+    });
+    const reserved = makeReservedSuccess();
+    await coordinator.reserve({
+      spend: reserved.spend,
+      expectedBudgetProjectionVersion: reserved.expectedBudgetProjectionVersion,
+      trustedStatusAuth: reserved.trustedStatusAuth,
+    });
+
+    await expect(
+      coordinator.recordSuccess({
+        ...reserved,
+        spend: makeSpend({ walletSigningSessionId: 'wallet-session-2' }),
+      }),
+    ).rejects.toThrow('[SigningSessionBudget] reserved_success spend does not match reservation');
   });
 
   test('rejects unreserved_success when a reservation exists', async () => {

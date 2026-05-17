@@ -148,7 +148,7 @@ function createNearThresholdRuntimeCtx({
         code: 'unexpected',
         message: 'should not claim',
       }),
-      clearWarmSessionMaterial: async () => undefined,
+      clearVolatileWarmSessionMaterial: async () => undefined,
       orchestrateSigningConfirmation,
     },
     requestWorkerOperation,
@@ -445,7 +445,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
               claimCalls += 1;
               return { ok: false as const, code: 'unexpected', message: 'should not claim' };
             },
-            clearWarmSessionMaterial: async () => undefined,
+            clearVolatileWarmSessionMaterial: async () => undefined,
             orchestrateSigningConfirmation: async (params: any) => {
               resolvedSigningAuthMode = String(params?.signingAuthMode || '');
               resolvedSigningAuthPlanKind = String(params?.signingAuthPlan?.kind || '');
@@ -699,7 +699,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
               code: 'unexpected',
               message: 'should not claim',
             }),
-            clearWarmSessionMaterial: async () => undefined,
+            clearVolatileWarmSessionMaterial: async () => undefined,
             orchestrateSigningConfirmation: async (params: any) => {
               emailOtpSideEffectOrder.push('confirm');
               resolvedSigningAuthMode = String(params?.signingAuthMode || '');
@@ -963,7 +963,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
                 code: 'unexpected',
                 message: 'should not claim',
               }),
-              clearWarmSessionMaterial: async () => undefined,
+              clearVolatileWarmSessionMaterial: async () => undefined,
               orchestrateSigningConfirmation: async () => {
                 throw new Error('should not open confirmation');
               },
@@ -1127,7 +1127,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
               claimCalls += 1;
               return { ok: false as const, code: 'unexpected', message: 'should not claim' };
             },
-            clearWarmSessionMaterial: async () => undefined,
+            clearVolatileWarmSessionMaterial: async () => undefined,
             orchestrateSigningConfirmation: async (params: any) => {
               resolvedSigningAuthMode = String(params?.signingAuthMode || '');
               resolvedSigningAuthPlanKind = String(params?.signingAuthPlan?.kind || '');

@@ -93,6 +93,73 @@ test.describe('WarmSessionStore lifecycle', () => {
     });
   });
 
+  test('keeps trusted exhausted Email OTP Ed25519 status terminal after reload', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    const ed25519Record = seedEd25519WarmSessionRecord({
+      nearAccountId: 'email-otp-exhausted.testnet',
+      thresholdSessionId: 'email-otp-exhausted-session',
+      thresholdSessionAuthToken: 'jwt:email-otp-exhausted-session',
+      source: 'email_otp',
+      xClientBaseB64u: 'email-otp-client-base',
+      remainingUses: 3,
+    });
+    const store = createWarmSessionTestServices({
+      touchConfirm: createWarmSessionStatusReader({
+        [ed25519Record.thresholdSessionId]: {
+          state: 'exhausted',
+        },
+      }),
+    });
+
+    const status = await store.getEd25519SigningSessionStatusForSession({
+      nearAccountId: ed25519Record.nearAccountId,
+      thresholdSessionId: ed25519Record.thresholdSessionId,
+    });
+
+    expect(status).toMatchObject({
+      sessionId: ed25519Record.thresholdSessionId,
+      status: 'exhausted',
+      authMethod: 'email_otp',
+      retention: 'session',
+    });
+  });
+
+  test('does not restore an exhausted Email OTP Ed25519 record as active', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    const ed25519Record = seedEd25519WarmSessionRecord({
+      nearAccountId: 'email-otp-record-exhausted.testnet',
+      thresholdSessionId: 'email-otp-record-exhausted-session',
+      thresholdSessionAuthToken: 'jwt:email-otp-record-exhausted-session',
+      source: 'email_otp',
+      xClientBaseB64u: 'email-otp-client-base',
+      remainingUses: 0,
+    });
+    const store = createWarmSessionTestServices({
+      getEmailOtpWarmSessionStatus: async () => ({
+        ok: false,
+        code: 'not_found',
+        message: 'worker session missing after reload',
+      }),
+    });
+
+    const status = await store.getEd25519SigningSessionStatusForSession({
+      nearAccountId: ed25519Record.nearAccountId,
+      thresholdSessionId: ed25519Record.thresholdSessionId,
+    });
+
+    expect(status).toMatchObject({
+      sessionId: ed25519Record.thresholdSessionId,
+      status: 'exhausted',
+      remainingUses: 0,
+      authMethod: 'email_otp',
+      retention: 'session',
+    });
+  });
+
   test('uses batch warm-session status reads when the touchConfirm snapshot reader is available', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
