@@ -465,7 +465,6 @@ async function publishAllowedPolicy(
     payload: {
       policy: {},
       metadata: {},
-      smartWallets: {},
       gasSponsorship: {
         status: 'resolved',
         policyCount: 1 + (opts?.additionalResolvedPolicies?.length || 0),

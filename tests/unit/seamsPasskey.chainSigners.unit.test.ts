@@ -296,12 +296,12 @@ test.describe('SeamsPasskey chain signer modules', () => {
     expect(evmCalls[0]?.chainTarget).toEqual(EVM_CHAIN_TARGET);
   });
 
-  test('wallet session exposes threshold ECDSA owner address instead of EVM counterfactual address', async () => {
+  test('wallet session does not expose profile-only threshold ECDSA owner address', async () => {
     const clientDb = IndexedDBManager.clientDB as unknown as Record<string, unknown>;
     const originalResolveProfileAccountContext = clientDb.resolveProfileAccountContext;
     const originalGetProfileContinuitySnapshot = clientDb.getProfileContinuitySnapshot;
     const ownerAddress = `0x${'11'.repeat(20)}`;
-    const counterfactualAddress = `0x${'22'.repeat(20)}`;
+    const chainAccountAddress = `0x${'22'.repeat(20)}`;
 
     clientDb.resolveProfileAccountContext = async () => ({
       profileId: 'profile-1',
@@ -320,20 +320,19 @@ test.describe('SeamsPasskey chain signer modules', () => {
         {
           profileId: 'profile-1',
           chainIdKey: 'evm:5042002',
-          accountAddress: counterfactualAddress,
-          accountModel: 'erc4337',
+          accountAddress: chainAccountAddress,
+          accountModel: 'threshold-ecdsa',
           status: 'active',
           isPrimary: true,
           createdAt: 1,
           updatedAt: 1,
-          counterfactualAddress,
         },
       ],
       accountSigners: [
         {
           profileId: 'profile-1',
           chainIdKey: 'evm:5042002',
-          accountAddress: counterfactualAddress,
+          accountAddress: chainAccountAddress,
           signerId: ownerAddress,
           signerSlot: 1,
           signerType: 'threshold',
@@ -345,7 +344,6 @@ test.describe('SeamsPasskey chain signer modules', () => {
           updatedAt: 1,
           metadata: {
             ownerAddress,
-            counterfactualAddress,
           },
         },
       ],
@@ -380,21 +378,22 @@ test.describe('SeamsPasskey chain signer modules', () => {
         'alice.testnet',
       );
 
-      expect(walletSession.login.thresholdEcdsaEthereumAddress).toBe(ownerAddress);
-      expect(walletSession.login.thresholdEcdsaEthereumAddress).not.toBe(counterfactualAddress);
+      expect(walletSession.login.thresholdEcdsaEthereumAddress).toBeNull();
+      expect(walletSession.login.thresholdEcdsaEthereumAddress).not.toBe(chainAccountAddress);
+      expect(walletSession.login.thresholdEcdsaEthereumAddress).not.toBe(ownerAddress);
     } finally {
       clientDb.resolveProfileAccountContext = originalResolveProfileAccountContext;
       clientDb.getProfileContinuitySnapshot = originalGetProfileContinuitySnapshot;
     }
   });
 
-  test('wallet session ignores conflicting threshold ECDSA record addresses', async () => {
+  test('wallet session ignores conflicting threshold ECDSA record addresses without profile fallback', async () => {
     const clientDb = IndexedDBManager.clientDB as unknown as Record<string, unknown>;
     const originalResolveProfileAccountContext = clientDb.resolveProfileAccountContext;
     const originalGetProfileContinuitySnapshot = clientDb.getProfileContinuitySnapshot;
     const originalWarn = console.warn;
     const ownerAddress = `0x${'aa'.repeat(20)}`;
-    const counterfactualAddress = `0x${'bb'.repeat(20)}`;
+    const chainAccountAddress = `0x${'bb'.repeat(20)}`;
 
     clientDb.resolveProfileAccountContext = async () => ({
       profileId: 'profile-conflict',
@@ -413,20 +412,19 @@ test.describe('SeamsPasskey chain signer modules', () => {
         {
           profileId: 'profile-conflict',
           chainIdKey: 'evm:5042002',
-          accountAddress: counterfactualAddress,
-          accountModel: 'erc4337',
+          accountAddress: chainAccountAddress,
+          accountModel: 'threshold-ecdsa',
           status: 'active',
           isPrimary: true,
           createdAt: 1,
           updatedAt: 1,
-          counterfactualAddress,
         },
       ],
       accountSigners: [
         {
           profileId: 'profile-conflict',
           chainIdKey: 'evm:5042002',
-          accountAddress: counterfactualAddress,
+          accountAddress: chainAccountAddress,
           signerId: ownerAddress,
           signerSlot: 1,
           signerType: 'threshold',
@@ -478,7 +476,8 @@ test.describe('SeamsPasskey chain signer modules', () => {
         'alice.testnet',
       );
 
-      expect(walletSession.login.thresholdEcdsaEthereumAddress).toBe(ownerAddress);
+      expect(walletSession.login.thresholdEcdsaEthereumAddress).toBeNull();
+      expect(walletSession.login.thresholdEcdsaEthereumAddress).not.toBe(ownerAddress);
     } finally {
       console.warn = originalWarn;
       clientDb.resolveProfileAccountContext = originalResolveProfileAccountContext;

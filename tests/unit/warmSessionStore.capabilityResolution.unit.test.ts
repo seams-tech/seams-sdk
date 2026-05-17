@@ -197,7 +197,7 @@ test.describe('WarmSessionStore capability resolution', () => {
       bootstrap: createThresholdEcdsaBootstrapFixture({
         nearAccountId: 'bootstrap-selection.testnet',
         chain: 'evm',
-        ecdsaThresholdKeyId: 'ek-stale',
+        ecdsaThresholdKeyId: 'ek-shared-bootstrap',
         sessionId: 'ecdsa-stale-session',
         sessionAuthToken: 'jwt:ecdsa-stale-session',
       }),
@@ -209,7 +209,7 @@ test.describe('WarmSessionStore capability resolution', () => {
       bootstrap: createThresholdEcdsaBootstrapFixture({
         nearAccountId: 'bootstrap-selection.testnet',
         chain: 'tempo',
-        ecdsaThresholdKeyId: 'ek-warm',
+        ecdsaThresholdKeyId: 'ek-shared-bootstrap',
         sessionId: 'ecdsa-warm-session',
         sessionAuthToken: 'jwt:ecdsa-warm-session',
       }),
@@ -249,7 +249,7 @@ test.describe('WarmSessionStore capability resolution', () => {
         kind: 'threshold_session',
         jwt: expect.any(String),
       },
-      ecdsaThresholdKeyId: 'ek-warm',
+      ecdsaThresholdKeyId: 'ek-shared-bootstrap',
     });
   });
 

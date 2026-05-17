@@ -9,6 +9,7 @@ import {
 import {
   nearAccountRefFromAccountId,
   thresholdEcdsaChainTargetFromChainFamily,
+  toWalletId,
   toWalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
@@ -412,7 +413,7 @@ test.describe('wallet-origin export flow integration', () => {
 
     const routerPath = SDK_ESM_PATHS.walletIframeRouter;
     const result = await page.evaluate(
-      async ({ walletOrigin, waitForSource, captureOverlaySource, routerPath }) => {
+      async ({ walletOrigin, waitForSource, captureOverlaySource, routerPath, nearAccount }) => {
         const waitFor = eval(waitForSource) as typeof import('./harness').waitFor;
         const capture = eval(captureOverlaySource) as typeof import('./harness').captureOverlay;
         try {
@@ -444,7 +445,7 @@ test.describe('wallet-origin export flow integration', () => {
 
           const exportPromise = router.exportKeypairWithUI({
             kind: 'near',
-            nearAccount: EXPORT_FLOW_NEAR_ACCOUNT,
+            nearAccount,
             options: {
               chain: 'near',
               variant: 'drawer',
@@ -487,6 +488,7 @@ test.describe('wallet-origin export flow integration', () => {
         waitForSource: WAIT_FOR_SOURCE,
         captureOverlaySource: CAPTURE_OVERLAY_SOURCE,
         routerPath,
+        nearAccount: EXPORT_FLOW_NEAR_ACCOUNT,
       },
     );
 
@@ -501,10 +503,16 @@ test.describe('wallet-origin export flow integration', () => {
     expect(result.closeMarker).toBe(true);
     expect(result.hiddenAfterClose).toBe(true);
     expect(result.exportPayload).toMatchObject({
-      nearAccountId: 'export-flow.testnet',
-      chain: 'near',
-      variant: 'drawer',
-      theme: 'light',
+      kind: 'near',
+      nearAccount: {
+        kind: 'named',
+        accountId: 'export-flow.testnet',
+      },
+      options: {
+        chain: 'near',
+        variant: 'drawer',
+        theme: 'light',
+      },
     });
   });
 
@@ -519,7 +527,15 @@ test.describe('wallet-origin export flow integration', () => {
 
     const routerPath = SDK_ESM_PATHS.walletIframeRouter;
     const result = await page.evaluate(
-      async ({ walletOrigin, waitForSource, captureOverlaySource, routerPath }) => {
+      async ({
+        walletOrigin,
+        waitForSource,
+        captureOverlaySource,
+        routerPath,
+        subjectId,
+        walletId,
+        chainTarget,
+      }) => {
         const waitFor = eval(waitForSource) as typeof import('./harness').waitFor;
         const capture = eval(captureOverlaySource) as typeof import('./harness').captureOverlay;
         try {
@@ -552,9 +568,12 @@ test.describe('wallet-origin export flow integration', () => {
 
           const exportPromise = router.exportKeypairWithUI({
             kind: 'ecdsa',
-            subjectId: EXPORT_FLOW_SUBJECT_ID,
-            walletSessionUserId: 'export-flow.testnet',
-            chainTarget: EXPORT_FLOW_EVM_TARGET,
+            subjectId,
+            walletSession: {
+              walletId,
+              walletSessionUserId: 'export-flow.testnet',
+            },
+            chainTarget,
             options: {
               variant: 'drawer',
               theme: 'light',
@@ -601,6 +620,9 @@ test.describe('wallet-origin export flow integration', () => {
         waitForSource: WAIT_FOR_SOURCE,
         captureOverlaySource: CAPTURE_OVERLAY_SOURCE,
         routerPath,
+        subjectId: EXPORT_FLOW_SUBJECT_ID,
+        walletId: toWalletId('export-flow.testnet'),
+        chainTarget: EXPORT_FLOW_EVM_TARGET,
       },
     );
 
@@ -628,7 +650,7 @@ test.describe('wallet-origin export flow integration', () => {
 
     const routerPath = SDK_ESM_PATHS.walletIframeRouter;
     const result = await page.evaluate(
-      async ({ walletOrigin, waitForSource, captureOverlaySource, routerPath }) => {
+      async ({ walletOrigin, waitForSource, captureOverlaySource, routerPath, nearAccount }) => {
         const waitFor = eval(waitForSource) as typeof import('./harness').waitFor;
         const capture = eval(captureOverlaySource) as typeof import('./harness').captureOverlay;
         try {
@@ -664,7 +686,7 @@ test.describe('wallet-origin export flow integration', () => {
 
           const exportPromise = router.exportKeypairWithUI({
             kind: 'near',
-            nearAccount: ISOLATION_NEAR_ACCOUNT,
+            nearAccount,
             options: {
               chain: 'near',
               variant: 'drawer',
@@ -722,6 +744,7 @@ test.describe('wallet-origin export flow integration', () => {
         waitForSource: WAIT_FOR_SOURCE,
         captureOverlaySource: CAPTURE_OVERLAY_SOURCE,
         routerPath,
+        nearAccount: ISOLATION_NEAR_ACCOUNT,
       },
     );
 

@@ -74,7 +74,7 @@ test.describe('signer mutation saga pending behavior', () => {
             profileId: context.profileId,
             chainIdKey: 'evm:11155111',
             accountAddress: `0x${'11'.repeat(20)}`,
-            accountModel: 'erc4337',
+            accountModel: 'threshold-ecdsa',
             isPrimary: true,
             deployed: false,
           });
@@ -204,7 +204,7 @@ test.describe('signer mutation saga pending behavior', () => {
             profileId: context.profileId,
             chainIdKey: 'evm:11155111',
             accountAddress: `0x${'22'.repeat(20)}`,
-            accountModel: 'erc4337',
+            accountModel: 'threshold-ecdsa',
             isPrimary: true,
             deployed: true,
           });
@@ -343,7 +343,7 @@ test.describe('signer mutation saga pending behavior', () => {
             profileId: context.profileId,
             chainIdKey: 'evm:11155111',
             accountAddress: `0x${'33'.repeat(20)}`,
-            accountModel: 'erc4337',
+            accountModel: 'threshold-ecdsa',
             isPrimary: true,
             deployed: true,
           });
@@ -493,7 +493,7 @@ test.describe('signer mutation saga pending behavior', () => {
             profileId: context.profileId,
             chainIdKey: 'evm:11155111',
             accountAddress: `0x${'44'.repeat(20)}`,
-            accountModel: 'erc4337',
+            accountModel: 'threshold-ecdsa',
             isPrimary: true,
             deployed: true,
           });

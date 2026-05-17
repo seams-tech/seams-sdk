@@ -57,7 +57,7 @@ test.describe('sponsored EVM executor registry parsing', () => {
     const config = await resolveSponsoredEvmCallConfigFromEnv({
       SPONSORED_EVM_EXECUTORS_JSON: JSON.stringify({
         42431: {
-          kind: 'evm_paymaster',
+          kind: 'unsupported_executor',
           sponsorPrivateKeyHex:
             '0x1111111111111111111111111111111111111111111111111111111111111111',
         },

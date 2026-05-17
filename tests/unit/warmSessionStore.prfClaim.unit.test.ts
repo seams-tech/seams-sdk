@@ -100,6 +100,41 @@ test.describe('WarmSessionStore PRF claim handling', () => {
     });
   });
 
+  test('reports cookie passkey Ed25519 status from record-backed client base', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    const expiresAtMs = Date.now() + 120_000;
+    const record = seedEd25519WarmSessionRecord({
+      nearAccountId: 'cookie-status.testnet',
+      thresholdSessionId: 'cookie-status-session',
+      thresholdSessionKind: 'cookie',
+      xClientBaseB64u: 'cookie-status-client-base',
+      remainingUses: 4,
+      expiresAtMs,
+    });
+
+    const store = createWarmSessionTestServices({
+      touchConfirm: createWarmSessionUiConfirmFixture({
+        claimsBySessionId: {
+          [record.thresholdSessionId]: {
+            state: 'missing',
+          },
+        },
+      }).touchConfirm,
+    });
+
+    await expect(
+      store.getEd25519SigningSessionStatus(record.nearAccountId),
+    ).resolves.toMatchObject({
+      sessionId: 'cookie-status-session',
+      status: 'active',
+      authMethod: 'passkey',
+      remainingUses: 4,
+      expiresAtMs,
+    });
+  });
+
   test('claims warm PRF material and returns it', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);

@@ -43,6 +43,7 @@ function makeEmailOtpEcdsaSealedRecord(
     keyVersion: 'seal-v1',
     ecdsaRestore: {
       chainTarget: TEMPO_CHAIN_TARGET,
+      rpId: 'example.com',
       sessionKind: 'jwt',
       thresholdSessionAuthToken: 'jwt-ecdsa',
       ecdsaThresholdKeyId: 'ecdsa-key',
@@ -101,6 +102,7 @@ function makeEmailOtpEd25519SealedRecord(
     keyVersion: 'seal-v1',
     ecdsaRestore: {
       chainTarget: TEMPO_CHAIN_TARGET,
+      rpId: 'example.com',
       sessionKind: 'jwt',
       thresholdSessionAuthToken: 'jwt-ecdsa',
       ecdsaThresholdKeyId: 'ecdsa-key',

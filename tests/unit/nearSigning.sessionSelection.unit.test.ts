@@ -9,6 +9,7 @@ import {
   resolveNearThresholdSigningAuthContext,
 } from '@/core/signingEngine/flows/signNear/shared/thresholdAuthMode';
 import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
+import { planSigningSession } from '@/core/signingEngine/session/planning/planner';
 import type { AvailableSigningLanes } from '@/core/signingEngine/session/availability/availableSigningLanes';
 import {
   thresholdEcdsaChainTargetFromChainFamily,
@@ -1322,6 +1323,281 @@ test.describe('near signing session selection', () => {
     }
   });
 
+  test('restores restorable passkey Ed25519 lane instead of prompting for stale missing runtime lane', async () => {
+    const originalSessionStorage = (globalThis as { sessionStorage?: Storage }).sessionStorage;
+    const originalFetch = globalThis.fetch;
+    const sessionStorage = new MemorySessionStorage();
+    (
+      globalThis as {
+        sessionStorage?: Pick<Storage, 'getItem' | 'setItem' | 'removeItem' | 'clear'>;
+      }
+    ).sessionStorage = sessionStorage;
+
+    clearAllStoredThresholdEd25519SessionRecords();
+
+    try {
+      globalThis.fetch = (async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/threshold-ed25519/healthz')) {
+          return new Response(JSON.stringify({ ok: true, configured: true }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        throw new Error(`unexpected fetch in test: ${url}`);
+      }) as typeof fetch;
+
+      const nearAccountId = 'passkey-stale-runtime-restorable.testnet';
+      const staleSessionId = 'passkey-stale-runtime-session';
+      const staleWalletSigningSessionId = 'wallet-passkey-stale-runtime';
+      const restoredSessionId = 'passkey-restorable-session';
+      const walletSigningSessionId = 'wallet-passkey-restorable';
+      const relayerUrl = 'https://relay.example.test';
+      const relayerKeyId = 'ed25519:relayer-key-id';
+      const rpId = 'example.localhost';
+      const restoreCalls: any[] = [];
+      const confirmationAuthPlans: string[] = [];
+      let workerSessionId = '';
+
+      persistWarmSessionEd25519Capability({
+        kind: 'jwt_passkey',
+        sessionKind: 'jwt',
+        nearAccountId,
+        rpId,
+        relayerUrl,
+        relayerKeyId,
+        participantIds: [1, 2],
+        sessionId: staleSessionId,
+        walletSigningSessionId: staleWalletSigningSessionId,
+        expiresAtMs: Date.now() + 60_000,
+        remainingUses: 1,
+        jwt: 'passkey-stale-runtime-jwt',
+        xClientBaseB64u: 'passkey-stale-runtime-client-base',
+        source: 'registration',
+      });
+
+      const result = await signTransactionsWithActions(
+        {
+          nearRpcUrl: 'https://rpc.example.test',
+          signingSessionCoordinator: createBudgetBackedSigningSessionCoordinator({
+            walletSigningSessionId,
+            activeRemainingUses: 3,
+          }),
+          createSigningSessionId: () => 'unexpected-generated-session',
+          resolveAccountAuthMethodForSigning: async () => 'passkey',
+          readAvailableSigningLanesForSigning: async ({ authMethod }) => {
+            expect(authMethod === undefined || authMethod === null || authMethod === 'passkey')
+              .toBe(true);
+            const ecdsa = emptyEcdsaAvailableFields();
+            return {
+              walletId: nearAccountId,
+              generation: Date.now(),
+              ecdsa: ecdsa.ecdsa,
+              lanes: {
+                ed25519: {
+                  near: {
+                    authMethod: 'passkey' as const,
+                    curve: 'ed25519' as const,
+                    chain: 'near' as const,
+                    state: 'restorable' as const,
+                    source: 'durable_sealed_record' as const,
+                    walletSigningSessionId,
+                    thresholdSessionId: restoredSessionId,
+                  },
+                },
+              },
+              candidates: {
+                ed25519: {
+                  near: [
+                    {
+                      authMethod: 'passkey' as const,
+                      curve: 'ed25519' as const,
+                      chain: 'near' as const,
+                      state: 'missing' as const,
+                      source: 'runtime_session_record' as const,
+                      walletSigningSessionId: staleWalletSigningSessionId,
+                      thresholdSessionId: staleSessionId,
+                    },
+                    {
+                      authMethod: 'passkey' as const,
+                      curve: 'ed25519' as const,
+                      chain: 'near' as const,
+                      state: 'restorable' as const,
+                      source: 'durable_sealed_record' as const,
+                      walletSigningSessionId,
+                      thresholdSessionId: restoredSessionId,
+                    },
+                  ],
+                },
+              },
+            };
+          },
+          restorePersistedSessionForSigning: async (restoreArgs) => {
+            restoreCalls.push({
+              authMethod: restoreArgs.authMethod,
+              walletSigningSessionId: restoreArgs.walletSigningSessionId,
+              thresholdSessionId: restoreArgs.thresholdSessionId,
+            });
+            expect(restoreArgs.authMethod).toBe('passkey');
+            expect(restoreArgs.walletSigningSessionId).toBe(walletSigningSessionId);
+            expect(restoreArgs.thresholdSessionId).toBe(restoredSessionId);
+            persistWarmSessionEd25519Capability({
+              kind: 'jwt_passkey',
+              sessionKind: 'jwt',
+              nearAccountId,
+              rpId,
+              relayerUrl,
+              relayerKeyId,
+              participantIds: [1, 2],
+              sessionId: restoredSessionId,
+              walletSigningSessionId,
+              expiresAtMs: Date.now() + 60_000,
+              remainingUses: 3,
+              jwt: 'passkey-restored-runtime-jwt',
+              xClientBaseB64u: 'passkey-restored-runtime-client-base',
+              source: 'registration',
+            });
+          },
+          getWarmThresholdEd25519SessionStatusForSession: async ({ thresholdSessionId }) => {
+            const rawSessionId = String(thresholdSessionId).replace(/^threshold-ed25519:/, '');
+            return rawSessionId === restoredSessionId
+              ? {
+                  sessionId: thresholdSessionId,
+                  status: 'active' as const,
+                  remainingUses: 3,
+                  expiresAtMs: Date.now() + 60_000,
+                }
+              : {
+                  sessionId: thresholdSessionId,
+                  status: 'not_found' as const,
+                };
+          },
+          reconnectPasskeyEd25519CapabilityForSigning: async () => {
+            throw new Error('restored Shamir3pass session must not request passkey reauth');
+          },
+          getSignerWorkerContext: () =>
+            ({
+              indexedDB: {
+                clientDB: {
+                  resolveProfileAccountContext: async () => ({
+                    profileId: 'profile-passkey-stale-runtime-restorable',
+                    accountRef: {
+                      chainIdKey: 'near:testnet',
+                      accountAddress: nearAccountId,
+                    },
+                  }),
+                },
+                accountKeyMaterialDB: {
+                  getKeyMaterial: async () => ({
+                    profileId: 'profile-passkey-stale-runtime-restorable',
+                    signerSlot: 1,
+                    chainIdKey: 'near:testnet',
+                    keyKind: 'threshold_share_v1' as const,
+                    algorithm: 'ed25519' as const,
+                    publicKey: 'ed25519:threshold-public-key',
+                    payload: {
+                      relayerKeyId,
+                      keyVersion: 'threshold-ed25519-hss-v1',
+                      participants: [
+                        { id: 1, role: 'client' },
+                        { id: 2, role: 'relayer', relayerUrl, relayerKeyId },
+                      ],
+                    },
+                    timestamp: Date.now(),
+                    schemaVersion: 1,
+                  }),
+                },
+              },
+              nearContextFixture: {
+                initializeUser: () => undefined,
+              },
+              touchIdPrompt: {
+                getRpId: () => rpId,
+              },
+              relayerUrl,
+              touchConfirm: {
+                getWarmSessionStatus: async () => ({
+                  ok: false as const,
+                  code: 'not_found',
+                  message: 'warm-session status missing',
+                }),
+                claimWarmSessionMaterial: async () => ({
+                  ok: false as const,
+                  code: 'unexpected',
+                  message: 'should not claim',
+                }),
+                clearWarmSessionMaterial: async () => undefined,
+                orchestrateSigningConfirmation: async (params: any) => {
+                  confirmationAuthPlans.push(String(params?.signingAuthPlan?.kind || ''));
+                  expect(params?.signingAuthPlan?.kind).toBe(SigningAuthPlanKind.WarmSession);
+                  expect(params?.signingAuthPlan?.sessionId).toBe(restoredSessionId);
+                  return {
+                    intentDigest: 'intent-digest-b64u',
+                    transactionContext: {
+                      nearPublicKeyStr: 'ed25519:threshold-public-key',
+                      nextNonce: '1',
+                      txBlockHeight: '1',
+                      txBlockHash: 'blockhash',
+                      accessKeyInfo: { nonce: 0 },
+                    },
+                    credential: undefined,
+                  };
+                },
+              },
+              requestWorkerOperation: async ({ request }: any) => {
+                workerSessionId = String(request?.sessionId || '').trim();
+                expect(String(request?.payload?.threshold?.thresholdSessionAuthToken || '')).toBe(
+                  'passkey-restored-runtime-jwt',
+                );
+                return {
+                  type: WorkerResponseType.SignTransactionsWithActionsSuccess,
+                  payload: {
+                    success: true,
+                    signedTransactions: [
+                      { transaction: {}, signature: {}, borshBytes: new Uint8Array([1]) },
+                    ],
+                    logs: [],
+                  },
+                };
+              },
+            }) as any,
+          withThresholdEd25519CommitQueue: async ({ task }) => await task(),
+        },
+        {
+          nearAccount: { kind: 'named', accountId: nearAccountId as any },
+          rpcCall: { nearAccountId, nearRpcUrl: 'https://rpc.testnet.test' },
+          signerSlot: 1,
+          transactions: [
+            {
+              receiverId: nearAccountId,
+              actions: [{ action_type: ActionType.Transfer, deposit: '1' }],
+            },
+          ],
+        },
+      );
+
+      expect(result).toHaveLength(1);
+      expect(workerSessionId).toBe(restoredSessionId);
+      expect(confirmationAuthPlans).toEqual([SigningAuthPlanKind.WarmSession]);
+      expect(restoreCalls).toEqual([
+        {
+          authMethod: 'passkey',
+          walletSigningSessionId,
+          thresholdSessionId: restoredSessionId,
+        },
+      ]);
+    } finally {
+      clearAllStoredThresholdEd25519SessionRecords();
+      sessionStorage.clear();
+      if (originalSessionStorage) {
+        (globalThis as { sessionStorage?: Storage }).sessionStorage = originalSessionStorage;
+      } else {
+        delete (globalThis as { sessionStorage?: Storage }).sessionStorage;
+      }
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test('keeps Ed25519 available-lane selection on the current OTP runtime record when account auth points at passkey', async () => {
     const originalSessionStorage = (globalThis as { sessionStorage?: Storage }).sessionStorage;
     const originalFetch = globalThis.fetch;
@@ -2029,8 +2305,24 @@ test.describe('near signing session selection', () => {
             prfClaim: null,
           },
           ecdsa: {
-            evm: { capability: 'ecdsa', chain: 'evm', state: 'missing', record: null, auth: null, prfClaim: null },
-            tempo: { capability: 'ecdsa', chain: 'tempo', state: 'missing', record: null, auth: null, prfClaim: null },
+            evm: {
+              capability: 'ecdsa',
+              state: 'missing',
+              record: null,
+              key: null,
+              lane: null,
+              auth: null,
+              prfClaim: null,
+            },
+            tempo: {
+              capability: 'ecdsa',
+              state: 'missing',
+              record: null,
+              key: null,
+              lane: null,
+              auth: null,
+              prfClaim: null,
+            },
           },
         },
       }),
@@ -2061,6 +2353,107 @@ test.describe('near signing session selection', () => {
 
     expect(plan.signingAuthPlan?.kind).toBe(SigningAuthPlanKind.PasskeyReauth);
     expect(plan.warmSessionReady).toBe(false);
+  });
+
+  test('restores sealed passkey Ed25519 material before shared NEAR auth planning', async () => {
+    const nearAccountId = 'passkey-ed25519-sealed-restore.testnet';
+    const walletSigningSessionId = 'wallet-passkey-ed25519-sealed-restore';
+    const thresholdSessionId = 'threshold-passkey-ed25519-sealed-restore';
+    const expiresAtMs = Date.now() + 60_000;
+    let restored = false;
+    const restoreCalls: any[] = [];
+
+    clearAllStoredThresholdEd25519SessionRecords();
+    try {
+      persistWarmSessionEd25519Capability({
+        kind: 'jwt_passkey',
+        sessionKind: 'jwt',
+        nearAccountId,
+        rpId: 'example.localhost',
+        relayerUrl: 'https://relay.example.test',
+        relayerKeyId: 'ed25519:relayer-key-id',
+        participantIds: [1, 2],
+        sessionId: thresholdSessionId,
+        walletSigningSessionId,
+        expiresAtMs,
+        remainingUses: 3,
+        jwt: 'sealed-restore-threshold-jwt',
+        source: 'login',
+      });
+
+      const statusForSession = (sessionId: string) =>
+        restored && sessionId === thresholdSessionId
+          ? {
+              ok: true as const,
+              remainingUses: 3,
+              expiresAtMs,
+            }
+          : {
+              ok: false as const,
+              code: 'not_found' as const,
+              message: 'warm material missing before sealed restore',
+            };
+      const warmSessionReader = createNearSigningSessionCoordinator({
+        getWarmSessionStatus: async ({ sessionId }: { sessionId: string }) =>
+          statusForSession(sessionId),
+        getWarmSessionStatuses: async ({ sessionIds }: { sessionIds: string[] }) => ({
+          results: sessionIds.map((sessionId) => ({
+            sessionId,
+            result: statusForSession(sessionId),
+          })),
+        }),
+        restorePersistedSessionForSigning: async (restoreArgs: any) => {
+          restoreCalls.push(restoreArgs);
+          restored = true;
+          return { attempted: 1, restored: 1, deferred: 0 };
+        },
+        claimWarmSessionMaterial: async () => ({
+          ok: true as const,
+          prfFirstB64u: 'AQ',
+          remainingUses: 3,
+          expiresAtMs,
+        }),
+        clearWarmSessionMaterial: async () => undefined,
+      } as any);
+
+      const context = await resolveNearThresholdSigningAuthContext({
+        warmSessionReader,
+        nearAccount: { kind: 'named', accountId: nearAccountId as any },
+        operationLabel: 'NEP-413 signing',
+        usesNeeded: 1,
+      });
+      const signingSessionPlan = planSigningSession({
+        lane: context.coordinatorInput.lane,
+        readiness: context.coordinatorInput.readiness,
+        forceFreshAuth: context.coordinatorInput.forceFreshAuth,
+      });
+      const plan = buildNearThresholdSigningAuthPlan({
+        context,
+        resolvedSigningSession: {
+          signingSessionPlan,
+          readiness: context.coordinatorInput.readiness,
+          expiresAtMs: context.coordinatorInput.expiresAtMs || 0,
+          remainingUses: context.coordinatorInput.remainingUses || 0,
+        },
+      });
+
+      expect(restoreCalls).toEqual([
+        {
+          walletId: nearAccountId,
+          authMethod: 'passkey',
+          curve: 'ed25519',
+          chain: 'near',
+          walletSigningSessionId,
+          thresholdSessionId,
+          reason: 'transaction',
+        },
+      ]);
+      expect(context.coordinatorInput.readiness.status).toBe('ready');
+      expect(plan.signingAuthPlan.kind).toBe(SigningAuthPlanKind.WarmSession);
+      expect(plan.warmSessionReady).toBe(true);
+    } finally {
+      clearAllStoredThresholdEd25519SessionRecords();
+    }
   });
 
   test('does not double-consume passkey Ed25519 material immediately after sealed restore', async () => {

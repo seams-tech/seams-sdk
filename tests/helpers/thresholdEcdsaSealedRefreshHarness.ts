@@ -13,6 +13,7 @@ import {
   createSigningSessionSealRoutesOptions,
   createSigningSessionSealShamir3PassCipherAdapter,
 } from '@server/threshold/session/signingSessionSeal';
+import { walletSigningBudgetSessionId } from '@server/core/ThresholdService/walletSigningBudget';
 import { startExpressRouter } from '../relayer/helpers';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
 import {
@@ -30,6 +31,8 @@ export const TEST_SHAMIR_PRIME_B64U = '_____________________________________v___
 const TEST_SERVER_ENCRYPT_EXPONENT_B64U = 'AQAB';
 const TEST_SERVER_DECRYPT_EXPONENT_B64U = '6LQXS-i0F0votBdL6LQXS-i0F0votBdL6LQXSv___Ic';
 export const TEST_WEBAUTHN_GET_COUNTER_KEY = '__w3a_test_webauthn_get_calls';
+const TEST_SESSION_COOKIE_NAME =
+  String(process.env.SESSION_COOKIE_NAME || 'seams-jwt').trim() || 'seams-jwt';
 
 export type SealedRefreshHarness = {
   baseUrl: string;
@@ -67,6 +70,8 @@ function createThresholdAwareSealedRefreshSessionAdapter(): ReturnType<
   };
   return {
     ...base,
+    buildSetCookie: (token: string) =>
+      `${TEST_SESSION_COOKIE_NAME}=${token}; Path=/; HttpOnly; Secure; SameSite=None`,
     parse: async (headers) => {
       const parsed = await base.parse(headers);
       if (parsed.ok) return parsed;
@@ -103,6 +108,19 @@ async function installThresholdRegistrationBootstrapMock(
       clientRootShare32B64u: string;
       sessionPolicy: Record<string, unknown>;
     }) => Promise<Record<string, unknown>>;
+    authSessionStore?: {
+      putSession: (
+        id: string,
+        record: {
+          expiresAtMs: number;
+          relayerKeyId: string;
+          userId: string;
+          rpId: string;
+          participantIds: number[];
+        },
+        opts: { ttlMs: number; remainingUses: number },
+      ) => Promise<void>;
+    };
   };
   if (typeof threshold.bootstrapEcdsaFromRegistrationMaterial !== 'function') {
     throw new Error('Missing threshold-ecdsa staged bootstrap hook');
@@ -209,6 +227,27 @@ async function installThresholdRegistrationBootstrapMock(
         expiresAtMs,
         runtimePolicyScope,
       });
+      if (threshold.authSessionStore) {
+        const sessionRecord = {
+          expiresAtMs,
+          relayerKeyId: thresholdEdRelayerKeyId,
+          userId: accountId,
+          rpId,
+          participantIds,
+        };
+        await threshold.authSessionStore.putSession(sessionId, sessionRecord, {
+          ttlMs,
+          remainingUses,
+        });
+        await threshold.authSessionStore.putSession(
+          walletSigningBudgetSessionId(walletSigningSessionId),
+          sessionRecord,
+          {
+            ttlMs,
+            remainingUses,
+          },
+        );
+      }
       thresholdEdResponse = {
         keyVersion: thresholdEdKeyVersion,
         recoveryExportCapable: true,
@@ -707,7 +746,6 @@ export async function runPasskeySigningSessionLifecyclePhase(
           relayerAccount: 'web3-authn-v4.testnet',
           relayer: {
             url: relayerUrl,
-            smartAccountDeploymentMode: 'observe',
           },
           registration: {
             mode: 'managed',
@@ -906,7 +944,6 @@ export async function runPasskeySigningSessionLifecyclePhase(
             relayerAccount: 'web3-authn-v4.testnet',
             relayer: {
               url: relayerUrl,
-              smartAccountDeploymentMode: 'observe',
             },
             signingSessionPersistenceMode: 'sealed_refresh_v1',
             signingSessionSeal: {

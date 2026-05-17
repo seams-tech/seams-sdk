@@ -543,7 +543,7 @@ test.describe('evm client waitForTransactionReceipt', () => {
           const client = createEvmClient({ rpcUrl: 'https://mock-rpc' });
           await client.waitForTransactionReceipt({
             txHash,
-            senderHint: sender,
+            transactionSenderAddress: sender,
             nonceHint: 7n,
             timeoutMs: 500,
             pollIntervalMs: 5,
@@ -638,7 +638,7 @@ test.describe('evm client waitForTransactionReceipt', () => {
           const client = createEvmClient({ rpcUrl: 'https://mock-rpc' });
           await client.waitForTransactionReceipt({
             txHash,
-            senderHint: sender,
+            transactionSenderAddress: sender,
             nonceHint: 12n,
             timeoutMs: 120,
             pollIntervalMs: 5,
@@ -968,7 +968,7 @@ test.describe('evm client waitForTransactionReceipt', () => {
           const client = createEvmClient({ rpcUrl: 'https://mock-rpc' });
           const receipt = await client.waitForTransactionReceipt({
             txHash,
-            senderHint: sender,
+            transactionSenderAddress: sender,
             nonceHint: 7n,
             timeoutMs: 5_000,
             pollIntervalMs: 5,
@@ -1064,7 +1064,7 @@ test.describe('evm client waitForTransactionReceipt', () => {
           const client = createEvmClient({ rpcUrl: 'https://mock-rpc' });
           await client.waitForTransactionReceipt({
             txHash,
-            senderHint: sender,
+            transactionSenderAddress: sender,
             nonceHint: 5n,
             timeoutMs: 2_000,
             pollIntervalMs: 5,

@@ -8,6 +8,7 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EcdsaLaneCandidate } from '../../client/src/core/signingEngine/session/identity/laneIdentity';
+import { buildEvmFamilyEcdsaKeyIdentity } from '../../client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 
 const EVM_CHAIN_TARGET: ThresholdEcdsaChainTarget = {
   kind: 'evm',
@@ -26,6 +27,16 @@ function makeCandidate(): EcdsaLaneCandidate {
   return {
     kind: 'lane_candidate',
     walletId: toAccountId('alice.testnet'),
+    key: buildEvmFamilyEcdsaKeyIdentity({
+      walletId: toAccountId('alice.testnet'),
+      subjectId: toWalletSubjectId('wallet-1'),
+      rpId: 'example.localhost',
+      ecdsaThresholdKeyId: 'ecdsa-key-1',
+      signingRootId: 'root-1',
+      signingRootVersion: 'v1',
+      participantIds: [1, 2],
+      thresholdOwnerAddress: `0x${'aa'.repeat(20)}`,
+    }),
     authMethod: 'passkey',
     curve: 'ecdsa',
     chain: 'evm',
@@ -36,11 +47,7 @@ function makeCandidate(): EcdsaLaneCandidate {
     expiresAtMs: 1_900_000_000_000,
     updatedAtMs: 1_800_000_000_000,
     source: 'runtime_session_record',
-    subjectId: toWalletSubjectId('wallet-1'),
     chainTarget: EVM_CHAIN_TARGET,
-    ecdsaThresholdKeyId: 'ecdsa-key-1',
-    signingRootId: 'root-1',
-    signingRootVersion: 'v1',
   };
 }
 
@@ -54,6 +61,7 @@ test.describe('ecdsa material state', () => {
         authMethod: 'passkey',
         source: 'login',
         chainTarget: TEMPO_CHAIN_TARGET,
+        materialChainTarget: TEMPO_CHAIN_TARGET,
       }),
     ).toThrow(
       '[SigningEngine][ecdsa] material-state builder chain target must match candidate chain target',

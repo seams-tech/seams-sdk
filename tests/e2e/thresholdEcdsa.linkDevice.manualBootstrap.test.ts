@@ -13,7 +13,6 @@ test.describe('threshold-ecdsa link-device manual-bootstrap', () => {
         async ({ relayerUrl }) => {
           try {
             const sdkMod = await import('/sdk/esm/index.js');
-            const { IndexedDBManager } = await import('/sdk/esm/core/indexedDB/index.js');
             const { persistLinkDeviceThresholdEcdsaBootstrap } =
               await import('/sdk/esm/core/SeamsPasskey/evm/linkDeviceThresholdEcdsa.js');
             const { SeamsPasskey } = sdkMod as any;
@@ -32,7 +31,6 @@ test.describe('threshold-ecdsa link-device manual-bootstrap', () => {
               relayerAccount: 'web3-authn-v4.testnet',
               relayer: {
                 url: relayerUrl,
-                smartAccountDeploymentMode: 'observe',
               },
               ...(managedRegistration
                 ? {
@@ -112,72 +110,14 @@ test.describe('threshold-ecdsa link-device manual-bootstrap', () => {
               };
             }
 
-            const lastProfileState = await IndexedDBManager.clientDB
-              .getLastProfileState()
-              .catch(() => null);
-            const profileId = String(lastProfileState?.profileId || '').trim();
-            if (!profileId) {
-              return {
-                ok: false,
-                stage: 'profile',
-                error: 'missing last profile state after login',
-              };
-            }
-
-            const linkedAccounts = (
-              await IndexedDBManager.clientDB.listChainAccountsByProfile(profileId)
-            )
-              .map((row: any) => {
-                const chainIdKey = String(row?.chainIdKey || '')
-                  .trim()
-                  .toLowerCase();
-                const [chain, chainIdRaw] = chainIdKey.split(':');
-                const chainId = Math.floor(Number(chainIdRaw));
-                const accountModel = String(row?.accountModel || '').trim();
-                if (
-                  (chain !== 'evm' && chain !== 'tempo') ||
-                  !Number.isFinite(chainId) ||
-                  chainId <= 0 ||
-                  (accountModel !== 'erc4337' && accountModel !== 'tempo-native')
-                ) {
-                  return null;
-                }
-                return {
-                  chainIdKey,
-                  chain,
-                  chainId,
-                  accountAddress: String(row?.accountAddress || '').trim(),
-                  accountModel,
-                  ...(typeof row?.factory === 'string' && row.factory.trim()
-                    ? { factory: row.factory.trim() }
-                    : {}),
-                  ...(typeof row?.entryPoint === 'string' && row.entryPoint.trim()
-                    ? { entryPoint: row.entryPoint.trim() }
-                    : {}),
-                  ...(typeof row?.salt === 'string' && row.salt.trim()
-                    ? { salt: row.salt.trim() }
-                    : {}),
-                  ...(typeof row?.counterfactualAddress === 'string' &&
-                  row.counterfactualAddress.trim()
-                    ? { counterfactualAddress: row.counterfactualAddress.trim() }
-                    : {}),
-                };
-              })
-              .filter(Boolean);
-            if (!linkedAccounts.length) {
-              return {
-                ok: false,
-                stage: 'linked_accounts',
-                error: 'bootstrap did not persist any linked smart-account rows',
-              };
-            }
-
             const participantIds =
               bootstrap.keygen?.participantIds ||
               bootstrap.thresholdEcdsaKeyRef?.participantIds ||
               undefined;
             const manualBootstrap = {
               ecdsaThresholdKeyId: String(bootstrap.thresholdEcdsaKeyRef.ecdsaThresholdKeyId || ''),
+              signingRootId: String(bootstrap.thresholdEcdsaKeyRef.signingRootId || ''),
+              signingRootVersion: String(bootstrap.thresholdEcdsaKeyRef.signingRootVersion || ''),
               clientVerifyingShareB64u: String(bootstrap.keygen?.clientVerifyingShareB64u || ''),
               clientAdditiveShare32B64u: String(bootstrap.keygen?.clientAdditiveShare32B64u || ''),
               relayerKeyId: String(bootstrap.keygen?.relayerKeyId || ''),
@@ -190,6 +130,7 @@ test.describe('threshold-ecdsa link-device manual-bootstrap', () => {
               session: {
                 sessionKind: 'jwt',
                 sessionId: String(bootstrap.session?.sessionId || ''),
+                walletSigningSessionId: String(bootstrap.session?.walletSigningSessionId || ''),
                 expiresAtMs: Number(bootstrap.session?.expiresAtMs || 0),
                 ...(Array.isArray(participantIds) ? { participantIds: [...participantIds] } : {}),
                 remainingUses: Number(bootstrap.session?.remainingUses || 0),
@@ -198,15 +139,15 @@ test.describe('threshold-ecdsa link-device manual-bootstrap', () => {
             };
 
             await persistLinkDeviceThresholdEcdsaBootstrap({
-              indexedDB: IndexedDBManager,
               signingEngine: pm.getContext().signingEngine,
-              nearAccountId: accountId,
+              walletId: accountId,
               relayerUrl,
-              signerSlot: 2,
-              rpId: 'example.localhost',
-              credentialIdB64u: 'link-device-browser-cred-b64u',
+              chainTarget: {
+                kind: 'tempo' as const,
+                chainId: 42431,
+                networkSlug: 'tempo-testnet',
+              },
               thresholdEcdsa: manualBootstrap,
-              linkedAccounts,
             });
 
             const signingEngine = pm.getContext().signingEngine as any;
@@ -261,9 +202,21 @@ test.describe('threshold-ecdsa link-device manual-bootstrap', () => {
               };
             }
 
-            await pm.keys.exportKeypairWithUI(accountId, {
-              chain: 'evm',
-              variant: 'modal',
+            await pm.keys.exportKeypairWithUI({
+              kind: 'ecdsa',
+              subjectId: accountId,
+              walletSession: {
+                walletId: accountId,
+                walletSessionUserId: accountId,
+              },
+              chainTarget: {
+                kind: 'tempo' as const,
+                chainId: 42431,
+                networkSlug: 'tempo-testnet',
+              },
+              options: {
+                variant: 'modal',
+              },
             });
 
             return {

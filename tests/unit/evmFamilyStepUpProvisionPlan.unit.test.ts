@@ -4,6 +4,7 @@ import { toWalletSubjectId, type ThresholdEcdsaChainTarget } from '../../client/
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../client/src/core/signingEngine/interfaces/signing';
 import type { ThresholdEcdsaSessionRecord } from '../../client/src/core/signingEngine/session/persistence/records';
 import { buildEvmFamilyEcdsaSigningLaneContext } from '../../client/src/core/signingEngine/flows/signEvmFamily/ecdsaLanes';
+import { resolveReadyEvmFamilyEcdsaMaterial } from '../../client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
   buildEvmFamilyEmailOtpEcdsaProvisionPlan,
   buildEvmFamilyPasskeyEcdsaProvisionPlan,
@@ -39,6 +40,7 @@ const TEST_WEBAUTHN_CREDENTIAL = {
     },
   },
 } satisfies WebAuthnAuthenticationCredential;
+const THRESHOLD_OWNER_ADDRESS = `0x${'11'.repeat(20)}` as const;
 
 function makeThresholdSessionAuthToken(args: {
   thresholdSessionId: string;
@@ -68,6 +70,7 @@ function makeKeyRef(): ThresholdEcdsaSecp256k1KeyRef {
       clientVerifyingShareB64u: 'verifying-share',
     },
     participantIds: [1, 2, 3],
+    ethereumAddress: THRESHOLD_OWNER_ADDRESS,
     thresholdSessionKind: 'jwt',
     thresholdSessionAuthToken: makeThresholdSessionAuthToken({
       thresholdSessionId: 'threshold-session-1',
@@ -82,6 +85,7 @@ function makeRecord(): ThresholdEcdsaSessionRecord {
   return {
     walletId: toAccountId('alice.testnet'),
     subjectId: toWalletSubjectId('wallet-1'),
+    rpId: 'example.localhost',
     chainTarget: CHAIN_TARGET,
     relayerUrl: 'https://relayer.test',
     ecdsaThresholdKeyId: 'ecdsa-key-1',
@@ -90,6 +94,7 @@ function makeRecord(): ThresholdEcdsaSessionRecord {
     relayerKeyId: 'relayer-key-1',
     clientVerifyingShareB64u: 'verifying-share',
     participantIds: [1, 2, 3],
+    ethereumAddress: THRESHOLD_OWNER_ADDRESS,
     thresholdSessionKind: 'jwt',
     thresholdSessionId: 'threshold-session-1',
     walletSigningSessionId: 'wallet-session-1',
@@ -111,19 +116,35 @@ function makeRecord(): ThresholdEcdsaSessionRecord {
 }
 
 function makeLane(record: ThresholdEcdsaSessionRecord, keyRef: ThresholdEcdsaSecp256k1KeyRef) {
+  const laneRecord = {
+    ...record,
+    source: 'login' as const,
+    emailOtpAuthContext: undefined,
+  };
+  const material = resolveReadyEvmFamilyEcdsaMaterial({
+    record: laneRecord,
+    keyRef,
+    rpId: laneRecord.rpId,
+    expected: {
+      walletId: laneRecord.walletId,
+      subjectId: laneRecord.subjectId,
+      chainTarget: CHAIN_TARGET,
+      authMethod: 'passkey',
+      source: 'login',
+      thresholdSessionId: laneRecord.thresholdSessionId,
+      walletSigningSessionId: laneRecord.walletSigningSessionId,
+    },
+  });
+  if (material.kind !== 'ready') {
+    throw new Error(`expected ready EVM-family ECDSA material: ${material.kind}`);
+  }
   const lane = buildEvmFamilyEcdsaSigningLaneContext({
     walletId: 'alice.testnet',
     chain: 'evm',
     chainTarget: CHAIN_TARGET,
     authMethod: 'passkey',
     source: 'login',
-    material: 'record_and_key_ref',
-    record: {
-      ...record,
-      source: 'login',
-      emailOtpAuthContext: undefined,
-    },
-    keyRef,
+    material: material.material,
   });
   if (!lane) {
     throw new Error('expected EVM-family ECDSA lane');

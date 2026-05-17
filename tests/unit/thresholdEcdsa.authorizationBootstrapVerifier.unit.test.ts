@@ -5,12 +5,34 @@ import {
   thresholdEcdsaChainTargetFromChainFamily,
   toWalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  buildEvmFamilyEcdsaKeyIdentity,
+  buildEvmFamilyEcdsaSessionLanePolicy,
+} from '../../client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 
 const TEST_SUBJECT_ID = toWalletSubjectId('alice.testnet');
 const TEST_CHAIN_TARGET = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'evm',
   chainId: 11155111,
   networkSlug: 'sepolia',
+});
+const TEST_KEY_IDENTITY = buildEvmFamilyEcdsaKeyIdentity({
+  walletId: 'alice.testnet',
+  subjectId: TEST_SUBJECT_ID,
+  rpId: 'wallet.example.test',
+  ecdsaThresholdKeyId: 'ecdsa-key-1',
+  signingRootId: 'project:dev',
+  signingRootVersion: 'default',
+  participantIds: [1, 2],
+  thresholdOwnerAddress: '0x1111111111111111111111111111111111111111',
+});
+const TEST_LANE_POLICY = buildEvmFamilyEcdsaSessionLanePolicy({
+  chainTarget: TEST_CHAIN_TARGET,
+  thresholdSessionId: 'ecdsa-session-1',
+  walletSigningSessionId: 'wallet-session-1',
+  thresholdSessionKind: 'jwt',
+  ttlMs: 300_000,
+  remainingUses: 5,
 });
 
 function jwtWithPayload(payload: Record<string, unknown>): string {
@@ -20,6 +42,37 @@ function jwtWithPayload(payload: Record<string, unknown>): string {
 }
 
 test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
+  test('authorization bootstrap rejects raw exact-session identity without shared key policy', async () => {
+    const clientRootShare32 = Uint8Array.from(Array.from({ length: 32 }, (_, index) => index + 1));
+    const clientRootShare32B64u = base64UrlEncode(clientRootShare32);
+    const appSessionJwt = jwtWithPayload({ kind: 'app_session_v1', sub: 'alice.testnet' });
+
+    const result = await bootstrapEcdsaSession({
+      indexedDB: {} as any,
+      touchIdPrompt: {
+        getRpId: () => 'wallet.example.test',
+      } as any,
+      relayerUrl: 'https://relay.example',
+      userId: 'alice.testnet',
+      subjectId: TEST_SUBJECT_ID,
+      chainTarget: TEST_CHAIN_TARGET,
+      ecdsaThresholdKeyId: 'ecdsa-key-1',
+      sessionId: 'ecdsa-session-1',
+      walletSigningSessionId: 'wallet-session-1',
+      bootstrapAuth: { kind: 'app_session', jwt: appSessionJwt },
+      clientRootShare32B64u,
+      workerCtx: {
+        requestWorkerOperation: async () => {
+          throw new Error('raw exact-session bootstrap should fail before worker use');
+        },
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.code).toBe('invalid_args');
+    expect(result.message).toContain('shared key identity and lane policy');
+  });
+
   test('authorization bootstrap prepares without sending an explicit verifier hint', async () => {
     const requests: Array<{ url: string; body: Record<string, unknown>; headers: Headers }> = [];
     const originalFetch = globalThis.fetch;
@@ -58,11 +111,9 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
         userId: 'alice.testnet',
         subjectId: TEST_SUBJECT_ID,
         chainTarget: TEST_CHAIN_TARGET,
-        ecdsaThresholdKeyId: 'ecdsa-key-1',
-        participantIds: [1, 2],
         sessionKind: 'jwt',
-        sessionId: 'ecdsa-session-1',
-        walletSigningSessionId: 'wallet-session-1',
+        key: TEST_KEY_IDENTITY,
+        lanePolicy: TEST_LANE_POLICY,
         bootstrapAuth: { kind: 'app_session', jwt: appSessionJwt },
         clientRootShare32B64u,
         workerCtx: {
@@ -122,11 +173,9 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
         userId: 'alice.testnet',
         subjectId: TEST_SUBJECT_ID,
         chainTarget: TEST_CHAIN_TARGET,
-        ecdsaThresholdKeyId: 'ecdsa-key-1',
-        participantIds: [1, 2],
         sessionKind: 'jwt',
-        sessionId: 'ecdsa-session-1',
-        walletSigningSessionId: 'wallet-session-1',
+        key: TEST_KEY_IDENTITY,
+        lanePolicy: TEST_LANE_POLICY,
         bootstrapAuth: { kind: 'app_session', jwt: appSessionJwt },
         runtimeScopeBootstrap: {
           environmentId: 'env-test',

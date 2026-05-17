@@ -35,8 +35,6 @@ async function mountVisibleEmailOtpUnlockPrompt(
     harness: EmailOtpEcdsaTempoHarness;
     accountId: string;
     appSessionJwt: string;
-    ecdsaThresholdKeyId: string;
-    participantIds: number[];
   },
 ): Promise<void> {
   await page.evaluate(
@@ -46,8 +44,6 @@ async function mountVisibleEmailOtpUnlockPrompt(
       signingSessionSealKeyVersion,
       accountId,
       appSessionJwt,
-      ecdsaThresholdKeyId,
-      participantIds,
     }) => {
       await new Promise<void>((resolve, reject) => {
         if (document.querySelector('link[data-email-otp-ui-style="1"]')) {
@@ -88,7 +84,6 @@ async function mountVisibleEmailOtpUnlockPrompt(
         relayerAccount: 'web3-authn-v4.testnet',
         relayer: {
           url: relayerUrl,
-          smartAccountDeploymentMode: 'observe',
         },
         emailOtpAuthPolicy: 'session',
         signingSessionPersistenceMode: 'sealed_refresh_v1',
@@ -159,7 +154,10 @@ async function mountVisibleEmailOtpUnlockPrompt(
                         (window as any).__emailOtpVisibleUnlock.submittedCode = otpCode;
                         try {
                           const loginResult = await pm.auth.loginWithEmailOtpEcdsaCapability({
-                            nearAccountId: accountId,
+                            walletSession: {
+                              walletId: accountId,
+                              userId: accountId,
+                            },
                             subjectId: accountId,
                             chainTarget: {
                               kind: 'tempo',
@@ -170,10 +168,6 @@ async function mountVisibleEmailOtpUnlockPrompt(
                             challengeId: String(challenge.challengeId || ''),
                             otpCode,
                             appSessionJwt,
-                            routeAuth: { kind: 'app_session', jwt: appSessionJwt },
-                            ecdsaThresholdKeyId,
-                            participantIds,
-                            sessionKind: 'jwt',
                           });
                           (window as any).__emailOtpVisibleUnlock.loginSucceeded = true;
                           (window as any).__emailOtpVisibleUnlock.loginWarmState = String(
@@ -202,8 +196,6 @@ async function mountVisibleEmailOtpUnlockPrompt(
       signingSessionSealKeyVersion: args.harness.signingSessionSealKeyVersion,
       accountId: args.accountId,
       appSessionJwt: args.appSessionJwt,
-      ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
-      participantIds: args.participantIds,
     },
   );
 }
@@ -301,8 +293,6 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
         harness,
         accountId,
         appSessionJwt,
-        ecdsaThresholdKeyId: setupPhase.ecdsaKeyBinding?.ecdsaThresholdKeyId || '',
-        participantIds: setupPhase.ecdsaKeyBinding?.participantIds || [],
       });
 
       const mount = page.locator('#email-otp-visible-unlock-mount');
@@ -529,6 +519,126 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
       ]);
       expect(reloadPhase.emailOtpPromptCount).toBeGreaterThan(0);
       expect(reloadPhase.webauthnGetCount).toBe(0);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('post-exhaustion Email OTP signing succeeds on the first attempt with one prompt for Tempo and Arc/EVM', async ({
+    page,
+  }) => {
+    const harness = await setupEmailOtpEcdsaTempoHarness(page);
+    try {
+      for (const signingCase of [
+        { label: 'tempo', signingKind: 'tempoTransaction' as const, reloadKind: 'tempo' as const },
+        { label: 'evm', signingKind: 'eip1559' as const, reloadKind: 'evm' as const },
+      ]) {
+        const accountId = `emailotpexhaust${signingCase.label}${Date.now()}.w3a-v1.testnet`;
+        const appSessionJwt = await harness.mintAppSessionJwt({
+          userId: accountId,
+          deviceId: `email-otp-post-exhaustion-${signingCase.label}-device`,
+        });
+
+        const firstPhase = await runEmailOtpEcdsaTempoFlow(page, {
+          relayerUrl: harness.baseUrl,
+          shamirPrimeB64u: harness.shamirPrimeB64u,
+          accountId,
+          enrollAppSessionJwt: appSessionJwt,
+          loginAppSessionJwt: appSessionJwt,
+          clientSecretB64u: harness.defaultClientSecretB64u,
+          emailOtpAuthPolicy: 'session',
+          signingKind: signingCase.signingKind,
+          signingSessionRemainingUses: 1,
+          signTwice: true,
+        });
+
+        expect(
+          firstPhase.ok,
+          `${signingCase.label}: ${firstPhase.error || ''}\n${JSON.stringify(firstPhase)}`,
+        ).toBe(true);
+        expect(firstPhase.firstSign?.ok, firstPhase.firstSign?.error || '').toBe(true);
+        expect(firstPhase.firstSign?.chain).toBe(signingCase.reloadKind);
+        expect(firstPhase.secondSign?.ok, firstPhase.secondSign?.error || '').toBe(true);
+        expect(firstPhase.secondSign?.chain).toBe(signingCase.reloadKind);
+        expect(firstPhase.otpCounters?.signingChallengeCount).toBe(1);
+        expect(firstPhase.webauthnCounters?.getCount).toBe(0);
+      }
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('Email OTP account matrix covers unlock, NEAR/Tempo signing, and Ed25519/ECDSA export', async ({
+    page,
+  }) => {
+    const harness = await setupEmailOtpEcdsaTempoHarness(page);
+    const accountId = `emailotpmatrix${Date.now()}.w3a-v1.testnet`;
+    try {
+      const appSessionJwt = await harness.mintAppSessionJwt({
+        userId: accountId,
+        deviceId: 'email-otp-account-matrix-device',
+      });
+
+      const result = await runEmailOtpEcdsaTempoFlow(page, {
+        relayerUrl: harness.baseUrl,
+        shamirPrimeB64u: harness.shamirPrimeB64u,
+        accountId,
+        enrollAppSessionJwt: appSessionJwt,
+        loginAppSessionJwt: appSessionJwt,
+        clientSecretB64u: harness.defaultClientSecretB64u,
+        emailOtpAuthPolicy: 'session',
+        signTwice: true,
+        signNearAfterLogin: true,
+        exportNearWithResend: true,
+        exportEcdsaWithResend: true,
+      });
+
+      expect(result.ok, `${result.error || ''}\n${JSON.stringify(result)}`).toBe(true);
+      expect(result.emailOtpLogin?.warmState).toBe('ready');
+      expect(result.nearSign?.ok, result.nearSign?.error || '').toBe(true);
+      expect(result.nearSign?.signedCount).toBe(1);
+      expect(result.firstSign?.ok, result.firstSign?.error || '').toBe(true);
+      expect(result.firstSign?.chain).toBe('tempo');
+      expect(result.secondSign?.ok, result.secondSign?.error || '').toBe(true);
+      expect(result.secondSign?.chain).toBe('tempo');
+      expect(result.exports?.near?.ok, result.exports?.near?.error || '').toBe(true);
+      expect(result.exports?.near?.exportedSchemes).toContain('ed25519');
+      expect(result.exports?.ecdsa?.ok, result.exports?.ecdsa?.error || '').toBe(true);
+      expect(result.exports?.ecdsa?.exportedSchemes).toContain('secp256k1');
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('Email OTP account matrix covers Arc/EVM signing', async ({ page }) => {
+    const harness = await setupEmailOtpEcdsaTempoHarness(page);
+    const accountId = `emailotpmatrixevm${Date.now()}.w3a-v1.testnet`;
+    try {
+      const appSessionJwt = await harness.mintAppSessionJwt({
+        userId: accountId,
+        deviceId: 'email-otp-account-matrix-evm-device',
+      });
+
+      const result = await runEmailOtpEcdsaTempoFlow(page, {
+        relayerUrl: harness.baseUrl,
+        shamirPrimeB64u: harness.shamirPrimeB64u,
+        accountId,
+        enrollAppSessionJwt: appSessionJwt,
+        loginAppSessionJwt: appSessionJwt,
+        clientSecretB64u: harness.defaultClientSecretB64u,
+        emailOtpAuthPolicy: 'session',
+        signingKind: 'eip1559',
+        signTwice: true,
+      });
+
+      expect(result.ok, `${result.error || ''}\n${JSON.stringify(result)}`).toBe(true);
+      expect(result.emailOtpLogin?.warmState).toBe('ready');
+      expect(result.firstSign?.ok, result.firstSign?.error || '').toBe(true);
+      expect(result.firstSign?.chain).toBe('evm');
+      expect(result.firstSign?.kind).toBe('eip1559');
+      expect(result.secondSign?.ok, result.secondSign?.error || '').toBe(true);
+      expect(result.secondSign?.chain).toBe('evm');
+      expect(result.secondSign?.kind).toBe('eip1559');
     } finally {
       await harness.close();
     }

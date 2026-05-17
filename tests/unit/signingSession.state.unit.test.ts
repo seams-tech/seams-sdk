@@ -119,8 +119,46 @@ test.describe('signing session PRF cache utilities', () => {
     );
 
     expect(source).toContain(
-      'if (nearAccountId == null && hasWarmSessionMaterialClearAll(deps.touchConfirm))',
+      'if (walletId == null && hasWarmSessionMaterialClearAll(deps.touchConfirm))',
     );
     expect(source).toContain('clearAllWarmSessionMaterial');
+  });
+
+  test('single warm material clear leaves durable Shamir3pass restore records intact', () => {
+    const source = fs.readFileSync(
+      path.resolve(process.cwd(), '../client/src/core/signingEngine/uiConfirm/UiConfirmManager.ts'),
+      'utf8',
+    );
+    const clearStart = source.indexOf('clearWarmSessionMaterial = async');
+    const deleteStart = source.indexOf('deletePersistedWarmSessionMaterial = async');
+    const clearBlock = source.slice(clearStart, deleteStart);
+    const deleteBlock = source.slice(deleteStart, source.indexOf('clearAllWarmSessionMaterial = async'));
+
+    expect(clearStart).toBeGreaterThan(0);
+    expect(deleteStart).toBeGreaterThan(clearStart);
+    expect(clearBlock).toContain("type: 'WARM_SESSION_MATERIAL_CLEAR'");
+    expect(clearBlock).not.toContain('cleanupSigningSession');
+    expect(deleteBlock).toContain('cleanupSigningSession');
+  });
+
+  test('reuse warm ECDSA bootstrap restores sealed material and fails closed instead of fresh prompting', () => {
+    const source = fs.readFileSync(
+      path.resolve(
+        process.cwd(),
+        '../client/src/core/signingEngine/session/passkey/ecdsaWarmCapabilityBootstrap.ts',
+      ),
+      'utf8',
+    );
+    const reuseStart = source.indexOf('async function bootstrapReuseWarmEcdsaCapability');
+    const publicStart = source.indexOf('export async function bootstrapWarmEcdsaCapability');
+    const reuseBlock = source.slice(reuseStart, publicStart);
+
+    expect(reuseStart).toBeGreaterThan(0);
+    expect(publicStart).toBeGreaterThan(reuseStart);
+    expect(reuseBlock).toContain('restorePersistedSessionsForWallet');
+    expect(reuseBlock).not.toContain('return await bootstrapDirectEcdsaRequest(deps, request);');
+    expect(reuseBlock).toContain(
+      'reuse_warm_ecdsa_bootstrap requires restored passkey ECDSA material',
+    );
   });
 });

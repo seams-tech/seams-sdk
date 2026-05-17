@@ -49,7 +49,6 @@ async function setupPasskeyEvmSigningSession(
           relayerAccount: 'web3-authn-v4.testnet',
           relayer: {
             url: relayerUrl,
-            smartAccountDeploymentMode: 'observe',
           },
           registration: {
             mode: 'managed',
@@ -192,7 +191,6 @@ async function runPasskeyEvmSign(
             relayerAccount: 'web3-authn-v4.testnet',
             relayer: {
               url: relayerUrl,
-              smartAccountDeploymentMode: 'observe',
             },
             registration: {
               mode: 'managed',
@@ -290,13 +288,8 @@ async function runPasskeyEvmSign(
             );
           const ecdsaRecords =
             thresholdStore &&
-            typeof (thresholdStore as any).listThresholdEcdsaSessionRecordsForLookup === 'function'
-              ? (['tempo', 'evm'] as const).flatMap((chain) =>
-                  (thresholdStore as any).listThresholdEcdsaSessionRecordsForLookup(
-                    { recordsByLane: new Map() },
-                    { nearAccountId: accountId, chain },
-                  ),
-                )
+            typeof (thresholdStore as any).listStoredThresholdEcdsaSessionRecordsForWallet === 'function'
+              ? (thresholdStore as any).listStoredThresholdEcdsaSessionRecordsForWallet(accountId)
               : [];
           const identities =
             sealedStore &&
@@ -567,7 +560,7 @@ test.describe('signing session regressions (wallet iframe)', () => {
         tag: 'restored',
         remainingUses,
       });
-      expect(restoredSign.ok, restoredSign.error || JSON.stringify(restoredSign)).toBe(true);
+      expect(restoredSign.ok, JSON.stringify(restoredSign)).toBe(true);
       expect(restoredSign.kind).toBe('eip1559');
       expect(restoredSign.chain).toBe('evm');
       expect(['active', 'exhausted']).toContain(restoredSign.sessionStatus);

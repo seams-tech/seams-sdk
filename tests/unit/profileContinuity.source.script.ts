@@ -16,9 +16,8 @@ const chainAccounts = [
     profileId: 'profile-alice',
     chainIdKey: 'evm:11155111',
     accountAddress: `0x${'11'.repeat(20)}`,
-    accountModel: 'erc4337',
+    accountModel: 'threshold-ecdsa',
     isPrimary: true,
-    counterfactualAddress: `0x${'22'.repeat(20)}`,
     deployed: false,
   },
 ];

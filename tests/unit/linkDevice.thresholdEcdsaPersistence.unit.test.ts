@@ -2,25 +2,21 @@ import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  clientDb: '/sdk/esm/core/indexedDB/passkeyClientDB/manager.js',
-  accountKeyMaterialDb: '/sdk/esm/core/indexedDB/accountKeyMaterialDB/manager.js',
-  unifiedDb: '/sdk/esm/core/indexedDB/index.js',
   linkDeviceThresholdEcdsa: '/sdk/esm/core/SeamsPasskey/evm/linkDeviceThresholdEcdsa.js',
   ecdsaChainTarget: '/sdk/esm/core/signingEngine/interfaces/ecdsaChainTarget.js',
 } as const;
 
-test.describe('link-device threshold-ecdsa persistence', () => {
+test.describe('link-device threshold-ecdsa bootstrap', () => {
   test.beforeEach(async ({ page }) => {
     await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
   });
 
-  test('persists pending linked-account signers and ECDSA bootstrap lanes', async ({ page }) => {
+  test('builds and persists a normal threshold ECDSA bootstrap for one concrete target', async ({
+    page,
+  }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         try {
-          const { PasskeyClientDBManager } = await import(paths.clientDb);
-          const { AccountKeyMaterialDBManager } = await import(paths.accountKeyMaterialDb);
-          const { UnifiedIndexedDBManager } = await import(paths.unifiedDb);
           const { persistLinkDeviceThresholdEcdsaBootstrap } = await import(
             paths.linkDeviceThresholdEcdsa
           );
@@ -28,111 +24,27 @@ test.describe('link-device threshold-ecdsa persistence', () => {
             paths.ecdsaChainTarget
           );
 
-          const nearAccountId = 'alice.testnet';
-          const evmChainTarget = thresholdEcdsaChainTargetFromChainFamily({
+          const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
             chain: 'evm',
             chainId: 11155111,
             networkSlug: 'ethereum-sepolia',
           });
-          const tempoChainTarget = thresholdEcdsaChainTargetFromChainFamily({
-            chain: 'tempo',
-            chainId: 42431,
-            networkSlug: 'tempo-testnet',
-          });
-          const suffix =
-            typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-              ? crypto.randomUUID()
-              : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-          const clientDB = new PasskeyClientDBManager();
-          clientDB.setDbName(`PasskeyClientDB-linkDeviceEcdsa-${suffix}`);
-          const accountKeyMaterialDB = new AccountKeyMaterialDBManager();
-          accountKeyMaterialDB.setDbName(`PasskeyAccountKeyMaterial-linkDeviceEcdsa-${suffix}`);
-          const indexedDB = new UnifiedIndexedDBManager({ clientDB, accountKeyMaterialDB });
-          const nearAccountRef = {
-            chainIdKey: 'near:testnet',
-            accountAddress: nearAccountId,
-          };
-          const profileId = `profile-near:${nearAccountId}`;
-
-          await clientDB.upsertProfile({
-            profileId,
-            defaultSignerSlot: 2,
-            passkeyCredential: {
-              id: 'cred-id',
-              rawId: 'cred-b64u',
-            },
-          });
-          await clientDB.upsertChainAccount({
-            profileId,
-            chainIdKey: nearAccountRef.chainIdKey,
-            accountAddress: nearAccountRef.accountAddress,
-            accountModel: 'near-native',
-            isPrimary: true,
-          });
-          await clientDB.upsertAccountSigner({
-            profileId,
-            chainIdKey: nearAccountRef.chainIdKey,
-            accountAddress: nearAccountRef.accountAddress,
-            signerId: 'ed25519:pk-device2',
-            signerSlot: 2,
-            signerType: 'threshold',
-            signerKind: 'threshold-ed25519',
-            signerAuthMethod: 'passkey',
-            signerSource: 'passkey_registration',
-            status: 'active',
-            mutation: { routeThroughOutbox: false },
-          });
-
           const sessionCalls: Array<Record<string, unknown>> = [];
-          const chainAccountCalls: Array<Record<string, unknown>> = [];
+          const persistCalls: Array<Record<string, unknown>> = [];
           const signingEngine = {
             upsertThresholdEcdsaSessionFromBootstrap(args: Record<string, unknown>) {
               sessionCalls.push(args);
             },
             async persistThresholdEcdsaBootstrapForWalletTarget(args: Record<string, unknown>) {
-              chainAccountCalls.push(args);
-              const context = await clientDB.resolveProfileAccountContext(nearAccountRef);
-              if (!context?.profileId) throw new Error('missing near account context');
-              const chainTarget = args.chainTarget as { kind?: string; chainId?: number };
-              const chain = String(chainTarget?.kind || '').trim();
-              const smartAccount =
-                args.smartAccount && typeof args.smartAccount === 'object'
-                  ? (args.smartAccount as Record<string, unknown>)
-                  : {};
-              const chainId = Math.floor(Number(chainTarget?.chainId || smartAccount.chainId));
-              const accountAddress = String(
-                smartAccount.counterfactualAddress ||
-                  ((args.bootstrap as any)?.keygen?.ethereumAddress as string) ||
-                  '',
-              ).trim();
-              await indexedDB.upsertChainAccount({
-                profileId: context.profileId,
-                chainIdKey: `${chain}:${chainId}`,
-                accountAddress,
-                accountModel: chain === 'evm' ? 'erc4337' : 'tempo-native',
-                isPrimary: true,
-                ...(typeof smartAccount.factory === 'string'
-                  ? { factory: smartAccount.factory }
-                  : {}),
-                ...(typeof smartAccount.entryPoint === 'string'
-                  ? { entryPoint: smartAccount.entryPoint }
-                  : {}),
-                ...(typeof smartAccount.salt === 'string' ? { salt: smartAccount.salt } : {}),
-                ...(typeof smartAccount.counterfactualAddress === 'string'
-                  ? { counterfactualAddress: smartAccount.counterfactualAddress }
-                  : {}),
-              });
+              persistCalls.push(args);
             },
           };
 
           await persistLinkDeviceThresholdEcdsaBootstrap({
-            indexedDB,
             signingEngine,
-            walletId: nearAccountId,
+            walletId: 'alice.testnet',
             relayerUrl: 'https://relay.example.test',
-            signerSlot: 2,
-            rpId: 'wallet.example.test',
-            credentialIdB64u: 'cred-b64u',
+            chainTarget,
             thresholdEcdsa: {
               ecdsaThresholdKeyId: 'ehss-link-device-1',
               signingRootId: 'project-test:env-test',
@@ -154,46 +66,9 @@ test.describe('link-device threshold-ecdsa persistence', () => {
                 jwt: 'jwt:ecdsa-session-1',
               },
             },
-            linkedAccounts: [
-              {
-                chainIdKey: 'evm:11155111',
-                chain: 'evm',
-                chainId: 11155111,
-                chainTarget: evmChainTarget,
-                accountAddress: `0x${'11'.repeat(20)}`,
-                accountModel: 'erc4337',
-                factory: `0x${'bb'.repeat(20)}`,
-                entryPoint: `0x${'cc'.repeat(20)}`,
-                salt: '0x1234',
-                counterfactualAddress: `0x${'11'.repeat(20)}`,
-              },
-              {
-                chainIdKey: 'tempo:42431',
-                chain: 'tempo',
-                chainId: 42431,
-                chainTarget: tempoChainTarget,
-                accountAddress: `0x${'22'.repeat(20)}`,
-                accountModel: 'tempo-native',
-                counterfactualAddress: `0x${'22'.repeat(20)}`,
-              },
-            ],
           });
 
-          const evmSigners = await indexedDB.listAccountSigners({
-            chainIdKey: 'evm:11155111',
-            accountAddress: `0x${'11'.repeat(20)}`,
-          });
-          const tempoSigners = await indexedDB.listAccountSigners({
-            chainIdKey: 'tempo:42431',
-            accountAddress: `0x${'22'.repeat(20)}`,
-          });
-
-          return {
-            sessionCalls,
-            chainAccountCalls,
-            evmSigners,
-            tempoSigners,
-          };
+          return { sessionCalls, persistCalls };
         } catch (error: any) {
           return { error: error?.message || String(error) };
         }
@@ -203,17 +78,26 @@ test.describe('link-device threshold-ecdsa persistence', () => {
 
     const output = result as any;
     expect(output.error).toBeUndefined();
-    expect(output.sessionCalls).toHaveLength(2);
-    expect(output.chainAccountCalls).toHaveLength(2);
-    expect(output.evmSigners).toHaveLength(1);
-    expect(output.tempoSigners).toHaveLength(1);
-    expect(output.sessionCalls[0]?.bootstrap?.thresholdEcdsaKeyRef?.ecdsaThresholdKeyId).toBe(
-      'ehss-link-device-1',
+    expect(output.sessionCalls).toHaveLength(1);
+    expect(output.persistCalls).toHaveLength(1);
+    expect(output.sessionCalls[0]?.source).toBe('manual-bootstrap');
+    expect(output.sessionCalls[0]?.chainTarget).toEqual(
+      expect.objectContaining({
+        kind: 'evm',
+        namespace: 'eip155',
+        chainId: 11155111,
+      }),
     );
-    expect(output.evmSigners[0]?.status).toBe('pending');
-    expect(output.evmSigners[0]?.signerId).toBe(`0x${'aa'.repeat(20)}`);
-    expect(output.evmSigners[0]?.metadata?.ecdsaThresholdKeyId).toBe('ehss-link-device-1');
-    expect(output.evmSigners[0]?.metadata?.thresholdEcdsaPublicKeyB64u).toBe('group-public-key');
-    expect(result.tempoSigners[0]?.status).toBe('pending');
+    expect(output.sessionCalls[0]?.bootstrap?.thresholdEcdsaKeyRef).toEqual(
+      expect.objectContaining({
+        ecdsaThresholdKeyId: 'ehss-link-device-1',
+        signingRootId: 'project-test:env-test',
+        thresholdSessionId: 'ecdsa-session-1',
+        walletSigningSessionId: 'wallet-session-1',
+        ethereumAddress: `0x${'aa'.repeat(20)}`,
+      }),
+    );
+    expect(output.sessionCalls[0]).not.toHaveProperty('linkedAccounts');
+    expect(output.persistCalls[0]).not.toHaveProperty('linkedAccounts');
   });
 });

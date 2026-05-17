@@ -1267,7 +1267,7 @@ test.describe('PasskeyClientDB device selection', () => {
             profileId,
             chainIdKey,
             accountAddress,
-            accountModel: 'erc4337',
+            accountModel: 'threshold-ecdsa',
           },
           signer: {
             signerId: '0x3333333333333333333333333333333333333333',

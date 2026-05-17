@@ -3,7 +3,6 @@ import {
   createPostgresConsolePolicyService,
   createPostgresConsoleKeyExportService,
   createPostgresConsoleRuntimeSnapshotService,
-  createPostgresConsoleSmartWalletService,
   runPostgresConsoleRuntimeSnapshotOutboxDispatch,
   runPostgresConsoleRuntimeSnapshotRetentionCleanup,
 } from '@server/router/express-adaptor';
@@ -142,7 +141,6 @@ test.describe('console config modules postgres services', () => {
           namespace,
         ]);
         await q.query('DELETE FROM console_runtime_snapshots WHERE namespace = $1', [namespace]);
-        await q.query('DELETE FROM console_smart_wallet_configs WHERE namespace = $1', [namespace]);
         await q.query('DELETE FROM console_policy_versions WHERE namespace = $1', [namespace]);
         await q.query(
           `DELETE FROM console_policies
@@ -251,58 +249,6 @@ test.describe('console config modules postgres services', () => {
     });
   });
 
-  test('smart wallets postgres service supports create/list/update + scope validation', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const service = await createPostgresConsoleSmartWalletService({
-      postgresUrl,
-      namespace,
-      logger: console as any,
-      ensureSchema: true,
-    });
-
-    await expectConsoleError(async () => {
-      await service.createConfig(adminCtx, {
-        scopeType: 'POLICY',
-        mode: 'OPTIONAL',
-      });
-    }, 'invalid_scope');
-
-    const created = await service.createConfig(adminCtx, {
-      id: 'sw-postgres-1',
-      scopeType: 'ENVIRONMENT',
-      environmentId: 'prod',
-      enabled: true,
-      mode: 'REQUIRED',
-      accountType: 'SMART_ACCOUNT',
-      paymasterMode: 'AUTO',
-      fallbackBehavior: 'FALLBACK_TO_EOA',
-      bundler: {
-        provider: 'pimlico',
-        entryPointVersion: 'v0.7',
-        maxFeePerGasGwei: 60,
-        maxPriorityFeePerGasGwei: 2,
-      },
-    });
-    expect(created.id).toBe('sw-postgres-1');
-    expect(created.mode).toBe('REQUIRED');
-    expect(created.environmentId).toBe('prod');
-    expect(created.bundler?.provider).toBe('pimlico');
-
-    const listScoped = await service.listConfigs(adminCtx, { environmentId: 'prod' });
-    expect(listScoped.length).toBeGreaterThanOrEqual(1);
-    expect(listScoped.every((entry) => entry.environmentId === 'prod')).toBe(true);
-
-    const updated = await service.updateConfig(adminCtx, 'sw-postgres-1', {
-      enabled: false,
-      mode: 'OPTIONAL',
-      bundler: null,
-    });
-    expect(updated).toBeTruthy();
-    expect(updated?.enabled).toBe(false);
-    expect(updated?.mode).toBe('OPTIONAL');
-    expect(updated?.bundler).toBeNull();
-  });
-
   test('key exports postgres service enforces approval flow constraints', async () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
     const service = await createPostgresConsoleKeyExportService({
@@ -378,9 +324,6 @@ test.describe('console config modules postgres services', () => {
         gasSponsorship: {
           enabled: true,
         },
-        smartWallets: {
-          mode: 'REQUIRED',
-        },
       },
     });
     expect(publishedOne.environmentId).toBe('prod');
@@ -395,9 +338,6 @@ test.describe('console config modules postgres services', () => {
         },
         gasSponsorship: {
           enabled: false,
-        },
-        smartWallets: {
-          mode: 'OPTIONAL',
         },
       },
     });
@@ -433,9 +373,6 @@ test.describe('console config modules postgres services', () => {
         },
         gasSponsorship: {
           enabled: true,
-        },
-        smartWallets: {
-          mode: 'REQUIRED',
         },
       },
     });
@@ -475,7 +412,6 @@ test.describe('console config modules postgres services', () => {
       payload: {
         policy: { defaultPolicyId: 'owner-policy' },
         gasSponsorship: { enabled: true },
-        smartWallets: { mode: 'REQUIRED' },
       },
     });
     await service.publishSnapshot(attackerCtx, {
@@ -483,7 +419,6 @@ test.describe('console config modules postgres services', () => {
       payload: {
         policy: { defaultPolicyId: 'attacker-policy' },
         gasSponsorship: { enabled: false },
-        smartWallets: { mode: 'OPTIONAL' },
       },
     });
 
@@ -584,7 +519,6 @@ test.describe('console config modules postgres services', () => {
       payload: {
         policy: { defaultPolicyId: 'p1' },
         gasSponsorship: { enabled: true },
-        smartWallets: { mode: 'OPTIONAL' },
       },
     });
     current = new Date(current.getTime() + 1000);
@@ -593,7 +527,6 @@ test.describe('console config modules postgres services', () => {
       payload: {
         policy: { defaultPolicyId: 'p2' },
         gasSponsorship: { enabled: true },
-        smartWallets: { mode: 'OPTIONAL' },
       },
     });
     current = new Date(current.getTime() + 1000);
@@ -602,7 +535,6 @@ test.describe('console config modules postgres services', () => {
       payload: {
         policy: { defaultPolicyId: 'p3' },
         gasSponsorship: { enabled: false },
-        smartWallets: { mode: 'REQUIRED' },
       },
     });
 
@@ -707,7 +639,6 @@ test.describe('console config modules postgres services', () => {
       payload: {
         policy: { defaultPolicyId: 'old-1' },
         gasSponsorship: { enabled: true },
-        smartWallets: { mode: 'OPTIONAL' },
       },
     });
     current = new Date('2026-03-02T00:00:00.000Z');
@@ -716,7 +647,6 @@ test.describe('console config modules postgres services', () => {
       payload: {
         policy: { defaultPolicyId: 'old-2' },
         gasSponsorship: { enabled: true },
-        smartWallets: { mode: 'OPTIONAL' },
       },
     });
     current = new Date('2026-03-10T00:00:00.000Z');
@@ -725,7 +655,6 @@ test.describe('console config modules postgres services', () => {
       payload: {
         policy: { defaultPolicyId: 'latest' },
         gasSponsorship: { enabled: false },
-        smartWallets: { mode: 'REQUIRED' },
       },
     });
 
@@ -757,7 +686,6 @@ test.describe('console config modules postgres services', () => {
       payload: {
         policy: { defaultPolicyId: 'only' },
         gasSponsorship: { enabled: true },
-        smartWallets: { mode: 'OPTIONAL' },
       },
     });
     const cleanup = await runPostgresConsoleRuntimeSnapshotRetentionCleanup({
@@ -778,137 +706,6 @@ test.describe('console config modules postgres services', () => {
     });
     expect(singleRetained).toHaveLength(1);
     expect(singleRetained[0]?.payload.policy).toEqual({ defaultPolicyId: 'only' });
-  });
-
-  test('gas/smart-wallet tables enforce DB-level tenant RLS policies', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const policies = await createPostgresConsolePolicyService({
-      postgresUrl,
-      namespace,
-      logger: console as any,
-      ensureSchema: true,
-    });
-    const smartWalletService = await createPostgresConsoleSmartWalletService({
-      postgresUrl,
-      namespace,
-      logger: console as any,
-      ensureSchema: true,
-    });
-
-    const ownerCtx = {
-      orgId: ownerOrgId,
-      actorUserId: 'owner-config-rls',
-      roles: ['admin'],
-    };
-    const attackerCtx = {
-      orgId: attackerOrgId,
-      actorUserId: 'attacker-config-rls',
-      roles: ['admin'],
-    };
-
-    await createPublishedGasPolicy(policies, ownerCtx, {
-      rules: {
-        scopeType: 'ENVIRONMENT',
-        environmentId: 'prod-rls',
-        enabled: true,
-        kind: 'evm_call',
-        allowedCalls: [
-          {
-            chainId: 1,
-            to: '0x1111111111111111111111111111111111111111',
-            functionSignature: 'transfer(address,uint256)',
-            maxGasLimit: '21000',
-            maxValueWei: '0',
-          },
-        ],
-      },
-    });
-    await createPublishedGasPolicy(policies, attackerCtx, {
-      rules: {
-        scopeType: 'ENVIRONMENT',
-        environmentId: 'prod-rls',
-        enabled: true,
-        kind: 'evm_call',
-        allowedCalls: [
-          {
-            chainId: 1,
-            to: '0x1111111111111111111111111111111111111111',
-            functionSignature: 'transfer(address,uint256)',
-            maxGasLimit: '21000',
-            maxValueWei: '0',
-          },
-        ],
-      },
-    });
-
-    await smartWalletService.createConfig(ownerCtx, {
-      id: 'sw-postgres-rls-owner',
-      scopeType: 'ENVIRONMENT',
-      environmentId: 'prod-rls',
-      enabled: true,
-      mode: 'REQUIRED',
-      accountType: 'SMART_ACCOUNT',
-      paymasterMode: 'AUTO',
-      fallbackBehavior: 'FALLBACK_TO_EOA',
-    });
-    await smartWalletService.createConfig(attackerCtx, {
-      id: 'sw-postgres-rls-attacker',
-      scopeType: 'ENVIRONMENT',
-      environmentId: 'prod-rls',
-      enabled: true,
-      mode: 'OPTIONAL',
-      accountType: 'SMART_ACCOUNT',
-      paymasterMode: 'AUTO',
-      fallbackBehavior: 'FALLBACK_TO_EOA',
-    });
-
-    const pool = await getPostgresPool(postgresUrl);
-
-    const ownerGasRows = await withConsoleTenantContextTx(
-      pool,
-      { namespace, orgId: ownerOrgId },
-      async (q) =>
-        q.query(
-          `SELECT org_id, id
-             FROM console_policies
-            WHERE namespace = $1
-              AND kind = 'GAS_SPONSORSHIP'`,
-          [namespace],
-        ),
-    );
-    expect(ownerGasRows.rows.length).toBeGreaterThan(0);
-    expect(
-      ownerGasRows.rows.every(
-        (row) => String((row as Record<string, unknown>).org_id || '') === ownerOrgId,
-      ),
-    ).toBe(true);
-
-    const ownerSmartRows = await withConsoleTenantContextTx(
-      pool,
-      { namespace, orgId: ownerOrgId },
-      async (q) =>
-        q.query(
-          `SELECT org_id, id
-             FROM console_smart_wallet_configs
-            WHERE namespace = $1`,
-          [namespace],
-        ),
-    );
-    expect(ownerSmartRows.rows.length).toBeGreaterThan(0);
-    expect(
-      ownerSmartRows.rows.every(
-        (row) => String((row as Record<string, unknown>).org_id || '') === ownerOrgId,
-      ),
-    ).toBe(true);
-
-    const rowsWithoutTenantContext = await pool.query(
-      `SELECT org_id, id
-         FROM console_policies
-        WHERE namespace = $1
-          AND kind = 'GAS_SPONSORSHIP'`,
-      [namespace],
-    );
-    expect(rowsWithoutTenantContext.rows.length).toBe(0);
   });
 
   test('key-export tables enforce DB-level tenant RLS policies', async () => {
@@ -980,12 +777,6 @@ test.describe('console config modules postgres services', () => {
       logger: console as any,
       ensureSchema: true,
     });
-    const smartWalletService = await createPostgresConsoleSmartWalletService({
-      postgresUrl,
-      namespace,
-      logger: console as any,
-      ensureSchema: true,
-    });
     const keyExportService = await createPostgresConsoleKeyExportService({
       postgresUrl,
       namespace,
@@ -1030,18 +821,6 @@ test.describe('console config modules postgres services', () => {
     });
     expect(createdGas.id.startsWith('policy_')).toBe(true);
 
-    const createdSmartWallet = await smartWalletService.createConfig(ownerCtx, {
-      id: 'sw-postgres-isolation-1',
-      scopeType: 'ENVIRONMENT',
-      environmentId: ownerEnvironmentId,
-      enabled: true,
-      mode: 'REQUIRED',
-      accountType: 'SMART_ACCOUNT',
-      paymasterMode: 'AUTO',
-      fallbackBehavior: 'FALLBACK_TO_EOA',
-    });
-    expect(createdSmartWallet.id).toBe('sw-postgres-isolation-1');
-
     const ownerKeyExport = await keyExportService.createKeyExport(ownerCtx, {
       id: 'ke-postgres-isolation-1',
       environmentId: ownerEnvironmentId,
@@ -1055,7 +834,6 @@ test.describe('console config modules postgres services', () => {
       payload: {
         policy: { defaultPolicyId: 'owner-policy' },
         gasSponsorship: { enabled: true },
-        smartWallets: { mode: 'REQUIRED' },
       },
     });
     expect(ownerSnapshot.version).toBe(1);
@@ -1076,20 +854,6 @@ test.describe('console config modules postgres services', () => {
       },
     );
     expect(attackerGasPatch).toBeNull();
-
-    const attackerSmartWalletList = await smartWalletService.listConfigs(attackerCtx, {
-      environmentId: ownerEnvironmentId,
-    });
-    expect(attackerSmartWalletList.length).toBe(0);
-
-    const attackerSmartWalletPatch = await smartWalletService.updateConfig(
-      attackerCtx,
-      createdSmartWallet.id,
-      {
-        enabled: false,
-      },
-    );
-    expect(attackerSmartWalletPatch).toBeNull();
 
     const attackerKeyExportList = await keyExportService.listKeyExports(attackerCtx, {
       environmentId: ownerEnvironmentId,

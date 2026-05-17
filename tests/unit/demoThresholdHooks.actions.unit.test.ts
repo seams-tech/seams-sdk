@@ -4,6 +4,7 @@ import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
   demoHelpers: '/src/flows/demo/demoEvmHelpers.ts',
+  thresholdSignerSection: '/src/flows/demo/sections/ThresholdSignerSection.tsx',
   tempoFeeTokenHook: '/src/flows/demo/hooks/useDemoTempoFeeTokenActions.tsx',
   tempoSigningHook: '/src/flows/demo/hooks/useDemoTempoSigningActions.tsx',
   arcSigningHook: '/src/flows/demo/hooks/useDemoArcSigningActions.tsx',
@@ -16,6 +17,77 @@ const ARC_TESTNET_GREETING_CONTRACT = '0xeB7aB5A6F761072C96147A54B8a15F012e83669
 test.describe('demo threshold action hooks', () => {
   test.beforeEach(async ({ page }) => {
     await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+  });
+
+  test('ThresholdSignerSection displays the threshold owner address', async ({ page }) => {
+    const result = await page.evaluate(async ({ paths }) => {
+      const viteReactPath = '/node_modules/.vite/deps/react.js' as string;
+      const viteReactDomClientPath = '/node_modules/.vite/deps/react-dom_client.js' as string;
+      const viteReactDomPath = '/node_modules/.vite/deps/react-dom.js' as string;
+      const React =
+        ((await import(viteReactPath).catch(() => null)) as any) || (await import('react'));
+      const ReactRuntime = (React as any).default || React;
+      const ReactDOMClient =
+        ((await import(viteReactDomClientPath).catch(() => null)) as any) ||
+        (await import('react-dom/client'));
+      const ReactDOMClientRuntime = (ReactDOMClient as any).default || ReactDOMClient;
+      const ReactDOM =
+        ((await import(viteReactDomPath).catch(() => null)) as any) || (await import('react-dom'));
+      const ReactDOMRuntime = (ReactDOM as any).default || ReactDOM;
+      const mod = await import(paths.thresholdSignerSection);
+      const ThresholdSignerSection = (mod as any).ThresholdSignerSection;
+      if (!ThresholdSignerSection) {
+        throw new Error('Failed to load ThresholdSignerSection export');
+      }
+      const thresholdOwnerAddress = '0x1111111111111111111111111111111111111111';
+      const mount = document.createElement('div');
+      document.body.appendChild(mount);
+      const root = ReactDOMClientRuntime.createRoot(mount);
+      ReactDOMRuntime.flushSync(() => {
+        root.render(
+          ReactRuntime.createElement(ThresholdSignerSection, {
+            thresholdOwnerAddress,
+            onCopyThresholdOwnerAddress: () => undefined,
+            onSetTempoFeeToken: () => undefined,
+            tempoFeeTokenConfigLoading: false,
+            tempoFeeTokenConfigTarget: null,
+            tempoFeeTokenIsAlpha: false,
+            onTempoDripToken: () => undefined,
+            tempoDripLoading: false,
+            tempoSponsorshipUnavailableReason: null,
+            tempoGreeting: null,
+            tempoGreetingLoading: false,
+            onRefreshTempoGreeting: () => undefined,
+            tempoGreetingInput: '',
+            onTempoGreetingInputChange: () => undefined,
+            tempoGreetingError: null,
+            onSignTempoTransaction: () => undefined,
+            tempoThresholdSignLoading: false,
+            canSignTempo: false,
+            arcGreeting: null,
+            arcGreetingLoading: false,
+            onRefreshArcGreeting: () => undefined,
+            arcGreetingInput: '',
+            onArcGreetingInputChange: () => undefined,
+            arcGreetingError: null,
+            onSignEvmTransaction: () => undefined,
+            evmThresholdSignLoading: false,
+            canSignEvm: false,
+          }),
+        );
+      });
+      const text = mount.textContent || '';
+      const copyLabel = mount
+        .querySelector('[aria-label="Copy threshold owner address"]')
+        ?.getAttribute('aria-label');
+      root.unmount();
+      mount.remove();
+      return { text, copyLabel };
+    }, { paths: IMPORT_PATHS });
+
+    expect(result.text).toContain('0x1111111111111111111111111111111111111111');
+    expect(result.text).toContain('threshold owner address');
+    expect(result.copyLabel).toBe('Copy threshold owner address');
   });
 
   test('useDemoTempoFeeTokenActions signs and broadcasts setUserToken flow', async ({ page }) => {
@@ -50,7 +122,7 @@ test.describe('demo threshold action hooks', () => {
         requestData: '',
       };
 
-      const thresholdSender = '0x1111111111111111111111111111111111111111';
+      const thresholdOwnerAddress = '0x1111111111111111111111111111111111111111';
       const selectedToken = '0x20c0000000000000000000000000000000000001';
       const txHash = `0x${'22'.repeat(32)}`;
 
@@ -137,7 +209,7 @@ test.describe('demo threshold action hooks', () => {
             maxPriorityFeePerGas: 2_000_000_000n,
             maxFeePerGas: 40_000_000_000n,
           },
-          resolveThresholdSenderForEvmFamily: async () => thresholdSender,
+          resolveThresholdOwnerAddressForEvmFamily: async () => thresholdOwnerAddress,
           refreshTempoUserFeeToken: async () => {
             counters.refreshTokenCalls += 1;
             return selectedToken;
@@ -213,7 +285,7 @@ test.describe('demo threshold action hooks', () => {
         dripWalletAddresses: [] as string[],
         dripCallData: [] as string[],
       };
-      const thresholdSender = '0x1111111111111111111111111111111111111111';
+      const thresholdOwnerAddress = '0x1111111111111111111111111111111111111111';
       const txHashBase = `0x${'33'.repeat(31)}`;
       const tempoGreetingInput = 'Hello from extracted tempo hook';
       let txCounter = 0;
@@ -333,7 +405,7 @@ test.describe('demo threshold action hooks', () => {
             maxFeePerGas: 40_000_000_000n,
           },
           tempoUserFeeToken: null,
-          resolveThresholdSenderForEvmFamily: async () => thresholdSender,
+          resolveThresholdOwnerAddressForEvmFamily: async () => thresholdOwnerAddress,
           refreshTempoUserFeeTokenBalance: async () => {
             counters.refreshBalanceCalls += 1;
             return 1n;
@@ -342,9 +414,9 @@ test.describe('demo threshold action hooks', () => {
             counters.fetchTempoGreetingCalls += 1;
             return tempoGreetingInput;
           },
-          refreshThresholdEvmFundingAddress: async () => {
+          refreshThresholdOwnerAddress: async () => {
             counters.refreshFundingAddressCalls += 1;
-            return thresholdSender;
+            return thresholdOwnerAddress;
           },
         });
         return ReactRuntime.createElement('div', null);
@@ -416,10 +488,12 @@ test.describe('demo threshold action hooks', () => {
         executeEvmFamilyTransactionCalls: 0,
         fetchArcGreetingCalls: 0,
         refreshFundingAddressCalls: 0,
+        balanceRpcAddresses: [] as string[],
         requestKind: '',
         requestChainId: 0,
         requestTo: '',
       };
+      const thresholdOwnerAddress = '0x1111111111111111111111111111111111111111';
       const txHash = `0x${'44'.repeat(32)}`;
       const expectedArcGreeting = 'Hello from arc hook';
 
@@ -436,6 +510,7 @@ test.describe('demo threshold action hooks', () => {
         } catch {}
         const id = body.id ?? Date.now();
         const method = String(body.method || '');
+        const params = Array.isArray(body.params) ? body.params : [];
         if (method === 'eth_getBlockByNumber') {
           return new Response(
             JSON.stringify({
@@ -443,6 +518,13 @@ test.describe('demo threshold action hooks', () => {
               id,
               result: { number: '0x1', baseFeePerGas: '0x3b9aca00' },
             }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        if (method === 'eth_getBalance') {
+          counters.balanceRpcAddresses.push(String(params[0] || '').toLowerCase());
+          return new Response(
+            JSON.stringify({ jsonrpc: '2.0', id, result: '0x8ac7230489e80000' }),
             { status: 200, headers: { 'content-type': 'application/json' } },
           );
         }
@@ -483,10 +565,11 @@ test.describe('demo threshold action hooks', () => {
             counters.fetchArcGreetingCalls += 1;
             return expectedArcGreeting;
           },
-          refreshThresholdEvmFundingAddress: async () => {
+          refreshThresholdOwnerAddress: async () => {
             counters.refreshFundingAddressCalls += 1;
-            return '0x1111111111111111111111111111111111111111';
+            return thresholdOwnerAddress;
           },
+          resolveThresholdOwnerAddressForEvmFamily: async () => thresholdOwnerAddress,
         });
         return ReactRuntime.createElement('div', null);
       }
@@ -510,6 +593,9 @@ test.describe('demo threshold action hooks', () => {
     expect(result.counters.executeEvmFamilyTransactionCalls).toBe(1);
     expect(result.counters.fetchArcGreetingCalls).toBe(1);
     expect(result.counters.refreshFundingAddressCalls).toBe(1);
+    expect(result.counters.balanceRpcAddresses).toEqual([
+      '0x1111111111111111111111111111111111111111',
+    ]);
     expect(result.counters.requestKind).toBe('eip1559');
     expect(result.counters.requestChainId).toBe(5042002);
     expect(result.counters.requestTo).toBe(ARC_TESTNET_GREETING_CONTRACT);
@@ -599,7 +685,9 @@ test.describe('demo threshold action hooks', () => {
             counters.fetchArcGreetingCalls += 1;
             return expectedArcGreeting;
           },
-          refreshThresholdEvmFundingAddress: async () =>
+          refreshThresholdOwnerAddress: async () =>
+            '0x1111111111111111111111111111111111111111',
+          resolveThresholdOwnerAddressForEvmFamily: async () =>
             '0x1111111111111111111111111111111111111111',
         });
         return ReactRuntime.createElement('div', null);
@@ -672,7 +760,7 @@ test.describe('demo threshold action hooks', () => {
             maxPriorityFeePerGas: 2_000_000_000n,
             maxFeePerGas: 40_000_000_000n,
           },
-          resolveThresholdSenderForEvmFamily: async () =>
+          resolveThresholdOwnerAddressForEvmFamily: async () =>
             '0x1111111111111111111111111111111111111111',
           refreshTempoUserFeeToken: async () => null,
           refreshTempoUserFeeTokenBalance: async () => null,
@@ -780,11 +868,11 @@ test.describe('demo threshold action hooks', () => {
             maxFeePerGas: 40_000_000_000n,
           },
           tempoUserFeeToken: null,
-          resolveThresholdSenderForEvmFamily: async () =>
+          resolveThresholdOwnerAddressForEvmFamily: async () =>
             '0x1111111111111111111111111111111111111111',
           refreshTempoUserFeeTokenBalance: async () => 1n,
           fetchTempoGreeting: async () => 'hello',
-          refreshThresholdEvmFundingAddress: async () =>
+          refreshThresholdOwnerAddress: async () =>
             '0x1111111111111111111111111111111111111111',
         });
         return ReactRuntime.createElement('div', null);
@@ -894,14 +982,14 @@ test.describe('demo threshold action hooks', () => {
             maxFeePerGas: 40_000_000_000n,
           },
           tempoUserFeeToken: null,
-          resolveThresholdSenderForEvmFamily: async () =>
+          resolveThresholdOwnerAddressForEvmFamily: async () =>
             '0x1111111111111111111111111111111111111111',
           refreshTempoUserFeeTokenBalance: async () => 1n,
           fetchTempoGreeting: async () => {
             counters.fetchTempoGreetingCalls += 1;
             return 'hello';
           },
-          refreshThresholdEvmFundingAddress: async () =>
+          refreshThresholdOwnerAddress: async () =>
             '0x1111111111111111111111111111111111111111',
         });
         return ReactRuntime.createElement('div', null);
@@ -1007,7 +1095,9 @@ test.describe('demo threshold action hooks', () => {
             maxFeePerGas: 40_000_000_000n,
           },
           fetchArcGreeting: async () => 'ok',
-          refreshThresholdEvmFundingAddress: async () =>
+          refreshThresholdOwnerAddress: async () =>
+            '0x1111111111111111111111111111111111111111',
+          resolveThresholdOwnerAddressForEvmFamily: async () =>
             '0x1111111111111111111111111111111111111111',
         });
         return ReactRuntime.createElement('div', null);

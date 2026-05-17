@@ -6,7 +6,6 @@ test.describe('relay cloudflare worker scheduled handler', () => {
     const seen = {
       authServiceEnv: undefined as any,
       observabilityIngestionEnv: undefined as any,
-      sponsorshipEnv: undefined as any,
       cronOptions: undefined as any,
       event: undefined as any,
       env: undefined as any,
@@ -27,23 +26,6 @@ test.describe('relay cloudflare worker scheduled handler', () => {
             accepted: events.length,
             deduplicated: 0,
           }),
-        } as any;
-      },
-      createRecoveryAuthoritySponsorship: async (env) => {
-        seen.sponsorshipEnv = env;
-        return {
-          logger: console as any,
-          billing: {} as any,
-          ledger: {} as any,
-          runtimeSnapshots: {} as any,
-          config: {
-            executorsByChain: new Map(),
-          },
-          spendCaps: null,
-          pricing: null,
-          prepaidReservations: null,
-          observabilityIngestion: null,
-          webhooks: null,
         } as any;
       },
       outboxSink: {
@@ -75,9 +57,6 @@ test.describe('relay cloudflare worker scheduled handler', () => {
       WEBHOOK_RETRY_ENABLED: '1',
       WEBHOOK_RETRY_ORG_IDS: 'org-c',
       WEBHOOK_RETRY_CRONS: '*/10 * * * *',
-      RECOVERY_AUTHORITY_CONTINUATION_ENABLED: '1',
-      RECOVERY_AUTHORITY_CONTINUATION_CRONS: '*/15 * * * *',
-      RECOVERY_AUTHORITY_CONTINUATION_LIMIT: '42',
     } as any;
     const ctx = {} as any;
 
@@ -85,7 +64,6 @@ test.describe('relay cloudflare worker scheduled handler', () => {
 
     expect(seen.authServiceEnv).toBe(env);
     expect(seen.observabilityIngestionEnv).toBe(env);
-    expect(seen.sponsorshipEnv).toBe(env);
     expect(seen.event).toBe(event);
     expect(seen.env).toBe(env);
     expect(seen.ctx).toBe(ctx);
@@ -98,13 +76,6 @@ test.describe('relay cloudflare worker scheduled handler', () => {
     expect(seen.cronOptions?.webhookRetryDispatch?.orgIds).toEqual(['org-c']);
     expect(seen.cronOptions?.webhookRetryDispatch?.cronExpressions).toEqual(['*/10 * * * *']);
     expect(seen.cronOptions?.webhookRetryDispatch?.observabilityIngestion).toBeTruthy();
-    expect(seen.cronOptions?.recoveryAuthorityContinuation?.cronExpressions).toEqual([
-      '*/15 * * * *',
-    ]);
-    expect(seen.cronOptions?.recoveryAuthorityContinuation?.limit).toBe(42);
-    expect(seen.cronOptions?.recoveryAuthorityContinuation?.sponsorship?.config).toEqual({
-      executorsByChain: new Map(),
-    });
 
     await seen.cronOptions?.runtimeSnapshotOutbox?.dispatch?.({
       payload: { snapshotId: 'snap_scheduled' },
@@ -132,7 +103,6 @@ test.describe('relay cloudflare worker scheduled handler', () => {
         BILLING_FINALIZATION_ENABLED: '0',
         RUNTIME_SNAPSHOT_OUTBOX_ENABLED: '0',
         WEBHOOK_RETRY_ENABLED: '0',
-        RECOVERY_AUTHORITY_CONTINUATION_ENABLED: '0',
       } as any,
       {} as any,
     );
@@ -143,7 +113,6 @@ test.describe('relay cloudflare worker scheduled handler', () => {
     expect(cronOptions.billingMonthlyFinalization).toBeUndefined();
     expect(cronOptions.runtimeSnapshotOutbox).toBeUndefined();
     expect(cronOptions.webhookRetryDispatch).toBeUndefined();
-    expect(cronOptions.recoveryAuthorityContinuation).toBeUndefined();
   });
 
   test('emits config warnings when enabled jobs are missing required env values', async () => {
@@ -168,7 +137,6 @@ test.describe('relay cloudflare worker scheduled handler', () => {
         BILLING_FINALIZATION_ENABLED: '1',
         RUNTIME_SNAPSHOT_OUTBOX_ENABLED: '1',
         WEBHOOK_RETRY_ENABLED: '1',
-        RECOVERY_AUTHORITY_CONTINUATION_ENABLED: '1',
         BILLING_POSTGRES_URL: '',
         BILLING_FINALIZATION_ORG_IDS: '',
         RUNTIME_SNAPSHOT_OUTBOX_ORG_IDS: '',

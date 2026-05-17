@@ -4,11 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
 import {
   reduceNearAccountIdForbiddenPathNearOwnedAllowlist,
-  reduceNearAccountIdForbiddenPathTemporaryResidueAllowlist,
   reduceNearAccountIdAccountToSubjectAllowlist,
   refactor36EcdsaActivationConstructionAllowlist,
-  refactor36RawIdentityParseAllowlist,
-  refactor36TransitionalLifecycleOptionals,
 } from './signingEngine.refactor36.allowlists';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -230,15 +227,10 @@ function expectNoNearAccountId(
 }
 
 test.describe('signing engine refactor 36 guards', () => {
-  test('transitional lifecycle allowlists stay explicit and finite', () => {
-    expect(refactor36TransitionalLifecycleOptionals.length).toBeGreaterThanOrEqual(0);
-    expect(refactor36RawIdentityParseAllowlist).toEqual([]);
+  test('persistent allowlists stay explicit and finite', () => {
     for (const entry of [
-      ...refactor36TransitionalLifecycleOptionals,
-      ...refactor36RawIdentityParseAllowlist,
       ...refactor36EcdsaActivationConstructionAllowlist,
       ...reduceNearAccountIdForbiddenPathNearOwnedAllowlist,
-      ...reduceNearAccountIdForbiddenPathTemporaryResidueAllowlist,
     ]) {
       expect(entry.file).toMatch(/\.(ts|tsx|rs)$/);
       expect(String(entry.ownerPhase || '')).toMatch(/^\d+$/);
@@ -248,9 +240,6 @@ test.describe('signing engine refactor 36 guards', () => {
   });
 
   test('new optional lifecycle fields stay behind the finite allowlist', () => {
-    const allowedFiles = new Set(
-      refactor36TransitionalLifecycleOptionals.map((entry) => entry.file),
-    );
     const searchRoots = [
       'client/src/core/signingEngine/session/warmCapabilities',
       'client/src/core/signingEngine/session/passkey',
@@ -265,9 +254,7 @@ test.describe('signing engine refactor 36 guards', () => {
       for (const relativePath of listTsFiles(root)) {
         const source = readRepoFile(relativePath);
         if (!pattern.test(source)) continue;
-        if (!allowedFiles.has(relativePath)) {
-          offenders.push(relativePath);
-        }
+        offenders.push(relativePath);
       }
     }
 
@@ -358,7 +345,6 @@ test.describe('signing engine refactor 36 guards', () => {
   });
 
   test('raw ECDSA identity parsing stays out of guarded internals', () => {
-    const allowedFiles = new Set(refactor36RawIdentityParseAllowlist.map((entry) => entry.file));
     const searchRoots = [
       'client/src/core/signingEngine/flows/signEvmFamily',
       'client/src/core/signingEngine/session/passkey',
@@ -393,9 +379,7 @@ test.describe('signing engine refactor 36 guards', () => {
         for (const { name, pattern } of patterns) {
           if (!pattern.test(source)) continue;
           pattern.lastIndex = 0;
-          if (!allowedFiles.has(relativePath)) {
-            offenders.push(`${relativePath} (${name})`);
-          }
+          offenders.push(`${relativePath} (${name})`);
         }
       }
     }
@@ -453,10 +437,10 @@ test.describe('signing engine refactor 36 guards', () => {
     }
 
     const expected = new Map(
-      [
-        ...reduceNearAccountIdForbiddenPathNearOwnedAllowlist,
-        ...reduceNearAccountIdForbiddenPathTemporaryResidueAllowlist,
-      ].map((entry) => [entry.file, entry.occurrences]),
+      reduceNearAccountIdForbiddenPathNearOwnedAllowlist.map((entry) => [
+        entry.file,
+        entry.occurrences,
+      ]),
     );
     const format = (entries: Map<string, number>) =>
       [...entries.entries()].sort(([a], [b]) => a.localeCompare(b));
@@ -586,8 +570,8 @@ test.describe('signing engine refactor 36 guards', () => {
       },
       {
         name: 'ExportKeypairWithUIInput',
-        required: ['subjectId', 'chainTarget', 'walletSessionUserId'],
-        allowNeverTripwire: false,
+        required: ['walletSession', 'subjectId', 'chainTarget'],
+        allowNeverTripwire: true,
       },
     ];
     const inlineArgBlocks = [
@@ -642,7 +626,7 @@ test.describe('signing engine refactor 36 guards', () => {
       },
       {
         name: 'PMExportKeypairUiPayload',
-        required: ['subjectId', 'chainTarget', 'walletSessionUserId'],
+        required: ['walletSession', 'subjectId', 'chainTarget'],
       },
       {
         name: 'PMEmailOtpSigningSessionChallengePayload',
@@ -712,7 +696,7 @@ test.describe('signing engine refactor 36 guards', () => {
         source: clientSource,
         file: 'client/src/core/rpcClients/relayer/thresholdEcdsa.ts',
         baseName: 'ThresholdEcdsaHssPrepareRequestBase',
-        policyName: 'ThresholdSessionPolicyV1',
+        policyName: null,
         policyWalletField: 'walletSessionUserId',
       },
       {
@@ -724,17 +708,24 @@ test.describe('signing engine refactor 36 guards', () => {
       },
     ]) {
       const baseBlock = findTypeDeclaration(source, baseName);
-      const policyBlock = findTypeDeclaration(source, policyName);
+      const policyBlock =
+        policyName === null ? null : findTypeDeclaration(source, policyName);
       const prepareBlock = findTypeDeclaration(source, 'ThresholdEcdsaHssPrepareRequest');
+      const policyOffenders =
+        policyBlock === null
+          ? []
+          : [
+              ...expectRequiredFields(
+                policyBlock,
+                [policyWalletField, 'subjectId', 'chainTarget', 'sessionId'],
+                `${file} ${policyName}`,
+              ),
+              ...expectNoNearAccountId(policyBlock, `${file} ${policyName}`),
+            ];
       offenders.push(
         ...expectRequiredFields(baseBlock, ['walletSessionUserId'], `${file} ${baseName}`),
         ...expectNoNearAccountId(baseBlock, `${file} ${baseName}`),
-        ...expectRequiredFields(
-          policyBlock,
-          [policyWalletField, 'subjectId', 'chainTarget', 'sessionId'],
-          `${file} ${policyName}`,
-        ),
-        ...expectNoNearAccountId(policyBlock, `${file} ${policyName}`),
+        ...policyOffenders,
         ...expectRequiredFields(
           prepareBlock,
           ['sessionPolicy', 'subjectId', 'chainTarget', 'ecdsaThresholdKeyId'],
@@ -750,22 +741,22 @@ test.describe('signing engine refactor 36 guards', () => {
 
     const clientEcdsaPolicyBlock = findTypeDeclaration(
       clientSessionPolicySource,
-      'EcdsaSessionPolicy',
+      'EcdsaHssSessionPolicy',
     );
     offenders.push(
       ...expectRequiredFields(
         clientEcdsaPolicyBlock,
         ['walletSessionUserId', 'subjectId', 'chainTarget', 'sessionId'],
-        'client/src/core/signingEngine/threshold/sessionPolicy.ts EcdsaSessionPolicy',
+        'client/src/core/signingEngine/threshold/sessionPolicy.ts EcdsaHssSessionPolicy',
       ),
       ...expectNoField(
         clientEcdsaPolicyBlock,
         'userId',
-        'client/src/core/signingEngine/threshold/sessionPolicy.ts EcdsaSessionPolicy',
+        'client/src/core/signingEngine/threshold/sessionPolicy.ts EcdsaHssSessionPolicy',
       ),
       ...expectNoNearAccountId(
         clientEcdsaPolicyBlock,
-        'client/src/core/signingEngine/threshold/sessionPolicy.ts EcdsaSessionPolicy',
+        'client/src/core/signingEngine/threshold/sessionPolicy.ts EcdsaHssSessionPolicy',
       ),
     );
 

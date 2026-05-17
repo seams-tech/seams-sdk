@@ -4,10 +4,6 @@ type Refactor36GuardAllowlistEntry = {
   reason: string;
 };
 
-export const refactor36TransitionalLifecycleOptionals: readonly Refactor36GuardAllowlistEntry[] = [];
-
-export const refactor36RawIdentityParseAllowlist: readonly Refactor36GuardAllowlistEntry[] = [];
-
 export const refactor36EcdsaActivationConstructionAllowlist = [
   {
     file: 'client/src/core/signingEngine/session/passkey/ecdsaProvisioner.ts',
@@ -76,5 +72,3 @@ export const reduceNearAccountIdForbiddenPathNearOwnedAllowlist = [
     reason: 'Ed25519 HSS canonical context remains account-scoped.',
   },
 ] as const;
-
-export const reduceNearAccountIdForbiddenPathTemporaryResidueAllowlist = [] as const;

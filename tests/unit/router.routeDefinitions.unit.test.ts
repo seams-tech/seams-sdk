@@ -52,8 +52,6 @@ const ALLOWLISTED_PUBLIC_RELAY_ROUTE_IDS = [
   'threshold_ecdsa_internal_cosign_init',
   'threshold_ecdsa_internal_cosign_finalize',
   'session_exchange',
-  'smart_account_deployment_manifest',
-  'smart_account_deployment_observe',
   'wallet_unlock_challenge',
   'wallet_unlock_verify',
   'wallet_email_otp_dev_cleanup_google_registration',
@@ -64,8 +62,6 @@ const ALLOWLISTED_PROOFLESS_PUBLIC_RELAY_ROUTE_IDS = [
   'relay_healthz',
   'relay_readyz',
   'relay_well_known_webauthn',
-  'smart_account_deployment_manifest',
-  'smart_account_deployment_observe',
   'link_device_session_get',
   'link_device_session_create',
   'link_device_session_claim',
@@ -416,12 +412,6 @@ test.describe('route definition scaffolding', () => {
 
     const apiKeyRotate = routes.find((route) => route.id === 'console_api_keys_rotate');
     expect(apiKeyRotate?.auth).toMatchObject({
-      plane: 'console',
-      roles: ['owner', 'admin', 'security_admin'],
-    });
-
-    const smartWalletCreate = routes.find((route) => route.id === 'console_smart_wallets_create');
-    expect(smartWalletCreate?.auth).toMatchObject({
       plane: 'console',
       roles: ['owner', 'admin', 'security_admin'],
     });

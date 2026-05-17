@@ -170,6 +170,29 @@ test.describe('warmSessionReadModel', () => {
     ).toBe('prf_unavailable');
   });
 
+  test('derives ready cookie passkey Ed25519 state from record-backed client base', () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    const ed25519Record = seedEd25519WarmSessionRecord({
+      nearAccountId: 'cookie-record-backed.testnet',
+      thresholdSessionId: 'cookie-record-backed-session',
+      thresholdSessionKind: 'cookie',
+      xClientBaseB64u: 'cookie-record-backed-client-base',
+    });
+
+    expect(
+      deriveEd25519CapabilityState({
+        record: ed25519Record,
+        auth: resolveEd25519AuthMaterial(ed25519Record),
+        prfClaim: {
+          state: 'missing',
+          sessionId: ed25519Record.thresholdSessionId,
+        },
+      }),
+    ).toBe('ready');
+  });
+
   test('resolves ECDSA seal transport from the stored capability record', () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);

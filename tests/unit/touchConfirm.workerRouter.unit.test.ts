@@ -622,6 +622,7 @@ test.describe('UserConfirm worker router', () => {
           relayerUrl: 'https://relay.example',
           ecdsaRestore: {
             chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
+            rpId: 'example.com',
             thresholdSessionAuthToken: 'jwt-session',
             sessionKind: 'jwt',
             ecdsaThresholdKeyId: 'ecdsa-key',
@@ -939,6 +940,7 @@ test.describe('UserConfirm worker router', () => {
             },
             keygen: {
               ok: true,
+              rpId: 'example.localhost',
               ecdsaThresholdKeyId: 'ek-evm-1',
               clientVerifyingShareB64u: 'cvs-ecdsa',
               relayerKeyId: 'rk-ecdsa',
@@ -1433,6 +1435,7 @@ test.describe('UserConfirm worker router', () => {
           relayerUrl: 'https://relay.example',
           ecdsaRestore: {
             chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
+            rpId: 'example.com',
             thresholdSessionAuthToken: 'jwt-session',
             sessionKind: 'jwt',
             ecdsaThresholdKeyId: 'ecdsa-key',
@@ -1602,6 +1605,7 @@ test.describe('UserConfirm worker router', () => {
           relayerUrl: 'https://relay.example',
           ecdsaRestore: {
             chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
+            rpId: 'example.com',
             thresholdSessionAuthToken: 'jwt-session',
             sessionKind: 'jwt',
             ecdsaThresholdKeyId: 'ecdsa-key',
@@ -1765,6 +1769,7 @@ test.describe('UserConfirm worker router', () => {
           relayerUrl: 'https://relay.example',
           ecdsaRestore: {
             chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
+            rpId: 'example.com',
             thresholdSessionAuthToken: 'jwt-session',
             sessionKind: 'jwt',
             ecdsaThresholdKeyId: 'ecdsa-key',
@@ -1965,6 +1970,7 @@ test.describe('UserConfirm worker router', () => {
           relayerUrl: 'https://relay.example',
           ecdsaRestore: {
             chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
+            rpId: 'example.com',
             thresholdSessionAuthToken: 'jwt-session',
             sessionKind: 'jwt',
             ecdsaThresholdKeyId: 'ecdsa-key',

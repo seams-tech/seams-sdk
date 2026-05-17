@@ -37,7 +37,6 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               relayerAccount: 'web3-authn-v4.testnet',
               relayer: {
                 url: relayerUrl,
-                smartAccountDeploymentMode: 'observe',
               },
               registration: {
                 mode: 'managed',
@@ -148,9 +147,21 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               };
             }
 
-            await seams.keys.exportKeypairWithUI(accountId, {
-              chain: 'evm',
-              variant: 'modal',
+            await seams.keys.exportKeypairWithUI({
+              kind: 'ecdsa',
+              subjectId: accountId,
+              walletSession: {
+                walletId: accountId,
+                walletSessionUserId: accountId,
+              },
+              chainTarget: {
+                kind: 'tempo' as const,
+                chainId: 42431,
+                networkSlug: 'tempo-testnet',
+              },
+              options: {
+                variant: 'modal',
+              },
             });
 
             const session = await seams.auth.getWalletSession(accountId);
@@ -206,7 +217,6 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
             relayerAccount: 'web3-authn-v4.testnet',
             relayer: {
               url: relayerUrl,
-              smartAccountDeploymentMode: 'observe',
             },
             registration: {
               mode: 'managed',
@@ -286,7 +296,6 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               relayerAccount: 'web3-authn-v4.testnet',
               relayer: {
                 url: relayerUrl,
-                smartAccountDeploymentMode: 'observe',
               },
               registration: {
                 mode: 'managed',
@@ -392,7 +401,6 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               relayerAccount: 'web3-authn-v4.testnet',
               relayer: {
                 url: relayerUrl,
-                smartAccountDeploymentMode: 'observe',
               },
               registration: {
                 mode: 'managed',
@@ -524,7 +532,6 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               relayerAccount: 'web3-authn-v4.testnet',
               relayer: {
                 url: relayerUrl,
-                smartAccountDeploymentMode: 'observe',
               },
               registration: {
                 mode: 'managed',
@@ -664,7 +671,6 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               relayerAccount: 'web3-authn-v4.testnet',
               relayer: {
                 url: relayerUrl,
-                smartAccountDeploymentMode: 'observe',
               },
               registration: {
                 mode: 'managed',
@@ -773,7 +779,6 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               relayerAccount: 'web3-authn-v4.testnet',
               relayer: {
                 url: relayerUrl,
-                smartAccountDeploymentMode: 'observe',
               },
               registration: {
                 mode: 'managed',
@@ -868,7 +873,6 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               relayerAccount: 'web3-authn-v4.testnet',
               relayer: {
                 url: relayerUrl,
-                smartAccountDeploymentMode: 'observe',
               },
               registration: {
                 mode: 'managed',
@@ -989,7 +993,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
           tag: `${curve}-after-refresh-1`,
           remainingUses,
         });
-        expect(restoredSign.ok, restoredSign.error || JSON.stringify(restoredSign)).toBe(true);
+        expect(restoredSign.ok, JSON.stringify(restoredSign)).toBe(true);
         expect(restoredSign.sessionStatus).toBe('active');
         const getCallsAfterRestoredSign = await readWebAuthnGetCallCount(page);
         expect(getCallsAfterRestoredSign, JSON.stringify({ curve, firstPhase, restoredSign })).toBe(
@@ -1054,7 +1058,6 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               relayerAccount: 'web3-authn-v4.testnet',
               relayer: {
                 url: relayerUrl,
-                smartAccountDeploymentMode: 'observe',
               },
               registration: {
                 mode: 'managed',
@@ -1241,7 +1244,6 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
                 relayerAccount: 'web3-authn-v4.testnet',
                 relayer: {
                   url: relayerUrl,
-                  smartAccountDeploymentMode: 'observe',
                 },
                 registration: {
                   mode: 'managed',
@@ -1449,7 +1451,6 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               relayerAccount: 'web3-authn-v4.testnet',
               relayer: {
                 url: relayerUrl,
-                smartAccountDeploymentMode: 'observe',
               },
               registration: {
                 mode: 'managed',
@@ -1534,7 +1535,6 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               relayerAccount: 'web3-authn-v4.testnet',
               relayer: {
                 url: relayerUrl,
-                smartAccountDeploymentMode: 'observe',
               },
               registration: {
                 mode: 'managed',
@@ -1624,27 +1624,24 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
       const harness = await setupThresholdEcdsaSealedRefreshHarness(page);
       try {
         const firstPhasePromise = page.evaluate(
-          async ({ relayerUrl, keyVersion, shamirPrimeB64u, curve, sessionKind }) => {
+          async ({
+            relayerUrl,
+            managedRegistration,
+            keyVersion,
+            shamirPrimeB64u,
+            curve,
+            sessionKind,
+          }) => {
             try {
               const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
               const actionsMod = await import('/sdk/esm/core/types/actions.js');
-              const indexedDbMod = await import('/sdk/esm/core/indexedDB/index.js');
               const { SeamsPasskey } = sdkMod as any;
               const { ActionType } = actionsMod as any;
-              const { IndexedDBManager } = indexedDbMod as any;
 
               const confirmationConfig = {
                 uiMode: 'none' as const,
                 behavior: 'skipClick' as const,
                 autoProceedDelay: 0,
-              };
-              const managedRuntimeScopeBootstrap = {
-                environmentId: String(
-                  (globalThis as any).__w3aManagedRegistration?.environmentId || '',
-                ),
-                publishableKey: String(
-                  (globalThis as any).__w3aManagedRegistration?.publishableKey || '',
-                ),
               };
               const accountId =
                 `refreshmatrix-${curve}-${sessionKind}-${Date.now()}.w3a-v1.testnet`.toLowerCase();
@@ -1654,21 +1651,22 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
                 relayerAccount: 'web3-authn-v4.testnet',
                 relayer: {
                   url: relayerUrl,
-                  smartAccountDeploymentMode: 'observe',
                 },
                 registration: {
                   mode: 'managed',
-                  environmentId: String(
-                    (globalThis as any).__w3aManagedRegistration?.environmentId || '',
-                  ),
-                  publishableKey: String(
-                    (globalThis as any).__w3aManagedRegistration?.publishableKey || '',
-                  ),
+                  environmentId: String(managedRegistration.environmentId || ''),
+                  publishableKey: String(managedRegistration.publishableKey || ''),
                 },
                 signingSessionPersistenceMode: 'sealed_refresh_v1',
                 signingSessionSeal: {
                   keyVersion,
                   shamirPrimeB64u,
+                },
+                iframeWallet: {
+                  walletOrigin: 'https://wallet.example.localhost',
+                  servicePath: '/wallet-service',
+                  sdkBasePath: '/sdk',
+                  rpIdOverride: 'example.localhost',
                 },
               });
 
@@ -1686,7 +1684,14 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
                 };
               }
 
-              const login = await seams.unlock(accountId);
+              const login = await seams.unlock(accountId, {
+                session: {
+                  kind: sessionKind,
+                  relayUrl: relayerUrl,
+                  exchange: { type: 'passkey_assertion' },
+                },
+                signingSession: { ttlMs: 120_000, remainingUses: 8 },
+              });
               if (!login?.success) {
                 return {
                   ok: false,
@@ -1694,170 +1699,92 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
                 };
               }
 
-              const signingEngine = seams.getContext().signingEngine as any;
-              const accountAddress = String(accountId || '')
-                .trim()
-                .toLowerCase();
-              const nearCandidates = ['near:testnet', 'near:mainnet'];
-              let accountContext: { profileId: string; accountRef: { chainIdKey: string } } | null =
-                null;
-              for (const chainIdKey of nearCandidates) {
-                accountContext = await IndexedDBManager.clientDB
-                  .resolveProfileAccountContext({
-                    chainIdKey,
-                    accountAddress,
-                  })
-                  .catch(() => null);
-                if (accountContext?.profileId) break;
-              }
-              if (!accountContext?.profileId || !accountContext?.accountRef?.chainIdKey) {
-                return {
-                  ok: false,
-                  error: 'Missing generic profile/account mapping after login',
-                };
-              }
-
-              const [profile, lastProfileState] = await Promise.all([
-                IndexedDBManager.clientDB.getProfile(accountContext.profileId).catch(() => null),
-                IndexedDBManager.clientDB.getLastProfileState().catch(() => null),
-              ]);
-              const preferredSignerSlot =
-                lastProfileState?.profileId === accountContext.profileId
-                  ? Number(lastProfileState.signerSlot)
-                  : Number(profile?.defaultSignerSlot);
-              const signerSlot =
-                Number.isFinite(preferredSignerSlot) && preferredSignerSlot >= 1
-                  ? Math.max(1, Math.floor(preferredSignerSlot))
-                  : 1;
-              const thresholdKeyMaterial =
-                await IndexedDBManager.accountKeyMaterialDB.getKeyMaterial(
-                  accountContext.profileId,
-                  signerSlot,
-                  accountContext.accountRef.chainIdKey,
-                  'threshold_share_v1',
-                );
-              const thresholdPayload = (thresholdKeyMaterial?.payload || {}) as any;
-              const relayerKeyId = String(thresholdPayload?.relayerKeyId || '').trim();
-              const participantIds = Array.isArray(thresholdPayload?.participants)
-                ? thresholdPayload.participants
-                    .map((participant: any) => Number(participant?.id))
-                    .filter((id: number) => Number.isFinite(id) && id > 0)
-                    .map((id: number) => Math.floor(id))
-                : [];
-              if (!relayerKeyId || participantIds.length < 2) {
-                return {
-                  ok: false,
-                  error: 'Missing threshold key material after login',
-                };
-              }
-
-              const ecdsaBootstrap = await signingEngine.bootstrapEcdsaSession({
-                nearAccountId: accountId,
-                chain: 'tempo',
-                source: 'manual-bootstrap',
-                relayerUrl,
-                participantIds,
-                sessionKind: curve === 'ecdsa' ? sessionKind : 'jwt',
-                ttlMs: 120_000,
-                remainingUses: 8,
-              });
-              const thresholdSessionId = String(
-                ecdsaBootstrap?.thresholdEcdsaKeyRef?.thresholdSessionId ||
-                  ecdsaBootstrap?.session?.sessionId ||
-                  '',
-              ).trim();
-              if (!thresholdSessionId) {
-                return {
-                  ok: false,
-                  error: 'bootstrapEcdsaSession did not return thresholdSessionId',
-                };
-              }
-
-              if (curve === 'ed25519') {
-                const connected = await signingEngine.connectEd25519Session({
-                  nearAccountId: accountId,
+              if (curve === 'ecdsa') {
+                const bootstrap = await seams.tempo.bootstrapEcdsaSession({
+                  kind: 'reuse_warm_ecdsa_bootstrap',
+                  walletSession: {
+                    walletId: accountId,
+                    walletSessionUserId: accountId,
+                  },
+                  subjectId: accountId,
+                  chainTarget: {
+                    kind: 'tempo' as const,
+                    chainId: 42431,
+                    networkSlug: 'tempo-testnet',
+                  },
                   relayerUrl,
-                  relayerKeyId,
-                  ...(managedRuntimeScopeBootstrap.environmentId &&
-                  managedRuntimeScopeBootstrap.publishableKey
-                    ? { runtimeScopeBootstrap: managedRuntimeScopeBootstrap }
-                    : {}),
-                  participantIds,
-                  sessionKind,
                   ttlMs: 120_000,
                   remainingUses: 8,
-                  sessionId: thresholdSessionId,
                 });
-                if (!connected?.ok) {
+                if (!bootstrap?.thresholdEcdsaKeyRef?.ecdsaThresholdKeyId) {
                   return {
                     ok: false,
-                    error: String(
-                      connected?.message || connected?.code || 'connectEd25519Session failed',
-                    ),
+                    error: 'threshold ECDSA bootstrap did not return ecdsaThresholdKeyId',
                   };
                 }
-                if (sessionKind === 'jwt') {
-                  const firstSign = await seams.near.executeAction({
-                    nearAccount: { accountId },
-                    receiverId: 'w3a-v1.testnet',
-                    actionArgs: {
-                      type: ActionType.FunctionCall,
-                      methodName: 'set_greeting',
-                      args: { greeting: `hello-first-${curve}-${sessionKind}-${Date.now()}` },
-                      gas: '30000000000000',
-                      deposit: '0',
-                    },
-                    options: {
-                      waitUntil: 'EXECUTED_OPTIMISTIC' as any,
-                      confirmationConfig,
-                    },
-                  });
-                  if (!firstSign?.success) {
-                    return {
-                      ok: false,
-                      error: String(firstSign?.error || 'first near sign failed'),
-                    };
-                  }
+              }
+
+              if (curve === 'ed25519' && sessionKind === 'jwt') {
+                const firstSign = await seams.near.executeAction({
+                  nearAccount: { accountId },
+                  receiverId: 'w3a-v1.testnet',
+                  actionArgs: {
+                    type: ActionType.FunctionCall,
+                    methodName: 'set_greeting',
+                    args: { greeting: `hello-first-${curve}-${sessionKind}-${Date.now()}` },
+                    gas: '30000000000000',
+                    deposit: '0',
+                  },
+                  options: {
+                    waitUntil: 'EXECUTED_OPTIMISTIC' as any,
+                    confirmationConfig,
+                  },
+                });
+                if (!firstSign?.success) {
+                  return {
+                    ok: false,
+                    error: String(firstSign?.error || 'first near sign failed'),
+                  };
                 }
-              } else {
-                if (sessionKind === 'jwt') {
-                  const firstSign = await seams.tempo.signTempo({
-                    walletSession: {
-                      walletId: accountId,
-                      walletSessionUserId: accountId,
-                    },
-                    subjectId: accountId,
-                    chainTarget: {
-                      kind: 'tempo' as const,
+              }
+
+              if (curve === 'ecdsa' && sessionKind === 'jwt') {
+                const firstSign = await seams.tempo.signTempo({
+                  walletSession: {
+                    walletId: accountId,
+                    walletSessionUserId: accountId,
+                  },
+                  subjectId: accountId,
+                  chainTarget: {
+                    kind: 'tempo' as const,
+                    chainId: 42431,
+                    networkSlug: 'tempo-testnet',
+                  },
+                  request: {
+                    chain: 'tempo' as const,
+                    kind: 'tempoTransaction' as const,
+                    senderSignatureAlgorithm: 'secp256k1' as const,
+                    tx: {
                       chainId: 42431,
-                      networkSlug: 'tempo-testnet',
+                      maxPriorityFeePerGas: 1n,
+                      maxFeePerGas: 2n,
+                      gasLimit: 21_000n,
+                      calls: [{ to: '0x' + '11'.repeat(20), value: 0n, input: '0x' }],
+                      accessList: [],
+                      nonceKey: 0n,
+                      validBefore: null,
+                      validAfter: null,
+                      feePayerSignature: { kind: 'none' as const },
+                      aaAuthorizationList: [],
                     },
-                    request: {
-                      chain: 'tempo' as const,
-                      kind: 'tempoTransaction' as const,
-                      senderSignatureAlgorithm: 'secp256k1' as const,
-                      tx: {
-                        chainId: 42431,
-                        maxPriorityFeePerGas: 1n,
-                        maxFeePerGas: 2n,
-                        gasLimit: 21_000n,
-                        calls: [{ to: '0x' + '11'.repeat(20), value: 0n, input: '0x' }],
-                        accessList: [],
-                        nonceKey: 0n,
-                        validBefore: null,
-                        validAfter: null,
-                        feePayerSignature: { kind: 'none' as const },
-                        aaAuthorizationList: [],
-                      },
-                    },
-                    options: { confirmationConfig },
-                  });
-                  if (!firstSign || firstSign.kind !== 'tempoTransaction') {
-                    return {
-                      ok: false,
-                      error: 'first tempo sign failed',
-                    };
-                  }
+                  },
+                  options: { confirmationConfig },
+                });
+                if (!firstSign || firstSign.kind !== 'tempoTransaction') {
+                  return {
+                    ok: false,
+                    error: 'first tempo sign failed',
+                  };
                 }
               }
 
@@ -1880,6 +1807,7 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
           },
           {
             relayerUrl: harness.relayerUrl,
+            managedRegistration: harness.managedRegistration,
             keyVersion: TEST_KEY_VERSION,
             shamirPrimeB64u: TEST_SHAMIR_PRIME_B64U,
             curve: matrixCase.curve,
@@ -1899,7 +1827,15 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
         await page.waitForTimeout(300);
 
         const secondPhasePromise = page.evaluate(
-          async ({ relayerUrl, accountId, keyVersion, shamirPrimeB64u, curve, sessionKind }) => {
+          async ({
+            relayerUrl,
+            accountId,
+            managedRegistration,
+            keyVersion,
+            shamirPrimeB64u,
+            curve,
+            sessionKind,
+          }) => {
             try {
               const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
               const actionsMod = await import('/sdk/esm/core/types/actions.js');
@@ -1917,21 +1853,22 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
                 relayerAccount: 'web3-authn-v4.testnet',
                 relayer: {
                   url: relayerUrl,
-                  smartAccountDeploymentMode: 'observe',
                 },
                 registration: {
                   mode: 'managed',
-                  environmentId: String(
-                    (globalThis as any).__w3aManagedRegistration?.environmentId || '',
-                  ),
-                  publishableKey: String(
-                    (globalThis as any).__w3aManagedRegistration?.publishableKey || '',
-                  ),
+                  environmentId: String(managedRegistration.environmentId || ''),
+                  publishableKey: String(managedRegistration.publishableKey || ''),
                 },
                 signingSessionPersistenceMode: 'sealed_refresh_v1',
                 signingSessionSeal: {
                   keyVersion,
                   shamirPrimeB64u,
+                },
+                iframeWallet: {
+                  walletOrigin: 'https://wallet.example.localhost',
+                  servicePath: '/wallet-service',
+                  sdkBasePath: '/sdk',
+                  rpIdOverride: 'example.localhost',
                 },
               });
 
@@ -2022,6 +1959,7 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
           {
             relayerUrl: harness.relayerUrl,
             accountId: firstPhase.accountId,
+            managedRegistration: harness.managedRegistration,
             keyVersion: TEST_KEY_VERSION,
             shamirPrimeB64u: TEST_SHAMIR_PRIME_B64U,
             curve: matrixCase.curve,

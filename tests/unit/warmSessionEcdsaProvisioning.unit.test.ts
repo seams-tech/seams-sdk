@@ -7,6 +7,7 @@ import {
   normalizeParticipantIds,
   toOptionalNonEmptyString,
 } from '@/core/signingEngine/session/passkey/ecdsaProvisioner';
+import { selectedEcdsaLane } from '@/core/signingEngine/session/identity/laneIdentity';
 import type { WarmSessionEnvelope } from '@/core/signingEngine/session/warmCapabilities/types';
 import {
   createThresholdEcdsaBootstrapFixture,
@@ -61,6 +62,8 @@ function createEnvelope(): WarmSessionEnvelope {
               evmBootstrap.thresholdEcdsaKeyRef.backendBinding?.clientAdditiveShare32B64u,
             participantIds: [1, 2],
           } as any,
+          key: null as any,
+          lane: null as any,
           auth: {
             capability: 'ecdsa',
             record: {} as any,
@@ -94,6 +97,8 @@ function createEnvelope(): WarmSessionEnvelope {
               tempoBootstrap.thresholdEcdsaKeyRef.backendBinding?.clientAdditiveShare32B64u,
             participantIds: [1, 2],
           } as any,
+          key: null as any,
+          lane: null as any,
           auth: {
             capability: 'ecdsa',
             record: {} as any,
@@ -114,6 +119,63 @@ function createEnvelope(): WarmSessionEnvelope {
   };
   envelope.capabilities.ecdsa.evm.auth!.record = envelope.capabilities.ecdsa.evm.record!;
   envelope.capabilities.ecdsa.tempo.auth!.record = envelope.capabilities.ecdsa.tempo.record!;
+  const evmRecord = envelope.capabilities.ecdsa.evm.record!;
+  const evmKey = {
+    walletId: evmRecord.walletId,
+    subjectId: evmRecord.subjectId,
+    rpId: 'example.localhost',
+    keyScope: 'evm-family',
+    ecdsaThresholdKeyId: evmRecord.ecdsaThresholdKeyId,
+    signingRootId: evmRecord.signingRootId,
+    signingRootVersion: evmRecord.signingRootVersion,
+    participantIds: [1, 2],
+    thresholdOwnerAddress: `0x${'11'.repeat(20)}`,
+  };
+  envelope.capabilities.ecdsa.evm.key = evmKey as any;
+  envelope.capabilities.ecdsa.evm.lane = {
+    ...selectedEcdsaLane({
+      key: evmKey as any,
+      walletId: evmRecord.walletId as any,
+      authMethod: 'passkey',
+      walletSigningSessionId: evmRecord.walletSigningSessionId,
+      thresholdSessionId: evmRecord.thresholdSessionId,
+      subjectId: evmRecord.subjectId,
+      chainTarget: evmRecord.chainTarget,
+      ecdsaThresholdKeyId: evmRecord.ecdsaThresholdKeyId,
+      signingRootId: evmRecord.signingRootId,
+      signingRootVersion: evmRecord.signingRootVersion,
+    }),
+    key: evmKey,
+  } as any;
+
+  const tempoRecord = envelope.capabilities.ecdsa.tempo.record!;
+  const tempoKey = {
+    walletId: tempoRecord.walletId,
+    subjectId: tempoRecord.subjectId,
+    rpId: 'example.localhost',
+    keyScope: 'evm-family',
+    ecdsaThresholdKeyId: tempoRecord.ecdsaThresholdKeyId,
+    signingRootId: tempoRecord.signingRootId,
+    signingRootVersion: tempoRecord.signingRootVersion,
+    participantIds: [1, 2],
+    thresholdOwnerAddress: `0x${'11'.repeat(20)}`,
+  };
+  envelope.capabilities.ecdsa.tempo.key = tempoKey as any;
+  envelope.capabilities.ecdsa.tempo.lane = {
+    ...selectedEcdsaLane({
+      key: tempoKey as any,
+      walletId: tempoRecord.walletId as any,
+      authMethod: 'passkey',
+      walletSigningSessionId: tempoRecord.walletSigningSessionId,
+      thresholdSessionId: tempoRecord.thresholdSessionId,
+      subjectId: tempoRecord.subjectId,
+      chainTarget: tempoRecord.chainTarget,
+      ecdsaThresholdKeyId: tempoRecord.ecdsaThresholdKeyId,
+      signingRootId: tempoRecord.signingRootId,
+      signingRootVersion: tempoRecord.signingRootVersion,
+    }),
+    key: tempoKey,
+  } as any;
   return envelope;
 }
 

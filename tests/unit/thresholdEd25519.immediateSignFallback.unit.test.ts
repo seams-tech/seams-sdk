@@ -1709,6 +1709,86 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
     });
   });
 
+  test('sends passkey assertion with cookie Ed25519 session mint', async () => {
+    await withNearThresholdTestEnv(async () => {
+      const originalFetch = globalThis.fetch;
+      const nearAccountId = 'near-ed25519-cookie-unlock.testnet';
+      const relayerUrl = 'https://relay.example.test';
+      const relayerKeyId = 'ed25519:relayer-key-id';
+      const plannedSessionId = 'cookie-ed25519-session';
+      const plannedWalletSigningSessionId = 'cookie-ed25519-wallet-session';
+      const credential = {
+        id: 'cookie-session-policy-credential',
+        rawId: 'cookie-session-policy-credential',
+        type: 'public-key',
+        authenticatorAttachment: 'platform',
+        response: {
+          clientDataJSON: 'clientDataJSON-b64u',
+          authenticatorData: 'authenticatorData-b64u',
+          signature: 'signature-b64u',
+          userHandle: '',
+        },
+        clientExtensionResults: {
+          prf: { results: { first: 'AQ', second: undefined } },
+        },
+      };
+      let mintCredentials = '';
+      let mintBody: any = null;
+
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === `${relayerUrl}/threshold-ed25519/session`) {
+          mintCredentials = String(init?.credentials || '');
+          mintBody = JSON.parse(String(init?.body || '{}'));
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              sessionId: plannedSessionId,
+              walletSigningSessionId: plannedWalletSigningSessionId,
+              expiresAt: new Date(Date.now() + 60_000).toISOString(),
+              remainingUses: 2,
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          );
+        }
+        return await originalFetch(input, init);
+      }) as typeof fetch;
+
+      try {
+        const result = await connectEd25519Session({
+          indexedDB: {} as any,
+          touchIdPrompt: {
+            getRpId: () => 'example.localhost',
+            getAuthenticationCredentialsSerializedForChallengeB64u: async () => {
+              throw new Error('cookie unlock should reuse the login WebAuthn credential');
+            },
+          },
+          relayerUrl,
+          relayerKeyId,
+          nearAccountId,
+          participantIds: [1, 2],
+          sessionId: plannedSessionId,
+          walletSigningSessionId: plannedWalletSigningSessionId,
+          remainingUses: 2,
+          sessionKind: 'cookie',
+          useAppSessionCookie: true,
+          localPrfCredential: credential as any,
+        });
+
+        expect(result.ok).toBe(true);
+        expect(mintCredentials).toBe('include');
+        expect(mintBody?.sessionKind).toBe('cookie');
+        expect(mintBody?.webauthn_authentication?.id).toBe('cookie-session-policy-credential');
+        expect(mintBody?.webauthn_authentication?.clientExtensionResults?.prf).toBeUndefined();
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+  });
+
   test('records wallet signing budget once when the same NEAR signing operation completes twice', async () => {
     await withNearThresholdTestEnv(async () => {
       const nearAccountId = 'near-budget-idempotent.testnet';

@@ -157,18 +157,21 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
       listThresholdEcdsaKeyRefsForWalletTarget: () => [
         { source: 'login', keyRef: staleBootstrap.thresholdEcdsaKeyRef },
       ],
-      provisionThresholdEcdsaSession: async ({ walletId, chainTarget }) => {
+      provisionThresholdEcdsaSession: async (request) => {
+        if (!request.key || !request.lanePolicy) {
+          throw new Error('expected exact ECDSA activation request');
+        }
         const refreshedBootstrap = createThresholdEcdsaBootstrapFixture({
-          nearAccountId: String(walletId),
-          chain: chainTarget.kind,
+          nearAccountId: String(request.key.walletId),
+          chain: request.lanePolicy.chainTarget.kind,
           ecdsaThresholdKeyId: 'ek-transition-stale',
           sessionId: 'ecdsa-fresh-session',
           sessionAuthToken: 'jwt:ecdsa-fresh-session',
           walletSigningSessionId: 'wsess-ecdsa-transition',
         });
         const refreshedRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
-          nearAccountId: String(walletId),
-          chain: chainTarget.kind,
+          nearAccountId: String(request.key.walletId),
+          chain: request.lanePolicy.chainTarget.kind,
           source: 'login',
           bootstrap: refreshedBootstrap,
         });

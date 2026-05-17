@@ -103,12 +103,10 @@ export async function registerPasskey(
               signerOptions: {
                 tempo: {
                   enabled: false,
-                  participantIds: [1, 2],
                   signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
                 },
                 evm: {
                   enabled: false,
-                  participantIds: [1, 2],
                   signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
                 },
               },

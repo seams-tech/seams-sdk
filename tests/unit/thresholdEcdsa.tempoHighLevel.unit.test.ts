@@ -118,7 +118,6 @@ async function signTempoWithExistingPasskey(
           : {}),
         relayer: {
           url: input.relayerUrl,
-          smartAccountDeploymentMode: 'observe',
         },
         iframeWallet: {
           walletOrigin: '',
@@ -188,6 +187,335 @@ async function signTempoWithExistingPasskey(
   }, args);
 }
 
+async function signWithExistingPasskey(
+  page: Page,
+  args: {
+    accountId: string;
+    signingKind: 'tempoTransaction' | 'eip1559';
+  },
+): Promise<{
+  ok: boolean;
+  chain?: string;
+  kind?: string;
+  rawTxHex?: string;
+  error?: string;
+}> {
+  return await page.evaluate(async (input) => {
+    const existingPm = (globalThis as any).__w3aTempoHighLevelPm;
+    if (!existingPm) {
+      return { ok: false, error: 'missing existing passkey manager' };
+    }
+    const confirmationConfig = {
+      uiMode: 'none' as const,
+      behavior: 'skipClick' as const,
+      autoProceedDelay: 0,
+    };
+    const request =
+      input.signingKind === 'eip1559'
+        ? {
+            chain: 'evm' as const,
+            kind: 'eip1559' as const,
+            senderSignatureAlgorithm: 'secp256k1' as const,
+            tx: {
+              chainId: 11155111,
+              maxPriorityFeePerGas: 1_500_000_000n,
+              maxFeePerGas: 3_000_000_000n,
+              gasLimit: 21_000n,
+              to: '0x' + '22'.repeat(20),
+              value: 12_345n,
+              data: '0x',
+              accessList: [],
+            },
+          }
+        : {
+            chain: 'tempo' as const,
+            kind: 'tempoTransaction' as const,
+            senderSignatureAlgorithm: 'secp256k1' as const,
+            tx: {
+              chainId: 42431,
+              maxPriorityFeePerGas: 1n,
+              maxFeePerGas: 2n,
+              gasLimit: 21_000n,
+              calls: [{ to: '0x' + '11'.repeat(20), value: 0n, input: '0x' }],
+              accessList: [],
+              nonceKey: 0n,
+              nonce: 3n,
+              validBefore: null,
+              validAfter: null,
+              feePayerSignature: { kind: 'none' as const },
+              aaAuthorizationList: [],
+            },
+          };
+    const chainTarget =
+      input.signingKind === 'eip1559'
+        ? {
+            kind: 'evm' as const,
+            namespace: 'eip155' as const,
+            chainId: 11155111,
+            networkSlug: 'ethereum-sepolia',
+          }
+        : {
+            kind: 'tempo' as const,
+            chainId: 42431,
+            networkSlug: 'tempo-moderato',
+          };
+    try {
+      const signed = await existingPm.tempo.signTempo({
+        walletSession: {
+          walletId: input.accountId,
+          walletSessionUserId: input.accountId,
+        },
+        subjectId: input.accountId,
+        request,
+        chainTarget,
+        options: { confirmationConfig },
+      });
+      return {
+        ok: true,
+        chain: String(signed?.chain || ''),
+        kind: String(signed?.kind || ''),
+        rawTxHex: String(signed?.rawTxHex || ''),
+      };
+    } catch (e: unknown) {
+      return {
+        ok: false,
+        error: String(
+          e && typeof e === 'object' && 'message' in e
+            ? (e as { message?: unknown }).message
+            : e || 'signWithExistingPasskey failed',
+        ),
+      };
+    }
+  }, args);
+}
+
+async function exportEcdsaAddressWithExistingPasskey(
+  page: Page,
+  args: {
+    accountId: string;
+    chain: 'tempo' | 'evm';
+  },
+): Promise<{
+  ok: boolean;
+  exportedAddress?: string;
+  promptCount?: number;
+  error?: string;
+}> {
+  return await page.evaluate(async (input) => {
+    const existingPm = (globalThis as any).__w3aTempoHighLevelPm;
+    if (!existingPm) {
+      return { ok: false, error: 'missing existing passkey manager' };
+    }
+
+    const signingEngine = existingPm?.getContext?.()?.signingEngine;
+    const originalRequestUserConfirmation =
+      typeof signingEngine?.touchConfirm?.requestUserConfirmation === 'function'
+        ? signingEngine.touchConfirm.requestUserConfirmation.bind(signingEngine.touchConfirm)
+        : null;
+
+    let exportedAddress = '';
+    let promptCount = 0;
+
+    if (originalRequestUserConfirmation) {
+      signingEngine.touchConfirm.requestUserConfirmation = async (
+        request: Record<string, unknown>,
+        requestOptions?: Record<string, unknown>,
+      ) => {
+        if (String(request?.type || '') === 'showSecurePrivateKeyUi') {
+          promptCount += 1;
+          const keys = Array.isArray((request as any)?.payload?.keys)
+            ? ((request as any).payload.keys as Array<Record<string, unknown>>)
+            : [];
+          const ecdsaKey =
+            keys.find((key) => String(key?.scheme || '') === 'secp256k1') || keys[0] || null;
+          exportedAddress = String(ecdsaKey?.address || '').trim();
+          return { confirmed: true };
+        }
+        return await originalRequestUserConfirmation(request as any, requestOptions as any);
+      };
+    }
+
+    try {
+      const chainTarget =
+        input.chain === 'evm'
+          ? {
+              kind: 'evm' as const,
+              namespace: 'eip155' as const,
+              chainId: 11155111,
+              networkSlug: 'ethereum-sepolia',
+            }
+          : {
+              kind: 'tempo' as const,
+              chainId: 42431,
+              networkSlug: 'tempo-moderato',
+            };
+      await existingPm.keys.exportKeypairWithUI({
+        kind: 'ecdsa',
+        subjectId: input.accountId,
+        chainTarget,
+        walletSession: {
+          walletId: input.accountId,
+          walletSessionUserId: input.accountId,
+        },
+        options: { variant: 'drawer' },
+      });
+      return {
+        ok: true,
+        exportedAddress,
+        promptCount,
+      };
+    } catch (e: unknown) {
+      return {
+        ok: false,
+        error: String(
+          e && typeof e === 'object' && 'message' in e
+            ? (e as { message?: unknown }).message
+            : e || 'exportKeypairWithUI failed',
+        ),
+      };
+    } finally {
+      if (originalRequestUserConfirmation) {
+        signingEngine.touchConfirm.requestUserConfirmation = originalRequestUserConfirmation;
+      }
+    }
+  }, args);
+}
+
+async function exportNearEd25519WithExistingPasskey(
+  page: Page,
+  args: {
+    accountId: string;
+  },
+): Promise<{
+  ok: boolean;
+  promptCount?: number;
+  exportedPublicKey?: string;
+  exportedPrivateKey?: string;
+  error?: string;
+}> {
+  return await page.evaluate(async (input) => {
+    const existingPm = (globalThis as any).__w3aTempoHighLevelPm;
+    if (!existingPm) {
+      return { ok: false, error: 'missing existing passkey manager' };
+    }
+
+    const signingEngine = existingPm?.getContext?.()?.signingEngine;
+    const originalRequestUserConfirmation =
+      typeof signingEngine?.touchConfirm?.requestUserConfirmation === 'function'
+        ? signingEngine.touchConfirm.requestUserConfirmation.bind(signingEngine.touchConfirm)
+        : null;
+
+    let promptCount = 0;
+    let exportedPublicKey = '';
+    let exportedPrivateKey = '';
+
+    if (originalRequestUserConfirmation) {
+      signingEngine.touchConfirm.requestUserConfirmation = async (
+        request: Record<string, unknown>,
+        requestOptions?: Record<string, unknown>,
+      ) => {
+        if (String(request?.type || '') === 'showSecurePrivateKeyUi') {
+          promptCount += 1;
+          const keys = Array.isArray((request as any)?.payload?.keys)
+            ? ((request as any).payload.keys as Array<Record<string, unknown>>)
+            : [];
+          const ed25519Key =
+            keys.find((key) => String(key?.scheme || '') === 'ed25519') || keys[0] || null;
+          exportedPublicKey = String(ed25519Key?.publicKey || '').trim();
+          exportedPrivateKey = String(ed25519Key?.privateKey || ed25519Key?.secretKey || '').trim();
+          return { confirmed: true };
+        }
+        return await originalRequestUserConfirmation(request as any, requestOptions as any);
+      };
+    }
+
+    try {
+      await existingPm.keys.exportKeypairWithUI({
+        kind: 'near',
+        nearAccount: { accountId: input.accountId },
+        options: { chain: 'near', variant: 'drawer' },
+      });
+      return {
+        ok: true,
+        promptCount,
+        exportedPublicKey,
+        exportedPrivateKey,
+      };
+    } catch (e: unknown) {
+      return {
+        ok: false,
+        error: String(
+          e && typeof e === 'object' && 'message' in e
+            ? (e as { message?: unknown }).message
+            : e || 'exportNearEd25519WithExistingPasskey failed',
+        ),
+      };
+    } finally {
+      if (originalRequestUserConfirmation) {
+        signingEngine.touchConfirm.requestUserConfirmation = originalRequestUserConfirmation;
+      }
+    }
+  }, args);
+}
+
+async function signNearWithExistingPasskey(
+  page: Page,
+  args: {
+    accountId: string;
+  },
+): Promise<{
+  ok: boolean;
+  signedCount?: number;
+  signerId?: string;
+  receiverId?: string;
+  error?: string;
+}> {
+  return await page.evaluate(async (input) => {
+    const existingPm = (globalThis as any).__w3aTempoHighLevelPm;
+    if (!existingPm) {
+      return { ok: false, error: 'missing existing passkey manager' };
+    }
+
+    const actionsMod = await import('/sdk/esm/core/types/actions.js');
+    const { ActionType } = actionsMod as any;
+    const confirmationConfig = {
+      uiMode: 'none' as const,
+      behavior: 'skipClick' as const,
+      autoProceedDelay: 0,
+    };
+
+    try {
+      const signed = await existingPm.near.signTransactionsWithActions({
+        nearAccount: { accountId: input.accountId },
+        transactions: [
+          {
+            receiverId: 'w3a-v1.testnet',
+            actions: [{ type: ActionType.Transfer, amount: '1' }],
+          },
+        ],
+        options: { confirmationConfig },
+      });
+      const first = Array.isArray(signed) ? signed[0] : null;
+      const tx = (first as any)?.signedTransaction?.transaction || {};
+      return {
+        ok: Array.isArray(signed) && signed.length === 1,
+        signedCount: Array.isArray(signed) ? signed.length : 0,
+        signerId: String(tx.signerId || ''),
+        receiverId: String(tx.receiverId || ''),
+      };
+    } catch (e: unknown) {
+      return {
+        ok: false,
+        error: String(
+          e && typeof e === 'object' && 'message' in e
+            ? (e as { message?: unknown }).message
+            : e || 'signNearWithExistingPasskey failed',
+        ),
+      };
+    }
+  }, args);
+}
+
 async function bootstrapEvmSessionWithExistingPasskey(
   page: Page,
   args: {
@@ -218,7 +546,6 @@ async function bootstrapEvmSessionWithExistingPasskey(
         relayerAccount: 'web3-authn-v4.testnet',
         relayer: {
           url: input.relayerUrl,
-          smartAccountDeploymentMode: 'observe',
         },
         iframeWallet: {
           walletOrigin: '',
@@ -287,7 +614,6 @@ async function runConcurrentThresholdSignsWithExistingPasskey(
         relayerAccount: 'web3-authn-v4.testnet',
         relayer: {
           url: input.relayerUrl,
-          smartAccountDeploymentMode: 'observe',
         },
         iframeWallet: {
           walletOrigin: '',
@@ -559,7 +885,67 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
       const groupPoint = secpPointFromCompressedHex(groupPublicKeyCompressed);
       const groupPublicKeyUncompressedHex = `0x${groupPoint.toHex(false)}` as `0x${string}`;
       const expectedSignerAddress = publicKeyToAddress(groupPublicKeyUncompressedHex);
+      const keygenOwnerAddress = String(result.keygen?.ethereumAddress || '').toLowerCase();
+      const walletSessionOwnerAddress = String(
+        result.walletSession?.thresholdEcdsaEthereumAddress || '',
+      ).toLowerCase();
+      const managedNonceSender = String(
+        (result.signed as any)?.managedNonce?.sender || '',
+      ).toLowerCase();
+      const exported = await exportEcdsaAddressWithExistingPasskey(page, {
+        accountId: result.accountId,
+        chain: 'evm',
+      });
+      expect(keygenOwnerAddress).toMatch(/^0x[0-9a-f]{40}$/);
+      expect(walletSessionOwnerAddress).toBe(keygenOwnerAddress);
+      expect(expectedSignerAddress.toLowerCase()).toBe(keygenOwnerAddress);
+      expect(managedNonceSender).toBe(keygenOwnerAddress);
       expect(recoveredAddress.toLowerCase()).toBe(expectedSignerAddress.toLowerCase());
+      expect(recoveredAddress.toLowerCase()).toBe(keygenOwnerAddress);
+      expect(exported.ok, exported.error || JSON.stringify(exported)).toBe(true);
+      expect(exported.promptCount).toBeGreaterThanOrEqual(1);
+      expect(String(exported.exportedAddress || '').toLowerCase()).toBe(keygenOwnerAddress);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('passkey wallet session and Ed25519 export succeed for one account', async ({
+    page,
+  }) => {
+    const harness = await setupThresholdEcdsaTempoHarness(page);
+
+    try {
+      const first = await runThresholdEcdsaTempoFlow(page, {
+        relayerUrl: harness.baseUrl,
+      });
+
+      expect(first.ok, first.error || JSON.stringify(first)).toBe(true);
+      const expectedOwnerAddress = String(first.keygen?.ethereumAddress || '').toLowerCase();
+      expect(expectedOwnerAddress).toMatch(/^0x[0-9a-f]{40}$/);
+      expect(first.walletSession?.isLoggedIn).toBe(true);
+      expect(first.walletSession?.nearAccountId).toBe(first.accountId);
+      expect(String(first.walletSession?.thresholdEcdsaEthereumAddress || '').toLowerCase()).toBe(
+        expectedOwnerAddress,
+      );
+
+      const nearSign = await signNearWithExistingPasskey(page, {
+        accountId: first.accountId,
+      });
+      expect(nearSign.ok, nearSign.error || JSON.stringify(nearSign)).toBe(true);
+      expect(nearSign.signedCount).toBe(1);
+      expect(String(nearSign.signerId || '')).toBe(first.accountId);
+      expect(String(nearSign.receiverId || '')).toBe('w3a-v1.testnet');
+
+      const nearExport = await exportNearEd25519WithExistingPasskey(page, {
+        accountId: first.accountId,
+      });
+      expect(nearExport.ok, nearExport.error || JSON.stringify(nearExport)).toBe(true);
+      expect(nearExport.promptCount).toBeGreaterThanOrEqual(1);
+      expect(String(nearExport.exportedPublicKey || '')).toMatch(/^ed25519:/);
+      if (String(nearExport.exportedPrivateKey || '').trim()) {
+        expect(String(nearExport.exportedPrivateKey || '')).toMatch(/^ed25519:/);
+      }
     } finally {
       await harness.close();
     }
@@ -775,6 +1161,63 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
         await page.waitForTimeout(50);
       }
       expect(blockedPresignInitCalls).toBeGreaterThanOrEqual(1);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('post-exhaustion passkey signing succeeds on the first attempt for Tempo and Arc/EVM', async ({
+    page,
+  }) => {
+    const harness = await setupThresholdEcdsaTempoHarness(page);
+    try {
+      for (const signingKind of ['tempoTransaction', 'eip1559'] as const) {
+        const accountLabel = signingKind === 'eip1559' ? 'eip1559' : 'tempo';
+        const first = await runThresholdEcdsaTempoFlow(page, {
+          relayerUrl: harness.baseUrl,
+          signingKind,
+          accountId: `passkeyexhaust${accountLabel}${Date.now()}.w3a-v1.testnet`,
+          connectSessionRemainingUses: 1,
+        });
+        expect(first.ok, `${signingKind}: ${first.error || JSON.stringify(first)}`).toBe(true);
+        expect(first.signed?.kind).toBe(signingKind);
+
+        const second = await signWithExistingPasskey(page, {
+          accountId: first.accountId,
+          signingKind,
+        });
+        expect(second.ok, `${signingKind}: ${second.error || JSON.stringify(second)}`).toBe(true);
+        expect(second.kind).toBe(signingKind);
+        expect(second.rawTxHex?.startsWith('0x')).toBe(true);
+      }
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('post-exhaustion passkey NEAR signing succeeds on the first attempt', async ({ page }) => {
+    const harness = await setupThresholdEcdsaTempoHarness(page);
+    try {
+      const first = await runThresholdEcdsaTempoFlow(page, {
+        relayerUrl: harness.baseUrl,
+        accountId: `passkeynearpostexhaust${Date.now()}.w3a-v1.testnet`,
+        connectSessionRemainingUses: 1,
+      });
+      expect(first.ok, first.error || JSON.stringify(first)).toBe(true);
+
+      const firstNearSign = await signNearWithExistingPasskey(page, {
+        accountId: first.accountId,
+      });
+      expect(firstNearSign.ok, firstNearSign.error || JSON.stringify(firstNearSign)).toBe(true);
+      expect(firstNearSign.signedCount).toBe(1);
+      expect(String(firstNearSign.signerId || '')).toBe(first.accountId);
+
+      const secondNearSign = await signNearWithExistingPasskey(page, {
+        accountId: first.accountId,
+      });
+      expect(secondNearSign.ok, secondNearSign.error || JSON.stringify(secondNearSign)).toBe(true);
+      expect(secondNearSign.signedCount).toBe(1);
+      expect(String(secondNearSign.signerId || '')).toBe(first.accountId);
     } finally {
       await harness.close();
     }

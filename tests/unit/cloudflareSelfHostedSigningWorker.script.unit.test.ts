@@ -480,7 +480,6 @@ test('self-host Cloudflare signing router keeps hosted SaaS dependencies out of 
     './routes/apiWallets',
     './routes/bootstrapGrants',
     './routes/sponsoredEvmCall',
-    './routes/smartAccountDeployment',
     './routes/recoverEmail',
     './routes/emailRecovery',
     './routes/wellKnown',

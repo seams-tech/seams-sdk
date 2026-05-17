@@ -156,7 +156,6 @@ test.describe('threshold-ecdsa tempo signing', () => {
               relayerAccount: 'web3-authn-v4.testnet',
               relayer: {
                 url: relayerUrl,
-                smartAccountDeploymentMode: 'observe',
               },
               ...(managedRegistration
                 ? {
@@ -336,7 +335,6 @@ test.describe('threshold-ecdsa tempo signing', () => {
               relayerAccount: 'web3-authn-v4.testnet',
               relayer: {
                 url: relayerUrl,
-                smartAccountDeploymentMode: 'observe',
               },
               ...(managedRegistration
                 ? {
@@ -535,7 +533,6 @@ test.describe('threshold-ecdsa tempo signing', () => {
               relayerAccount: 'web3-authn-v4.testnet',
               relayer: {
                 url: relayerUrl,
-                smartAccountDeploymentMode: 'observe',
               },
               ...(managedRegistration
                 ? {
@@ -799,7 +796,6 @@ test.describe('threshold-ecdsa tempo signing', () => {
               relayerAccount: 'web3-authn-v4.testnet',
               relayer: {
                 url: relayerUrl,
-                smartAccountDeploymentMode: 'observe',
               },
               ...(managedRegistration
                 ? {
@@ -1059,7 +1055,6 @@ test.describe('threshold-ecdsa tempo signing', () => {
               relayerAccount: 'web3-authn-v4.testnet',
               relayer: {
                 url: relayerUrl,
-                smartAccountDeploymentMode: 'observe',
               },
               ...(managedRegistration
                 ? {
@@ -1291,7 +1286,6 @@ test.describe('threshold-ecdsa tempo signing', () => {
               relayerAccount: 'web3-authn-v4.testnet',
               relayer: {
                 url: relayerUrl,
-                smartAccountDeploymentMode: 'observe',
               },
               ...(managedRegistration
                 ? {
@@ -1523,314 +1517,4 @@ test.describe('threshold-ecdsa tempo signing', () => {
     }
   });
 
-  test('second request reaches confirmation before first settles under enforce deployment mode', async ({
-    page,
-  }) => {
-    const harness = await setupThresholdEcdsaTempoHarness(page);
-    let deployCalls = 0;
-    try {
-      await page.route(`${harness.baseUrl}/smart-account/deployment/manifest`, async (route) => {
-        await route.fulfill({
-          status: 200,
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeadersForRoute(route),
-          },
-          body: JSON.stringify({
-            ok: true,
-            manifest: {
-              version: 'smart_account_deployment_manifest_v1',
-              chain: 'evm',
-              accountAddress: '0x' + '22'.repeat(20),
-            },
-            evmDeploymentPlan: {
-              version: 'evm_smart_account_deployment_plan_v1',
-              chainId: 11155111,
-              accountAddress: '0x' + '22'.repeat(20),
-            },
-          }),
-        });
-      });
-      await page.route(`${harness.baseUrl}/smart-account/deployment/observe`, async (route) => {
-        await route.fulfill({
-          status: 200,
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeadersForRoute(route),
-          },
-          body: JSON.stringify({ ok: true }),
-        });
-      });
-      await page.route(`${harness.baseUrl}/smart-account/deploy`, async (route) => {
-        deployCalls += 1;
-        if (deployCalls === 1) {
-          await new Promise((resolve) => setTimeout(resolve, 900));
-        }
-        await route.fulfill({
-          status: 200,
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeadersForRoute(route),
-          },
-          body: JSON.stringify({
-            ok: true,
-            deploymentTxHash: `0xdeploy${deployCalls.toString(16).padStart(2, '0')}`,
-          }),
-        });
-      });
-
-      const result = await page.evaluate(
-        async ({ relayerUrl }) => {
-          try {
-            const sdkMod = await import('/sdk/esm/index.js');
-            const { SeamsPasskey } = sdkMod as any;
-
-            const accountId = `tempoqueueenforce${Date.now()}.w3a-v1.testnet`;
-            const confirmationConfig = {
-              uiMode: 'none' as const,
-              behavior: 'skipClick' as const,
-              autoProceedDelay: 0,
-            };
-            const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
-
-            const pm = new SeamsPasskey({
-              nearNetwork: 'testnet',
-              nearRpcUrl: 'https://test.rpc.fastnear.com',
-              relayerAccount: 'web3-authn-v4.testnet',
-              relayer: {
-                url: relayerUrl,
-                smartAccountDeployRoute: '/smart-account/deploy',
-                smartAccountDeploymentMode: 'enforce',
-              },
-              ...(managedRegistration
-                ? {
-                    registration: {
-                      mode: 'managed' as const,
-                      environmentId: String(managedRegistration.environmentId || ''),
-                      publishableKey: String(managedRegistration.publishableKey || ''),
-                    },
-                  }
-                : {}),
-              iframeWallet: {
-                walletOrigin: '',
-                walletServicePath: '/wallet-service',
-                sdkBasePath: '/sdk',
-                rpIdOverride: 'example.localhost',
-              },
-            });
-
-            const registration = await pm.registration.registerPasskeyInternal(
-              accountId,
-              {
-                signerOptions: {
-                  tempo: {
-                    enabled: false,
-                    participantIds: [1, 2],
-                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
-                  },
-                  evm: {
-                    enabled: false,
-                    participantIds: [1, 2],
-                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
-                  },
-                },
-              },
-              confirmationConfig,
-            );
-            if (!registration?.success) {
-              return {
-                ok: false,
-                error: String(registration?.error || 'registerPasskeyInternal failed'),
-              };
-            }
-
-            const bootstrap = await (globalThis as any).__w3aBootstrapFreshTempoEcdsaSession({
-              pm,
-              accountId,
-              relayerUrl,
-              ttlMs: 120_000,
-              remainingUses: 4,
-            });
-            if (!bootstrap?.session?.ok) {
-              return {
-                ok: false,
-                error: String(bootstrap?.session?.message || 'bootstrapEcdsaSession failed'),
-              };
-            }
-
-            const tempoRequest = {
-              chain: 'tempo' as const,
-              kind: 'tempoTransaction' as const,
-              senderSignatureAlgorithm: 'secp256k1' as const,
-              tx: {
-                chainId: 42431,
-                maxPriorityFeePerGas: 1n,
-                maxFeePerGas: 2n,
-                gasLimit: 21_000n,
-                calls: [{ to: '0x' + '11'.repeat(20), value: 0n, input: '0x' }],
-                accessList: [],
-                nonceKey: 0n,
-                nonce: 1n,
-                validBefore: null,
-                validAfter: null,
-                feePayerSignature: { kind: 'none' as const },
-                aaAuthorizationList: [],
-              },
-            };
-
-            const evmRequest = {
-              chain: 'evm' as const,
-              kind: 'eip1559' as const,
-              senderSignatureAlgorithm: 'secp256k1' as const,
-              tx: {
-                chainId: 11155111,
-                nonce: 7n,
-                maxPriorityFeePerGas: 1_500_000_000n,
-                maxFeePerGas: 3_000_000_000n,
-                gasLimit: 21_000n,
-                to: '0x' + '22'.repeat(20),
-                value: 12_345n,
-                data: '0x',
-                accessList: [],
-              },
-            };
-
-            type ProgressEvent = {
-              label: 'first' | 'second';
-              phase: string;
-              status: string;
-              atMs: number;
-            };
-            const progressEvents: ProgressEvent[] = [];
-            const settledAtMs: Partial<Record<'first' | 'second', number>> = {};
-            const startedAtMs = performance.now();
-            const chainTargetFor = (request: typeof tempoRequest | typeof evmRequest) =>
-              (globalThis as any).__w3aChainTargetForTempoRequest(request);
-            for (const request of [tempoRequest, evmRequest]) {
-              const requestBootstrap = await (globalThis as any).__w3aBootstrapFreshEcdsaForRequest(
-                {
-                  pm,
-                  accountId,
-                  relayerUrl,
-                  ttlMs: 120_000,
-                  remainingUses: 4,
-                  request,
-                },
-              );
-              if (!requestBootstrap?.session?.ok) {
-                return {
-                  ok: false,
-                  error: String(
-                    requestBootstrap?.session?.message || 'request ECDSA bootstrap failed',
-                  ),
-                };
-              }
-            }
-
-            const runSign = async (
-              label: 'first' | 'second',
-              request: typeof tempoRequest | typeof evmRequest,
-            ) => {
-              try {
-                const value = await pm.tempo.signTempo({
-                  walletSession: {
-                    walletId: accountId,
-                    walletSessionUserId: accountId,
-                  },
-                  subjectId: accountId,
-                  request,
-                  chainTarget: chainTargetFor(request),
-                  options: {
-                    confirmationConfig,
-                    onEvent: (ev: { phase?: unknown; status?: unknown }) => {
-                      progressEvents.push({
-                        label,
-                        phase: String(ev?.phase || ''),
-                        status: String(ev?.status || ''),
-                        atMs: Math.max(0, performance.now() - startedAtMs),
-                      });
-                    },
-                  },
-                });
-                settledAtMs[label] = Math.max(0, performance.now() - startedAtMs);
-                return {
-                  status: 'fulfilled' as const,
-                  chain: String(value?.chain || ''),
-                  kind: String(value?.kind || ''),
-                };
-              } catch (error: unknown) {
-                settledAtMs[label] = Math.max(0, performance.now() - startedAtMs);
-                return {
-                  status: 'rejected' as const,
-                  error: String(
-                    error && typeof error === 'object' && 'message' in error
-                      ? (error as { message?: unknown }).message
-                      : error || '',
-                  ),
-                };
-              }
-            };
-
-            const firstPromise = runSign('first', tempoRequest);
-            await new Promise((resolve) => setTimeout(resolve, 20));
-            const secondPromise = runSign('second', evmRequest);
-            const [first, second] = await Promise.all([firstPromise, secondPromise]);
-
-            const secondUserConfirmationAtMs = progressEvents.find(
-              (event) =>
-                event.label === 'second' && event.phase === 'signing.confirmation.displayed',
-            )?.atMs;
-            const firstSettledAtMs = settledAtMs.first;
-
-            const secondConfirmedBeforeFirstSettled =
-              typeof secondUserConfirmationAtMs === 'number' &&
-              typeof firstSettledAtMs === 'number' &&
-              secondUserConfirmationAtMs < firstSettledAtMs;
-
-            return {
-              ok:
-                first.status === 'fulfilled' &&
-                second.status === 'fulfilled' &&
-                secondConfirmedBeforeFirstSettled,
-              first,
-              second,
-              secondUserConfirmationAtMs,
-              firstSettledAtMs,
-              secondConfirmedBeforeFirstSettled,
-              progressEvents,
-            };
-          } catch (error: unknown) {
-            return {
-              ok: false,
-              error: String(
-                error && typeof error === 'object' && 'message' in error
-                  ? (error as { message?: unknown }).message
-                  : error || 'enforce deployment concurrency flow failed',
-              ),
-            };
-          }
-        },
-        { relayerUrl: harness.baseUrl },
-      );
-
-      expect(result.ok, result.error || JSON.stringify(result)).toBe(true);
-      expect(result.first).toEqual(
-        expect.objectContaining({
-          status: 'fulfilled',
-          chain: 'tempo',
-        }),
-      );
-      expect(result.second).toEqual(
-        expect.objectContaining({
-          status: 'fulfilled',
-          chain: 'evm',
-        }),
-      );
-      expect(result.secondConfirmedBeforeFirstSettled).toBe(true);
-      expect(typeof result.secondUserConfirmationAtMs).toBe('number');
-      expect(typeof result.firstSettledAtMs).toBe('number');
-    } finally {
-      await harness.close();
-    }
-  });
 });

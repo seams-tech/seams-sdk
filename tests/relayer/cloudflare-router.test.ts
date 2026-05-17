@@ -210,7 +210,6 @@ async function publishAllowedSignedDelegatePolicy(
     payload: {
       policy: {},
       metadata: {},
-      smartWallets: {},
       gasSponsorship: {
         status: 'resolved',
         policyCount: 1,
@@ -1150,214 +1149,6 @@ test.describe('relayer router (cloudflare) – P0', () => {
     expect(res.json?.credentialIds).toEqual(['cred-a', 'cred-b']);
     expect((receivedBody as Record<string, unknown> | null)?.['rp_id']).toBe('example.localhost');
     expect((receivedBody as Record<string, unknown> | null)?.['account_id']).toBe('bob.testnet');
-  });
-
-  test('POST /smart-account/deployment/observe: updates canonical deployment state for authorized threshold session', async () => {
-    const writes: Array<Record<string, unknown>> = [];
-    const session = makeSessionAdapter({
-      parse: async () => ({
-        ok: true as const,
-        claims: {
-          sub: 'user-123',
-          walletId: 'user-123',
-          kind: 'threshold_ecdsa_session_v1',
-          sessionId: 'sess-1',
-          walletSigningSessionId: 'wallet-signing-session-1',
-          relayerKeyId: 'relayer-key-1',
-          rpId: 'example.localhost',
-          thresholdExpiresAtMs: Date.now() + 60_000,
-          participantIds: [1, 2],
-        },
-      }),
-    });
-    const service = makeFakeAuthService({
-      getSmartAccountRecoverySubjectByAccount: async () => ({
-        ok: true,
-        record: {
-          version: 'smart_account_recovery_subject_v1',
-          userId: 'user-123',
-          nearAccountId: 'alice.testnet',
-          chainIdKey: 'evm:11155111',
-          accountAddress: '0xabc111',
-          createdAtMs: 1,
-          updatedAtMs: 1,
-          metadata: {
-            chain: 'evm',
-            chainId: 11155111,
-            accountModel: 'erc4337',
-            deployed: false,
-            factory: `0x${'33'.repeat(20)}`,
-            entryPoint: `0x${'44'.repeat(20)}`,
-            recoveryAuthority: `0x${'55'.repeat(20)}`,
-            salt: '0x1234',
-            counterfactualAddress: '0xabc111',
-          },
-        },
-      }),
-      listAccountSignersByAccount: async () => ({
-        ok: true,
-        records: [
-          {
-            version: 'account_signer_v1',
-            userId: 'user-123',
-            chainIdKey: 'evm:11155111',
-            accountAddress: '0xabc111',
-            signerType: 'threshold',
-            signerId: `0x${'11'.repeat(20)}`,
-            status: 'active',
-            createdAtMs: 1,
-            updatedAtMs: 1,
-            metadata: {
-              chain: 'evm',
-              chainId: 11155111,
-              accountModel: 'erc4337',
-            },
-          },
-        ],
-      }),
-      putSmartAccountRecoverySubject: async (record) => {
-        writes.push(record as unknown as Record<string, unknown>);
-        return { ok: true, record };
-      },
-    });
-    const handler = createCloudflareRouter(service, {
-      corsOrigins: ['https://example.localhost'],
-      session,
-    });
-
-    const res = await callCf(handler, {
-      method: 'POST',
-      path: '/smart-account/deployment/observe',
-      origin: 'https://example.localhost',
-      headers: { Authorization: 'Bearer threshold-jwt' },
-      body: {
-        chain: 'evm',
-        chain_id: 11155111,
-        account_address: '0xabc111',
-        account_model: 'erc4337',
-        deployment_tx_hash: '0xdeployed',
-      },
-    });
-
-    expect(res.status).toBe(200);
-    expect(res.json?.ok).toBe(true);
-    expect(writes).toHaveLength(2);
-    expect(getPath(writes[0], 'metadata', 'deployed')).toBe(true);
-    expect(getPath(writes[0], 'metadata', 'deploymentTxHash')).toBe('0xdeployed');
-    expect(getPath(writes[0], 'metadata', 'accountModel')).toBe('erc4337');
-    expect(getPath(writes[1], 'metadata', 'deploymentManifest', 'ownerAddresses')).toEqual([
-      `0x${'11'.repeat(20)}`,
-    ]);
-    expect(getPath(writes[1], 'metadata', 'evmDeploymentPlan', 'predictedAddress')).toMatch(
-      /^0x[0-9a-f]{40}$/,
-    );
-    expect(getPath(writes[1], 'metadata', 'evmDeploymentPlan', 'createAccountCalldata')).toMatch(
-      /^0xf8a59370/,
-    );
-    expect(
-      Number.isFinite(Number(getPath(writes[1], 'metadata', 'evmDeploymentPlanUpdatedAtMs'))),
-    ).toBe(true);
-  });
-
-  test('POST /smart-account/deployment/manifest: returns canonical manifest for authorized threshold session', async () => {
-    const session = makeSessionAdapter({
-      parse: async () => ({
-        ok: true as const,
-        claims: {
-          sub: 'user-123',
-          walletId: 'user-123',
-          kind: 'threshold_ecdsa_session_v1',
-          sessionId: 'sess-1',
-          walletSigningSessionId: 'wallet-signing-session-1',
-          relayerKeyId: 'relayer-key-1',
-          rpId: 'example.localhost',
-          thresholdExpiresAtMs: Date.now() + 60_000,
-          participantIds: [1, 2],
-        },
-      }),
-    });
-    const service = makeFakeAuthService({
-      getSmartAccountRecoverySubjectByAccount: async () => ({
-        ok: true,
-        record: {
-          version: 'smart_account_recovery_subject_v1',
-          userId: 'user-123',
-          nearAccountId: 'alice.testnet',
-          chainIdKey: 'evm:11155111',
-          accountAddress: '0xabc111',
-          createdAtMs: 1,
-          updatedAtMs: 1,
-          metadata: {
-            chain: 'evm',
-            chainId: 11155111,
-            accountModel: 'erc4337',
-            deployed: false,
-            factory: `0x${'33'.repeat(20)}`,
-            entryPoint: `0x${'44'.repeat(20)}`,
-            recoveryAuthority: `0x${'55'.repeat(20)}`,
-            salt: '0x1234',
-            counterfactualAddress: '0xabc111',
-          },
-        },
-      }),
-      listAccountSignersByAccount: async () => ({
-        ok: true,
-        records: [
-          {
-            version: 'account_signer_v1',
-            userId: 'user-123',
-            chainIdKey: 'evm:11155111',
-            accountAddress: '0xabc111',
-            signerType: 'threshold',
-            signerId: `0x${'11'.repeat(20)}`,
-            status: 'active',
-            createdAtMs: 1,
-            updatedAtMs: 1,
-          },
-          {
-            version: 'account_signer_v1',
-            userId: 'user-123',
-            chainIdKey: 'evm:11155111',
-            accountAddress: '0xabc111',
-            signerType: 'threshold',
-            signerId: `0x${'22'.repeat(20)}`,
-            status: 'pending',
-            createdAtMs: 2,
-            updatedAtMs: 2,
-          },
-        ],
-      }),
-    });
-    const handler = createCloudflareRouter(service, {
-      corsOrigins: ['https://example.localhost'],
-      session,
-    });
-
-    const res = await callCf(handler, {
-      method: 'POST',
-      path: '/smart-account/deployment/manifest',
-      origin: 'https://example.localhost',
-      headers: { Authorization: 'Bearer threshold-jwt' },
-      body: {
-        chain: 'evm',
-        chain_id: 11155111,
-        account_address: '0xabc111',
-      },
-    });
-
-    expect(res.status).toBe(200);
-    expect(res.json?.ok).toBe(true);
-    expect(getPath(res.json, 'manifest', 'ownerAddresses')).toEqual([
-      `0x${'11'.repeat(20)}`,
-      `0x${'22'.repeat(20)}`,
-    ]);
-    expect(getPath(res.json, 'manifest', 'activeOwnerAddresses')).toEqual([`0x${'11'.repeat(20)}`]);
-    expect(getPath(res.json, 'manifest', 'pendingOwnerAddresses')).toEqual([
-      `0x${'22'.repeat(20)}`,
-    ]);
-    expect(getPath(res.json, 'evmDeploymentPlan', 'predictedAddress')).toMatch(/^0x[0-9a-f]{40}$/);
-    expect(getPath(res.json, 'evmDeploymentPlan', 'matchesAccountAddress')).toBe(false);
-    expect(getPath(res.json, 'evmDeploymentPlan', 'createAccountCalldata')).toMatch(/^0xf8a59370/);
   });
 
   test('POST /auth/passkey/verify: invalid body', async () => {
@@ -2893,18 +2684,6 @@ test.describe('relayer router (cloudflare) – P0', () => {
         };
       },
       getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
-      listActiveSmartAccountSignersForUser: async (userId: string) => [
-        {
-          userId,
-          signerType: 'threshold',
-          status: 'active',
-          metadata: {
-            ecdsaThresholdKeyId: 'ehss-passkey-cf-1',
-            thresholdEcdsaPublicKeyB64u: 'ecdsa-public-key',
-            chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 5042002 },
-          },
-        } as any,
-      ],
     });
     const handler = createCloudflareRouter(service, {
       corsOrigins: ['https://example.localhost'],
@@ -2945,9 +2724,6 @@ test.describe('relayer router (cloudflare) – P0', () => {
     expect(getPath(res.json, 'session', 'kind')).toBe('app_session_v1');
     expect(getPath(res.json, 'session', 'userId')).toBe('user-passkey-cf-1');
     expect(res.json?.jwt).toBe('app-jwt-cf-passkey-1');
-    expect(getPath(res.json, 'smartAccountSigners', 0, 'metadata', 'ecdsaThresholdKeyId')).toBe(
-      'ehss-passkey-cf-1',
-    );
     expect(String((verifyArgs as Record<string, unknown> | null)?.['challengeId'] || '')).toBe(
       'challenge-passkey-cf-1',
     );
@@ -3415,9 +3191,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
         sessionPolicy: {
           getThresholdSession: async () => null,
           getWalletBudgetStatus: async ({ walletSigningSessionId }) =>
-            walletSigningSessionId === claims.walletSigningSessionId
-              ? walletBudgetStatus
-              : null,
+            walletSigningSessionId === claims.walletSigningSessionId ? walletBudgetStatus : null,
           getThresholdSessionStatuses: async ({ thresholdSessionId }) =>
             thresholdSessionId === claims.sessionId ? [wrongCurveStatus, ecdsaStatus] : [],
         },

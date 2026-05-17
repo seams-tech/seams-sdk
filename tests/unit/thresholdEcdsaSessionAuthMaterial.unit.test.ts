@@ -38,6 +38,7 @@ test('resolves JWT only from explicit canonical ECDSA ownership', async ({
             networkSlug: 'tempo-42431',
           };
           const walletSigningSessionId = `wallet-${args.thresholdSessionId}`;
+          const ecdsaThresholdKeyId = `ek-${args.nearAccountId}`;
           storeMod.upsertThresholdEcdsaSessionFromBootstrap(deps, {
             nearAccountId: args.nearAccountId,
             chainTarget,
@@ -49,7 +50,7 @@ test('resolves JWT only from explicit canonical ECDSA ownership', async ({
                 subjectId: args.nearAccountId,
                 chainTarget,
                 relayerUrl: 'https://relay.example',
-                ecdsaThresholdKeyId: `ek-${args.thresholdSessionId}`,
+                ecdsaThresholdKeyId,
                 signingRootId: 'proj-a:env-a',
                 signingRootVersion: 'default',
                 participantIds: [1, 2],

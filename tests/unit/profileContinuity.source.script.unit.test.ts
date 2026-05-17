@@ -89,7 +89,7 @@ test.describe('source-backed profile continuity snapshot', () => {
       {
         chainIdKey: 'evm:11155111',
         accountAddress: `0x${'11'.repeat(20)}`,
-        accountModel: 'erc4337',
+        accountModel: 'threshold-ecdsa',
         isPrimary: true,
       },
     ]);

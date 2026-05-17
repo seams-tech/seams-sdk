@@ -90,24 +90,6 @@ test.describe('wallet iframe host PM_SIGN_TEMPO cancellation guards', () => {
 });
 
 test.describe('wallet iframe host canonical signer error mapping', () => {
-  test('maps deployment failure message to deployment_failed', async () => {
-    const code = resolveWalletBoundaryErrorCode({
-      requestType: 'PM_SIGN_TEMPO',
-      message:
-        '[SigningEngine] smart-account deployment must succeed before first EVM send: gateway timeout',
-    });
-    expect(code).toBe('deployment_failed');
-  });
-
-  test('maps deployment_in_progress variants to canonical code', async () => {
-    const code = resolveWalletBoundaryErrorCode({
-      requestType: 'PM_SIGN_TEMPO',
-      rawCode: 'DEPLOYMENT-IN-PROGRESS',
-      message: 'smart-account deployment already in progress',
-    });
-    expect(code).toBe('deployment_in_progress');
-  });
-
   test('maps threshold commit queue overflow to canonical code', async () => {
     const code = resolveWalletBoundaryErrorCode({
       requestType: 'PM_SIGN_TEMPO',

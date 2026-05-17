@@ -3,14 +3,50 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
 import { evmFamilySigningTargetFromExplicitTarget } from '@/core/signingEngine/flows/signEvmFamily/types';
+import type { AuthenticatedEcdsaLaneBudgetStatusCheck } from '@/core/signingEngine/session/budget/budget';
 import { readTrustedWalletSigningBudgetStatus } from '@/core/signingEngine/session/budget/budgetStatusReader';
 import { thresholdEcdsaChainTargetFromChainFamily } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { buildEvmFamilyEcdsaKeyIdentity } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
   createThresholdEcdsaStoreFixture,
   resetWarmSessionFixtureState,
 } from './helpers/warmSessionStore.fixtures';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const budgetChainTarget = thresholdEcdsaChainTargetFromChainFamily({
+  chain: 'tempo',
+  chainId: 42431,
+  networkSlug: 'tempo-moderato',
+});
+
+function authenticatedEcdsaBudgetCheck(args: {
+  walletId: string;
+  walletSigningSessionId: string;
+  thresholdSessionId: string;
+  thresholdSessionAuthToken: string;
+}): AuthenticatedEcdsaLaneBudgetStatusCheck {
+  return {
+    kind: 'authenticated_ecdsa_lane_budget_status_check',
+    key: buildEvmFamilyEcdsaKeyIdentity({
+      walletId: args.walletId,
+      subjectId: args.walletId,
+      rpId: 'localhost',
+      ecdsaThresholdKeyId: 'ecdsa-budget-key',
+      signingRootId: 'project:dev',
+      signingRootVersion: 'default',
+      participantIds: [1, 2],
+      thresholdOwnerAddress: `0x${'22'.repeat(20)}`,
+    }),
+    chainTarget: budgetChainTarget,
+    walletSigningSessionId: args.walletSigningSessionId,
+    thresholdSessionId: args.thresholdSessionId,
+    trustedStatusAuth: {
+      relayerUrl: 'https://relay.example',
+      thresholdSessionId: args.thresholdSessionId,
+      thresholdSessionAuthToken: args.thresholdSessionAuthToken,
+    },
+  };
+}
 
 test.describe('EVM-family request boundaries', () => {
   test('allows EIP-1559 transaction encoding against a Tempo signing target', () => {
@@ -75,9 +111,10 @@ test.describe('EVM-family request boundaries', () => {
     expect(transactionExecutor).toContain(
       "targetKind === 'tempo' ? loadSignTempoWithUiConfirm : loadSignEvmWithUiConfirm",
     );
-    expect(transactionExecutor).toContain('requireRawEip1559ThresholdOwnerAddress');
+    expect(transactionExecutor).toContain('requireRawEip1559ThresholdOwnerNonceSenderIdentity');
+    expect(transactionExecutor).toContain('thresholdOwnerNonceSenderIdentity');
     expect(transactionExecutor).toContain(
-      'raw EIP-1559 signing requires threshold ECDSA owner address',
+      'raw EIP-1559 signing requires prepared threshold ECDSA owner address',
     );
 
     const signTempoWithUiConfirm = fs.readFileSync(
@@ -116,7 +153,7 @@ test.describe('EVM-family request boundaries', () => {
 });
 
 test.describe('Trusted wallet signing budget status', () => {
-  test('accepts typed not_found status without an HTTP auth failure', async () => {
+  test('treats auth-rejected not_found status as budget_unknown', async () => {
     const ecdsaSessions = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaSessions);
     const originalFetch = globalThis.fetch;
@@ -138,23 +175,18 @@ test.describe('Trusted wallet signing budget status', () => {
     try {
       const status = await readTrustedWalletSigningBudgetStatus(
         { ecdsaSessions },
-        {
-          kind: 'authenticated_threshold_budget_status_check',
+        authenticatedEcdsaBudgetCheck({
           walletId: 'budget-not-found.testnet',
           walletSigningSessionId: 'wallet-session-missing',
-          targetThresholdSessionIds: ['threshold-session-missing'],
-          trustedStatusAuth: {
-            relayerUrl: 'https://relay.example',
-            thresholdSessionId: 'threshold-session-missing',
-            thresholdSessionAuthToken: 'stale-jwt',
-          },
-        },
+          thresholdSessionId: 'threshold-session-missing',
+          thresholdSessionAuthToken: 'stale-jwt',
+        }),
       );
 
       expect(status).toEqual({
         sessionId: 'wallet-session-missing',
-        status: 'not_found',
-        statusCode: 'unauthorized',
+        status: 'budget_unknown',
+        statusCode: 'status_unavailable',
       });
     } finally {
       globalThis.fetch = originalFetch;
@@ -202,17 +234,12 @@ test.describe('Trusted wallet signing budget status', () => {
     try {
       const status = await readTrustedWalletSigningBudgetStatus(
         { ecdsaSessions },
-        {
-          kind: 'authenticated_threshold_budget_status_check',
+        authenticatedEcdsaBudgetCheck({
           walletId: 'budget-current.testnet',
           walletSigningSessionId: 'wallet-session-fresh',
-          targetThresholdSessionIds: ['threshold-session-fresh'],
-          trustedStatusAuth: {
-            relayerUrl: 'https://relay.example',
-            thresholdSessionId: 'threshold-session-fresh',
-            thresholdSessionAuthToken: 'fresh-jwt',
-          },
-        },
+          thresholdSessionId: 'threshold-session-fresh',
+          thresholdSessionAuthToken: 'fresh-jwt',
+        }),
       );
 
       expect(status).toMatchObject({
@@ -237,7 +264,7 @@ test.describe('Trusted wallet signing budget status', () => {
     resetWarmSessionFixtureState(ecdsaSessions);
     const originalFetch = globalThis.fetch;
     let callCount = 0;
-    let resolveFetch: (() => void) | null = null;
+    let resolveFetch: () => void = () => undefined;
     const fetchGate = new Promise<void>((resolve) => {
       resolveFetch = resolve;
     });
@@ -261,24 +288,19 @@ test.describe('Trusted wallet signing budget status', () => {
       );
     }) as typeof fetch;
 
-    const args = {
-      kind: 'authenticated_threshold_budget_status_check',
+    const args = authenticatedEcdsaBudgetCheck({
       walletId: 'budget-coalesced.testnet',
       walletSigningSessionId: 'wallet-session-coalesced',
-      targetThresholdSessionIds: ['threshold-session-coalesced'],
-      trustedStatusAuth: {
-        relayerUrl: 'https://relay.example',
-        thresholdSessionId: 'threshold-session-coalesced',
-        thresholdSessionAuthToken: 'fresh-jwt',
-      },
-    } as const;
+      thresholdSessionId: 'threshold-session-coalesced',
+      thresholdSessionAuthToken: 'fresh-jwt',
+    });
 
     try {
       const first = readTrustedWalletSigningBudgetStatus({ ecdsaSessions }, args);
       const second = readTrustedWalletSigningBudgetStatus({ ecdsaSessions }, args);
 
       expect(callCount).toBe(1);
-      resolveFetch?.();
+      resolveFetch();
 
       const [firstStatus, secondStatus] = await Promise.all([first, second]);
       expect(firstStatus).toMatchObject({
@@ -288,7 +310,7 @@ test.describe('Trusted wallet signing budget status', () => {
       });
       expect(secondStatus).toEqual(firstStatus);
     } finally {
-      resolveFetch?.();
+      resolveFetch();
       globalThis.fetch = originalFetch;
     }
   });
@@ -317,17 +339,12 @@ test.describe('Trusted wallet signing budget status', () => {
       );
     }) as typeof fetch;
 
-    const args = {
-      kind: 'authenticated_threshold_budget_status_check',
+    const args = authenticatedEcdsaBudgetCheck({
       walletId: 'budget-fresh-read.testnet',
       walletSigningSessionId: 'wallet-session-fresh-read',
-      targetThresholdSessionIds: ['threshold-session-fresh-read'],
-      trustedStatusAuth: {
-        relayerUrl: 'https://relay.example',
-        thresholdSessionId: 'threshold-session-fresh-read',
-        thresholdSessionAuthToken: 'fresh-jwt',
-      },
-    } as const;
+      thresholdSessionId: 'threshold-session-fresh-read',
+      thresholdSessionAuthToken: 'fresh-jwt',
+    });
 
     try {
       const first = await readTrustedWalletSigningBudgetStatus({ ecdsaSessions }, args);
@@ -365,17 +382,12 @@ test.describe('Trusted wallet signing budget status', () => {
     try {
       const status = await readTrustedWalletSigningBudgetStatus(
         { ecdsaSessions },
-        {
-          kind: 'authenticated_threshold_budget_status_check',
+        authenticatedEcdsaBudgetCheck({
           walletId: 'budget-mismatch.testnet',
           walletSigningSessionId: 'wallet-session-fresh',
-          targetThresholdSessionIds: ['threshold-session-fresh'],
-          trustedStatusAuth: {
-            relayerUrl: 'https://relay.example',
-            thresholdSessionId: 'threshold-session-fresh',
-            thresholdSessionAuthToken: 'fresh-jwt',
-          },
-        },
+          thresholdSessionId: 'threshold-session-fresh',
+          thresholdSessionAuthToken: 'fresh-jwt',
+        }),
       );
 
       expect(status).toBeNull();
@@ -408,17 +420,12 @@ test.describe('Trusted wallet signing budget status', () => {
     try {
       const status = await readTrustedWalletSigningBudgetStatus(
         { ecdsaSessions },
-        {
-          kind: 'authenticated_threshold_budget_status_check',
+        authenticatedEcdsaBudgetCheck({
           walletId: 'budget-threshold-mismatch.testnet',
           walletSigningSessionId: 'wallet-session-fresh',
-          targetThresholdSessionIds: ['threshold-session-fresh'],
-          trustedStatusAuth: {
-            relayerUrl: 'https://relay.example',
-            thresholdSessionId: 'threshold-session-fresh',
-            thresholdSessionAuthToken: 'fresh-jwt',
-          },
-        },
+          thresholdSessionId: 'threshold-session-fresh',
+          thresholdSessionAuthToken: 'fresh-jwt',
+        }),
       );
 
       expect(status).toBeNull();
@@ -450,17 +457,12 @@ test.describe('Trusted wallet signing budget status', () => {
     try {
       const status = await readTrustedWalletSigningBudgetStatus(
         { ecdsaSessions },
-        {
-          kind: 'authenticated_threshold_budget_status_check',
+        authenticatedEcdsaBudgetCheck({
           walletId: 'budget-projection-missing.testnet',
           walletSigningSessionId: 'wallet-session-fresh',
-          targetThresholdSessionIds: ['threshold-session-fresh'],
-          trustedStatusAuth: {
-            relayerUrl: 'https://relay.example',
-            thresholdSessionId: 'threshold-session-fresh',
-            thresholdSessionAuthToken: 'fresh-jwt',
-          },
-        },
+          thresholdSessionId: 'threshold-session-fresh',
+          thresholdSessionAuthToken: 'fresh-jwt',
+        }),
       );
 
       expect(status).toBeNull();

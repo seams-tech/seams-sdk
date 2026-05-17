@@ -3,6 +3,8 @@ import {
   assertWarmSessionEnvelopeInvariant,
   type WarmSessionEnvelope,
 } from '@/core/signingEngine/session/warmCapabilities/types';
+import { selectedEcdsaLane } from '@/core/signingEngine/session/identity/laneIdentity';
+import { testEcdsaChainTarget } from './helpers/warmSessionStore.fixtures';
 import {
   createWarmSessionTestServices,
   createThresholdEcdsaBootstrapFixture,
@@ -28,6 +30,8 @@ function createEmptyEnvelope(): WarmSessionEnvelope {
         evm: {
           capability: 'ecdsa',
           record: null,
+          key: null,
+          lane: null,
           auth: null,
           prfClaim: null,
           state: 'missing',
@@ -35,6 +39,8 @@ function createEmptyEnvelope(): WarmSessionEnvelope {
         tempo: {
           capability: 'ecdsa',
           record: null,
+          key: null,
+          lane: null,
           auth: null,
           prfClaim: null,
           state: 'missing',
@@ -43,6 +49,62 @@ function createEmptyEnvelope(): WarmSessionEnvelope {
     },
     updatedAtMs: Date.now(),
   };
+}
+
+function createEcdsaIdentityArgs(args: {
+  walletId: string;
+  subjectId: string;
+  thresholdSessionId: string;
+  walletSigningSessionId: string;
+  chain: 'evm' | 'tempo';
+  source: 'login' | 'email_otp';
+}) {
+  const chainTarget = testEcdsaChainTarget(args.chain);
+  const record = {
+    walletId: args.walletId,
+    subjectId: args.subjectId,
+    rpId: 'example.localhost',
+    chainTarget,
+    ecdsaThresholdKeyId: `ek-${args.chain}`,
+    signingRootId: 'signing-root',
+    signingRootVersion: 'default',
+    participantIds: [1, 2],
+    ethereumAddress: `0x${'11'.repeat(20)}`,
+    thresholdSessionKind: 'cookie',
+    thresholdSessionId: args.thresholdSessionId,
+    walletSigningSessionId: args.walletSigningSessionId,
+    relayerUrl: 'https://relay.example',
+    relayerKeyId: 'relayer-key',
+    clientVerifyingShareB64u: 'AQ',
+    expiresAtMs: Date.now() + 120_000,
+    remainingUses: 2,
+    source: args.source,
+    updatedAtMs: Date.now(),
+  } as any;
+  const key = {
+    walletId: args.walletId,
+    subjectId: args.subjectId,
+    rpId: 'example.localhost',
+    keyScope: 'evm-family',
+    ecdsaThresholdKeyId: `ek-${args.chain}`,
+    signingRootId: 'signing-root',
+    signingRootVersion: 'default',
+    participantIds: [1, 2],
+    thresholdOwnerAddress: `0x${'11'.repeat(20)}`,
+  } as any;
+  const lane = selectedEcdsaLane({
+    key,
+    walletId: args.walletId as any,
+    authMethod: args.source === 'email_otp' ? 'email_otp' : 'passkey',
+    walletSigningSessionId: args.walletSigningSessionId,
+    thresholdSessionId: args.thresholdSessionId,
+    subjectId: args.subjectId,
+    chainTarget,
+    ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
+    signingRootId: key.signingRootId,
+    signingRootVersion: key.signingRootVersion,
+  });
+  return { record, key, lane };
 }
 
 test.describe('WarmSessionStore invariants', () => {
@@ -102,19 +164,26 @@ test.describe('WarmSessionStore invariants', () => {
 
   test('rejects a ready capability whose warm-session status does not match the record sessionId', () => {
     const envelope = createEmptyEnvelope();
+    const { record, key, lane } = createEcdsaIdentityArgs({
+      walletId: 'invariants.testnet',
+      subjectId: 'wallet-subject-invariants',
+      thresholdSessionId: 'record-session',
+      walletSigningSessionId: 'wallet-session-record',
+      chain: 'evm',
+      source: 'login',
+    });
     envelope.capabilities.ecdsa.evm = {
       capability: 'ecdsa',
-      record: {
-        walletId: 'invariants.testnet',
-        thresholdSessionId: 'record-session',
-        thresholdSessionKind: 'jwt',
-      } as any,
+      record,
+      key,
+      lane: {
+        ...lane,
+        key,
+      },
       auth: {
         capability: 'ecdsa',
         record: {
-          walletId: 'invariants.testnet',
-          thresholdSessionId: 'record-session',
-          thresholdSessionKind: 'jwt',
+          ...record,
         } as any,
         thresholdSessionAuthToken: 'jwt:record-session',
         thresholdSessionAuthTokenSource: 'ecdsa',
@@ -164,14 +233,22 @@ test.describe('WarmSessionStore invariants', () => {
 
   test('rejects a warm status with non-positive remaining uses', () => {
     const envelope = createEmptyEnvelope();
-    const record = {
-      nearAccountId: 'invariants.testnet',
+    const { record, key, lane } = createEcdsaIdentityArgs({
+      walletId: 'invariants.testnet',
+      subjectId: 'wallet-subject-invariants',
       thresholdSessionId: 'tempo-bad-claim',
-      thresholdSessionKind: 'cookie',
-    } as any;
+      walletSigningSessionId: 'wallet-session-tempo',
+      chain: 'tempo',
+      source: 'login',
+    });
     envelope.capabilities.ecdsa.tempo = {
       capability: 'ecdsa',
       record,
+      key,
+      lane: {
+        ...lane,
+        key,
+      },
       auth: {
         capability: 'ecdsa',
         record,

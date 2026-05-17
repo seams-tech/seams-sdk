@@ -66,31 +66,19 @@ function makePreparedLinkDeviceService() {
           sessionKind: 'jwt',
           sessionId: 'evm-session-1',
           walletSigningSessionId: 'wallet-signing-session-1',
-          expiresAtMs: Date.now() + 60_000,
-          participantIds: [1, 2],
-          remainingUses: 5,
-        },
-      },
-      linkedAccounts: [
-        {
-          chainIdKey: 'evm:11155111',
-          chain: 'evm' as const,
-          chainId: 11155111,
+          subjectId: 'alice.testnet',
+          ecdsaThresholdKeyId: 'ehss-link-device-prepare-1',
           chainTarget: {
             kind: 'evm' as const,
             namespace: 'eip155' as const,
             chainId: 11155111,
             networkSlug: 'sepolia',
           },
-          accountAddress: `0x${'22'.repeat(20)}`,
-          accountModel: 'erc4337' as const,
-          factory: `0x${'33'.repeat(20)}`,
-          entryPoint: `0x${'44'.repeat(20)}`,
-          salt: '0x1234',
-          counterfactualAddress: `0x${'22'.repeat(20)}`,
-          deployed: false,
+          expiresAtMs: Date.now() + 60_000,
+          participantIds: [1, 2],
+          remainingUses: 5,
         },
-      ],
+      },
     }),
   });
 }
@@ -125,7 +113,7 @@ test.describe('link-device prepare routing', () => {
       expect((res.json?.thresholdEcdsa as any)?.ecdsaThresholdKeyId).toBe(
         'ehss-link-device-prepare-1',
       );
-      expect((res.json?.linkedAccounts as any[])?.[0]?.chainIdKey).toBe('evm:11155111');
+      expect(res.json).not.toHaveProperty('linkedAccounts');
     } finally {
       await srv.close();
     }
@@ -160,6 +148,6 @@ test.describe('link-device prepare routing', () => {
     expect((res.json?.thresholdEcdsa as any)?.ecdsaThresholdKeyId).toBe(
       'ehss-link-device-prepare-1',
     );
-    expect((res.json?.linkedAccounts as any[])?.[0]?.accountModel).toBe('erc4337');
+    expect(res.json).not.toHaveProperty('linkedAccounts');
   });
 });

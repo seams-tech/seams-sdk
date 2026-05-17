@@ -1,5 +1,4 @@
 import type { Page } from '@playwright/test';
-import { thresholdEcdsaChainTargetFromChainFamily } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   createSigningSessionSealPolicyFromThresholdAuthSessionStores,
   createSigningSessionSealRoutesOptions,
@@ -451,7 +450,6 @@ export async function runEmailOtpEcdsaTempoFlow(
       relayerAccount: 'web3-authn-v4.testnet',
       relayer: {
         url: relayerUrl,
-        smartAccountDeploymentMode: 'observe',
       },
       ...(managedRegistration
         ? {
@@ -488,16 +486,17 @@ export async function runEmailOtpEcdsaTempoFlow(
 
     const signingKind = input.signingKind === 'eip1559' ? 'eip1559' : 'tempoTransaction';
     const bootstrapChain = signingKind === 'eip1559' ? 'evm' : 'tempo';
-    const tempoChainTarget = thresholdEcdsaChainTargetFromChainFamily({
-      chain: 'tempo',
+    const tempoChainTarget = {
+      kind: 'tempo' as const,
       chainId: 42431,
       networkSlug: 'tempo-moderato',
-    });
-    const evmChainTarget = thresholdEcdsaChainTargetFromChainFamily({
-      chain: 'evm',
+    };
+    const evmChainTarget = {
+      kind: 'evm' as const,
+      namespace: 'eip155' as const,
       chainId: 11155111,
       networkSlug: 'ethereum-sepolia',
-    });
+    };
     const signingChainTarget = signingKind === 'eip1559' ? evmChainTarget : tempoChainTarget;
     const makeThresholdEcdsaRequest = (tag: string) =>
       signingKind === 'eip1559'
@@ -540,8 +539,12 @@ export async function runEmailOtpEcdsaTempoFlow(
       const enrollmentOtp = await requestEnrollmentOtp();
       const enrollmentLogin = await signingEngine.enrollAndLoginWithEmailOtpEcdsaCapabilityInternal(
         {
-          nearAccountId: accountId,
-          chain: bootstrapChain,
+          walletSession: {
+            walletId: accountId,
+            walletSessionUserId: accountId,
+          },
+          subjectId: accountId,
+          chainTarget: signingChainTarget,
           emailOtpAuthPolicy,
           challengeId: enrollmentOtp.challengeId,
           otpCode: enrollmentOtp.otpCode,
@@ -591,8 +594,12 @@ export async function runEmailOtpEcdsaTempoFlow(
       const loginOtp =
         input.resendLoginOtpBeforeSubmit === true ? await requestLoginOtp() : firstLoginOtp;
       const loggedIn = await signingEngine.loginWithEmailOtpEcdsaCapabilityInternal({
-        nearAccountId: accountId,
-        chain: bootstrapChain,
+        walletSession: {
+          walletId: accountId,
+          walletSessionUserId: accountId,
+        },
+        subjectId: accountId,
+        chainTarget: signingChainTarget,
         emailOtpAuthPolicy,
         challengeId: loginOtp.challengeId,
         otpCode: loginOtp.otpCode,
@@ -611,12 +618,19 @@ export async function runEmailOtpEcdsaTempoFlow(
 
       const exportOptionsRequested =
         input.exportNearWithResend === true || input.exportEcdsaWithResend === true;
+      const expectsPostExhaustionSigningPrompt =
+        input.skipFirstSign !== true &&
+        input.signTwice !== false &&
+        typeof input.signingSessionRemainingUses === 'number' &&
+        input.signingSessionRemainingUses <= 1;
       const originalRequestUserConfirmation =
         typeof signingEngine?.touchConfirm?.requestUserConfirmation === 'function'
           ? signingEngine.touchConfirm.requestUserConfirmation.bind(signingEngine.touchConfirm)
           : null;
       if (
-        (exportOptionsRequested || emailOtpAuthPolicy === 'per_operation') &&
+        (exportOptionsRequested ||
+          emailOtpAuthPolicy === 'per_operation' ||
+          expectsPostExhaustionSigningPrompt) &&
         originalRequestUserConfirmation
       ) {
         signingEngine.touchConfirm.requestUserConfirmation = async (
@@ -739,39 +753,37 @@ export async function runEmailOtpEcdsaTempoFlow(
               }
             })();
 
-      const nearSignResult =
-        input.signNearAfterLogin === true
-          ? await (async () => {
-              try {
-                const signed = await pm.near.signTransactionsWithActions({
-                  nearAccount: { accountId },
-                  transactions: [
-                    {
-                      receiverId: 'w3a-v1.testnet',
-                      actions: [{ type: ActionType.Transfer, amount: '1' }],
-                    },
-                  ],
-                  options: { confirmationConfig },
-                });
-                const first = Array.isArray(signed) ? signed[0] : null;
-                const tx = (first as any)?.signedTransaction?.transaction || {};
-                return {
-                  ok: Array.isArray(signed) && signed.length === 1,
-                  signedCount: Array.isArray(signed) ? signed.length : 0,
-                  signerId: String(tx.signerId || ''),
-                  receiverId: String(tx.receiverId || ''),
-                };
-              } catch (error: unknown) {
-                return {
-                  ok: false,
-                  error:
-                    error && typeof error === 'object' && 'message' in error
-                      ? String((error as { message?: unknown }).message || '')
-                      : String(error || 'near sign failed'),
-                };
-              }
-            })()
-          : undefined;
+      const runNearSign = async () => {
+        try {
+          const signed = await pm.near.signTransactionsWithActions({
+            nearAccount: { accountId },
+            transactions: [
+              {
+                receiverId: 'w3a-v1.testnet',
+                actions: [{ type: ActionType.Transfer, amount: '1' }],
+              },
+            ],
+            options: { confirmationConfig },
+          });
+          const first = Array.isArray(signed) ? signed[0] : null;
+          const tx = (first as any)?.signedTransaction?.transaction || {};
+          return {
+            ok: Array.isArray(signed) && signed.length === 1,
+            signedCount: Array.isArray(signed) ? signed.length : 0,
+            signerId: String(tx.signerId || ''),
+            receiverId: String(tx.receiverId || ''),
+          };
+        } catch (error: unknown) {
+          return {
+            ok: false,
+            error:
+              error && typeof error === 'object' && 'message' in error
+                ? String((error as { message?: unknown }).message || '')
+                : String(error || 'near sign failed'),
+          };
+        }
+      };
+      const nearSignResult = input.signNearAfterLogin === true ? await runNearSign() : undefined;
 
       const exportResults =
         input.exportNearWithResend === true || input.exportEcdsaWithResend === true
@@ -780,9 +792,10 @@ export async function runEmailOtpEcdsaTempoFlow(
                 ? {
                     near: await (async () => {
                       try {
-                        const exported = await pm.keys.exportKeypairWithUI(accountId, {
-                          chain: 'near',
-                          variant: 'drawer',
+                        const exported = await pm.keys.exportKeypairWithUI({
+                          kind: 'near',
+                          nearAccount: { accountId },
+                          options: { chain: 'near', variant: 'drawer' },
                         });
                         return {
                           ok: true,
@@ -806,9 +819,18 @@ export async function runEmailOtpEcdsaTempoFlow(
                 ? {
                     ecdsa: await (async () => {
                       try {
-                        const exported = await pm.keys.exportKeypairWithUI(accountId, {
-                          chain: bootstrapChain,
-                          variant: 'drawer',
+                        const exported = await pm.keys.exportKeypairWithUI({
+                          kind: 'ecdsa',
+                          subjectId: accountId,
+                          chainTarget: signingChainTarget,
+                          walletSession: {
+                            walletId: accountId,
+                            walletSessionUserId: accountId,
+                          },
+                          options: {
+                            chain: bootstrapChain,
+                            variant: 'drawer',
+                          },
                         });
                         return {
                           ok: true,
@@ -979,6 +1001,12 @@ export async function runEmailOtpReloadPhase(
                 !Array.isArray(record.ecdsaRestore)
                   ? (record.ecdsaRestore as Record<string, unknown>).chain
                   : undefined,
+              ecdsaRestoreKeys:
+                record.ecdsaRestore &&
+                typeof record.ecdsaRestore === 'object' &&
+                !Array.isArray(record.ecdsaRestore)
+                  ? Object.keys(record.ecdsaRestore as Record<string, unknown>).sort()
+                  : [],
               hasEd25519Restore: Boolean(record.ed25519Restore),
               ed25519RestoreKeys:
                 record.ed25519Restore &&
@@ -1012,6 +1040,34 @@ export async function runEmailOtpReloadPhase(
                 curve: 'ed25519',
               })
             : [];
+        const listSealedRecordsForAuth = async (
+          authMethod: 'email_otp' | 'passkey',
+        ): Promise<Array<Record<string, unknown>>> => {
+          if (!sealedStore || typeof (sealedStore as any).listExactSealedSessionsForWallet !== 'function') {
+            return [];
+          }
+          const records = await (sealedStore as any).listExactSealedSessionsForWallet({
+            walletId: accountId,
+            filter: {
+              authMethod,
+              curve: 'ed25519',
+            },
+          });
+          if (!Array.isArray(records)) return [];
+          return records.map((record) => ({
+            storeKey: record?.storeKey,
+            authMethod: record?.authMethod,
+            curve: record?.curve,
+            walletSigningSessionId: record?.walletSigningSessionId,
+            thresholdSessionIds: record?.thresholdSessionIds,
+            hasEd25519Restore: Boolean(record?.ed25519Restore),
+            hasEcdsaRestore: Boolean(record?.ecdsaRestore),
+          }));
+        };
+        const [emailOtpEd25519SealedRecords, passkeyEd25519SealedRecords] = await Promise.all([
+          listSealedRecordsForAuth('email_otp'),
+          listSealedRecordsForAuth('passkey'),
+        ]);
         return {
           ed25519Record: ed25519Record
             ? {
@@ -1032,6 +1088,8 @@ export async function runEmailOtpReloadPhase(
                 walletSigningSessionId: identity.walletSigningSessionId,
               }))
             : [],
+          emailOtpEd25519SealedRecords,
+          passkeyEd25519SealedRecords,
         };
       };
 
@@ -1076,7 +1134,6 @@ export async function runEmailOtpReloadPhase(
           relayerAccount: 'web3-authn-v4.testnet',
           relayer: {
             url: relayerUrl,
-            smartAccountDeploymentMode: 'observe',
           },
           ...(managedRegistration
             ? {
@@ -1103,13 +1160,152 @@ export async function runEmailOtpReloadPhase(
         pm.setConfirmationConfig(confirmationConfig as any);
 
         const signingEngine = pm.getContext().signingEngine as any;
+        const restoreCallEvents: Array<{
+          source: 'email_otp' | 'passkey';
+          authMethod: string;
+          curve: string;
+          walletSigningSessionId: string;
+          thresholdSessionId: string;
+          attempted?: number;
+          restored?: number;
+          deferred?: number;
+          preflightMatched?: number;
+          preflightRejected?: number;
+          preflightNotApplicable?: number;
+          preflightRejectionReasons?: string[];
+        }> = [];
+        if (typeof signingEngine?.emailOtpSessions?.restorePersistedSessionForSigning === 'function') {
+          const originalRestore =
+            signingEngine.emailOtpSessions.restorePersistedSessionForSigning.bind(
+              signingEngine.emailOtpSessions,
+            );
+          signingEngine.emailOtpSessions.restorePersistedSessionForSigning = async (
+            restoreArgs: Record<string, unknown>,
+          ) => {
+            let preflightMatched = 0;
+            let preflightRejected = 0;
+            let preflightNotApplicable = 0;
+            let preflightRejectionReasons: string[] = [];
+            try {
+              const [sealedStoreMod, lookupMod] = await Promise.all([
+                import('/sdk/esm/core/signingEngine/session/persistence/sealedSessionStore.js').catch(
+                  () => null,
+                ),
+                import('/sdk/esm/core/signingEngine/session/sealedRecovery/exactRecordLookup.js').catch(
+                  () => null,
+                ),
+              ]);
+              if (
+                sealedStoreMod &&
+                lookupMod &&
+                typeof (sealedStoreMod as any).listExactSealedSessionsForWallet === 'function' &&
+                typeof (lookupMod as any).buildRestoreWorkItemLookupResult === 'function'
+              ) {
+                const exactRecords = await (sealedStoreMod as any).listExactSealedSessionsForWallet({
+                  walletId: accountId,
+                  filter: {
+                    authMethod: 'email_otp',
+                    curve: 'ed25519',
+                  },
+                });
+                if (Array.isArray(exactRecords)) {
+                  for (const record of exactRecords) {
+                    const lookup = (lookupMod as any).buildRestoreWorkItemLookupResult(
+                      {
+                        walletId: accountId,
+                        authMethod: 'email_otp',
+                        curve: 'ed25519',
+                        chain: 'near',
+                        walletSigningSessionId: String(
+                          restoreArgs?.walletSigningSessionId || '',
+                        ),
+                        thresholdSessionId: String(restoreArgs?.thresholdSessionId || ''),
+                        reason: String(restoreArgs?.reason || 'transaction'),
+                      },
+                      record,
+                    );
+                    if (lookup?.kind === 'matched') preflightMatched += 1;
+                    else if (lookup?.kind === 'rejected') {
+                      preflightRejected += 1;
+                      const reason = String(lookup?.rejection?.reason || '').trim();
+                      if (reason) preflightRejectionReasons.push(reason);
+                    } else preflightNotApplicable += 1;
+                  }
+                }
+              }
+            } catch {}
+            const event = {
+              source: 'email_otp' as const,
+              authMethod: String(restoreArgs?.authMethod || ''),
+              curve: String(restoreArgs?.curve || ''),
+              walletSigningSessionId: String(restoreArgs?.walletSigningSessionId || ''),
+              thresholdSessionId: String(restoreArgs?.thresholdSessionId || ''),
+              preflightMatched,
+              preflightRejected,
+              preflightNotApplicable,
+              preflightRejectionReasons,
+            };
+            const restoreResult = await originalRestore(restoreArgs);
+            restoreCallEvents.push({
+              ...event,
+              attempted:
+                restoreResult && typeof restoreResult === 'object'
+                  ? Number((restoreResult as Record<string, unknown>).attempted ?? 0)
+                  : 0,
+              restored:
+                restoreResult && typeof restoreResult === 'object'
+                  ? Number((restoreResult as Record<string, unknown>).restored ?? 0)
+                  : 0,
+              deferred:
+                restoreResult && typeof restoreResult === 'object'
+                  ? Number((restoreResult as Record<string, unknown>).deferred ?? 0)
+                  : 0,
+            });
+            return restoreResult;
+          };
+        }
+        if (typeof signingEngine?.touchConfirm?.restorePersistedSessionForSigning === 'function') {
+          const originalRestore =
+            signingEngine.touchConfirm.restorePersistedSessionForSigning.bind(signingEngine.touchConfirm);
+          signingEngine.touchConfirm.restorePersistedSessionForSigning = async (
+            restoreArgs: Record<string, unknown>,
+          ) => {
+            const event = {
+              source: 'passkey' as const,
+              authMethod: String(restoreArgs?.authMethod || ''),
+              curve: String(restoreArgs?.curve || ''),
+              walletSigningSessionId: String(restoreArgs?.walletSigningSessionId || ''),
+              thresholdSessionId: String(restoreArgs?.thresholdSessionId || ''),
+            };
+            const restoreResult = await originalRestore(restoreArgs);
+            restoreCallEvents.push({
+              ...event,
+              attempted:
+                restoreResult && typeof restoreResult === 'object'
+                  ? Number((restoreResult as Record<string, unknown>).attempted ?? 0)
+                  : 0,
+              restored:
+                restoreResult && typeof restoreResult === 'object'
+                  ? Number((restoreResult as Record<string, unknown>).restored ?? 0)
+                  : 0,
+              deferred:
+                restoreResult && typeof restoreResult === 'object'
+                  ? Number((restoreResult as Record<string, unknown>).deferred ?? 0)
+                  : 0,
+            });
+            return restoreResult;
+          };
+        }
         if (
           rememberAppSessionJwt !== false &&
           appSessionJwt &&
           typeof signingEngine?.emailOtpSessions?.rememberAppSessionJwt === 'function'
         ) {
           signingEngine.emailOtpSessions.rememberAppSessionJwt({
-            nearAccountId: accountId,
+            walletSession: {
+              walletId: accountId,
+              walletSessionUserId: accountId,
+            },
             appSessionJwt,
           });
         }
@@ -1356,9 +1552,10 @@ export async function runEmailOtpReloadPhase(
               return;
             }
             if (kind === 'exportNear') {
-              const exported = await pm.keys.exportKeypairWithUI(accountId, {
-                chain: 'near',
-                variant: 'drawer',
+              const exported = await pm.keys.exportKeypairWithUI({
+                kind: 'near',
+                nearAccount: { accountId },
+                options: { chain: 'near', variant: 'drawer' },
               });
               pushResult({
                 kind,
@@ -1370,9 +1567,15 @@ export async function runEmailOtpReloadPhase(
               return;
             }
             if (kind === 'exportEcdsa') {
-              const exported = await pm.keys.exportKeypairWithUI(accountId, {
-                chain: 'tempo',
-                variant: 'drawer',
+              const exported = await pm.keys.exportKeypairWithUI({
+                kind: 'ecdsa',
+                subjectId: accountId,
+                chainTarget: tempoChainTarget,
+                walletSession: {
+                  walletId: accountId,
+                  walletSessionUserId: accountId,
+                },
+                options: { chain: 'tempo', variant: 'drawer' },
               });
               pushResult({
                 kind,
@@ -1420,6 +1623,7 @@ export async function runEmailOtpReloadPhase(
           webauthnGetCount: webauthnState.getCount,
           sealedRecordSummaries: await readSealedRecordSummaries(),
           runtimeDiagnostics: await readRuntimeDiagnostics(),
+          restoreCallEvents,
           promptCountBeforeExports: promptCountBeforeExports ?? emailOtpPromptCount,
           promptCountAfterExports,
           promptCountAfterFinalSign: emailOtpPromptCount,

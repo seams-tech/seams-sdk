@@ -4,6 +4,8 @@ import {
   summarizeWarmSessionTransition,
   type WarmSessionTransitionEvent,
 } from '@/core/signingEngine/session/warmCapabilities/transitions';
+import { selectedEcdsaLane } from '@/core/signingEngine/session/identity/laneIdentity';
+import { testEcdsaChainTarget } from './helpers/warmSessionStore.fixtures';
 import type { WarmSessionEnvelope } from '@/core/signingEngine/session/warmCapabilities/types';
 
 function createEnvelope(): WarmSessionEnvelope {
@@ -35,17 +37,68 @@ function createEnvelope(): WarmSessionEnvelope {
         evm: {
           capability: 'ecdsa',
           record: null,
+          key: null,
+          lane: null,
           auth: null,
           prfClaim: null,
           state: 'missing',
         },
         tempo: {
-          capability: 'ecdsa',
-          record: {
-            walletId: 'transition-summary.testnet',
-            thresholdSessionId: 'tempo-session',
-            thresholdSessionKind: 'cookie',
-          } as any,
+          ...(function () {
+            const chainTarget = testEcdsaChainTarget('tempo');
+            const key = {
+              walletId: 'transition-summary.testnet',
+              subjectId: 'wallet-subject-transition',
+              rpId: 'example.localhost',
+              keyScope: 'evm-family',
+              ecdsaThresholdKeyId: 'ek-tempo',
+              signingRootId: 'signing-root',
+              signingRootVersion: 'default',
+              participantIds: [1, 2],
+              thresholdOwnerAddress: `0x${'11'.repeat(20)}`,
+            } as any;
+            const lane = selectedEcdsaLane({
+              key,
+              walletId: 'transition-summary.testnet' as any,
+              authMethod: 'passkey',
+              walletSigningSessionId: 'wallet-tempo-session',
+              thresholdSessionId: 'tempo-session',
+              subjectId: key.subjectId,
+              chainTarget,
+              ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
+              signingRootId: key.signingRootId,
+              signingRootVersion: key.signingRootVersion,
+            });
+            return {
+              capability: 'ecdsa' as const,
+              record: {
+                walletId: 'transition-summary.testnet',
+                subjectId: key.subjectId,
+                rpId: 'example.localhost',
+                chainTarget,
+                ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
+                signingRootId: key.signingRootId,
+                signingRootVersion: key.signingRootVersion,
+                participantIds: [1, 2],
+                ethereumAddress: `0x${'11'.repeat(20)}`,
+                thresholdSessionId: 'tempo-session',
+                walletSigningSessionId: 'wallet-tempo-session',
+                thresholdSessionKind: 'cookie',
+                relayerUrl: 'https://relay.example',
+                relayerKeyId: 'relayer-key',
+                clientVerifyingShareB64u: 'AQ',
+                expiresAtMs: Date.now() + 120_000,
+                remainingUses: 2,
+                source: 'login',
+                updatedAtMs: Date.now(),
+              } as any,
+              key,
+              lane: {
+                ...lane,
+                key,
+              },
+            };
+          })(),
           auth: {
             capability: 'ecdsa',
             record: {} as any,

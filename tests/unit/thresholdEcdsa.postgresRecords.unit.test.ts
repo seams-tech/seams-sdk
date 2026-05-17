@@ -6,6 +6,36 @@ import {
   parseCurrentThresholdEcdsaSigningSessionRow,
   parseCurrentThresholdEd25519KeyRecord,
 } from '../../server/src/core/ThresholdService/postgresRecords';
+import { createThresholdEcdsaKeyStore } from '../../server/src/core/ThresholdService/stores/KeyStore';
+import { normalizeLogger } from '../../server/src/core/logger';
+
+function makeThresholdEcdsaIntegratedKeyRecord(
+  overrides: Record<string, unknown> = {},
+): NonNullable<ReturnType<typeof parseCurrentThresholdEcdsaKeyRecord>> {
+  const record = parseCurrentThresholdEcdsaKeyRecord({
+    version: 'threshold_ecdsa_hss_key_v1',
+    ecdsaThresholdKeyId: 'threshold-key',
+    walletSessionUserId: 'alice.testnet',
+    subjectId: 'wallet-subject-alice',
+    rpId: 'example.localhost',
+    schemeId: 'scheme-v1',
+    clientVerifyingShareB64u: 'client-share',
+    thresholdEcdsaPublicKeyB64u: 'public-key',
+    ethereumAddress: '0x1111111111111111111111111111111111111111',
+    signingRootId: 'signing-root',
+    signingRootVersion: 'default',
+    walletKeyVersion: 'wallet-key-v1',
+    derivationVersion: 1,
+    participantIds: [2, 1],
+    relayerRootShare32B64u: 'root-share',
+    relayerBackendInputB64u: 'backend-input',
+    createdAtMs: 100,
+    updatedAtMs: 200,
+    ...overrides,
+  });
+  if (!record) throw new Error('test fixture must be a current threshold ECDSA key record');
+  return record;
+}
 
 test.describe('threshold ecdsa postgres records', () => {
   test('parses only current key records', () => {
@@ -55,7 +85,6 @@ test.describe('threshold ecdsa postgres records', () => {
       ecdsaThresholdKeyId: 'threshold-key',
       walletSessionUserId: 'alice.testnet',
       subjectId: 'alice.testnet',
-      chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 11155111 },
       rpId: 'example.localhost',
       schemeId: 'scheme-v1',
       clientVerifyingShareB64u: 'client-share',
@@ -274,5 +303,26 @@ test.describe('threshold ecdsa postgres records', () => {
         createdAtMs: 0,
       }),
     ).toBeNull();
+  });
+
+  test('server key store rejects a second shared EVM-family key identity', async () => {
+    const store = createThresholdEcdsaKeyStore({
+      config: { kind: 'in-memory' },
+      logger: normalizeLogger(null),
+      isNode: true,
+    });
+    const first = makeThresholdEcdsaIntegratedKeyRecord({
+      signingRootId: 'server-shared-root',
+    });
+    await store.put(first.ecdsaThresholdKeyId, first);
+
+    const conflicting = makeThresholdEcdsaIntegratedKeyRecord({
+      ecdsaThresholdKeyId: 'threshold-key-conflict',
+      signingRootId: 'server-shared-root',
+      updatedAtMs: 201,
+    });
+    await expect(store.put(conflicting.ecdsaThresholdKeyId, conflicting)).rejects.toThrow(
+      /EVM-family key identity/,
+    );
   });
 });

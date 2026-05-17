@@ -37,7 +37,7 @@ test.describe('generic profile/account projection helpers', () => {
           profileId: 'profile-evm-projection',
           chainIdKey: 'evm:11155111',
           accountAddress: '0xabc123',
-          accountModel: 'erc4337',
+          accountModel: 'threshold-ecdsa',
           isPrimary: true,
         });
         await clientDB.upsertAccountSigner({
@@ -125,14 +125,14 @@ test.describe('generic profile/account projection helpers', () => {
           profileId: 'profile-last-selected',
           chainIdKey: 'evm:11155111',
           accountAddress: '0xprimary',
-          accountModel: 'erc4337',
+          accountModel: 'threshold-ecdsa',
           isPrimary: true,
         });
         await clientDB.upsertChainAccount({
           profileId: 'profile-last-selected',
           chainIdKey: 'evm:11155111',
           accountAddress: '0xsecondary',
-          accountModel: 'erc4337',
+          accountModel: 'threshold-ecdsa',
           isPrimary: false,
         });
         await clientDB.upsertAccountSigner({

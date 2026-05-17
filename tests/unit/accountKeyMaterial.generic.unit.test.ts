@@ -42,7 +42,7 @@ test.describe('generic account key material helpers', () => {
           profileId: 'profile-evm-key-material',
           chainIdKey: 'evm:11155111',
           accountAddress: '0xabc123',
-          accountModel: 'erc4337',
+          accountModel: 'threshold-ecdsa',
           isPrimary: true,
         });
 
@@ -140,7 +140,7 @@ test.describe('generic account key material helpers', () => {
           profileId: 'profile-evm-explicit',
           chainIdKey: 'evm:11155111',
           accountAddress: '0xabc123',
-          accountModel: 'erc4337',
+          accountModel: 'threshold-ecdsa',
           isPrimary: true,
         });
 

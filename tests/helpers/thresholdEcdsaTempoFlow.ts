@@ -82,6 +82,12 @@ export type ThresholdEcdsaTempoFlowResult = {
     message?: string;
   };
   session?: ThresholdEcdsaTempoFlowSession;
+  walletSession?: {
+    nearAccountId: string | null;
+    isLoggedIn: boolean;
+    thresholdEcdsaEthereumAddress: string | null;
+    thresholdEcdsaPublicKeyB64u: string | null;
+  };
   budgetStatus?: SigningBudgetStatusResult;
   signed?:
     | {
@@ -266,6 +272,8 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
         await import('/sdk/esm/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u.js');
       const credentialExtensionsMod =
         await import('/sdk/esm/core/signingEngine/webauthnAuth/credentials/credentialExtensions.js');
+      const identityMod =
+        await import('/sdk/esm/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.js');
       const { IndexedDBManager } = indexedDbMod as any;
       const { getNearThresholdKeyMaterial } = keyMaterialMod as any;
       const {
@@ -274,6 +282,8 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
       } = recordsMod as any;
       const { collectAuthenticationCredentialForChallengeB64u } = webauthnCredentialMod as any;
       const { getPrfFirstB64uFromCredential } = credentialExtensionsMod as any;
+      const { buildEvmFamilyEcdsaKeyIdentity, buildEvmFamilyEcdsaSessionLanePolicy } =
+        identityMod as any;
       const token = String(w.__w3aRegistrationContinuationToken || '').trim();
       if (!token) {
         throw new Error('missing registration continuation token for fresh Tempo ECDSA bootstrap');
@@ -351,6 +361,22 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
               .map((id: unknown) => Number(id))
               .filter((id: number) => Number.isFinite(id))
           : [1, 2];
+      const managedRegistration =
+        w.__w3aManagedRegistration && typeof w.__w3aManagedRegistration === 'object'
+          ? (w.__w3aManagedRegistration as {
+              environmentId?: unknown;
+              publishableKey?: unknown;
+            })
+          : null;
+      const runtimeScopeBootstrap =
+        managedRegistration &&
+        String(managedRegistration.environmentId || '').trim() &&
+        String(managedRegistration.publishableKey || '').trim()
+          ? {
+              environmentId: String(managedRegistration.environmentId || '').trim(),
+              publishableKey: String(managedRegistration.publishableKey || '').trim(),
+            }
+          : null;
       const connectedEd25519 = await signingEngine.connectEd25519Session({
         kind: 'fresh_ed25519_provisioning',
         nearAccountId: input.accountId,
@@ -362,6 +388,7 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
         ttlMs: input.ttlMs,
         remainingUses: input.remainingUses,
         appSessionJwt: String(login.jwt || ''),
+        ...(runtimeScopeBootstrap ? { runtimeScopeBootstrap } : {}),
         localPrfCredential,
       });
       const walletSigningSessionId = String(connectedEd25519?.walletSigningSessionId || '').trim();
@@ -422,42 +449,90 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
         : typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
           ? `threshold-ecdsa-browser-${crypto.randomUUID()}`
           : `threshold-ecdsa-browser-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      const authMaterial =
+      const sessionIdentity = {
+        thresholdSessionId,
+        walletSigningSessionId,
+      };
+      const routeAuth =
         chainTarget.kind === 'tempo'
           ? {
-              routeAuth: {
-                kind: 'registration_continuation' as const,
-                token,
-              },
+              kind: 'registration_continuation' as const,
+              token,
             }
-          : { webauthnAuthentication: localPrfCredential };
+          : null;
+      const authMaterial = routeAuth
+        ? { routeAuth }
+        : { webauthnAuthentication: localPrfCredential };
+      const existingParticipantIds = Array.isArray(existingTargetRecord?.participantIds)
+        ? existingTargetRecord.participantIds
+            .map((id: unknown) => Number(id))
+            .filter((id: number) => Number.isFinite(id))
+        : [];
+      const keyIdentityParticipantIds =
+        existingParticipantIds.length > 0 ? existingParticipantIds : participantIds;
+      const existingThresholdOwnerAddress = String(existingTargetRecord?.ethereumAddress || '').trim();
+      const existingSigningRootId = String(existingTargetRecord?.signingRootId || '').trim();
+      const existingSigningRootVersion =
+        String(existingTargetRecord?.signingRootVersion || 'default').trim() || 'default';
+      const rpId =
+        typeof signingEngine.getRpId === 'function'
+          ? String(signingEngine.getRpId() || '').trim() || 'example.localhost'
+          : 'example.localhost';
+      const exactActivationIdentity =
+        routeAuth &&
+        existingEcdsaThresholdKeyId &&
+        existingSigningRootId &&
+        existingThresholdOwnerAddress &&
+        keyIdentityParticipantIds.length > 0
+          ? (() => {
+              try {
+                const key = buildEvmFamilyEcdsaKeyIdentity({
+                  walletId: input.accountId,
+                  subjectId: input.accountId,
+                  rpId,
+                  ecdsaThresholdKeyId: existingEcdsaThresholdKeyId,
+                  signingRootId: existingSigningRootId,
+                  signingRootVersion: existingSigningRootVersion,
+                  participantIds: keyIdentityParticipantIds,
+                  thresholdOwnerAddress: existingThresholdOwnerAddress,
+                });
+                const lanePolicy = buildEvmFamilyEcdsaSessionLanePolicy({
+                  chainTarget,
+                  thresholdSessionId: sessionIdentity.thresholdSessionId,
+                  walletSigningSessionId: sessionIdentity.walletSigningSessionId,
+                  thresholdSessionKind: 'jwt',
+                  ttlMs: input.ttlMs,
+                  remainingUses: input.remainingUses,
+                });
+                return { key, lanePolicy };
+              } catch {
+                return null;
+              }
+            })()
+          : null;
       const bootstrapRequest = {
         kind: 'passkey_fresh_ecdsa_bootstrap' as const,
-        walletSession: {
-          walletId: input.accountId,
-          walletSessionUserId: input.accountId,
-        },
+        walletId: input.accountId,
         subjectId: input.accountId,
         chainTarget,
         source: 'manual-bootstrap' as const,
         relayerUrl: input.relayerUrl,
-        ...(existingEcdsaThresholdKeyId
+        ...(existingEcdsaThresholdKeyId && (!routeAuth || exactActivationIdentity)
           ? { ecdsaThresholdKeyId: existingEcdsaThresholdKeyId }
           : {}),
         participantIds,
         sessionKind: 'jwt' as const,
-        sessionIdentity: {
-          thresholdSessionId,
-          walletSigningSessionId,
-        },
+        sessionIdentity,
         clientRootShare32B64u,
         ...authMaterial,
         ttlMs: input.ttlMs,
         remainingUses: input.remainingUses,
+        ...(runtimeScopeBootstrap ? { runtimeScopeBootstrap } : {}),
+        ...(exactActivationIdentity
+          ? { key: exactActivationIdentity.key, lanePolicy: exactActivationIdentity.lanePolicy }
+          : {}),
       };
-      return chainTarget.kind === 'evm'
-        ? await input.pm.evm.bootstrapEcdsaSession(bootstrapRequest)
-        : await input.pm.tempo.bootstrapEcdsaSession(bootstrapRequest);
+      return await signingEngine.bootstrapEcdsaSession(bootstrapRequest);
     };
     w.__w3aBootstrapFreshEcdsaForRequest = async (input: {
       pm: any;
@@ -515,6 +590,8 @@ export async function runThresholdEcdsaTempoFlow(
       await import('/sdk/esm/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u.js');
     const credentialExtensionsMod =
       await import('/sdk/esm/core/signingEngine/webauthnAuth/credentials/credentialExtensions.js');
+    const identityMod =
+      await import('/sdk/esm/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.js');
 
     const { SeamsPasskey } = sdkMod as any;
     const { IndexedDBManager } = indexedDbMod as any;
@@ -525,6 +602,8 @@ export async function runThresholdEcdsaTempoFlow(
     } = recordsMod as any;
     const { collectAuthenticationCredentialForChallengeB64u } = webauthnCredentialMod as any;
     const { getPrfFirstB64uFromCredential } = credentialExtensionsMod as any;
+    const { buildEvmFamilyEcdsaKeyIdentity, buildEvmFamilyEcdsaSessionLanePolicy } =
+      identityMod as any;
 
     const accountId =
       typeof input.accountId === 'string' && input.accountId.trim()
@@ -567,7 +646,6 @@ export async function runThresholdEcdsaTempoFlow(
         : {}),
       relayer: {
         url: input.relayerUrl,
-        smartAccountDeploymentMode: 'observe',
       },
       ...(managedRegistration
         ? {
@@ -622,7 +700,9 @@ export async function runThresholdEcdsaTempoFlow(
         };
       }
       const signingEngine = (pm as any).signingEngine as {
+        bootstrapEcdsaSession: (args: Record<string, unknown>) => Promise<Record<string, unknown>>;
         connectEd25519Session: (args: Record<string, unknown>) => Promise<Record<string, unknown>>;
+        getRpId?: () => string;
         getAuthenticationCredentialsSerialized: (args: {
           nearAccountId: string;
           challengeB64u: string;
@@ -704,6 +784,15 @@ export async function runThresholdEcdsaTempoFlow(
         nearAccountId: accountId,
         challengeB64u: localPrfChallengeB64u,
       });
+      const runtimeScopeBootstrap =
+        managedRegistration &&
+        String(managedRegistration.environmentId || '').trim() &&
+        String(managedRegistration.publishableKey || '').trim()
+          ? {
+              environmentId: String(managedRegistration.environmentId || '').trim(),
+              publishableKey: String(managedRegistration.publishableKey || '').trim(),
+            }
+          : null;
       const connectedEd25519 = await signingEngine.connectEd25519Session({
         kind: 'fresh_ed25519_provisioning',
         nearAccountId: accountId,
@@ -722,6 +811,7 @@ export async function runThresholdEcdsaTempoFlow(
             ? input.connectSessionRemainingUses
             : 4,
         appSessionJwt: String(login.jwt || ''),
+        ...(runtimeScopeBootstrap ? { runtimeScopeBootstrap } : {}),
         localPrfCredential,
       });
       const walletSigningSessionId = String(connectedEd25519?.walletSigningSessionId || '').trim();
@@ -830,12 +920,76 @@ export async function runThresholdEcdsaTempoFlow(
               },
             );
           }
+          const participantIds = Array.isArray(thresholdKeyMaterial.participants)
+            ? thresholdKeyMaterial.participants
+                .map((participant: { id?: unknown }) => Number(participant?.id))
+                .filter((id: number) => Number.isFinite(id))
+            : [1, 2];
+          const sessionIdentity = {
+            thresholdSessionId: String(existingTargetRecord?.thresholdSessionId || '').trim()
+              ? String(existingTargetRecord?.thresholdSessionId || '').trim()
+              : typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+                ? `threshold-ecdsa-browser-${crypto.randomUUID()}`
+                : `threshold-ecdsa-browser-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+            walletSigningSessionId,
+          };
+          const ttlMs =
+            typeof input.connectSessionTtlMs === 'number' ? input.connectSessionTtlMs : 120_000;
+          const remainingUses =
+            typeof input.connectSessionRemainingUses === 'number'
+              ? input.connectSessionRemainingUses
+              : 4;
+          const existingParticipantIds = Array.isArray(existingTargetRecord?.participantIds)
+            ? existingTargetRecord.participantIds
+                .map((id: unknown) => Number(id))
+                .filter((id: number) => Number.isFinite(id))
+            : [];
+          const keyIdentityParticipantIds =
+            existingParticipantIds.length > 0 ? existingParticipantIds : participantIds;
+          const existingThresholdOwnerAddress = String(
+            existingTargetRecord?.ethereumAddress || '',
+          ).trim();
+          const existingSigningRootId = String(existingTargetRecord?.signingRootId || '').trim();
+          const existingSigningRootVersion =
+            String(existingTargetRecord?.signingRootVersion || 'default').trim() || 'default';
+          const rpId =
+            typeof signingEngine.getRpId === 'function'
+              ? String(signingEngine.getRpId() || '').trim() || 'example.localhost'
+              : 'example.localhost';
+          const exactActivationIdentity =
+            existingEcdsaThresholdKeyId &&
+            existingSigningRootId &&
+            existingThresholdOwnerAddress &&
+            keyIdentityParticipantIds.length > 0
+              ? (() => {
+                  try {
+                    const key = buildEvmFamilyEcdsaKeyIdentity({
+                      walletId: accountId,
+                      subjectId: accountId,
+                      rpId,
+                      ecdsaThresholdKeyId: existingEcdsaThresholdKeyId,
+                      signingRootId: existingSigningRootId,
+                      signingRootVersion: existingSigningRootVersion,
+                      participantIds: keyIdentityParticipantIds,
+                      thresholdOwnerAddress: existingThresholdOwnerAddress,
+                    });
+                    const lanePolicy = buildEvmFamilyEcdsaSessionLanePolicy({
+                      chainTarget: signingChainTarget,
+                      thresholdSessionId: sessionIdentity.thresholdSessionId,
+                      walletSigningSessionId: sessionIdentity.walletSigningSessionId,
+                      thresholdSessionKind: 'jwt',
+                      ttlMs,
+                      remainingUses,
+                    });
+                    return { key, lanePolicy };
+                  } catch {
+                    return null;
+                  }
+                })()
+              : null;
           const bootstrapArgs = {
             kind: 'passkey_fresh_ecdsa_bootstrap' as const,
-            walletSession: {
-              walletId: accountId,
-              walletSessionUserId: accountId,
-            },
+            walletId: accountId,
             subjectId: accountId,
             chainTarget: signingChainTarget,
             source: 'manual-bootstrap' as const,
@@ -843,36 +997,19 @@ export async function runThresholdEcdsaTempoFlow(
             ...(existingEcdsaThresholdKeyId
               ? { ecdsaThresholdKeyId: existingEcdsaThresholdKeyId }
               : {}),
-            participantIds: Array.isArray(thresholdKeyMaterial.participants)
-              ? thresholdKeyMaterial.participants
-                  .map((participant: { id?: unknown }) => Number(participant?.id))
-                  .filter((id: number) => Number.isFinite(id))
-              : [1, 2],
+            participantIds,
             sessionKind: 'jwt' as const,
-            sessionIdentity: {
-              thresholdSessionId: String(existingTargetRecord?.thresholdSessionId || '').trim()
-                ? String(existingTargetRecord?.thresholdSessionId || '').trim()
-                : typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-                  ? `threshold-ecdsa-browser-${crypto.randomUUID()}`
-                  : `threshold-ecdsa-browser-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-              walletSigningSessionId,
-            },
+            sessionIdentity,
             clientRootShare32B64u,
-            routeAuth: {
-              kind: 'registration_continuation' as const,
-              token: registrationContinuationToken,
-            },
-            ttlMs:
-              typeof input.connectSessionTtlMs === 'number' ? input.connectSessionTtlMs : 120_000,
-            remainingUses:
-              typeof input.connectSessionRemainingUses === 'number'
-                ? input.connectSessionRemainingUses
-                : 4,
+            webauthnAuthentication: localPrfCredential,
+            ttlMs,
+            remainingUses,
+            ...(runtimeScopeBootstrap ? { runtimeScopeBootstrap } : {}),
+            ...(exactActivationIdentity
+              ? { key: exactActivationIdentity.key, lanePolicy: exactActivationIdentity.lanePolicy }
+              : {}),
           };
-          const boot =
-            signingChainTarget.kind === 'evm'
-              ? await pm.evm.bootstrapEcdsaSession(bootstrapArgs)
-              : await pm.tempo.bootstrapEcdsaSession(bootstrapArgs);
+          const boot = await signingEngine.bootstrapEcdsaSession(bootstrapArgs);
           keygen = boot.keygen;
           session = normalizeTempoFlowSession(boot.session);
           if (session.kind === 'connected') {
@@ -966,11 +1103,32 @@ export async function runThresholdEcdsaTempoFlow(
           options: { confirmationConfig },
         });
 
+        const walletSession = await pm.auth.getWalletSession(accountId).catch(() => null);
+        const walletSessionThresholdOwnerAddress =
+          walletSession?.login?.thresholdEcdsaEthereumAddress != null
+            ? String(walletSession.login.thresholdEcdsaEthereumAddress).trim() || null
+            : null;
+        const walletSessionThresholdPublicKey =
+          walletSession?.login?.thresholdEcdsaPublicKeyB64u != null
+            ? String(walletSession.login.thresholdEcdsaPublicKeyB64u).trim() || null
+            : null;
+        const walletSessionNearAccountId =
+          walletSession?.login?.nearAccountId != null
+            ? String(walletSession.login.nearAccountId).trim() || null
+            : null;
+        const walletSessionIsLoggedIn = walletSession?.login?.isLoggedIn === true;
+
         return {
           ok: true,
           accountId,
           keygen,
           session,
+          walletSession: {
+            nearAccountId: walletSessionNearAccountId,
+            isLoggedIn: walletSessionIsLoggedIn,
+            thresholdEcdsaEthereumAddress: walletSessionThresholdOwnerAddress,
+            thresholdEcdsaPublicKeyB64u: walletSessionThresholdPublicKey,
+          },
           budgetStatus,
           signed,
         };

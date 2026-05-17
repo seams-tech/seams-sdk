@@ -37,6 +37,7 @@ function ecdsaRecord(args: {
   return {
     walletId: NEAR_ACCOUNT_ID,
     subjectId: toWalletSubjectId(NEAR_ACCOUNT_ID),
+    rpId: 'localhost',
     chainTarget: args.chainTarget || EVM_CHAIN_TARGET,
     relayerUrl: 'https://relay.example',
     ecdsaThresholdKeyId: 'ecdsa-key-1',
@@ -50,6 +51,7 @@ function ecdsaRecord(args: {
     walletSigningSessionId: `wallet-${args.thresholdSessionId}`,
     expiresAtMs: Date.now() + 60_000,
     remainingUses: 1,
+    ethereumAddress: '0x1111111111111111111111111111111111111111',
     updatedAtMs: Date.now(),
     source: args.source || 'email_otp',
     emailOtpAuthContext:

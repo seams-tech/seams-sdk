@@ -48,7 +48,7 @@ function createIndexedDbPort(calls: UpsertCall[]): ThresholdEcdsaBootstrapIndexe
 }
 
 test.describe('threshold ECDSA bootstrap persistence', () => {
-  test('persists undeployed bootstrap rows and clears prior deployment metadata', async () => {
+  test('persists threshold ECDSA owner-address rows', async () => {
     const calls: UpsertCall[] = [];
 
     await persistThresholdEcdsaBootstrapForWalletTarget({
@@ -58,11 +58,7 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
       bootstrap: {
         keygen: {
           chainId: 11155111,
-          counterfactualAddress: `0x${'ab'.repeat(20)}`,
           ethereumAddress: `0x${'ab'.repeat(20)}`,
-          factory: `0x${'cd'.repeat(20)}`,
-          entryPoint: `0x${'ef'.repeat(20)}`,
-          salt: '0x1234',
         },
       } as any,
     });
@@ -71,24 +67,8 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
 
     const primary = calls[0]!;
     expect(primary.chainIdKey).toBe('evm:eip155:11155111');
-    expect(primary.accountModel).toBe('erc4337');
-    expect(primary.deployed).toBe(false);
-    expect(primary.deploymentTxHash).toBeNull();
-    expect(primary.lastDeploymentCheckAt).toBeNull();
-    expect(primary.undeployedSignerSet).toEqual({
-      version: 'undeployed_smart_account_signer_set_v1',
-      ownerAddresses: [`0x${'ab'.repeat(20)}`],
-      activeOwnerAddresses: [`0x${'ab'.repeat(20)}`],
-      pendingOwnerAddresses: [],
-      owners: [
-        {
-          signerId: `0x${'ab'.repeat(20)}`,
-          signerType: 'threshold',
-          status: 'active',
-        },
-      ],
-    });
-
+    expect(primary.accountAddress).toBe(`0x${'ab'.repeat(20)}`);
+    expect(primary.accountModel).toBe('threshold-ecdsa');
   });
 
   test('uses requested chain target when bootstrap chain id is invalid', async () => {
@@ -101,56 +81,13 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
       bootstrap: {
         keygen: {
           chainId: 'invalid',
-          counterfactualAddress: `0x${'ab'.repeat(20)}`,
+          ethereumAddress: `0x${'ab'.repeat(20)}`,
         },
       } as any,
     });
 
     expect(calls.length).toBe(1);
     expect(calls[0]?.chainIdKey).toBe('evm:eip155:11155111');
-  });
-
-  test('persists deployed state when registration already deployed the smart account', async () => {
-    const calls: UpsertCall[] = [];
-
-    await persistThresholdEcdsaBootstrapForWalletTarget({
-      indexedDB: createIndexedDbPort(calls),
-      walletId: 'alice.testnet' as any,
-      chainTarget: TEMPO_TARGET,
-      bootstrap: {
-        keygen: {
-          chainId: 42431,
-          counterfactualAddress: `0x${'12'.repeat(20)}`,
-          ethereumAddress: `0x${'12'.repeat(20)}`,
-        },
-      } as any,
-      deployment: {
-        deployed: true,
-        deploymentTxHash: '0xdeploytempo',
-      },
-    });
-
-    expect(calls.length).toBe(1);
-
-    const primary = calls[0]!;
-    expect(primary.chainIdKey).toBe('tempo:42431');
-    expect(primary.deployed).toBe(true);
-    expect(primary.deploymentTxHash).toBe('0xdeploytempo');
-    expect(typeof primary.lastDeploymentCheckAt).toBe('number');
-    expect(primary.undeployedSignerSet).toEqual({
-      version: 'undeployed_smart_account_signer_set_v1',
-      ownerAddresses: [`0x${'12'.repeat(20)}`],
-      activeOwnerAddresses: [`0x${'12'.repeat(20)}`],
-      pendingOwnerAddresses: [],
-      owners: [
-        {
-          signerId: `0x${'12'.repeat(20)}`,
-          signerType: 'threshold',
-          status: 'active',
-        },
-      ],
-    });
-
   });
 
   test('Email OTP bootstrap creates NEAR profile/account projection without a passkey signer', async () => {
@@ -203,7 +140,6 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
       bootstrap: {
         keygen: {
           chainId: 42431,
-          counterfactualAddress: `0x${'34'.repeat(20)}`,
           ethereumAddress: `0x${'34'.repeat(20)}`,
         },
       } as any,

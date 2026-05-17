@@ -65,6 +65,7 @@ function makeSealedRecord(args: {
           shamirPrimeB64u: 'prime-b64u',
           ecdsaRestore: {
             chainTarget,
+            rpId: 'example.com',
             sessionKind: 'jwt' as const,
             thresholdSessionAuthToken: 'jwt-restore',
             ecdsaThresholdKeyId: 'ecdsa-key-restore',
@@ -395,6 +396,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
       },
       ecdsaRestore: {
         chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
+        rpId: 'example.com',
         sessionKind: 'jwt',
         thresholdSessionAuthToken: 'jwt-restore',
         ecdsaThresholdKeyId: 'ecdsa-key-restore',
@@ -455,6 +457,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
       },
       ecdsaRestore: {
         chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
+        rpId: 'example.com',
         sessionKind: 'jwt',
         thresholdSessionAuthToken: 'jwt-restore',
         ecdsaThresholdKeyId: 'ecdsa-key-restore',
@@ -499,6 +502,78 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
         reason: 'transaction',
       },
     ]);
+  });
+
+  test('matches Ed25519 signing purpose from an Email OTP ECDSA sealed record with Ed25519 companion metadata', async () => {
+    let restoreCalls = 0;
+    let restoredPurpose: unknown = null;
+    let restoredRecord: SealedRecoveryRecord | null = null;
+    const baseEcdsaPrimaryRecord = makeSealedRecord({
+      authMethod: 'email_otp',
+      curve: 'ecdsa',
+      thresholdSessionId: 'tsess-ecdsa-primary',
+      walletSigningSessionId: 'wsess-ecdsa-primary',
+      thresholdSessionIds: {
+        ecdsa: 'tsess-ecdsa-primary',
+        ed25519: 'tsess-ed25519-companion',
+      },
+    });
+    const ecdsaPrimaryRecord: SigningSessionSealedStoreRecord = {
+      ...baseEcdsaPrimaryRecord,
+      ed25519Restore: {
+        rpId: 'example.com',
+        relayerKeyId: 'relayer-key-restore',
+        participantIds: [1, 2],
+        sessionKind: 'jwt',
+        thresholdSessionAuthToken: 'jwt-ed25519-companion',
+        runtimePolicyScope: {
+          mode: 'single_domain',
+          parentOrigin: 'https://wallet.example.localhost',
+        },
+        xClientBaseB64u: 'x-client-base-restore',
+      },
+    };
+
+    const result = await restorePersistedSessionForSigningCommand(
+      {
+        walletId: 'restore.testnet',
+        authMethod: 'email_otp',
+        curve: 'ed25519',
+        chain: 'near',
+        walletSigningSessionId: 'wsess-ecdsa-primary',
+        thresholdSessionId: 'tsess-ed25519-companion',
+        reason: 'transaction',
+      },
+      {
+        listExactSealedSessionsForWallet: async ({ curve }) =>
+          curve === 'ed25519' ? [ecdsaPrimaryRecord] : [],
+        restoreSealedRecordForWallet: async ({ purpose, record }) => {
+          restoreCalls += 1;
+          restoredPurpose = purpose;
+          restoredRecord = record;
+          return 'restored';
+        },
+      },
+    );
+
+    expect(result).toMatchObject({ attempted: 1, restored: 1, deferred: 0 });
+    expect(restoreCalls).toBe(1);
+    expect(restoredPurpose).toEqual({
+      walletId: 'restore.testnet',
+      authMethod: 'email_otp',
+      curve: 'ed25519',
+      chain: 'near',
+      walletSigningSessionId: 'wsess-ecdsa-primary',
+      thresholdSessionId: 'tsess-ed25519-companion',
+      reason: 'transaction',
+    });
+    expect(restoredRecord).toMatchObject({
+      authMethod: 'email_otp',
+      curve: 'ecdsa',
+      walletSigningSessionId: 'wsess-ecdsa-primary',
+      thresholdSessionId: 'tsess-ecdsa-primary',
+      companionEd25519ThresholdSessionId: 'tsess-ed25519-companion',
+    });
   });
 });
 
@@ -677,6 +752,7 @@ test.describe('restorePersistedSessionsForWalletCommand', () => {
       },
       ecdsaRestore: {
         chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
+        rpId: 'example.com',
         sessionKind: 'jwt',
         thresholdSessionAuthToken: 'jwt-restore',
         ecdsaThresholdKeyId: 'ecdsa-key-restore',

@@ -255,15 +255,9 @@ export function makeFakeAuthService(
     prepareLinkDevice: AuthService['prepareLinkDevice'];
     getRecoverySession: AuthService['getRecoverySession'];
     updateRecoverySessionStatus: AuthService['updateRecoverySessionStatus'];
-    listSmartAccountRecoverySubjects: AuthService['listSmartAccountRecoverySubjects'];
-    getSmartAccountRecoverySubjectByAccount: AuthService['getSmartAccountRecoverySubjectByAccount'];
-    putSmartAccountRecoverySubject: AuthService['putSmartAccountRecoverySubject'];
     recordRecoveryExecution: AuthService['recordRecoveryExecution'];
     listRecoveryExecutions: AuthService['listRecoveryExecutions'];
     listRecoveryExecutionsByStatus: AuthService['listRecoveryExecutionsByStatus'];
-    listAccountSignersByAccount: AuthService['listAccountSignersByAccount'];
-    listActiveSmartAccountSignersForUser: AuthService['listActiveSmartAccountSignersForUser'];
-    putAccountSigner: AuthService['putAccountSigner'];
     recordNearPublicKeyMetadata: AuthService['recordNearPublicKeyMetadata'];
     listIdentities: AuthService['listIdentities'];
     linkIdentity: AuthService['linkIdentity'];
@@ -424,13 +418,6 @@ export function makeFakeAuthService(
     updateRecoverySessionStatus:
       overrides.updateRecoverySessionStatus ||
       (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
-    listSmartAccountRecoverySubjects:
-      overrides.listSmartAccountRecoverySubjects || (async () => ({ ok: true, records: [] })),
-    getSmartAccountRecoverySubjectByAccount:
-      overrides.getSmartAccountRecoverySubjectByAccount ||
-      (async () => ({ ok: true, record: null })),
-    putSmartAccountRecoverySubject:
-      overrides.putSmartAccountRecoverySubject || (async (record) => ({ ok: true, record })),
     recordRecoveryExecution:
       overrides.recordRecoveryExecution ||
       (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
@@ -438,11 +425,6 @@ export function makeFakeAuthService(
       overrides.listRecoveryExecutions || (async () => ({ ok: true, records: [] })),
     listRecoveryExecutionsByStatus:
       overrides.listRecoveryExecutionsByStatus || (async () => ({ ok: true, records: [] })),
-    listAccountSignersByAccount:
-      overrides.listAccountSignersByAccount || (async () => ({ ok: true, records: [] })),
-    listActiveSmartAccountSignersForUser:
-      overrides.listActiveSmartAccountSignersForUser || (async () => []),
-    putAccountSigner: overrides.putAccountSigner || (async (record) => ({ ok: true, record })),
     recordNearPublicKeyMetadata:
       overrides.recordNearPublicKeyMetadata || (async () => ({ ok: true })),
     listIdentities: overrides.listIdentities || (async () => ({ ok: true, subjects: [] })),

@@ -53,12 +53,10 @@ test.describe('exchangeSession', () => {
         });
       }) as typeof fetch;
 
-      const result = await exchangeSession(
-        'https://relay.example/',
-        '/session/exchange',
-        'jwt',
-        { type: 'oidc_jwt', token: 'oidc-token-1' },
-      );
+      const result = await exchangeSession('https://relay.example/', '/session/exchange', 'jwt', {
+        type: 'oidc_jwt',
+        token: 'oidc-token-1',
+      });
 
       expect(result.success).toBe(true);
       expect(result.sessionUserId).toBe('alice.testnet');
@@ -87,12 +85,10 @@ test.describe('exchangeSession', () => {
         });
       }) as typeof fetch;
 
-      const result = await exchangeSession(
-        'https://relay.example',
-        'session/exchange',
-        'cookie',
-        { type: 'oidc_jwt', token: 'oidc-token-2' },
-      );
+      const result = await exchangeSession('https://relay.example', 'session/exchange', 'cookie', {
+        type: 'oidc_jwt',
+        token: 'oidc-token-2',
+      });
 
       expect(result.success).toBe(true);
       expect(result.sessionUserId).toBe('bob.testnet');
@@ -115,12 +111,10 @@ test.describe('exchangeSession', () => {
           401,
         )) as typeof fetch;
 
-      const result = await exchangeSession(
-        'https://relay.example',
-        '/session/exchange',
-        'jwt',
-        { type: 'oidc_jwt', token: 'oidc-token-3' },
-      );
+      const result = await exchangeSession('https://relay.example', '/session/exchange', 'jwt', {
+        type: 'oidc_jwt',
+        token: 'oidc-token-3',
+      });
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('issuer mismatch');
@@ -142,33 +136,18 @@ test.describe('exchangeSession', () => {
             userId: 'carol.testnet',
             expiresAt: '2030-01-01T00:00:00.000Z',
           },
-          smartAccountSigners: [
-            {
-              metadata: {
-                ecdsaThresholdKeyId: 'ehss-rpc-passkey-1',
-              },
-            },
-          ],
         });
       }) as typeof fetch;
 
-      const result = await exchangeSession(
-        'https://relay.example',
-        '/session/exchange',
-        'cookie',
-        {
-          type: 'passkey_assertion',
-          challengeId: 'challenge-passkey-1',
-          webauthn_authentication: sampleWebauthnCredential as any,
-          expected_origin: 'https://wallet.example',
-        },
-      );
+      const result = await exchangeSession('https://relay.example', '/session/exchange', 'cookie', {
+        type: 'passkey_assertion',
+        challengeId: 'challenge-passkey-1',
+        webauthn_authentication: sampleWebauthnCredential as any,
+        expected_origin: 'https://wallet.example',
+      });
 
       expect(result.success).toBe(true);
       expect(result.sessionUserId).toBe('carol.testnet');
-      expect(result.smartAccountSigners?.[0]).toEqual({
-        metadata: { ecdsaThresholdKeyId: 'ehss-rpc-passkey-1' },
-      });
       expect(captured).toHaveLength(1);
       const body = JSON.parse(String(captured[0]!.init?.body || '{}')) as Record<string, unknown>;
       const exchange = (body.exchange || {}) as Record<string, unknown>;
@@ -195,12 +174,10 @@ test.describe('exchangeSession', () => {
         return jsonResponse({ ok: true });
       }) as typeof fetch;
 
-      const result = await exchangeSession(
-        'https://relay.example',
-        '/session/exchange',
-        'jwt',
-        { type: 'oidc_jwt', token: '  ' },
-      );
+      const result = await exchangeSession('https://relay.example', '/session/exchange', 'jwt', {
+        type: 'oidc_jwt',
+        token: '  ',
+      });
 
       expect(result.success).toBe(false);
       expect(String(result.error || '')).toContain('Missing exchange token');
@@ -219,16 +196,11 @@ test.describe('exchangeSession', () => {
         return jsonResponse({ ok: true });
       }) as typeof fetch;
 
-      const result = await exchangeSession(
-        'https://relay.example',
-        '/session/exchange',
-        'jwt',
-        {
-          type: 'passkey_assertion',
-          challengeId: '   ',
-          webauthn_authentication: sampleWebauthnCredential as any,
-        },
-      );
+      const result = await exchangeSession('https://relay.example', '/session/exchange', 'jwt', {
+        type: 'passkey_assertion',
+        challengeId: '   ',
+        webauthn_authentication: sampleWebauthnCredential as any,
+      });
 
       expect(result.success).toBe(false);
       expect(String(result.error || '')).toContain('Missing passkey challengeId');

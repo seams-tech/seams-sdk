@@ -60,7 +60,7 @@ test.describe('Email OTP auth lane route planning', () => {
     const authLane = resolveEmailOtpAuthLane({
       routeAuth: { kind: 'threshold_session', jwt: 'threshold-session-jwt' },
       thresholdSessionId: 'threshold-session',
-      walletSigningSessionId: 'wallet-signing-session',
+      authorizingWalletSigningSessionId: 'wallet-signing-session',
       curve: 'ecdsa',
       chainTarget: TEMPO_CHAIN_TARGET,
     });
@@ -87,7 +87,7 @@ test.describe('Email OTP auth lane route planning', () => {
     const signingLane = resolveEmailOtpAuthLane({
       routeAuth: { kind: 'threshold_session', jwt: 'threshold-session-jwt' },
       thresholdSessionId: 'threshold-session',
-      walletSigningSessionId: 'wallet-signing-session',
+      authorizingWalletSigningSessionId: 'wallet-signing-session',
       curve: 'ed25519',
     });
     const appLane = resolveEmailOtpAuthLane({ appSessionJwt: 'app-session-jwt' });

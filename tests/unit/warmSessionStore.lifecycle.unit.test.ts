@@ -64,6 +64,35 @@ test.describe('WarmSessionStore lifecycle', () => {
     expect(warmSession.capabilities.ecdsa.tempo.state).toBe('missing');
   });
 
+  test('returns a ready cookie passkey Ed25519 capability from stored client base', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    const ed25519Record = seedEd25519WarmSessionRecord({
+      nearAccountId: 'cookie-ed25519.testnet',
+      thresholdSessionId: 'cookie-ed25519-session',
+      thresholdSessionKind: 'cookie',
+      xClientBaseB64u: 'cookie-ed25519-client-base',
+      remainingUses: 5,
+    });
+
+    const store = createWarmSessionTestServices({
+      touchConfirm: createWarmSessionStatusReader({
+        [ed25519Record.thresholdSessionId]: {
+          state: 'missing',
+        },
+      }),
+    });
+    const warmSession = await store.getWarmSession(ed25519Record.nearAccountId);
+
+    expect(warmSession.capabilities.ed25519.state).toBe('ready');
+    expect(warmSession.capabilities.ed25519.auth?.thresholdSessionAuthTokenSource).toBe('none');
+    expect(warmSession.capabilities.ed25519.prfClaim).toMatchObject({
+      state: 'missing',
+      sessionId: 'cookie-ed25519-session',
+    });
+  });
+
   test('uses batch warm-session status reads when the touchConfirm snapshot reader is available', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);

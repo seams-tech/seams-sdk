@@ -13,7 +13,6 @@ import {
   createInMemoryConsoleOrgProjectEnvService,
   createInMemoryConsolePolicyService,
   createInMemoryConsoleRuntimeSnapshotService,
-  createInMemoryConsoleSmartWalletService,
   createInMemoryConsoleTeamRbacService,
   createInMemoryConsoleWalletService,
   createInMemoryConsoleWebhookService,
@@ -2684,12 +2683,6 @@ test.describe('console router (express)', () => {
       expect(gas.status).toBe(501);
       expect(gas.json?.code).toBe('policies_not_configured');
 
-      const smartWallets = await fetchJson(`${srv.baseUrl}/console/smart-wallets`, {
-        method: 'GET',
-      });
-      expect(smartWallets.status).toBe(501);
-      expect(smartWallets.json?.code).toBe('smart_wallets_not_configured');
-
       const keyExports = await fetchJson(`${srv.baseUrl}/console/key-exports`, { method: 'GET' });
       expect(keyExports.status).toBe(501);
       expect(keyExports.json?.code).toBe('key_exports_not_configured');
@@ -2707,13 +2700,11 @@ test.describe('console router (express)', () => {
 
   test('new console endpoints support scaffold CRUD flows', async () => {
     const policies = createInMemoryConsolePolicyService();
-    const smartWallets = createInMemoryConsoleSmartWalletService();
     const keyExports = createInMemoryConsoleKeyExportService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const router = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], 'org-scaffold-express-1', 'user-scaffold-express-1'),
       policies,
-      smartWallets,
       keyExports,
       runtimeSnapshots,
     });
@@ -2780,30 +2771,6 @@ test.describe('console router (express)', () => {
       );
       expect(publishedGas.status).toBe(200);
 
-      const createdSmartWallet = await fetchJson(`${srv.baseUrl}/console/smart-wallets`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: 'sw-express-1',
-          scopeType: 'ENVIRONMENT',
-          environmentId: 'prod',
-          mode: 'REQUIRED',
-          accountType: 'SMART_ACCOUNT',
-        }),
-      });
-      expect(createdSmartWallet.status).toBe(201);
-      expect(getPath(createdSmartWallet.json, 'config', 'id')).toBe('sw-express-1');
-
-      const listedSmartWallets = await fetchJson(
-        `${srv.baseUrl}/console/smart-wallets?environmentId=${encodeURIComponent('prod')}`,
-        { method: 'GET' },
-      );
-      expect(listedSmartWallets.status).toBe(200);
-      const listedSmartWalletRows: unknown[] = Array.isArray(listedSmartWallets.json?.configs)
-        ? (listedSmartWallets.json?.configs as unknown[])
-        : [];
-      expect(listedSmartWalletRows.length).toBeGreaterThanOrEqual(1);
-
       const createdKeyExport = await fetchJson(`${srv.baseUrl}/console/key-exports`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2849,10 +2816,6 @@ test.describe('console router (express)', () => {
       expect(
         getPath(publishedSnapshot.json, 'snapshot', 'payload', 'gasSponsorship', 'status'),
       ).toBe('resolved');
-      expect(getPath(publishedSnapshot.json, 'snapshot', 'payload', 'smartWallets', 'status')).toBe(
-        'resolved',
-      );
-
       const latestSnapshot = await fetchJson(
         `${srv.baseUrl}/console/runtime-snapshots/latest?environmentId=${encodeURIComponent('prod')}`,
         { method: 'GET' },
@@ -2902,9 +2865,6 @@ test.describe('console router (express)', () => {
       expect(Number(getPath(first.json, 'snapshot', 'version') || 0)).toBe(1);
       expect(getPath(first.json, 'snapshot', 'payload', 'policy', 'status')).toBe('not_configured');
       expect(getPath(first.json, 'snapshot', 'payload', 'gasSponsorship', 'status')).toBe(
-        'not_configured',
-      );
-      expect(getPath(first.json, 'snapshot', 'payload', 'smartWallets', 'status')).toBe(
         'not_configured',
       );
       const firstChecksum = String(getPath(first.json, 'snapshot', 'checksum') || '');
@@ -3170,7 +3130,6 @@ test.describe('console router (express)', () => {
       teamRbac,
     });
     const policies = createInMemoryConsolePolicyService();
-    const smartWallets = createInMemoryConsoleSmartWalletService();
     const keyExports = createInMemoryConsoleKeyExportService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const router = createConsoleRouter({
@@ -3188,7 +3147,6 @@ test.describe('console router (express)', () => {
       billing,
       enterpriseIsolation,
       policies,
-      smartWallets,
       keyExports,
       runtimeSnapshots,
     });
@@ -3290,20 +3248,6 @@ test.describe('console router (express)', () => {
       expect(createKeyExport.status).toBe(403);
       expect(createKeyExport.json?.code).toBe('forbidden');
 
-      const createSmartWallet = await fetchJson(`${srv.baseUrl}/console/smart-wallets`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: 'sw-express-rbac-1',
-          scopeType: 'ENVIRONMENT',
-          environmentId: 'prod',
-          mode: 'REQUIRED',
-          accountType: 'SMART_ACCOUNT',
-        }),
-      });
-      expect(createSmartWallet.status).toBe(403);
-      expect(createSmartWallet.json?.code).toBe('forbidden');
-
       const approve = await fetchJson(
         `${srv.baseUrl}/console/key-exports/ke-express-rbac-1/approve`,
         {
@@ -3326,7 +3270,6 @@ test.describe('console router (express)', () => {
           payload: {
             policy: {},
             gasSponsorship: {},
-            smartWallets: {},
           },
         }),
       });
@@ -3378,7 +3321,6 @@ test.describe('console router (express)', () => {
 
   test('new console endpoint validation errors return typed error codes', async () => {
     const policies = createInMemoryConsolePolicyService();
-    const smartWallets = createInMemoryConsoleSmartWalletService();
     const keyExports = createInMemoryConsoleKeyExportService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const router = createConsoleRouter({
@@ -3388,7 +3330,6 @@ test.describe('console router (express)', () => {
         'user-scaffold-express-validation-1',
       ),
       policies,
-      smartWallets,
       keyExports,
       runtimeSnapshots,
     });
@@ -3485,7 +3426,6 @@ test.describe('console router (express)', () => {
 
   test('new console endpoints enforce org isolation', async () => {
     const policies = createInMemoryConsolePolicyService();
-    const smartWallets = createInMemoryConsoleSmartWalletService();
     const keyExports = createInMemoryConsoleKeyExportService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const ownerOrgId = 'org-scaffold-express-isolation-owner';
@@ -3495,7 +3435,6 @@ test.describe('console router (express)', () => {
     const ownerRouter = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-scaffold-express-isolation-user'),
       policies,
-      smartWallets,
       keyExports,
       runtimeSnapshots,
     });
@@ -3518,19 +3457,6 @@ test.describe('console router (express)', () => {
       expect(createGas.status).toBe(201);
       ownerGasId = String(getPath(createGas.json, 'policy', 'id') || '');
       expect(ownerGasId.startsWith('policy_')).toBe(true);
-
-      const createSmartWallet = await fetchJson(`${ownerServer.baseUrl}/console/smart-wallets`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: 'sw-express-isolation-1',
-          scopeType: 'ENVIRONMENT',
-          environmentId: ownerEnvironmentId,
-          mode: 'REQUIRED',
-          accountType: 'SMART_ACCOUNT',
-        }),
-      });
-      expect(createSmartWallet.status).toBe(201);
 
       const createKeyExport = await fetchJson(`${ownerServer.baseUrl}/console/key-exports`, {
         method: 'POST',
@@ -3566,7 +3492,6 @@ test.describe('console router (express)', () => {
         'attacker-scaffold-express-isolation-user',
       ),
       policies,
-      smartWallets,
       keyExports,
       runtimeSnapshots,
     });
@@ -3590,27 +3515,6 @@ test.describe('console router (express)', () => {
       );
       expect(patchGas.status).toBe(404);
       expect(patchGas.json?.code).toBe('policy_not_found');
-
-      const smartWalletList = await fetchJson(
-        `${attackerServer.baseUrl}/console/smart-wallets?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
-        { method: 'GET' },
-      );
-      expect(smartWalletList.status).toBe(200);
-      const attackerSmartWalletRows = Array.isArray(smartWalletList.json?.configs)
-        ? smartWalletList.json?.configs
-        : [];
-      expect(attackerSmartWalletRows.length).toBe(0);
-
-      const patchSmartWallet = await fetchJson(
-        `${attackerServer.baseUrl}/console/smart-wallets/sw-express-isolation-1`,
-        {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ enabled: false }),
-        },
-      );
-      expect(patchSmartWallet.status).toBe(404);
-      expect(patchSmartWallet.json?.code).toBe('smart_wallet_config_not_found');
 
       const keyExportsList = await fetchJson(
         `${attackerServer.baseUrl}/console/key-exports?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
@@ -9157,13 +9061,6 @@ test.describe('console router (cloudflare)', () => {
     expect(gas.status).toBe(501);
     expect(gas.json?.code).toBe('policies_not_configured');
 
-    const smartWallets = await callCf(handler, {
-      method: 'GET',
-      path: '/console/smart-wallets',
-    });
-    expect(smartWallets.status).toBe(501);
-    expect(smartWallets.json?.code).toBe('smart_wallets_not_configured');
-
     const keyExports = await callCf(handler, {
       method: 'GET',
       path: '/console/key-exports',
@@ -9181,13 +9078,11 @@ test.describe('console router (cloudflare)', () => {
 
   test('cloudflare new console endpoints support scaffold CRUD flows', async () => {
     const policies = createInMemoryConsolePolicyService();
-    const smartWallets = createInMemoryConsoleSmartWalletService();
     const keyExports = createInMemoryConsoleKeyExportService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const handler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], 'org-scaffold-cf-1', 'user-scaffold-cf-1'),
       policies,
-      smartWallets,
       keyExports,
       runtimeSnapshots,
     });
@@ -9251,30 +9146,6 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(publishedGas.status).toBe(200);
 
-    const createdSmartWallet = await callCf(handler, {
-      method: 'POST',
-      path: '/console/smart-wallets',
-      body: {
-        id: 'sw-cf-1',
-        scopeType: 'ENVIRONMENT',
-        environmentId: 'prod',
-        mode: 'REQUIRED',
-        accountType: 'SMART_ACCOUNT',
-      },
-    });
-    expect(createdSmartWallet.status).toBe(201);
-    expect(getPath(createdSmartWallet.json, 'config', 'id')).toBe('sw-cf-1');
-
-    const listedSmartWallets = await callCf(handler, {
-      method: 'GET',
-      path: '/console/smart-wallets?environmentId=prod',
-    });
-    expect(listedSmartWallets.status).toBe(200);
-    const listedSmartWalletRows: unknown[] = Array.isArray(listedSmartWallets.json?.configs)
-      ? (listedSmartWallets.json?.configs as unknown[])
-      : [];
-    expect(listedSmartWalletRows.length).toBeGreaterThanOrEqual(1);
-
     const createdKeyExport = await callCf(handler, {
       method: 'POST',
       path: '/console/key-exports',
@@ -9314,10 +9185,6 @@ test.describe('console router (cloudflare)', () => {
     expect(getPath(publishedSnapshot.json, 'snapshot', 'payload', 'gasSponsorship', 'status')).toBe(
       'resolved',
     );
-    expect(getPath(publishedSnapshot.json, 'snapshot', 'payload', 'smartWallets', 'status')).toBe(
-      'resolved',
-    );
-
     const latestSnapshot = await callCf(handler, {
       method: 'GET',
       path: '/console/runtime-snapshots/latest?environmentId=prod',
@@ -9363,9 +9230,6 @@ test.describe('console router (cloudflare)', () => {
     expect(Number(getPath(first.json, 'snapshot', 'version') || 0)).toBe(1);
     expect(getPath(first.json, 'snapshot', 'payload', 'policy', 'status')).toBe('not_configured');
     expect(getPath(first.json, 'snapshot', 'payload', 'gasSponsorship', 'status')).toBe(
-      'not_configured',
-    );
-    expect(getPath(first.json, 'snapshot', 'payload', 'smartWallets', 'status')).toBe(
       'not_configured',
     );
     const firstChecksum = String(getPath(first.json, 'snapshot', 'checksum') || '');
@@ -9614,7 +9478,6 @@ test.describe('console router (cloudflare)', () => {
       teamRbac,
     });
     const policies = createInMemoryConsolePolicyService();
-    const smartWallets = createInMemoryConsoleSmartWalletService();
     const keyExports = createInMemoryConsoleKeyExportService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const handler = createCloudflareConsoleRouter({
@@ -9632,7 +9495,6 @@ test.describe('console router (cloudflare)', () => {
       billing,
       enterpriseIsolation,
       policies,
-      smartWallets,
       keyExports,
       runtimeSnapshots,
     });
@@ -9730,20 +9592,6 @@ test.describe('console router (cloudflare)', () => {
     expect(createKeyExport.status).toBe(403);
     expect(createKeyExport.json?.code).toBe('forbidden');
 
-    const createSmartWallet = await callCf(handler, {
-      method: 'POST',
-      path: '/console/smart-wallets',
-      body: {
-        id: 'sw-cf-rbac-1',
-        scopeType: 'ENVIRONMENT',
-        environmentId: 'prod',
-        mode: 'REQUIRED',
-        accountType: 'SMART_ACCOUNT',
-      },
-    });
-    expect(createSmartWallet.status).toBe(403);
-    expect(createSmartWallet.json?.code).toBe('forbidden');
-
     const approve = await callCf(handler, {
       method: 'POST',
       path: '/console/key-exports/ke-cf-rbac-1/approve',
@@ -9763,7 +9611,6 @@ test.describe('console router (cloudflare)', () => {
         payload: {
           policy: {},
           gasSponsorship: {},
-          smartWallets: {},
         },
       },
     });
@@ -9806,7 +9653,6 @@ test.describe('console router (cloudflare)', () => {
 
   test('cloudflare new console endpoint validation errors return typed error codes', async () => {
     const policies = createInMemoryConsolePolicyService();
-    const smartWallets = createInMemoryConsoleSmartWalletService();
     const keyExports = createInMemoryConsoleKeyExportService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const handler = createCloudflareConsoleRouter({
@@ -9816,7 +9662,6 @@ test.describe('console router (cloudflare)', () => {
         'user-scaffold-cf-validation-1',
       ),
       policies,
-      smartWallets,
       keyExports,
       runtimeSnapshots,
     });
@@ -9898,7 +9743,6 @@ test.describe('console router (cloudflare)', () => {
 
   test('cloudflare new console endpoints enforce org isolation', async () => {
     const policies = createInMemoryConsolePolicyService();
-    const smartWallets = createInMemoryConsoleSmartWalletService();
     const keyExports = createInMemoryConsoleKeyExportService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const ownerOrgId = 'org-scaffold-cf-isolation-owner';
@@ -9908,7 +9752,6 @@ test.describe('console router (cloudflare)', () => {
     const ownerHandler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-scaffold-cf-isolation-user'),
       policies,
-      smartWallets,
       keyExports,
       runtimeSnapshots,
     });
@@ -9928,19 +9771,6 @@ test.describe('console router (cloudflare)', () => {
     expect(createGas.status).toBe(201);
     const ownerGasId = String(getPath(createGas.json, 'policy', 'id') || '');
     expect(ownerGasId.startsWith('policy_')).toBe(true);
-
-    const createSmartWallet = await callCf(ownerHandler, {
-      method: 'POST',
-      path: '/console/smart-wallets',
-      body: {
-        id: 'sw-cf-isolation-1',
-        scopeType: 'ENVIRONMENT',
-        environmentId: ownerEnvironmentId,
-        mode: 'REQUIRED',
-        accountType: 'SMART_ACCOUNT',
-      },
-    });
-    expect(createSmartWallet.status).toBe(201);
 
     const createKeyExport = await callCf(ownerHandler, {
       method: 'POST',
@@ -9966,7 +9796,6 @@ test.describe('console router (cloudflare)', () => {
     const attackerHandler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-scaffold-cf-isolation-user'),
       policies,
-      smartWallets,
       keyExports,
       runtimeSnapshots,
     });
@@ -9985,24 +9814,6 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(patchGas.status).toBe(404);
     expect(patchGas.json?.code).toBe('policy_not_found');
-
-    const smartWalletList = await callCf(attackerHandler, {
-      method: 'GET',
-      path: `/console/smart-wallets?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
-    });
-    expect(smartWalletList.status).toBe(200);
-    const attackerSmartWalletRows = Array.isArray(smartWalletList.json?.configs)
-      ? smartWalletList.json?.configs
-      : [];
-    expect(attackerSmartWalletRows.length).toBe(0);
-
-    const patchSmartWallet = await callCf(attackerHandler, {
-      method: 'PATCH',
-      path: '/console/smart-wallets/sw-cf-isolation-1',
-      body: { enabled: false },
-    });
-    expect(patchSmartWallet.status).toBe(404);
-    expect(patchSmartWallet.json?.code).toBe('smart_wallet_config_not_found');
 
     const keyExportsList = await callCf(attackerHandler, {
       method: 'GET',

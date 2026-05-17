@@ -366,9 +366,6 @@ test.describe('SeamsPasskey Email OTP wallet iframe ownership', () => {
           challengeId: challenge.challengeId,
           otpCode: '123456',
           appSessionJwt: 'app-session-jwt',
-          sessionKind: 'cookie',
-          ecdsaThresholdKeyId: 'threshold-key-1',
-          participantIds: [1, 2],
           onEvent: captureEvent(unlockEvents),
         });
         const perOperationLogin = await pm.auth.loginWithEmailOtpEcdsaCapability({
@@ -379,9 +376,6 @@ test.describe('SeamsPasskey Email OTP wallet iframe ownership', () => {
           challengeId: challenge.challengeId,
           otpCode: '123456',
           appSessionJwt: 'app-session-jwt',
-          sessionKind: 'cookie',
-          ecdsaThresholdKeyId: 'threshold-key-1',
-          participantIds: [1, 2],
           onEvent: captureEvent(perOperationUnlockEvents),
         });
         const failedUnlockMessage = await pm.auth
@@ -393,9 +387,6 @@ test.describe('SeamsPasskey Email OTP wallet iframe ownership', () => {
             challengeId: challenge.challengeId,
             otpCode: '000000',
             appSessionJwt: 'app-session-jwt',
-            sessionKind: 'cookie',
-            ecdsaThresholdKeyId: 'threshold-key-1',
-            participantIds: [1, 2],
             onEvent: captureEvent(failedUnlockEvents),
           })
           .then(() => null)
@@ -408,9 +399,6 @@ test.describe('SeamsPasskey Email OTP wallet iframe ownership', () => {
           challengeId: enrollmentChallenge.challengeId,
           otpCode: '123456',
           appSessionJwt: 'app-session-jwt',
-          sessionKind: 'cookie',
-          ecdsaThresholdKeyId: 'threshold-key-1',
-          participantIds: [1, 2],
           onEvent: captureEvent(enrollAndLoginEvents),
         });
         const appOriginSecretRejection = await pm.auth
@@ -892,9 +880,6 @@ test.describe('SeamsPasskey Email OTP wallet iframe ownership', () => {
           challengeId: 'challenge-1',
           otpCode: '123456',
           appSessionJwt: 'app-session-jwt',
-          sessionKind: 'cookie',
-          ecdsaThresholdKeyId: 'threshold-key-1',
-          participantIds: [1, 2],
         });
         const session = await pm.auth.getWalletSession(nearAccountId);
         return {

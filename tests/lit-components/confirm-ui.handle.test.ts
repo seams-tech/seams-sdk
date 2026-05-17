@@ -410,8 +410,8 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
             operations: [
               {
                 id: 'evm-op',
-                kind: 'evm.erc4337',
-                label: 'ERC-4337 UserOperation',
+                kind: 'generic.contractCall',
+                label: 'EVM Contract Call',
                 children: [
                   {
                     id: 'evm-call',
@@ -422,7 +422,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
                 ],
               },
             ],
-            expectedLabel: 'ERC-4337 UserOperation',
+            expectedLabel: 'EVM Contract Call',
           },
           {
             chain: 'tempo',
