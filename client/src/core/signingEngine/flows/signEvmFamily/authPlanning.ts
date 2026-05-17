@@ -61,6 +61,7 @@ export type EvmFamilyConfirmedEmailOtpDeps = {
     authLane?: EmailOtpAuthLane;
   }) => Promise<{ challengeId: string; emailHint?: string }>;
   resolveEmailOtpSigningSessionAuthLane?: (args: {
+    walletId: string;
     thresholdSessionId: string;
     curve: 'ecdsa';
     chain: EvmFamilyChain;

@@ -50,6 +50,8 @@ export type WarmSessionPostSignPolicyAdapterDeps = {
   markEmailOtpSessionConsumed?: (args: {
     subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
+    walletSigningSessionId: string;
+    thresholdSessionId: string;
     uses?: number;
   }) => void;
   clearEcdsaEphemeralMaterial: (args: {

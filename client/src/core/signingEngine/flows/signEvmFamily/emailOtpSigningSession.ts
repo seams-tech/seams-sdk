@@ -39,6 +39,7 @@ import {
   getEcdsaMaterialRecord,
   type EcdsaMaterialState,
 } from './ecdsaMaterialState';
+import { EMAIL_OTP_SIGNING_SESSION_AUTH_UNAVAILABLE } from '../../session/emailOtp/exportRecovery';
 
 export type EmailOtpEcdsaSigningSessionDeps = {
   ecdsaSessions: ThresholdEcdsaSessionStoreDeps;
@@ -98,6 +99,7 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
     authLane?: EmailOtpAuthLane;
   }) => Promise<{ challengeId: string; emailHint?: string }>;
   resolveEmailOtpSigningSessionAuthLane?: (args: {
+    walletId: string;
     thresholdSessionId: string;
     curve: 'ecdsa';
     chain: EvmFamilyChain;
@@ -136,6 +138,7 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
         : null;
     if (!authority) return undefined;
     const resolvedAuthLane = await args.resolveEmailOtpSigningSessionAuthLane?.({
+      walletId: args.walletId,
       thresholdSessionId: authority.thresholdSessionId,
       curve: 'ecdsa',
       chain: args.chain,
@@ -168,6 +171,9 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
         }),
       );
       const authLane = await resolveAuthLane();
+      if (args.reauthSource.kind === 'selection' && !authLane) {
+        throw new Error(EMAIL_OTP_SIGNING_SESSION_AUTH_UNAVAILABLE);
+      }
       const challenge = await args.requestEmailOtpTransactionSigningChallenge({
         walletSession: args.walletSession,
         chain: args.chain,
@@ -195,6 +201,9 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
         throw new Error('[SigningEngine] Email OTP per-operation signing is not configured');
       }
       const authLane = await resolveAuthLane();
+      if (args.reauthSource.kind === 'selection' && !authLane) {
+        throw new Error(EMAIL_OTP_SIGNING_SESSION_AUTH_UNAVAILABLE);
+      }
       if (!args.selectedLane?.subjectId) {
         throw new Error('[SigningEngine] Email OTP ECDSA reauth requires selected subject');
       }

@@ -1,11 +1,15 @@
 import { IndexedDBManager } from '@/core/indexedDB';
 import type { EvmFamilySigningDeps } from '../../interfaces/operationDeps';
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
-import { readExactSealedSession } from '../../session/persistence/sealedSessionStore';
+import {
+  listEcdsaSealedSessionsForWallet,
+  readExactSealedSession,
+} from '../../session/persistence/sealedSessionStore';
 import { emailOtpEcdsaSigningSessionAuthLaneFromSealedRecord } from '../../session/emailOtp/sealedSigningSessionAuth';
 import { createWarmSessionCapabilityReader } from '../../session/warmCapabilities/capabilityReader';
 import type { WarmSessionStatusResult } from '../../uiConfirm/types';
 import type { CreateSigningEnginePortsArgs } from './shared';
+import { thresholdEcdsaChainTargetsEqual } from '../../interfaces/ecdsaChainTarget';
 
 export function createEvmFamilySigningDeps(args: {
   createArgs: CreateSigningEnginePortsArgs;
@@ -63,7 +67,12 @@ export function createEvmFamilySigningDeps(args: {
         chain,
         ...(authLane ? { authLane } : {}),
       }) || Promise.reject(new Error('Email OTP signing challenge is not configured')),
-    resolveEmailOtpSigningSessionAuthLane: async ({ thresholdSessionId, curve, chainTarget }) => {
+    resolveEmailOtpSigningSessionAuthLane: async ({
+      walletId,
+      thresholdSessionId,
+      curve,
+      chainTarget,
+    }) => {
       const runtimeLane = createWarmSessionCapabilityReader({
         touchConfirm: createArgs.touchConfirm,
         getEmailOtpWarmSessionStatus,
@@ -74,13 +83,34 @@ export function createEvmFamilySigningDeps(args: {
         curve: 'ecdsa',
         chainTarget,
       }).catch(() => null);
-      return sealedRecord
+      const exactLane = sealedRecord
         ? emailOtpEcdsaSigningSessionAuthLaneFromSealedRecord({
             thresholdSessionId,
             chainTarget,
             sealedRecord,
           })
         : null;
+      if (exactLane) return exactLane;
+      const walletRecords = await listEcdsaSealedSessionsForWallet({
+        walletId: String(walletId),
+        filter: { authMethod: 'email_otp', curve: 'ecdsa' },
+      }).catch(() => []);
+      for (const record of walletRecords) {
+        if (String(record.thresholdSessionIds.ecdsa || '').trim() !== thresholdSessionId) continue;
+        if (
+          !record.ecdsaRestore?.chainTarget ||
+          !thresholdEcdsaChainTargetsEqual(record.ecdsaRestore.chainTarget, chainTarget)
+        ) {
+          continue;
+        }
+        const lane = emailOtpEcdsaSigningSessionAuthLaneFromSealedRecord({
+          thresholdSessionId,
+          chainTarget,
+          sealedRecord: record,
+        });
+        if (lane) return lane;
+      }
+      return null;
     },
     loginWithEmailOtpEcdsaCapabilityForSigning: ({
       walletSession,
@@ -104,10 +134,18 @@ export function createEvmFamilySigningDeps(args: {
       createArgs.restorePersistedSessionForSigning(restoreArgs),
     readAvailableSigningLanesForSigning: (snapshotArgs) =>
       createArgs.readAvailableSigningLanesForSigning(snapshotArgs),
-    markThresholdEcdsaEmailOtpSessionConsumedForSubjectTarget: ({ subjectId, chainTarget, uses }) =>
-      createArgs.markThresholdEcdsaEmailOtpSessionConsumedForSubjectTarget?.({
+    markThresholdEcdsaEmailOtpSessionConsumedForLane: ({
+      subjectId,
+      chainTarget,
+      walletSigningSessionId,
+      thresholdSessionId,
+      uses,
+    }) =>
+      createArgs.markThresholdEcdsaEmailOtpSessionConsumedForLane?.({
         subjectId,
         chainTarget,
+        walletSigningSessionId,
+        thresholdSessionId,
         uses,
       }),
     signingSessionCoordinator,

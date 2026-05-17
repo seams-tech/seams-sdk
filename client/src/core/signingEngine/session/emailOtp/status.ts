@@ -2,7 +2,6 @@ import type {
   WarmSessionClaimResult,
   WarmSessionStatusResult,
 } from '@/core/signingEngine/uiConfirm/types';
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export async function readEmailOtpWarmSessionStatusOnly(args: {
   sessionId: string;
@@ -145,18 +144,9 @@ export async function consumeEmailOtpWarmSessionUses(args: {
 
 export async function clearEmailOtpWarmSessionMaterial(args: {
   sessionId: string;
-  clearWarmSessionMaterialFromWorker: (sessionId: string) => Promise<void>;
-  cleanupSigningSession: (args: {
-    sessionId: string;
-    chainTarget?: ThresholdEcdsaChainTarget;
-    reason: 'explicit_clear' | 'expired' | 'exhausted' | 'invalid_persisted_record';
-  }) => Promise<void>;
+  clearVolatileWarmSessionMaterialFromWorker: (sessionId: string) => Promise<void>;
 }): Promise<void> {
   const normalizedSessionId = String(args.sessionId || '').trim();
   if (!normalizedSessionId) return;
-  await args.clearWarmSessionMaterialFromWorker(normalizedSessionId).catch(() => undefined);
-  await args.cleanupSigningSession({
-    sessionId: normalizedSessionId,
-    reason: 'explicit_clear',
-  });
+  await args.clearVolatileWarmSessionMaterialFromWorker(normalizedSessionId).catch(() => undefined);
 }

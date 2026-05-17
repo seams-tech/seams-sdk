@@ -30,7 +30,7 @@ export const DEFAULT_THRESHOLD_ECDSA_PROVISIONING_DEFAULTS: EcdsaSignerProvision
     signingSession: {
       kind: 'jwt',
       ttlMs: 24 * 60 * 60 * 1000,
-      remainingUses: 10_000,
+      remainingUses: 3,
     },
   },
   evm: {
@@ -38,7 +38,7 @@ export const DEFAULT_THRESHOLD_ECDSA_PROVISIONING_DEFAULTS: EcdsaSignerProvision
     signingSession: {
       kind: 'jwt',
       ttlMs: 24 * 60 * 60 * 1000,
-      remainingUses: 10_000,
+      remainingUses: 3,
     },
   },
 };
@@ -131,7 +131,7 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: SeamsConfigsReadonly = {
     // Enforcement (TTL/uses) is owned by the UserConfirm worker (wallet origin); signer workers remain one-shot.
     sessionDefaults: {
       ttlMs: 24 * 60 * 60 * 1000, // 1 day
-      remainingUses: 10_000,
+      remainingUses: 3,
     },
     emailOtp: {
       authPolicy: 'session',

@@ -469,24 +469,12 @@ export async function bootstrapEcdsaSessionValue(
     activationDeps,
     toActivateEcdsaSessionRequest(normalizedRequest, relayerUrl),
   );
-  await deps.touchConfirm
-    .putWarmSessionMaterial({
-      sessionId: activation.session.sessionId,
-      prfFirstB64u: activation.clientRootShare32B64u,
-      expiresAtMs: Number(activation.session.expiresAtMs),
-      remainingUses: Number(activation.session.remainingUses),
-      transport: {
-        curve: 'ecdsa',
-        walletId: String(walletId),
-        chainTarget,
-        relayerUrl,
-        walletSigningSessionId: activation.session.walletSigningSessionId,
-        ...(typeof activation.session.jwt === 'string' && activation.session.jwt.trim()
-          ? { thresholdSessionAuthToken: activation.session.jwt.trim() }
-          : {}),
-      },
-    })
-    .catch(() => undefined);
+  await deps.touchConfirm.putWarmSessionMaterial({
+    sessionId: activation.session.sessionId,
+    prfFirstB64u: activation.clientRootShare32B64u,
+    expiresAtMs: Number(activation.session.expiresAtMs),
+    remainingUses: Number(activation.session.remainingUses),
+  });
   const { clientRootShare32B64u: _clientRootShare32B64u, ...bootstrap } = activation;
   const thresholdEcdsaKeyRef = requireCanonicalThresholdEcdsaKeyRefIdentity(
     bootstrap.thresholdEcdsaKeyRef,

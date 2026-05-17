@@ -23,7 +23,6 @@ import type {
   UiConfirmContextPort,
   UiConfirmSigningPort,
   UiConfirmSecureConfirmationPort,
-  WarmSessionMaterialClearer,
   WarmSessionStatusResult,
   WarmSessionStatusReader,
 } from '../../uiConfirm/types';
@@ -1059,7 +1058,7 @@ async function signEvmFamilyAttempt(
               thresholdSessionId: refreshedThresholdSessionId,
               walletSigningSessionId: refreshedWalletSigningSessionId,
             },
-            forceRefreshBudgetIdentity: true,
+            forceRefreshBudgetIdentity: !walletSigningSessionBudgetReserved,
           });
         }
         const admittedPrepared = await admitPreparedEcdsaTransactionBudget(

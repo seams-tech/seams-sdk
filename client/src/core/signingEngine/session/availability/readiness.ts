@@ -1,9 +1,7 @@
 import type { AccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
 import type {
-  WarmSessionMaterialConsumer,
-  WarmSessionStatusBatchReader,
-  WarmSessionStatusReader,
+  VolatileWarmMaterialPort,
   WarmSessionStatusResult,
 } from '../../uiConfirm/types';
 import {
@@ -22,6 +20,8 @@ import {
   readWarmSessionCapabilityRecordsForWallet,
   readWarmSessionEd25519RecordByThresholdSessionId,
 } from '../warmCapabilities/store';
+import { createClearVolatileWarmSessionMaterialCommand } from '../warmCapabilities/volatileWarmMaterialCommands';
+import { parseVolatileWarmSessionId } from '../warmCapabilities/volatileWarmSessionId';
 import type { WarmSessionPrfClaim } from '../warmCapabilities/types';
 import {
   readWarmSessionClaims,
@@ -67,15 +67,11 @@ export type WalletSigningSessionStatusOverride = {
 export type WalletSigningSessionReadinessDeps = {
   touchConfirm?: Partial<
     Pick<
-      WarmSessionStatusReader &
-        WarmSessionStatusBatchReader &
-        WarmSessionMaterialConsumer & {
-          clearWarmSessionMaterial(args: { sessionId: string }): Promise<void>;
-        },
+      VolatileWarmMaterialPort,
       | 'getWarmSessionStatus'
       | 'getWarmSessionStatuses'
       | 'consumeWarmSessionUses'
-      | 'clearWarmSessionMaterial'
+      | 'clearVolatileWarmSessionMaterial'
     >
   >;
   getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
@@ -978,8 +974,12 @@ export async function clearWalletSigningSession(args: {
           .catch(() => undefined);
         return;
       }
+      const volatileSessionId = parseVolatileWarmSessionId(lane.backingMaterialSessionId);
+      if (!volatileSessionId) return;
       await args.deps.touchConfirm
-        ?.clearWarmSessionMaterial?.({ sessionId: lane.backingMaterialSessionId })
+        ?.clearVolatileWarmSessionMaterial?.(
+          createClearVolatileWarmSessionMaterialCommand(volatileSessionId),
+        )
         .catch(() => undefined);
     }),
   );
@@ -1046,7 +1046,9 @@ export async function syncSealedRefreshPolicyForLanes(args: {
   if (args.status.status === 'expired' || (expiresAtMs > 0 && expiresAtMs <= nowMs)) {
     await Promise.all(
       sealedLanes.map((lane) =>
-        deleteRecord(lane.thresholdSessionId, filterForLane(lane)!).catch(() => undefined),
+        deleteRecord(lane.thresholdSessionId, filterForLane(lane)!, {
+          deleteResolvedIdentity: false,
+        }).catch(() => undefined),
       ),
     );
     return;

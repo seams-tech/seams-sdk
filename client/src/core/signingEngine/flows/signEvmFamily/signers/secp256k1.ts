@@ -17,9 +17,10 @@ import type { ThresholdEcdsaClientPresignatureRefillScheduleResult } from '../..
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { createWarmSessionCapabilityReader } from '../../../session/warmCapabilities/capabilityReader';
 import {
-  deleteExactSealedSession,
+  deleteDurableSealedSessionRecord,
   updateExactSealedSessionPolicy,
 } from '../../../session/persistence/sealedSessionStore';
+import { createDeleteDurableSealedSessionCommand } from '../../../session/persistence/durableSealedSessionCommands';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdSessionKind } from '../../../threshold/sessionPolicy';
 type EcdsaSessionChain = 'tempo' | 'evm';
@@ -70,16 +71,20 @@ async function claimEmailOtpWorkerEcdsaSigningShare(args: {
   if (!result.ok) {
     if (result.code === 'expired' || result.code === 'exhausted' || result.code === 'not_found') {
       const sealedThresholdSessionId = String(args.sealedThresholdSessionId || '').trim();
-      await deleteExactSealedSession(
-        sealedThresholdSessionId || sessionId,
-        {
-          authMethod: 'email_otp',
-          curve: 'ecdsa',
-          chainTarget: args.chainTarget,
-        },
-        {
-          deleteResolvedIdentity: result.code === 'not_found',
-        },
+      await deleteDurableSealedSessionRecord(
+        createDeleteDurableSealedSessionCommand({
+          durableRecord: {
+            authMethod: 'email_otp',
+            curve: 'ecdsa',
+            thresholdSessionId: sealedThresholdSessionId || sessionId,
+            chainTarget: args.chainTarget,
+          },
+          deleteReason:
+            result.code === 'not_found'
+              ? 'invalid_persisted_record'
+              : result.code,
+          preserveResolvedIdentity: result.code !== 'not_found',
+        }),
       ).catch(() => undefined);
     }
     throw new Error(
@@ -112,16 +117,17 @@ async function updateEmailOtpSealedRecordPolicyAfterEcdsaClaim(args: {
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();
   if (!thresholdSessionId) return;
   if (args.remainingUses <= 0 || args.expiresAtMs <= Date.now()) {
-    await deleteExactSealedSession(
-      thresholdSessionId,
-      {
-        authMethod: 'email_otp',
-        curve: 'ecdsa',
-        chainTarget: args.chainTarget,
-      },
-      {
-        deleteResolvedIdentity: false,
-      },
+    await deleteDurableSealedSessionRecord(
+      createDeleteDurableSealedSessionCommand({
+        durableRecord: {
+          authMethod: 'email_otp',
+          curve: 'ecdsa',
+          thresholdSessionId,
+          chainTarget: args.chainTarget,
+        },
+        deleteReason: args.remainingUses <= 0 ? 'exhausted' : 'expired',
+        preserveResolvedIdentity: true,
+      }),
     ).catch(() => undefined);
     return;
   }

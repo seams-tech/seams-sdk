@@ -14,7 +14,7 @@ import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/
 import type { WarmSessionEcdsaCapabilityState } from '@/core/signingEngine/session/warmCapabilities/types';
 import type {
   acquireSigningSessionRestoreLease,
-  deleteExactSealedSession,
+  deleteDurableSealedSessionRecord,
   listExactSealedSessionsForWallet,
   releaseSigningSessionRestoreLease,
   readExactSealedSession,
@@ -82,7 +82,7 @@ export type EmailOtpSealedSessionStorePorts = {
   listExactSealedSessionsForWallet: typeof listExactSealedSessionsForWallet;
   acquireSigningSessionRestoreLease: typeof acquireSigningSessionRestoreLease;
   releaseSigningSessionRestoreLease: typeof releaseSigningSessionRestoreLease;
-  deleteExactSealedSession: typeof deleteExactSealedSession;
+  deleteDurableSealedSessionRecord: typeof deleteDurableSealedSessionRecord;
   updateExactSealedSessionPolicy: typeof updateExactSealedSessionPolicy;
 };
 

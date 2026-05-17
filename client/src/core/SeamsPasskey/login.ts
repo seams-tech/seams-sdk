@@ -41,10 +41,7 @@ import {
   type ThresholdEcdsaSessionRecord,
 } from '../signingEngine/session/persistence/records';
 import type { ThresholdEcdsaSessionStoreSource } from '../signingEngine/session/identity/laneIdentity';
-import {
-  generateWalletSigningSessionId,
-  type ThresholdRuntimePolicyScope,
-} from '../signingEngine/threshold/sessionPolicy';
+import type { ThresholdRuntimePolicyScope } from '../signingEngine/threshold/sessionPolicy';
 import { shouldRequireThresholdWarmSession } from './thresholdWarmSessionDefaults';
 import { prewarmThresholdEd25519ClientBaseFromCredential } from './thresholdWarmSessionBootstrap';
 import { listConfiguredThresholdEcdsaPublicationTargets } from './thresholdEcdsaProvisioning';
@@ -267,31 +264,13 @@ export async function unlock(
       const configuredEcdsaTargets = listConfiguredThresholdEcdsaPublicationTargets(
         context.configs.network.chains,
       );
-      const ecdsaChainTargets = configuredEcdsaTargets.map((target) => target.chainTarget);
-      let restoredPasskeySigningSessionsAttempted = false;
-      const canAttemptRestoredPasskeySessions = (): boolean => {
-        if (loginCredential || args.appSessionJwt || args.useAppSessionCookie) return false;
-        return typeof signingEngine.restorePersistedSessionsForWallet === 'function';
+      let volatileWarmMaterialCleared = false;
+      const clearVolatileWarmMaterialForUnlock = async (): Promise<void> => {
+        if (volatileWarmMaterialCleared) return;
+        volatileWarmMaterialCleared = true;
+        await signingEngine.clearVolatileWarmSigningMaterial(nearAccountId);
       };
-      const restorePasskeySigningSessionsForUnlock = async (): Promise<void> => {
-        if (!canAttemptRestoredPasskeySessions()) return;
-        if (restoredPasskeySigningSessionsAttempted) return;
-        restoredPasskeySigningSessionsAttempted = true;
-        await signingEngine
-          .restorePersistedSessionsForWallet({
-            walletId: nearAccountId,
-            authMethod: 'passkey',
-            ecdsaChainTargets,
-            maxRecords: Math.max(1, ecdsaChainTargets.length + 1),
-          })
-          .catch((error: unknown) => {
-            console.warn('[login] passkey signing-session sealed restore during unlock failed', {
-              nearAccountId,
-              error: error instanceof Error ? error.message : String(error || 'unknown error'),
-            });
-          });
-      };
-      await restorePasskeySigningSessionsForUnlock();
+      await clearVolatileWarmMaterialForUnlock();
       const storedCanonicalEcdsaContext = await resolveCanonicalThresholdEcdsaWarmSessionContext(
         context,
         signingEngine as unknown,
@@ -432,101 +411,6 @@ export async function unlock(
       });
       const preferredEd25519SessionId = createThresholdLoginWarmSessionId('threshold-login');
       const managedRuntimeScopeBootstrap = resolveManagedThresholdRuntimeScopeBootstrap(context);
-      const hasPositiveRemainingUses = (value: unknown): boolean => {
-        const remainingUses = Math.floor(Number(value));
-        return Number.isFinite(remainingUses) && remainingUses > 0;
-      };
-      let restoredWarmSigners: ThresholdLoginWarmSigner[] = [];
-      const canUseRestoredSigningSessions = async (): Promise<boolean> => {
-        if (!canAttemptRestoredPasskeySessions()) return false;
-        await restorePasskeySigningSessionsForUnlock();
-        const restoredEd25519Status = await signingEngine
-          .getWarmThresholdEd25519SessionStatus(nearAccountId)
-          .catch(() => null);
-        const restoredEd25519Active =
-          restoredEd25519Status?.status === 'active' &&
-          restoredEd25519Status.authMethod === 'passkey' &&
-          hasPositiveRemainingUses(restoredEd25519Status.remainingUses);
-        if (!restoredEd25519Active) return false;
-        const missingEcdsaTargets: string[] = [];
-        if (signersToWarm.includes('ecdsa')) {
-          if (ecdsaContextResolution.kind !== 'pre_resolved') return false;
-          const canonicalEcdsaContext = ecdsaContextResolution.context;
-          let snapshot = await readAvailableSigningLanesForUi(context, nearAccountId).catch(
-            () => null,
-          );
-          let restoredTargets = resolveRestoredPasskeyEcdsaWarmTargets({
-            snapshot,
-            configuredEcdsaTargets,
-            canonicalEcdsaContext,
-          });
-          if (restoredTargets.length) {
-            console.info('[login] completing restored passkey ECDSA warm lanes', {
-              nearAccountId,
-              ecdsaTargets: restoredTargets.map((target) => target.targetKey),
-            });
-            await bootstrapRestoredPasskeyEcdsaWarmTargets({
-              signingEngine,
-              nearAccountId,
-              relayerUrl,
-              ttlMs: signingSessionPolicy.ttlMs,
-              remainingUses: signingSessionPolicy.remainingUses,
-              canonicalEcdsaContext,
-              ...(managedRuntimeScopeBootstrap ? { managedRuntimeScopeBootstrap } : {}),
-              targets: restoredTargets,
-            });
-            snapshot = await readAvailableSigningLanesForUi(context, nearAccountId).catch(
-              () => null,
-            );
-            restoredTargets = resolveRestoredPasskeyEcdsaWarmTargets({
-              snapshot,
-              configuredEcdsaTargets,
-              canonicalEcdsaContext,
-            });
-          }
-          missingEcdsaTargets.push(...restoredTargets.map((target) => target.targetKey));
-          if (missingEcdsaTargets.length) {
-            throw new Error(
-              `[login] restored ECDSA warm-up did not produce ready lanes for ${missingEcdsaTargets.join(
-                ', ',
-              )}`,
-            );
-          }
-        }
-        restoredWarmSigners = [...signersToWarm];
-        console.info('[login] reusing restored passkey signing sessions during unlock', {
-          nearAccountId,
-          restoredWarmSigners,
-          missingEcdsaTargets,
-          ecdsaTargets: configuredEcdsaTargets.map((target) =>
-            thresholdEcdsaChainTargetKey(target.chainTarget),
-          ),
-        });
-        signingSession = restoredEd25519Status;
-        return true;
-      };
-      if (await canUseRestoredSigningSessions()) {
-        emitUnlockEvent(onEvent, nearAccountId, {
-          phase: UnlockEventPhase.STEP_05_SIGNING_SESSION_WARMUP_STARTED,
-          status: 'succeeded',
-          authMethod: 'warm_session',
-        });
-        if (restoredWarmSigners.includes('ed25519')) {
-          emitUnlockEvent(onEvent, nearAccountId, {
-            phase: UnlockEventPhase.STEP_05_ED25519_SIGNING_SESSION_READY,
-            status: 'succeeded',
-            authMethod: 'warm_session',
-          });
-        }
-        if (restoredWarmSigners.includes('ecdsa')) {
-          emitUnlockEvent(onEvent, nearAccountId, {
-            phase: UnlockEventPhase.STEP_05_ECDSA_SIGNING_SESSION_READY,
-            status: 'succeeded',
-            authMethod: 'warm_session',
-          });
-        }
-        return;
-      }
       await primeThresholdLoginWarmSigners({
         context,
         signingEngine,
@@ -1449,18 +1333,13 @@ type ThresholdLoginWarmupTask = {
 
 type ThresholdLoginWarmEd25519State = {
   sessionId: string;
+  walletSigningSessionId: string;
   jwt: string;
   ecdsaHssClientRootShare32B64u: string;
 };
 
 type ThresholdLoginWarmEcdsaBootstrapIdentity = {
   routeAuth: ThresholdEcdsaHssRouteAuth;
-};
-
-type RestoredPasskeyEcdsaWarmTarget = {
-  target: ConfiguredThresholdEcdsaPublicationTarget;
-  targetKey: string;
-  ecdsaKey: ConfiguredTargetThresholdEcdsaWarmKey & { key: EvmFamilyEcdsaKeyIdentity };
 };
 
 function buildThresholdLoginWarmSignerSelection(
@@ -1506,115 +1385,6 @@ async function runThresholdLoginWarmupTasks(tasks: ThresholdLoginWarmupTask[]): 
         pendingBySigner.delete(task.signer);
       }),
     );
-  }
-}
-
-function isReadyRestoredPasskeyEcdsaLane(args: {
-  snapshot: AvailableSigningLanes | null;
-  chainTarget: ThresholdEcdsaChainTarget;
-}): boolean {
-  if (!args.snapshot) return false;
-  const lane = ecdsaAvailableLaneForTarget(args.snapshot, args.chainTarget);
-  return (
-    isConcreteAvailableSigningLane(lane) &&
-    lane.authMethod === 'passkey' &&
-    lane.state === 'ready' &&
-    Number(lane.remainingUses) > 0
-  );
-}
-
-function resolveRestoredPasskeyEcdsaWarmTargets(args: {
-  snapshot: AvailableSigningLanes | null;
-  configuredEcdsaTargets: readonly ConfiguredThresholdEcdsaPublicationTarget[];
-  canonicalEcdsaContext: CanonicalThresholdEcdsaWarmSessionContext;
-}): RestoredPasskeyEcdsaWarmTarget[] {
-  const targets: RestoredPasskeyEcdsaWarmTarget[] = [];
-  for (const target of args.configuredEcdsaTargets) {
-    if (
-      isReadyRestoredPasskeyEcdsaLane({
-        snapshot: args.snapshot,
-        chainTarget: target.chainTarget,
-      })
-    ) {
-      continue;
-    }
-    const targetKey = thresholdEcdsaChainTargetKey(target.chainTarget);
-    const ecdsaKey = args.canonicalEcdsaContext.ecdsaKeyIds.find(
-      (key) => key.targetKey === targetKey,
-    );
-    if (!ecdsaKey?.key) {
-      throw new Error(
-        `[login] restored ECDSA warm-up requires shared key identity for ${targetKey}`,
-      );
-    }
-    targets.push({
-      target,
-      targetKey,
-      ecdsaKey: {
-        chainTarget: ecdsaKey.chainTarget,
-        targetKey: ecdsaKey.targetKey,
-        ecdsaThresholdKeyId: ecdsaKey.ecdsaThresholdKeyId,
-        key: ecdsaKey.key,
-      },
-    });
-  }
-  return targets;
-}
-
-function resolveRestoredPasskeyEd25519SessionKind(nearAccountId: AccountId): 'jwt' | 'cookie' {
-  const record = getStoredThresholdEd25519SessionRecordForAccount(nearAccountId);
-  if (!record) {
-    throw new Error('[login] restored Ed25519 session record is required for ECDSA warm-up');
-  }
-  if (record.source === 'email_otp' || record.emailOtpAuthContext) {
-    throw new Error('[login] restored passkey Ed25519 session is required for ECDSA warm-up');
-  }
-  return record.thresholdSessionKind;
-}
-
-async function bootstrapRestoredPasskeyEcdsaWarmTargets(args: {
-  signingEngine: PasskeyManagerContext['signingEngine'];
-  nearAccountId: AccountId;
-  relayerUrl: string;
-  ttlMs: number;
-  remainingUses: number;
-  canonicalEcdsaContext: CanonicalThresholdEcdsaWarmSessionContext;
-  managedRuntimeScopeBootstrap?: ManagedThresholdRuntimeScopeBootstrap;
-  targets: readonly RestoredPasskeyEcdsaWarmTarget[];
-}): Promise<void> {
-  if (!args.targets.length) return;
-  const subjectId = walletSubjectIdFromWalletProfile({ walletId: args.nearAccountId });
-  const thresholdSessionKind = resolveRestoredPasskeyEd25519SessionKind(args.nearAccountId);
-  for (const target of args.targets) {
-    const thresholdSessionId = createThresholdLoginWarmSessionId('threshold-ecdsa-login');
-    const walletSigningSessionId = generateWalletSigningSessionId();
-    const lanePolicy = buildEvmFamilyEcdsaSessionLanePolicy({
-      chainTarget: target.target.chainTarget,
-      thresholdSessionId,
-      walletSigningSessionId,
-      thresholdSessionKind,
-      ttlMs: args.ttlMs,
-      remainingUses: args.remainingUses,
-      ...(args.canonicalEcdsaContext.runtimePolicyScope
-        ? { runtimePolicyScope: args.canonicalEcdsaContext.runtimePolicyScope }
-        : {}),
-    });
-    await args.signingEngine.bootstrapLoginEcdsaSessionFromRestoredEd25519({
-      walletId: args.nearAccountId,
-      subjectId,
-      chainTarget: target.target.chainTarget,
-      relayerUrl: args.relayerUrl,
-      key: target.ecdsaKey.key,
-      lanePolicy,
-      ttlMs: args.ttlMs,
-      remainingUses: args.remainingUses,
-      ...(args.canonicalEcdsaContext.runtimePolicyScope
-        ? { runtimePolicyScope: args.canonicalEcdsaContext.runtimePolicyScope }
-        : {}),
-      ...(args.managedRuntimeScopeBootstrap
-        ? { runtimeScopeBootstrap: args.managedRuntimeScopeBootstrap }
-        : {}),
-    });
   }
 }
 
@@ -1676,6 +1446,7 @@ async function primeThresholdLoginWarmSigners(args: {
   let activeCanonicalEcdsaContext = initialCanonicalEcdsaContext;
   const warmState: ThresholdLoginWarmEd25519State = {
     sessionId: '',
+    walletSigningSessionId: '',
     jwt: '',
     ecdsaHssClientRootShare32B64u: '',
   };
@@ -1742,6 +1513,7 @@ async function primeThresholdLoginWarmSigners(args: {
         }
 
         warmState.sessionId = connectedSessionId;
+        warmState.walletSigningSessionId = connectedWalletSigningSessionId;
         warmState.jwt = connectedJwt;
         warmState.ecdsaHssClientRootShare32B64u = connectedEcdsaHssClientRootShare32B64u;
         if (args.ecdsaContextResolution.kind === 'resolve_after_ed25519') {
@@ -1757,7 +1529,6 @@ async function primeThresholdLoginWarmSigners(args: {
       dependencies: ['ed25519'],
       run: async () => {
         let bootstrapIdentity: ThresholdLoginWarmEcdsaBootstrapIdentity | null = null;
-        const subjectId = walletSubjectIdFromWalletProfile({ walletId: args.nearAccountId });
         const configuredEcdsaTargets = listConfiguredThresholdEcdsaPublicationTargets(
           args.context.configs.network.chains,
         );
@@ -1771,8 +1542,13 @@ async function primeThresholdLoginWarmSigners(args: {
           if (!targetEcdsaKey.key) {
             throw new Error('[login] threshold ECDSA warm-up requires shared key identity');
           }
+          const walletSigningSessionId = String(warmState.walletSigningSessionId || '').trim();
+          if (!walletSigningSessionId) {
+            throw new Error(
+              '[login] threshold ECDSA warm-up requires the primed Ed25519 walletSigningSessionId',
+            );
+          }
           const thresholdSessionId = createThresholdLoginWarmSessionId('threshold-ecdsa-login');
-          const walletSigningSessionId = generateWalletSigningSessionId();
           const lanePolicy = buildEvmFamilyEcdsaSessionLanePolicy({
             chainTarget: target.chainTarget,
             thresholdSessionId,
@@ -2558,7 +2334,7 @@ export async function lock(context: PasskeyManagerContext): Promise<void> {
     signingEngine.clearAllThresholdEcdsaSessionRecords();
   } catch {}
   try {
-    await signingEngine.clearWarmSigningSessions();
+    await signingEngine.clearVolatileWarmSigningMaterial();
   } catch {}
   try {
     clearAllStoredThresholdEd25519SessionRecords();

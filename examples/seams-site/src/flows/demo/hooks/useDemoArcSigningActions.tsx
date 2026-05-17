@@ -30,10 +30,7 @@ type UseDemoArcSigningActionsArgs = {
   arcEip1559FeeCaps: Eip1559FeeCaps;
   fetchArcGreeting: (opts?: { silent?: boolean }) => Promise<string | null>;
   refreshThresholdOwnerAddress: () => Promise<string | null>;
-  resolveThresholdOwnerAddressForEvmFamily: (opts?: {
-    chain?: 'tempo' | 'evm';
-    bootstrapIfMissing?: boolean;
-  }) => Promise<EvmAddress>;
+  resolveThresholdOwnerAddressForEvmFamily: () => Promise<EvmAddress>;
 };
 
 type ArcNativeGasPreflightFailure = Error & {
@@ -62,9 +59,7 @@ function createArcNativeGasPreflightFailure(args: {
   return error;
 }
 
-function isArcNativeGasPreflightFailure(
-  error: unknown,
-): error is ArcNativeGasPreflightFailure {
+function isArcNativeGasPreflightFailure(error: unknown): error is ArcNativeGasPreflightFailure {
   return (
     Boolean(error) &&
     typeof error === 'object' &&
@@ -102,10 +97,7 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
         fallbackFeeCaps: arcEip1559FeeCaps,
       });
       const request = buildDemoEip1559Request(requestedGreeting, feeCaps);
-      const arcThresholdOwnerAddress = await resolveThresholdOwnerAddressForEvmFamily({
-        chain: 'evm',
-        bootstrapIfMissing: true,
-      });
+      const arcThresholdOwnerAddress = await resolveThresholdOwnerAddressForEvmFamily();
       arcThresholdOwnerAddressForAttempt = arcThresholdOwnerAddress;
       const requiredNativeWei = request.tx.gasLimit * request.tx.maxFeePerGas + request.tx.value;
       const arcNativeBalanceWei = await readEvmNativeBalance({

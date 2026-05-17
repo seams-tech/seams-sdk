@@ -1,6 +1,7 @@
 import type { WarmSessionStatusBatchResult } from '../../types/secure-confirm-worker';
 import type {
   UiConfirmRuntimeBridgePort,
+  ClearVolatileWarmSessionMaterialCommand,
   WarmSessionClaimResult,
   WarmSessionStatusResult,
 } from './types';
@@ -19,7 +20,9 @@ type WarmSessionClaimArgs = Parameters<
 type SecondaryWarmSessionPort = {
   readWarmSessionStatusOnly: (sessionId: string) => Promise<WarmSessionStatusResult>;
   claimWarmSessionMaterial: (args: WarmSessionClaimArgs) => Promise<WarmSessionClaimResult>;
-  clearWarmSessionMaterial: (sessionId: string) => Promise<void>;
+  clearVolatileWarmSessionMaterial: (
+    command: ClearVolatileWarmSessionMaterialCommand,
+  ) => Promise<void>;
 };
 
 type SecondaryWarmSessionStatusOnlyPort = {
@@ -91,10 +94,12 @@ export function createWarmSessionAwareUiConfirm(args: {
     return await base.claimWarmSessionMaterial(claimArgs);
   };
 
-  const clearWarmSessionMaterial = async (clearArgs: { sessionId: string }): Promise<void> => {
+  const clearVolatileWarmSessionMaterial = async (
+    command: ClearVolatileWarmSessionMaterialCommand,
+  ): Promise<void> => {
     await Promise.all([
-      base.clearWarmSessionMaterial(clearArgs).catch(() => undefined),
-      secondary.clearWarmSessionMaterial(clearArgs.sessionId).catch(() => undefined),
+      base.clearVolatileWarmSessionMaterial(command).catch(() => undefined),
+      secondary.clearVolatileWarmSessionMaterial(command).catch(() => undefined),
     ]);
   };
 
@@ -103,7 +108,7 @@ export function createWarmSessionAwareUiConfirm(args: {
       if (prop === 'getWarmSessionStatus') return getWarmSessionStatus;
       if (prop === 'getWarmSessionStatuses') return getWarmSessionStatuses;
       if (prop === 'claimWarmSessionMaterial') return claimWarmSessionMaterial;
-      if (prop === 'clearWarmSessionMaterial') return clearWarmSessionMaterial;
+      if (prop === 'clearVolatileWarmSessionMaterial') return clearVolatileWarmSessionMaterial;
       const value = Reflect.get(target, prop, receiver);
       return typeof value === 'function' ? value.bind(target) : value;
     },

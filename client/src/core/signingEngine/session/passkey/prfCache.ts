@@ -1,5 +1,4 @@
 import type {
-  WarmSessionMaterialClearer,
   WarmSessionMaterialWriter,
 } from '../../uiConfirm/types';
 
@@ -16,7 +15,6 @@ export type SigningSessionCacheEntry = {
 };
 
 type SigningSessionPrfCacheWriter = WarmSessionMaterialWriter;
-type SigningSessionPrfCacheClearer = WarmSessionMaterialClearer;
 
 function toNonNegativeInt(value: unknown): number | undefined {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return undefined;
@@ -72,13 +70,4 @@ export async function cacheSigningSessionPrfFirstBestEffort(
   args: SigningSessionCacheEntry,
 ): Promise<void> {
   await cacheSigningSessionPrfFirst(writer, args).catch(() => undefined);
-}
-
-export async function clearSigningSessionPrfFirstBestEffort(
-  clearer: SigningSessionPrfCacheClearer,
-  sessionIdRaw: string,
-): Promise<void> {
-  const sessionId = String(sessionIdRaw || '').trim();
-  if (!sessionId) return;
-  await clearer.clearWarmSessionMaterial({ sessionId }).catch(() => undefined);
 }

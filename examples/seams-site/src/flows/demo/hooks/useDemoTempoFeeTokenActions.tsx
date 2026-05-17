@@ -28,10 +28,7 @@ type UseDemoTempoFeeTokenActionsArgs = {
   nearAccountId?: string | null;
   seams: ReturnType<typeof useSeams>['seams'];
   tempoEip1559FeeCaps: Eip1559FeeCaps;
-  resolveThresholdOwnerAddressForEvmFamily: (opts?: {
-    chain?: 'tempo' | 'evm';
-    bootstrapIfMissing?: boolean;
-  }) => Promise<EvmAddress>;
+  resolveThresholdOwnerAddressForEvmFamily: () => Promise<EvmAddress>;
   refreshTempoUserFeeToken: (opts?: {
     silent?: boolean;
     userAddress?: EvmAddress | null;
@@ -89,9 +86,7 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
           to: request.tx.to,
           input: request.tx.data || '0x',
         };
-        const thresholdOwnerAddressPromise = resolveThresholdOwnerAddressForEvmFamily({
-          chain: 'tempo',
-        })
+        const thresholdOwnerAddressPromise = resolveThresholdOwnerAddressForEvmFamily()
           .then((ownerAddress) => {
             thresholdOwnerAddressForAttempt = ownerAddress;
             return ownerAddress;

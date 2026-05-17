@@ -2,28 +2,27 @@ import type {
   WarmSessionClaimResult,
   WarmSessionStatusResult,
 } from '@/core/signingEngine/uiConfirm/types';
-import {
-  thresholdEcdsaChainTargetsEqual,
-  type ThresholdEcdsaChainTarget,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
 import type {
-  deleteExactSealedSession,
+  deleteDurableSealedSessionRecord,
   updateExactSealedSessionPolicy,
   SigningSessionSealedRecordFilter,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
+import {
+  createDeleteDurableSealedSessionCommand,
+  type DurableSealedSessionDeleteReason,
+} from '@/core/signingEngine/session/persistence/durableSealedSessionCommands';
 
-export type EmailOtpSigningSessionCleanupReason =
-  | 'explicit_clear'
-  | 'expired'
-  | 'exhausted'
-  | 'invalid_persisted_record';
+export type EmailOtpDurableSealedSessionDeleteReason = Extract<
+  DurableSealedSessionDeleteReason,
+  'expired' | 'exhausted' | 'invalid_persisted_record'
+>;
 
 export type EmailOtpSealedRefreshPolicyPorts = {
   getThresholdEcdsaSessionRecordByThresholdSessionId: (
     thresholdSessionId: string,
   ) => ThresholdEcdsaSessionRecord | null;
-  deleteExactSealedSession: typeof deleteExactSealedSession;
+  deleteDurableSealedSessionRecord: typeof deleteDurableSealedSessionRecord;
   updateExactSealedSessionPolicy: typeof updateExactSealedSessionPolicy;
   clearEcdsaRestoreCaches: () => void;
 };
@@ -31,21 +30,29 @@ export type EmailOtpSealedRefreshPolicyPorts = {
 export class EmailOtpSealedRefreshPolicy {
   constructor(private readonly ports: EmailOtpSealedRefreshPolicyPorts) {}
 
-  async cleanupSigningSession(args: {
+  async deleteEmailOtpDurableSealedSessionRecord(args: {
     sessionId: string;
-    chainTarget?: ThresholdEcdsaChainTarget;
-    reason: EmailOtpSigningSessionCleanupReason;
+    deleteReason: EmailOtpDurableSealedSessionDeleteReason;
   }): Promise<void> {
     const sessionId = String(args.sessionId || '').trim();
     if (!sessionId) return;
-    const filter = this.resolveEmailOtpEcdsaSealedRecordFilter(sessionId, args.chainTarget);
-    if (filter) {
-      // Expiry/exhaustion removes the refresh seal while preserving active lane identity.
-      const preserveResolvedIdentity = args.reason === 'expired' || args.reason === 'exhausted';
-      await this.ports.deleteExactSealedSession(sessionId, filter, {
-        deleteResolvedIdentity: !preserveResolvedIdentity,
-      }).catch(() => undefined);
+    const record = this.ports.getThresholdEcdsaSessionRecordByThresholdSessionId(sessionId);
+    if (!record?.chainTarget) {
+      this.ports.clearEcdsaRestoreCaches();
+      return;
     }
+    const command = createDeleteDurableSealedSessionCommand({
+      durableRecord: {
+        authMethod: 'email_otp',
+        curve: 'ecdsa',
+        thresholdSessionId: sessionId,
+        chainTarget: record.chainTarget,
+      },
+      deleteReason: args.deleteReason,
+      preserveResolvedIdentity:
+        args.deleteReason === 'expired' || args.deleteReason === 'exhausted',
+    });
+    await this.ports.deleteDurableSealedSessionRecord(command).catch(() => undefined);
     this.ports.clearEcdsaRestoreCaches();
   }
 
@@ -79,9 +86,9 @@ export class EmailOtpSealedRefreshPolicy {
     const result = args.result;
     if (result.ok) {
       if (result.remainingUses <= 0 || Date.now() >= result.expiresAtMs) {
-        await this.cleanupSigningSession({
+        await this.deleteEmailOtpDurableSealedSessionRecord({
           sessionId,
-          reason: result.remainingUses <= 0 ? 'exhausted' : 'expired',
+          deleteReason: result.remainingUses <= 0 ? 'exhausted' : 'expired',
         });
         return;
       }
@@ -99,25 +106,19 @@ export class EmailOtpSealedRefreshPolicy {
       return;
     }
     if (result.code === 'expired' || result.code === 'exhausted') {
-      await this.cleanupSigningSession({
+      await this.deleteEmailOtpDurableSealedSessionRecord({
         sessionId,
-        reason: result.code,
+        deleteReason: result.code,
       });
     }
   }
 
   private resolveEmailOtpEcdsaSealedRecordFilter(
     sessionId: string,
-    explicitChainTarget?: ThresholdEcdsaChainTarget,
   ): SigningSessionSealedRecordFilter | null {
     const record = this.ports.getThresholdEcdsaSessionRecordByThresholdSessionId(sessionId);
     const chainTarget = record?.chainTarget;
-    if (
-      !chainTarget ||
-      (explicitChainTarget && !thresholdEcdsaChainTargetsEqual(chainTarget, explicitChainTarget))
-    ) {
-      return null;
-    }
+    if (!chainTarget) return null;
     return { authMethod: 'email_otp', curve: 'ecdsa', chainTarget };
   }
 }

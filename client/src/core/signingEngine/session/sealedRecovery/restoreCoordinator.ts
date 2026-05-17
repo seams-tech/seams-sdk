@@ -221,21 +221,27 @@ export async function restorePersistedSessionsForWalletCommand(
       ? [input.authMethod]
       : (['email_otp', 'passkey'] as const);
     const listed = await Promise.all(
-      authMethods.flatMap((authMethod) => [
-        ports.listExactSealedSessionsForWallet({
-          walletId,
-          authMethod,
-          curve: 'ed25519',
-        }),
-        ...input.ecdsaChainTargets.map((chainTarget) =>
+      authMethods.flatMap((authMethod) => {
+        const ecdsaLists = input.ecdsaChainTargets.map((chainTarget) =>
           ports.listExactSealedSessionsForWallet({
             walletId,
             authMethod,
-            curve: 'ecdsa',
+            curve: 'ecdsa' as const,
             chainTarget,
           }),
-        ),
-      ]),
+        );
+        if (input.kind === 'restore_wallet_ecdsa_signing_sessions') {
+          return ecdsaLists;
+        }
+        return [
+          ports.listExactSealedSessionsForWallet({
+            walletId,
+            authMethod,
+            curve: 'ed25519' as const,
+          }),
+          ...ecdsaLists,
+        ];
+      }),
     );
     records = listed.flat();
   } catch (error) {
@@ -245,23 +251,29 @@ export async function restorePersistedSessionsForWalletCommand(
 
   const seenWorkItems = new Set<string>();
   const workItems = records
-    .flatMap((record) => [
+    .flatMap((record) => {
+      const ecdsaLookups = input.ecdsaChainTargets.flatMap((chainTarget) =>
+        buildRestoreWorkItemLookupResultsForListedRecord({
+          walletId,
+          record,
+          reason: 'session_status',
+          requestedCurve: 'ecdsa',
+          requestedChainTarget: chainTarget,
+        }),
+      );
+      if (input.kind === 'restore_wallet_ecdsa_signing_sessions') {
+        return ecdsaLookups;
+      }
+      return [
         ...buildRestoreWorkItemLookupResultsForListedRecord({
           walletId,
           record,
           reason: 'session_status',
           requestedCurve: 'ed25519',
         }),
-        ...input.ecdsaChainTargets.flatMap((chainTarget) =>
-          buildRestoreWorkItemLookupResultsForListedRecord({
-            walletId,
-            record,
-            reason: 'session_status',
-            requestedCurve: 'ecdsa',
-          requestedChainTarget: chainTarget,
-        }),
-      ),
-    ])
+        ...ecdsaLookups,
+      ];
+    })
     .filter((lookup) => {
       if (lookup.kind !== 'rejected') return true;
       ports.onRejectedRecord?.({ walletId, rejection: lookup.rejection });

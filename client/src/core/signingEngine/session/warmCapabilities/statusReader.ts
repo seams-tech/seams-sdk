@@ -247,14 +247,20 @@ export function createWarmSessionStatusReader(
   ): SigningSessionStatus {
     const remainingUses = Math.floor(Number(record.remainingUses) || 0);
     const expiresAtMs = Math.floor(Number(record.expiresAtMs) || 0);
+    const status =
+      expiresAtMs > 0 && Date.now() >= expiresAtMs
+        ? 'expired'
+        : remainingUses <= 0
+          ? 'exhausted'
+          : 'active';
     return {
       sessionId: thresholdSessionId,
-      status: expiresAtMs > 0 && Date.now() >= expiresAtMs ? 'expired' : 'active',
+      status,
       authMethod: record.source === 'email_otp' ? 'email_otp' : 'passkey',
       ...(record.emailOtpAuthContext?.retention
         ? { retention: record.emailOtpAuthContext.retention }
         : {}),
-      ...(remainingUses > 0 ? { remainingUses } : {}),
+      ...(status === 'active' || status === 'exhausted' ? { remainingUses } : {}),
       ...(expiresAtMs > 0 ? { expiresAtMs } : {}),
     };
   }
@@ -323,10 +329,7 @@ export function createWarmSessionStatusReader(
       authMethod: record?.source === 'email_otp' ? 'email_otp' : 'passkey',
       retention: record?.emailOtpAuthContext?.retention || null,
     });
-    if (
-      (status.status === 'not_found' || status.status === 'exhausted') &&
-      hasRecordBackedEd25519Status(record)
-    ) {
+    if (status.status === 'not_found' && hasRecordBackedEd25519Status(record)) {
       return toRecordBackedEd25519Status(record, normalizedThresholdSessionId);
     }
     return status;

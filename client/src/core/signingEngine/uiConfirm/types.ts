@@ -25,7 +25,6 @@ import type {
   ExportPrivateKeysWithUiWorkerPayload,
   ExportPrivateKeysWithUiWorkerResult,
   WarmSessionStatusBatchResult,
-  WarmSessionDeletePersistedPayload,
   WarmSessionRehydratePayload,
   WarmSessionRehydrateResult,
   WarmSessionSealAndPersistPayload,
@@ -37,6 +36,8 @@ import type {
   RestorePersistedSessionForSigningInput,
 } from '../session/sealedRecovery/types';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { DeleteDurableSealedSessionCommand } from '../session/persistence/durableSealedSessionCommands';
+import type { VolatileWarmSessionId } from '../session/warmCapabilities/volatileWarmSessionId';
 
 export type RequestUserConfirmationOptions = {
   onProgress?: (progress: UserConfirmProgressEvent) => void;
@@ -113,12 +114,39 @@ export interface WarmSessionMaterialConsumer {
   }): Promise<WarmSessionStatusResult>;
 }
 
-export interface WarmSessionMaterialClearer {
-  clearWarmSessionMaterial(args: { sessionId: string }): Promise<void>;
+export type VolatileWarmSessionScope =
+  | {
+      kind: 'session';
+      sessionId: VolatileWarmSessionId;
+    }
+  | {
+      kind: 'all';
+    };
+
+export type ClearVolatileWarmMaterialCommand = {
+  kind: 'clear_volatile_warm_material';
+  scope: VolatileWarmSessionScope;
+  durableRecord?: never;
+  resolvedIdentity?: never;
+  deleteReason?: never;
+};
+
+export type ClearVolatileWarmSessionMaterialCommand = ClearVolatileWarmMaterialCommand & {
+  scope: Extract<VolatileWarmSessionScope, { kind: 'session' }>;
+};
+
+export type ClearAllVolatileWarmSessionMaterialCommand = ClearVolatileWarmMaterialCommand & {
+  scope: Extract<VolatileWarmSessionScope, { kind: 'all' }>;
+};
+
+export interface VolatileWarmSessionMaterialClearer {
+  clearVolatileWarmSessionMaterial(command: ClearVolatileWarmSessionMaterialCommand): Promise<void>;
 }
 
-export interface WarmSessionMaterialClearAll {
-  clearAllWarmSessionMaterial(): Promise<void>;
+export interface VolatileWarmSessionMaterialClearAll {
+  clearAllVolatileWarmSessionMaterial(
+    command: ClearAllVolatileWarmSessionMaterialCommand,
+  ): Promise<void>;
 }
 
 export interface WarmSessionSealPersister {
@@ -154,20 +182,31 @@ export interface WarmSessionPersistedRestorer {
   }>;
 }
 
-export interface WarmSessionPersistedRecordDeleter {
-  deletePersistedWarmSessionMaterial(args: WarmSessionDeletePersistedPayload): Promise<void>;
+export interface DurableSealedSessionRecordDeleter {
+  deleteDurableSealedSessionRecord(command: DeleteDurableSealedSessionCommand): Promise<void>;
 }
 
-export type WarmSessionMaterialPort = WarmSessionMaterialWriter &
-  WarmSessionStatusReader &
+export type VolatileWarmMaterialPort = WarmSessionStatusReader &
   WarmSessionStatusBatchReader &
   WarmSessionMaterialClaimer &
   WarmSessionMaterialConsumer &
-  WarmSessionMaterialClearer &
+  VolatileWarmSessionMaterialClearer &
+  VolatileWarmSessionMaterialClearAll;
+
+export type DurableSealedSessionPort =
   WarmSessionSealPersister &
   WarmSessionRehydrator &
   WarmSessionPersistedRestorer &
-  WarmSessionPersistedRecordDeleter;
+  DurableSealedSessionRecordDeleter;
+
+export type PromptCapableBootstrapPort = UiConfirmContextPort &
+  UiConfirmSigningPort &
+  UiConfirmRegistrationPort &
+  UiConfirmSecureConfirmationPort;
+
+export type WarmSessionMaterialPort = WarmSessionMaterialWriter &
+  VolatileWarmMaterialPort &
+  DurableSealedSessionPort;
 
 export type UiConfirmSigningSessionPort = UiConfirmSigningPort &
   UiConfirmSecureConfirmationPort &
@@ -176,10 +215,7 @@ export type UiConfirmSigningSessionPort = UiConfirmSigningPort &
 export type UiConfirmSigningRuntimePort = UiConfirmContextPort &
   UiConfirmSigningSessionPort;
 
-export type UiConfirmRuntimeBridgePort = UiConfirmContextPort &
-  UiConfirmSigningPort &
-  UiConfirmRegistrationPort &
-  UiConfirmSecureConfirmationPort &
+export type UiConfirmRuntimeBridgePort = PromptCapableBootstrapPort &
   WarmSessionMaterialPort &
   UiConfirmWorkerLifecyclePort;
 
@@ -219,9 +255,6 @@ export interface UiConfirmSecureConfirmationPort {
 
 export interface UiConfirmManager
   extends
-    UiConfirmContextPort,
-    UiConfirmSigningPort,
-    UiConfirmRegistrationPort,
-    UiConfirmSecureConfirmationPort,
+    PromptCapableBootstrapPort,
     WarmSessionMaterialPort,
     UiConfirmWorkerLifecyclePort {}

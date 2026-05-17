@@ -1,7 +1,7 @@
 # Refactor 38: Warm Session Lifetime Boundaries
 
 Date created: 2026-05-16
-Status: draft
+Status: implemented
 
 ## Problem
 
@@ -71,7 +71,7 @@ Use command types for real operations. Avoid adding a generic `WarmSessionLifeti
 
 ```ts
 type ClearVolatileWarmMaterialCommand = {
-  kind: "clear_volatile_warm_material";
+  kind: 'clear_volatile_warm_material';
   scope: VolatileWarmSessionScope;
   durableRecord?: never;
   resolvedIdentity?: never;
@@ -79,7 +79,7 @@ type ClearVolatileWarmMaterialCommand = {
 };
 
 type DeleteDurableSealedSessionCommand = {
-  kind: "delete_durable_sealed_session";
+  kind: 'delete_durable_sealed_session';
   durableRecord: ExactSealedSessionIdentity;
   deleteReason: DurableSealedSessionDeleteReason;
   preserveResolvedIdentity: boolean;
@@ -101,8 +101,8 @@ Give no-prompt reuse code a dependency set that cannot hold prompt-capable ports
 
 ```ts
 type NoPromptWarmSessionDeps = {
-  volatile: Pick<VolatileWarmMaterialPort, "readStatus" | "claimMaterial">;
-  durable: Pick<DurableSealedSessionPort, "restoreExact" | "readResolvedIdentity">;
+  volatile: Pick<VolatileWarmMaterialPort, 'readStatus' | 'claimMaterial'>;
+  durable: Pick<DurableSealedSessionPort, 'restoreExact' | 'readResolvedIdentity'>;
   prompt?: never;
   webauthnPrompt?: never;
   touchIdPrompt?: never;
@@ -123,16 +123,16 @@ type PromptCapableWarmupDeps = {
 type ReuseWarmEcdsaBootstrapResult =
   | {
       ok: true;
-      source: "volatile_material" | "sealed_restore";
+      source: 'volatile_material' | 'sealed_restore';
       bootstrap: ThresholdEcdsaSessionBootstrapResult;
     }
   | {
       ok: false;
       code:
-        | "missing_exact_material"
-        | "sealed_restore_failed"
-        | "sealed_record_expired"
-        | "sealed_record_exhausted";
+        | 'missing_exact_material'
+        | 'sealed_restore_failed'
+        | 'sealed_record_expired'
+        | 'sealed_record_exhausted';
       promptAllowed?: never;
       webauthnAuthentication?: never;
     };
@@ -156,7 +156,10 @@ ECDSA reuse should run as a no-prompt exact-material flow:
 1. Try exact volatile material.
 2. Try exact sealed restore.
 3. Try exact volatile material again.
-4. Return `ok: false` on miss.
+4. If restored PRF/JWT material is warm but exact additive-share material is
+   absent, reconnect through threshold-session auth without prompt-capable
+   dependencies.
+5. Return `ok: false` on miss.
 
 Display-only session or address reads after login should use wallet session metadata and resolved identity. They should return a missing-state result when metadata is unavailable.
 
@@ -194,7 +197,7 @@ Edit these after the volatile path is narrow:
   - Replace `deletePasskeySealedRecord` and `cleanupSigningSession` with explicit durable delete command handlers.
   - Rename `clearWarmSessionMaterial` to `clearVolatileWarmSessionMaterial` and keep it worker-memory-only.
   - Rename `clearAllWarmSessionMaterial` to `clearAllVolatileWarmSessionMaterial`; durable all-delete should use a separate explicit command.
-  - Keep `deletePersistedWarmSessionMaterial` as an explicit durable deletion path with an exact purpose and reason.
+  - Replace `deletePersistedWarmSessionMaterial` with an explicit durable deletion path that accepts exact purpose and reason commands.
 - `client/src/core/signingEngine/session/persistence/sealedSessionStore.ts`
   - Introduce command-level entry points for durable deletion.
   - Keep `deleteExactSealedSession` behind the durable command parser or replace it with a command-shaped API.
@@ -305,13 +308,33 @@ Keep the Rust crate unchanged unless the sealed-record cryptographic format or S
 
 Audit warm-session cleanup entry points and classify each one by operation. Create `ClearVolatileWarmMaterialCommand` and `DeleteDurableSealedSessionCommand`. Wire core lifecycle code through `VolatileWarmMaterialPort`, `DurableSealedSessionPort`, and `PromptCapableBootstrapPort`.
 
-Expected edits:
+Phase 1 todo:
 
-- `UiConfirmManager` warm-session cleanup methods.
-- SDK wallet unlock warm-up path.
-- Signing engine warm ECDSA reuse path.
-- Any worker bridge or iframe message that exposes warm-session cleanup.
-- Any abstract lifetime union introduced during implementation; keep operation commands unless code needs an exhaustive lifetime switch.
+- [x] Inventory every call to `clearWarmSigningSessions`, `clearWarmSessionMaterial`,
+      durable sealed-session cleanup, and resolved identity deletion.
+- [x] Rename `clearWarmSigningSessions` to
+      `clearVolatileWarmSigningMaterial`.
+- [x] Rename `ClearWarmSigningSessionsDeps` to
+      `ClearVolatileWarmSigningMaterialDeps`.
+- [x] Rename `clearWarmSessionMaterial` to
+      `clearVolatileWarmSessionMaterial`.
+- [x] Rename `clearAllWarmSessionMaterial` to
+      `clearAllVolatileWarmSessionMaterial`.
+- [x] Split `WarmSessionMaterialClearer` and `WarmSessionMaterialClearAll`
+      into volatile-only clearer interfaces.
+- [x] Rename worker messages that clear in-memory material to volatile names.
+- [x] Remove durable sealed-session deletion from volatile all-clear.
+- [x] Update SDK wallet lock/unlock clear call sites to use volatile naming.
+- [x] Avoid adding a generic `WarmSessionLifetime` union.
+- [x] Add and wire `DeleteDurableSealedSessionCommand` through the durable
+      deletion path.
+- [x] Replace session-id-only durable delete payloads with exact durable delete
+      commands.
+- [x] Split broad warm-session capability surfaces into
+      `VolatileWarmMaterialPort`, `DurableSealedSessionPort`, and
+      `PromptCapableBootstrapPort`.
+- [x] Update any iframe/public worker bridge that exposes durable cleanup to
+      accept command-shaped durable deletes only.
 
 ### Phase 2: Introduce Boundary Builders
 
@@ -325,60 +348,162 @@ Add builders/parsers for:
 
 These builders should validate raw DB records, worker responses, iframe messages, and route bodies once at the boundary. Core cleanup and reuse functions should accept only precise internal types.
 
+Phase 2 todo:
+
+- [x] Add a `VolatileWarmSessionScope` boundary builder for worker and public
+      message payloads.
+- [x] Add an `ExactSealedSessionIdentity` boundary parser for durable delete
+      command payloads.
+- [x] Add `ExactSealedSessionIdentity` builders from accepted sealed records
+      and exact lane/session identity.
+- [x] Add an `ExactResolvedSessionIdentity` builder for resolved key/session
+      identity reads.
+- [x] Add a `DurableSealedSessionDeleteReason` parser that rejects broad or
+      display-only reasons.
+- [x] Add a `ResolvedIdentityDeleteReason` parser and require it anywhere
+      resolved identity is deleted.
+- [x] Normalize raw DB records, worker responses, iframe messages, and route
+      bodies once at boundaries.
+- [x] Ensure core cleanup and reuse functions no longer accept raw strings,
+      partial identity objects, or compatibility shapes.
+
 ### Phase 3: Make Reuse No-Prompt By Type
 
 Change `reuse_warm_ecdsa_bootstrap` and adjacent restore paths to accept `NoPromptWarmSessionDeps`. Return `ReuseWarmEcdsaBootstrapResult` for missing material, restore failure, expired sealed records, and exhausted sealed records.
 
-The reuse implementation should try exact volatile material, restore exact sealed material, try exact volatile material again, then fail closed with a typed result. Callers that want fresh bootstrap should handle the typed failure and enter an explicit prompt-capable flow.
+The reuse implementation should try exact volatile material, restore exact sealed material, try exact volatile material again, optionally reconnect through threshold-session auth using restored no-prompt PRF/JWT material, then fail closed with a typed result. Callers that want fresh bootstrap should handle the typed failure and enter an explicit prompt-capable flow.
 
-### Phase 4: Restore Before Warm-Up On Unlock
+Phase 3 todo:
 
-Update unlock orchestration so sealed passkey sessions are restored before fresh warm-up decisions. Unlock may clear volatile material, then it should rebuild exact reusable material from durable sealed records and resolved identity before deciding whether prompt-capable warm-up is required.
+- [x] Split `BootstrapWarmEcdsaCapabilityDeps` into
+      `NoPromptWarmSessionDeps` and `PromptCapableWarmupDeps`.
+- [x] Make `reuse_warm_ecdsa_bootstrap` accept no-prompt dependencies only.
+- [x] Add `ReuseWarmEcdsaBootstrapResult` with typed miss, restore failure,
+      expired, and exhausted branches.
+- [x] Change reuse to try exact volatile material first.
+- [x] Change reuse to restore exact sealed material second.
+- [x] Change reuse to re-read exact volatile material after restore.
+- [x] Return a typed failure on miss instead of throwing or entering a prompt
+      path.
+- [x] Remove reuse-branch calls to `claimPasskeyEcdsaPrfFirst`.
+- [x] Remove reuse-branch calls to `bootstrapPasskeyCookieReconnect`.
+- [x] Remove reuse-branch calls to `bootstrapDirectEcdsaRequest`.
+- [x] Keep fresh bootstrap reachable only from explicit prompt-capable warm-up,
+      enrollment, or reconnect flows.
+- [x] Update callers to handle typed reuse failures and decide separately
+      whether a prompt-capable flow is allowed.
+
+### Phase 4: Keep Restore No-Prompt And Explicit Unlock Prompt-Capable
+
+Update orchestration so no-prompt restore stays limited to page-refresh and signing-session rehydration paths. Explicit passkey wallet unlock should clear volatile material, then provision fresh Ed25519 and ECDSA warm lanes through the prompt-capable branch. Durable sealed records remain available for rehydration outside explicit unlock, but unlock must not silently reuse them.
+
+Phase 4 todo:
+
+- [x] Update wallet unlock orchestration to clear volatile worker material first.
+- [x] Keep exact sealed passkey Ed25519 and ECDSA restore on no-prompt
+      rehydration paths.
+- [x] Prevent explicit passkey unlock from using restored warm material as its
+      completed session.
+- [x] Rebuild exact ECDSA warm material from canonical key identity during fresh
+      unlock warm-up.
+- [x] Enter fresh unlock warm-up only from the explicit prompt-capable branch.
+- [x] Add regression coverage proving page refresh rehydration does not prompt
+      when restore material is valid.
+- [x] Add regression coverage proving explicit passkey unlock provisions fresh
+      sessions even when restored sessions exist.
+- [x] Add regression coverage proving missing exact material fails closed before
+      fresh bootstrap is attempted.
 
 ### Phase 5: Protect Display-Only Reads
 
 Route demo and SDK post-login address reads through wallet session metadata and resolved identity readers. These reads should have no prompt-capable dependencies and should fail closed with a typed missing-state result.
 
+Phase 5 todo:
+
+- [x] Inventory display-only owner/address/session reads after login.
+- [x] Move display-only owner/address reads to wallet session metadata and
+      resolved identity readers.
+- [x] Remove display-only calls to `reuse_warm_ecdsa_bootstrap`.
+- [x] Ensure display reads receive no prompt-capable dependencies.
+- [x] Return typed missing-state results for display gaps.
+- [x] Update demo hooks and docs examples if reuse result handling changes.
+
 ### Phase 6: Static Guards And Type Fixtures
 
 Add targeted tests and type fixtures for lifecycle boundaries:
 
-- `@ts-expect-error` for `ClearVolatileWarmMaterialCommand` objects that include durable record fields.
-- `@ts-expect-error` for no-prompt reuse dependencies that include WebAuthn or TouchID prompt ports.
-- `@ts-expect-error` for reuse failure results that carry prompt or authentication payloads.
-- Exhaustive `switch` checks over `ReuseWarmEcdsaBootstrapResult` and delete reason unions.
+Phase 6 todo:
 
-Add grep/static guard tests that fail if no-prompt paths import or reference `TouchIdPrompt`, `collectAuthenticationCredential`, `claimPasskeyEcdsaPrfFirst`, `bootstrapPasskeyCookieReconnect`, `bootstrapDirectEcdsaRequest`, or fresh bootstrap ports.
+- [x] Add `@ts-expect-error` fixtures for
+      `ClearVolatileWarmMaterialCommand` objects that include durable record
+      fields.
+- [x] Add `@ts-expect-error` fixtures for
+      `DeleteDurableSealedSessionCommand` objects that include volatile clear
+      scopes or omit exact ECDSA target identity.
+- [x] Add unit coverage proving volatile clears preserve durable sealed
+      Shamir3pass restore records.
+- [x] Add `@ts-expect-error` fixtures for no-prompt reuse dependencies that
+      include WebAuthn or TouchID prompt ports.
+- [x] Add `@ts-expect-error` fixtures for reuse failure results that carry
+      prompt or authentication payloads.
+- [x] Add exhaustive `switch` checks over `ReuseWarmEcdsaBootstrapResult`.
+- [x] Add exhaustive `switch` checks over durable delete reason unions.
+- [x] Add unit coverage proving reuse restores exact ECDSA material without
+      WebAuthn calls.
+- [x] Add unit coverage proving missing exact material fails closed without
+      prompt side effects.
+- [x] Add static guard tests that fail if no-prompt paths import or reference
+      `TouchIdPrompt`, `collectAuthenticationCredential`,
+      `claimPasskeyEcdsaPrfFirst`, `bootstrapPasskeyCookieReconnect`,
+      `bootstrapDirectEcdsaRequest`, or fresh bootstrap ports.
 
 ### Phase 7: Validation
 
 Run the cheapest checks that cover the lifecycle boundary:
 
-- Targeted unit tests for unlock, clear, restore, and reuse.
-- Type fixtures for invalid command and dependency shapes.
-- Guard tests for forbidden prompt-capable calls in no-prompt paths.
-- Manual browser check for same-tab refresh, wallet unlock, and post-login address refresh prompt counts.
+Phase 7 todo:
+
+- [x] Run SDK type-check after the volatile clear split.
+- [x] Run focused volatile clear and worker router tests after the volatile
+      clear split.
+- [x] Run SDK type-check and SDK build after durable delete command and
+      volatile boundary parser wiring.
+- [x] Run focused durable delete, volatile clear, worker router, and Email OTP
+      coordinator tests after durable delete command and volatile boundary
+      parser wiring.
+- [x] Run targeted unit tests for unlock restore-before-warm-up behavior.
+- [x] Run targeted unit tests for durable delete command behavior.
+- [x] Run targeted unit tests for no-prompt ECDSA reuse.
+- [x] Run type fixtures for invalid command and dependency shapes.
+- [x] Run guard tests for forbidden prompt-capable calls in no-prompt paths.
+- [x] Manually verify same-tab refresh, wallet unlock, and post-login address
+      refresh prompt counts.
 
 Run broader SDK or app suites only if the implementation touches shared public messages, persistence schemas, iframe protocol, or signing engine interfaces.
 
-## Todo List
+## Current Implementation Cursor
 
-- [ ] Inventory every call to `clearWarmSigningSessions`, `clearWarmSessionMaterial`, durable sealed-session cleanup, and resolved identity deletion.
-- [ ] Rename unlock/session clear APIs to volatile-only names and update call sites.
-- [ ] Add explicit durable sealed-record delete commands with narrow delete reasons.
-- [ ] Delete session-id-only durable delete payloads after exact durable delete commands land.
-- [ ] Avoid adding a generic `WarmSessionLifetime` union unless code needs an exhaustive lifetime switch.
-- [ ] Add exact identity builders for sealed records and resolved key/session identity.
-- [ ] Split broad UiConfirm warm-session ports into `VolatileWarmMaterialPort`, `DurableSealedSessionPort`, and `PromptCapableBootstrapPort`.
-- [ ] Change `reuse_warm_ecdsa_bootstrap` to accept no-prompt dependencies only.
-- [ ] Remove fresh-bootstrap fallback from reuse paths.
-- [ ] Delete old clear/reuse aliases immediately after replacements compile.
-- [ ] Update unlock orchestration to restore sealed sessions before fresh warm-up decisions.
-- [ ] Move display-only owner/address reads to no-prompt wallet metadata and resolved identity readers.
-- [ ] Leave `wasm/shamir3pass_runtime` unchanged unless the Shamir3pass wire protocol changes.
-- [ ] Add unit coverage proving volatile clears preserve sealed Shamir3pass restore records.
-- [ ] Add unit coverage proving reuse restores exact ECDSA material without WebAuthn calls.
-- [ ] Add unit coverage proving missing exact material fails closed without prompt side effects.
-- [ ] Add type fixtures rejecting invalid lifecycle command combinations.
-- [ ] Add static guard tests for forbidden prompt-capable imports in no-prompt paths.
-- [ ] Manually verify refresh and unlock flows prompt only where credential collection is expected.
+- Phase 1 volatile clear rename/split and durable delete command wiring are
+  implemented and validated.
+- Phase 1 named capability surfaces are introduced and narrow warm-session call
+  sites now depend on volatile or durable slices instead of the full bridge.
+- Phase 2 volatile scope parsing, exact durable identity parsing/builders,
+  durable delete reason parsing, exact resolved identity building, and resolved
+  identity delete reasons are implemented. Volatile session clears now require
+  parsed `VolatileWarmSessionId` command objects at core call sites.
+- Phase 3 no-prompt ECDSA reuse is narrowed to exact volatile material, exact
+  sealed restore, threshold-session-auth reconnect from restored PRF/JWT
+  material, and typed no-prompt failures. The public bootstrap wrapper still
+  maps typed failures to the existing thrown error contract, and the
+  warm-signing assembly caller handles typed reuse failures explicitly.
+- Phase 4 explicit passkey unlock now clears volatile material first and
+  provisions fresh three-use Ed25519 and ECDSA lanes through the prompt-capable
+  branch. Page-refresh rehydration keeps using exact sealed restore without a
+  prompt.
+- Phase 5 display-only owner address reads now use wallet session metadata with
+  typed missing-state results, and the stale `bootstrapIfMissing` hook option is
+  removed from demo signing actions.
+- Phase 7 validation is complete. Focused unit coverage exercises volatile
+  clear, durable restore, no-prompt reuse, restored ECDSA reconnect, and worker
+  router boundaries; the wallet-iframe same-tab sealed-refresh e2e verifies no
+  extra WebAuthn prompt after reload.

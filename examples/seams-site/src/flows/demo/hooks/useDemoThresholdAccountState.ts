@@ -13,23 +13,39 @@ type UseDemoThresholdAccountStateArgs = {
   frontendConfig?: Pick<FrontendConfig, 'chains' | 'relayerUrl'>;
 };
 
+type ThresholdOwnerAddressReadResult =
+  | {
+      ok: true;
+      address: EvmAddress;
+      reason?: never;
+    }
+  | {
+      ok: false;
+      reason: 'not_logged_in' | 'wallet_session_read_failed' | 'missing_wallet_session_address';
+      address?: never;
+    };
+
 export function useDemoThresholdAccountState(args: UseDemoThresholdAccountStateArgs) {
   const { isLoggedIn, nearAccountId, seams } = args;
   const [thresholdOwnerAddress, setThresholdOwnerAddress] = useState<string | null>(null);
   const [tempoUserFeeToken, setTempoUserFeeToken] = useState<EvmAddress | null>(null);
 
-  const readWalletSessionThresholdOwnerAddress = useCallback(async () => {
-    if (!isLoggedIn || !nearAccountId) {
-      return null;
-    }
-    try {
-      const session = await seams.auth.getWalletSession(nearAccountId);
-      const address = String(session.login.thresholdEcdsaEthereumAddress || '').trim();
-      return address || null;
-    } catch {
-      return null;
-    }
-  }, [isLoggedIn, nearAccountId, seams]);
+  const readWalletSessionThresholdOwnerAddress =
+    useCallback(async (): Promise<ThresholdOwnerAddressReadResult> => {
+      if (!isLoggedIn || !nearAccountId) {
+        return { ok: false, reason: 'not_logged_in' };
+      }
+      try {
+        const session = await seams.auth.getWalletSession(nearAccountId);
+        const address = String(session.login.thresholdEcdsaEthereumAddress || '').trim();
+        if (!isEvmAddress(address)) {
+          return { ok: false, reason: 'missing_wallet_session_address' };
+        }
+        return { ok: true, address };
+      } catch {
+        return { ok: false, reason: 'wallet_session_read_failed' };
+      }
+    }, [isLoggedIn, nearAccountId, seams]);
 
   const refreshThresholdOwnerAddress = useCallback(async () => {
     if (!isLoggedIn || !nearAccountId) {
@@ -37,52 +53,34 @@ export function useDemoThresholdAccountState(args: UseDemoThresholdAccountStateA
       return null;
     }
 
-    try {
-      const address = await readWalletSessionThresholdOwnerAddress();
-      const normalized = isEvmAddress(String(address || '').trim()) ? String(address).trim() : null;
-      setThresholdOwnerAddress(normalized);
-      return normalized;
-    } catch {
+    const result = await readWalletSessionThresholdOwnerAddress();
+    if (!result.ok) {
       setThresholdOwnerAddress(null);
       return null;
     }
+    setThresholdOwnerAddress(result.address);
+    return result.address;
   }, [isLoggedIn, nearAccountId, readWalletSessionThresholdOwnerAddress]);
 
-  const resolveThresholdOwnerAddressForEvmFamily = useCallback(
-    async (opts?: {
-      chain?: 'tempo' | 'evm';
-      bootstrapIfMissing?: boolean;
-    }): Promise<EvmAddress> => {
-      if (opts?.bootstrapIfMissing) {
-        const storedAddress = await readWalletSessionThresholdOwnerAddress();
-        if (storedAddress && isEvmAddress(storedAddress)) {
-          setThresholdOwnerAddress(storedAddress);
-          return storedAddress;
-        }
-        throw new Error('Threshold EVM owner address is unavailable');
+  const resolveThresholdOwnerAddressForEvmFamily = useCallback(async (): Promise<EvmAddress> => {
+    let resolvedThresholdOwnerAddress = isEvmAddress(String(thresholdOwnerAddress || '').trim())
+      ? thresholdOwnerAddress
+      : null;
+    if (!resolvedThresholdOwnerAddress) {
+      const storedAddress = await readWalletSessionThresholdOwnerAddress();
+      if (storedAddress.ok) {
+        resolvedThresholdOwnerAddress = storedAddress.address;
+        setThresholdOwnerAddress(storedAddress.address);
       }
-      let resolvedThresholdOwnerAddress = isEvmAddress(String(thresholdOwnerAddress || '').trim())
-        ? thresholdOwnerAddress
-        : null;
-      if (!resolvedThresholdOwnerAddress) {
-        const storedAddress = await readWalletSessionThresholdOwnerAddress();
-        resolvedThresholdOwnerAddress = isEvmAddress(String(storedAddress || '').trim())
-          ? String(storedAddress).trim()
-          : null;
-        if (resolvedThresholdOwnerAddress) {
-          setThresholdOwnerAddress(resolvedThresholdOwnerAddress);
-        }
-      }
-      if (!resolvedThresholdOwnerAddress) {
-        resolvedThresholdOwnerAddress = await refreshThresholdOwnerAddress();
-      }
-      if (!resolvedThresholdOwnerAddress || !isEvmAddress(resolvedThresholdOwnerAddress)) {
-        throw new Error('Threshold EVM owner address is unavailable');
-      }
-      return resolvedThresholdOwnerAddress;
-    },
-    [readWalletSessionThresholdOwnerAddress, refreshThresholdOwnerAddress, thresholdOwnerAddress],
-  );
+    }
+    if (!resolvedThresholdOwnerAddress) {
+      resolvedThresholdOwnerAddress = await refreshThresholdOwnerAddress();
+    }
+    if (!resolvedThresholdOwnerAddress || !isEvmAddress(resolvedThresholdOwnerAddress)) {
+      throw new Error('Threshold EVM owner address is unavailable');
+    }
+    return resolvedThresholdOwnerAddress;
+  }, [readWalletSessionThresholdOwnerAddress, refreshThresholdOwnerAddress, thresholdOwnerAddress]);
 
   const refreshTempoUserFeeToken = useCallback(
     async (opts?: { silent?: boolean; userAddress?: EvmAddress | null }) => {

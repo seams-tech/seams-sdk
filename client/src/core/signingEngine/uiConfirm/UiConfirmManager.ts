@@ -9,7 +9,6 @@ import type {
   ExportPrivateKeysWithUiWorkerResult,
   WarmSessionSealTransportInput,
   WarmSessionStatusBatchResult,
-  WarmSessionDeletePersistedPayload,
   WarmSessionRehydratePayload,
   WarmSessionRehydrateResult,
   WarmSessionSealAndPersistPayload,
@@ -24,7 +23,7 @@ import { resolveWorkerUrl } from '../../walletRuntimePaths';
 import {
   acquireSigningSessionRestoreLease,
   buildCurrentSealedSessionRecord,
-  clearAllSealedSessions,
+  deleteDurableSealedSessionRecord as deleteDurableSealedSessionRecordFromStore,
   deleteExactSealedSession,
   listExactSealedSessionsForWallet,
   readExactSealedSession,
@@ -35,6 +34,11 @@ import {
   type SigningSessionSealedStoreRecord,
   type SigningSessionSealedRecordFilter,
 } from '../session/persistence/sealedSessionStore';
+import {
+  createDeleteDurableSealedSessionCommand,
+  type DeleteDurableSealedSessionCommand,
+  type DurableSealedSessionDeleteReason,
+} from '../session/persistence/durableSealedSessionCommands';
 import {
   getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
   getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget,
@@ -59,6 +63,8 @@ import { requestRegistrationCredentialConfirmation as requestRegistrationCredent
 import type {
   RequestRegistrationCredentialConfirmationParams,
   RequestUserConfirmationOptions,
+  ClearAllVolatileWarmSessionMaterialCommand,
+  ClearVolatileWarmSessionMaterialCommand,
   WarmSessionClaimResult,
   WarmSessionStatusResult,
   UiConfirmContext,
@@ -68,6 +74,7 @@ import {
   restorePersistedSessionsForWalletCommand,
   restorePersistedSessionForSigningCommand,
 } from '../session/sealedRecovery/restoreCoordinator';
+import { parseClearVolatileWarmMaterialCommand } from '../session/warmCapabilities/volatileWarmMaterialCommands';
 import { restorePasskeyEcdsaSealedRecordForWallet } from '../session/passkey/ecdsaRecovery';
 import { restorePasskeyEd25519SealedRecordForAccount } from '../session/passkey/ed25519Recovery';
 import type {
@@ -410,36 +417,82 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     });
   }
 
-  private async deletePasskeySealedRecord(
-    thresholdSessionId: string,
-    curve?: 'ed25519' | 'ecdsa',
-    chainTarget?: ThresholdEcdsaChainTarget,
-    options?: {
-      deleteResolvedIdentity?: boolean;
-    },
-  ): Promise<void> {
-    const purpose = this.resolvePasskeySealedRecordPurpose(thresholdSessionId, curve, chainTarget);
-    if (!purpose) return;
-    await deleteExactSealedSession(thresholdSessionId, purpose, options).catch(() => undefined);
-  }
-
-  private async cleanupSigningSession(args: {
-    sessionId: string;
+  private buildPasskeyDurableDeleteCommand(args: {
+    thresholdSessionId: string;
     curve?: 'ed25519' | 'ecdsa';
     chainTarget?: ThresholdEcdsaChainTarget;
-    reason:
-      | 'explicit_clear'
-      | 'expired'
-      | 'exhausted'
-      | 'trusted_persisted_delete'
-      | 'all_sessions_clear';
-  }): Promise<void> {
-    // Expiry/exhaustion removes durable restore material, but the active tab
-    // still needs the lane identity to drive the next passkey step-up.
-    const preserveResolvedIdentity = args.reason === 'expired' || args.reason === 'exhausted';
-    await this.deletePasskeySealedRecord(args.sessionId, args.curve, args.chainTarget, {
-      deleteResolvedIdentity: !preserveResolvedIdentity,
+    deleteReason: DurableSealedSessionDeleteReason;
+    preserveResolvedIdentity: boolean;
+  }): DeleteDurableSealedSessionCommand | null {
+    const thresholdSessionId = String(args.thresholdSessionId || '').trim();
+    if (!thresholdSessionId) return null;
+    const purpose = this.resolvePasskeySealedRecordPurpose(
+      thresholdSessionId,
+      args.curve,
+      args.chainTarget,
+    );
+    if (!purpose) return null;
+    if (purpose.curve === 'ed25519') {
+      return createDeleteDurableSealedSessionCommand({
+        durableRecord: {
+          authMethod: 'passkey',
+          curve: 'ed25519',
+          thresholdSessionId,
+        },
+        deleteReason: args.deleteReason,
+        preserveResolvedIdentity: args.preserveResolvedIdentity,
+      });
+    }
+    return createDeleteDurableSealedSessionCommand({
+      durableRecord: {
+        authMethod: 'passkey',
+        curve: 'ecdsa',
+        thresholdSessionId,
+        chainTarget: purpose.chainTarget,
+      },
+      deleteReason: args.deleteReason,
+      preserveResolvedIdentity: args.preserveResolvedIdentity,
     });
+  }
+
+  private async runDurableSealedSessionDelete(
+    command: DeleteDurableSealedSessionCommand,
+  ): Promise<void> {
+    const singleFlightKey =
+      command.durableRecord.curve === 'ecdsa'
+        ? makeWarmSessionSingleFlightKey({
+            operation: 'delete',
+            thresholdSessionId: command.durableRecord.thresholdSessionId,
+            authMethod: command.durableRecord.authMethod,
+            curve: 'ecdsa',
+            chainTarget: command.durableRecord.chainTarget,
+          })
+        : makeWarmSessionSingleFlightKey({
+            operation: 'delete',
+            thresholdSessionId: command.durableRecord.thresholdSessionId,
+            authMethod: command.durableRecord.authMethod,
+            curve: 'ed25519',
+          });
+    const inFlight = signingSessionSealDeleteSingleFlight.get(singleFlightKey);
+    if (inFlight) return await inFlight;
+
+    const task = deleteDurableSealedSessionRecordFromStore(command).finally(() => {
+      signingSessionSealDeleteSingleFlight.delete(singleFlightKey);
+    });
+    signingSessionSealDeleteSingleFlight.set(singleFlightKey, task);
+    return await task;
+  }
+
+  private async deletePasskeyDurableSealedSessionRecord(args: {
+    thresholdSessionId: string;
+    curve?: 'ed25519' | 'ecdsa';
+    chainTarget?: ThresholdEcdsaChainTarget;
+    deleteReason: DurableSealedSessionDeleteReason;
+    preserveResolvedIdentity: boolean;
+  }): Promise<void> {
+    const command = this.buildPasskeyDurableDeleteCommand(args);
+    if (!command) return;
+    await this.runDurableSealedSessionDelete(command).catch(() => undefined);
   }
 
   private async updatePasskeySealedRecordPolicy(args: {
@@ -554,11 +607,12 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           });
           return;
         }
-        await this.cleanupSigningSession({
-          sessionId: args.sessionId,
+        await this.deletePasskeyDurableSealedSessionRecord({
+          thresholdSessionId: args.sessionId,
           curve: args.curve,
           chainTarget: args.chainTarget,
-          reason: 'expired',
+          deleteReason: 'expired',
+          preserveResolvedIdentity: true,
         });
         return;
       }
@@ -572,11 +626,12 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       return;
     }
     if (result.code === 'expired') {
-      await this.cleanupSigningSession({
-        sessionId: args.sessionId,
+      await this.deletePasskeyDurableSealedSessionRecord({
+        thresholdSessionId: args.sessionId,
         curve: args.curve,
         chainTarget: args.chainTarget,
-        reason: 'expired',
+        deleteReason: 'expired',
+        preserveResolvedIdentity: true,
       });
     }
   }
@@ -840,9 +895,14 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     if (!this.isSealedRefreshModeEnabled()) return null;
     const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
     if (!thresholdSessionId) return null;
+    const resolvedTransport = await this.resolveSealTransportInput(
+      thresholdSessionId,
+      transport || null,
+    );
+    if (!resolvedTransport) return null;
     return await this.persistSigningSessionSealForThresholdSession({
       sessionId: thresholdSessionId,
-      ...(transport ? { transport } : {}),
+      transport: resolvedTransport,
     });
   }
 
@@ -891,6 +951,25 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
             }
           : { authMethod: 'passkey' as const, curve: 'ed25519' as const };
       const sealedRecordFilter: SigningSessionSealedRecordFilter = purpose;
+      const deleteInvalidPersistedRecord = async (): Promise<void> => {
+        if (curve === 'ecdsa') {
+          if (!chainTarget) return;
+          await this.deletePasskeyDurableSealedSessionRecord({
+            thresholdSessionId,
+            curve: 'ecdsa',
+            chainTarget,
+            deleteReason: 'invalid_persisted_record',
+            preserveResolvedIdentity: false,
+          });
+          return;
+        }
+        await this.deletePasskeyDurableSealedSessionRecord({
+          thresholdSessionId,
+          curve: 'ed25519',
+          deleteReason: 'invalid_persisted_record',
+          preserveResolvedIdentity: false,
+        });
+      };
       const lease = await acquireSigningSessionRestoreLease({
         thresholdSessionId,
         ...purpose,
@@ -932,8 +1011,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
               shamirPrimeB64u,
               rehydrateWarmSessionMaterial: (rehydrateArgs) =>
                 this.rehydrateWarmSessionMaterial(rehydrateArgs),
-              deletePersistedRecord: async () =>
-                await deleteExactSealedSession(thresholdSessionId, sealedRecordFilter),
+              deletePersistedRecord: deleteInvalidPersistedRecord,
               recordSessionMaterialRestored: async (status) =>
                 await this.recordSessionMaterialRestored(
                   thresholdSessionId,
@@ -980,8 +1058,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
                 shamirPrimeB64u,
                 rehydrateWarmSessionMaterial: (rehydrateArgs) =>
                   this.rehydrateWarmSessionMaterial(rehydrateArgs),
-                deletePersistedRecord: async () =>
-                  await deleteExactSealedSession(thresholdSessionId, sealedRecordFilter),
+                deletePersistedRecord: deleteInvalidPersistedRecord,
                 recordSessionMaterialRestored: async (status) =>
                   await this.recordSessionMaterialRestored(
                     thresholdSessionId,
@@ -1184,6 +1261,12 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           console.warn('[UiConfirm] passkey account signing-session restore list failed', {
             walletId,
             error: error instanceof Error ? error.message : String(error || 'unknown error'),
+          });
+        },
+        onRejectedRecord: ({ walletId, rejection }) => {
+          console.warn('[UiConfirm] passkey account signing-session restore rejected record', {
+            walletId,
+            rejection,
           });
         },
       },
@@ -1632,81 +1715,46 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     return parsed;
   };
 
-  clearWarmSessionMaterial = async (args: { sessionId: string }): Promise<void> => {
+  clearVolatileWarmSessionMaterial = async (
+    args: ClearVolatileWarmSessionMaterialCommand,
+  ): Promise<void> => {
+    const command = parseClearVolatileWarmMaterialCommand(args);
+    if (command?.scope.kind !== 'session') return;
     await this.ensureWorkerReady(false);
     const res = await this.sendMessage({
-      type: 'WARM_SESSION_MATERIAL_CLEAR',
+      type: 'WARM_SESSION_VOLATILE_MATERIAL_CLEAR',
       id: this.generateMessageId(),
-      payload: args,
+      payload: command,
     });
     if (!res?.success) {
       throw new Error(
-        String(res?.error || 'Failed to clear warm-session material for threshold session'),
+        String(res?.error || 'Failed to clear volatile warm-session material'),
       );
     }
   };
 
-  deletePersistedWarmSessionMaterial = async (
-    args: WarmSessionDeletePersistedPayload,
+  deleteDurableSealedSessionRecord = async (
+    command: DeleteDurableSealedSessionCommand,
   ): Promise<void> => {
-    const thresholdSessionId = String(args.sessionId || '').trim();
-    if (!thresholdSessionId) return;
-
-    if (!this.isSealedRefreshModeEnabled()) {
-      await this.cleanupSigningSession({
-        sessionId: thresholdSessionId,
-        reason: 'trusted_persisted_delete',
-      });
-      return;
-    }
-    const singleFlightKey = makeWarmSessionSingleFlightKey({
-      operation: 'delete',
-      thresholdSessionId,
-    });
-    const inFlight = signingSessionSealDeleteSingleFlight.get(singleFlightKey);
-    if (inFlight) return await inFlight;
-
-    const task = (async (): Promise<void> => {
-      await this.ensureWorkerReady(false);
-      const res = await this.sendMessage({
-        type: 'WARM_SESSION_DELETE_PERSISTED',
-        id: this.generateMessageId(),
-        payload: { ...args, sessionId: thresholdSessionId },
-      });
-      if (!res?.success) {
-        throw new Error(String(res?.error || 'Failed to delete persisted signing-session seal'));
-      }
-      const data = isObjectRecord(res.data) ? res.data : null;
-      if (data && data.ok === false) {
-        const message =
-          typeof data.message === 'string'
-            ? data.message
-            : 'Failed to delete persisted signing-session seal';
-        throw new Error(message);
-      }
-      await this.cleanupSigningSession({
-        sessionId: thresholdSessionId,
-        reason: 'trusted_persisted_delete',
-      });
-    })().finally(() => {
-      signingSessionSealDeleteSingleFlight.delete(singleFlightKey);
-    });
-
-    signingSessionSealDeleteSingleFlight.set(singleFlightKey, task);
-    return await task;
+    await this.runDurableSealedSessionDelete(command);
   };
 
-  clearAllWarmSessionMaterial = async (): Promise<void> => {
+  clearAllVolatileWarmSessionMaterial = async (
+    args: ClearAllVolatileWarmSessionMaterialCommand,
+  ): Promise<void> => {
+    const command = parseClearVolatileWarmMaterialCommand(args);
+    if (command?.scope.kind !== 'all') return;
     await this.ensureWorkerReady(false);
     const res = await this.sendMessage({
-      type: 'WARM_SESSION_MATERIAL_CLEAR_ALL',
+      type: 'WARM_SESSION_VOLATILE_MATERIAL_CLEAR_ALL',
       id: this.generateMessageId(),
-      payload: {},
+      payload: command,
     });
     if (!res?.success) {
-      throw new Error(String(res?.error || 'Failed to clear all warm-session material entries'));
+      throw new Error(
+        String(res?.error || 'Failed to clear all volatile warm-session material entries'),
+      );
     }
-    await clearAllSealedSessions();
   };
 
   async requestUserConfirmation(

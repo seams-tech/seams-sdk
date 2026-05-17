@@ -55,6 +55,8 @@ import type {
 } from './provisioning';
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 
+const EMAIL_OTP_UNLOCK_SIGNING_SESSION_REMAINING_USES = 3;
+
 export type EmailOtpThresholdEcdsaLoginResult = {
   recovery: EmailOtpBootstrapRecovery;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
@@ -227,12 +229,15 @@ export async function loginWithEmailOtpEcdsaCapability(
   };
   const relayUrl = String(args.relayUrl || ports.requireRelayUrl()).trim();
   const shamirPrimeB64u = String(args.shamirPrimeB64u || ports.requireShamirPrimeB64u()).trim();
-  const remainingUses =
+  const sessionRemainingUsesRaw =
     typeof args.remainingUses === 'number'
       ? args.remainingUses
-      : emailOtpAuthPolicy === 'per_operation'
-        ? 1
-        : undefined;
+      : ports.configs.signing.sessionDefaults.remainingUses;
+  const sessionRemainingUses = Math.min(
+    Math.max(1, Math.floor(Number(sessionRemainingUsesRaw) || 1)),
+    EMAIL_OTP_UNLOCK_SIGNING_SESSION_REMAINING_USES,
+  );
+  const remainingUses = emailOtpAuthPolicy === 'per_operation' ? 1 : sessionRemainingUses;
   const workerCtx = ports.getSignerWorkerContext();
   const sessionKind = args.sessionKind || 'jwt';
   const rpId = ports.requireRpId('Email OTP login');

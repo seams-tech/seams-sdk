@@ -140,13 +140,11 @@ export class EmailOtpWarmSessionRuntime {
     });
   }
 
-  async clearWarmSessionMaterial(sessionId: string): Promise<void> {
+  async clearVolatileWarmSessionMaterial(sessionId: string): Promise<void> {
     await clearEmailOtpWarmSessionMaterial({
       sessionId,
-      clearWarmSessionMaterialFromWorker: (normalizedSessionId) =>
+      clearVolatileWarmSessionMaterialFromWorker: (normalizedSessionId) =>
         this.ports.workerClient.clearMaterial(normalizedSessionId),
-      cleanupSigningSession: (cleanupArgs) =>
-        this.ports.sealedRefreshPolicy.cleanupSigningSession(cleanupArgs),
     });
   }
 }

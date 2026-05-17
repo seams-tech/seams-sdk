@@ -16,7 +16,7 @@ import {
 import { persistEmailOtpThresholdEd25519LocalMetadata } from '../../session/emailOtp/ed25519LocalMetadata';
 import {
   acquireSigningSessionRestoreLease,
-  deleteExactSealedSession,
+  deleteDurableSealedSessionRecord,
   listExactSealedSessionsForWallet,
   releaseSigningSessionRestoreLease,
   readExactSealedSession,
@@ -84,7 +84,7 @@ export function createStepUpRuntime(args: {
     listExactSealedSessionsForWallet,
     acquireSigningSessionRestoreLease,
     releaseSigningSessionRestoreLease,
-    deleteExactSealedSession,
+    deleteDurableSealedSessionRecord,
     updateExactSealedSessionPolicy,
   });
 
@@ -95,8 +95,8 @@ export function createStepUpRuntime(args: {
         emailOtpSessions.readWarmSessionStatusOnly(sessionId),
       claimWarmSessionMaterial: (claimArgs) =>
         emailOtpSessions.claimWarmSessionMaterial(claimArgs),
-      clearWarmSessionMaterial: (sessionId) =>
-        emailOtpSessions.clearWarmSessionMaterial(sessionId),
+      clearVolatileWarmSessionMaterial: (command) =>
+        emailOtpSessions.clearVolatileWarmSessionMaterial(command.scope.sessionId),
     },
   });
 

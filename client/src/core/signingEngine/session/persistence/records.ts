@@ -967,15 +967,14 @@ function rememberInMemoryThresholdEd25519Record(record: ThresholdEd25519SessionR
     inMemoryEd25519AccountBySessionId.delete(previousSessionId);
   }
 
+  // The account index tracks the default lane; the lane/session indexes retain
+  // exact in-flight sessions so concurrent step-up operations cannot displace
+  // each other's planned material.
   inMemoryEd25519RecordsByAccount.set(accountKey, record);
   inMemoryEd25519AccountBySessionId.set(thresholdSessionId, accountKey);
 
   const laneKey = getThresholdEd25519SessionLaneKeyForRecord(record);
   if (!laneKey) return;
-  pruneSupersededInMemoryThresholdEd25519Lanes({
-    accountKey,
-    activeLaneKey: laneKey,
-  });
   const previousLaneRecord = inMemoryEd25519RecordsByLane.get(laneKey);
   const previousLaneSessionId = String(previousLaneRecord?.thresholdSessionId || '').trim();
   if (previousLaneSessionId && previousLaneSessionId !== thresholdSessionId) {
@@ -1136,28 +1135,6 @@ function thresholdEd25519RecordMatchesLane(
     String(record.walletSigningSessionId || '').trim() === lane.walletSigningSessionId &&
     String(record.thresholdSessionId || '').trim() === lane.thresholdSessionId
   );
-}
-
-function deleteInMemoryThresholdEd25519LaneRecord(
-  laneKey: string,
-  record: ThresholdEd25519SessionRecord | null | undefined,
-): void {
-  inMemoryEd25519RecordsByLane.delete(laneKey);
-  const thresholdSessionId = String(record?.thresholdSessionId || '').trim();
-  if (thresholdSessionId && inMemoryEd25519LaneBySessionId.get(thresholdSessionId) === laneKey) {
-    inMemoryEd25519LaneBySessionId.delete(thresholdSessionId);
-  }
-}
-
-function pruneSupersededInMemoryThresholdEd25519Lanes(args: {
-  accountKey: string;
-  activeLaneKey: string;
-}): void {
-  for (const [laneKey, record] of inMemoryEd25519RecordsByLane.entries()) {
-    if (laneKey === args.activeLaneKey) continue;
-    if (String(record.nearAccountId || '').trim() !== args.accountKey) continue;
-    deleteInMemoryThresholdEd25519LaneRecord(laneKey, record);
-  }
 }
 
 function rememberInMemoryThresholdEcdsaRecord(record: ThresholdEcdsaSessionRecord): void {
@@ -1724,16 +1701,21 @@ export function clearThresholdEcdsaSessionRecordForLane(
   }
 }
 
-export function markThresholdEcdsaEmailOtpSessionConsumedForSubjectTarget(
+export function markThresholdEcdsaEmailOtpSessionConsumedForLane(
   deps: ThresholdEcdsaSessionStoreDeps,
   args: {
     subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
+    walletSigningSessionId: string;
+    thresholdSessionId: string;
     uses?: number;
   },
 ): ThresholdEcdsaSessionRecord | null {
   const subjectId = toWalletSubjectId(args.subjectId);
   const targetKey = thresholdEcdsaChainTargetKey(args.chainTarget);
+  const walletSigningSessionId = String(args.walletSigningSessionId || '').trim();
+  const thresholdSessionId = String(args.thresholdSessionId || '').trim();
+  if (!walletSigningSessionId || !thresholdSessionId) return null;
   const nowMs = Math.max(0, Math.floor((deps.now || Date.now)()));
   const uses = Math.max(1, Math.floor(Number(args.uses) || 1));
   let updatedRecord: ThresholdEcdsaSessionRecord | null = null;
@@ -1748,6 +1730,8 @@ export function markThresholdEcdsaEmailOtpSessionConsumedForSubjectTarget(
     const record = deps.recordsByLane.get(laneKey);
     if (!record) continue;
     if (record.source !== 'email_otp' || !record.emailOtpAuthContext) continue;
+    if (String(record.walletSigningSessionId || '').trim() !== walletSigningSessionId) continue;
+    if (String(record.thresholdSessionId || '').trim() !== thresholdSessionId) continue;
     const nextRecord: ThresholdEcdsaSessionRecord = {
       ...record,
       remainingUses: Math.max(0, Math.floor(Number(record.remainingUses) || 0) - uses),

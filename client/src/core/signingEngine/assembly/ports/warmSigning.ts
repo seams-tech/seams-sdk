@@ -8,9 +8,7 @@ import {
   type ThresholdEcdsaSessionRecord,
   type ThresholdEcdsaSessionStoreDeps,
 } from '../../session/persistence/records';
-import {
-  createWarmSessionCapabilityReader,
-} from '../../session/warmCapabilities/capabilityReader';
+import { createWarmSessionCapabilityReader } from '../../session/warmCapabilities/capabilityReader';
 import {
   createWarmSessionStatusReader,
   type WarmSigningStatusReader,
@@ -23,17 +21,16 @@ import type {
 } from '../../session/warmCapabilities/public';
 import type { PasskeyPublicDeps } from '../../session/passkey/public';
 import { createWarmSessionStatusOnlyUiConfirm } from '../../uiConfirm/warmSessionUiConfirm';
-import type {
-  UiConfirmRuntimeBridgePort,
-  WarmSessionStatusResult,
-} from '../../uiConfirm/types';
+import type { UiConfirmRuntimeBridgePort, WarmSessionStatusResult } from '../../uiConfirm/types';
 import { persistThresholdEcdsaBootstrapForWalletTarget } from '../../session/warmCapabilities/ecdsaBootstrapPersistence';
-import { bootstrapWarmEcdsaCapability } from '../../session/passkey/ecdsaWarmCapabilityBootstrap';
+import {
+  bootstrapWarmEcdsaCapabilityResult,
+  reuseWarmEcdsaBootstrapFailureToError,
+} from '../../session/passkey/ecdsaWarmCapabilityBootstrap';
 import { provisionThresholdEd25519Session } from '../../session/passkey/ed25519SessionProvision';
-import { clearWarmSigningSessions } from '../../session/warmCapabilities/clearWarmSigningSessions';
+import { clearVolatileWarmSigningMaterial } from '../../session/warmCapabilities/clearVolatileWarmSigningMaterial';
 import {
   cacheSigningSessionPrfFirst,
-  clearSigningSessionPrfFirstBestEffort,
 } from '../../session/passkey/prfCache';
 import {
   claimEmailOtpEcdsaSigningShare32,
@@ -112,16 +109,14 @@ export function createPasskeyPublicDeps(args: {
   indexedDB: SigningEnginePorts['indexedDB'];
   touchIdPrompt: TouchIdPrompt;
   touchConfirm: UiConfirmRuntimeBridgePort;
-  warmSigning: Pick<
-    WarmSigningPorts,
-    'ecdsaSessions' | 'capabilityReader' | 'statusReader'
-  >;
+  warmSigning: Pick<WarmSigningPorts, 'ecdsaSessions' | 'capabilityReader' | 'statusReader'>;
   thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>>;
   ensureSealedRefreshStartupParity: () => Promise<void>;
   thresholdSessionActivationDeps: ThresholdSessionActivationDeps;
 }): PasskeyPublicDeps {
   return {
-    getWarmSession: (nearAccountId) => args.warmSigning.capabilityReader.getWarmSession(nearAccountId),
+    getWarmSession: (nearAccountId) =>
+      args.warmSigning.capabilityReader.getWarmSession(nearAccountId),
     provisionThresholdEd25519Session: async (provisionArgs) =>
       await provisionThresholdEd25519Session(
         {
@@ -129,12 +124,13 @@ export function createPasskeyPublicDeps(args: {
           touchIdPrompt: args.touchIdPrompt,
           touchConfirm: args.touchConfirm,
           defaultRelayerUrl: args.seamsPasskeyConfigs.network.relayer?.url || '',
-          getSignerWorkerContext: () => args.thresholdSessionActivationDeps.getSignerWorkerContext(),
+          getSignerWorkerContext: () =>
+            args.thresholdSessionActivationDeps.getSignerWorkerContext(),
         },
         provisionArgs,
       ),
-    bootstrapEcdsaSession: async (bootstrapArgs) =>
-      await bootstrapWarmEcdsaCapability(
+    bootstrapEcdsaSession: async (bootstrapArgs) => {
+      const result = await bootstrapWarmEcdsaCapabilityResult(
         {
           ensureSealedRefreshStartupParity: args.ensureSealedRefreshStartupParity,
           queueByWallet: args.thresholdEcdsaBootstrapQueueByWallet,
@@ -144,7 +140,16 @@ export function createPasskeyPublicDeps(args: {
           capabilityReader: args.warmSigning.capabilityReader,
         },
         bootstrapArgs,
-      ),
+      );
+      if (result.ok) return result.bootstrap;
+      const failureKind = result.kind;
+      switch (failureKind) {
+        case 'reuse_failed':
+          throw reuseWarmEcdsaBootstrapFailureToError(result.failure);
+      }
+      failureKind satisfies never;
+      throw new Error('[SigningEngine][ecdsa] unsupported warm bootstrap result');
+    },
   };
 }
 
@@ -155,19 +160,19 @@ export function createWarmCapabilitiesPublicDeps(args: {
   };
   indexedDB: SigningEnginePorts['indexedDB'];
   touchConfirm: UiConfirmRuntimeBridgePort;
-  warmSigning: Pick<
-    WarmSigningPorts,
-    'ecdsaSessions' | 'capabilityReader' | 'statusReader'
-  >;
+  warmSigning: Pick<WarmSigningPorts, 'ecdsaSessions' | 'capabilityReader' | 'statusReader'>;
   thresholdSessionActivationDeps: ThresholdSessionActivationDeps;
   resolveCanonicalThresholdEcdsaSessionIdForSubjectTarget: SigningEnginePorts['resolveCanonicalThresholdEcdsaSessionIdForSubjectTarget'];
-  signingSessionCoordinator: Pick<SigningEnginePorts['signingSessionCoordinator'], 'getAvailableStatus'>;
+  signingSessionCoordinator: Pick<
+    SigningEnginePorts['signingSessionCoordinator'],
+    'getAvailableStatus'
+  >;
 }): WarmCapabilitiesPublicDeps {
   return {
     statusReader: args.warmSigning.statusReader,
-      persistThresholdEcdsaBootstrapForWalletTarget: async (
-        persistArgs: PersistThresholdEcdsaBootstrapForWalletTargetInput,
-      ) =>
+    persistThresholdEcdsaBootstrapForWalletTarget: async (
+      persistArgs: PersistThresholdEcdsaBootstrapForWalletTargetInput,
+    ) =>
       await persistThresholdEcdsaBootstrapForWalletTarget({
         indexedDB: args.indexedDB,
         walletId: toAccountId(persistArgs.walletId),
@@ -177,13 +182,13 @@ export function createWarmCapabilitiesPublicDeps(args: {
       }),
     hydrateSigningSession: async (hydrateArgs: HydrateSigningSessionInput) =>
       await cacheSigningSessionPrfFirst(args.touchConfirm, hydrateArgs),
-    clearWarmSigningSessions: async (walletId) =>
-      await clearWarmSigningSessions(
+    clearVolatileWarmSigningMaterial: async (walletId) =>
+      await clearVolatileWarmSigningMaterial(
         {
           touchConfirm: args.touchConfirm,
           ecdsaSessions: args.warmSigning.ecdsaSessions,
-          clearThresholdSessionMaterial: async (sessionId) =>
-            await clearSigningSessionPrfFirstBestEffort(args.touchConfirm, sessionId),
+          clearVolatileThresholdSessionMaterial: async (command) =>
+            await args.touchConfirm.clearVolatileWarmSessionMaterial(command),
         },
         walletId,
       ),

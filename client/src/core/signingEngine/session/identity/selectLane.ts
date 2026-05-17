@@ -295,9 +295,6 @@ function selectBestConcreteTransactionCandidate<TCandidate extends ConcreteTrans
   );
   if (bestSourceCandidates.length <= 1) return bestSourceCandidates[0] || null;
 
-  // When multiple same-auth lanes remain, updatedAtMs is the only ordering
-  // policy with meaning. Without a unique newest lane the caller must surface
-  // ambiguity instead of picking by opaque session ids.
   return selectNewestCandidateWhenUnambiguous(bestSourceCandidates);
 }
 

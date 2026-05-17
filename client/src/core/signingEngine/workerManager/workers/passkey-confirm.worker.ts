@@ -14,6 +14,7 @@ import {
   thresholdEcdsaChainTargetFromRequest,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { parseClearVolatileWarmMaterialCommand } from '@/core/signingEngine/session/warmCapabilities/volatileWarmMaterialCommands';
 import { bytesToHex } from '../../chains/evm/bytes';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import { base64UrlDecode } from '@shared/utils/base64';
@@ -1167,15 +1168,16 @@ self.onmessage = (event: MessageEvent) => {
     return;
   }
 
-  if (eventType === 'WARM_SESSION_MATERIAL_CLEAR') {
-    const payload = asRecord(incoming.payload);
-    const sessionId = normalizeOptionalTrimmedString(payload?.sessionId);
-    if (sessionId) prfFirstSessionCache.delete(sessionId);
+  if (eventType === 'WARM_SESSION_VOLATILE_MATERIAL_CLEAR') {
+    const command = parseClearVolatileWarmMaterialCommand(incoming.payload);
+    if (command?.scope.kind === 'session') {
+      prfFirstSessionCache.delete(command.scope.sessionId);
+    }
     postUserConfirmWorkerResponse(id, { success: true, data: { ok: true } });
     return;
   }
 
-  if (eventType === 'WARM_SESSION_MATERIAL_CLEAR_ALL') {
+  if (eventType === 'WARM_SESSION_VOLATILE_MATERIAL_CLEAR_ALL') {
     prfFirstSessionCache.clear();
     postUserConfirmWorkerResponse(id, { success: true, data: { ok: true } });
     return;
@@ -1239,11 +1241,6 @@ self.onmessage = (event: MessageEvent) => {
       });
       postUserConfirmWorkerResponse(id, { success: true, data: result });
     })();
-    return;
-  }
-
-  if (eventType === 'WARM_SESSION_DELETE_PERSISTED') {
-    postUserConfirmWorkerResponse(id, { success: true, data: { ok: true } });
     return;
   }
 

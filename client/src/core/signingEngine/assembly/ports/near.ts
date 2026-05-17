@@ -1,7 +1,10 @@
 import { IndexedDBManager } from '@/core/indexedDB';
 import type { AccountId } from '@/core/types/accountIds';
 import type { NearSigningApiDeps } from '../../interfaces/operationDeps';
-import { getStoredThresholdEd25519SessionRecordForAccount } from '../../session/persistence/records';
+import {
+  getStoredThresholdEd25519SessionRecordByThresholdSessionId,
+  getStoredThresholdEd25519SessionRecordForAccount,
+} from '../../session/persistence/records';
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import { resolveEvmFamilyTransactionWalletAuth } from '../../flows/signEvmFamily/accountAuth';
 import { createWarmSessionCapabilityReader } from '../../session/warmCapabilities/capabilityReader';
@@ -98,8 +101,8 @@ export function createNearSigningDeps(args: {
         walletSigningSessionId,
         provisionThresholdEd25519Session: (provisionArgs) =>
           createArgs.provisionThresholdEd25519Session(provisionArgs),
-        readStoredThresholdEd25519SessionRecord: (accountId) =>
-          getStoredThresholdEd25519SessionRecordForAccount(accountId),
+        readStoredThresholdEd25519SessionRecordByThresholdSessionId: (thresholdSessionId) =>
+          getStoredThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId),
       }),
     signingSessionCoordinator,
     getWarmThresholdEd25519SessionStatusForSession: ({ nearAccountId, thresholdSessionId }) =>

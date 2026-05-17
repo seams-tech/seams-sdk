@@ -54,7 +54,7 @@ export type WarmCapabilitiesPublicDeps = {
     args: PersistThresholdEcdsaBootstrapForWalletTargetInput,
   ) => Promise<void>;
   hydrateSigningSession: (args: HydrateSigningSessionInput) => Promise<void>;
-  clearWarmSigningSessions: (walletId?: AccountId | string) => Promise<void>;
+  clearVolatileWarmSigningMaterial: (walletId?: AccountId | string) => Promise<void>;
   getWalletSigningBudgetStatus: WalletSigningBudgetAvailableStatusDeps['getAvailableStatus'];
   resolveCanonicalThresholdEcdsaSessionIdForSubjectTarget: (
     subjectId: WalletSubjectId,
@@ -211,11 +211,11 @@ export async function hydrateSigningSession(
   await deps.hydrateSigningSession(args);
 }
 
-export async function clearWarmSigningSessions(
+export async function clearVolatileWarmSigningMaterial(
   deps: WarmCapabilitiesPublicDeps,
   walletId?: AccountId | string,
 ): Promise<void> {
-  await deps.clearWarmSigningSessions(walletId);
+  await deps.clearVolatileWarmSigningMaterial(walletId);
 }
 
 export type { ThresholdEcdsaLoginPrefillResult };
@@ -243,8 +243,8 @@ export function createWarmCapabilitiesPublicApi(deps: WarmCapabilitiesPublicDeps
       minRemainingUsesBeforePrefill?: number;
     }) => scheduleThresholdEcdsaLoginPresignPrefill(deps, args),
     hydrateSigningSession: (args: HydrateSigningSessionInput) => hydrateSigningSession(deps, args),
-    clearWarmSigningSessions: (walletId?: AccountId | string) =>
-      clearWarmSigningSessions(deps, walletId),
+    clearVolatileWarmSigningMaterial: (walletId?: AccountId | string) =>
+      clearVolatileWarmSigningMaterial(deps, walletId),
   };
 }
 

@@ -530,10 +530,13 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
         // lanes, then restores only the selected exact auth-method lane.
         // Broad probing belongs to startup/session-status maintenance paths.
         const restoreResults: Record<string, unknown> = {};
+        const laneRequiresFreshAuth =
+          laneCandidate.state === 'expired' || laneCandidate.state === 'exhausted';
         const shouldRestoreAvailableLane =
-          laneCandidate.state === 'restorable' ||
-          laneCandidate.state === 'deferred' ||
-          !hasExactHotMaterial;
+          !laneRequiresFreshAuth &&
+          (laneCandidate.state === 'restorable' ||
+            laneCandidate.state === 'deferred' ||
+            !hasExactHotMaterial);
         const restoreChainTarget =
           selectedAvailableLane.source === 'evm_family_shared_key'
             ? selectedAvailableLane.sourceChainTarget

@@ -145,7 +145,7 @@ export class EmailOtpThresholdSessionRuntime {
     this.sealedRefreshPolicy = new EmailOtpSealedRefreshPolicy({
       getThresholdEcdsaSessionRecordByThresholdSessionId:
         deps.getThresholdEcdsaSessionRecordByThresholdSessionId,
-      deleteExactSealedSession: deps.deleteExactSealedSession,
+      deleteDurableSealedSessionRecord: deps.deleteDurableSealedSessionRecord,
       updateExactSealedSessionPolicy: deps.updateExactSealedSessionPolicy,
       clearEcdsaRestoreCaches: () => this.clearEcdsaRestoreCaches(),
     });
@@ -263,8 +263,8 @@ export class EmailOtpThresholdSessionRuntime {
     return await this.warmSessionRuntime.consumeWarmSessionUses(args);
   }
 
-  async clearWarmSessionMaterial(sessionId: string): Promise<void> {
-    await this.warmSessionRuntime.clearWarmSessionMaterial(sessionId);
+  async clearVolatileWarmSessionMaterial(sessionId: string): Promise<void> {
+    await this.warmSessionRuntime.clearVolatileWarmSessionMaterial(sessionId);
   }
 
   rememberAppSessionJwt(args: { walletSession: WalletSessionRef; appSessionJwt?: string }): void {

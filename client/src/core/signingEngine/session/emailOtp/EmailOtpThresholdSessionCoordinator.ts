@@ -73,10 +73,10 @@ export class EmailOtpThresholdSessionCoordinator {
     return this.runtime.consumeWarmSessionUses(args);
   }
 
-  clearWarmSessionMaterial(
-    sessionId: Parameters<EmailOtpThresholdSessionRuntime['clearWarmSessionMaterial']>[0],
-  ): ReturnType<EmailOtpThresholdSessionRuntime['clearWarmSessionMaterial']> {
-    return this.runtime.clearWarmSessionMaterial(sessionId);
+  clearVolatileWarmSessionMaterial(
+    sessionId: Parameters<EmailOtpThresholdSessionRuntime['clearVolatileWarmSessionMaterial']>[0],
+  ): ReturnType<EmailOtpThresholdSessionRuntime['clearVolatileWarmSessionMaterial']> {
+    return this.runtime.clearVolatileWarmSessionMaterial(sessionId);
   }
 
   rememberAppSessionJwt(

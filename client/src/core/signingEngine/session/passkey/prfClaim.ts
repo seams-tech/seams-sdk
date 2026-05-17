@@ -1,8 +1,7 @@
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
-  WarmSessionMaterialClaimer,
-  WarmSessionPersistedRestorer,
-  WarmSessionStatusReader,
+  DurableSealedSessionPort,
+  VolatileWarmMaterialPort,
 } from '../../uiConfirm/types';
 import {
   formatMissingWarmPrfMaterialError,
@@ -11,12 +10,12 @@ import {
 } from '../warmCapabilities/readModel';
 
 export type WarmSessionClaimPorts =
-  | Partial<Pick<WarmSessionStatusReader & WarmSessionMaterialClaimer, 'getWarmSessionStatus' | 'claimWarmSessionMaterial'>>
+  | Partial<Pick<VolatileWarmMaterialPort, 'getWarmSessionStatus' | 'claimWarmSessionMaterial'>>
   | undefined;
 
 export type PasskeyWarmSessionRecoveryPorts = Partial<
   Pick<
-    WarmSessionStatusReader & WarmSessionMaterialClaimer & WarmSessionPersistedRestorer,
+    VolatileWarmMaterialPort & DurableSealedSessionPort,
     'getWarmSessionStatus' | 'claimWarmSessionMaterial' | 'restorePersistedSessionForSigning'
   >
 >;

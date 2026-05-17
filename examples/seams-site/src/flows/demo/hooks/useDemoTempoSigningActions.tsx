@@ -104,10 +104,7 @@ type UseDemoTempoSigningActionsArgs = {
   tempoGreetingInput: string;
   tempoEip1559FeeCaps: Eip1559FeeCaps;
   tempoUserFeeToken: EvmAddress | null;
-  resolveThresholdOwnerAddressForEvmFamily: (opts?: {
-    chain?: 'tempo' | 'evm';
-    bootstrapIfMissing?: boolean;
-  }) => Promise<EvmAddress>;
+  resolveThresholdOwnerAddressForEvmFamily: () => Promise<EvmAddress>;
   refreshTempoUserFeeTokenBalance: (opts?: {
     silent?: boolean;
     userAddress?: EvmAddress | null;
@@ -165,10 +162,7 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
         ? configuredTokenRaw
         : TEMPO_ALPHA_USD_FEE_TOKEN;
       dripTokensForAttempt = [dripToken];
-      const thresholdOwnerAddress = await resolveThresholdOwnerAddressForEvmFamily({
-        chain: 'tempo',
-        bootstrapIfMissing: true,
-      });
+      const thresholdOwnerAddress = await resolveThresholdOwnerAddressForEvmFamily();
       if (!isEvmAddress(thresholdOwnerAddress)) {
         throw new Error('Unable to resolve the Tempo threshold owner address.');
       }
@@ -287,7 +281,9 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
         resolvedError &&
         typeof resolvedError === 'object' &&
         'txHash' in resolvedError &&
-        /^0x[0-9a-fA-F]{64}$/.test(String((resolvedError as { txHash?: unknown }).txHash || '').trim())
+        /^0x[0-9a-fA-F]{64}$/.test(
+          String((resolvedError as { txHash?: unknown }).txHash || '').trim(),
+        )
           ? (String((resolvedError as { txHash?: unknown }).txHash || '').trim() as `0x${string}`)
           : undefined;
       let resolvedMessage = message;
@@ -415,10 +411,13 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
           ? String((resolvedError as { code?: unknown }).code || '')
           : '';
       if (errorCode === 'post_finalization_state_mismatch') {
-        toast.error(`Tempo transaction finalized, but post-finalization refresh failed: ${message}`, {
-          id: toastId,
-          description: null,
-        });
+        toast.error(
+          `Tempo transaction finalized, but post-finalization refresh failed: ${message}`,
+          {
+            id: toastId,
+            description: null,
+          },
+        );
         console.error('[DemoPage][TempoPostFinalizationSyncError]', {
           atIso: new Date().toISOString(),
           message,

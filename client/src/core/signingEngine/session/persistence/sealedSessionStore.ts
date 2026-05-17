@@ -19,6 +19,10 @@ import {
   thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  exactSealedSessionFilterForIdentity,
+  type DeleteDurableSealedSessionCommand,
+} from './durableSealedSessionCommands';
 
 export type SigningSessionRestoreLease = {
   v: 1;
@@ -225,6 +229,30 @@ export type PublishResolvedIdentityInput =
   | (Omit<Extract<SealedStoreResolvedSigningSessionIdentity, { curve: 'ecdsa' }>, 'updatedAtMs'> & {
       updatedAtMs?: number;
     });
+
+export type ExactResolvedSessionIdentity = SealedStoreResolvedSigningSessionIdentity;
+
+export type ResolvedIdentityDeleteReason =
+  | 'durable_record_deleted'
+  | 'invalid_persisted_record'
+  | 'same_lane_replaced'
+  | 'same_scope_replaced';
+
+type DeleteResolvedIdentityCommand = {
+  kind: 'delete_resolved_identity';
+  identity: ExactResolvedSessionIdentity;
+  deleteReason: ResolvedIdentityDeleteReason;
+};
+
+type DeleteExactSealedSessionOptions =
+  | {
+      deleteResolvedIdentity: true;
+      resolvedIdentityDeleteReason: ResolvedIdentityDeleteReason;
+    }
+  | {
+      deleteResolvedIdentity: false;
+      resolvedIdentityDeleteReason?: never;
+    };
 
 const DB_NAME = SIGNING_SESSION_SEAL_DB_NAME;
 const DB_VERSION = SIGNING_SESSION_SEAL_DB_VERSION;
@@ -595,7 +623,7 @@ function setResolvedIdentity(key: string, identity: SealedStoreResolvedSigningSe
   indexResolvedIdentity(key, identity);
 }
 
-function deleteResolvedIdentityByKey(key: string): void {
+function deleteResolvedIdentityByKey(key: string, _reason: ResolvedIdentityDeleteReason): void {
   const existing = resolvedIdentitiesByPurposeKey.get(key);
   if (!existing) return;
   unindexResolvedIdentity(key, existing);
@@ -688,6 +716,38 @@ function normalizeResolvedIdentity(
   };
 }
 
+export function parseResolvedIdentityDeleteReason(
+  value: unknown,
+): ResolvedIdentityDeleteReason | null {
+  switch (value) {
+    case 'durable_record_deleted':
+    case 'invalid_persisted_record':
+    case 'same_lane_replaced':
+    case 'same_scope_replaced':
+      return value;
+    default:
+      return null;
+  }
+}
+
+export function parseExactResolvedSessionIdentity(
+  value: PublishResolvedIdentityInput,
+): ExactResolvedSessionIdentity | null {
+  const identity = normalizeResolvedIdentity(value);
+  return identity ? cloneResolvedIdentity(identity) : null;
+}
+
+function createDeleteResolvedIdentityCommand(args: {
+  identity: ExactResolvedSessionIdentity;
+  deleteReason: ResolvedIdentityDeleteReason;
+}): DeleteResolvedIdentityCommand {
+  return {
+    kind: 'delete_resolved_identity',
+    identity: args.identity,
+    deleteReason: args.deleteReason,
+  };
+}
+
 function resolvedIdentitiesForSealedRecord(
   record: SigningSessionSealedStoreRecord,
 ): PublishResolvedIdentityInput[] {
@@ -733,9 +793,19 @@ function publishResolvedIdentityForSealedRecord(record: SigningSessionSealedStor
   }
 }
 
-function deleteResolvedIdentityForSealedRecord(record: SigningSessionSealedStoreRecord): void {
+function deleteResolvedIdentityForSealedRecord(
+  record: SigningSessionSealedStoreRecord,
+  reason: ResolvedIdentityDeleteReason,
+): void {
   for (const identity of resolvedIdentitiesForSealedRecord(record)) {
-    deleteResolvedIdentity(identity);
+    const exactIdentity = parseExactResolvedSessionIdentity(identity);
+    if (!exactIdentity) continue;
+    deleteResolvedIdentity(
+      createDeleteResolvedIdentityCommand({
+        identity: exactIdentity,
+        deleteReason: reason,
+      }),
+    );
   }
 }
 
@@ -808,17 +878,15 @@ export function publishResolvedIdentity(
   for (const key of [...(resolvedIdentityKeysByListKey.get(listKey) || [])]) {
     const existing = resolvedIdentitiesByPurposeKey.get(key);
     if (existing && sameResolvedIdentityLane(existing, identity)) {
-      deleteResolvedIdentityByKey(key);
+      deleteResolvedIdentityByKey(key, 'same_lane_replaced');
     }
   }
   setResolvedIdentity(makeResolvedIdentityKey(identity), identity);
   return cloneResolvedIdentity(identity);
 }
 
-function deleteResolvedIdentity(input: PublishResolvedIdentityInput): void {
-  const identity = normalizeResolvedIdentity(input);
-  if (!identity) return;
-  deleteResolvedIdentityByKey(makeResolvedIdentityKey(identity));
+function deleteResolvedIdentity(command: DeleteResolvedIdentityCommand): void {
+  deleteResolvedIdentityByKey(makeResolvedIdentityKey(command.identity), command.deleteReason);
 }
 
 function normalizeParticipantIds(value: unknown): number[] {
@@ -1658,7 +1726,7 @@ export async function writeExactSealedSession(
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
     for (const staleRecord of staleRecords) {
-      deleteResolvedIdentityForSealedRecord(staleRecord);
+      deleteResolvedIdentityForSealedRecord(staleRecord, 'same_scope_replaced');
       store.delete(staleRecord.storeKey);
       logSealedSessionDeletedRecord({
         operation: 'write exact sealed session',
@@ -1707,9 +1775,7 @@ export async function updateExactSealedSessionPolicy(args: {
 export async function deleteExactSealedSession(
   thresholdSessionIdRaw: string,
   filter: SigningSessionSealedRecordFilter,
-  options?: {
-    deleteResolvedIdentity?: boolean;
-  },
+  options: DeleteExactSealedSessionOptions,
 ): Promise<void> {
   const purpose = requireSealedRecordPurpose(filter, 'delete');
   const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
@@ -1719,8 +1785,8 @@ export async function deleteExactSealedSession(
   try {
     const record = await readRecordByThresholdSessionId(db, thresholdSessionId, purpose, 'delete');
     await deleteRecordByThresholdSessionId(db, thresholdSessionId, purpose);
-    if (record?.walletSigningSessionId && options?.deleteResolvedIdentity !== false) {
-      deleteResolvedIdentityForSealedRecord(record);
+    if (record?.walletSigningSessionId && options.deleteResolvedIdentity) {
+      deleteResolvedIdentityForSealedRecord(record, options.resolvedIdentityDeleteReason);
       const tx = db.transaction(LEASE_STORE_NAME, 'readwrite');
       tx.objectStore(LEASE_STORE_NAME).delete(record.storeKey);
       await transactionDone(tx).catch(() => undefined);
@@ -1730,6 +1796,19 @@ export async function deleteExactSealedSession(
       db.close();
     } catch {}
   }
+}
+
+export async function deleteDurableSealedSessionRecord(
+  command: DeleteDurableSealedSessionCommand,
+): Promise<void> {
+  const options: DeleteExactSealedSessionOptions = command.preserveResolvedIdentity
+    ? { deleteResolvedIdentity: false }
+    : { deleteResolvedIdentity: true, resolvedIdentityDeleteReason: 'durable_record_deleted' };
+  await deleteExactSealedSession(
+    command.durableRecord.thresholdSessionId,
+    exactSealedSessionFilterForIdentity(command.durableRecord),
+    options,
+  );
 }
 
 export async function acquireSigningSessionRestoreLease(

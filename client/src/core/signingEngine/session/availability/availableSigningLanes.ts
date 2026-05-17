@@ -613,13 +613,23 @@ export function warmStatusToAvailableSigningLanesRuntimeClaim(args: {
 function runtimeClaimToLaneState(
   claim: AvailableSigningLanesRuntimeClaim | null,
   durableLane?: AvailableEcdsaSigningLane | AvailableEd25519SigningLane,
+  recordPolicyState?: 'expired' | 'exhausted' | null,
 ): AvailableSigningLaneState {
-  if (!claim) return durableLane?.state || 'deferred';
+  if (!claim) return recordPolicyState || durableLane?.state || 'deferred';
   if (claim.state === 'warm') return 'ready';
   if (claim.state === 'expired') return 'expired';
   if (claim.state === 'exhausted') return 'exhausted';
-  if (claim.state === 'missing') return durableLane?.state || 'missing';
-  return durableLane?.state || 'deferred';
+  if (claim.state === 'missing') return recordPolicyState || durableLane?.state || 'missing';
+  return recordPolicyState || durableLane?.state || 'deferred';
+}
+
+function runtimeRecordPolicyState(args: {
+  remainingUses: number | null;
+  expiresAtMs: number | null;
+}): 'expired' | 'exhausted' | null {
+  if (args.remainingUses === 0) return 'exhausted';
+  if (args.expiresAtMs !== null && args.expiresAtMs <= Date.now()) return 'expired';
+  return null;
 }
 
 function runtimeRecordToEcdsaLane(args: {
@@ -640,6 +650,7 @@ function runtimeRecordToEcdsaLane(args: {
     claim?.remainingUses ?? args.record.remainingUses,
   );
   const expiresAtMs = nullablePositiveInteger(claim?.expiresAtMs ?? args.record.expiresAtMs);
+  const recordPolicyState = runtimeRecordPolicyState({ remainingUses, expiresAtMs });
   const runtimeUpdatedAtMs = nullablePositiveInteger(args.record.updatedAtMs) || 0;
   const durableUpdatedAtMs =
     hasMatchingDurableLane && isConcreteAvailableSigningLane(args.durableLane)
@@ -652,7 +663,11 @@ function runtimeRecordToEcdsaLane(args: {
     authMethod: args.record.authMethod,
     curve: 'ecdsa',
     chainTarget: args.record.chainTarget,
-    state: runtimeClaimToLaneState(claim, hasMatchingDurableLane ? args.durableLane : undefined),
+    state: runtimeClaimToLaneState(
+      claim,
+      hasMatchingDurableLane ? args.durableLane : undefined,
+      recordPolicyState,
+    ),
     source: hasMatchingDurableLane ? 'runtime_and_durable' : 'runtime_session_record',
     walletSigningSessionId: args.record.walletSigningSessionId,
     thresholdSessionId,
@@ -682,6 +697,7 @@ function runtimeRecordToEd25519Lane(args: {
     claim?.remainingUses ?? args.record.remainingUses,
   );
   const expiresAtMs = nullablePositiveInteger(claim?.expiresAtMs ?? args.record.expiresAtMs);
+  const recordPolicyState = runtimeRecordPolicyState({ remainingUses, expiresAtMs });
   const runtimeUpdatedAtMs = nullablePositiveInteger(args.record.updatedAtMs) || 0;
   const durableUpdatedAtMs = hasMatchingDurableLane
     ? nullablePositiveInteger(args.durableLane.updatedAtMs) || 0
@@ -692,7 +708,11 @@ function runtimeRecordToEd25519Lane(args: {
     authMethod: args.record.authMethod,
     curve: 'ed25519',
     chain: 'near',
-    state: runtimeClaimToLaneState(claim, hasMatchingDurableLane ? args.durableLane : undefined),
+    state: runtimeClaimToLaneState(
+      claim,
+      hasMatchingDurableLane ? args.durableLane : undefined,
+      recordPolicyState,
+    ),
     source: hasMatchingDurableLane ? 'runtime_and_durable' : 'runtime_session_record',
     ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
     ...(thresholdSessionId ? { thresholdSessionId } : {}),
@@ -852,16 +872,22 @@ function sharedEvmFamilyLaneForTarget(args: {
   chainTarget: ThresholdEcdsaChainTarget;
 }): ConcreteAvailableEcdsaSigningLane {
   const sourceLane = args.sourceLane;
+  const sharedState: AvailableSigningLaneState =
+    sourceLane.state === 'expired' || sourceLane.state === 'exhausted'
+      ? sourceLane.state
+      : 'deferred';
   return {
     key: sourceLane.key,
     authMethod: sourceLane.authMethod,
     curve: 'ecdsa',
     chainTarget: args.chainTarget,
-    state: 'deferred',
+    state: sharedState,
     source: 'evm_family_shared_key',
     sourceChainTarget: sourceLane.chainTarget,
     walletSigningSessionId: sourceLane.walletSigningSessionId,
     thresholdSessionId: sourceLane.thresholdSessionId,
+    ...(sourceLane.remainingUses == null ? {} : { remainingUses: sourceLane.remainingUses }),
+    ...(sourceLane.expiresAtMs == null ? {} : { expiresAtMs: sourceLane.expiresAtMs }),
     updatedAtMs: sourceLane.updatedAtMs,
   };
 }
@@ -962,6 +988,79 @@ function collapseExactDuplicateAvailableLanes<
       })[0]!,
   );
   return [...normalized, ...unkeyed];
+}
+
+function ecdsaReauthAnchorIdentityKey(lane: AvailableEcdsaSigningLane): string | null {
+  if (!isConcreteAvailableSigningLane(lane) || lane.curve !== 'ecdsa') return null;
+  if (lane.state !== 'expired' && lane.state !== 'exhausted') return null;
+  try {
+    return [
+      lane.authMethod,
+      'ecdsa',
+      thresholdEcdsaChainTargetKey(lane.chainTarget),
+      deriveEvmFamilyKeyFingerprint(lane.key),
+    ].join(':');
+  } catch {
+    return null;
+  }
+}
+
+function ecdsaReauthAnchorSourcePriority(lane: ConcreteAvailableEcdsaSigningLane): number {
+  switch (lane.source) {
+    case 'runtime_and_durable':
+      return 4;
+    case 'durable_sealed_record':
+      return 3;
+    case 'runtime_session_record':
+      return 2;
+    case 'evm_family_shared_key':
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+function preferEcdsaReauthAnchor(
+  current: ConcreteAvailableEcdsaSigningLane,
+  candidate: ConcreteAvailableEcdsaSigningLane,
+): ConcreteAvailableEcdsaSigningLane {
+  const sourceDelta =
+    ecdsaReauthAnchorSourcePriority(candidate) - ecdsaReauthAnchorSourcePriority(current);
+  if (sourceDelta > 0) return candidate;
+  if (sourceDelta < 0) return current;
+  return availableLaneUpdatedAtMs(candidate) > availableLaneUpdatedAtMs(current) ? candidate : current;
+}
+
+function collapseEcdsaReauthAnchorLanes(
+  lanes: AvailableEcdsaSigningLane[],
+): AvailableEcdsaSigningLane[] {
+  const keyedGroups = new Map<string, ConcreteAvailableEcdsaSigningLane>();
+  const unkeyed: AvailableEcdsaSigningLane[] = [];
+  for (const lane of lanes) {
+    const key = ecdsaReauthAnchorIdentityKey(lane);
+    if (!key || !isConcreteAvailableSigningLane(lane) || lane.curve !== 'ecdsa') {
+      unkeyed.push(lane);
+      continue;
+    }
+    const current = keyedGroups.get(key);
+    keyedGroups.set(key, current ? preferEcdsaReauthAnchor(current, lane) : lane);
+  }
+  return [...keyedGroups.values(), ...unkeyed];
+}
+
+function normalizeEcdsaAvailableLaneCandidates(
+  lanes: AvailableEcdsaSigningLane[],
+): AvailableEcdsaSigningLane[] {
+  return collapseEcdsaReauthAnchorLanes(
+    collapseExactDuplicateAvailableLanes(lanes, ecdsaAvailableLaneIdentityKey),
+  ).sort(byNewestAvailableLane);
+}
+
+function byNewestAvailableLane(
+  left: AvailableEcdsaSigningLane | AvailableEd25519SigningLane,
+  right: AvailableEcdsaSigningLane | AvailableEd25519SigningLane,
+): number {
+  return availableLaneUpdatedAtMs(right) - availableLaneUpdatedAtMs(left);
 }
 
 export async function readAvailableSigningLanes(
@@ -1246,36 +1345,37 @@ export async function readAvailableSigningLanes(
     laneUpdatedAtMsByTarget: ecdsaLaneUpdatedAtMsByTarget,
   });
 
-  const byNewestCandidate = (
-    left: AvailableEcdsaSigningLane | AvailableEd25519SigningLane,
-    right: AvailableEcdsaSigningLane | AvailableEd25519SigningLane,
-  ): number =>
-    Math.floor(Number('updatedAtMs' in right ? right.updatedAtMs : 0) || 0) -
-    Math.floor(Number('updatedAtMs' in left ? left.updatedAtMs : 0) || 0);
-
   const normalizedEd25519Candidates = collapseExactDuplicateAvailableLanes(
     ed25519Candidates,
     ed25519AvailableLaneIdentityKey,
-  ).sort(byNewestCandidate);
+  ).sort(byNewestAvailableLane);
   const preferredEd25519Lane = emailOtpPreferredEd25519PrimaryLane({
     primaryLane: ed25519Lane,
     candidates: normalizedEd25519Candidates,
   });
+  const normalizedEcdsaCandidatesByTarget = Object.fromEntries(
+    Object.entries(ecdsaCandidatesByTarget).map(([targetKey, candidates]) => [
+      targetKey,
+      normalizeEcdsaAvailableLaneCandidates(candidates),
+    ]),
+  );
+  const normalizedEcdsaLanesByTarget = Object.fromEntries(
+    ecdsaTargets.map((chainTarget) => {
+      const targetKey = thresholdEcdsaChainTargetKey(chainTarget);
+      return [
+        targetKey,
+        normalizedEcdsaCandidatesByTarget[targetKey]?.[0] || emptyEcdsaLane({ chainTarget }),
+      ];
+    }),
+  );
 
   const availableLanes: AvailableSigningLanes = {
     walletId,
     generation,
     ecdsa: {
       targets: ecdsaTargets,
-      lanesByTarget: ecdsaLanesByTarget,
-      candidatesByTarget: Object.fromEntries(
-        Object.entries(ecdsaCandidatesByTarget).map(([targetKey, candidates]) => [
-          targetKey,
-          collapseExactDuplicateAvailableLanes(candidates, ecdsaAvailableLaneIdentityKey).sort(
-            byNewestCandidate,
-          ),
-        ]),
-      ),
+      lanesByTarget: normalizedEcdsaLanesByTarget,
+      candidatesByTarget: normalizedEcdsaCandidatesByTarget,
     },
     lanes: {
       ed25519: {

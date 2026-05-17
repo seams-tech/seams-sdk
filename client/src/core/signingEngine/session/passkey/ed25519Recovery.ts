@@ -2,7 +2,7 @@ import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
 import type { AccountId } from '@/core/types/accountIds';
 import {
-  getStoredThresholdEd25519SessionRecordForAccount,
+  getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   upsertStoredThresholdEd25519SessionRecord,
   type ThresholdEd25519SessionRecord,
 } from '../persistence/records';
@@ -80,8 +80,8 @@ export async function reconnectPasskeyEd25519CapabilityForSigning(args: {
   provisionThresholdEd25519Session: (
     args: ProvisionWarmEd25519CapabilityArgs,
   ) => Promise<ProvisionWarmEd25519CapabilityResult>;
-  readStoredThresholdEd25519SessionRecord?: (
-    nearAccountId: AccountId | string,
+  readStoredThresholdEd25519SessionRecordByThresholdSessionId?: (
+    thresholdSessionId: string,
   ) => ThresholdEd25519SessionRecord | null;
 }): Promise<{ sessionId: string; record?: ThresholdEd25519SessionRecord }> {
   const reconnectRemainingUses = Math.max(1, Math.floor(Number(args.remainingUses) || 1));
@@ -112,11 +112,21 @@ export async function reconnectPasskeyEd25519CapabilityForSigning(args: {
     );
   }
   const refreshedRecord =
-    args.readStoredThresholdEd25519SessionRecord?.(args.nearAccountId) ||
-    getStoredThresholdEd25519SessionRecordForAccount(args.nearAccountId);
+    args.readStoredThresholdEd25519SessionRecordByThresholdSessionId?.(sessionId) ||
+    getStoredThresholdEd25519SessionRecordByThresholdSessionId(sessionId);
+  if (!refreshedRecord) {
+    throw new Error(
+      '[SigningEngine][near] passkey Ed25519 reconnect did not publish the planned session record',
+    );
+  }
+  if (String(refreshedRecord.walletSigningSessionId || '').trim() !== walletSigningSessionId) {
+    throw new Error(
+      '[SigningEngine][near] passkey Ed25519 reconnect returned a wallet signing-session mismatch',
+    );
+  }
   return {
     sessionId: provisioned.sessionId,
-    ...(refreshedRecord ? { record: refreshedRecord } : {}),
+    record: refreshedRecord,
   };
 }
 

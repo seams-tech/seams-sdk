@@ -38,8 +38,7 @@ import type {
   UiConfirmRegistrationPort,
   UiConfirmSecureConfirmationPort,
   UiConfirmSigningPort,
-  WarmSessionMaterialClearer,
-  WarmSessionStatusReader,
+  VolatileWarmMaterialPort,
   WarmSessionStatusResult,
 } from '../uiConfirm/types';
 import type { SignerWorkerManagerContext } from '../workerManager/SignerWorkerManager';
@@ -190,6 +189,7 @@ export type EvmFamilySigningDeps = EvmFamilyEcdsaSessionReaderDeps & {
     authLane?: EmailOtpAuthLane;
   }) => Promise<{ challengeId: string; emailHint?: string }>;
   resolveEmailOtpSigningSessionAuthLane?: (args: {
+    walletId: AccountId | string;
     thresholdSessionId: string;
     curve: 'ecdsa';
     chain: EvmFamilyChain;
@@ -212,9 +212,11 @@ export type EvmFamilySigningDeps = EvmFamilyEcdsaSessionReaderDeps & {
     args: Extract<ReadAvailableSigningLanesForSigningInput, { curve: 'ecdsa' }>,
   ) => Promise<AvailableSigningLanes>;
   getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
-  markThresholdEcdsaEmailOtpSessionConsumedForSubjectTarget?: (args: {
+  markThresholdEcdsaEmailOtpSessionConsumedForLane?: (args: {
     subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
+    walletSigningSessionId: string;
+    thresholdSessionId: string;
     uses?: number;
   }) => void;
   signingSessionCoordinator: SigningSessionCoordinator;
@@ -224,8 +226,8 @@ export type EvmFamilySigningDeps = EvmFamilyEcdsaSessionReaderDeps & {
   touchConfirm: UiConfirmContextPort &
     UiConfirmSigningPort &
     UiConfirmSecureConfirmationPort &
-    WarmSessionStatusReader &
-    Partial<WarmSessionMaterialClearer>;
+    Pick<VolatileWarmMaterialPort, 'getWarmSessionStatus'> &
+    Partial<Pick<VolatileWarmMaterialPort, 'clearVolatileWarmSessionMaterial'>>;
 };
 
 export type PrivateKeyExportRecoveryDeps = {

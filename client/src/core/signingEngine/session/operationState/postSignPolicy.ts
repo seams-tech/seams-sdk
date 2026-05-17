@@ -21,6 +21,7 @@ export type EcdsaPostSignPolicySession = {
   subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   source: ThresholdEcdsaSessionStoreSource;
+  walletSigningSessionId: string;
   thresholdSessionId: string;
   emailOtpRetention: 'session' | 'single_use' | null;
   emailOtpConsumedAtMs: number | null;
@@ -40,6 +41,7 @@ export function ecdsaPostSignPolicySessionFromRecord(
     subjectId: record.subjectId,
     chainTarget: record.chainTarget,
     source: record.source,
+    walletSigningSessionId: String(record.walletSigningSessionId || '').trim(),
     thresholdSessionId: String(record.thresholdSessionId || '').trim(),
     emailOtpRetention: record.emailOtpAuthContext?.retention || null,
     emailOtpConsumedAtMs: Number.isFinite(consumedAtMs) && consumedAtMs > 0 ? consumedAtMs : null,
@@ -70,6 +72,8 @@ export async function applyEcdsaPostSignPolicy(args: {
   markEmailOtpSessionConsumed?: (args: {
     subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
+    walletSigningSessionId: string;
+    thresholdSessionId: string;
     uses?: number;
   }) => void;
 }): Promise<void> {
@@ -99,6 +103,8 @@ export async function applyEcdsaPostSignPolicy(args: {
   args.markEmailOtpSessionConsumed?.({
     subjectId: effectiveEmailOtpMaterial.session.subjectId,
     chainTarget: effectiveEmailOtpMaterial.session.chainTarget,
+    walletSigningSessionId: effectiveEmailOtpMaterial.session.walletSigningSessionId,
+    thresholdSessionId: effectiveEmailOtpMaterial.session.thresholdSessionId,
     uses: 1,
   });
   await effectiveEmailOtpMaterial.clearEphemeralMaterial();

@@ -63,7 +63,7 @@ import {
   listThresholdEcdsaKeyRefsForTarget as listThresholdEcdsaKeyRefsForTargetValue,
   listThresholdEcdsaSessionRecordsForTarget as listThresholdEcdsaSessionRecordsForTargetValue,
   markThresholdEd25519EmailOtpSessionConsumedForAccount as markThresholdEd25519EmailOtpSessionConsumedForAccountValue,
-  markThresholdEcdsaEmailOtpSessionConsumedForSubjectTarget as markThresholdEcdsaEmailOtpSessionConsumedForSubjectTargetValue,
+  markThresholdEcdsaEmailOtpSessionConsumedForLane as markThresholdEcdsaEmailOtpSessionConsumedForLaneValue,
   upsertThresholdEcdsaSessionFromBootstrap as upsertThresholdEcdsaSessionFromBootstrapValue,
   type ThresholdEd25519SessionRecord,
   type ThresholdEcdsaSessionRecord,
@@ -447,12 +447,14 @@ export class SigningEngine {
           args,
           configuredThresholdEcdsaChainTargets(this.seamsPasskeyConfigs.network.chains),
         ),
-      markThresholdEcdsaEmailOtpSessionConsumedForSubjectTarget: (args) =>
-        markThresholdEcdsaEmailOtpSessionConsumedForSubjectTargetValue(
+      markThresholdEcdsaEmailOtpSessionConsumedForLane: (args) =>
+        markThresholdEcdsaEmailOtpSessionConsumedForLaneValue(
           this.warmSigning.ecdsaSessions,
           {
             subjectId: args.subjectId,
             chainTarget: args.chainTarget,
+            walletSigningSessionId: args.walletSigningSessionId,
+            thresholdSessionId: args.thresholdSessionId,
             ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
           },
         ),
@@ -977,8 +979,8 @@ export class SigningEngine {
     await this.warmCapabilitiesPublic.hydrateSigningSession(args);
   }
 
-  async clearWarmSigningSessions(walletId?: AccountId | string): Promise<void> {
-    await this.warmCapabilitiesPublic.clearWarmSigningSessions(walletId);
+  async clearVolatileWarmSigningMaterial(walletId?: AccountId | string): Promise<void> {
+    await this.warmCapabilitiesPublic.clearVolatileWarmSigningMaterial(walletId);
   }
 
   clearThresholdEcdsaCommitQueue(): void {
@@ -1107,7 +1109,7 @@ export type SigningEnginePublic = Pick<
   | 'listWarmThresholdEcdsaSessionStatuses'
   | 'scheduleThresholdEcdsaLoginPresignPrefill'
   | 'hydrateSigningSession'
-  | 'clearWarmSigningSessions'
+  | 'clearVolatileWarmSigningMaterial'
   | 'clearThresholdEcdsaCommitQueue'
   | 'deriveThresholdEd25519ClientVerifyingShareFromCredential'
   | 'deriveThresholdEd25519HssClientInputsFromCredential'

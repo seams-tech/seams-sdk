@@ -26,11 +26,10 @@ export type UserConfirmWorkerMessageType =
   | 'WARM_SESSION_STATUS_BATCH_READ'
   | 'WARM_SESSION_MATERIAL_CLAIM'
   | 'WARM_SESSION_MATERIAL_CONSUME'
-  | 'WARM_SESSION_MATERIAL_CLEAR'
-  | 'WARM_SESSION_MATERIAL_CLEAR_ALL'
+  | 'WARM_SESSION_VOLATILE_MATERIAL_CLEAR'
+  | 'WARM_SESSION_VOLATILE_MATERIAL_CLEAR_ALL'
   | 'WARM_SESSION_SEAL_AND_PERSIST'
-  | 'WARM_SESSION_REHYDRATE'
-  | 'WARM_SESSION_DELETE_PERSISTED';
+  | 'WARM_SESSION_REHYDRATE';
 
 export type WarmSessionSealTransportInput =
   | {
@@ -65,10 +64,6 @@ export interface WarmSessionRehydratePayload {
   remainingUses: number;
   keyVersion?: string;
   transport: WarmSessionSealTransportInput;
-}
-
-export interface WarmSessionDeletePersistedPayload {
-  sessionId: string;
 }
 
 export interface WarmSessionStatusBatchReadPayload {

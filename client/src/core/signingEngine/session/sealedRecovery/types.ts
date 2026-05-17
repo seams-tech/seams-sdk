@@ -88,12 +88,20 @@ export type RestorePersistedSessionWorkItem = {
   purpose: RestorePersistedSessionPurpose;
 };
 
-export type RestorePersistedSessionsForWalletInput = {
+type RestorePersistedSessionsForWalletBase = {
   walletId: string;
   ecdsaChainTargets: readonly ThresholdEcdsaChainTarget[];
   authMethod?: 'email_otp' | 'passkey';
   maxRecords?: number;
 };
+
+export type RestorePersistedSessionsForWalletInput =
+  | (RestorePersistedSessionsForWalletBase & {
+      kind: 'restore_wallet_all_signing_sessions';
+    })
+  | (RestorePersistedSessionsForWalletBase & {
+      kind: 'restore_wallet_ecdsa_signing_sessions';
+    });
 
 export type RestorePersistedSessionsForWalletResult = {
   listed: number;

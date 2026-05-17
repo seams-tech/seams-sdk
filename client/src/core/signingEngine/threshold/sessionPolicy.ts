@@ -132,7 +132,7 @@ export const DEFAULT_THRESHOLD_SESSION_POLICY: Pick<
   'ttlMs' | 'remainingUses'
 > = {
   ttlMs: 5 * 60_000,
-  remainingUses: 5,
+  remainingUses: 3,
 };
 
 export function clampThresholdSessionPolicy(input: { ttlMs: number; remainingUses: number }): {

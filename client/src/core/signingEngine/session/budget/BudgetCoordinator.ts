@@ -166,19 +166,14 @@ export class BudgetCoordinator implements SigningSessionBudget {
         existingFingerprint: resolveWalletSigningOperationFingerprint(reservation.spend),
         nextFingerprint: resolveWalletSigningOperationFingerprint(normalizedInput.spend),
       });
+      assertReservedSpendMatchesReservation({
+        operationId,
+        reservation,
+        spend: normalizedInput.spend,
+      });
       if (normalizedInput.kind === 'unreserved_success') {
         throw new Error(
           '[SigningSessionBudget] reserved operations must finalize with reserved_success',
-        );
-      }
-      if (
-        normalizedInput.kind === 'reserved_success' &&
-        normalizedInput.expectedBudgetProjectionVersion !==
-          (reservation.expectedBudgetProjectionVersion ||
-            reservation.reservedAgainstProjectionVersion)
-      ) {
-        throw new Error(
-          '[SigningSessionBudget] reserved_success projection does not match reservation',
         );
       }
     } else if (normalizedInput.kind === 'reserved_success') {
@@ -360,4 +355,43 @@ export class BudgetCoordinator implements SigningSessionBudget {
   ): void {
     this.deps.onTrace?.(createSigningSessionBudgetTraceEvent(input, event, extra));
   }
+}
+
+function assertReservedSpendMatchesReservation(args: {
+  operationId: string;
+  reservation: SigningSessionBudgetReservationRecord;
+  spend: WalletBudgetSpend;
+}): void {
+  const reservationIdentity = walletBudgetSpendReservationIdentity(args.reservation.spend);
+  const finalizationIdentity = walletBudgetSpendReservationIdentity(args.spend);
+  if (reservationIdentity === finalizationIdentity) return;
+  throw new Error(
+    `[SigningSessionBudget] reserved_success spend does not match reservation: ${args.operationId}`,
+  );
+}
+
+function walletBudgetSpendReservationIdentity(spend: WalletBudgetSpend): string {
+  const normalized = normalizeWalletSigningSpendPlan(spend);
+  const ecdsaKey =
+    'ecdsaKey' in normalized
+      ? {
+          ecdsaThresholdKeyId: normalized.ecdsaKey.ecdsaThresholdKeyId,
+          signingRootId: normalized.ecdsaKey.signingRootId,
+          signingRootVersion: normalized.ecdsaKey.signingRootVersion,
+          walletId: normalized.ecdsaKey.walletId,
+          subjectId: normalized.ecdsaKey.subjectId,
+        }
+      : null;
+  return JSON.stringify({
+    walletId: String(normalized.walletId),
+    walletSigningSessionId: String(normalized.walletSigningSessionId),
+    laneCurve: normalized.lane.curve,
+    laneAuthMethod: normalized.lane.authMethod,
+    laneThresholdSessionId: String(normalized.lane.thresholdSessionId),
+    thresholdSessionIds: normalizeStringList(normalized.thresholdSessionIds) || [],
+    backingMaterialSessionIds: normalizeStringList(normalized.backingMaterialSessionIds) || [],
+    reason: normalized.reason,
+    uses: normalized.uses,
+    ecdsaKey,
+  });
 }

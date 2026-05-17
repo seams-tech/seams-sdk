@@ -5,9 +5,8 @@ import type {
   UiConfirmContextPort,
   UiConfirmSecureConfirmationPort,
   UiConfirmSigningPort,
-  WarmSessionMaterialClearer,
-  WarmSessionPersistedRestorer,
-  WarmSessionStatusReader,
+  DurableSealedSessionPort,
+  VolatileWarmMaterialPort,
   WarmSessionStatusResult,
 } from '../../uiConfirm/types';
 import { createWarmSessionCapabilityReader } from '../../session/warmCapabilities/capabilityReader';
@@ -23,6 +22,8 @@ import type {
   WarmSessionProvisioner,
 } from '../../session/warmCapabilities/types';
 import { createWarmSessionStatusReader } from '../../session/warmCapabilities/statusReader';
+import { createClearVolatileWarmSessionMaterialCommand } from '../../session/warmCapabilities/volatileWarmMaterialCommands';
+import { parseVolatileWarmSessionId } from '../../session/warmCapabilities/volatileWarmSessionId';
 import type {
   ThresholdEcdsaSessionRecord,
 } from '../../session/persistence/records';
@@ -45,12 +46,14 @@ export type EvmFamilyWarmSessionServicesDeps = EvmFamilyEcdsaSessionReaderDeps &
   touchConfirm: UiConfirmContextPort &
     UiConfirmSigningPort &
     UiConfirmSecureConfirmationPort &
-    WarmSessionStatusReader &
-    Partial<WarmSessionPersistedRestorer> &
-    Partial<WarmSessionMaterialClearer>;
-  markThresholdEcdsaEmailOtpSessionConsumedForSubjectTarget?: (args: {
+    Pick<VolatileWarmMaterialPort, 'getWarmSessionStatus'> &
+    Partial<Pick<DurableSealedSessionPort, 'restorePersistedSessionForSigning'>> &
+    Partial<Pick<VolatileWarmMaterialPort, 'clearVolatileWarmSessionMaterial'>>;
+  markThresholdEcdsaEmailOtpSessionConsumedForLane?: (args: {
     subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
+    walletSigningSessionId: string;
+    thresholdSessionId: string;
     uses?: number;
   }) => void;
   provisionThresholdEcdsaSession: (
@@ -90,12 +93,17 @@ export function createEvmFamilyWarmSessionServices(
       ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
       participantIds: record.participantIds,
     });
-    const thresholdSessionId = String(
+    const thresholdSessionId = parseVolatileWarmSessionId(
       thresholdSessionIdOverride || record.thresholdSessionId || '',
-    ).trim();
-    if (thresholdSessionId && typeof deps.touchConfirm.clearWarmSessionMaterial === 'function') {
+    );
+    if (
+      thresholdSessionId &&
+      typeof deps.touchConfirm.clearVolatileWarmSessionMaterial === 'function'
+    ) {
       await deps.touchConfirm
-        .clearWarmSessionMaterial({ sessionId: thresholdSessionId })
+        .clearVolatileWarmSessionMaterial(
+          createClearVolatileWarmSessionMaterialCommand(thresholdSessionId),
+        )
         .catch(() => undefined);
     }
   };
@@ -165,7 +173,7 @@ export function createEvmFamilyWarmSessionServices(
           getWarmSession: (walletId) => capabilityReader.getWarmSession(walletId),
           resolveExactEcdsaRecord: (recordArgs) =>
             statusReader.resolveExactEcdsaRecord(recordArgs),
-          markEmailOtpSessionConsumed: deps.markThresholdEcdsaEmailOtpSessionConsumedForSubjectTarget,
+          markEmailOtpSessionConsumed: deps.markThresholdEcdsaEmailOtpSessionConsumedForLane,
           clearEcdsaEphemeralMaterial: ({ record, thresholdSessionId }) =>
             clearEcdsaEphemeralMaterial(record, thresholdSessionId),
         },
