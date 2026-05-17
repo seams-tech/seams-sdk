@@ -115,7 +115,7 @@ Before moving a vertical slice, run the relevant unit set:
 | EVM signing | `evmSigning.thresholdReconnectEvents.unit.test.ts`, `thresholdEcdsa.authorizationBootstrapVerifier.unit.test.ts`, `thresholdEcdsa.authorizePolicyHint.unit.test.ts`, `evmFamilyOperationIds.unit.test.ts` |
 | Tempo signing | `thresholdEcdsa.tempoHighLevel.unit.test.ts`, `tempo.broadcastNonceLifecycle.unit.test.ts`, `multichain.tempoTxHash.unit.test.ts`, `walletIframeHost.signTempoCancel.unit.test.ts` |
 | Key export | `keyExport.behavior.guard.unit.test.ts`, `privateKeyExportRecovery.binding.unit.test.ts`, `privateKeyExportRecovery.hardening.unit.test.ts`, `passkeyConfirm.exportFlow.unit.test.ts` |
-| Registration | `thresholdEcdsa.registrationBootstrapParity.unit.test.ts`, `smartAccountRegistrationRecords.unit.test.ts`, `configs.registrationTransport.test.ts`, `relayApiKeyRegistration.unit.test.ts` |
+| Registration | `thresholdEcdsa.registrationBootstrapParity.unit.test.ts`, `configs.registrationTransport.test.ts`, `relayApiKeyRegistration.unit.test.ts` |
 | Recovery | `recoveryExecutionTracking.unit.test.ts`, `recoverySessionStore.unit.test.ts`, `deviceRecoveryDomain.emailRecovery.unit.test.ts`, `emailOtpRecoveryKey.shared.unit.test.ts` |
 | Passkey confirmation | `awaitSecureConfirmationV2.test.ts`, `handleSecureConfirmRequest.test.ts`, `touchConfirm.orchestrationBridge.unit.test.ts`, `touchConfirm.signingAuthPlanValidation.unit.test.ts` |
 | Email OTP confirmation | `emailOtpAuthLane.unit.test.ts`, `emailOtpThresholdSessionCoordinator.unit.test.ts`, `seamsPasskey.emailOtp.unit.test.ts`, `emailOtpSigningSession.deviceEscrow.behavior.guard.unit.test.ts` |

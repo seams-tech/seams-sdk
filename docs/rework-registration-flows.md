@@ -128,7 +128,7 @@ POST /wallets/register/finalize
 - Finalizes requested signer material.
 - Persists wallet subject, authenticator binding, and signer records.
 - Creates a NEAR account only when Ed25519 registration requested account creation.
-- Persists ECDSA smart-account signer metadata only when ECDSA is requested.
+- Persists ECDSA signer metadata only when ECDSA is requested.
 - Returns signer key refs and optional fresh signing-session auth tokens for immediate use.
 
 `registrationCeremonyId` is an opaque server-side state handle. It should carry no JWT claims and no signing/export authority. Possession of the handle alone should be insufficient to create key material; the HSS transcript must validate against the client’s PRF-derived inputs.
@@ -203,7 +203,7 @@ Output:
 - NEAR account/access key registration result
 - Optional Ed25519 signing-session auth token for immediate use
 
-No ECDSA key, ECDSA smart-account record, or ECDSA signing session is created.
+No ECDSA key or ECDSA signing session is created.
 
 ### ECDSA Only
 
@@ -219,7 +219,6 @@ Output:
 - Wallet subject
 - Authenticator binding
 - ECDSA signer records for requested chain targets
-- Optional smart-account deployment metadata
 - Optional ECDSA signing-session auth token for immediate use
 
 This mode requires wallet identity to be decoupled from NEAR account creation. `nearAccountId` should be absent from the normalized internal request.
@@ -598,14 +597,10 @@ Tests to edit or add:
   - Rename config expectations away from `/registration/bootstrap`.
 - `tests/e2e/thresholdEd25519.bootstrapIntegrity.test.ts`
   - Move tamper checks to the new registration ceremony response.
-- `tests/unit/smartAccount.bootstrapPersistence.unit.test.ts`
-  - Update smart-account persistence assertions to wallet signer records.
 - `tests/unit/thresholdEcdsa.registrationBootstrapParity.unit.test.ts`
   - Replace registration continuation parity assertions with wallet registration ceremony parity.
 - `tests/unit/thresholdEcdsa.bootstrapPersistence.unit.test.ts`
   - Update ECDSA bootstrap persistence around wallet-subject signer refs.
-- `tests/unit/smartAccountRegistrationRecords.unit.test.ts`
-  - Update registration records to wallet signer records for ECDSA-only and combined modes.
 - `tests/unit/warmSessionEcdsaProvisioning.unit.test.ts`
   - Ensure warm-session provisioning consumes existing ECDSA signer records.
 - `tests/unit/passkeyLoginMenu.thresholdProvision.unit.test.ts`
@@ -726,6 +721,5 @@ Add unit and integration coverage for:
 ## Decisions Before Implementation
 
 - Wallet subject id source: server-generated opaque id, client-provided id normalized by server, or account-derived id for NEAR wrappers.
-- ECDSA-only smart-account behavior: persist counterfactual metadata only, deploy immediately, or follow existing deployment policy.
 - Ed25519 later behavior for ECDSA-only wallets: create a new NEAR account, attach to an existing account, or support both as explicit sub-modes.
 - Runtime storage layout: new wallet subject tables or normalized records on top of existing identity and signer stores.

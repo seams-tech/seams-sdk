@@ -69,8 +69,8 @@ Lessons for future identity refactors:
 - Delete stale fallback paths as soon as exact identity exists.
 - Keep compatibility at persistence/request boundaries only.
 - Add guards for dangerous field groupings, such as key id plus session id in a
-  shared key type, owner address plus smart-account address in raw EIP-1559
-  flows, or provider subject in wallet-scoped HSS fields.
+  shared key type, transaction sender identity in shared key records, or
+  provider subject in wallet-scoped HSS fields.
 - When HSS or signing-root context changes, include server, browser WASM,
   fixtures, and manual wallet-unlock/sign/export flows in the same validation
   slice.
@@ -202,9 +202,6 @@ After this refactor, `nearAccountId` should be absent from:
 6. ECDSA budget identity and admission/finalization state.
 7. ECDSA HSS prepare/finalize identity. HSS may receive `walletSessionUserId`
    for session/audit scope and `subjectId` for lane identity.
-8. Smart-account deployment identity. NEAR account hashes may remain only as
-   explicit hosted-account metadata when the server protocol requires them.
-
 ## Public API Target Shape
 
 NEAR commands:
@@ -313,14 +310,14 @@ identity.
 | Area | Exact-hit files | Required refactor |
 | --- | ---: | --- |
 | Tests | 167 | Rewrite fixtures and assertions to use `nearAccount` for NEAR flows, `walletSession + subjectId + chainTarget` for ECDSA flows, and add guards for forbidden payload fields. |
-| Server | 35 | Split hosted NEAR account flows from wallet/session identity in ThresholdService, HSS route handlers, sponsorship, smart-account deploy, recovery, and registration routes. |
-| EVM-family signing flows | 30 | Replace `nearAccountId` in `flows/signEvmFamily/**`, including auth planning, ECDSA material state, nonce lifecycle, budget spending, prepared signing, smart-account deployment, signing flow runtime, and transaction execution. |
+| Server | 35 | Split hosted NEAR account flows from wallet/session identity in ThresholdService, HSS route handlers, sponsorship, recovery, and registration routes. |
+| EVM-family signing flows | 30 | Replace `nearAccountId` in `flows/signEvmFamily/**`, including auth planning, ECDSA material state, nonce lifecycle, budget spending, prepared signing, signing flow runtime, and transaction execution. |
 | SDK facade: `client/src/core/SeamsPasskey/**` | 23 | Rename public EVM/Tempo/auth inputs, stop deriving `subjectId` from `nearAccountId`, and keep NEAR account refs only under `near/**` and account creation/recovery flows. |
 | Signing engine other | 20 | Update `SigningEngine.ts`, threshold modules, EVM chain signer bridge, nonce coordinator, WebAuthn auth, user preferences, and remaining top-level session entrypoints. |
 | Examples and demo site | 19 | Update sample apps, docs snippets, demo hooks, login bridges, profile settings, and Tempo/EVM action hooks to model wallet/session identity separately from NEAR account display. |
 | UI confirm | 16 | Split confirmation request data into NEAR account display for NEAR operations and wallet/subject display for ECDSA export, Tempo, EVM, and signing-session prompts. |
 | React package | 16 | Rename login state, context values, `getWalletSession(...)`, refresh callbacks, account input, account menu, linked devices, QR, and passkey menu data to use wallet/session names where the UI is wallet-scoped. |
-| Docs | 14 | Update conceptual docs, smart-account docs, nonce docs, OTP privacy docs, deployment docs, refactor docs, and registration-flow docs after the API shape changes. |
+| Docs | 14 | Update conceptual docs, nonce docs, OTP privacy docs, deployment docs, refactor docs, and registration-flow docs after the API shape changes. |
 | Warm capabilities | 14 | Move ECDSA warm-capability read models, status readers, provision plans, persistence, sealed-refresh parity, login prefill, and cleanup from account identity to `subjectId + chainTarget`. |
 | Recovery flows | 13 | Split ECDSA export/recovery lane selection and HSS export from NEAR Ed25519 export/recovery. ECDSA export should receive wallet/session and subject identity directly. |
 | Passkey session | 12 | Move ECDSA bootstrap/provision/recovery/warm-capability paths away from account-derived subjects while keeping Ed25519 provision/recovery account-scoped. |
@@ -328,7 +325,6 @@ identity.
 | Wallet iframe protocol | 9 | Update shared payload types, client router, iframe wrapper, host handlers, login-status events, preferences events, and route initialization to use wallet/session fields for non-NEAR flows. |
 | WASM bindings | 8 | Keep NEAR signer/Ed25519 bindings account-scoped; update HSS client signer and ECDSA bridge payloads that use account strings as wallet/session identity. |
 | NEAR signing flows | 8 | Keep `flows/signNear/**` account-scoped; rename only generic wallet/session helpers that leaked in. |
-| Contracts | 7 | Keep or rename `nearAccountIdHash` only where it is part of the smart-account recovery protocol, with boundary comments and matching server manifest names. |
 | Workers | 5 | Remove `nearAccountId` from ECDSA Email OTP worker messages, eth signer worker payloads, passkey confirm worker ECDSA paths, and worker type definitions. |
 | Operation state | 5 | Ensure lanes, prepared operation, post-sign policy, transaction state, and coordinator inputs require the narrow identity for each lifecycle state. |
 | Budget session | 5 | Move ECDSA budget admission, status, finalization, and projections from account identity to selected subject/chain identity. |
@@ -500,9 +496,9 @@ git diff --check
           ECDSA lane lookups.
       - [x] warm ECDSA bootstrap queue coordination now uses `walletId`
           for wallet-scoped queue ownership.
-        - [x] EVM-family reconnect readiness, smart-account deployment
-          readiness, and local ECDSA signer commit-queue boundaries now use
-          `walletId` for wallet-scoped helper inputs.
+        - [x] EVM-family reconnect readiness and local ECDSA signer
+          commit-queue boundaries now use `walletId` for wallet-scoped helper
+          inputs.
         - [x] lower nonce/material helpers and remaining warm-capability/store
           bridges now expose wallet-scoped identity as `walletId` or
           `walletSession`.
@@ -625,9 +621,6 @@ Detailed completed Phase 5 subtasks:
 - [x] Managed ECDSA nonce reservation/snapshot identity now uses `walletId`
   through the nonce backend, nonce coordinator adapter, and EVM/Tempo nonce
   lifecycle telemetry.
-- [x] ECDSA smart-account deployment planning now uses `walletId` in its local
-  state and helper inputs, keeping `nearAccountId` only in the final deploy
-  request body where the server boundary still expects it.
 - [x] Wallet-scoped ECDSA Email OTP challenge/request bridges and the threshold
   ECDSA commit queue now use `walletSession`/`walletId` in shared flow and
   runtime ports, leaving `nearAccountId` only on the explicit NEAR Email OTP
@@ -752,10 +745,10 @@ Detailed completed Phase 5 subtasks:
 - [x] Wallet-scoped ECDSA account-auth and WebAuthn leaf helpers now also use
   wallet terminology at their own boundary, leaving the hosted-NEAR
   profile/account lookup as the only account-shaped layer underneath.
-- [x] Wallet-scoped ECDSA commit-queue and smart-account deployment-state
-  helpers now also keep local `walletId` naming through their internal
-  orchestration, leaving account-shaped terminology only at explicit
-  hosted-NEAR mapping and server request boundaries.
+- [x] Wallet-scoped ECDSA commit-queue helpers now also keep local `walletId`
+  naming through their internal orchestration, leaving account-shaped
+  terminology only at explicit hosted-NEAR mapping and server request
+  boundaries.
 - [x] The wallet-scoped Email OTP enrollment bridge now also takes `walletId`
   instead of `nearAccountId`, leaving raw account-shaped identity only in the
   surrounding registration/event boundary that still models NEAR account
@@ -847,12 +840,7 @@ Detailed completed Phase 6 subtasks:
   aliases through presign initialization.
 - [x] The sponsored EVM server request/details flow now normalizes
   `walletId` at the request/readback boundary and keeps hosted-NEAR account
-  refs only in the explicit spend-cap/account-ref helper. The smart-account
-  deploy route also logs `walletId` locally instead of reusing the raw
-  request field name.
-- [x] Retained `nearAccountIdHash` usage is now isolated to the smart-account
-  recovery/deployment protocol files, each with a short boundary comment that
-  explains why the hosted-NEAR hash is still part of the on-chain shape.
+  refs only in the explicit spend-cap/account-ref helper.
 - [x] The server HSS prepare route now uses a discriminated
   `ThresholdEcdsaHssPrepareRequest` union, so `session_bootstrap` requires
   `ecdsaThresholdKeyId` and `explicit_key_export` requires exact lane identity
@@ -904,13 +892,10 @@ Detailed completed Phase 6 subtasks:
   - [x] Reject requests where token claims disagree with `subjectId`,
     `chainTarget`, session ids, or signing root.
 
-- [x] Keep hosted NEAR account ids only in hosted-account protocols.
+  - [x] Keep hosted NEAR account ids only in hosted-account protocols.
   - [x] Audit `server/src/sponsorship/evm.ts`,
-    `server/src/router/relaySponsoredEvmCall.ts`, and
-    `server/src/router/evmSmartAccountDeploy.ts`.
+    `server/src/router/relaySponsoredEvmCall.ts`.
   - [x] Rename non-protocol EVM sponsorship identity to wallet/session naming.
-  - [x] Keep `nearAccountIdHash` only where the smart-account protocol derives
-    or verifies hosted-account binding.
   - [x] Add a short boundary comment at every retained `nearAccountIdHash`.
 
 Phase 6 caveat:
@@ -1077,7 +1062,6 @@ Phase 7 caveat:
   - [x] `client/src/core/SeamsPasskey/evm/linkDeviceThresholdEcdsa.ts` (13)
   - [x] `client/src/core/SeamsPasskey/tempo/index.ts` (1)
   - [x] `client/src/core/signingEngine/chains/evm/ethSignerWasm.ts` (6)
-  - [x] `client/src/core/signingEngine/flows/signEvmFamily/smartAccountDeployment.ts` (1)
   - [x] `client/src/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence.ts` (9)
   - [x] `client/src/core/signingEngine/session/warmCapabilities/persistence.ts` (4; reclassified as NEAR-owned Ed25519)
   - [x] `client/src/core/signingEngine/session/warmCapabilities/persistence.typecheck.ts` (1; reclassified as NEAR-owned Ed25519)
@@ -1149,7 +1133,6 @@ server/src/core/*Recovery*
 server/src/email-recovery/**
 server/src/router/*Recovery*
 server/src/router/recoveryExecutionTracking.ts
-contracts/evm-smart-account/**
 ```
 
 Path-only forbidden production paths:
@@ -1199,7 +1182,6 @@ server/src/core/ThresholdService/ThresholdSigningService.ts
 server/src/core/ThresholdService/signingHandlers.ts
 server/src/core/ThresholdService/validation.ts
 server/src/router/relaySponsoredEvmCall.ts
-server/src/router/evmSmartAccountDeploy.ts
 server/src/sponsorship/evm.ts
 ```
 
@@ -1221,7 +1203,7 @@ Guard checks:
 - [x] Email OTP ECDSA capability and worker messages.
 - [x] Tempo/EVM signing orchestration and nonce/budget types.
 - [x] Wallet session APIs and React context naming.
-- [x] Server HSS and smart-account metadata naming.
+- [x] Server HSS metadata naming.
 - [x] Tests, fixtures, docs, and architecture guards.
 
 This order makes TypeScript expose the account-shaped call chain early while

@@ -711,8 +711,6 @@ Response:
 1. stop new wallet enrollment under the affected root
 2. increase signing monitoring and rate limits
 3. decide whether to migrate wallets to a new signing root
-4. for EVM smart accounts, use owner rotation where address continuity is
-   required
 
 ### Signer Runtime Compromise
 
@@ -766,7 +764,8 @@ Therefore:
 
 - share refresh preserves EOA addresses
 - signing-root replacement usually changes EOA addresses
-- smart accounts can preserve account identity through owner rotation
+- signing-root replacement must be treated as an explicit wallet migration for
+  EVM wallets
 
 ## Implementation Phases
 
@@ -961,8 +960,8 @@ Exit criteria:
 
 1. Add explicit wallet-key migration to a new signing root.
 2. Reuse passkey-derived client input where supported.
-3. For EVM, use smart-account owner rotation where stable account identity is
-   required.
+3. For EVM, document the address change and require explicit user or operator
+   approval before moving funds or active policy to the replacement address.
 
 Project-root replacement is not normal rotation. It is compromise response or
 intentional rekeying.

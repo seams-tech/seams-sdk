@@ -648,8 +648,6 @@ Target policy:
 - `ctx.signedDelegatePath` is a machine execution route, not a public proof route
 - `ctx.signedDelegatePath` must be API-auth-gated and billed or metered based on actual gas used or equivalent relayer spend
 - `ctx.signedDelegatePath` should not use console RBAC and does not need a machine scope unless we later expose a broader dedicated wallet execution API
-- `smartAccountDeploy` remains internal-only and stays out of the public route registry
-- future rollout decisions for `smartAccountDeploy` are deferred to [smart-accounts-evm.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/smart-accounts-evm.md)
 
 ## Scope taxonomy
 
@@ -810,7 +808,6 @@ Deliverables:
 - gate `signedDelegatePath` with relay API auth
 - meter `signedDelegatePath` based on exact gas used or equivalent relayer spend
 - decide whether `signedDelegatePath` uses publishable-key policy only or additionally supports another non-console API credential
-- decide where registration or provisioning invokes the internal `smartAccountDeploy` hook for EVM and Tempo chains
 - document the chosen route policy and add route tests
 
 Required outcome:
@@ -900,8 +897,6 @@ Required outcome:
 - [x] Gate `signedDelegatePath` with non-console API auth.
 - [x] Meter `signedDelegatePath` on actual gas used or equivalent relayer spend.
 - [x] Keep `signedDelegatePath` publishable-key-only for now; treat any future x402 support as a payment layer, not a second API credential model.
-- [x] Keep `smartAccountDeploy` out of the public route registry entirely.
-- [x] Move deferred `smartAccountDeploy` product questions to [smart-accounts-evm.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/smart-accounts-evm.md).
 - [x] Document the chosen auth and metering policy for each adjacent execution route.
 - [x] Confirm the remaining proofless public relay routes are limited to explicit allowlisted discovery or operational-ingress surfaces and remain unmetered.
 - [x] Add route-level tests for the chosen classification.
@@ -1006,8 +1001,6 @@ Current coverage includes:
 - [x] Keep `signedDelegatePath` publishable-key-only; revisit x402 as payment support rather than a new API credential.
 - [x] Add a reusable gas-metering abstraction that can record both `evm_call` and `near_delegate` spend.
 - [x] Ensure `signedDelegatePath` emits consistent billing records even for reverted or partially failed execution.
-- [x] Keep `smartAccountDeploy` out of the public route registry entirely.
-- [x] Move deferred `smartAccountDeploy` rollout questions to [smart-accounts-evm.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/smart-accounts-evm.md).
 - [x] Confirm the only proofless public relay routes left are health or readiness probes, well-known discovery, `link-device/*`, and `/recover-email`, and that they remain `metering: { kind: 'none' }`.
 - [x] Add Express and Cloudflare parity tests for `signedDelegatePath` auth behavior.
 - [x] Extend `signedDelegatePath` parity tests to cover gas metering behavior.
@@ -1072,7 +1065,6 @@ These need explicit product and security decisions during implementation:
 
 - should billing usage event ingestion be a console route at all
 - when to add x402-style paid execution to `signedDelegatePath` without changing its publishable-key auth model
-- should any `smartAccountDeploy` trigger happen outside recovery or first-use flows, or should initial registration stay gas-free for EVM
 
 ## Audit review (2026-03-18)
 

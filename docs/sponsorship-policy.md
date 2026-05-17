@@ -33,8 +33,6 @@ Out of scope for this plan:
 
 - arbitrary raw transaction sponsorship
 - multicall or multi-intent sponsorship
-- account abstraction redesign
-- paymaster support beyond preserving room for it in the policy model
 - invoice/reporting UX beyond exact spend capture
 
 ## Design principles
@@ -89,7 +87,7 @@ type ResolvedSponsorshipPolicy =
       policyId: string;
       environmentId: string;
       enabled: boolean;
-      executor: 'evm_relay_eoa' | 'evm_paymaster';
+      executor: 'evm_relay_eoa';
       allowedCalls: Array<{
         chainId: number;
         to: `0x${string}`;

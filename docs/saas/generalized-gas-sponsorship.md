@@ -361,9 +361,7 @@ Initial backend set:
 
 Future backend examples can exist later, but they are not part of the MVP:
 
-- `evm_paymaster`
 - `tempo_fee_payer`
-- `erc4337_paymaster`
 
 The request path should stay stable while backend selection evolves.
 
@@ -608,7 +606,6 @@ But they should be seeded through the gas sponsorship policy system and resolved
 - arbitrary raw transaction sponsorship without decoding
 - legacy compatibility for the old single-chain env vars
 - duplicating the `signedDelegate` flow inside sponsorship
-- forcing initial registration to deploy smart accounts
 - generic argument-constraint rules in the first pass
 - solving general pricing, spend-cap enforcement, and refunds in this document
   Those stay in the adjacent sponsorship accounting docs.

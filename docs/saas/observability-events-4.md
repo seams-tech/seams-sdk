@@ -44,7 +44,7 @@ It complements `docs/observability-events-3.md`, which covers the observability 
 - [x] Keep `webhook.delivery.dead_letter` as a durable observability event.
 - [x] Add `webhook.delivery.retry_exhausted` for terminal delivery failure.
 - [x] Add `webhook.endpoint.degraded` when repeated delivery failures cross a service-health threshold.
-- [ ] Add wallet runtime incident events such as `wallet.rpc.failed`, `wallet.rpc.degraded`, `wallet.signing.failed`, `wallet.paymaster.failed`, `wallet.bundler.failed`, and `wallet.sponsored_call.simulation.failed`.
+- [ ] Add wallet runtime incident events such as `wallet.rpc.failed`, `wallet.rpc.degraded`, `wallet.signing.failed`, and `wallet.sponsored_call.simulation.failed`.
 - [ ] Keep `session.exchange.failed` in the observability stream and add similar auth/bootstrap failures that are operator-actionable.
 - [ ] Add recovery or degradation transition events only when system state changes, not on every failing request.
 

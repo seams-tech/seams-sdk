@@ -53,7 +53,7 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 ### 2) Search for user wallets
 
 - Search by wallet address, wallet ID, user ID, and external reference ID.
-- Filter by chain, environment, policy, key quorum, wallet type (EOA/smart), status, and date range.
+- Filter by chain, environment, policy, key quorum, wallet type, status, and date range.
 - Sort by balance, last activity, and creation time.
 - URL-synced filter state for shareable views.
 
@@ -74,7 +74,6 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 
 - Toggle gas sponsorship at org, environment, policy, and wallet segment levels.
 - Budget and quota controls by chain and period.
-- Smart wallet/AA controls (when enabled): account type, paymaster mode, fallback behavior.
 - Telemetry: sponsored tx count, spend, failures, and budget threshold alerts.
 
 ### 5) Allowed origins

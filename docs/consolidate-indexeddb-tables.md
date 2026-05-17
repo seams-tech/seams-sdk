@@ -444,8 +444,8 @@ Existing tests to revisit during implementation:
 
 1. `passkeyClientDB.*` tests should become repository tests over
    `SeamsWalletDBManager`.
-2. Account key material, signer saga, smart-account, link-device, profile
-   projection, and local signer reconciliation tests currently create
+2. Account key material, signer saga, link-device, profile projection, and
+   local signer reconciliation tests currently create
    `PasskeyClientDB-*` and `PasskeyAccountKeyMaterial-*` databases. Move them to
    `seams_test_wallet_*` fixtures.
 3. `sealedSessionStore.unit.test.ts` currently inspects `seams_wallet_v1` and

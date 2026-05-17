@@ -2265,43 +2265,34 @@ Regression prevention:
   finalize with wallet-scoped `walletSessionUserId`, provider-scoped enrollment
   auth, and server-returned `hssContext`.
 
-Follow-up: raw EIP-1559 owner address vs smart-account address
+Follow-up: raw EIP-1559 sender address
 
 The 2026-05-15 Arc manual test exposed an address-selection funds-safety issue.
 Raw EIP-1559 signing must use the threshold ECDSA owner address end-to-end.
-ERC-4337 and counterfactual account flows may use the smart-account address
-through the smart-account path. Demo funding/preflight code resolves the
-threshold owner address, while nonce fallback could previously resolve the
-stored EVM chain-account row. For ERC-4337 rows that value can be the
-counterfactual account address, producing a funded-address/sender-address split.
+Demo funding/preflight code resolved the threshold owner address, while nonce
+fallback could previously resolve a stored chain-account row, producing a
+funded-address/sender-address split.
 
 Confirmed failure mode:
 
-1. Registration stored two valid EVM-class address roles:
-   `ethereumAddress` as the threshold ECDSA owner/signer address, and
-   `accountAddress` as the chain-account row address. For ERC-4337 rows,
-   `accountAddress` may be the counterfactual smart-account address.
+1. Registration stored `ethereumAddress` as the threshold ECDSA owner/signer
+   address.
 2. Demo funding/preflight resolved the threshold owner address from
    `bootstrap.keygen.ethereumAddress` or the ECDSA key ref.
 3. Restored ECDSA sealed records did not preserve `ethereumAddress`, so the
    prepared signing material could be exact enough to sign while still missing
    the owner address needed for raw EIP-1559 sender/nonce selection.
 4. Raw EIP-1559 nonce preparation then fell back to profile/chain-account
-   lookup. On Arc, that fallback could choose the ERC-4337 account row sender,
-   while the UI had funded the threshold owner address.
+   lookup.
 5. The transaction was signed successfully, then broadcast failed with
    insufficient funds because sender selection and funding/preflight had used
-   different address roles.
+   different addresses.
 
 Root cause:
 
-The code treated "EVM address" as a single value across two different domain
-roles. The correct model is:
-
-- `thresholdOwnerAddress`: threshold ECDSA signer/owner address. Raw EIP-1559
-  signing, raw nonce lanes, balance preflight, and funding UI use this address.
-- `smartAccountAddress`: ERC-4337/counterfactual account address. Smart-account
-  deployment and smart-account user operation flows use this address.
+The code treated "EVM address" as a generic profile value. Raw EIP-1559
+signing, raw nonce lanes, balance preflight, and funding UI must use
+`thresholdOwnerAddress`.
 
 The regression became visible after Phase 15 made key/session state more
 target-scoped, because restored raw ECDSA signing material could lose the owner
@@ -2331,17 +2322,14 @@ Regression prevention:
 - Sealed ECDSA recovery records must carry `ethereumAddress`, and boundary
   parsers must reject current records that lack a valid owner address.
 - Address-bearing APIs should use role-specific names:
-  `thresholdOwnerAddress`, `smartAccountAddress`, `counterfactualAddress`, and
-  `chainAccountAddress`. Avoid generic `address` / `sender` in cross-boundary
-  types unless the branch name defines the role.
+  `thresholdOwnerAddress` and `chainAccountAddress`. Avoid generic `address` /
+  `sender` in cross-boundary types unless the branch name defines the role.
 - EVM-family tests should assert one shared threshold owner address across
   Tempo and Arc for the same wallet/subject/signing root/key version.
 - Raw EIP-1559 tests should assert the managed nonce `sender` equals the
   displayed/funded threshold owner address.
-- ERC-4337 tests should assert smart-account flows use the smart-account
-  address through smart-account-specific branches.
 - Guards should scan raw EIP-1559 paths for account-row fallback calls unless a
-  typed smart-account branch is in scope.
+  typed non-raw branch is in scope.
 
 Exit criteria:
 
@@ -2370,7 +2358,7 @@ boundary bugs while the refactor was landing.
 | Volatile fields in stable ECDSA HSS key context | Existing passkey accounts failed unlock with `threshold-ecdsa bootstrap client verifying share does not match integrated key record` | `walletSigningSessionId` and `thresholdSessionId` entered persistent ECDSA HSS key derivation, so reconnect derived different verifier material for the same stored key | Removed session lifecycle ids from stable ECDSA HSS key context across Rust, browser WASM, server wrappers, TS types, fixtures, and parity mirrors |
 | Cross-target ECDSA key-id reuse | Fresh passkey Tempo could work while Arc/EVM had no exact lane or verifier mismatch | Registration/login warm-up reused a Tempo `ecdsaThresholdKeyId` for Arc/EVM while target-scoped HSS context expected exact chain binding | Provisioned configured EVM-family targets separately while preserving one shared EVM-family key identity; added server key/target scope checks and target-aware sealed persistence |
 | Stale durable ECDSA records selected as authoritative | Signing selected `durable_sealed_record` lanes and then failed with missing exact runtime material | Available-lane discovery advertised stale records that could no longer restore into current exact runtime material | Hardened persistence/read boundaries so stale or incomplete ECDSA records are ignored/rejected, and selection requires exact target/session material |
-| Raw Arc sender address role confusion | Arc signed successfully, then broadcast failed with insufficient funds while the funded address differed from the nonce sender | Raw EIP-1559 fallback read chain-account/smart-account address when restored ECDSA material lost the threshold owner address | Persisted and republished `ethereumAddress`; raw EIP-1559 now requires the threshold owner address and fails closed without profile/account-row fallback |
+| Raw Arc sender address role confusion | Arc signed successfully, then broadcast failed with insufficient funds while the funded address differed from the nonce sender | Raw EIP-1559 fallback read a profile/chain-account address when restored ECDSA material lost the threshold owner address | Persisted and republished `ethereumAddress`; raw EIP-1559 now requires the threshold owner address and fails closed without profile/account-row fallback |
 | Email OTP provider identity sent into ECDSA HSS | OTP registration/unlock failed with `email_otp_bootstrap requires validated Email OTP enrollment metadata` | Provider subject (`google:...`) and wallet-scoped HSS session identity were collapsed into one field | Split Email OTP provider/auth subject from wallet-scoped `walletSessionUserId`; server routes now attach enrollment claims by wallet plus provider subject |
 | Email OTP worker rebuilt server-owned HSS context | OTP registration advanced to `Invalid args: missing ecdsaThresholdKeyId` | Fresh Email OTP bootstrap tried to construct stable HSS context locally before the server returned the canonical key id/context | Worker now consumes the server `prepare.hssContext` for Email OTP HSS client WASM setup |
 | OTP ECDSA export lane ambiguity | ECDSA key export failed with `exact lane selection failed: ambiguous_candidates` | OTP accounts could expose both stale passkey and Email OTP ECDSA lanes for the same target | ECDSA export selection now prefers selectable Email OTP lanes and collapses duplicate runtime/durable candidates by exact identity/source/recency |

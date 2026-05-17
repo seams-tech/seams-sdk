@@ -65,7 +65,6 @@ Generated Phase 0 inventory for `client/src/core/signingEngine`. Classification 
 | `client/src/core/signingEngine/api/evmFamily/preparedSigning.ts` | operation helper | Current EVM-family operation helper that should move with the vertical slice. | 5 |
 | `client/src/core/signingEngine/api/evmFamily/signerLoader.ts` | operation helper | Current EVM-family operation helper that should move with the vertical slice. | 6 |
 | `client/src/core/signingEngine/api/evmFamily/signingFlowRuntime.ts` | wrapper | Command wrapper around the partial EVM-family state-machine path. | 10 |
-| `client/src/core/signingEngine/api/evmFamily/smartAccount.ts` | operation helper | Current EVM-family operation helper that should move with the vertical slice. | 5 |
 | `client/src/core/signingEngine/api/evmFamily/tempoNonceLifecycle.ts` | operation helper | Current EVM-family operation helper that should move with the vertical slice. | 1 |
 | `client/src/core/signingEngine/api/evmFamily/transactionExecutor.ts` | operation helper | Current EVM-family operation helper that should move with the vertical slice. | 10 |
 | `client/src/core/signingEngine/api/evmFamily/types.ts` | operation helper | Current EVM-family operation helper that should move with the vertical slice. | 5 |
@@ -120,7 +119,6 @@ Generated Phase 0 inventory for `client/src/core/signingEngine`. Classification 
 | `client/src/core/signingEngine/flows/README.md` | operation target scaffolding | Refactor 33 target operation ownership and canonical operation state. | 0 |
 | `client/src/core/signingEngine/flows/shared/operationState.ts` | operation target scaffolding | Refactor 33 target operation ownership and canonical operation state. | 1 |
 | `client/src/core/signingEngine/flows/signEvmFamily/README.md` | operation target scaffolding | Refactor 33 target operation ownership and canonical operation state. | 0 |
-| `client/src/core/signingEngine/orchestration/ensureSmartAccountDeployed.ts` | operation helper | Current cross-cutting orchestration helper. | 3 |
 | `client/src/core/signingEngine/orchestration/evm/evmSigningFlow.ts` | operation flow | Current EVM/Tempo operation orchestration. | 3 |
 | `client/src/core/signingEngine/orchestration/evm/index.ts` | internal barrel to delete | Broad re-export that hides concrete dependencies. | 0 |
 | `client/src/core/signingEngine/orchestration/near/delegateFlow.ts` | operation flow | Current NEAR operation orchestration. | 3 |
@@ -134,13 +132,10 @@ Generated Phase 0 inventory for `client/src/core/signingEngine`. Classification 
 | `client/src/core/signingEngine/orchestration/near/shared/thresholdSessionAuth.ts` | operation flow | Current NEAR operation orchestration. | 1 |
 | `client/src/core/signingEngine/orchestration/near/shared/workerRequestAssembly.ts` | operation flow | Current NEAR operation orchestration. | 0 |
 | `client/src/core/signingEngine/orchestration/near/transactionsFlow.ts` | operation flow | Current NEAR operation orchestration. | 9 |
-| `client/src/core/signingEngine/orchestration/reportSmartAccountDeploymentObservation.ts` | operation helper | Current cross-cutting orchestration helper. | 0 |
 | `client/src/core/signingEngine/orchestration/shared/evmFamilySigningFlow.ts` | operation helper | Shared current orchestration helper. | 8 |
 | `client/src/core/signingEngine/orchestration/shared/thresholdEcdsaTransactionAdmission.ts` | operation helper | Shared current orchestration helper. | 2 |
 | `client/src/core/signingEngine/orchestration/shared/thresholdSigningSessionReadiness.ts` | operation helper | Shared current orchestration helper. | 1 |
 | `client/src/core/signingEngine/orchestration/shared/touchConfirmSigning.ts` | operation helper | Shared current orchestration helper. | 4 |
-| `client/src/core/signingEngine/orchestration/smartAccountDeployment.ts` | operation helper | Current cross-cutting orchestration helper. | 0 |
-| `client/src/core/signingEngine/orchestration/smartAccountNormalization.ts` | operation helper | Current cross-cutting orchestration helper. | 0 |
 | `client/src/core/signingEngine/orchestration/tempo/index.ts` | internal barrel to delete | Broad re-export that hides concrete dependencies. | 0 |
 | `client/src/core/signingEngine/orchestration/tempo/tempoSigningFlow.ts` | operation flow | Current EVM/Tempo operation orchestration. | 4 |
 | `client/src/core/signingEngine/orchestration/thresholdActivation.ts` | operation helper | Current cross-cutting orchestration helper. | 2 |
@@ -320,13 +315,12 @@ This section inventories imports from old folders listed in Phase 0. It groups e
 | `client/src/core/signingEngine/api/evmFamily/freshEmailOtpRetry.ts` | `../../chainAdaptors/evm/evmAdapter`<br>`../../chainAdaptors/tempo/tempoAdapter`<br>`../../threshold/session/sessionPolicy` |
 | `client/src/core/signingEngine/api/evmFamily/nonceLifecycleAdapter.ts` | `../../chainAdaptors/evm/evmAdapter`<br>`../../chainAdaptors/tempo/tempoAdapter` |
 | `client/src/core/signingEngine/api/evmFamily/nonceMetrics.ts` | `../../session/operationState/ecdsaChainTarget` |
-| `client/src/core/signingEngine/api/evmFamily/nonceResolution.ts` | `../../chainAdaptors/evm/types`<br>`../../chainAdaptors/tempo/types`<br>`../../orchestration/ensureSmartAccountDeployed` |
+| `client/src/core/signingEngine/api/evmFamily/nonceResolution.ts` | `../../chainAdaptors/evm/types`<br>`../../chainAdaptors/tempo/types` |
 | `client/src/core/signingEngine/api/evmFamily/operationIds.ts` | `../../session/operationState/types`<br>`../../session/planning/operationIdBinding` |
 | `client/src/core/signingEngine/api/evmFamily/postSignPolicy.ts` | `../../session/operationState/ecdsaChainTarget` |
 | `client/src/core/signingEngine/api/evmFamily/preparedSigning.ts` | `../../session/budget/budget`<br>`../../session/operationState/transactionState`<br>`../../session/operationState/ecdsaChainTarget`<br>`../../session/operationState/preparedOperation`<br>`../../session/operationState/trace` |
 | `client/src/core/signingEngine/api/evmFamily/signerLoader.ts` | `../../chainAdaptors/evm/evmAdapter`<br>`../../chainAdaptors/tempo/tempoAdapter`<br>`../../signers/algorithms/secp256k1`<br>`../../signers/algorithms/webauthnP256`<br>`../../orchestration/evm/evmSigningFlow`<br>`../../orchestration/tempo/tempoSigningFlow` |
 | `client/src/core/signingEngine/api/evmFamily/signingFlowRuntime.ts` | `../../orchestration/shared/thresholdSigningSessionReadiness`<br>`../../session/operationState/types`<br>`../../session/operationState/execution`<br>`../../session/operationState/trace`<br>`../../chainAdaptors/evm/types`<br>`../../chainAdaptors/tempo/types`<br>`../../signers/webauthn/credentials/credentialExtensions`<br>`../../threshold/session/sessionPolicy`<br>`../../orchestration/shared/thresholdEcdsaTransactionAdmission`<br>`../../session/operationState/ecdsaChainTarget` |
-| `client/src/core/signingEngine/api/evmFamily/smartAccount.ts` | `../../chainAdaptors/evm/types`<br>`../../chainAdaptors/tempo/types`<br>`../../orchestration/ensureSmartAccountDeployed`<br>`../../orchestration/reportSmartAccountDeploymentObservation`<br>`../../orchestration/smartAccountDeployment` |
 | `client/src/core/signingEngine/api/evmFamily/tempoNonceLifecycle.ts` | `../../chainAdaptors/tempo/types` |
 | `client/src/core/signingEngine/api/evmFamily/transactionExecutor.ts` | `../../session/operationState/types`<br>`../../session/operationState/execution`<br>`../../chainAdaptors/evm/evmAdapter`<br>`../../chainAdaptors/evm/types`<br>`../../chainAdaptors/tempo/tempoAdapter`<br>`../../chainAdaptors/tempo/types`<br>`../../session/budget/budget`<br>`../../session/operationState/transactionState`<br>`../../session/operationState/ecdsaChainTarget`<br>`../../orchestration/shared/thresholdEcdsaTransactionAdmission` |
 | `client/src/core/signingEngine/api/evmFamily/types.ts` | `../../chainAdaptors/evm/evmAdapter`<br>`../../chainAdaptors/evm/types`<br>`../../chainAdaptors/tempo/tempoAdapter`<br>`../../chainAdaptors/tempo/types`<br>`../../session/operationState/ecdsaChainTarget` |
@@ -356,7 +350,6 @@ This section inventories imports from old folders listed in Phase 0. It groups e
 | `client/src/core/signingEngine/interfaces/signing.ts` | `../session/operationState/ecdsaChainTarget` |
 | `client/src/core/signingEngine/nonce/NonceCoordinator.ts` | `../session/operationState/types`<br>`../session/operationState/ecdsaChainTarget` |
 | `client/src/core/signingEngine/flows/shared/operationState.ts` | `../../session/operationState/types` |
-| `client/src/core/signingEngine/orchestration/ensureSmartAccountDeployed.ts` | `../chainAdaptors/evm/types`<br>`../chainAdaptors/tempo/types`<br>`../session/operationState/ecdsaChainTarget` |
 | `client/src/core/signingEngine/orchestration/evm/evmSigningFlow.ts` | `@/core/signingEngine/chainAdaptors/evm/evmAdapter`<br>`@/core/signingEngine/chainAdaptors/evm/types`<br>`@/core/signingEngine/touchConfirm/displayFormat/evmTx` |
 | `client/src/core/signingEngine/orchestration/near/delegateFlow.ts` | `@/core/signingEngine/threshold/session/sessionPolicy`<br>`@/core/signingEngine/touchConfirm/shared/confirmTypes`<br>`../../session/planning/planner` |
 | `client/src/core/signingEngine/orchestration/near/nearSigningFlow.ts` | `@/core/signingEngine/chainAdaptors/near/nearAdapter`<br>`@/core/signingEngine/signers/algorithms/ed25519` |

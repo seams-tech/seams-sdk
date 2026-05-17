@@ -224,7 +224,6 @@ client/src/core/signingEngine/
       signEvm.ts
       signTempo.ts
       nonceLifecycle.ts
-      smartAccountDeployment.ts
     exportKey/
     registration/
     recovery/
@@ -382,10 +381,6 @@ Split `orchestration/` by runtime owner:
 | `orchestration/shared/evmFamilySigningFlow.ts`             | `flows/signEvmFamily/signEvmFamily.ts` or a local helper under that folder                                       |
 | `orchestration/thresholdActivation.ts`                     | `threshold/ecdsa/bootstrap.ts` if protocol-heavy; otherwise `flows/session/bootstrapEcdsa.ts`                    |
 | `orchestration/walletOrigin/thresholdEcdsaCoordinator.ts`  | `threshold/ecdsa/presignPool.ts` or `threshold/ecdsa/sign.ts`                                                         |
-| `orchestration/ensureSmartAccountDeployed.ts`              | `flows/signEvmFamily/smartAccountDeployment.ts`                                                                  |
-| `orchestration/smartAccountDeployment.ts`                  | `flows/signEvmFamily/smartAccountDeployment.ts` or `chains/evm/smartAccountDeployment.ts`                        |
-| `orchestration/reportSmartAccountDeploymentObservation.ts` | same smart-account target as the writer/reader it supports                                                            |
-
 Delete the `orchestration/` folder after its contents have moved. Do not leave a
 compatibility barrel.
 
@@ -810,7 +805,7 @@ separate orchestration stacks:
 | ------------------- | ----------------------------------------------------------------- | --------------------------------------------------------------------- | ------------------------------------ |
 | selected lane       | `SelectedEd25519Lane`                                             | `SelectedEcdsaLane`                                                   | `SelectedEcdsaLane`                  |
 | threshold material  | Ed25519 HSS/session record                                        | ECDSA key ref + HSS/presign material                                  | ECDSA key ref + HSS/presign material |
-| payload preparation | NEAR transaction/delegate/NEP-413 worker payload                  | EVM transaction/signature payload, smart-account deployment if needed | Tempo transaction/signature payload  |
+| payload preparation | NEAR transaction/delegate/NEP-413 worker payload                  | EVM transaction/signature payload                                     | Tempo transaction/signature payload  |
 | nonce stage         | NEAR transaction nonce/block context when required by the request | managed EVM nonce lease                                               | Tempo nonce lifecycle                |
 | display             | NEAR display plan                                                 | EVM display plan                                                      | Tempo display plan                   |
 | finalization        | budget spend, warm session cleanup                                | budget spend, nonce commit/release, deployment finalizers             | budget spend, nonce commit/release   |
@@ -1169,17 +1164,14 @@ Todo:
         `flows/signEvmFamily/thresholdAdmission.ts`.
   - [x] Move the main EVM-family touch-confirm signing flow to
         `flows/signEvmFamily/*`.
-  - [x] Move smart-account deployment operation state, observation, and
-        normalization to `flows/signEvmFamily/*`.
   - [x] Move EVM-family nonce lifecycle, nonce resolution, events, errors,
         metrics, addresses, and shared operation types to
         `flows/signEvmFamily/*`.
   - [x] Move transaction execution, lazy operation signer loading, and
         operation id binding to `flows/signEvmFamily/*`.
   - [x] Move EVM-family account auth, auth planning, lane selection,
-        prepared signing, budget spending, Email OTP refresh/retry,
-        post-sign policy, and smart-account helpers to
-        `flows/signEvmFamily/*`.
+        prepared signing, budget spending, Email OTP refresh/retry, and
+        post-sign policy to `flows/signEvmFamily/*`.
   - [x] Move Email OTP auth-lane and route-plan helpers to
         `stepUpConfirmation/otpPrompt/authLane.ts`.
   - [x] Move the remaining EVM-family API helpers that own operation sequencing

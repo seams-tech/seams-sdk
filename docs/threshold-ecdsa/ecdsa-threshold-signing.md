@@ -1,6 +1,6 @@
 # Threshold ECDSA Signing
 
-Last updated: 2026-04-08
+Last updated: 2026-05-16
 
 ## 1. Non-Negotiable Invariants
 
@@ -9,7 +9,10 @@ Last updated: 2026-04-08
   targets reuse one `ecdsaThresholdKeyId`, threshold public key, and Ethereum
   owner address. Chain targets partition sessions, budgets, nonce lanes, sealed
   records, and signing requests only.
-- Threshold ECDSA signing reads `keyRef` and session state from one canonical store only.
+- Public threshold ECDSA operations carry `walletSession`, `subjectId`, and a
+  concrete `chainTarget`. Public callers do not supply internal ECDSA key IDs,
+  participant IDs, threshold session IDs, or client root shares.
+- Threshold ECDSA signing reads key identity and session state from one canonical store only.
 - `signTempo` does not trigger hidden bootstrap.
 - There is no legacy fallback for participant IDs, JWT, or session ID.
 - Threshold ECDSA session creation is explicit (`registerPasskey` provisioning or `bootstrapEcdsaSession`), never transaction-time.
@@ -21,14 +24,18 @@ Last updated: 2026-04-08
 
 ### 2.1 Canonical Session Record
 
-The SDK owns a single threshold ECDSA session record keyed by wallet/account context. The canonical record includes:
+The SDK owns threshold ECDSA session records keyed by wallet/session context,
+subject, concrete chain target, signing root, and key identity. The canonical
+record includes:
 
-- `nearAccountId`
-- `chain` (`tempo` or `evm`)
+- `walletId`
+- `walletSessionUserId`
+- `subjectId`
+- concrete `chainTarget` (`tempo` or `evm` with `chainId` and network slug)
 - `relayerUrl`
 - `ecdsaThresholdKeyId`
 - `participantIds` (required)
-- `thresholdSessionKind`, `thresholdSessionId`, `thresholdSessionAuthToken`
+- `thresholdSessionKind`, `thresholdSessionId`, `walletSigningSessionId`, `thresholdSessionAuthToken`
 - `expiresAtMs`, `remainingUses`
 - `groupPublicKeyB64u`
 - `ethereumAddress`
@@ -66,16 +73,49 @@ Those fields are no longer the canonical product identity.
 2. Signing validates the canonical record and worker cache status (`getWarmSessionStatus`) before confirmation/sign orchestration.
 3. Missing or invalid state fails closed with typed errors and routes to explicit reconnect/provision flows.
 
-### 2.4 Per-Account Commit Queue (Tempo + EVM)
+### 2.4 Public Operation Boundary
 
-- Queue scope is `nearAccountId`.
+Public ECDSA bootstrap, signing, execution, nonce lifecycle, and export inputs
+use the same command subject shape:
+
+```ts
+{
+  walletSession: {
+    walletId: string;
+    walletSessionUserId: string;
+  };
+  subjectId: string;
+  chainTarget:
+    | { kind: 'tempo'; chainId: number; networkSlug: string }
+    | { kind: 'evm'; namespace: 'eip155'; chainId: number; networkSlug: string };
+}
+```
+
+`bootstrapEcdsaSession` accepts only the public warm-reuse lifecycle:
+
+```ts
+{
+  kind: 'reuse_warm_ecdsa_bootstrap';
+  walletSession: WalletSessionRef;
+  subjectId: WalletSubjectId;
+  chainTarget: ThresholdEcdsaChainTarget;
+}
+```
+
+Fresh passkey, reconnect, Email OTP, and export bootstrap branches are internal
+signing-engine lifecycle requests. Boundary code creates those requests after it
+has normalized raw session, auth, and persistence data.
+
+### 2.5 Per-Account Commit Queue (Tempo + EVM)
+
+- Queue scope is the wallet/session subject for the EVM-family signer.
 - Queue domain is threshold ECDSA commit stage (`senderSignatureAlgorithm=secp256k1`) across both chains.
 - Ordering is FIFO.
 - A second sign click is queued (not rejected) and begins after the prior request completes, fails, or is cancelled.
 - Queued requests can be cancelled before execution via existing abort/cancel signals.
 - Guardrails: bounded queue length (`commit_queue_overflow`), queue timeout budget (`commit_queue_timeout`), and deterministic teardown on lock/engine destroy.
 
-### 2.5 Family vs Network Naming
+### 2.6 Family vs Network Naming
 
 - Threshold ECDSA orchestration is family-scoped (`chain: 'tempo' | 'evm'`).
 - Concrete RPC/explorer/nonce isolation is network + chainId scoped.

@@ -140,7 +140,7 @@ the `ready` branch only.
 
 ## Phase 0: Baseline Inventory And Guards
 
-- [ ] Inventory every shape that currently carries any of:
+- [x] Inventory every shape that currently carries any of:
   - `ecdsaThresholdKeyId`
   - `signingRootId`
   - `signingRootVersion`
@@ -152,28 +152,44 @@ the `ready` branch only.
   - `chainTarget`
   - `thresholdSessionId`
   - `walletSigningSessionId`
-- [ ] Produce a short table in this plan mapping each current type to either:
+- [x] Produce a short table in this plan mapping each current type to either:
   - shared key identity
   - concrete session lane
   - raw persistence/request boundary
   - diagnostics/display only
-- [ ] Add a guard that flags new internal EVM-family structs containing
+
+### Phase 0 Inventory
+
+| Current shape/type | Classification | Notes |
+| --- | --- | --- |
+| `EvmFamilyEcdsaKeyIdentity` | shared key identity | Owns stable public key fields: wallet, subject, RP, `evm-family` scope, ECDSA key id, signing root, participants, and threshold owner address. |
+| `EvmFamilyEcdsaSessionLane` | concrete session lane | Adds concrete target, auth method, source, threshold session id, wallet signing-session id, budget counts, and expiry. |
+| `ReadyEvmFamilyEcdsaMaterial` | concrete session lane | Operation-ready material that requires the shared key identity, exact lane, session record, and key ref. |
+| `ThresholdEcdsaSessionRecord` and `ThresholdEcdsaSecp256k1KeyRef` | raw persistence/request boundary | Normalized immediately through `buildEvmFamilyEcdsaKeyIdentityFromRecord(...)` and `buildEvmFamilyEcdsaKeyIdentityFromKeyRef(...)`. |
+| Sealed ECDSA recovery records and stored session rows | raw persistence/request boundary | Readback rejects stale target-scoped rows or records missing owner address, key id, signing root, or concrete lane identity. |
+| `ConcreteAvailableEcdsaSigningLane` and persisted available-lane candidates | concrete session lane | Carries canonical `key` plus target/session lane data for display and selection. |
+| `SelectedEcdsaLane`, `EcdsaSigningSessionPlanningLane`, and `ResolvedEcdsaSigningSessionIdentity` | concrete session lane | Approved operation-state lane shapes that carry key id with exact session identity. |
+| Passkey, Email OTP, and threshold-session ECDSA activation/bootstrap request types | raw persistence/request boundary | Phase 3 will replace broad request bags with branch-specific activation builders. |
+| HSS prepare/finalize request and response payloads | raw persistence/request boundary | Server boundary currently validates RP, signing root, session policy, participants, and exact lane scope. |
+| Server integrated key records and store rows | raw persistence/request boundary | Store uniqueness enforces one shared EVM-family key identity per wallet, subject, RP, key scope, and signing root. |
+| `EcdsaMaterialSummary`, available-lane diagnostics, export diagnostics, budget/nonce trace fields | diagnostics/display only | May print `evmFamilyKeyFingerprint`, target key, key id, and lane ids; no secret material. |
+| Public SDK and iframe ECDSA request/result shapes | raw persistence/request boundary | Public-safe wallet/session inputs and result fields; internal shared key identity is reconstructed inside SDK boundaries. |
+
+- [x] Add a guard that flags new internal EVM-family structs containing
   `ecdsaThresholdKeyId` and `thresholdSessionId` together unless the type is
   an approved lane/material type.
-- [ ] Add a guard that flags EVM-family public/demo address reads from
-  `counterfactualAddress` in raw EIP-1559 signing paths.
-- [ ] Add a guard that fails if Tempo and EVM configured targets can produce
+- [x] Add a guard that fails if Tempo and EVM configured targets can produce
   different threshold owner addresses for one wallet in tests.
-- [ ] Add a guard that rejects local construction of
+- [x] Add a guard that rejects local construction of
   `EvmFamilyEcdsaKeyIdentity` outside approved builders/type fixtures.
-- [ ] Add a fixture that logs one `evmFamilyKeyFingerprint` through HSS
+- [x] Add a fixture that logs one `evmFamilyKeyFingerprint` through HSS
   bootstrap, lane resolution, signing, export, and nonce resolution for the same
   wallet.
 
 ## Phase 1: Canonical Identity Types
 
-- [ ] Add `client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.ts`.
-- [ ] Define role-specific branded primitives used by EVM-family identity:
+- [x] Add `client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.ts`.
+- [x] Define role-specific branded primitives used by EVM-family identity:
   - `WalletId`
   - `RpId`
   - `EcdsaThresholdKeyId`
@@ -182,13 +198,11 @@ the `ready` branch only.
   - `ThresholdEcdsaSessionId`
   - `WalletSigningSessionId`
   - `ThresholdOwnerAddress`
-  - `SmartAccountAddress`
-  - `CounterfactualAddress`
   - `EvmFamilyKeyScope`
-- [ ] Define `EvmFamilyEcdsaKeyIdentity`.
-- [ ] Define `EvmFamilyEcdsaSessionLane`.
-- [ ] Define `ReadyEvmFamilyEcdsaMaterial`.
-- [ ] Define `EvmFamilyEcdsaIdentityMismatch` with explicit branches:
+- [x] Define `EvmFamilyEcdsaKeyIdentity`.
+- [x] Define `EvmFamilyEcdsaSessionLane`.
+- [x] Define `ReadyEvmFamilyEcdsaMaterial`.
+- [x] Define `EvmFamilyEcdsaIdentityMismatch` with explicit branches:
   - `subject_mismatch`
   - `chain_family_mismatch`
   - `key_id_mismatch`
@@ -200,12 +214,12 @@ the `ready` branch only.
   - `session_identity_mismatch`
   - `auth_method_mismatch`
   - `stale_or_unrestorable_material`
-- [ ] Add builders:
+- [x] Add builders:
   - `buildEvmFamilyEcdsaKeyIdentityFromKeyRef(...)`
   - `buildEvmFamilyEcdsaKeyIdentityFromRecord(...)`
   - `buildEvmFamilyEcdsaSessionLane(...)`
   - `resolveReadyEvmFamilyEcdsaMaterial(...)`
-- [ ] Add `deriveEvmFamilyKeyFingerprint(...)` over stable public identity
+- [x] Add `deriveEvmFamilyKeyFingerprint(...)` over stable public identity
   fields:
   - `walletId`
   - `subjectId`
@@ -216,56 +230,54 @@ the `ready` branch only.
   - `signingRootVersion`
   - `participantIds`
   - `thresholdOwnerAddress`
-- [ ] Ensure owner-address builders verify the address from trusted key material
+- [x] Ensure owner-address builders verify the address from trusted key material
   or a server-verified key ref before accepting persisted/profile/demo address
   data.
-- [ ] Make `resolveReadyEvmFamilyEcdsaMaterial(...)` return a result union:
+- [x] Make `resolveReadyEvmFamilyEcdsaMaterial(...)` return a result union:
   - `ready`
   - `record_only`
   - `key_ref_only`
   - `missing`
   - `identity_mismatch`
   - `stale`
-- [ ] Use `never` fields for invalid branch combinations in mismatch/result
+- [x] Use `never` fields for invalid branch combinations in mismatch/result
   unions.
-- [ ] Add type fixtures proving:
+- [x] Add type fixtures proving:
   - a key identity cannot carry session ids
   - a session lane must carry a key identity
   - ready material requires both record and keyRef
   - Tempo/EVM concrete targets cannot carry different key ids under one shared
     key identity
-  - `ThresholdOwnerAddress` cannot be passed as `SmartAccountAddress`
-  - `SmartAccountAddress` cannot be passed as a raw EIP-1559 sender
   - a key identity cannot omit `rpId`
   - a key identity cannot use a target-specific `keyScope`
 
 ## Phase 2: Persistence And Read Model Normalization
 
-- [ ] Update `client/src/core/signingEngine/session/persistence/records.ts` so
+- [x] Update `client/src/core/signingEngine/session/persistence/records.ts` so
   ECDSA record reads normalize into the shared key identity plus concrete lane.
-- [ ] Keep raw legacy/persistence compatibility only inside persistence
+- [x] Keep raw legacy/persistence compatibility only inside persistence
   boundary parsers.
-- [ ] Update `getThresholdEcdsaSessionRecordByKey(...)` and
+- [x] Update `getThresholdEcdsaSessionRecordByKey(...)` and
   `getThresholdEcdsaKeyRefByKey(...)` callers to use the shared identity
   builders before control reaches operation flows.
-- [ ] Update available-lane read models in
+- [x] Update available-lane read models in
   `client/src/core/signingEngine/session/availability/*` so EVM-family lanes
   expose:
   - shared key identity
   - concrete `chainTarget`
   - concrete session identity
-- [ ] Remove duplicate key identity fields from internal candidate shapes where
+- [x] Remove duplicate key identity fields from internal candidate shapes where
   a `key: EvmFamilyEcdsaKeyIdentity` reference can be passed.
-- [ ] Add a persistence negative fixture for records that claim the same
+- [x] Add a persistence negative fixture for records that claim the same
   `ecdsaThresholdKeyId` but a different owner address across EVM-family targets.
-- [ ] Add persistence fixtures proving restored passkey and Email OTP sealed
+- [x] Add persistence fixtures proving restored passkey and Email OTP sealed
   ECDSA records preserve `ThresholdOwnerAddress`.
-- [ ] Reject current-format sealed ECDSA records that are missing owner address,
+- [x] Reject current-format sealed ECDSA records that are missing owner address,
   key id, signing root, or concrete lane identity at the persistence boundary.
-- [ ] Add a storage cutover version for EVM-family ECDSA records. Any stored
+- [x] Add a storage cutover version for EVM-family ECDSA records. Any stored
   record from the target-scoped-key era should be deleted or rejected before it
   can become an available-lane candidate.
-- [ ] Add client-store and server-store uniqueness checks for one shared
+- [x] Add client-store and server-store uniqueness checks for one shared
   EVM-family key identity per:
   - `walletId`
   - `subjectId`
@@ -273,46 +285,46 @@ the `ready` branch only.
   - `keyScope`
   - `signingRootId`
   - `signingRootVersion`
-- [ ] Reject or delete rows where two configured EVM-family targets for the same
+- [x] Reject or delete rows where two configured EVM-family targets for the same
   shared identity point at different `ecdsaThresholdKeyId` or
   `thresholdOwnerAddress` values.
 
 ## Phase 3: HSS Bootstrap Boundary
 
-- [ ] Update `client/src/core/signingEngine/threshold/ecdsa/activation.ts` so
+- [x] Update `client/src/core/signingEngine/threshold/ecdsa/activation.ts` so
   activation requests carry:
   - `key: EvmFamilyEcdsaKeyIdentity`
   - `lanePolicy: EvmFamilyEcdsaSessionLanePolicy`
-- [ ] Update `client/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts`
+- [x] Update `client/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts`
   so HSS context is built from shared key identity plus concrete session policy.
-- [ ] Keep `chainTarget` in the HSS session policy for concrete lane/budget
+- [x] Keep `chainTarget` in the HSS session policy for concrete lane/budget
   scope.
-- [ ] Ensure HSS stable context excludes concrete `chainTarget` from the shared
+- [x] Ensure HSS stable context excludes concrete `chainTarget` from the shared
   key derivation when the target is Tempo vs Arc/EVM.
-- [ ] Add or extend HSS tests proving changing only `chainTarget` does not
+- [x] Add or extend HSS tests proving changing only `chainTarget` does not
   change the shared EVM-family key id or owner address.
-- [ ] Add HSS tests proving changing `rpId`, `signingRootId`,
+- [x] Add HSS tests proving changing `rpId`, `signingRootId`,
   `signingRootVersion`, `participantIds`, or `ecdsaThresholdKeyId` does change
   the stable identity/fingerprint.
-- [ ] Delete any helper that reconstructs `ecdsaThresholdKeyId`,
+- [x] Delete any helper that reconstructs `ecdsaThresholdKeyId`,
   `signingRootId`, or owner address from optional bootstrap fields after the
   activation request has been built.
-- [ ] Replace broad activation/request bags with branch-specific builders:
+- [x] Replace broad activation/request bags with branch-specific builders:
   - `buildPasskeyRegistrationEcdsaActivation(...)`
   - `buildPasskeyReconnectEcdsaActivation(...)`
   - `buildEmailOtpSessionBootstrapEcdsaActivation(...)`
   - `buildEmailOtpPerOperationReauthEcdsaActivation(...)`
   - `buildThresholdSessionReconnectEcdsaActivation(...)`
   - `buildEcdsaExportActivation(...)`
-- [ ] Ensure each builder accepts the narrowest valid auth/session/key state and
+- [x] Ensure each builder accepts the narrowest valid auth/session/key state and
   rejects invalid branch combinations with `never` fields.
 
 ## Phase 4: Email OTP HSS Branded IDs And Compile Guards
 
-- [ ] Add branded identity types for the Email OTP ECDSA HSS boundary:
+- [x] Add branded identity types for the Email OTP ECDSA HSS boundary:
   - `WalletSessionUserId`
   - `EmailOtpAuthSubjectId`
-- [ ] Reuse ECDSA identity brands from
+- [x] Reuse ECDSA identity brands from
   `session/identity/evmFamilyEcdsaIdentity.ts`:
   - `WalletSubjectId` / ECDSA subject identity
   - `EcdsaThresholdKeyId`
@@ -321,182 +333,184 @@ the `ready` branch only.
   - `ThresholdEcdsaSessionId`
   - `WalletSigningSessionId`
   - `ThresholdOwnerAddress`
-- [ ] Add boundary parsers/builders that convert raw strings once:
+- [x] Add boundary parsers/builders that convert raw strings once:
   - wallet/account id to `WalletSessionUserId`
   - provider subject such as `google:*` to `EmailOtpAuthSubjectId`
   - wallet ECDSA lane subject to `WalletSubjectId`
   - server key id to `EcdsaThresholdKeyId`
-- [ ] Replace raw `walletSessionUserId: string` in Email OTP HSS request and
+- [x] Replace raw `walletSessionUserId: string` in Email OTP HSS request and
   session policy types with `WalletSessionUserId`.
-- [ ] Keep provider identity out of wallet-scoped HSS fields:
+- [x] Keep provider identity out of wallet-scoped HSS fields:
   - `authSubjectId: EmailOtpAuthSubjectId`
   - `walletSessionUserId: WalletSessionUserId`
   - `subjectId: WalletSubjectId`
-- [ ] Split Email OTP HSS bootstrap lifecycle types:
-  - [ ] `EmailOtpRegistrationBootstrap` permits no preexisting
+- [x] Split Email OTP HSS bootstrap lifecycle types:
+  - [x] `EmailOtpRegistrationBootstrap` permits no preexisting
     `ecdsaThresholdKeyId`.
-  - [ ] `EmailOtpExistingKeyBootstrap` requires `ecdsaThresholdKeyId`.
-  - [ ] `SessionBootstrap` requires existing key identity and concrete lane
+  - [x] `EmailOtpExistingKeyBootstrap` requires `ecdsaThresholdKeyId`.
+  - [x] `SessionBootstrap` requires existing key identity and concrete lane
     policy.
-  - [ ] Use `never` fields to reject invalid operation/key-id combinations.
-- [ ] Make server-planned HSS context opaque:
-  - [ ] Introduce `ServerPlannedEcdsaHssContext`.
-  - [ ] Require Email OTP bootstrap workers to consume the context returned by
+  - [x] Use `never` fields to reject invalid operation/key-id combinations.
+- [x] Make server-planned HSS context opaque:
+  - [x] Introduce `ServerPlannedEcdsaHssContext`.
+  - [x] Require Email OTP bootstrap workers to consume the context returned by
     `/threshold-ecdsa/hss/prepare`.
-  - [ ] Forbid local client reconstruction of stable HSS context in Email OTP
+  - [x] Forbid local client reconstruction of stable HSS context in Email OTP
     registration/bootstrap.
-- [ ] Update file targets:
+- [x] Update file targets:
   - `client/src/core/signingEngine/session/emailOtp/*`
   - `client/src/core/signingEngine/threshold/ecdsa/*`
   - `client/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts`
   - `client/src/core/signingEngine/session/availability/*`
   - `server/src/core/ThresholdService/*`
-- [ ] Add compile-only fixtures proving:
-  - provider subject cannot be assigned to `walletSessionUserId`
-  - wallet id cannot be assigned to `authSubjectId`
-  - registration bootstrap cannot carry `ecdsaThresholdKeyId`
-  - existing-key/session bootstrap cannot omit `ecdsaThresholdKeyId`
-  - Email OTP bootstrap cannot pass a locally constructed HSS stable context to
+- [x] Add compile-only fixtures proving:
+  - [x] provider subject cannot be assigned to `walletSessionUserId`
+  - [x] wallet id cannot be assigned to `authSubjectId`
+  - [x] registration bootstrap cannot carry `ecdsaThresholdKeyId`
+  - [x] existing-key/session bootstrap cannot omit `ecdsaThresholdKeyId`
+  - [x] Email OTP bootstrap cannot pass a locally constructed HSS stable context to
     the worker
-  - session ids cannot appear in stable HSS key context
-- [ ] Add static guards:
-  - [ ] no raw `walletSessionUserId: string` in Email OTP HSS core types
-  - [ ] no `google:`/provider-shaped value assigned to wallet-scoped fields
-  - [ ] no `EcdsaHssStableKeyContextV1` construction inside Email OTP bootstrap
+  - [x] session ids cannot appear in stable HSS key context
+- [x] Add static guards:
+  - [x] no raw `walletSessionUserId: string` in Email OTP HSS core types
+  - [x] no `google:`/provider-shaped value assigned to wallet-scoped fields
+  - [x] no `EcdsaHssStableKeyContextV1` construction inside Email OTP bootstrap
     client code outside the server prepare response parser
-  - [ ] no broad object spread into Email OTP HSS bootstrap request builders
-- [ ] Document the invariant beside the builders: provider identity authorizes
+  - [x] no broad object spread into Email OTP HSS bootstrap request builders
+- [x] Document the invariant beside the builders: provider identity authorizes
   Email OTP enrollment, wallet/session identity scopes HSS audit and session
   policy, and server-planned context is the only HSS key-context source for
   Email OTP bootstrap.
 
 ## Phase 5: Registration And Wallet Unlock Warm-Up
 
-- [ ] Update `client/src/core/SeamsPasskey/registration.ts` so registration
+- [x] Update `client/src/core/SeamsPasskey/registration.ts` so registration
   emits one shared EVM-family key identity and target-specific session lanes.
-- [ ] Update profile continuity persistence so account signer metadata stores:
+- [x] Update profile continuity persistence so account signer metadata stores:
   - shared EVM-family key identity
   - concrete target membership
-  - account model/address information for smart-account paths
-- [ ] Update `client/src/core/SeamsPasskey/login.ts` so unlock warm-up builds
+- [x] Update `client/src/core/SeamsPasskey/login.ts` so unlock warm-up builds
   target lanes from the shared key identity.
-- [ ] Keep the current ambiguity failure: multiple key ids for one EVM-family
+- [x] Keep the current ambiguity failure: multiple key ids for one EVM-family
   wallet must fail before warm-up.
-- [ ] Replace target-key completion logic with a builder that returns:
+- [x] Replace target-key completion logic with a builder that returns:
   - `complete_shared_key_targets`
   - `ambiguous_shared_key_targets`
   - `missing_shared_key`
-- [ ] Add tests for:
-  - fresh account registration with Tempo and Arc/EVM targets
-  - wallet unlock where only one target has stored metadata
-  - wallet unlock with conflicting stored key ids
-  - wallet unlock after IndexedDB cleanup
+- [x] Add tests for:
+  - [x] fresh account registration with Tempo and Arc/EVM targets
+  - [x] wallet unlock where only one target has stored metadata
+  - [x] wallet unlock with conflicting stored key ids
+  - [x] wallet unlock after IndexedDB cleanup
 
 ## Phase 6: EVM-Family Signing And Post-Exhaustion Reauth
 
-- [ ] Update `client/src/core/signingEngine/flows/signEvmFamily/ecdsaMaterialState.ts`
+- [x] Update `client/src/core/signingEngine/flows/signEvmFamily/ecdsaMaterialState.ts`
   to delegate record/keyRef matching to
   `resolveReadyEvmFamilyEcdsaMaterial(...)`.
-- [ ] Update `preparedSigning.ts`, `ecdsaSelection.ts`, and `ecdsaLanes.ts` so
+- [x] Update `preparedSigning.ts`, `ecdsaSelection.ts`, and `ecdsaLanes.ts` so
   prepared operations carry `ReadyEvmFamilyEcdsaMaterial` when signing can
   proceed.
-- [ ] Update passkey reauth in `signingFlowRuntime.ts` so reconnect returns
+- [x] Update passkey reauth in `signingFlowRuntime.ts` so reconnect returns
   ready material, not keyRef alone.
-- [ ] Update Email OTP reauth in `emailOtpRefresh.ts` so completion returns
+- [x] Update Email OTP reauth in `emailOtpRefresh.ts` so completion returns
   ready material from the same canonical resolver.
-- [ ] Centralize EVM-family fresh-auth retry policy in one classifier:
-  - [ ] Track side-effect state:
+- [x] Centralize EVM-family fresh-auth retry policy in one classifier:
+  - [x] Track side-effect state:
     - `no_auth_side_effect_started`
     - `auth_prompt_shown`
     - `auth_confirmed`
     - `threshold_reconnect_started`
-  - [ ] Permit fresh-auth retry only before any auth prompt/confirmation side
+  - [x] Permit fresh-auth retry only before any auth prompt/confirmation side
     effect has started.
-  - [ ] Reject fallback retry paths that can show a second passkey or Email OTP
+  - [x] Reject fallback retry paths that can show a second passkey or Email OTP
     prompt for the same operation.
-  - [ ] Emit the retry decision and side-effect state in signing diagnostics.
-- [ ] Split Email OTP route authorization identity from minted signing-session
+  - [x] Emit the retry decision and side-effect state in signing diagnostics.
+- [x] Split Email OTP route authorization identity from minted signing-session
   identity:
-  - [ ] Rename signing-session auth-lane fields at the boundary to
+  - [x] Rename signing-session auth-lane fields at the boundary to
     `authorizingWalletSigningSessionId` or `sourceWalletSigningSessionId`.
-  - [ ] Introduce branded types for
+  - [x] Introduce branded types for
     `AuthorizingWalletSigningSessionId` and `MintedWalletSigningSessionId`.
-  - [ ] Add a branch-specific builder for per-operation Email OTP ECDSA minting
+  - [x] Add a branch-specific builder for per-operation Email OTP ECDSA minting
     that always generates the minted `walletSigningSessionId`.
-  - [ ] Forbid `loginWithEmailOtpEcdsaCapability` and
+  - [x] Forbid `loginWithEmailOtpEcdsaCapability` and
     `loginWithEmailOtpEcdsaCapabilityForSigning` from reading
     `routePlan.authLane.walletSigningSessionId` as the minted session identity.
-  - [ ] Keep signing-session route auth usable only as authorization material
+  - [x] Keep signing-session route auth usable only as authorization material
     for challenge/verify and HSS bootstrap.
-  - [ ] Add a runtime boundary assertion that per-operation ECDSA minting never
+  - [x] Add a runtime boundary assertion that per-operation ECDSA minting never
     reuses the authorizing signing-session id as the minted signing-session id.
-  - [ ] Add compile-only fixtures proving auth-lane session ids cannot be passed
+  - [x] Add compile-only fixtures proving auth-lane session ids cannot be passed
     where minted session ids are required.
-- [ ] Remove local `record + keyRef` matching logic from `signEvmFamily.ts`.
-- [ ] Make post-exhaustion signing compile only when the reauth branch returns
+- [x] Remove local `record + keyRef` matching logic from `signEvmFamily.ts`.
+- [x] Make post-exhaustion signing compile only when the reauth branch returns
   `ReadyEvmFamilyEcdsaMaterial`.
-- [ ] Add tests for:
-  - passkey Tempo sign after ECDSA session exhaustion
-  - passkey Arc/EVM sign after ECDSA session exhaustion
-  - Email OTP Tempo sign after ECDSA session exhaustion
-  - Email OTP Arc/EVM sign after ECDSA session exhaustion
-  - Email OTP per-operation reauth mints a fresh wallet signing-session id
+- [x] Add tests for:
+  - [x] passkey Tempo sign after ECDSA session exhaustion
+  - [x] passkey Arc/EVM sign after ECDSA session exhaustion
+  - [x] Email OTP Tempo sign after ECDSA session exhaustion
+  - [x] Email OTP Arc/EVM sign after ECDSA session exhaustion
+  - [x] Email OTP per-operation reauth mints a fresh wallet signing-session id
     when authorized by an exhausted signing-session JWT
-  - first post-exhaustion Email OTP Tempo attempt succeeds after one prompt
-  - first post-exhaustion Email OTP Arc/EVM attempt succeeds after one prompt
+  - [x] first post-exhaustion Email OTP Tempo attempt succeeds after one prompt
+  - [x] first post-exhaustion Email OTP Arc/EVM attempt succeeds after one prompt
 
 ## Phase 7: Key Export And Recovery
 
-- [ ] Update `flows/recovery/exportLaneSelection.ts` so grouping uses
+- [x] Update `flows/recovery/exportLaneSelection.ts` so grouping uses
   `EvmFamilyEcdsaKeyIdentity`.
-- [ ] Update `ecdsaExportMaterial.ts` so export material resolution consumes
+- [x] Update `ecdsaExportMaterial.ts` so export material resolution consumes
   `ReadyEvmFamilyEcdsaMaterial`.
-- [ ] Preserve the current behavior where multiple active session lanes for one
+- [x] Preserve the current behavior where multiple active session lanes for one
   shared EVM-family key are acceptable for export selection.
-- [ ] Add tests proving key export remains unambiguous when runtime and durable
+- [x] Add tests proving key export remains unambiguous when runtime and durable
   lanes have different session ids for the same shared key.
-- [ ] Add a regression where stale passkey ECDSA export lanes coexist with a
+- [x] Add a regression where stale passkey ECDSA export lanes coexist with a
   selectable Email OTP lane, and export selects the Email OTP lane without
   ambiguity.
-- [ ] Update sealed recovery readback so restored ECDSA records rebuild the
+- [x] Update sealed recovery readback so restored ECDSA records rebuild the
   shared key identity at the boundary.
-- [ ] Remove duplicate export-specific identity comparison helpers after the
+- [x] Remove duplicate export-specific identity comparison helpers after the
   shared resolver owns that logic.
 
 ## Phase 8: Budget, Session Status, And Warm Capability State
 
-- [ ] Update warm capability state in
+- [x] Update warm capability state in
   `client/src/core/signingEngine/session/warmCapabilities/types.ts` so ECDSA
   capability branches reference shared key identity plus lane identity.
-- [ ] Update budget status requests so ECDSA budget identity is always concrete
+- [x] Update budget status requests so ECDSA budget identity is always concrete
   lane identity:
   - shared key identity
   - `chainTarget`
   - `thresholdSessionId`
   - `walletSigningSessionId`
-- [ ] Keep server budget/session lookups curve-bound and lane-bound.
-- [ ] Update `BudgetCoordinator` and `budgetStatusReader.ts` to reject requests
+- [x] Keep server budget/session lookups curve-bound and lane-bound.
+- [x] Update `BudgetCoordinator` and `budgetStatusReader.ts` to reject requests
   that only carry shared key identity without concrete session lane identity.
-- [ ] Model wallet signing budget lifecycle as a discriminated union:
-  - `PreparedNoBudget`
-  - `BudgetAdmitted`
-  - `StepUpConfirmed`
-  - `ReauthAdmitted`
-  - `Signed`
-  - `Finalized`
-- [ ] Make Email OTP/passkey reauth replace the active admitted operation before
+- [x] Model wallet signing budget lifecycle as a discriminated union:
+  - [x] `PreparedNoBudget`
+  - [x] `BudgetAdmitted`
+  - [x] `StepUpConfirmed`
+  - [x] `ReauthAdmitted`
+  - [x] `Signed`
+  - [x] `Finalized`
+- [x] Make Email OTP/passkey reauth replace the active admitted operation before
   signing can proceed.
-- [ ] Make old exhausted operations impossible to pass into transaction signing
+- [x] Make old exhausted operations impossible to pass into transaction signing
   or finalization after reauth succeeds.
-- [ ] Keep finalization branches explicit:
+- [x] Keep finalization branches explicit:
   - `reserved_success`
   - `unreserved_success`
   - `externally_consumed_success`
   - `zero_spend`
-- [ ] Require Email OTP externally-consumed success to name the consumed backing
+- [x] Require Email OTP externally-consumed success to name the consumed backing
   threshold session ids.
-- [ ] Add budget diagnostics fields to EVM-family signing/export/bootstrap
+- [x] Add budget diagnostics fields to EVM-family signing/export/bootstrap
   failures:
+  - [x] signing failures include these fields
+  - [x] export failures include these fields
+  - [x] bootstrap failures include these fields
   - `operationId`
   - `authMethod`
   - `evmFamilyKeyFingerprint`
@@ -506,126 +520,294 @@ the `ready` branch only.
   - `thresholdSessionId`
   - `budgetProjectionVersion`
   - retry side-effect state
-- [ ] Add tests for:
-  - fresh unlock budget status
-  - one spend
-  - exhausted lane
-  - passkey reauth after exhaustion
-  - Email OTP reauth after exhaustion
-  - reauth replaces the exhausted operation before signing
-  - finalization records spend against the refreshed operation
+- [x] Add tests for:
+  - [x] fresh unlock budget status
+  - [x] one spend
+  - [x] exhausted lane
+  - [x] passkey reauth after exhaustion
+  - [x] Email OTP reauth after exhaustion
+  - [x] reauth replaces the exhausted operation before signing
+  - [x] finalization records spend against the refreshed operation
 
-## Phase 9: Nonce, Sender Address, And Smart-Account Boundaries
+## Phase 9: Nonce And Sender Address Boundaries
 
-- [ ] Update EVM-family nonce identity so raw EIP-1559 paths use
+- [x] Update EVM-family nonce identity so raw EIP-1559 paths use
   `key.thresholdOwnerAddress` as sender.
-- [ ] Keep smart-account/counterfactual account address in smart-account
-  deployment paths only.
-- [ ] Rename address fields at cross-boundary call sites to role-specific names:
+- [x] Rename address fields at cross-boundary call sites to role-specific names:
   - `thresholdOwnerAddress`
-  - `smartAccountAddress`
-  - `counterfactualAddress`
   - `chainAccountAddress`
-- [ ] Update `executeEvmFamilyTransaction.ts`, `transactionExecutor.ts`, and
+- [x] Update `executeEvmFamilyTransaction.ts`, `transactionExecutor.ts`, and
   `nonceResolution.ts` to consume explicit sender identity.
-- [ ] Update demo helpers in `examples/seams-site/src/flows/demo/hooks/*` so
+- [x] Update demo helpers in `examples/seams-site/src/flows/demo/hooks/*` so
   funding/preflight displays the owner address used by raw EIP-1559 broadcast.
-- [ ] Add a regression test proving:
+- [x] Add a regression test proving:
   - displayed funding address
   - preflight balance address
   - managed nonce sender
   - signed transaction sender
   all match for raw Arc/EVM signing.
-- [ ] Add a separate test proving smart-account flows use account address
-  through smart-account execution paths.
-
 ## Phase 10: Public API And Iframe Message Shape
 
-- [ ] Update public ECDSA bootstrap/sign/export request types to expose shared
+- [x] Update public ECDSA bootstrap/sign/export request types to expose shared
   key identity only through public-safe fields.
-- [ ] Keep public operation inputs wallet-session shaped.
-- [ ] Ensure iframe ECDSA messages carry:
+- [x] Keep public operation inputs wallet-session shaped.
+- [x] Ensure iframe ECDSA messages carry:
   - `walletSession`
   - `subjectId`
   - concrete `chainTarget`
   - operation request
-- [ ] Remove public request fields that allow callers to supply partial internal
+- [x] Remove public request fields that allow callers to supply partial internal
   ECDSA key identity.
-- [ ] Update public docs and examples:
+- [x] Update public docs and examples:
   - `docs/threshold-ecdsa/ecdsa-threshold-signing.md`
   - `docs/threshold-ecdsa/evm-family-address-invariant.md`
   - `examples/seams-docs/src/getting-started/next-steps.md`
 
 ## Phase 11: Static Guards And Type Fixtures
 
-- [ ] Extend `tests/unit/signingEngine.refactor36.guard.unit.test.ts` or create
+- [x] Extend `tests/unit/signingEngine.refactor36.guard.unit.test.ts` or create
   `signingEngine.refactor37.guard.unit.test.ts`.
-- [ ] Guard against new internal EVM-family types that duplicate shared key
+- [x] Guard against new internal EVM-family types that duplicate shared key
   fields and session fields in one unapproved struct.
-- [ ] Guard against broad object spreads into `ReadyEvmFamilyEcdsaMaterial` and
+- [x] Guard against broad object spreads into `ReadyEvmFamilyEcdsaMaterial` and
   `EvmFamilyEcdsaSessionLane`.
-- [ ] Guard against `as ReadyEvmFamilyEcdsaMaterial`,
+- [x] Guard against `as ReadyEvmFamilyEcdsaMaterial`,
   `as EvmFamilyEcdsaKeyIdentity`, and `as EvmFamilyEcdsaSessionLane` outside
   builder/typecheck files.
-- [ ] Add compile-only fixtures for invalid branch combinations.
-- [ ] Add compile-only fixtures for:
+- [x] Add compile-only fixtures for invalid branch combinations.
+- [x] Add compile-only fixtures for:
   - auth-lane wallet signing-session ids rejected where minted ids are required
   - stable HSS key context rejected when session lifecycle ids are present
-  - raw EIP-1559 rejected when only a smart-account address is available
   - post-reauth signing rejected with the old exhausted admitted operation
-- [ ] Add a guard that all EVM-family configured targets map to one owner
+- [x] Add a guard that all EVM-family configured targets map to one owner
   address in fixture registration/login flows.
-- [ ] Add a guard blocking raw EIP-1559 paths from calling profile or
+- [x] Add a guard blocking raw EIP-1559 paths from calling profile or
   chain-account sender fallback helpers.
-- [ ] Add a guard blocking local Email OTP stable HSS context construction
+- [x] Add a guard blocking local Email OTP stable HSS context construction
   outside the server prepare response parser.
 
 ## Phase 12: Test Matrix And Manual Checks
 
-- [ ] Passkey account:
-  - [ ] wallet unlock
-  - [ ] NEAR signing
-  - [ ] Tempo signing
-  - [ ] Arc/EVM signing
-  - [ ] Ed25519 key export
-  - [ ] ECDSA key export
-  - [ ] Ed25519 signing after exhaustion
-  - [ ] ECDSA Tempo signing after exhaustion
-  - [ ] ECDSA Arc/EVM signing after exhaustion
-- [ ] Email OTP account:
-  - [ ] wallet unlock
-  - [ ] NEAR signing
-  - [ ] Tempo signing
-  - [ ] Arc/EVM signing
-  - [ ] Ed25519 key export
-  - [ ] ECDSA key export
-  - [ ] Ed25519 signing after exhaustion
-  - [ ] ECDSA Tempo signing after exhaustion
-  - [ ] ECDSA Arc/EVM signing after exhaustion
-- [ ] Fresh account registration:
-  - [ ] Tempo and Arc/EVM owner addresses match
-  - [ ] funding address matches broadcast sender
-  - [ ] key export address matches funding address
-- [ ] Existing account unlock:
-  - [ ] stored one-target metadata completes all configured EVM-family targets
-  - [ ] conflicting target metadata fails before warm-up
+### Runtime Tests Worth Adding Now
+
+These are the highest-value runtime tests to add before deeper structural
+cleanup. Several overlap with the phase-specific tasks above; keep this section
+as the immediate implementation queue and mark the owning phase item when a test
+lands.
+
+- [x] Fresh passkey registration persists the account/profile mapping and signer
+  slots before returning:
+  - [x] NEAR Ed25519 signing succeeds immediately.
+  - [x] Ed25519 key export finds the single-key HSS signer slot.
+  - [x] ECDSA key export finds the exact EVM-family lane.
+- [x] Fresh Email OTP registration and unlock use server-planned ECDSA HSS
+  bootstrap context:
+  - registration bootstrap permits missing `ecdsaThresholdKeyId`
+  - existing-key/session bootstrap requires `ecdsaThresholdKeyId`
+  - Email OTP provider subject never appears in wallet-scoped HSS fields
+  - client code does not locally reconstruct stable HSS context
+- [x] Existing EVM-family ECDSA key reconnect remains stable across new
+  `walletSigningSessionId` and `thresholdSessionId` values:
+  - Tempo reconnect succeeds
+  - Arc/EVM reconnect succeeds
+  - changing `rpId`, signing root, key id, or owner address fails with a typed
+    mismatch
+- [x] Registration with Tempo and Arc/EVM configured targets produces one shared
+  `evmFamilyKeyFingerprint`:
+  - same `ecdsaThresholdKeyId`
+  - same `thresholdOwnerAddress`
+  - target-specific session lanes and budgets
+- [x] Raw Arc/EVM signing uses the threshold owner address consistently:
+  - [x] displayed funding address
+  - [x] preflight balance address
+  - [x] managed nonce sender
+  - [x] recovered signed transaction sender
+  - [x] ECDSA key export address
+- [x] Stale target-scoped ECDSA rows and sealed records cannot become available
+  lane candidates after storage cutover.
+- [x] ECDSA export is unambiguous when runtime and durable records coexist for
+  the same shared key:
+  - passkey runtime plus durable lane
+  - Email OTP runtime plus stale passkey durable lane
+  - exhausted duplicate lane plus selectable active lane
+- [x] Post-exhaustion passkey signing succeeds on the first attempt for:
+  - [x] Tempo
+  - [x] Arc/EVM
+- [x] Post-exhaustion Email OTP signing succeeds on the first attempt for:
+  - [x] Tempo
+  - [x] Arc/EVM
+- [x] Post-exhaustion Email OTP signing shows exactly one step-up prompt per
+  operation.
+- [x] Per-operation Email OTP ECDSA reauth mints a fresh
+  `walletSigningSessionId` distinct from the authorizing exhausted session id.
+- [x] Budget consume/finalize runs against the refreshed operation after reauth:
+  - [x] no `not_found` consume for Email OTP ECDSA
+  - [x] old exhausted operation cannot reach signing or finalization
+  - [x] externally consumed backing threshold session ids are recorded
+- [x] EVM-family diagnostics include the same `evmFamilyKeyFingerprint` across:
+  - [x] HSS prepare/finalize
+  - [x] activation
+  - [x] available-lane resolution
+  - [x] signing
+  - [x] export
+  - [x] budget admission/finalization
+  - [x] nonce resolution
+
+- [x] Passkey account:
+  - [x] wallet unlock
+  - [x] NEAR signing
+  - [x] Tempo signing
+  - [x] Arc/EVM signing
+  - [x] Ed25519 key export
+  - [x] ECDSA key export
+  - [x] Ed25519 signing after exhaustion
+  - [x] ECDSA Tempo signing after exhaustion
+  - [x] ECDSA Arc/EVM signing after exhaustion
+- [x] Email OTP account:
+  - [x] wallet unlock
+  - [x] NEAR signing
+  - [x] Tempo signing
+  - [x] Arc/EVM signing
+  - [x] Ed25519 key export
+  - [x] ECDSA key export
+  - [x] Ed25519 signing after exhaustion
+  - [x] ECDSA Tempo signing after exhaustion
+  - [x] ECDSA Arc/EVM signing after exhaustion
+- [x] Fresh account registration:
+  - [x] Tempo and Arc/EVM owner addresses match
+  - [x] funding address matches broadcast sender
+  - [x] key export address matches funding address
+- [x] Existing account unlock:
+  - [x] stored one-target metadata completes all configured EVM-family targets
+  - [x] conflicting target metadata fails before warm-up
+
+### Manual Regression Follow-ups
+
+- [x] Add available-lane regression coverage for one stored EVM-family target
+  completing missing configured targets.
+- [x] Add ECDSA export regression coverage for selecting and restoring the
+  concrete source lane when the requested target has only shared-key completion.
+- [x] Remove request-time Postgres unique-index creation from ECDSA HSS key
+  store bootstrap.
+- [x] Restore passkey Ed25519 Shamir3pass material before shared NEAR
+  NEP-413/delegate auth planning so restored sessions do not show step-up auth.
 
 ## Phase 13: Deletion And Cleanup
 
-- [ ] Delete duplicate identity helpers replaced by
+- [x] Delete duplicate identity helpers replaced by
   `evmFamilyEcdsaIdentity.ts`.
-- [ ] Delete stale fallback paths that choose between record/keyRef identity by
+- [x] Delete stale fallback paths that choose between record/keyRef identity by
   local optional probing.
-- [ ] Delete compatibility comments or TODOs that reference the old target-scoped
+- [x] Delete compatibility comments or TODOs that reference the old target-scoped
   key-id behavior.
-- [ ] Shrink allowlists introduced during the refactor.
-- [ ] Run `rg` checks for stale field groups:
+- [x] Shrink allowlists introduced during the refactor.
+- [x] Run `rg` checks for stale field groups:
   - `ecdsaThresholdKeyId` beside `thresholdSessionId`
-  - `ethereumAddress` beside `counterfactualAddress`
   - `key_ref_only`
   - `record_only`
   - `reuse_warm_ecdsa_bootstrap`
-- [ ] Keep remaining raw compatibility only at persistence/request boundaries.
+- [x] Keep remaining raw compatibility only at persistence/request boundaries.
+
+## Phase 14: Remove Smart-Account Code From Base ECDSA Warm-Up
+
+### Problem
+
+Manual diagnostics showed base threshold ECDSA unlock still depends on the
+unfinished smart-account projection path:
+
+- wallet unlock has local per-target ECDSA key ids for Tempo and EVM targets
+- those local rows do not contain canonical shared key identity
+- the repair path calls `/threshold-ed25519/smart-account-signers`
+- the server reads `AccountSignerStore` smart-account rows and returns zero
+  records for normal threshold ECDSA wallets
+- ECDSA warm-up cannot resolve `EvmFamilyEcdsaKeyIdentity`
+- no ECDSA runtime or durable lanes are created
+- Tempo signing, EVM signing, and ECDSA key export later fail with
+  `no_candidate`
+
+This is a design bug. Smart-account signer rows are optional account/deployment
+projection state for an unfinished feature. Normal threshold ECDSA signing uses
+the threshold ECDSA owner address from the canonical integrated key record.
+Base ECDSA session readiness must be driven by `threshold_ecdsa_keys`, not by
+smart-account account signer rows.
+
+### Target Shape
+
+- Normal threshold ECDSA has one authoritative key-identity source:
+  `ThresholdEcdsaIntegratedKeyRecord` / `threshold_ecdsa_keys`.
+- Unlock warm-up resolves `EvmFamilyEcdsaKeyIdentity` from that key store using
+  wallet id, subject id, RP id, signing root, participants, owner address, and
+  `ecdsaThresholdKeyId`.
+- Configured Tempo/EVM targets are target-specific session lanes over the same
+  shared EVM-family key identity.
+- Smart-account projection state is removed from the current ECDSA runtime.
+  It never gates base ECDSA warm-up, lane selection, signing, export, or display
+  of the normal threshold owner address.
+
+### Implementation TODO
+
+- [ ] Add a server route for normal threshold ECDSA key identity lookup, backed
+  by the integrated key store:
+  - input: authenticated wallet/session context plus target key ids or
+    `ecdsaThresholdKeyId`
+  - output: public canonical key identity fields only
+  - source of truth: `ThresholdSigningService` integrated key record reader
+  - no dependency on `AccountSignerStore`
+- [ ] Replace unlock ECDSA identity repair in
+  `client/src/core/SeamsPasskey/login.ts`:
+  - remove base warm-up calls to `/threshold-ed25519/smart-account-signers`
+  - resolve missing shared key identity from the new normal ECDSA key-identity
+    route after Ed25519 warm-up when local records only have key ids
+  - complete all configured EVM-family targets from the shared key
+  - fail before reporting wallet unlock success if configured ECDSA targets
+    cannot resolve canonical identity
+- [ ] Split client relay inventory types:
+  - keep a normal `ThresholdEcdsaKeyIdentityInventory` shape for base warm-up
+  - delete `RelayThresholdEcdsaAccountSigner` from the base login/sync path
+  - delete smart-account ingestion from current login/sync flows
+- [ ] Update `client/src/core/SeamsPasskey/syncAccount.ts` so account sync does
+  not treat smart-account signer records as the source of ECDSA signing
+  identity.
+- [ ] Update ECDSA bootstrap persistence and public capability surfaces so the
+  normal bootstrap path does not accept smart-account projection fields.
+- [ ] Update demo/UI address reads:
+  - use wallet-session threshold ECDSA owner address for display and funding
+  - stop calling `reuse_warm_ecdsa_bootstrap` just to discover the sender
+    address
+- [ ] Ensure key export and Tempo/EVM signing read exact lanes created from the
+  normal ECDSA key-identity source.
+
+### Delete And Cleanup
+
+- [ ] Delete base warm-up dependency on:
+  - `/threshold-ed25519/smart-account-signers`
+  - `listActiveSmartAccountSignersForUser(...)`
+  - `listActiveSmartAccountSignersForUserWithDiagnostics(...)`
+  - `RelayThresholdEcdsaAccountSigner` in base login
+  - `ingestRelayThresholdEcdsaAccountSigners(...)` in base unlock/sync flows
+- [ ] Delete smart-account-only helpers from the normal ECDSA path:
+  - `buildRelaySignerEvmFamilyKey(...)` as a base warm-up repair source
+  - smart-account `accountSigners` metadata enrichment as ECDSA readiness
+  - `counterfactualAddress` fallback in normal threshold owner address flows
+- [ ] Delete smart-account registration/link record builders, routes, and tests
+  unless the same code is required for normal threshold ECDSA.
+- [ ] Remove diagnostics that label normal ECDSA key identity as
+  `smart-account-signers`.
+
+### Regression Coverage
+
+- [ ] Existing passkey wallet with no smart-account rows unlocks and warms ECDSA
+  lanes for Tempo and all configured EVM targets.
+- [ ] Server diagnostics prove base ECDSA warm-up reads integrated key records
+  when `AccountSignerStore` is empty.
+- [ ] Tempo signing succeeds after unlock for a normal threshold ECDSA wallet.
+- [ ] Arc/EVM signing succeeds after unlock for a normal threshold ECDSA wallet.
+- [ ] ECDSA key export succeeds after unlock for a normal threshold ECDSA
+  wallet.
+- [ ] Any stale smart-account projection rows in local test fixtures cannot
+  override the canonical threshold owner address from the integrated key record.
+- [ ] Static guard prevents base ECDSA warm-up files from importing
+  smart-account signer inventory helpers.
 
 ## Validation Commands
 

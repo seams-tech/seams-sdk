@@ -1,6 +1,6 @@
 # EVM-Family ECDSA Address Invariant
 
-Last updated: 2026-05-15
+Last updated: 2026-05-16
 
 ## Funds-Safety Rule
 
@@ -11,14 +11,18 @@ This includes Tempo, Arc, Ethereum, and every future EVM-family chain target.
 Users and integrators may fund one displayed EVM signer address and expect that
 same address to be the sender on every EVM-class target.
 
-The displayed funding address is the threshold ECDSA owner address. Smart-account
-counterfactual addresses, deployment addresses, and chain-account wrapper
-addresses must not be substituted for this value in signer funding UI.
+The displayed funding address is the threshold ECDSA owner address. Chain
+account wrapper addresses must not be substituted for this value in signer
+funding UI.
 
 Raw EIP-1559 signing must resolve sender, nonce, balance preflight, and funding
-UI from the threshold owner address. ERC-4337/counterfactual account flows must
-resolve those values from the smart-account address through the smart-account
-path. Consumer code must name which address role it is using.
+UI from the threshold owner address. Consumer code must name which address role
+it is using.
+
+Public ECDSA operations identify the signer with `walletSession`, `subjectId`,
+and a concrete `chainTarget`. Callers never provide `ecdsaThresholdKeyId`,
+`participantIds`, threshold session IDs, or client root shares on the public
+bootstrap/sign/export request surface.
 
 ## Required Shape
 
@@ -65,8 +69,8 @@ Required coverage:
 
 - Tempo + EVM registration provisions one shared `ecdsaThresholdKeyId`.
 - Tempo + EVM registration returns one shared owner address.
-- EVM session bootstrap accepts an `ecdsaThresholdKeyId` first created through a
-  Tempo bootstrap.
+- Tempo and EVM public bootstrap reuse the same warm EVM-family key identity
+  without accepting caller-supplied `ecdsaThresholdKeyId` or `participantIds`.
 - ECDSA HSS output remains unchanged when only the concrete EVM-family
   `chainTarget` changes.
 - ECDSA HSS output changes when `ecdsaThresholdKeyId`, signing root, key
