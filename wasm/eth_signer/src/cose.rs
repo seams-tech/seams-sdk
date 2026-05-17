@@ -84,7 +84,10 @@ mod tests {
         let map = CborValue::Map(vec![
             (CborValue::Integer(1.into()), CborValue::Integer(2.into())),
             (CborValue::Integer(3.into()), CborValue::Integer(alg.into())),
-            (CborValue::Integer((-1).into()), CborValue::Integer(crv.into())),
+            (
+                CborValue::Integer((-1).into()),
+                CborValue::Integer(crv.into()),
+            ),
             (CborValue::Integer((-2).into()), CborValue::Bytes(x)),
             (CborValue::Integer((-3).into()), CborValue::Bytes(y)),
         ]);
@@ -95,8 +98,12 @@ mod tests {
 
     #[test]
     fn decodes_valid_p256_cose_key() {
-        let x = hex_literal::hex!("6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296").to_vec();
-        let y = hex_literal::hex!("4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5").to_vec();
+        let x =
+            hex_literal::hex!("6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296")
+                .to_vec();
+        let y =
+            hex_literal::hex!("4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5")
+                .to_vec();
         let decoded = decode_cose_p256_public_key_raw(&cose_key(x.clone(), y.clone(), -7, 1))
             .expect("valid key");
         assert_eq!(&decoded[..32], x.as_slice());
@@ -123,9 +130,18 @@ mod tests {
     fn rejects_missing_coordinate() {
         let map = CborValue::Map(vec![
             (CborValue::Integer(1.into()), CborValue::Integer(2.into())),
-            (CborValue::Integer(3.into()), CborValue::Integer((-7).into())),
-            (CborValue::Integer((-1).into()), CborValue::Integer(1.into())),
-            (CborValue::Integer((-2).into()), CborValue::Bytes(vec![1u8; 32])),
+            (
+                CborValue::Integer(3.into()),
+                CborValue::Integer((-7).into()),
+            ),
+            (
+                CborValue::Integer((-1).into()),
+                CborValue::Integer(1.into()),
+            ),
+            (
+                CborValue::Integer((-2).into()),
+                CborValue::Bytes(vec![1u8; 32]),
+            ),
         ]);
         let mut out = Vec::new();
         ciborium::into_writer(&map, &mut out).unwrap();
