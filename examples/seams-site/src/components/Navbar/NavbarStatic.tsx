@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronDown, Menu, X } from 'lucide-react';
+import { BookOpen, ChevronDown, MessageCircle, Menu, X } from 'lucide-react';
 import { MoonIcon, SunIcon, useTheme } from '@seams/sdk/react';
 import { ArrowRightAnim } from '../ArrowRightAnim';
 import SeamsLogo from '../icons/SeamsLogo';
@@ -11,165 +11,337 @@ import {
   fetchGoogleAuthOptions,
   requestGoogleIdToken,
 } from '@/shared/auth/googleIdentity';
+import menuAccessPassesImage from '@/assets/navbar/menu-access-passes-wire-light.png';
+import menuBiometricAuthDarkImage from '@/assets/navbar/menu-biometric-auth-wire-dark.png';
+import menuBiometricAuthLightImage from '@/assets/navbar/menu-biometric-auth-wire-light.png';
+import menuBlogImage from '@/assets/navbar/menu-blog.png';
+import menuCompanyImage from '@/assets/navbar/menu-company.png';
+import menuEmbeddedWalletsImage from '@/assets/navbar/menu-embedded-wallets-wire-light.png';
+import menuGuidesImage from '@/assets/navbar/menu-guides-wire-light.png';
+import menuSupportImage from '@/assets/navbar/menu-support.png';
+import menuToolsImage from '@/assets/navbar/menu-tools-wire-light.png';
+import menuUseCasesImage from '@/assets/navbar/menu-use-cases-wire-light.png';
 import './Navbar.css';
 
-type DropdownId = 'products' | 'solutions' | 'about';
+type DropdownId = 'products' | 'documentation' | 'about' | 'pricing';
 
 type DropdownItem = {
   title: string;
   description: string;
   to: string;
+  imageSrc: string;
+  imageDarkSrc?: string;
 };
+
+type DropdownSectionItem =
+  | (DropdownItem & { visual: 'image' })
+  | {
+      title: string;
+      description: string;
+      to: string;
+      visual: 'plan';
+      price: string;
+      priceNote: string;
+      details: string[];
+      imageSrc?: never;
+      imageDarkSrc?: never;
+    };
 
 type DropdownSection = {
   heading: string;
-  items: DropdownItem[];
+  items: DropdownSectionItem[];
 };
 
-type DropdownConfig = {
+type DropdownCtaIcon = 'docs' | 'pricing' | 'contact';
+
+type DropdownCtaTile = {
+  icon: DropdownCtaIcon;
+  title: string;
+  description: string;
+  label: string;
+  to: string;
+};
+
+type ProductDropdownTile = DropdownItem & {
+  id: 'guides' | 'tools' | 'use-cases';
+};
+
+type DocumentationDropdownTile = DropdownItem & {
+  id: 'embedded-wallets' | 'access-passes' | 'biometric-auth';
+};
+
+type ProductDropdownPane = {
+  id: 'products';
+  label: string;
+  layout: 'product-tiles';
+  tiles: ProductDropdownTile[];
+  sections?: never;
+  cta: DropdownCtaTile;
+};
+
+type DocumentationDropdownPane = {
+  id: 'documentation';
+  label: string;
+  layout: 'pricing-tiles';
+  tiles: DocumentationDropdownTile[];
+  sections?: never;
+  cta: DropdownCtaTile;
+};
+
+type SectionDropdownPane = {
+  id: 'about' | 'pricing';
+  label: string;
+  layout: 'sections';
+  sections: DropdownSection[];
+  tiles?: never;
+  cta: DropdownCtaTile;
+};
+
+type DropdownPane = ProductDropdownPane | DocumentationDropdownPane | SectionDropdownPane;
+
+type DropdownTriggerConfig = {
   id: DropdownId;
   label: string;
-  rootTo?: string;
-  allLabel?: string;
-  sections: DropdownSection[];
 };
 
+type PaneVisualState = { kind: 'active' } | { kind: 'before' } | { kind: 'after' };
+
 type DropdownFocusTarget = 'first' | 'last';
-const DEFAULT_DROPDOWN_MAX_WIDTH_PX = 820;
-const ABOUT_DROPDOWN_MAX_WIDTH_PX = DEFAULT_DROPDOWN_MAX_WIDTH_PX / 2;
 const DASHBOARD_AUTH_OPEN_EVENT = 'seams:dashboard-auth-open';
 
-const productSections: DropdownSection[] = [
+function assertNever(value: never): never {
+  throw new Error(`Unhandled navbar state: ${JSON.stringify(value)}`);
+}
+
+const productDropdownTiles: ProductDropdownTile[] = [
   {
-    heading: 'Wallets',
-    items: [
-      {
-        title: 'Embedded Wallets',
-        description: 'Passkey wallet flows that stay inside your app UI',
-        to: '/docs/getting-started/overview',
-      },
-      {
-        title: 'Account Sync',
-        description: 'Restore and link accounts across devices',
-        to: '/docs/concepts/passkey-scope',
-      },
-    ],
+    id: 'guides',
+    title: 'Guides',
+    description: 'Learn, create, and ship embedded wallet flows with focused implementation guides',
+    to: '/docs/getting-started/overview',
+    imageSrc: menuGuidesImage,
   },
   {
-    heading: 'Signing & Security',
-    items: [
-      {
-        title: 'Threshold Signing',
-        description: 'Distributed signing with strict policy controls',
-        to: '/docs/concepts/threshold-signing',
-      },
-      {
-        title: 'SecureConfirm WebAuthn',
-        description: 'Onchain-verifiable confirmation challenges',
-        to: '/docs/concepts/secureconfirm-webauthn',
-      },
-      {
-        title: 'Security Model',
-        description: 'Defense-in-depth and browser policy boundaries',
-        to: '/docs/concepts/security-model',
-      },
-    ],
+    id: 'tools',
+    title: 'Tools',
+    description: 'SDK resources for passkeys, signing sessions, and secure wallet UI',
+    to: '/docs/getting-started/quickstart',
+    imageSrc: menuToolsImage,
+  },
+  {
+    id: 'use-cases',
+    title: 'Use cases',
+    description: 'Explore wallet, payment, recovery, and policy-controlled signing patterns',
+    to: '/docs/concepts/security-model',
+    imageSrc: menuUseCasesImage,
   },
 ];
 
-const solutionSections: DropdownSection[] = [
+const documentationDropdownTiles: DocumentationDropdownTile[] = [
   {
-    heading: 'By Use Case',
-    items: [
-      {
-        title: 'Consumer Apps',
-        description: 'Passkey wallets without popups or extension installs',
-        to: '/solutions/#consumer-apps',
-      },
-      {
-        title: 'Stablecoin Payments',
-        description: 'In-app signing and transaction confirmation flows',
-        to: '/solutions/#stablecoin-payments',
-      },
-      {
-        title: 'Treasury & Payouts',
-        description: 'Policy-based approvals for internal transfers',
-        to: '/solutions/#treasury-and-payouts',
-      },
-      {
-        title: 'Recovery & Device Linking',
-        description: 'Cross-device account continuity without seed phrases',
-        to: '/solutions/#recovery-and-device-linking',
-      },
-    ],
+    id: 'embedded-wallets',
+    title: 'Embedded Wallets',
+    description: 'Self-serve wallet infrastructure for apps launching passkey accounts',
+    to: '/pricing/',
+    imageSrc: menuEmbeddedWalletsImage,
   },
   {
-    heading: 'By Team',
-    items: [
-      {
-        title: 'Product Teams',
-        description: 'Friction-light wallet UX patterns for conversion',
-        to: '/solutions/#product-teams',
-      },
-      {
-        title: 'Security Teams',
-        description: 'SecureConfirm and threshold policy guardrails',
-        to: '/solutions/#security-teams',
-      },
-      {
-        title: 'Platform Teams',
-        description: 'Reusable signing primitives across multiple apps',
-        to: '/solutions/#platform-teams',
-      },
-    ],
+    id: 'access-passes',
+    title: 'Access Passes with account recovery',
+    description: 'Recoverable user access for teams that need durable account continuity',
+    to: '/pricing/',
+    imageSrc: menuAccessPassesImage,
+  },
+  {
+    id: 'biometric-auth',
+    title: 'Biometric Authentication',
+    description: 'Passkey-first authentication packages for higher assurance sign-in',
+    to: '/pricing/',
+    imageSrc: menuBiometricAuthLightImage,
+    imageDarkSrc: menuBiometricAuthDarkImage,
   },
 ];
 
 const aboutSections: DropdownSection[] = [
   {
-    heading: 'About Us',
+    heading: 'Company',
     items: [
       {
         title: 'Company',
         description: 'Company details',
         to: '/company/#careers',
+        visual: 'image',
+        imageSrc: menuCompanyImage,
       },
+    ],
+  },
+  {
+    heading: 'Writing',
+    items: [
       {
         title: 'Blog',
         description: 'Read the latest from our team',
         to: '/company/#blog',
+        visual: 'image',
+        imageSrc: menuBlogImage,
       },
+    ],
+  },
+  {
+    heading: 'Support',
+    items: [
       {
         title: 'Support',
         description: 'Join our developer Slack community',
         to: '/contact/',
+        visual: 'image',
+        imageSrc: menuSupportImage,
       },
     ],
   },
 ];
 
-const primaryDropdownConfigs: DropdownConfig[] = [
+const pricingSections: DropdownSection[] = [
   {
-    id: 'products',
-    label: 'Products',
-    sections: productSections,
+    heading: 'Starter',
+    items: [
+      {
+        title: 'Starter',
+        description:
+          'Build and launch fast for teams shipping embedded wallets for the first time.',
+        to: '/pricing/#starter',
+        visual: 'plan',
+        price: 'Included',
+        priceNote: 'Up to 5K MAW',
+        details: [
+          'Passkey login and embedded wallet SDK',
+          'Wallet list + wallet search controls',
+          'Base policy presets and chain controls',
+        ],
+      },
+    ],
   },
   {
-    id: 'solutions',
-    label: 'Solutions',
-    sections: solutionSections,
+    heading: 'Growth',
+    items: [
+      {
+        title: 'Growth',
+        description: 'Usage-based pricing as wallet adoption grows past launch volume.',
+        to: '/pricing/#growth',
+        visual: 'plan',
+        price: 'Usage-based',
+        priceNote: '5K to 100K MAW',
+        details: [
+          'Standard API keys and webhook endpoints',
+          'Wallet search and chain visibility controls',
+          'Designed for scaling embedded wallet apps',
+        ],
+      },
+    ],
+  },
+  {
+    heading: 'Scale',
+    items: [
+      {
+        title: 'Scale',
+        description: 'Advanced controls and support for stricter operational requirements.',
+        to: '/pricing/#scale',
+        visual: 'plan',
+        price: 'Volume discounts',
+        priceNote: '100K+ MAW',
+        details: [
+          'Custom policy engine with staged rollouts',
+          'Dedicated SLA, onboarding, and architecture reviews',
+          'Advanced RBAC, audit logs, and export controls',
+        ],
+      },
+    ],
   },
 ];
 
-const aboutDropdownConfig: DropdownConfig = {
-  id: 'about',
-  label: 'About Us',
-  rootTo: '/company/',
-  allLabel: 'View company overview',
-  sections: aboutSections,
+const productsDropdownPane: DropdownPane = {
+  id: 'products',
+  label: 'Products',
+  layout: 'product-tiles',
+  tiles: productDropdownTiles,
+  cta: {
+    icon: 'docs',
+    title: 'Developer documentation',
+    description: 'Build embedded wallets and policy-controlled signing flows.',
+    label: 'Read docs',
+    to: '/docs/getting-started/overview',
+  },
 };
 
-const dropdownConfigs: DropdownConfig[] = [...primaryDropdownConfigs, aboutDropdownConfig];
+const documentationDropdownPane: DropdownPane = {
+  id: 'documentation',
+  label: 'Documentation',
+  layout: 'pricing-tiles',
+  tiles: documentationDropdownTiles,
+  cta: {
+    icon: 'pricing',
+    title: 'Plan pricing',
+    description: 'Compare self-serve and enterprise wallet infrastructure packages.',
+    label: 'Learn more',
+    to: '/pricing/',
+  },
+};
+
+const aboutDropdownPane: DropdownPane = {
+  id: 'about',
+  label: 'About Us',
+  layout: 'sections',
+  sections: aboutSections,
+  cta: {
+    icon: 'contact',
+    title: 'Talk to the Seams team',
+    description: 'Plan a wallet integration or review a security-sensitive flow.',
+    label: 'Contact sales',
+    to: '/contact/',
+  },
+};
+
+const pricingDropdownPane: DropdownPane = {
+  id: 'pricing',
+  label: 'Pricing',
+  layout: 'sections',
+  sections: pricingSections,
+  cta: {
+    icon: 'contact',
+    title: 'Talk to us',
+    description: 'Plan pricing and deployment options with the Seams team.',
+    label: 'Contact sales',
+    to: '/contact/',
+  },
+};
+
+const dropdownPanes: DropdownPane[] = [
+  productsDropdownPane,
+  documentationDropdownPane,
+  aboutDropdownPane,
+  pricingDropdownPane,
+];
+
+const primaryDropdownTriggers: DropdownTriggerConfig[] = [
+  {
+    id: 'products',
+    label: 'Products',
+  },
+  {
+    id: 'documentation',
+    label: 'Documentation',
+  },
+];
+
+const aboutDropdownTrigger: DropdownTriggerConfig = {
+  id: 'about',
+  label: 'About Us',
+};
+
+const pricingDropdownTrigger: DropdownTriggerConfig = {
+  id: 'pricing',
+  label: 'Pricing',
+};
 
 function isClickInsideRoot(target: EventTarget | null, root: HTMLElement | null): boolean {
   return !!(target instanceof Node && root && root.contains(target));
@@ -180,6 +352,42 @@ function getMenuItems(panel: HTMLDivElement | null, id: DropdownId | null): HTML
   return Array.from(
     panel.querySelectorAll<HTMLElement>(`[data-dropdown-view="${id}"] a[role="menuitem"]`),
   );
+}
+
+function dropdownOrderIndex(id: DropdownId): number {
+  switch (id) {
+    case 'products':
+      return 0;
+    case 'documentation':
+      return 1;
+    case 'pricing':
+      return 2;
+    case 'about':
+      return 3;
+    default:
+      return assertNever(id);
+  }
+}
+
+function paneVisualStateFor(paneId: DropdownId, activeId: DropdownId | null): PaneVisualState {
+  if (paneId === activeId) return { kind: 'active' };
+  if (!activeId) return { kind: 'after' };
+  return dropdownOrderIndex(paneId) < dropdownOrderIndex(activeId)
+    ? { kind: 'before' }
+    : { kind: 'after' };
+}
+
+function paneVisualStateClassName(state: PaneVisualState): string {
+  switch (state.kind) {
+    case 'active':
+      return 'is-active';
+    case 'before':
+      return 'is-before';
+    case 'after':
+      return 'is-after';
+    default:
+      return assertNever(state);
+  }
 }
 
 function readDocumentTheme(): 'light' | 'dark' {
@@ -197,10 +405,6 @@ function applyDocumentTheme(next: 'light' | 'dark'): void {
     window.localStorage?.setItem?.('seams-site-theme', next);
   } catch {}
   window.dispatchEvent(new CustomEvent<'light' | 'dark'>('w3a:appearance', { detail: next }));
-}
-
-function getDropdownMaxWidthPx(id: DropdownId | null): number {
-  return id === 'about' ? ABOUT_DROPDOWN_MAX_WIDTH_PX : DEFAULT_DROPDOWN_MAX_WIDTH_PX;
 }
 
 interface RelaySessionStateResponse {
@@ -225,8 +429,7 @@ async function parseOptionalJson(response: Response): Promise<any> {
 
 export function NavbarStatic(): React.JSX.Element {
   const OPEN_DELAY_MS = 0;
-  const CLOSE_DELAY_MS = 280;
-  const CONTENT_SWITCH_MS = 660;
+  const CLOSE_DELAY_MS = 120;
   const SCROLL_THRESHOLD_PX = 8;
 
   const { theme, setTheme } = useTheme();
@@ -237,26 +440,22 @@ export function NavbarStatic(): React.JSX.Element {
   );
   const [googleClientId, setGoogleClientId] = React.useState<string>('');
   const rootRef = React.useRef<HTMLElement | null>(null);
-  const shellRef = React.useRef<HTMLDivElement | null>(null);
   const dropdownButtonRefs = React.useRef<Record<DropdownId, HTMLButtonElement | null>>({
     products: null,
-    solutions: null,
+    documentation: null,
+    pricing: null,
     about: null,
   });
   const dropdownPanelRef = React.useRef<HTMLDivElement | null>(null);
   const openTimerRef = React.useRef<number | null>(null);
   const closeTimerRef = React.useRef<number | null>(null);
-  const switchTimerRef = React.useRef<number | null>(null);
   const [openDropdown, setOpenDropdown] = React.useState<DropdownId | null>(null);
-  const [visibleDropdown, setVisibleDropdown] = React.useState<DropdownId | null>(null);
-  const [leavingDropdown, setLeavingDropdown] = React.useState<DropdownId | null>(null);
-  const [dropdownSurfaceLeft, setDropdownSurfaceLeft] = React.useState<number>(0);
-  const [dropdownNotchLeft, setDropdownNotchLeft] = React.useState<number>(120);
   const [hasScrolled, setHasScrolled] = React.useState<boolean>(false);
   const [localTheme, setLocalTheme] = React.useState<'light' | 'dark'>(() => readDocumentTheme());
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState<boolean>(false);
   const [isMobileProductsOpen, setIsMobileProductsOpen] = React.useState<boolean>(false);
-  const [isMobileSolutionsOpen, setIsMobileSolutionsOpen] = React.useState<boolean>(false);
+  const [isMobileDocumentationOpen, setIsMobileDocumentationOpen] = React.useState<boolean>(false);
+  const [isMobilePricingOpen, setIsMobilePricingOpen] = React.useState<boolean>(false);
   const [isMobileAboutOpen, setIsMobileAboutOpen] = React.useState<boolean>(false);
   const [isDashboardAuthOpen, setIsDashboardAuthOpen] = React.useState<boolean>(false);
   const [dashboardAuthError, setDashboardAuthError] = React.useState<string>('');
@@ -342,44 +541,6 @@ export function NavbarStatic(): React.JSX.Element {
     }
   }, []);
 
-  const clearContentSwitchTimer = React.useCallback(() => {
-    if (switchTimerRef.current !== null) {
-      window.clearTimeout(switchTimerRef.current);
-      switchTimerRef.current = null;
-    }
-  }, []);
-
-  const updateDropdownNotchPosition = React.useCallback((id: DropdownId) => {
-    const shell = shellRef.current;
-    const button = dropdownButtonRefs.current[id];
-    if (!shell || !button) return;
-
-    const clamp = (value: number, min: number, max: number): number =>
-      Math.min(Math.max(value, min), max);
-    const shellRect = shell.getBoundingClientRect();
-    const buttonRect = button.getBoundingClientRect();
-
-    const rootFontSize =
-      typeof window === 'undefined'
-        ? 16
-        : Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16;
-    const horizontalInsetPx = rootFontSize * 2; // matches CSS width: calc(100% - 2rem)
-
-    const surfaceWidth = Math.min(
-      getDropdownMaxWidthPx(id),
-      Math.max(shellRect.width - horizontalInsetPx, 0),
-    );
-    const triggerCenter = buttonRect.left + buttonRect.width / 2 - shellRect.left;
-    const surfaceLeft = clamp(
-      triggerCenter - surfaceWidth / 2,
-      0,
-      Math.max(shellRect.width - surfaceWidth, 0),
-    );
-
-    setDropdownSurfaceLeft(surfaceLeft);
-    setDropdownNotchLeft(clamp(triggerCenter - surfaceLeft, 42, Math.max(surfaceWidth - 42, 42)));
-  }, []);
-
   const scheduleOpenDropdown = React.useCallback(
     (id: DropdownId, delayMs: number = OPEN_DELAY_MS) => {
       if (isMobileMenuOpen) return;
@@ -397,11 +558,10 @@ export function NavbarStatic(): React.JSX.Element {
 
       openTimerRef.current = window.setTimeout(() => {
         setOpenDropdown(id);
-        updateDropdownNotchPosition(id);
         openTimerRef.current = null;
       }, effectiveDelayMs);
     },
-    [isMobileMenuOpen, openDropdown, updateDropdownNotchPosition],
+    [isMobileMenuOpen, openDropdown],
   );
 
   const scheduleCloseDropdown = React.useCallback(
@@ -425,22 +585,19 @@ export function NavbarStatic(): React.JSX.Element {
 
   const closeMenus = React.useCallback(() => {
     clearDropdownTimers();
-    clearContentSwitchTimer();
     setOpenDropdown(null);
-    setVisibleDropdown(null);
-    setLeavingDropdown(null);
     setIsMobileMenuOpen(false);
     setIsMobileProductsOpen(false);
-    setIsMobileSolutionsOpen(false);
+    setIsMobileDocumentationOpen(false);
+    setIsMobilePricingOpen(false);
     setIsMobileAboutOpen(false);
-  }, [clearDropdownTimers, clearContentSwitchTimer]);
+  }, [clearDropdownTimers]);
 
   React.useEffect(() => {
     return () => {
       clearDropdownTimers();
-      clearContentSwitchTimer();
     };
-  }, [clearDropdownTimers, clearContentSwitchTimer]);
+  }, [clearDropdownTimers]);
 
   React.useEffect(() => {
     const onScroll = () => {
@@ -482,45 +639,6 @@ export function NavbarStatic(): React.JSX.Element {
     };
   }, [setTheme]);
 
-  React.useEffect(() => {
-    clearContentSwitchTimer();
-
-    if (!openDropdown) {
-      setLeavingDropdown(null);
-      setVisibleDropdown(null);
-      return;
-    }
-
-    if (visibleDropdown && visibleDropdown !== openDropdown) {
-      setLeavingDropdown(visibleDropdown);
-      setVisibleDropdown(openDropdown);
-      switchTimerRef.current = window.setTimeout(() => {
-        setLeavingDropdown(null);
-        switchTimerRef.current = null;
-      }, CONTENT_SWITCH_MS);
-      return;
-    }
-
-    if (visibleDropdown !== openDropdown) {
-      setVisibleDropdown(openDropdown);
-    }
-    setLeavingDropdown(null);
-  }, [openDropdown, visibleDropdown, clearContentSwitchTimer]);
-
-  React.useEffect(() => {
-    if (!openDropdown) return;
-
-    const onResize = () => {
-      updateDropdownNotchPosition(openDropdown);
-    };
-
-    onResize();
-    window.addEventListener('resize', onResize);
-    return () => {
-      window.removeEventListener('resize', onResize);
-    };
-  }, [openDropdown, updateDropdownNotchPosition]);
-
   const getNavLinkProps = React.useCallback(
     (to: string) => {
       const props = linkProps(to);
@@ -538,9 +656,7 @@ export function NavbarStatic(): React.JSX.Element {
   const openDropdownFromKeyboard = React.useCallback(
     (id: DropdownId, focusTarget: DropdownFocusTarget = 'first') => {
       clearDropdownTimers();
-      clearContentSwitchTimer();
       setOpenDropdown(id);
-      updateDropdownNotchPosition(id);
 
       requestAnimationFrame(() => {
         const menuItems = getMenuItems(dropdownPanelRef.current, id);
@@ -553,7 +669,7 @@ export function NavbarStatic(): React.JSX.Element {
         menuItems[0]?.focus();
       });
     },
-    [clearDropdownTimers, clearContentSwitchTimer, updateDropdownNotchPosition],
+    [clearDropdownTimers],
   );
 
   const onDropdownButtonKeyDown = React.useCallback(
@@ -579,7 +695,7 @@ export function NavbarStatic(): React.JSX.Element {
 
   const onDropdownPanelKeyDown = React.useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
-      const id = visibleDropdown ?? openDropdown;
+      const id = openDropdown;
       const menuItems = getMenuItems(dropdownPanelRef.current, id);
       if (!menuItems.length) return;
 
@@ -619,7 +735,7 @@ export function NavbarStatic(): React.JSX.Element {
         menuItems[nextIndex]?.focus();
       }
     },
-    [closeMenus, openDropdown, visibleDropdown],
+    [closeMenus, openDropdown],
   );
 
   React.useEffect(() => {
@@ -655,10 +771,8 @@ export function NavbarStatic(): React.JSX.Element {
     };
   }, [isDashboardAuthOpen]);
 
-  const docsProps = getNavLinkProps('/docs/getting-started/overview');
   const homeProps = getNavLinkProps('/');
   const aboutRootProps = getNavLinkProps('/company/');
-  const pricingProps = getNavLinkProps('/pricing/');
   const contactSalesProps = getNavLinkProps('/contact/');
   const getStartedProps = getNavLinkProps('/dashboard');
   const dashboardEntryAuthenticated = relaySessionAuthenticated;
@@ -770,22 +884,9 @@ export function NavbarStatic(): React.JSX.Element {
     [openDashboardEntry],
   );
 
-  const dropdownAriaConfig =
-    dropdownConfigs.find((config) => config.id === (visibleDropdown ?? openDropdown)) ?? null;
-  const activeDropdownId = visibleDropdown ?? openDropdown;
-  const dropdownMaxWidthPx = React.useMemo(
-    () => getDropdownMaxWidthPx(activeDropdownId),
-    [activeDropdownId],
-  );
-  const dropdownSurfaceStyle = React.useMemo(() => {
-    return {
-      left: `${dropdownSurfaceLeft}px`,
-      '--navbar-dropdown-max-width': `${dropdownMaxWidthPx}px`,
-      '--navbar-dropdown-notch-left': `${dropdownNotchLeft}px`,
-    } as React.CSSProperties;
-  }, [dropdownMaxWidthPx, dropdownNotchLeft, dropdownSurfaceLeft]);
+  const dropdownAriaConfig = dropdownPanes.find((config) => config.id === openDropdown) ?? null;
 
-  function renderDropdownTrigger(config: DropdownConfig): React.JSX.Element {
+  function renderDropdownTrigger(config: DropdownTriggerConfig): React.JSX.Element {
     const isOpen = openDropdown === config.id;
 
     return (
@@ -812,10 +913,8 @@ export function NavbarStatic(): React.JSX.Element {
           aria-controls={`navbar-dropdown-${config.id}`}
           onClick={() => {
             clearDropdownTimers();
-            clearContentSwitchTimer();
             setOpenDropdown((open) => {
               if (open === config.id) return null;
-              updateDropdownNotchPosition(config.id);
               return config.id;
             });
           }}
@@ -832,9 +931,232 @@ export function NavbarStatic(): React.JSX.Element {
     );
   }
 
+  function renderCtaIcon(icon: DropdownCtaIcon): React.JSX.Element {
+    switch (icon) {
+      case 'docs':
+        return <BookOpen size={22} strokeWidth={1.8} aria-hidden />;
+      case 'pricing':
+        return (
+          <span className="navbar-static__access-cta-symbol" aria-hidden>
+            $
+          </span>
+        );
+      case 'contact':
+        return <MessageCircle size={22} strokeWidth={1.8} aria-hidden />;
+      default:
+        return assertNever(icon);
+    }
+  }
+
+  function renderAccessCtaTile(
+    paneId: DropdownId,
+    cta: DropdownCtaTile,
+    isActive: boolean,
+  ): React.JSX.Element {
+    const ctaProps = getNavLinkProps(cta.to);
+
+    return (
+      <a
+        key={`${paneId}-cta`}
+        className={`navbar-static__access-cta-tile navbar-static__access-cta-tile--${paneId}`}
+        role="menuitem"
+        href={ctaProps.href}
+        onClick={ctaProps.onClick}
+        tabIndex={isActive ? undefined : -1}
+      >
+        <span className="navbar-static__access-cta-copy">
+          <span className="navbar-static__access-cta-icon">{renderCtaIcon(cta.icon)}</span>
+          <span className="navbar-static__access-cta-text">
+            <span className="navbar-static__access-cta-title">{cta.title}</span>
+            <span className="navbar-static__access-cta-description">{cta.description}</span>
+          </span>
+        </span>
+        <span className="navbar-static__access-cta-action" aria-hidden>
+          <span>{cta.label}</span>
+          <ArrowRightAnim size={14} />
+        </span>
+      </a>
+    );
+  }
+
+  function renderNavbarTileImage(item: DropdownItem): React.JSX.Element {
+    if (!item.imageDarkSrc) {
+      return <img src={item.imageSrc} alt="" draggable={false} />;
+    }
+
+    return (
+      <span className="navbar-static__themed-image">
+        <img
+          className="navbar-static__themed-image-light"
+          src={item.imageSrc}
+          alt=""
+          draggable={false}
+        />
+        <img
+          className="navbar-static__themed-image-dark"
+          src={item.imageDarkSrc}
+          alt=""
+          draggable={false}
+        />
+      </span>
+    );
+  }
+
+  function renderAccessPane(pane: DropdownPane): React.JSX.Element {
+    const visualState = paneVisualStateFor(pane.id, openDropdown);
+    const isActive = visualState.kind === 'active';
+    const paneClassName = [
+      'navbar-static__access-pane',
+      paneVisualStateClassName(visualState),
+    ].join(' ');
+
+    const panelContent = (() => {
+      switch (pane.layout) {
+        case 'product-tiles': {
+          const tiles = pane.tiles.map((tile) => {
+            const tileProps = getNavLinkProps(tile.to);
+            return (
+              <a
+                key={tile.id}
+                className={`navbar-static__access-product-tile navbar-static__access-product-tile--${tile.id}`}
+                role="menuitem"
+                href={tileProps.href}
+                onClick={tileProps.onClick}
+                tabIndex={isActive ? undefined : -1}
+              >
+                <span className="navbar-static__access-product-copy">
+                  <span className="navbar-static__access-product-title">{tile.title}</span>
+                  <span className="navbar-static__access-product-description">
+                    {tile.description}
+                  </span>
+                </span>
+                <span className="navbar-static__access-product-visual" aria-hidden>
+                  {renderNavbarTileImage(tile)}
+                </span>
+              </a>
+            );
+          });
+
+          return [...tiles, renderAccessCtaTile(pane.id, pane.cta, isActive)];
+        }
+        case 'pricing-tiles': {
+          const tiles = pane.tiles.map((tile) => {
+            const tileProps = getNavLinkProps(tile.to);
+            return (
+              <a
+                key={tile.id}
+                className={`navbar-static__access-pricing-tile navbar-static__access-pricing-tile--${tile.id}`}
+                role="menuitem"
+                href={tileProps.href}
+                onClick={tileProps.onClick}
+                tabIndex={isActive ? undefined : -1}
+              >
+                <span className="navbar-static__access-pricing-visual" aria-hidden>
+                  {renderNavbarTileImage(tile)}
+                </span>
+                <span className="navbar-static__access-pricing-copy">
+                  <span className="navbar-static__access-pricing-title">{tile.title}</span>
+                  <span className="navbar-static__access-pricing-description">
+                    {tile.description}
+                  </span>
+                </span>
+              </a>
+            );
+          });
+
+          return [...tiles, renderAccessCtaTile(pane.id, pane.cta, isActive)];
+        }
+        case 'sections': {
+          const sections = pane.sections.map((section) => (
+            <section
+              className={`navbar-static__access-section navbar-static__access-section--${pane.id}`}
+              key={section.heading}
+            >
+              {pane.id === 'pricing' ? null : (
+                <p className="navbar-static__access-section-title">{section.heading}</p>
+              )}
+              <div className="navbar-static__access-items">
+                {section.items.map((item) => {
+                  const itemProps = getNavLinkProps(item.to);
+
+                  return (
+                    <a
+                      key={item.title}
+                      className={`navbar-static__access-item${
+                        item.visual === 'plan' ? ' navbar-static__access-item--plan' : ''
+                      }`}
+                      role="menuitem"
+                      href={itemProps.href}
+                      onClick={itemProps.onClick}
+                      tabIndex={isActive ? undefined : -1}
+                    >
+                      {item.visual === 'image' ? (
+                        <span className="navbar-static__access-visual" aria-hidden>
+                          {renderNavbarTileImage(item)}
+                        </span>
+                      ) : (
+                        <>
+                          <span className="navbar-static__access-plan-kicker">{item.title}</span>
+                          <span className="navbar-static__access-plan">
+                            <span className="navbar-static__access-plan-price">{item.price}</span>
+                            <span className="navbar-static__access-plan-note">
+                              {item.priceNote}
+                            </span>
+                          </span>
+                          <span className="navbar-static__access-plan-copy">
+                            {item.description}
+                          </span>
+                          {item.details.length > 0 ? (
+                            <span className="navbar-static__access-plan-details">
+                              {item.details.map((detail) => (
+                                <span className="navbar-static__access-plan-detail" key={detail}>
+                                  {detail}
+                                </span>
+                              ))}
+                            </span>
+                          ) : null}
+                        </>
+                      )}
+                      {item.visual === 'image' ? (
+                        <span className="navbar-static__access-item-copy">
+                          <span className="navbar-static__access-item-title">{item.title}</span>
+                          <span className="navbar-static__access-item-description">
+                            {item.description}
+                          </span>
+                        </span>
+                      ) : null}
+                    </a>
+                  );
+                })}
+              </div>
+            </section>
+          ));
+
+          return [...sections, renderAccessCtaTile(pane.id, pane.cta, isActive)];
+        }
+        default:
+          return assertNever(pane);
+      }
+    })();
+
+    return (
+      <div
+        key={pane.id}
+        id={`navbar-dropdown-${pane.id}`}
+        className={paneClassName}
+        data-dropdown-view={pane.id}
+        aria-hidden={!isActive}
+      >
+        <div className={`navbar-static__access-panel navbar-static__access-panel--${pane.id}`}>
+          {panelContent}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <nav ref={rootRef} className="navbar-static" aria-label="Primary">
-      <div ref={shellRef} className={`navbar-static__shell${hasScrolled ? ' is-scrolled' : ''}`}>
+      <div className={`navbar-static__shell${hasScrolled ? ' is-scrolled' : ''}`}>
         <div className="navbar-static__left">
           <a
             className="navbar-static__brand"
@@ -849,24 +1171,9 @@ export function NavbarStatic(): React.JSX.Element {
 
         <div className="navbar-static__center">
           <div className="navbar-static__links">
-            {primaryDropdownConfigs.map(renderDropdownTrigger)}
-            <a
-              className="navbar-static__link"
-              href={docsProps.href}
-              onClick={docsProps.onClick}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Documentation
-            </a>
-            <a
-              className="navbar-static__link"
-              href={pricingProps.href}
-              onClick={pricingProps.onClick}
-            >
-              Pricing
-            </a>
-            {renderDropdownTrigger(aboutDropdownConfig)}
+            {primaryDropdownTriggers.map(renderDropdownTrigger)}
+            {renderDropdownTrigger(pricingDropdownTrigger)}
+            {renderDropdownTrigger(aboutDropdownTrigger)}
           </div>
         </div>
 
@@ -913,8 +1220,7 @@ export function NavbarStatic(): React.JSX.Element {
         </div>
 
         <div
-          className={`navbar-static__dropdown-surface${openDropdown ? ' is-open' : ''}`}
-          style={dropdownSurfaceStyle}
+          className={`navbar-static__access-popup${openDropdown ? ' is-open' : ''}`}
           onMouseEnter={clearDropdownTimers}
           onMouseLeave={() => scheduleCloseDropdown()}
           onFocusCapture={clearDropdownTimers}
@@ -926,70 +1232,14 @@ export function NavbarStatic(): React.JSX.Element {
         >
           <div
             ref={dropdownPanelRef}
-            className="navbar-static__dropdown-inner"
+            className="navbar-static__access-card"
             role="menu"
             aria-label={dropdownAriaConfig ? dropdownAriaConfig.label : undefined}
             aria-orientation="vertical"
             onKeyDown={onDropdownPanelKeyDown}
           >
-            <div className="navbar-static__dropdown-stack">
-              {dropdownConfigs.map((config) => {
-                const rootProps = config.rootTo ? getNavLinkProps(config.rootTo) : null;
-                const isActive = activeDropdownId === config.id && leavingDropdown !== config.id;
-                const isLeaving = leavingDropdown === config.id;
-                const viewClassName = [
-                  'navbar-static__dropdown-view',
-                  isActive ? 'is-active' : '',
-                  isLeaving ? 'is-leaving' : '',
-                ]
-                  .filter(Boolean)
-                  .join(' ');
-
-                return (
-                  <div
-                    key={config.id}
-                    id={`navbar-dropdown-${config.id}`}
-                    className={viewClassName}
-                    data-dropdown-view={config.id}
-                    aria-hidden={!isActive}
-                  >
-                    {config.sections.map((section) => (
-                      <section className="navbar-static__dropdown-section" key={section.heading}>
-                        <h3 className="navbar-static__dropdown-title">{section.heading}</h3>
-                        <div className="navbar-static__dropdown-grid">
-                          {section.items.map((item) => {
-                            const itemProps = getNavLinkProps(item.to);
-                            return (
-                              <a
-                                key={item.title}
-                                className="navbar-static__dropdown-card"
-                                role="menuitem"
-                                href={itemProps.href}
-                                onClick={itemProps.onClick}
-                              >
-                                <p className="navbar-static__dropdown-card-title">{item.title}</p>
-                                <p className="navbar-static__dropdown-card-description">
-                                  {item.description}
-                                </p>
-                              </a>
-                            );
-                          })}
-                        </div>
-                      </section>
-                    ))}
-                    {config.allLabel && rootProps ? (
-                      <a
-                        className="navbar-static__dropdown-all"
-                        role="menuitem"
-                        href={rootProps.href}
-                        onClick={rootProps.onClick}
-                      >
-                        {config.allLabel}
-                      </a>
-                    ) : null}
-                  </div>
-                );
-              })}
+            <div className="navbar-static__access-grid-shell">
+              {dropdownPanes.map(renderAccessPane)}
             </div>
           </div>
         </div>
@@ -1074,7 +1324,8 @@ export function NavbarStatic(): React.JSX.Element {
           aria-expanded={isMobileProductsOpen}
           onClick={() => {
             setIsMobileProductsOpen((open) => !open);
-            setIsMobileSolutionsOpen(false);
+            setIsMobileDocumentationOpen(false);
+            setIsMobilePricingOpen(false);
             setIsMobileAboutOpen(false);
           }}
         >
@@ -1086,63 +1337,62 @@ export function NavbarStatic(): React.JSX.Element {
           />
         </button>
         <div className={`navbar-static__mobile-submenu${isMobileProductsOpen ? ' is-open' : ''}`}>
-          {productSections.map((section) => (
-            <section key={section.heading} className="navbar-static__mobile-section">
-              <h3 className="navbar-static__mobile-section-title">{section.heading}</h3>
-              {section.items.map((item) => {
-                const itemProps = getNavLinkProps(item.to);
-                return (
-                  <a
-                    key={item.title}
-                    className="navbar-static__mobile-subitem"
-                    href={itemProps.href}
-                    onClick={itemProps.onClick}
-                  >
-                    <span>{item.title}</span>
-                    <small>{item.description}</small>
-                  </a>
-                );
-              })}
-            </section>
-          ))}
+          <section className="navbar-static__mobile-section">
+            <h3 className="navbar-static__mobile-section-title">Products</h3>
+            {productDropdownTiles.map((tile) => {
+              const tileProps = getNavLinkProps(tile.to);
+              return (
+                <a
+                  key={tile.id}
+                  className="navbar-static__mobile-subitem"
+                  href={tileProps.href}
+                  onClick={tileProps.onClick}
+                >
+                  <span>{tile.title}</span>
+                  <small>{tile.description}</small>
+                </a>
+              );
+            })}
+          </section>
         </div>
         <button
           type="button"
           className="navbar-static__mobile-link navbar-static__mobile-link--button"
-          aria-expanded={isMobileSolutionsOpen}
+          aria-expanded={isMobileDocumentationOpen}
           onClick={() => {
-            setIsMobileSolutionsOpen((open) => !open);
+            setIsMobileDocumentationOpen((open) => !open);
             setIsMobileProductsOpen(false);
+            setIsMobilePricingOpen(false);
             setIsMobileAboutOpen(false);
           }}
         >
-          <span>Solutions</span>
+          <span>Documentation</span>
           <ChevronDown
             size={16}
-            className={`navbar-static__chevron${isMobileSolutionsOpen ? ' is-open' : ''}`}
+            className={`navbar-static__chevron${isMobileDocumentationOpen ? ' is-open' : ''}`}
             aria-hidden
           />
         </button>
-        <div className={`navbar-static__mobile-submenu${isMobileSolutionsOpen ? ' is-open' : ''}`}>
-          {solutionSections.map((section) => (
-            <section key={section.heading} className="navbar-static__mobile-section">
-              <h3 className="navbar-static__mobile-section-title">{section.heading}</h3>
-              {section.items.map((item) => {
-                const itemProps = getNavLinkProps(item.to);
-                return (
-                  <a
-                    key={item.title}
-                    className="navbar-static__mobile-subitem"
-                    href={itemProps.href}
-                    onClick={itemProps.onClick}
-                  >
-                    <span>{item.title}</span>
-                    <small>{item.description}</small>
-                  </a>
-                );
-              })}
-            </section>
-          ))}
+        <div
+          className={`navbar-static__mobile-submenu${isMobileDocumentationOpen ? ' is-open' : ''}`}
+        >
+          <section className="navbar-static__mobile-section">
+            <h3 className="navbar-static__mobile-section-title">Documentation</h3>
+            {documentationDropdownTiles.map((tile) => {
+              const tileProps = getNavLinkProps(tile.to);
+              return (
+                <a
+                  key={tile.id}
+                  className="navbar-static__mobile-subitem"
+                  href={tileProps.href}
+                  onClick={tileProps.onClick}
+                >
+                  <span>{tile.title}</span>
+                  <small>{tile.description}</small>
+                </a>
+              );
+            })}
+          </section>
         </div>
         <button
           type="button"
@@ -1151,7 +1401,8 @@ export function NavbarStatic(): React.JSX.Element {
           onClick={() => {
             setIsMobileAboutOpen((open) => !open);
             setIsMobileProductsOpen(false);
-            setIsMobileSolutionsOpen(false);
+            setIsMobileDocumentationOpen(false);
+            setIsMobilePricingOpen(false);
           }}
         >
           <span>About Us</span>
@@ -1190,22 +1441,53 @@ export function NavbarStatic(): React.JSX.Element {
             <small>Learn more about the Seams team and mission</small>
           </a>
         </div>
-        <a
-          className="navbar-static__mobile-link"
-          href={docsProps.href}
-          onClick={docsProps.onClick}
-          target="_blank"
-          rel="noopener noreferrer"
+        <button
+          type="button"
+          className="navbar-static__mobile-link navbar-static__mobile-link--button"
+          aria-expanded={isMobilePricingOpen}
+          onClick={() => {
+            setIsMobilePricingOpen((open) => !open);
+            setIsMobileProductsOpen(false);
+            setIsMobileDocumentationOpen(false);
+            setIsMobileAboutOpen(false);
+          }}
         >
-          Documentation
-        </a>
-        <a
-          className="navbar-static__mobile-link"
-          href={pricingProps.href}
-          onClick={pricingProps.onClick}
-        >
-          Pricing
-        </a>
+          <span>Pricing</span>
+          <ChevronDown
+            size={16}
+            className={`navbar-static__chevron${isMobilePricingOpen ? ' is-open' : ''}`}
+            aria-hidden
+          />
+        </button>
+        <div className={`navbar-static__mobile-submenu${isMobilePricingOpen ? ' is-open' : ''}`}>
+          {pricingSections.map((section) => (
+            <section key={section.heading} className="navbar-static__mobile-section">
+              <h3 className="navbar-static__mobile-section-title">{section.heading}</h3>
+              {section.items.map((item) => {
+                const itemProps = getNavLinkProps(item.to);
+                return (
+                  <a
+                    key={item.title}
+                    className="navbar-static__mobile-subitem"
+                    href={itemProps.href}
+                    onClick={itemProps.onClick}
+                  >
+                    <span>{item.title}</span>
+                    <small>{item.description}</small>
+                  </a>
+                );
+              })}
+            </section>
+          ))}
+          <a
+            className="navbar-static__mobile-subitem"
+            href={contactSalesProps.href}
+            onClick={contactSalesProps.onClick}
+          >
+            <span>Talk to us</span>
+            <small>Plan pricing and deployment options with the Seams team</small>
+          </a>
+        </div>
         <div className="navbar-static__mobile-cta-row">
           <a
             className="navbar-static__pill navbar-static__pill--solid"
