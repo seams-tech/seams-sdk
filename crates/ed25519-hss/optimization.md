@@ -17,25 +17,58 @@ The dominant runtime cost is still the hidden-eval executor, especially:
 
 The most expensive stage remains `round_core`.
 
-Latest local benchmark snapshot:
+Latest local benchmark snapshot, generated on 2026-05-20 15:44:37 JST on
+macOS/aarch64:
 
 - hidden eval prepare:
-  `108.87ms`
-- hidden eval total:
-  `305.66ms` mean, `308.59ms` median, `310.17ms` p95
+  `112.91ms`
+- hidden eval direct executor:
+  `224.24ms` mean, `224.71ms` median, `225.83ms` p95
+- hidden eval same-process delivery path:
+  `264.20ms` mean, `264.24ms` median, `267.41ms` p95
 - stage means:
   - input sharing:
-    `2.14ms`
+    `2.00ms`
   - add stage:
-    `2.95ms`
+    `2.87ms`
   - message schedule:
-    `46.70ms`
+    `40.35ms`
   - round core:
-    `160.14ms`
+    `134.89ms`
   - output projector:
-    `52.25ms`
+    `42.95ms`
+  - direct executor unbucketed:
+    `1.19ms`
+- delivery-path means:
+  - OT open/join:
+    `21.98ms`
+  - server input open:
+    `3.26ms`
+  - output sealing finalization:
+    `0.40ms`
+  - delivery unbucketed:
+    `14.31ms`
 - CPU executor:
-  `2.040ms` mean, `2.041ms` median, `2.057ms` p95
+  `2.042ms` mean, `2.021ms` median, `2.145ms` p95
+
+The native DDH report now separates direct hidden-eval executor timings from
+same-process delivery timings. Use `stage_timings.total_hidden_eval` for
+low-level executor optimization and `delivery_timings.delivery_total` for the
+debug delivery-path envelope.
+
+Latest native hidden-eval optimization slice:
+
+- majority/choose batch helpers now stream generated local bit pairs directly
+  into the reusable round scratch buffers instead of allocating intermediate
+  left/right vectors
+- hot label construction now reuses `String` buffers in the round-core boolean
+  operations and raw batch gates while preserving the existing label domains
+- compared with the previous output-projector baseline, direct hidden eval
+  improved from `232.62ms` to `224.24ms` (`-8.37ms`, `-3.60%`)
+- same-process delivery improved from `272.22ms` to `264.20ms` (`-8.02ms`,
+  `-2.95%`)
+- `message_schedule` improved from `43.46ms` to `40.35ms` (`-7.14%`), and
+  `round_core` improved from `139.32ms` to `134.89ms` (`-3.18%`)
 
 ## Current Worker-Path Baseline
 

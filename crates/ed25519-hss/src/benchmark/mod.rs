@@ -10,7 +10,8 @@ pub use cache::{
 };
 pub use hidden_eval::{
     default_ddh_hidden_eval_benchmark_config, generate_ddh_hidden_eval_benchmark_report,
-    DdhHiddenEvalBenchmarkConfig, DdhHiddenEvalBenchmarkConfigRecord, DdhHiddenEvalBenchmarkReport,
+    DdhHiddenEvalBenchmarkConfig, DdhHiddenEvalBenchmarkConfigRecord,
+    DdhHiddenEvalBenchmarkMetadata, DdhHiddenEvalBenchmarkReport,
     DDH_HIDDEN_EVAL_BENCHMARK_REPORT_VERSION,
 };
 pub use phase1::{

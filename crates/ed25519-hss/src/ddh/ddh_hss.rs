@@ -1,3 +1,5 @@
+use std::fmt::Write as _;
+
 use blake3::Hasher as Blake3Hasher;
 use chacha20poly1305::aead::{Aead, Payload};
 use chacha20poly1305::{ChaCha20Poly1305, KeyInit, Nonce};
@@ -17,6 +19,21 @@ use crate::ddh::hidden_eval::{
 use crate::shared::{ProtoError, ProtoResult};
 
 pub const DDH_HSS_BACKEND_VERSION: &str = "ddh_hss_backend_v0";
+
+fn set_indexed_label(buffer: &mut String, label_prefix: &str, idx: usize) {
+    buffer.clear();
+    write!(buffer, "{label_prefix}/{idx}").expect("write indexed label");
+}
+
+fn set_indexed_child_label(buffer: &mut String, label_prefix: &str, child: &str, idx: usize) {
+    buffer.clear();
+    write!(buffer, "{label_prefix}/{child}/{idx}").expect("write indexed child label");
+}
+
+fn set_child_label(buffer: &mut String, gate_label: &str, child: &str) {
+    buffer.clear();
+    write!(buffer, "{gate_label}/{child}").expect("write child label");
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DdhHssParams {
@@ -273,9 +290,11 @@ impl Serialize for DdhHssOtSelectionBundle {
     where
         S: Serializer,
     {
-        let width_bits =
-            uniform_word_width(self.words.iter().map(|word| word.width_bits), "selection bundle")
-                .map_err(serde::ser::Error::custom)?;
+        let width_bits = uniform_word_width(
+            self.words.iter().map(|word| word.width_bits),
+            "selection bundle",
+        )
+        .map_err(serde::ser::Error::custom)?;
         DdhHssOtSelectionBundleCompact {
             owner: self.owner,
             label: self.label.clone(),
@@ -298,9 +317,11 @@ impl Serialize for DdhHssOtInputBundleOffer {
     where
         S: Serializer,
     {
-        let width_bits =
-            uniform_word_width(self.words.iter().map(|word| word.width_bits), "input offer bundle")
-                .map_err(serde::ser::Error::custom)?;
+        let width_bits = uniform_word_width(
+            self.words.iter().map(|word| word.width_bits),
+            "input offer bundle",
+        )
+        .map_err(serde::ser::Error::custom)?;
         DdhHssOtInputBundleOfferCompact {
             owner: self.owner,
             label: self.label.clone(),
@@ -367,9 +388,11 @@ impl Serialize for DdhHssOtSenderStateBundle {
     where
         S: Serializer,
     {
-        let width_bits =
-            uniform_word_width(self.words.iter().map(|word| word.width_bits), "sender state bundle")
-                .map_err(serde::ser::Error::custom)?;
+        let width_bits = uniform_word_width(
+            self.words.iter().map(|word| word.width_bits),
+            "sender state bundle",
+        )
+        .map_err(serde::ser::Error::custom)?;
         DdhHssOtSenderStateBundleCompact {
             owner: self.owner,
             label: self.label.clone(),
@@ -4060,6 +4083,8 @@ pub(crate) fn eval_mul_local_word_pair_batch_public(
     let material_hasher_base = local_bit_mul_material_base_hasher(evaluation_key);
     let mut out_left = Vec::with_capacity(len);
     let mut out_right = Vec::with_capacity(len);
+    let mut gate_label = String::with_capacity(label_prefix.len() + 24);
+    let mut child_label = String::with_capacity(label_prefix.len() + 26);
     for idx in 0..len {
         let left_left = &left_left_words[idx];
         let left_right = &left_right_words[idx];
@@ -4076,7 +4101,7 @@ pub(crate) fn eval_mul_local_word_pair_batch_public(
             ));
         }
 
-        let gate_label = format!("{label_prefix}/{idx}");
+        set_indexed_label(&mut gate_label, label_prefix, idx);
         let material_digest = finalize_local_bit_mul_material_digest(
             &material_hasher_base,
             gate_label.as_bytes(),
@@ -4091,19 +4116,19 @@ pub(crate) fn eval_mul_local_word_pair_batch_public(
             right_left,
             material_digest,
         );
-        let d_label = format!("{gate_label}/d");
+        set_child_label(&mut child_label, &gate_label, "d");
         let (d_left, d_right) = eval_add_local_word_pairs_mod_2_pow_n_public(
             evaluation_key,
-            d_label.as_bytes(),
+            child_label.as_bytes(),
             left_left,
             left_right,
             &material_left.triple_a,
             &material_right.triple_a,
         )?;
-        let e_label = format!("{gate_label}/e");
+        set_child_label(&mut child_label, &gate_label, "e");
         let (e_left, e_right) = eval_add_local_word_pairs_mod_2_pow_n_public(
             evaluation_key,
-            e_label.as_bytes(),
+            child_label.as_bytes(),
             right_left,
             right_right,
             &material_left.triple_b,
@@ -4133,14 +4158,18 @@ pub(crate) fn eval_mul_local_word_pair_batch_public(
     Ok((out_left, out_right))
 }
 
-pub(crate) fn eval_mul_local_bit_pair_batch_raw_public(
+fn eval_mul_local_bit_pair_batch_raw_public_into<F>(
     evaluation_key: &DdhHssEvaluationKey,
     label_prefix: &str,
     left_left: DdhHssLocalBitSliceView<'_>,
     left_right: DdhHssLocalBitSliceView<'_>,
     right_left: DdhHssLocalBitSliceView<'_>,
     right_right: DdhHssLocalBitSliceView<'_>,
-) -> ProtoResult<(Vec<DdhHssLocalWord>, Vec<DdhHssLocalWord>)> {
+    mut push_pair: F,
+) -> ProtoResult<()>
+where
+    F: FnMut(DdhHssLocalWord, DdhHssLocalWord) -> ProtoResult<()>,
+{
     local_bit_slice_view_ensure_shape(left_left)?;
     local_bit_slice_view_ensure_shape(left_right)?;
     local_bit_slice_view_ensure_shape(right_left)?;
@@ -4162,10 +4191,9 @@ pub(crate) fn eval_mul_local_bit_pair_batch_raw_public(
     }
 
     let material_hasher_base = local_bit_mul_material_base_hasher(evaluation_key);
-    let mut out_left = Vec::with_capacity(len);
-    let mut out_right = Vec::with_capacity(len);
+    let mut gate_label = String::with_capacity(label_prefix.len() + 24);
     for idx in 0..len {
-        let gate_label = format!("{label_prefix}/{idx}");
+        set_indexed_label(&mut gate_label, label_prefix, idx);
         let material_digest = {
             let mut material_hasher = material_hasher_base.clone();
             material_hasher.update(gate_label.as_bytes());
@@ -4197,7 +4225,7 @@ pub(crate) fn eval_mul_local_bit_pair_batch_raw_public(
                 + u128::from(material_right.triple_b.share_word),
             1,
         );
-        out_left.push(build_local_word_for_key(
+        let out_left = build_local_word_for_key(
             evaluation_key,
             b"eval-mul-local",
             gate_label.as_bytes(),
@@ -4217,8 +4245,8 @@ pub(crate) fn eval_mul_local_bit_pair_batch_raw_public(
                 &d_open.to_le_bytes(),
                 &e_open.to_le_bytes(),
             ],
-        ));
-        out_right.push(build_local_word_for_key(
+        );
+        let out_right = build_local_word_for_key(
             evaluation_key,
             b"eval-mul-local",
             gate_label.as_bytes(),
@@ -4237,9 +4265,10 @@ pub(crate) fn eval_mul_local_bit_pair_batch_raw_public(
                 &d_open.to_le_bytes(),
                 &e_open.to_le_bytes(),
             ],
-        ));
+        );
+        push_pair(out_left, out_right)?;
     }
-    Ok((out_left, out_right))
+    Ok(())
 }
 
 pub(crate) fn eval_mul_local_bit_pair_raw_public(
@@ -4330,14 +4359,123 @@ pub(crate) fn eval_mul_local_bit_pair_raw_public(
     ))
 }
 
-pub(crate) fn eval_add_cross_share_local_arithmetic_word_bits_secure_public(
+pub(crate) fn eval_add_cross_share_local_arithmetic_word_bits_secure_public_into<F>(
     evaluation_key: &DdhHssEvaluationKey,
     label_prefix: &str,
     left_word: &DdhHssLocalWord,
     right_word: &DdhHssLocalWord,
     zero_left: &DdhHssLocalWord,
     zero_right: &DdhHssLocalWord,
-) -> ProtoResult<(Vec<DdhHssLocalWord>, Vec<DdhHssLocalWord>)> {
+    mut push_bit_pair: F,
+) -> ProtoResult<()>
+where
+    F: FnMut(DdhHssLocalWord, DdhHssLocalWord) -> ProtoResult<()>,
+{
+    let width = validate_cross_share_a2b_inputs(left_word, right_word, zero_left, zero_right)?;
+    let mut carry_left = zero_left.clone();
+    let mut carry_right = zero_right.clone();
+    let mut bit_label = String::with_capacity(label_prefix.len() + 32);
+    for idx in 0..width {
+        let left_bit = (left_word.share_word >> idx) & 1;
+        let right_bit = (right_word.share_word >> idx) & 1;
+        set_indexed_child_label(&mut bit_label, label_prefix, "left", idx);
+        let left_bit_word = build_local_word_for_key(
+            evaluation_key,
+            b"phase-a-arith-share-to-bool",
+            bit_label.as_bytes(),
+            1,
+            DdhHssShareSide::Left,
+            left_bit,
+            &[
+                &left_word.provenance_digest,
+                &left_word.share_commitment,
+                b"left",
+            ],
+        );
+        set_indexed_child_label(&mut bit_label, label_prefix, "right", idx);
+        let right_bit_word = build_local_word_for_key(
+            evaluation_key,
+            b"phase-a-arith-share-to-bool",
+            bit_label.as_bytes(),
+            1,
+            DdhHssShareSide::Right,
+            right_bit,
+            &[
+                &right_word.provenance_digest,
+                &right_word.share_commitment,
+                b"right",
+            ],
+        );
+        set_indexed_child_label(&mut bit_label, label_prefix, "xor_ab", idx);
+        let (xor_ab_left, xor_ab_right) = xor_local_bit_pair_from_raw_public(
+            evaluation_key,
+            bit_label.as_bytes(),
+            (left_bit_word.share_word as u8) & 1,
+            0,
+            &left_bit_word.provenance_digest,
+            0,
+            (right_bit_word.share_word as u8) & 1,
+            &right_bit_word.provenance_digest,
+        );
+        set_indexed_child_label(&mut bit_label, label_prefix, "sum", idx);
+        let (sum_left, sum_right) = xor_local_bit_pair_from_raw_public(
+            evaluation_key,
+            bit_label.as_bytes(),
+            (xor_ab_left.share_word as u8) & 1,
+            (xor_ab_right.share_word as u8) & 1,
+            &xor_ab_left.provenance_digest,
+            (carry_left.share_word as u8) & 1,
+            (carry_right.share_word as u8) & 1,
+            &carry_left.provenance_digest,
+        );
+        set_indexed_child_label(&mut bit_label, label_prefix, "a_xor_carry", idx);
+        let (a_xor_carry_left, a_xor_carry_right) = xor_local_bit_pair_from_raw_public(
+            evaluation_key,
+            bit_label.as_bytes(),
+            (left_bit_word.share_word as u8) & 1,
+            0,
+            &left_bit_word.provenance_digest,
+            (carry_left.share_word as u8) & 1,
+            (carry_right.share_word as u8) & 1,
+            &carry_left.provenance_digest,
+        );
+        set_indexed_child_label(&mut bit_label, label_prefix, "carry", idx);
+        let (carry_gate_left, carry_gate_right) = eval_mul_local_bit_pair_raw_public(
+            evaluation_key,
+            bit_label.as_bytes(),
+            (xor_ab_left.share_word as u8) & 1,
+            (xor_ab_right.share_word as u8) & 1,
+            &xor_ab_left.share_commitment,
+            &xor_ab_right.share_commitment,
+            &xor_ab_left.provenance_digest,
+            (a_xor_carry_left.share_word as u8) & 1,
+            (a_xor_carry_right.share_word as u8) & 1,
+            &a_xor_carry_left.share_commitment,
+            &a_xor_carry_right.share_commitment,
+            &a_xor_carry_left.provenance_digest,
+        )?;
+        set_indexed_child_label(&mut bit_label, label_prefix, "next_carry", idx);
+        (carry_left, carry_right) = xor_local_bit_pair_from_raw_public(
+            evaluation_key,
+            bit_label.as_bytes(),
+            (left_bit_word.share_word as u8) & 1,
+            0,
+            &left_bit_word.provenance_digest,
+            (carry_gate_left.share_word as u8) & 1,
+            (carry_gate_right.share_word as u8) & 1,
+            &carry_gate_left.provenance_digest,
+        );
+        push_bit_pair(sum_left, sum_right)?;
+    }
+    Ok(())
+}
+
+fn validate_cross_share_a2b_inputs(
+    left_word: &DdhHssLocalWord,
+    right_word: &DdhHssLocalWord,
+    zero_left: &DdhHssLocalWord,
+    zero_right: &DdhHssLocalWord,
+) -> ProtoResult<usize> {
     if left_word.share_side != DdhHssShareSide::Left
         || right_word.share_side != DdhHssShareSide::Right
     {
@@ -4367,101 +4505,10 @@ pub(crate) fn eval_add_cross_share_local_arithmetic_word_bits_secure_public(
             width
         )));
     }
-
-    let mut out_left = Vec::with_capacity(width);
-    let mut out_right = Vec::with_capacity(width);
-    let mut carry_left = zero_left.clone();
-    let mut carry_right = zero_right.clone();
-    for idx in 0..width {
-        let left_bit = (left_word.share_word >> idx) & 1;
-        let right_bit = (right_word.share_word >> idx) & 1;
-        let left_bit_word = build_local_word_for_key(
-            evaluation_key,
-            b"phase-a-arith-share-to-bool",
-            format!("{label_prefix}/left/{idx}").as_bytes(),
-            1,
-            DdhHssShareSide::Left,
-            left_bit,
-            &[
-                &left_word.provenance_digest,
-                &left_word.share_commitment,
-                b"left",
-            ],
-        );
-        let right_bit_word = build_local_word_for_key(
-            evaluation_key,
-            b"phase-a-arith-share-to-bool",
-            format!("{label_prefix}/right/{idx}").as_bytes(),
-            1,
-            DdhHssShareSide::Right,
-            right_bit,
-            &[
-                &right_word.provenance_digest,
-                &right_word.share_commitment,
-                b"right",
-            ],
-        );
-        let (xor_ab_left, xor_ab_right) = xor_local_bit_pair_from_raw_public(
-            evaluation_key,
-            format!("{label_prefix}/xor_ab/{idx}").as_bytes(),
-            (left_bit_word.share_word as u8) & 1,
-            0,
-            &left_bit_word.provenance_digest,
-            0,
-            (right_bit_word.share_word as u8) & 1,
-            &right_bit_word.provenance_digest,
-        );
-        let (sum_left, sum_right) = xor_local_bit_pair_from_raw_public(
-            evaluation_key,
-            format!("{label_prefix}/sum/{idx}").as_bytes(),
-            (xor_ab_left.share_word as u8) & 1,
-            (xor_ab_right.share_word as u8) & 1,
-            &xor_ab_left.provenance_digest,
-            (carry_left.share_word as u8) & 1,
-            (carry_right.share_word as u8) & 1,
-            &carry_left.provenance_digest,
-        );
-        let (a_xor_carry_left, a_xor_carry_right) = xor_local_bit_pair_from_raw_public(
-            evaluation_key,
-            format!("{label_prefix}/a_xor_carry/{idx}").as_bytes(),
-            (left_bit_word.share_word as u8) & 1,
-            0,
-            &left_bit_word.provenance_digest,
-            (carry_left.share_word as u8) & 1,
-            (carry_right.share_word as u8) & 1,
-            &carry_left.provenance_digest,
-        );
-        let (carry_gate_left, carry_gate_right) = eval_mul_local_bit_pair_raw_public(
-            evaluation_key,
-            format!("{label_prefix}/carry/{idx}").as_bytes(),
-            (xor_ab_left.share_word as u8) & 1,
-            (xor_ab_right.share_word as u8) & 1,
-            &xor_ab_left.share_commitment,
-            &xor_ab_right.share_commitment,
-            &xor_ab_left.provenance_digest,
-            (a_xor_carry_left.share_word as u8) & 1,
-            (a_xor_carry_right.share_word as u8) & 1,
-            &a_xor_carry_left.share_commitment,
-            &a_xor_carry_right.share_commitment,
-            &a_xor_carry_left.provenance_digest,
-        )?;
-        (carry_left, carry_right) = xor_local_bit_pair_from_raw_public(
-            evaluation_key,
-            format!("{label_prefix}/next_carry/{idx}").as_bytes(),
-            (left_bit_word.share_word as u8) & 1,
-            0,
-            &left_bit_word.provenance_digest,
-            (carry_gate_left.share_word as u8) & 1,
-            (carry_gate_right.share_word as u8) & 1,
-            &carry_gate_left.provenance_digest,
-        );
-        out_left.push(sum_left);
-        out_right.push(sum_right);
-    }
-    Ok((out_left, out_right))
+    Ok(width)
 }
 
-pub(crate) fn eval_mul_local_bit_pair_batch_raw_xor_base_public(
+pub(crate) fn eval_mul_local_bit_pair_batch_raw_xor_base_public_into<F>(
     evaluation_key: &DdhHssEvaluationKey,
     label_prefix: &str,
     left_left: DdhHssLocalBitSliceView<'_>,
@@ -4470,7 +4517,11 @@ pub(crate) fn eval_mul_local_bit_pair_batch_raw_xor_base_public(
     right_right: DdhHssLocalBitSliceView<'_>,
     base_left: DdhHssLocalBitSliceView<'_>,
     base_right: DdhHssLocalBitSliceView<'_>,
-) -> ProtoResult<(Vec<DdhHssLocalWord>, Vec<DdhHssLocalWord>)> {
+    mut push_pair: F,
+) -> ProtoResult<()>
+where
+    F: FnMut(DdhHssLocalWord, DdhHssLocalWord) -> ProtoResult<()>,
+{
     local_bit_slice_view_ensure_shape(base_left)?;
     local_bit_slice_view_ensure_shape(base_right)?;
     let len = left_left.bit_len;
@@ -4479,69 +4530,74 @@ pub(crate) fn eval_mul_local_bit_pair_batch_raw_xor_base_public(
             "raw local mul xor-base lengths are inconsistent".to_string(),
         ));
     }
-    let (gated_left, gated_right) = eval_mul_local_bit_pair_batch_raw_public(
+    let mut gate_prefix = String::with_capacity(label_prefix.len() + 8);
+    set_child_label(&mut gate_prefix, label_prefix, "gate");
+    let mut out_label = String::with_capacity(label_prefix.len() + 32);
+    let mut idx = 0usize;
+    eval_mul_local_bit_pair_batch_raw_public_into(
         evaluation_key,
-        &format!("{label_prefix}/gate"),
+        &gate_prefix,
         left_left,
         left_right,
         right_left,
         right_right,
+        |gated_left, gated_right| {
+            set_indexed_child_label(&mut out_label, label_prefix, "out", idx);
+            let provenance_digest = derive_digest_for_key(
+                evaluation_key,
+                b"eval-xor-local-word",
+                HiddenEvalInputOwner::Derived,
+                out_label.as_bytes(),
+                1,
+                0,
+                0,
+                &[
+                    &base_left.provenance_digests[idx],
+                    &gated_left.provenance_digest,
+                ],
+            );
+            let left_word = reduce_word(
+                u128::from(local_bit_slice_view_share_bit(base_left, idx))
+                    + u128::from(gated_left.share_word),
+                1,
+            );
+            let right_word = reduce_word(
+                u128::from(local_bit_slice_view_share_bit(base_right, idx))
+                    + u128::from(gated_right.share_word),
+                1,
+            );
+            let out_left = DdhHssLocalWord {
+                width_bits: 1,
+                share_side: DdhHssShareSide::Left,
+                share_word: left_word,
+                share_commitment: commit_word(
+                    HiddenEvalInputOwner::Derived,
+                    b"left",
+                    left_word,
+                    &provenance_digest,
+                ),
+                provenance_digest,
+            };
+            let out_right = DdhHssLocalWord {
+                width_bits: 1,
+                share_side: DdhHssShareSide::Right,
+                share_word: right_word,
+                share_commitment: commit_word(
+                    HiddenEvalInputOwner::Derived,
+                    b"right",
+                    right_word,
+                    &provenance_digest,
+                ),
+                provenance_digest,
+            };
+            idx = idx.saturating_add(1);
+            push_pair(out_left, out_right)
+        },
     )?;
-    let mut out_left = Vec::with_capacity(len);
-    let mut out_right = Vec::with_capacity(len);
-    for idx in 0..len {
-        let provenance_digest = derive_digest_for_key(
-            evaluation_key,
-            b"eval-xor-local-word",
-            HiddenEvalInputOwner::Derived,
-            format!("{label_prefix}/out/{idx}").as_bytes(),
-            1,
-            0,
-            0,
-            &[
-                &base_left.provenance_digests[idx],
-                &gated_left[idx].provenance_digest,
-            ],
-        );
-        let left_word = reduce_word(
-            u128::from(local_bit_slice_view_share_bit(base_left, idx))
-                + u128::from(gated_left[idx].share_word),
-            1,
-        );
-        let right_word = reduce_word(
-            u128::from(local_bit_slice_view_share_bit(base_right, idx))
-                + u128::from(gated_right[idx].share_word),
-            1,
-        );
-        out_left.push(DdhHssLocalWord {
-            width_bits: 1,
-            share_side: DdhHssShareSide::Left,
-            share_word: left_word,
-            share_commitment: commit_word(
-                HiddenEvalInputOwner::Derived,
-                b"left",
-                left_word,
-                &provenance_digest,
-            ),
-            provenance_digest,
-        });
-        out_right.push(DdhHssLocalWord {
-            width_bits: 1,
-            share_side: DdhHssShareSide::Right,
-            share_word: right_word,
-            share_commitment: commit_word(
-                HiddenEvalInputOwner::Derived,
-                b"right",
-                right_word,
-                &provenance_digest,
-            ),
-            provenance_digest,
-        });
-    }
-    Ok((out_left, out_right))
+    Ok(())
 }
 
-pub(crate) fn eval_maj_local_bit_pair_batch_raw_public(
+pub(crate) fn eval_maj_local_bit_pair_batch_raw_public_into<F>(
     evaluation_key: &DdhHssEvaluationKey,
     label_prefix: &str,
     x_left: DdhHssLocalBitSliceView<'_>,
@@ -4550,7 +4606,11 @@ pub(crate) fn eval_maj_local_bit_pair_batch_raw_public(
     y_right: DdhHssLocalBitSliceView<'_>,
     z_left: DdhHssLocalBitSliceView<'_>,
     z_right: DdhHssLocalBitSliceView<'_>,
-) -> ProtoResult<(Vec<DdhHssLocalWord>, Vec<DdhHssLocalWord>)> {
+    mut push_pair: F,
+) -> ProtoResult<()>
+where
+    F: FnMut(DdhHssLocalWord, DdhHssLocalWord) -> ProtoResult<()>,
+{
     local_bit_slice_view_ensure_shape(x_left)?;
     local_bit_slice_view_ensure_shape(x_right)?;
     local_bit_slice_view_ensure_shape(y_left)?;
@@ -4581,46 +4641,51 @@ pub(crate) fn eval_maj_local_bit_pair_batch_raw_public(
     }
 
     let material_hasher_base = local_bit_mul_material_base_hasher(evaluation_key);
-    let mut out_left = Vec::with_capacity(len);
-    let mut out_right = Vec::with_capacity(len);
+    let mut child_label = String::with_capacity(label_prefix.len() + 32);
+    let mut gate_label = String::with_capacity(label_prefix.len() + 32);
+    let mut out_label = String::with_capacity(label_prefix.len() + 32);
     for idx in 0..len {
+        set_indexed_child_label(&mut child_label, label_prefix, "xy_left", idx);
         let xy_left = xor_local_bit_from_raw_public(
             evaluation_key,
-            format!("{label_prefix}/xy_left/{idx}").as_bytes(),
+            child_label.as_bytes(),
             DdhHssShareSide::Left,
             local_bit_slice_view_share_bit(x_left, idx),
             &x_left.provenance_digests[idx],
             local_bit_slice_view_share_bit(y_left, idx),
             &y_left.provenance_digests[idx],
         );
+        set_indexed_child_label(&mut child_label, label_prefix, "xy_right", idx);
         let xy_right = xor_local_bit_from_raw_public(
             evaluation_key,
-            format!("{label_prefix}/xy_right/{idx}").as_bytes(),
+            child_label.as_bytes(),
             DdhHssShareSide::Right,
             local_bit_slice_view_share_bit(x_right, idx),
             &x_right.provenance_digests[idx],
             local_bit_slice_view_share_bit(y_right, idx),
             &y_right.provenance_digests[idx],
         );
+        set_indexed_child_label(&mut child_label, label_prefix, "xz_left", idx);
         let xz_left = xor_local_bit_from_raw_public(
             evaluation_key,
-            format!("{label_prefix}/xz_left/{idx}").as_bytes(),
+            child_label.as_bytes(),
             DdhHssShareSide::Left,
             local_bit_slice_view_share_bit(x_left, idx),
             &x_left.provenance_digests[idx],
             local_bit_slice_view_share_bit(z_left, idx),
             &z_left.provenance_digests[idx],
         );
+        set_indexed_child_label(&mut child_label, label_prefix, "xz_right", idx);
         let xz_right = xor_local_bit_from_raw_public(
             evaluation_key,
-            format!("{label_prefix}/xz_right/{idx}").as_bytes(),
+            child_label.as_bytes(),
             DdhHssShareSide::Right,
             local_bit_slice_view_share_bit(x_right, idx),
             &x_right.provenance_digests[idx],
             local_bit_slice_view_share_bit(z_right, idx),
             &z_right.provenance_digests[idx],
         );
-        let gate_label = format!("{label_prefix}/gate/{idx}");
+        set_indexed_child_label(&mut gate_label, label_prefix, "gate", idx);
         let material_digest = {
             let mut material_hasher = material_hasher_base.clone();
             material_hasher.update(gate_label.as_bytes());
@@ -4697,7 +4762,10 @@ pub(crate) fn eval_maj_local_bit_pair_batch_raw_public(
             evaluation_key,
             b"eval-xor-local-word",
             HiddenEvalInputOwner::Derived,
-            format!("{label_prefix}/out/{idx}").as_bytes(),
+            {
+                set_indexed_child_label(&mut out_label, label_prefix, "out", idx);
+                out_label.as_bytes()
+            },
             1,
             0,
             0,
@@ -4716,7 +4784,7 @@ pub(crate) fn eval_maj_local_bit_pair_batch_raw_public(
                 + u128::from(gated_right.share_word),
             1,
         );
-        out_left.push(DdhHssLocalWord {
+        let out_left = DdhHssLocalWord {
             width_bits: 1,
             share_side: DdhHssShareSide::Left,
             share_word: left_word,
@@ -4727,8 +4795,8 @@ pub(crate) fn eval_maj_local_bit_pair_batch_raw_public(
                 &provenance_digest,
             ),
             provenance_digest,
-        });
-        out_right.push(DdhHssLocalWord {
+        };
+        let out_right = DdhHssLocalWord {
             width_bits: 1,
             share_side: DdhHssShareSide::Right,
             share_word: right_word,
@@ -4739,9 +4807,10 @@ pub(crate) fn eval_maj_local_bit_pair_batch_raw_public(
                 &provenance_digest,
             ),
             provenance_digest,
-        });
+        };
+        push_pair(out_left, out_right)?;
     }
-    Ok((out_left, out_right))
+    Ok(())
 }
 
 #[cfg(test)]

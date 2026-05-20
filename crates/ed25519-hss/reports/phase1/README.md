@@ -8,8 +8,12 @@ Files:
 - `native-desktop-release.json`
   - release-mode native CPU benchmark from
     `benchmark_prime_order_cpu_executor`
+  - current native mean: `~2.042 ms`
+  - checksum: `eadc05589e7e647a`
+  - final point:
+    `822fc83ea4e67c246d0a542d6cce294db092fa5573c9dd395d2cfd977c652938`
 - `browser-desktop-chrome-146.json`
-  - headless Chrome benchmark page report collected through the browser CDP
+  - historical Chrome benchmark page report collected through the browser CDP
     collector script
   - includes cache, structured decode/trace, browser wasm CPU executor, and the
     first browser WebGPU backend-shaped probe
@@ -17,6 +21,8 @@ Files:
     `digit_recode_v0`, `window_bucket_accumulate_v0`, `bucket_reduce_v0`, and
     `dependency_merge_normalize_v0`, plus the combined bucket-pipeline share
     and dominant subkernel label
+  - current wasm builds do not export the browser benchmark helper functions, so
+    refresh the browser export shim before treating this report as current
 
 Regenerate:
 

@@ -1,18 +1,20 @@
+use std::fmt::Write as _;
+
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast;
 
 use crate::ddh::ddh_hss::{
-    build_local_word_pair_public, eval_add_cross_share_local_arithmetic_word_bits_secure_public,
-    eval_add_local_word_pairs_mod_2_pow_n_public, eval_maj_local_bit_pair_batch_raw_public,
-    eval_mul_local_bit_pair_batch_raw_xor_base_public, eval_mul_local_word_pair_batch_public,
+    build_local_word_pair_public,
+    eval_add_cross_share_local_arithmetic_word_bits_secure_public_into,
+    eval_add_local_word_pairs_mod_2_pow_n_public, eval_maj_local_bit_pair_batch_raw_public_into,
+    eval_mul_local_bit_pair_batch_raw_xor_base_public_into, eval_mul_local_word_pair_batch_public,
     eval_mul_local_word_pairs_public, local_word_from_shared, local_word_from_transport_public,
     validate_transport_word_pair_public, xor_local_bit_from_raw_public,
-    xor_local_bit_pair_from_raw_public,
-    xor_local_word_pairs_public, DdhHssArithmeticBackend, DdhHssInputShareBundle,
-    DdhHssLocalBitSliceView, DdhHssLocalWord, DdhHssShareSide, DdhHssSharedWord,
-    DdhHssTransportBundle, DdhHssTransportWord,
+    xor_local_bit_pair_from_raw_public, xor_local_word_pairs_public, DdhHssArithmeticBackend,
+    DdhHssInputShareBundle, DdhHssLocalBitSliceView, DdhHssLocalWord, DdhHssShareSide,
+    DdhHssSharedWord, DdhHssTransportBundle, DdhHssTransportWord,
 };
 use crate::ddh::hidden_eval::{
     HiddenEvalInputOwner, HiddenEvalProgram, HiddenEvalStage, HiddenEvalStageKind,
@@ -556,9 +558,7 @@ fn digest_split_local_bit_words(
     Ok(hasher.finalize().into())
 }
 
-pub fn compute_output_projection_output_digest(
-    output: &DdhHiddenEvalOutputBundles,
-) -> [u8; 32] {
+pub fn compute_output_projection_output_digest(output: &DdhHiddenEvalOutputBundles) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(b"prime_order_ddh_hidden_eval_output_projection_digest_v0");
     hasher.update(output.canonical_seed.commitment);
@@ -899,13 +899,12 @@ pub fn execute_prime_order_ddh_hidden_eval_program_profiled_with_pool<
 ) -> ProtoResult<DdhHiddenEvalProfile> {
     let ExecutionUntilOutputProjector {
         stage_profile, run, ..
-    } =
-        execute_prime_order_ddh_hidden_eval_program_internal(
-            program,
-            backend,
-            constant_pool,
-            input_bundles,
-        )?;
+    } = execute_prime_order_ddh_hidden_eval_program_internal(
+        program,
+        backend,
+        constant_pool,
+        input_bundles,
+    )?;
     Ok(DdhHiddenEvalProfile { stage_profile, run })
 }
 
@@ -1370,8 +1369,7 @@ fn execute_prime_order_ddh_hidden_eval_program_internal<B: DdhHssArithmeticBacke
     let round_temp2_duration_ns = round_output.temp2_duration_ns;
     let round_new_a_bits_duration_ns = round_output.new_a_bits_duration_ns;
     let round_new_e_bits_duration_ns = round_output.new_e_bits_duration_ns;
-    let round_core_digest =
-        digest_split_local_bit_words(b"round_core", &hash_core.final_words)?;
+    let round_core_digest = digest_split_local_bit_words(b"round_core", &hash_core.final_words)?;
 
     let output_started_ns = monotonic_now_ns();
     let output = execute_output_projector_stage(
@@ -1503,8 +1501,7 @@ fn execute_prime_order_ddh_hidden_eval_program_internal_with_split_server_inputs
     let round_temp2_duration_ns = round_output.temp2_duration_ns;
     let round_new_a_bits_duration_ns = round_output.new_a_bits_duration_ns;
     let round_new_e_bits_duration_ns = round_output.new_e_bits_duration_ns;
-    let round_core_digest =
-        digest_split_local_bit_words(b"round_core", &hash_core.final_words)?;
+    let round_core_digest = digest_split_local_bit_words(b"round_core", &hash_core.final_words)?;
 
     let output_started_ns = monotonic_now_ns();
     let output = execute_output_projector_stage(
@@ -1641,11 +1638,13 @@ pub fn initialize_message_schedule_continuation(
     constant_pool: &DdhHiddenEvalConstantPool,
 ) -> ProtoResult<DdhHiddenEvalMessageScheduleContinuation> {
     let d_bits = SplitLocalBitWord::from_shared_bits(add_stage_bits)?;
-    let schedule_words =
-        initial_one_block_schedule_prefix_local_words(&d_bits, &constant_pool.schedule_suffix_words)?
-            .into_iter()
-            .map(|word| word.to_shared_bits())
-            .collect::<ProtoResult<Vec<_>>>()?;
+    let schedule_words = initial_one_block_schedule_prefix_local_words(
+        &d_bits,
+        &constant_pool.schedule_suffix_words,
+    )?
+    .into_iter()
+    .map(|word| word.to_shared_bits())
+    .collect::<ProtoResult<Vec<_>>>()?;
     Ok(DdhHiddenEvalMessageScheduleContinuation {
         add_stage_digest,
         schedule_words,
@@ -1754,77 +1753,87 @@ pub fn advance_round_core_continuation_with_pool<B: DdhHssArithmeticBackend>(
         .collect::<ProtoResult<Vec<_>>>()?;
     let mut state = RoundKernelState::from_shared_bits(&continuation.state_words)?;
     let mut boolean_scratch = RoundCoreBooleanScratch::new(64);
+    let mut round_label = String::with_capacity(40);
+    set_round_label(&mut round_label, round, "sigma1");
     big_sigma1_local_bits_into(
         backend,
-        &format!("round_core/{round}/sigma1"),
+        &round_label,
         state.e.as_pair_ref(),
         &mut boolean_scratch.sigma1,
     )?;
+    set_round_label(&mut round_label, round, "ch");
     ch_local_bits_into(
         backend,
-        &format!("round_core/{round}/ch"),
+        &round_label,
         state.e.as_pair_ref(),
         state.f.as_pair_ref(),
         state.g.as_pair_ref(),
         &mut boolean_scratch,
     )?;
+    set_round_label(&mut round_label, round, "temp1");
     let (temp1, _) = add_five_local_bit_pairs_to_arithmetic_naive(
         backend,
-        &format!("round_core/{round}/temp1"),
+        &round_label,
         state.h.as_pair_ref(),
         boolean_scratch.sigma1.as_pair_ref(),
         boolean_scratch.choose.as_pair_ref(),
         constant_pool.sha512_round_constants[round].as_pair_ref(),
         schedule_words[round].as_pair_ref(),
     )?;
+    set_round_label(&mut round_label, round, "sigma0");
     big_sigma0_local_bits_into(
         backend,
-        &format!("round_core/{round}/sigma0"),
+        &round_label,
         state.a.as_pair_ref(),
         &mut boolean_scratch.sigma0,
     )?;
+    set_round_label(&mut round_label, round, "maj");
     maj_local_bits_into(
         backend,
-        &format!("round_core/{round}/maj"),
+        &round_label,
         state.a.as_pair_ref(),
         state.b.as_pair_ref(),
         state.c.as_pair_ref(),
         &mut boolean_scratch,
     )?;
+    set_round_label(&mut round_label, round, "temp2");
     let (temp2, _) = add_two_local_bit_pairs_to_arithmetic_naive(
         backend,
-        &format!("round_core/{round}/temp2"),
+        &round_label,
         boolean_scratch.sigma0.as_pair_ref(),
         boolean_scratch.majority.as_pair_ref(),
     )?;
+    set_round_label(&mut round_label, round, "state3");
     let state3 = split_local_bit_pair_to_arithmetic_word_pair_naive(
         backend,
-        &format!("round_core/{round}/state3"),
+        &round_label,
         state.d.as_pair_ref(),
     )?;
-    let arithmetic_temps = RoundKernelArithmeticTemps { temp1, temp2, state3 };
+    let arithmetic_temps = RoundKernelArithmeticTemps {
+        temp1,
+        temp2,
+        state3,
+    };
+    set_round_label(&mut round_label, round, "new_a");
     let new_a_arith = add_local_arithmetic_word_pairs(
         backend.evaluation_key(),
-        &format!("round_core/{round}/new_a"),
+        &round_label,
         &arithmetic_temps.temp1,
         &arithmetic_temps.temp2,
     )?;
-    let new_a = arithmetic_word_pair_to_split_local_bits_secure(
-        backend,
-        &format!("round_core/{round}/new_a_bits"),
-        &new_a_arith,
-    )?;
+    set_round_label(&mut round_label, round, "new_a_bits");
+    let new_a =
+        arithmetic_word_pair_to_split_local_bits_secure(backend, &round_label, &new_a_arith)?;
+    set_round_label(&mut round_label, round, "new_e");
     let new_e_arith = add_local_arithmetic_word_pairs(
         backend.evaluation_key(),
-        &format!("round_core/{round}/new_e"),
+        &round_label,
         &arithmetic_temps.state3,
         &arithmetic_temps.temp1,
     )?;
-    let new_e = arithmetic_word_pair_to_split_local_bits_secure(
-        backend,
-        &format!("round_core/{round}/new_e_bits"),
-        &new_e_arith,
-    )?;
+    set_round_label(&mut round_label, round, "new_e_bits");
+    let new_e =
+        arithmetic_word_pair_to_split_local_bits_secure(backend, &round_label, &new_e_arith)?;
     state.rotate_with_new_words(new_a, new_e);
     Ok(DdhHiddenEvalRoundCoreContinuation {
         rounds_completed: continuation.rounds_completed.saturating_add(1),
@@ -1852,9 +1861,7 @@ fn materialize_projector_inputs_from_add_stage_inputs(
     })
 }
 
-pub fn materialize_output_bundles_from_continuations_with_pool<
-    B: DdhHssArithmeticBackend,
->(
+pub fn materialize_output_bundles_from_continuations_with_pool<B: DdhHssArithmeticBackend>(
     program: &HiddenEvalProgram,
     backend: &B,
     constant_pool: &DdhHiddenEvalConstantPool,
@@ -1883,9 +1890,7 @@ pub fn materialize_output_bundles_from_continuations_with_pool<
     )
 }
 
-pub fn materialize_output_bundles_from_projector_inputs_with_pool<
-    B: DdhHssArithmeticBackend,
->(
+pub fn materialize_output_bundles_from_projector_inputs_with_pool<B: DdhHssArithmeticBackend>(
     program: &HiddenEvalProgram,
     backend: &B,
     constant_pool: &DdhHiddenEvalConstantPool,
@@ -1895,8 +1900,12 @@ pub fn materialize_output_bundles_from_projector_inputs_with_pool<
     let d_bits = SplitLocalBitWord::from_shared_bits(&projector_inputs.add_stage_bits)?;
     let schedule_output =
         execute_message_schedule_stage(backend, constant_pool, &program.stages[1], &d_bits)?;
-    let round_output =
-        execute_round_stages(backend, constant_pool, &program.stages[2..6], &schedule_output.words)?;
+    let round_output = execute_round_stages(
+        backend,
+        constant_pool,
+        &program.stages[2..6],
+        &schedule_output.words,
+    )?;
     let tau_client_bits = SplitLocalBitWord::from_shared_bits(&projector_inputs.tau_client_bits)?;
     execute_output_projector_stage(
         backend,
@@ -1941,8 +1950,11 @@ pub fn materialize_staged_server_execution_with_split_server_inputs_with_pool<
     )?;
     let add_stage_digest = digest_split_local_bit_word(b"add_stage", &d_bits)?;
 
-    let message_schedule =
-        initialize_message_schedule_continuation(add_stage_digest, &d_bits.to_shared_bits()?, constant_pool)?;
+    let message_schedule = initialize_message_schedule_continuation(
+        add_stage_digest,
+        &d_bits.to_shared_bits()?,
+        constant_pool,
+    )?;
 
     let projector_inputs = materialize_projector_inputs_from_add_stage_inputs(
         &d_bits,
@@ -1971,9 +1983,12 @@ fn monotonic_now_ns() -> u128 {
 #[cfg(target_arch = "wasm32")]
 fn monotonic_now_ns() -> u128 {
     let window_performance = web_sys::window().and_then(|window| window.performance());
-    let global_performance = js_sys::Reflect::get(&js_sys::global(), &wasm_bindgen::JsValue::from_str("performance"))
-        .ok()
-        .and_then(|value| value.dyn_into::<web_sys::Performance>().ok());
+    let global_performance = js_sys::Reflect::get(
+        &js_sys::global(),
+        &wasm_bindgen::JsValue::from_str("performance"),
+    )
+    .ok()
+    .and_then(|value| value.dyn_into::<web_sys::Performance>().ok());
     window_performance
         .or(global_performance)
         .map(|performance| (performance.now() * 1_000_000.0) as u128)
@@ -1982,6 +1997,31 @@ fn monotonic_now_ns() -> u128 {
 
 fn elapsed_ns(started_ns: u128) -> u128 {
     monotonic_now_ns().saturating_sub(started_ns)
+}
+
+fn set_round_label(buffer: &mut String, round: usize, suffix: &str) {
+    buffer.clear();
+    write!(buffer, "round_core/{round}/{suffix}").expect("write round label");
+}
+
+fn set_indexed_label(buffer: &mut String, label: &str, idx: usize) {
+    buffer.clear();
+    write!(buffer, "{label}/{idx}").expect("write indexed label");
+}
+
+fn set_indexed_child_label(buffer: &mut String, label: &str, child: &str, idx: usize) {
+    buffer.clear();
+    write!(buffer, "{label}/{child}/{idx}").expect("write indexed child label");
+}
+
+fn set_child_label(buffer: &mut String, label: &str, child: &str) {
+    buffer.clear();
+    write!(buffer, "{label}/{child}").expect("write child label");
+}
+
+fn set_reduce_label(buffer: &mut String, label: &str, operation: &str, round: usize) {
+    buffer.clear();
+    write!(buffer, "{label}/reduce_mod_l/{operation}/{round}").expect("write reduce label");
 }
 
 fn ensure_program_shape(program: &HiddenEvalProgram) -> ProtoResult<()> {
@@ -2117,6 +2157,7 @@ fn execute_round_stages<B: DdhHssArithmeticBackend>(
     let mut temp2_duration_ns = 0u128;
     let mut new_a_bits_duration_ns = 0u128;
     let mut new_e_bits_duration_ns = 0u128;
+    let mut round_label = String::with_capacity(40);
     let mut boolean_scratch = RoundCoreBooleanScratch::new(64);
 
     for stage in stages {
@@ -2136,17 +2177,19 @@ fn execute_round_stages<B: DdhHssArithmeticBackend>(
         for window in &stage.windows {
             let round = usize::from(window.class_value);
             let sigma1_started_ns = monotonic_now_ns();
+            set_round_label(&mut round_label, round, "sigma1");
             big_sigma1_local_bits_into(
                 backend,
-                &format!("round_core/{round}/sigma1"),
+                &round_label,
                 state.e.as_pair_ref(),
                 &mut boolean_scratch.sigma1,
             )?;
             sigma1_duration_ns += elapsed_ns(sigma1_started_ns);
             let ch_started_ns = monotonic_now_ns();
+            set_round_label(&mut round_label, round, "ch");
             ch_local_bits_into(
                 backend,
-                &format!("round_core/{round}/ch"),
+                &round_label,
                 state.e.as_pair_ref(),
                 state.f.as_pair_ref(),
                 state.g.as_pair_ref(),
@@ -2154,9 +2197,10 @@ fn execute_round_stages<B: DdhHssArithmeticBackend>(
             )?;
             ch_duration_ns += elapsed_ns(ch_started_ns);
             let temp1_started_ns = monotonic_now_ns();
+            set_round_label(&mut round_label, round, "temp1");
             let (temp1, add_timing) = add_five_local_bit_pairs_to_arithmetic_naive(
                 backend,
-                &format!("round_core/{round}/temp1"),
+                &round_label,
                 state.h.as_pair_ref(),
                 boolean_scratch.sigma1.as_pair_ref(),
                 boolean_scratch.choose.as_pair_ref(),
@@ -2166,17 +2210,19 @@ fn execute_round_stages<B: DdhHssArithmeticBackend>(
             temp1_duration_ns += elapsed_ns(temp1_started_ns);
             temp1_add_timing.add_assign(&add_timing);
             let sigma0_started_ns = monotonic_now_ns();
+            set_round_label(&mut round_label, round, "sigma0");
             big_sigma0_local_bits_into(
                 backend,
-                &format!("round_core/{round}/sigma0"),
+                &round_label,
                 state.a.as_pair_ref(),
                 &mut boolean_scratch.sigma0,
             )?;
             sigma0_duration_ns += elapsed_ns(sigma0_started_ns);
             let maj_started_ns = monotonic_now_ns();
+            set_round_label(&mut round_label, round, "maj");
             maj_local_bits_into(
                 backend,
-                &format!("round_core/{round}/maj"),
+                &round_label,
                 state.a.as_pair_ref(),
                 state.b.as_pair_ref(),
                 state.c.as_pair_ref(),
@@ -2184,17 +2230,19 @@ fn execute_round_stages<B: DdhHssArithmeticBackend>(
             )?;
             maj_duration_ns += elapsed_ns(maj_started_ns);
             let temp2_started_ns = monotonic_now_ns();
+            set_round_label(&mut round_label, round, "temp2");
             let (temp2, _) = add_two_local_bit_pairs_to_arithmetic_naive(
                 backend,
-                &format!("round_core/{round}/temp2"),
+                &round_label,
                 boolean_scratch.sigma0.as_pair_ref(),
                 boolean_scratch.majority.as_pair_ref(),
             )?;
             temp2_duration_ns += elapsed_ns(temp2_started_ns);
             let state3_started_ns = monotonic_now_ns();
+            set_round_label(&mut round_label, round, "state3");
             let state3 = split_local_bit_pair_to_arithmetic_word_pair_naive(
                 backend,
-                &format!("round_core/{round}/state3"),
+                &round_label,
                 state.d.as_pair_ref(),
             )?;
             state3_duration_ns += elapsed_ns(state3_started_ns);
@@ -2203,29 +2251,33 @@ fn execute_round_stages<B: DdhHssArithmeticBackend>(
                 temp2,
                 state3,
             };
+            set_round_label(&mut round_label, round, "new_a");
             let new_a_arith = add_local_arithmetic_word_pairs(
                 backend.evaluation_key(),
-                &format!("round_core/{round}/new_a"),
+                &round_label,
                 &arithmetic_temps.temp1,
                 &arithmetic_temps.temp2,
             )?;
             let new_a_bits_started_ns = monotonic_now_ns();
+            set_round_label(&mut round_label, round, "new_a_bits");
             let new_a = arithmetic_word_pair_to_split_local_bits_secure(
                 backend,
-                &format!("round_core/{round}/new_a_bits"),
+                &round_label,
                 &new_a_arith,
             )?;
             new_a_bits_duration_ns += elapsed_ns(new_a_bits_started_ns);
+            set_round_label(&mut round_label, round, "new_e");
             let new_e_arith = add_local_arithmetic_word_pairs(
                 backend.evaluation_key(),
-                &format!("round_core/{round}/new_e"),
+                &round_label,
                 &arithmetic_temps.state3,
                 &arithmetic_temps.temp1,
             )?;
             let new_e_bits_started_ns = monotonic_now_ns();
+            set_round_label(&mut round_label, round, "new_e_bits");
             let new_e = arithmetic_word_pair_to_split_local_bits_secure(
                 backend,
-                &format!("round_core/{round}/new_e_bits"),
+                &round_label,
                 &new_e_arith,
             )?;
             new_e_bits_duration_ns += elapsed_ns(new_e_bits_started_ns);
@@ -2306,19 +2358,10 @@ fn execute_output_projector_stage<B: DdhHssArithmeticBackend>(
         &constant_pool.one_left,
         &constant_pool.one_right,
     )?;
-    let double_tau_bits = add_words_bits_mod_l_canonical_inputs_local(
-        backend,
-        &tau_bits,
-        &tau_bits,
-        &constant_pool.zero_left,
-        &constant_pool.zero_right,
-        &constant_pool.one_left,
-        &constant_pool.one_right,
-    )?;
     let x_relayer_base_bits = add_words_bits_mod_l_canonical_inputs_local(
         backend,
-        &reduced_a_bits,
-        &double_tau_bits,
+        &x_client_base_bits,
+        &tau_bits,
         &constant_pool.zero_left,
         &constant_pool.zero_right,
         &constant_pool.one_left,
@@ -2443,27 +2486,31 @@ fn reduce_scalar_bits_mod_l_with_constants_local<B: DdhHssArithmeticBackend>(
     }
 
     let mut reduced = scalar_bits.clone();
+    let mut reduce_label = String::with_capacity(label.len() + 32);
     for round in 0..rounds {
+        set_reduce_label(&mut reduce_label, label, "sub", round);
         let (difference, borrow_left, borrow_right) = sub_local_bit_words_with_ed25519_l(
             backend,
-            &format!("{label}/reduce_mod_l/sub/{round}"),
+            &reduce_label,
             &reduced,
             zero_left,
             zero_right,
             one_left,
             one_right,
         )?;
+        set_reduce_label(&mut reduce_label, label, "geq", round);
         let (geq_modulus_left, geq_modulus_right) = xor_local_word_pairs_public(
             backend.evaluation_key(),
-            format!("{label}/reduce_mod_l/geq/{round}").as_bytes(),
+            reduce_label.as_bytes(),
             &borrow_left,
             &borrow_right,
             one_left,
             one_right,
         )?;
+        set_reduce_label(&mut reduce_label, label, "select", round);
         reduced = select_local_bit_words(
             backend,
-            &format!("{label}/reduce_mod_l/select/{round}"),
+            &reduce_label,
             &geq_modulus_left,
             &geq_modulus_right,
             &difference,
@@ -2985,27 +3032,6 @@ fn empty_local_bit_slice(share_side: DdhHssShareSide, len: usize) -> LocalBitWor
     LocalBitWordSide::empty(share_side, len)
 }
 
-fn local_word_vec_to_local_bit_side(
-    words: &[DdhHssLocalWord],
-    share_side: DdhHssShareSide,
-) -> ProtoResult<LocalBitWordSide> {
-    if words.iter().any(|word| word.width_bits != 1) {
-        return Err(ProtoError::InvalidInput(
-            "local bit side conversion requires width-1 local words".to_string(),
-        ));
-    }
-    if words.iter().any(|word| word.share_side != share_side) {
-        return Err(ProtoError::InvalidInput(
-            "local bit side conversion requires all words on the same side".to_string(),
-        ));
-    }
-    let mut out = empty_local_bit_slice(share_side, words.len());
-    for word in words {
-        out.push_local_word(word)?;
-    }
-    Ok(out)
-}
-
 #[derive(Debug, Copy, Clone)]
 enum LocalBitTransform {
     Rotate(usize),
@@ -3123,6 +3149,7 @@ fn xor_transformed_local_bit_word_side_into(
 ) -> ProtoResult<()> {
     source.ensure_shape()?;
     out.reset();
+    let mut xor_label = String::with_capacity(label.len() + 16);
     for idx in 0..source.len() {
         let (first_bit, first_provenance) =
             transformed_local_bit_parts(source, idx, transforms[0])?;
@@ -3130,18 +3157,20 @@ fn xor_transformed_local_bit_word_side_into(
             transformed_local_bit_parts(source, idx, transforms[1])?;
         let (third_bit, third_provenance) =
             transformed_local_bit_parts(source, idx, transforms[2])?;
+        set_indexed_child_label(&mut xor_label, label, "xor01", idx);
         let xor01 = xor_local_bit_from_raw_public(
             evaluation_key,
-            format!("{label}/xor01/{idx}").as_bytes(),
+            xor_label.as_bytes(),
             source.share_side,
             first_bit,
             &first_provenance,
             second_bit,
             &second_provenance,
         );
+        set_indexed_child_label(&mut xor_label, label, "xor012", idx);
         let xor012 = xor_local_bit_from_raw_public(
             evaluation_key,
-            format!("{label}/xor012/{idx}").as_bytes(),
+            xor_label.as_bytes(),
             source.share_side,
             (xor01.share_word as u8) & 1,
             &xor01.provenance_digest,
@@ -3170,6 +3199,7 @@ fn xor_transformed_local_bit_word_pair_into(
         )));
     }
     out.reset();
+    let mut xor_label = String::with_capacity(label.len() + 16);
     for idx in 0..source.len() {
         let (first_left, first_right, first_provenance) =
             transformed_local_bit_pair_parts(source, idx, transforms[0])?;
@@ -3177,9 +3207,10 @@ fn xor_transformed_local_bit_word_pair_into(
             transformed_local_bit_pair_parts(source, idx, transforms[1])?;
         let (third_left, third_right, third_provenance) =
             transformed_local_bit_pair_parts(source, idx, transforms[2])?;
+        set_indexed_child_label(&mut xor_label, label, "xor01", idx);
         let xor01 = xor_local_bit_pair_from_raw_public(
             evaluation_key,
-            format!("{label}/xor01/{idx}").as_bytes(),
+            xor_label.as_bytes(),
             first_left,
             first_right,
             &first_provenance,
@@ -3187,9 +3218,10 @@ fn xor_transformed_local_bit_word_pair_into(
             second_right,
             &second_provenance,
         );
+        set_indexed_child_label(&mut xor_label, label, "xor012", idx);
         let xor012 = xor_local_bit_pair_from_raw_public(
             evaluation_key,
-            format!("{label}/xor012/{idx}").as_bytes(),
+            xor_label.as_bytes(),
             (xor01.0.share_word as u8) & 1,
             (xor01.1.share_word as u8) & 1,
             &xor01.0.provenance_digest,
@@ -3222,12 +3254,14 @@ fn xor_split_local_bit_words_into(
     right.left.ensure_shape()?;
     right.right.ensure_shape()?;
     out.reset();
+    let mut xor_label = String::with_capacity(label.len() + 8);
     for idx in 0..left.len() {
         let left_parts = local_bit_pair_parts(left, idx)?;
         let right_parts = local_bit_pair_parts(right, idx)?;
+        set_indexed_label(&mut xor_label, label, idx);
         let xor_pair = xor_local_bit_pair_from_raw_public(
             evaluation_key,
-            format!("{label}/{idx}").as_bytes(),
+            xor_label.as_bytes(),
             left_parts.0,
             left_parts.1,
             &left_parts.2,
@@ -3380,18 +3414,23 @@ fn arithmetic_word_pair_to_split_local_bits_secure<B: DdhHssArithmeticBackend>(
             &word.right.share_commitment,
         ],
     );
-    let (out_left, out_right) = eval_add_cross_share_local_arithmetic_word_bits_secure_public(
+    let width = usize::from(word.left.width_bits);
+    let mut out_left = empty_local_bit_slice(DdhHssShareSide::Left, width);
+    let mut out_right = empty_local_bit_slice(DdhHssShareSide::Right, width);
+    eval_add_cross_share_local_arithmetic_word_bits_secure_public_into(
         backend.evaluation_key(),
         &format!("{label}/sum"),
         &word.left,
         &word.right,
         &zero_left,
         &zero_right,
+        |left, right| {
+            out_left.push_local_word(&left)?;
+            out_right.push_local_word(&right)?;
+            Ok(())
+        },
     )?;
-    SplitLocalBitWord::from_local_sides(
-        local_word_vec_to_local_bit_side(&out_left, DdhHssShareSide::Left)?,
-        local_word_vec_to_local_bit_side(&out_right, DdhHssShareSide::Right)?,
-    )
+    SplitLocalBitWord::from_local_sides(out_left, out_right)
 }
 
 fn add_two_local_bit_pairs_to_arithmetic_naive<B: DdhHssArithmeticBackend>(
@@ -4014,14 +4053,17 @@ fn ch_local_bits_into<B: DdhHssArithmeticBackend>(
             z.len()
         )));
     }
+    let mut yz_label = String::with_capacity(label.len() + 4);
+    set_child_label(&mut yz_label, label, "yz");
     xor_split_local_bit_words_into(
         backend.evaluation_key(),
-        &format!("{label}/yz"),
+        &yz_label,
         y,
         z,
         &mut scratch.operand0,
     )?;
-    let (out_left, out_right) = eval_mul_local_bit_pair_batch_raw_xor_base_public(
+    scratch.choose.reset();
+    eval_mul_local_bit_pair_batch_raw_xor_base_public_into(
         backend.evaluation_key(),
         label,
         x.left.as_raw_view(),
@@ -4030,12 +4072,12 @@ fn ch_local_bits_into<B: DdhHssArithmeticBackend>(
         scratch.operand0.right.as_raw_view(),
         z.left.as_raw_view(),
         z.right.as_raw_view(),
+        |left, right| {
+            scratch.choose.left.push_local_word(&left)?;
+            scratch.choose.right.push_local_word(&right)?;
+            Ok(())
+        },
     )?;
-    scratch.choose.reset();
-    for idx in 0..x.len() {
-        scratch.choose.left.push_local_word(&out_left[idx])?;
-        scratch.choose.right.push_local_word(&out_right[idx])?;
-    }
     Ok(())
 }
 
@@ -4055,7 +4097,8 @@ fn maj_local_bits_into<B: DdhHssArithmeticBackend>(
             z.len()
         )));
     }
-    let (out_left, out_right) = eval_maj_local_bit_pair_batch_raw_public(
+    scratch.majority.reset();
+    eval_maj_local_bit_pair_batch_raw_public_into(
         backend.evaluation_key(),
         label,
         x.left.as_raw_view(),
@@ -4064,12 +4107,12 @@ fn maj_local_bits_into<B: DdhHssArithmeticBackend>(
         y.right.as_raw_view(),
         z.left.as_raw_view(),
         z.right.as_raw_view(),
+        |left, right| {
+            scratch.majority.left.push_local_word(&left)?;
+            scratch.majority.right.push_local_word(&right)?;
+            Ok(())
+        },
     )?;
-    scratch.majority.reset();
-    for idx in 0..x.len() {
-        scratch.majority.left.push_local_word(&out_left[idx])?;
-        scratch.majority.right.push_local_word(&out_right[idx])?;
-    }
     Ok(())
 }
 
@@ -4563,18 +4606,11 @@ mod tests {
             &tau_bits,
         )
         .expect("compute x_client_base");
-        let double_tau_bits = add_words_bits_mod_l(
-            backend,
-            "test_output_projection/double_tau",
-            &tau_bits,
-            &tau_bits,
-        )
-        .expect("compute 2*tau");
         let x_relayer_bits = add_words_bits_mod_l(
             backend,
             "test_output_projection/x_relayer",
-            &a_bits,
-            &double_tau_bits,
+            &x_client_bits,
+            &tau_bits,
         )
         .expect("compute x_relayer_base");
 

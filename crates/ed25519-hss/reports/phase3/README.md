@@ -10,15 +10,17 @@ Current report:
     [`benchmark_ddh_hidden_eval.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/bin/benchmark_ddh_hidden_eval.rs)
   - fixture: `wraparound-seed`
   - artifact: `138,256` bytes
-  - prepare duration: `~86.4 ms`
-  - total hidden eval mean: `~0.551 s`
-  - dominant stage: round core at `~307.1 ms`
-  - message schedule mean: `~91.9 ms`
-  - output projector mean: `~87.7 ms`
-  - substage split: schedule accumulation `~79.4 ms`, `temp1` `~132.2 ms`,
-    `temp2` `~32.8 ms`
+  - prepare duration: `~112.9 ms`
+  - direct hidden-eval executor mean: `~224.2 ms`
+  - same-process delivery path mean: `~264.2 ms`
+  - dominant stage: round core at `~134.9 ms`
+  - message schedule mean: `~40.4 ms`
+  - output projector mean: `~42.9 ms`
+  - substage split: schedule accumulation `~28.9 ms`, `new_a_bits`
+    `~32.6 ms`, `new_e_bits` `~32.8 ms`, `maj` `~26.6 ms`, `ch`
+    `~21.9 ms`
 - [`browser-ddh-hidden-eval-chrome.json`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/reports/phase3/browser-ddh-hidden-eval-chrome.json)
-  - first browser benchmark report collected through
+  - historical browser benchmark report collected through
     [`collect_browser_cache_benchmark.mjs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/scripts/collect_browser_cache_benchmark.mjs)
   - current desktop Chrome baseline:
     - prepare duration: `~148.5 ms`
@@ -34,6 +36,8 @@ Current report:
   - browser/native total ratio on this host: `~1.40x`
   - note: browser total now reflects the packetized delivery-path wall clock,
     while stage timings remain hidden-evaluator stage probes
+  - current wasm builds do not export the browser benchmark helper functions, so
+    refresh the browser export shim before treating this report as current
 
 Ignored DDH conformance lane:
 
@@ -44,7 +48,7 @@ Ignored DDH conformance lane:
 Reproduce:
 
 ```bash
-cargo run --release --manifest-path crates/ed25519-hss/Cargo.toml --bin benchmark_ddh_hidden_eval -- --primitive-iterations 5000 --samples 3 --stage-iterations 1 --json --output crates/ed25519-hss/reports/phase3/ddh-hidden-eval-native-release.json
+cargo run --release --manifest-path crates/ed25519-hss/Cargo.toml --bin benchmark_ddh_hidden_eval -- --output crates/ed25519-hss/reports/phase3/ddh-hidden-eval-native-release.json
 wasm-pack build crates/ed25519-hss --target web --out-dir web/generated/pkg --release --no-typescript
 cargo run --manifest-path crates/ed25519-hss/Cargo.toml --bin emit_browser_cache_benchmark_bundle -- --output-dir crates/ed25519-hss/web/generated
 python3 -m http.server 8765 -d crates/ed25519-hss/web

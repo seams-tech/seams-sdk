@@ -13,30 +13,30 @@
     "dependency_merges": 448,
     "point_normalizations": 184
   },
-  "compile_duration_ns": 40424541,
+  "compile_duration_ns": 46230625,
   "sample_iterations": 20,
   "sample_count": 8,
   "execution_latency_ns": {
-    "min": 1860104.15,
-    "median": 1877031.25,
-    "mean": 1934919.275,
-    "p95": 2289520.85,
-    "max": 2289520.85
+    "min": 1998812.5,
+    "median": 2021403.125,
+    "mean": 2041554.94375,
+    "p95": 2145497.9,
+    "max": 2145497.9
   },
   "throughput_execs_per_sec": {
-    "min": 436.77261117757456,
-    "median": 532.7563364635223,
-    "mean": 519.053908454732,
-    "p95": 537.6043056513798,
-    "max": 537.6043056513798
+    "min": 466.092276296332,
+    "median": 494.7063772909545,
+    "mean": 490.0683502820609,
+    "p95": 500.2970513742535,
+    "max": 500.2970513742535
   },
   "latency_ns_per_curve_cost_unit": {
-    "min": 29.644038853828008,
-    "median": 29.91380203353095,
-    "mean": 30.836349764135903,
-    "p95": 36.487550997641364,
-    "max": 36.487550997641364
+    "min": 31.854600943456365,
+    "median": 32.214622378402495,
+    "mean": 32.53577713632307,
+    "p95": 34.19229138777332,
+    "max": 34.19229138777332
   },
-  "output_checksum_hex": "b075ca5b7bd494fe",
-  "final_point_compressed_hex": "21fb5139b5a491423a70a42ff2725b5991cfb110b8ee529b6c532a52b24bee36"
+  "output_checksum_hex": "eadc05589e7e647a",
+  "final_point_compressed_hex": "822fc83ea4e67c246d0a542d6cce294db092fa5573c9dd395d2cfd977c652938"
 }

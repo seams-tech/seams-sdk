@@ -1,7 +1,6 @@
-use crate::ddh::{
-    DdhHiddenEvalOutputBundles, DdhHiddenEvalProfile,
-};
+use crate::ddh::{DdhHiddenEvalOutputBundles, DdhHiddenEvalProfile};
 use crate::protocol::PreparedSession;
+use crate::runtime::EvaluateTiming;
 use crate::shared::{public_key_from_base_shares, FExpandInput, ProtoError, ProtoResult};
 use crate::wire::EvaluationReport;
 
@@ -20,6 +19,14 @@ impl PreparedSession {
         &self,
         input: &FExpandInput,
     ) -> ProtoResult<EvaluationReport> {
+        self.evaluate_for_clear_input_debug_timed(input)
+            .map(|(report, _timing)| report)
+    }
+
+    pub(crate) fn evaluate_for_clear_input_debug_timed(
+        &self,
+        input: &FExpandInput,
+    ) -> ProtoResult<(EvaluationReport, EvaluateTiming)> {
         ensure_debug_input_context(self, input)?;
         let runtime = self.shared_runtime();
         let garbler_session = self.garbler_session();
@@ -29,7 +36,7 @@ impl PreparedSession {
             input.y_client,
             input.tau_client,
         )?;
-        let (ddh_run, _timing) = garbler_session.evaluate_hidden_run_same_process_timed(
+        let (ddh_run, mut timing) = garbler_session.evaluate_hidden_run_same_process_timed(
             &evaluator_session,
             &runtime.hidden_eval_program,
             self.hidden_eval_constants(),
@@ -38,9 +45,15 @@ impl PreparedSession {
             input.y_relayer,
             input.tau_relayer,
         )?;
-        Ok(evaluator_session
-            .build_final_report_from_hidden_run(&runtime, &garbler_session, ddh_run)?
-            .0)
+        let (report, result_assembly_duration_ns, output_sealing_finalization_duration_ns) =
+            evaluator_session.build_final_report_from_hidden_run(
+                &runtime,
+                &garbler_session,
+                ddh_run,
+            )?;
+        timing.result_assembly_duration_ns = result_assembly_duration_ns;
+        timing.output_sealing_finalization_duration_ns = output_sealing_finalization_duration_ns;
+        Ok((report, timing))
     }
 
     pub(crate) fn materialize_hidden_outputs_for_debug(
@@ -73,5 +86,4 @@ impl PreparedSession {
             input,
         )
     }
-
 }

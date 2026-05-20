@@ -125,12 +125,15 @@ The explicit exception is `ExplicitKeyExport`:
 
 ## Benchmarks
 
-Latest local benchmark snapshot:
+Latest local benchmark snapshot, generated on 2026-05-20 15:44:37 JST on
+macOS/aarch64:
 
-- hidden eval total:
-  `305.66ms` mean, `308.59ms` median, `310.17ms` p95
+- hidden eval direct executor:
+  `224.24ms` mean, `224.71ms` median, `225.83ms` p95
+- hidden eval same-process delivery path:
+  `264.20ms` mean, `264.24ms` median, `267.41ms` p95
 - CPU executor:
-  `2.040ms` mean, `2.041ms` median, `2.057ms` p95
+  `2.042ms` mean, `2.021ms` median, `2.145ms` p95
 
 The optimization history and hot-path notes live in
 [optimization.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/optimization.md).

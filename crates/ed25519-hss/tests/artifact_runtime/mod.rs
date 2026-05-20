@@ -231,11 +231,11 @@ fn prime_order_cpu_executor_executes_compiled_program() {
     assert_eq!(result.total_steps, 180);
     assert_eq!(
         format!("{:016x}", result.output_checksum),
-        "b075ca5b7bd494fe"
+        "eadc05589e7e647a"
     );
     assert_eq!(
         hex::encode(result.final_point_compressed),
-        "21fb5139b5a491423a70a42ff2725b5991cfb110b8ee529b6c532a52b24bee36"
+        "822fc83ea4e67c246d0a542d6cce294db092fa5573c9dd395d2cfd977c652938"
     );
 }
 

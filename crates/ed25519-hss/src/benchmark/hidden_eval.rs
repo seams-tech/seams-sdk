@@ -1,17 +1,20 @@
+use std::env;
 use std::hint::black_box;
-use std::time::Instant;
+use std::thread;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
 use crate::artifact::PrimeOrderEvaluatorOps;
 use crate::benchmark::{ComponentTimingReport, LatencyStats};
-use crate::ddh::HiddenEvalInputOwner;
+use crate::ddh::{DdhHiddenEvalStageProfile, HiddenEvalInputOwner};
 use crate::fixtures::{deterministic_fixture_corpus, FExpandFixture};
 use crate::protocol::prepare_prime_order_succinct_hss;
+use crate::runtime::EvaluateTiming;
 use crate::shared::public_key_from_base_shares;
 use crate::shared::{ProtoError, ProtoResult};
 
-pub const DDH_HIDDEN_EVAL_BENCHMARK_REPORT_VERSION: &str = "ddh_hidden_eval_benchmark_v0";
+pub const DDH_HIDDEN_EVAL_BENCHMARK_REPORT_VERSION: &str = "ddh_hidden_eval_benchmark_v1";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DdhHiddenEvalBenchmarkConfig {
@@ -33,9 +36,18 @@ pub struct DdhHiddenEvalBenchmarkConfigRecord {
     pub sample_count: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DdhHiddenEvalBenchmarkMetadata {
+    pub generated_at_unix_secs: u64,
+    pub host_os: String,
+    pub host_arch: String,
+    pub logical_cores: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DdhHiddenEvalBenchmarkReport {
     pub report_version: String,
+    pub metadata: DdhHiddenEvalBenchmarkMetadata,
     pub fixture_name: String,
     pub artifact_bytes: u64,
     pub active_window_records: usize,
@@ -47,6 +59,7 @@ pub struct DdhHiddenEvalBenchmarkReport {
     pub primitive_timings: Vec<ComponentTimingReport>,
     pub stage_timings: Vec<ComponentTimingReport>,
     pub substage_timings: Vec<ComponentTimingReport>,
+    pub delivery_timings: Vec<ComponentTimingReport>,
     pub reference_match: bool,
     pub output_public_key_hex: String,
     pub output_x_client_base_hex: String,
@@ -67,6 +80,7 @@ pub fn generate_ddh_hidden_eval_benchmark_report(
     config: &DdhHiddenEvalBenchmarkConfig,
 ) -> ProtoResult<DdhHiddenEvalBenchmarkReport> {
     let fixture = select_fixture(config.fixture_name.as_deref())?;
+    let metadata = capture_benchmark_metadata();
 
     let prepare_started = Instant::now();
     let session = prepare_prime_order_succinct_hss(&fixture.input.context)?;
@@ -94,7 +108,8 @@ pub fn generate_ddh_hidden_eval_benchmark_report(
     let primitive_timings = benchmark_primitives(config, session.ddh_backend())?;
 
     for _ in 0..config.stage_warmup_iterations {
-        let delivery_report = session.evaluate_for_clear_input_debug(&fixture.input)?;
+        let (delivery_report, delivery_timing) =
+            session.evaluate_for_clear_input_debug_timed(&fixture.input)?;
         let x_client_base = output_openers
             .client
             .open(&delivery_report.output_delivery.client)?;
@@ -112,6 +127,7 @@ pub fn generate_ddh_hidden_eval_benchmark_report(
         }
         let profile = session.profile_hidden_eval_for_clear_input(&fixture.input)?;
         black_box(session.materialize_hidden_outputs_for_debug(&profile.run.output)?);
+        black_box(delivery_timing);
     }
 
     let mut input_sharing_samples = Vec::with_capacity(config.sample_count);
@@ -130,6 +146,21 @@ pub fn generate_ddh_hidden_eval_benchmark_report(
     let mut round_new_e_bits_samples = Vec::with_capacity(config.sample_count);
     let mut output_projector_samples = Vec::with_capacity(config.sample_count);
     let mut total_samples = Vec::with_capacity(config.sample_count);
+    let mut direct_unbucketed_samples = Vec::with_capacity(config.sample_count);
+    let mut delivery_total_samples = Vec::with_capacity(config.sample_count);
+    let mut delivery_ot_open_join_samples = Vec::with_capacity(config.sample_count);
+    let mut delivery_ot_branch_key_derivation_samples = Vec::with_capacity(config.sample_count);
+    let mut delivery_ot_branch_decrypt_samples = Vec::with_capacity(config.sample_count);
+    let mut delivery_ot_point_scalar_reconstruction_samples =
+        Vec::with_capacity(config.sample_count);
+    let mut delivery_ot_commitment_verification_samples = Vec::with_capacity(config.sample_count);
+    let mut delivery_server_input_open_samples = Vec::with_capacity(config.sample_count);
+    let mut delivery_server_input_share_samples = Vec::with_capacity(config.sample_count);
+    let mut delivery_server_input_commitment_samples = Vec::with_capacity(config.sample_count);
+    let mut delivery_server_input_transcript_samples = Vec::with_capacity(config.sample_count);
+    let mut delivery_result_assembly_samples = Vec::with_capacity(config.sample_count);
+    let mut delivery_output_sealing_finalization_samples = Vec::with_capacity(config.sample_count);
+    let mut delivery_unbucketed_samples = Vec::with_capacity(config.sample_count);
 
     for _ in 0..config.sample_count {
         let mut input_sharing_total_ns = 0f64;
@@ -148,26 +179,22 @@ pub fn generate_ddh_hidden_eval_benchmark_report(
         let mut round_new_e_bits_total_ns = 0f64;
         let mut output_projector_total_ns = 0f64;
         let mut total_total_ns = 0f64;
+        let mut direct_unbucketed_total_ns = 0f64;
+        let mut delivery_total_total_ns = 0f64;
+        let mut delivery_ot_open_join_total_ns = 0f64;
+        let mut delivery_ot_branch_key_derivation_total_ns = 0f64;
+        let mut delivery_ot_branch_decrypt_total_ns = 0f64;
+        let mut delivery_ot_point_scalar_reconstruction_total_ns = 0f64;
+        let mut delivery_ot_commitment_verification_total_ns = 0f64;
+        let mut delivery_server_input_open_total_ns = 0f64;
+        let mut delivery_server_input_share_total_ns = 0f64;
+        let mut delivery_server_input_commitment_total_ns = 0f64;
+        let mut delivery_server_input_transcript_total_ns = 0f64;
+        let mut delivery_result_assembly_total_ns = 0f64;
+        let mut delivery_output_sealing_finalization_total_ns = 0f64;
+        let mut delivery_unbucketed_total_ns = 0f64;
 
         for _ in 0..config.stage_sample_iterations {
-            let total_started = Instant::now();
-            let delivery_report = session.evaluate_for_clear_input_debug(&fixture.input)?;
-            let transport_total_ns = total_started.elapsed().as_nanos() as f64;
-            let x_client_base = output_openers
-                .client
-                .open(&delivery_report.output_delivery.client)?;
-            let x_relayer_base = output_openers
-                .server
-                .open(&delivery_report.output_delivery.server)?;
-            let public_key = public_key_from_base_shares(x_client_base, x_relayer_base)?;
-            if x_client_base != fixture.output.x_client_base
-                || x_relayer_base != fixture.output.x_relayer_base
-                || public_key != fixture.output.public_key
-            {
-                return Err(ProtoError::Decode(
-                    "sampled DDH delivery-path output does not match frozen fixture".to_string(),
-                ));
-            }
             let profile = session.profile_hidden_eval_for_clear_input(&fixture.input)?;
             let (x_client_base, x_relayer_base, public_key) =
                 session.materialize_hidden_outputs_for_debug(&profile.run.output)?;
@@ -180,6 +207,7 @@ pub fn generate_ddh_hidden_eval_benchmark_report(
                 ));
             }
 
+            let direct_profile_total_ns = profile.stage_profile.total_duration_ns as f64;
             input_sharing_total_ns += profile.stage_profile.input_sharing_duration_ns as f64;
             add_stage_total_ns += profile.stage_profile.add_stage_duration_ns as f64;
             message_schedule_total_ns += profile.stage_profile.message_schedule_duration_ns as f64;
@@ -198,9 +226,64 @@ pub fn generate_ddh_hidden_eval_benchmark_report(
             round_new_a_bits_total_ns += profile.stage_profile.round_new_a_bits_duration_ns as f64;
             round_new_e_bits_total_ns += profile.stage_profile.round_new_e_bits_duration_ns as f64;
             output_projector_total_ns += profile.stage_profile.output_projector_duration_ns as f64;
-            total_total_ns += transport_total_ns;
+            total_total_ns += direct_profile_total_ns;
+            direct_unbucketed_total_ns += direct_executor_unbucketed_ns(&profile.stage_profile);
 
-            black_box((x_client_base, x_relayer_base, public_key));
+            let delivery_started = Instant::now();
+            let (delivery_report, delivery_timing) =
+                session.evaluate_for_clear_input_debug_timed(&fixture.input)?;
+            let delivery_total_ns = delivery_started.elapsed().as_nanos() as f64;
+            let delivery_x_client_base = output_openers
+                .client
+                .open(&delivery_report.output_delivery.client)?;
+            let delivery_x_relayer_base = output_openers
+                .server
+                .open(&delivery_report.output_delivery.server)?;
+            let delivery_public_key =
+                public_key_from_base_shares(delivery_x_client_base, delivery_x_relayer_base)?;
+            if delivery_x_client_base != fixture.output.x_client_base
+                || delivery_x_relayer_base != fixture.output.x_relayer_base
+                || delivery_public_key != fixture.output.public_key
+            {
+                return Err(ProtoError::Decode(
+                    "sampled DDH delivery-path output does not match frozen fixture".to_string(),
+                ));
+            }
+            delivery_total_total_ns += delivery_total_ns;
+            delivery_ot_open_join_total_ns += delivery_timing.ot_open_join_duration_ns as f64;
+            delivery_ot_branch_key_derivation_total_ns +=
+                delivery_timing.ot_branch_key_derivation_duration_ns as f64;
+            delivery_ot_branch_decrypt_total_ns +=
+                delivery_timing.ot_branch_decrypt_duration_ns as f64;
+            delivery_ot_point_scalar_reconstruction_total_ns +=
+                delivery_timing.ot_point_scalar_reconstruction_duration_ns as f64;
+            delivery_ot_commitment_verification_total_ns +=
+                delivery_timing.ot_commitment_verification_duration_ns as f64;
+            delivery_server_input_open_total_ns +=
+                delivery_timing.server_input_open_duration_ns as f64;
+            delivery_server_input_share_total_ns +=
+                delivery_timing.server_input_share_duration_ns as f64;
+            delivery_server_input_commitment_total_ns +=
+                delivery_timing.server_input_commitment_duration_ns as f64;
+            delivery_server_input_transcript_total_ns +=
+                delivery_timing.server_input_transcript_duration_ns as f64;
+            delivery_result_assembly_total_ns += delivery_timing.result_assembly_duration_ns as f64;
+            delivery_output_sealing_finalization_total_ns +=
+                delivery_timing.output_sealing_finalization_duration_ns as f64;
+            delivery_unbucketed_total_ns += delivery_unbucketed_ns(
+                delivery_total_ns,
+                &delivery_timing,
+                direct_profile_total_ns,
+            );
+
+            black_box((
+                x_client_base,
+                x_relayer_base,
+                public_key,
+                delivery_x_client_base,
+                delivery_x_relayer_base,
+                delivery_public_key,
+            ));
         }
 
         let iterations = config.stage_sample_iterations as f64;
@@ -221,6 +304,26 @@ pub fn generate_ddh_hidden_eval_benchmark_report(
         round_new_e_bits_samples.push(round_new_e_bits_total_ns / iterations);
         output_projector_samples.push(output_projector_total_ns / iterations);
         total_samples.push(total_total_ns / iterations);
+        direct_unbucketed_samples.push(direct_unbucketed_total_ns / iterations);
+        delivery_total_samples.push(delivery_total_total_ns / iterations);
+        delivery_ot_open_join_samples.push(delivery_ot_open_join_total_ns / iterations);
+        delivery_ot_branch_key_derivation_samples
+            .push(delivery_ot_branch_key_derivation_total_ns / iterations);
+        delivery_ot_branch_decrypt_samples.push(delivery_ot_branch_decrypt_total_ns / iterations);
+        delivery_ot_point_scalar_reconstruction_samples
+            .push(delivery_ot_point_scalar_reconstruction_total_ns / iterations);
+        delivery_ot_commitment_verification_samples
+            .push(delivery_ot_commitment_verification_total_ns / iterations);
+        delivery_server_input_open_samples.push(delivery_server_input_open_total_ns / iterations);
+        delivery_server_input_share_samples.push(delivery_server_input_share_total_ns / iterations);
+        delivery_server_input_commitment_samples
+            .push(delivery_server_input_commitment_total_ns / iterations);
+        delivery_server_input_transcript_samples
+            .push(delivery_server_input_transcript_total_ns / iterations);
+        delivery_result_assembly_samples.push(delivery_result_assembly_total_ns / iterations);
+        delivery_output_sealing_finalization_samples
+            .push(delivery_output_sealing_finalization_total_ns / iterations);
+        delivery_unbucketed_samples.push(delivery_unbucketed_total_ns / iterations);
     }
 
     let stage_timings = vec![
@@ -253,6 +356,11 @@ pub fn generate_ddh_hidden_eval_benchmark_report(
             "total_hidden_eval",
             config.stage_sample_iterations,
             total_samples,
+        ),
+        component_report(
+            "direct_executor_unbucketed",
+            config.stage_sample_iterations,
+            direct_unbucketed_samples,
         ),
     ];
     let substage_timings = vec![
@@ -303,9 +411,77 @@ pub fn generate_ddh_hidden_eval_benchmark_report(
             round_new_e_bits_samples,
         ),
     ];
+    let delivery_timings = vec![
+        component_report(
+            "delivery_total",
+            config.stage_sample_iterations,
+            delivery_total_samples,
+        ),
+        component_report(
+            "delivery_unbucketed",
+            config.stage_sample_iterations,
+            delivery_unbucketed_samples,
+        ),
+        component_report(
+            "ot_open_join",
+            config.stage_sample_iterations,
+            delivery_ot_open_join_samples,
+        ),
+        component_report(
+            "ot_branch_key_derivation",
+            config.stage_sample_iterations,
+            delivery_ot_branch_key_derivation_samples,
+        ),
+        component_report(
+            "ot_branch_decrypt",
+            config.stage_sample_iterations,
+            delivery_ot_branch_decrypt_samples,
+        ),
+        component_report(
+            "ot_point_scalar_reconstruction",
+            config.stage_sample_iterations,
+            delivery_ot_point_scalar_reconstruction_samples,
+        ),
+        component_report(
+            "ot_commitment_verification",
+            config.stage_sample_iterations,
+            delivery_ot_commitment_verification_samples,
+        ),
+        component_report(
+            "server_input_open",
+            config.stage_sample_iterations,
+            delivery_server_input_open_samples,
+        ),
+        component_report(
+            "server_input_share",
+            config.stage_sample_iterations,
+            delivery_server_input_share_samples,
+        ),
+        component_report(
+            "server_input_commitment",
+            config.stage_sample_iterations,
+            delivery_server_input_commitment_samples,
+        ),
+        component_report(
+            "server_input_transcript",
+            config.stage_sample_iterations,
+            delivery_server_input_transcript_samples,
+        ),
+        component_report(
+            "result_assembly",
+            config.stage_sample_iterations,
+            delivery_result_assembly_samples,
+        ),
+        component_report(
+            "output_sealing_finalization",
+            config.stage_sample_iterations,
+            delivery_output_sealing_finalization_samples,
+        ),
+    ];
 
     Ok(DdhHiddenEvalBenchmarkReport {
         report_version: DDH_HIDDEN_EVAL_BENCHMARK_REPORT_VERSION.to_string(),
+        metadata,
         fixture_name: fixture.name.clone(),
         artifact_bytes: session.artifact_summary().artifact_bytes,
         active_window_records: session.hidden_eval_program().active_window_records,
@@ -324,6 +500,7 @@ pub fn generate_ddh_hidden_eval_benchmark_report(
         primitive_timings,
         stage_timings,
         substage_timings,
+        delivery_timings,
         reference_match: true,
         output_public_key_hex: hex::encode(baseline_public_key),
         output_x_client_base_hex: hex::encode(baseline_x_client_base),
@@ -334,13 +511,17 @@ impl DdhHiddenEvalBenchmarkReport {
     pub fn summary_lines(&self) -> Vec<String> {
         let mut lines = vec![
             format!(
-                "ddh hidden eval: fixture={} artifact={}B active_windows={} steps={} curve_cost={} reference_match={}",
+                "ddh hidden eval: fixture={} artifact={}B active_windows={} steps={} curve_cost={} reference_match={} generated_at={} host={}/{} cores={}",
                 self.fixture_name,
                 self.artifact_bytes,
                 self.active_window_records,
                 self.total_steps,
                 self.curve_cost_units,
                 self.reference_match,
+                self.metadata.generated_at_unix_secs,
+                self.metadata.host_os,
+                self.metadata.host_arch,
+                self.metadata.logical_cores,
             ),
             format!(
                 "prepare: {}ns public_key={} x_client={}",
@@ -370,8 +551,62 @@ impl DdhHiddenEvalBenchmarkReport {
             ));
         }
 
+        for report in &self.delivery_timings {
+            lines.push(format!(
+                "delivery {}: mean={:.1}ns median={:.1}ns p95={:.1}ns throughput_mean={:.4} runs/s",
+                report.name,
+                report.latency_ns_per_op.mean,
+                report.latency_ns_per_op.median,
+                report.latency_ns_per_op.p95,
+                report.throughput_ops_per_sec.mean,
+            ));
+        }
+
         lines
     }
+}
+
+fn capture_benchmark_metadata() -> DdhHiddenEvalBenchmarkMetadata {
+    DdhHiddenEvalBenchmarkMetadata {
+        generated_at_unix_secs: unix_timestamp_now(),
+        host_os: env::consts::OS.to_string(),
+        host_arch: env::consts::ARCH.to_string(),
+        logical_cores: thread::available_parallelism()
+            .map(|value| value.get())
+            .unwrap_or(1),
+    }
+}
+
+fn unix_timestamp_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0)
+}
+
+fn direct_executor_unbucketed_ns(stage_profile: &DdhHiddenEvalStageProfile) -> f64 {
+    let accounted_ns = stage_profile
+        .input_sharing_duration_ns
+        .saturating_add(stage_profile.add_stage_duration_ns)
+        .saturating_add(stage_profile.message_schedule_duration_ns)
+        .saturating_add(stage_profile.round_core_duration_ns)
+        .saturating_add(stage_profile.output_projector_duration_ns);
+    stage_profile.total_duration_ns.saturating_sub(accounted_ns) as f64
+}
+
+fn delivery_unbucketed_ns(
+    delivery_total_ns: f64,
+    timing: &EvaluateTiming,
+    direct_executor_total_ns: f64,
+) -> f64 {
+    let accounted_ns = timing
+        .ot_open_join_duration_ns
+        .saturating_add(timing.server_input_open_duration_ns)
+        .saturating_add(timing.result_assembly_duration_ns)
+        .saturating_add(timing.output_sealing_finalization_duration_ns)
+        as f64
+        + direct_executor_total_ns;
+    (delivery_total_ns - accounted_ns).max(0.0)
 }
 
 fn benchmark_primitives(
@@ -502,7 +737,13 @@ fn component_report(
 ) -> ComponentTimingReport {
     let throughput_samples = per_op_latencies
         .iter()
-        .map(|latency| 1_000_000_000.0 / latency)
+        .map(|latency| {
+            if *latency > 0.0 {
+                1_000_000_000.0 / latency
+            } else {
+                0.0
+            }
+        })
         .collect::<Vec<_>>();
 
     ComponentTimingReport {
