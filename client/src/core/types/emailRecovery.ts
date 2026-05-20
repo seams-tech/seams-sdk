@@ -48,7 +48,6 @@ export type PendingEmailRecovery = {
   signerSlot: number;
   requestId: string;
   recoverySessionId: RecoverySubjectBinding['recoverySessionId'];
-  ecdsaThresholdKeyId: string;
   // New key material (e.g., a fresh access key) will be derived and added during finalize.
   nearPublicKey: RecoveryTargetKeySet['newNearPublicKey'];
   newEvmOwnerAddress: RecoveryTargetKeySet['newEvmOwnerAddress'];

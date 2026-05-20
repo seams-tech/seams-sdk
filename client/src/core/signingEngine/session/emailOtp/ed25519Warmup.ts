@@ -1,4 +1,4 @@
-import { toAccountId, type AccountId } from '@/core/types/accountIds';
+import type { AccountId } from '@/core/types/accountIds';
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
 import type {
@@ -9,9 +9,11 @@ import type {
 import type {
   ThresholdEcdsaChainTarget,
   WalletSessionRef,
-  WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { walletSessionRefFromSession } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  toWalletId,
+  walletSessionRefFromSession,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
@@ -94,12 +96,12 @@ export class EmailOtpEd25519Warmup {
 
   constructor(private readonly ports: EmailOtpEd25519WarmupPorts) {}
 
-  isPending(args: { nearAccountId: AccountId | string }): boolean {
+  isPending(args: { nearAccountId: AccountId }): boolean {
     const accountId = this.normalizeWarmupAccountId(args.nearAccountId);
     return Boolean(accountId && this.getWarmupMap().has(accountId));
   }
 
-  async waitForPending(args: { nearAccountId: AccountId | string }): Promise<boolean> {
+  async waitForPending(args: { nearAccountId: AccountId }): Promise<boolean> {
     const accountId = this.normalizeWarmupAccountId(args.nearAccountId);
     if (!accountId) return false;
     const pending = this.getWarmupMap().get(accountId);
@@ -162,7 +164,7 @@ export class EmailOtpEd25519Warmup {
   }
 
   async loginForSigning(args: {
-    nearAccountId: AccountId | string;
+    nearAccountId: AccountId;
     challengeId: string;
     otpCode: string;
     record: ThresholdEd25519SessionRecord;
@@ -170,7 +172,7 @@ export class EmailOtpEd25519Warmup {
     authLane?: EmailOtpAuthLane;
     remainingUses?: number;
   }): Promise<{ sessionId: string; record?: ThresholdEd25519SessionRecord }> {
-    const nearAccountId = toAccountId(args.nearAccountId);
+    const nearAccountId = args.nearAccountId;
     const relayUrl = String(args.record.relayerUrl || this.ports.requireRelayUrl()).trim();
     const providedAuthLane = args.authLane;
     const providedRouteAuth = providedAuthLane
@@ -211,7 +213,7 @@ export class EmailOtpEd25519Warmup {
           });
     const defaultRemainingUses = Math.max(1, Math.floor(Number(args.remainingUses) || 1));
     const ecdsaRecord = selectEmailOtpEcdsaRecordForEd25519Signing({
-      walletId: nearAccountId,
+      walletId: toWalletId(nearAccountId),
       walletSigningSessionFilter: args.record.walletSigningSessionId,
       listThresholdEcdsaSessionRecordsForWallet:
         this.ports.listThresholdEcdsaSessionRecordsForWallet,
@@ -226,7 +228,6 @@ export class EmailOtpEd25519Warmup {
         walletId: nearAccountId,
         walletSessionUserId: nearAccountId,
       }),
-      subjectId: ecdsaRecord.subjectId,
       relayUrl,
       chainTarget: ecdsaRecord.chainTarget,
       emailOtpAuthPolicy: 'per_operation',
@@ -234,9 +235,6 @@ export class EmailOtpEd25519Warmup {
       challengeId: args.challengeId,
       otpCode: args.otpCode,
       operation,
-      ...(ecdsaRecord?.ecdsaThresholdKeyId
-        ? { ecdsaThresholdKeyId: ecdsaRecord.ecdsaThresholdKeyId }
-        : {}),
       participantIds: ecdsaRecord?.participantIds || args.record.participantIds,
       ed25519ParticipantIds: args.record.participantIds,
       sessionKind: args.record.thresholdSessionKind,
@@ -260,7 +258,7 @@ export class EmailOtpEd25519Warmup {
     };
   }
 
-  private normalizeWarmupAccountId(nearAccountId: AccountId | string): string {
+  private normalizeWarmupAccountId(nearAccountId: AccountId): string {
     return String(nearAccountId || '').trim();
   }
 

@@ -430,6 +430,12 @@ export function registerThresholdEcdsaRoutes(
             ? body.sessionPolicy.subjectId
             : undefined,
         chainTarget: body.sessionPolicy?.chainTarget,
+        keyHandle:
+          typeof body.keyHandle === 'string'
+            ? body.keyHandle
+            : typeof body.sessionPolicy?.keyHandle === 'string'
+              ? body.sessionPolicy.keyHandle
+              : undefined,
         ecdsaThresholdKeyId:
           typeof body.ecdsaThresholdKeyId === 'string'
             ? body.ecdsaThresholdKeyId
@@ -619,7 +625,7 @@ export function registerThresholdEcdsaRoutes(
             participantIds: result.participantIds,
             subjectId: result.subjectId,
             chainTarget: result.chainTarget,
-            ecdsaThresholdKeyId: result.ecdsaThresholdKeyId,
+            keyHandle: result.keyHandle,
             ...(result.runtimePolicyScope ? { runtimePolicyScope: result.runtimePolicyScope } : {}),
           },
           fallbackParticipantIds: result.participantIds,
@@ -665,6 +671,7 @@ export function registerThresholdEcdsaRoutes(
       res,
       '/threshold-ecdsa/authorize',
       {
+        keyHandle: typeof body.keyHandle === 'string' ? body.keyHandle : undefined,
         ecdsaThresholdKeyId:
           typeof body.ecdsaThresholdKeyId === 'string' ? body.ecdsaThresholdKeyId : undefined,
         purpose: typeof body.purpose === 'string' ? body.purpose : undefined,
@@ -714,6 +721,7 @@ export function registerThresholdEcdsaRoutes(
         res,
         '/threshold-ecdsa/presign/init',
         {
+          keyHandle: typeof body.keyHandle === 'string' ? body.keyHandle : undefined,
           ecdsaThresholdKeyId:
             typeof body.ecdsaThresholdKeyId === 'string' ? body.ecdsaThresholdKeyId : undefined,
           count: typeof (body as any).count === 'number' ? (body as any).count : undefined,

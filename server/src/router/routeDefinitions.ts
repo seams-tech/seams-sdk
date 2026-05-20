@@ -1672,6 +1672,14 @@ export function createRelayRouteDefinitions(
       },
       ['threshold'],
     ),
+    thresholdSessionRoute(
+      'threshold_ecdsa_key_identities',
+      'POST',
+      '/threshold-ecdsa/key-identities',
+      'Resolve threshold ECDSA key identities for an active threshold Ed25519 session',
+      'ed25519',
+      ['threshold', 'session'],
+    ),
     publicRoute(
       'threshold_ecdsa_hss_prepare',
       'POST',

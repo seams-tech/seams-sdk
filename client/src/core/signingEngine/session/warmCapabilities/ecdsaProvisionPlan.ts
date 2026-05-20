@@ -5,11 +5,16 @@ import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
-  type WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '../identity/laneIdentity';
+import {
+  resolveThresholdEcdsaKeyIdFromKeyRef,
+  resolveThresholdEcdsaKeyIdFromRecord,
+  resolveThresholdSigningRootBindingFromRecord,
+  type EvmFamilyEcdsaKeyIdentity,
+} from '../identity/evmFamilyEcdsaIdentity';
 import type {
   ThresholdRuntimePolicyScope,
   ThresholdSessionKind,
@@ -47,7 +52,7 @@ export type VerifiedEcdsaThresholdSessionAuth = {
 
 export type PasskeyEcdsaSessionProvision = {
   kind: 'passkey_ecdsa_session_provision';
-  subjectId: WalletSubjectId;
+  key: EvmFamilyEcdsaKeyIdentity;
   chainTarget: ThresholdEcdsaChainTarget;
   newSessionIdentity: EcdsaSessionIdentity;
   signingKeyContext: EcdsaSigningKeyContext;
@@ -64,7 +69,6 @@ export type PasskeyEcdsaSessionProvision = {
 
 export type ThresholdSessionAuthEcdsaReconnect = {
   kind: 'threshold_session_auth_ecdsa_reconnect';
-  subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   existingSessionIdentity: EcdsaSessionIdentity;
   signingKeyContext: EcdsaSigningKeyContext;
@@ -80,7 +84,6 @@ export type ThresholdSessionAuthEcdsaReconnect = {
 
 export type CookieEcdsaReconnect = {
   kind: 'cookie_ecdsa_reconnect';
-  subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   existingSessionIdentity: EcdsaSessionIdentity;
   signingKeyContext: EcdsaSigningKeyContext;
@@ -96,7 +99,7 @@ export type CookieEcdsaReconnect = {
 
 export type EmailOtpEcdsaSessionProvision = {
   kind: 'email_otp_ecdsa_session_provision';
-  subjectId: WalletSubjectId;
+  key: EvmFamilyEcdsaKeyIdentity;
   chainTarget: ThresholdEcdsaChainTarget;
   newSessionIdentity: EcdsaSessionIdentity;
   signingKeyContext: EcdsaSigningKeyContext;
@@ -125,7 +128,7 @@ export type EcdsaReconnectMaterial = {
 
 type BuildPasskeyEcdsaSessionProvisionPlanArgs = {
   kind: 'passkey_ecdsa_session_provision';
-  subjectId: WalletSubjectId;
+  key: EvmFamilyEcdsaKeyIdentity;
   chainTarget: ThresholdEcdsaChainTarget;
   sessionIdentity: EcdsaSessionIdentity;
   signingKeyContext: EcdsaSigningKeyContext;
@@ -140,7 +143,7 @@ type BuildPasskeyEcdsaSessionProvisionPlanArgs = {
 
 type BuildEmailOtpEcdsaSessionProvisionPlanArgs = {
   kind: 'email_otp_ecdsa_session_provision';
-  subjectId: WalletSubjectId;
+  key: EvmFamilyEcdsaKeyIdentity;
   chainTarget: ThresholdEcdsaChainTarget;
   sessionIdentity: EcdsaSessionIdentity;
   signingKeyContext: EcdsaSigningKeyContext;
@@ -155,7 +158,6 @@ type BuildEmailOtpEcdsaSessionProvisionPlanArgs = {
 
 type BuildReconnectEcdsaSessionProvisionPlanArgs = {
   kind: 'ecdsa_session_reconnect';
-  subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   sessionIdentity: EcdsaSessionIdentity;
   sessionBudgetUses: number;
@@ -214,17 +216,54 @@ function signingRootVersionKey(value: unknown): string {
   return String(value ?? '').trim() || 'default';
 }
 
+function buildEcdsaSigningKeyContextFromRecord(
+  record: ThresholdEcdsaSessionRecord,
+): EcdsaSigningKeyContext {
+  const signingRootBinding = resolveThresholdSigningRootBindingFromRecord({
+    record,
+  });
+  return {
+    ecdsaThresholdKeyId: String(resolveThresholdEcdsaKeyIdFromRecord({ record })),
+    signingRootId: String(signingRootBinding.signingRootId),
+    signingRootVersion: String(signingRootBinding.signingRootVersion),
+    participantIds: requireParticipantIds(record.participantIds, 'participantIds'),
+  };
+}
+
+function buildEcdsaSigningKeyContextFromKeyRef(
+  keyRef: ThresholdEcdsaSecp256k1KeyRef,
+): EcdsaSigningKeyContext {
+  return {
+    ecdsaThresholdKeyId: String(resolveThresholdEcdsaKeyIdFromKeyRef({ keyRef })),
+    signingRootId: requireNonEmptyString(keyRef.signingRootId, 'signingRootId'),
+    signingRootVersion: requireNonEmptyString(keyRef.signingRootVersion, 'signingRootVersion'),
+    participantIds: requireParticipantIds(keyRef.participantIds, 'participantIds'),
+  };
+}
+
+function hasRecordSigningRootBinding(record: ThresholdEcdsaSessionRecord): boolean {
+  return Boolean(record.runtimePolicyScope);
+}
+
 function requireMatchingSigningKeyContext(args: {
   record: ThresholdEcdsaSessionRecord;
   keyRef: ThresholdEcdsaSecp256k1KeyRef;
 }): EcdsaSigningKeyContext {
-  const recordContext = buildEcdsaSigningKeyContext({ record: args.record });
-  const keyRefContext = buildEcdsaSigningKeyContext({ keyRef: args.keyRef });
+  const recordContext = buildEcdsaSigningKeyContextFromRecord(args.record);
+  const keyRefContext = buildEcdsaSigningKeyContextFromKeyRef(args.keyRef);
+  const recordKeyHandle = requireNonEmptyString(args.record.keyHandle, 'record.keyHandle');
+  const keyRefKeyHandle = requireNonEmptyString(args.keyRef.keyHandle, 'keyRef.keyHandle');
+  if (recordKeyHandle !== keyRefKeyHandle) {
+    throw new Error('[SigningEngine][ecdsa] reconnect material has mismatched key identity');
+  }
+  const recordHasSigningRootBinding = hasRecordSigningRootBinding(args.record);
+  const recordExplicitKeyId = String(args.record.ecdsaThresholdKeyId || '').trim();
   if (
-    recordContext.ecdsaThresholdKeyId !== keyRefContext.ecdsaThresholdKeyId ||
-    recordContext.signingRootId !== keyRefContext.signingRootId ||
-    signingRootVersionKey(recordContext.signingRootVersion) !==
-      signingRootVersionKey(keyRefContext.signingRootVersion) ||
+    (recordExplicitKeyId && recordExplicitKeyId !== keyRefContext.ecdsaThresholdKeyId) ||
+    (recordHasSigningRootBinding &&
+      (recordContext.signingRootId !== keyRefContext.signingRootId ||
+        signingRootVersionKey(recordContext.signingRootVersion) !==
+          signingRootVersionKey(keyRefContext.signingRootVersion))) ||
     participantIdsKey(recordContext.participantIds) !==
       participantIdsKey(keyRefContext.participantIds)
   ) {
@@ -296,30 +335,11 @@ function tryBuildEcdsaSessionIdentityFromClaims(
   });
 }
 
-export function buildEcdsaSigningKeyContext(args: {
-  keyRef?: ThresholdEcdsaSecp256k1KeyRef | null;
-  record?: ThresholdEcdsaSessionRecord | null;
+export function buildEcdsaSigningKeyContextFromPairedMaterial(args: {
+  record: ThresholdEcdsaSessionRecord;
+  keyRef: ThresholdEcdsaSecp256k1KeyRef;
 }): EcdsaSigningKeyContext {
-  const keyRef = args.keyRef;
-  const record = args.record;
-  return {
-    ecdsaThresholdKeyId: requireNonEmptyString(
-      keyRef?.ecdsaThresholdKeyId || record?.ecdsaThresholdKeyId,
-      'ecdsaThresholdKeyId',
-    ),
-    signingRootId: requireNonEmptyString(
-      keyRef?.signingRootId || record?.signingRootId,
-      'signingRootId',
-    ),
-    signingRootVersion: requireNonEmptyString(
-      keyRef?.signingRootVersion || record?.signingRootVersion,
-      'signingRootVersion',
-    ),
-    participantIds: requireParticipantIds(
-      keyRef?.participantIds || record?.participantIds,
-      'participantIds',
-    ),
-  };
+  return requireMatchingSigningKeyContext(args);
 }
 
 export function buildEcdsaReconnectMaterial(args: {
@@ -330,9 +350,6 @@ export function buildEcdsaReconnectMaterial(args: {
   const keyRefIdentity = buildEcdsaSessionIdentity(args.keyRef);
   if (!ecdsaSessionIdentitiesEqual(recordIdentity, keyRefIdentity)) {
     throw new Error('[SigningEngine][ecdsa] reconnect material has mismatched session identity');
-  }
-  if (String(args.record.subjectId) !== String(args.keyRef.subjectId)) {
-    throw new Error('[SigningEngine][ecdsa] reconnect material has mismatched subject identity');
   }
   if (!thresholdEcdsaChainTargetsEqual(args.record.chainTarget, args.keyRef.chainTarget)) {
     throw new Error(
@@ -390,12 +407,12 @@ function verifyEcdsaThresholdSessionAuth(args: {
 
 function selectReconnectThresholdSessionAuthToken(args: {
   identity: EcdsaSessionIdentity;
-  keyRef?: ThresholdEcdsaSecp256k1KeyRef | null;
-  record?: ThresholdEcdsaSessionRecord | null;
+  keyRef: ThresholdEcdsaSecp256k1KeyRef;
+  record: ThresholdEcdsaSessionRecord;
 }): string | null {
   const candidates = [
-    String(args.keyRef?.thresholdSessionAuthToken || '').trim(),
-    String(args.record?.thresholdSessionAuthToken || '').trim(),
+    String(args.keyRef.thresholdSessionAuthToken || '').trim(),
+    String(args.record.thresholdSessionAuthToken || '').trim(),
   ].filter(Boolean);
   for (const token of candidates) {
     const claims = decodeJwtPayloadRecord(token);
@@ -409,7 +426,7 @@ function selectReconnectThresholdSessionAuthToken(args: {
 }
 
 export function buildPasskeyEcdsaSessionProvision(args: {
-  subjectId: WalletSubjectId;
+  key: EvmFamilyEcdsaKeyIdentity;
   chainTarget: ThresholdEcdsaChainTarget;
   newSessionIdentity: EcdsaSessionIdentity;
   signingKeyContext: EcdsaSigningKeyContext;
@@ -421,7 +438,7 @@ export function buildPasskeyEcdsaSessionProvision(args: {
 }): PasskeyEcdsaSessionProvision {
   return {
     kind: 'passkey_ecdsa_session_provision',
-    subjectId: args.subjectId,
+    key: args.key,
     chainTarget: args.chainTarget,
     newSessionIdentity: args.newSessionIdentity,
     signingKeyContext: args.signingKeyContext,
@@ -439,7 +456,6 @@ export function buildPasskeyEcdsaSessionProvision(args: {
 }
 
 export function buildThresholdSessionAuthEcdsaReconnect(args: {
-  subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   existingSessionIdentity: EcdsaSessionIdentity;
   sessionBudgetUses: number;
@@ -454,7 +470,6 @@ export function buildThresholdSessionAuthEcdsaReconnect(args: {
   if (sessionKind === 'cookie') {
     return {
       kind: 'cookie_ecdsa_reconnect',
-      subjectId: args.subjectId,
       chainTarget: args.chainTarget,
       existingSessionIdentity: args.existingSessionIdentity,
       signingKeyContext,
@@ -468,12 +483,11 @@ export function buildThresholdSessionAuthEcdsaReconnect(args: {
     record,
   });
   const relayerKeyId = requireNonEmptyString(
-    record?.relayerKeyId || keyRef?.backendBinding?.relayerKeyId,
+    record.relayerKeyId || keyRef.backendBinding?.relayerKeyId,
     'relayerKeyId',
   );
   return {
     kind: 'threshold_session_auth_ecdsa_reconnect',
-    subjectId: args.subjectId,
     chainTarget: args.chainTarget,
     existingSessionIdentity: args.existingSessionIdentity,
     signingKeyContext,
@@ -494,7 +508,7 @@ export function buildThresholdSessionAuthEcdsaReconnect(args: {
 }
 
 export function buildEmailOtpEcdsaSessionProvision(args: {
-  subjectId: WalletSubjectId;
+  key: EvmFamilyEcdsaKeyIdentity;
   chainTarget: ThresholdEcdsaChainTarget;
   newSessionIdentity: EcdsaSessionIdentity;
   signingKeyContext: EcdsaSigningKeyContext;
@@ -506,7 +520,7 @@ export function buildEmailOtpEcdsaSessionProvision(args: {
 }): EmailOtpEcdsaSessionProvision {
   return {
     kind: 'email_otp_ecdsa_session_provision',
-    subjectId: args.subjectId,
+    key: args.key,
     chainTarget: args.chainTarget,
     newSessionIdentity: args.newSessionIdentity,
     signingKeyContext: args.signingKeyContext,
@@ -529,7 +543,7 @@ export function buildEcdsaSessionProvisionPlan(
   switch (args.kind) {
     case 'email_otp_ecdsa_session_provision':
       return buildEmailOtpEcdsaSessionProvision({
-        subjectId: args.subjectId,
+        key: args.key,
         chainTarget: args.chainTarget,
         newSessionIdentity: args.sessionIdentity,
         signingKeyContext: args.signingKeyContext,
@@ -544,7 +558,7 @@ export function buildEcdsaSessionProvisionPlan(
       });
     case 'passkey_ecdsa_session_provision':
       return buildPasskeyEcdsaSessionProvision({
-        subjectId: args.subjectId,
+        key: args.key,
         chainTarget: args.chainTarget,
         newSessionIdentity: args.sessionIdentity,
         signingKeyContext: args.signingKeyContext,
@@ -559,7 +573,6 @@ export function buildEcdsaSessionProvisionPlan(
       });
     case 'ecdsa_session_reconnect':
       return buildThresholdSessionAuthEcdsaReconnect({
-        subjectId: args.subjectId,
         chainTarget: args.chainTarget,
         existingSessionIdentity: args.sessionIdentity,
         sessionBudgetUses: args.sessionBudgetUses,

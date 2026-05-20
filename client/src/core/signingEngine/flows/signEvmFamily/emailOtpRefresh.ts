@@ -16,11 +16,15 @@ import {
 } from './ecdsaLanes';
 import type { EvmFamilyChain } from './types';
 import {
+  toWalletId,
   thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
   type WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
+import {
+  thresholdEcdsaRecordRpId,
+  type ThresholdEcdsaSessionRecord,
+} from '../../session/persistence/records';
 import type { EvmFamilyEcdsaEmailOtpStepUpAuthorization } from './stepUpAuthorization';
 import { buildEvmFamilyEmailOtpEcdsaProvisionPlan } from './provisionPlan';
 
@@ -43,7 +47,7 @@ export async function completeEvmFamilyEmailOtpSigningRefresh(args: {
   emailOtpSigning: EvmFamilyEmailOtpSigningCompleter;
   authorization: EvmFamilyEcdsaEmailOtpStepUpAuthorization;
 }): Promise<EvmFamilyEmailOtpSigningRefreshResult> {
-  const walletId = String(args.walletSession.walletId);
+  const walletId = toWalletId(args.walletSession.walletId);
   const completed = await args.emailOtpSigning.complete(
     args.authorization.otpCode,
     args.authorization.challengeId,
@@ -72,10 +76,9 @@ export async function completeEvmFamilyEmailOtpSigningRefresh(args: {
   const materialResolution = resolveReadyEvmFamilyEcdsaMaterial({
     record,
     keyRef,
-    rpId: record.rpId,
+    rpId: thresholdEcdsaRecordRpId(record),
     expected: {
       walletId: record.walletId,
-      subjectId: record.subjectId,
       chainTarget: args.chainTarget,
       authMethod: SIGNER_AUTH_METHODS.emailOtp,
       source: SIGNER_AUTH_METHODS.emailOtp,
@@ -90,8 +93,7 @@ export async function completeEvmFamilyEmailOtpSigningRefresh(args: {
   }
   const provisionPlan = buildEvmFamilyEmailOtpEcdsaProvisionPlan({
     authorization: args.authorization,
-    keyRef,
-    record,
+    material: materialResolution.material,
     chainTarget: args.chainTarget,
     clientRootShare32B64u: completed.clientRootShare32B64u,
     sessionBudgetUses: 1,

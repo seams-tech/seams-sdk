@@ -3,7 +3,10 @@ import type { TempoSignedResult } from '../../signingEngine/chains/tempo/tempoAd
 import { toError } from '@shared/utils/errors';
 import { toAccountId } from '../../types/accountIds';
 import { routeWalletIframeOrLocal, type WalletIframeRouteDeps } from '../walletIframeRoute';
-import { thresholdEcdsaChainTargetFromRequest } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  thresholdEcdsaChainTargetFromRequest,
+  toWalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
 import type {
   ExecuteEvmFamilyTransactionArgs,
@@ -30,7 +33,6 @@ function toLocalBootstrapRequest(
   return {
     kind: 'reuse_warm_ecdsa_bootstrap',
     walletId: toAccountId(args.walletSession.walletId),
-    subjectId: args.subjectId,
     chainTarget: args.chainTarget,
     source: args.source,
     relayerUrl: args.relayerUrl,
@@ -80,14 +82,13 @@ export class TempoSigner implements TempoSignerCapability {
 
   async signTempo(args: SignTempoArgs): Promise<TempoSignedResult | EvmSignedResult> {
     const chainTarget = thresholdEcdsaChainTargetFromRequest(args.chainTarget);
-    const walletId = String(args.walletSession.walletId);
+    const walletId = toWalletId(args.walletSession.walletId);
     return await routeWalletIframeOrLocal({
       walletIframe: this.walletIframe,
       walletId,
       remote: async (router) =>
         await router.signTempo({
           walletSession: args.walletSession,
-          subjectId: args.subjectId,
           request: args.request,
           chainTarget,
           options: {
@@ -101,7 +102,6 @@ export class TempoSigner implements TempoSignerCapability {
       local: async () => {
         return await this.getContext().signingEngine.signTempo({
           walletSession: args.walletSession,
-          subjectId: args.subjectId,
           request: args.request,
           chainTarget,
           confirmationConfigOverride: args.options?.confirmationConfig,
@@ -124,7 +124,7 @@ export class TempoSigner implements TempoSignerCapability {
   }
 
   async reportBroadcastAccepted(args: ReportTempoBroadcastAcceptedArgs): Promise<void> {
-    const walletId = String(args.walletSession.walletId);
+    const walletId = toWalletId(args.walletSession.walletId);
     return await routeWalletIframeOrLocal({
       walletIframe: this.walletIframe,
       walletId,
@@ -153,7 +153,7 @@ export class TempoSigner implements TempoSignerCapability {
   }
 
   async reportBroadcastRejected(args: ReportTempoBroadcastRejectedArgs): Promise<void> {
-    const walletId = String(args.walletSession.walletId);
+    const walletId = toWalletId(args.walletSession.walletId);
     return await routeWalletIframeOrLocal({
       walletIframe: this.walletIframe,
       walletId,
@@ -182,7 +182,7 @@ export class TempoSigner implements TempoSignerCapability {
   }
 
   async reportFinalized(args: ReportTempoFinalizedArgs): Promise<void> {
-    const walletId = String(args.walletSession.walletId);
+    const walletId = toWalletId(args.walletSession.walletId);
     return await routeWalletIframeOrLocal({
       walletIframe: this.walletIframe,
       walletId,
@@ -213,7 +213,7 @@ export class TempoSigner implements TempoSignerCapability {
   }
 
   async reportDroppedOrReplaced(args: ReportTempoDroppedOrReplacedArgs): Promise<void> {
-    const walletId = String(args.walletSession.walletId);
+    const walletId = toWalletId(args.walletSession.walletId);
     return await routeWalletIframeOrLocal({
       walletIframe: this.walletIframe,
       walletId,
@@ -244,7 +244,7 @@ export class TempoSigner implements TempoSignerCapability {
   }
 
   async reconcileNonceLane(args: ReconcileTempoNonceLaneArgs): Promise<TempoNonceLaneStatus> {
-    const walletId = String(args.walletSession.walletId);
+    const walletId = toWalletId(args.walletSession.walletId);
     return await routeWalletIframeOrLocal({
       walletIframe: this.walletIframe,
       walletId,
@@ -293,7 +293,7 @@ export class TempoSigner implements TempoSignerCapability {
 
     return await routeWalletIframeOrLocal({
       walletIframe: this.walletIframe,
-      walletId: String(args.walletSession.walletId),
+      walletId: toWalletId(args.walletSession.walletId),
       remote: async (router) => {
         return await router.bootstrapEcdsaSession(bootstrapArgs);
       },

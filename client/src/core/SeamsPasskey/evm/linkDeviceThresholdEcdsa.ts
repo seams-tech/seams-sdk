@@ -2,17 +2,21 @@ import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/parti
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../signingEngine/interfaces/signing';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../signingEngine/threshold/ecdsa/activation';
 import {
-  walletSubjectIdFromWalletProfile,
   type ThresholdEcdsaChainTarget,
+  type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaSessionStoreSource } from '../../signingEngine/session/identity/laneIdentity';
 import type { AccountId } from '../../types/accountIds';
 import { toAccountId } from '../../types/accountIds';
+import {
+  resolveThresholdEcdsaKeyIdFromRecord,
+  resolveThresholdSigningRootBindingFromRecord,
+  toEvmFamilyEcdsaKeyHandle,
+} from '../../signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { normalizeThresholdRuntimePolicyScope } from '../../signingEngine/threshold/sessionPolicy';
 
 export type PreparedLinkDeviceThresholdEcdsa = {
-  ecdsaThresholdKeyId: string;
-  signingRootId: string;
-  signingRootVersion?: string;
+  keyHandle?: string;
   clientVerifyingShareB64u: string;
   clientAdditiveShare32B64u: string;
   relayerKeyId: string;
@@ -29,34 +33,50 @@ export type PreparedLinkDeviceThresholdEcdsa = {
     participantIds?: number[];
     remainingUses?: number;
     jwt?: string;
+    keyHandle?: string;
+    runtimePolicyScope?: unknown;
   };
 };
 
 type LinkDeviceThresholdEcdsaSigningPort = {
   upsertThresholdEcdsaSessionFromBootstrap: (args: {
-    walletId: AccountId | string;
+    walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     source: ThresholdEcdsaSessionStoreSource;
   }) => void;
   persistThresholdEcdsaBootstrapForWalletTarget: (args: {
-    walletId: AccountId | string;
+    walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
   }) => Promise<void>;
 };
 
 function buildThresholdEcdsaBootstrap(args: {
-  walletId: AccountId | string;
+  walletId: WalletId;
   relayerUrl: string;
   chainTarget: ThresholdEcdsaChainTarget;
   thresholdEcdsa: PreparedLinkDeviceThresholdEcdsa;
 }): ThresholdEcdsaSessionBootstrapResult {
   const walletId = toAccountId(args.walletId);
   const session = args.thresholdEcdsa.session || {};
-  const ecdsaThresholdKeyId = String(args.thresholdEcdsa.ecdsaThresholdKeyId || '').trim();
-  const signingRootId = String(args.thresholdEcdsa.signingRootId || '').trim();
-  const signingRootVersion = String(args.thresholdEcdsa.signingRootVersion || '').trim();
+  const keyHandle = String(args.thresholdEcdsa.keyHandle || session.keyHandle || '').trim();
+  if (!keyHandle) {
+    throw new Error('link-device thresholdEcdsa payload missing keyHandle');
+  }
+  const canonicalKeyHandle = toEvmFamilyEcdsaKeyHandle(keyHandle);
+  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(session.runtimePolicyScope);
+  const signingRootBinding = resolveThresholdSigningRootBindingFromRecord({
+    record: {
+      keyHandle: canonicalKeyHandle,
+      runtimePolicyScope,
+    },
+  });
+  const ecdsaThresholdKeyId = resolveThresholdEcdsaKeyIdFromRecord({
+    record: {
+      keyHandle: canonicalKeyHandle,
+    },
+  });
   const relayerKeyId = String(args.thresholdEcdsa.relayerKeyId || '').trim();
   const thresholdEcdsaPublicKeyB64u = String(
     args.thresholdEcdsa.thresholdEcdsaPublicKeyB64u || '',
@@ -83,12 +103,6 @@ function buildThresholdEcdsaBootstrap(args: {
     normalizeThresholdEd25519ParticipantIds(session.participantIds) ||
     normalizeThresholdEd25519ParticipantIds(args.thresholdEcdsa.participantIds);
 
-  if (!ecdsaThresholdKeyId) {
-    throw new Error('link-device thresholdEcdsa payload missing ecdsaThresholdKeyId');
-  }
-  if (!signingRootId) {
-    throw new Error('link-device thresholdEcdsa payload missing signingRootId');
-  }
   if (
     !relayerKeyId ||
     !thresholdEcdsaPublicKeyB64u ||
@@ -119,12 +133,14 @@ function buildThresholdEcdsaBootstrap(args: {
   const thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef = {
     type: 'threshold-ecdsa-secp256k1',
     userId: walletId,
-    subjectId: walletSubjectIdFromWalletProfile({ walletId }),
     chainTarget: args.chainTarget,
     relayerUrl: String(args.relayerUrl || '').trim(),
+    keyHandle: canonicalKeyHandle,
     ecdsaThresholdKeyId,
-    signingRootId,
-    ...(signingRootVersion ? { signingRootVersion } : {}),
+    signingRootId: signingRootBinding.signingRootId,
+    ...(signingRootBinding.signingRootVersion
+      ? { signingRootVersion: signingRootBinding.signingRootVersion }
+      : {}),
     backendBinding: {
       relayerKeyId,
       clientVerifyingShareB64u,
@@ -167,27 +183,26 @@ function buildThresholdEcdsaBootstrap(args: {
 
 export async function persistLinkDeviceThresholdEcdsaBootstrap(args: {
   signingEngine: LinkDeviceThresholdEcdsaSigningPort;
-  walletId: AccountId | string;
+  walletId: WalletId;
   relayerUrl: string;
   chainTarget: ThresholdEcdsaChainTarget;
   thresholdEcdsa: PreparedLinkDeviceThresholdEcdsa;
 }): Promise<void> {
-  const walletId = toAccountId(args.walletId);
   const bootstrap = buildThresholdEcdsaBootstrap({
-    walletId,
+    walletId: args.walletId,
     relayerUrl: args.relayerUrl,
     chainTarget: args.chainTarget,
     thresholdEcdsa: args.thresholdEcdsa,
   });
 
   args.signingEngine.upsertThresholdEcdsaSessionFromBootstrap({
-    walletId,
+    walletId: args.walletId,
     chainTarget: args.chainTarget,
     bootstrap,
     source: 'manual-bootstrap',
   });
   await args.signingEngine.persistThresholdEcdsaBootstrapForWalletTarget({
-    walletId,
+    walletId: args.walletId,
     chainTarget: args.chainTarget,
     bootstrap,
   });

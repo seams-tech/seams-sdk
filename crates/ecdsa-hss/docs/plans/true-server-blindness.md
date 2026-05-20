@@ -108,6 +108,46 @@ The main performance budget is:
 - avoid changing Cait-Sith triple/presign/sign cost
 - keep export overhead isolated to explicit export
 
+## MVP Priority
+
+Ship the role-local boundary first. The MVP is complete when production Rust can
+bootstrap, sign, and explicitly export using one active protocol shape where the
+server never combines both role roots or reconstructs canonical `x`.
+
+MVP work:
+
+1. Replace joined-root derivation with role-local client and relayer derivation.
+2. Replace wire/server/client retained state so each role stores only its own
+   secret share plus public verification data.
+3. Bind context, public identity, relayer key id, retry counters, and explicit
+   export authorization into stable framed digests.
+4. Validate public keys and handle the zero canonical key case through relayer
+   retry and transcript binding.
+5. Reconstruct export keys only in the authorized client export runtime.
+6. Feed Cait-Sith from the role-local additive shares.
+7. Add focused regression tests for algebra, forbidden fields, export
+   reconstruction, relayer key mismatch, nonce freshness, and public key
+   validation.
+
+Formal verification scope for the MVP:
+
+- keep the existing Lean model as the source proof of the role-local boundary
+  property
+- keep Verus focused on mirror claims that block forbidden fields, mismatched
+  identities, and unauthorized export share release
+- defer generated Aeneas extraction until the Rust boundary has stabilized
+- avoid proving hash internals, ECDSA/Cait-Sith internals, logging policy,
+  performance claims, and product packaging in this MVP phase
+
+Post-MVP work:
+
+- broaden golden vectors into a shared Rust/WASM/Verus/Lean corpus
+- add Aeneas-generated bridge artifacts for the implemented boundary
+- expand WASM bundle and FFI surface tests after bindings are touched
+- add audit/log redaction and import-guard tests after the production module
+  shape settles
+- run the detailed benchmark matrix after correctness and boundary tests pass
+
 ## Phase 1: Lean Model First
 
 Do proof work before changing production Rust.
@@ -235,12 +275,16 @@ Turn the Lean model into a concrete implementation contract.
 
 - [x] Update protocol, export, and security docs to use the role-local
   derivation contract proved in Lean and mirrored in Verus.
-- [ ] Replace production Rust boundaries so non-export server paths accept only
-  server-owned inputs and public client commitments.
-- [ ] Extend Verus from the boundary mirror into role-local derivation,
-  public-key addition, export isolation, and production anti-drift checks.
-- [ ] Extract the implemented Rust boundary with Aeneas and bridge it back to the
-  Lean true-blind model.
+- [ ] Implement the MVP Rust boundary: role-local derivation, public identity
+  composition, retained role state, explicit export reconstruction, and
+  Cait-Sith share handoff.
+- [ ] Add the MVP regression tests for algebra, forbidden fields, export
+  reconstruction, public key validation, relayer key mismatch, and nonce
+  freshness.
+- [ ] Run the targeted crate tests and the existing Lean/Verus gates after the
+  MVP Rust boundary compiles.
+- [ ] Extend Verus/Aeneas/Lean bridges after the implemented Rust boundary
+  stabilizes.
 
 Validation note at this pause point:
 
@@ -267,7 +311,7 @@ After Lean proof obligations and the boundary contract are in place, update Rust
 This is the current pause point: the checklist below starts production Rust
 changes and remains pending.
 
-Implementation order:
+MVP implementation order:
 
 1. Update
    [src/shared/derive.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/shared/derive.rs)
@@ -290,9 +334,673 @@ Implementation order:
    [src/integration/mod.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/integration/mod.rs)
    so Cait-Sith adapter construction receives role-local client material from
    the client side and relayer material from retained server state.
-6. Move any joined-root reconstruction that remains useful for fixture
-   generation into reference-only fixture helpers, outside production server
-   boundaries.
+6. Delete production APIs that accept both role roots or canonical `x`.
+7. Move any joined-root reconstruction that remains useful for fixture
+   generation into reference-only fixture helpers after the MVP path passes.
+
+### Phase 3 Implementation Contract
+
+Use these Rust-facing contracts while replacing the current joined-root
+implementation. Names may be adjusted to match local style, but the ownership
+and construction rules should stay intact.
+
+Settled decisions before Rust:
+
+- Production replacement type names should omit `V1`/`V2` suffixes. Versioning
+  belongs in domain labels, serialized `format_version` fields, and fixture
+  names, not in active Rust type names.
+- Keep the existing context semantics: `encode_context_v1` binds the fixed
+  `evm-family` key scope instead of a chain-specific key scope. Cross-chain
+  replay protection remains the caller's transaction/signature-domain
+  responsibility.
+- Use explicit framed byte encoders for every new digest. Do not concatenate
+  variable-length fields without tags and lengths.
+- Use SHA-512 only for hash-to-scalar input, then reduce with audited secp256k1
+  scalar-field helpers. Use SHA-256 for 32-byte public transcript and
+  authorization digests.
+- Use constant-time scalar and equality helpers for secret-derived scalar work.
+  Do not implement custom `%`, `/`, comparison, or early-exit equality over
+  secret-derived scalar bytes.
+- Treat export authorization digests as binding evidence, not bearer secrets.
+  Product/server routes must still authenticate the user/session and verify
+  policy state before releasing the relayer export share.
+- Public SDK `chainTarget` stays for EVM lane selection, budgets, recovery
+  lookup, transaction serialization, and signing policy. The HSS stable-key
+  context should remove `chain_target` and keep only fixed
+  `key_scope = "evm-family"`.
+- Relayer key rotation follows the safer initial rule: relayer key id mismatch
+  rejects, and rotation requires a new role-local HSS bootstrap.
+
+Digest framing:
+
+```text
+frame(domain, fields...) =
+  ascii(domain) ||
+  field_count:u8 ||
+  repeated field(tag:u8, len:u16be, value)
+
+field(tag, value) = tag || len(value) || value
+u32 fields are encoded big-endian
+u64 timestamp fields are encoded big-endian
+operation_kind is encoded as one byte:
+  0x01 = RegistrationBootstrap
+  0x02 = SessionBootstrap
+  0x03 = NonExportSign
+  0x04 = ExplicitKeyExport
+```
+
+Domain labels:
+
+```text
+context binding:
+  "ecdsa-hss:role-local:v1:context-binding"
+
+client role share:
+  "ecdsa-hss:role-local:v1:client-share"
+
+relayer role share:
+  "ecdsa-hss:role-local:v1:relayer-share"
+
+public transcript:
+  "ecdsa-hss:role-local:v1:public-transcript"
+
+export authorization:
+  "ecdsa-hss:role-local:v1:export-authorization"
+
+reference-only canonical reconstruction:
+  "ecdsa-hss:role-local:v1:reference-canonical-x"
+```
+
+The `v1` marker here is domain separation for this new role-local construction.
+It is not a compatibility switch and should not introduce alternate production
+paths.
+
+Context binding:
+
+```text
+context_bytes = encode_context_v1(context)
+context_binding32 = SHA-256(frame(
+  "ecdsa-hss:role-local:v1:context-binding",
+  field(0x01, context_bytes)
+))
+```
+
+Role-local hash-to-scalar:
+
+```text
+derive_role_share(role_label, context, y_role):
+  context_bytes = encode_context_v1(context)
+  context_binding32 = context_binding(context)
+  retry_counter = 0
+
+  loop:
+    digest64 = SHA-512(frame(
+      role_label,
+      field(0x01, context_binding32),
+      field(0x02, context_bytes),
+      field(0x03, y_role_le32),
+      field(0x04, retry_counter:u32be)
+    ))
+    x_role = reduce_digest_to_nonzero_secp256k1_scalar(digest64)
+    if x_role is valid non-zero:
+      return x_role, retry_counter
+    retry_counter += 1
+```
+
+The retry counter is public, role-specific, and persisted. A retry should be
+effectively unreachable in normal operation, but the transcript still needs to
+bind it so fixtures, recovery, and formal checks agree.
+
+Zero canonical key rule:
+
+- after receiving `X_client`, the server computes `X = X_client + X_relayer`
+- if `X` is the identity point, increment `relayer_retry_counter` and rederive
+  `x_relayer`
+- persist the accepted relayer retry counter
+- bind both role retry counters into the public transcript
+- client verification rejects identity `X` and retry-counter mismatches
+
+Public transcript:
+
+```text
+public_transcript_digest32 = SHA-256(frame(
+  "ecdsa-hss:role-local:v1:public-transcript",
+  field(0x01, context_binding32),
+  field(0x02, operation_kind:u8),
+  field(0x03, client_public_key33),
+  field(0x04, relayer_public_key33),
+  field(0x05, threshold_public_key33),
+  field(0x06, threshold_ethereum_address20),
+  field(0x07, client_share_retry_counter:u32be),
+  field(0x08, relayer_share_retry_counter:u32be)
+))
+```
+
+Export policy binding:
+
+```rust
+struct ExportPolicyBinding {
+    wallet_session_user_id: AsciiString,
+    ecdsa_threshold_key_id: AsciiString,
+    client_device_id: AsciiString,
+    client_session_id: AsciiString,
+    relayer_key_id: AsciiString,
+    export_request_nonce32: PublicBytes32,
+    confirmation_digest32: PublicBytes32,
+    issued_at_unix_ms: u64,
+    expires_at_unix_ms: u64,
+}
+```
+
+Export authorization digest:
+
+```text
+authorization_digest32 = SHA-256(frame(
+  "ecdsa-hss:role-local:v1:export-authorization",
+  field(0x01, export_public_transcript_digest32),
+  field(0x02, context_binding32),
+  field(0x03, client_public_key33),
+  field(0x04, relayer_public_key33),
+  field(0x05, threshold_public_key33),
+  field(0x06, threshold_ethereum_address20),
+  field(0x07, wallet_session_user_id),
+  field(0x08, ecdsa_threshold_key_id),
+  field(0x09, client_device_id),
+  field(0x0a, client_session_id),
+  field(0x0b, relayer_key_id),
+  field(0x0c, export_request_nonce32),
+  field(0x0d, confirmation_digest32),
+  field(0x0e, issued_at_unix_ms:u64be),
+  field(0x0f, expires_at_unix_ms:u64be)
+))
+```
+
+Server export release requires all of the following:
+
+- authenticated session identity equals `wallet_session_user_id`
+- authenticated device/session equals `client_device_id` and
+  `client_session_id`
+- requested key equals `ecdsa_threshold_key_id`
+- retained relayer key equals `relayer_key_id`
+- operation kind is `ExplicitKeyExport`
+- authorization has not expired
+- nonce has not been used before
+- authorization digest matches the server-recomputed digest
+
+Export freshness storage:
+
+- store used export nonces by `(wallet_session_user_id, ecdsa_threshold_key_id,
+  relayer_key_id, export_request_nonce32)`
+- atomically insert the nonce before releasing `x_relayer`
+- consume the nonce for success and for failures that reach the relayer export
+  endpoint
+- retain nonce records for at least `expires_at_unix_ms + clock_skew`; first
+  implementation should retain them for at least 24 hours
+- require a fresh nonce after crashes, aborts, retry, or relayer-key rotation
+
+Public key validation:
+
+- remote public keys must be 33-byte SEC1 compressed secp256k1 keys
+- accepted prefixes are `0x02` and `0x03`
+- decompression must produce a valid non-identity affine point
+- canonical compressed re-encoding must match the input bytes
+- `X_client + X_relayer` must produce a valid non-identity threshold key
+
+Module ownership:
+
+- [src/shared/derive.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/shared/derive.rs)
+  owns scalar derivation, public-key derivation, public identity composition,
+  export reconstruction, and Cait-Sith share mapping helpers.
+- [src/wire/mod.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/wire/mod.rs)
+  owns request/response shapes. Wire types should carry public commitments,
+  transcript fields, operation kinds, and export authorization envelopes.
+- [src/client/mod.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/client/mod.rs)
+  owns client-retained state, client bootstrap output, non-export client
+  material, and explicit-export reconstruction.
+- [src/server/mod.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/server/mod.rs)
+  owns relayer derivation, relayer-retained state, server public output, and
+  export-share release.
+- [src/integration/mod.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/integration/mod.rs)
+  owns Cait-Sith adapter construction from already-derived role-local material.
+- [src/fixtures.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/fixtures.rs)
+  and
+  [src/bin/emit_fixture_json.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/bin/emit_fixture_json.rs)
+  are the only acceptable homes for reference-only full-key reconstruction.
+
+Target internal types:
+
+```rust
+struct ClientDerivationInput {
+    context: EcdsaHssStableKeyContext,
+    y_client32_le: SecretBytes32,
+}
+
+struct RelayerDerivationInput {
+    context: EcdsaHssStableKeyContext,
+    y_relayer32_le: SecretBytes32,
+}
+
+struct ClientShareMaterial {
+    x_client32: SecretScalarBytes32,
+    client_public_key33: PublicKey33,
+    retry_counter: u32,
+}
+
+struct RelayerShareMaterial {
+    x_relayer32: SecretScalarBytes32,
+    relayer_public_key33: PublicKey33,
+    retry_counter: u32,
+}
+
+struct PublicIdentity {
+    context_binding32: PublicBytes32,
+    client_public_key33: PublicKey33,
+    relayer_public_key33: PublicKey33,
+    threshold_public_key33: PublicKey33,
+    threshold_ethereum_address20: EthereumAddress20,
+}
+
+struct RoleLocalClientState {
+    client_share: ClientShareMaterial,
+    public_identity: PublicIdentity,
+    accepted_transcript: PublicTranscript,
+}
+
+struct RoleLocalServerState {
+    relayer_share: RelayerShareMaterial,
+    public_identity: PublicIdentity,
+    accepted_transcript: PublicTranscript,
+}
+
+struct ExplicitExportAuthorization {
+    public_identity: PublicIdentity,
+    export_transcript: PublicTranscript,
+    policy_binding: ExportPolicyBinding,
+    authorization_digest32: PublicBytes32,
+}
+
+struct ExplicitExportRelayerShareEnvelope {
+    authorization: ExplicitExportAuthorization,
+    export_relayer_share32: SecretScalarBytes32,
+    public_transcript: PublicTranscript,
+}
+
+struct ClientExportReconstruction {
+    canonical_x32: SecretScalarBytes32,
+    canonical_public_key33: PublicKey33,
+    canonical_ethereum_address20: EthereumAddress20,
+}
+```
+
+Secret-bearing types should implement zeroization on drop. Avoid deriving
+`Debug` for secret newtypes unless the implementation redacts payloads. Public
+types may derive `Debug`, `Clone`, `PartialEq`, and serialization traits if
+needed at the boundary.
+
+Secret-type trait rules:
+
+- secret newtypes: `Zeroize`, `ZeroizeOnDrop`, constant-time equality when
+  equality is needed, no `Serialize`, no unredacted `Debug`
+- secret state structs: no `Copy`; `Clone` only where ownership transfer would
+  otherwise force broad borrowing through async/server boundaries
+- public identity/transcript structs: `Debug`, `Clone`, `PartialEq`, and
+  serialization are acceptable
+- conversion from raw bytes to domain types happens once at the request,
+  persistence, WASM, or fixture boundary
+- core functions accept domain types, not raw `[u8; 32]` bags
+
+Audit/log redaction policy:
+
+- allowed: event kind, operation kind, result, failure code,
+  `wallet_session_user_id`, `subject_id`, `ecdsa_threshold_key_id`,
+  `relayer_key_id`, client device/session id, context binding, public
+  transcript digest, export authorization digest, public-key fingerprints,
+  Ethereum address, timestamps, and expiry
+- forbidden: `y_client`, `y_relayer`, `x_client`, `x_relayer`, canonical `x`,
+  mapped backend threshold private shares, Cait-Sith triple/presign scalar
+  material, and raw root-share material
+- secret-bearing types should omit `Debug` or use redacted `Debug`
+
+Construction rules:
+
+- `ClientShareMaterial` is constructed only by client-role derivation.
+- `RelayerShareMaterial` is constructed only by relayer-role derivation.
+- `PublicIdentity` is constructed only after parsing and validating both public
+  share keys.
+- `RoleLocalServerState` must be impossible to construct with `y_client32_le`,
+  `x_client32`, or canonical `x`.
+- `RoleLocalClientState` must be impossible to construct with `y_relayer32_le`
+  or `x_relayer32`.
+- `ClientExportReconstruction` is constructed only by the explicit client export
+  procedure.
+- Server production APIs must never accept a struct containing both
+  `y_client32_le` and `y_relayer32_le`.
+- Functions that need canonical `x` belong in fixture/reference helpers or
+  client explicit-export code.
+
+Derivation procedures:
+
+```text
+derive_client_share(context, y_client):
+  context_bytes = encode_context(context)
+  x_client = hash_to_nonzero_scalar(
+    label = "ecdsa-hss:role-local:v1:client-share",
+    context_bytes,
+    y_client
+  )
+  X_client = x_client * G
+  return ClientShareMaterial(x_client, X_client)
+
+derive_relayer_share(context, y_relayer):
+  context_bytes = encode_context(context)
+  x_relayer = hash_to_nonzero_scalar(
+    label = "ecdsa-hss:role-local:v1:relayer-share",
+    context_bytes,
+    y_relayer
+  )
+  X_relayer = x_relayer * G
+  return RelayerShareMaterial(x_relayer, X_relayer)
+
+compose_public_identity(context, X_client, X_relayer):
+  X = X_client + X_relayer
+  address = ethereum_address(X)
+  transcript = H(
+    "ecdsa-hss:role-local:v1:public-transcript",
+    context_binding,
+    X_client,
+    X_relayer,
+    X,
+    address
+  )
+  return PublicIdentity(context_binding, X_client, X_relayer, X, address)
+```
+
+Hash-to-scalar details:
+
+- use domain-separated labels for client and relayer derivation
+- reduce into the secp256k1 scalar field with the existing audited helper style
+- reject or retry zero scalars with a transcript-bound retry counter
+- include the retry counter in public transcript material when a retry occurs
+- never derive the relayer share from canonical `x - x_client` in production
+- never use wrapping integer addition for scalar addition; use field arithmetic
+  modulo the secp256k1 group order
+
+Cait-Sith mapping procedure:
+
+```text
+map_client_to_cait_sith_share(x_client):
+  participant_id = THRESHOLD_SECP256K1_2P_CLIENT_PARTICIPANT_ID
+  return map_additive_share_to_threshold_signatures_share_2p(
+    x_client,
+    participant_id
+  )
+
+map_relayer_to_cait_sith_share(x_relayer):
+  participant_id = THRESHOLD_SECP256K1_2P_RELAYER_PARTICIPANT_ID
+  return map_additive_share_to_threshold_signatures_share_2p(
+    x_relayer,
+    participant_id
+  )
+```
+
+Mapping checks:
+
+- `client_public_key33 == x_client * G`
+- `relayer_public_key33 == x_relayer * G`
+- `threshold_public_key33 == client_public_key33 + relayer_public_key33`
+- `threshold_ethereum_address20 == ethereum_address(threshold_public_key33)`
+- Cait-Sith participant IDs remain fixed as `{client=1, relayer=2}`
+
+Explicit export procedure:
+
+```text
+authorize_export(client_state, requested_identity, policy_context):
+  require requested_identity == client_state.public_identity
+  require operation == ExplicitKeyExport
+  authorization_digest = H(
+    "ecdsa-hss:role-local:v1:export-authorization",
+    requested_identity,
+    export_transcript,
+    policy_context
+  )
+  return ExplicitExportAuthorization(...)
+
+server_export_share(server_state, authorization):
+  require authorization.public_identity == server_state.public_identity
+  require authorization.export_transcript.context == accepted context
+  require authorization.export_transcript.operation == ExplicitKeyExport
+  require authorization_digest == expected digest
+  return ExplicitExportRelayerShareEnvelope(
+    authorization,
+    x_relayer,
+    public_transcript
+  )
+
+client_reconstruct_export(client_state, envelope):
+  require envelope.authorization.public_identity == client_state.public_identity
+  x = x_client + envelope.export_relayer_share mod n
+  X = x * G
+  require X == client_state.public_identity.threshold_public_key33
+  require ethereum_address(X) == client_state.public_identity.address
+  return ClientExportReconstruction(x, X, address)
+```
+
+Session cleanup rules:
+
+- failed bootstrap burns the staged role-local material for that ceremony
+- failed export authorization burns the export envelope and retry state
+- failed presign/sign burns the failed triple/presign state
+- retrying a failed presign must allocate fresh triple/presign material
+- no request path may reuse failed triple/presign state across public identity,
+  context, wallet session, client device, or relayer key changes
+
+Deletion targets:
+
+- `RootShareInputsV1` as a production request shape
+- `CanonicalSecretMaterialV1` from production modules
+- `derive_canonical_secret_v1` from production modules
+- `derive_additive_shares_v1(x32, context)` from production modules
+- server `respond` paths that accept `y_client32_le`
+- integration request types that accept both root inputs together
+- client explicit-export outputs that receive `canonical_x32` from the server
+- tests whose assertions preserve joined-root derivation behavior
+
+Reference-only helpers may keep equivalent algorithms for fixtures if they live
+outside production server code and are named as reference material.
+
+Reference-only guardrails:
+
+- place full-key reconstruction under a `reference` or `fixtures` module gated
+  to tests, benches, or the fixture-emitter binary
+- do not re-export reference helpers from [src/lib.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/lib.rs)
+  as production API
+- add a static import check or targeted test that server/client production
+  modules do not import reference helpers
+- name reference functions with `reference_` or `fixture_` prefixes
+- keep the reference domain label distinct from production role labels
+
+WASM API split:
+
+- browser/client WASM exports only client-role functions:
+  `derive_client_role_share`, `verify_role_local_public_identity`,
+  `map_client_role_share_for_cait_sith`, `authorize_explicit_export`, and
+  `reconstruct_explicit_export`
+- server/native WASM or Rust exports relayer-role functions:
+  `derive_relayer_role_share`, `compose_role_local_public_identity`,
+  `map_relayer_role_share_for_cait_sith`, `authorize_relayer_export_share`, and
+  `release_authorized_relayer_export_share`
+- browser/client bundles must not export relayer derivation or relayer
+  export-share release
+- server bundles must not export client derivation or canonical export
+  reconstruction
+
+Persistence records:
+
+```rust
+struct PersistedClientRoleState {
+    format_version: u8,
+    context_binding32: PublicBytes32,
+    ecdsa_threshold_key_id: AsciiString,
+    client_share32: SecretScalarBytes32,
+    client_public_key33: PublicKey33,
+    relayer_public_key33: PublicKey33,
+    threshold_public_key33: PublicKey33,
+    threshold_ethereum_address20: EthereumAddress20,
+    client_share_retry_counter: u32,
+    relayer_share_retry_counter: u32,
+    accepted_transcript_digest32: PublicBytes32,
+}
+
+struct PersistedRelayerRoleState {
+    format_version: u8,
+    context_binding32: PublicBytes32,
+    ecdsa_threshold_key_id: AsciiString,
+    relayer_key_id: AsciiString,
+    relayer_share32: SecretScalarBytes32,
+    relayer_public_key33: PublicKey33,
+    client_public_key33: PublicKey33,
+    threshold_public_key33: PublicKey33,
+    threshold_ethereum_address20: EthereumAddress20,
+    client_share_retry_counter: u32,
+    relayer_share_retry_counter: u32,
+    accepted_transcript_digest32: PublicBytes32,
+}
+```
+
+Persisted relayer state must not contain client root/share material or canonical
+`x`. Persisted client non-export state must not contain relayer root/share
+material. Existing records can be wiped, so add no migration path beyond
+request/persistence boundary rejection with a clear error.
+
+Golden vector contract:
+
+Create a minimal role-local fixture before wiring product callers. The MVP
+fixture must include:
+
+- named fixture id and `format_version`
+- raw context fields and `encode_context_v1(context)` bytes
+- `context_binding32`
+- frame-encoded byte payloads for:
+  - context binding
+  - client hash-to-scalar
+  - relayer hash-to-scalar
+  - public transcript
+  - export authorization
+- `y_client32_le` and `y_relayer32_le`
+- `x_client32_be`, `x_relayer32_be`, and role retry counters
+- `client_public_key33`, `relayer_public_key33`,
+  `threshold_public_key33`, and `threshold_ethereum_address20`
+- mapped Cait-Sith participant shares for participant ids `{1, 2}`
+- public transcript digest for each operation kind
+- export policy binding fields and export authorization digest
+- client-side `x_export32_be`, public key, and address for explicit export
+
+Golden vector rules:
+
+- include one happy-path bootstrap/sign/export vector in the MVP
+- include one deterministic zero-canonical-key retry vector in the MVP only if
+  the test hook is small and local to fixtures
+- include invalid public-key cases in focused Rust tests first
+- expand the corpus to Rust/WASM/fixture JSON/Verus/Lean parity after the MVP
+  boundary is stable
+
+Persistence transaction rules:
+
+- role-local relayer state writes are atomic with public identity persistence
+- accepted transcript digest, retry counters, and `relayer_key_id` are persisted
+  in the same transaction as `x_relayer`
+- export nonce insertion happens before relayer share release
+- concurrent export requests for the same nonce race through a unique
+  `(wallet_session_user_id, ecdsa_threshold_key_id, relayer_key_id,
+  export_request_nonce32)` constraint
+- relayer key rotation invalidates retained sessions, triples, presignatures,
+  export authorizations, and export nonce acceptance atomically
+- failed bootstrap/export/signing transactions must leave no partially accepted
+  role-local state
+
+Error code taxonomy:
+
+Use stable, non-secret error codes at Rust, WASM, and product boundaries.
+Error messages must not include secret bytes, raw shares, or private scalar
+material. Start with the MVP set required by the new boundary:
+
+```text
+invalid_context
+invalid_public_key
+identity_threshold_public_key
+context_mismatch
+public_identity_mismatch
+relayer_key_mismatch
+export_nonce_replay
+export_authorization_expired
+export_authorization_digest_mismatch
+export_policy_denied
+secret_serialization_forbidden
+```
+
+Add the broader product-facing taxonomy after MVP integration requires it:
+
+```text
+operation_mismatch
+export_authorization_not_yet_valid
+stale_presign_state
+stale_export_state
+invalid_retry_counter
+reference_helper_forbidden
+wasm_api_role_violation
+```
+
+MVP implementation slice order:
+
+1. Add domain types, framed byte encoders, the MVP error codes, and one
+   happy-path fixture.
+2. Implement context binding, role-local derivation, public-key validation, zero
+   canonical key retry, and public identity composition.
+3. Replace wire/server/client boundary types and retained-state persistence.
+4. Implement export policy binding, nonce storage, relayer share release, and
+   client export reconstruction.
+5. Update Cait-Sith adapter construction to consume role-local shares.
+6. Run algebraic, boundary, export, relayer-key, nonce, and public-key tests.
+7. Run the existing Lean/Verus checks plus a focused constant-time review of
+   scalar helpers.
+
+Post-MVP slice order:
+
+1. Expand fixture/golden vector coverage across Rust, WASM, Verus, and Lean.
+2. Extend Aeneas/Lean bridges after the Rust boundary settles.
+3. Add WASM split, reference-helper import, and audit/log redaction tests.
+4. Run the full performance benchmark matrix.
+
+FFI/WASM serialization:
+
+Apply these rules when a touched Rust API crosses JSON, FFI, or WASM. Detailed
+bundle-surface tests are post-MVP unless the MVP Rust change edits those
+bindings directly.
+
+- JSON/WASM byte fields use unpadded base64url strings
+- fixed-size byte fields must decode to exactly 20, 32, or 33 bytes as named
+- internal private scalar fields use 32-byte big-endian encoding
+- role derivation inputs keep the explicit `*_le32` little-endian suffix
+- public keys use 33-byte compressed SEC1 encoding
+- Ethereum addresses use raw 20-byte bytes in FFI and `0x` hex only at display
+  or wallet-import boundaries
+- exported `x_export` may be rendered as `0x` hex only in the explicit export
+  artifact/UI boundary
+- decoders must reject padded base64, hex strings at internal FFI boundaries,
+  wrong lengths, non-canonical public keys, and ambiguous scalar endianness
+
+Constant-time validation gate:
+
+- review scalar derivation, scalar addition, export reconstruction, share
+  mapping, and secret comparisons for secret-dependent branches or variable-time
+  operations
+- run focused constant-time analysis on Rust crypto helpers after implementation
+- inspect analyzer findings manually because public length/format checks can be
+  false positives
+- secret-derived scalar code must use audited `k256` scalar operations or
+  existing signer-core helpers
+- custom `%`, `/`, variable-time big integer arithmetic, and early-exit
+  comparisons over secret-derived bytes are release blockers
 
 - [ ] Add role-local client/relayer share derivation helpers, public identity
   composition, and client-side explicit export reconstruction in
@@ -326,9 +1034,11 @@ Implementation order:
 - [ ] Update server bindings so server code exposes only relayer-role derivation
   and export-share authorization.
 
-## Runtime Stage Details
+## Post-MVP Runtime Coverage Details
 
-Use these stage contracts during implementation and benchmarking.
+Use these stage contracts during follow-up benchmarking. During MVP
+implementation, measure only if a regression is suspected or a touched path is
+already covered by a cheap local benchmark.
 
 ### Stage 0: Context Binding
 
@@ -469,19 +1179,54 @@ Todo:
 
 ## Phase 4: Rust Verification Bridge
 
-After the Rust rewrite, link implementation back to the proof artifacts.
+After the Rust MVP rewrite, link implementation back to the proof artifacts.
+Keep this phase focused on boundary preservation. The first bridge should prove
+that implemented role-local state and wire types preserve the Lean model's
+secret-exclusion and same-public-identity properties.
 
-- [ ] Run Aeneas extraction for the new visible boundary slice.
-- [ ] Update generated Lean boundary artifacts under
-  [formal-verification/lean-boundary/generated](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/lean-boundary/generated).
-- [ ] Prove bridge lemmas from generated boundary types to the Lean privacy
-  model.
-- [ ] Update Verus specifications for role-local derivation, public-key addition,
-  output type separation, forbidden-field absence, and export isolation.
+MVP verification hooks to add as the Rust functions land:
+
+| Rust surface | Verification hook |
+| --- | --- |
+| `derive_client_share` | Verus scalar-domain and public-key agreement obligation: `client_public_key33 == x_clientG`. |
+| `derive_relayer_share` | Verus scalar-domain and public-key agreement obligation: `relayer_public_key33 == x_relayerG`. |
+| `compose_public_identity` | Verus/Aeneas public identity obligation: `X == X_client + X_relayer` and address binds to `X`. |
+| `RoleLocalServerState` | Verus anti-drift predicate excluding `y_client`, `x_client`, and canonical `x`. |
+| `RoleLocalClientState` | Verus anti-drift predicate excluding `y_relayer` and `x_relayer`. |
+| `server_export_share` | Verus/Aeneas authorization predicate requiring explicit export, same public identity, same context, and valid digest. |
+| `client_reconstruct_export` | Verus/Lean reconstruction obligation: `x_exportG == X` and `address(x_exportG) == expected_address`. |
+
+Post-MVP verification hooks:
+
+| Rust surface | Verification hook |
+| --- | --- |
+| Cait-Sith adapter construction | Algebraic obligation that mapped participant shares preserve the same threshold public key. |
+| Framed digest helpers | Field-order and domain-label parity against committed vectors. |
+| WASM/FFI encoding | Boundary parity against the Rust fixture corpus. |
+
+Bridge procedure:
+
+1. Extend Verus predicates for the implemented MVP Rust types first.
+2. Extract only the implemented role-local boundary slice with Aeneas after the
+   MVP Rust API stabilizes.
+3. Keep the generated extraction small: public wire structs, retained role-local
+   states, export authorization envelope, and public identity composition.
+4. Write handwritten bridge lemmas from generated types into
+   [TrueBlindBoundary.lean](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/lean-privacy/EcdsaHssPrivacy/TrueBlindBoundary.lean).
+5. Add anti-drift checks before broad proof work so accidental secret-field
+   additions fail early.
+6. Re-run the Lean target and Verus target after each extracted boundary change.
+
+MVP checklist:
+
 - [ ] Add Verus anti-drift checks that fail if server production types gain
   client-owned secrets.
 - [ ] Add Verus anti-drift checks that fail if client non-export types gain
   server-owned secrets.
+- [ ] Update Verus specifications for role-local derivation, public-key addition,
+  output type separation, forbidden-field absence, and export isolation.
+- [ ] Run focused constant-time validation on scalar derivation, scalar
+  addition, export reconstruction, share mapping, and secret comparisons.
 - [ ] Run the formal verification gate:
 
   ```sh
@@ -489,7 +1234,54 @@ After the Rust rewrite, link implementation back to the proof artifacts.
   make check
   ```
 
+Post-MVP checklist:
+
+- [ ] Run Aeneas extraction for the new visible boundary slice after the MVP API
+  stabilizes.
+- [ ] Update generated Lean boundary artifacts under
+  [formal-verification/lean-boundary/generated](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/lean-boundary/generated).
+- [ ] Prove bridge lemmas from generated boundary types to the Lean privacy
+  model.
+- [ ] Add proof/model hooks for framed digest field order, public transcript
+  binding, export authorization binding, and golden vector parity.
+
 ## Phase 5: Tests
+
+MVP test implementation order:
+
+1. Add type/API rejection tests first, before replacing behavior.
+2. Add algebraic derivation tests with deterministic fixture inputs.
+3. Add boundary output tests for every operation kind.
+4. Add explicit export success and mismatch tests.
+5. Add relayer key mismatch, nonce freshness, public-key validation, and zero
+   canonical key tests.
+6. Add integration tests for bootstrap, resume, presign, sign, and export.
+7. Delete joined-root tests after the replacement assertions are green.
+
+MVP regression matrix:
+
+| Area | Must accept | Must reject |
+| --- | --- | --- |
+| Client derivation | `context + y_client` | `y_relayer`, `x_relayer`, canonical `x` |
+| Server derivation | `context + y_relayer + X_client` | `y_client`, `x_client`, canonical `x` |
+| Non-export client output | `x_client`, public identity, Cait-Sith client share | `x_relayer`, canonical `x` |
+| Non-export server state | `x_relayer`, public identity, Cait-Sith relayer share | `y_client`, `x_client`, canonical `x` |
+| Explicit export request | valid same-identity authorization | mismatched context, public key, address, operation, digest, wallet session, or relayer key |
+| Explicit export response | authorized relayer export share envelope | `privateKeyHex`, canonical `x`, client root/share material |
+| Cait-Sith adapter | mapped role-local shares for participant IDs `{1, 2}` | swapped participant IDs, mismatched public identity, stale retry counter |
+| Public key validation | canonical compressed non-identity secp256k1 keys | bad length, bad prefix, non-curve point, non-canonical encoding, identity threshold sum |
+| Export freshness | fresh nonce within validity window | repeated nonce, expired authorization, nonce from rotated relayer key |
+
+Post-MVP regression matrix:
+
+| Area | Must accept | Must reject |
+| --- | --- | --- |
+| WASM/API split | client bundle exports client-role functions | client bundle exports relayer derivation or relayer export-share release |
+| FFI serialization | unpadded base64url for fixed-size bytes | padded base64, hex at internal FFI boundaries, wrong lengths, ambiguous scalar endian |
+| Error handling | stable non-secret error codes | secret bytes or raw shares in error messages |
+| Persistence transactions | atomic role-state and nonce writes | partial accepted state after failed bootstrap/export/signing |
+
+MVP checklist:
 
 - [ ] Add algebraic tests for:
 
@@ -508,6 +1300,14 @@ After the Rust rewrite, link implementation back to the proof artifacts.
   export.
 - [ ] Add regression tests that no server API returns `privateKeyHex` or
   canonical `x`.
+- [ ] Add zero-canonical-key regression using a deterministic fixture or mocked
+  derivation that forces `X_client + X_relayer` to identity, then assert relayer
+  retry and transcript binding.
+- [ ] Add chain-target invariance tests proving concrete `chainTarget` changes
+  do not change HSS context binding, public key, or address.
+- [ ] Add export nonce replay tests for success, digest failure, policy failure,
+  and relayer key rotation.
+- [ ] Add relayer key mismatch tests for bootstrap, signing, presign, and export.
 - [ ] Delete tests whose only purpose is preserving joined-root behavior.
 - [ ] Run the crate test suite:
 
@@ -515,7 +1315,49 @@ After the Rust rewrite, link implementation back to the proof artifacts.
   cargo test --manifest-path crates/ecdsa-hss/Cargo.toml
   ```
 
+Post-MVP checklist:
+
+- [ ] Add WASM export-surface tests for client and server/native bundles.
+- [ ] Add reference-helper import guard tests for production server/client
+  modules.
+- [ ] Add audit/log redaction tests for signing and explicit export failures.
+- [ ] Add golden vector tests for frame encoding, context binding,
+  hash-to-scalar, public transcript, export authorization, role-local public
+  identity, Cait-Sith mapping, and explicit export reconstruction.
+- [ ] Add persistence transaction tests for concurrent export nonce insertions,
+  relayer key rotation, and failed bootstrap/export/signing writes.
+- [ ] Add stable error-code tests for every failure class in the taxonomy.
+- [ ] Add FFI/WASM serialization tests for unpadded base64url, fixed byte
+  lengths, scalar endianness, compressed public keys, and displayed export hex.
+
 ## Phase 6: Product Integration
+
+Product integration should treat the Rust crate boundary as the source of truth.
+Do this after crate tests and verification hooks pass.
+
+Procedure:
+
+1. Update server routes to normalize raw request bodies into role-local wire
+   types exactly once.
+2. Update client code to store client role state locally and pass only public
+   commitments to the server.
+3. Update relayer persistence to store relayer role state and public identity.
+4. Update export UI/runtime so canonical `x` appears only in the explicit client
+   export runtime.
+5. Delete old account records and IndexedDB compatibility readers because the
+   existing accounts will be wiped.
+6. Delete server-side migration paths after the new route shape is active.
+
+Boundary checks for product integration:
+
+- no server route body parser accepts `y_client32_le`, `x_client32`, or
+  canonical `x`
+- no client non-export response parser accepts `x_relayer32`
+- no export response parser accepts `privateKeyHex`
+- every persisted ECDSA HSS key record includes public identity fields:
+  `X_client`, `X_relayer`, `X`, address, context binding, and relayer key id
+- every request path binds `walletSessionUserId`, `ecdsaThresholdKeyId`, client
+  device/session, and relayer key before it starts MPC or export work
 
 - [ ] Update server ECDSA HSS routes to accept only role-local protocol
   messages.
@@ -531,8 +1373,10 @@ After the Rust rewrite, link implementation back to the proof artifacts.
 
 ## Phase 7: Performance Benchmarks
 
-Run benchmarks after Lean proof work, Rust implementation, verification bridge,
-and tests pass.
+Run the full benchmark matrix after MVP correctness tests pass and the
+verification bridge is underway. During MVP implementation, run a targeted
+benchmark only when a changed path plausibly affects signing latency, export
+latency, or WASM size.
 
 - [ ] Capture a pre-change baseline:
 
@@ -578,6 +1422,8 @@ and tests pass.
 
 ## Completion Criteria
 
+MVP completion:
+
 - [x] Lean privacy theorems for true ECDSA HSS server blindness pass.
 - [ ] Rust implementation exposes one active production protocol shape.
 - [ ] Production server cannot reconstruct canonical `x`.
@@ -585,9 +1431,14 @@ and tests pass.
 - [ ] Explicit export reconstructs canonical `x` client-side.
 - [ ] Threshold signing and export verify against the same public key `X` and
   Ethereum address.
-- [ ] Old account, wire, fixture, migration, and IndexedDB compatibility paths
-  are deleted.
-- [ ] Aeneas/Lean boundary bridge passes.
+- [ ] Production crate joined-root request, wire, and derivation paths are
+  deleted or moved into reference-only fixture helpers.
 - [x] Verus checks pass.
 - [ ] Rust tests pass.
+
+Post-MVP completion:
+
+- [ ] Product account records, server migrations, and IndexedDB readers for the
+  superseded protocol are removed.
+- [ ] Aeneas/Lean boundary bridge passes.
 - [ ] Native and browser benchmark results are committed.

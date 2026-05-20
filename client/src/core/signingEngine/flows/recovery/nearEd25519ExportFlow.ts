@@ -15,9 +15,12 @@ import {
   toAuthorizingWalletSigningSessionId,
   type EmailOtpAuthLane,
 } from '../../stepUpConfirmation/otpPrompt/authLane';
-import type { RequestEmailOtpChallengeArgs } from '../../session/emailOtp/exportRecoveryRuntime';
+import type {
+  RequestEmailOtpChallengeArgs,
+} from '../../session/emailOtp/exportRecoveryRuntime';
 import type { ExactNearEd25519ExportLane } from './exportLaneSelection';
 import {
+  type EmailOtpNearAccountExportAuthorizationDeps,
   isExportViewerSessionOpen,
   removeExportViewerHostIfPresent,
   requestEmailOtpKeyExportAuthorization,
@@ -40,11 +43,9 @@ export type NearEd25519SingleKeyExportDeps = {
   touchConfirm: Parameters<typeof showNearEd25519ExportViewer>[0]['touchConfirm'];
   theme?: ThemeName;
   emailOtpSessions: {
-    requestExportChallenge: (
-      args: RequestEmailOtpChallengeArgs,
-    ) => Promise<{ challengeId: string; emailHint?: string }>;
+    requestExportChallenge: EmailOtpNearAccountExportAuthorizationDeps['requestExportChallenge'];
     recoverEd25519ExportPrfFirst: (args: {
-      nearAccountId: AccountId | string;
+      nearAccountId: AccountId;
       challengeId: string;
       otpCode: string;
       record: ThresholdEd25519SessionRecord;

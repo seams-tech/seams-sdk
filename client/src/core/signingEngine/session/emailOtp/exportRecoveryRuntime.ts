@@ -2,13 +2,13 @@ import type { AccountId } from '@/core/types/accountIds';
 import type {
   ThresholdEcdsaChainTarget,
   WalletSessionRef,
-  WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type {
   ThresholdEcdsaSessionRecord,
   ThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
+import type { VerifiedEcdsaPublicFacts } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
@@ -45,7 +45,7 @@ export type RequestEmailOtpChallengeArgs =
     }
   | {
       kind: 'near_account_challenge';
-      nearAccountId: AccountId | string;
+      nearAccountId: AccountId;
       chain: EmailOtpRouteChain;
       routeAuth?: AppOrThresholdSessionAuth;
       authLane?: EmailOtpAuthLane;
@@ -53,7 +53,7 @@ export type RequestEmailOtpChallengeArgs =
     };
 
 export type RecoverEd25519ExportPrfFirstArgs = {
-  nearAccountId: AccountId | string;
+  nearAccountId: AccountId;
   challengeId: string;
   otpCode: string;
   record: ThresholdEd25519SessionRecord;
@@ -73,12 +73,10 @@ export type ExportEcdsaKeyWithAuthorizationArgs = {
 
 export type ExportEcdsaKeyWithFreshEmailOtpLaneArgs = {
   walletSession: WalletSessionRef;
-  subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   challengeId: string;
   otpCode: string;
-  ecdsaThresholdKeyId: string;
-  participantIds: number[];
+  publicFacts: VerifiedEcdsaPublicFacts;
   authSubjectId?: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
 };

@@ -4,7 +4,10 @@ import {
   type EmailOtpAuthLane,
 } from '../../stepUpConfirmation/otpPrompt/authLane';
 import { selectedEcdsaLane } from '../identity/laneIdentity';
-import type { ThresholdSessionSealTransportAuthMaterial } from '../persistence/records';
+import {
+  thresholdEcdsaSessionRecordReadModel,
+  type ThresholdSessionSealTransportAuthMaterial,
+} from '../persistence/records';
 import {
   readWarmSessionCapabilityRecordsForWallet,
   readWarmSessionEcdsaRecordByThresholdSessionIdForTarget,
@@ -21,7 +24,6 @@ import {
   type WarmSessionReadPorts,
 } from './readModel';
 import { tryBuildEcdsaSessionIdentity } from './ecdsaProvisionPlan';
-import { buildEvmFamilyEcdsaKeyIdentityFromRecord } from '../identity/evmFamilyEcdsaIdentity';
 import { assertWarmSessionEnvelopeInvariant } from './types';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
@@ -142,21 +144,15 @@ export function createWarmSessionCapabilityReaderCore(
     if (state === 'missing') {
       throw new Error('[WarmSessionStore] ECDSA capability state cannot be missing with a record');
     }
-    const key = buildEvmFamilyEcdsaKeyIdentityFromRecord({
-      record: args.record,
-      rpId: args.record.rpId,
-    });
+    const key = thresholdEcdsaSessionRecordReadModel(args.record).key;
     const lane = selectedEcdsaLane({
       key,
+      keyHandle: args.record.keyHandle,
       walletId: toAccountId(args.record.walletId),
       authMethod: args.record.source === 'email_otp' ? 'email_otp' : 'passkey',
       walletSigningSessionId: args.record.walletSigningSessionId,
       thresholdSessionId: args.record.thresholdSessionId,
-      subjectId: args.record.subjectId,
       chainTarget: args.record.chainTarget,
-      ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
-      signingRootId: key.signingRootId,
-      signingRootVersion: key.signingRootVersion,
     });
 
     if (args.record.source === 'email_otp') {

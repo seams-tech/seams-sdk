@@ -22,16 +22,24 @@ import type { AppOrThresholdSessionAuth, AppSessionJwtAuth } from '@shared/utils
 import type { SigningOperationIntent } from '../operationState/types';
 import type {
   ThresholdEcdsaChainTarget,
+  WalletId,
   WalletSubjectId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  toWalletId,
+  walletSubjectIdFromWalletProfile,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildEcdsaSessionIdentity,
   type EcdsaSessionIdentity,
 } from '../warmCapabilities/ecdsaProvisionPlan';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
-import type {
-  EvmFamilyEcdsaKeyIdentity,
-  EvmFamilyEcdsaSessionLanePolicy,
+import {
+  deriveBaseEcdsaSubjectIdFromKey,
+  toEvmFamilyEcdsaKeyHandle,
+  type EvmFamilyEcdsaKeyHandle,
+  type EvmFamilyEcdsaKeyIdentity,
+  type EvmFamilyEcdsaSessionLanePolicy,
 } from '../identity/evmFamilyEcdsaIdentity';
 
 export type ExistingEcdsaBootstrapKeyIntent = {
@@ -52,13 +60,14 @@ type EcdsaBootstrapRequestCommon = {
 
 type EcdsaBootstrapTargetIdentity = {
   walletId: AccountId | string;
-  subjectId: WalletSubjectId;
+  subjectId?: never;
   chainTarget: ThresholdEcdsaChainTarget;
   key?: never;
   lanePolicy?: never;
 };
 
 type EcdsaBootstrapExactIdentity = {
+  keyHandle: EvmFamilyEcdsaKeyHandle | string;
   key: EvmFamilyEcdsaKeyIdentity;
   lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
   walletId?: never;
@@ -98,8 +107,11 @@ export type EcdsaBootstrapSessionIdentityInput = {
   walletSigningSessionId: EcdsaSessionIdentity['walletSigningSessionId'] | string;
 };
 
-export type ReuseWarmEcdsaBootstrapRequest = EcdsaBootstrapTargetRequestBase & {
+export type ReuseWarmEcdsaBootstrapRequest = EcdsaBootstrapRequestCommon &
+  EcdsaBootstrapTargetIdentity &
+  EcdsaBootstrapRegistrationPolicy & {
   kind: 'reuse_warm_ecdsa_bootstrap';
+  subjectId?: never;
   sessionKind?: never;
   sessionIdentity?: never;
   clientRootShare32B64u?: never;
@@ -115,13 +127,21 @@ type PasskeyFreshEcdsaBootstrapTargetRequestBase = EcdsaBootstrapTargetRequestBa
   emailOtpAuthContext?: never;
 };
 
-type PasskeyFreshEcdsaBootstrapExactRequest = EcdsaBootstrapExactRequestBase & {
+type PasskeyFreshEcdsaBootstrapExactRequestBase = EcdsaBootstrapExactRequestBase & {
   kind: 'passkey_fresh_ecdsa_bootstrap';
-  routeAuth: PasskeyFreshBootstrapRouteAuth;
   clientRootShare32B64u: string;
-  webauthnAuthentication?: WebAuthnAuthenticationCredential;
   emailOtpAuthContext?: never;
 };
+
+type PasskeyFreshEcdsaBootstrapExactRequest =
+  | (PasskeyFreshEcdsaBootstrapExactRequestBase & {
+      routeAuth?: PasskeyFreshBootstrapRouteAuth;
+      webauthnAuthentication: WebAuthnAuthenticationCredential;
+    })
+  | (PasskeyFreshEcdsaBootstrapExactRequestBase & {
+      routeAuth: PasskeyFreshBootstrapRouteAuth;
+      webauthnAuthentication?: never;
+    });
 
 export type PasskeyFreshEcdsaBootstrapRequest =
   | PasskeyFreshEcdsaBootstrapExactRequest
@@ -205,14 +225,14 @@ export type ThresholdSessionActivationDeps = {
   ) => string;
   defaultRelayerUrl: string;
   persistThresholdEcdsaBootstrapForWalletTarget: (args: {
-    walletId: AccountId | string;
+    walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
   }) => Promise<void>;
   upsertThresholdEcdsaSessionFromBootstrap: (
     args:
       | {
-          walletId: AccountId | string;
+          walletId: WalletId;
           chainTarget: ThresholdEcdsaChainTarget;
           bootstrap: ThresholdEcdsaSessionBootstrapResult;
           source: ThresholdEcdsaSessionStoreSource;
@@ -220,7 +240,7 @@ export type ThresholdSessionActivationDeps = {
           emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
         }
       | {
-          walletId: AccountId | string;
+          walletId: WalletId;
           chainTarget: ThresholdEcdsaChainTarget;
           bootstrap: ThresholdEcdsaSessionBootstrapResult;
           source: ThresholdEcdsaSessionStoreSource;
@@ -259,15 +279,28 @@ function resolveRelayerUrl(
 function hasExactEcdsaBootstrapIdentity(
   request: EcdsaBootstrapRequest,
 ): request is Extract<EcdsaBootstrapRequest, { key: EvmFamilyEcdsaKeyIdentity }> {
-  return 'key' in request && Boolean(request.key);
+  return (
+    'key' in request &&
+    Boolean(request.key) &&
+    'keyHandle' in request &&
+    Boolean(String(request.keyHandle || '').trim())
+  );
 }
 
 export function ecdsaBootstrapWalletId(request: EcdsaBootstrapRequest): AccountId | string {
   return hasExactEcdsaBootstrapIdentity(request) ? request.key.walletId : request.walletId;
 }
 
+function targetBootstrapSubjectId(
+  request: Extract<EcdsaBootstrapRequest, { walletId: AccountId | string }>,
+): WalletSubjectId {
+  return walletSubjectIdFromWalletProfile({ walletId: String(request.walletId) });
+}
+
 export function ecdsaBootstrapSubjectId(request: EcdsaBootstrapRequest): WalletSubjectId {
-  return hasExactEcdsaBootstrapIdentity(request) ? request.key.subjectId : request.subjectId;
+  return hasExactEcdsaBootstrapIdentity(request)
+    ? deriveBaseEcdsaSubjectIdFromKey(request.key)
+    : targetBootstrapSubjectId(request);
 }
 
 export function ecdsaBootstrapChainTarget(
@@ -307,7 +340,7 @@ function toActivateEcdsaSessionRequest(
     return {
       kind: 'registration_bootstrap',
       walletId: targetRequest.walletId,
-      subjectId: targetRequest.subjectId,
+      subjectId: targetBootstrapSubjectId(targetRequest),
       chainTarget: targetRequest.chainTarget,
       relayerUrl,
       ...(targetRequest.keyIntent ? { keyIntent: targetRequest.keyIntent } : {}),
@@ -320,18 +353,19 @@ function toActivateEcdsaSessionRequest(
   };
   const exactSessionRequest = (
     exactRequest: Extract<EcdsaBootstrapRequest, { key: EvmFamilyEcdsaKeyIdentity }>,
-    thresholdSessionAuth: ThresholdEcdsaHssRouteAuth,
+    thresholdSessionAuth: ThresholdEcdsaHssRouteAuth | undefined,
     clientRootShare32B64u: string,
     webauthnAuthentication: WebAuthnAuthenticationCredential | undefined,
   ): ActivateEcdsaSessionRequest => {
     return {
       kind: 'session_bootstrap',
       relayerUrl,
+      keyHandle: toEvmFamilyEcdsaKeyHandle(exactRequest.keyHandle),
       key: exactRequest.key,
       lanePolicy: exactRequest.lanePolicy,
       clientRootShare32B64u,
       ...(webauthnAuthentication ? { webauthnAuthentication } : {}),
-      thresholdSessionAuth,
+      ...(thresholdSessionAuth ? { thresholdSessionAuth } : {}),
       runtimeScopeBootstrap: exactRequest.runtimeScopeBootstrap,
     };
   };
@@ -450,7 +484,7 @@ export async function bootstrapEcdsaSessionValue(
   request: EcdsaBootstrapRequest,
 ): Promise<ThresholdEcdsaSessionBootstrapResult> {
   const normalizedRequest = await normalizeRuntimeEcdsaBootstrapRequest(deps, request);
-  const walletId = toAccountId(ecdsaBootstrapWalletId(normalizedRequest));
+  const walletId = toWalletId(ecdsaBootstrapWalletId(normalizedRequest));
   const chainTarget = ecdsaBootstrapChainTarget(normalizedRequest);
   const relayerUrl = resolveRelayerUrl(normalizedRequest.relayerUrl, deps.defaultRelayerUrl);
 

@@ -1,4 +1,4 @@
-import type { AccountId } from '@/core/types/accountIds';
+import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   ClearVolatileWarmSessionMaterialCommand,
   VolatileWarmSessionMaterialClearAll,
@@ -46,7 +46,7 @@ function hasVolatileWarmSessionMaterialClearer(
 
 function collectWarmSigningSessionIdsForWallet(
   deps: Pick<ClearVolatileWarmSigningMaterialDeps, 'ecdsaSessions'>,
-  walletId: AccountId | string,
+  walletId: WalletId,
 ): VolatileWarmSessionId[] {
   const sessionIds = new Set<VolatileWarmSessionId>();
   const ed25519SessionId = parseVolatileWarmSessionId(
@@ -69,7 +69,7 @@ function collectWarmSigningSessionIdsForWallet(
 
 export async function clearVolatileWarmSigningMaterial(
   deps: ClearVolatileWarmSigningMaterialDeps,
-  walletId?: AccountId | string,
+  walletId?: WalletId,
 ): Promise<void> {
   if (walletId == null && hasVolatileWarmSessionMaterialClearAll(deps.touchConfirm)) {
     await deps.touchConfirm

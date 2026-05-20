@@ -2,7 +2,6 @@ import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import type {
   ThresholdEcdsaChainTarget,
   WalletSessionRef,
-  WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
@@ -28,7 +27,7 @@ import type {
 
 export type LoginEmailOtpEcdsaCapabilityForSigningArgs = {
   walletSession: WalletSessionRef;
-  subjectId: WalletSubjectId;
+  subjectId?: never;
   chainTarget: ThresholdEcdsaChainTarget;
   challengeId: string;
   otpCode: string;

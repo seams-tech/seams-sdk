@@ -67,6 +67,7 @@ function makePreparedLinkDeviceService() {
           sessionId: 'evm-session-1',
           walletSigningSessionId: 'wallet-signing-session-1',
           subjectId: 'alice.testnet',
+          keyHandle: 'ehss-key-link-device-1',
           ecdsaThresholdKeyId: 'ehss-link-device-prepare-1',
           chainTarget: {
             kind: 'evm' as const,
@@ -110,9 +111,9 @@ test.describe('link-device prepare routing', () => {
       expect(res.status).toBe(200);
       expect((res.json?.thresholdEd25519 as any)?.session?.jwt).toContain('near-session-1');
       expect((res.json?.thresholdEcdsa as any)?.session?.jwt).toContain('evm-session-1');
-      expect((res.json?.thresholdEcdsa as any)?.ecdsaThresholdKeyId).toBe(
-        'ehss-link-device-prepare-1',
-      );
+      expect(
+        Object.prototype.hasOwnProperty.call(res.json?.thresholdEcdsa || {}, 'ecdsaThresholdKeyId'),
+      ).toBe(false);
       expect(res.json).not.toHaveProperty('linkedAccounts');
     } finally {
       await srv.close();
@@ -145,9 +146,9 @@ test.describe('link-device prepare routing', () => {
     expect(res.status).toBe(200);
     expect((res.json?.thresholdEd25519 as any)?.session?.jwt).toContain('near-session-1');
     expect((res.json?.thresholdEcdsa as any)?.session?.jwt).toContain('evm-session-1');
-    expect((res.json?.thresholdEcdsa as any)?.ecdsaThresholdKeyId).toBe(
-      'ehss-link-device-prepare-1',
-    );
+    expect(
+      Object.prototype.hasOwnProperty.call(res.json?.thresholdEcdsa || {}, 'ecdsaThresholdKeyId'),
+    ).toBe(false);
     expect(res.json).not.toHaveProperty('linkedAccounts');
   });
 });

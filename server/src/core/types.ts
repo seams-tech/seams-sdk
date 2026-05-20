@@ -997,6 +997,7 @@ export type ThresholdEcdsaHssPrepareRequest =
       keygenSessionId: string;
       sessionPolicy: ThresholdEcdsaBootstrapSessionPolicy;
       webauthn_authentication?: WebAuthnAuthenticationCredential;
+      keyHandle?: never;
       ecdsaThresholdKeyId?: never;
       subjectId?: never;
       chainTarget?: never;
@@ -1005,6 +1006,7 @@ export type ThresholdEcdsaHssPrepareRequest =
       operation: 'email_otp_bootstrap';
       keygenSessionId: string;
       sessionPolicy: ThresholdEcdsaBootstrapSessionPolicy;
+      keyHandle?: string;
       ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
       webauthn_authentication?: WebAuthnAuthenticationCredential;
       subjectId?: never;
@@ -1014,7 +1016,8 @@ export type ThresholdEcdsaHssPrepareRequest =
       operation: 'session_bootstrap';
       keygenSessionId: string;
       sessionPolicy: ThresholdEcdsaBootstrapSessionPolicy;
-      ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+      keyHandle?: string;
+      ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
       webauthn_authentication?: WebAuthnAuthenticationCredential;
       subjectId?: never;
       chainTarget?: never;
@@ -1023,7 +1026,8 @@ export type ThresholdEcdsaHssPrepareRequest =
       operation: 'explicit_key_export';
       subjectId: string;
       chainTarget: ThresholdEcdsaChainTarget;
-      ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+      keyHandle?: string;
+      ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
       ecdsaSessionClaims: Record<string, unknown>;
       keygenSessionId?: never;
       sessionPolicy?: never;
@@ -1037,6 +1041,7 @@ export interface ThresholdEcdsaHssPrepareResponse {
   code?: string;
   message?: string;
   ceremonyId?: string;
+  keyHandle?: string;
   preparedServerSessionB64u?: string;
   serverAssistInitB64u?: string;
   hssContext?: {
@@ -1075,6 +1080,7 @@ export interface ThresholdEcdsaHssFinalizeResponse {
   sessionKind?: 'jwt' | 'cookie';
   sessionAuthTokenUserId?: string;
   sessionAuthTokenRpId?: string;
+  keyHandle?: string;
   ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
   clientVerifyingShareB64u?: string;
   clientAdditiveShare32B64u?: string;
@@ -1103,6 +1109,7 @@ export interface ThresholdEcdsaHssFinalizeResponse {
 export interface ThresholdEcdsaIntegratedKeyRecord {
   version: 'threshold_ecdsa_hss_key_v1';
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  keyHandle?: string;
   walletSessionUserId: string;
   subjectId: string;
   rpId: string;
@@ -1130,6 +1137,7 @@ export type EcdsaSessionPolicy = {
   rpId: string;
   relayerKeyId: string;
   chainTarget: ThresholdEcdsaChainTarget;
+  keyHandle?: string;
   ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
   sessionId: string;
   walletSigningSessionId?: string;
@@ -1146,6 +1154,7 @@ export type ThresholdEcdsaBootstrapSessionPolicy = {
   subjectId: string;
   rpId: string;
   chainTarget: ThresholdEcdsaChainTarget;
+  keyHandle?: string;
   ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
   sessionId: string;
   walletSigningSessionId?: string;
@@ -1157,7 +1166,8 @@ export type ThresholdEcdsaBootstrapSessionPolicy = {
 };
 
 export interface ThresholdEcdsaAuthorizeWithSessionRequest {
-  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  keyHandle: string;
+  ecdsaThresholdKeyId?: never;
   purpose: ThresholdEcdsaPurpose;
   signing_digest_32: number[];
   signingPayload?: unknown;
@@ -1188,7 +1198,8 @@ export interface ThresholdEcdsaAuthorizeResponse {
 // =====================================
 
 export type ThresholdEcdsaPresignInitRequest = {
-  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  keyHandle?: string;
+  ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
   /**
    * Number of presignatures to generate.
    * v1 supports only `1` (single presignature session).

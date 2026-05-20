@@ -1,12 +1,18 @@
-import type {
-  ThresholdEcdsaCanonicalExportArtifact,
-  ThresholdEcdsaSecp256k1KeyRef,
-} from '../../interfaces/signing';
+import type { ThresholdEcdsaCanonicalExportArtifact } from '../../interfaces/signing';
 import {
+  assertMatchingVerifiedEcdsaPublicFacts,
+  buildReadyEcdsaSignerSessionFromReadyMaterial,
+  deriveEvmFamilyKeyFingerprintFromPublicFacts,
   resolveReadyEvmFamilyEcdsaMaterial,
+  toVerifiedEcdsaPublicFactsFromDurableRecord,
+  toVerifiedEcdsaPublicFactsFromRecord,
+  toVerifiedEcdsaPublicFactsFromReadyMaterial,
+  type EvmFamilyKeyFingerprint,
   type EvmFamilyEcdsaKeyIdentity,
+  type ReadyEcdsaSignerSession,
   type ReadyEvmFamilyEcdsaMaterial,
   type ThresholdEcdsaSessionId,
+  type VerifiedEcdsaPublicFacts,
   type WalletSigningSessionId,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type {
@@ -32,11 +38,11 @@ import {
   type ThresholdRuntimePolicyScope,
 } from '../../threshold/sessionPolicy';
 import type { EvmFamilySigningTarget } from '../signEvmFamily/types';
-import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 
 export type ExactEcdsaExportLane = {
   curve: 'ecdsa';
   key: EvmFamilyEcdsaKeyIdentity;
+  publicFacts: VerifiedEcdsaPublicFacts;
   session: {
     chainTarget: ThresholdEcdsaChainTarget;
     authMethod: 'email_otp' | 'passkey';
@@ -57,26 +63,31 @@ export type EcdsaExportSessionStoreDeps = {
   exportArtifactsByLane: Map<string, ThresholdEcdsaCanonicalExportArtifact>;
 };
 
-export type ReadyEcdsaExportMaterial = {
-  kind: 'ready';
-  readyMaterial: ReadyEvmFamilyEcdsaMaterial;
+export type ReadyThresholdEcdsaExportMaterial = {
+  kind: 'ready_threshold_ecdsa_export_material';
+  signerSession: ReadyEcdsaSignerSession;
+  publicFacts: VerifiedEcdsaPublicFacts;
+  record: ThresholdEcdsaSessionRecord;
+  cachedExportArtifact: ThresholdEcdsaCanonicalExportArtifact | null;
+  evmFamilyKeyFingerprint: EvmFamilyKeyFingerprint;
+  ecdsaThresholdKeyId?: never;
+  keyRef?: never;
+  readyMaterial?: never;
 };
+
+export type ReadyEcdsaExportMaterial = ReadyThresholdEcdsaExportMaterial;
 
 export type FreshEmailOtpEcdsaExportMaterial = {
   kind: 'fresh_email_otp';
   chainTarget: ThresholdEcdsaChainTarget;
-  publicKey: string;
-  ecdsaThresholdKeyId: string;
-  participantIds: number[];
+  publicFacts: VerifiedEcdsaPublicFacts;
   authSubjectId?: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
 };
 
 export type EcdsaExportMaterial = ReadyEcdsaExportMaterial | FreshEmailOtpEcdsaExportMaterial;
 
-type EcdsaExportSessionRecordLookupKey = ThresholdEcdsaSessionRecordKey & {
-  walletId: string;
-};
+type EcdsaExportSessionRecordLookupKey = ThresholdEcdsaSessionRecordKey;
 
 export function ecdsaExportBoundaryChain(lane: ExactEcdsaExportLane): 'evm' | 'tempo' {
   return lane.session.chainTarget.kind;
@@ -87,13 +98,10 @@ export function ecdsaExportSessionRecordKey(
 ): EcdsaExportSessionRecordLookupKey {
   return {
     walletId: String(lane.key.walletId),
-    subjectId: lane.key.subjectId,
+    keyHandle: String(lane.publicFacts.keyHandle),
     authMethod: lane.session.authMethod,
     curve: 'ecdsa',
     chainTarget: lane.session.chainTarget,
-    ecdsaThresholdKeyId: String(lane.key.ecdsaThresholdKeyId),
-    signingRootId: String(lane.key.signingRootId),
-    signingRootVersion: String(lane.key.signingRootVersion),
     walletSigningSessionId: String(lane.session.walletSigningSessionId),
     thresholdSessionId: String(lane.session.thresholdSessionId),
   };
@@ -113,15 +121,8 @@ export function isConcreteEcdsaExportLane(
     lane!.curve === 'ecdsa' &&
     Boolean(lane!.chainTarget) &&
     isConcreteAvailableSigningLane(lane!) &&
-    Boolean(String(lane!.key.ecdsaThresholdKeyId || '').trim())
+    Boolean(String(lane!.publicFacts.keyHandle || '').trim())
   );
-}
-
-export function readEcdsaExportKeyRefForLane(
-  deps: EcdsaExportSessionStoreDeps,
-  exportLane: ExactEcdsaExportLane,
-): ThresholdEcdsaSecp256k1KeyRef | null {
-  return getThresholdEcdsaKeyRefByKey(deps, ecdsaExportSessionRecordKey(exportLane))?.keyRef || null;
 }
 
 export function readEcdsaExportRecordForLane(
@@ -129,6 +130,58 @@ export function readEcdsaExportRecordForLane(
   exportLane: ExactEcdsaExportLane,
 ): ThresholdEcdsaSessionRecord | null {
   return getThresholdEcdsaSessionRecordByKey(deps, ecdsaExportSessionRecordKey(exportLane));
+}
+
+export function buildReadyThresholdEcdsaExportMaterial(args: {
+  readyMaterial: ReadyEvmFamilyEcdsaMaterial;
+  publicFacts: VerifiedEcdsaPublicFacts;
+}): ReadyThresholdEcdsaExportMaterial {
+  return {
+    kind: 'ready_threshold_ecdsa_export_material',
+    signerSession: buildReadyEcdsaSignerSessionFromReadyMaterial({
+      material: args.readyMaterial,
+      publicFacts: args.publicFacts,
+    }),
+    publicFacts: args.publicFacts,
+    record: args.readyMaterial.record,
+    cachedExportArtifact: args.readyMaterial.cachedExportArtifact,
+    evmFamilyKeyFingerprint: deriveEvmFamilyKeyFingerprintFromPublicFacts({
+      walletId: args.readyMaterial.key.walletId,
+      publicFacts: args.publicFacts,
+    }),
+  };
+}
+
+function readReadyEvmFamilyEcdsaMaterialForExportLane(args: {
+  deps: EcdsaExportSessionStoreDeps;
+  exportLane: ExactEcdsaExportLane;
+  rpId: string;
+}): ReadyEvmFamilyEcdsaMaterial | null {
+  const record = readEcdsaExportRecordForLane(args.deps, args.exportLane);
+  if (!record || !isUsableEcdsaExportSessionRecord(record)) return null;
+  const keyRef =
+    getThresholdEcdsaKeyRefByKey(args.deps, ecdsaExportSessionRecordKey(args.exportLane))?.keyRef ||
+    null;
+  if (!keyRef) return null;
+  const materialResolution = resolveReadyEvmFamilyEcdsaMaterial({
+    record,
+    keyRef,
+    rpId: args.rpId,
+    expected: {
+      walletId: args.exportLane.key.walletId,
+      chainTarget: args.exportLane.session.chainTarget,
+      authMethod: args.exportLane.session.authMethod,
+      source: record.source,
+      thresholdSessionId: args.exportLane.session.thresholdSessionId,
+      walletSigningSessionId: args.exportLane.session.walletSigningSessionId,
+    },
+  });
+  if (materialResolution.kind !== 'ready') {
+    throw new Error(
+      `[SigningEngine][ecdsa-export] ready export material rejected: ${materialResolution.reason.kind}`,
+    );
+  }
+  return materialResolution.material;
 }
 
 export function isUsableEcdsaExportSessionRecord(record: ThresholdEcdsaSessionRecord): boolean {
@@ -141,22 +194,6 @@ export function isUsableEcdsaExportSessionRecord(record: ThresholdEcdsaSessionRe
     (!Number.isFinite(expiresAtMs) || expiresAtMs <= 0 || expiresAtMs > Date.now()) &&
     (record.thresholdSessionKind === 'cookie' || hasAuthToken)
   );
-}
-
-function sealedEcdsaSigningRoot(
-  record: SigningSessionSealedStoreRecord,
-): { signingRootId: string; signingRootVersion: string } | null {
-  const explicitSigningRootId = String(record.signingRootId || '').trim();
-  const explicitSigningRootVersion = String(record.signingRootVersion || '').trim();
-  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(
-    record.ecdsaRestore?.runtimePolicyScope,
-  );
-  const scope = runtimePolicyScope ? signingRootScopeFromRuntimePolicyScope(runtimePolicyScope) : null;
-  const signingRootId = explicitSigningRootId || String(scope?.signingRootId || '').trim();
-  const signingRootVersion =
-    explicitSigningRootVersion || String(scope?.signingRootVersion || 'default').trim();
-  if (!signingRootId || !signingRootVersion) return null;
-  return { signingRootId, signingRootVersion };
 }
 
 export async function resolveExactSealedEcdsaExportRecordForLane(
@@ -174,17 +211,13 @@ export async function resolveExactSealedEcdsaExportRecordForLane(
   ).filter((record) => {
     const walletSigningSessionId = String(record.walletSigningSessionId || '').trim();
     const thresholdSessionId = String(record.thresholdSessionIds.ecdsa || '').trim();
-    const signingRoot = sealedEcdsaSigningRoot(record);
     const sealedWalletId = String(record.walletId || '').trim();
+    const sealedKeyHandle = String(record.ecdsaRestore?.keyHandle || '').trim();
     return (
       walletSigningSessionId === String(exportLane.session.walletSigningSessionId) &&
       thresholdSessionId === String(exportLane.session.thresholdSessionId) &&
-      String(record.subjectId || '').trim() === String(exportLane.key.subjectId) &&
       sealedWalletId === String(exportLane.key.walletId) &&
-      signingRoot?.signingRootId === String(exportLane.key.signingRootId) &&
-      signingRoot.signingRootVersion === String(exportLane.key.signingRootVersion) &&
-      String(record.ecdsaRestore?.ecdsaThresholdKeyId || '').trim() ===
-        String(exportLane.key.ecdsaThresholdKeyId)
+      sealedKeyHandle === String(exportLane.publicFacts.keyHandle)
     );
   });
   if (matches.length !== 1) {
@@ -203,20 +236,27 @@ export async function resolveFreshEmailOtpEcdsaExportMaterialForLane(
     throw new Error('[SigningEngine][ecdsa-export] fresh Email OTP export requires Email OTP lane');
   }
   const runtimeRecord = readEcdsaExportRecordForLane(deps, exportLane);
-  const sealedRecord = runtimeRecord ? null : await resolveExactSealedEcdsaExportRecordForLane(exportLane);
+  const sealedRecord = runtimeRecord
+    ? null
+    : await resolveExactSealedEcdsaExportRecordForLane(exportLane);
   const sealedRestore = sealedRecord?.ecdsaRestore;
-  const ecdsaThresholdKeyId = String(
-    runtimeRecord?.ecdsaThresholdKeyId || sealedRestore?.ecdsaThresholdKeyId || '',
-  ).trim();
-  if (!ecdsaThresholdKeyId) {
-    throw new Error('[SigningEngine][ecdsa-export] exact export lane is missing ECDSA key id');
-  }
-  const participantIds = (runtimeRecord?.participantIds || sealedRestore?.participantIds || [])
-    .map((participantId) => Math.floor(Number(participantId)))
-    .filter((participantId) => Number.isSafeInteger(participantId) && participantId > 0);
-  if (!participantIds.length) {
-    throw new Error('[SigningEngine][ecdsa-export] exact export lane is missing participants');
-  }
+  const publicFacts = runtimeRecord
+    ? await toVerifiedEcdsaPublicFactsFromRecord({ record: runtimeRecord })
+    : await toVerifiedEcdsaPublicFactsFromDurableRecord({
+        record: {
+          ecdsaRestore: {
+            keyHandle: sealedRestore?.keyHandle || exportLane.publicFacts.keyHandle,
+            thresholdEcdsaPublicKeyB64u: sealedRestore?.thresholdEcdsaPublicKeyB64u,
+            participantIds: sealedRestore?.participantIds,
+            ethereumAddress: sealedRestore?.ethereumAddress,
+          },
+        },
+      });
+  assertMatchingVerifiedEcdsaPublicFacts({
+    expected: exportLane.publicFacts,
+    actual: publicFacts,
+    context: 'fresh Email OTP export lane',
+  });
   const authSubjectId = String(runtimeRecord?.emailOtpAuthContext?.authSubjectId || '').trim();
   const runtimePolicyScope =
     runtimeRecord?.runtimePolicyScope ||
@@ -224,9 +264,7 @@ export async function resolveFreshEmailOtpEcdsaExportMaterialForLane(
   return {
     kind: 'fresh_email_otp',
     chainTarget: exportLane.session.chainTarget,
-    publicKey: ecdsaThresholdKeyId,
-    ecdsaThresholdKeyId,
-    participantIds,
+    publicFacts,
     ...(authSubjectId ? { authSubjectId } : {}),
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
   };
@@ -237,34 +275,25 @@ export async function resolveEcdsaExportMaterialForLane(
   exportLane: ExactEcdsaExportLane,
   rpId: string,
 ): Promise<EcdsaExportMaterial> {
-  const keyRef = readEcdsaExportKeyRefForLane(deps, exportLane);
-  const record = readEcdsaExportRecordForLane(deps, exportLane);
-  if (keyRef && record && isUsableEcdsaExportSessionRecord(record)) {
-    const materialResolution = resolveReadyEvmFamilyEcdsaMaterial({
-      record,
-      keyRef,
-      rpId,
-      expected: {
-        walletId: exportLane.key.walletId,
-        subjectId: exportLane.key.subjectId,
-        chainTarget: exportLane.session.chainTarget,
-        authMethod: exportLane.session.authMethod,
-        source: record.source,
-        thresholdSessionId: exportLane.session.thresholdSessionId,
-        walletSigningSessionId: exportLane.session.walletSigningSessionId,
-      },
+  const readyMaterial = readReadyEvmFamilyEcdsaMaterialForExportLane({ deps, exportLane, rpId });
+  if (readyMaterial) {
+    const publicFacts = await toVerifiedEcdsaPublicFactsFromReadyMaterial({
+      material: readyMaterial,
     });
-    if (materialResolution.kind !== 'ready') {
-      throw new Error(
-        `[SigningEngine][ecdsa-export] ready export material rejected: ${materialResolution.reason.kind}`,
-      );
-    }
-    return { kind: 'ready', readyMaterial: materialResolution.material };
+    assertMatchingVerifiedEcdsaPublicFacts({
+      expected: exportLane.publicFacts,
+      actual: publicFacts,
+      context: 'ready export lane',
+    });
+    return buildReadyThresholdEcdsaExportMaterial({
+      readyMaterial,
+      publicFacts,
+    });
   }
   if (exportLane.session.authMethod === 'email_otp') {
     return await resolveFreshEmailOtpEcdsaExportMaterialForLane(deps, exportLane);
   }
   throw new Error(
-    `[SigningEngine][ecdsa-export] exact export keyRef not ready for ${ecdsaExportBoundaryChain(exportLane)} ${exportLane.session.authMethod}`,
+    `[SigningEngine][ecdsa-export] exact export ready material unavailable for ${ecdsaExportBoundaryChain(exportLane)} ${exportLane.session.authMethod}`,
   );
 }

@@ -2,6 +2,7 @@ import { toAccountId } from '../../types/accountIds';
 import type { EvmSignerCapability } from '..';
 import { routeWalletIframeOrLocal, type WalletIframeRouteDeps } from '../walletIframeRoute';
 import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 type ChainSignerDeps = {
   getContext: () => import('../index').PasskeyManagerContext;
@@ -14,7 +15,6 @@ function toLocalBootstrapRequest(
   return {
     kind: 'reuse_warm_ecdsa_bootstrap',
     walletId: toAccountId(args.walletSession.walletId),
-    subjectId: args.subjectId,
     chainTarget: args.chainTarget,
     source: args.source,
     relayerUrl: args.relayerUrl,
@@ -59,7 +59,7 @@ export class EvmSigner implements EvmSignerCapability {
 
     return await routeWalletIframeOrLocal({
       walletIframe: this.walletIframe,
-      walletId: String(args.walletSession.walletId),
+      walletId: toWalletId(args.walletSession.walletId),
       remote: async (router) => {
         return await router.bootstrapEcdsaSession(bootstrapArgs);
       },

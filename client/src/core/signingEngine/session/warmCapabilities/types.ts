@@ -30,7 +30,7 @@ import type { SigningOperationIntent } from '../operationState/types';
 import {
   thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
-  type WalletSubjectId,
+  type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   EvmFamilyEcdsaKeyIdentity,
@@ -272,11 +272,6 @@ function assertCapabilityStateInvariant(args: {
         `[WarmSessionStore] invalid ${args.label} capability: key wallet does not match envelope wallet`,
       );
     }
-    if (String(capability.key.subjectId) !== String(capability.record.subjectId)) {
-      throw new Error(
-        `[WarmSessionStore] invalid ${args.label} capability: key subject does not match record subject`,
-      );
-    }
     if (
       String(capability.key.thresholdOwnerAddress).toLowerCase() !==
       String(capability.record.ethereumAddress).toLowerCase()
@@ -488,8 +483,8 @@ export type ProvisionWarmEd25519CapabilityResult =
   | ProvisionWarmEd25519CapabilityFailureResult;
 
 export type EnsureWarmEcdsaProvisionPlanReadyArgs = {
-  walletId: AccountId | string;
-  subjectId: WalletSubjectId;
+  walletId: WalletId;
+  subjectId?: never;
   chainTarget: ThresholdEcdsaChainTarget;
   plan: EcdsaSessionProvisionPlan;
   keyRef?: ThresholdEcdsaSecp256k1KeyRef;
@@ -513,14 +508,14 @@ export type EnsureWarmEcdsaCapabilityReadyResult = {
 };
 
 export type ApplyWarmEcdsaPostSignPolicyArgs = {
-  walletId: AccountId | string;
+  walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
   thresholdSessionId: string;
   selectedRecord: ThresholdEcdsaSessionRecord;
 };
 
 export type AssertWarmEcdsaOperationAllowedArgs = {
-  walletId: AccountId | string;
+  walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
   operationLabel: string;
   thresholdSessionId: string;
@@ -590,7 +585,7 @@ export type WarmEcdsaSigningSessionStatus =
   | WarmEcdsaMissingSigningSessionStatus;
 
 export type WarmSessionEcdsaCapabilityRef = {
-  walletId: AccountId | string;
+  walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
   thresholdSessionId: string;
 };
@@ -636,17 +631,17 @@ export type WarmSessionCapabilityReader = {
 
 export type ThresholdWarmSessionStatusReader = {
   getEd25519SigningSessionStatus: (
-    nearAccountId: AccountId | string,
+    nearAccountId: AccountId,
   ) => Promise<SigningSessionStatus | null>;
   getEd25519SigningSessionStatusForSession: (args: {
-    nearAccountId: AccountId | string;
+    nearAccountId: AccountId;
     thresholdSessionId: string;
   }) => Promise<SigningSessionStatus | null>;
   getEcdsaSigningSessionStatus: (
     args: GetWarmEcdsaSigningSessionStatusArgs,
   ) => Promise<WarmEcdsaSigningSessionStatus | null>;
   listEcdsaSigningSessionStatuses: (args: {
-    walletId: AccountId | string;
+    walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
   }) => Promise<WarmEcdsaRecordBackedSigningSessionStatus[]>;
   assertEcdsaSigningSessionReady: (

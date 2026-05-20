@@ -4,6 +4,7 @@ import type { SeamsChainConfig } from '@/core/types/seams';
 import {
   thresholdEcdsaChainTargetFromConfig,
   thresholdEcdsaChainTargetKey,
+  toWalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   ExecuteEvmFamilyTransactionArgs,
@@ -397,7 +398,7 @@ export async function executeEvmFamilyTransactionLifecycle(args: {
   input: ExecuteEvmFamilyTransactionArgs;
 }): Promise<ExecuteEvmFamilyTransactionResult> {
   const onEvent = args.input.options?.onEvent;
-  const walletId = String(args.input.walletSession.walletId);
+  const walletId = toWalletId(args.input.walletSession.walletId);
   throwIfCancelled(args.input.options?.shouldAbort);
 
   let signedResult: TempoSignedResult | EvmSignedResult | null = null;
@@ -423,7 +424,6 @@ export async function executeEvmFamilyTransactionLifecycle(args: {
 
     signedResult = await args.capability.signTempo({
       walletSession: args.input.walletSession,
-      subjectId: args.input.subjectId,
       request,
       chainTarget: args.input.chainTarget,
       options: args.input.options

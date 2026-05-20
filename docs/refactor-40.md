@@ -36,22 +36,72 @@ boundary builders, exhaustive `switch` statements, and type fixtures.
 
 ## Phase 0: Current Surface Inventory
 
-- [ ] Inventory wallet signing-session budget policy sources:
+- [x] Inventory wallet signing-session budget policy sources:
   `client/src/core/config/defaultConfigs.ts` and
   `client/src/core/signingEngine/threshold/sessionPolicy.ts`.
-- [ ] Inventory reservation state in
+- [x] Inventory reservation state in
   `client/src/core/signingEngine/session/budget/BudgetCoordinator.ts`:
   `reservationsByOperationId` and `successfulSpendsByOperationId`.
-- [ ] Inventory projection assertions and throw sites in
+- [x] Inventory projection assertions and throw sites in
   `client/src/core/signingEngine/session/budget/budget.ts`.
-- [ ] Inventory finalizer API shape in
+- [x] Inventory finalizer API shape in
   `client/src/core/signingEngine/session/budget/budgetFinalizer.ts`.
-- [ ] Inventory Email OTP app-session refresh behavior in
+- [x] Inventory Email OTP app-session refresh behavior in
   `client/src/core/signingEngine/session/emailOtp/appSessionJwtCache.ts`.
-- [ ] Inventory budget status 401/403 handling in
+- [x] Inventory budget status 401/403 handling in
   `client/src/core/signingEngine/session/budget/budgetStatusReader.ts`.
-- [ ] List every signing path that catches budget/freshness errors and maps them
+- [x] List every signing path that catches budget/freshness errors and maps them
   to `threshold_ecdsa_session_not_ready`.
+
+Phase 0 inventory findings:
+
+- Budget policy sources:
+  `client/src/core/config/defaultConfigs.ts` sets `remainingUses: 3` in both
+  `signing.sessionDefaults` and ECDSA `provisioningDefaults` (Tempo/EVM).
+  `client/src/core/signingEngine/threshold/sessionPolicy.ts` keeps
+  `DEFAULT_THRESHOLD_SESSION_POLICY.remainingUses = 3`, then applies it in
+  `buildEd25519SessionPolicy(...)` and `buildEcdsaHssSessionPolicy(...)` via
+  `clampThresholdSessionPolicy(...)`.
+- Reservation state in `BudgetCoordinator`:
+  in-memory mutable maps are
+  `reservationsByOperationId` and `successfulSpendsByOperationId`, with
+  `walletReservationQueues` serializing reserve calls per wallet session id.
+  Reserve dedupes on operation id + fingerprint, records projection metadata,
+  and releases reservation on success/failure/zero-spend finalization paths.
+- Projection assertions and throw sites in `budget.ts`:
+  `assertSigningSessionBudgetReservationAvailable(...)` throws for
+  adapter/status unknown, `not_found`, non-active status, missing projection
+  version, in-flight contention, exhausted budget, and missing prepared
+  projection input. `assertPreparedBudgetProjectionVersion(...)` throws for
+  missing expected projection, missing trusted projection, and stale projection.
+- Finalizer API shape (`budgetFinalizer.ts`):
+  `createSigningSessionBudgetFinalizer(...)` returns
+  `{ spend?, reserve(), recordSuccess(), recordZeroSpend(error) }`.
+  `reserve()` retries local in-flight contention, `recordSuccess()` currently
+  delegates to `budget.recordSuccess(...)` and throws on failure,
+  `recordZeroSpend(...)` infers a typed zero-spend reason and records it.
+- Email OTP app-session refresh behavior (`appSessionJwtCache.ts`):
+  `resolve(...)` returns cached unexpired app-session JWT or refreshes via
+  `refreshEmailOtpAppSessionJwt(...)`. Refresh calls `POST /session/refresh`
+  with cookie credentials and optional bearer token; non-OK responses throw
+  generic `Error(message)` (HTTP code embedded only in fallback string).
+- Budget status 401/403 handling (`budgetStatusReader.ts`):
+  `fetchTrustedWalletSigningBudgetStatusOnce(...)` maps HTTP 401/403 to
+  `budget_unknown` (`reason: 'status_unavailable'`) and marks
+  `authRejected: true`. `readTrustedWalletSigningBudgetStatus(...)` retries once
+  with fallback auth material when provided auth is rejected. Payload-level
+  `not_found + statusCode=unauthorized` is also converted to `budget_unknown`.
+- Signing paths and mapping boundary for
+  `threshold_ecdsa_session_not_ready`:
+  `signNear/signNear.ts` catches session-auth-unavailable and budget-exhausted
+  to trigger one fresh-auth retry; `signNear/signTransactions.ts`,
+  `signNear/signDelegate.ts`, and `signNear/signNep413.ts` convert unavailable
+  threshold auth into `THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR`.
+  `signEvmFamily/freshAuthRetryPolicy.ts` treats threshold-auth-unavailable and
+  budget-exhausted as retry-eligible. Wallet boundary mapping to canonical
+  `threshold_ecdsa_session_not_ready` is centralized in
+  `client/src/core/WalletIframe/host/canonicalSignerErrorCode.ts` and applied in
+  `client/src/core/WalletIframe/host/index.ts` when posting `ERROR` payloads.
 
 ## Phase 1: Split Unlock Budget From Step-Up Budget
 
@@ -113,16 +163,16 @@ type SigningBudgetPolicy =
 
 ### Tasks
 
-- [ ] Add a boundary parser for server/environment budget allowance.
-- [ ] Keep the development default as literal `remainingUses: 3`.
-- [ ] Make unlock provisioning accept only `WalletUnlockBudgetPolicy`.
-- [ ] Make post-exhaustion signing accept `SingleOperationStepUpBudgetPolicy`
+- [x] Add a boundary parser for server/environment budget allowance.
+- [x] Keep the development default as literal `remainingUses: 3`.
+- [x] Make unlock provisioning accept only `WalletUnlockBudgetPolicy`.
+- [x] Make post-exhaustion signing accept `SingleOperationStepUpBudgetPolicy`
   by default.
-- [ ] Require explicit opt-in for `WarmBudgetRefreshStepUpPolicy`.
-- [ ] Add type fixtures rejecting operation-less step-up policies and
+- [x] Require explicit opt-in for `WarmBudgetRefreshStepUpPolicy`.
+- [x] Add type fixtures rejecting operation-less step-up policies and
   operation-scoped unlock policies.
-- [ ] Add tests proving unlock starts with 3 uses under dev default.
-- [ ] Add tests proving default post-exhaustion step-up starts with 1 use.
+- [x] Add tests proving unlock starts with 3 uses under dev default.
+- [x] Add tests proving default post-exhaustion step-up starts with 1 use.
 
 ## Phase 2: Make Prompt Policy a Capability Boundary
 
@@ -596,7 +646,7 @@ Manual flows:
 - [ ] Passkey unlock provisions the configured unlock budget and prompts for
   user verification.
 - [ ] Page refresh rehydration does not prompt for passkey user verification.
-- [ ] Passkey post-exhaustion step-up uses single-operation budget by default.
+- [x] Passkey post-exhaustion step-up uses single-operation budget by default.
 - [ ] Email OTP post-exhaustion step-up maps refresh 401/403 to fresh OTP
   required.
 - [ ] Concurrent post-exhaustion NEAR and Tempo signing either both succeed with
@@ -604,7 +654,7 @@ Manual flows:
 
 ## Completion Criteria
 
-- [ ] Unlock budget and step-up budget are different policy branches.
+- [x] Unlock budget and step-up budget are different policy branches.
 - [ ] Step-up freshness includes wallet, operation, curve, lane identity,
   projection state, expiry, and provenance.
 - [ ] No-prompt rehydration/display code cannot receive prompt-capable deps.
@@ -618,3 +668,11 @@ Manual flows:
   boundary.
 - [ ] Type fixtures reject invalid policy, prompt, admission, reservation, and
   OTP refresh states.
+
+## Postgres Cleanup Follow-Up
+
+- [ ] After the one-time Postgres `threshold_ecdsa_keys` legacy-row cleanup has
+  been run and verified in the target environments, remove the temporary
+  startup prune query in
+  `server/src/core/ThresholdService/stores/KeyStore.ts` and keep strict schema
+  enforcement only.

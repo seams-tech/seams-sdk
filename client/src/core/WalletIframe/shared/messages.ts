@@ -17,7 +17,6 @@ import type {
   NearAccountRef,
   ThresholdEcdsaChainTarget,
   WalletSessionRef,
-  WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EmailOtpAuthPolicy, SeamsConfigsInput } from '../../types/seams';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
@@ -206,7 +205,6 @@ export interface PMSignNep413Payload {
 
 export interface PMSignTempoPayload {
   walletSession: WalletSessionRef;
-  subjectId: WalletSubjectId;
   request: MultichainSigningRequest;
   chainTarget: ThresholdEcdsaChainTarget;
   options?: {
@@ -255,7 +253,6 @@ export type PMExportKeypairUiPayload =
     }
   | {
       kind: 'ecdsa';
-      subjectId: WalletSubjectId;
       chainTarget: ThresholdEcdsaChainTarget;
       walletSession: WalletSessionRef;
       options: {
@@ -296,7 +293,6 @@ export interface PMEmailOtpChallengePayload {
 
 export interface PMEmailOtpSigningSessionChallengePayload {
   walletSession: WalletSessionRef;
-  subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
 }
 
@@ -319,7 +315,7 @@ export interface PMEnrollEmailOtpPayload {
 
 export interface PMEmailOtpEcdsaCapabilityPayload {
   walletSession: WalletSessionRef;
-  subjectId: WalletSubjectId;
+  subjectId?: never;
   chainTarget: ThresholdEcdsaChainTarget;
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   relayUrl?: string;
@@ -331,7 +327,6 @@ export interface PMEmailOtpEcdsaCapabilityPayload {
 
 export interface PMRefreshEmailOtpSigningSessionPayload {
   walletSession: WalletSessionRef;
-  subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   challengeId: string;
   otpCode: string;
@@ -343,7 +338,6 @@ export interface PMEmailOtpEcdsaEnrollmentCapabilityPayload extends PMEmailOtpEc
 
 export interface PMPrefillThresholdEcdsaPresignPoolPayload {
   walletSession: WalletSessionRef;
-  subjectId: WalletSubjectId;
   options: {
     chainTarget: ThresholdEcdsaChainTarget;
     waitForPoolReady?: boolean;

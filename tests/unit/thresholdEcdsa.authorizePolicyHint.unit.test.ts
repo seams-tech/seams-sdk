@@ -33,7 +33,7 @@ test.describe('threshold ECDSA authorize policy hint parsing', () => {
     await withMockedFetch(mockFetch, async () => {
       const result = await authorizeEcdsaWithSession({
         relayerUrl: 'https://relay.example',
-        ecdsaThresholdKeyId: 'ecdsa-hss-key-1',
+        keyHandle: 'ehss-key-1',
         purpose: 'tempoTransaction',
         signingDigest32: new Uint8Array(32),
         sessionKind: 'cookie',
@@ -69,7 +69,7 @@ test.describe('threshold ECDSA authorize policy hint parsing', () => {
     await withMockedFetch(mockFetch, async () => {
       const result = await authorizeEcdsaWithSession({
         relayerUrl: 'https://relay.example',
-        ecdsaThresholdKeyId: 'ecdsa-hss-key-1',
+        keyHandle: 'ehss-key-1',
         purpose: 'tempoTransaction',
         signingDigest32: new Uint8Array(32),
         sessionKind: 'cookie',

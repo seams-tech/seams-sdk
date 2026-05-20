@@ -20,7 +20,7 @@ test.describe('link-device threshold-ecdsa bootstrap', () => {
           const { persistLinkDeviceThresholdEcdsaBootstrap } = await import(
             paths.linkDeviceThresholdEcdsa
           );
-          const { thresholdEcdsaChainTargetFromChainFamily } = await import(
+          const { thresholdEcdsaChainTargetFromChainFamily, toWalletId } = await import(
             paths.ecdsaChainTarget
           );
 
@@ -42,13 +42,10 @@ test.describe('link-device threshold-ecdsa bootstrap', () => {
 
           await persistLinkDeviceThresholdEcdsaBootstrap({
             signingEngine,
-            walletId: 'alice.testnet',
+            walletId: toWalletId('alice.testnet'),
             relayerUrl: 'https://relay.example.test',
             chainTarget,
             thresholdEcdsa: {
-              ecdsaThresholdKeyId: 'ehss-link-device-1',
-              signingRootId: 'project-test:env-test',
-              signingRootVersion: 'default',
               clientVerifyingShareB64u: 'client-share-b64u',
               clientAdditiveShare32B64u: 'client-additive-share-b64u',
               relayerKeyId: 'rk-evm',
@@ -64,6 +61,13 @@ test.describe('link-device threshold-ecdsa bootstrap', () => {
                 participantIds: [1, 2],
                 remainingUses: 5,
                 jwt: 'jwt:ecdsa-session-1',
+                keyHandle: 'ehss-key-link-device-1',
+                runtimePolicyScope: {
+                  orgId: 'org-link-device',
+                  projectId: 'project-link-device',
+                  envId: 'env-link-device',
+                  signingRootVersion: 'default',
+                },
               },
             },
           });
@@ -90,8 +94,10 @@ test.describe('link-device threshold-ecdsa bootstrap', () => {
     );
     expect(output.sessionCalls[0]?.bootstrap?.thresholdEcdsaKeyRef).toEqual(
       expect.objectContaining({
-        ecdsaThresholdKeyId: 'ehss-link-device-1',
-        signingRootId: 'project-test:env-test',
+        keyHandle: 'ehss-key-link-device-1',
+        ecdsaThresholdKeyId: 'legacy-key-handle:ehss-key-link-device-1',
+        signingRootId: 'project-link-device:env-link-device',
+        signingRootVersion: 'default',
         thresholdSessionId: 'ecdsa-session-1',
         walletSigningSessionId: 'wallet-session-1',
         ethereumAddress: `0x${'aa'.repeat(20)}`,

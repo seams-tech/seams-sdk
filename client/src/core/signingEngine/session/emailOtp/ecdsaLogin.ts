@@ -8,7 +8,10 @@ import {
 import type {
   ThresholdEcdsaChainTarget,
   WalletSessionRef,
-  WalletSubjectId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  toWalletId,
+  walletSubjectIdFromWalletProfile,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import { generateWalletSigningSessionId } from '@/core/signingEngine/threshold/sessionPolicy';
@@ -23,6 +26,7 @@ import {
 } from '@shared/utils/emailOtpDomain';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { EmailOtpBootstrapRecovery } from '../../stepUpConfirmation/otpPrompt/bootstrapRecovery';
+import { toEvmFamilyEcdsaKeyHandle } from '../identity/evmFamilyEcdsaIdentity';
 import {
   authLaneToRouteAuth,
   resolveEmailOtpAuthLane,
@@ -54,8 +58,13 @@ import type {
   ProvisionEmailOtpThresholdEd25519CapabilityArgs,
 } from './provisioning';
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
-
-const EMAIL_OTP_UNLOCK_SIGNING_SESSION_REMAINING_USES = 3;
+import {
+  DEV_DEFAULT_UNLOCK_REMAINING_USES,
+  normalizeStepUpOperationId,
+  resolvePostExhaustionStepUpBudgetPolicy,
+  resolveSigningBudgetPolicyRemainingUses,
+  resolveWalletUnlockBudgetPolicyFromRequestedUses,
+} from '../budget/policy';
 
 export type EmailOtpThresholdEcdsaLoginResult = {
   recovery: EmailOtpBootstrapRecovery;
@@ -67,7 +76,7 @@ export type EmailOtpThresholdEcdsaLoginResult = {
 
 export type LoginEmailOtpEcdsaCapabilityArgs = {
   walletSession: WalletSessionRef;
-  subjectId: WalletSubjectId;
+  subjectId?: never;
   chainTarget: ThresholdEcdsaChainTarget;
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   emailOtpAuthReason?: 'login' | 'sign';
@@ -78,7 +87,7 @@ export type LoginEmailOtpEcdsaCapabilityArgs = {
   shamirPrimeB64u?: string;
   appSessionJwt?: string;
   routeAuth?: AppOrThresholdSessionAuth;
-  ecdsaThresholdKeyId?: string;
+  keyHandle?: string;
   participantIds?: number[];
   ed25519ParticipantIds?: number[];
   sessionKind?: 'jwt' | 'cookie';
@@ -113,7 +122,7 @@ export type EmailOtpEcdsaLoginPorts = {
 
 export type LoginEmailOtpEcdsaCapabilityForSigningArgs = {
   walletSession: WalletSessionRef;
-  subjectId: WalletSubjectId;
+  subjectId?: never;
   chainTarget: ThresholdEcdsaChainTarget;
   challengeId: string;
   otpCode: string;
@@ -163,7 +172,6 @@ export async function loginWithEmailOtpEcdsaCapabilityForSigning(
     });
     return await ports.loginWithEcdsaCapabilityInternal({
       walletSession: args.walletSession,
-      subjectId: args.subjectId,
       relayUrl,
       chainTarget: args.chainTarget,
       emailOtpAuthPolicy,
@@ -193,16 +201,16 @@ export async function loginWithEmailOtpEcdsaCapabilityForSigning(
     ),
     operation,
   });
+  const keyHandle = String(toEvmFamilyEcdsaKeyHandle(record.keyHandle));
   return await ports.loginWithEcdsaCapabilityInternal({
     walletSession: args.walletSession,
-    subjectId: record.subjectId,
     chainTarget: record.chainTarget,
     emailOtpAuthPolicy,
     emailOtpAuthReason: 'sign',
     challengeId: args.challengeId,
     otpCode: args.otpCode,
     operation,
-    ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
+    keyHandle,
     participantIds: record.participantIds,
     sessionKind: record.thresholdSessionKind,
     routePlan,
@@ -217,7 +225,9 @@ export async function loginWithEmailOtpEcdsaCapability(
   ports: EmailOtpEcdsaLoginPorts,
 ): Promise<EmailOtpThresholdEcdsaLoginResult> {
   const nearAccountId = toAccountId(args.walletSession.walletId);
-  const subjectId = args.subjectId;
+  const subjectId = walletSubjectIdFromWalletProfile({
+    walletId: args.walletSession.walletId,
+  });
   const chainTarget = args.chainTarget;
   const emailOtpAuthPolicy: EmailOtpAuthPolicy =
     args.emailOtpAuthPolicy || ports.configs.signing.emailOtp.authPolicy;
@@ -229,15 +239,38 @@ export async function loginWithEmailOtpEcdsaCapability(
   };
   const relayUrl = String(args.relayUrl || ports.requireRelayUrl()).trim();
   const shamirPrimeB64u = String(args.shamirPrimeB64u || ports.requireShamirPrimeB64u()).trim();
-  const sessionRemainingUsesRaw =
-    typeof args.remainingUses === 'number'
-      ? args.remainingUses
-      : ports.configs.signing.sessionDefaults.remainingUses;
-  const sessionRemainingUses = Math.min(
-    Math.max(1, Math.floor(Number(sessionRemainingUsesRaw) || 1)),
-    EMAIL_OTP_UNLOCK_SIGNING_SESSION_REMAINING_USES,
+  const configuredRemainingUses = args.remainingUses;
+  const defaultRemainingUses = ports.configs.signing.sessionDefaults?.remainingUses;
+  const requestedRemainingUses = Math.min(
+    Math.max(
+      1,
+      Math.floor(
+        Number(
+          configuredRemainingUses ?? defaultRemainingUses ?? DEV_DEFAULT_UNLOCK_REMAINING_USES,
+        ) || 1,
+      ),
+    ),
+    DEV_DEFAULT_UNLOCK_REMAINING_USES,
   );
-  const remainingUses = emailOtpAuthPolicy === 'per_operation' ? 1 : sessionRemainingUses;
+  const unlockBudgetPolicy =
+    resolveWalletUnlockBudgetPolicyFromRequestedUses({
+      requestedRemainingUses,
+      ...(configuredRemainingUses == null && defaultRemainingUses == null
+        ? {}
+        : { policyVersion: 'sdk_email_otp_unlock_config_v1' }),
+    }) ||
+    (() => {
+      throw new Error('[SigningEngine][email-otp] unlock budget policy is required');
+    })();
+  const postExhaustionStepUpBudgetPolicy = resolvePostExhaustionStepUpBudgetPolicy({
+    operationId: normalizeStepUpOperationId(
+      args.operation || WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
+    ),
+  });
+  const remainingUses =
+    emailOtpAuthPolicy === 'per_operation'
+      ? resolveSigningBudgetPolicyRemainingUses(postExhaustionStepUpBudgetPolicy)
+      : resolveSigningBudgetPolicyRemainingUses(unlockBudgetPolicy);
   const workerCtx = ports.getSignerWorkerContext();
   const sessionKind = args.sessionKind || 'jwt';
   const rpId = ports.requireRpId('Email OTP login');
@@ -312,7 +345,7 @@ export async function loginWithEmailOtpEcdsaCapability(
         clientRootShare32B64u: workerResult.clientRootShare32B64u,
         chainTarget,
         publicationChainTargets,
-        ...(args.ecdsaThresholdKeyId ? { ecdsaThresholdKeyId: args.ecdsaThresholdKeyId } : {}),
+        ...(args.keyHandle ? { keyHandle: args.keyHandle } : {}),
         ...(Array.isArray(args.participantIds) && args.participantIds.length > 0
           ? { participantIds: args.participantIds }
           : {}),
@@ -333,7 +366,7 @@ export async function loginWithEmailOtpEcdsaCapability(
   };
   const { bootstrap, warmCapability } = await commitEmailOtpEcdsaPublicationBootstraps(
     {
-      walletId: nearAccountId,
+      walletId: toWalletId(args.walletSession.walletId),
       publicationChainTargets,
       bootstraps: bootstrapResult.bootstraps,
       walletSigningSessionId,

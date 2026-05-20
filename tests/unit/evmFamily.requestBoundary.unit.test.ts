@@ -6,7 +6,11 @@ import { evmFamilySigningTargetFromExplicitTarget } from '@/core/signingEngine/f
 import type { AuthenticatedEcdsaLaneBudgetStatusCheck } from '@/core/signingEngine/session/budget/budget';
 import { readTrustedWalletSigningBudgetStatus } from '@/core/signingEngine/session/budget/budgetStatusReader';
 import { thresholdEcdsaChainTargetFromChainFamily } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { buildEvmFamilyEcdsaKeyIdentity } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import {
+  buildBaseEvmFamilyEcdsaKeyIdentity,
+  buildEvmFamilyEcdsaKeyIdentity,
+  toEvmFamilyEcdsaKeyHandle,
+} from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
   createThresholdEcdsaStoreFixture,
   resetWarmSessionFixtureState,
@@ -25,18 +29,19 @@ function authenticatedEcdsaBudgetCheck(args: {
   thresholdSessionId: string;
   thresholdSessionAuthToken: string;
 }): AuthenticatedEcdsaLaneBudgetStatusCheck {
+  const key = buildBaseEvmFamilyEcdsaKeyIdentity({
+    walletId: args.walletId,
+    rpId: 'localhost',
+    ecdsaThresholdKeyId: 'ecdsa-budget-key',
+    signingRootId: 'project:dev',
+    signingRootVersion: 'default',
+    participantIds: [1, 2],
+    thresholdOwnerAddress: `0x${'22'.repeat(20)}`,
+  });
   return {
     kind: 'authenticated_ecdsa_lane_budget_status_check',
-    key: buildEvmFamilyEcdsaKeyIdentity({
-      walletId: args.walletId,
-      subjectId: args.walletId,
-      rpId: 'localhost',
-      ecdsaThresholdKeyId: 'ecdsa-budget-key',
-      signingRootId: 'project:dev',
-      signingRootVersion: 'default',
-      participantIds: [1, 2],
-      thresholdOwnerAddress: `0x${'22'.repeat(20)}`,
-    }),
+    key,
+    keyHandle: toEvmFamilyEcdsaKeyHandle('ecdsa-budget-key-handle'),
     chainTarget: budgetChainTarget,
     walletSigningSessionId: args.walletSigningSessionId,
     thresholdSessionId: args.thresholdSessionId,

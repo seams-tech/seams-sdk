@@ -135,7 +135,6 @@ async function signTempoWithExistingPasskey(
           walletId: input.accountId,
           walletSessionUserId: input.accountId,
         },
-        subjectId: input.accountId,
         chainTarget: input.chainTarget,
         relayerUrl: input.relayerUrl,
       });
@@ -144,7 +143,6 @@ async function signTempoWithExistingPasskey(
           walletId: input.accountId,
           walletSessionUserId: input.accountId,
         },
-        subjectId: input.accountId,
         request: {
           chain: 'tempo',
           kind: 'tempoTransaction',
@@ -265,7 +263,6 @@ async function signWithExistingPasskey(
           walletId: input.accountId,
           walletSessionUserId: input.accountId,
         },
-        subjectId: input.accountId,
         request,
         chainTarget,
         options: { confirmationConfig },
@@ -701,7 +698,6 @@ async function runConcurrentThresholdSignsWithExistingPasskey(
         walletId: input.accountId,
         walletSessionUserId: input.accountId,
       },
-      subjectId: input.accountId,
       request: tempoRequest,
       chainTarget: {
         kind: 'tempo',
@@ -717,7 +713,6 @@ async function runConcurrentThresholdSignsWithExistingPasskey(
               walletId: input.accountId,
               walletSessionUserId: input.accountId,
             },
-            subjectId: input.accountId,
             request: tempoRequest,
             chainTarget: {
               kind: 'tempo',
@@ -731,7 +726,6 @@ async function runConcurrentThresholdSignsWithExistingPasskey(
               walletId: input.accountId,
               walletSessionUserId: input.accountId,
             },
-            subjectId: input.accountId,
             request: evmRequest,
             chainTarget: {
               kind: 'evm',
@@ -1275,6 +1269,7 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
     page,
   }) => {
     const harness = await setupThresholdEcdsaTempoHarness(page);
+    let authorizePostCount = 0;
     let signInitPostCount = 0;
     let releaseFirstSignInit: (() => void) | null = null;
 
@@ -1295,6 +1290,13 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
         },
       });
       expect(evmBoot.ok, evmBoot.error || JSON.stringify(evmBoot)).toBe(true);
+
+      await page.route(`${harness.baseUrl}/threshold-ecdsa/authorize`, async (route) => {
+        if (route.request().method().toUpperCase() === 'POST') {
+          authorizePostCount += 1;
+        }
+        await route.fallback();
+      });
 
       await page.route(`${harness.baseUrl}/threshold-ecdsa/sign/init`, async (route) => {
         if (route.request().method().toUpperCase() !== 'POST') {
@@ -1320,6 +1322,7 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
         await page.waitForTimeout(50);
       }
       expect(signInitPostCount).toBeGreaterThanOrEqual(2);
+      expect(authorizePostCount).toBeGreaterThanOrEqual(2);
 
       const releaseFirstSignInitFn = releaseFirstSignInit as (() => void) | null;
       releaseFirstSignInitFn?.();

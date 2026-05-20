@@ -1,5 +1,4 @@
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
-import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import { normalizeThresholdSessionKind } from '../../threshold/sessionPolicy';
 import type {
   SigningSessionStatus,
@@ -14,7 +13,10 @@ import {
   type ThresholdEcdsaClientPresignatureRefillScheduleResult,
 } from '../../threshold/ecdsa/presignPool';
 import type { SignerWorkerManagerContext } from '../../workerManager/SignerWorkerManager';
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type {
+  ThresholdEcdsaChainTarget,
+  WalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   LOGIN_PREFILL_MIN_REMAINING_USES,
   LOGIN_PREFILL_TARGET_DEPTH,
@@ -86,7 +88,7 @@ export type ThresholdEcdsaLoginPrefillResult =
 
 export type ThresholdEcdsaLoginPrefillDeps = {
   getWarmThresholdEcdsaSessionStatus: (
-    walletId: AccountId | string,
+    walletId: WalletId,
     thresholdSessionId: string,
     chainTarget: ThresholdEcdsaChainTarget,
   ) => Promise<SigningSessionStatus | null>;
@@ -108,7 +110,7 @@ function isWarmSessionActive(
 export async function scheduleThresholdEcdsaLoginPresignPrefill(
   deps: ThresholdEcdsaLoginPrefillDeps,
   args: {
-    walletId: AccountId | string;
+    walletId: WalletId;
     thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef;
     chainTarget: ThresholdEcdsaChainTarget;
     minRemainingUsesBeforePrefill?: number;
@@ -116,7 +118,7 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
 ): Promise<ThresholdEcdsaLoginPrefillResult> {
   let thresholdSessionId: string | undefined;
   try {
-    const walletId = toAccountId(args.walletId);
+    const walletId = args.walletId;
     const keyRef = args.thresholdEcdsaKeyRef;
     if (!keyRef || keyRef.type !== 'threshold-ecdsa-secp256k1') {
       return {

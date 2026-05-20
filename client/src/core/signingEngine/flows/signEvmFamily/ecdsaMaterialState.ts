@@ -1,17 +1,22 @@
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
-import type { EcdsaLaneCandidate, ThresholdEcdsaSessionStoreSource } from '../../session/identity/laneIdentity';
+import type {
+  EcdsaLaneCandidate,
+  ThresholdEcdsaSessionStoreSource,
+} from '../../session/identity/laneIdentity';
 import {
   buildEcdsaSessionIdentity,
-  buildEcdsaSigningKeyContext,
   type EcdsaSessionIdentity,
   type EcdsaSigningKeyContext,
 } from '../../session/warmCapabilities/ecdsaProvisionPlan';
 import {
-  deriveEvmFamilyKeyFingerprint,
+  deriveEvmFamilyKeyFingerprintFromRecordPublicFacts,
   resolveReadyEvmFamilyEcdsaMaterial,
   type ReadyEvmFamilyEcdsaMaterial,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
-import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
+import {
+  thresholdEcdsaRecordRpId,
+  type ThresholdEcdsaSessionRecord,
+} from '../../session/persistence/records';
 import {
   thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
@@ -55,9 +60,6 @@ export type EcdsaMaterialSummary = {
   thresholdSessionId: string;
   walletSigningSessionId: string;
   evmFamilyKeyFingerprint?: string;
-  signingRootId?: string;
-  signingRootVersion?: string;
-  ecdsaThresholdKeyId?: string;
   hasRecord: boolean;
   hasKeyRef: boolean;
 };
@@ -71,6 +73,18 @@ export type BuildEcdsaMaterialStateForCandidateArgs = {
   chainTarget: ThresholdEcdsaChainTarget;
   materialChainTarget: ThresholdEcdsaChainTarget;
 };
+
+export type ResolvedEcdsaMaterialInput =
+  | {
+      kind: 'resolved_ecdsa_material_pair';
+      record: ThresholdEcdsaSessionRecord;
+      keyRef: ThresholdEcdsaSecp256k1KeyRef;
+    }
+  | {
+      kind: 'resolved_ecdsa_material_missing';
+      record?: never;
+      keyRef?: never;
+    };
 
 export function buildEcdsaMaterialStateForCandidate(
   args: BuildEcdsaMaterialStateForCandidateArgs,
@@ -97,7 +111,6 @@ export function buildEcdsaMaterialStateForCandidate(
     rpId: args.candidate.key.rpId,
     expected: {
       walletId: args.candidate.walletId,
-      subjectId: args.candidate.key.subjectId,
       chainTarget: args.materialChainTarget,
       authMethod: args.authMethod,
       source: args.source,
@@ -106,14 +119,10 @@ export function buildEcdsaMaterialStateForCandidate(
     },
   });
   if (readyResolution.kind === 'ready') {
-    const signingKeyContext = buildEcdsaSigningKeyContext({
-      record: readyResolution.material.record,
-      keyRef: readyResolution.material.keyRef,
-    });
     return {
       ...base,
       kind: 'ready_material',
-      signingKeyContext,
+      signingKeyContext: readyResolution.material.signingKeyContext,
       readyMaterial: readyResolution.material,
       record: readyResolution.material.record,
       keyRef: readyResolution.material.keyRef,
@@ -131,14 +140,16 @@ export function buildEcdsaMaterialStateForResolvedLane(args: {
   lane: ResolvedEvmFamilyEcdsaSigningLane;
   authMethod: EvmFamilyEcdsaAuthMethod;
   source: ThresholdEcdsaSessionStoreSource;
-  record?: ThresholdEcdsaSessionRecord;
-  keyRef?: ThresholdEcdsaSecp256k1KeyRef;
+  material: ResolvedEcdsaMaterialInput;
 }): EcdsaMaterialState {
+  const record = args.material.kind === 'resolved_ecdsa_material_pair' ? args.material.record : undefined;
+  const keyRef = args.material.kind === 'resolved_ecdsa_material_pair' ? args.material.keyRef : undefined;
   return buildEcdsaMaterialStateForCandidate({
     candidate: {
       kind: 'lane_candidate',
       walletId: args.lane.walletId,
       key: args.lane.key,
+      keyHandle: args.lane.keyHandle,
       authMethod: args.authMethod,
       curve: 'ecdsa',
       chain: args.lane.chainFamily,
@@ -151,13 +162,33 @@ export function buildEcdsaMaterialStateForResolvedLane(args: {
       source: 'runtime_session_record',
       chainTarget: args.lane.chainTarget,
     },
-    record: args.record,
-    keyRef: args.keyRef,
+    record,
+    keyRef,
     authMethod: args.authMethod,
     source: args.source,
     chainTarget: args.lane.chainTarget,
     materialChainTarget: args.lane.chainTarget,
   });
+}
+
+export function resolvedEcdsaMaterialInputFromOptionalPair(args: {
+  record: ThresholdEcdsaSessionRecord | undefined;
+  keyRef: ThresholdEcdsaSecp256k1KeyRef | undefined;
+  context: string;
+}): ResolvedEcdsaMaterialInput {
+  if (args.record && args.keyRef) {
+    return {
+      kind: 'resolved_ecdsa_material_pair',
+      record: args.record,
+      keyRef: args.keyRef,
+    };
+  }
+  if (!args.record && !args.keyRef) {
+    return { kind: 'resolved_ecdsa_material_missing' };
+  }
+  throw new Error(
+    `[SigningEngine][ecdsa] ${args.context} resolved material requires paired record and keyRef`,
+  );
 }
 
 export function requireReadyEcdsaMaterial(
@@ -174,8 +205,8 @@ export function requireReadyEcdsaMaterialForResolvedLane(args: {
   lane: ResolvedEvmFamilyEcdsaSigningLane;
   authMethod: EvmFamilyEcdsaAuthMethod;
   source: ThresholdEcdsaSessionStoreSource;
-  record?: ThresholdEcdsaSessionRecord;
-  keyRef?: ThresholdEcdsaSecp256k1KeyRef;
+  record: ThresholdEcdsaSessionRecord;
+  keyRef: ThresholdEcdsaSecp256k1KeyRef;
   context: string;
 }): ReadyEcdsaMaterial {
   return requireReadyEcdsaMaterial(
@@ -183,8 +214,11 @@ export function requireReadyEcdsaMaterialForResolvedLane(args: {
       lane: args.lane,
       authMethod: args.authMethod,
       source: args.source,
-      record: args.record,
-      keyRef: args.keyRef,
+      material: {
+        kind: 'resolved_ecdsa_material_pair',
+        record: args.record,
+        keyRef: args.keyRef,
+      },
     }),
     args.context,
   );
@@ -193,7 +227,10 @@ export function requireReadyEcdsaMaterialForResolvedLane(args: {
 export function summarizeEcdsaMaterialState(state: EcdsaMaterialState): EcdsaMaterialSummary {
   const evmFamilyKeyFingerprint =
     state.kind === 'ready_material'
-      ? deriveEvmFamilyKeyFingerprint(state.readyMaterial.key)
+      ? safeDeriveRecordPublicFactsFingerprint({
+          walletId: state.readyMaterial.key.walletId,
+          record: state.readyMaterial.record,
+        })
       : undefined;
   return {
     present: state.kind !== 'missing',
@@ -204,11 +241,6 @@ export function summarizeEcdsaMaterialState(state: EcdsaMaterialState): EcdsaMat
     thresholdSessionId: state.identity.thresholdSessionId,
     walletSigningSessionId: state.identity.walletSigningSessionId,
     ...(evmFamilyKeyFingerprint ? { evmFamilyKeyFingerprint } : {}),
-    signingRootId: state.kind === 'missing' ? undefined : state.signingKeyContext.signingRootId,
-    signingRootVersion:
-      state.kind === 'missing' ? undefined : state.signingKeyContext.signingRootVersion,
-    ecdsaThresholdKeyId:
-      state.kind === 'missing' ? undefined : state.signingKeyContext.ecdsaThresholdKeyId,
     hasRecord: state.kind === 'ready_material' ? true : state.hasRecord,
     hasKeyRef: state.kind === 'ready_material' ? true : state.hasKeyRef,
   };
@@ -232,10 +264,9 @@ export function summarizeVisibleEcdsaMaterial(args: {
   const readyResolution = resolveReadyEvmFamilyEcdsaMaterial({
     record,
     keyRef,
-    rpId: record.rpId,
+    rpId: thresholdEcdsaRecordRpId(record),
     expected: {
       walletId: record.walletId,
-      subjectId: record.subjectId,
       chainTarget: args.materialChainTarget,
       authMethod: args.authMethod,
       source: args.source,
@@ -245,9 +276,9 @@ export function summarizeVisibleEcdsaMaterial(args: {
   });
   if (readyResolution.kind !== 'ready') return { present: false };
   const readyMaterial = readyResolution.material;
-  const signingKeyContext = buildEcdsaSigningKeyContext({
+  const evmFamilyKeyFingerprint = safeDeriveRecordPublicFactsFingerprint({
+    walletId: readyMaterial.key.walletId,
     record: readyMaterial.record,
-    keyRef: readyMaterial.keyRef,
   });
   return {
     present: true,
@@ -257,13 +288,24 @@ export function summarizeVisibleEcdsaMaterial(args: {
     chainTarget: args.chainTarget,
     thresholdSessionId: identity.thresholdSessionId,
     walletSigningSessionId: identity.walletSigningSessionId,
-    evmFamilyKeyFingerprint: deriveEvmFamilyKeyFingerprint(readyMaterial.key),
-    signingRootId: signingKeyContext.signingRootId,
-    signingRootVersion: signingKeyContext.signingRootVersion,
-    ecdsaThresholdKeyId: signingKeyContext.ecdsaThresholdKeyId,
+    ...(evmFamilyKeyFingerprint ? { evmFamilyKeyFingerprint } : {}),
     hasRecord: true,
     hasKeyRef: true,
   };
+}
+
+function safeDeriveRecordPublicFactsFingerprint(args: {
+  walletId: string;
+  record: ThresholdEcdsaSessionRecord;
+}): string | undefined {
+  try {
+    return deriveEvmFamilyKeyFingerprintFromRecordPublicFacts({
+      walletId: args.walletId,
+      record: args.record,
+    });
+  } catch {
+    return undefined;
+  }
 }
 
 export function getEcdsaMaterialRecord(
@@ -303,12 +345,15 @@ export function materialIdentityMatchesResolvedLane(args: {
   state: ReadyEcdsaMaterial;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
 }): boolean {
+  const materialKeyHandle =
+    String(args.state.record.keyHandle || '').trim() ||
+    String(args.state.keyRef.keyHandle || '').trim();
+  const laneKeyHandle = String(args.lane.keyHandle || '').trim();
   return (
     String(args.lane.thresholdSessionId) === args.state.identity.thresholdSessionId &&
     String(args.lane.walletSigningSessionId) === args.state.identity.walletSigningSessionId &&
-    String(args.lane.signingRootId) === args.state.signingKeyContext.signingRootId &&
-    String(args.lane.signingRootVersion) === args.state.signingKeyContext.signingRootVersion &&
-    String(args.lane.ecdsaThresholdKeyId) === args.state.signingKeyContext.ecdsaThresholdKeyId &&
+    materialKeyHandle === laneKeyHandle &&
+    String(args.state.record.keyHandle || '').trim() === laneKeyHandle &&
     thresholdEcdsaChainTargetsEqual(args.lane.chainTarget, args.state.chainTarget)
   );
 }

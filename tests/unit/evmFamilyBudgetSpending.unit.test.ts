@@ -3,7 +3,6 @@ import { toAccountId } from '../../client/src/core/types/accountIds';
 import {
   thresholdEcdsaChainTargetFromChainFamily,
   toWalletId,
-  toWalletSubjectId,
   type TempoChainTarget,
 } from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import { selectedEcdsaLane, type SelectedEcdsaLane } from '../../client/src/core/signingEngine/session/identity/laneIdentity';
@@ -14,7 +13,10 @@ import {
   SigningSessionIds,
 } from '../../client/src/core/signingEngine/session/operationState/types';
 import { requireResolvedEvmFamilyEcdsaSigningLane } from '../../client/src/core/signingEngine/flows/signEvmFamily/ecdsaLanes';
-import { buildEvmFamilyEcdsaKeyIdentity } from '../../client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import {
+  buildBaseEvmFamilyEcdsaKeyIdentity,
+  toEvmFamilyEcdsaKeyHandle,
+} from '../../client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
   recordSuccessfulEvmFamilyWalletSigningSessionSpend,
   reserveEvmFamilyWalletSigningSessionBudget,
@@ -24,16 +26,14 @@ import type { BudgetAdmittedOperation } from '../../client/src/core/signingEngin
 import type { SigningSessionStatus } from '../../client/src/core/types/seams';
 
 const WALLET_ID = toAccountId('budget-refresh.testnet');
-const SUBJECT_ID = toWalletSubjectId('budget-refresh-subject');
 const CHAIN_TARGET = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'tempo',
   chainId: 42431,
   networkSlug: 'tempo-moderato',
 }) as TempoChainTarget;
 const EXPIRES_AT_MS = 1_900_000_000_000;
-const ECDSA_KEY = buildEvmFamilyEcdsaKeyIdentity({
+const ECDSA_KEY = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId: WALLET_ID,
-  subjectId: SUBJECT_ID,
   rpId: 'localhost',
   ecdsaThresholdKeyId: 'ehss-shared-key',
   signingRootId: 'project:dev',
@@ -41,6 +41,7 @@ const ECDSA_KEY = buildEvmFamilyEcdsaKeyIdentity({
   participantIds: [1, 2],
   thresholdOwnerAddress: `0x${'11'.repeat(20)}`,
 });
+const ECDSA_KEY_HANDLE = toEvmFamilyEcdsaKeyHandle('ehss-key-handle-budget');
 
 function makeBudgetStatus(args: {
   walletSigningSessionId: string;
@@ -68,23 +69,20 @@ function makeAdmittedOperation(args: {
       curve: 'ecdsa',
       chain: 'tempo',
       chainTarget: CHAIN_TARGET,
-      walletId: WALLET_ID,
+      walletId: toWalletId(WALLET_ID),
       authSelectionPolicy: { kind: 'explicit', authMethod: 'email_otp' },
       operationUsesNeeded: 1,
     },
     lane: selectedEcdsaLane({
       key: ECDSA_KEY,
+      keyHandle: ECDSA_KEY_HANDLE,
       walletId: WALLET_ID,
       authMethod: 'email_otp',
       walletSigningSessionId: SigningSessionIds.walletSigningSession(
         args.exhaustedWalletSigningSessionId,
       ),
       thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(args.exhaustedThresholdSessionId),
-      subjectId: SUBJECT_ID,
       chainTarget: CHAIN_TARGET,
-      ecdsaThresholdKeyId: 'ehss-shared-key',
-      signingRootId: 'project:dev',
-      signingRootVersion: 'default',
     }),
     readiness: {
       status: 'ready',
@@ -115,12 +113,9 @@ function makeResolvedFinalizedLane(args: {
     lane: buildTempoTransactionSigningLane({
       authMethod: 'email_otp',
       key: ECDSA_KEY,
+      keyHandle: ECDSA_KEY_HANDLE,
       walletId: WALLET_ID,
-      subjectId: SUBJECT_ID,
       chainTarget: CHAIN_TARGET,
-      ecdsaThresholdKeyId: 'ehss-shared-key',
-      signingRootId: 'project:dev',
-      signingRootVersion: 'default',
       walletSigningSessionId: SigningSessionIds.walletSigningSession(args.walletSigningSessionId),
       thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(args.thresholdSessionId),
     }),

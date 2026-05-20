@@ -8,6 +8,7 @@ import { createEmailOtpEcdsaTransactionSigningBridge } from '@/core/signingEngin
 import { buildCurrentSealedSessionRecord } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import { emailOtpEcdsaSigningSessionAuthLaneFromSealedRecord } from '@/core/signingEngine/session/emailOtp/sealedSigningSessionAuth';
 import { EMAIL_OTP_SIGNING_SESSION_AUTH_UNAVAILABLE } from '@/core/signingEngine/session/emailOtp/exportRecovery';
+import { THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND } from '@shared/utils/sessionTokens';
 import {
   toAuthorizingWalletSigningSessionId,
   type EmailOtpAuthLane,
@@ -26,6 +27,29 @@ const tempoChainTarget = {
   chainId: 42431,
   networkSlug: 'tempo-testnet',
 };
+
+function unsignedJwt(payload: Record<string, unknown>): string {
+  const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  return `${header}.${body}.`;
+}
+
+function thresholdEcdsaSessionJwt(args: {
+  thresholdSessionId: string;
+  walletSigningSessionId: string;
+  walletId: string;
+  keyHandle: string;
+}) {
+  return unsignedJwt({
+    kind: THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND,
+    sub: args.walletId,
+    walletId: args.walletId,
+    keyHandle: args.keyHandle,
+    chainTarget: sourceChainTarget,
+    sessionId: args.thresholdSessionId,
+    walletSigningSessionId: args.walletSigningSessionId,
+  });
+}
 
 test('Email OTP ECDSA bridge uses selected sealed-lane authority when hot material is missing', async () => {
   const walletId = toAccountId('otp-refresh.testnet');
@@ -59,13 +83,10 @@ test('Email OTP ECDSA bridge uses selected sealed-lane authority when hot materi
         participantIds: [1, 2],
         thresholdOwnerAddress: `0x${'aa'.repeat(20)}`,
       }),
+      keyHandle: 'key-handle-email-otp',
       walletId,
-      subjectId,
       authMethod: 'email_otp',
       chainTarget: tempoChainTarget,
-      ecdsaThresholdKeyId: 'ehss-email-otp',
-      signingRootId: 'proj_local:dev',
-      signingRootVersion: 'default',
       walletSigningSessionId,
       thresholdSessionId,
     }),
@@ -88,7 +109,7 @@ test('Email OTP ECDSA bridge uses selected sealed-lane authority when hot materi
       thresholdSessionId: sessionId,
       chainTarget,
     }) => {
-      expect(resolvedWalletId).toBe(walletId);
+      expect(resolvedWalletId).toBe(ecdsaWalletId);
       expect(sessionId).toBe(thresholdSessionId);
       expect(chainTarget).toEqual(sourceChainTarget);
       return authLane;
@@ -134,13 +155,10 @@ test('Email OTP ECDSA selected-lane reauth requires signing-session authority', 
         participantIds: [1, 2],
         thresholdOwnerAddress: `0x${'aa'.repeat(20)}`,
       }),
+      keyHandle: 'key-handle-email-otp',
       walletId,
-      subjectId,
       authMethod: 'email_otp',
       chainTarget: tempoChainTarget,
-      ecdsaThresholdKeyId: 'ehss-email-otp',
-      signingRootId: 'proj_local:dev',
-      signingRootVersion: 'default',
       walletSigningSessionId,
       thresholdSessionId,
     }),
@@ -167,6 +185,8 @@ test('Email OTP ECDSA selected-lane reauth requires signing-session authority', 
 test('sealed Email OTP ECDSA auth lane remains available after wallet signing budget exhaustion', () => {
   const thresholdSessionId = SigningSessionIds.thresholdEcdsaSession('tsess-exhausted-ecdsa');
   const walletSigningSessionId = SigningSessionIds.walletSigningSession('wsess-exhausted-wallet');
+  const walletId = 'otp-refresh.testnet';
+  const keyHandle = 'key-handle-email-otp';
   const sealedRecord = buildCurrentSealedSessionRecord({
     thresholdSessionId,
     thresholdSessionIds: { ecdsa: thresholdSessionId },
@@ -174,17 +194,21 @@ test('sealed Email OTP ECDSA auth lane remains available after wallet signing bu
     authMethod: 'email_otp',
     walletSigningSessionId,
     curve: 'ecdsa',
-    subjectId: 'otp-refresh.testnet',
-    walletId: 'otp-refresh.testnet',
+    walletId,
     signingRootId: 'proj_local:dev',
     signingRootVersion: 'default',
     relayerUrl: 'https://relay.example.test',
     ecdsaRestore: {
       chainTarget: sourceChainTarget,
       rpId: 'example.localhost',
-      thresholdSessionAuthToken: 'threshold-session-jwt',
+      thresholdSessionAuthToken: thresholdEcdsaSessionJwt({
+        thresholdSessionId,
+        walletSigningSessionId,
+        walletId,
+        keyHandle,
+      }),
       sessionKind: 'jwt',
-      ecdsaThresholdKeyId: 'ehss-email-otp',
+      keyHandle,
       ethereumAddress: `0x${'aa'.repeat(20)}`,
       relayerKeyId: 'relayer-ecdsa',
       participantIds: [1, 2],
@@ -204,7 +228,12 @@ test('sealed Email OTP ECDSA auth lane remains available after wallet signing bu
 
   expect(authLane).toEqual({
     kind: 'signing_session',
-    jwt: 'threshold-session-jwt',
+    jwt: thresholdEcdsaSessionJwt({
+      thresholdSessionId,
+      walletSigningSessionId,
+      walletId,
+      keyHandle,
+    }),
     thresholdSessionId,
     authorizingWalletSigningSessionId: walletSigningSessionId,
     curve: 'ecdsa',

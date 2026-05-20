@@ -86,6 +86,27 @@ stable EVM-family key scope. Concrete chain targets stay out of the stable key
 context. Cross-chain replay protection belongs to EVM transaction chain IDs and
 typed-data domain separation.
 
+### `chain_target` Cleanup
+
+Public SDK and product flows still require concrete `chainTarget` for EVM lane
+selection, budgets, sealed recovery lookup, transaction serialization, nonce
+handling, and signing policy. That product-level field stays outside the HSS
+stable-key derivation context.
+
+The `ecdsa-hss` Rust context should remove the `chain_target` field from the
+active stable-key context type. The encoded context continues to carry the fixed
+`key_scope = "evm-family"` field. Request and persistence boundaries may parse
+legacy or product-level chain target values only to route the operation before
+building the HSS context.
+
+Implementation rule:
+
+- product/API surface: concrete `chainTarget` is allowed for routing and policy
+- HSS stable context: `chain_target` is absent
+- HSS derivation: fixed `key_scope = "evm-family"`
+- tests: changing only concrete `chainTarget` must preserve the HSS public key
+  and Ethereum address
+
 ## `encode_context_v1` Byte Contract
 
 `encode_context_v1` is frozen for the current context format.
@@ -178,16 +199,41 @@ There is:
 Define:
 
 ```text
-H_scalar(domain, context, input) =
-  1 + (BE512(SHA-512(domain || context || input)) mod (n - 1))
+frame(domain, fields...) =
+  ascii(domain) || field_count:u8 || repeated field(tag:u8, len:u16be, value)
+
+H_scalar(domain, context_binding32, context_bytes, input_le32, retry_counter) =
+  reduce_to_nonzero_scalar(SHA-512(frame(
+    domain,
+    field(0x01, context_binding32),
+    field(0x02, context_bytes),
+    field(0x03, input_le32),
+    field(0x04, retry_counter:u32be)
+  )))
 ```
 
 The production share derivation is:
 
 ```text
 context = encode_context_v1(...)
-x_client = H_scalar("ecdsa-hss:client-share", context, y_client)
-x_relayer = H_scalar("ecdsa-hss:relayer-share", context, y_relayer)
+context_binding32 = SHA-256(frame(
+  "ecdsa-hss:role-local:v1:context-binding",
+  field(0x01, context)
+))
+x_client = H_scalar(
+  "ecdsa-hss:role-local:v1:client-share",
+  context_binding32,
+  context,
+  y_client,
+  client_retry_counter
+)
+x_relayer = H_scalar(
+  "ecdsa-hss:role-local:v1:relayer-share",
+  context_binding32,
+  context,
+  y_relayer,
+  relayer_retry_counter
+)
 ```
 
 This guarantees each role-local share is a valid non-zero secp256k1 scalar.
@@ -200,6 +246,42 @@ X_relayer = x_relayer * G
 X = X_client + X_relayer
 address = ethereum_address(X)
 ```
+
+### Zero Canonical Key Case
+
+`x_client` and `x_relayer` are each non-zero, but their sum can still be zero
+modulo the secp256k1 group order with negligible probability. That would make
+the logical canonical key invalid and would make `X_client + X_relayer` the
+point at infinity.
+
+The deterministic rule is:
+
+1. client derivation retries only for an invalid or zero `x_client`
+2. server derivation retries for invalid or zero `x_relayer`
+3. after receiving `X_client`, the server checks `X_client + X_relayer`
+4. if the sum is the identity point, the server increments
+   `relayer_retry_counter` and rederives `x_relayer`
+5. the accepted relayer retry counter is persisted and included in the public
+   transcript
+
+Client verification must reject a public identity whose threshold public key is
+the identity point or whose relayer retry counter does not match the accepted
+public transcript.
+
+### Public Key Validation
+
+Every public key accepted from another role must pass these checks before it is
+stored, transcript-bound, or used for Cait-Sith setup:
+
+- exactly 33 bytes
+- SEC1 compressed encoding
+- prefix is `0x02` or `0x03`
+- decompresses to a valid secp256k1 affine point
+- canonical re-encoding equals the input bytes
+- represents a non-identity point
+
+`threshold_public_key33 = X_client + X_relayer` must also be a valid non-identity
+compressed point. Public key validation failures burn the staged ceremony state.
 
 The server retains only:
 
@@ -376,6 +458,42 @@ Only the explicit export wire envelope may carry `x_relayer` to the client, and
 that envelope must bind to the same public identity and context as the client
 retained state.
 
+## Relayer Key Rotation
+
+Initial rotation policy is fail-closed:
+
+- retained role-local relayer state is bound to `relayer_key_id`
+- every bootstrap, signing, presign, and export request must name the retained
+  `relayer_key_id`
+- if the request relayer key id differs from persisted state, reject the request
+- relayer key rotation requires a new role-local HSS bootstrap
+- persisted presign/triple state is invalid across relayer key rotation
+
+This keeps relayer-key identity in the public/audit surface and avoids implicit
+reuse of `x_relayer` under a different operator key.
+
+## WASM API Split
+
+Browser WASM may expose only client-role operations:
+
+- `derive_client_role_share`
+- `verify_role_local_public_identity`
+- `map_client_role_share_for_cait_sith`
+- `authorize_explicit_export`
+- `reconstruct_explicit_export`
+
+Server/native WASM or server Rust may expose only relayer-role operations:
+
+- `derive_relayer_role_share`
+- `compose_role_local_public_identity`
+- `map_relayer_role_share_for_cait_sith`
+- `authorize_relayer_export_share`
+- `release_authorized_relayer_export_share`
+
+Browser/client bundles must not export relayer derivation or relayer export-share
+release functions. Server bundles must not export client derivation or canonical
+export reconstruction functions.
+
 ## Required Equivalence Checks
 
 The implementation must check:
@@ -415,6 +533,50 @@ fixture corpus covering:
 Reference-only code may reconstruct `x` for fixture generation and algebraic
 tests. Production server code must never do so.
 
+Reference helper gating:
+
+- full-key reconstruction helpers live under `fixtures`, `reference`, tests,
+  benches, or the fixture-emitter binary
+- production modules do not import reference helpers
+- reference helpers are not re-exported from crate root as public production API
+- reference-only functions use `reference_` or `fixture_` prefixes
+- reference-only digest labels remain distinct from role-local production labels
+- tests include an import guard for server/client production modules
+
+## Audit And Log Redaction
+
+Allowed log/audit fields:
+
+- event kind
+- operation kind
+- result and failure code
+- `wallet_session_user_id`
+- `subject_id`
+- `ecdsa_threshold_key_id`
+- `relayer_key_id`
+- client device/session identifiers
+- context binding
+- public transcript digest
+- export authorization digest
+- compressed public key fingerprints
+- Ethereum address
+- timestamp and expiry
+
+Forbidden log/audit fields:
+
+- `y_client`
+- `y_relayer`
+- `x_client`
+- `x_relayer`
+- canonical `x`
+- mapped backend threshold private shares
+- Cait-Sith triple, presignature scalar, nonce, or sigma shares
+- raw root-share material
+
+Secret-bearing types should either omit `Debug` or implement redacted `Debug`.
+Serialization should be absent for secret newtypes unless the serialized form is
+an explicitly named encrypted or export-only artifact.
+
 ## Non-Goals
 
 This protocol excludes:
@@ -424,14 +586,15 @@ This protocol excludes:
 - the old two-key EVM model
 - export-capable output during normal signing
 
-## Open Byte-Level Items
+## Settled Byte-Level Items
 
-These items remain for the implementation pass:
+The implementation pass should use the framed digest and transcript formats in
+this document and in
+[docs/plans/true-server-blindness.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/docs/plans/true-server-blindness.md).
 
-- exact wire payload encoding
-- exact retained-state serialization format
-- exact context-binding digest function used in public transcripts
-- exact export-authorization digest format
+Remaining implementation choices are limited to concrete Rust names, storage
+column names, and transport serialization wrappers. Those choices must preserve
+the field order, domain labels, and rejection rules above.
 
 The lifecycle, role-local share contract, and single-key invariant in this
 document are the design source of truth.

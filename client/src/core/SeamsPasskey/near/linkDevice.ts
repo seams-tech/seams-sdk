@@ -43,6 +43,7 @@ import {
 } from '../../signingEngine/threshold/sessionPolicy';
 import {
   nearAccountRefFromAccountId,
+  toWalletId,
   toWalletSubjectId,
   type NearAccountRef,
   type ThresholdEcdsaChainTarget,
@@ -512,14 +513,8 @@ export class LinkDeviceFlow {
       prepareObj.thresholdEcdsa,
     )
       ? {
-          ecdsaThresholdKeyId: String(prepareObj.thresholdEcdsa.ecdsaThresholdKeyId || '').trim(),
-          signingRootId: String(prepareObj.thresholdEcdsa.signingRootId || '').trim(),
-          ...(String(prepareObj.thresholdEcdsa.signingRootVersion || '').trim()
-            ? {
-                signingRootVersion: String(
-                  prepareObj.thresholdEcdsa.signingRootVersion || '',
-                ).trim(),
-              }
+          ...(String(prepareObj.thresholdEcdsa.keyHandle || '').trim()
+            ? { keyHandle: String(prepareObj.thresholdEcdsa.keyHandle || '').trim() }
             : {}),
           clientVerifyingShareB64u: String(
             prepareObj.thresholdEcdsa.clientVerifyingShareB64u || '',
@@ -660,7 +655,7 @@ export class LinkDeviceFlow {
     if (thresholdEcdsaSection && thresholdEcdsaSessionPolicy) {
       await persistLinkDeviceThresholdEcdsaBootstrap({
         signingEngine: this.context.signingEngine,
-        walletId: nearAccountId,
+        walletId: toWalletId(nearAccountId),
         relayerUrl,
         chainTarget: thresholdEcdsaSessionPolicy.chainTarget,
         thresholdEcdsa: thresholdEcdsaSection,

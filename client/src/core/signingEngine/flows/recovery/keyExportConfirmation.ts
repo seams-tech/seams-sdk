@@ -34,10 +34,27 @@ export type KeyExportConfirmationDeps = {
   theme?: ThemeName;
 };
 
-export type EmailOtpExportAuthorizationDeps = {
+export type EmailOtpWalletSessionExportChallengeArgs = Extract<
+  RequestEmailOtpChallengeArgs,
+  { kind: 'wallet_session_challenge' }
+>;
+
+export type EmailOtpNearAccountExportChallengeArgs = Extract<
+  RequestEmailOtpChallengeArgs,
+  { kind: 'near_account_challenge' }
+>;
+
+export type EmailOtpWalletSessionExportAuthorizationDeps = {
   touchConfirm: Pick<UiConfirmRuntimeBridgePort, 'requestUserConfirmation'>;
   requestExportChallenge: (
-    args: RequestEmailOtpChallengeArgs,
+    args: EmailOtpWalletSessionExportChallengeArgs,
+  ) => Promise<{ challengeId: string; emailHint?: string }>;
+};
+
+export type EmailOtpNearAccountExportAuthorizationDeps = {
+  touchConfirm: Pick<UiConfirmRuntimeBridgePort, 'requestUserConfirmation'>;
+  requestExportChallenge: (
+    args: EmailOtpNearAccountExportChallengeArgs,
   ) => Promise<{ challengeId: string; emailHint?: string }>;
 };
 
@@ -70,7 +87,34 @@ export function isEmailOtpPasskeyStepUpError(error: unknown): boolean {
 }
 
 export async function requestEmailOtpKeyExportAuthorization(
-  deps: EmailOtpExportAuthorizationDeps,
+  deps: EmailOtpWalletSessionExportAuthorizationDeps,
+  args: {
+    kind: 'wallet_session_export_auth';
+    walletSession: WalletSessionRef;
+    chain: ThresholdEcdsaChainTarget['kind'];
+    publicKey: string;
+    curve: WalletAuthCurve;
+    routeAuth?: AppOrThresholdSessionAuth;
+    authLane?: EmailOtpAuthLane;
+  },
+): Promise<ExportEmailOtpStepUpAuthorization>;
+export async function requestEmailOtpKeyExportAuthorization(
+  deps: EmailOtpNearAccountExportAuthorizationDeps,
+  args: {
+    kind: 'near_account_export_auth';
+    nearAccountId: AccountId;
+    chain: 'near';
+    publicKey: string;
+    curve: 'ed25519';
+    routeAuth?: AppOrThresholdSessionAuth;
+    authLane?: EmailOtpAuthLane;
+    walletSession?: never;
+  },
+): Promise<ExportEmailOtpStepUpAuthorization>;
+export async function requestEmailOtpKeyExportAuthorization(
+  deps:
+    | EmailOtpWalletSessionExportAuthorizationDeps
+    | EmailOtpNearAccountExportAuthorizationDeps,
   args:
     | {
         kind: 'wallet_session_export_auth';
@@ -81,33 +125,17 @@ export async function requestEmailOtpKeyExportAuthorization(
         routeAuth?: AppOrThresholdSessionAuth;
         authLane?: EmailOtpAuthLane;
       }
-      | {
-          kind: 'near_account_export_auth';
-          nearAccountId: AccountId;
-          chain: 'near';
-          publicKey: string;
-          curve: 'ed25519';
-          routeAuth?: AppOrThresholdSessionAuth;
-          authLane?: EmailOtpAuthLane;
-          walletSession?: never;
-        },
+    | {
+        kind: 'near_account_export_auth';
+        nearAccountId: AccountId;
+        chain: 'near';
+        publicKey: string;
+        curve: 'ed25519';
+        routeAuth?: AppOrThresholdSessionAuth;
+        authLane?: EmailOtpAuthLane;
+        walletSession?: never;
+      },
 ): Promise<ExportEmailOtpStepUpAuthorization> {
-  const challengeRequest =
-    args.kind === 'wallet_session_export_auth'
-      ? {
-          kind: 'wallet_session_challenge' as const,
-          walletSession: args.walletSession,
-          chain: args.chain,
-          ...(args.routeAuth ? { routeAuth: args.routeAuth } : {}),
-          ...(args.authLane ? { authLane: args.authLane } : {}),
-        }
-      : {
-          kind: 'near_account_challenge' as const,
-          nearAccountId: args.nearAccountId,
-          chain: args.chain,
-          ...(args.routeAuth ? { routeAuth: args.routeAuth } : {}),
-          ...(args.authLane ? { authLane: args.authLane } : {}),
-        };
   const accountIdForUi =
     args.kind === 'wallet_session_export_auth'
       ? args.walletSession.walletSessionUserId
@@ -118,7 +146,30 @@ export async function requestEmailOtpKeyExportAuthorization(
     publicKey: args.publicKey,
     curve: args.curve,
     challengeSource: {
-      requestChallenge: async () => await deps.requestExportChallenge(challengeRequest),
+      requestChallenge: async () => {
+        if (args.kind === 'wallet_session_export_auth') {
+          const challengeRequest: EmailOtpWalletSessionExportChallengeArgs = {
+            kind: 'wallet_session_challenge',
+            walletSession: args.walletSession,
+            chain: args.chain,
+            ...(args.routeAuth ? { routeAuth: args.routeAuth } : {}),
+            ...(args.authLane ? { authLane: args.authLane } : {}),
+          };
+          return await (deps as EmailOtpWalletSessionExportAuthorizationDeps).requestExportChallenge(
+            challengeRequest,
+          );
+        }
+        const challengeRequest: EmailOtpNearAccountExportChallengeArgs = {
+          kind: 'near_account_challenge',
+          nearAccountId: args.nearAccountId,
+          chain: args.chain,
+          ...(args.routeAuth ? { routeAuth: args.routeAuth } : {}),
+          ...(args.authLane ? { authLane: args.authLane } : {}),
+        };
+        return await (deps as EmailOtpNearAccountExportAuthorizationDeps).requestExportChallenge(
+          challengeRequest,
+        );
+      },
     },
     confirmer: {
       requestUserConfirmation: async (request) =>

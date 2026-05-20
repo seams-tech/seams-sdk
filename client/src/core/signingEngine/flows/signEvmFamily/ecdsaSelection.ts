@@ -42,7 +42,7 @@ import type {
 import type { EvmFamilyChain, EvmFamilySenderSignatureAlgorithm } from './types';
 import type {
   ThresholdEcdsaChainTarget,
-  WalletSubjectId,
+  WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
@@ -205,12 +205,9 @@ function signingLaneFromExactLaneCandidate(
       : buildEvmTransactionSigningLane;
   const base = {
     key: candidate.key,
+    keyHandle: candidate.keyHandle,
     walletId: candidate.walletId,
-    subjectId: candidate.key.subjectId,
     chainTarget: candidate.chainTarget,
-    ecdsaThresholdKeyId: candidate.key.ecdsaThresholdKeyId,
-    signingRootId: candidate.key.signingRootId,
-    signingRootVersion: candidate.key.signingRootVersion,
     walletSigningSessionId: SigningSessionIds.walletSigningSession(
       candidate.walletSigningSessionId,
     ),
@@ -318,20 +315,20 @@ function passkeySessionStoreSourceFromExactSource(
 
 function listPasskeyVisibleMaterials(args: {
   deps: EvmFamilyEcdsaSigningSelectionDeps;
-  subjectId: WalletSubjectId;
+  walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
 }): PasskeyVisibleMaterial[] {
   const candidates: PasskeyVisibleMaterial[] = [];
   for (const source of PASSKEY_ECDSA_SIGNING_SOURCE_PRIORITY) {
     const record = tryGetPasskeyThresholdEcdsaSessionRecordForSigning({
       deps: args.deps,
-      subjectId: args.subjectId,
+      walletId: args.walletId,
       chainTarget: args.chainTarget,
       source,
     });
     const keyRef = tryGetPasskeyThresholdEcdsaKeyRefForSigning({
       deps: args.deps,
-      subjectId: args.subjectId,
+      walletId: args.walletId,
       chainTarget: args.chainTarget,
       source,
     });
@@ -474,8 +471,7 @@ function selectSessionSourceForWalletAuth(args: {
 
 export async function resolveEvmFamilyEcdsaSigningSelection(args: {
   deps: EvmFamilyEcdsaSigningSelectionDeps;
-  walletId: string;
-  subjectId: WalletSubjectId;
+  walletId: WalletId;
   chain: EvmFamilyChain;
   chainTarget: ThresholdEcdsaChainTarget;
   senderSignatureAlgorithm: EvmFamilySenderSignatureAlgorithm;
@@ -500,17 +496,17 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
 
   const emailOtpRecord = tryGetEmailOtpThresholdEcdsaSessionRecordForSigning({
     deps: args.deps,
-    subjectId: args.subjectId,
+    walletId: args.walletId,
     chainTarget: materialChainTarget,
   });
   const emailOtpKeyRef = tryGetEmailOtpThresholdEcdsaKeyRefForSigning({
     deps: args.deps,
-    subjectId: args.subjectId,
+    walletId: args.walletId,
     chainTarget: materialChainTarget,
   });
   const passkeyVisibleMaterials = listPasskeyVisibleMaterials({
     deps: args.deps,
-    subjectId: args.subjectId,
+    walletId: args.walletId,
     chainTarget: materialChainTarget,
   });
   const exactCandidateMaterial =

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   assertThresholdSigningSessionReady,
   isThresholdSigningSessionReady,
@@ -18,7 +19,7 @@ const EVM_CHAIN_TARGET = {
 test.describe('threshold signing session readiness', () => {
   test('asserts ready when warm session cache is available', async () => {
     const ready = await assertThresholdSigningSessionReady({
-      walletId: 'planner.testnet',
+      walletId: toWalletId('planner.testnet'),
       chainTarget: EVM_CHAIN_TARGET,
       sessionId: 'session-1',
       usesNeeded: 2,
@@ -38,7 +39,7 @@ test.describe('threshold signing session readiness', () => {
   test('fails with canonical missing-session error when sessionId is absent', async () => {
     await expect(
       assertThresholdSigningSessionReady({
-        walletId: 'planner.testnet',
+        walletId: toWalletId('planner.testnet'),
         chainTarget: EVM_CHAIN_TARGET,
         sessionId: '',
         signingSessionCoordinator: {
@@ -53,7 +54,7 @@ test.describe('threshold signing session readiness', () => {
   test('fails with canonical exhausted error when remaining uses are insufficient', async () => {
     await expect(
       assertThresholdSigningSessionReady({
-        walletId: 'planner.testnet',
+        walletId: toWalletId('planner.testnet'),
         chainTarget: EVM_CHAIN_TARGET,
         sessionId: 'session-1',
         usesNeeded: 3,
@@ -96,7 +97,7 @@ test.describe('threshold signing session readiness', () => {
   test('normalizes cache miss errors to canonical reconnect message', async () => {
     await expect(
       assertThresholdSigningSessionReady({
-        walletId: 'planner.testnet',
+        walletId: toWalletId('planner.testnet'),
         chainTarget: EVM_CHAIN_TARGET,
         sessionId: 'session-1',
         signingSessionCoordinator: {

@@ -278,11 +278,11 @@ export class EmailOtpThresholdSessionRuntime {
     return await this.appSessionJwtCache.resolve(args);
   }
 
-  isEd25519WarmupPending(args: { nearAccountId: AccountId | string }): boolean {
+  isEd25519WarmupPending(args: { nearAccountId: AccountId }): boolean {
     return this.ed25519Warmup.isPending(args);
   }
 
-  async waitForPendingEd25519Warmup(args: { nearAccountId: AccountId | string }): Promise<boolean> {
+  async waitForPendingEd25519Warmup(args: { nearAccountId: AccountId }): Promise<boolean> {
     return await this.ed25519Warmup.waitForPending(args);
   }
 
@@ -343,7 +343,7 @@ export class EmailOtpThresholdSessionRuntime {
   }
 
   async loginWithEd25519CapabilityForSigning(args: {
-    nearAccountId: AccountId | string;
+    nearAccountId: AccountId;
     challengeId: string;
     otpCode: string;
     record: ThresholdEd25519SessionRecord;

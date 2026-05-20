@@ -1,12 +1,14 @@
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
-import type { AccountId } from '@/core/types/accountIds';
 import type {
   ThresholdEcdsaSessionRecord,
   ThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type {
+  ThresholdEcdsaChainTarget,
+  WalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WarmSessionEcdsaCapabilityState } from '@/core/signingEngine/session/warmCapabilities/types';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import {
@@ -26,7 +28,7 @@ export class EmailOtpSealedSessionRegistry {
       configs: SeamsConfigsReadonly;
       getSignerWorkerContext: () => WorkerOperationContext | null | undefined;
       commitEvmFamilyThresholdEcdsaSessions: (args: {
-        walletId: AccountId;
+        walletId: WalletId;
         primaryChain: ThresholdEcdsaChainTarget;
         bootstrap: ThresholdEcdsaSessionBootstrapResult;
         source: 'email_otp';

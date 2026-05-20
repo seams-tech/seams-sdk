@@ -43,6 +43,7 @@ import {
   getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
   getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget,
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
+  thresholdEcdsaRecordRpId,
 } from '../session/persistence/records';
 import { normalizeThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import {
@@ -104,7 +105,6 @@ type PendingWorkerRequest = {
 };
 
 type PasskeySealedRecordAccountMetadata = {
-  subjectId?: string;
   walletId?: string;
   signingRootId?: string;
   signingRootVersion?: string;
@@ -517,15 +517,14 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       refreshed: this.buildPasskeySealedRecordAccountMetadata({
         thresholdSessionId: args.thresholdSessionId,
         curve: purpose.curve,
+        ...(purpose.curve === 'ecdsa' ? { chainTarget: purpose.chainTarget } : {}),
       }),
     });
     const refreshedCurve = existing.curve || purpose.curve;
     if (refreshedCurve === 'ecdsa') {
       const walletId = String(refreshedMetadata.walletId || '').trim();
-      const subjectId = String(refreshedMetadata.subjectId || '').trim();
-      const signingRootId = String(refreshedMetadata.signingRootId || '').trim();
       const relayerUrl = String(existing.relayerUrl || '').trim();
-      if (!walletId || !subjectId || !signingRootId || !relayerUrl || !refreshedMetadata.ecdsaRestore) {
+      if (!walletId || !relayerUrl || !refreshedMetadata.ecdsaRestore) {
         throw new Error('[SigningSessionSealedStore] invalid ECDSA sealed session refresh metadata');
       }
       await this.registerSigningSession({
@@ -536,11 +535,6 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         walletSigningSessionId: existing.walletSigningSessionId,
         thresholdSessionIds: existing.thresholdSessionIds,
         walletId,
-        subjectId,
-        signingRootId,
-        ...(refreshedMetadata.signingRootVersion
-          ? { signingRootVersion: refreshedMetadata.signingRootVersion }
-          : {}),
         relayerUrl,
         keyVersion: existing.keyVersion,
         shamirPrimeB64u: existing.shamirPrimeB64u,
@@ -681,9 +675,6 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     return {
       ...(args.refreshed.walletId || existing?.walletId
         ? { walletId: args.refreshed.walletId || existing?.walletId }
-        : {}),
-      ...(args.refreshed.subjectId || existing?.subjectId
-        ? { subjectId: args.refreshed.subjectId || existing?.subjectId }
         : {}),
       ...(args.refreshed.signingRootId || existing?.signingRootId
         ? { signingRootId: args.refreshed.signingRootId || existing?.signingRootId }
@@ -832,9 +823,6 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     const accountId = String(
       ed25519Record?.nearAccountId || ecdsaRecord?.walletId || args.walletId || '',
     ).trim();
-    const subjectId = String(ecdsaRecord?.subjectId || '').trim();
-    const signingRootId = String(ecdsaRecord?.signingRootId || '').trim();
-    const signingRootVersion = String(ecdsaRecord?.signingRootVersion || '').trim();
     const ethereumAddress = String(ecdsaRecord?.ethereumAddress || '')
       .trim()
       .toLowerCase();
@@ -844,12 +832,12 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       /^0x[0-9a-f]{40}$/.test(ethereumAddress)
         ? {
             chainTarget: ecdsaRecord.chainTarget,
-            rpId: ecdsaRecord.rpId,
+            rpId: thresholdEcdsaRecordRpId(ecdsaRecord),
             ...(ecdsaRecord.thresholdSessionAuthToken
               ? { thresholdSessionAuthToken: ecdsaRecord.thresholdSessionAuthToken }
               : {}),
             sessionKind: ecdsaRecord.thresholdSessionKind,
-            ecdsaThresholdKeyId: ecdsaRecord.ecdsaThresholdKeyId,
+            keyHandle: ecdsaRecord.keyHandle,
             ethereumAddress,
             relayerKeyId: ecdsaRecord.relayerKeyId,
             clientVerifyingShareB64u: ecdsaRecord.clientVerifyingShareB64u,
@@ -879,10 +867,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         }
       : undefined;
     return {
-      ...(subjectId ? { subjectId } : {}),
       ...(accountId ? { walletId: accountId } : {}),
-      ...(signingRootId ? { signingRootId } : {}),
-      ...(signingRootVersion ? { signingRootVersion } : {}),
       ...(ecdsaRestore ? { ecdsaRestore } : {}),
       ...(ed25519Restore ? { ed25519Restore } : {}),
     };
@@ -1380,10 +1365,18 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         message: 'Missing walletSigningSessionId for signing-session seal persistence',
       };
     }
+    let ecdsaTransportChainTarget: ThresholdEcdsaChainTarget | undefined;
+    if (curve === 'ecdsa') {
+      if (args.transport?.curve === 'ecdsa') {
+        ecdsaTransportChainTarget = args.transport.chainTarget;
+      } else if (inferredTransport?.curve === 'ecdsa') {
+        ecdsaTransportChainTarget = inferredTransport.chainTarget;
+      }
+    }
     const recordMetadata = this.buildPasskeySealedRecordAccountMetadata({
       thresholdSessionId,
       curve,
-      ...(args.transport?.curve === 'ecdsa' ? { chainTarget: args.transport.chainTarget } : {}),
+      ...(ecdsaTransportChainTarget ? { chainTarget: ecdsaTransportChainTarget } : {}),
       ...(args.transport?.walletId || inferredTransport?.walletId
         ? { walletId: args.transport?.walletId || inferredTransport?.walletId }
         : {}),
@@ -1438,10 +1431,8 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         const persistedCurve = existingRecord.curve || curve;
         if (persistedCurve === 'ecdsa') {
           const walletId = String(refreshedMetadata.walletId || '').trim();
-          const subjectId = String(refreshedMetadata.subjectId || '').trim();
-          const signingRootId = String(refreshedMetadata.signingRootId || '').trim();
           const relayerUrl = String(existingRecord.relayerUrl || '').trim();
-          if (!walletId || !subjectId || !signingRootId || !relayerUrl || !refreshedMetadata.ecdsaRestore) {
+          if (!walletId || !relayerUrl || !refreshedMetadata.ecdsaRestore) {
             throw new Error('[SigningSessionSealedStore] invalid ECDSA persisted-session refresh metadata');
           }
           await this.registerSigningSession({
@@ -1452,11 +1443,6 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
             walletSigningSessionId,
             thresholdSessionIds: existingRecord.thresholdSessionIds,
             walletId,
-            subjectId,
-            signingRootId,
-            ...(refreshedMetadata.signingRootVersion
-              ? { signingRootVersion: refreshedMetadata.signingRootVersion }
-              : {}),
             relayerUrl,
             keyVersion: existingRecord.keyVersion,
             shamirPrimeB64u: existingRecord.shamirPrimeB64u,
@@ -1571,9 +1557,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
 
       if (curve === 'ecdsa') {
         const walletId = String(recordMetadata.walletId || '').trim();
-        const subjectId = String(recordMetadata.subjectId || '').trim();
-        const signingRootId = String(recordMetadata.signingRootId || '').trim();
-        if (!walletId || !subjectId || !signingRootId || !recordMetadata.ecdsaRestore) {
+        if (!walletId || !recordMetadata.ecdsaRestore) {
           throw new Error('[SigningSessionSealedStore] missing ECDSA passkey seal metadata');
         }
         await this.registerSigningSession({
@@ -1583,11 +1567,6 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           authMethod: 'passkey',
           walletSigningSessionId,
           walletId,
-          subjectId,
-          signingRootId,
-          ...(recordMetadata.signingRootVersion
-            ? { signingRootVersion: recordMetadata.signingRootVersion }
-            : {}),
           ecdsaRestore: recordMetadata.ecdsaRestore,
           ...(recordMetadata.ed25519Restore
             ? { ed25519Restore: recordMetadata.ed25519Restore }

@@ -92,7 +92,6 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
       {
         kind: 'reuse_warm_ecdsa_bootstrap',
         walletId,
-        subjectId: toWalletSubjectId(walletId),
         chainTarget,
         source: 'login',
       },
@@ -104,7 +103,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
       source: 'sealed_restore',
       bootstrap: {
         thresholdEcdsaKeyRef: {
-          ecdsaThresholdKeyId: 'ek-no-prompt-restore',
+          ecdsaThresholdKeyId: `legacy-key-handle:${bootstrap.thresholdEcdsaKeyRef.keyHandle}`,
           thresholdSessionId: 'no-prompt-restore-session',
         },
       },
@@ -194,9 +193,10 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
           expect(request).toMatchObject({
             kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
             source: 'login',
+            keyHandle: restoredBootstrap.thresholdEcdsaKeyRef.keyHandle,
             key: {
               walletId,
-              ecdsaThresholdKeyId: 'ek-no-prompt-reconnect',
+              ecdsaThresholdKeyId: `legacy-key-handle:${restoredBootstrap.thresholdEcdsaKeyRef.keyHandle}`,
             },
             lanePolicy: {
               chainTarget,
@@ -216,7 +216,6 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
       {
         kind: 'reuse_warm_ecdsa_bootstrap',
         walletId,
-        subjectId: toWalletSubjectId(walletId),
         chainTarget,
         source: 'login',
       },
@@ -267,7 +266,6 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
       {
         kind: 'reuse_warm_ecdsa_bootstrap',
         walletId,
-        subjectId: toWalletSubjectId(walletId),
         chainTarget,
         source: 'login',
       },
@@ -503,7 +501,6 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
     });
     const plan = buildEcdsaSessionProvisionPlan({
       kind: 'ecdsa_session_reconnect',
-      subjectId: restoredRecord.subjectId,
       chainTarget: testEcdsaChainTarget('evm'),
       sessionIdentity: buildEcdsaSessionIdentity({
         thresholdSessionId: restoredRecord.thresholdSessionId,

@@ -17,8 +17,10 @@ import {
   buildThresholdBudgetStatusCheck,
   buildWalletBudgetStatusCheck,
   isEcdsaLaneBudgetStatusCheck,
+  ownerForBudgetStatusCheck,
   thresholdSessionIdsForBudgetStatusCheck,
-  walletIdForBudgetStatusCheck,
+  walletBudgetOwnerForLane,
+  walletBudgetOwnerId,
   isSigningSessionBudgetExhaustedError,
   isSigningSessionBudgetUnknownError,
   normalizeRequired,
@@ -33,6 +35,7 @@ import {
   type SigningSessionBudgetStatusReader,
   type SigningSessionBudgetStatusAuth,
   type SigningSessionBudgetSuccessInput,
+  type WalletBudgetOwner,
   type ZeroWalletBudgetSpend,
 } from './budget/budget';
 import { BudgetCoordinator } from './budget/BudgetCoordinator';
@@ -71,6 +74,7 @@ import type {
   WalletSigningSessionId,
 } from './operationState/types';
 import type { WarmSessionPrfClaim } from './warmCapabilities/types';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export type { SigningSessionReadiness };
 
@@ -95,7 +99,7 @@ export type ResolveSigningSessionAuthPlanFromReadinessResult = {
 };
 
 export type WalletSigningSessionConsumeUseArgs = {
-  walletId: AccountId | string;
+  owner: WalletBudgetOwner;
   walletSigningSessionId: string;
   uses: number;
   reason: SigningOperationIntent;
@@ -202,6 +206,7 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
   async getStatus(
     args: Parameters<SigningSessionStatusPort['getStatus']>[0],
   ): ReturnType<SigningSessionStatusPort['getStatus']> {
+    const walletId = toWalletId(args.walletId);
     const walletSigningSessionIdFilter = normalizeNonEmpty(args.walletSigningSessionId);
     const targetBacking = new Set(
       (args.targetBackingMaterialSessionIds || []).map(normalizeNonEmpty).filter(Boolean),
@@ -222,7 +227,7 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
         targetThresholdSessionIds: targetThreshold,
       });
     };
-    const lanes = discoverLanesForWallet(this.walletSessionDeps, args.walletId).filter(
+    const lanes = discoverLanesForWallet(this.walletSessionDeps, walletId).filter(
       (lane) =>
         !walletSigningSessionIdFilter ||
         lane.walletSigningSessionId === walletSigningSessionIdFilter,
@@ -270,7 +275,7 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
   ): ReturnType<SigningSessionStatusPort['getLaneClaimsForWallet']> {
     return await readWalletScopedLaneClaimsForWallet({
       deps: this.walletSessionDeps,
-      walletId,
+      walletId: toWalletId(walletId),
       statusOverrides: this.walletSessionState.statusOverrides,
     });
   }
@@ -301,7 +306,7 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
     await clearWalletSigningSession({
       deps: this.walletSessionDeps,
       statusOverrides: this.walletSessionState.statusOverrides,
-      walletId: args.walletId,
+      walletId: toWalletId(args.walletId),
       walletSigningSessionId: args.walletSigningSessionId,
     });
   }
@@ -471,11 +476,12 @@ function buildBudgetStatusCheckForLane(args: {
   lane: SelectedSigningSessionPlanningLane;
   trustedStatusAuth?: SigningSessionBudgetStatusAuth;
 }): SigningSessionBudgetStatusCheck {
-  const walletId = args.lane.curve === 'ecdsa' ? args.lane.walletId : args.lane.accountId;
+  const owner = walletBudgetOwnerForLane(args.lane);
   if (args.lane.curve === 'ecdsa') {
     if (args.trustedStatusAuth) {
       return buildAuthenticatedEcdsaLaneBudgetStatusCheck({
         key: args.lane.key,
+        keyHandle: args.lane.keyHandle,
         chainTarget: args.lane.chainTarget,
         walletSigningSessionId: args.lane.walletSigningSessionId,
         thresholdSessionId: args.lane.thresholdSessionId,
@@ -484,6 +490,7 @@ function buildBudgetStatusCheckForLane(args: {
     }
     return buildEcdsaLaneBudgetStatusCheck({
       key: args.lane.key,
+      keyHandle: args.lane.keyHandle,
       chainTarget: args.lane.chainTarget,
       walletSigningSessionId: args.lane.walletSigningSessionId,
       thresholdSessionId: args.lane.thresholdSessionId,
@@ -491,7 +498,7 @@ function buildBudgetStatusCheckForLane(args: {
   }
   if (args.trustedStatusAuth && args.lane.thresholdSessionId) {
     return buildAuthenticatedThresholdBudgetStatusCheck({
-      walletId,
+      owner,
       walletSigningSessionId: args.lane.walletSigningSessionId,
       targetThresholdSessionIds: [args.lane.thresholdSessionId],
       trustedStatusAuth: args.trustedStatusAuth,
@@ -499,20 +506,20 @@ function buildBudgetStatusCheckForLane(args: {
   }
   if (args.lane.thresholdSessionId) {
     return buildThresholdBudgetStatusCheck({
-      walletId,
+      owner,
       walletSigningSessionId: args.lane.walletSigningSessionId,
       targetThresholdSessionIds: [args.lane.thresholdSessionId],
     });
   }
   if (args.lane.backingMaterialSessionId) {
     return buildBackingMaterialBudgetStatusCheck({
-      walletId,
+      owner,
       walletSigningSessionId: args.lane.walletSigningSessionId,
       targetBackingMaterialSessionIds: [args.lane.backingMaterialSessionId],
     });
   }
   return buildWalletBudgetStatusCheck({
-    walletId,
+    owner,
     walletSigningSessionId: args.lane.walletSigningSessionId,
   });
 }
@@ -526,7 +533,7 @@ function buildLegacyStatusQueryFromBudgetStatusCheck(args: SigningSessionBudgetS
 } {
   if (isEcdsaLaneBudgetStatusCheck(args)) {
     return {
-      walletId: walletIdForBudgetStatusCheck(args),
+      walletId: walletBudgetOwnerId(ownerForBudgetStatusCheck(args)),
       walletSigningSessionId: args.walletSigningSessionId,
       targetThresholdSessionIds: thresholdSessionIdsForBudgetStatusCheck(args),
       ...(args.kind === 'authenticated_ecdsa_lane_budget_status_check'
@@ -536,7 +543,7 @@ function buildLegacyStatusQueryFromBudgetStatusCheck(args: SigningSessionBudgetS
   }
   if (args.kind === 'authenticated_threshold_budget_status_check') {
     return {
-      walletId: args.walletId,
+      walletId: walletBudgetOwnerId(args.owner),
       walletSigningSessionId: args.walletSigningSessionId,
       targetThresholdSessionIds: [...args.targetThresholdSessionIds],
       trustedStatusAuth: args.trustedStatusAuth,
@@ -544,20 +551,20 @@ function buildLegacyStatusQueryFromBudgetStatusCheck(args: SigningSessionBudgetS
   }
   if (args.kind === 'threshold_budget_status_check') {
     return {
-      walletId: args.walletId,
+      walletId: walletBudgetOwnerId(args.owner),
       walletSigningSessionId: args.walletSigningSessionId,
       targetThresholdSessionIds: [...args.targetThresholdSessionIds],
     };
   }
   if (args.kind === 'backing_material_budget_status_check') {
     return {
-      walletId: args.walletId,
+      walletId: walletBudgetOwnerId(args.owner),
       walletSigningSessionId: args.walletSigningSessionId,
       targetBackingMaterialSessionIds: [...args.targetBackingMaterialSessionIds],
     };
   }
   return {
-    walletId: args.walletId,
+    walletId: walletBudgetOwnerId(args.owner),
     walletSigningSessionId: args.walletSigningSessionId,
   };
 }

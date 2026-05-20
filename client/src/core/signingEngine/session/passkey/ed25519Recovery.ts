@@ -71,7 +71,7 @@ export async function claimPasskeyEd25519PrfFirst(
 }
 
 export async function reconnectPasskeyEd25519CapabilityForSigning(args: {
-  nearAccountId: AccountId | string;
+  nearAccountId: AccountId;
   record: ThresholdEd25519SessionRecord;
   localPrfCredential: WebAuthnAuthenticationCredential;
   remainingUses?: number;

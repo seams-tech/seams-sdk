@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { deriveThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
 import {
   parseCurrentThresholdEcdsaKeyRecord,
   parseCurrentThresholdEcdsaPresignSessionRow,
@@ -8,6 +9,18 @@ import {
 } from '../../server/src/core/ThresholdService/postgresRecords';
 import { createThresholdEcdsaKeyStore } from '../../server/src/core/ThresholdService/stores/KeyStore';
 import { normalizeLogger } from '../../server/src/core/logger';
+import type {
+  CloudflareDurableObjectNamespaceLike,
+  CloudflareDurableObjectStubLike,
+} from '../../server/src/core/types';
+import { ThresholdStoreDurableObject } from '../../server/src/router/cloudflare/durableObjects/thresholdStore';
+
+type TestDurableObjectStorageLike = {
+  get(key: string): Promise<unknown>;
+  put(key: string, value: unknown): Promise<void>;
+  delete(key: string): Promise<boolean>;
+  transaction<T>(fn: (txn: TestDurableObjectStorageLike) => Promise<T>): Promise<T>;
+};
 
 function makeThresholdEcdsaIntegratedKeyRecord(
   overrides: Record<string, unknown> = {},
@@ -35,6 +48,35 @@ function makeThresholdEcdsaIntegratedKeyRecord(
   });
   if (!record) throw new Error('test fixture must be a current threshold ECDSA key record');
   return record;
+}
+
+function createMemoryDurableObjectNamespace(): CloudflareDurableObjectNamespaceLike {
+  const objects = new Map<string, CloudflareDurableObjectStubLike>();
+  return {
+    idFromName: (name: string) => name,
+    get: (id: unknown) => {
+      const key = String(id);
+      const existing = objects.get(key);
+      if (existing) return existing;
+
+      const storageMap = new Map<string, unknown>();
+      const storage: TestDurableObjectStorageLike = {
+        get: async (storageKey) => storageMap.get(storageKey) ?? null,
+        put: async (storageKey, value) => {
+          storageMap.set(storageKey, value);
+        },
+        delete: async (storageKey) => storageMap.delete(storageKey),
+        transaction: async (fn) => await fn(storage),
+      };
+      const durableObject = new ThresholdStoreDurableObject({ storage }, {});
+      const stub: CloudflareDurableObjectStubLike = {
+        fetch: async (request, init) =>
+          durableObject.fetch(request instanceof Request ? request : new Request(request, init)),
+      };
+      objects.set(key, stub);
+      return stub;
+    },
+  };
 }
 
 test.describe('threshold ecdsa postgres records', () => {
@@ -314,15 +356,104 @@ test.describe('threshold ecdsa postgres records', () => {
     const first = makeThresholdEcdsaIntegratedKeyRecord({
       signingRootId: 'server-shared-root',
     });
-    await store.put(first.ecdsaThresholdKeyId, first);
+    await store.putByKeyHandle(first);
 
     const conflicting = makeThresholdEcdsaIntegratedKeyRecord({
       ecdsaThresholdKeyId: 'threshold-key-conflict',
       signingRootId: 'server-shared-root',
       updatedAtMs: 201,
     });
-    await expect(store.put(conflicting.ecdsaThresholdKeyId, conflicting)).rejects.toThrow(
-      /EVM-family key identity/,
+    await expect(store.putByKeyHandle(conflicting)).rejects.toThrow(/EVM-family key identity/);
+  });
+
+  test('server key store persists the canonical key handle and rejects handle conflicts', async () => {
+    const store = createThresholdEcdsaKeyStore({
+      config: { kind: 'in-memory' },
+      logger: normalizeLogger(null),
+      isNode: true,
+    });
+    const first = makeThresholdEcdsaIntegratedKeyRecord({
+      signingRootId: 'server-handle-root',
+    });
+    await store.putByKeyHandle(first);
+
+    const expectedHandle = String(
+      await deriveThresholdEcdsaKeyHandle({
+        ecdsaThresholdKeyId: first.ecdsaThresholdKeyId,
+        signingRootId: first.signingRootId,
+        signingRootVersion: first.signingRootVersion,
+      }),
     );
+    await expect(store.getByKeyHandle(expectedHandle)).resolves.toMatchObject({
+      ecdsaThresholdKeyId: first.ecdsaThresholdKeyId,
+      keyHandle: expectedHandle,
+    });
+
+    await store.deleteByKeyHandle(expectedHandle);
+    await expect(store.getByKeyHandle(expectedHandle)).resolves.toBeNull();
+
+    await store.putByKeyHandle(first);
+    await expect(store.getByKeyHandle(expectedHandle)).resolves.toMatchObject({
+      ecdsaThresholdKeyId: first.ecdsaThresholdKeyId,
+      keyHandle: expectedHandle,
+    });
+  });
+
+  test('server key store rejects persisted key handles that do not match key identity', async () => {
+    const store = createThresholdEcdsaKeyStore({
+      config: { kind: 'in-memory' },
+      logger: normalizeLogger(null),
+      isNode: true,
+    });
+    const record = makeThresholdEcdsaIntegratedKeyRecord({
+      keyHandle: 'ehss-key-wrong',
+    });
+
+    await expect(store.putByKeyHandle(record)).rejects.toThrow(
+      /key handle does not match threshold key identity/,
+    );
+  });
+
+  test('Cloudflare Durable Object server key store guards canonical key handles', async () => {
+    const store = createThresholdEcdsaKeyStore({
+      config: {
+        kind: 'cloudflare-do',
+        namespace: createMemoryDurableObjectNamespace(),
+        name: 'ecdsa-key-handle-test',
+      },
+      logger: normalizeLogger(null),
+      isNode: true,
+    });
+    const first = makeThresholdEcdsaIntegratedKeyRecord({
+      ecdsaThresholdKeyId: 'cloudflare-threshold-key',
+      signingRootId: 'cloudflare-server-handle-root',
+    });
+    await store.putByKeyHandle(first);
+
+    const expectedHandle = String(
+      await deriveThresholdEcdsaKeyHandle({
+        ecdsaThresholdKeyId: first.ecdsaThresholdKeyId,
+        signingRootId: first.signingRootId,
+        signingRootVersion: first.signingRootVersion,
+      }),
+    );
+    await expect(store.getByKeyHandle(expectedHandle)).resolves.toMatchObject({
+      ecdsaThresholdKeyId: first.ecdsaThresholdKeyId,
+      keyHandle: expectedHandle,
+    });
+
+    await store.deleteByKeyHandle(expectedHandle);
+    await expect(
+      store.putByKeyHandle({
+        ...first,
+        updatedAtMs: 203,
+      }),
+    ).resolves.toBeUndefined();
+    await expect(store.getByKeyHandle(expectedHandle)).resolves.toMatchObject({
+      keyHandle: expectedHandle,
+    });
+
+    await store.deleteByKeyHandle(expectedHandle);
+    await expect(store.getByKeyHandle(expectedHandle)).resolves.toBeNull();
   });
 });

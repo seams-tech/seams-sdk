@@ -1,220 +1,98 @@
 import type {
-  ClaimWarmSessionPrfArgs,
-  WarmSessionEcdsaAuthMaterial,
-  WarmSessionEd25519AuthMaterial,
-  WarmSessionPrfClaim,
+  ThresholdEcdsaChainTarget,
+  WalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { EcdsaSessionProvisionPlan } from './ecdsaProvisionPlan';
+import type {
+  ApplyWarmEcdsaPostSignPolicyArgs,
+  AssertWarmEcdsaOperationAllowedArgs,
+  EnsureWarmEcdsaProvisionPlanReadyArgs,
+  WarmSessionEcdsaCapabilityRef,
 } from './types';
+import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 
-void ({
-  state: 'warm',
-  sessionId: 'session-1',
-  expiresAtMs: 1_900_000_000_000,
-  remainingUses: 2,
-} satisfies WarmSessionPrfClaim);
+declare const walletId: WalletId;
+declare const chainTarget: ThresholdEcdsaChainTarget;
+declare const plan: EcdsaSessionProvisionPlan;
+declare const selectedRecord: ThresholdEcdsaSessionRecord;
 
-void ({
-  state: 'unavailable',
-  sessionId: 'session-1',
-  code: 'worker_error',
-} satisfies WarmSessionPrfClaim);
+const validEnsureWarmEcdsaProvisionPlanReadyArgs = {
+  walletId,
+  chainTarget,
+  plan,
+  source: 'login',
+  sessionBudgetUses: 1,
+} satisfies EnsureWarmEcdsaProvisionPlanReadyArgs;
+void validEnsureWarmEcdsaProvisionPlanReadyArgs;
 
-void ({
-  state: 'missing',
-  sessionId: 'session-1',
-} satisfies WarmSessionPrfClaim);
+const invalidEnsureWarmEcdsaProvisionPlanReadyArgsWithSubjectId = {
+  walletId,
+  chainTarget,
+  plan,
+  source: 'login',
+  sessionBudgetUses: 1,
+  // @ts-expect-error base-ECDSA provision readiness derives subject from shared key identity.
+  subjectId: 'wallet-subject',
+} satisfies EnsureWarmEcdsaProvisionPlanReadyArgs;
+void invalidEnsureWarmEcdsaProvisionPlanReadyArgsWithSubjectId;
 
-void ({
-  state: 'expired',
-  sessionId: 'session-1',
-} satisfies WarmSessionPrfClaim);
+const invalidEnsureWarmEcdsaProvisionPlanReadyArgsWithRawWalletId = {
+  // @ts-expect-error ECDSA provision readiness requires a normalized WalletId.
+  walletId: 'wallet.testnet',
+  chainTarget,
+  plan,
+  source: 'login',
+  sessionBudgetUses: 1,
+} satisfies EnsureWarmEcdsaProvisionPlanReadyArgs;
+void invalidEnsureWarmEcdsaProvisionPlanReadyArgsWithRawWalletId;
 
-void ({
-  state: 'exhausted',
-  sessionId: 'session-1',
-} satisfies WarmSessionPrfClaim);
+const validWarmSessionEcdsaCapabilityRef = {
+  walletId,
+  chainTarget,
+  thresholdSessionId: 'threshold-session-id',
+} satisfies WarmSessionEcdsaCapabilityRef;
+void validWarmSessionEcdsaCapabilityRef;
 
-// @ts-expect-error warm claims require expiresAtMs
-const invalidWarmMissingExpires: WarmSessionPrfClaim = {
-  state: 'warm',
-  sessionId: 'session-1',
-  remainingUses: 2,
-};
-void invalidWarmMissingExpires;
+const invalidWarmSessionEcdsaCapabilityRefWithRawWalletId = {
+  // @ts-expect-error ECDSA capability refs require a normalized WalletId.
+  walletId: 'wallet.testnet',
+  chainTarget,
+  thresholdSessionId: 'threshold-session-id',
+} satisfies WarmSessionEcdsaCapabilityRef;
+void invalidWarmSessionEcdsaCapabilityRefWithRawWalletId;
 
-// @ts-expect-error warm claims require remainingUses
-const invalidWarmMissingRemainingUses: WarmSessionPrfClaim = {
-  state: 'warm',
-  sessionId: 'session-1',
-  expiresAtMs: 1_900_000_000_000,
-};
-void invalidWarmMissingRemainingUses;
+const validApplyWarmEcdsaPostSignPolicyArgs = {
+  walletId,
+  chainTarget,
+  thresholdSessionId: 'threshold-session-id',
+  selectedRecord,
+} satisfies ApplyWarmEcdsaPostSignPolicyArgs;
+void validApplyWarmEcdsaPostSignPolicyArgs;
 
-// @ts-expect-error unavailable claims require code
-const invalidUnavailableMissingCode: WarmSessionPrfClaim = {
-  state: 'unavailable',
-  sessionId: 'session-1',
-};
-void invalidUnavailableMissingCode;
+const invalidApplyWarmEcdsaPostSignPolicyArgsWithRawWalletId = {
+  // @ts-expect-error ECDSA post-sign policy requires a normalized WalletId.
+  walletId: 'wallet.testnet',
+  chainTarget,
+  thresholdSessionId: 'threshold-session-id',
+  selectedRecord,
+} satisfies ApplyWarmEcdsaPostSignPolicyArgs;
+void invalidApplyWarmEcdsaPostSignPolicyArgsWithRawWalletId;
 
-// @ts-expect-error missing claims must not carry remainingUses
-const invalidMissingWithRemainingUses: WarmSessionPrfClaim = {
-  state: 'missing',
-  sessionId: 'session-1',
-  remainingUses: 1,
-};
-void invalidMissingWithRemainingUses;
+const validAssertWarmEcdsaOperationAllowedArgs = {
+  walletId,
+  chainTarget,
+  operationLabel: 'threshold-ecdsa sign',
+  thresholdSessionId: 'threshold-session-id',
+  source: 'login',
+} satisfies AssertWarmEcdsaOperationAllowedArgs;
+void validAssertWarmEcdsaOperationAllowedArgs;
 
-// @ts-expect-error expired claims must not carry expiresAtMs
-const invalidExpiredWithExpiresAt: WarmSessionPrfClaim = {
-  state: 'expired',
-  sessionId: 'session-1',
-  expiresAtMs: 1_900_000_000_000,
-};
-void invalidExpiredWithExpiresAt;
-
-// @ts-expect-error exhausted claims must not carry code
-const invalidExhaustedWithCode: WarmSessionPrfClaim = {
-  state: 'exhausted',
-  sessionId: 'session-1',
-  code: 'exhausted',
-};
-void invalidExhaustedWithCode;
-
-void ({
-  kind: 'threshold_only_claim',
-  thresholdSessionId: 'session-1',
-  errorContext: 'threshold-only claim',
-} satisfies ClaimWarmSessionPrfArgs);
-
-void ({
-  kind: 'wallet_scoped_ed25519_claim',
-  thresholdSessionId: 'session-1',
-  errorContext: 'wallet-scoped Ed25519 claim',
-  walletId: 'alice.testnet',
-  authMethod: 'passkey',
-  curve: 'ed25519',
-  chain: 'near',
-  walletSigningSessionId: 'wallet-session',
-} satisfies ClaimWarmSessionPrfArgs);
-
-void ({
-  kind: 'wallet_scoped_ecdsa_claim',
-  thresholdSessionId: 'session-1',
-  errorContext: 'wallet-scoped ECDSA claim',
-  walletId: 'alice.testnet',
-  authMethod: 'passkey',
-  curve: 'ecdsa',
-  chain: 'near',
-  chainTarget: {
-    kind: 'evm',
-    namespace: 'eip155',
-    chainId: 1,
-    networkSlug: 'ethereum',
-  },
-  walletSigningSessionId: 'wallet-session',
-} satisfies ClaimWarmSessionPrfArgs);
-
-// @ts-expect-error passkey claims require walletSigningSessionId
-const invalidPasskeyClaimMissingWalletSession: ClaimWarmSessionPrfArgs = {
-  kind: 'wallet_scoped_ed25519_claim',
-  thresholdSessionId: 'session-1',
-  errorContext: 'wallet-scoped Ed25519 claim',
-  walletId: 'alice.testnet',
-  authMethod: 'passkey',
-  curve: 'ed25519',
-  chain: 'near',
-};
-void invalidPasskeyClaimMissingWalletSession;
-
-// @ts-expect-error wallet-scoped ECDSA claims require chainTarget
-const invalidEcdsaClaimMissingChainTarget: ClaimWarmSessionPrfArgs = {
-  kind: 'wallet_scoped_ecdsa_claim',
-  thresholdSessionId: 'session-1',
-  errorContext: 'wallet-scoped ECDSA claim',
-  walletId: 'alice.testnet',
-  authMethod: 'passkey',
-  curve: 'ecdsa',
-  chain: 'near',
-  walletSigningSessionId: 'wallet-session',
-};
-void invalidEcdsaClaimMissingChainTarget;
-
-// @ts-expect-error threshold-only claims must not carry wallet-scoped identity
-const invalidThresholdOnlyClaimWithWalletSession: ClaimWarmSessionPrfArgs = {
-  kind: 'threshold_only_claim',
-  thresholdSessionId: 'session-1',
-  errorContext: 'threshold-only claim',
-  walletSigningSessionId: 'wallet-session',
-};
-void invalidThresholdOnlyClaimWithWalletSession;
-
-const invalidThresholdOnlyClaimWithCurve: ClaimWarmSessionPrfArgs = {
-  kind: 'threshold_only_claim',
-  thresholdSessionId: 'session-1',
-  errorContext: 'threshold-only claim',
-  // @ts-expect-error threshold-only claims must not carry curve material
-  curve: 'ecdsa',
-};
-void invalidThresholdOnlyClaimWithCurve;
-
-void ({
-  capability: 'ed25519',
-  record: {} as never,
-  thresholdSessionAuthToken: 'jwt:ed25519-session',
-  thresholdSessionAuthTokenSource: 'ed25519',
-} satisfies WarmSessionEd25519AuthMaterial);
-
-void ({
-  capability: 'ed25519',
-  record: {} as never,
-  thresholdSessionAuthTokenSource: 'none',
-} satisfies WarmSessionEd25519AuthMaterial);
-
-void ({
-  capability: 'ecdsa',
-  record: {} as never,
-  thresholdSessionAuthToken: 'jwt:ecdsa-session',
-  thresholdSessionAuthTokenSource: 'ecdsa',
-} satisfies WarmSessionEcdsaAuthMaterial);
-
-void ({
-  capability: 'ecdsa',
-  record: {} as never,
-  thresholdSessionAuthTokenSource: 'none',
-} satisfies WarmSessionEcdsaAuthMaterial);
-
-// @ts-expect-error token-bearing Ed25519 auth must carry thresholdSessionAuthToken
-const invalidEd25519AuthMissingToken: WarmSessionEd25519AuthMaterial = {
-  capability: 'ed25519',
-  record: {} as never,
-  thresholdSessionAuthTokenSource: 'ed25519',
-};
-void invalidEd25519AuthMissingToken;
-
-// @ts-expect-error tokenless Ed25519 auth must not carry thresholdSessionAuthToken
-const invalidEd25519AuthUnexpectedToken: WarmSessionEd25519AuthMaterial = {
-  capability: 'ed25519',
-  record: {} as never,
-  thresholdSessionAuthToken: 'jwt:ed25519-session',
-  thresholdSessionAuthTokenSource: 'none',
-};
-void invalidEd25519AuthUnexpectedToken;
-
-// @ts-expect-error token-bearing ECDSA auth must carry thresholdSessionAuthToken
-const invalidEcdsaAuthMissingToken: WarmSessionEcdsaAuthMaterial = {
-  capability: 'ecdsa',
-  record: {} as never,
-  thresholdSessionAuthTokenSource: 'ecdsa',
-};
-void invalidEcdsaAuthMissingToken;
-
-// @ts-expect-error tokenless ECDSA auth must not carry thresholdSessionAuthToken
-const invalidEcdsaAuthUnexpectedToken: WarmSessionEcdsaAuthMaterial = {
-  capability: 'ecdsa',
-  record: {} as never,
-  thresholdSessionAuthToken: 'jwt:ecdsa-session',
-  thresholdSessionAuthTokenSource: 'none',
-};
-void invalidEcdsaAuthUnexpectedToken;
-
-export {};
+const invalidAssertWarmEcdsaOperationAllowedArgsWithRawWalletId = {
+  // @ts-expect-error ECDSA operation checks require a normalized WalletId.
+  walletId: 'wallet.testnet',
+  chainTarget,
+  operationLabel: 'threshold-ecdsa sign',
+  thresholdSessionId: 'threshold-session-id',
+  source: 'login',
+} satisfies AssertWarmEcdsaOperationAllowedArgs;
+void invalidAssertWarmEcdsaOperationAllowedArgsWithRawWalletId;

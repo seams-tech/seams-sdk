@@ -17,7 +17,7 @@ import {
 import { publishResolvedIdentity } from '../persistence/sealedSessionStore';
 
 type PersistWarmSessionEd25519CapabilityCommon = {
-  nearAccountId: AccountId | string;
+  nearAccountId: AccountId;
   rpId: string;
   relayerUrl: string;
   relayerKeyId: string;

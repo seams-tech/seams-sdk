@@ -6,6 +6,7 @@ import type { EcdsaBootstrapRequest } from './ecdsaBootstrap';
 import { buildEcdsaSessionIdentity } from '../warmCapabilities/ecdsaProvisionPlan';
 import { SigningSessionIds } from '../operationState/types';
 import type {
+  EvmFamilyEcdsaKeyHandle,
   EvmFamilyEcdsaKeyIdentity,
   EvmFamilyEcdsaSessionLanePolicy,
 } from '../identity/evmFamilyEcdsaIdentity';
@@ -14,6 +15,7 @@ declare const walletId: AccountId;
 declare const subjectId: WalletSubjectId;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const webauthnAuthentication: WebAuthnAuthenticationCredential;
+declare const keyHandle: EvmFamilyEcdsaKeyHandle;
 declare const key: EvmFamilyEcdsaKeyIdentity;
 declare const lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
 
@@ -25,7 +27,6 @@ const sessionIdentity = buildEcdsaSessionIdentity({
 const validReuseBootstrap = {
   kind: 'reuse_warm_ecdsa_bootstrap',
   walletId,
-  subjectId,
   chainTarget,
   source: 'manual-bootstrap',
 } satisfies EcdsaBootstrapRequest;
@@ -34,17 +35,24 @@ const forbiddenProjectionField = ['smart', 'Account'].join('') as `${'smart'}${'
 const invalidReuseBootstrapWithProjectionField = {
   kind: 'reuse_warm_ecdsa_bootstrap',
   walletId,
-  subjectId,
   chainTarget,
   // @ts-expect-error Base ECDSA bootstrap rejects projection fields.
   [forbiddenProjectionField]: { chainId: 1313 },
 } satisfies EcdsaBootstrapRequest;
 void invalidReuseBootstrapWithProjectionField;
 
+const invalidReuseBootstrapWithSubjectId: EcdsaBootstrapRequest = {
+  kind: 'reuse_warm_ecdsa_bootstrap',
+  walletId,
+  chainTarget,
+  // @ts-expect-error base ECDSA warm bootstrap derives subject from walletId.
+  subjectId,
+};
+void invalidReuseBootstrapWithSubjectId;
+
 const validPasskeyFreshBootstrap = {
   kind: 'passkey_fresh_ecdsa_bootstrap',
   walletId,
-  subjectId,
   chainTarget,
   source: 'registration',
   sessionKind: 'jwt',
@@ -59,7 +67,6 @@ const validPasskeyFreshBootstrap = {
 const validPasskeyFreshWebAuthnBootstrap = {
   kind: 'passkey_fresh_ecdsa_bootstrap',
   walletId,
-  subjectId,
   chainTarget,
   source: 'login',
   sessionKind: 'jwt',
@@ -71,7 +78,6 @@ const validPasskeyFreshWebAuthnBootstrap = {
 const validPasskeyFreshCookieBootstrap = {
   kind: 'passkey_fresh_ecdsa_bootstrap',
   walletId,
-  subjectId,
   chainTarget,
   source: 'login',
   sessionKind: 'cookie',
@@ -82,7 +88,6 @@ const validPasskeyFreshCookieBootstrap = {
 const validCookieReconnectBootstrap = {
   kind: 'passkey_cookie_reconnect_ecdsa_bootstrap',
   walletId,
-  subjectId,
   chainTarget,
   sessionKind: 'cookie',
   sessionIdentity,
@@ -90,6 +95,7 @@ const validCookieReconnectBootstrap = {
 
 const validThresholdSessionReconnectBootstrap = {
   kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
+  keyHandle,
   key,
   lanePolicy,
   clientRootShare32B64u: 'client-root-share',
@@ -101,6 +107,7 @@ const validThresholdSessionReconnectBootstrap = {
 
 const validCookieThresholdSessionReconnectBootstrap = {
   kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
+  keyHandle,
   key,
   lanePolicy,
   clientRootShare32B64u: 'client-root-share',
@@ -112,6 +119,7 @@ const validCookieThresholdSessionReconnectBootstrap = {
 // @ts-expect-error threshold-session reconnect requires the primed ECDSA client root share
 const invalidThresholdSessionReconnectWithoutClientRootShare: EcdsaBootstrapRequest = {
   kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
+  keyHandle,
   key,
   lanePolicy,
   routeAuth: {
@@ -123,7 +131,6 @@ const invalidThresholdSessionReconnectWithoutClientRootShare: EcdsaBootstrapRequ
 const validEmailOtpBootstrap = {
   kind: 'email_otp_ecdsa_bootstrap',
   walletId,
-  subjectId,
   chainTarget,
   source: 'email_otp',
   sessionKind: 'jwt',
@@ -149,7 +156,6 @@ void validEmailOtpBootstrap;
 const invalidPasskeyFreshWithThresholdSessionAuth: EcdsaBootstrapRequest = {
   kind: 'passkey_fresh_ecdsa_bootstrap',
   walletId,
-  subjectId,
   chainTarget,
   sessionKind: 'jwt',
   sessionIdentity,
@@ -164,7 +170,6 @@ const invalidPasskeyFreshWithThresholdSessionAuth: EcdsaBootstrapRequest = {
 const invalidPasskeyFreshWithoutJwtAuth: EcdsaBootstrapRequest = {
   kind: 'passkey_fresh_ecdsa_bootstrap',
   walletId,
-  subjectId,
   chainTarget,
   sessionKind: 'jwt',
   sessionIdentity,
@@ -174,7 +179,6 @@ const invalidPasskeyFreshWithoutJwtAuth: EcdsaBootstrapRequest = {
 const invalidPasskeyFreshWithMixedAuth: EcdsaBootstrapRequest = {
   kind: 'passkey_fresh_ecdsa_bootstrap',
   walletId,
-  subjectId,
   chainTarget,
   sessionKind: 'jwt',
   sessionIdentity,
@@ -190,7 +194,6 @@ const invalidPasskeyFreshWithMixedAuth: EcdsaBootstrapRequest = {
 const invalidCookieReconnectWithoutWalletSession: EcdsaBootstrapRequest = {
   kind: 'passkey_cookie_reconnect_ecdsa_bootstrap',
   walletId,
-  subjectId,
   chainTarget,
   sessionKind: 'cookie',
   // @ts-expect-error cookie reconnect bootstrap requires walletSigningSessionId
@@ -202,6 +205,7 @@ const invalidCookieReconnectWithoutWalletSession: EcdsaBootstrapRequest = {
 // @ts-expect-error threshold-session reconnect rejects WebAuthn authentication
 const invalidThresholdSessionReconnectWithWebauthn: EcdsaBootstrapRequest = {
   kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
+  keyHandle,
   key,
   lanePolicy,
   clientRootShare32B64u: 'client-root-share',
@@ -216,18 +220,63 @@ const invalidThresholdSessionReconnectWithWebauthn: EcdsaBootstrapRequest = {
 const invalidEmailOtpBootstrapWithoutAuthContext: EcdsaBootstrapRequest = {
   kind: 'email_otp_ecdsa_bootstrap',
   walletId,
-  subjectId,
   chainTarget,
   sessionKind: 'jwt',
   sessionIdentity,
   clientRootShare32B64u: 'client-root-share',
 };
 
+const invalidPasskeyFreshBootstrapWithSubjectId: EcdsaBootstrapRequest = {
+  kind: 'passkey_fresh_ecdsa_bootstrap',
+  walletId,
+  // @ts-expect-error target-branch passkey bootstrap derives subject from walletId.
+  subjectId,
+  chainTarget,
+  source: 'registration',
+  sessionKind: 'jwt',
+  sessionIdentity,
+  clientRootShare32B64u: 'client-root-share',
+  routeAuth: {
+    kind: 'registration_continuation',
+    token: 'registration-token',
+  },
+};
+void invalidPasskeyFreshBootstrapWithSubjectId;
+
+const invalidCookieReconnectBootstrapWithSubjectId: EcdsaBootstrapRequest = {
+  kind: 'passkey_cookie_reconnect_ecdsa_bootstrap',
+  walletId,
+  // @ts-expect-error target-branch cookie reconnect derives subject from walletId.
+  subjectId,
+  chainTarget,
+  sessionKind: 'cookie',
+  sessionIdentity,
+};
+void invalidCookieReconnectBootstrapWithSubjectId;
+
+const invalidEmailOtpBootstrapWithSubjectId: EcdsaBootstrapRequest = {
+  kind: 'email_otp_ecdsa_bootstrap',
+  walletId,
+  // @ts-expect-error target-branch Email OTP bootstrap derives subject from walletId.
+  subjectId,
+  chainTarget,
+  source: 'email_otp',
+  sessionKind: 'jwt',
+  sessionIdentity,
+  clientRootShare32B64u: 'client-root-share',
+  emailOtpAuthContext: {
+    policy: 'session',
+    retention: 'session',
+    reason: 'sign',
+    authMethod: 'email_otp',
+  },
+};
+void invalidEmailOtpBootstrapWithSubjectId;
+
 // @ts-expect-error reuse bootstrap rejects client root share material
 const invalidReuseBootstrapWithClientRootShare: EcdsaBootstrapRequest = {
   kind: 'reuse_warm_ecdsa_bootstrap',
   walletId,
-  subjectId,
   chainTarget,
   clientRootShare32B64u: 'client-root-share',
 };

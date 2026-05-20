@@ -1,10 +1,19 @@
 import { expect, test } from '@playwright/test';
 import { toAccountId } from '../../client/src/core/types/accountIds';
-import { toWalletSubjectId, type ThresholdEcdsaChainTarget } from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  toWalletSubjectId,
+  type ThresholdEcdsaChainTarget,
+} from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../client/src/core/signingEngine/interfaces/signing';
-import type { ThresholdEcdsaSessionRecord } from '../../client/src/core/signingEngine/session/persistence/records';
-import { buildEvmFamilyEcdsaSigningLaneContext } from '../../client/src/core/signingEngine/flows/signEvmFamily/ecdsaLanes';
-import { resolveReadyEvmFamilyEcdsaMaterial } from '../../client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import {
+  thresholdEcdsaRecordRpId,
+  type ThresholdEcdsaSessionRecord,
+} from '../../client/src/core/signingEngine/session/persistence/records';
+import {
+  resolveReadyEvmFamilyEcdsaMaterial,
+  toEvmFamilyEcdsaKeyHandle,
+  type ReadyEvmFamilyEcdsaMaterial,
+} from '../../client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
   buildEvmFamilyEmailOtpEcdsaProvisionPlan,
   buildEvmFamilyPasskeyEcdsaProvisionPlan,
@@ -59,9 +68,9 @@ function makeKeyRef(): ThresholdEcdsaSecp256k1KeyRef {
   return {
     type: 'threshold-ecdsa-secp256k1',
     userId: 'alice.testnet',
-    subjectId: toWalletSubjectId('wallet-1'),
     chainTarget: CHAIN_TARGET,
     relayerUrl: 'https://relayer.test',
+    keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-step-up'),
     ecdsaThresholdKeyId: 'ecdsa-key-1',
     signingRootId: 'root-1',
     signingRootVersion: 'v1',
@@ -84,10 +93,10 @@ function makeKeyRef(): ThresholdEcdsaSecp256k1KeyRef {
 function makeRecord(): ThresholdEcdsaSessionRecord {
   return {
     walletId: toAccountId('alice.testnet'),
-    subjectId: toWalletSubjectId('wallet-1'),
-    rpId: 'example.localhost',
+    authMetadata: { rpId: 'example.localhost' },
     chainTarget: CHAIN_TARGET,
     relayerUrl: 'https://relayer.test',
+    keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-step-up'),
     ecdsaThresholdKeyId: 'ecdsa-key-1',
     signingRootId: 'root-1',
     signingRootVersion: 'v1',
@@ -115,48 +124,45 @@ function makeRecord(): ThresholdEcdsaSessionRecord {
   };
 }
 
-function makeLane(record: ThresholdEcdsaSessionRecord, keyRef: ThresholdEcdsaSecp256k1KeyRef) {
-  const laneRecord = {
-    ...record,
-    source: 'login' as const,
-    emailOtpAuthContext: undefined,
-  };
+function makeReadyMaterial(args: {
+  record: ThresholdEcdsaSessionRecord;
+  keyRef: ThresholdEcdsaSecp256k1KeyRef;
+  authMethod: 'passkey' | 'email_otp';
+  source: 'login' | 'email_otp';
+}): ReadyEvmFamilyEcdsaMaterial {
   const material = resolveReadyEvmFamilyEcdsaMaterial({
-    record: laneRecord,
-    keyRef,
-    rpId: laneRecord.rpId,
+    record: args.record,
+    keyRef: args.keyRef,
+    rpId: thresholdEcdsaRecordRpId(args.record),
     expected: {
-      walletId: laneRecord.walletId,
-      subjectId: laneRecord.subjectId,
+      walletId: args.record.walletId,
       chainTarget: CHAIN_TARGET,
-      authMethod: 'passkey',
-      source: 'login',
-      thresholdSessionId: laneRecord.thresholdSessionId,
-      walletSigningSessionId: laneRecord.walletSigningSessionId,
+      authMethod: args.authMethod,
+      source: args.source,
+      thresholdSessionId: args.record.thresholdSessionId,
+      walletSigningSessionId: args.record.walletSigningSessionId,
     },
   });
   if (material.kind !== 'ready') {
     throw new Error(`expected ready EVM-family ECDSA material: ${material.kind}`);
   }
-  const lane = buildEvmFamilyEcdsaSigningLaneContext({
-    walletId: 'alice.testnet',
-    chain: 'evm',
-    chainTarget: CHAIN_TARGET,
-    authMethod: 'passkey',
-    source: 'login',
-    material: material.material,
-  });
-  if (!lane) {
-    throw new Error('expected EVM-family ECDSA lane');
-  }
-  return lane;
+  return material.material;
 }
 
 test.describe('EVM-family step-up provision-plan builders', () => {
   test('buildEvmFamilyPasskeyEcdsaProvisionPlan returns a passkey provision branch', () => {
     const keyRef = makeKeyRef();
-    const record = makeRecord();
-    const lane = makeLane(record, keyRef);
+    const record: ThresholdEcdsaSessionRecord = {
+      ...makeRecord(),
+      source: 'login',
+      emailOtpAuthContext: undefined,
+    };
+    const material = makeReadyMaterial({
+      record,
+      keyRef,
+      authMethod: 'passkey',
+      source: 'login',
+    });
 
     const plan = buildEvmFamilyPasskeyEcdsaProvisionPlan({
       authorization: {
@@ -172,9 +178,7 @@ test.describe('EVM-family step-up provision-plan builders', () => {
           sessionPolicyDigest32: 'policy-digest-1',
         },
       },
-      lane,
-      keyRef,
-      record,
+      material,
       sessionBudgetUses: 1,
     });
 
@@ -193,7 +197,12 @@ test.describe('EVM-family step-up provision-plan builders', () => {
       source: 'login' as const,
       emailOtpAuthContext: undefined,
     };
-    const lane = makeLane(record, keyRef);
+    const material = makeReadyMaterial({
+      record,
+      keyRef,
+      authMethod: 'passkey',
+      source: 'login',
+    });
 
     const plan = buildEvmFamilyWarmSessionReconnectPlan({
       authorization: {
@@ -212,9 +221,7 @@ test.describe('EVM-family step-up provision-plan builders', () => {
         expiresAtMs: 1_900_000_000_000,
         remainingUses: 2,
       },
-      lane,
-      keyRef,
-      record,
+      material,
       sessionBudgetUses: 1,
     });
 
@@ -231,6 +238,12 @@ test.describe('EVM-family step-up provision-plan builders', () => {
   test('buildEvmFamilyEmailOtpEcdsaProvisionPlan returns an email-otp provision branch', () => {
     const keyRef = makeKeyRef();
     const record = makeRecord();
+    const material = makeReadyMaterial({
+      record,
+      keyRef,
+      authMethod: 'email_otp',
+      source: 'email_otp',
+    });
 
     const plan = buildEvmFamilyEmailOtpEcdsaProvisionPlan({
       authorization: {
@@ -243,8 +256,7 @@ test.describe('EVM-family step-up provision-plan builders', () => {
         otpCode: '123456',
         emailHint: 'a***@x.test',
       },
-      keyRef,
-      record,
+      material,
       chainTarget: CHAIN_TARGET,
       clientRootShare32B64u: 'client-root-share',
       sessionBudgetUses: 1,

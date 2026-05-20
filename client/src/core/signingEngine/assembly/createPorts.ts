@@ -17,7 +17,7 @@ import { createPrivateKeyExportRecoveryDeps } from './ports/recovery';
 import {
   createGetOrCreateActiveThresholdEcdsaSessionId,
   createManagerConveniencePortsFactory,
-  createResolveCanonicalThresholdEcdsaSessionIdForSubjectTarget,
+  createResolveCanonicalThresholdEcdsaSessionIdForWalletTarget,
   createWorkerResourceWarmupDepsFactory,
   resolveNearRpcUrl,
   type CreateSigningEnginePortsArgs,
@@ -74,8 +74,8 @@ export function createSigningEnginePorts(
       getOrCreateActiveThresholdEcdsaSessionId,
     }),
     nearKeyOpsDeps: createNearKeyOpsDeps(args),
-    resolveCanonicalThresholdEcdsaSessionIdForSubjectTarget:
-      createResolveCanonicalThresholdEcdsaSessionIdForSubjectTarget(args),
+    resolveCanonicalThresholdEcdsaSessionIdForWalletTarget:
+      createResolveCanonicalThresholdEcdsaSessionIdForWalletTarget(args),
     signingSessionCoordinator,
     getWorkerResourceWarmupDeps,
     getManagerConveniencePorts: createManagerConveniencePortsFactory({

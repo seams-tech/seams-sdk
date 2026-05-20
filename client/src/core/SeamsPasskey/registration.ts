@@ -43,11 +43,18 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../signingEngine/threshold/ecdsa/activation';
 import { buildEcdsaSessionIdentity } from '../signingEngine/session/warmCapabilities/ecdsaProvisionPlan';
-import { generateWalletSigningSessionId } from '../signingEngine/threshold/sessionPolicy';
+import {
+  generateWalletSigningSessionId,
+  parseThresholdRuntimePolicyScopeFromJwt,
+} from '../signingEngine/threshold/sessionPolicy';
 import {
   buildEvmFamilyEcdsaKeyIdentity,
   buildEvmFamilyEcdsaSessionLanePolicy,
   deriveEvmFamilyKeyFingerprint,
+  resolveThresholdEcdsaKeyIdFromRecord,
+  resolveThresholdSigningRootBindingFromRecord,
+  toEvmFamilyEcdsaKeyHandle,
+  type EvmFamilyEcdsaKeyHandle,
   type EvmFamilyEcdsaKeyIdentity,
 } from '../signingEngine/session/identity/evmFamilyEcdsaIdentity';
 
@@ -58,6 +65,45 @@ function createThresholdRegistrationEcdsaSessionId(): string {
     return `threshold-ecdsa-registration-${crypto.randomUUID()}`;
   }
   return `threshold-ecdsa-registration-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function resolveRegistrationThresholdEcdsaBootstrapIdentity(
+  bootstrap: ThresholdEcdsaSessionBootstrapResult,
+): {
+  keyHandle: string;
+  ecdsaThresholdKeyId: string;
+  signingRootId: string;
+  signingRootVersion: string;
+} {
+  const keyRef = bootstrap.thresholdEcdsaKeyRef;
+  const keyHandle = String(keyRef.keyHandle || '').trim();
+  if (!keyHandle) {
+    throw new Error('[Registration] threshold ECDSA bootstrap missing keyHandle');
+  }
+  const canonicalKeyHandle = toEvmFamilyEcdsaKeyHandle(keyHandle);
+  const runtimePolicyScope = parseThresholdRuntimePolicyScopeFromJwt(
+    String(bootstrap.session.jwt || keyRef.thresholdSessionAuthToken || '').trim(),
+  );
+  const signingRootBinding = resolveThresholdSigningRootBindingFromRecord({
+    record: {
+      keyHandle: canonicalKeyHandle,
+      ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+      signingRootId: keyRef.signingRootId,
+      signingRootVersion: keyRef.signingRootVersion,
+    },
+  });
+  const ecdsaThresholdKeyId = resolveThresholdEcdsaKeyIdFromRecord({
+    record: {
+      keyHandle: canonicalKeyHandle,
+      ecdsaThresholdKeyId: keyRef.ecdsaThresholdKeyId,
+    },
+  });
+  return {
+    keyHandle,
+    ecdsaThresholdKeyId,
+    signingRootId: String(signingRootBinding.signingRootId),
+    signingRootVersion: String(signingRootBinding.signingRootVersion),
+  };
 }
 
 async function persistRegistrationThresholdEcdsaProfileSigner(args: {
@@ -77,7 +123,11 @@ async function persistRegistrationThresholdEcdsaProfileSigner(args: {
   }
 
   const keyRef = args.bootstrap.thresholdEcdsaKeyRef;
-  const ecdsaThresholdKeyId = String(keyRef.ecdsaThresholdKeyId || '').trim();
+  const identity = resolveRegistrationThresholdEcdsaBootstrapIdentity(args.bootstrap);
+  const keyHandle = identity.keyHandle;
+  const ecdsaThresholdKeyId = identity.ecdsaThresholdKeyId;
+  const signingRootId = identity.signingRootId;
+  const signingRootVersion = identity.signingRootVersion;
   if (ecdsaThresholdKeyId !== String(args.key.ecdsaThresholdKeyId)) {
     throw new Error('[Registration] threshold ECDSA profile signer key id mismatches shared key');
   }
@@ -118,13 +168,14 @@ async function persistRegistrationThresholdEcdsaProfileSigner(args: {
       ownerAddress,
       thresholdOwnerAddress: String(args.key.thresholdOwnerAddress),
       keyScope: args.key.keyScope,
+      keyHandle,
       evmFamilyKeyFingerprint,
       walletId: String(args.key.walletId),
-      subjectId: String(args.key.subjectId),
+      subjectId: String(walletSubjectIdFromWalletProfile({ walletId: args.key.walletId })),
       rpId: String(args.key.rpId),
       ecdsaThresholdKeyId,
-      signingRootId: String(args.key.signingRootId),
-      signingRootVersion: String(args.key.signingRootVersion),
+      signingRootId,
+      signingRootVersion,
       relayerKeyId,
       thresholdEcdsaPublicKeyB64u,
       signerSlot,
@@ -135,12 +186,13 @@ async function persistRegistrationThresholdEcdsaProfileSigner(args: {
       },
       sharedEvmFamilyKey: {
         walletId: String(args.key.walletId),
-        subjectId: String(args.key.subjectId),
+        subjectId: String(walletSubjectIdFromWalletProfile({ walletId: args.key.walletId })),
         rpId: String(args.key.rpId),
         keyScope: args.key.keyScope,
+        keyHandle,
         ecdsaThresholdKeyId,
-        signingRootId: String(args.key.signingRootId),
-        signingRootVersion: String(args.key.signingRootVersion),
+        signingRootId,
+        signingRootVersion,
         participantIds: args.key.participantIds.map((participantId) => Number(participantId)),
         thresholdOwnerAddress: String(args.key.thresholdOwnerAddress),
         evmFamilyKeyFingerprint,
@@ -161,7 +213,7 @@ type EmitRegistrationEventInput = Omit<
 
 function emitRegistrationEvent(
   onEvent: RegistrationHooksOptions['onEvent'] | undefined,
-  nearAccountId: AccountId | string,
+  nearAccountId: AccountId,
   event: EmitRegistrationEventInput,
 ): void {
   onEvent?.(
@@ -699,6 +751,7 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
 
     const subjectId = walletSubjectIdFromWalletProfile({ walletId: args.nearAccountId });
     let sharedKeyIdentity: EvmFamilyEcdsaKeyIdentity | null = null;
+    let sharedKeyHandle: EvmFamilyEcdsaKeyHandle | null = null;
     for (const chainTarget of continuationTargets) {
       const publicationChain = chainTarget.kind;
       const bootstrapStartedAt = performance.now();
@@ -718,12 +771,16 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
         kind: 'registration_continuation' as const,
         token: registrationContinuationToken,
       };
+      if (sharedKeyIdentity && !sharedKeyHandle) {
+        throw new Error('[Registration] threshold ECDSA shared keyHandle is missing');
+      }
       const bootstrap =
-        sharedKeyIdentity && lanePolicy
+        sharedKeyIdentity && sharedKeyHandle && lanePolicy
           ? await args.signingEngine.bootstrapEcdsaSession({
               kind: 'passkey_fresh_ecdsa_bootstrap',
               source: 'registration',
               relayerUrl,
+              keyHandle: sharedKeyHandle,
               key: sharedKeyIdentity,
               lanePolicy,
               clientRootShare32B64u,
@@ -732,7 +789,6 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
           : await args.signingEngine.bootstrapEcdsaSession({
               kind: 'passkey_fresh_ecdsa_bootstrap',
               walletId: args.nearAccountId,
-              subjectId,
               chainTarget,
               source: 'registration',
               relayerUrl,
@@ -750,7 +806,8 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
         Math.round(performance.now() - bootstrapStartedAt);
 
       const keyRef = bootstrap.thresholdEcdsaKeyRef;
-      const returnedEcdsaThresholdKeyId = String(keyRef.ecdsaThresholdKeyId || '').trim();
+      const identity = resolveRegistrationThresholdEcdsaBootstrapIdentity(bootstrap);
+      const returnedEcdsaThresholdKeyId = identity.ecdsaThresholdKeyId;
       const ownerAddress = normalizeIndexedDbAccountAddress(
         bootstrap.keygen.ethereumAddress || keyRef.ethereumAddress,
       );
@@ -761,14 +818,15 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
         walletId: args.nearAccountId,
         subjectId,
         rpId: args.rpId,
-        ecdsaThresholdKeyId: keyRef.ecdsaThresholdKeyId,
-        signingRootId: keyRef.signingRootId,
-        signingRootVersion: keyRef.signingRootVersion || 'default',
+        ecdsaThresholdKeyId: returnedEcdsaThresholdKeyId,
+        signingRootId: identity.signingRootId,
+        signingRootVersion: identity.signingRootVersion,
         participantIds: keyRef.participantIds || bootstrap.keygen.participantIds,
         thresholdOwnerAddress: bootstrap.keygen.ethereumAddress || keyRef.ethereumAddress,
       });
       if (!sharedKeyIdentity) {
         sharedKeyIdentity = returnedKeyIdentity;
+        sharedKeyHandle = toEvmFamilyEcdsaKeyHandle(identity.keyHandle);
       } else if (
         deriveEvmFamilyKeyFingerprint(sharedKeyIdentity) !==
         deriveEvmFamilyKeyFingerprint(returnedKeyIdentity)
@@ -789,7 +847,7 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
       console.info('[Registration] threshold ECDSA background provisioned', {
         nearAccountId: args.nearAccountId,
         chain: publicationChain,
-        ecdsaThresholdKeyId: keyRef.ecdsaThresholdKeyId,
+        ecdsaThresholdKeyId: returnedEcdsaThresholdKeyId,
         relayerKeyId: keyRef.backendBinding?.relayerKeyId,
         thresholdSessionId: keyRef.thresholdSessionId,
         walletSigningSessionId: keyRef.walletSigningSessionId,

@@ -1,6 +1,5 @@
 import {
   toWalletId,
-  toWalletSubjectId,
   walletSessionRefFromSession,
   type EcdsaCommandSubject,
   type NearCommandSubject,
@@ -14,7 +13,6 @@ const walletSession = walletSessionRefFromSession({
 
 const ecdsaSubject = {
   walletSession,
-  subjectId: toWalletSubjectId('wallet-subject'),
 } satisfies EcdsaCommandSubject;
 
 const nearSubject = {
@@ -33,7 +31,6 @@ const invalidRawWalletSession: WalletSessionRef = {
 
 const invalidEcdsaSubjectWithNearAccount = {
   walletSession,
-  subjectId: toWalletSubjectId('wallet-subject'),
   // @ts-expect-error ECDSA subjects carry protocol-neutral subject identity.
   nearAccount: { kind: 'named', accountId: 'wallet.testnet' },
 } satisfies EcdsaCommandSubject;
@@ -42,7 +39,7 @@ const invalidNearSubjectWithEcdsaSubject = {
   walletSession,
   nearAccount: { kind: 'named', accountId: 'wallet.testnet' },
   // @ts-expect-error NEAR command subjects carry NEAR account identity, not ECDSA subject identity.
-  subjectId: toWalletSubjectId('wallet-subject'),
+  subjectId: 'wallet-subject',
 } satisfies NearCommandSubject;
 
 void invalidRawWalletSession;

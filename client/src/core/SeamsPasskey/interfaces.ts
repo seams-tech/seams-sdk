@@ -9,7 +9,6 @@ import type {
   ThresholdEcdsaChainTarget,
   WalletId,
   WalletSessionRef,
-  WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '../signingEngine/threshold/sessionPolicy';
 import type { WarmSessionEcdsaCapabilityState } from '../signingEngine/session/warmCapabilities/types';
@@ -76,9 +75,20 @@ import type {
   WalletEmailOtpLoginOperation,
 } from '@shared/utils/emailOtpDomain';
 
+type PublicThresholdEcdsaSessionKeyRef = Omit<
+  ThresholdEcdsaSessionBootstrapResult['thresholdEcdsaKeyRef'],
+  'ecdsaThresholdKeyId' | 'signingRootId' | 'signingRootVersion' | 'ecdsaHssExportArtifact'
+>;
+
+export type PublicThresholdEcdsaSessionBootstrapResult = Omit<
+  ThresholdEcdsaSessionBootstrapResult,
+  'thresholdEcdsaKeyRef'
+> & {
+  thresholdEcdsaKeyRef: PublicThresholdEcdsaSessionKeyRef;
+};
+
 export type SignTempoArgs = {
   walletSession: WalletSessionRef;
-  subjectId: WalletSubjectId;
   request: MultichainSigningRequest;
   chainTarget: ThresholdEcdsaChainTarget;
   options?: {
@@ -137,7 +147,6 @@ export type FinalizedEvmTxPayloadVerification = {
 
 export type ExecuteEvmFamilyTransactionArgs = {
   walletSession: WalletSessionRef;
-  subjectId: WalletSubjectId;
   request: MultichainSigningRequest;
   chainTarget: ThresholdEcdsaChainTarget;
   payloadExpectation?: {
@@ -166,7 +175,6 @@ export type ExecuteEvmFamilyTransactionResult = {
 
 export type BootstrapThresholdEcdsaSessionArgs = {
   walletSession: WalletSessionRef;
-  subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   relayerUrl?: string;
   runtimeScopeBootstrap?: {
@@ -177,6 +185,7 @@ export type BootstrapThresholdEcdsaSessionArgs = {
   remainingUses?: number;
   kind: 'reuse_warm_ecdsa_bootstrap';
   source?: 'login' | 'registration' | 'manual-bootstrap' | 'email_otp';
+  subjectId?: never;
   ecdsaThresholdKeyId?: never;
   participantIds?: never;
   sessionKind?: never;
@@ -210,8 +219,6 @@ export type EmailOtpDeviceEnrollmentRestoreResult = {
   enrollmentId: string;
   enrollmentVersion: string;
   enrollmentSealKeyVersion: string;
-  signingRootId: string;
-  signingRootVersion: string;
   recoveryKeyId: string;
   activeRecoveryWrappedEnrollmentEscrowCount: number;
 };
@@ -241,7 +248,7 @@ export type GoogleEmailOtpSessionExchangeResult = {
 
 export type EmailOtpEcdsaCapabilityArgs = {
   walletSession: WalletSessionRef;
-  subjectId: WalletSubjectId;
+  subjectId?: never;
   chainTarget: ThresholdEcdsaChainTarget;
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   relayUrl?: string;
@@ -255,7 +262,7 @@ export type EmailOtpEcdsaCapabilityArgs = {
 
 export type EmailOtpEcdsaCapabilityResult = {
   recovery: EmailOtpBootstrapRecovery;
-  bootstrap: ThresholdEcdsaSessionBootstrapResult;
+  bootstrap: PublicThresholdEcdsaSessionBootstrapResult;
   warmCapability: WarmSessionEcdsaCapabilityState;
 };
 
@@ -266,7 +273,7 @@ export type EmailOtpEcdsaEnrollmentCapabilityArgs = Omit<EmailOtpEcdsaCapability
 
 export type EmailOtpEcdsaEnrollmentCapabilityResult = {
   enrollment: EmailOtpEnrollmentResult;
-  bootstrap: ThresholdEcdsaSessionBootstrapResult;
+  bootstrap: PublicThresholdEcdsaSessionBootstrapResult;
   warmCapability: WarmSessionEcdsaCapabilityState;
 };
 
@@ -278,7 +285,6 @@ export interface AuthCapability {
   hasPasskeyCredential(nearAccountId: AccountId): Promise<boolean>;
   prefillThresholdEcdsaPresignPool(args: {
     walletSession: WalletSessionRef;
-    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     waitForPoolReady?: boolean;
     poolReadyTimeoutMs?: number;
@@ -300,13 +306,11 @@ export interface AuthCapability {
   }): Promise<EmailOtpChallengeResult>;
   requestEmailOtpSigningSessionChallenge(args: {
     walletSession: WalletSessionRef;
-    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     onEvent?: (event: UnlockFlowEvent) => void;
   }): Promise<Pick<EmailOtpChallengeResult, 'challengeId' | 'emailHint'>>;
   refreshEmailOtpSigningSession(args: {
     walletSession: WalletSessionRef;
-    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     challengeId: string;
     otpCode: string;
@@ -425,13 +429,13 @@ export interface TempoSignerCapability {
   reconcileNonceLane(args: ReconcileTempoNonceLaneArgs): Promise<TempoNonceLaneStatus>;
   bootstrapEcdsaSession(
     args: BootstrapThresholdEcdsaSessionArgs,
-  ): Promise<ThresholdEcdsaSessionBootstrapResult>;
+  ): Promise<PublicThresholdEcdsaSessionBootstrapResult>;
 }
 
 export interface EvmSignerCapability {
   bootstrapEcdsaSession(
     args: BootstrapThresholdEcdsaSessionArgs,
-  ): Promise<ThresholdEcdsaSessionBootstrapResult>;
+  ): Promise<PublicThresholdEcdsaSessionBootstrapResult>;
 }
 
 export interface RecoveryCapability {
@@ -488,7 +492,6 @@ export type ExportKeypairWithUIInput =
     }
   | {
       kind: 'ecdsa';
-      subjectId: WalletSubjectId;
       chainTarget: ThresholdEcdsaChainTarget;
       walletSession: WalletSessionRef;
       options: ThresholdEd25519SeedExportUiOptions;

@@ -1011,6 +1011,19 @@ export async function handleSigningBudgetStatus(ctx: CloudflareRelayContext): Pr
         { status: 403 },
       );
     }
+    if (
+      expectedThresholdSessionId &&
+      expectedThresholdSessionId !== validated.thresholdSessionId
+    ) {
+      return json(
+        {
+          ok: false,
+          code: 'threshold_session_mismatch',
+          message: 'Wallet signing-session status token does not match requested threshold session',
+        },
+        { status: 403 },
+      );
+    }
     const remainingUses = Math.max(
       0,
       Math.floor(Number(validated.walletBudgetStatus.remainingUses) || 0),

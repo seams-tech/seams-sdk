@@ -180,10 +180,10 @@ export async function deriveThresholdEd25519ClientVerifyingShareFromCredential(
   deps: ThresholdEd25519LifecycleDeps,
   args: {
     credential: WebAuthnRegistrationCredential | WebAuthnAuthenticationCredential;
-    nearAccountId: AccountId | string;
+    nearAccountId: AccountId;
   },
 ): Promise<DeriveThresholdEd25519ClientVerifyingShareResult> {
-  const nearAccountId = toAccountId(args.nearAccountId);
+  const nearAccountId = args.nearAccountId;
   try {
     const prfFirstB64u = requirePrfFirstB64uFromCredential(args.credential);
     const sessionId = deps.createSessionId('threshold-client-share');
@@ -209,7 +209,7 @@ export async function deriveThresholdEd25519HssClientInputsFromCredential(
   args: {
     credential: WebAuthnRegistrationCredential | WebAuthnAuthenticationCredential;
     signingRootId: string;
-    nearAccountId: AccountId | string;
+    nearAccountId: AccountId;
     keyPurpose: string;
     keyVersion: string;
     participantIds: number[];
@@ -217,7 +217,7 @@ export async function deriveThresholdEd25519HssClientInputsFromCredential(
   },
 ): Promise<DeriveThresholdEd25519HssClientInputsResult> {
   const signingRootId = String(args.signingRootId || '').trim();
-  const nearAccountId = toAccountId(args.nearAccountId);
+  const nearAccountId = args.nearAccountId;
   const keyPurpose = String(args.keyPurpose || '').trim();
   const keyVersion = String(args.keyVersion || '').trim();
   const participantIds = Array.isArray(args.participantIds)
@@ -261,7 +261,7 @@ export async function prepareThresholdEd25519HssClientCeremonyFromCredential(
   args: {
     credential: WebAuthnRegistrationCredential | WebAuthnAuthenticationCredential;
     signingRootId: string;
-    nearAccountId: AccountId | string;
+    nearAccountId: AccountId;
     keyPurpose: string;
     keyVersion: string;
     participantIds: number[];

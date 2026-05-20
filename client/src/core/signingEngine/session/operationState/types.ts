@@ -4,8 +4,11 @@ import type {
   ThresholdEcdsaSessionStoreSource,
   ThresholdEd25519SessionStoreSource,
 } from '../identity/laneIdentity';
-import type { ThresholdEcdsaChainTarget, WalletSubjectId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { EvmFamilyEcdsaKeyIdentity } from '../identity/evmFamilyEcdsaIdentity';
+import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type {
+  EvmFamilyEcdsaKeyHandle,
+  EvmFamilyEcdsaKeyIdentity,
+} from '../identity/evmFamilyEcdsaIdentity';
 
 export type Brand<TValue, TBrand extends string> = TValue & { readonly __brand: TBrand };
 
@@ -72,13 +75,10 @@ export type EcdsaSigningSessionPlanningLane = BaseSigningSessionPlanningLane & {
   keyKind: 'threshold_ecdsa_secp256k1';
   chainFamily: ThresholdEcdsaChainTarget['kind'];
   key: EvmFamilyEcdsaKeyIdentity;
+  keyHandle: EvmFamilyEcdsaKeyHandle;
   walletId: AccountId;
   accountId?: never;
   chainTarget: ThresholdEcdsaChainTarget;
-  subjectId: WalletSubjectId;
-  ecdsaThresholdKeyId: string;
-  signingRootId: string;
-  signingRootVersion: string;
   thresholdSessionId: ThresholdEcdsaSessionId;
 };
 
@@ -125,8 +125,6 @@ type BaseResolvedSigningSessionIdentity = BaseSelectedSigningLaneIdentity & {
   storageSource: SigningSessionStorageSource;
   retention: SigningSessionRetention;
   backingMaterialSessionId?: BackingMaterialSessionId;
-  signingRootId?: string;
-  signingRootVersion?: string;
 };
 
 export type ResolvedEd25519SigningSessionIdentity = BaseResolvedSigningSessionIdentity & {
@@ -135,6 +133,8 @@ export type ResolvedEd25519SigningSessionIdentity = BaseResolvedSigningSessionId
   chainFamily: 'near';
   accountId: AccountId;
   thresholdSessionId: ThresholdEd25519SessionId;
+  signingRootId?: never;
+  signingRootVersion?: never;
 };
 
 export type ResolvedEcdsaSigningSessionIdentity = BaseResolvedSigningSessionIdentity & {
@@ -143,10 +143,6 @@ export type ResolvedEcdsaSigningSessionIdentity = BaseResolvedSigningSessionIden
   chainFamily: ThresholdEcdsaChainTarget['kind'];
   walletId: AccountId;
   chainTarget: ThresholdEcdsaChainTarget;
-  subjectId: WalletSubjectId;
-  ecdsaThresholdKeyId: string;
-  signingRootId: string;
-  signingRootVersion: string;
   thresholdSessionId: ThresholdEcdsaSessionId;
 };
 
@@ -359,8 +355,6 @@ export function findSigningLaneIdentityMismatch(
     'storageSource',
     'retention',
     'activeSignerSlot',
-    'signingRootId',
-    'signingRootVersion',
   ];
   if (a.curve === 'ecdsa' && b.curve === 'ecdsa') {
     if (normalizeLaneIdentityField(a.walletId) !== normalizeLaneIdentityField(b.walletId)) {
@@ -477,14 +471,13 @@ function normalizeEcdsaSpendKey(
   }
   const mismatches: string[] = [];
   if (String(key.walletId) !== String(lane.walletId)) mismatches.push('walletId');
-  if (String(key.subjectId) !== String(lane.subjectId)) mismatches.push('subjectId');
-  if (String(key.ecdsaThresholdKeyId) !== String(lane.ecdsaThresholdKeyId)) {
+  if (String(key.ecdsaThresholdKeyId) !== String(lane.key.ecdsaThresholdKeyId)) {
     mismatches.push('ecdsaThresholdKeyId');
   }
-  if (String(key.signingRootId) !== String(lane.signingRootId)) {
+  if (String(key.signingRootId) !== String(lane.key.signingRootId)) {
     mismatches.push('signingRootId');
   }
-  if (String(key.signingRootVersion) !== String(lane.signingRootVersion)) {
+  if (String(key.signingRootVersion) !== String(lane.key.signingRootVersion)) {
     mismatches.push('signingRootVersion');
   }
   if (mismatches.length) {

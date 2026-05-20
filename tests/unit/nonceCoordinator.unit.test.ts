@@ -212,7 +212,6 @@ test.describe('NonceCoordinator', () => {
         chainId: 42_431,
         sender: TEST_SENDER,
         nonceKey: 3n,
-        nearAccountId: 'nonce-coordinator.testnet',
       },
     });
 

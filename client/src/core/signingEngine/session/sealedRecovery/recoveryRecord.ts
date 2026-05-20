@@ -4,13 +4,15 @@ import type {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   thresholdEcdsaChainTargetFromRequest,
-  toWalletSubjectId,
+  walletSubjectIdFromWalletProfile,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   normalizeThresholdRuntimePolicyScope,
+  parseThresholdRuntimePolicyScopeFromJwt,
   type ThresholdRuntimePolicyScope,
   type ThresholdSessionKind,
 } from '@/core/signingEngine/threshold/sessionPolicy';
+import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { RawSealedSessionRecordV1 } from '../persistence/sealedSessionStore';
 
 type RawThresholdSessionIds = {
@@ -23,6 +25,7 @@ type RawEcdsaRestoreMetadata = {
   rpId?: unknown;
   thresholdSessionAuthToken?: unknown;
   sessionKind?: unknown;
+  keyHandle?: unknown;
   ecdsaThresholdKeyId?: unknown;
   ethereumAddress?: unknown;
   relayerKeyId?: unknown;
@@ -101,11 +104,11 @@ type SealedRecoveryRecordBase = {
 type EcdsaSealedRecoveryRecordBase = SealedRecoveryRecordBase & {
   curve: 'ecdsa';
   chainTarget: ThresholdEcdsaChainTarget;
-  subjectId: WalletSubjectId;
   rpId: string;
   signingRootId: string;
   signingRootVersion: string;
-  ecdsaThresholdKeyId: string;
+  keyHandle: string;
+  ecdsaThresholdKeyId?: string;
   ethereumAddress: `0x${string}`;
   thresholdEcdsaPublicKeyB64u?: string;
   participantIds: readonly number[];
@@ -180,6 +183,11 @@ export type NormalizeSealedRecoveryRecordResult =
   | { kind: 'accepted'; record: SealedRecoveryRecord }
   | { kind: 'rejected'; rejection: RejectedSealedRecoveryRecord };
 
+type NormalizeSealedRecoveryRecordOptions = {
+  allowExpired?: boolean;
+  allowExhausted?: boolean;
+};
+
 function normalizeNonEmptyString(value: unknown): string | null {
   const normalized = String(value ?? '').trim();
   return normalized || null;
@@ -196,7 +204,9 @@ function normalizeRawObject<TValue extends object>(value: unknown): Partial<TVal
   return value && typeof value === 'object' ? (value as Partial<TValue>) : null;
 }
 
-function normalizeThresholdSessionIds(record: RawSigningSessionSealedStoreRecord): RawThresholdSessionIds {
+function normalizeThresholdSessionIds(
+  record: RawSigningSessionSealedStoreRecord,
+): RawThresholdSessionIds {
   return normalizeRawObject<RawThresholdSessionIds>(record.thresholdSessionIds) || {};
 }
 
@@ -209,6 +219,18 @@ function normalizeEthereumAddress(value: unknown): `0x${string}` | null {
     .trim()
     .toLowerCase();
   return /^0x[0-9a-f]{40}$/.test(normalized) ? (normalized as `0x${string}`) : null;
+}
+
+function normalizeBaseEcdsaSubjectId(args: {
+  walletId: string;
+  rawSubjectId: unknown;
+}): WalletSubjectId | null {
+  const derivedSubjectId = walletSubjectIdFromWalletProfile({ walletId: args.walletId });
+  const rawSubjectId = normalizeNonEmptyString(args.rawSubjectId);
+  if (rawSubjectId && rawSubjectId !== derivedSubjectId) {
+    return null;
+  }
+  return derivedSubjectId;
 }
 
 function normalizeThresholdSessionAuthOrReject(args: {
@@ -230,6 +252,38 @@ function normalizeThresholdSessionAuthOrReject(args: {
     sessionKind: 'jwt',
     thresholdSessionAuthToken,
   };
+}
+
+function resolveSigningRootBinding(args: {
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  rawSigningRootId: unknown;
+  rawSigningRootVersion: unknown;
+}): { signingRootId: string; signingRootVersion: string } | null {
+  if (args.runtimePolicyScope) {
+    try {
+      const scope = signingRootScopeFromRuntimePolicyScope(args.runtimePolicyScope);
+      const signingRootId = normalizeNonEmptyString(scope.signingRootId);
+      const signingRootVersion = normalizeNonEmptyString(scope.signingRootVersion);
+      if (signingRootId && signingRootVersion) {
+        return { signingRootId, signingRootVersion };
+      }
+    } catch {}
+  }
+  const signingRootId = normalizeNonEmptyString(args.rawSigningRootId);
+  const signingRootVersion = normalizeNonEmptyString(args.rawSigningRootVersion);
+  if (!signingRootId || !signingRootVersion) return null;
+  return { signingRootId, signingRootVersion };
+}
+
+function resolveRuntimePolicyScope(args: {
+  rawRuntimePolicyScope: unknown;
+  rawThresholdSessionAuthToken: unknown;
+}): ThresholdRuntimePolicyScope | undefined {
+  const explicit = normalizeThresholdRuntimePolicyScope(args.rawRuntimePolicyScope);
+  if (explicit) return explicit;
+  const thresholdSessionAuthToken = normalizeNonEmptyString(args.rawThresholdSessionAuthToken);
+  if (!thresholdSessionAuthToken) return undefined;
+  return parseThresholdRuntimePolicyScopeFromJwt(thresholdSessionAuthToken);
 }
 
 function safeSummary(record: RawSigningSessionSealedStoreRecord): Record<string, unknown> {
@@ -268,6 +322,7 @@ function reject(
 
 export function normalizeSealedRecoveryRecord(
   raw: RawSigningSessionSealedStoreRecord,
+  options: NormalizeSealedRecoveryRecordOptions = {},
 ): NormalizeSealedRecoveryRecordResult {
   const thresholdSessionIds = normalizeThresholdSessionIds(raw);
   const ecdsaRestore = normalizeRawObject<RawEcdsaRestoreMetadata>(raw.ecdsaRestore);
@@ -293,19 +348,32 @@ export function normalizeSealedRecoveryRecord(
   if (expiresAtMs <= 0 || updatedAtMs <= 0 || issuedAtMs <= 0) {
     return reject(raw, 'missing_restore_metadata');
   }
-  if (expiresAtMs <= Date.now()) return reject(raw, 'expired');
-  if (raw.authMethod !== 'passkey' && remainingUses <= 0) return reject(raw, 'exhausted');
+  if (!options.allowExpired && expiresAtMs <= Date.now()) return reject(raw, 'expired');
+  if (!options.allowExhausted && raw.authMethod !== 'passkey' && remainingUses <= 0) {
+    return reject(raw, 'exhausted');
+  }
 
   if (raw.curve === 'ecdsa') {
     const thresholdSessionId = normalizeNonEmptyString(thresholdSessionIds.ecdsa);
     const restore = ecdsaRestore;
-    const subjectId = normalizeNonEmptyString(raw.subjectId);
-    const signingRootId = normalizeNonEmptyString(raw.signingRootId);
-    const signingRootVersion = normalizeNonEmptyString(raw.signingRootVersion);
+    const validatedSubjectId = normalizeBaseEcdsaSubjectId({
+      walletId,
+      rawSubjectId: raw.subjectId,
+    });
+    const runtimePolicyScope = resolveRuntimePolicyScope({
+      rawRuntimePolicyScope: restore?.runtimePolicyScope,
+      rawThresholdSessionAuthToken: restore?.thresholdSessionAuthToken,
+    });
+    const signingRootBinding = resolveSigningRootBinding({
+      runtimePolicyScope,
+      rawSigningRootId: raw.signingRootId,
+      rawSigningRootVersion: raw.signingRootVersion,
+    });
     const relayerUrl = normalizeNonEmptyString(raw.relayerUrl);
     const companionRpIdHint = normalizeNonEmptyString(ed25519Restore?.rpId);
     const rpId = normalizeNonEmptyString(restore?.rpId) || companionRpIdHint;
     const relayerKeyId = normalizeNonEmptyString(restore?.relayerKeyId);
+    const keyHandle = normalizeNonEmptyString(restore?.keyHandle);
     const ecdsaThresholdKeyId = normalizeNonEmptyString(restore?.ecdsaThresholdKeyId);
     const ethereumAddress = normalizeEthereumAddress(restore?.ethereumAddress);
     const thresholdEcdsaPublicKeyB64u = normalizeNonEmptyString(
@@ -316,7 +384,7 @@ export function normalizeSealedRecoveryRecord(
     const passkeyClientVerifyingShareB64u =
       raw.authMethod === 'passkey' ? clientVerifyingShareB64u : null;
     const sessionKind = normalizeSessionKind(restore?.sessionKind);
-    if (!thresholdSessionId || !subjectId || !signingRootId || !signingRootVersion) {
+    if (!thresholdSessionId || !validatedSubjectId || !signingRootBinding) {
       return reject(raw, 'missing_identity');
     }
     if (!restore?.chainTarget) return reject(raw, 'wrong_chain_target');
@@ -332,7 +400,7 @@ export function normalizeSealedRecoveryRecord(
       !relayerUrl ||
       !rpId ||
       !relayerKeyId ||
-      !ecdsaThresholdKeyId ||
+      !keyHandle ||
       !ethereumAddress ||
       !participantIds.length ||
       (raw.authMethod === 'passkey' && !passkeyClientVerifyingShareB64u)
@@ -347,7 +415,6 @@ export function normalizeSealedRecoveryRecord(
     if ('kind' in thresholdSessionAuth) {
       return thresholdSessionAuth;
     }
-    const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(restore.runtimePolicyScope);
     const companionEd25519ThresholdSessionId = normalizeNonEmptyString(thresholdSessionIds.ed25519);
     let companionEd25519Recovery: EmailOtpEcdsaCompanionEd25519Recovery | undefined;
     if (
@@ -380,9 +447,10 @@ export function normalizeSealedRecoveryRecord(
         companionXClientBaseB64u &&
         companionThresholdSessionAuth
       ) {
-        const companionRuntimePolicyScope = normalizeThresholdRuntimePolicyScope(
-          ed25519Restore.runtimePolicyScope,
-        );
+        const companionRuntimePolicyScope = resolveRuntimePolicyScope({
+          rawRuntimePolicyScope: ed25519Restore.runtimePolicyScope,
+          rawThresholdSessionAuthToken: ed25519Restore.thresholdSessionAuthToken,
+        });
         companionEd25519Recovery = {
           storeKey,
           walletId,
@@ -406,7 +474,9 @@ export function normalizeSealedRecoveryRecord(
           relayerKeyId: companionRelayerKeyId,
           participantIds: companionParticipantIds,
           ...companionThresholdSessionAuth,
-          ...(companionRuntimePolicyScope ? { runtimePolicyScope: companionRuntimePolicyScope } : {}),
+          ...(companionRuntimePolicyScope
+            ? { runtimePolicyScope: companionRuntimePolicyScope }
+            : {}),
           xClientBaseB64u: companionXClientBaseB64u,
         };
       }
@@ -432,11 +502,11 @@ export function normalizeSealedRecoveryRecord(
               ? { shamirPrimeB64u: normalizeNonEmptyString(raw.shamirPrimeB64u)! }
               : {}),
             chainTarget,
-            subjectId: toWalletSubjectId(subjectId),
             rpId,
-            signingRootId,
-            signingRootVersion,
-            ecdsaThresholdKeyId,
+            signingRootId: signingRootBinding.signingRootId,
+            signingRootVersion: signingRootBinding.signingRootVersion,
+            keyHandle,
+            ...(ecdsaThresholdKeyId ? { ecdsaThresholdKeyId } : {}),
             ethereumAddress,
             ...(thresholdEcdsaPublicKeyB64u ? { thresholdEcdsaPublicKeyB64u } : {}),
             participantIds,
@@ -465,11 +535,11 @@ export function normalizeSealedRecoveryRecord(
               ? { shamirPrimeB64u: normalizeNonEmptyString(raw.shamirPrimeB64u)! }
               : {}),
             chainTarget,
-            subjectId: toWalletSubjectId(subjectId),
             rpId,
-            signingRootId,
-            signingRootVersion,
-            ecdsaThresholdKeyId,
+            signingRootId: signingRootBinding.signingRootId,
+            signingRootVersion: signingRootBinding.signingRootVersion,
+            keyHandle,
+            ...(ecdsaThresholdKeyId ? { ecdsaThresholdKeyId } : {}),
             ethereumAddress,
             ...(thresholdEcdsaPublicKeyB64u ? { thresholdEcdsaPublicKeyB64u } : {}),
             participantIds,
@@ -517,20 +587,31 @@ export function normalizeSealedRecoveryRecord(
   if ('kind' in thresholdSessionAuth) {
     return thresholdSessionAuth;
   }
-  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(restore.runtimePolicyScope);
+  const runtimePolicyScope = resolveRuntimePolicyScope({
+    rawRuntimePolicyScope: restore.runtimePolicyScope,
+    rawThresholdSessionAuthToken: restore.thresholdSessionAuthToken,
+  });
   let companionEcdsaRecovery: EmailOtpEcdsaSealedRecoveryRecord | undefined;
   if (raw.authMethod === 'email_otp' && (thresholdSessionIds.ecdsa || ecdsaRestore)) {
+    const companionRuntimePolicyScope = resolveRuntimePolicyScope({
+      rawRuntimePolicyScope: ecdsaRestore?.runtimePolicyScope,
+      rawThresholdSessionAuthToken: ecdsaRestore?.thresholdSessionAuthToken,
+    });
+    const companionSigningRootBinding = resolveSigningRootBinding({
+      runtimePolicyScope: companionRuntimePolicyScope,
+      rawSigningRootId: raw.signingRootId,
+      rawSigningRootVersion: raw.signingRootVersion,
+    });
+    const companionEcdsaThresholdKeyId = normalizeNonEmptyString(ecdsaRestore?.ecdsaThresholdKeyId);
     if (
       !thresholdSessionIds.ecdsa ||
       !ecdsaRestore ||
       !ecdsaRestore.chainTarget ||
-      !normalizeNonEmptyString(raw.subjectId) ||
-      !normalizeNonEmptyString(raw.signingRootId) ||
-      !normalizeNonEmptyString(raw.signingRootVersion) ||
+      !companionSigningRootBinding ||
       !normalizeNonEmptyString(raw.relayerUrl) ||
       !normalizeNonEmptyString(ecdsaRestore.rpId) ||
       !normalizeNonEmptyString(ecdsaRestore.relayerKeyId) ||
-      !normalizeNonEmptyString(ecdsaRestore.ecdsaThresholdKeyId) ||
+      !normalizeNonEmptyString(ecdsaRestore.keyHandle) ||
       !normalizeEthereumAddress(ecdsaRestore.ethereumAddress) ||
       !normalizeParticipantIds(ecdsaRestore.participantIds).length ||
       !normalizeNonEmptyString(ecdsaRestore.clientVerifyingShareB64u)
@@ -553,6 +634,13 @@ export function normalizeSealedRecoveryRecord(
     if ('kind' in companionThresholdSessionAuth) {
       return companionThresholdSessionAuth;
     }
+    const validatedCompanionSubjectId = normalizeBaseEcdsaSubjectId({
+      walletId,
+      rawSubjectId: raw.subjectId,
+    });
+    if (!validatedCompanionSubjectId) {
+      return reject(raw, 'missing_identity');
+    }
     companionEcdsaRecovery = {
       storeKey,
       walletId,
@@ -572,11 +660,13 @@ export function normalizeSealedRecoveryRecord(
         ? { shamirPrimeB64u: normalizeNonEmptyString(raw.shamirPrimeB64u)! }
         : {}),
       chainTarget: companionChainTarget,
-      subjectId: toWalletSubjectId(normalizeNonEmptyString(raw.subjectId)!),
       rpId: normalizeNonEmptyString(ecdsaRestore.rpId)!,
-      signingRootId: normalizeNonEmptyString(raw.signingRootId)!,
-      signingRootVersion: normalizeNonEmptyString(raw.signingRootVersion)!,
-      ecdsaThresholdKeyId: normalizeNonEmptyString(ecdsaRestore.ecdsaThresholdKeyId)!,
+      signingRootId: companionSigningRootBinding.signingRootId,
+      signingRootVersion: companionSigningRootBinding.signingRootVersion,
+      keyHandle: normalizeNonEmptyString(ecdsaRestore.keyHandle)!,
+      ...(companionEcdsaThresholdKeyId
+        ? { ecdsaThresholdKeyId: companionEcdsaThresholdKeyId }
+        : {}),
       ethereumAddress: normalizeEthereumAddress(ecdsaRestore.ethereumAddress)!,
       ...(normalizeNonEmptyString(ecdsaRestore.thresholdEcdsaPublicKeyB64u)
         ? {
@@ -589,16 +679,8 @@ export function normalizeSealedRecoveryRecord(
       relayerUrl,
       relayerKeyId: normalizeNonEmptyString(ecdsaRestore.relayerKeyId)!,
       ...companionThresholdSessionAuth,
-      ...(normalizeThresholdRuntimePolicyScope(ecdsaRestore.runtimePolicyScope)
-        ? {
-            runtimePolicyScope: normalizeThresholdRuntimePolicyScope(
-              ecdsaRestore.runtimePolicyScope,
-            )!,
-          }
-        : {}),
-      clientVerifyingShareB64u: normalizeNonEmptyString(
-        ecdsaRestore.clientVerifyingShareB64u,
-      )!,
+      ...(companionRuntimePolicyScope ? { runtimePolicyScope: companionRuntimePolicyScope } : {}),
+      clientVerifyingShareB64u: normalizeNonEmptyString(ecdsaRestore.clientVerifyingShareB64u)!,
     };
   }
   const accepted: SealedRecoveryRecord =

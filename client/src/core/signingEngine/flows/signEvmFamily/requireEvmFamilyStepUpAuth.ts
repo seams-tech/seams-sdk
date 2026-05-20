@@ -13,6 +13,7 @@ import type {
   EvmFamilyThresholdEcdsaOperation,
   EvmFamilyThresholdEcdsaReauthResult,
 } from './thresholdAdmission';
+import type { ReadyEcdsaSignerSession } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type {
   EvmFamilyEcdsaEmailOtpStepUpAuthorization,
   EvmFamilyEcdsaPasskeyStepUpAuthorization,
@@ -46,7 +47,7 @@ export type EvmFamilyPasskeyStepUpRuntime = EvmFamilyPasskeyReconnectPlanner & {
 };
 
 export type EvmFamilyThresholdReconnectRuntime = {
-  ensureThresholdEcdsaKeyRefReady: (args: {
+  ensureThresholdEcdsaReadyMaterial: (args: {
     authorization: EvmFamilyEcdsaWarmSessionStepUpAuthorization;
     usesNeeded: number;
   }) => Promise<EvmFamilyThresholdEcdsaReauthResult>;
@@ -78,6 +79,8 @@ export type EvmFamilyThresholdEcdsaStepUp =
         signingAuthPlan: SigningAuthPlan;
       };
       operation: EvmFamilyThresholdEcdsaOperation;
+      signerSession: ReadyEcdsaSignerSession;
+      singleUseEmailOtpSession: boolean;
       runtime: EvmFamilyThresholdEcdsaStepUpRuntime;
     };
 

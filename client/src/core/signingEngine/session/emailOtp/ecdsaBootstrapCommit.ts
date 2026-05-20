@@ -1,4 +1,3 @@
-import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type {
   ThresholdEcdsaEmailOtpAuthContext,
@@ -8,10 +7,11 @@ import {
   upsertThresholdEcdsaSessionFromBootstrap,
   type ThresholdEcdsaSessionStoreDeps,
 } from '../persistence/records';
-import type {
+import {
   ThresholdEcdsaChainTarget,
-  WalletSubjectId,
+  type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { toAccountId } from '@/core/types/accountIds';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import { withThresholdEcdsaBootstrapQueue } from '../warmCapabilities/ecdsaBootstrapQueue';
 import {
@@ -40,7 +40,7 @@ export type CommitEvmFamilyThresholdEcdsaSessionsDeps =
   };
 
 type CommitThresholdEcdsaSessionBaseArgs = {
-  walletId: AccountId | string;
+  walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
 };
@@ -60,7 +60,7 @@ type CommitWorkerProvisionedThresholdEcdsaSessionArgs =
   | CommitPasskeyThresholdEcdsaSessionArgs;
 
 type CommitEvmFamilyThresholdEcdsaSessionsBaseArgs = {
-  walletId: AccountId | string;
+  walletId: WalletId;
   primaryChain: ThresholdEcdsaChainTarget;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
 };
@@ -115,34 +115,34 @@ export async function commitWorkerProvisionedThresholdEcdsaSession(
   deps: CommitWorkerProvisionedThresholdEcdsaSessionDeps,
   args: CommitWorkerProvisionedThresholdEcdsaSessionArgs,
 ): Promise<ThresholdEcdsaSessionBootstrapResult> {
-  const walletId = toAccountId(args.walletId);
   if (args.source === 'email_otp') {
     await deps.ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap({
       kind: 'email_otp_bootstrap_parity',
-      walletId,
+      walletId: args.walletId,
       chainTarget: args.chainTarget,
       authMethod: SIGNER_AUTH_METHODS.emailOtp,
     });
   } else {
     await deps.ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap({
       kind: 'default_bootstrap_parity',
-      walletId,
+      walletId: args.walletId,
       chainTarget: args.chainTarget,
     });
   }
 
-  return await withThresholdEcdsaBootstrapQueue(deps.queueByWallet, walletId, async () => {
+  return await withThresholdEcdsaBootstrapQueue(deps.queueByWallet, args.walletId, async () => {
     const canonicalBootstrap = canonicalizeWorkerProvisionedBootstrap(args.bootstrap);
+    const walletAccountId = toAccountId(args.walletId);
     await persistThresholdEcdsaBootstrapForWalletTarget({
       indexedDB: deps.indexedDB,
-      walletId,
+      walletId: walletAccountId,
       chainTarget: args.chainTarget,
       bootstrap: canonicalBootstrap,
       ensureEmailOtpNearAccountMapping: args.source === SIGNER_AUTH_METHODS.emailOtp,
     });
     if (args.source === 'email_otp') {
       upsertThresholdEcdsaSessionFromBootstrap(deps.ecdsaSessions, {
-        walletId,
+        walletId: args.walletId,
         chainTarget: args.chainTarget,
         bootstrap: canonicalBootstrap,
         source: 'email_otp',
@@ -150,7 +150,7 @@ export async function commitWorkerProvisionedThresholdEcdsaSession(
       });
     } else {
       upsertThresholdEcdsaSessionFromBootstrap(deps.ecdsaSessions, {
-        walletId,
+        walletId: args.walletId,
         chainTarget: args.chainTarget,
         bootstrap: canonicalBootstrap,
         source: args.source,

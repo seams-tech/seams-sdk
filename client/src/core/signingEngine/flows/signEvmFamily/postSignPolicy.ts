@@ -1,10 +1,13 @@
 import type { ResolvedEvmFamilyEcdsaSigningLane } from './ecdsaLanes';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type {
+  ThresholdEcdsaChainTarget,
+  WalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 type EvmFamilyEcdsaPostSignPolicyRunner = {
   applyEcdsaPostSignPolicy: (args: {
-    walletId: string;
+    walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
     thresholdSessionId: string;
     selectedRecord: ThresholdEcdsaSessionRecord;
@@ -13,7 +16,7 @@ type EvmFamilyEcdsaPostSignPolicyRunner = {
 
 export async function applySuccessfulEvmFamilyEcdsaPostSignPolicy(args: {
   postSignPolicy: EvmFamilyEcdsaPostSignPolicyRunner;
-  walletId: string;
+  walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
   ecdsaSigningLane: ResolvedEvmFamilyEcdsaSigningLane;
   selectedRecord: ThresholdEcdsaSessionRecord;

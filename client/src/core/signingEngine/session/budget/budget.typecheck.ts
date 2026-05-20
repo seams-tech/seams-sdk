@@ -1,5 +1,6 @@
 import { toAccountId } from '@/core/types/accountIds';
 import { SigningOperationIntent, SigningSessionIds } from '../operationState/types';
+import { createWalletBudgetProjection } from './budgetProjection';
 import type {
   BudgetAdmittedLifecycle,
   PreparedTransactionOperation,
@@ -7,13 +8,18 @@ import type {
   WalletSigningBudgetLifecycle,
 } from '../operationState/transactionState';
 import { thresholdEcdsaChainTargetFromChainFamily } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { buildEvmFamilyEcdsaKeyIdentity } from '../identity/evmFamilyEcdsaIdentity';
+import {
+  buildBaseEvmFamilyEcdsaKeyIdentity,
+  toEvmFamilyEcdsaKeyHandle,
+} from '../identity/evmFamilyEcdsaIdentity';
 import type {
   EcdsaLaneBudgetStatusCheck,
   AuthenticatedThresholdBudgetStatusCheck,
   ExternallyConsumedWalletBudgetSpend,
   ReservedBudgetFinalizationSpend,
   ThresholdBudgetStatusCheck,
+  WalletBudgetStatusCheck,
+  WalletBudgetOwner,
   ZeroWalletBudgetSpend,
 } from './budget';
 
@@ -23,9 +29,8 @@ const ecdsaChainTarget = thresholdEcdsaChainTargetFromChainFamily({
   networkSlug: 'tempo-moderato',
 });
 
-const ecdsaKey = buildEvmFamilyEcdsaKeyIdentity({
+const ecdsaKey = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId: 'wallet.testnet',
-  subjectId: 'wallet.testnet',
   rpId: 'localhost',
   ecdsaThresholdKeyId: 'ecdsa-key-1',
   signingRootId: 'project:dev',
@@ -33,18 +38,63 @@ const ecdsaKey = buildEvmFamilyEcdsaKeyIdentity({
   participantIds: [1, 2],
   thresholdOwnerAddress: `0x${'11'.repeat(20)}`,
 });
+const ecdsaKeyHandle = toEvmFamilyEcdsaKeyHandle('ecdsa-budget-key-handle');
+const accountId = toAccountId('wallet.testnet');
+const ed25519Owner = {
+  curve: 'ed25519',
+  accountId,
+} satisfies WalletBudgetOwner;
+
+const invalidRawEd25519Owner: WalletBudgetOwner = {
+  curve: 'ed25519',
+  // @ts-expect-error shared budget NEAR owner requires normalized AccountId branding.
+  accountId: 'wallet.testnet',
+};
+void invalidRawEd25519Owner;
 
 const validThresholdCheck: ThresholdBudgetStatusCheck = {
   kind: 'threshold_budget_status_check',
-  walletId: 'wallet.testnet',
+  owner: ed25519Owner,
   walletSigningSessionId: 'wallet-signing-session-1',
   targetThresholdSessionIds: ['threshold-session-1'],
 };
 void validThresholdCheck;
 
+const invalidWalletBudgetOwnerWithBothBranches: WalletBudgetStatusCheck = {
+  kind: 'wallet_budget_status_check',
+  // @ts-expect-error shared budget owners cannot carry wrong-branch walletId.
+  owner: {
+    curve: 'ed25519',
+    accountId,
+    walletId: ecdsaKey.walletId,
+  },
+  walletSigningSessionId: 'wallet-signing-session-1',
+};
+void invalidWalletBudgetOwnerWithBothBranches;
+
+const invalidEcdsaOwnerWithAccountId: WalletBudgetStatusCheck = {
+  kind: 'wallet_budget_status_check',
+  // @ts-expect-error ECDSA budget owners cannot carry accountId.
+  owner: {
+    curve: 'ecdsa',
+    walletId: ecdsaKey.walletId,
+    accountId,
+  },
+  walletSigningSessionId: 'wallet-signing-session-1',
+};
+void invalidEcdsaOwnerWithAccountId;
+
+// @ts-expect-error shared wallet budget checks require owner identity.
+const invalidWalletBudgetCheckWithoutOwner: WalletBudgetStatusCheck = {
+  kind: 'wallet_budget_status_check',
+  walletSigningSessionId: 'wallet-signing-session-1',
+};
+void invalidWalletBudgetCheckWithoutOwner;
+
 const validEcdsaLaneCheck: EcdsaLaneBudgetStatusCheck = {
   kind: 'ecdsa_lane_budget_status_check',
   key: ecdsaKey,
+  keyHandle: ecdsaKeyHandle,
   chainTarget: ecdsaChainTarget,
   walletSigningSessionId: 'wallet-signing-session-1',
   thresholdSessionId: 'threshold-session-1',
@@ -54,6 +104,7 @@ void validEcdsaLaneCheck;
 const invalidEcdsaLaneCheck: EcdsaLaneBudgetStatusCheck = {
   kind: 'ecdsa_lane_budget_status_check',
   key: ecdsaKey,
+  keyHandle: ecdsaKeyHandle,
   chainTarget: ecdsaChainTarget,
   walletSigningSessionId: 'wallet-signing-session-1',
   thresholdSessionId: 'threshold-session-1',
@@ -65,7 +116,7 @@ void invalidEcdsaLaneCheck;
 // @ts-expect-error authenticated threshold status checks require trustedStatusAuth
 const missingTrustedStatusAuth: AuthenticatedThresholdBudgetStatusCheck = {
   kind: 'authenticated_threshold_budget_status_check',
-  walletId: 'wallet.testnet',
+  owner: ed25519Owner,
   walletSigningSessionId: 'wallet-signing-session-1',
   targetThresholdSessionIds: ['threshold-session-1'],
 };
@@ -73,12 +124,18 @@ void missingTrustedStatusAuth;
 
 const emptyThresholdTargets: ThresholdBudgetStatusCheck = {
   kind: 'threshold_budget_status_check',
-  walletId: 'wallet.testnet',
+  owner: ed25519Owner,
   walletSigningSessionId: 'wallet-signing-session-1',
   // @ts-expect-error scoped threshold status checks require a non-empty target id tuple
   targetThresholdSessionIds: [],
 };
 void emptyThresholdTargets;
+
+const walletBudgetProjection = createWalletBudgetProjection({
+  walletId: accountId,
+  walletSigningSessionId: 'wallet-signing-session-1',
+});
+void walletBudgetProjection;
 
 const externallyConsumedSpend: ExternallyConsumedWalletBudgetSpend = {
   kind: 'externally_consumed_success',

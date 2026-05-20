@@ -1,6 +1,7 @@
 import { coerceThemeName } from '@shared/utils/theme';
 import { toTrimmedString } from '@shared/utils/validation';
 import type { EcdsaSignerProvisioningDefaults } from '../types/ecdsaSignerProvisioningDefaults';
+import { parseServerEnvironmentBudgetAllowance } from '../signingEngine/session/budget/policy';
 import type {
   SeamsChainConfig,
   SeamsChainConfigInput,
@@ -112,14 +113,28 @@ export function resolveThemePalette(args: {
 export function copyEcdsaSignerProvisioningDefaults(
   value: EcdsaSignerProvisioningDefaults,
 ): EcdsaSignerProvisioningDefaults {
+  const tempoAllowance = parseServerEnvironmentBudgetAllowance({
+    remainingUses: value.tempo.signingSession.remainingUses,
+    policyVersion: 'sdk_config.threshold_ecdsa_provisioning.tempo',
+  });
+  const evmAllowance = parseServerEnvironmentBudgetAllowance({
+    remainingUses: value.evm.signingSession.remainingUses,
+    policyVersion: 'sdk_config.threshold_ecdsa_provisioning.evm',
+  });
   return {
     tempo: {
       ...value.tempo,
-      signingSession: { ...value.tempo.signingSession },
+      signingSession: {
+        ...value.tempo.signingSession,
+        remainingUses: tempoAllowance.remainingUses,
+      },
     },
     evm: {
       ...value.evm,
-      signingSession: { ...value.evm.signingSession },
+      signingSession: {
+        ...value.evm.signingSession,
+        remainingUses: evmAllowance.remainingUses,
+      },
     },
   };
 }

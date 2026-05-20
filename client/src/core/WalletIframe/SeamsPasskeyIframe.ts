@@ -27,7 +27,6 @@ import type {
   NearAccountRef,
   ThresholdEcdsaChainTarget,
   WalletSessionRef,
-  WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   ThresholdEd25519HssFinalizedReportEnvelope,
@@ -434,7 +433,6 @@ export class SeamsPasskeyIframe {
 
   async prefillThresholdEcdsaPresignPool(args: {
     walletSession: WalletSessionRef;
-    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     waitForPoolReady?: boolean;
     poolReadyTimeoutMs?: number;
@@ -444,7 +442,6 @@ export class SeamsPasskeyIframe {
     await this.requireRouterReady();
     return await this.router.prefillThresholdEcdsaPresignPool({
       walletSession: args.walletSession,
-      subjectId: args.subjectId,
       options: {
         chainTarget: args.chainTarget,
         ...(typeof args.waitForPoolReady === 'boolean'
@@ -650,7 +647,6 @@ export class SeamsPasskeyIframe {
     await this.requireRouterReady();
     return await this.router.signTempo({
       walletSession: args.walletSession,
-      subjectId: args.subjectId,
       request: args.request,
       chainTarget: args.chainTarget,
       options: {

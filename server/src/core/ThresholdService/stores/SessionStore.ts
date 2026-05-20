@@ -1,8 +1,5 @@
 import type { NormalizedLogger } from '../../logger';
-import type {
-  ThresholdEcdsaSigningRootMetadata,
-  ThresholdStoreConfigInput,
-} from '../../types';
+import type { ThresholdEcdsaSigningRootMetadata, ThresholdStoreConfigInput } from '../../types';
 import {
   RedisTcpClient,
   UpstashRedisRestClient,
@@ -40,6 +37,7 @@ export type ThresholdEd25519CommitmentsById = Record<string, ThresholdEd25519Com
 export type ThresholdEd25519MpcSessionRecord = {
   expiresAtMs: number;
   ecdsaThresholdKeyId?: string;
+  keyHandle?: string;
   relayerKeyId: string;
   purpose: string;
   intentDigestB64u: string;

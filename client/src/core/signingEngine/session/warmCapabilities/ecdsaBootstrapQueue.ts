@@ -1,11 +1,11 @@
-import { toAccountId, type AccountId } from '@/core/types/accountIds';
+import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export async function withThresholdEcdsaBootstrapQueue<T>(
   queueByWallet: Map<string, Promise<void>>,
-  walletId: AccountId | string,
+  walletId: WalletId,
   task: () => Promise<T>,
 ): Promise<T> {
-  const walletKey = String(toAccountId(String(walletId || '').trim()));
+  const walletKey = String(walletId);
   const previous = queueByWallet.get(walletKey) || Promise.resolve();
   const waitForPrevious = previous.catch(() => undefined);
 

@@ -120,7 +120,6 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
                 walletId: accountId,
                 walletSessionUserId: accountId,
               },
-              subjectId: accountId,
               chainTarget: {
                 kind: 'tempo' as const,
                 chainId: 42431,
@@ -476,7 +475,6 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
                 walletId: accountId,
                 walletSessionUserId: accountId,
               },
-              subjectId: accountId,
               chainTarget: {
                 kind: 'tempo' as const,
                 chainId: 42431,
@@ -597,7 +595,6 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
                 walletId: accountId,
                 walletSessionUserId: accountId,
               },
-              subjectId: accountId,
               chainTarget: {
                 kind: 'tempo' as const,
                 chainId: 42431,
@@ -1187,7 +1184,6 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
                 walletId: accountId,
                 walletSessionUserId: accountId,
               },
-              subjectId: accountId,
               chainTarget: {
                 kind: 'tempo' as const,
                 chainId: 42431,
@@ -1352,7 +1348,6 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
                     walletId: accountId,
                     walletSessionUserId: accountId,
                   },
-                  subjectId: accountId,
                   chainTarget:
                     requestedChain === 'tempo'
                       ? {
@@ -1787,7 +1782,6 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
                     walletId: accountId,
                     walletSessionUserId: accountId,
                   },
-                  subjectId: accountId,
                   chainTarget: {
                     kind: 'tempo' as const,
                     chainId: 42431,
@@ -1938,7 +1932,6 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
                       walletId: accountId,
                       walletSessionUserId: accountId,
                     },
-                    subjectId: accountId,
                     chainTarget: {
                       kind: 'tempo' as const,
                       chainId: 42431,

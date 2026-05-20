@@ -1,4 +1,3 @@
-import type { AccountId } from '@/core/types/accountIds';
 import {
   listStoredThresholdEcdsaSessionRecordsForWallet,
 } from '@/core/signingEngine/session/persistence/records';
@@ -6,7 +5,10 @@ import type {
   ThresholdEcdsaSessionRecord,
   ThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
-import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  thresholdEcdsaChainTargetKey,
+  type WalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   BuildCurrentSealedSessionRecordInput,
   BuildCurrentSealedSessionRecordBaseInput,
@@ -35,15 +37,10 @@ function buildCompanionSealedSessionUpdate(args: {
   existingRecord: SigningSessionSealedStoreRecord;
   companionCurve: SealedSessionCompanionCurve;
   companionThresholdSessionId: string;
-  subjectId: string;
   updatedAtMs?: number;
   ecdsaRestore?: BuildCurrentSealedSessionRecordBaseInput['ecdsaRestore'];
   ed25519Restore?: BuildCurrentSealedSessionRecordBaseInput['ed25519Restore'];
 }): BuildCurrentSealedSessionRecordInput {
-  const subjectId = String(args.subjectId || '').trim();
-  if (!subjectId) {
-    throw new Error('Companion sealed-session update requires subjectId');
-  }
   const base = {
     thresholdSessionId:
       args.existingRecord.curve === 'ecdsa'
@@ -68,21 +65,15 @@ function buildCompanionSealedSessionUpdate(args: {
   };
   if (args.existingRecord.curve === 'ecdsa') {
     const walletId = String(args.existingRecord.walletId || '').trim();
-    const signingRootId = String(args.existingRecord.signingRootId || '').trim();
     const relayerUrl = String(args.existingRecord.relayerUrl || '').trim();
     const ecdsaRestore = args.ecdsaRestore || args.existingRecord.ecdsaRestore;
-    if (!walletId || !signingRootId || !relayerUrl || !ecdsaRestore) {
+    if (!walletId || !relayerUrl || !ecdsaRestore) {
       throw new Error('ECDSA companion sealed-session update requires exact durable identity');
     }
     return {
       ...base,
       curve: 'ecdsa',
-      subjectId,
       walletId,
-      signingRootId,
-      ...(args.existingRecord.signingRootVersion
-        ? { signingRootVersion: args.existingRecord.signingRootVersion }
-        : {}),
       relayerUrl,
       ecdsaRestore,
       ...(args.ed25519Restore || args.existingRecord.ed25519Restore
@@ -115,7 +106,7 @@ function buildCompanionSealedSessionUpdate(args: {
 }
 
 export function selectEmailOtpEcdsaRecordForEd25519Signing(args: {
-  walletId: AccountId | string;
+  walletId: WalletId;
   walletSigningSessionFilter?: string | null;
   listThresholdEcdsaSessionRecordsForWallet?: typeof listStoredThresholdEcdsaSessionRecordsForWallet;
 }): ThresholdEcdsaSessionRecord | null {
@@ -126,7 +117,7 @@ export function selectEmailOtpEcdsaRecordForEd25519Signing(args: {
   ).filter(
     (record) =>
       record.source === 'email_otp' &&
-      String(record.ecdsaThresholdKeyId || '').trim() &&
+      String(record.keyHandle || '').trim() &&
       Array.isArray(record.participantIds) &&
       record.participantIds.length > 0,
   );
@@ -216,8 +207,6 @@ export async function attachEd25519SessionToEmailOtpSigningSessionSealBestEffort
   ) {
     return;
   }
-  const subjectId = String(candidate.existingRecord.subjectId || candidate.ecdsaRecord.subjectId || '').trim();
-  if (!subjectId) return;
   const xClientBaseB64u = String(ed25519Record.xClientBaseB64u || '').trim();
   if (!xClientBaseB64u) return;
   await args.registerSigningSession(
@@ -225,7 +214,6 @@ export async function attachEd25519SessionToEmailOtpSigningSessionSealBestEffort
       existingRecord: candidate.existingRecord,
       companionCurve: 'ed25519',
       companionThresholdSessionId: ed25519ThresholdSessionId,
-      subjectId,
       ed25519Restore: {
         rpId: ed25519Record.rpId,
         relayerKeyId: ed25519Record.relayerKeyId,

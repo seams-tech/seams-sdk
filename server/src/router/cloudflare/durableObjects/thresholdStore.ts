@@ -37,10 +37,19 @@ type DoReq =
       key: string;
       identityKey: string;
       identityValue: string;
+      keyHandleKey: string;
+      keyHandleValue: string;
       value: unknown;
       ttlMs?: number;
     }
-  | { op: 'delWithIdentityGuard'; key: string; identityKey: string; identityValue: string }
+  | {
+      op: 'delWithIdentityGuard';
+      key: string;
+      identityKey: string;
+      identityValue: string;
+      keyHandleKey: string;
+      keyHandleValue: string;
+    }
   | { op: 'getdel'; key: string }
   | { op: 'authConsumeUseCount'; key: string }
   | { op: 'authConsumeUseCountOnce'; key: string; idempotencyKey: string }
@@ -83,6 +92,11 @@ type PresignSessionRecord = {
   expiresAtMs: number;
   version: number;
 };
+
+const ECDSA_SHARED_IDENTITY_CONFLICT_MESSAGE =
+  '[threshold-ecdsa] EVM-family key identity already exists for wallet/subject/rp/signing root';
+const ECDSA_KEY_HANDLE_CONFLICT_MESSAGE =
+  '[threshold-ecdsa] ECDSA key handle already exists in this namespace';
 
 type SigningRootWireRecord = Omit<SigningRootRecord, 'sealedSigningRootSecretShares'> & {
   sealedSigningRootSecretShares: Array<{
@@ -363,20 +377,34 @@ export class ThresholdStoreDurableObject {
       const key = toKey((req as { key?: unknown }).key);
       const identityKey = toKey((req as { identityKey?: unknown }).identityKey);
       const identityValue = toKey((req as { identityValue?: unknown }).identityValue);
+      const keyHandleKey = toKey((req as { keyHandleKey?: unknown }).keyHandleKey);
+      const keyHandleValue = toKey((req as { keyHandleValue?: unknown }).keyHandleValue);
       if (!key) return json(err('invalid_body', 'Missing key'));
       if (!identityKey) return json(err('invalid_body', 'Missing identityKey'));
       if (!identityValue) return json(err('invalid_body', 'Missing identityValue'));
+      if (!keyHandleKey) return json(err('invalid_body', 'Missing keyHandleKey'));
+      if (!keyHandleValue) return json(err('invalid_body', 'Missing keyHandleValue'));
       const ttl = toTtlSeconds((req as { ttlMs?: unknown }).ttlMs);
       const result = await withTxn(this.state, async (store) => {
         const existing = await store.get(identityKey);
         if (existing !== null && existing !== undefined && existing !== identityValue) {
-          return err(
-            'conflict',
-            '[threshold-ecdsa] EVM-family key identity already exists for wallet/subject/rp/signing root',
-          );
+          return err('conflict', ECDSA_SHARED_IDENTITY_CONFLICT_MESSAGE);
         }
-        await store.put(key, (req as { value?: unknown }).value, ttl ? { expirationTtl: ttl } : undefined);
+        const existingKeyHandle = await store.get(keyHandleKey);
+        if (
+          existingKeyHandle !== null &&
+          existingKeyHandle !== undefined &&
+          existingKeyHandle !== keyHandleValue
+        ) {
+          return err('conflict', ECDSA_KEY_HANDLE_CONFLICT_MESSAGE);
+        }
+        await store.put(
+          key,
+          (req as { value?: unknown }).value,
+          ttl ? { expirationTtl: ttl } : undefined,
+        );
         await store.put(identityKey, identityValue);
+        await store.put(keyHandleKey, keyHandleValue);
         return ok(true);
       });
       return json(result);
@@ -391,13 +419,20 @@ export class ThresholdStoreDurableObject {
       const key = toKey((req as { key?: unknown }).key);
       const identityKey = toKey((req as { identityKey?: unknown }).identityKey);
       const identityValue = toKey((req as { identityValue?: unknown }).identityValue);
+      const keyHandleKey = toKey((req as { keyHandleKey?: unknown }).keyHandleKey);
+      const keyHandleValue = toKey((req as { keyHandleValue?: unknown }).keyHandleValue);
       if (!key) return json(err('invalid_body', 'Missing key'));
       if (!identityKey) return json(err('invalid_body', 'Missing identityKey'));
       if (!identityValue) return json(err('invalid_body', 'Missing identityValue'));
+      if (!keyHandleKey) return json(err('invalid_body', 'Missing keyHandleKey'));
+      if (!keyHandleValue) return json(err('invalid_body', 'Missing keyHandleValue'));
       await withTxn(this.state, async (store) => {
         await store.delete(key);
         if ((await store.get(identityKey)) === identityValue) {
           await store.delete(identityKey);
+        }
+        if ((await store.get(keyHandleKey)) === keyHandleValue) {
+          await store.delete(keyHandleKey);
         }
       });
       return json(ok(true));

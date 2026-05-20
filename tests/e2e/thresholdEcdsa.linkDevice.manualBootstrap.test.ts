@@ -15,6 +15,9 @@ test.describe('threshold-ecdsa link-device manual-bootstrap', () => {
             const sdkMod = await import('/sdk/esm/index.js');
             const { persistLinkDeviceThresholdEcdsaBootstrap } =
               await import('/sdk/esm/core/SeamsPasskey/evm/linkDeviceThresholdEcdsa.js');
+            const { toWalletId } = await import(
+              '/sdk/esm/core/signingEngine/interfaces/ecdsaChainTarget.js'
+            );
             const { SeamsPasskey } = sdkMod as any;
 
             const accountId = `linkdeviceecdsa${Date.now()}.w3a-v1.testnet`;
@@ -140,7 +143,7 @@ test.describe('threshold-ecdsa link-device manual-bootstrap', () => {
 
             await persistLinkDeviceThresholdEcdsaBootstrap({
               signingEngine: pm.getContext().signingEngine,
-              walletId: accountId,
+              walletId: toWalletId(accountId),
               relayerUrl,
               chainTarget: {
                 kind: 'tempo' as const,
@@ -168,7 +171,6 @@ test.describe('threshold-ecdsa link-device manual-bootstrap', () => {
                 walletId: accountId,
                 walletSessionUserId: accountId,
               },
-              subjectId: accountId,
               chainTarget: {
                 kind: 'tempo' as const,
                 chainId: 42431,

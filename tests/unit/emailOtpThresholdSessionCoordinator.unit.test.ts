@@ -3,6 +3,7 @@ import { EmailOtpThresholdSessionCoordinator } from '@/core/signingEngine/sessio
 import { requestEmailOtpExportAuthorization } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/exportAuthorization';
 import { toAuthorizingWalletSigningSessionId } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import { WALLET_EMAIL_OTP_EXPORT_OPERATION } from '@shared/utils/emailOtpDomain';
+import { THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND } from '@shared/utils/sessionTokens';
 import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmCapabilities/persistence';
 import {
   clearAllStoredThresholdEd25519SessionRecords,
@@ -14,9 +15,9 @@ import {
   buildCurrentSealedSessionRecord,
   type BuildCurrentEcdsaSealedSessionRecordInput,
   clearAllSealedSessions,
+  type CurrentSealedSessionRecord,
   type listExactSealedSessionsForWallet,
   publishResolvedIdentity,
-  type SigningSessionSealedStoreRecord,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import {
   thresholdEcdsaChainTargetFromChainFamily,
@@ -24,6 +25,7 @@ import {
   toWalletSubjectId,
   walletSessionRefFromSession,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { toEvmFamilyEcdsaKeyHandle } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 
 const TEST_SUBJECT_ID = toWalletSubjectId('alice.testnet');
 const TEMPO_CHAIN_TARGET = thresholdEcdsaChainTargetFromChainFamily({
@@ -52,6 +54,24 @@ function appSessionJwt(expSeconds = Math.floor(Date.now() / 1000) + 3600): strin
   })}.sig`;
 }
 
+function thresholdEcdsaSessionJwt(args: {
+  walletId: string;
+  keyHandle: string;
+  thresholdSessionId: string;
+  walletSigningSessionId: string;
+  chainTarget?: BuildCurrentEcdsaSealedSessionRecordInput['ecdsaRestore']['chainTarget'];
+}): string {
+  return `${jsonB64u({ alg: 'none', typ: 'JWT' })}.${jsonB64u({
+    kind: THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND,
+    sub: args.walletId,
+    walletId: args.walletId,
+    keyHandle: args.keyHandle,
+    sessionId: args.thresholdSessionId,
+    walletSigningSessionId: args.walletSigningSessionId,
+    ...(args.chainTarget ? { chainTarget: args.chainTarget } : {}),
+  })}.sig`;
+}
+
 type EcdsaSealedRecordFixtureArgs = {
   expiresAtMs: number;
   thresholdSessionId?: string;
@@ -59,7 +79,6 @@ type EcdsaSealedRecordFixtureArgs = {
   walletSigningSessionId?: string;
   walletId?: string;
   userId?: string;
-  subjectId?: string;
   signingRootId?: string;
   signingRootVersion?: string;
   relayerUrl?: string;
@@ -68,6 +87,7 @@ type EcdsaSealedRecordFixtureArgs = {
   sealedSecretB64u?: string;
   chainTarget?: BuildCurrentEcdsaSealedSessionRecordInput['ecdsaRestore']['chainTarget'];
   ecdsaRestore?: Partial<BuildCurrentEcdsaSealedSessionRecordInput['ecdsaRestore']>;
+  ed25519Restore?: Partial<NonNullable<BuildCurrentEcdsaSealedSessionRecordInput['ed25519Restore']>>;
   issuedAtMs?: number;
   remainingUses?: number;
   updatedAtMs?: number;
@@ -75,21 +95,30 @@ type EcdsaSealedRecordFixtureArgs = {
 
 function buildEcdsaSealedRecordFixture(
   args: EcdsaSealedRecordFixtureArgs,
-): SigningSessionSealedStoreRecord {
+): CurrentSealedSessionRecord {
   const chainTarget = args.ecdsaRestore?.chainTarget || args.chainTarget || TEMPO_CHAIN_TARGET;
   const thresholdSessionId =
     args.thresholdSessionId || args.thresholdSessionIds?.ecdsa || 'ecdsa-session';
+  const walletId = args.walletId || 'alice.testnet';
+  const walletSigningSessionId = args.walletSigningSessionId || 'wallet-session-1';
+  const keyHandle = args.ecdsaRestore?.keyHandle || 'key-handle-ecdsa';
   const ecdsaRestore: BuildCurrentEcdsaSealedSessionRecordInput['ecdsaRestore'] = {
     chainTarget,
     rpId: args.ecdsaRestore?.rpId || 'example.com',
     thresholdSessionAuthToken:
-      args.ecdsaRestore?.thresholdSessionAuthToken || 'threshold-session-jwt',
+      args.ecdsaRestore?.thresholdSessionAuthToken ||
+      thresholdEcdsaSessionJwt({
+        walletId,
+        keyHandle,
+        thresholdSessionId,
+        walletSigningSessionId,
+        chainTarget,
+      }),
     sessionKind: args.ecdsaRestore?.sessionKind || 'jwt',
-    ecdsaThresholdKeyId: args.ecdsaRestore?.ecdsaThresholdKeyId || 'ecdsa-key',
+    keyHandle,
     ethereumAddress: args.ecdsaRestore?.ethereumAddress || `0x${'33'.repeat(20)}`,
     relayerKeyId: args.ecdsaRestore?.relayerKeyId || 'relayer-key',
-    clientVerifyingShareB64u:
-      args.ecdsaRestore?.clientVerifyingShareB64u || 'verifying-share',
+    clientVerifyingShareB64u: args.ecdsaRestore?.clientVerifyingShareB64u || 'verifying-share',
     thresholdEcdsaPublicKeyB64u:
       args.ecdsaRestore?.thresholdEcdsaPublicKeyB64u || 'threshold-public-key',
     participantIds: args.ecdsaRestore?.participantIds || [1, 3],
@@ -97,22 +126,38 @@ function buildEcdsaSealedRecordFixture(
       ? {}
       : { runtimePolicyScope: args.ecdsaRestore.runtimePolicyScope }),
   };
+  const ed25519ThresholdSessionId = args.thresholdSessionIds?.ed25519;
+  const ed25519Restore =
+    args.ed25519Restore || ed25519ThresholdSessionId
+      ? {
+          rpId: args.ed25519Restore?.rpId || 'localhost',
+          relayerKeyId: args.ed25519Restore?.relayerKeyId || 'ed25519-relayer-key',
+          participantIds: args.ed25519Restore?.participantIds || [1, 3],
+          thresholdSessionAuthToken:
+            args.ed25519Restore?.thresholdSessionAuthToken || 'threshold-session-jwt',
+          sessionKind: args.ed25519Restore?.sessionKind || 'jwt',
+          ...(args.ed25519Restore?.runtimePolicyScope === undefined
+            ? {}
+            : { runtimePolicyScope: args.ed25519Restore.runtimePolicyScope }),
+          xClientBaseB64u: args.ed25519Restore?.xClientBaseB64u || 'ed25519-x-client-base',
+        }
+      : undefined;
   const record = buildCurrentSealedSessionRecord({
     curve: 'ecdsa',
     authMethod: 'email_otp',
-    walletId: args.walletId || 'alice.testnet',
+    walletId,
     userId: args.userId || 'alice.testnet',
-    subjectId: args.subjectId || TEST_SUBJECT_ID,
     signingRootId: args.signingRootId || 'signing-root',
     signingRootVersion: args.signingRootVersion || 'root-v1',
     relayerUrl: args.relayerUrl || 'https://relay.example',
     keyVersion: args.keyVersion || 'seal-v1',
     shamirPrimeB64u: args.shamirPrimeB64u || 'prime-b64u',
-    walletSigningSessionId: args.walletSigningSessionId || 'wallet-session-1',
+    walletSigningSessionId,
     thresholdSessionId,
     thresholdSessionIds: args.thresholdSessionIds,
     sealedSecretB64u: args.sealedSecretB64u || 'sealed-session-secret',
     ecdsaRestore,
+    ...(ed25519Restore ? { ed25519Restore } : {}),
     issuedAtMs: args.issuedAtMs || Date.now(),
     expiresAtMs: args.expiresAtMs,
     remainingUses: args.remainingUses ?? 2,
@@ -121,7 +166,13 @@ function buildEcdsaSealedRecordFixture(
   if (!record) {
     throw new Error('invalid ECDSA sealed session fixture');
   }
-  return record;
+  return {
+    ...record,
+    // Legacy top-level signing-root fields are retained in these fixtures to
+    // exercise boundary compatibility during sealed recovery normalization.
+    signingRootId: args.signingRootId || 'signing-root',
+    signingRootVersion: args.signingRootVersion || 'root-v1',
+  } as CurrentSealedSessionRecord;
 }
 
 function createCoordinator(overrides?: {
@@ -139,41 +190,50 @@ function createCoordinator(overrides?: {
 }) {
   const workerCalls: any[] = [];
   let refreshCount = 0;
-  const buildWorkerEcdsaBootstrap = (call: any, chainTarget: any) => ({
-    thresholdEcdsaKeyRef: {
-      type: 'threshold-ecdsa-secp256k1',
-      userId: call.request.payload.walletId,
-      subjectId: call.request.payload.subjectId,
-      relayerUrl: call.request.payload.relayUrl,
-      ecdsaThresholdKeyId: 'ecdsa-key',
+  const buildWorkerEcdsaBootstrap = (call: any, chainTarget: any) => {
+    const walletId = call.request.payload.walletId || 'alice.testnet';
+    const thresholdSessionId = call.request.payload.sessionId || 'ecdsa-session';
+    const walletSigningSessionId =
+      call.request.payload.walletSigningSessionId || thresholdSessionId;
+    const keyHandle = 'key-handle-ecdsa';
+    const thresholdSessionAuthToken = thresholdEcdsaSessionJwt({
+      walletId,
+      keyHandle,
+      thresholdSessionId,
+      walletSigningSessionId,
       chainTarget,
-      signingRootId: 'signing-root',
-      signingRootVersion: 'root-v1',
-      ethereumAddress: `0x${'33'.repeat(20)}`,
-      thresholdEcdsaPublicKeyB64u: 'threshold-public-key',
-      thresholdSessionId: call.request.payload.sessionId || 'ecdsa-session',
-      walletSigningSessionId:
-        call.request.payload.walletSigningSessionId ||
-        call.request.payload.sessionId ||
-        'ecdsa-session',
-      thresholdSessionKind: 'jwt',
-      thresholdSessionAuthToken: 'threshold-session-jwt',
-      participantIds: [1, 3],
-      backendBinding: { relayerKeyId: 'relayer-key' },
-    },
-    keygen: { ok: true, rpId: 'example.com' },
-    session: {
-      ok: true,
-      sessionId: call.request.payload.sessionId || 'ecdsa-session',
-      walletSigningSessionId:
-        call.request.payload.walletSigningSessionId ||
-        call.request.payload.sessionId ||
-        'ecdsa-session',
-      expiresAtMs: Date.now() + 60_000,
-      remainingUses: 3,
-      jwt: 'threshold-session-jwt',
-    },
-  });
+    });
+    return {
+      thresholdEcdsaKeyRef: {
+        type: 'threshold-ecdsa-secp256k1',
+        userId: walletId,
+        subjectId: call.request.payload.subjectId,
+        relayerUrl: call.request.payload.relayUrl,
+        keyHandle,
+        ecdsaThresholdKeyId: 'ecdsa-key',
+        chainTarget,
+        signingRootId: 'signing-root',
+        signingRootVersion: 'root-v1',
+        ethereumAddress: `0x${'33'.repeat(20)}`,
+        thresholdEcdsaPublicKeyB64u: 'threshold-public-key',
+        thresholdSessionId,
+        walletSigningSessionId,
+        thresholdSessionKind: 'jwt',
+        thresholdSessionAuthToken,
+        participantIds: [1, 3],
+        backendBinding: { relayerKeyId: 'relayer-key' },
+      },
+      keygen: { ok: true, rpId: 'example.com' },
+      session: {
+        ok: true,
+        sessionId: thresholdSessionId,
+        walletSigningSessionId,
+        expiresAtMs: Date.now() + 60_000,
+        remainingUses: 3,
+        jwt: thresholdSessionAuthToken,
+      },
+    };
+  };
   const worker = {
     requestWorkerOperation: async (call: any) => {
       workerCalls.push(call);
@@ -226,13 +286,15 @@ function createCoordinator(overrides?: {
           bootstrap: {
             thresholdEcdsaKeyRef: {
               type: 'threshold-ecdsa-secp256k1',
-              userId: call.request.payload.restore.userId || call.request.payload.restore.walletId,
-              subjectId: call.request.payload.restore.subjectId,
+              userId: call.request.payload.restore.walletId,
+              subjectId: TEST_SUBJECT_ID,
               relayerUrl: call.request.payload.transport.relayerUrl,
-              ecdsaThresholdKeyId: call.request.payload.restore.ecdsaThresholdKeyId,
+              keyHandle: 'key-handle-ecdsa',
+              ecdsaThresholdKeyId: 'ecdsa-key',
               chainTarget: call.request.payload.restore.chainTarget,
-              signingRootId: call.request.payload.restore.signingRootId,
-              signingRootVersion: call.request.payload.restore.signingRootVersion,
+              signingRootId: call.request.payload.restore.ed25519?.signingRootId || 'signing-root',
+              signingRootVersion:
+                call.request.payload.restore.ed25519?.signingRootVersion || 'root-v1',
               thresholdSessionId: call.request.payload.restore.sessionId,
               walletSigningSessionId: call.request.payload.restore.walletSigningSessionId,
               thresholdSessionAuthToken: call.request.payload.transport.thresholdSessionAuthToken,
@@ -269,10 +331,10 @@ function createCoordinator(overrides?: {
   const ed25519MetadataWrites: any[] = [];
   const ed25519WarmSessionWrites: any[] = [];
   const hydratedSessions: any[] = [];
-  const sealedRecordWrites: SigningSessionSealedStoreRecord[] = [];
+  const sealedRecordWrites: CurrentSealedSessionRecord[] = [];
   const toSealedRecordReadback = (
-    record: SigningSessionSealedStoreRecord,
-  ): SigningSessionSealedStoreRecord => record;
+    record: CurrentSealedSessionRecord,
+  ): CurrentSealedSessionRecord => record;
   const recordMatchesSealedPurpose = (
     write: any,
     thresholdSessionId: string | undefined,
@@ -348,6 +410,7 @@ function createCoordinator(overrides?: {
     chainTarget: TEMPO_CHAIN_TARGET,
     source: 'email_otp',
     relayerUrl: 'https://relay.example',
+    keyHandle: 'key-handle-ecdsa',
     ecdsaThresholdKeyId: 'ecdsa-key',
     signingRootId: 'signing-root',
     signingRootVersion: 'default',
@@ -407,9 +470,7 @@ function createCoordinator(overrides?: {
     getThresholdEcdsaSessionRecordByThresholdSessionId:
       overrides?.getThresholdEcdsaSessionRecordByThresholdSessionId ||
       ((thresholdSessionId) =>
-        thresholdSessionId === defaultEcdsaRecord.thresholdSessionId
-          ? defaultEcdsaRecord
-          : null),
+        thresholdSessionId === defaultEcdsaRecord.thresholdSessionId ? defaultEcdsaRecord : null),
     getThresholdEd25519SessionRecordByThresholdSessionId: (thresholdSessionId) =>
       getStoredThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId),
     persistEmailOtpThresholdEd25519LocalMetadata: async (args) => {
@@ -427,12 +488,13 @@ function createCoordinator(overrides?: {
         await overrides.writeExactSealedSession(args);
       }
     },
-    readExactSealedSession:
-      overrides?.readExactSealedSession || defaultReadExactSealedSession,
+    readExactSealedSession: overrides?.readExactSealedSession || defaultReadExactSealedSession,
     listExactSealedSessionsForWallet:
       overrides?.listExactSealedSessionsForWallet || defaultListExactSealedSessionsForWallet,
-    acquireSigningSessionRestoreLease: overrides?.acquireSigningSessionRestoreLease || (async () => null),
-    releaseSigningSessionRestoreLease: overrides?.releaseSigningSessionRestoreLease || (async () => {}),
+    acquireSigningSessionRestoreLease:
+      overrides?.acquireSigningSessionRestoreLease || (async () => null),
+    releaseSigningSessionRestoreLease:
+      overrides?.releaseSigningSessionRestoreLease || (async () => {}),
     deleteDurableSealedSessionRecord: async () => {},
     updateExactSealedSessionPolicy: async () => {},
   });
@@ -480,7 +542,9 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
         throw new Error('worker unavailable');
       },
     });
-    await expect(failing.coordinator.readWarmSessionStatusOnly(' session-1 ')).resolves.toMatchObject({
+    await expect(
+      failing.coordinator.readWarmSessionStatusOnly(' session-1 '),
+    ).resolves.toMatchObject({
       ok: false,
       code: 'worker_error',
       message: 'worker unavailable',
@@ -754,7 +818,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       relayUrl: 'https://relay.example',
       rpId: 'localhost',
       prfFirstB64u: 'prf-first-ecdsa-login',
-      routeAuth: { kind: 'threshold_session', jwt: 'threshold-session-jwt' },
+      routeAuth: { kind: 'threshold_session', jwt: expect.any(String) },
       participantIds: [1, 2],
       remainingUses: 1,
       ecdsaThresholdSessionId: 'ecdsa-session',
@@ -848,13 +912,12 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
 
     const result = await coordinator.loginWithEcdsaCapabilityInternal({
       walletSession: TEST_WALLET_SESSION,
-      subjectId: TEST_SUBJECT_ID,
       chainTarget: TEMPO_CHAIN_TARGET,
       challengeId: 'challenge-1',
       otpCode: '123456',
       appSessionJwt: jwt,
       routeAuth: { kind: 'app_session', jwt },
-      ecdsaThresholdKeyId: 'ecdsa-key',
+      keyHandle: 'ehss-key-handle-1',
       participantIds: [1, 3],
       sessionKind: 'jwt',
       runtimePolicyScope: {
@@ -893,7 +956,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
           walletId: 'alice.testnet',
           userId: 'alice.testnet',
           rpId: 'localhost',
-          ecdsaThresholdKeyId: 'ecdsa-key',
+          keyHandle: 'ehss-key-handle-1',
           participantIds: [1, 3],
           sessionKind: 'jwt',
           remainingUses: 1,
@@ -940,12 +1003,11 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
 
     await coordinator.loginWithEcdsaCapabilityInternal({
       walletSession: TEST_WALLET_SESSION,
-      subjectId: TEST_SUBJECT_ID,
       chainTarget: TEMPO_CHAIN_TARGET,
       challengeId: 'challenge-1',
       otpCode: '123456',
       appSessionJwt: jwt,
-      ecdsaThresholdKeyId: 'ecdsa-key',
+      keyHandle: 'ehss-key-handle-1',
       participantIds: [1, 3],
       sessionKind: 'jwt',
     });
@@ -977,12 +1039,11 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
 
     await coordinator.enrollAndLoginWithEcdsaCapabilityInternal({
       walletSession: TEST_WALLET_SESSION,
-      subjectId: TEST_SUBJECT_ID,
       chainTarget: TEMPO_CHAIN_TARGET,
       challengeId: 'challenge-1',
       otpCode: '123456',
       appSessionJwt: jwt,
-      ecdsaThresholdKeyId: 'ecdsa-key',
+      keyHandle: 'ehss-key-handle-1',
       participantIds: [1, 3],
       sessionKind: 'jwt',
     });
@@ -1044,6 +1105,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
                 userId: 'alice.testnet',
                 subjectId: call.request.payload.subjectId,
                 relayerUrl: 'https://relay.example',
+                keyHandle: 'key-handle-ecdsa',
                 ecdsaThresholdKeyId: 'ecdsa-key',
                 chainTarget,
                 signingRootId: 'signing-root',
@@ -1053,7 +1115,13 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
                 thresholdSessionId: 'ecdsa-session',
                 walletSigningSessionId: call.request.payload.walletSigningSessionId,
                 thresholdSessionKind: 'jwt',
-                thresholdSessionAuthToken: 'threshold-session-jwt',
+                thresholdSessionAuthToken: thresholdEcdsaSessionJwt({
+                  walletId: 'alice.testnet',
+                  keyHandle: 'key-handle-ecdsa',
+                  thresholdSessionId: 'ecdsa-session',
+                  walletSigningSessionId: call.request.payload.walletSigningSessionId,
+                  chainTarget,
+                }),
                 participantIds: [1, 3],
                 backendBinding: { relayerKeyId: 'relayer-key' },
               },
@@ -1064,7 +1132,13 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
                 walletSigningSessionId: call.request.payload.walletSigningSessionId,
                 expiresAtMs: Date.now() + 60_000,
                 remainingUses: 9,
-                jwt: 'threshold-session-jwt',
+                jwt: thresholdEcdsaSessionJwt({
+                  walletId: 'alice.testnet',
+                  keyHandle: 'key-handle-ecdsa',
+                  thresholdSessionId: 'ecdsa-session',
+                  walletSigningSessionId: call.request.payload.walletSigningSessionId,
+                  chainTarget,
+                }),
               },
             })),
           };
@@ -1095,13 +1169,12 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
 
     await coordinator.loginWithEcdsaCapabilityInternal({
       walletSession: TEST_WALLET_SESSION,
-      subjectId: TEST_SUBJECT_ID,
       chainTarget: TEMPO_CHAIN_TARGET,
       challengeId: 'challenge-1',
       otpCode: '123456',
       appSessionJwt: jwt,
       routeAuth: { kind: 'app_session', jwt },
-      ecdsaThresholdKeyId: 'ecdsa-key',
+      keyHandle: 'ehss-key-handle-1',
       participantIds: [1, 3],
       sessionKind: 'jwt',
     });
@@ -1117,7 +1190,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
           sessionId: 'ecdsa-session',
           transport: {
             relayerUrl: 'https://relay.example',
-            thresholdSessionAuthToken: 'threshold-session-jwt',
+            thresholdSessionAuthToken: expect.any(String),
             keyVersion: 'seal-v1',
             shamirPrimeB64u: 'prime-b64u',
           },
@@ -1135,8 +1208,6 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
         authMethod: 'email_otp',
         thresholdSessionIds: { ecdsa: 'ecdsa-session' },
         walletId: 'alice.testnet',
-        signingRootId: 'signing-root',
-        signingRootVersion: 'root-v1',
         relayerUrl: 'https://relay.example',
         keyVersion: 'seal-v1',
         shamirPrimeB64u: 'prime-b64u',
@@ -1160,12 +1231,11 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
     await expect(
       coordinator.loginWithEcdsaCapabilityInternal({
         walletSession: TEST_WALLET_SESSION,
-        subjectId: TEST_SUBJECT_ID,
         chainTarget: TEMPO_CHAIN_TARGET,
         challengeId: 'challenge-1',
         otpCode: '123456',
         routeAuth: { kind: 'app_session', jwt: appSessionJwt() },
-        ecdsaThresholdKeyId: 'ecdsa-key',
+        keyHandle: 'ehss-key-handle-1',
         participantIds: [1, 3],
         sessionKind: 'jwt',
       }),
@@ -1196,13 +1266,12 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
 
     await coordinator.loginWithEcdsaCapabilityInternal({
       walletSession: TEST_WALLET_SESSION,
-      subjectId: TEST_SUBJECT_ID,
       chainTarget: TEMPO_CHAIN_TARGET,
       challengeId: 'challenge-1',
       otpCode: '123456',
       appSessionJwt: jwt,
       routeAuth: { kind: 'app_session', jwt },
-      ecdsaThresholdKeyId: 'ecdsa-key',
+      keyHandle: 'ehss-key-handle-1',
       participantIds: [1, 3],
       sessionKind: 'jwt',
     });
@@ -1239,17 +1308,16 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
 
     const result = await coordinator.loginWithEcdsaCapabilityForSigning({
       walletSession: TEST_WALLET_SESSION,
-      subjectId: TEST_SUBJECT_ID,
       chainTarget: TEMPO_CHAIN_TARGET,
       challengeId: 'challenge-1',
       otpCode: '123456',
       routeAuth: { kind: 'threshold_session', jwt: thresholdSessionAuthToken },
       record: {
         walletId: 'alice.testnet' as any,
-        subjectId: TEST_SUBJECT_ID,
-        rpId: 'localhost',
+        authMetadata: { rpId: 'localhost' },
         chainTarget: TEMPO_CHAIN_TARGET,
         relayerUrl: 'https://relay.example',
+        keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-exhausted'),
         ecdsaThresholdKeyId: 'ecdsa-key' as any,
         signingRootId: 'signing-root',
         signingRootVersion: 'root-v1',
@@ -1284,9 +1352,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       },
     });
 
-    const loginCall = workerCalls.find(
-      (call) => call.request?.type === 'loginWithEmailOtpWallet',
-    );
+    const loginCall = workerCalls.find((call) => call.request?.type === 'loginWithEmailOtpWallet');
     const bootstrapCall = workerCalls.find(
       (call) => call.request?.type === 'bootstrapEmailOtpEcdsaSessionsFromClientRootShare',
     );
@@ -1345,10 +1411,10 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       routeAuth: { kind: 'threshold_session', jwt: thresholdSessionAuthToken },
       record: {
         walletId: 'alice.testnet' as any,
-        subjectId: toWalletSubjectId('alice.testnet'),
-        rpId: 'localhost',
+        authMetadata: { rpId: 'localhost' },
         chainTarget: tempoChainTarget,
         relayerUrl: 'https://relay.example',
+        keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-transaction'),
         ecdsaThresholdKeyId: 'ecdsa-key' as any,
         signingRootId: 'signing-root',
         relayerKeyId: 'relayer-key',
@@ -1445,13 +1511,16 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
             bootstrap: {
               thresholdEcdsaKeyRef: {
                 type: 'threshold-ecdsa-secp256k1',
-                userId: call.request.payload.restore.userId,
-                subjectId: call.request.payload.restore.subjectId,
+                userId: call.request.payload.restore.walletId,
+                subjectId: TEST_SUBJECT_ID,
                 relayerUrl: call.request.payload.transport.relayerUrl,
-                ecdsaThresholdKeyId: call.request.payload.restore.ecdsaThresholdKeyId,
+                keyHandle: 'key-handle-ecdsa',
+                ecdsaThresholdKeyId: 'ecdsa-key',
                 chainTarget: call.request.payload.restore.chainTarget,
-                signingRootId: call.request.payload.restore.signingRootId,
-                signingRootVersion: call.request.payload.restore.signingRootVersion,
+                signingRootId:
+                  call.request.payload.restore.ed25519?.signingRootId || 'signing-root',
+                signingRootVersion:
+                  call.request.payload.restore.ed25519?.signingRootVersion || 'root-v1',
                 thresholdSessionId: call.request.payload.restore.sessionId,
                 walletSigningSessionId: call.request.payload.restore.walletSigningSessionId,
                 thresholdSessionAuthToken: call.request.payload.transport.thresholdSessionAuthToken,
@@ -1525,21 +1594,17 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
           expiresAtMs,
           transport: {
             relayerUrl: 'https://relay.example',
-            thresholdSessionAuthToken: 'threshold-session-jwt',
+            thresholdSessionAuthToken: expect.any(String),
             keyVersion: 'seal-v1',
             shamirPrimeB64u: 'prime-b64u',
           },
           restore: {
             sessionId: 'ecdsa-session',
             walletId: 'alice.testnet',
-            userId: 'alice.testnet',
             rpId: 'localhost',
-            subjectId: TEST_SUBJECT_ID,
             chainTarget: tempoChainTarget,
             walletSigningSessionId: 'wallet-session-1',
-            signingRootId: 'signing-root',
-            signingRootVersion: 'root-v1',
-            ecdsaThresholdKeyId: 'ecdsa-key',
+            keyHandle: 'key-handle-ecdsa',
             relayerKeyId: 'relayer-key',
             participantIds: [1, 3],
             sessionKind: 'jwt',
@@ -1590,13 +1655,16 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
             bootstrap: {
               thresholdEcdsaKeyRef: {
                 type: 'threshold-ecdsa-secp256k1',
-                userId: call.request.payload.restore.userId,
-                subjectId: call.request.payload.restore.subjectId,
+                userId: call.request.payload.restore.walletId,
+                subjectId: TEST_SUBJECT_ID,
                 relayerUrl: call.request.payload.transport.relayerUrl,
-                ecdsaThresholdKeyId: call.request.payload.restore.ecdsaThresholdKeyId,
+                keyHandle: 'key-handle-ecdsa',
+                ecdsaThresholdKeyId: 'ecdsa-key',
                 chainTarget: call.request.payload.restore.chainTarget,
-                signingRootId: call.request.payload.restore.signingRootId,
-                signingRootVersion: call.request.payload.restore.signingRootVersion,
+                signingRootId:
+                  call.request.payload.restore.ed25519?.signingRootId || 'signing-root',
+                signingRootVersion:
+                  call.request.payload.restore.ed25519?.signingRootVersion || 'root-v1',
                 thresholdSessionId: call.request.payload.restore.sessionId,
                 walletSigningSessionId: call.request.payload.restore.walletSigningSessionId,
                 thresholdSessionAuthToken: call.request.payload.transport.thresholdSessionAuthToken,
@@ -1631,6 +1699,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
               nearAccountId: 'alice.testnet' as any,
               chain: 'tempo',
               relayerUrl: 'https://relay.example',
+              keyHandle: 'key-handle-ecdsa',
               ecdsaThresholdKeyId: 'ecdsa-key' as any,
               signingRootId: 'signing-root',
               signingRootVersion: 'root-v1',
@@ -1863,13 +1932,16 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
             bootstrap: {
               thresholdEcdsaKeyRef: {
                 type: 'threshold-ecdsa-secp256k1',
-                userId: call.request.payload.restore.userId,
-                subjectId: call.request.payload.restore.subjectId,
+                userId: call.request.payload.restore.walletId,
+                subjectId: TEST_SUBJECT_ID,
                 relayerUrl: call.request.payload.transport.relayerUrl,
-                ecdsaThresholdKeyId: call.request.payload.restore.ecdsaThresholdKeyId,
+                keyHandle: 'key-handle-ecdsa',
+                ecdsaThresholdKeyId: 'ecdsa-key',
                 chainTarget: call.request.payload.restore.chainTarget,
-                signingRootId: call.request.payload.restore.signingRootId,
-                signingRootVersion: call.request.payload.restore.signingRootVersion,
+                signingRootId:
+                  call.request.payload.restore.ed25519?.signingRootId || 'signing-root',
+                signingRootVersion:
+                  call.request.payload.restore.ed25519?.signingRootVersion || 'root-v1',
                 thresholdSessionId: call.request.payload.restore.sessionId,
                 walletSigningSessionId: call.request.payload.restore.walletSigningSessionId,
                 thresholdSessionAuthToken: call.request.payload.transport.thresholdSessionAuthToken,
@@ -1932,16 +2004,12 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       request: {
         payload: {
           transport: {
-            thresholdSessionAuthToken: 'threshold-session-jwt',
+            thresholdSessionAuthToken: expect.any(String),
           },
           restore: {
             sessionId: 'ecdsa-session',
-            subjectId: TEST_SUBJECT_ID,
             chainTarget: tempoChainTarget,
             walletSigningSessionId: 'wallet-session-1',
-            signingRootId: 'signing-root',
-            signingRootVersion: 'root-v1',
-            ecdsaThresholdKeyId: 'ecdsa-key',
             relayerKeyId: 'relayer-key',
             participantIds: [1, 3],
             sessionKind: 'jwt',
@@ -2048,13 +2116,16 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
             bootstrap: {
               thresholdEcdsaKeyRef: {
                 type: 'threshold-ecdsa-secp256k1',
-                userId: call.request.payload.restore.userId,
-                subjectId: call.request.payload.restore.subjectId,
+                userId: call.request.payload.restore.walletId,
+                subjectId: TEST_SUBJECT_ID,
                 relayerUrl: call.request.payload.transport.relayerUrl,
-                ecdsaThresholdKeyId: call.request.payload.restore.ecdsaThresholdKeyId,
+                keyHandle: 'key-handle-ecdsa',
+                ecdsaThresholdKeyId: 'ecdsa-key',
                 chainTarget: call.request.payload.restore.chainTarget,
-                signingRootId: call.request.payload.restore.signingRootId,
-                signingRootVersion: call.request.payload.restore.signingRootVersion,
+                signingRootId:
+                  call.request.payload.restore.ed25519?.signingRootId || 'signing-root',
+                signingRootVersion:
+                  call.request.payload.restore.ed25519?.signingRootVersion || 'root-v1',
                 thresholdSessionId: call.request.payload.restore.sessionId,
                 walletSigningSessionId: call.request.payload.restore.walletSigningSessionId,
                 thresholdSessionAuthToken: call.request.payload.transport.thresholdSessionAuthToken,
@@ -2118,11 +2189,8 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
     expect(restoreCall).toBeTruthy();
     expect(restoreCall.request.payload.restore).toMatchObject({
       sessionId: 'ecdsa-session',
-      subjectId: TEST_SUBJECT_ID,
       chainTarget: tempoChainTarget,
       walletSigningSessionId: 'wallet-session-1',
-      signingRootId: 'signing-root',
-      signingRootVersion: 'root-v1',
     });
     expect(ecdsaCommitCalls).toHaveLength(1);
     expect(
@@ -2139,6 +2207,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       nearAccountId: 'alice.testnet',
       chain: 'tempo',
       relayerUrl: 'https://relay.example',
+      keyHandle: 'key-handle-ecdsa',
       ecdsaThresholdKeyId: 'ecdsa-key',
       signingRootId: 'signing-root',
       signingRootVersion: 'root-v1',
@@ -2181,6 +2250,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
                 type: 'threshold-ecdsa-secp256k1',
                 userId: 'alice.testnet',
                 relayerUrl: 'https://relay.example',
+                keyHandle: 'key-handle-ecdsa',
                 ecdsaThresholdKeyId: 'ecdsa-key',
                 signingRootId: 'signing-root',
                 signingRootVersion: 'root-v1',
@@ -2233,6 +2303,18 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       expiresAtMs,
       chainTarget: tempoChainTarget,
       signingRootId: 'other-signing-root',
+      thresholdSessionIds: {
+        ecdsa: 'ecdsa-session',
+        ed25519: 'ed25519-session',
+      },
+      ed25519Restore: {
+        rpId: 'localhost',
+        relayerKeyId: 'ed25519-relayer-key',
+        participantIds: [1, 3],
+        thresholdSessionAuthToken: 'threshold-session-jwt',
+        sessionKind: 'jwt',
+        xClientBaseB64u: 'ed25519-x-client-base',
+      },
     });
     const ecdsaRecord = {
       nearAccountId: 'alice.testnet' as any,
@@ -2240,6 +2322,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       subjectId: toWalletSubjectId('alice.testnet'),
       chainTarget: tempoChainTarget,
       relayerUrl: 'https://relay.example',
+      keyHandle: 'key-handle-ecdsa',
       ecdsaThresholdKeyId: 'ecdsa-key' as any,
       signingRootId: 'signing-root',
       relayerKeyId: 'relayer-key',
@@ -2327,6 +2410,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       nearAccountId: 'alice.testnet',
       chain: 'tempo',
       relayerUrl: 'https://relay.example',
+      keyHandle: 'key-handle-ecdsa',
       ecdsaThresholdKeyId: 'ecdsa-key',
       signingRootId: 'signing-root',
       signingRootVersion: 'root-v1',
@@ -2375,7 +2459,6 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
         curve: 'ecdsa',
         walletId: 'alice.testnet',
         userId: 'alice.testnet',
-        subjectId: TEST_SUBJECT_ID,
         signingRootId: 'signing-root',
         signingRootVersion: 'root-v1',
         relayerUrl: 'https://relay.example',
@@ -2384,8 +2467,15 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
         ecdsaRestore: {
           chainTarget: ecdsaRecord.chainTarget,
           rpId: 'example.com',
-          thresholdSessionAuthToken: 'threshold-session-jwt',
+          thresholdSessionAuthToken: thresholdEcdsaSessionJwt({
+            walletId: 'alice.testnet',
+            keyHandle: 'key-handle-ecdsa',
+            thresholdSessionId,
+            walletSigningSessionId: 'wallet-session-1',
+            chainTarget: ecdsaRecord.chainTarget,
+          }),
           sessionKind: 'jwt',
+          keyHandle: 'key-handle-ecdsa',
           ecdsaThresholdKeyId: 'ecdsa-key',
           ethereumAddress: `0x${'33'.repeat(20)}`,
           relayerKeyId: 'relayer-key',
@@ -2464,7 +2554,6 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
 
     const result = await coordinator.enrollAndLoginWithEcdsaCapabilityInternal({
       walletSession: TEST_WALLET_SESSION,
-      subjectId: TEST_SUBJECT_ID,
       chainTarget: TEMPO_CHAIN_TARGET,
       challengeId: 'challenge-1',
       otpCode: '123456',

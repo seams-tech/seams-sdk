@@ -4,17 +4,19 @@ import { buildWalletServiceHtml, registerWalletServiceRoute } from './harness';
 import {
   thresholdEcdsaChainTargetFromChainFamily,
   toWalletId,
-  toWalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 const WALLET_ORIGIN = 'https://wallet.example.localhost';
 const WALLET_SERVICE_ROUTE = '**://wallet.example.localhost/wallet-service*';
-const ALICE_SUBJECT_ID = toWalletSubjectId('alice.testnet');
 const ALICE_EVM_CHAIN_TARGET = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'evm',
   chainId: 11155111,
   networkSlug: 'sepolia',
 });
+const ALICE_WALLET_SESSION = {
+  walletId: toWalletId('alice.testnet'),
+  walletSessionUserId: 'alice.testnet',
+};
 
 const signingProgressForwardingScript = String.raw`
   const originalAdoptPort = adoptPort;
@@ -110,7 +112,7 @@ test.describe('WalletIframeRouter signing progress forwarding', () => {
 
   test('forwards v2 EVM threshold signing progress to app onEvent', async ({ page }) => {
     const result = await page.evaluate(
-      async ({ routerPath, walletOrigin }) => {
+      async ({ routerPath, walletOrigin, chainTarget, walletSession }) => {
         const mod = await import(routerPath);
         const { WalletIframeRouter } = mod as typeof import('@/core/WalletIframe/client/router');
 
@@ -126,12 +128,8 @@ test.describe('WalletIframeRouter signing progress forwarding', () => {
 
         const events: any[] = [];
         const signed = await router.signTempo({
-          walletSession: {
-            walletId: toWalletId('alice.testnet'),
-            walletSessionUserId: 'alice.testnet',
-          },
-          subjectId: ALICE_SUBJECT_ID,
-          chainTarget: ALICE_EVM_CHAIN_TARGET,
+          walletSession,
+          chainTarget,
           request: {
             chain: 'evm',
             kind: 'eip1559',
@@ -148,7 +146,12 @@ test.describe('WalletIframeRouter signing progress forwarding', () => {
           events,
         };
       },
-      { routerPath: SDK_ESM_PATHS.walletIframeRouter, walletOrigin: WALLET_ORIGIN },
+      {
+        routerPath: SDK_ESM_PATHS.walletIframeRouter,
+        walletOrigin: WALLET_ORIGIN,
+        chainTarget: ALICE_EVM_CHAIN_TARGET,
+        walletSession: ALICE_WALLET_SESSION,
+      },
     );
 
     expect(result.signed).toMatchObject({

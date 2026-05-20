@@ -8,8 +8,8 @@ import type { EmailOtpBootstrapRecovery } from '../../stepUpConfirmation/otpProm
 import type { ThresholdEcdsaSessionStoreDeps } from '../../session/persistence/records';
 import type {
   ThresholdEcdsaChainTarget,
+  WalletId,
   WalletSessionRef,
-  WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
@@ -22,7 +22,7 @@ import {
 
 export type LoginWithEmailOtpEcdsaCapabilityInternalArgs = {
   walletSession: WalletSessionRef;
-  subjectId: WalletSubjectId;
+  subjectId?: never;
   chainTarget: ThresholdEcdsaChainTarget;
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   otpCode: string;
@@ -30,7 +30,7 @@ export type LoginWithEmailOtpEcdsaCapabilityInternalArgs = {
   shamirPrimeB64u?: string;
   appSessionJwt?: string;
   routeAuth?: AppOrThresholdSessionAuth;
-  ecdsaThresholdKeyId?: string;
+  keyHandle?: string;
   participantIds?: number[];
   sessionKind?: 'jwt' | 'cookie';
   ttlMs?: number;
@@ -46,7 +46,7 @@ export type LoginWithEmailOtpEcdsaCapabilityInternalResult = {
 };
 
 export type EnrollEmailOtpInternalArgs = {
-  walletId: AccountId | string;
+  walletId: WalletId;
   otpCode: string;
   relayUrl?: string;
   challengeId?: string;
@@ -58,7 +58,7 @@ export type EnrollEmailOtpInternalArgs = {
 
 export type EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs = {
   walletSession: WalletSessionRef;
-  subjectId: WalletSubjectId;
+  subjectId?: never;
   chainTarget: ThresholdEcdsaChainTarget;
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   otpCode: string;
@@ -67,8 +67,8 @@ export type EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs = {
   shamirPrimeB64u?: string;
   appSessionJwt?: string;
   routeAuth?: AppOrThresholdSessionAuth;
-  ecdsaThresholdKeyId?: string;
   participantIds?: number[];
+  keyHandle?: string;
   sessionKind?: 'jwt' | 'cookie';
   ttlMs?: number;
   remainingUses?: number;
@@ -116,7 +116,6 @@ export async function requestEmailOtpSigningSessionChallenge(
   deps: EmailOtpPublicDeps,
   args: {
     walletSession: WalletSessionRef;
-    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
   },
 ): Promise<{ challengeId: string; emailHint?: string }> {
@@ -126,13 +125,18 @@ export async function requestEmailOtpSigningSessionChallenge(
       emailOtpSessions: {
         requestTransactionSigningChallenge: (challengeArgs) =>
           deps.emailOtpSessions.requestTransactionSigningChallenge(challengeArgs),
-        loginWithEcdsaCapabilityInternal: (loginArgs) =>
-          deps.emailOtpSessions.loginWithEcdsaCapabilityInternal(loginArgs),
+        loginWithEcdsaCapabilityInternal: ({ publicFacts, ...loginArgs }) =>
+          deps.emailOtpSessions.loginWithEcdsaCapabilityInternal({
+            ...loginArgs,
+            keyHandle: String(publicFacts.keyHandle),
+            participantIds: publicFacts.participantIds.map((participantId) =>
+              Number(participantId),
+            ),
+          }),
       },
     },
     {
       walletSession: args.walletSession,
-      subjectId: args.subjectId,
       chainTarget: args.chainTarget,
     },
   );
@@ -142,7 +146,6 @@ export async function refreshEmailOtpSigningSession(
   deps: EmailOtpPublicDeps,
   args: {
     walletSession: WalletSessionRef;
-    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     challengeId: string;
     otpCode: string;
@@ -162,7 +165,6 @@ export async function refreshEmailOtpSigningSession(
     },
     {
       walletSession: args.walletSession,
-      subjectId: args.subjectId,
       chainTarget: args.chainTarget,
       challengeId: args.challengeId,
       otpCode: args.otpCode,
@@ -213,12 +215,10 @@ export function createEmailOtpPublicApi(deps: EmailOtpPublicDeps) {
     ) => loginWithEmailOtpEcdsaCapabilityInternal(deps, args),
     requestEmailOtpSigningSessionChallenge: (args: {
       walletSession: WalletSessionRef;
-      subjectId: WalletSubjectId;
       chainTarget: ThresholdEcdsaChainTarget;
     }) => requestEmailOtpSigningSessionChallenge(deps, args),
     refreshEmailOtpSigningSession: (args: {
       walletSession: WalletSessionRef;
-      subjectId: WalletSubjectId;
       chainTarget: ThresholdEcdsaChainTarget;
       challengeId: string;
       otpCode: string;

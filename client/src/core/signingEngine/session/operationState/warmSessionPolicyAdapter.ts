@@ -1,17 +1,21 @@
-import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import type { ThresholdEcdsaSessionStoreSource } from '../identity/laneIdentity';
 import type {
   ThresholdEcdsaChainTarget,
-  WalletSubjectId,
+  WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   applyEcdsaPostSignPolicy,
   assertEcdsaOperationAllowed,
-  ecdsaPostSignPolicyMaterialFromRecord,
   ecdsaPostSignPolicySessionFromRecord,
+  secondaryEcdsaPostSignPolicyMaterialFromRecord,
+  selectedEcdsaPostSignPolicyMaterialFromRecord,
 } from './postSignPolicy';
+import type {
+  ConsumeSingleUseEmailOtpEcdsaLaneCommand,
+  ConsumeSingleUseEmailOtpEcdsaLaneResult,
+} from '../persistence/records';
 
 type WarmSessionEcdsaCapabilityRecordView = {
   record: ThresholdEcdsaSessionRecord | null;
@@ -27,33 +31,29 @@ type WarmSessionPolicyEnvelope = {
 };
 
 export type ApplyWarmEcdsaPostSignPolicyArgs = {
-  walletId: AccountId | string;
+  walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
   selectedRecord: ThresholdEcdsaSessionRecord;
   thresholdSessionId: string;
 };
 
 export type WarmSessionEcdsaCapabilityRef = {
-  walletId: AccountId | string;
+  walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
   thresholdSessionId: string;
 };
 
 export type WarmSessionPostSignPolicyAdapterDeps = {
-  getWarmSession: (walletId: AccountId | string) => Promise<WarmSessionPolicyEnvelope>;
+  getWarmSession: (walletId: WalletId) => Promise<WarmSessionPolicyEnvelope>;
   resolveExactEcdsaRecord: (args: {
-    walletId: AccountId;
+    walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
     thresholdSessionId: string;
     source?: ThresholdEcdsaSessionStoreSource;
   }) => ThresholdEcdsaSessionRecord | null;
-  markEmailOtpSessionConsumed?: (args: {
-    subjectId: WalletSubjectId;
-    chainTarget: ThresholdEcdsaChainTarget;
-    walletSigningSessionId: string;
-    thresholdSessionId: string;
-    uses?: number;
-  }) => void;
+  consumeSingleUseEmailOtpEcdsaLane?: (
+    command: ConsumeSingleUseEmailOtpEcdsaLaneCommand,
+  ) => ConsumeSingleUseEmailOtpEcdsaLaneResult;
   clearEcdsaEphemeralMaterial: (args: {
     record: ThresholdEcdsaSessionRecord;
     thresholdSessionId: string;
@@ -62,7 +62,7 @@ export type WarmSessionPostSignPolicyAdapterDeps = {
 
 async function resolveSecondaryEcdsaRecord(args: {
   getWarmSession: WarmSessionPostSignPolicyAdapterDeps['getWarmSession'];
-  walletId: AccountId;
+  walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
   source: ThresholdEcdsaSessionStoreSource;
 }): Promise<ThresholdEcdsaSessionRecord | null> {
@@ -77,27 +77,26 @@ export async function applyWarmSessionEcdsaPostSignPolicy(
   deps: WarmSessionPostSignPolicyAdapterDeps,
   args: ApplyWarmEcdsaPostSignPolicyArgs,
 ): Promise<void> {
-  const walletId = toAccountId(args.walletId);
   const secondaryRecord = await resolveSecondaryEcdsaRecord({
     getWarmSession: deps.getWarmSession,
-    walletId,
+    walletId: args.walletId,
     chainTarget: args.chainTarget,
     source: args.selectedRecord.source,
   });
   await applyEcdsaPostSignPolicy({
     thresholdSessionId: args.thresholdSessionId,
     source: args.selectedRecord.source,
-    selectedMaterial: ecdsaPostSignPolicyMaterialFromRecord({
+    selectedMaterial: selectedEcdsaPostSignPolicyMaterialFromRecord({
       record: args.selectedRecord,
       clearEcdsaEphemeralMaterial: deps.clearEcdsaEphemeralMaterial,
     }),
     secondaryMaterial: secondaryRecord
-      ? ecdsaPostSignPolicyMaterialFromRecord({
+      ? secondaryEcdsaPostSignPolicyMaterialFromRecord({
           record: secondaryRecord,
           clearEcdsaEphemeralMaterial: deps.clearEcdsaEphemeralMaterial,
         })
       : null,
-    markEmailOtpSessionConsumed: deps.markEmailOtpSessionConsumed,
+    consumeSingleUseEmailOtpEcdsaLane: deps.consumeSingleUseEmailOtpEcdsaLane,
   });
 }
 
@@ -109,16 +108,15 @@ export async function assertWarmSessionEcdsaOperationAllowed(
     sensitivePolicy?: SensitiveOperationPolicy;
   },
 ): Promise<void> {
-  const walletId = toAccountId(args.walletId);
   const record = deps.resolveExactEcdsaRecord({
-    walletId,
+    walletId: args.walletId,
     chainTarget: args.chainTarget,
     thresholdSessionId: args.thresholdSessionId,
     source: args.source,
   });
   const secondaryRecord = await resolveSecondaryEcdsaRecord({
     getWarmSession: deps.getWarmSession,
-    walletId,
+    walletId: args.walletId,
     chainTarget: args.chainTarget,
     source: args.source,
   });

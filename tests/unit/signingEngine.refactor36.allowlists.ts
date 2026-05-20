@@ -4,6 +4,11 @@ type Refactor36GuardAllowlistEntry = {
   reason: string;
 };
 
+type Refactor36PathOccurrenceAllowlistEntry = {
+  file: string;
+  occurrences: number;
+};
+
 export const refactor36EcdsaActivationConstructionAllowlist = [
   {
     file: 'client/src/core/signingEngine/session/passkey/ecdsaProvisioner.ts',
@@ -17,10 +22,8 @@ export const refactor36EcdsaActivationConstructionAllowlist = [
   },
 ] as const;
 
-export const reduceNearAccountIdAccountToSubjectAllowlist = [
-  { file: 'client/src/core/signingEngine/flows/recovery/exportLaneSelection.ts', occurrences: 1 },
-  { file: 'client/src/core/signingEngine/flows/signNear/signNear.ts', occurrences: 1 },
-] as const;
+export const reduceNearAccountIdAccountToSubjectAllowlist: readonly Refactor36PathOccurrenceAllowlistEntry[] =
+  [];
 
 export const reduceNearAccountIdForbiddenPathNearOwnedAllowlist = [
   {

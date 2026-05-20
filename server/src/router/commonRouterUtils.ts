@@ -230,7 +230,7 @@ export async function signThresholdSessionAuthToken(args: {
     runtimePolicyScope?: unknown;
     subjectId?: unknown;
     chainTarget?: unknown;
-    ecdsaThresholdKeyId?: unknown;
+    keyHandle?: unknown;
   };
   fallbackParticipantIds?: unknown;
   allowedSessionKinds?: Array<'jwt' | 'cookie'>;
@@ -282,7 +282,7 @@ export async function signThresholdSessionAuthToken(args: {
     }
   })();
   const subjectId = String(args.sessionInfo?.subjectId || '').trim();
-  const ecdsaThresholdKeyId = String(args.sessionInfo?.ecdsaThresholdKeyId || '').trim();
+  const keyHandle = String(args.sessionInfo?.keyHandle || '').trim();
   const chainTarget: ThresholdEcdsaChainTarget | null =
     args.kind === 'threshold_ecdsa_session_v1'
       ? thresholdEcdsaChainTargetFromValue(args.sessionInfo?.chainTarget)
@@ -299,7 +299,7 @@ export async function signThresholdSessionAuthToken(args: {
     !participantIds ||
     participantIds.length < 2 ||
     (args.kind === 'threshold_ecdsa_session_v1' &&
-      (!subjectId || !ecdsaThresholdKeyId || !chainTarget))
+      (!subjectId || !keyHandle || !chainTarget))
   ) {
     return {
       ok: false,
@@ -324,7 +324,7 @@ export async function signThresholdSessionAuthToken(args: {
     ...(args.kind === 'threshold_ecdsa_session_v1'
       ? {
           subjectId,
-          ecdsaThresholdKeyId,
+          keyHandle,
           chainTarget,
         }
       : {}),
@@ -352,7 +352,26 @@ export type RegistrationContinuationJwtSigningResult =
       status: 400 | 500;
       code: 'sessions_disabled' | 'invalid_body';
       message: string;
-    };
+  };
+
+export function stripLegacyThresholdEcdsaIdentityFields<
+  TThresholdEcdsa extends Record<string, unknown>,
+>(thresholdEcdsa: TThresholdEcdsa): Omit<
+  TThresholdEcdsa,
+  'ecdsaThresholdKeyId' | 'signingRootId' | 'signingRootVersion'
+> {
+  const {
+    ecdsaThresholdKeyId: _ecdsaThresholdKeyId,
+    signingRootId: _signingRootId,
+    signingRootVersion: _signingRootVersion,
+    ...sanitized
+  } = thresholdEcdsa as TThresholdEcdsa & {
+    ecdsaThresholdKeyId?: unknown;
+    signingRootId?: unknown;
+    signingRootVersion?: unknown;
+  };
+  return sanitized;
+}
 
 export async function signRegistrationContinuationJwt(args: {
   session: SessionAdapter | null | undefined;

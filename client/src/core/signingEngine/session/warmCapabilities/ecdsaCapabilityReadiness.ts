@@ -1,10 +1,15 @@
-import type { AccountId } from '@/core/types/accountIds';
 import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
+  type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
+import {
+  resolveThresholdEcdsaKeyIdFromKeyRef,
+  resolveThresholdEcdsaKeyIdFromRecord,
+  resolveThresholdSigningRootBindingFromRecord,
+} from '../identity/evmFamilyEcdsaIdentity';
 import {
   buildEcdsaSessionIdentity,
   ecdsaSessionIdentitiesEqual,
@@ -12,7 +17,7 @@ import {
 import type { WarmSessionEcdsaCapabilityState, WarmSessionEnvelope } from './types';
 
 export type EcdsaWarmCapabilityReader = {
-  getWarmSession: (walletId: AccountId | string) => Promise<WarmSessionEnvelope>;
+  getWarmSession: (walletId: WalletId) => Promise<WarmSessionEnvelope>;
 };
 
 function normalizeSigningRootVersion(value: unknown): string {
@@ -20,7 +25,7 @@ function normalizeSigningRootVersion(value: unknown): string {
 }
 
 function requireExactBootstrapCapability(args: {
-  walletId: AccountId | string;
+  walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
   capability: WarmSessionEcdsaCapabilityState;
@@ -36,6 +41,9 @@ function requireExactBootstrapCapability(args: {
 
   const record = capability.record;
   const keyRef = bootstrap.thresholdEcdsaKeyRef;
+  const recordSigningRootBinding = resolveThresholdSigningRootBindingFromRecord({
+    record,
+  });
   const recordIdentity = buildEcdsaSessionIdentity(record);
   const bootstrapIdentity = buildEcdsaSessionIdentity({
     thresholdSessionId: keyRef.thresholdSessionId || bootstrap.session.sessionId,
@@ -52,11 +60,10 @@ function requireExactBootstrapCapability(args: {
     !thresholdEcdsaChainTargetsEqual(record.chainTarget, args.chainTarget) ||
     !thresholdEcdsaChainTargetsEqual(keyRef.chainTarget, args.chainTarget) ||
     !ecdsaSessionIdentitiesEqual(recordIdentity, bootstrapIdentity) ||
-    String(record.subjectId || '').trim() !== String(keyRef.subjectId || '').trim() ||
-    String(record.ecdsaThresholdKeyId || '').trim() !==
-      String(keyRef.ecdsaThresholdKeyId || '').trim() ||
-    String(record.signingRootId || '').trim() !== String(keyRef.signingRootId || '').trim() ||
-    normalizeSigningRootVersion(record.signingRootVersion) !==
+    String(resolveThresholdEcdsaKeyIdFromRecord({ record })) !==
+      String(resolveThresholdEcdsaKeyIdFromKeyRef({ keyRef })) ||
+    String(recordSigningRootBinding.signingRootId) !== String(keyRef.signingRootId || '').trim() ||
+    normalizeSigningRootVersion(recordSigningRootBinding.signingRootVersion) !==
       normalizeSigningRootVersion(keyRef.signingRootVersion) ||
     !participantIdsMatch
   ) {
@@ -73,7 +80,7 @@ function requireExactBootstrapCapability(args: {
 export async function assertWarmThresholdEcdsaCapabilityReady(
   reader: EcdsaWarmCapabilityReader,
   args: {
-    walletId: AccountId | string;
+    walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
   },

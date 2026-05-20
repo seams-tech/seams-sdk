@@ -14,6 +14,10 @@ import type {
   RecoveryPublicDeps,
   RecoveryPublicEcdsaSessionStoreDeps,
 } from '../../flows/recovery/public';
+import type {
+  EmailOtpNearAccountExportAuthorizationDeps,
+  EmailOtpWalletSessionExportAuthorizationDeps,
+} from '../../flows/recovery/keyExportConfirmation';
 import type { CreateSigningEnginePortsArgs } from './shared';
 
 export function createPrivateKeyExportRecoveryDeps(
@@ -38,7 +42,9 @@ export function createRecoveryPublicDeps(args: {
   touchConfirm: UiConfirmRuntimeBridgePort;
   emailOtpSessions: {
     restorePersistedSessionForSigning: RecoveryPublicDeps['laneSelection']['restoreEmailOtpPersistedSessionForSigning'];
-    requestExportChallenge: RecoveryPublicDeps['ecdsa']['emailOtp']['requestExportChallenge'];
+    requestExportChallenge:
+      & EmailOtpNearAccountExportAuthorizationDeps['requestExportChallenge']
+      & EmailOtpWalletSessionExportAuthorizationDeps['requestExportChallenge'];
     exportEcdsaKeyWithFreshEmailOtpLane: RecoveryPublicDeps['ecdsa']['emailOtp']['exportEcdsaKeyWithFreshEmailOtpLane'];
     exportEcdsaKeyWithAuthorization: RecoveryPublicDeps['ecdsa']['emailOtp']['exportEcdsaKeyWithAuthorization'];
     recoverEd25519ExportPrfFirst: RecoveryPublicDeps['nearSingleKeyHss']['emailOtpSessions']['recoverEd25519ExportPrfFirst'];
@@ -102,7 +108,9 @@ export function createRecoveryPublicDeps(args: {
       },
       touchConfirm: args.touchConfirm,
       emailOtpSessions: {
-        requestExportChallenge: (request) => args.emailOtpSessions.requestExportChallenge(request),
+        requestExportChallenge: (
+          request: Parameters<EmailOtpNearAccountExportAuthorizationDeps['requestExportChallenge']>[0],
+        ) => args.emailOtpSessions.requestExportChallenge(request),
         recoverEd25519ExportPrfFirst: (request) =>
           args.emailOtpSessions.recoverEd25519ExportPrfFirst(request),
       },
@@ -114,7 +122,9 @@ export function createRecoveryPublicDeps(args: {
       touchConfirm: args.touchConfirm,
       getRpId: () => args.touchIdPrompt.getRpId(),
       emailOtp: {
-        requestExportChallenge: (request) => args.emailOtpSessions.requestExportChallenge(request),
+        requestExportChallenge: (
+          request: Parameters<EmailOtpWalletSessionExportAuthorizationDeps['requestExportChallenge']>[0],
+        ) => args.emailOtpSessions.requestExportChallenge(request),
         exportEcdsaKeyWithFreshEmailOtpLane: (request) =>
           args.emailOtpSessions.exportEcdsaKeyWithFreshEmailOtpLane(request),
         exportEcdsaKeyWithAuthorization: (request) =>

@@ -8,6 +8,8 @@ import type { SeamsChainConfig, SeamsChainNetwork } from '@/core/types/seams';
 
 export type WalletId = string & { readonly __brand: 'WalletId' };
 
+export type BaseEcdsaWalletId = WalletId;
+
 export type WalletSubjectId = string & { readonly __brand: 'WalletSubjectId' };
 
 export type NearAccountRef =
@@ -21,7 +23,7 @@ export type WalletSessionRef = {
 
 export type EcdsaCommandSubject = {
   walletSession: WalletSessionRef;
-  subjectId: WalletSubjectId;
+  subjectId?: never;
 };
 
 export type NearCommandSubject = {
@@ -47,13 +49,11 @@ export type TempoChainTarget = {
 export type ThresholdEcdsaChainTarget = EvmEip155ChainTarget | TempoChainTarget;
 
 export type ThresholdEcdsaSessionRecordKey = {
-  subjectId: WalletSubjectId;
+  walletId: AccountId;
+  keyHandle: string;
   authMethod: 'email_otp' | 'passkey';
   curve: 'ecdsa';
   chainTarget: ThresholdEcdsaChainTarget;
-  ecdsaThresholdKeyId: string;
-  signingRootId: string;
-  signingRootVersion: string;
   walletSigningSessionId: string;
   thresholdSessionId: string;
 };
@@ -286,13 +286,11 @@ function laneKeyPart(value: unknown): string {
 
 export function thresholdEcdsaLaneKey(lane: ThresholdEcdsaSessionRecordKey): string {
   return [
-    laneKeyPart(lane.subjectId),
-    laneKeyPart(lane.ecdsaThresholdKeyId),
+    laneKeyPart(lane.walletId),
+    laneKeyPart(lane.keyHandle),
     laneKeyPart(lane.authMethod),
     'ecdsa',
     laneKeyPart(thresholdEcdsaChainTargetKey(lane.chainTarget)),
-    laneKeyPart(lane.signingRootId),
-    laneKeyPart(lane.signingRootVersion),
     laneKeyPart(lane.walletSigningSessionId),
     laneKeyPart(lane.thresholdSessionId),
   ].join(':');

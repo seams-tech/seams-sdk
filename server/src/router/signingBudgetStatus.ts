@@ -27,13 +27,14 @@ type BaseVerifiedThresholdSessionAuth = {
 
 export type VerifiedEcdsaThresholdSessionAuth = BaseVerifiedThresholdSessionAuth & {
   curve: 'ecdsa';
-  ecdsaThresholdKeyId: string;
+  keyHandle: string;
   ed25519RelayerKeyId?: never;
 };
 
 export type VerifiedEd25519ThresholdSessionAuth = BaseVerifiedThresholdSessionAuth & {
   curve: 'ed25519';
   ed25519RelayerKeyId: string;
+  keyHandle?: never;
   ecdsaThresholdKeyId?: never;
 };
 
@@ -48,7 +49,7 @@ export type EcdsaWalletSigningBudgetStatusRequest = {
   walletSigningSessionId: string;
 
   // Curve-specific fields.
-  ecdsaThresholdKeyId: string;
+  keyHandle: string;
   ed25519RelayerKeyId?: never;
 };
 
@@ -60,7 +61,7 @@ export type Ed25519WalletSigningBudgetStatusRequest = {
 
   // Curve-specific fields.
   ed25519RelayerKeyId: string;
-  ecdsaThresholdKeyId?: never;
+  keyHandle?: never;
 };
 
 export type WalletSigningBudgetStatusRequest =
@@ -159,7 +160,7 @@ function buildVerifiedEcdsaThresholdSessionAuth(
     relayerKeyId: claims.relayerKeyId,
     participantIds: claims.participantIds,
     expiresAtMs: Math.floor(Number(claims.thresholdExpiresAtMs) || 0),
-    ecdsaThresholdKeyId: claims.ecdsaThresholdKeyId,
+    keyHandle: claims.keyHandle,
   };
 }
 
@@ -208,7 +209,7 @@ export async function parseEcdsaWalletSigningBudgetStatusRequest(args: {
       auth,
       thresholdSessionId: args.claims.sessionId,
       walletSigningSessionId: args.claims.walletSigningSessionId,
-      ecdsaThresholdKeyId: args.claims.ecdsaThresholdKeyId,
+      keyHandle: auth.keyHandle,
     },
     claimsKind: args.claims.kind,
     nowMs: args.nowMs,
@@ -284,6 +285,15 @@ export async function parseWalletSigningBudgetStatusRequest(args: {
   return unauthorized('Invalid threshold session token claims');
 }
 
+function hasCompleteCurveSpecificAuth(auth: VerifiedThresholdSessionAuth): boolean {
+  switch (auth.curve) {
+    case 'ecdsa':
+      return Boolean(auth.keyHandle);
+    case 'ed25519':
+      return Boolean(auth.ed25519RelayerKeyId);
+  }
+}
+
 async function parseCurveBoundWalletSigningBudgetStatus(args: {
   rawClaims: Record<string, unknown>;
   sessionPolicy: SigningSessionSealThresholdSessionPolicy | null | undefined;
@@ -297,6 +307,7 @@ async function parseCurveBoundWalletSigningBudgetStatus(args: {
     !args.auth.userId ||
     !args.auth.thresholdSessionId ||
     !args.auth.walletSigningSessionId ||
+    !hasCompleteCurveSpecificAuth(args.auth) ||
     args.auth.expiresAtMs <= nowMs()
   ) {
     return unauthorized('Expired or incomplete threshold session token');

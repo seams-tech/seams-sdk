@@ -19,7 +19,7 @@ import {
   runKeyExportWithFlowEvents,
   type SigningEngineExportKeypairWithUIInput,
 } from './keyExportFlow';
-import { deriveEvmFamilyKeyFingerprint } from '../../session/identity/evmFamilyEcdsaIdentity';
+import { deriveEvmFamilyKeyFingerprintFromPublicFacts } from '../../session/identity/evmFamilyEcdsaIdentity';
 import {
   tryExportNearEd25519SingleKeyHssWithAuthorization,
   type NearEd25519SingleKeyExportDeps,
@@ -41,25 +41,23 @@ function emitEcdsaExportFailureDiagnostics(args: {
   exportMaterial?: EcdsaExportMaterial;
   error: unknown;
 }): void {
+  const publicFacts = args.exportMaterial?.publicFacts || args.exportLane?.publicFacts;
   const keyFingerprint =
-    args.exportMaterial?.kind === 'ready'
-      ? deriveEvmFamilyKeyFingerprint(args.exportMaterial.readyMaterial.key)
+    args.exportMaterial?.kind === 'ready_threshold_ecdsa_export_material'
+      ? args.exportMaterial.evmFamilyKeyFingerprint
       : args.exportLane
-        ? deriveEvmFamilyKeyFingerprint(args.exportLane.key)
+        ? deriveEvmFamilyKeyFingerprintFromPublicFacts({
+            walletId: args.exportLane.key.walletId,
+            publicFacts: args.exportLane.publicFacts,
+          })
         : undefined;
   try {
     console.warn('[SigningEngine][ecdsa-export][failure]', {
       operationId: args.flowId,
       authMethod: args.exportLane?.session.authMethod,
       ...(keyFingerprint ? { evmFamilyKeyFingerprint: keyFingerprint } : {}),
+      ...(publicFacts ? { keyHandle: String(publicFacts.keyHandle) } : {}),
       chainTargetKey: thresholdEcdsaChainTargetKey(args.input.chainTarget),
-      ecdsaThresholdKeyId:
-        args.exportLane?.key.ecdsaThresholdKeyId ||
-        (args.exportMaterial?.kind === 'ready'
-          ? args.exportMaterial.readyMaterial.key.ecdsaThresholdKeyId
-          : args.exportMaterial?.kind === 'fresh_email_otp'
-            ? args.exportMaterial.ecdsaThresholdKeyId
-            : undefined),
       walletSigningSessionId: args.exportLane?.session.walletSigningSessionId,
       thresholdSessionId: args.exportLane?.session.thresholdSessionId,
       budgetProjectionVersion: undefined,
@@ -109,7 +107,6 @@ async function exportKeypairWithFlowId(
     exportLane = await restoreEcdsaSessionForExport(deps.laneSelection, {
       walletId: walletSessionUserId,
       rpId,
-      subjectId: args.subjectId,
       signingTarget: exportTarget,
     });
     exportMaterial = await resolveEcdsaExportMaterialForLane(
@@ -132,7 +129,7 @@ async function exportKeypairWithFlowId(
     }
     return await exportThresholdEcdsaKeyWithAuthorization(deps.ecdsa, {
       walletSessionUserId,
-      material: exportMaterial.readyMaterial,
+      material: exportMaterial,
       exportLane,
       options: {
         variant: args.options.variant,

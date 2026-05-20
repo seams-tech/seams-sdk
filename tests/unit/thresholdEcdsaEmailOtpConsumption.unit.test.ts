@@ -1,26 +1,37 @@
 import { expect, test } from '@playwright/test';
 import { toAccountId } from '../../client/src/core/types/accountIds';
-import {
-  toWalletSubjectId,
-  type EvmEip155ChainTarget,
-} from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { EvmEip155ChainTarget } from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   clearAllThresholdEcdsaSessionRecords,
-  listThresholdEcdsaSessionRecordsForTarget,
-  markThresholdEcdsaEmailOtpSessionConsumedForLane,
+  consumeSingleUseEmailOtpEcdsaLane,
+  emailOtpEcdsaPostSignMaterialFromRecord,
+  listThresholdEcdsaSessionRecordsForWalletTarget,
   upsertStoredThresholdEcdsaSessionRecord,
+  type ConsumableEmailOtpEcdsaLane,
+  type ConsumeSingleUseEmailOtpEcdsaLaneCommand,
   type ThresholdEcdsaSessionRecord,
   type ThresholdEcdsaSessionStoreDeps,
 } from '../../client/src/core/signingEngine/session/persistence/records';
+import {
+  buildVerifiedEcdsaPublicFacts,
+  toEvmFamilyEcdsaKeyHandle,
+} from '../../client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 
 const WALLET_ID = toAccountId('alice.testnet');
-const SUBJECT_ID = toWalletSubjectId(WALLET_ID);
 const EVM_TARGET: EvmEip155ChainTarget = {
   kind: 'evm',
   namespace: 'eip155',
   chainId: 5042002,
   networkSlug: 'arc-testnet',
 };
+const SECOND_EVM_TARGET: EvmEip155ChainTarget = {
+  kind: 'evm',
+  namespace: 'eip155',
+  chainId: 1,
+  networkSlug: 'ethereum',
+};
+const VALID_PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const OWNER_ADDRESS = '0x1111111111111111111111111111111111111111';
 
 function createStore(nowRef: { value: number } | number): ThresholdEcdsaSessionStoreDeps {
   return {
@@ -35,26 +46,39 @@ function ecdsaEmailOtpRecord(args: {
   thresholdSessionId: string;
   remainingUses: number;
   updatedAtMs: number;
+  chainTarget?: EvmEip155ChainTarget;
+  ecdsaThresholdKeyId?: string;
 }): ThresholdEcdsaSessionRecord {
+  const keyHandle = toEvmFamilyEcdsaKeyHandle(
+    `key-handle-${args.ecdsaThresholdKeyId || 'ecdsa-key-1'}`,
+  );
+  const participantIds = [1, 2];
   return {
     walletId: WALLET_ID,
-    subjectId: SUBJECT_ID,
-    rpId: 'localhost',
-    chainTarget: EVM_TARGET,
+    authMetadata: { rpId: 'localhost' },
+    chainTarget: args.chainTarget || EVM_TARGET,
     relayerUrl: 'https://relay.example',
-    ecdsaThresholdKeyId: 'ecdsa-key-1',
+    keyHandle,
+    ecdsaThresholdKeyId: args.ecdsaThresholdKeyId || 'ecdsa-key-1',
     signingRootId: 'signing-root',
     signingRootVersion: 'v1',
     relayerKeyId: 'relayer-key-1',
     clientVerifyingShareB64u: 'client-verifying-share',
-    participantIds: [1, 2],
+    participantIds,
     thresholdSessionKind: 'jwt',
     thresholdSessionId: args.thresholdSessionId,
     walletSigningSessionId: args.walletSigningSessionId,
     thresholdSessionAuthToken: `jwt-${args.thresholdSessionId}`,
     expiresAtMs: 2_000_000_000_000,
     remainingUses: args.remainingUses,
-    ethereumAddress: '0x1111111111111111111111111111111111111111',
+    thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,
+    verifiedPublicFacts: buildVerifiedEcdsaPublicFacts({
+      keyHandle,
+      publicKeyB64u: VALID_PUBLIC_KEY_B64U,
+      participantIds,
+      thresholdOwnerAddress: OWNER_ADDRESS,
+    }),
+    ethereumAddress: OWNER_ADDRESS,
     updatedAtMs: args.updatedAtMs,
     source: 'email_otp',
     emailOtpAuthContext: {
@@ -63,6 +87,24 @@ function ecdsaEmailOtpRecord(args: {
       reason: 'sign',
       retention: 'single_use',
     },
+  };
+}
+
+function requireConsumableLane(record: ThresholdEcdsaSessionRecord): ConsumableEmailOtpEcdsaLane {
+  const material = emailOtpEcdsaPostSignMaterialFromRecord(record);
+  if (material?.kind !== 'consumable_email_otp_ecdsa_lane') {
+    throw new Error(`expected consumable Email OTP ECDSA lane, got ${material?.kind || 'null'}`);
+  }
+  return material;
+}
+
+function consumeCommand(
+  lane: ConsumableEmailOtpEcdsaLane,
+): ConsumeSingleUseEmailOtpEcdsaLaneCommand {
+  return {
+    kind: 'consume_single_use_email_otp_ecdsa_lane',
+    lane,
+    uses: 1,
   };
 }
 
@@ -78,7 +120,7 @@ test.describe('Threshold ECDSA Email OTP consumption', () => {
   test('marks only the exact consumed ECDSA lane', () => {
     const nowMs = { value: 1_800_000_000_000 };
     const store = createStore(nowMs);
-    upsertStoredThresholdEcdsaSessionRecord(
+    const selectedRecord = upsertStoredThresholdEcdsaSessionRecord(
       store,
       ecdsaEmailOtpRecord({
         walletSigningSessionId: 'wallet-session-a',
@@ -98,24 +140,170 @@ test.describe('Threshold ECDSA Email OTP consumption', () => {
     );
 
     nowMs.value = 1_800_000_001_000;
-    const consumed = markThresholdEcdsaEmailOtpSessionConsumedForLane(store, {
-      subjectId: SUBJECT_ID,
-      chainTarget: EVM_TARGET,
-      walletSigningSessionId: 'wallet-session-a',
-      thresholdSessionId: 'threshold-session-a',
-      uses: 1,
-    });
+    const consumed = consumeSingleUseEmailOtpEcdsaLane(
+      store,
+      consumeCommand(requireConsumableLane(selectedRecord)),
+    );
 
-    expect(consumed?.remainingUses).toBe(0);
-    const records = listThresholdEcdsaSessionRecordsForTarget(store, {
-      subjectId: SUBJECT_ID,
+    expect(consumed.kind).toBe('consumed');
+    const records = listThresholdEcdsaSessionRecordsForWalletTarget(store, {
+      walletId: WALLET_ID,
       chainTarget: EVM_TARGET,
       source: 'email_otp',
     });
     const recordsBySession = new Map(records.map((record) => [record.thresholdSessionId, record]));
     expect(recordsBySession.get('threshold-session-a')?.remainingUses).toBe(0);
+    expect(recordsBySession.get('threshold-session-a')?.emailOtpAuthContext?.consumedAtMs).toBe(
+      1_800_000_001_000,
+    );
     expect(recordsBySession.get('threshold-session-a')?.updatedAtMs).toBe(1_800_000_001_000);
     expect(recordsBySession.get('threshold-session-b')?.remainingUses).toBe(1);
     expect(recordsBySession.get('threshold-session-b')?.updatedAtMs).toBe(1_800_000_000_000);
+  });
+
+  test('returns missing_lane for an exact lane key that is absent', () => {
+    const store = createStore(1_800_000_000_000);
+    const selectedRecord = upsertStoredThresholdEcdsaSessionRecord(
+      store,
+      ecdsaEmailOtpRecord({
+        walletSigningSessionId: 'wallet-session-a',
+        thresholdSessionId: 'threshold-session-a',
+        remainingUses: 1,
+        updatedAtMs: 1_800_000_000_000,
+      }),
+    );
+    const command = consumeCommand(requireConsumableLane(selectedRecord));
+    store.recordsByLane.delete(command.lane.laneRef.laneKey);
+
+    expect(consumeSingleUseEmailOtpEcdsaLane(store, command)).toEqual({
+      kind: 'missing_lane',
+      laneKey: command.lane.laneRef.laneKey,
+    });
+  });
+
+  test('returns already_consumed when the exact lane was consumed by an earlier call', () => {
+    const nowMs = { value: 1_800_000_000_000 };
+    const store = createStore(nowMs);
+    const selectedRecord = upsertStoredThresholdEcdsaSessionRecord(
+      store,
+      ecdsaEmailOtpRecord({
+        walletSigningSessionId: 'wallet-session-a',
+        thresholdSessionId: 'threshold-session-a',
+        remainingUses: 1,
+        updatedAtMs: 1_800_000_000_000,
+      }),
+    );
+    const command = consumeCommand(requireConsumableLane(selectedRecord));
+
+    nowMs.value = 1_800_000_001_000;
+    expect(consumeSingleUseEmailOtpEcdsaLane(store, command).kind).toBe('consumed');
+    expect(consumeSingleUseEmailOtpEcdsaLane(store, command)).toEqual({
+      kind: 'already_consumed',
+      laneKey: command.lane.laneRef.laneKey,
+      consumedAtMs: 1_800_000_001_000,
+    });
+  });
+
+  test('returns stale_record for updated-at mismatch before consumption', () => {
+    const store = createStore(1_800_000_000_000);
+    const selectedRecord = upsertStoredThresholdEcdsaSessionRecord(
+      store,
+      ecdsaEmailOtpRecord({
+        walletSigningSessionId: 'wallet-session-a',
+        thresholdSessionId: 'threshold-session-a',
+        remainingUses: 1,
+        updatedAtMs: 1_800_000_000_000,
+      }),
+    );
+    const command = consumeCommand(requireConsumableLane(selectedRecord));
+    store.recordsByLane.set(command.lane.laneRef.laneKey, {
+      ...selectedRecord,
+      updatedAtMs: 1_800_000_000_123,
+    });
+
+    expect(consumeSingleUseEmailOtpEcdsaLane(store, command)).toEqual({
+      kind: 'stale_record',
+      laneKey: command.lane.laneRef.laneKey,
+      reason: 'updated_at_mismatch',
+    });
+  });
+
+  test('returns stale_record when stored single-use remainingUses is not exactly one', () => {
+    const store = createStore(1_800_000_000_000);
+    const selectedRecord = upsertStoredThresholdEcdsaSessionRecord(
+      store,
+      ecdsaEmailOtpRecord({
+        walletSigningSessionId: 'wallet-session-a',
+        thresholdSessionId: 'threshold-session-a',
+        remainingUses: 1,
+        updatedAtMs: 1_800_000_000_000,
+      }),
+    );
+    const command = consumeCommand(requireConsumableLane(selectedRecord));
+    store.recordsByLane.set(command.lane.laneRef.laneKey, {
+      ...selectedRecord,
+      remainingUses: 2,
+    });
+
+    expect(consumeSingleUseEmailOtpEcdsaLane(store, command)).toEqual({
+      kind: 'stale_record',
+      laneKey: command.lane.laneRef.laneKey,
+      reason: 'remaining_uses_mismatch',
+    });
+  });
+
+  test('returns stale_record for chain target and key identity command mismatches', () => {
+    const store = createStore(1_800_000_000_000);
+    const selectedRecord = upsertStoredThresholdEcdsaSessionRecord(
+      store,
+      ecdsaEmailOtpRecord({
+        walletSigningSessionId: 'wallet-session-a',
+        thresholdSessionId: 'threshold-session-a',
+        remainingUses: 1,
+        updatedAtMs: 1_800_000_000_000,
+      }),
+    );
+    const selectedLane = requireConsumableLane(selectedRecord);
+    const otherKeyRecord = ecdsaEmailOtpRecord({
+      walletSigningSessionId: 'wallet-session-b',
+      thresholdSessionId: 'threshold-session-b',
+      remainingUses: 1,
+      updatedAtMs: 1_800_000_000_000,
+      chainTarget: SECOND_EVM_TARGET,
+      ecdsaThresholdKeyId: 'ecdsa-key-2',
+    });
+    const otherLane = requireConsumableLane(otherKeyRecord);
+
+    const chainMismatchLane: ConsumableEmailOtpEcdsaLane = {
+      ...selectedLane,
+      laneRef: {
+        ...selectedLane.laneRef,
+        exactIdentity: {
+          ...selectedLane.laneRef.exactIdentity,
+          chainTarget: SECOND_EVM_TARGET,
+        },
+      },
+    };
+    expect(consumeSingleUseEmailOtpEcdsaLane(store, consumeCommand(chainMismatchLane))).toEqual({
+      kind: 'stale_record',
+      laneKey: selectedLane.laneRef.laneKey,
+      reason: 'chain_target_mismatch',
+    });
+
+    const keyMismatchLane: ConsumableEmailOtpEcdsaLane = {
+      ...selectedLane,
+      laneRef: {
+        ...selectedLane.laneRef,
+        exactIdentity: {
+          ...selectedLane.laneRef.exactIdentity,
+          key: otherLane.laneRef.exactIdentity.key,
+        },
+      },
+    };
+    expect(consumeSingleUseEmailOtpEcdsaLane(store, consumeCommand(keyMismatchLane))).toEqual({
+      kind: 'stale_record',
+      laneKey: selectedLane.laneRef.laneKey,
+      reason: 'key_identity_mismatch',
+    });
   });
 });

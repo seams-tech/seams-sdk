@@ -1,12 +1,18 @@
 import { expect, test } from '@playwright/test';
 import { toAccountId } from '@/core/types/accountIds';
-import { toWalletSubjectId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  toWalletId,
+  toWalletSubjectId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { resolveEvmFamilyEcdsaSigningSelection } from '@/core/signingEngine/flows/signEvmFamily/ecdsaSelection';
 import type { EcdsaLaneCandidate } from '@/core/signingEngine/session/identity/laneIdentity';
 import type { EvmFamilyEcdsaSigningSelectionDeps } from '@/core/signingEngine/flows/signEvmFamily/ecdsaSelection';
 import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfaces/signing';
-import { buildEvmFamilyEcdsaKeyIdentity } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import {
+  buildEvmFamilyEcdsaKeyIdentity,
+  toEvmFamilyEcdsaKeyHandle,
+} from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 
 type DirectEcdsaLaneCandidate = Extract<
   EcdsaLaneCandidate,
@@ -28,6 +34,8 @@ const tempoChainTarget = {
   networkSlug: 'tempo-testnet',
 };
 
+const walletId = toWalletId('restorable.testnet');
+
 function candidate(state: EcdsaLaneCandidate['state']): DirectEcdsaLaneCandidate {
   return {
     kind: 'lane_candidate',
@@ -45,6 +53,7 @@ function candidate(state: EcdsaLaneCandidate['state']): DirectEcdsaLaneCandidate
       participantIds: [1, 2],
       thresholdOwnerAddress: `0x${'aa'.repeat(20)}`,
     }),
+    keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-restorable'),
     chainTarget,
     walletSigningSessionId: 'wsess-restorable',
     thresholdSessionId: 'tsess-restorable',
@@ -105,12 +114,12 @@ function recordForChainTarget(
 ): ThresholdEcdsaSessionRecord {
   return {
     walletId: input.walletId,
-    subjectId: input.key.subjectId,
-    rpId: input.key.rpId,
+    authMetadata: { rpId: input.key.rpId },
     chainTarget: materialChainTarget,
     relayerUrl: 'https://relay.example',
-    ecdsaThresholdKeyId:
-      input.key.ecdsaThresholdKeyId as ThresholdEcdsaSessionRecord['ecdsaThresholdKeyId'],
+    keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-restorable'),
+    ecdsaThresholdKeyId: input.key
+      .ecdsaThresholdKeyId as ThresholdEcdsaSessionRecord['ecdsaThresholdKeyId'],
     signingRootId: input.key.signingRootId,
     signingRootVersion: input.key.signingRootVersion,
     relayerKeyId: 'rk-restorable',
@@ -155,11 +164,10 @@ function keyRefForChainTarget(
   return {
     type: 'threshold-ecdsa-secp256k1',
     userId: String(input.walletId),
-    subjectId: input.key.subjectId,
     chainTarget: materialChainTarget,
     relayerUrl: 'https://relay.example',
-    ecdsaThresholdKeyId:
-      input.key.ecdsaThresholdKeyId as ThresholdEcdsaSecp256k1KeyRef['ecdsaThresholdKeyId'],
+    ecdsaThresholdKeyId: input.key
+      .ecdsaThresholdKeyId as ThresholdEcdsaSecp256k1KeyRef['ecdsaThresholdKeyId'],
     signingRootId: input.key.signingRootId,
     signingRootVersion: input.key.signingRootVersion,
     backendBinding: {
@@ -211,8 +219,7 @@ test.describe('ECDSA restorable lane selection', () => {
   test('routes restorable passkey lanes without hot material through reauth', async () => {
     const selection = await resolveEvmFamilyEcdsaSigningSelection({
       deps: selectionDeps(),
-      walletId: 'restorable.testnet',
-      subjectId: toWalletSubjectId('restorable.testnet'),
+      walletId,
       chain: 'evm',
       chainTarget,
       senderSignatureAlgorithm: 'webauthnP256',
@@ -229,8 +236,7 @@ test.describe('ECDSA restorable lane selection', () => {
   test('keeps ready lanes strict when exact material is missing', async () => {
     const selection = await resolveEvmFamilyEcdsaSigningSelection({
       deps: selectionDeps(),
-      walletId: 'restorable.testnet',
-      subjectId: toWalletSubjectId('restorable.testnet'),
+      walletId,
       chain: 'evm',
       chainTarget,
       senderSignatureAlgorithm: 'webauthnP256',
@@ -245,8 +251,7 @@ test.describe('ECDSA restorable lane selection', () => {
     const exhaustedCandidate = candidate('exhausted');
     const selection = await resolveEvmFamilyEcdsaSigningSelection({
       deps: selectionDepsWithExactMaterial(exhaustedCandidate),
-      walletId: 'restorable.testnet',
-      subjectId: toWalletSubjectId('restorable.testnet'),
+      walletId,
       chain: 'evm',
       chainTarget,
       senderSignatureAlgorithm: 'webauthnP256',
@@ -279,10 +284,7 @@ test.describe('ECDSA restorable lane selection', () => {
         }
         throw new Error('missing source record');
       },
-      getPasskeyThresholdEcdsaKeyRefForSigning: ({
-        chainTarget: requestedChainTarget,
-        source,
-      }) => {
+      getPasskeyThresholdEcdsaKeyRefForSigning: ({ chainTarget: requestedChainTarget, source }) => {
         if (
           source === 'registration' &&
           requestedChainTarget.kind === chainTarget.kind &&
@@ -296,8 +298,7 @@ test.describe('ECDSA restorable lane selection', () => {
 
     const selection = await resolveEvmFamilyEcdsaSigningSelection({
       deps,
-      walletId: 'restorable.testnet',
-      subjectId: toWalletSubjectId('restorable.testnet'),
+      walletId,
       chain: 'tempo',
       chainTarget: tempoChainTarget,
       senderSignatureAlgorithm: 'webauthnP256',
@@ -334,8 +335,7 @@ test.describe('ECDSA restorable lane selection', () => {
 
     const selection = await resolveEvmFamilyEcdsaSigningSelection({
       deps,
-      walletId: 'restorable.testnet',
-      subjectId: toWalletSubjectId('restorable.testnet'),
+      walletId,
       chain: 'evm',
       chainTarget,
       senderSignatureAlgorithm: 'secp256k1',
@@ -362,9 +362,7 @@ test.describe('ECDSA restorable lane selection', () => {
     const emailOtpKeyRef = emailOtpKeyRefForChainTarget(input, chainTarget);
     const deps: EvmFamilyEcdsaSigningSelectionDeps = {
       ...selectionDeps(),
-      getEmailOtpThresholdEcdsaSessionRecordForSigning: ({
-        chainTarget: requestedChainTarget,
-      }) => {
+      getEmailOtpThresholdEcdsaSessionRecordForSigning: ({ chainTarget: requestedChainTarget }) => {
         if (
           requestedChainTarget.kind === chainTarget.kind &&
           requestedChainTarget.chainId === chainTarget.chainId
@@ -386,8 +384,7 @@ test.describe('ECDSA restorable lane selection', () => {
 
     const selection = await resolveEvmFamilyEcdsaSigningSelection({
       deps,
-      walletId: 'restorable.testnet',
-      subjectId: toWalletSubjectId('restorable.testnet'),
+      walletId,
       chain: 'tempo',
       chainTarget: tempoChainTarget,
       senderSignatureAlgorithm: 'secp256k1',
@@ -414,8 +411,7 @@ test.describe('ECDSA restorable lane selection', () => {
 
     const selection = await resolveEvmFamilyEcdsaSigningSelection({
       deps: selectionDeps(),
-      walletId: 'restorable.testnet',
-      subjectId: toWalletSubjectId('restorable.testnet'),
+      walletId,
       chain: 'tempo',
       chainTarget: tempoChainTarget,
       senderSignatureAlgorithm: 'secp256k1',

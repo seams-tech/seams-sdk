@@ -3,13 +3,16 @@ import {
   SENSITIVE_OPERATION_POLICIES,
   type SensitiveOperationPolicy,
 } from '@shared/utils/signerDomain';
-import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
+import {
+  emailOtpEcdsaPostSignMaterialFromRecord,
+  type ConsumeSingleUseEmailOtpEcdsaLaneCommand,
+  type ConsumeSingleUseEmailOtpEcdsaLaneResult,
+  type EmailOtpEcdsaPostSignMaterial,
+  type ThresholdEcdsaSessionRecord,
+} from '../persistence/records';
 import type { ThresholdEcdsaSessionStoreSource } from '../identity/laneIdentity';
 import { WalletAuthPolicyError } from '../../stepUpConfirmation/walletAuthModeResolver';
-import type {
-  ThresholdEcdsaChainTarget,
-  WalletSubjectId,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export type EcdsaPostSignPolicyMaterialClearer = (args: {
   record: ThresholdEcdsaSessionRecord;
@@ -18,7 +21,6 @@ export type EcdsaPostSignPolicyMaterialClearer = (args: {
 
 export type EcdsaPostSignPolicySession = {
   walletId: AccountId;
-  subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   source: ThresholdEcdsaSessionStoreSource;
   walletSigningSessionId: string;
@@ -27,9 +29,19 @@ export type EcdsaPostSignPolicySession = {
   emailOtpConsumedAtMs: number | null;
 };
 
-export type EcdsaPostSignPolicyMaterial = {
+type EcdsaPostSignPolicyMaterialBase = {
   session: EcdsaPostSignPolicySession;
   clearEphemeralMaterial: () => Promise<void>;
+};
+
+export type SelectedEcdsaPostSignPolicyMaterial = EcdsaPostSignPolicyMaterialBase & {
+  role: 'selected';
+  emailOtpPostSignMaterial: EmailOtpEcdsaPostSignMaterial | null;
+};
+
+export type SecondaryEcdsaPostSignPolicyMaterial = EcdsaPostSignPolicyMaterialBase & {
+  role: 'secondary';
+  emailOtpPostSignMaterial?: never;
 };
 
 export function ecdsaPostSignPolicySessionFromRecord(
@@ -38,7 +50,6 @@ export function ecdsaPostSignPolicySessionFromRecord(
   const consumedAtMs = Math.floor(Number(record.emailOtpAuthContext?.consumedAtMs));
   return {
     walletId: record.walletId,
-    subjectId: record.subjectId,
     chainTarget: record.chainTarget,
     source: record.source,
     walletSigningSessionId: String(record.walletSigningSessionId || '').trim(),
@@ -48,10 +59,10 @@ export function ecdsaPostSignPolicySessionFromRecord(
   };
 }
 
-export function ecdsaPostSignPolicyMaterialFromRecord(args: {
+function ecdsaPostSignPolicyMaterialBaseFromRecord(args: {
   record: ThresholdEcdsaSessionRecord;
   clearEcdsaEphemeralMaterial: EcdsaPostSignPolicyMaterialClearer;
-}): EcdsaPostSignPolicyMaterial {
+}): EcdsaPostSignPolicyMaterialBase {
   const session = ecdsaPostSignPolicySessionFromRecord(args.record);
   return {
     session,
@@ -64,30 +75,40 @@ export function ecdsaPostSignPolicyMaterialFromRecord(args: {
   };
 }
 
+export function selectedEcdsaPostSignPolicyMaterialFromRecord(args: {
+  record: ThresholdEcdsaSessionRecord;
+  clearEcdsaEphemeralMaterial: EcdsaPostSignPolicyMaterialClearer;
+}): SelectedEcdsaPostSignPolicyMaterial {
+  return {
+    ...ecdsaPostSignPolicyMaterialBaseFromRecord(args),
+    role: 'selected',
+    emailOtpPostSignMaterial: emailOtpEcdsaPostSignMaterialFromRecord(args.record),
+  };
+}
+
+export function secondaryEcdsaPostSignPolicyMaterialFromRecord(args: {
+  record: ThresholdEcdsaSessionRecord;
+  clearEcdsaEphemeralMaterial: EcdsaPostSignPolicyMaterialClearer;
+}): SecondaryEcdsaPostSignPolicyMaterial {
+  return {
+    ...ecdsaPostSignPolicyMaterialBaseFromRecord(args),
+    role: 'secondary',
+  };
+}
+
 export async function applyEcdsaPostSignPolicy(args: {
   thresholdSessionId: string | null;
   source: ThresholdEcdsaSessionStoreSource | null;
-  selectedMaterial: EcdsaPostSignPolicyMaterial | null;
-  secondaryMaterial: EcdsaPostSignPolicyMaterial | null;
-  markEmailOtpSessionConsumed?: (args: {
-    subjectId: WalletSubjectId;
-    chainTarget: ThresholdEcdsaChainTarget;
-    walletSigningSessionId: string;
-    thresholdSessionId: string;
-    uses?: number;
-  }) => void;
+  selectedMaterial: SelectedEcdsaPostSignPolicyMaterial | null;
+  secondaryMaterial: SecondaryEcdsaPostSignPolicyMaterial | null;
+  consumeSingleUseEmailOtpEcdsaLane?: (
+    command: ConsumeSingleUseEmailOtpEcdsaLaneCommand,
+  ) => ConsumeSingleUseEmailOtpEcdsaLaneResult;
 }): Promise<void> {
   const selectedMaterial = args.selectedMaterial;
-  const secondaryMaterial = args.source ? null : args.secondaryMaterial;
-  const effectiveEmailOtpMaterial =
-    selectedMaterial?.session.source === 'email_otp'
-      ? selectedMaterial
-      : !args.source && secondaryMaterial?.session.source === 'email_otp'
-        ? secondaryMaterial
-        : null;
-  if (!effectiveEmailOtpMaterial) return;
+  if (selectedMaterial?.session.source !== 'email_otp') return;
 
-  if (args.thresholdSessionId && selectedMaterial?.session.source === 'email_otp') {
+  if (args.thresholdSessionId) {
     const expectedThresholdSessionId = String(args.thresholdSessionId || '').trim();
     const actualThresholdSessionId = selectedMaterial.session.thresholdSessionId;
     if (
@@ -99,15 +120,14 @@ export async function applyEcdsaPostSignPolicy(args: {
     }
   }
 
-  if (effectiveEmailOtpMaterial.session.emailOtpRetention !== 'single_use') return;
-  args.markEmailOtpSessionConsumed?.({
-    subjectId: effectiveEmailOtpMaterial.session.subjectId,
-    chainTarget: effectiveEmailOtpMaterial.session.chainTarget,
-    walletSigningSessionId: effectiveEmailOtpMaterial.session.walletSigningSessionId,
-    thresholdSessionId: effectiveEmailOtpMaterial.session.thresholdSessionId,
+  const emailOtpPostSignMaterial = selectedMaterial.emailOtpPostSignMaterial;
+  if (emailOtpPostSignMaterial?.kind !== 'consumable_email_otp_ecdsa_lane') return;
+  args.consumeSingleUseEmailOtpEcdsaLane?.({
+    kind: 'consume_single_use_email_otp_ecdsa_lane',
+    lane: emailOtpPostSignMaterial,
     uses: 1,
   });
-  await effectiveEmailOtpMaterial.clearEphemeralMaterial();
+  await selectedMaterial.clearEphemeralMaterial();
 }
 
 export function formatEmailOtpSensitiveOperationError(args: {

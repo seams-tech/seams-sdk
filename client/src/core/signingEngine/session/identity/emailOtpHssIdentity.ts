@@ -4,8 +4,8 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   EcdsaThresholdKeyId,
-  EvmFamilyEcdsaKeyIdentity,
   EvmFamilyEcdsaSessionLanePolicy,
+  SessionBootstrapKeyContext,
   SigningRootId,
   SigningRootVersion,
   ThresholdEcdsaSessionId,
@@ -35,16 +35,19 @@ export type EmailOtpRegistrationBootstrap = {
 
 export type EmailOtpExistingKeyBootstrap = {
   operation: 'email_otp_bootstrap';
-  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  keyHandle: string;
+  ecdsaThresholdKeyId?: never;
   key?: never;
   lanePolicy?: never;
 };
 
 export type SessionBootstrap = {
   operation: 'session_bootstrap';
-  key: EvmFamilyEcdsaKeyIdentity;
+  keyHandle: string;
+  keyContext: SessionBootstrapKeyContext;
   lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
   ecdsaThresholdKeyId?: never;
+  key?: never;
   walletSessionUserId?: never;
   subjectId?: never;
   rpId?: never;

@@ -47,6 +47,15 @@ The server-side export response may contain only:
 - export-authorized `x_relayer_export`
 - public transcript and authorization metadata
 
+The export response must never contain:
+
+- canonical `x`
+- `privateKeyHex`
+- `x_client`
+- `y_client`
+- `y_relayer`
+- backend threshold private shares
+
 ## Export Invariant
 
 The exported object is correct only if:
@@ -82,6 +91,33 @@ The implementation must distinguish:
 
 Signing-only flows must reject export-capable output requests, optional export
 flags, stale export envelopes, and leftover staged state.
+
+## Export Authorization Freshness
+
+Every explicit export request carries `export_request_nonce32` and an expiry.
+The relayer stores used export nonces by:
+
+```text
+wallet_session_user_id
+ecdsa_threshold_key_id
+relayer_key_id
+export_request_nonce32
+```
+
+Freshness rules:
+
+- nonce insertion must be atomic before relayer share release
+- a nonce is consumed for success and for policy/digest failures that reach the
+  relayer export endpoint
+- a repeated nonce is rejected
+- a crash after nonce insertion and before response delivery requires a fresh
+  export request
+- nonce records must live at least until `expires_at_unix_ms + clock_skew`
+- first implementation should retain nonce records for at least 24 hours
+- nonce storage must not contain secret share material
+
+The authorization digest is binding evidence. It does not replace route/session
+authentication, user confirmation, nonce replay checks, or policy checks.
 
 ## Non-Export Rule
 
@@ -156,6 +192,9 @@ Minimum required fields:
 - result: success or failure
 - failure code when export is denied or fails
 - timestamp
+- expiration timestamp
+- relayer key id
+- nonce fingerprint
 
 The telemetry surface must exclude:
 
@@ -164,6 +203,7 @@ The telemetry surface must exclude:
 - `x_relayer`
 - backend threshold private shares
 - raw root-share material
+- Cait-Sith triple or presign scalar material
 
 Structured logs are acceptable as the first implementation surface if they obey
 the field and redaction rules above.
@@ -190,9 +230,24 @@ Before the export result is accepted, the implementation must check:
 5. reconstructed `x_export` is a valid non-zero secp256k1 scalar
 6. `x_export * G == X`
 7. `ethereum_address(X) == expected_address`
+8. export nonce has not been used
+9. relayer key id matches the retained relayer state
+10. authorization is within its validity window
 
 Failed checks must burn the export session and any received export share. Retry
 must start from a fresh explicit export session.
+
+## Relayer Key Rotation
+
+Export is bound to the retained `relayer_key_id`. If the request, authorization,
+or persisted relayer state disagree on `relayer_key_id`, the export must fail.
+
+Initial rotation policy:
+
+- relayer key rotation requires new role-local HSS bootstrap
+- existing export authorizations become invalid after rotation
+- existing presign/triple state becomes invalid after rotation
+- old relayer-key identifiers remain in audit records only
 
 ## Migration Rule
 

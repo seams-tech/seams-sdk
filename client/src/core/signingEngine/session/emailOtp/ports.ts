@@ -10,7 +10,10 @@ import type {
 } from '@/core/signingEngine/session/persistence/records';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type {
+  ThresholdEcdsaChainTarget,
+  WalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WarmSessionEcdsaCapabilityState } from '@/core/signingEngine/session/warmCapabilities/types';
 import type {
   acquireSigningSessionRestoreLease,
@@ -33,7 +36,7 @@ export type EmailOtpCoordinatorRuntimePorts = {
 
 export type EmailOtpEcdsaSessionPorts = {
   commitEvmFamilyThresholdEcdsaSessions: (args: {
-    walletId: AccountId | string;
+    walletId: WalletId;
     primaryChain: ThresholdEcdsaChainTarget;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     source: 'email_otp';

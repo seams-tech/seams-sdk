@@ -360,7 +360,6 @@ test.describe('SeamsPasskey Email OTP wallet iframe ownership', () => {
         });
         const login = await pm.auth.loginWithEmailOtpEcdsaCapability({
           walletSession: walletSessionRef,
-          subjectId,
           chainTarget,
           emailOtpAuthPolicy: 'session',
           challengeId: challenge.challengeId,
@@ -370,7 +369,6 @@ test.describe('SeamsPasskey Email OTP wallet iframe ownership', () => {
         });
         const perOperationLogin = await pm.auth.loginWithEmailOtpEcdsaCapability({
           walletSession: walletSessionRef,
-          subjectId,
           chainTarget,
           emailOtpAuthPolicy: 'per_operation',
           challengeId: challenge.challengeId,
@@ -381,7 +379,6 @@ test.describe('SeamsPasskey Email OTP wallet iframe ownership', () => {
         const failedUnlockMessage = await pm.auth
           .loginWithEmailOtpEcdsaCapability({
             walletSession: walletSessionRef,
-            subjectId,
             chainTarget,
             emailOtpAuthPolicy: 'session',
             challengeId: challenge.challengeId,
@@ -393,7 +390,6 @@ test.describe('SeamsPasskey Email OTP wallet iframe ownership', () => {
           .catch((error: unknown) => String((error as Error)?.message || error));
         const enrollAndLogin = await pm.auth.enrollAndLoginWithEmailOtpEcdsaCapability({
           walletSession: walletSessionRef,
-          subjectId,
           chainTarget,
           emailOtpAuthPolicy: 'session',
           challengeId: enrollmentChallenge.challengeId,
@@ -429,7 +425,6 @@ test.describe('SeamsPasskey Email OTP wallet iframe ownership', () => {
         };
         const sessionSigned = await pm.tempo.signTempo({
           walletSession: walletSessionRef,
-          subjectId,
           chainTarget,
           request: signRequest,
           options: { confirmationConfig: { uiMode: 'modal' } },
@@ -447,14 +442,12 @@ test.describe('SeamsPasskey Email OTP wallet iframe ownership', () => {
         const walletSession = await pm.auth.getWalletSession(nearAccountId);
         const perOperationSigned = await pm.tempo.signTempo({
           walletSession: walletSessionRef,
-          subjectId,
           chainTarget,
           request: { ...signRequest, tx: { ...signRequest.tx, nonce: 1n } },
           options: { confirmationConfig: { uiMode: 'modal' } },
         });
         const tempoSigned = await pm.tempo.signTempo({
           walletSession: walletSessionRef,
-          subjectId,
           chainTarget: {
             kind: 'tempo',
             chainId: 42431,
@@ -779,7 +772,6 @@ test.describe('SeamsPasskey Email OTP wallet iframe ownership', () => {
           walletId: nearAccountId,
           userId: nearAccountId,
         };
-        const subjectId = 'alice.testnet';
         const chainTarget = {
           kind: 'tempo',
           chainId: 42431,
@@ -796,12 +788,10 @@ test.describe('SeamsPasskey Email OTP wallet iframe ownership', () => {
 
         const challenge = await pm.auth.requestEmailOtpSigningSessionChallenge({
           walletSession: walletSessionRef,
-          subjectId,
           chainTarget,
         });
         await pm.auth.refreshEmailOtpSigningSession({
           walletSession: walletSessionRef,
-          subjectId,
           chainTarget,
           challengeId: challenge.challengeId,
           otpCode: '123456',
@@ -831,14 +821,12 @@ test.describe('SeamsPasskey Email OTP wallet iframe ownership', () => {
         walletId: 'alice.testnet',
         userId: 'alice.testnet',
       },
-      subjectId: 'alice.testnet',
     });
     expect(refresh?.payload).toMatchObject({
       walletSession: {
         walletId: 'alice.testnet',
         userId: 'alice.testnet',
       },
-      subjectId: 'alice.testnet',
       challengeId: 'signing-session-challenge-1',
     });
   });
@@ -869,7 +857,6 @@ test.describe('SeamsPasskey Email OTP wallet iframe ownership', () => {
 
         await pm.auth.loginWithEmailOtpEcdsaCapability({
           walletSession: walletSessionRef,
-          subjectId: nearAccountId,
           chainTarget: {
             kind: 'evm',
             namespace: 'eip155',
@@ -940,7 +927,6 @@ test.describe('SeamsPasskey Email OTP wallet iframe ownership', () => {
         const signResult = await pm.tempo
           .signTempo({
             walletSession,
-            subjectId,
             chainTarget: {
               kind: 'evm',
               namespace: 'eip155',

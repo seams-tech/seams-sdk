@@ -1,4 +1,4 @@
-import { toAccountId, type AccountId } from '@/core/types/accountIds';
+import type { AccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
 import type {
   SigningOperationFingerprint,
@@ -98,15 +98,11 @@ export type WalletBudgetProjectionEvent =
     };
 
 export function createWalletBudgetProjection(args: {
-  walletId: AccountId | string;
+  walletId: AccountId;
   walletSigningSessionId: WalletSigningSessionId | string;
 }): WalletBudgetProjection {
-  const walletId = toAccountId(args.walletId);
-  if (!walletId) {
-    throw new Error('[SigningSessionBudget] walletId is required for wallet budget projection');
-  }
   return {
-    walletId,
+    walletId: args.walletId,
     walletSigningSessionId: args.walletSigningSessionId,
     trustedStatus: null,
     unknown: null,

@@ -16,10 +16,7 @@ const TEST_ECDSA_CHAIN_TARGETS = {
     networkSlug: 'arc-testnet',
   },
 };
-const TEST_ECDSA_CHAIN_TARGET_LIST = [
-  TEST_ECDSA_CHAIN_TARGETS.tempo,
-  TEST_ECDSA_CHAIN_TARGETS.evm,
-];
+const TEST_ECDSA_CHAIN_TARGET_LIST = [TEST_ECDSA_CHAIN_TARGETS.tempo, TEST_ECDSA_CHAIN_TARGETS.evm];
 
 function makeSealedRecord(args: {
   authMethod?: 'email_otp' | 'passkey';
@@ -68,7 +65,7 @@ function makeSealedRecord(args: {
             rpId: 'example.com',
             sessionKind: 'jwt' as const,
             thresholdSessionAuthToken: 'jwt-restore',
-            ecdsaThresholdKeyId: 'ecdsa-key-restore',
+            keyHandle: 'key-handle-restore',
             ethereumAddress: `0x${'33'.repeat(20)}`,
             relayerKeyId: 'relayer-key-restore',
             clientVerifyingShareB64u: 'client-verifying-share-restore',
@@ -397,9 +394,9 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
       ecdsaRestore: {
         chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
         rpId: 'example.com',
-        sessionKind: 'jwt',
+        sessionKind: 'jwt' as const,
         thresholdSessionAuthToken: 'jwt-restore',
-        ecdsaThresholdKeyId: 'ecdsa-key-restore',
+        keyHandle: 'key-handle-restore',
         ethereumAddress: `0x${'33'.repeat(20)}`,
         relayerKeyId: 'relayer-key-restore',
         clientVerifyingShareB64u: 'client-verifying-share-restore',
@@ -458,9 +455,9 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
       ecdsaRestore: {
         chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
         rpId: 'example.com',
-        sessionKind: 'jwt',
+        sessionKind: 'jwt' as const,
         thresholdSessionAuthToken: 'jwt-restore',
-        ecdsaThresholdKeyId: 'ecdsa-key-restore',
+        keyHandle: 'key-handle-restore',
         ethereumAddress: `0x${'33'.repeat(20)}`,
         relayerKeyId: 'relayer-key-restore',
         clientVerifyingShareB64u: 'client-verifying-share-restore',
@@ -756,9 +753,9 @@ test.describe('restorePersistedSessionsForWalletCommand', () => {
       ecdsaRestore: {
         chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
         rpId: 'example.com',
-        sessionKind: 'jwt',
+        sessionKind: 'jwt' as const,
         thresholdSessionAuthToken: 'jwt-restore',
-        ecdsaThresholdKeyId: 'ecdsa-key-restore',
+        keyHandle: 'key-handle-restore',
         ethereumAddress: `0x${'33'.repeat(20)}`,
         relayerKeyId: 'relayer-key-restore',
         clientVerifyingShareB64u: 'client-verifying-share-restore',

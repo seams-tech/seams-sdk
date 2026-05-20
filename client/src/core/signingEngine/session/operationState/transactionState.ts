@@ -1,5 +1,6 @@
 import type { AccountId } from '@/core/types/accountIds';
 import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
+import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { LaneCandidate, SelectedLane } from '../identity/laneIdentity';
 import type {
   TransactionConcreteAvailableLane,
@@ -30,23 +31,30 @@ import type { EvmEip155ChainTarget, TempoChainTarget } from '@/core/signingEngin
 
 type TransactionSigningIntentBase = {
   operationId?: SigningOperationId;
-  walletId: AccountId | string;
   authSelectionPolicy: TransactionAuthSelectionPolicy;
   operationUsesNeeded: number;
 };
 
-export type NearEd25519TransactionSigningIntent = TransactionSigningIntentBase & {
+type NearEd25519TransactionSigningIntentBase = TransactionSigningIntentBase & {
+  walletId: AccountId;
+};
+
+type EvmFamilyEcdsaTransactionSigningIntentBase = TransactionSigningIntentBase & {
+  walletId: WalletId;
+};
+
+export type NearEd25519TransactionSigningIntent = NearEd25519TransactionSigningIntentBase & {
   curve: 'ed25519';
   chain: 'near';
 };
 
 export type EvmFamilyEcdsaTransactionSigningIntent =
-  | (TransactionSigningIntentBase & {
+  | (EvmFamilyEcdsaTransactionSigningIntentBase & {
       curve: 'ecdsa';
       chain: 'tempo';
       chainTarget: TempoChainTarget;
     })
-  | (TransactionSigningIntentBase & {
+  | (EvmFamilyEcdsaTransactionSigningIntentBase & {
       curve: 'ecdsa';
       chain: 'evm';
       chainTarget: EvmEip155ChainTarget;

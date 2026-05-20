@@ -25,6 +25,8 @@ import { createWarmSessionStatusReader } from '../../session/warmCapabilities/st
 import { createClearVolatileWarmSessionMaterialCommand } from '../../session/warmCapabilities/volatileWarmMaterialCommands';
 import { parseVolatileWarmSessionId } from '../../session/warmCapabilities/volatileWarmSessionId';
 import type {
+  ConsumeSingleUseEmailOtpEcdsaLaneCommand,
+  ConsumeSingleUseEmailOtpEcdsaLaneResult,
   ThresholdEcdsaSessionRecord,
 } from '../../session/persistence/records';
 import {
@@ -35,11 +37,15 @@ import {
   getThresholdEcdsaKeyRefForLane,
   getThresholdEcdsaSessionRecordForLane,
 } from './ecdsaLanes';
+import {
+  resolveThresholdEcdsaKeyIdFromRecord,
+  toVerifiedEcdsaPublicFactsFromRecord,
+} from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { EvmFamilyEcdsaSessionReaderDeps } from '../../interfaces/operationDeps';
 import type { EvmFamilyChain } from './types';
 import {
   type ThresholdEcdsaChainTarget,
-  type WalletSubjectId,
+  type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export type EvmFamilyWarmSessionServicesDeps = EvmFamilyEcdsaSessionReaderDeps & {
@@ -49,13 +55,9 @@ export type EvmFamilyWarmSessionServicesDeps = EvmFamilyEcdsaSessionReaderDeps &
     Pick<VolatileWarmMaterialPort, 'getWarmSessionStatus'> &
     Partial<Pick<DurableSealedSessionPort, 'restorePersistedSessionForSigning'>> &
     Partial<Pick<VolatileWarmMaterialPort, 'clearVolatileWarmSessionMaterial'>>;
-  markThresholdEcdsaEmailOtpSessionConsumedForLane?: (args: {
-    subjectId: WalletSubjectId;
-    chainTarget: ThresholdEcdsaChainTarget;
-    walletSigningSessionId: string;
-    thresholdSessionId: string;
-    uses?: number;
-  }) => void;
+  consumeSingleUseEmailOtpEcdsaLane?: (
+    command: ConsumeSingleUseEmailOtpEcdsaLaneCommand,
+  ) => ConsumeSingleUseEmailOtpEcdsaLaneResult;
   provisionThresholdEcdsaSession: (
     args: ThresholdEcdsaActivationRequest,
   ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
@@ -88,10 +90,11 @@ export function createEvmFamilyWarmSessionServices(
     record: ThresholdEcdsaSessionRecord,
     thresholdSessionIdOverride: string | undefined,
   ): Promise<void> => {
+    const publicFacts = await toVerifiedEcdsaPublicFactsFromRecord({ record });
     clearThresholdEcdsaClientPresignaturesForLane({
       relayerUrl: record.relayerUrl,
-      ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
-      participantIds: record.participantIds,
+      ecdsaThresholdKeyId: resolveThresholdEcdsaKeyIdFromRecord({ record }),
+      participantIds: publicFacts.participantIds.map((participantId) => Number(participantId)),
     });
     const thresholdSessionId = parseVolatileWarmSessionId(
       thresholdSessionIdOverride || record.thresholdSessionId || '',
@@ -108,12 +111,11 @@ export function createEvmFamilyWarmSessionServices(
     }
   };
   const listThresholdEcdsaKeyRefsForWalletTarget = ({
-    subjectId,
+    walletId,
     chainTarget,
     source,
   }: {
-    walletId: string;
-    subjectId: WalletSubjectId;
+    walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
     source?: ThresholdEcdsaSessionStoreSource;
   }) => {
@@ -125,7 +127,7 @@ export function createEvmFamilyWarmSessionServices(
           source: candidateSource,
           keyRef: getThresholdEcdsaKeyRefForLane({
             deps,
-            subjectId,
+            walletId,
             chainTarget,
             source: candidateSource,
           }),
@@ -173,7 +175,7 @@ export function createEvmFamilyWarmSessionServices(
           getWarmSession: (walletId) => capabilityReader.getWarmSession(walletId),
           resolveExactEcdsaRecord: (recordArgs) =>
             statusReader.resolveExactEcdsaRecord(recordArgs),
-          markEmailOtpSessionConsumed: deps.markThresholdEcdsaEmailOtpSessionConsumedForLane,
+          consumeSingleUseEmailOtpEcdsaLane: deps.consumeSingleUseEmailOtpEcdsaLane,
           clearEcdsaEphemeralMaterial: ({ record, thresholdSessionId }) =>
             clearEcdsaEphemeralMaterial(record, thresholdSessionId),
         },

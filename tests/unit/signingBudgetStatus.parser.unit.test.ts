@@ -91,7 +91,7 @@ function makeEcdsaClaims(overrides: Record<string, unknown> = {}): Record<string
       chainId: 11155111,
       networkSlug: 'ethereum-sepolia',
     },
-    ecdsaThresholdKeyId: 'ecdsa-key-1',
+    keyHandle: 'ehss-key-1',
     relayerKeyId: 'ecdsa-relayer-1',
     rpId: 'example.localhost',
     thresholdExpiresAtMs: Date.now() + 60_000,
@@ -116,12 +116,51 @@ function makeEd25519Claims(overrides: Record<string, unknown> = {}): Record<stri
 }
 
 test.describe('signing budget status parser', () => {
+  test('returns ECDSA wallet budget status requests with keyHandle identity', async () => {
+    const result = await parseWalletSigningBudgetStatusRequest({
+      headers: { Authorization: 'Bearer ecdsa-token' },
+      session: makeSession(makeEcdsaClaims()),
+      sessionPolicy: makePolicy({
+        thresholdStatuses: [
+          makeThresholdStatus({
+            curve: 'ecdsa',
+            thresholdSessionId: 'threshold-session-ecdsa',
+            userId: 'wallet-ecdsa',
+            rpId: 'example.localhost',
+            relayerKeyId: 'ecdsa-relayer-1',
+            participantIds: [1, 2],
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: 5,
+          }),
+        ],
+        walletBudgetStatus: makeWalletBudgetStatus({
+          curve: 'ecdsa',
+          thresholdSessionId: 'wallet-signing:wallet-signing-session-ecdsa',
+          walletSigningSessionId: 'wallet-signing-session-ecdsa',
+          userId: 'wallet-ecdsa',
+          rpId: 'example.localhost',
+          relayerKeyId: 'ecdsa-relayer-1',
+          participantIds: [1, 2],
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 3,
+        }),
+      }),
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.request).toMatchObject({
+      kind: 'ecdsa_wallet_budget_status',
+      keyHandle: 'ehss-key-1',
+    });
+  });
+
   test('rejects ECDSA claims when curve-bound auth identity is incomplete', async () => {
     const result = await parseWalletSigningBudgetStatusRequest({
       headers: { Authorization: 'Bearer ecdsa-token' },
       session: makeSession(
         makeEcdsaClaims({
-        walletSigningSessionId: '',
+          keyHandle: '',
         }),
       ),
       sessionPolicy: null,

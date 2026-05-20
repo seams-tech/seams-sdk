@@ -209,8 +209,21 @@ function expectRequiredFields(block: string, fields: string[], context: string):
     .map((field) => `${context} is missing required ${field}`);
 }
 
+function expectDeclaredFields(block: string, fields: string[], context: string): string[] {
+  return fields
+    .filter((field) => !new RegExp(`\\b${field}\\??\\s*:`).test(block))
+    .map((field) => `${context} does not declare ${field}`);
+}
+
+function expectAnyDeclaredField(block: string, fields: string[], context: string): string[] {
+  return fields.some((field) => new RegExp(`\\b${field}\\??\\s*:`).test(block))
+    ? []
+    : [`${context} does not declare any of: ${fields.join(', ')}`];
+}
+
 function expectNoField(block: string, field: string, context: string): string[] {
-  return new RegExp(`\\b${field}\\s*(?::|\\?:|,)`).test(block)
+  const searchable = block.replace(new RegExp(`\\b${field}\\?:\\s*never\\b`, 'g'), '');
+  return new RegExp(`\\b${field}\\s*(?::|\\?:|,)`).test(searchable)
     ? [`${context} exposes ${field}`]
     : [];
 }
@@ -545,7 +558,8 @@ test.describe('signing engine refactor 36 guards', () => {
     const namedDeclarations = [
       {
         name: 'SignTempoArgs',
-        required: ['walletSession', 'subjectId', 'chainTarget'],
+        required: ['walletSession', 'chainTarget'],
+        forbidden: ['subjectId'],
         allowNeverTripwire: true,
       },
       {
@@ -555,22 +569,26 @@ test.describe('signing engine refactor 36 guards', () => {
       },
       {
         name: 'ExecuteEvmFamilyTransactionArgs',
-        required: ['walletSession', 'subjectId', 'chainTarget'],
+        required: ['walletSession', 'chainTarget'],
+        forbidden: ['subjectId'],
         allowNeverTripwire: true,
       },
       {
         name: 'BootstrapThresholdEcdsaSessionArgs',
-        required: ['walletSession', 'subjectId', 'chainTarget'],
+        required: ['walletSession', 'chainTarget'],
+        forbidden: ['subjectId'],
         allowNeverTripwire: true,
       },
       {
         name: 'EmailOtpEcdsaCapabilityArgs',
-        required: ['walletSession', 'subjectId', 'chainTarget'],
+        required: ['walletSession', 'chainTarget'],
+        forbidden: ['subjectId'],
         allowNeverTripwire: true,
       },
       {
         name: 'ExportKeypairWithUIInput',
-        required: ['walletSession', 'subjectId', 'chainTarget'],
+        required: ['walletSession', 'chainTarget'],
+        forbidden: ['subjectId'],
         allowNeverTripwire: true,
       },
     ];
@@ -578,17 +596,17 @@ test.describe('signing engine refactor 36 guards', () => {
       {
         context: 'AuthCapability.prefillThresholdEcdsaPresignPool',
         block: findObjectBlockAfter(source, 'prefillThresholdEcdsaPresignPool(args: {'),
-        required: ['walletSession', 'subjectId', 'chainTarget'],
+        required: ['walletSession', 'chainTarget'],
       },
       {
         context: 'AuthCapability.requestEmailOtpSigningSessionChallenge',
         block: findObjectBlockAfter(source, 'requestEmailOtpSigningSessionChallenge(args: {'),
-        required: ['walletSession', 'subjectId', 'chainTarget'],
+        required: ['walletSession', 'chainTarget'],
       },
       {
         context: 'AuthCapability.refreshEmailOtpSigningSession',
         block: findObjectBlockAfter(source, 'refreshEmailOtpSigningSession(args: {'),
-        required: ['walletSession', 'subjectId', 'chainTarget'],
+        required: ['walletSession', 'chainTarget'],
       },
     ];
     const offenders: string[] = [];
@@ -597,6 +615,9 @@ test.describe('signing engine refactor 36 guards', () => {
       const block = findTypeDeclaration(source, declaration.name);
       offenders.push(
         ...expectRequiredFields(block, declaration.required, declaration.name),
+        ...(declaration.forbidden || []).flatMap((field) =>
+          expectNoField(block, field, declaration.name),
+        ),
         ...expectNoNearAccountId(block, declaration.name, {
           allowNeverTripwire: declaration.allowNeverTripwire,
         }),
@@ -618,7 +639,8 @@ test.describe('signing engine refactor 36 guards', () => {
     const namedDeclarations = [
       {
         name: 'PMSignTempoPayload',
-        required: ['walletSession', 'subjectId', 'chainTarget'],
+        required: ['walletSession', 'chainTarget'],
+        forbidden: ['subjectId'],
       },
       {
         name: 'PMTempoNonceLifecyclePayloadBase',
@@ -626,23 +648,26 @@ test.describe('signing engine refactor 36 guards', () => {
       },
       {
         name: 'PMExportKeypairUiPayload',
-        required: ['walletSession', 'subjectId', 'chainTarget'],
+        required: ['walletSession', 'chainTarget'],
+        forbidden: ['subjectId'],
       },
       {
         name: 'PMEmailOtpSigningSessionChallengePayload',
-        required: ['walletSession', 'subjectId', 'chainTarget'],
+        required: ['walletSession', 'chainTarget'],
       },
       {
         name: 'PMEmailOtpEcdsaCapabilityPayload',
-        required: ['walletSession', 'subjectId', 'chainTarget'],
+        required: ['walletSession', 'chainTarget'],
+        forbidden: ['subjectId'],
       },
       {
         name: 'PMRefreshEmailOtpSigningSessionPayload',
-        required: ['walletSession', 'subjectId', 'chainTarget'],
+        required: ['walletSession', 'chainTarget'],
       },
       {
         name: 'PMPrefillThresholdEcdsaPresignPoolPayload',
-        required: ['walletSession', 'subjectId', 'chainTarget'],
+        required: ['walletSession', 'chainTarget'],
+        forbidden: ['subjectId'],
       },
     ];
     const offenders: string[] = [];
@@ -670,6 +695,9 @@ test.describe('signing engine refactor 36 guards', () => {
       const block = findTypeDeclaration(source, declaration.name);
       offenders.push(
         ...expectRequiredFields(block, declaration.required, declaration.name),
+        ...(declaration.forbidden || []).flatMap((field) =>
+          expectNoField(block, field, declaration.name),
+        ),
         ...expectNoNearAccountId(block, declaration.name),
       );
     }
@@ -691,13 +719,14 @@ test.describe('signing engine refactor 36 guards', () => {
     );
     const offenders: string[] = [];
 
-    for (const { source, file, baseName, policyName, policyWalletField } of [
+    for (const { source, file, baseName, policyName, policyWalletField, keyIdentityFields } of [
       {
         source: clientSource,
         file: 'client/src/core/rpcClients/relayer/thresholdEcdsa.ts',
         baseName: 'ThresholdEcdsaHssPrepareRequestBase',
         policyName: null,
         policyWalletField: 'walletSessionUserId',
+        keyIdentityFields: ['keySelector', 'keyHandle'],
       },
       {
         source: serverSource,
@@ -705,6 +734,7 @@ test.describe('signing engine refactor 36 guards', () => {
         baseName: 'ThresholdEcdsaHssPrepareRequestBase',
         policyName: 'ThresholdEcdsaBootstrapSessionPolicy',
         policyWalletField: 'walletSessionUserId',
+        keyIdentityFields: ['keyHandle', 'keySelector'],
       },
     ]) {
       const baseBlock = findTypeDeclaration(source, baseName);
@@ -728,7 +758,12 @@ test.describe('signing engine refactor 36 guards', () => {
         ...policyOffenders,
         ...expectRequiredFields(
           prepareBlock,
-          ['sessionPolicy', 'subjectId', 'chainTarget', 'ecdsaThresholdKeyId'],
+          ['sessionPolicy', 'subjectId', 'chainTarget'],
+          `${file} ThresholdEcdsaHssPrepareRequest`,
+        ),
+        ...expectAnyDeclaredField(
+          prepareBlock,
+          keyIdentityFields,
           `${file} ThresholdEcdsaHssPrepareRequest`,
         ),
         ...expectNoNearAccountId(
@@ -928,7 +963,12 @@ test.describe('signing engine refactor 36 guards', () => {
           offenders.push(
             ...expectRequiredFields(
               call.block,
-              ['walletSession', 'subjectId', 'chainTarget'],
+              ['walletSession', 'chainTarget'],
+              `${relativePath}:${call.line} ${call.methodName}`,
+            ),
+            ...expectNoField(
+              call.block,
+              'subjectId',
               `${relativePath}:${call.line} ${call.methodName}`,
             ),
             ...expectNoNearAccountId(

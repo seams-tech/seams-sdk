@@ -1,11 +1,14 @@
 import { toAccountId } from '@/core/types/accountIds';
-import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  thresholdEcdsaChainTargetKey,
+  toWalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { DurableSealedSessionPort, UiConfirmRuntimeBridgePort } from '../../uiConfirm/types';
 import { SigningOperationIntent } from '../operationState/types';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import {
   thresholdEcdsaSessionRecordReadModel,
-  listThresholdEcdsaKeyRefsForTarget,
+  listThresholdEcdsaKeyRefsForWalletTarget,
   type ThresholdEcdsaSessionStoreDeps,
 } from '../persistence/records';
 import {
@@ -230,7 +233,6 @@ async function bootstrapPasskeyCookieReconnect(
   return await bootstrapDirectEcdsaRequest(deps, {
     kind: 'passkey_fresh_ecdsa_bootstrap',
     walletId,
-    subjectId: request.subjectId,
     chainTarget: request.chainTarget,
     source: request.source,
     relayerUrl: request.relayerUrl,
@@ -320,6 +322,7 @@ async function tryNoPromptThresholdSessionAuthReconnect(args: {
     kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
     source: args.request.source || record.source,
     relayerUrl,
+    keyHandle: record.keyHandle,
     key: readModel.key,
     lanePolicy: buildEvmFamilyEcdsaSessionLanePolicy({
       chainTarget: args.request.chainTarget,
@@ -359,16 +362,15 @@ export async function bootstrapReuseWarmEcdsaCapabilityNoPrompt(
     await tryReuseReadyWarmEcdsaBootstrap(
       {
         getWarmSession: (warmSessionWalletId) => deps.getWarmSession(warmSessionWalletId),
-        listThresholdEcdsaKeyRefsForWalletTarget: ({ subjectId, chainTarget, source }) =>
-          listThresholdEcdsaKeyRefsForTarget(deps.ecdsaSessions, {
-            subjectId,
+        listThresholdEcdsaKeyRefsForWalletTarget: ({ walletId, chainTarget, source }) =>
+          listThresholdEcdsaKeyRefsForWalletTarget(deps.ecdsaSessions, {
+            walletId,
             chainTarget,
             ...(source ? { source } : {}),
           }),
       },
       {
-        walletId,
-        subjectId: request.subjectId,
+        walletId: toWalletId(walletId),
         chainTarget,
         source: request.source,
       },

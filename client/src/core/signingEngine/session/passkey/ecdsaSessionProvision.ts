@@ -1,6 +1,8 @@
-import { toAccountId } from '@/core/types/accountIds';
 import type { ThresholdSessionSealTransportAuthMaterial } from '../persistence/records';
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  toWalletId,
+  type ThresholdEcdsaChainTarget,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   bootstrapEcdsaSessionValue,
   ecdsaBootstrapChainTarget,
@@ -17,6 +19,7 @@ import type {
   ThresholdEcdsaSessionStoreSource,
 } from '../identity/laneIdentity';
 import type {
+  EvmFamilyEcdsaKeyHandle,
   EvmFamilyEcdsaKeyIdentity,
   EvmFamilyEcdsaSessionLanePolicy,
 } from '../identity/evmFamilyEcdsaIdentity';
@@ -60,6 +63,7 @@ type ThresholdEcdsaActivationRequestSharedFields = {
 };
 
 type ThresholdEcdsaActivationRequestIdentityFields = {
+  keyHandle: EvmFamilyEcdsaKeyHandle;
   key: EvmFamilyEcdsaKeyIdentity;
   lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
   walletId?: never;
@@ -190,6 +194,7 @@ function buildPasskeyEcdsaActivationRequest(
 ): ThresholdEcdsaPasskeyActivationRequest {
   const request: ThresholdEcdsaPasskeyActivationRequest = {
     kind: 'passkey_ecdsa_activation',
+    keyHandle: args.keyHandle,
     key: args.key,
     lanePolicy: args.lanePolicy,
     source: args.source,
@@ -223,6 +228,7 @@ function buildEmailOtpEcdsaActivationRequest(
 ): ThresholdEcdsaEmailOtpActivationRequest {
   const request: ThresholdEcdsaEmailOtpActivationRequest = {
     kind: 'email_otp_ecdsa_activation',
+    keyHandle: args.keyHandle,
     key: args.key,
     lanePolicy: args.lanePolicy,
     source: args.source,
@@ -254,6 +260,7 @@ export function buildThresholdSessionReconnectEcdsaActivation(
 ): ThresholdEcdsaThresholdSessionAuthReconnectRequest {
   const request: ThresholdEcdsaThresholdSessionAuthReconnectRequest = {
     kind: 'threshold_session_auth_reconnect',
+    keyHandle: args.keyHandle,
     key: args.key,
     lanePolicy: args.lanePolicy,
     source: args.source,
@@ -273,6 +280,7 @@ export function buildCookieReconnectEcdsaActivation(
 ): ThresholdEcdsaCookieReconnectRequest {
   const request: ThresholdEcdsaCookieReconnectRequest = {
     kind: 'cookie_reconnect',
+    keyHandle: args.keyHandle,
     key: args.key,
     lanePolicy: args.lanePolicy,
     source: args.source,
@@ -330,7 +338,6 @@ function toBootstrapEcdsaSessionRequest(
   request: ThresholdEcdsaActivationRequest,
 ): EcdsaBootstrapRequest {
   const walletId = request.key.walletId;
-  const subjectId = request.key.subjectId;
   const chainTarget = request.lanePolicy.chainTarget;
   const ecdsaThresholdKeyId = String(request.key.ecdsaThresholdKeyId);
   const participantIds = request.key.participantIds.map((participantId) => Number(participantId));
@@ -341,37 +348,14 @@ function toBootstrapEcdsaSessionRequest(
   };
   switch (request.kind) {
     case 'passkey_ecdsa_activation':
-      if (request.sessionKind === 'cookie') {
-        return applyCommonActivationRequestFields(
-          {
-            kind: 'passkey_fresh_ecdsa_bootstrap',
-            walletId,
-            subjectId,
-            chainTarget,
-            source: request.source,
-            relayerUrl: request.relayerUrl,
-            keyIntent,
-            sessionKind: 'cookie',
-            sessionIdentity: request.sessionIdentity,
-            remainingUses: request.sessionBudgetUses,
-            clientRootShare32B64u: request.clientRootShare32B64u,
-            webauthnAuthentication: request.webauthnAuthentication,
-          },
-          request,
-        );
-      }
       return applyCommonActivationRequestFields(
         {
           kind: 'passkey_fresh_ecdsa_bootstrap',
-          walletId,
-          subjectId,
-          chainTarget,
+          keyHandle: request.keyHandle,
+          key: request.key,
+          lanePolicy: request.lanePolicy,
           source: request.source,
           relayerUrl: request.relayerUrl,
-          keyIntent,
-          sessionKind: 'jwt',
-          sessionIdentity: request.sessionIdentity,
-          remainingUses: request.sessionBudgetUses,
           clientRootShare32B64u: request.clientRootShare32B64u,
           webauthnAuthentication: request.webauthnAuthentication,
         },
@@ -382,7 +366,6 @@ function toBootstrapEcdsaSessionRequest(
         {
           kind: 'email_otp_ecdsa_bootstrap',
           walletId,
-          subjectId,
           chainTarget,
           source: 'email_otp',
           relayerUrl: request.relayerUrl,
@@ -401,6 +384,7 @@ function toBootstrapEcdsaSessionRequest(
           kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
           source: request.source,
           relayerUrl: request.relayerUrl,
+          keyHandle: request.keyHandle,
           key: request.key,
           lanePolicy: request.lanePolicy,
           clientRootShare32B64u: request.clientRootShare32B64u,
@@ -416,13 +400,12 @@ function toBootstrapEcdsaSessionRequest(
         {
           kind: 'passkey_cookie_reconnect_ecdsa_bootstrap',
           walletId,
-          subjectId,
-            chainTarget,
-            source: request.source,
-            relayerUrl: request.relayerUrl,
-            keyIntent,
-            sessionKind: request.sessionKind,
-            sessionIdentity: request.sessionIdentity,
+          chainTarget,
+          source: request.source,
+          relayerUrl: request.relayerUrl,
+          keyIntent,
+          sessionKind: request.sessionKind,
+          sessionIdentity: request.sessionIdentity,
           remainingUses: request.sessionBudgetUses,
         },
         request,
@@ -436,7 +419,7 @@ export async function provisionThresholdEcdsaSessionFromBootstrapArgs(
   deps: ProvisionThresholdEcdsaSessionDeps,
   request: EcdsaBootstrapRequest,
 ): Promise<ThresholdEcdsaSessionBootstrapResult> {
-  const walletId = toAccountId(ecdsaBootstrapWalletId(request));
+  const walletId = toWalletId(ecdsaBootstrapWalletId(request));
   const chainTarget = ecdsaBootstrapChainTarget(request);
   return await withThresholdEcdsaBootstrapQueue(deps.queueByWallet, walletId, async () => {
     const bootstrap = await bootstrapEcdsaSessionValue(deps.activationDeps, request);

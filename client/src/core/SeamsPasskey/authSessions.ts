@@ -15,8 +15,8 @@ import type {
 } from '../types/seams';
 import type {
   WalletSessionRef,
-  WalletSubjectId,
 } from '../signingEngine/interfaces/ecdsaChainTarget';
+import { toWalletId } from '../signingEngine/interfaces/ecdsaChainTarget';
 import {
   getWalletSession as getWalletSessionCore,
   getRecentUnlocks as getRecentUnlocksCore,
@@ -155,7 +155,6 @@ export async function prefillThresholdEcdsaPresignPoolDomain(
   deps: AuthSessionDomainDeps,
   args: {
     walletSession: WalletSessionRef;
-    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     waitForPoolReady?: boolean;
     poolReadyTimeoutMs?: number;
@@ -167,7 +166,6 @@ export async function prefillThresholdEcdsaPresignPoolDomain(
     const router = await deps.walletIframe.requireRouter(args.walletSession.walletId);
     return await router.prefillThresholdEcdsaPresignPool({
       walletSession: args.walletSession,
-      subjectId: args.subjectId,
       options: {
         chainTarget: args.chainTarget,
         ...(typeof args.waitForPoolReady === 'boolean'
@@ -186,13 +184,13 @@ export async function prefillThresholdEcdsaPresignPoolDomain(
     });
   }
 
-  const keyRef = deps.signingEngine.getThresholdEcdsaKeyRefForSubjectTarget({
-    subjectId: args.subjectId,
+  const keyRef = deps.signingEngine.getThresholdEcdsaKeyRefForWalletTarget({
+    walletId: args.walletSession.walletId,
     chainTarget: args.chainTarget,
     source: 'login',
   });
   return await deps.signingEngine.scheduleThresholdEcdsaLoginPresignPrefill({
-    walletId: toAccountId(args.walletSession.walletId),
+    walletId: toWalletId(args.walletSession.walletId),
     chainTarget: keyRef.chainTarget,
     thresholdEcdsaKeyRef: keyRef,
     ...(typeof args.waitForPoolReady === 'boolean'

@@ -1,5 +1,5 @@
-import type { AccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
+import { deriveBaseEcdsaSubjectIdFromKey } from '../identity/evmFamilyEcdsaIdentity';
 import { normalizeWalletSigningSpendPlan } from '../operationState/types';
 import {
   applySigningSessionBudgetReservationsToStatus,
@@ -15,6 +15,7 @@ import {
   normalizeStringList,
   resolveWalletSigningOperationFingerprint,
   SIGNING_SESSION_BUDGET_UNKNOWN_ERROR,
+  walletBudgetOwnerForLane,
   type SigningSessionBudget,
   type SigningSessionBudgetConsumer,
   type SigningSessionBudgetReservation,
@@ -304,14 +305,13 @@ export class BudgetCoordinator implements SigningSessionBudget {
       spend.walletSigningSessionId,
       'walletSigningSessionId',
     );
-    const walletId = normalizeRequired(spend.walletId, 'walletId') as AccountId;
     this.emitTrace(input, 'wallet_signing_budget_spend_started');
     const budgetStatusCheck = buildSigningSessionBudgetStatusCheckForSpend({
       spend,
       trustedStatusAuth: input.trustedStatusAuth,
     });
     const status = await this.deps.consumeUse({
-      walletId,
+      owner: walletBudgetOwnerForLane(spend.lane),
       walletSigningSessionId,
       uses: spend.uses,
       reason: spend.reason,
@@ -378,12 +378,12 @@ function walletBudgetSpendReservationIdentity(spend: WalletBudgetSpend): string 
           ecdsaThresholdKeyId: normalized.ecdsaKey.ecdsaThresholdKeyId,
           signingRootId: normalized.ecdsaKey.signingRootId,
           signingRootVersion: normalized.ecdsaKey.signingRootVersion,
-          walletId: normalized.ecdsaKey.walletId,
-          subjectId: normalized.ecdsaKey.subjectId,
+          walletOwnerId: normalized.ecdsaKey.walletId,
+          subjectId: deriveBaseEcdsaSubjectIdFromKey(normalized.ecdsaKey),
         }
       : null;
   return JSON.stringify({
-    walletId: String(normalized.walletId),
+    ownerId: String(normalized.walletId),
     walletSigningSessionId: String(normalized.walletSigningSessionId),
     laneCurve: normalized.lane.curve,
     laneAuthMethod: normalized.lane.authMethod,

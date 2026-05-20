@@ -1,7 +1,6 @@
 import type { WebAuthnAuthenticationCredential } from '../../types/webauthn';
 import type {
   ThresholdEcdsaChainTarget,
-  WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EcdsaThresholdKeyId } from '../session/identity/laneIdentity';
 
@@ -55,12 +54,12 @@ export type KeyRef =
   | {
       type: 'threshold-ecdsa-secp256k1';
       userId: string;
-      subjectId: WalletSubjectId;
       chainTarget: ThresholdEcdsaChainTarget;
       relayerUrl: string;
       /**
        * Canonical product-facing identity for the integrated ecdsa-hss key.
        */
+      keyHandle?: string;
       ecdsaThresholdKeyId: EcdsaThresholdKeyId;
       signingRootId: string;
       signingRootVersion?: string;

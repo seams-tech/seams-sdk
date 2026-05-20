@@ -12,7 +12,7 @@ import type {
 } from '../warmCapabilities/types';
 
 export type WarmSessionEd25519ProvisionerDeps = {
-  getWarmSession: (nearAccountId: AccountId | string) => Promise<WarmSessionEnvelope>;
+  getWarmSession: (nearAccountId: AccountId) => Promise<WarmSessionEnvelope>;
   provisionThresholdEd25519Session?: (
     args: ProvisionWarmEd25519CapabilityArgs,
   ) => Promise<ProvisionWarmEd25519CapabilityResult>;

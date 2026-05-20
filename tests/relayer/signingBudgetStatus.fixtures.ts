@@ -19,6 +19,7 @@ export function buildEcdsaCurveCollisionBudgetStatusFixture(label: string) {
       networkSlug: 'arc-testnet',
     },
     ecdsaThresholdKeyId: `ecdsa-key-curve-collision-${label}`,
+    keyHandle: `key-handle-curve-collision-${label}`,
     relayerKeyId: `ecdsa-relayer-key-curve-collision-${label}`,
     rpId: 'example.localhost',
     thresholdExpiresAtMs: nowMs + 60_000,
@@ -82,7 +83,7 @@ export function buildEcdsaCurveCollisionBudgetStatusFixture(label: string) {
     walletBudgetStatus: makeWalletBudgetStatus({
       thresholdSessionId: `wallet-signing:${claims.walletSigningSessionId}`,
       walletSigningSessionId: claims.walletSigningSessionId,
-      relayerKeyId: `wallet-budget-relayer-key-curve-collision-${label}`,
+      relayerKeyId: claims.relayerKeyId,
       remainingUses: 2,
     }),
   };

@@ -2,8 +2,9 @@ import { thresholdEcdsaChainTargetFromChainFamily, toWalletSubjectId } from '@/c
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '../identity/laneIdentity';
 import {
-  buildEvmFamilyEcdsaKeyIdentity,
+  buildBaseEvmFamilyEcdsaKeyIdentity,
   buildEvmFamilyEcdsaSessionLanePolicy,
+  toEvmFamilyEcdsaKeyHandle,
 } from '../identity/evmFamilyEcdsaIdentity';
 import {
   buildEcdsaSessionIdentity,
@@ -63,9 +64,8 @@ const emailOtpSingleUseAuthContext = {
   authMethod: 'email_otp',
 } satisfies ThresholdEcdsaEmailOtpAuthContext & { retention: 'single_use' };
 
-const key = buildEvmFamilyEcdsaKeyIdentity({
+const key = buildBaseEvmFamilyEcdsaKeyIdentity({
   walletId,
-  subjectId,
   rpId: 'wallet.example.test',
   ecdsaThresholdKeyId: 'ecdsa-key-1',
   signingRootId: 'signing-root-1',
@@ -100,6 +100,7 @@ const exactActivationCommon = {
   relayerUrl: 'https://relay.example',
   sessionBudgetUses: 1,
   runtimePolicy,
+  keyHandle: toEvmFamilyEcdsaKeyHandle('ehss-key-1'),
   key,
   lanePolicy,
 };

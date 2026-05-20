@@ -60,7 +60,6 @@ function createPendingEmailRecoveryRecord(overrides?: Record<string, unknown>) {
     createdAt: Date.now(),
     signerSlot: 1,
     status: 'awaiting-email',
-    ecdsaThresholdKeyId: 'ehss-email-recovery-1',
     ...overrides,
   };
 }
@@ -235,7 +234,6 @@ test.describe('EmailRecoveryDomain', () => {
               },
             },
             thresholdEcdsa: {
-              ecdsaThresholdKeyId: 'ehss-email-recovery-1',
               ethereumAddress: `0x${'11'.repeat(20)}`,
             },
             recoverySession: {
@@ -286,7 +284,9 @@ test.describe('EmailRecoveryDomain', () => {
       expect(result.mailtoUrl).toContain(encodeURIComponent('seams-recovery-v1:payload-token'));
       expect(pendingStore.setCalls).toHaveLength(1);
       expect(pendingStore.setCalls[0]?.nearPublicKey).toBe('ed25519:threshold-public-key');
-      expect(pendingStore.setCalls[0]?.ecdsaThresholdKeyId).toBe('ehss-email-recovery-1');
+      expect(
+        Object.prototype.hasOwnProperty.call(pendingStore.setCalls[0] || {}, 'ecdsaThresholdKeyId'),
+      ).toBe(false);
       expect(pendingStore.setCalls[0]?.newEvmOwnerAddress).toBe(`0x${'11'.repeat(20)}`);
       expect(pendingStore.setCalls[0]?.recoverySessionId).toBe('ABC123');
       expect(pendingStore.setCalls[0]?.signerSlot).toBe(7);

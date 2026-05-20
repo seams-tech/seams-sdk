@@ -568,7 +568,6 @@ test.describe('wallet-origin export flow integration', () => {
 
           const exportPromise = router.exportKeypairWithUI({
             kind: 'ecdsa',
-            subjectId,
             walletSession: {
               walletId,
               walletSessionUserId: 'export-flow.testnet',

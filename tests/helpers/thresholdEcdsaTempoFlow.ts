@@ -276,10 +276,7 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
         await import('/sdk/esm/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.js');
       const { IndexedDBManager } = indexedDbMod as any;
       const { getNearThresholdKeyMaterial } = keyMaterialMod as any;
-      const {
-        clearThresholdEcdsaSessionRecordForLane,
-        getStoredThresholdEd25519SessionRecordForAccount,
-      } = recordsMod as any;
+      const { getStoredThresholdEd25519SessionRecordForAccount } = recordsMod as any;
       const { collectAuthenticationCredentialForChallengeB64u } = webauthnCredentialMod as any;
       const { getPrfFirstB64uFromCredential } = credentialExtensionsMod as any;
       const { buildEvmFamilyEcdsaKeyIdentity, buildEvmFamilyEcdsaSessionLanePolicy } =
@@ -412,14 +409,14 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
         networkSlug: 'tempo-moderato',
       };
       const existingTargetRecord = Array.isArray(
-        signingEngine.listThresholdEcdsaSessionRecordsForTarget?.({
-          subjectId: input.accountId,
+        signingEngine.listThresholdEcdsaSessionRecordsForWalletTarget?.({
+          walletId: input.accountId,
           chainTarget,
         }),
       )
         ? signingEngine
-            .listThresholdEcdsaSessionRecordsForTarget?.({
-              subjectId: input.accountId,
+            .listThresholdEcdsaSessionRecordsForWalletTarget?.({
+              walletId: input.accountId,
               chainTarget,
             })
             ?.find((record: Record<string, unknown>) => {
@@ -438,9 +435,9 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
       const existingEcdsaThresholdKeyId = String(
         existingTargetRecord?.ecdsaThresholdKeyId || '',
       ).trim();
-      if (existingTargetRecord && signingEngine.warmSigning?.ecdsaSessions) {
-        clearThresholdEcdsaSessionRecordForLane(signingEngine.warmSigning.ecdsaSessions, {
-          subjectId: input.accountId,
+      if (existingTargetRecord) {
+        signingEngine.clearThresholdEcdsaSessionRecordForWalletTarget?.({
+          walletId: input.accountId,
           chainTarget,
         });
       }
@@ -471,6 +468,7 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
       const keyIdentityParticipantIds =
         existingParticipantIds.length > 0 ? existingParticipantIds : participantIds;
       const existingThresholdOwnerAddress = String(existingTargetRecord?.ethereumAddress || '').trim();
+      const existingKeyHandle = String(existingTargetRecord?.keyHandle || '').trim();
       const existingSigningRootId = String(existingTargetRecord?.signingRootId || '').trim();
       const existingSigningRootVersion =
         String(existingTargetRecord?.signingRootVersion || 'default').trim() || 'default';
@@ -480,6 +478,7 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
           : 'example.localhost';
       const exactActivationIdentity =
         routeAuth &&
+        existingKeyHandle &&
         existingEcdsaThresholdKeyId &&
         existingSigningRootId &&
         existingThresholdOwnerAddress &&
@@ -504,7 +503,7 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
                   ttlMs: input.ttlMs,
                   remainingUses: input.remainingUses,
                 });
-                return { key, lanePolicy };
+                return { keyHandle: existingKeyHandle, key, lanePolicy };
               } catch {
                 return null;
               }
@@ -513,7 +512,6 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
       const bootstrapRequest = {
         kind: 'passkey_fresh_ecdsa_bootstrap' as const,
         walletId: input.accountId,
-        subjectId: input.accountId,
         chainTarget,
         source: 'manual-bootstrap' as const,
         relayerUrl: input.relayerUrl,
@@ -529,7 +527,11 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
         remainingUses: input.remainingUses,
         ...(runtimeScopeBootstrap ? { runtimeScopeBootstrap } : {}),
         ...(exactActivationIdentity
-          ? { key: exactActivationIdentity.key, lanePolicy: exactActivationIdentity.lanePolicy }
+          ? {
+              keyHandle: exactActivationIdentity.keyHandle,
+              key: exactActivationIdentity.key,
+              lanePolicy: exactActivationIdentity.lanePolicy,
+            }
           : {}),
       };
       return await signingEngine.bootstrapEcdsaSession(bootstrapRequest);
@@ -596,10 +598,7 @@ export async function runThresholdEcdsaTempoFlow(
     const { SeamsPasskey } = sdkMod as any;
     const { IndexedDBManager } = indexedDbMod as any;
     const { getNearThresholdKeyMaterial } = keyMaterialMod as any;
-    const {
-      clearThresholdEcdsaSessionRecordForLane,
-      getStoredThresholdEd25519SessionRecordForAccount,
-    } = recordsMod as any;
+    const { getStoredThresholdEd25519SessionRecordForAccount } = recordsMod as any;
     const { collectAuthenticationCredentialForChallengeB64u } = webauthnCredentialMod as any;
     const { getPrfFirstB64uFromCredential } = credentialExtensionsMod as any;
     const { buildEvmFamilyEcdsaKeyIdentity, buildEvmFamilyEcdsaSessionLanePolicy } =
@@ -713,10 +712,15 @@ export async function runThresholdEcdsaTempoFlow(
           }>;
           includeSecondPrfOutput?: boolean;
         }) => Promise<unknown>;
-        listThresholdEcdsaSessionRecordsForTarget?: (args: {
-          subjectId: string;
+        listThresholdEcdsaSessionRecordsForWalletTarget?: (args: {
+          walletId: string;
           chainTarget: { kind: string; chainId: number; networkSlug?: string };
         }) => Array<Record<string, unknown>>;
+        clearThresholdEcdsaSessionRecordForWalletTarget?: (args: {
+          walletId: string;
+          chainTarget: { kind: string; chainId: number; networkSlug?: string };
+          source?: string;
+        }) => void;
       };
       const thresholdKeyMaterial = await getNearThresholdKeyMaterial(
         {
@@ -884,14 +888,14 @@ export async function runThresholdEcdsaTempoFlow(
       if (input.connectSession !== false) {
         try {
           const existingTargetRecord = Array.isArray(
-            signingEngine.listThresholdEcdsaSessionRecordsForTarget?.({
-              subjectId: accountId,
+            signingEngine.listThresholdEcdsaSessionRecordsForWalletTarget?.({
+              walletId: accountId,
               chainTarget: signingChainTarget,
             }),
           )
             ? signingEngine
-                .listThresholdEcdsaSessionRecordsForTarget?.({
-                  subjectId: accountId,
+                .listThresholdEcdsaSessionRecordsForWalletTarget?.({
+                  walletId: accountId,
                   chainTarget: signingChainTarget,
                 })
                 ?.find((record: Record<string, unknown>) => {
@@ -910,15 +914,12 @@ export async function runThresholdEcdsaTempoFlow(
           const existingEcdsaThresholdKeyId = String(
             existingTargetRecord?.ecdsaThresholdKeyId || '',
           ).trim();
-          if (existingTargetRecord && (signingEngine as any).warmSigning?.ecdsaSessions) {
-            clearThresholdEcdsaSessionRecordForLane(
-              (signingEngine as any).warmSigning.ecdsaSessions,
-              {
-                subjectId: accountId,
-                chainTarget: signingChainTarget,
-                source: 'registration',
-              },
-            );
+          if (existingTargetRecord) {
+            signingEngine.clearThresholdEcdsaSessionRecordForWalletTarget?.({
+              walletId: accountId,
+              chainTarget: signingChainTarget,
+              source: 'registration',
+            });
           }
           const participantIds = Array.isArray(thresholdKeyMaterial.participants)
             ? thresholdKeyMaterial.participants
@@ -949,6 +950,7 @@ export async function runThresholdEcdsaTempoFlow(
           const existingThresholdOwnerAddress = String(
             existingTargetRecord?.ethereumAddress || '',
           ).trim();
+          const existingKeyHandle = String(existingTargetRecord?.keyHandle || '').trim();
           const existingSigningRootId = String(existingTargetRecord?.signingRootId || '').trim();
           const existingSigningRootVersion =
             String(existingTargetRecord?.signingRootVersion || 'default').trim() || 'default';
@@ -958,6 +960,7 @@ export async function runThresholdEcdsaTempoFlow(
               : 'example.localhost';
           const exactActivationIdentity =
             existingEcdsaThresholdKeyId &&
+            existingKeyHandle &&
             existingSigningRootId &&
             existingThresholdOwnerAddress &&
             keyIdentityParticipantIds.length > 0
@@ -981,7 +984,7 @@ export async function runThresholdEcdsaTempoFlow(
                       ttlMs,
                       remainingUses,
                     });
-                    return { key, lanePolicy };
+                    return { keyHandle: existingKeyHandle, key, lanePolicy };
                   } catch {
                     return null;
                   }
@@ -990,7 +993,6 @@ export async function runThresholdEcdsaTempoFlow(
           const bootstrapArgs = {
             kind: 'passkey_fresh_ecdsa_bootstrap' as const,
             walletId: accountId,
-            subjectId: accountId,
             chainTarget: signingChainTarget,
             source: 'manual-bootstrap' as const,
             relayerUrl: input.relayerUrl,
@@ -1006,7 +1008,11 @@ export async function runThresholdEcdsaTempoFlow(
             remainingUses,
             ...(runtimeScopeBootstrap ? { runtimeScopeBootstrap } : {}),
             ...(exactActivationIdentity
-              ? { key: exactActivationIdentity.key, lanePolicy: exactActivationIdentity.lanePolicy }
+              ? {
+                  keyHandle: exactActivationIdentity.keyHandle,
+                  key: exactActivationIdentity.key,
+                  lanePolicy: exactActivationIdentity.lanePolicy,
+                }
               : {}),
           };
           const boot = await signingEngine.bootstrapEcdsaSession(bootstrapArgs);
@@ -1097,7 +1103,6 @@ export async function runThresholdEcdsaTempoFlow(
             walletId: accountId,
             walletSessionUserId: accountId,
           },
-          subjectId: accountId,
           request,
           chainTarget: signingChainTarget,
           options: { confirmationConfig },

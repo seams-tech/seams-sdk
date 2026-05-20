@@ -236,12 +236,20 @@ type ThresholdEcdsaKeyInventoryDiagnostics = {
   rejected: Record<string, number>;
 };
 
+type ThresholdEcdsaKeyInventorySelector = {
+  kind: 'key_handle';
+  keyHandle: string;
+  ecdsaThresholdKeyId?: never;
+};
+
 type ThresholdEcdsaKeyInventoryTarget = {
-  ecdsaThresholdKeyId: string;
+  keySelector: ThresholdEcdsaKeyInventorySelector;
+  selectorKey: string;
   chainTarget: ThresholdEcdsaChainTarget;
 };
 
 type ThresholdEcdsaKeyInventoryRecord = {
+  keyHandle: string;
   ecdsaThresholdKeyId: string;
   chainTarget: ThresholdEcdsaChainTarget;
   targetKey: string;
@@ -266,18 +274,46 @@ function incrementCount(bucket: Record<string, number>, reason: string): void {
   bucket[reason] = (bucket[reason] || 0) + 1;
 }
 
+function assertNever(value: never): never {
+  throw new Error(`Unexpected variant: ${JSON.stringify(value)}`);
+}
+
+function thresholdEcdsaKeyInventorySelectorFromRaw(
+  raw: Record<string, unknown>,
+): { ok: true; value: ThresholdEcdsaKeyInventorySelector } | { ok: false; reason: string } {
+  const keyHandle = toOptionalTrimmedString(raw.keyHandle);
+  const ecdsaThresholdKeyId = toOptionalTrimmedString(raw.ecdsaThresholdKeyId);
+  if (ecdsaThresholdKeyId) return { ok: false, reason: 'threshold_key_id_selector' };
+  if (!keyHandle) return { ok: false, reason: 'missing_key_selector' };
+  return { ok: true, value: { kind: 'key_handle', keyHandle } };
+}
+
+function thresholdEcdsaKeyInventorySelectorKey(
+  selector: ThresholdEcdsaKeyInventorySelector,
+): string {
+  return `keyHandle:${selector.keyHandle}`;
+}
+
+function thresholdEcdsaKeyInventorySelectorMatchesIdentity(
+  selector: ThresholdEcdsaKeyInventorySelector,
+  identity: { keyHandle: string; ecdsaThresholdKeyId: string },
+): boolean {
+  return identity.keyHandle === selector.keyHandle;
+}
+
 function parseThresholdEcdsaKeyInventoryTarget(
   raw: unknown,
 ): { ok: true; value: ThresholdEcdsaKeyInventoryTarget } | { ok: false; reason: string } {
   if (!isObject(raw)) return { ok: false, reason: 'non_object' };
-  const ecdsaThresholdKeyId = toOptionalTrimmedString(raw.ecdsaThresholdKeyId);
-  if (!ecdsaThresholdKeyId) return { ok: false, reason: 'missing_ecdsa_threshold_key_id' };
+  const keySelector = thresholdEcdsaKeyInventorySelectorFromRaw(raw);
+  if (!keySelector.ok) return keySelector;
   const chainTarget = thresholdEcdsaChainTargetFromValue(raw.chainTarget);
   if (!chainTarget) return { ok: false, reason: 'invalid_chain_target' };
   return {
     ok: true,
     value: {
-      ecdsaThresholdKeyId,
+      keySelector: keySelector.value,
+      selectorKey: thresholdEcdsaKeyInventorySelectorKey(keySelector.value),
       chainTarget,
     },
   };
@@ -403,6 +439,9 @@ type ThresholdEcdsaBootstrapSession = {
   sessionKind: 'jwt' | 'cookie';
   sessionId: string;
   walletSigningSessionId: string;
+  subjectId?: string;
+  keyHandle?: string;
+  chainTarget?: ThresholdEcdsaChainTarget;
   expiresAtMs: number;
   expiresAt?: string;
   participantIds?: number[];
@@ -592,6 +631,9 @@ function toThresholdEd25519BootstrapSession(session: {
 function toThresholdEcdsaBootstrapSession(session: {
   sessionId?: unknown;
   walletSigningSessionId?: unknown;
+  subjectId?: unknown;
+  keyHandle?: unknown;
+  chainTarget?: unknown;
   expiresAtMs?: unknown;
   expiresAt?: unknown;
   participantIds?: unknown;
@@ -601,6 +643,9 @@ function toThresholdEcdsaBootstrapSession(session: {
 }): ThresholdEcdsaBootstrapSession | null {
   const sessionId = String(session.sessionId || '').trim();
   const walletSigningSessionId = String(session.walletSigningSessionId || '').trim();
+  const subjectId = String(session.subjectId || '').trim();
+  const keyHandle = String(session.keyHandle || '').trim();
+  const chainTarget = thresholdEcdsaChainTargetFromValue(session.chainTarget);
   const expiresAtMs = Number(session.expiresAtMs);
   const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(session.runtimePolicyScope);
   if (!sessionId || !walletSigningSessionId || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0)
@@ -609,6 +654,9 @@ function toThresholdEcdsaBootstrapSession(session: {
     sessionKind: 'jwt',
     sessionId,
     walletSigningSessionId,
+    ...(subjectId ? { subjectId } : {}),
+    ...(keyHandle ? { keyHandle } : {}),
+    ...(chainTarget ? { chainTarget } : {}),
     expiresAtMs: Number(expiresAtMs),
     ...(typeof session.expiresAt === 'string' && session.expiresAt.trim()
       ? { expiresAt: session.expiresAt.trim() }
@@ -7189,7 +7237,7 @@ export class AuthService {
         continue;
       }
       const targetKey = thresholdEcdsaChainTargetKey(parsed.value.chainTarget);
-      const requestKey = `${targetKey}::${parsed.value.ecdsaThresholdKeyId}`;
+      const requestKey = `${targetKey}::${parsed.value.selectorKey}`;
       if (seen.has(requestKey)) {
         incrementCount(diagnostics.rejected, 'duplicate_target_key');
         continue;
@@ -7198,7 +7246,7 @@ export class AuthService {
       const identity = await threshold.getEcdsaKeyIdentityMetadata({
         walletSessionUserId: userId,
         rpId,
-        ecdsaThresholdKeyId: parsed.value.ecdsaThresholdKeyId,
+        keySelector: parsed.value.keySelector,
       });
       if (!identity) {
         incrementCount(diagnostics.rejected, 'identity_not_found');
@@ -7208,21 +7256,23 @@ export class AuthService {
         identity.walletId !== userId ||
         identity.subjectId !== userId ||
         identity.rpId !== rpId ||
-        identity.ecdsaThresholdKeyId !== parsed.value.ecdsaThresholdKeyId
+        !thresholdEcdsaKeyInventorySelectorMatchesIdentity(parsed.value.keySelector, identity)
       ) {
         incrementCount(diagnostics.rejected, 'identity_mismatch');
         continue;
       }
+      const keyHandle = toOptionalTrimmedString(identity.keyHandle);
       const ownerAddress = normalizeEvmAddress(identity.thresholdOwnerAddress);
       const relayerKeyId = toOptionalTrimmedString(identity.relayerKeyId);
       const thresholdEcdsaPublicKeyB64u = toOptionalTrimmedString(
         identity.thresholdEcdsaPublicKeyB64u,
       );
-      if (!ownerAddress || !relayerKeyId || !thresholdEcdsaPublicKeyB64u) {
+      if (!keyHandle || !ownerAddress || !relayerKeyId || !thresholdEcdsaPublicKeyB64u) {
         incrementCount(diagnostics.rejected, 'incomplete_identity');
         continue;
       }
       records.push({
+        keyHandle,
         ecdsaThresholdKeyId: identity.ecdsaThresholdKeyId,
         chainTarget: parsed.value.chainTarget,
         targetKey,
@@ -7972,9 +8022,6 @@ export class AuthService {
       }
       let thresholdEcdsaKeygen:
         | {
-            ecdsaThresholdKeyId?: string;
-            signingRootId: string;
-            signingRootVersion?: string;
             clientVerifyingShareB64u: string;
             clientAdditiveShare32B64u: string;
             relayerKeyId: string;
@@ -8071,16 +8118,11 @@ export class AuthService {
             message: out.message || 'threshold-ecdsa link-device bootstrap failed',
           };
         }
-        const ecdsaThresholdKeyId = String(out.ecdsaThresholdKeyId || '').trim();
-        const signingRootId = String(out.signingRootId || '').trim();
-        const signingRootVersion = String(out.signingRootVersion || '').trim();
         const relayerKeyId = String(out.relayerKeyId || '').trim();
         const thresholdEcdsaPublicKeyB64u = String(out.thresholdEcdsaPublicKeyB64u || '').trim();
         const ethereumAddress = String(out.ethereumAddress || '').trim();
         const relayerVerifyingShareB64u = String(out.relayerVerifyingShareB64u || '').trim();
         if (
-          !ecdsaThresholdKeyId ||
-          !signingRootId ||
           !relayerKeyId ||
           !thresholdEcdsaPublicKeyB64u ||
           !ethereumAddress ||
@@ -8093,9 +8135,6 @@ export class AuthService {
           };
         }
         thresholdEcdsaKeygen = {
-          ecdsaThresholdKeyId,
-          signingRootId,
-          ...(signingRootVersion ? { signingRootVersion } : {}),
           clientVerifyingShareB64u: String(out.clientVerifyingShareB64u || '').trim(),
           clientAdditiveShare32B64u: String(out.clientAdditiveShare32B64u || '').trim(),
           relayerKeyId,
@@ -8494,9 +8533,6 @@ export class AuthService {
       }
       let thresholdEcdsaKeygen:
         | {
-            ecdsaThresholdKeyId?: string;
-            signingRootId: string;
-            signingRootVersion?: string;
             clientVerifyingShareB64u: string;
             clientAdditiveShare32B64u: string;
             relayerKeyId: string;
@@ -8593,16 +8629,11 @@ export class AuthService {
             message: out.message || 'threshold-ecdsa email-recovery bootstrap failed',
           };
         }
-        const ecdsaThresholdKeyId = String(out.ecdsaThresholdKeyId || '').trim();
-        const signingRootId = String(out.signingRootId || '').trim();
-        const signingRootVersion = String(out.signingRootVersion || '').trim();
         const relayerKeyId = String(out.relayerKeyId || '').trim();
         const thresholdEcdsaPublicKeyB64u = String(out.thresholdEcdsaPublicKeyB64u || '').trim();
         const ethereumAddress = String(out.ethereumAddress || '').trim();
         const relayerVerifyingShareB64u = String(out.relayerVerifyingShareB64u || '').trim();
         if (
-          !ecdsaThresholdKeyId ||
-          !signingRootId ||
           !relayerKeyId ||
           !thresholdEcdsaPublicKeyB64u ||
           !ethereumAddress ||
@@ -8615,9 +8646,6 @@ export class AuthService {
           };
         }
         thresholdEcdsaKeygen = {
-          ecdsaThresholdKeyId,
-          signingRootId,
-          ...(signingRootVersion ? { signingRootVersion } : {}),
           clientVerifyingShareB64u: String(out.clientVerifyingShareB64u || '').trim(),
           clientAdditiveShare32B64u: String(out.clientAdditiveShare32B64u || '').trim(),
           relayerKeyId,

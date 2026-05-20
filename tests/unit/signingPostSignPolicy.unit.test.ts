@@ -1,18 +1,17 @@
 import { expect, test } from '@playwright/test';
 import { SENSITIVE_OPERATION_POLICIES } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
-import {
-  toWalletSubjectId,
-  type ThresholdEcdsaChainTarget,
-  type WalletSubjectId,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   applyEcdsaPostSignPolicy,
   assertEcdsaOperationAllowed,
-  ecdsaPostSignPolicyMaterialFromRecord,
   ecdsaPostSignPolicySessionFromRecord,
+  secondaryEcdsaPostSignPolicyMaterialFromRecord,
+  selectedEcdsaPostSignPolicyMaterialFromRecord,
 } from '@/core/signingEngine/session/operationState/postSignPolicy';
 import { toAccountId } from '@/core/types/accountIds';
+import type { ConsumeSingleUseEmailOtpEcdsaLaneCommand } from '@/core/signingEngine/session/persistence/records';
+import { toEvmFamilyEcdsaKeyHandle } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 
 const NEAR_ACCOUNT_ID = toAccountId('alice.testnet');
 const EVM_CHAIN_TARGET: ThresholdEcdsaChainTarget = {
@@ -36,10 +35,10 @@ function ecdsaRecord(args: {
 }): ThresholdEcdsaSessionRecord {
   return {
     walletId: NEAR_ACCOUNT_ID,
-    subjectId: toWalletSubjectId(NEAR_ACCOUNT_ID),
-    rpId: 'localhost',
+    authMetadata: { rpId: 'localhost' },
     chainTarget: args.chainTarget || EVM_CHAIN_TARGET,
     relayerUrl: 'https://relay.example',
+    keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-post-sign'),
     ecdsaThresholdKeyId: 'ecdsa-key-1',
     signingRootId: 'signing-root',
     signingRootVersion: 'v1',
@@ -70,11 +69,7 @@ function ecdsaRecord(args: {
 test.describe('SigningPostSignPolicy', () => {
   test('clears single-use selected Email OTP material and marks the lane consumed', async () => {
     const consumed: Array<{
-      subjectId: WalletSubjectId;
-      chainTarget: ThresholdEcdsaChainTarget;
-      walletSigningSessionId: string;
-      thresholdSessionId: string;
-      uses?: number;
+      command: ConsumeSingleUseEmailOtpEcdsaLaneCommand;
     }> = [];
     const cleared: Array<{
       recordThresholdSessionId: string;
@@ -85,7 +80,7 @@ test.describe('SigningPostSignPolicy', () => {
     await applyEcdsaPostSignPolicy({
       source: null,
       thresholdSessionId: 'otp-session',
-      selectedMaterial: ecdsaPostSignPolicyMaterialFromRecord({
+      selectedMaterial: selectedEcdsaPostSignPolicyMaterialFromRecord({
         record: selectedRecord,
         clearEcdsaEphemeralMaterial: async (args) => {
           cleared.push({
@@ -95,18 +90,27 @@ test.describe('SigningPostSignPolicy', () => {
         },
       }),
       secondaryMaterial: null,
-      markEmailOtpSessionConsumed: (args) => consumed.push(args),
+      consumeSingleUseEmailOtpEcdsaLane: (command) => {
+        consumed.push({ command });
+        return {
+          kind: 'consumed',
+          laneKey: command.lane.laneRef.laneKey,
+          consumedAtMs: 1,
+        };
+      },
     });
 
-    expect(consumed).toEqual([
-      {
-        subjectId: toWalletSubjectId('alice.testnet'),
-        chainTarget: EVM_CHAIN_TARGET,
-        walletSigningSessionId: 'wallet-otp-session',
-        thresholdSessionId: 'otp-session',
-        uses: 1,
-      },
-    ]);
+    expect(consumed).toHaveLength(1);
+    expect(consumed[0]?.command.kind).toBe('consume_single_use_email_otp_ecdsa_lane');
+    expect(consumed[0]?.command.uses).toBe(1);
+    expect(consumed[0]?.command.lane.laneRef.exactIdentity.walletId).toBe(
+      toAccountId('alice.testnet'),
+    );
+    expect(consumed[0]?.command.lane.laneRef.exactIdentity.chainTarget).toEqual(EVM_CHAIN_TARGET);
+    expect(consumed[0]?.command.lane.laneRef.exactIdentity.walletSigningSessionId).toBe(
+      'wallet-otp-session',
+    );
+    expect(consumed[0]?.command.lane.laneRef.exactIdentity.thresholdSessionId).toBe('otp-session');
     expect(cleared).toEqual([
       {
         recordThresholdSessionId: 'otp-session',
@@ -115,7 +119,8 @@ test.describe('SigningPostSignPolicy', () => {
     ]);
   });
 
-  test('clears stale secondary Email OTP material when the selected lane is passkey', async () => {
+  test('does not consume or clear secondary Email OTP material when the selected lane is passkey', async () => {
+    const consumed: ConsumeSingleUseEmailOtpEcdsaLaneCommand[] = [];
     const cleared: Array<{
       recordThresholdSessionId: string;
       thresholdSessionId: string;
@@ -133,11 +138,11 @@ test.describe('SigningPostSignPolicy', () => {
     await applyEcdsaPostSignPolicy({
       source: null,
       thresholdSessionId: null,
-      selectedMaterial: ecdsaPostSignPolicyMaterialFromRecord({
+      selectedMaterial: selectedEcdsaPostSignPolicyMaterialFromRecord({
         record: selectedRecord,
         clearEcdsaEphemeralMaterial: async () => {},
       }),
-      secondaryMaterial: ecdsaPostSignPolicyMaterialFromRecord({
+      secondaryMaterial: secondaryEcdsaPostSignPolicyMaterialFromRecord({
         record: secondaryRecord,
         clearEcdsaEphemeralMaterial: async (args) => {
           cleared.push({
@@ -146,14 +151,18 @@ test.describe('SigningPostSignPolicy', () => {
           });
         },
       }),
+      consumeSingleUseEmailOtpEcdsaLane: (command) => {
+        consumed.push(command);
+        return {
+          kind: 'consumed',
+          laneKey: command.lane.laneRef.laneKey,
+          consumedAtMs: 1,
+        };
+      },
     });
 
-    expect(cleared).toEqual([
-      {
-        recordThresholdSessionId: 'otp-session',
-        thresholdSessionId: 'otp-session',
-      },
-    ]);
+    expect(consumed).toEqual([]);
+    expect(cleared).toEqual([]);
   });
 
   test('blocks consumed single-use Email OTP sensitive operations', () => {

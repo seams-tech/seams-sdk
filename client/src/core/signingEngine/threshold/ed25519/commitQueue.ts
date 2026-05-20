@@ -18,11 +18,11 @@ export type ThresholdEd25519CommitQueueKeyInput = {
 export type ThresholdEd25519CommitQueueByKey = ThresholdCommitQueueByKey;
 
 export function createThresholdEd25519CommitQueueOverflowError(
-  nearAccountId: AccountId | string,
+  nearAccountId: AccountId,
   queueKey: string,
   maxQueueLength: number,
 ): ThresholdEd25519CommitQueueError {
-  const accountId = String(toAccountId(nearAccountId));
+  const accountId = String(nearAccountId);
   const err = new Error(
     `[SigningEngine] threshold Ed25519 commit queue overflow for ${accountId} (queueKey=${queueKey}, max=${maxQueueLength})`,
   ) as ThresholdEd25519CommitQueueError;
@@ -31,11 +31,11 @@ export function createThresholdEd25519CommitQueueOverflowError(
 }
 
 export function createThresholdEd25519CommitQueueTimeoutError(
-  nearAccountId: AccountId | string,
+  nearAccountId: AccountId,
   queueKey: string,
   timeoutMs: number,
 ): ThresholdEd25519CommitQueueError {
-  const accountId = String(toAccountId(nearAccountId));
+  const accountId = String(nearAccountId);
   const err = new Error(
     `[SigningEngine] threshold Ed25519 commit queue timeout for ${accountId} (queueKey=${queueKey}, waited>${timeoutMs}ms before start)`,
   ) as ThresholdEd25519CommitQueueError;
@@ -44,11 +44,11 @@ export function createThresholdEd25519CommitQueueTimeoutError(
 }
 
 export function createThresholdEd25519CommitQueueCancelledError(
-  nearAccountId: AccountId | string,
+  nearAccountId: AccountId,
   queueKey: string,
   reason: ThresholdCommitQueueCancelledReason = 'cancelled',
 ): ThresholdEd25519CommitQueueError {
-  const accountId = String(toAccountId(nearAccountId));
+  const accountId = String(nearAccountId);
   const message =
     reason === 'queue_cleared'
       ? `[SigningEngine] threshold Ed25519 queued commit cancelled for ${accountId} (queueKey=${queueKey}, queue_cleared)`
@@ -79,7 +79,7 @@ export function clearThresholdEd25519CommitQueue(
 export async function withThresholdEd25519CommitQueue<T>(args: {
   queueByKey: ThresholdEd25519CommitQueueByKey;
   queueKey: string;
-  nearAccountId: AccountId | string;
+  nearAccountId: AccountId;
   enabled: boolean;
   shouldAbort?: () => boolean;
   maxQueueLength?: number;
@@ -90,7 +90,7 @@ export async function withThresholdEd25519CommitQueue<T>(args: {
   if (!queueKey) {
     throw new Error('[SigningEngine] threshold Ed25519 commit queue requires non-empty queueKey');
   }
-  const accountKey = String(toAccountId(args.nearAccountId));
+  const accountKey = String(args.nearAccountId);
   return await withThresholdCommitQueue({
     queueByKey: args.queueByKey,
     queueKey,

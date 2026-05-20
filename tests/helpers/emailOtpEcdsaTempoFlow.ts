@@ -1,4 +1,5 @@
 import type { Page } from '@playwright/test';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   createSigningSessionSealPolicyFromThresholdAuthSessionStores,
   createSigningSessionSealRoutesOptions,
@@ -543,7 +544,6 @@ export async function runEmailOtpEcdsaTempoFlow(
             walletId: accountId,
             walletSessionUserId: accountId,
           },
-          subjectId: accountId,
           chainTarget: signingChainTarget,
           emailOtpAuthPolicy,
           challengeId: enrollmentOtp.challengeId,
@@ -588,7 +588,9 @@ export async function runEmailOtpEcdsaTempoFlow(
         };
       }
 
-      await signingEngine.clearVolatileWarmSigningMaterial(accountId).catch(() => undefined);
+      await signingEngine
+        .clearVolatileWarmSigningMaterial(toWalletId(accountId))
+        .catch(() => undefined);
 
       const firstLoginOtp = await requestLoginOtp();
       const loginOtp =
@@ -598,7 +600,6 @@ export async function runEmailOtpEcdsaTempoFlow(
           walletId: accountId,
           walletSessionUserId: accountId,
         },
-        subjectId: accountId,
         chainTarget: signingChainTarget,
         emailOtpAuthPolicy,
         challengeId: loginOtp.challengeId,
@@ -699,7 +700,6 @@ export async function runEmailOtpEcdsaTempoFlow(
                     walletId: accountId,
                     walletSessionUserId: accountId,
                   },
-                  subjectId: accountId,
                   request: makeThresholdEcdsaRequest('a1'),
                   chainTarget: signingChainTarget,
                   options: { confirmationConfig },
@@ -731,7 +731,6 @@ export async function runEmailOtpEcdsaTempoFlow(
                     walletId: accountId,
                     walletSessionUserId: accountId,
                   },
-                  subjectId: accountId,
                   request: makeThresholdEcdsaRequest('b2'),
                   chainTarget: signingChainTarget,
                   options: { confirmationConfig },
@@ -821,7 +820,6 @@ export async function runEmailOtpEcdsaTempoFlow(
                       try {
                         const exported = await pm.keys.exportKeypairWithUI({
                           kind: 'ecdsa',
-                          subjectId: accountId,
                           chainTarget: signingChainTarget,
                           walletSession: {
                             walletId: accountId,
@@ -1529,7 +1527,6 @@ export async function runEmailOtpReloadPhase(
                   walletId: accountId,
                   walletSessionUserId: accountId,
                 },
-                subjectId: accountId,
                 request: tempoRequest(tag),
                 chainTarget: tempoChainTarget,
                 options: { confirmationConfig },
@@ -1543,7 +1540,6 @@ export async function runEmailOtpReloadPhase(
                   walletId: accountId,
                   walletSessionUserId: accountId,
                 },
-                subjectId: accountId,
                 request: evmRequest(tag),
                 chainTarget: evmChainTarget,
                 options: { confirmationConfig },
@@ -1569,7 +1565,6 @@ export async function runEmailOtpReloadPhase(
             if (kind === 'exportEcdsa') {
               const exported = await pm.keys.exportKeypairWithUI({
                 kind: 'ecdsa',
-                subjectId: accountId,
                 chainTarget: tempoChainTarget,
                 walletSession: {
                   walletId: accountId,

@@ -37,7 +37,6 @@ export type ThresholdSigningReadinessInput = {
   expiresAtMs?: number;
   remainingUses?: number;
   usesNeeded?: number;
-  signingRootId?: string;
 };
 
 export type ThresholdSigningOperationCoordinator = {

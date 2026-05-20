@@ -36,7 +36,8 @@ function parseThresholdEcdsaPresignPoolPolicyHint(
 
 export async function authorizeEcdsaWithSession(args: {
   relayerUrl: string;
-  ecdsaThresholdKeyId: string;
+  keyHandle: string;
+  ecdsaThresholdKeyId?: never;
   purpose: string;
   signingDigest32: Uint8Array | number[];
   signingPayload?: unknown;
@@ -71,12 +72,12 @@ export async function authorizeEcdsaWithSession(args: {
     };
   }
 
-  const ecdsaThresholdKeyId = String(args.ecdsaThresholdKeyId || '').trim();
-  if (!ecdsaThresholdKeyId) {
+  const keyHandle = String(args.keyHandle || '').trim();
+  if (!keyHandle) {
     return {
       ok: false,
       code: 'invalid_args',
-      message: 'Missing ecdsaThresholdKeyId for threshold-ecdsa authorize',
+      message: 'Missing keyHandle for threshold-ecdsa authorize',
     };
   }
 
@@ -134,7 +135,7 @@ export async function authorizeEcdsaWithSession(args: {
         headers,
         credentials: jwt ? 'omit' : sessionKind === 'cookie' ? 'include' : 'omit',
         body: JSON.stringify({
-          ecdsaThresholdKeyId,
+          keyHandle,
           purpose,
           signing_digest_32: Array.from(signingDigest32),
           ...(args.signingPayload !== undefined ? { signingPayload: args.signingPayload } : {}),

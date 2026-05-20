@@ -11,7 +11,6 @@ import {
   type NearAccountRef,
   type ThresholdEcdsaChainTarget,
   type WalletSessionRef,
-  type WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { getPrfResultsFromCredential } from '../../webauthnAuth/credentials/credentialExtensions';
 
@@ -30,7 +29,6 @@ export type SigningEngineExportKeypairWithUIInput =
     }
   | {
       kind: 'ecdsa';
-      subjectId: WalletSubjectId;
       chainTarget: ThresholdEcdsaChainTarget;
       walletSession: WalletSessionRef;
       options: {
@@ -80,7 +78,7 @@ export async function runKeyExportWithFlowEvents<TResult>(
   const flowSubject =
     input.kind === 'near'
       ? input.nearAccount.accountId
-      : `${String(input.subjectId)}:${thresholdEcdsaChainTargetKey(input.chainTarget)}`;
+      : `${String(input.walletSession.walletId)}:${thresholdEcdsaChainTargetKey(input.chainTarget)}`;
   const flowChain = input.kind === 'near' ? 'near' : input.chainTarget.kind;
   const flowId = createKeyExportFlowId(flowSubject, flowChain);
   const accountId =
@@ -91,7 +89,6 @@ export async function runKeyExportWithFlowEvents<TResult>(
       : {
           chain: input.chainTarget.kind,
           chainTarget: input.chainTarget,
-          subjectId: input.subjectId,
         };
 
   emitKeyExportEvent(input.options.onEvent, {

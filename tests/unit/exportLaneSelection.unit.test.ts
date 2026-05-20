@@ -15,13 +15,21 @@ import type {
   AvailableEd25519SigningLane,
   ConcreteAvailableEcdsaSigningLane,
 } from '../../client/src/core/signingEngine/session/availability/availableSigningLanes';
-import { buildEvmFamilyEcdsaKeyIdentity } from '../../client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import {
+  buildPasskeyEcdsaAuthBinding,
+  buildEvmFamilyEcdsaKeyIdentity,
+  buildResolvedEvmFamilyEcdsaKey,
+  buildVerifiedEcdsaPublicFacts,
+  type EvmFamilyEcdsaKeyHandle,
+} from '../../client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 
 const WALLET_ID = 'alice.testnet';
 const SUBJECT_ID = toWalletSubjectId(WALLET_ID);
 const RP_ID = 'localhost';
 const THRESHOLD_OWNER_ADDRESS = '0x1111111111111111111111111111111111111111';
 const OTHER_THRESHOLD_OWNER_ADDRESS = '0x2222222222222222222222222222222222222222';
+const VALID_ECDSA_PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const TEST_ECDSA_KEY_HANDLE = 'ehss-key-export-lane-test' as EvmFamilyEcdsaKeyHandle;
 const EVM_TARGET: ThresholdEcdsaChainTarget = {
   kind: 'evm',
   namespace: 'eip155',
@@ -37,6 +45,8 @@ const TEMPO_TARGET: ThresholdEcdsaChainTarget = {
 type EcdsaLaneOverrides = Partial<ConcreteAvailableEcdsaSigningLane> & {
   ecdsaThresholdKeyId?: string;
   thresholdOwnerAddress?: string;
+  authBindingRpId?: string;
+  keyRpId?: string;
 };
 
 function ecdsaLane(overrides: EcdsaLaneOverrides): ConcreteAvailableEcdsaSigningLane {
@@ -44,8 +54,11 @@ function ecdsaLane(overrides: EcdsaLaneOverrides): ConcreteAvailableEcdsaSigning
     key: keyOverride,
     source,
     sourceChainTarget,
+    publicFacts: publicFactsOverride,
     ecdsaThresholdKeyId,
     thresholdOwnerAddress,
+    authBindingRpId,
+    keyRpId,
     ...laneOverrides
   } = overrides;
   const lane = {
@@ -65,24 +78,68 @@ function ecdsaLane(overrides: EcdsaLaneOverrides): ConcreteAvailableEcdsaSigning
     buildEvmFamilyEcdsaKeyIdentity({
       walletId: WALLET_ID,
       subjectId: SUBJECT_ID,
-      rpId: RP_ID,
+      rpId: keyRpId || RP_ID,
       ecdsaThresholdKeyId: ecdsaThresholdKeyId || 'ecdsa-key-1',
       signingRootId: 'root-1',
       signingRootVersion: 'default',
       participantIds: [1, 2],
       thresholdOwnerAddress: thresholdOwnerAddress || THRESHOLD_OWNER_ADDRESS,
     });
+  const publicFacts =
+    publicFactsOverride ||
+    buildVerifiedEcdsaPublicFacts({
+      keyHandle:
+        `${TEST_ECDSA_KEY_HANDLE}-${String(key.ecdsaThresholdKeyId)}-${String(
+          key.signingRootId,
+        )}-${String(key.signingRootVersion)}` as EvmFamilyEcdsaKeyHandle,
+      publicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
+      participantIds: key.participantIds,
+      thresholdOwnerAddress: key.thresholdOwnerAddress,
+    });
+  const resolvedKey =
+    lane.authMethod === 'passkey'
+      ? buildResolvedEvmFamilyEcdsaKey({
+          walletId: key.walletId,
+          publicFacts,
+          authBinding: buildPasskeyEcdsaAuthBinding({ rpId: authBindingRpId || key.rpId }),
+        })
+      : null;
   if (source === 'evm_family_shared_key') {
+    if (lane.authMethod === 'passkey') {
+      return {
+        ...lane,
+        authMethod: 'passkey',
+        key,
+        publicFacts,
+        resolvedKey: resolvedKey!,
+        source,
+        sourceChainTarget: sourceChainTarget || EVM_TARGET,
+      };
+    }
     return {
       ...lane,
+      authMethod: 'email_otp',
       key,
+      publicFacts,
       source,
       sourceChainTarget: sourceChainTarget || EVM_TARGET,
     };
   }
+  if (lane.authMethod === 'passkey') {
+    return {
+      ...lane,
+      authMethod: 'passkey',
+      key,
+      publicFacts,
+      resolvedKey: resolvedKey!,
+      source: source || 'runtime_session_record',
+    };
+  }
   return {
     ...lane,
+    authMethod: 'email_otp',
     key,
+    publicFacts,
     source: source || 'runtime_session_record',
   };
 }
@@ -271,7 +328,6 @@ test.describe('ECDSA export lane selection', () => {
       {
         walletId: WALLET_ID,
         rpId: RP_ID,
-        subjectId: SUBJECT_ID,
         signingTarget: EVM_TARGET,
       },
     );
@@ -296,7 +352,6 @@ test.describe('ECDSA export lane selection', () => {
         {
           walletId: WALLET_ID,
           rpId: RP_ID,
-          subjectId: SUBJECT_ID,
           signingTarget: EVM_TARGET,
         },
       ),
@@ -319,7 +374,6 @@ test.describe('ECDSA export lane selection', () => {
         {
           walletId: WALLET_ID,
           rpId: RP_ID,
-          subjectId: SUBJECT_ID,
           signingTarget: EVM_TARGET,
         },
       ),
@@ -350,7 +404,6 @@ test.describe('ECDSA export lane selection', () => {
       {
         walletId: WALLET_ID,
         rpId: RP_ID,
-        subjectId: SUBJECT_ID,
         signingTarget: EVM_TARGET,
       },
     );
@@ -358,6 +411,27 @@ test.describe('ECDSA export lane selection', () => {
     expect(selected.session.authMethod).toBe('email_otp');
     expect(selected.session.thresholdSessionId).toBe('threshold-session-email');
     expect(selected.session.walletSigningSessionId).toBe('wallet-session-email');
+  });
+
+  test('uses passkey auth binding rpId for export selection', async () => {
+    const selected = await restoreEcdsaSessionForExport(
+      depsFor([
+        ecdsaLane({
+          keyRpId: 'stale-key-rp.localhost',
+          authBindingRpId: RP_ID,
+          walletSigningSessionId: 'wallet-session-passkey-auth-binding',
+          thresholdSessionId: 'threshold-session-passkey-auth-binding',
+        }),
+      ]),
+      {
+        walletId: WALLET_ID,
+        rpId: RP_ID,
+        signingTarget: EVM_TARGET,
+      },
+    );
+
+    expect(selected.session.authMethod).toBe('passkey');
+    expect(selected.session.walletSigningSessionId).toBe('wallet-session-passkey-auth-binding');
   });
 
   test('selects active export lane when exhausted duplicate lane has the same shared key', async () => {
@@ -381,7 +455,6 @@ test.describe('ECDSA export lane selection', () => {
       {
         walletId: WALLET_ID,
         rpId: RP_ID,
-        subjectId: SUBJECT_ID,
         signingTarget: EVM_TARGET,
       },
     );
@@ -413,7 +486,6 @@ test.describe('ECDSA export lane selection', () => {
       {
         walletId: WALLET_ID,
         rpId: RP_ID,
-        subjectId: SUBJECT_ID,
         signingTarget: TEMPO_TARGET,
       },
     );
@@ -453,7 +525,6 @@ test.describe('ECDSA export lane selection', () => {
       {
         walletId: WALLET_ID,
         rpId: RP_ID,
-        subjectId: SUBJECT_ID,
         signingTarget: TEMPO_TARGET,
       },
     );

@@ -9,7 +9,10 @@ import {
   type ThresholdEcdsaSessionRecord,
   type ThresholdEd25519SessionRecord,
 } from '../persistence/records';
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type {
+  ThresholdEcdsaChainTarget,
+  WalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export type WarmSessionStoredCapabilityRecords = {
   ed25519: ThresholdEd25519SessionRecord | null;
@@ -20,7 +23,7 @@ export type WarmSessionStoredCapabilityRecords = {
 };
 
 export function readWarmSessionCapabilityRecordsForWallet(
-  walletId: AccountId | string,
+  walletId: AccountId,
 ): WarmSessionStoredCapabilityRecords {
   return {
     ed25519: getStoredThresholdEd25519SessionRecordForAccount(walletId),
@@ -57,7 +60,7 @@ export function readWarmSessionEcdsaRecordByThresholdSessionIdForTarget(args: {
 }
 
 export function listWarmSessionEcdsaRecordsForWalletTarget(args: {
-  walletId: AccountId | string;
+  walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
 }): ThresholdEcdsaSessionRecord[] {
   return listStoredThresholdEcdsaSessionRecordsForWallet(args.walletId, {

@@ -1,4 +1,8 @@
 import { normalizeInteger, normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
+import {
+  decodeJwtPayloadRecord,
+  THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND,
+} from '@shared/utils/sessionTokens';
 import { isIndexedDBPersistenceDisabled } from '../../../indexedDB';
 import {
   SIGNING_SESSION_RESTORE_LEASE_STORE_NAME,
@@ -23,6 +27,10 @@ import {
   exactSealedSessionFilterForIdentity,
   type DeleteDurableSealedSessionCommand,
 } from './durableSealedSessionCommands';
+import {
+  clearStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget,
+  clearStoredThresholdEcdsaSessionRecordsForWalletKeyHandle,
+} from './records';
 
 export type SigningSessionRestoreLease = {
   v: 1;
@@ -42,14 +50,32 @@ export type SigningSessionSealedStoreRecord = SealedSigningSessionRecord & {
   storeKey: string;
   curve: 'ed25519' | 'ecdsa';
 };
-export type CurrentSealedSessionRecord = SigningSessionSealedStoreRecord;
+export type CurrentEd25519SealedSessionRecord = SigningSessionSealedStoreRecord & {
+  curve: 'ed25519';
+  walletId: string;
+  relayerUrl: string;
+  ed25519Restore: SealedSigningSessionEd25519RestoreMetadata;
+};
+
+export type CurrentEcdsaSealedSessionRecord = SigningSessionSealedStoreRecord & {
+  curve: 'ecdsa';
+  walletId: string;
+  subjectId?: never;
+  signingRootId?: never;
+  signingRootVersion?: never;
+  relayerUrl: string;
+  ecdsaRestore: SealedSigningSessionEcdsaRestoreMetadata;
+};
+
+export type CurrentSealedSessionRecord =
+  | CurrentEd25519SealedSessionRecord
+  | CurrentEcdsaSealedSessionRecord;
 export type RawSealedSessionRecordV1 = Record<string, unknown>;
 
 export type SealedSessionRecordClassificationReason =
   | 'invalid_payload'
   | 'invalid_header'
   | 'invalid_identity'
-  | 'missing_subject_id'
   | 'missing_signing_root_id'
   | 'missing_participant_ids'
   | 'missing_restore_metadata'
@@ -163,10 +189,10 @@ export type BuildCurrentEd25519SealedSessionRecordInput =
 export type BuildCurrentEcdsaSealedSessionRecordInput =
   BuildCurrentSealedSessionRecordCommonInput & {
     curve: 'ecdsa';
-    subjectId: string;
+    subjectId?: never;
     walletId: string;
     userId?: string;
-    signingRootId: string;
+    signingRootId?: string;
     signingRootVersion?: string;
     relayerUrl: string;
     ecdsaRestore: SealedSigningSessionEcdsaRestoreMetadata;
@@ -223,7 +249,10 @@ export type SealedStoreResolvedSigningSessionIdentity =
     };
 
 export type PublishResolvedIdentityInput =
-  | (Omit<Extract<SealedStoreResolvedSigningSessionIdentity, { curve: 'ed25519' }>, 'updatedAtMs'> & {
+  | (Omit<
+      Extract<SealedStoreResolvedSigningSessionIdentity, { curve: 'ed25519' }>,
+      'updatedAtMs'
+    > & {
       updatedAtMs?: number;
     })
   | (Omit<Extract<SealedStoreResolvedSigningSessionIdentity, { curve: 'ecdsa' }>, 'updatedAtMs'> & {
@@ -428,7 +457,7 @@ function normalizeEcdsaRestoreMetadata(
   const sessionKind =
     sessionKindRaw === 'cookie' || sessionKindRaw === 'jwt' ? sessionKindRaw : undefined;
   const rpId = normalizeOptionalNonEmptyString(obj.rpId);
-  const ecdsaThresholdKeyId = normalizeOptionalNonEmptyString(obj.ecdsaThresholdKeyId);
+  const keyHandle = normalizeOptionalNonEmptyString(obj.keyHandle);
   const ethereumAddress = normalizeEthereumAddress(obj.ethereumAddress);
   const relayerKeyId = normalizeOptionalNonEmptyString(obj.relayerKeyId);
   const thresholdEcdsaPublicKeyB64u = normalizeOptionalNonEmptyString(
@@ -443,7 +472,7 @@ function normalizeEcdsaRestoreMetadata(
     !chainTarget ||
     !rpId ||
     !sessionKind ||
-    !ecdsaThresholdKeyId ||
+    !keyHandle ||
     !ethereumAddress ||
     !relayerKeyId ||
     !participantIds.length
@@ -457,7 +486,7 @@ function normalizeEcdsaRestoreMetadata(
     rpId,
     ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
     sessionKind,
-    ecdsaThresholdKeyId,
+    keyHandle,
     ethereumAddress,
     relayerKeyId,
     ...(clientVerifyingShareB64u ? { clientVerifyingShareB64u } : {}),
@@ -540,7 +569,9 @@ function sealedStoreKeyPart(value: unknown): string {
 
 function makeResolvedIdentityKey(identity: SealedStoreResolvedSigningSessionIdentity): string {
   const chainKey =
-    identity.curve === 'ecdsa' ? thresholdEcdsaChainTargetKey(identity.chainTarget) : identity.chain;
+    identity.curve === 'ecdsa'
+      ? thresholdEcdsaChainTargetKey(identity.chainTarget)
+      : identity.chain;
   return [
     identity.walletId,
     identity.authMethod,
@@ -599,7 +630,10 @@ function resolvedIdentityIndexKeys(identity: SealedStoreResolvedSigningSessionId
   ];
 }
 
-function indexResolvedIdentity(key: string, identity: SealedStoreResolvedSigningSessionIdentity): void {
+function indexResolvedIdentity(
+  key: string,
+  identity: SealedStoreResolvedSigningSessionIdentity,
+): void {
   for (const listKey of resolvedIdentityIndexKeys(identity)) {
     const keys = resolvedIdentityKeysByListKey.get(listKey) || new Set<string>();
     keys.add(key);
@@ -607,7 +641,10 @@ function indexResolvedIdentity(key: string, identity: SealedStoreResolvedSigning
   }
 }
 
-function unindexResolvedIdentity(key: string, identity: SealedStoreResolvedSigningSessionIdentity): void {
+function unindexResolvedIdentity(
+  key: string,
+  identity: SealedStoreResolvedSigningSessionIdentity,
+): void {
   for (const listKey of resolvedIdentityIndexKeys(identity)) {
     const keys = resolvedIdentityKeysByListKey.get(listKey);
     if (!keys) continue;
@@ -616,7 +653,10 @@ function unindexResolvedIdentity(key: string, identity: SealedStoreResolvedSigni
   }
 }
 
-function setResolvedIdentity(key: string, identity: SealedStoreResolvedSigningSessionIdentity): void {
+function setResolvedIdentity(
+  key: string,
+  identity: SealedStoreResolvedSigningSessionIdentity,
+): void {
   const existing = resolvedIdentitiesByPurposeKey.get(key);
   if (existing) unindexResolvedIdentity(key, existing);
   resolvedIdentitiesByPurposeKey.set(key, identity);
@@ -835,21 +875,13 @@ function sealedRecordsHaveSamePurpose(
   if (!sealedRecordsShareAccount(left, right)) return false;
   if (left.authMethod !== right.authMethod || left.curve !== right.curve) return false;
   if (left.curve === 'ecdsa') {
-    const leftSubjectId = normalizeOptionalNonEmptyString(left.subjectId);
-    const rightSubjectId = normalizeOptionalNonEmptyString(right.subjectId);
-    if (!leftSubjectId || !rightSubjectId || leftSubjectId !== rightSubjectId) return false;
+    const leftKeyHandle = normalizeOptionalNonEmptyString(left.ecdsaRestore?.keyHandle);
+    const rightKeyHandle = normalizeOptionalNonEmptyString(right.ecdsaRestore?.keyHandle);
+    if (!leftKeyHandle || !rightKeyHandle || leftKeyHandle !== rightKeyHandle) return false;
     const leftTarget = left.ecdsaRestore?.chainTarget;
     const rightTarget = right.ecdsaRestore?.chainTarget;
     if (!leftTarget || !rightTarget) return false;
     if (!thresholdEcdsaChainTargetsEqual(leftTarget, rightTarget)) return false;
-  }
-
-  const leftSigningRootId = normalizeOptionalNonEmptyString(left.signingRootId);
-  const rightSigningRootId = normalizeOptionalNonEmptyString(right.signingRootId);
-  // Missing signingRootId is incomplete persisted metadata. Treat it as same
-  // scope so durable seals cannot keep polluting exact lane selection.
-  if (leftSigningRootId && rightSigningRootId && leftSigningRootId !== rightSigningRootId) {
-    return false;
   }
   return true;
 }
@@ -902,7 +934,21 @@ function asRawSealedSessionRecordV1(value: unknown): RawSealedSessionRecordV1 | 
     : null;
 }
 
-function buildSealedSessionSafeSummary(obj: RawSealedSessionRecordV1 | null): Record<string, unknown> {
+function isCurrentThresholdEcdsaSessionJwt(args: {
+  jwt: string;
+  expectedWalletId: string;
+  expectedKeyHandle: string;
+}): boolean {
+  const payload = decodeJwtPayloadRecord(args.jwt);
+  if (!payload || payload.kind !== THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND) return false;
+  const walletId = normalizeOptionalNonEmptyString(payload.walletId);
+  const keyHandle = normalizeOptionalNonEmptyString(payload.keyHandle);
+  return walletId === args.expectedWalletId && keyHandle === args.expectedKeyHandle;
+}
+
+function buildSealedSessionSafeSummary(
+  obj: RawSealedSessionRecordV1 | null,
+): Record<string, unknown> {
   return {
     authMethod: normalizeOptionalNonEmptyString(obj?.authMethod) || null,
     curve: normalizeOptionalNonEmptyString(obj?.curve) || null,
@@ -1006,10 +1052,7 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
   const ed25519Restore = normalizeEd25519RestoreMetadata(obj.ed25519Restore);
 
   if (recordCurve === 'ecdsa') {
-    if (!subjectId) return classifyNonCurrentRecord('delete_required', obj, 'missing_subject_id');
-    if (!signingRootId) {
-      return classifyNonCurrentRecord('delete_required', obj, 'missing_signing_root_id');
-    }
+    if (subjectId) return classifyNonCurrentRecord('delete_required', obj, 'invalid_identity');
     if (!ecdsaRestoreObj || !relayerUrl) {
       return classifyNonCurrentRecord('rebuild_required', obj, 'missing_restore_metadata');
     }
@@ -1019,16 +1062,26 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
     if (!ecdsaRestore) {
       return classifyNonCurrentRecord('rebuild_required', obj, 'missing_restore_metadata');
     }
-    if (
-      authMethod === 'email_otp' &&
-      ecdsaRestore.sessionKind === 'jwt' &&
-      !normalizeOptionalNonEmptyString(ecdsaRestoreObj.thresholdSessionAuthToken)
-    ) {
-      return classifyNonCurrentRecord(
-        'delete_required',
-        obj,
-        'missing_threshold_session_auth_token',
+    if (ecdsaRestore.sessionKind === 'jwt') {
+      const thresholdSessionAuthToken = normalizeOptionalNonEmptyString(
+        ecdsaRestoreObj.thresholdSessionAuthToken,
       );
+      if (!thresholdSessionAuthToken) {
+        return classifyNonCurrentRecord(
+          'delete_required',
+          obj,
+          'missing_threshold_session_auth_token',
+        );
+      }
+      if (
+        !isCurrentThresholdEcdsaSessionJwt({
+          jwt: thresholdSessionAuthToken,
+          expectedWalletId: walletId,
+          expectedKeyHandle: ecdsaRestore.keyHandle,
+        })
+      ) {
+        return classifyNonCurrentRecord('delete_required', obj, 'invalid_identity');
+      }
     }
     const storeKey = makeSealedRecordStoreKey({
       walletSigningSessionId,
@@ -1053,10 +1106,7 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
         thresholdSessionIds,
         sealedSecretB64u,
         curve: 'ecdsa',
-        subjectId,
         walletId,
-        signingRootId,
-        ...(signingRootVersion ? { signingRootVersion } : {}),
         relayerUrl,
         ...(keyVersion ? { keyVersion } : {}),
         ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
@@ -1090,11 +1140,7 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
     ed25519Restore.sessionKind === 'jwt' &&
     !normalizeOptionalNonEmptyString(ed25519RestoreObj.thresholdSessionAuthToken)
   ) {
-    return classifyNonCurrentRecord(
-      'delete_required',
-      obj,
-      'missing_threshold_session_auth_token',
-    );
+    return classifyNonCurrentRecord('delete_required', obj, 'missing_threshold_session_auth_token');
   }
   const storeKey = makeSealedRecordStoreKey({
     walletSigningSessionId,
@@ -1135,14 +1181,14 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
   };
 }
 
-function normalizeSigningSessionSealedStoreRecord(value: unknown): CurrentSealedSessionRecord | null {
+function normalizeSigningSessionSealedStoreRecord(
+  value: unknown,
+): CurrentSealedSessionRecord | null {
   const classification = classifyRawSealedSessionRecord(value);
   return classification.kind === 'current' ? classification.record : null;
 }
 
-function sealedSessionCurrentSummary(
-  record: CurrentSealedSessionRecord,
-): Record<string, unknown> {
+function sealedSessionCurrentSummary(record: CurrentSealedSessionRecord): Record<string, unknown> {
   return {
     storeKey: record.storeKey,
     walletId: record.walletId || null,
@@ -1184,7 +1230,10 @@ function logSealedSessionDeletedRecord(args: {
 
 function logSealedSessionClassification(args: {
   operation: string;
-  classification: Exclude<SealedSessionRecordClassification, CurrentSealedSessionRecordClassification>;
+  classification: Exclude<
+    SealedSessionRecordClassification,
+    CurrentSealedSessionRecordClassification
+  >;
 }): void {
   const outcome =
     args.classification.kind === 'rebuild_required'
@@ -1219,6 +1268,7 @@ export function buildCurrentSealedSessionRecord(
   });
   const walletSigningSessionId = normalizeOptionalNonEmptyString(args.walletSigningSessionId);
   const subjectId = normalizeOptionalNonEmptyString(args.subjectId);
+  const walletId = normalizeOptionalNonEmptyString(args.walletId);
   const sealedSecretB64u = normalizeOptionalNonEmptyString(args.sealedSecretB64u);
   const expiresAtMs = normalizeInteger(args.expiresAtMs);
   const remainingUses = normalizeInteger(args.remainingUses);
@@ -1233,7 +1283,10 @@ export function buildCurrentSealedSessionRecord(
   if (updatedAtMs == null || updatedAtMs <= 0) return null;
   const ecdsaRestore = normalizeEcdsaRestoreMetadata(args.ecdsaRestore);
   const ed25519Restore = normalizeEd25519RestoreMetadata(args.ed25519Restore);
-  if (curve === 'ecdsa' && (!ecdsaRestore?.chainTarget || !subjectId)) return null;
+  if (curve === 'ecdsa') {
+    if (!ecdsaRestore?.chainTarget || !walletId) return null;
+    if (subjectId) return null;
+  }
 
   const classification = classifyRawSealedSessionRecord({
     v: SIGNING_SESSION_SEALED_RECORD_VERSION,
@@ -1245,14 +1298,12 @@ export function buildCurrentSealedSessionRecord(
     thresholdSessionIds,
     sealedSecretB64u,
     curve,
-    ...(subjectId ? { subjectId } : {}),
-    ...(normalizeOptionalNonEmptyString(args.walletId)
-      ? { walletId: normalizeOptionalNonEmptyString(args.walletId) }
-      : {}),
-    ...(normalizeOptionalNonEmptyString(args.signingRootId)
+    ...(curve === 'ed25519' && subjectId ? { subjectId } : {}),
+    ...(walletId ? { walletId } : {}),
+    ...(curve === 'ed25519' && normalizeOptionalNonEmptyString(args.signingRootId)
       ? { signingRootId: normalizeOptionalNonEmptyString(args.signingRootId) }
       : {}),
-    ...(normalizeOptionalNonEmptyString(args.signingRootVersion)
+    ...(curve === 'ed25519' && normalizeOptionalNonEmptyString(args.signingRootVersion)
       ? { signingRootVersion: normalizeOptionalNonEmptyString(args.signingRootVersion) }
       : {}),
     ...(normalizeOptionalNonEmptyString(args.relayerUrl)
@@ -1366,11 +1417,7 @@ function requireSealedRecordPurpose(
   operation: string,
 ): SigningSessionSealedRecordFilter {
   if (filter?.authMethod && filter.curve === 'ed25519') return filter;
-  if (
-    filter?.authMethod &&
-    filter.curve === 'ecdsa' &&
-    filter.chainTarget
-  ) {
+  if (filter?.authMethod && filter.curve === 'ecdsa' && filter.chainTarget) {
     return filter;
   }
   console.warn('[SigningSessionSealedStore] rejected ambiguous sealed record access', {
@@ -1702,9 +1749,7 @@ export async function listEcdsaSealedSessionsForWallet(args: {
   }
 }
 
-export async function writeExactSealedSession(
-  record: CurrentSealedSessionRecord,
-): Promise<void> {
+export async function writeExactSealedSession(record: CurrentSealedSessionRecord): Promise<void> {
   const classification = classifyRawSealedSessionRecord(record);
   if (classification.kind !== 'current') {
     logSealedSessionClassification({
@@ -1801,14 +1846,43 @@ export async function deleteExactSealedSession(
 export async function deleteDurableSealedSessionRecord(
   command: DeleteDurableSealedSessionCommand,
 ): Promise<void> {
+  const filter = exactSealedSessionFilterForIdentity(command.durableRecord);
+  const existingRecord =
+    command.durableRecord.curve === 'ecdsa'
+      ? await readExactSealedSession(command.durableRecord.thresholdSessionId, filter).catch(
+          () => null,
+        )
+      : null;
   const options: DeleteExactSealedSessionOptions = command.preserveResolvedIdentity
     ? { deleteResolvedIdentity: false }
     : { deleteResolvedIdentity: true, resolvedIdentityDeleteReason: 'durable_record_deleted' };
   await deleteExactSealedSession(
     command.durableRecord.thresholdSessionId,
-    exactSealedSessionFilterForIdentity(command.durableRecord),
+    filter,
     options,
   );
+  if (command.durableRecord.curve !== 'ecdsa') return;
+
+  clearStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget({
+    thresholdSessionId: command.durableRecord.thresholdSessionId,
+    chainTarget: command.durableRecord.chainTarget,
+  });
+
+  const keyHandleInvalidatesAllSessions =
+    command.deleteReason === 'account_removed' ||
+    command.deleteReason === 'device_removed' ||
+    command.deleteReason === 'invalid_persisted_record' ||
+    command.deleteReason === 'migration_rejected' ||
+    command.deleteReason === 'trusted_persisted_delete';
+  if (!keyHandleInvalidatesAllSessions) return;
+  if (!existingRecord || existingRecord.curve !== 'ecdsa') return;
+  const walletId = normalizeOptionalNonEmptyString(existingRecord.walletId);
+  const keyHandle = normalizeOptionalNonEmptyString(existingRecord.ecdsaRestore?.keyHandle);
+  if (!walletId || !keyHandle) return;
+  clearStoredThresholdEcdsaSessionRecordsForWalletKeyHandle({
+    walletId,
+    keyHandle,
+  });
 }
 
 export async function acquireSigningSessionRestoreLease(

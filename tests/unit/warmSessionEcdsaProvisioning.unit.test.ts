@@ -47,8 +47,8 @@ function createEnvelope(): WarmSessionEnvelope {
           capability: 'ecdsa',
           record: {
             walletId: 'provisioning.testnet',
-            subjectId: evmBootstrap.thresholdEcdsaKeyRef.subjectId,
             chainTarget: EVM_CHAIN_TARGET,
+            keyHandle: evmBootstrap.thresholdEcdsaKeyRef.keyHandle,
             ecdsaThresholdKeyId: 'ek-evm',
             signingRootId: evmBootstrap.thresholdEcdsaKeyRef.signingRootId,
             signingRootVersion: evmBootstrap.thresholdEcdsaKeyRef.signingRootVersion,
@@ -82,8 +82,8 @@ function createEnvelope(): WarmSessionEnvelope {
           capability: 'ecdsa',
           record: {
             walletId: 'provisioning.testnet',
-            subjectId: tempoBootstrap.thresholdEcdsaKeyRef.subjectId,
             chainTarget: TEMPO_CHAIN_TARGET,
+            keyHandle: tempoBootstrap.thresholdEcdsaKeyRef.keyHandle,
             ecdsaThresholdKeyId: 'ek-tempo',
             signingRootId: tempoBootstrap.thresholdEcdsaKeyRef.signingRootId,
             signingRootVersion: tempoBootstrap.thresholdEcdsaKeyRef.signingRootVersion,
@@ -122,7 +122,6 @@ function createEnvelope(): WarmSessionEnvelope {
   const evmRecord = envelope.capabilities.ecdsa.evm.record!;
   const evmKey = {
     walletId: evmRecord.walletId,
-    subjectId: evmRecord.subjectId,
     rpId: 'example.localhost',
     keyScope: 'evm-family',
     ecdsaThresholdKeyId: evmRecord.ecdsaThresholdKeyId,
@@ -135,15 +134,12 @@ function createEnvelope(): WarmSessionEnvelope {
   envelope.capabilities.ecdsa.evm.lane = {
     ...selectedEcdsaLane({
       key: evmKey as any,
+      keyHandle: evmRecord.keyHandle,
       walletId: evmRecord.walletId as any,
       authMethod: 'passkey',
       walletSigningSessionId: evmRecord.walletSigningSessionId,
       thresholdSessionId: evmRecord.thresholdSessionId,
-      subjectId: evmRecord.subjectId,
       chainTarget: evmRecord.chainTarget,
-      ecdsaThresholdKeyId: evmRecord.ecdsaThresholdKeyId,
-      signingRootId: evmRecord.signingRootId,
-      signingRootVersion: evmRecord.signingRootVersion,
     }),
     key: evmKey,
   } as any;
@@ -151,7 +147,6 @@ function createEnvelope(): WarmSessionEnvelope {
   const tempoRecord = envelope.capabilities.ecdsa.tempo.record!;
   const tempoKey = {
     walletId: tempoRecord.walletId,
-    subjectId: tempoRecord.subjectId,
     rpId: 'example.localhost',
     keyScope: 'evm-family',
     ecdsaThresholdKeyId: tempoRecord.ecdsaThresholdKeyId,
@@ -164,15 +159,12 @@ function createEnvelope(): WarmSessionEnvelope {
   envelope.capabilities.ecdsa.tempo.lane = {
     ...selectedEcdsaLane({
       key: tempoKey as any,
+      keyHandle: tempoRecord.keyHandle,
       walletId: tempoRecord.walletId as any,
       authMethod: 'passkey',
       walletSigningSessionId: tempoRecord.walletSigningSessionId,
       thresholdSessionId: tempoRecord.thresholdSessionId,
-      subjectId: tempoRecord.subjectId,
       chainTarget: tempoRecord.chainTarget,
-      ecdsaThresholdKeyId: tempoRecord.ecdsaThresholdKeyId,
-      signingRootId: tempoRecord.signingRootId,
-      signingRootVersion: tempoRecord.signingRootVersion,
     }),
     key: tempoKey,
   } as any;

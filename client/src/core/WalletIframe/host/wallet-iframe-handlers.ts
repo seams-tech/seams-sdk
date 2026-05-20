@@ -325,11 +325,10 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
 
     PM_SIGN_TEMPO: async (req: Req<'PM_SIGN_TEMPO'>) => {
       const pm = getSeamsPasskey();
-      const { walletSession, subjectId, request, chainTarget, options } = req.payload!;
+      const { walletSession, request, chainTarget, options } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
       const result = await pm.tempo.signTempo({
         walletSession,
-        subjectId,
         request,
         chainTarget,
         options: {
@@ -455,7 +454,6 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
               }
             : {
                 kind: 'ecdsa',
-                subjectId: payload.subjectId,
                 chainTarget: payload.chainTarget,
                 walletSession: payload.walletSession,
                 options: {
@@ -523,11 +521,10 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       req: Req<'PM_PREFILL_THRESHOLD_ECDSA_PRESIGN_POOL'>,
     ) => {
       const pm = getSeamsPasskey();
-      const { walletSession, subjectId, options } = req.payload!;
+      const { walletSession, options } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
       const result = await pm.auth.prefillThresholdEcdsaPresignPool({
         walletSession,
-        subjectId,
         chainTarget: options.chainTarget,
         ...(typeof options.waitForPoolReady === 'boolean'
           ? { waitForPoolReady: options.waitForPoolReady }

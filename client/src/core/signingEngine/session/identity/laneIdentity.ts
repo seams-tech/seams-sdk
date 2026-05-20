@@ -1,9 +1,7 @@
 import type { AccountId } from '@/core/types/accountIds';
 import type { EmailOtpAuthPolicy } from '@/core/types/seams';
 import {
-  toWalletSubjectId,
   type ThresholdEcdsaChainTarget,
-  type WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   SigningSessionIds,
@@ -14,7 +12,12 @@ import {
   type ThresholdSessionId,
   type WalletSigningSessionId,
 } from '../operationState/types';
-import type { EvmFamilyEcdsaKeyIdentity } from './evmFamilyEcdsaIdentity';
+import {
+  toEvmFamilyEcdsaKeyHandle,
+  type EvmFamilyEcdsaKeyHandle,
+  type EvmFamilyEcdsaKeyIdentity,
+  type ResolvedEvmFamilyEcdsaKey,
+} from './evmFamilyEcdsaIdentity';
 
 export type { SigningAuthMethod, SigningCurve };
 export type EcdsaThresholdKeyId = string & { readonly __brand?: 'EcdsaThresholdKeyId' };
@@ -73,13 +76,10 @@ export type SelectedEcdsaLane = BaseSelectedLane & {
   curve: 'ecdsa';
   chain: 'evm' | 'tempo';
   key: EvmFamilyEcdsaKeyIdentity;
+  keyHandle: EvmFamilyEcdsaKeyHandle;
   walletId: AccountId;
-  subjectId: WalletSubjectId;
   thresholdSessionId: ThresholdEcdsaSessionId;
   chainTarget: ThresholdEcdsaChainTarget;
-  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
-  signingRootId: SigningRootId;
-  signingRootVersion: SigningRootVersion;
 };
 
 export type SelectedLane = SelectedEd25519Lane | SelectedEcdsaLane;
@@ -93,22 +93,13 @@ export type SelectedEd25519LaneInput = {
 
 export type SelectedEcdsaLaneInput = {
   key: EvmFamilyEcdsaKeyIdentity;
+  keyHandle: unknown;
   walletId: AccountId;
   authMethod: SigningAuthMethod;
   walletSigningSessionId: unknown;
   thresholdSessionId: unknown;
-  subjectId: unknown;
   chainTarget: ThresholdEcdsaChainTarget;
-  ecdsaThresholdKeyId: unknown;
-  signingRootId: unknown;
-  signingRootVersion: unknown;
 };
-
-function requireSelectedLaneString(value: unknown, field: string): string {
-  const normalized = String(value ?? '').trim();
-  if (!normalized) throw new Error(`[SigningSession] ${field} is required`);
-  return normalized;
-}
 
 export function selectedEd25519Lane(input: SelectedEd25519LaneInput): SelectedEd25519Lane {
   return {
@@ -126,33 +117,9 @@ export function selectedEcdsaLane(input: SelectedEcdsaLaneInput): SelectedEcdsaL
   if (!input.key) {
     throw new Error('[SigningSession] selected ECDSA lane requires shared key identity');
   }
-  const subjectId = toWalletSubjectId(input.subjectId);
-  const ecdsaThresholdKeyId = requireSelectedLaneString(
-    input.ecdsaThresholdKeyId,
-    'ecdsaThresholdKeyId',
-  ) as EcdsaThresholdKeyId;
-  const signingRootId = requireSelectedLaneString(
-    input.signingRootId,
-    'signingRootId',
-  ) as SigningRootId;
-  const signingRootVersion = requireSelectedLaneString(
-    input.signingRootVersion,
-    'signingRootVersion',
-  ) as SigningRootVersion;
-  const mismatches: string[] = [];
-  if (String(input.key.walletId) !== String(input.walletId)) mismatches.push('walletId');
-  if (String(input.key.subjectId) !== String(subjectId)) mismatches.push('subjectId');
-  if (String(input.key.ecdsaThresholdKeyId) !== String(ecdsaThresholdKeyId)) {
-    mismatches.push('ecdsaThresholdKeyId');
-  }
-  if (String(input.key.signingRootId) !== String(signingRootId)) {
-    mismatches.push('signingRootId');
-  }
-  if (String(input.key.signingRootVersion) !== String(signingRootVersion)) {
-    mismatches.push('signingRootVersion');
-  }
-  if (mismatches.length) {
-    throw new Error(`[SigningSession] selected ECDSA lane key mismatch: ${mismatches.join(',')}`);
+  const keyHandle = toEvmFamilyEcdsaKeyHandle(input.keyHandle);
+  if (String(input.key.walletId) !== String(input.walletId)) {
+    throw new Error('[SigningSession] selected ECDSA lane wallet mismatch');
   }
   return {
     kind: 'selected_lane',
@@ -160,14 +127,11 @@ export function selectedEcdsaLane(input: SelectedEcdsaLaneInput): SelectedEcdsaL
     curve: 'ecdsa',
     chain: input.chainTarget.kind,
     key: input.key,
+    keyHandle,
     walletId: input.walletId,
     walletSigningSessionId: SigningSessionIds.walletSigningSession(input.walletSigningSessionId),
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(input.thresholdSessionId),
-    subjectId,
     chainTarget: input.chainTarget,
-    ecdsaThresholdKeyId,
-    signingRootId,
-    signingRootVersion,
   };
 }
 
@@ -204,6 +168,8 @@ type BaseEcdsaLaneCandidate = BaseLaneCandidate & {
   chain: 'evm' | 'tempo';
   walletId: AccountId;
   key: EvmFamilyEcdsaKeyIdentity;
+  resolvedKey?: ResolvedEvmFamilyEcdsaKey;
+  keyHandle: EvmFamilyEcdsaKeyHandle;
   chainTarget: ThresholdEcdsaChainTarget;
 };
 

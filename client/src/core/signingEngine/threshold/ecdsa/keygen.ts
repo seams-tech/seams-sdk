@@ -27,6 +27,7 @@ export async function keygenEcdsa(args: {
   ok: boolean;
   keygenSessionId?: string;
   rpId?: string;
+  keyHandle?: string;
   ecdsaThresholdKeyId?: string;
   clientVerifyingShareB64u?: string;
   clientAdditiveShare32B64u?: string;
@@ -53,6 +54,7 @@ export async function keygenEcdsa(args: {
     ok: true,
     keygenSessionId: bootstrap.keygenSessionId,
     rpId: bootstrap.rpId,
+    keyHandle: bootstrap.keyHandle,
     ecdsaThresholdKeyId: bootstrap.ecdsaThresholdKeyId,
     clientVerifyingShareB64u: bootstrap.clientVerifyingShareB64u,
     clientAdditiveShare32B64u: bootstrap.clientAdditiveShare32B64u,

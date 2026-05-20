@@ -345,7 +345,6 @@ export class EmailRecoveryDomain {
         : {};
       const thresholdPublicKey = String(thresholdSection.publicKey || '').trim();
       const relayerKeyId = String(thresholdSection.relayerKeyId || '').trim();
-      const ecdsaThresholdKeyId = String(thresholdEcdsaSection.ecdsaThresholdKeyId || '').trim();
       const newEvmOwnerAddress = String(thresholdEcdsaSection.ethereumAddress || '').trim();
       const recoverySessionId = String(recoverySessionSection.sessionId || requestId).trim();
       const recoveryDeadlineEpochSeconds = Number(recoveryEmailSection.deadlineEpochSeconds);
@@ -357,7 +356,6 @@ export class EmailRecoveryDomain {
       }
       if (
         !newEvmOwnerAddress ||
-        !ecdsaThresholdKeyId ||
         !recoverySessionId ||
         !Number.isFinite(recoveryDeadlineEpochSeconds) ||
         recoveryDeadlineEpochSeconds <= 0 ||
@@ -455,7 +453,6 @@ export class EmailRecoveryDomain {
         signerSlot,
         requestId,
         recoverySessionId,
-        ecdsaThresholdKeyId,
         nearPublicKey: thresholdPublicKey,
         newEvmOwnerAddress,
         deadlineEpochSeconds: Math.floor(recoveryDeadlineEpochSeconds),

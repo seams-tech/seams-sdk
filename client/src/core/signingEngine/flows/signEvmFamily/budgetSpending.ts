@@ -1,4 +1,5 @@
 import { createSigningSessionBudgetFinalizer } from '../../session/budget/budgetFinalizer';
+import { toAccountId } from '@/core/types/accountIds';
 import type {
   BudgetFinalizationSpend,
   SigningSessionBudgetReservation,
@@ -15,7 +16,7 @@ import type { SelectedEcdsaLane } from '../../session/identity/laneIdentity';
 import type { ResolvedEvmFamilyEcdsaSigningLane } from './ecdsaLanes';
 import type { EvmFamilyEcdsaKeyIdentity } from '../../session/identity/evmFamilyEcdsaIdentity';
 import { buildEcdsaSessionIdentity } from '../../session/warmCapabilities/ecdsaProvisionPlan';
-import type { WalletSessionRef } from '../../interfaces/ecdsaChainTarget';
+import { toWalletId, type WalletSessionRef } from '../../interfaces/ecdsaChainTarget';
 
 export type EvmFamilyTransactionSigningOperationContext = SigningOperationContext & {
   operationFingerprint: SigningOperationFingerprint;
@@ -57,7 +58,7 @@ function buildEvmFamilyBudgetFinalization(
     ...(args.operation.operationFingerprint
       ? { operationFingerprint: args.operation.operationFingerprint }
       : {}),
-    walletId: String(args.walletSession.walletId),
+    walletId: toAccountId(args.walletSession.walletId),
     walletSigningSessionId: args.finalizedSigningLane.walletSigningSessionId,
     lane: args.finalizedSigningLane,
     ecdsaKey: args.key,
@@ -100,7 +101,7 @@ function createEvmFamilyTransactionBudgetFinalizer(args: EvmFamilyWalletSigningS
       finalization: buildEvmFamilyBudgetFinalization(args),
       onRecordSuccessError: (error) => {
         console.warn('[SigningEngine][ecdsa] failed to update wallet signing-session budget', {
-          walletId: String(args.walletSession.walletId),
+          walletId: toWalletId(args.walletSession.walletId),
           chainTarget: selectedTransactionLane.chainTarget,
           walletSigningSessionId: resolvedIdentity.walletSigningSessionId,
           thresholdSessionId: resolvedIdentity.thresholdSessionId,
@@ -109,7 +110,7 @@ function createEvmFamilyTransactionBudgetFinalizer(args: EvmFamilyWalletSigningS
       },
       onRecordZeroSpendError: (error) => {
         console.warn('[SigningEngine][ecdsa] failed to record wallet signing-session zero spend', {
-          walletId: String(args.walletSession.walletId),
+          walletId: toWalletId(args.walletSession.walletId),
           chainTarget: selectedTransactionLane.chainTarget,
           error: error instanceof Error ? error.message : String(error || 'unknown error'),
         });

@@ -1,5 +1,3 @@
-import type { AccountId } from '@/core/types/accountIds';
-import { toAccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
 import {
@@ -13,12 +11,13 @@ import {
   assertBudgetStatusCheckHasConcreteLaneIdentity,
   buildWalletBudgetStatusCheck,
   isEcdsaLaneBudgetStatusCheck,
+  ownerForBudgetStatusCheck,
   thresholdSessionIdsForBudgetStatusCheck,
-  walletIdForBudgetStatusCheck,
   type AuthenticatedEcdsaLaneBudgetStatusCheck,
   type EcdsaLaneBudgetStatusCheck,
   type SigningSessionBudgetStatusAuth,
   type SigningSessionBudgetStatusCheck,
+  type WalletBudgetOwner,
 } from './budget';
 import {
   thresholdEcdsaChainTargetsEqual,
@@ -108,7 +107,7 @@ export async function readTrustedWalletSigningBudgetStatus(
   const resolvedAuth =
     providedAuth ||
     resolveWalletSigningBudgetStatusAuth(deps, {
-      walletId: walletIdForBudgetStatusCheck(args),
+      owner: ownerForBudgetStatusCheck(args),
       walletSigningSessionId,
       targetThresholdSessionIds,
       ecdsaLaneCheck,
@@ -124,7 +123,7 @@ export async function readTrustedWalletSigningBudgetStatus(
   }
 
   const fallbackAuth = resolveWalletSigningBudgetStatusAuth(deps, {
-    walletId: walletIdForBudgetStatusCheck(args),
+    owner: ownerForBudgetStatusCheck(args),
     walletSigningSessionId,
     targetThresholdSessionIds,
     ecdsaLaneCheck,
@@ -351,15 +350,15 @@ async function fetchTrustedWalletSigningBudgetStatusOnce(args: {
 function resolveWalletSigningBudgetStatusAuth(
   deps: TrustedWalletSigningBudgetStatusDeps,
   args: {
-    walletId: AccountId | string;
+    owner: WalletBudgetOwner;
     walletSigningSessionId: string;
     targetThresholdSessionIds?: string[];
     ecdsaLaneCheck?: EcdsaLaneBudgetStatusCheck | AuthenticatedEcdsaLaneBudgetStatusCheck;
   },
 ): TrustedBudgetStatusAuth | null {
-  const walletId = toAccountId(args.walletId);
+  const owner = args.owner;
   const walletSigningSessionId = String(args.walletSigningSessionId || '').trim();
-  if (!walletId || !walletSigningSessionId) return null;
+  if (!walletSigningSessionId) return null;
   const targetThresholdIds = new Set(
     (args.targetThresholdSessionIds || [])
       .map((value) => String(value || '').trim())
@@ -427,7 +426,9 @@ function resolveWalletSigningBudgetStatusAuth(
       getStoredThresholdEcdsaSessionRecordByThresholdSessionId(targetThresholdSessionId),
     );
   }
-  pushCandidate(getStoredThresholdEd25519SessionRecordForAccount(walletId));
+  if (owner.curve === 'ed25519') {
+    pushCandidate(getStoredThresholdEd25519SessionRecordForAccount(owner.accountId));
+  }
   return (
     candidates.find((candidate) => candidate.exactTarget && candidate.thresholdSessionAuthToken) ||
     candidates.find((candidate) => candidate.exactTarget) ||
@@ -443,12 +444,9 @@ function ecdsaRecordMatchesBudgetLane(
 ): boolean {
   return (
     String(record.walletId) === String(lane.key.walletId) &&
-    String(record.subjectId) === String(lane.key.subjectId) &&
     String(record.walletSigningSessionId) === String(lane.walletSigningSessionId) &&
     String(record.thresholdSessionId) === String(lane.thresholdSessionId) &&
-    String(record.ecdsaThresholdKeyId) === String(lane.key.ecdsaThresholdKeyId) &&
-    String(record.signingRootId) === String(lane.key.signingRootId) &&
-    String(record.signingRootVersion || 'default') === String(lane.key.signingRootVersion) &&
+    record.keyHandle === lane.keyHandle &&
     thresholdEcdsaChainTargetsEqual(record.chainTarget, lane.chainTarget)
   );
 }
@@ -483,13 +481,13 @@ export function mergeWalletSigningBudgetStatus<TStatus extends SigningSessionSta
 }
 
 export function buildWalletBudgetStatusCheckForSession(args: {
-  walletId: AccountId | string;
+  owner: WalletBudgetOwner;
   walletSigningSessionId: string;
 }): SigningSessionBudgetStatusCheck | null {
   const walletSigningSessionId = String(args.walletSigningSessionId || '').trim();
   if (!walletSigningSessionId) return null;
   return buildWalletBudgetStatusCheck({
-    walletId: args.walletId,
+    owner: args.owner,
     walletSigningSessionId,
   });
 }

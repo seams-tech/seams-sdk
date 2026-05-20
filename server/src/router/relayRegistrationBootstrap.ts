@@ -9,6 +9,7 @@ import {
   resolveActiveRuntimePolicyScopeForEnvironment,
   signRegistrationContinuationJwt,
   signThresholdSessionAuthToken,
+  stripLegacyThresholdEcdsaIdentityFields,
 } from './commonRouterUtils';
 import { applyRouteMetering } from './applyRouteMetering';
 import { enforceRoutePolicy } from './enforceRoutePolicy';
@@ -341,6 +342,9 @@ export async function handleRelayRegistrationBootstrap(
       return routeJson(signed.status, { success: false, error: signed.message });
     }
     response.thresholdEcdsa.session.jwt = signed.jwt;
+  }
+  if (response.thresholdEcdsa) {
+    response.thresholdEcdsa = stripLegacyThresholdEcdsaIdentityFields(response.thresholdEcdsa) as any;
   }
 
   if (continuationTargetsResult.targets.length > 0) {

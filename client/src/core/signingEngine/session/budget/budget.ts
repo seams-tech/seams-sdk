@@ -1,4 +1,5 @@
-import type { AccountId } from '@/core/types/accountIds';
+import type { StrictAccountId } from '@/core/types/accountIds';
+import { toAccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
 import {
   normalizeWalletSigningSpendPlan,
@@ -16,8 +17,15 @@ import {
   type WalletSigningSessionId,
   type WalletSigningSpendPlan,
 } from '../operationState/types';
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { EvmFamilyEcdsaKeyIdentity } from '../identity/evmFamilyEcdsaIdentity';
+import {
+  toWalletId,
+  type ThresholdEcdsaChainTarget,
+  type WalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type {
+  EvmFamilyEcdsaKeyHandle,
+  EvmFamilyEcdsaKeyIdentity,
+} from '../identity/evmFamilyEcdsaIdentity';
 import { budgetUnknownSigningSessionStatus } from './budgetProjection';
 
 export type SigningSessionBudgetZeroSpendReason =
@@ -40,7 +48,7 @@ export type SigningSessionBudgetTraceEvent = {
     | 'wallet_signing_budget_spend_failed'
     | 'wallet_signing_budget_zero_spend_recorded';
   operationId: SigningOperationId;
-  walletId: AccountId;
+  owner: WalletBudgetOwner;
   lane: SigningLaneSummary;
   reason: WalletSigningSpendPlan['reason'];
   uses: WalletSigningSpendPlan['uses'];
@@ -132,9 +140,24 @@ export type SigningSessionBudgetReservation = {
   release(reason?: SigningSessionBudgetZeroSpendReason): void;
 };
 
+export type Ed25519WalletBudgetOwner = {
+  curve: 'ed25519';
+  accountId: StrictAccountId;
+  walletId?: never;
+};
+
+export type EcdsaWalletBudgetOwner = {
+  curve: 'ecdsa';
+  walletId: WalletId;
+  accountId?: never;
+};
+
+export type WalletBudgetOwner = Ed25519WalletBudgetOwner | EcdsaWalletBudgetOwner;
+
 export type WalletBudgetStatusCheck = {
   kind: 'wallet_budget_status_check';
-  walletId: AccountId | string;
+  owner: WalletBudgetOwner;
+  walletId?: never;
   walletSigningSessionId: WalletSigningSessionId | string;
   targetBackingMaterialSessionIds?: never;
   targetThresholdSessionIds?: never;
@@ -143,7 +166,8 @@ export type WalletBudgetStatusCheck = {
 
 export type BackingMaterialBudgetStatusCheck = {
   kind: 'backing_material_budget_status_check';
-  walletId: AccountId | string;
+  owner: WalletBudgetOwner;
+  walletId?: never;
   walletSigningSessionId: WalletSigningSessionId | string;
   targetBackingMaterialSessionIds: readonly [
     BackingMaterialSessionId | string,
@@ -155,7 +179,8 @@ export type BackingMaterialBudgetStatusCheck = {
 
 export type ThresholdBudgetStatusCheck = {
   kind: 'threshold_budget_status_check';
-  walletId: AccountId | string;
+  owner: WalletBudgetOwner;
+  walletId?: never;
   walletSigningSessionId: WalletSigningSessionId | string;
   targetThresholdSessionIds: readonly [ThresholdSessionId | string, ...(ThresholdSessionId | string)[]];
   targetBackingMaterialSessionIds?: never;
@@ -164,7 +189,8 @@ export type ThresholdBudgetStatusCheck = {
 
 export type AuthenticatedThresholdBudgetStatusCheck = {
   kind: 'authenticated_threshold_budget_status_check';
-  walletId: AccountId | string;
+  owner: WalletBudgetOwner;
+  walletId?: never;
   walletSigningSessionId: WalletSigningSessionId | string;
   targetThresholdSessionIds: readonly [ThresholdSessionId | string, ...(ThresholdSessionId | string)[]];
   trustedStatusAuth: SigningSessionBudgetStatusAuth;
@@ -174,6 +200,7 @@ export type AuthenticatedThresholdBudgetStatusCheck = {
 export type EcdsaLaneBudgetStatusCheck = {
   kind: 'ecdsa_lane_budget_status_check';
   key: EvmFamilyEcdsaKeyIdentity;
+  keyHandle: EvmFamilyEcdsaKeyHandle;
   chainTarget: ThresholdEcdsaChainTarget;
   walletSigningSessionId: WalletSigningSessionId | string;
   thresholdSessionId: ThresholdEcdsaSessionId | string;
@@ -186,6 +213,7 @@ export type EcdsaLaneBudgetStatusCheck = {
 export type AuthenticatedEcdsaLaneBudgetStatusCheck = {
   kind: 'authenticated_ecdsa_lane_budget_status_check';
   key: EvmFamilyEcdsaKeyIdentity;
+  keyHandle: EvmFamilyEcdsaKeyHandle;
   chainTarget: ThresholdEcdsaChainTarget;
   walletSigningSessionId: WalletSigningSessionId | string;
   thresholdSessionId: ThresholdEcdsaSessionId | string;
@@ -214,7 +242,8 @@ export type SigningSessionBudgetStatusAuth = {
 };
 
 export type SigningSessionBudgetConsumer = (args: {
-  walletId: AccountId | string;
+  owner: WalletBudgetOwner;
+  walletId?: never;
   walletSigningSessionId: string;
   uses: number;
   reason: WalletSigningSpendPlan['reason'];
@@ -486,7 +515,7 @@ export function createSigningSessionBudgetTraceEvent(
   return {
     event,
     operationId: spend.operationId,
-    walletId: spend.walletId,
+    owner: walletBudgetOwnerForLane(spend.lane),
     lane: summarizeSigningLane(spend.lane),
     reason: spend.reason,
     uses: spend.uses,
@@ -507,7 +536,7 @@ export function createZeroSpendTraceEvent(
   return {
     event,
     operationId: input.operationId,
-    walletId: input.lane.curve === 'ecdsa' ? input.lane.walletId : input.lane.accountId,
+    owner: walletBudgetOwnerForLane(input.lane),
     lane: summarizeSigningLane(input.lane),
     reason: SigningOperationIntent.TransactionSign,
     uses: 1,
@@ -559,12 +588,12 @@ export function buildWalletSigningSpendPlan(
 }
 
 export function buildWalletBudgetStatusCheck(args: {
-  walletId: AccountId | string;
+  owner: WalletBudgetOwner;
   walletSigningSessionId: WalletSigningSessionId | string;
 }): WalletBudgetStatusCheck {
   return {
     kind: 'wallet_budget_status_check',
-    walletId: args.walletId,
+    owner: args.owner,
     walletSigningSessionId: normalizeRequired(
       args.walletSigningSessionId,
       'walletSigningSessionId',
@@ -573,7 +602,7 @@ export function buildWalletBudgetStatusCheck(args: {
 }
 
 export function buildBackingMaterialBudgetStatusCheck(args: {
-  walletId: AccountId | string;
+  owner: WalletBudgetOwner;
   walletSigningSessionId: WalletSigningSessionId | string;
   targetBackingMaterialSessionIds: readonly (BackingMaterialSessionId | string)[];
 }): BackingMaterialBudgetStatusCheck {
@@ -585,7 +614,7 @@ export function buildBackingMaterialBudgetStatusCheck(args: {
   }
   return {
     kind: 'backing_material_budget_status_check',
-    walletId: args.walletId,
+    owner: args.owner,
     walletSigningSessionId: normalizeRequired(
       args.walletSigningSessionId,
       'walletSigningSessionId',
@@ -598,7 +627,7 @@ export function buildBackingMaterialBudgetStatusCheck(args: {
 }
 
 export function buildThresholdBudgetStatusCheck(args: {
-  walletId: AccountId | string;
+  owner: WalletBudgetOwner;
   walletSigningSessionId: WalletSigningSessionId | string;
   targetThresholdSessionIds: readonly (ThresholdSessionId | string)[];
 }): ThresholdBudgetStatusCheck {
@@ -610,7 +639,7 @@ export function buildThresholdBudgetStatusCheck(args: {
   }
   return {
     kind: 'threshold_budget_status_check',
-    walletId: args.walletId,
+    owner: args.owner,
     walletSigningSessionId: normalizeRequired(
       args.walletSigningSessionId,
       'walletSigningSessionId',
@@ -620,7 +649,7 @@ export function buildThresholdBudgetStatusCheck(args: {
 }
 
 export function buildAuthenticatedThresholdBudgetStatusCheck(args: {
-  walletId: AccountId | string;
+  owner: WalletBudgetOwner;
   walletSigningSessionId: WalletSigningSessionId | string;
   targetThresholdSessionIds: readonly (ThresholdSessionId | string)[];
   trustedStatusAuth: SigningSessionBudgetStatusAuth;
@@ -628,7 +657,7 @@ export function buildAuthenticatedThresholdBudgetStatusCheck(args: {
   const thresholdCheck = buildThresholdBudgetStatusCheck(args);
   return {
     kind: 'authenticated_threshold_budget_status_check',
-    walletId: thresholdCheck.walletId,
+    owner: thresholdCheck.owner,
     walletSigningSessionId: thresholdCheck.walletSigningSessionId,
     targetThresholdSessionIds: thresholdCheck.targetThresholdSessionIds,
     trustedStatusAuth: args.trustedStatusAuth,
@@ -653,15 +682,42 @@ export function assertBudgetStatusCheckHasConcreteLaneIdentity(
   if (!args.key) {
     throw new Error('[SigningSessionBudget] ECDSA budget status requires shared key identity');
   }
+  normalizeRequired(args.keyHandle, 'keyHandle');
   if (!args.chainTarget || (args.chainTarget.kind !== 'evm' && args.chainTarget.kind !== 'tempo')) {
     throw new Error('[SigningSessionBudget] ECDSA budget status requires concrete chain target');
   }
 }
 
-export function walletIdForBudgetStatusCheck(
+export function ed25519WalletBudgetOwner(accountId: StrictAccountId): Ed25519WalletBudgetOwner {
+  return { curve: 'ed25519', accountId };
+}
+
+export function ecdsaWalletBudgetOwner(walletId: WalletId): EcdsaWalletBudgetOwner {
+  return { curve: 'ecdsa', walletId };
+}
+
+export function walletBudgetOwnerForLane(
+  lane: SelectedSigningSessionPlanningLane,
+): WalletBudgetOwner {
+  return lane.curve === 'ecdsa'
+    ? ecdsaWalletBudgetOwner(toWalletId(lane.walletId))
+    : ed25519WalletBudgetOwner(toAccountId(lane.accountId));
+}
+
+export function walletBudgetOwnerId(owner: WalletBudgetOwner): StrictAccountId | WalletId {
+  return owner.curve === 'ecdsa' ? owner.walletId : owner.accountId;
+}
+
+export function walletBudgetOwnerKey(owner: WalletBudgetOwner): string {
+  return `${owner.curve}:${walletBudgetOwnerId(owner)}`;
+}
+
+export function ownerForBudgetStatusCheck(
   args: SigningSessionBudgetStatusCheck,
-): AccountId | string {
-  return isEcdsaLaneBudgetStatusCheck(args) ? args.key.walletId : args.walletId;
+): WalletBudgetOwner {
+  return isEcdsaLaneBudgetStatusCheck(args)
+    ? ecdsaWalletBudgetOwner(args.key.walletId)
+    : args.owner;
 }
 
 export function thresholdSessionIdsForBudgetStatusCheck(
@@ -678,6 +734,7 @@ export function thresholdSessionIdsForBudgetStatusCheck(
 
 export function buildEcdsaLaneBudgetStatusCheck(args: {
   key: EvmFamilyEcdsaKeyIdentity;
+  keyHandle: EvmFamilyEcdsaKeyHandle | string;
   chainTarget: ThresholdEcdsaChainTarget;
   walletSigningSessionId: WalletSigningSessionId | string;
   thresholdSessionId: ThresholdEcdsaSessionId | string;
@@ -685,6 +742,7 @@ export function buildEcdsaLaneBudgetStatusCheck(args: {
   return buildEcdsaLaneBudgetStatusCheckInternal({
     kind: 'ecdsa_lane_budget_status_check',
     key: args.key,
+    keyHandle: args.keyHandle,
     chainTarget: args.chainTarget,
     walletSigningSessionId: args.walletSigningSessionId,
     thresholdSessionId: args.thresholdSessionId,
@@ -693,6 +751,7 @@ export function buildEcdsaLaneBudgetStatusCheck(args: {
 
 export function buildAuthenticatedEcdsaLaneBudgetStatusCheck(args: {
   key: EvmFamilyEcdsaKeyIdentity;
+  keyHandle: EvmFamilyEcdsaKeyHandle | string;
   chainTarget: ThresholdEcdsaChainTarget;
   walletSigningSessionId: WalletSigningSessionId | string;
   thresholdSessionId: ThresholdEcdsaSessionId | string;
@@ -702,6 +761,7 @@ export function buildAuthenticatedEcdsaLaneBudgetStatusCheck(args: {
     ...buildEcdsaLaneBudgetStatusCheckInternal({
       kind: 'authenticated_ecdsa_lane_budget_status_check',
       key: args.key,
+      keyHandle: args.keyHandle,
       chainTarget: args.chainTarget,
       walletSigningSessionId: args.walletSigningSessionId,
       thresholdSessionId: args.thresholdSessionId,
@@ -715,6 +775,7 @@ function buildEcdsaLaneBudgetStatusCheckInternal<
 >(args: {
   kind: TKind;
   key: EvmFamilyEcdsaKeyIdentity;
+  keyHandle: EvmFamilyEcdsaKeyHandle | string;
   chainTarget: ThresholdEcdsaChainTarget;
   walletSigningSessionId: WalletSigningSessionId | string;
   thresholdSessionId: ThresholdEcdsaSessionId | string;
@@ -732,12 +793,14 @@ function buildEcdsaLaneBudgetStatusCheckInternal<
   if (!args.key) {
     throw new Error('[SigningSessionBudget] ECDSA budget status requires shared key identity');
   }
+  const keyHandle = normalizeRequired(args.keyHandle, 'keyHandle') as EvmFamilyEcdsaKeyHandle;
   if (!args.chainTarget || (args.chainTarget.kind !== 'evm' && args.chainTarget.kind !== 'tempo')) {
     throw new Error('[SigningSessionBudget] ECDSA budget status requires concrete chain target');
   }
   return {
     kind: args.kind,
     key: args.key,
+    keyHandle,
     chainTarget: args.chainTarget,
     walletSigningSessionId,
     thresholdSessionId,
@@ -754,6 +817,7 @@ export function buildSigningSessionBudgetStatusCheckForSpend(args: {
     if (args.trustedStatusAuth) {
       return buildAuthenticatedEcdsaLaneBudgetStatusCheck({
         key: args.spend.ecdsaKey,
+        keyHandle: args.spend.lane.keyHandle,
         chainTarget: args.spend.lane.chainTarget,
         walletSigningSessionId: args.spend.walletSigningSessionId,
         thresholdSessionId: args.spend.lane.thresholdSessionId,
@@ -762,6 +826,7 @@ export function buildSigningSessionBudgetStatusCheckForSpend(args: {
     }
     return buildEcdsaLaneBudgetStatusCheck({
       key: args.spend.ecdsaKey,
+      keyHandle: args.spend.lane.keyHandle,
       chainTarget: args.spend.lane.chainTarget,
       walletSigningSessionId: args.spend.walletSigningSessionId,
       thresholdSessionId: args.spend.lane.thresholdSessionId,
@@ -769,7 +834,7 @@ export function buildSigningSessionBudgetStatusCheckForSpend(args: {
   }
   if (args.trustedStatusAuth) {
     return buildAuthenticatedThresholdBudgetStatusCheck({
-      walletId: args.spend.walletId,
+      owner: walletBudgetOwnerForLane(args.spend.lane),
       walletSigningSessionId: args.spend.walletSigningSessionId,
       targetThresholdSessionIds: args.spend.thresholdSessionIds,
       trustedStatusAuth: args.trustedStatusAuth,
@@ -777,20 +842,20 @@ export function buildSigningSessionBudgetStatusCheckForSpend(args: {
   }
   if (args.spend.thresholdSessionIds.length) {
     return buildThresholdBudgetStatusCheck({
-      walletId: args.spend.walletId,
+      owner: walletBudgetOwnerForLane(args.spend.lane),
       walletSigningSessionId: args.spend.walletSigningSessionId,
       targetThresholdSessionIds: args.spend.thresholdSessionIds,
     });
   }
   if (args.spend.backingMaterialSessionIds.length) {
     return buildBackingMaterialBudgetStatusCheck({
-      walletId: args.spend.walletId,
+      owner: walletBudgetOwnerForLane(args.spend.lane),
       walletSigningSessionId: args.spend.walletSigningSessionId,
       targetBackingMaterialSessionIds: args.spend.backingMaterialSessionIds,
     });
   }
   return buildWalletBudgetStatusCheck({
-    walletId: args.spend.walletId,
+    owner: walletBudgetOwnerForLane(args.spend.lane),
     walletSigningSessionId: args.spend.walletSigningSessionId,
   });
 }

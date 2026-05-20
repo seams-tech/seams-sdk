@@ -1,6 +1,7 @@
-import { toAccountId, type AccountId } from '@/core/types/accountIds';
+import { toAccountId } from '@/core/types/accountIds';
 import {
   thresholdEcdsaChainTargetKey,
+  type WalletId,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
@@ -23,7 +24,7 @@ export type ThresholdEcdsaCommitQueueKeyInput = {
 export type ThresholdEcdsaCommitQueueByKey = ThresholdCommitQueueByKey;
 
 export function createThresholdEcdsaCommitQueueOverflowError(
-  walletId: AccountId | string,
+  walletId: WalletId,
   queueKey: string,
   maxQueueLength: number,
 ): ThresholdEcdsaCommitQueueError {
@@ -36,7 +37,7 @@ export function createThresholdEcdsaCommitQueueOverflowError(
 }
 
 export function createThresholdEcdsaCommitQueueTimeoutError(
-  walletId: AccountId | string,
+  walletId: WalletId,
   queueKey: string,
   timeoutMs: number,
 ): ThresholdEcdsaCommitQueueError {
@@ -49,7 +50,7 @@ export function createThresholdEcdsaCommitQueueTimeoutError(
 }
 
 export function createThresholdEcdsaCommitQueueCancelledError(
-  walletId: AccountId | string,
+  walletId: WalletId,
   queueKey: string,
   reason: ThresholdCommitQueueCancelledReason = 'cancelled',
 ): ThresholdEcdsaCommitQueueError {
@@ -83,7 +84,7 @@ export function clearThresholdEcdsaCommitQueue(
 export async function withThresholdEcdsaCommitQueue<T>(args: {
   queueByKey: ThresholdEcdsaCommitQueueByKey;
   queueKey: string;
-  walletId: AccountId | string;
+  walletId: WalletId;
   enabled: boolean;
   shouldAbort?: () => boolean;
   maxQueueLength?: number;
@@ -94,7 +95,7 @@ export async function withThresholdEcdsaCommitQueue<T>(args: {
   if (!queueKey) {
     throw new Error('[SigningEngine] threshold ECDSA commit queue requires non-empty queueKey');
   }
-  const walletKey = String(toAccountId(args.walletId));
+  const walletKey = args.walletId;
   return await withThresholdCommitQueue({
     queueByKey: args.queueByKey,
     queueKey,

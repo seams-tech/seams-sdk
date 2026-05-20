@@ -173,6 +173,63 @@ Explicit export additionally requires an authorization witness bound to the
 same public identity and context. A mismatch in public identity or context must
 prevent export reconstruction and non-export signing composition.
 
+## Edge-Case And Validation Rules
+
+Zero canonical key handling:
+
+- `x_client` and `x_relayer` are each non-zero by construction
+- `x_client + x_relayer == 0 mod n` is still possible with negligible
+  probability
+- the server must retry relayer derivation if `X_client + X_relayer` is the
+  identity point
+- the accepted relayer retry counter is public, persisted, and transcript-bound
+- clients reject identity threshold public keys and retry-counter mismatches
+
+Public key validation:
+
+- all remote compressed public keys must be exactly 33-byte SEC1 compressed
+  secp256k1 keys
+- accepted prefixes are `0x02` and `0x03`
+- keys must decompress to valid non-identity curve points
+- canonical compressed re-encoding must equal the received bytes
+- public identity composition fails closed if `X_client + X_relayer` is the
+  identity point
+
+Relayer key rotation:
+
+- retained server state is bound to `relayer_key_id`
+- mismatched relayer key id rejects bootstrap, signing, presign, and export
+  requests
+- relayer key rotation requires new role-local HSS bootstrap
+- stale triples, presignatures, export authorizations, and export nonces are
+  invalid across relayer key rotation
+
+Export authorization freshness:
+
+- each export request uses a fresh `export_request_nonce32`
+- the relayer atomically records the nonce before releasing `x_relayer`
+- replayed nonces are rejected for successful and failed export attempts
+- nonce storage is keyed by wallet session user id, ECDSA threshold key id,
+  relayer key id, and nonce
+- nonce storage contains no secret scalar material
+
+WASM API separation:
+
+- browser WASM exposes client derivation, client public-identity verification,
+  client Cait-Sith share mapping, export authorization, and export
+  reconstruction
+- browser WASM does not expose relayer derivation or relayer export-share
+  release
+- server/native bindings expose relayer operations and omit client export
+  reconstruction
+
+Reference helper gating:
+
+- full-key reconstruction helpers are available only to tests, benches,
+  fixtures, or fixture-emitter binaries
+- production server/client modules do not import reference helpers
+- reference helpers are absent from public production exports
+
 ## Main Security Risks
 
 ### Risk 1: Recreating The Two-Key Model
@@ -208,6 +265,8 @@ Mitigation:
 - bind export authorization to the public transcript
 - burn failed export sessions
 - require fresh export state for retry
+- store and reject reused export nonces
+- bind export authorization to relayer key id and authenticated client session
 - audit export separately from signing
 
 ### Risk 4: Backend-Mismatch Drift

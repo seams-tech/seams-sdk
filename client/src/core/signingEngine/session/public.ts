@@ -1,9 +1,8 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import {
   thresholdEcdsaChainTargetKey,
-  toWalletSubjectId,
   type ThresholdEcdsaChainTarget,
-  type WalletSubjectId,
+  type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../interfaces/signing';
 import {
@@ -22,8 +21,9 @@ import {
   clearAllThresholdEcdsaSessionRecords as clearAllThresholdEcdsaSessionRecordsValue,
   clearThresholdEcdsaSessionRecordForWallet as clearThresholdEcdsaSessionRecordForWalletValue,
   getThresholdEcdsaKeyRefByKey as getThresholdEcdsaKeyRefByKeyValue,
-  getThresholdEcdsaSessionRecordForTarget as getThresholdEcdsaSessionRecordForTargetValue,
-  listThresholdEcdsaSessionRecordsForTarget as listThresholdEcdsaSessionRecordsForTargetValue,
+  getThresholdEcdsaSessionRecordForWalletTarget as getThresholdEcdsaSessionRecordForWalletTargetValue,
+  listThresholdEcdsaSessionRecordsForWalletTarget as listThresholdEcdsaSessionRecordsForWalletTargetValue,
+  clearThresholdEcdsaSessionRecordForWalletTarget as clearThresholdEcdsaSessionRecordForWalletTargetValue,
   listStoredThresholdEcdsaSessionRecordsForWallet,
   upsertThresholdEcdsaSessionFromBootstrap as upsertThresholdEcdsaSessionFromBootstrapValue,
   type ThresholdEcdsaSessionRecord,
@@ -69,30 +69,22 @@ export type SessionPublicDeps = {
 };
 
 export type UpsertThresholdEcdsaSessionFromBootstrapInput = {
-  walletId: AccountId | string;
+  walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
   source: ThresholdEcdsaSessionStoreSource;
   emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
 };
 
-export type GetThresholdEcdsaKeyRefForSubjectTargetInput = {
-  subjectId: WalletSubjectId;
-  chainTarget: ThresholdEcdsaChainTarget;
-  source: ThresholdEcdsaSessionStoreSource;
-};
-
 export type GetThresholdEcdsaKeyRefForWalletTargetInput = {
-  walletId: AccountId | string;
+  walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
   source: ThresholdEcdsaSessionStoreSource;
 };
 
-export type ListThresholdEcdsaSessionRecordsForTargetInput = {
-  subjectId: WalletSubjectId;
+export type ListThresholdEcdsaSessionRecordsForWalletTargetInput = {
+  walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
-  signingRootId?: string;
-  signingRootVersion?: string;
   source?: ThresholdEcdsaSessionStoreSource;
 };
 
@@ -167,32 +159,6 @@ export function upsertThresholdEcdsaSessionFromBootstrap(
   });
 }
 
-export function getThresholdEcdsaKeyRefForSubjectTarget(
-  deps: SessionPublicDeps,
-  args: GetThresholdEcdsaKeyRefForSubjectTargetInput,
-): ThresholdEcdsaSecp256k1KeyRef {
-  const record = getThresholdEcdsaSessionRecordForTargetValue(deps.ecdsaSessions, {
-    subjectId: toWalletSubjectId(args.subjectId),
-    chainTarget: args.chainTarget,
-    source: args.source,
-  });
-  const selected = getThresholdEcdsaKeyRefByKeyValue(deps.ecdsaSessions, {
-    subjectId: record.subjectId,
-    authMethod: record.source === 'email_otp' ? 'email_otp' : 'passkey',
-    curve: 'ecdsa',
-    chainTarget: record.chainTarget,
-    ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
-    signingRootId: record.signingRootId,
-    signingRootVersion: record.signingRootVersion || 'default',
-    walletSigningSessionId: record.walletSigningSessionId,
-    thresholdSessionId: record.thresholdSessionId,
-  })?.keyRef;
-  if (selected) return selected;
-  throw new Error(
-    `[SigningEngine] missing threshold ECDSA keyRef for ${thresholdEcdsaChainTargetKey(args.chainTarget)}`,
-  );
-}
-
 export function getThresholdEcdsaKeyRefForWalletTarget(
   deps: SessionPublicDeps,
   args: GetThresholdEcdsaKeyRefForWalletTargetInput,
@@ -210,13 +176,11 @@ export function getThresholdEcdsaKeyRefForWalletTarget(
   }
   const record = records[0]!;
   const selected = getThresholdEcdsaKeyRefByKeyValue(deps.ecdsaSessions, {
-    subjectId: record.subjectId,
+    walletId: record.walletId,
+    keyHandle: record.keyHandle,
     authMethod: record.source === 'email_otp' ? 'email_otp' : 'passkey',
     curve: 'ecdsa',
     chainTarget: record.chainTarget,
-    ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
-    signingRootId: record.signingRootId,
-    signingRootVersion: record.signingRootVersion || 'default',
     walletSigningSessionId: record.walletSigningSessionId,
     thresholdSessionId: record.thresholdSessionId,
   })?.keyRef;
@@ -226,16 +190,27 @@ export function getThresholdEcdsaKeyRefForWalletTarget(
   );
 }
 
-export function listThresholdEcdsaSessionRecordsForTarget(
+export function listThresholdEcdsaSessionRecordsForWalletTarget(
   deps: SessionPublicDeps,
-  args: ListThresholdEcdsaSessionRecordsForTargetInput,
+  args: ListThresholdEcdsaSessionRecordsForWalletTargetInput,
 ): ThresholdEcdsaSessionRecord[] {
-  return listThresholdEcdsaSessionRecordsForTargetValue(deps.ecdsaSessions, args);
+  return listThresholdEcdsaSessionRecordsForWalletTargetValue(deps.ecdsaSessions, args);
+}
+
+export function clearThresholdEcdsaSessionRecordForWalletTarget(
+  deps: SessionPublicDeps,
+  args: {
+    walletId: WalletId;
+    chainTarget: ThresholdEcdsaChainTarget;
+    source?: ThresholdEcdsaSessionStoreSource;
+  },
+): void {
+  clearThresholdEcdsaSessionRecordForWalletTargetValue(deps.ecdsaSessions, args);
 }
 
 export function clearThresholdEcdsaSessionRecordForWallet(
   deps: SessionPublicDeps,
-  walletId: AccountId | string,
+  walletId: WalletId,
 ): void {
   clearThresholdEcdsaSessionRecordForWalletValue(deps.ecdsaSessions, walletId);
 }
@@ -257,13 +232,15 @@ export function createSessionPublicApi(deps: SessionPublicDeps) {
     getThresholdEcdsaKeyRefForWalletTarget: (
       args: GetThresholdEcdsaKeyRefForWalletTargetInput,
     ) => getThresholdEcdsaKeyRefForWalletTarget(deps, args),
-    getThresholdEcdsaKeyRefForSubjectTarget: (
-      args: GetThresholdEcdsaKeyRefForSubjectTargetInput,
-    ) => getThresholdEcdsaKeyRefForSubjectTarget(deps, args),
-    listThresholdEcdsaSessionRecordsForTarget: (
-      args: ListThresholdEcdsaSessionRecordsForTargetInput,
-    ) => listThresholdEcdsaSessionRecordsForTarget(deps, args),
-    clearThresholdEcdsaSessionRecordForWallet: (walletId: AccountId | string) =>
+    listThresholdEcdsaSessionRecordsForWalletTarget: (
+      args: ListThresholdEcdsaSessionRecordsForWalletTargetInput,
+    ) => listThresholdEcdsaSessionRecordsForWalletTarget(deps, args),
+    clearThresholdEcdsaSessionRecordForWalletTarget: (args: {
+      walletId: WalletId;
+      chainTarget: ThresholdEcdsaChainTarget;
+      source?: ThresholdEcdsaSessionStoreSource;
+    }) => clearThresholdEcdsaSessionRecordForWalletTarget(deps, args),
+    clearThresholdEcdsaSessionRecordForWallet: (walletId: WalletId) =>
       clearThresholdEcdsaSessionRecordForWallet(deps, walletId),
     clearAllThresholdEcdsaSessionRecords: () => clearAllThresholdEcdsaSessionRecords(deps),
   };

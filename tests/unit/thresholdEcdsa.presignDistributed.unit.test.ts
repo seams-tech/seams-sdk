@@ -87,6 +87,7 @@ function sumSecpPublicKeysCompressed(
 
 function buildIntegratedKeyRecord(input: {
   ecdsaThresholdKeyId: string;
+  keyHandle?: string;
   userId: string;
   rpId: string;
   participantIds: number[];
@@ -107,6 +108,7 @@ function buildIntegratedKeyRecord(input: {
   return {
     version: 'threshold_ecdsa_hss_key_v1' as const,
     ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
+    keyHandle: input.keyHandle || `ehss-key-${input.ecdsaThresholdKeyId}`,
     userId: input.userId,
     walletSessionUserId: input.userId,
     subjectId: input.userId,
@@ -188,14 +190,18 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
     );
     const relayerKeyId = `secp-${base64UrlEncode(relayerKeyIdDigest32)}`;
     const ecdsaThresholdKeyId = `ecdsa-hss-${base64UrlEncode(relayerKeyIdDigest32)}`;
-    const integratedKeyRecord = buildIntegratedKeyRecord({
-      ecdsaThresholdKeyId,
-      userId,
-      rpId,
-      participantIds,
-      relayerKeyId,
-      clientVerifyingShareB64u,
-    });
+    const keyHandle = `ehss-key-${base64UrlEncode(relayerKeyIdDigest32)}`;
+    const integratedKeyRecord = {
+      ...buildIntegratedKeyRecord({
+        ecdsaThresholdKeyId,
+        userId,
+        rpId,
+        participantIds,
+        relayerKeyId,
+        clientVerifyingShareB64u,
+      }),
+      keyHandle,
+    };
 
     const relayerSigningShare32 = deriveFixtureRelayerSecp256k1SigningShare32({
       relayerShareSeedB64u: TEST_RELAYER_SHARE_SEED_B64U,
@@ -238,8 +244,12 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
         signingSessionStore: sharedSigningSessionStore,
         presignSessionStore: sharedPresignSessionStore,
         presignaturePool: sharedPresignaturePool,
-        resolveIntegratedKeyRecord: async ({ ecdsaThresholdKeyId: requested }) =>
-          requested === ecdsaThresholdKeyId ? integratedKeyRecord : null,
+        resolveIntegratedKeyRecord: async (selector) => {
+          switch (selector.kind) {
+            case 'key_handle':
+              return selector.keyHandle === keyHandle ? integratedKeyRecord : null;
+          }
+        },
         ensureReady: async () => {},
         createSigningSessionId: () => `sign-${Date.now()}-${Math.random().toString(16).slice(2)}`,
         createPresignSessionId: () => `presign-${++presignIdCounter}`,
@@ -251,6 +261,8 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
       walletId: userId,
       rpId,
       relayerKeyId,
+      keyHandle,
+      ecdsaThresholdKeyId,
       participantIds,
       thresholdExpiresAtMs,
       runtimePolicyScope: TEST_RUNTIME_SCOPE,
@@ -258,7 +270,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
 
     const init = await handlerA.ecdsaPresignInit({
       claims: claims as any,
-      request: { ecdsaThresholdKeyId, count: 1 },
+      request: { keyHandle: integratedKeyRecord.keyHandle, count: 1 },
     });
     expect(init.ok, JSON.stringify(init)).toBe(true);
     const presignSessionId = String(init.presignSessionId || '');
@@ -411,8 +423,8 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
         signingSessionStore: sharedSigningSessionStore,
         presignSessionStore: sharedPresignSessionStore,
         presignaturePool: sharedPresignaturePool,
-        resolveIntegratedKeyRecord: async ({ ecdsaThresholdKeyId: requested }) =>
-          requested === ecdsaThresholdKeyId ? integratedKeyRecord : null,
+        resolveIntegratedKeyRecord: async ({ keyHandle: requested }) =>
+          requested === integratedKeyRecord.keyHandle ? integratedKeyRecord : null,
         ensureReady: async () => {},
         createSigningSessionId: () => `sign-${Date.now()}-${Math.random().toString(16).slice(2)}`,
         createPresignSessionId: () => `presign-cache-miss-${++presignIdCounter}`,
@@ -424,6 +436,8 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
       walletId: userId,
       rpId,
       relayerKeyId,
+      keyHandle: integratedKeyRecord.keyHandle,
+      ecdsaThresholdKeyId,
       participantIds,
       thresholdExpiresAtMs,
       runtimePolicyScope: TEST_RUNTIME_SCOPE,
@@ -431,7 +445,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
 
     const init = await handlerA.ecdsaPresignInit({
       claims: claims as any,
-      request: { ecdsaThresholdKeyId, count: 1 },
+      request: { keyHandle: integratedKeyRecord.keyHandle, count: 1 },
     });
     expect(init.ok, JSON.stringify(init)).toBe(true);
     const presignSessionId = String(init.presignSessionId || '');
@@ -518,8 +532,8 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
         signingSessionStore: sharedSigningSessionStore,
         presignSessionStore: sharedPresignSessionStore,
         presignaturePool: sharedPresignaturePool,
-        resolveIntegratedKeyRecord: async ({ ecdsaThresholdKeyId: requested }) =>
-          requested === ecdsaThresholdKeyId ? integratedKeyRecord : null,
+        resolveIntegratedKeyRecord: async ({ keyHandle: requested }) =>
+          requested === integratedKeyRecord.keyHandle ? integratedKeyRecord : null,
         ensureReady: async () => {},
         createSigningSessionId: () => `sign-${Date.now()}-${Math.random().toString(16).slice(2)}`,
         createPresignSessionId: () => `presign-forward-${++presignIdCounter}`,
@@ -534,6 +548,8 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
       walletId: userId,
       rpId,
       relayerKeyId,
+      keyHandle: integratedKeyRecord.keyHandle,
+      ecdsaThresholdKeyId,
       participantIds,
       thresholdExpiresAtMs,
       runtimePolicyScope: TEST_RUNTIME_SCOPE,
@@ -541,7 +557,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
 
     const init = await handlerA.ecdsaPresignInit({
       claims: claims as any,
-      request: { ecdsaThresholdKeyId, count: 1 },
+      request: { keyHandle: integratedKeyRecord.keyHandle, count: 1 },
     });
     expect(init.ok, JSON.stringify(init)).toBe(true);
     const presignSessionId = String(init.presignSessionId || '');
@@ -656,8 +672,8 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
         signingSessionStore: sharedSigningSessionStore,
         presignSessionStore: sharedPresignSessionStore,
         presignaturePool: sharedPresignaturePool,
-        resolveIntegratedKeyRecord: async ({ ecdsaThresholdKeyId: requested }) =>
-          requested === ecdsaThresholdKeyId ? integratedKeyRecord : null,
+        resolveIntegratedKeyRecord: async ({ keyHandle: requested }) =>
+          requested === integratedKeyRecord.keyHandle ? integratedKeyRecord : null,
         ensureReady: async () => {},
         createSigningSessionId: () => `sign-${Date.now()}-${Math.random().toString(16).slice(2)}`,
         createPresignSessionId: () => `presign-forward-no-auth-${++presignIdCounter}`,
@@ -672,6 +688,8 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
       walletId: userId,
       rpId,
       relayerKeyId,
+      keyHandle: integratedKeyRecord.keyHandle,
+      ecdsaThresholdKeyId,
       participantIds,
       thresholdExpiresAtMs,
       runtimePolicyScope: TEST_RUNTIME_SCOPE,
@@ -679,7 +697,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
 
     const init = await handlerA.ecdsaPresignInit({
       claims: claims as any,
-      request: { ecdsaThresholdKeyId, count: 1 },
+      request: { keyHandle: integratedKeyRecord.keyHandle, count: 1 },
     });
     expect(init.ok, JSON.stringify(init)).toBe(true);
     const presignSessionId = String(init.presignSessionId || '');
@@ -765,8 +783,8 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
         signingSessionStore: sharedSigningSessionStore,
         presignSessionStore: sharedPresignSessionStore,
         presignaturePool: sharedPresignaturePool,
-        resolveIntegratedKeyRecord: async ({ ecdsaThresholdKeyId: requested }) =>
-          requested === ecdsaThresholdKeyId ? integratedKeyRecord : null,
+        resolveIntegratedKeyRecord: async ({ keyHandle: requested }) =>
+          requested === integratedKeyRecord.keyHandle ? integratedKeyRecord : null,
         ensureReady: async () => {},
         createSigningSessionId: () => `sign-${Date.now()}-${Math.random().toString(16).slice(2)}`,
         createPresignSessionId: () => `presign-scope-${++presignIdCounter}`,
@@ -778,6 +796,8 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
       walletId: userId,
       rpId,
       relayerKeyId,
+      keyHandle: integratedKeyRecord.keyHandle,
+      ecdsaThresholdKeyId,
       participantIds,
       thresholdExpiresAtMs,
       runtimePolicyScope: TEST_RUNTIME_SCOPE,
@@ -785,7 +805,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
 
     const init = await handlerA.ecdsaPresignInit({
       claims: validClaims as any,
-      request: { ecdsaThresholdKeyId, count: 1 },
+      request: { keyHandle: integratedKeyRecord.keyHandle, count: 1 },
     });
     expect(init.ok, JSON.stringify(init)).toBe(true);
     const presignSessionId = String(init.presignSessionId || '');
@@ -880,8 +900,8 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
       signingSessionStore: sharedSigningSessionStore,
       presignSessionStore: sharedPresignSessionStore,
       presignaturePool: sharedPresignaturePool,
-      resolveIntegratedKeyRecord: async ({ ecdsaThresholdKeyId: requested }) =>
-        requested === ecdsaThresholdKeyId ? integratedKeyRecord : null,
+      resolveIntegratedKeyRecord: async ({ keyHandle: requested }) =>
+        requested === integratedKeyRecord.keyHandle ? integratedKeyRecord : null,
       ensureReady: async () => {},
       createSigningSessionId: () => `sign-${Date.now()}-${Math.random().toString(16).slice(2)}`,
       createPresignSessionId: () => `presign-stage-regression-${++presignIdCounter}`,
@@ -891,6 +911,8 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
       walletId: userId,
       rpId,
       relayerKeyId,
+      keyHandle: integratedKeyRecord.keyHandle,
+      ecdsaThresholdKeyId,
       participantIds,
       thresholdExpiresAtMs,
       runtimePolicyScope: TEST_RUNTIME_SCOPE,
@@ -898,7 +920,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
 
     const init = await handler.ecdsaPresignInit({
       claims: claims as any,
-      request: { ecdsaThresholdKeyId, count: 1 },
+      request: { keyHandle: integratedKeyRecord.keyHandle, count: 1 },
     });
     expect(init.ok, JSON.stringify(init)).toBe(true);
     const presignSessionId = String(init.presignSessionId || '');
@@ -1035,6 +1057,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
           expiresAtMs: Date.now() + 120_000,
           relayerKeyId,
           ecdsaThresholdKeyId,
+          keyHandle: integratedKeyRecord.keyHandle,
           purpose: 'test-sign-init-select',
           intentDigestB64u: signingDigestB64u,
           signingDigestB64u,
@@ -1073,8 +1096,8 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
       signingSessionStore: sharedSigningSessionStore,
       presignSessionStore: sharedPresignSessionStore,
       presignaturePool: sharedPresignaturePool,
-      resolveIntegratedKeyRecord: async ({ ecdsaThresholdKeyId: requested }) =>
-        requested === ecdsaThresholdKeyId ? integratedKeyRecord : null,
+      resolveIntegratedKeyRecord: async ({ keyHandle: requested }) =>
+        requested === integratedKeyRecord.keyHandle ? integratedKeyRecord : null,
       ensureReady: async () => {},
       createSigningSessionId: () => `sign-${Date.now()}-${Math.random().toString(16).slice(2)}`,
       createPresignSessionId: () => `presign-${Date.now()}-${Math.random().toString(16).slice(2)}`,

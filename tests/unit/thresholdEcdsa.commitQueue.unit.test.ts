@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   clearThresholdEcdsaCommitQueue,
   resolveThresholdEcdsaCommitQueueKey,
@@ -23,13 +24,14 @@ function deferred<T = void>(): {
 test.describe('threshold ECDSA commit queue gate', () => {
   test('serializes concurrent requests sharing the same queueKey in FIFO order', async () => {
     const queueByKey: ThresholdEcdsaCommitQueueByKey = new Map();
+    const walletId = toWalletId('alice.testnet');
     const blocker = deferred<void>();
     const order: string[] = [];
 
     const first = withThresholdEcdsaCommitQueue({
       queueByKey,
       queueKey: 'session:tempo:tsess-1',
-      walletId: 'alice.testnet',
+      walletId,
       enabled: true,
       task: async () => {
         order.push('first:start');
@@ -42,7 +44,7 @@ test.describe('threshold ECDSA commit queue gate', () => {
     const second = withThresholdEcdsaCommitQueue({
       queueByKey,
       queueKey: 'session:tempo:tsess-1',
-      walletId: 'alice.testnet',
+      walletId,
       enabled: true,
       task: async () => {
         order.push('second:start');
@@ -62,12 +64,13 @@ test.describe('threshold ECDSA commit queue gate', () => {
 
   test('allows concurrent requests for different queueKeys even on the same account', async () => {
     const queueByKey: ThresholdEcdsaCommitQueueByKey = new Map();
+    const walletId = toWalletId('alice.testnet');
     const blocker = deferred<void>();
 
     const first = withThresholdEcdsaCommitQueue({
       queueByKey,
       queueKey: 'session:tempo:tsess-1',
-      walletId: 'alice.testnet',
+      walletId,
       enabled: true,
       task: async () => {
         await blocker.promise;
@@ -80,7 +83,7 @@ test.describe('threshold ECDSA commit queue gate', () => {
       withThresholdEcdsaCommitQueue({
         queueByKey,
         queueKey: 'session:evm:tsess-2',
-        walletId: 'alice.testnet',
+        walletId,
         enabled: true,
         task: async () => 'evm-ok',
       }),
@@ -92,12 +95,13 @@ test.describe('threshold ECDSA commit queue gate', () => {
 
   test('continues queue processing after a failed request', async () => {
     const queueByKey: ThresholdEcdsaCommitQueueByKey = new Map();
+    const walletId = toWalletId('alice.testnet');
 
     await expect(
       withThresholdEcdsaCommitQueue({
         queueByKey,
         queueKey: 'session:tempo:tsess-1',
-        walletId: 'alice.testnet',
+        walletId,
         enabled: true,
         task: async () => {
           throw new Error('boom');
@@ -109,7 +113,7 @@ test.describe('threshold ECDSA commit queue gate', () => {
       withThresholdEcdsaCommitQueue({
         queueByKey,
         queueKey: 'session:tempo:tsess-1',
-        walletId: 'alice.testnet',
+        walletId,
         enabled: true,
         task: async () => 'after-failure',
       }),
@@ -118,12 +122,13 @@ test.describe('threshold ECDSA commit queue gate', () => {
 
   test('fails fast with commit_queue_overflow when queue depth exceeds max for a queueKey', async () => {
     const queueByKey: ThresholdEcdsaCommitQueueByKey = new Map();
+    const walletId = toWalletId('alice.testnet');
     const blocker = deferred<void>();
 
     const first = withThresholdEcdsaCommitQueue({
       queueByKey,
       queueKey: 'session:tempo:tsess-1',
-      walletId: 'alice.testnet',
+      walletId,
       enabled: true,
       maxQueueLength: 1,
       task: async () => {
@@ -136,7 +141,7 @@ test.describe('threshold ECDSA commit queue gate', () => {
       withThresholdEcdsaCommitQueue({
         queueByKey,
         queueKey: 'session:tempo:tsess-1',
-        walletId: 'alice.testnet',
+        walletId,
         enabled: true,
         maxQueueLength: 1,
         task: async () => 'second-ok',
@@ -149,12 +154,13 @@ test.describe('threshold ECDSA commit queue gate', () => {
 
   test('fails queued requests with commit_queue_timeout before task start', async () => {
     const queueByKey: ThresholdEcdsaCommitQueueByKey = new Map();
+    const walletId = toWalletId('alice.testnet');
     const blocker = deferred<void>();
 
     const first = withThresholdEcdsaCommitQueue({
       queueByKey,
       queueKey: 'session:tempo:tsess-1',
-      walletId: 'alice.testnet',
+      walletId,
       enabled: true,
       task: async () => {
         await blocker.promise;
@@ -166,7 +172,7 @@ test.describe('threshold ECDSA commit queue gate', () => {
       withThresholdEcdsaCommitQueue({
         queueByKey,
         queueKey: 'session:tempo:tsess-1',
-        walletId: 'alice.testnet',
+        walletId,
         enabled: true,
         queueTimeoutMs: 10,
         task: async () => 'second-ok',
@@ -179,12 +185,13 @@ test.describe('threshold ECDSA commit queue gate', () => {
 
   test('clearing queue cancels pending requests', async () => {
     const queueByKey: ThresholdEcdsaCommitQueueByKey = new Map();
+    const walletId = toWalletId('alice.testnet');
     const blocker = deferred<void>();
 
     const first = withThresholdEcdsaCommitQueue({
       queueByKey,
       queueKey: 'session:tempo:tsess-1',
-      walletId: 'alice.testnet',
+      walletId,
       enabled: true,
       task: async () => {
         await blocker.promise;
@@ -194,7 +201,7 @@ test.describe('threshold ECDSA commit queue gate', () => {
     const second = withThresholdEcdsaCommitQueue({
       queueByKey,
       queueKey: 'session:tempo:tsess-1',
-      walletId: 'alice.testnet',
+      walletId,
       enabled: true,
       task: async () => 'second-ok',
     });

@@ -114,7 +114,6 @@ import type {
 import type {
   ThresholdEcdsaChainTarget,
   WalletSessionRef,
-  WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   ThresholdEd25519HssFinalizedReportEnvelope,
@@ -982,7 +981,6 @@ export class WalletIframeRouter {
 
   async requestEmailOtpSigningSessionChallenge(payload: {
     walletSession: WalletSessionRef;
-    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     onEvent?: (ev: UnlockFlowEvent) => void;
   }): Promise<Pick<EmailOtpChallengeResult, 'challengeId' | 'emailHint'>> {
@@ -1063,7 +1061,6 @@ export class WalletIframeRouter {
 
   async refreshEmailOtpSigningSession(payload: {
     walletSession: WalletSessionRef;
-    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     challengeId: string;
     otpCode: string;
@@ -1172,7 +1169,6 @@ export class WalletIframeRouter {
 
   async signTempo(payload: {
     walletSession: WalletSessionRef;
-    subjectId: WalletSubjectId;
     request: MultichainSigningRequest;
     chainTarget: ThresholdEcdsaChainTarget;
     options?: {
@@ -1185,7 +1181,6 @@ export class WalletIframeRouter {
         type: 'PM_SIGN_TEMPO',
         payload: {
           walletSession: payload.walletSession,
-          subjectId: payload.subjectId,
           request: payload.request,
           chainTarget: payload.chainTarget,
           options: payload.options
@@ -1392,7 +1387,6 @@ export class WalletIframeRouter {
 
   async prefillThresholdEcdsaPresignPool(payload: {
     walletSession: WalletSessionRef;
-    subjectId: WalletSubjectId;
     options: {
       chainTarget: ThresholdEcdsaChainTarget;
       waitForPoolReady?: boolean;
@@ -1406,7 +1400,6 @@ export class WalletIframeRouter {
         type: 'PM_PREFILL_THRESHOLD_ECDSA_PRESIGN_POOL',
         payload: {
           walletSession: payload.walletSession,
-          subjectId: payload.subjectId,
           ...(payload.options ? { options: payload.options } : {}),
         },
       },
@@ -1688,7 +1681,6 @@ export class WalletIframeRouter {
           }
         : {
             kind: 'ecdsa' as const,
-            subjectId: input.subjectId,
             chainTarget: input.chainTarget,
             walletSession: input.walletSession,
             options: messageOptions,

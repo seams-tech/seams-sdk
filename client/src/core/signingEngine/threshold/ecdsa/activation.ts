@@ -20,10 +20,14 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
+  EvmFamilyEcdsaKeyHandle,
   EvmFamilyEcdsaKeyIdentity,
   EvmFamilyEcdsaSessionLanePolicy,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
-import { deriveEvmFamilyKeyFingerprint } from '../../session/identity/evmFamilyEcdsaIdentity';
+import {
+  deriveBaseEcdsaSubjectIdFromKey,
+  deriveEvmFamilyKeyFingerprint,
+} from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { ExistingEcdsaBootstrapKeyIntent } from '../../session/passkey/ecdsaBootstrap';
 
 export type ThresholdEcdsaEvmChainTarget = EvmEip155ChainTarget;
@@ -109,9 +113,10 @@ type ActivateEcdsaRegistrationRequest = ActivateEcdsaSessionRequestCommon & {
 
 type ActivateEcdsaExistingSessionRequest = ActivateEcdsaSessionRequestCommon & {
   kind: 'session_bootstrap';
+  keyHandle: EvmFamilyEcdsaKeyHandle;
   key: EvmFamilyEcdsaKeyIdentity;
   lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
-  thresholdSessionAuth: ThresholdEcdsaHssRouteAuth;
+  thresholdSessionAuth?: ThresholdEcdsaHssRouteAuth;
   walletId?: never;
   subjectId?: never;
   chainTarget?: never;
@@ -170,7 +175,9 @@ function inferThresholdEcdsaBootstrapAuthMethod(
 }
 
 function normalizeExactActivationOwnerAddress(value: unknown, field: string): string {
-  const normalized = String(value || '').trim().toLowerCase();
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
   if (!/^0x[0-9a-f]{40}$/.test(normalized)) {
     throw new Error(`threshold-ecdsa exact activation returned invalid ${field}`);
   }
@@ -203,7 +210,7 @@ export async function activateEcdsaSession(
 ): Promise<ThresholdEcdsaSessionActivationResult> {
   const exactActivation = args.kind === 'session_bootstrap';
   const walletId = toAccountId(exactActivation ? String(args.key.walletId) : args.walletId);
-  const subjectId = exactActivation ? args.key.subjectId : args.subjectId;
+  const subjectId = exactActivation ? deriveBaseEcdsaSubjectIdFromKey(args.key) : args.subjectId;
   const chainTarget = exactActivation ? args.lanePolicy.chainTarget : args.chainTarget;
 
   const requestedSessionId = String(
@@ -215,7 +222,7 @@ export async function activateEcdsaSession(
       : args.sessionPlan?.walletSigningSessionId || '',
   ).trim();
   const requestedEcdsaThresholdKeyId = String(
-    exactActivation ? args.key.ecdsaThresholdKeyId : args.keyIntent?.ecdsaThresholdKeyId || '',
+    exactActivation ? '' : args.keyIntent?.ecdsaThresholdKeyId || '',
   ).trim();
   const baseBootstrapArgs = {
     indexedDB: deps.indexedDB,
@@ -249,7 +256,9 @@ export async function activateEcdsaSession(
     targetKey: thresholdEcdsaChainTargetKey(chainTarget),
     operationId: requestedSessionId || null,
     authMethod: inferThresholdEcdsaBootstrapAuthMethod(args),
-    ...(exactActivation ? { evmFamilyKeyFingerprint: deriveEvmFamilyKeyFingerprint(args.key) } : {}),
+    ...(exactActivation
+      ? { evmFamilyKeyFingerprint: deriveEvmFamilyKeyFingerprint(args.key), keyHandle: args.keyHandle }
+      : {}),
     chainTargetKey: thresholdEcdsaChainTargetKey(chainTarget),
     ecdsaThresholdKeyId: requestedEcdsaThresholdKeyId || null,
     walletSigningSessionId: requestedWalletSigningSessionId || null,
@@ -283,6 +292,7 @@ export async function activateEcdsaSession(
       ? await bootstrapEcdsaSession({
           ...baseBootstrapArgs,
           bootstrapAuth: args.thresholdSessionAuth,
+          keyHandle: args.keyHandle,
           key: args.key,
           lanePolicy: args.lanePolicy,
         })
@@ -291,18 +301,18 @@ export async function activateEcdsaSession(
             ...baseBootstrapArgs,
             bootstrapAuth: args.thresholdSessionAuth,
           })
-      : await bootstrapEcdsaSession({
-          ...baseBootstrapArgs,
-          ...(requestedEcdsaThresholdKeyId
-            ? { ecdsaThresholdKeyId: requestedEcdsaThresholdKeyId }
-            : {}),
-          sessionId:
-            requestedSessionId ||
-            deps.getOrCreateActiveThresholdEcdsaSessionId(walletId, chainTarget),
-          ...(requestedWalletSigningSessionId
-            ? { walletSigningSessionId: requestedWalletSigningSessionId }
-            : {}),
-        });
+        : await bootstrapEcdsaSession({
+            ...baseBootstrapArgs,
+            ...(requestedEcdsaThresholdKeyId
+              ? { ecdsaThresholdKeyId: requestedEcdsaThresholdKeyId }
+              : {}),
+            sessionId:
+              requestedSessionId ||
+              deps.getOrCreateActiveThresholdEcdsaSessionId(walletId, chainTarget),
+            ...(requestedWalletSigningSessionId
+              ? { walletSigningSessionId: requestedWalletSigningSessionId }
+              : {}),
+          });
   } catch (error: unknown) {
     try {
       console.warn('[threshold-ecdsa][bootstrap][exception]', {
@@ -332,6 +342,7 @@ export async function activateEcdsaSession(
   if (!ecdsaThresholdKeyId) {
     throw new Error('threshold-ecdsa bootstrap returned empty ecdsaThresholdKeyId');
   }
+  const keyHandle = String(bootstrap.keyHandle || '').trim();
 
   const relayerKeyId = String(bootstrap.relayerKeyId || '').trim();
   if (!relayerKeyId) {
@@ -367,7 +378,7 @@ export async function activateEcdsaSession(
   if (!Number.isFinite(remainingUses)) {
     throw new Error('threshold-ecdsa bootstrap returned invalid remainingUses');
   }
-    const participantIds = exactActivation
+  const participantIds = exactActivation
     ? args.key.participantIds.map((participantId) => Number(participantId))
     : normalizeThresholdEd25519ParticipantIds(
         Array.isArray(args.keyIntent?.participantIds)
@@ -397,6 +408,7 @@ export async function activateEcdsaSession(
     ok: true,
     keygenSessionId: bootstrap.keygenSessionId,
     rpId: bootstrap.rpId,
+    ...(keyHandle ? { keyHandle } : {}),
     ecdsaThresholdKeyId,
     clientVerifyingShareB64u,
     ...(clientAdditiveShare32B64u ? { clientAdditiveShare32B64u } : {}),
@@ -425,9 +437,9 @@ export async function activateEcdsaSession(
   const thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef = {
     type: 'threshold-ecdsa-secp256k1',
     userId: walletId,
-    subjectId,
     chainTarget,
     relayerUrl: args.relayerUrl,
+    ...(bootstrap.keyHandle ? { keyHandle: bootstrap.keyHandle } : {}),
     ecdsaThresholdKeyId,
     signingRootId,
     ...(signingRootVersion ? { signingRootVersion } : {}),
@@ -437,7 +449,8 @@ export async function activateEcdsaSession(
       ...(clientAdditiveShare32B64u ? { clientAdditiveShare32B64u } : {}),
     },
     participantIds,
-    ...(typeof bootstrap.thresholdEcdsaPublicKeyB64u === 'string' && bootstrap.thresholdEcdsaPublicKeyB64u.trim()
+    ...(typeof bootstrap.thresholdEcdsaPublicKeyB64u === 'string' &&
+    bootstrap.thresholdEcdsaPublicKeyB64u.trim()
       ? { thresholdEcdsaPublicKeyB64u: bootstrap.thresholdEcdsaPublicKeyB64u.trim() }
       : {}),
     ...(thresholdOwnerAddress ? { ethereumAddress: thresholdOwnerAddress } : {}),

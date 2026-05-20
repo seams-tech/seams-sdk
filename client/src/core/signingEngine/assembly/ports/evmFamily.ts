@@ -10,6 +10,7 @@ import { createWarmSessionCapabilityReader } from '../../session/warmCapabilitie
 import type { WarmSessionStatusResult } from '../../uiConfirm/types';
 import type { CreateSigningEnginePortsArgs } from './shared';
 import { thresholdEcdsaChainTargetsEqual } from '../../interfaces/ecdsaChainTarget';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export function createEvmFamilySigningDeps(args: {
   createArgs: CreateSigningEnginePortsArgs;
@@ -23,37 +24,37 @@ export function createEvmFamilySigningDeps(args: {
     nonceCoordinator: createArgs.nonceCoordinator,
     ensureSealedRefreshStartupParity: createArgs.ensureSealedRefreshStartupParity,
     getSignerWorkerContext: () => createArgs.signerWorkerManager.getContext(),
-    getEmailOtpThresholdEcdsaKeyRefForSigning: ({ subjectId, chainTarget }) =>
+    getEmailOtpThresholdEcdsaKeyRefForSigning: ({ walletId, chainTarget }) =>
       createArgs.getEmailOtpThresholdEcdsaKeyRefForSigning({
-        subjectId,
+        walletId,
         chainTarget,
       }),
-    getEmailOtpThresholdEcdsaSessionRecordForSigning: ({ subjectId, chainTarget }) =>
+    getEmailOtpThresholdEcdsaSessionRecordForSigning: ({ walletId, chainTarget }) =>
       createArgs.getEmailOtpThresholdEcdsaSessionRecordForSigning({
-        subjectId,
+        walletId,
         chainTarget,
       }),
-    getPasskeyThresholdEcdsaKeyRefForSigning: ({ subjectId, chainTarget, source }) =>
+    getPasskeyThresholdEcdsaKeyRefForSigning: ({ walletId, chainTarget, source }) =>
       createArgs.getPasskeyThresholdEcdsaKeyRefForSigning({
-        subjectId,
+        walletId,
         chainTarget,
         source,
       }),
-    getPasskeyThresholdEcdsaSessionRecordForSigning: ({ subjectId, chainTarget, source }) =>
+    getPasskeyThresholdEcdsaSessionRecordForSigning: ({ walletId, chainTarget, source }) =>
       createArgs.getPasskeyThresholdEcdsaSessionRecordForSigning({
-        subjectId,
+        walletId,
         chainTarget,
         source,
       }),
-    listThresholdEcdsaSessionRecordsForSigning: ({ subjectId, chainTarget, source }) =>
-      createArgs.listThresholdEcdsaSessionRecordsForTarget({
-        subjectId,
+    listThresholdEcdsaSessionRecordsForSigning: ({ walletId, chainTarget, source }) =>
+      createArgs.listThresholdEcdsaSessionRecordsForWalletTarget({
+        walletId: toWalletId(walletId),
         chainTarget,
         ...(source ? { source } : {}),
       }),
-    listThresholdEcdsaKeyRefsForSigning: ({ subjectId, chainTarget, source }) =>
-      createArgs.listThresholdEcdsaKeyRefsForTarget({
-        subjectId,
+    listThresholdEcdsaKeyRefsForSigning: ({ walletId, chainTarget, source }) =>
+      createArgs.listThresholdEcdsaKeyRefsForWalletTarget({
+        walletId: toWalletId(walletId),
         chainTarget,
         ...(source ? { source } : {}),
       }),
@@ -62,7 +63,6 @@ export function createEvmFamilySigningDeps(args: {
     getThresholdEcdsaKeyRefByKey: (identity) => createArgs.getThresholdEcdsaKeyRefByKey(identity),
     requestEmailOtpTransactionSigningChallenge: ({ walletSession, chain, authLane }) =>
       createArgs.requestEmailOtpTransactionSigningChallenge?.({
-        kind: 'wallet_session_challenge',
         walletSession,
         chain,
         ...(authLane ? { authLane } : {}),
@@ -114,7 +114,6 @@ export function createEvmFamilySigningDeps(args: {
     },
     loginWithEmailOtpEcdsaCapabilityForSigning: ({
       walletSession,
-      subjectId,
       chainTarget,
       challengeId,
       otpCode,
@@ -123,7 +122,6 @@ export function createEvmFamilySigningDeps(args: {
     }) =>
       createArgs.loginWithEmailOtpEcdsaCapabilityForSigning?.({
         walletSession,
-        subjectId,
         chainTarget,
         challengeId,
         otpCode,
@@ -134,20 +132,11 @@ export function createEvmFamilySigningDeps(args: {
       createArgs.restorePersistedSessionForSigning(restoreArgs),
     readAvailableSigningLanesForSigning: (snapshotArgs) =>
       createArgs.readAvailableSigningLanesForSigning(snapshotArgs),
-    markThresholdEcdsaEmailOtpSessionConsumedForLane: ({
-      subjectId,
-      chainTarget,
-      walletSigningSessionId,
-      thresholdSessionId,
-      uses,
-    }) =>
-      createArgs.markThresholdEcdsaEmailOtpSessionConsumedForLane?.({
-        subjectId,
-        chainTarget,
-        walletSigningSessionId,
-        thresholdSessionId,
-        uses,
-      }),
+    consumeSingleUseEmailOtpEcdsaLane: (command) =>
+      createArgs.consumeSingleUseEmailOtpEcdsaLane?.(command) || {
+        kind: 'missing_lane',
+        laneKey: command.lane.laneRef.laneKey,
+      },
     signingSessionCoordinator,
     getEmailOtpWarmSessionStatus,
     provisionThresholdEcdsaSession: (provisionArgs) =>

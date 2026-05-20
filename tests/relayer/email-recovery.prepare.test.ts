@@ -56,7 +56,6 @@ function makePreparedRecoveryService() {
         },
       },
       thresholdEcdsa: {
-        ecdsaThresholdKeyId: 'ehss-email-recovery-prepare-1',
         relayerKeyId: 'rk-evm',
         thresholdEcdsaPublicKeyB64u: 'group-public-key',
         ethereumAddress: `0x${'11'.repeat(20)}`,
@@ -66,6 +65,14 @@ function makePreparedRecoveryService() {
           sessionKind: 'jwt',
           sessionId: 'evm-session-1',
           walletSigningSessionId: 'wallet-signing-session-1',
+          subjectId: 'wallet:alice.testnet',
+          keyHandle: 'ehss-key-email-recovery-1',
+          chainTarget: {
+            kind: 'evm' as const,
+            namespace: 'eip155' as const,
+            chainId: 11155111,
+            networkSlug: 'sepolia',
+          },
           expiresAtMs: Date.now() + 60_000,
           participantIds: [1, 2],
           remainingUses: 5,
@@ -118,9 +125,9 @@ test.describe('email-recovery prepare routing', () => {
       expect(res.json?.thresholdEcdsa).toBeTruthy();
       expect((res.json?.thresholdEd25519 as any)?.session?.jwt).toContain('near-session-1');
       expect((res.json?.thresholdEcdsa as any)?.session?.jwt).toContain('evm-session-1');
-      expect((res.json?.thresholdEcdsa as any)?.ecdsaThresholdKeyId).toBe(
-        'ehss-email-recovery-prepare-1',
-      );
+      expect(
+        Object.prototype.hasOwnProperty.call(res.json?.thresholdEcdsa || {}, 'ecdsaThresholdKeyId'),
+      ).toBe(false);
       expect((res.json?.recoverySession as any)?.sessionId).toBe('ABC123');
     } finally {
       await srv.close();
@@ -153,9 +160,9 @@ test.describe('email-recovery prepare routing', () => {
     expect(res.status).toBe(200);
     expect((res.json?.thresholdEd25519 as any)?.session?.jwt).toContain('near-session-1');
     expect((res.json?.thresholdEcdsa as any)?.session?.jwt).toContain('evm-session-1');
-    expect((res.json?.thresholdEcdsa as any)?.ecdsaThresholdKeyId).toBe(
-      'ehss-email-recovery-prepare-1',
-    );
+    expect(
+      Object.prototype.hasOwnProperty.call(res.json?.thresholdEcdsa || {}, 'ecdsaThresholdKeyId'),
+    ).toBe(false);
     expect((res.json?.recoverySession as any)?.status).toBe('prepared');
   });
 });

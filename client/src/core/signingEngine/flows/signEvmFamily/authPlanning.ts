@@ -20,9 +20,10 @@ import { signingAuthPlanFromSigningSessionPlan } from '../shared/signingConfirma
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
 import type {
   ThresholdEcdsaChainTarget,
+  WalletId,
   WalletSessionRef,
-  WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   isEmailOtpThresholdEcdsaSigningContext,
   type ResolvedEvmFamilyEcdsaSigningLane,
@@ -61,7 +62,7 @@ export type EvmFamilyConfirmedEmailOtpDeps = {
     authLane?: EmailOtpAuthLane;
   }) => Promise<{ challengeId: string; emailHint?: string }>;
   resolveEmailOtpSigningSessionAuthLane?: (args: {
-    walletId: string;
+    walletId: WalletId;
     thresholdSessionId: string;
     curve: 'ecdsa';
     chain: EvmFamilyChain;
@@ -69,7 +70,7 @@ export type EvmFamilyConfirmedEmailOtpDeps = {
   }) => EmailOtpAuthLane | null | Promise<EmailOtpAuthLane | null>;
   loginWithEmailOtpEcdsaCapabilityForSigning?: (args: {
     walletSession: WalletSessionRef;
-    subjectId: WalletSubjectId;
+    subjectId?: never;
     chainTarget: ThresholdEcdsaChainTarget;
     challengeId: string;
     otpCode: string;
@@ -114,7 +115,6 @@ export async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
   readiness: SigningSessionReadiness;
   expiresAtMs: number;
   remainingUses: number;
-  signingRootId?: string;
 }> {
   const thresholdSessionId = args.lane.thresholdSessionId;
   const base = {
@@ -132,9 +132,6 @@ export async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
     };
   }
 
-  const signingRootId = record.runtimePolicyScope
-    ? signingRootScopeFromRuntimePolicyScope(record.runtimePolicyScope).signingRootId
-    : undefined;
   const buildBackingReadiness = (input: { expiresAtMs: number; remainingUses: number }) => ({
     readiness: {
       status: 'ready' as const,
@@ -142,11 +139,13 @@ export async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
     },
     expiresAtMs: Math.floor(Number(input.expiresAtMs) || 0),
     remainingUses: Math.floor(Number(input.remainingUses) || 0),
-    ...(signingRootId ? { signingRootId } : {}),
   });
 
   const keyRef = getEcdsaMaterialKeyRef(args.material);
-  if (isEmailOtpThresholdEcdsaSigningContext({ record, keyRef })) {
+  const materialIsEmailOtp =
+    isEmailOtpThresholdEcdsaSigningContext({ record }) ||
+    (keyRef ? isEmailOtpThresholdEcdsaSigningContext({ keyRef }) : false);
+  if (materialIsEmailOtp) {
     const emailOtpWorkerSessionId = resolveEmailOtpEcdsaWorkerSessionId(record);
     const readEmailOtpStatus = async () => {
       if (emailOtpWorkerSessionId && typeof args.deps.getEmailOtpWarmSessionStatus === 'function') {
@@ -186,7 +185,7 @@ export async function resolveEvmFamilyTransactionStepUp(
     ) => Promise<EmailOtpEcdsaSigningBootstrapResult>;
   };
 }> {
-  const walletId = String(args.walletSession.walletId);
+  const walletId = toWalletId(args.walletSession.walletId);
   const preparedEcdsaMetadata =
     args.senderSignatureAlgorithm === 'secp256k1'
       ? (args.preparedOperation.metadata as {
@@ -194,7 +193,6 @@ export async function resolveEvmFamilyTransactionStepUp(
             | ReadyEvmFamilyEcdsaSigningSelection
             | ReauthRequiredEvmFamilyEcdsaSigningSelection;
           material: EcdsaMaterialState;
-          signingRootId?: string;
         })
       : null;
   const preparedEcdsaLane =
@@ -202,6 +200,10 @@ export async function resolveEvmFamilyTransactionStepUp(
   const preparedSelection = preparedEcdsaMetadata?.selection;
   const preparedMaterial = preparedEcdsaMetadata?.material;
   const laneWarmRecord = preparedMaterial ? getEcdsaMaterialRecord(preparedMaterial) : undefined;
+  const preparedSigningRootId =
+    laneWarmRecord?.runtimePolicyScope
+      ? signingRootScopeFromRuntimePolicyScope(laneWarmRecord.runtimePolicyScope).signingRootId
+      : undefined;
   const laneWarmKeyRef = preparedMaterial ? getEcdsaMaterialKeyRef(preparedMaterial) : undefined;
   const confirmedEmailOtpDeps = args.confirmedDeps;
   const emailOtpReauthRecord =
@@ -249,9 +251,7 @@ export async function resolveEvmFamilyTransactionStepUp(
         accountId: walletId,
         intent: signingIntent,
         ...(signingCurve ? { curve: signingCurve } : {}),
-        ...(preparedOperation.metadata.signingRootId
-          ? { signingRootId: String(preparedOperation.metadata.signingRootId) }
-          : {}),
+        ...(preparedSigningRootId ? { signingRootId: String(preparedSigningRootId) } : {}),
         expiresAtMs: preparedOperation.expiresAtMs,
         remainingUses: preparedOperation.remainingUses,
       });

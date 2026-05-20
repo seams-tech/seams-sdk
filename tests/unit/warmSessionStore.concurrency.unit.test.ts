@@ -1,10 +1,12 @@
 import { expect, test } from '@playwright/test';
+import { listThresholdEcdsaSessionRecordsForWalletTarget } from '@/core/signingEngine/session/persistence/records';
 import {
   createWarmSessionTestServices,
   createThresholdEcdsaBootstrapFixture,
   createThresholdEcdsaStoreFixture,
   resetWarmSessionFixtureState,
   seedEcdsaWarmSessionRecord,
+  testEcdsaChainTarget,
 } from './helpers/warmSessionStore.fixtures';
 
 function createDeferred<T>() {
@@ -18,6 +20,52 @@ function createDeferred<T>() {
 }
 
 test.describe('WarmSessionStore concurrency', () => {
+  test('replaces stale passkey wallet-target records when a fresh bootstrap arrives', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    const registrationBootstrap = createThresholdEcdsaBootstrapFixture({
+      nearAccountId: 'replace-passkey-target.testnet',
+      chain: 'evm',
+      sessionId: 'registration-ecdsa-session',
+      walletSigningSessionId: 'wsess-registration-ecdsa-session',
+    });
+    seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'replace-passkey-target.testnet',
+      chain: 'evm',
+      source: 'registration',
+      bootstrap: registrationBootstrap,
+    });
+
+    const manualBootstrap = createThresholdEcdsaBootstrapFixture({
+      nearAccountId: 'replace-passkey-target.testnet',
+      chain: 'evm',
+      sessionId: 'manual-ecdsa-session',
+      walletSigningSessionId: 'wsess-manual-ecdsa-session',
+      ecdsaThresholdKeyId: registrationBootstrap.keygen.ecdsaThresholdKeyId,
+      keyHandle: registrationBootstrap.thresholdEcdsaKeyRef.keyHandle,
+      signingRootId: registrationBootstrap.thresholdEcdsaKeyRef.signingRootId,
+      signingRootVersion: registrationBootstrap.thresholdEcdsaKeyRef.signingRootVersion,
+      ethereumAddress: registrationBootstrap.keygen.ethereumAddress,
+    });
+    seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'replace-passkey-target.testnet',
+      chain: 'evm',
+      source: 'manual-bootstrap',
+      bootstrap: manualBootstrap,
+    });
+
+    const records = listThresholdEcdsaSessionRecordsForWalletTarget(ecdsaStore, {
+      walletId: 'replace-passkey-target.testnet',
+      chainTarget: testEcdsaChainTarget('evm'),
+    });
+
+    expect(records).toHaveLength(1);
+    expect(records[0]?.source).toBe('manual-bootstrap');
+    expect(records[0]?.thresholdSessionId).toBe('manual-ecdsa-session');
+    expect(records[0]?.walletSigningSessionId).toBe('wsess-manual-ecdsa-session');
+  });
+
   test('dedupes concurrent ensureEcdsaCapabilityReady reconnects for the same capability', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);

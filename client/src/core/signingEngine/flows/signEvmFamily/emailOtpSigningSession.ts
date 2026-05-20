@@ -1,4 +1,3 @@
-import type { AccountId } from '@/core/types/accountIds';
 import type { EmailOtpAuthPolicy } from '@/core/types/seams';
 import { SigningEventPhase } from '@/core/types/sdkSentEvents';
 import { WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION } from '@shared/utils/emailOtpDomain';
@@ -15,17 +14,21 @@ import {
 } from '../../session/operationState/trace';
 import type { EmailOtpEcdsaSigningBootstrapResult } from '../../interfaces/operationDeps';
 import type { ThresholdEcdsaSessionStoreDeps } from '../../session/persistence/records';
-import { getThresholdEcdsaSessionRecordForTarget } from '../../session/persistence/records';
+import { getThresholdEcdsaSessionRecordForWalletTarget } from '../../session/persistence/records';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
 import type {
   ThresholdEcdsaChainTarget,
+  WalletId,
   WalletSessionRef,
-  WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import type { WarmSessionEcdsaCapabilityState } from '../../session/warmCapabilities/types';
 import type { RequestEmailOtpChallengeArgs } from '../../session/emailOtp/exportRecoveryRuntime';
+import {
+  toVerifiedEcdsaPublicFactsFromRecord,
+  type VerifiedEcdsaPublicFacts,
+} from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { EvmFamilyChain, EvmFamilyLifecycleEventCallback } from './types';
 import type { EmailOtpEcdsaReauthAuthority } from './ecdsaSelection';
 import { emitEvmFamilySigningEvent } from './events';
@@ -41,15 +44,20 @@ import {
 } from './ecdsaMaterialState';
 import { EMAIL_OTP_SIGNING_SESSION_AUTH_UNAVAILABLE } from '../../session/emailOtp/exportRecovery';
 
+type WalletSessionEmailOtpChallengeArgs = Extract<
+  RequestEmailOtpChallengeArgs,
+  { kind: 'wallet_session_challenge' }
+>;
+
 export type EmailOtpEcdsaSigningSessionDeps = {
   ecdsaSessions: ThresholdEcdsaSessionStoreDeps;
   emailOtpSessions: {
     requestTransactionSigningChallenge: (
-      args: RequestEmailOtpChallengeArgs,
+      args: WalletSessionEmailOtpChallengeArgs,
     ) => Promise<{ challengeId: string; emailHint?: string }>;
     loginWithEcdsaCapabilityInternal: (args: {
       walletSession: WalletSessionRef;
-      subjectId: WalletSubjectId;
+      subjectId?: never;
       chainTarget: ThresholdEcdsaChainTarget;
       emailOtpAuthPolicy?: EmailOtpAuthPolicy;
       emailOtpAuthReason?: 'login' | 'sign';
@@ -57,8 +65,8 @@ export type EmailOtpEcdsaSigningSessionDeps = {
       otpCode: string;
       operation?: typeof WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION;
       routePlan?: ReturnType<typeof buildEmailOtpRoutePlan>;
-      ecdsaThresholdKeyId?: string;
-      participantIds?: number[];
+      publicFacts: VerifiedEcdsaPublicFacts;
+      participantIds?: never;
       sessionKind?: 'jwt' | 'cookie';
       ttlMs?: number;
       remainingUses?: number;
@@ -99,7 +107,7 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
     authLane?: EmailOtpAuthLane;
   }) => Promise<{ challengeId: string; emailHint?: string }>;
   resolveEmailOtpSigningSessionAuthLane?: (args: {
-    walletId: string;
+    walletId: WalletId;
     thresholdSessionId: string;
     curve: 'ecdsa';
     chain: EvmFamilyChain;
@@ -107,7 +115,7 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
   }) => EmailOtpAuthLane | null | Promise<EmailOtpAuthLane | null>;
   loginWithEmailOtpEcdsaCapabilityForSigning?: (args: {
     walletSession: WalletSessionRef;
-    subjectId: WalletSubjectId;
+    subjectId?: never;
     chainTarget: ThresholdEcdsaChainTarget;
     challengeId: string;
     otpCode: string;
@@ -118,14 +126,13 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
 }): EvmFamilyEmailOtpTransactionSigningBridge {
   const materialRecord = args.material ? getEcdsaMaterialRecord(args.material) : undefined;
   const materialKeyRef = args.material ? getEcdsaMaterialKeyRef(args.material) : undefined;
+  const materialIsEmailOtp =
+    (materialRecord
+      ? isEmailOtpThresholdEcdsaSigningContext({ record: materialRecord })
+      : false) ||
+    (materialKeyRef ? isEmailOtpThresholdEcdsaSigningContext({ keyRef: materialKeyRef }) : false);
   const resolveEmailOtpRecord = () =>
-    args.signingSessionRecord ||
-    (isEmailOtpThresholdEcdsaSigningContext({
-      ...(materialRecord ? { record: materialRecord } : {}),
-      ...(materialKeyRef ? { keyRef: materialKeyRef } : {}),
-    })
-      ? materialRecord
-      : undefined);
+    args.signingSessionRecord || (materialIsEmailOtp ? materialRecord : undefined);
   const resolveAuthLane = async () => {
     const emailOtpRecord = resolveEmailOtpRecord();
     const authority = emailOtpRecord
@@ -138,7 +145,7 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
         : null;
     if (!authority) return undefined;
     const resolvedAuthLane = await args.resolveEmailOtpSigningSessionAuthLane?.({
-      walletId: args.walletId,
+      walletId: args.walletSession.walletId,
       thresholdSessionId: authority.thresholdSessionId,
       curve: 'ecdsa',
       chain: args.chain,
@@ -204,9 +211,6 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
       if (args.reauthSource.kind === 'selection' && !authLane) {
         throw new Error(EMAIL_OTP_SIGNING_SESSION_AUTH_UNAVAILABLE);
       }
-      if (!args.selectedLane?.subjectId) {
-        throw new Error('[SigningEngine] Email OTP ECDSA reauth requires selected subject');
-      }
       const bootstrapChainTarget =
         emailOtpRecord?.chainTarget ||
         (args.reauthSource.kind === 'selection'
@@ -214,7 +218,6 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
           : args.chainTarget);
       return await args.loginWithEmailOtpEcdsaCapabilityForSigning({
         walletSession: args.walletSession,
-        subjectId: args.selectedLane.subjectId,
         chainTarget: bootstrapChainTarget,
         challengeId,
         otpCode: code,
@@ -229,15 +232,15 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
 function resolveEmailOtpEcdsaSigningSessionAuth(
   deps: Pick<EmailOtpEcdsaSigningSessionDeps, 'ecdsaSessions'>,
   args: {
-    subjectId: WalletSubjectId;
+    walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
   },
 ): {
-  record: NonNullable<ReturnType<typeof getThresholdEcdsaSessionRecordForTarget>>;
+  record: NonNullable<ReturnType<typeof getThresholdEcdsaSessionRecordForWalletTarget>>;
   authLane: EmailOtpAuthLane;
 } {
-  const record = getThresholdEcdsaSessionRecordForTarget(deps.ecdsaSessions, {
-    subjectId: args.subjectId,
+  const record = getThresholdEcdsaSessionRecordForWalletTarget(deps.ecdsaSessions, {
+    walletId: args.walletId,
     chainTarget: args.chainTarget,
     source: 'email_otp',
   });
@@ -267,12 +270,11 @@ export async function requestEmailOtpSigningSessionChallenge(
   deps: EmailOtpEcdsaSigningSessionDeps,
   args: {
     walletSession: WalletSessionRef;
-    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
   },
 ): Promise<{ challengeId: string; emailHint?: string }> {
   const { authLane } = resolveEmailOtpEcdsaSigningSessionAuth(deps, {
-    subjectId: args.subjectId,
+    walletId: args.walletSession.walletId,
     chainTarget: args.chainTarget,
   });
   return await deps.emailOtpSessions.requestTransactionSigningChallenge({
@@ -287,7 +289,6 @@ export async function refreshEmailOtpSigningSession(
   deps: EmailOtpEcdsaSigningSessionDeps,
   args: {
     walletSession: WalletSessionRef;
-    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     challengeId: string;
     otpCode: string;
@@ -300,7 +301,7 @@ export async function refreshEmailOtpSigningSession(
   warmCapability: WarmSessionEcdsaCapabilityState;
 }> {
   const { record, authLane } = resolveEmailOtpEcdsaSigningSessionAuth(deps, {
-    subjectId: args.subjectId,
+    walletId: args.walletSession.walletId,
     chainTarget: args.chainTarget,
   });
   const routePlan = buildEmailOtpRoutePlan({
@@ -308,9 +309,9 @@ export async function refreshEmailOtpSigningSession(
     authLane,
     operation: WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
   });
+  const publicFacts = await toVerifiedEcdsaPublicFactsFromRecord({ record });
   return await deps.emailOtpSessions.loginWithEcdsaCapabilityInternal({
     walletSession: args.walletSession,
-    subjectId: record.subjectId,
     chainTarget: args.chainTarget,
     emailOtpAuthPolicy: 'session',
     emailOtpAuthReason: 'sign',
@@ -318,8 +319,7 @@ export async function refreshEmailOtpSigningSession(
     otpCode: args.otpCode,
     operation: WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
     routePlan,
-    ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
-    participantIds: record.participantIds,
+    publicFacts,
     sessionKind: record.thresholdSessionKind,
     ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
     ...(typeof args.remainingUses === 'number' ? { remainingUses: args.remainingUses } : {}),

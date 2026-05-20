@@ -151,9 +151,10 @@ export function walletSigningSessionIdFromEcdsaBootstrap(
   bootstrap: ThresholdEcdsaSessionBootstrapResult | undefined,
   defaultWalletSigningSessionId: string,
 ): string {
+  const keyRef = bootstrap ? bootstrap.thresholdEcdsaKeyRef : undefined;
   return (
     String(bootstrap?.session?.walletSigningSessionId || '').trim() ||
-    String(bootstrap?.thresholdEcdsaKeyRef?.walletSigningSessionId || '').trim() ||
+    String(keyRef ? keyRef.walletSigningSessionId : '').trim() ||
     String(defaultWalletSigningSessionId || '').trim()
   );
 }
@@ -185,8 +186,9 @@ export function ecdsaBootstrapWithWalletSigningSessionId(args: {
 export function thresholdSessionIdFromEcdsaBootstrap(
   bootstrap: ThresholdEcdsaSessionBootstrapResult | undefined,
 ): string {
+  const keyRef = bootstrap ? bootstrap.thresholdEcdsaKeyRef : undefined;
   return (
     String(bootstrap?.session?.sessionId || '').trim() ||
-    String(bootstrap?.thresholdEcdsaKeyRef?.thresholdSessionId || '').trim()
+    String(keyRef ? keyRef.thresholdSessionId : '').trim()
   );
 }

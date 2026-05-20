@@ -162,7 +162,7 @@ export function createWarmCapabilitiesPublicDeps(args: {
   touchConfirm: UiConfirmRuntimeBridgePort;
   warmSigning: Pick<WarmSigningPorts, 'ecdsaSessions' | 'capabilityReader' | 'statusReader'>;
   thresholdSessionActivationDeps: ThresholdSessionActivationDeps;
-  resolveCanonicalThresholdEcdsaSessionIdForSubjectTarget: SigningEnginePorts['resolveCanonicalThresholdEcdsaSessionIdForSubjectTarget'];
+  resolveCanonicalThresholdEcdsaSessionIdForWalletTarget: SigningEnginePorts['resolveCanonicalThresholdEcdsaSessionIdForWalletTarget'];
   signingSessionCoordinator: Pick<
     SigningEnginePorts['signingSessionCoordinator'],
     'getAvailableStatus'
@@ -194,8 +194,8 @@ export function createWarmCapabilitiesPublicDeps(args: {
       ),
     getWalletSigningBudgetStatus: (statusArgs) =>
       args.signingSessionCoordinator.getAvailableStatus(statusArgs),
-    resolveCanonicalThresholdEcdsaSessionIdForSubjectTarget: (subjectId, chainTarget) =>
-      args.resolveCanonicalThresholdEcdsaSessionIdForSubjectTarget(subjectId, chainTarget),
+    resolveCanonicalThresholdEcdsaSessionIdForWalletTarget: (walletId, chainTarget) =>
+      args.resolveCanonicalThresholdEcdsaSessionIdForWalletTarget(walletId, chainTarget),
     thresholdEcdsaPresignPoolPolicy: args.seamsPasskeyConfigs.signing.thresholdEcdsa.presignPool,
     getSignerWorkerContext: () => args.thresholdSessionActivationDeps.getSignerWorkerContext(),
     resolveClientSigningShare32: async (keyRef) => {

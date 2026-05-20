@@ -487,7 +487,7 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
         participantIds: result.participantIds,
         subjectId: result.subjectId,
         chainTarget: result.chainTarget,
-        ecdsaThresholdKeyId: result.ecdsaThresholdKeyId,
+        keyHandle: result.keyHandle,
         ...(result.runtimePolicyScope
           ? { runtimePolicyScope: result.runtimePolicyScope }
           : {}),

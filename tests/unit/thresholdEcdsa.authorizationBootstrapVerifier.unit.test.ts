@@ -8,6 +8,7 @@ import {
 import {
   buildEvmFamilyEcdsaKeyIdentity,
   buildEvmFamilyEcdsaSessionLanePolicy,
+  toEvmFamilyEcdsaKeyHandle,
 } from '../../client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 
 const TEST_SUBJECT_ID = toWalletSubjectId('alice.testnet');
@@ -26,6 +27,7 @@ const TEST_KEY_IDENTITY = buildEvmFamilyEcdsaKeyIdentity({
   participantIds: [1, 2],
   thresholdOwnerAddress: '0x1111111111111111111111111111111111111111',
 });
+const TEST_KEY_HANDLE = toEvmFamilyEcdsaKeyHandle('ehss-key-existing-1');
 const TEST_LANE_POLICY = buildEvmFamilyEcdsaSessionLanePolicy({
   chainTarget: TEST_CHAIN_TARGET,
   thresholdSessionId: 'ecdsa-session-1',
@@ -73,7 +75,7 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
     expect(result.message).toContain('shared key identity and lane policy');
   });
 
-  test('authorization bootstrap prepares without sending an explicit verifier hint', async () => {
+  test('authorization bootstrap prepares with exact keyHandle selector only', async () => {
     const requests: Array<{ url: string; body: Record<string, unknown>; headers: Headers }> = [];
     const originalFetch = globalThis.fetch;
     const clientRootShare32 = Uint8Array.from(Array.from({ length: 32 }, (_, index) => index + 1));
@@ -112,6 +114,7 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
         subjectId: TEST_SUBJECT_ID,
         chainTarget: TEST_CHAIN_TARGET,
         sessionKind: 'jwt',
+        keyHandle: TEST_KEY_HANDLE,
         key: TEST_KEY_IDENTITY,
         lanePolicy: TEST_LANE_POLICY,
         bootstrapAuth: { kind: 'app_session', jwt: appSessionJwt },
@@ -132,8 +135,15 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
         walletSessionUserId: 'alice.testnet',
         rpId: 'wallet.example.test',
         operation: 'session_bootstrap',
-        ecdsaThresholdKeyId: 'ecdsa-key-1',
+        keyHandle: TEST_KEY_HANDLE,
       });
+      expect(Object.prototype.hasOwnProperty.call(requests[0]?.body || {}, 'ecdsaThresholdKeyId')).toBe(false);
+      expect(
+        Object.prototype.hasOwnProperty.call(
+          (requests[0]?.body.sessionPolicy as Record<string, unknown> | undefined) || {},
+          'ecdsaThresholdKeyId',
+        ),
+      ).toBe(false);
       expect(Object.prototype.hasOwnProperty.call(requests[0]?.body || {}, 'expectedClientVerifyingShareB64u')).toBe(false);
     } finally {
       globalThis.fetch = originalFetch;
@@ -174,6 +184,7 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
         subjectId: TEST_SUBJECT_ID,
         chainTarget: TEST_CHAIN_TARGET,
         sessionKind: 'jwt',
+        keyHandle: TEST_KEY_HANDLE,
         key: TEST_KEY_IDENTITY,
         lanePolicy: TEST_LANE_POLICY,
         bootstrapAuth: { kind: 'app_session', jwt: appSessionJwt },

@@ -58,7 +58,9 @@ import type {
   AuthCapability,
   EmailOtpChallengeResult,
   EmailOtpEcdsaCapabilityArgs,
+  EmailOtpEcdsaCapabilityResult,
   EmailOtpEcdsaEnrollmentCapabilityArgs,
+  EmailOtpEcdsaEnrollmentCapabilityResult,
   EvmSignerCapability,
   KeyExportCapability,
   NearSignerCapability,
@@ -75,11 +77,11 @@ import type {
 import type { ThresholdEcdsaLoginPrefillResult } from '../signingEngine/SigningEngine';
 import {
   nearAccountRefFromAccountId,
+  toWalletId,
   thresholdEcdsaChainTargetFromRequest,
   type ThresholdEcdsaChainTarget,
   type WalletId,
   type WalletSessionRef,
-  type WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EmailOtpWorkerProgressEvent } from '../signingEngine/workerManager/workerTypes';
 import { EmailRecoveryDomain } from './near/emailRecovery';
@@ -526,7 +528,6 @@ export class SeamsPasskey {
 
   async prefillThresholdEcdsaPresignPool(args: {
     walletSession: WalletSessionRef;
-    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     waitForPoolReady?: boolean;
     poolReadyTimeoutMs?: number;
@@ -856,7 +857,6 @@ export class SeamsPasskey {
 
   async requestEmailOtpSigningSessionChallenge(args: {
     walletSession: WalletSessionRef;
-    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     onEvent?: (event: UnlockFlowEvent) => void;
   }): Promise<{ challengeId: string; emailHint?: string }> {
@@ -874,7 +874,6 @@ export class SeamsPasskey {
         const router = await this.walletIframe.requireRouter(walletId);
         const result = await router.requestEmailOtpSigningSessionChallenge({
           walletSession: args.walletSession,
-          subjectId: args.subjectId,
           chainTarget: args.chainTarget,
         });
         this.emitEmailOtpUnlockEvent(args.onEvent, {
@@ -889,7 +888,6 @@ export class SeamsPasskey {
       }
       const result = await this.signingEngine.requestEmailOtpSigningSessionChallenge({
         walletSession: args.walletSession,
-        subjectId: args.subjectId,
         chainTarget: args.chainTarget,
       });
       this.emitEmailOtpUnlockEvent(args.onEvent, {
@@ -1085,7 +1083,7 @@ export class SeamsPasskey {
         return result;
       }
       const result = await this.signingEngine.enrollEmailOtpInternal({
-        walletId: args.nearAccountId,
+        walletId: toWalletId(args.nearAccountId),
         otpCode: args.otpCode,
         ...(args.relayUrl ? { relayUrl: args.relayUrl } : {}),
         ...(args.challengeId ? { challengeId: args.challengeId } : {}),
@@ -1139,7 +1137,7 @@ export class SeamsPasskey {
 
   async loginWithEmailOtpEcdsaCapability(
     args: EmailOtpEcdsaCapabilityArgs,
-  ): Promise<Awaited<ReturnType<SigningEngine['loginWithEmailOtpEcdsaCapabilityInternal']>>> {
+  ): Promise<EmailOtpEcdsaCapabilityResult> {
     const walletId = args.walletSession.walletId;
     const flowId = this.emailOtpUnlockFlowId(walletId, args.challengeId);
     const chainTarget = requireConcreteEcdsaChainTarget(args.chainTarget, 'Email OTP ECDSA unlock');
@@ -1248,14 +1246,13 @@ export class SeamsPasskey {
 
   async refreshEmailOtpSigningSession(args: {
     walletSession: WalletSessionRef;
-    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     challengeId: string;
     otpCode: string;
     ttlMs?: number;
     remainingUses?: number;
     onEvent?: (event: UnlockFlowEvent) => void;
-  }): Promise<Awaited<ReturnType<SigningEngine['refreshEmailOtpSigningSession']>>> {
+  }): Promise<EmailOtpEcdsaCapabilityResult> {
     const walletId = args.walletSession.walletId;
     const flowId = this.emailOtpUnlockFlowId(walletId, args.challengeId);
     const chainTarget = requireConcreteEcdsaChainTarget(
@@ -1277,7 +1274,6 @@ export class SeamsPasskey {
             await this.walletIframe.requireRouter(walletId)
           ).refreshEmailOtpSigningSession({
             walletSession: args.walletSession,
-            subjectId: args.subjectId,
             chainTarget,
             challengeId: args.challengeId,
             otpCode: args.otpCode,
@@ -1288,7 +1284,6 @@ export class SeamsPasskey {
           })
         : await this.signingEngine.refreshEmailOtpSigningSession({
             walletSession: args.walletSession,
-            subjectId: args.subjectId,
             chainTarget,
             challengeId: args.challengeId,
             otpCode: args.otpCode,
@@ -1339,9 +1334,7 @@ export class SeamsPasskey {
 
   async enrollAndLoginWithEmailOtpEcdsaCapability(
     args: EmailOtpEcdsaEnrollmentCapabilityArgs,
-  ): Promise<
-    Awaited<ReturnType<SigningEngine['enrollAndLoginWithEmailOtpEcdsaCapabilityInternal']>>
-  > {
+  ): Promise<EmailOtpEcdsaEnrollmentCapabilityResult> {
     const walletId = args.walletSession.walletId;
     const flowId = this.emailOtpRegistrationFlowId(walletId, args.challengeId);
     const chainTarget = requireConcreteEcdsaChainTarget(
@@ -1588,7 +1581,6 @@ export class SeamsPasskey {
           }
         : {
             kind: 'ecdsa' as const,
-            subjectId: input.subjectId,
             chainTarget: input.chainTarget,
             walletSession: input.walletSession,
             options: resolvedOptions,

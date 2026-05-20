@@ -100,6 +100,7 @@ export type EcdsaHssSessionPolicy = {
   subjectId: WalletSubjectId;
   rpId: string;
   chainTarget: ThresholdEcdsaChainTarget;
+  keyHandle?: string;
   ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
   sessionId: ThresholdEcdsaSessionId;
   walletSigningSessionId: WalletSigningSessionId;
@@ -259,6 +260,7 @@ export function buildEcdsaHssSessionPolicy(params: {
   subjectId: unknown;
   rpId: string;
   chainTarget: ThresholdEcdsaChainTarget;
+  keyHandle?: unknown;
   ecdsaThresholdKeyId?: unknown;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   participantIds?: number[];
@@ -276,6 +278,7 @@ export function buildEcdsaHssSessionPolicy(params: {
   });
   const participantIds = normalizeThresholdEd25519ParticipantIds(params.participantIds);
   const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(params.runtimePolicyScope);
+  const keyHandle = String(params.keyHandle || '').trim();
   const ecdsaThresholdKeyId = String(params.ecdsaThresholdKeyId || '').trim();
   return {
     version: THRESHOLD_SESSION_POLICY_VERSION,
@@ -283,6 +286,7 @@ export function buildEcdsaHssSessionPolicy(params: {
     subjectId: toEcdsaHssWalletSubjectId(params.subjectId),
     rpId: params.rpId,
     chainTarget: params.chainTarget,
+    ...(keyHandle ? { keyHandle } : {}),
     ...(ecdsaThresholdKeyId
       ? { ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId(ecdsaThresholdKeyId) }
       : {}),

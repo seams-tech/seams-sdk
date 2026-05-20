@@ -263,9 +263,42 @@ export async function ensurePostgresSchema(input: {
       CREATE TABLE IF NOT EXISTS threshold_ecdsa_keys (
         namespace TEXT NOT NULL,
         relayer_key_id TEXT NOT NULL,
+        key_handle TEXT,
+        threshold_key_id TEXT,
+        signing_root_id TEXT,
+        signing_root_version TEXT,
+        owner_address TEXT,
+        public_key_b64u TEXT,
         record_json JSONB NOT NULL,
         PRIMARY KEY (namespace, relayer_key_id)
       )
+    `);
+
+    await pool.query('ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS key_handle TEXT');
+    await pool.query(
+      'ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS threshold_key_id TEXT',
+    );
+    await pool.query(
+      'ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS signing_root_id TEXT',
+    );
+    await pool.query(
+      'ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS signing_root_version TEXT',
+    );
+    await pool.query(
+      'ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS owner_address TEXT',
+    );
+    await pool.query(
+      'ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS public_key_b64u TEXT',
+    );
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS threshold_ecdsa_keys_key_handle_uidx
+      ON threshold_ecdsa_keys (namespace, key_handle)
+      WHERE key_handle IS NOT NULL
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS threshold_ecdsa_keys_owner_address_idx
+      ON threshold_ecdsa_keys (namespace, owner_address)
+      WHERE owner_address IS NOT NULL
     `);
 
     await pool.query(`

@@ -176,6 +176,7 @@ export function parseThresholdEd25519KeyRecord(
 export type ParsedThresholdEcdsaIntegratedKeyRecord = {
   version: 'threshold_ecdsa_hss_key_v1';
   ecdsaThresholdKeyId: string;
+  keyHandle?: string;
   walletSessionUserId: string;
   subjectId: string;
   rpId: string;
@@ -202,6 +203,7 @@ export function parseThresholdEcdsaIntegratedKeyRecord(
   if (!isObject(raw)) return null;
   if (toOptionalString(raw.version) !== 'threshold_ecdsa_hss_key_v1') return null;
   const ecdsaThresholdKeyId = toOptionalString(raw.ecdsaThresholdKeyId);
+  const keyHandle = toOptionalString(raw.keyHandle);
   const walletSessionUserId =
     toOptionalString(raw.walletSessionUserId) || toOptionalString(raw.userId);
   const subjectId = toOptionalString(raw.subjectId);
@@ -239,6 +241,7 @@ export function parseThresholdEcdsaIntegratedKeyRecord(
   return {
     version: 'threshold_ecdsa_hss_key_v1',
     ecdsaThresholdKeyId,
+    ...(keyHandle ? { keyHandle } : {}),
     walletSessionUserId,
     subjectId,
     rpId,
@@ -291,6 +294,7 @@ export function parseThresholdEd25519CommitmentsById(
 
 export type ParsedThresholdEd25519MpcSessionRecord = {
   expiresAtMs: number;
+  keyHandle?: string;
   relayerKeyId: string;
   purpose: string;
   intentDigestB64u: string;
@@ -307,6 +311,7 @@ export function parseThresholdEd25519MpcSessionRecord(
   if (!isObject(raw)) return null;
   const expiresAtMs = raw.expiresAtMs;
   const ecdsaThresholdKeyId = toOptionalString(raw.ecdsaThresholdKeyId);
+  const keyHandle = toOptionalString(raw.keyHandle);
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
   const purpose = toOptionalString(raw.purpose);
   const intentDigestB64u = toOptionalString(raw.intentDigestB64u);
@@ -325,6 +330,7 @@ export function parseThresholdEd25519MpcSessionRecord(
   return {
     expiresAtMs,
     ...(ecdsaThresholdKeyId ? { ecdsaThresholdKeyId } : {}),
+    ...(keyHandle ? { keyHandle } : {}),
     relayerKeyId,
     purpose,
     intentDigestB64u,
@@ -733,9 +739,7 @@ export type ThresholdEd25519SessionClaims = {
   nbf?: number;
 };
 
-function parseRuntimePolicyScope(
-  raw: unknown,
-): RuntimePolicyScope | null {
+function parseRuntimePolicyScope(raw: unknown): RuntimePolicyScope | null {
   try {
     return normalizeRuntimePolicyScope(raw as Record<string, unknown>);
   } catch {
@@ -907,7 +911,7 @@ export type ThresholdEcdsaSessionClaims = {
   walletSigningSessionId: string;
   subjectId: string;
   chainTarget: ThresholdEcdsaChainTarget;
-  ecdsaThresholdKeyId: string;
+  keyHandle: string;
   relayerKeyId: string;
   rpId: string;
   runtimePolicyScope?: RuntimePolicyScope;
@@ -941,9 +945,7 @@ export function parseThresholdEcdsaSessionClaims(raw: unknown): ThresholdEcdsaSe
   const chainTarget = thresholdEcdsaChainTargetFromValue(
     (raw as { chainTarget?: unknown }).chainTarget,
   );
-  const ecdsaThresholdKeyId = toOptionalString(
-    (raw as { ecdsaThresholdKeyId?: unknown }).ecdsaThresholdKeyId,
-  );
+  const keyHandle = toOptionalString((raw as { keyHandle?: unknown }).keyHandle);
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
   const rpId = toOptionalString(raw.rpId);
   if (
@@ -954,7 +956,7 @@ export function parseThresholdEcdsaSessionClaims(raw: unknown): ThresholdEcdsaSe
     !walletSigningSessionId ||
     !subjectId ||
     !chainTarget ||
-    !ecdsaThresholdKeyId ||
+    !keyHandle ||
     !relayerKeyId ||
     !rpId
   )
@@ -973,7 +975,7 @@ export function parseThresholdEcdsaSessionClaims(raw: unknown): ThresholdEcdsaSe
     walletSigningSessionId,
     subjectId,
     chainTarget,
-    ecdsaThresholdKeyId,
+    keyHandle,
     relayerKeyId,
     rpId,
     thresholdExpiresAtMs,
@@ -1039,8 +1041,7 @@ export function parseRegistrationContinuationClaims(
     (raw as { registrationExpiresAtMs?: unknown }).registrationExpiresAtMs,
   );
   if (!Number.isFinite(registrationExpiresAtMs) || registrationExpiresAtMs <= 0) return null;
-  const rawTargets = (raw as { thresholdEcdsaChainTargets?: unknown })
-    .thresholdEcdsaChainTargets;
+  const rawTargets = (raw as { thresholdEcdsaChainTargets?: unknown }).thresholdEcdsaChainTargets;
   if (!Array.isArray(rawTargets) || rawTargets.length < 1) return null;
   const thresholdEcdsaChainTargets: ThresholdEcdsaChainTarget[] = [];
   const seen = new Set<string>();

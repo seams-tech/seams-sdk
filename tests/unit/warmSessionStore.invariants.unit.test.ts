@@ -70,6 +70,7 @@ function createEcdsaIdentityArgs(args: {
     signingRootVersion: 'default',
     participantIds: [1, 2],
     ethereumAddress: `0x${'11'.repeat(20)}`,
+    keyHandle: `ek-${args.chain}-handle`,
     thresholdSessionKind: 'cookie',
     thresholdSessionId: args.thresholdSessionId,
     walletSigningSessionId: args.walletSigningSessionId,
@@ -94,15 +95,12 @@ function createEcdsaIdentityArgs(args: {
   } as any;
   const lane = selectedEcdsaLane({
     key,
+    keyHandle: record.keyHandle,
     walletId: args.walletId as any,
     authMethod: args.source === 'email_otp' ? 'email_otp' : 'passkey',
     walletSigningSessionId: args.walletSigningSessionId,
     thresholdSessionId: args.thresholdSessionId,
-    subjectId: args.subjectId,
     chainTarget,
-    ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
-    signingRootId: key.signingRootId,
-    signingRootVersion: key.signingRootVersion,
   });
   return { record, key, lane };
 }

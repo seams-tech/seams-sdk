@@ -1,5 +1,10 @@
-import type { KeyRef, SignRequest, SignatureBytes, Signer } from '../../../interfaces/signing';
+import type {
+  SignRequest,
+  SignatureBytes,
+  ThresholdEcdsaSecp256k1KeyRef,
+} from '../../../interfaces/signing';
 import type { WorkerOperationContext } from '../../../workerManager/executeWorkerOperation';
+import { toWalletId, type WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   ThresholdEcdsaPresignPoolPolicy,
   ThresholdEcdsaPresignPoolPolicyInput,
@@ -7,34 +12,121 @@ import type {
 import { base64UrlDecode } from '@shared/utils/base64';
 import { authorizeEcdsaWithSession } from '../../../threshold/ecdsa/authorize';
 import {
+  clearThresholdEcdsaClientPresignaturesForLane,
   getThresholdEcdsaClientPresignaturePoolDepth,
   resolveThresholdEcdsaPresignPoolPolicy,
   scheduleThresholdEcdsaClientPresignaturePoolRefill,
   signThresholdEcdsaDigestWithPool,
-  clearThresholdEcdsaClientPresignaturesForLane,
 } from '../../../threshold/ecdsa/presignPool';
 import type { ThresholdEcdsaClientPresignatureRefillScheduleResult } from '../../../threshold/ecdsa/presignPool';
-import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { createWarmSessionCapabilityReader } from '../../../session/warmCapabilities/capabilityReader';
 import {
   deleteDurableSealedSessionRecord,
   updateExactSealedSessionPolicy,
 } from '../../../session/persistence/sealedSessionStore';
 import { createDeleteDurableSealedSessionCommand } from '../../../session/persistence/durableSealedSessionCommands';
+import {
+  buildReadyEcdsaSignerSession,
+  buildKnownReadyThresholdEcdsaSessionPolicy,
+  buildUnavailableReadyThresholdEcdsaSessionPolicy,
+  resolveThresholdEcdsaKeyIdFromKeyRef,
+  resolveThresholdEcdsaKeyIdFromRecord,
+  toVerifiedEcdsaPublicFactsFromKeyRef,
+  type ReadyEcdsaSignerSession,
+  type ReadyThresholdEcdsaSessionPolicy,
+} from '../../../session/identity/evmFamilyEcdsaIdentity';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdSessionKind } from '../../../threshold/sessionPolicy';
 type EcdsaSessionChain = 'tempo' | 'evm';
+type Secp256k1DigestSignRequest = Extract<SignRequest, { kind: 'digest' }> & {
+  algorithm: 'secp256k1';
+};
+export type ReadySecp256k1SigningMaterial = {
+  kind: 'ready_secp256k1_signing_material';
+  walletId: string;
+  signerSession: ReadyEcdsaSignerSession;
+  singleUseEmailOtpSession: boolean;
+};
+
+export type ReadySecp256k1Signer = {
+  readonly algorithm: 'secp256k1';
+  signReady: (req: SignRequest, material: ReadySecp256k1SigningMaterial) => Promise<SignatureBytes>;
+};
+
+export function buildReadySecp256k1SigningMaterial(args: {
+  walletId: unknown;
+  signerSession: ReadyEcdsaSignerSession;
+  singleUseEmailOtpSession: boolean;
+}): ReadySecp256k1SigningMaterial {
+  const walletId = String(args.walletId || '').trim();
+  if (!walletId) {
+    throw new Error('[multichain] Missing wallet id for ready secp256k1 signing material');
+  }
+  return {
+    kind: 'ready_secp256k1_signing_material',
+    walletId,
+    signerSession: args.signerSession,
+    singleUseEmailOtpSession: args.singleUseEmailOtpSession,
+  };
+}
+
+type Secp256k1KeyRefFallbackQueueIdentity = {
+  walletId: string;
+  thresholdSessionId: string;
+};
+
+function isSecp256k1DigestSignRequest(req: SignRequest): req is Secp256k1DigestSignRequest {
+  return req.kind === 'digest' && req.algorithm === 'secp256k1';
+}
+
+function buildSecp256k1KeyRefFallbackQueueIdentity(
+  keyRef: ThresholdEcdsaSecp256k1KeyRef,
+): Secp256k1KeyRefFallbackQueueIdentity {
+  const walletId = String(keyRef.userId || '').trim();
+  if (!walletId) {
+    throw new Error('[multichain] Missing wallet id on threshold-ecdsa keyRef');
+  }
+  const thresholdSessionId = String(keyRef.thresholdSessionId || '').trim();
+  if (!thresholdSessionId) {
+    throw new Error(
+      '[multichain] Missing threshold-ecdsa sessionId on keyRef; reconnect threshold session via bootstrapEcdsaSession',
+    );
+  }
+  return { walletId, thresholdSessionId };
+}
+
+function readySignerSessionKind(signerSession: ReadyEcdsaSignerSession): ThresholdSessionKind {
+  switch (signerSession.transport.auth.kind) {
+    case 'jwt_threshold_session_auth':
+      return 'jwt';
+    case 'cookie_threshold_session_auth':
+      return 'cookie';
+  }
+}
+
+function readySignerSessionAuthToken(signerSession: ReadyEcdsaSignerSession): string | undefined {
+  switch (signerSession.transport.auth.kind) {
+    case 'jwt_threshold_session_auth':
+      return signerSession.transport.auth.thresholdSessionAuthToken;
+    case 'cookie_threshold_session_auth':
+      return undefined;
+  }
+}
+
+function readySignerSessionEmailOtpWorkerShareChain(
+  signerSession: ReadyEcdsaSignerSession,
+): EcdsaSessionChain | null {
+  switch (signerSession.clientShare.kind) {
+    case 'inline_client_share':
+      return null;
+    case 'email_otp_worker_share':
+      return signerSession.clientShare.handle.laneIdentity.chainTarget.kind;
+  }
+}
 
 function zeroizeBytes(bytes?: Uint8Array | null): void {
   if (!(bytes instanceof Uint8Array)) return;
   bytes.fill(0);
-}
-
-function resolveEmailOtpShareHandleSessionId(keyRef: KeyRef): string {
-  if (keyRef.type !== 'threshold-ecdsa-secp256k1') return '';
-  const handle = keyRef.backendBinding?.clientAdditiveShareHandle;
-  if (handle?.kind !== 'email_otp_worker_session') return '';
-  return String(handle.sessionId || '').trim();
 }
 
 function inferThresholdEcdsaSessionChainFromLabel(labelRaw: unknown): EcdsaSessionChain | null {
@@ -45,6 +137,160 @@ function inferThresholdEcdsaSessionChainFromLabel(labelRaw: unknown): EcdsaSessi
   if (label === 'tempo' || label.startsWith('tempo:')) return 'tempo';
   if (label === 'evm' || label.startsWith('evm:')) return 'evm';
   return null;
+}
+
+async function buildReadySecp256k1SigningMaterialFromKeyRefFallback(args: {
+  keyRef: ThresholdEcdsaSecp256k1KeyRef;
+  queueIdentity: Secp256k1KeyRefFallbackQueueIdentity;
+  requestLabel: unknown;
+  rpId: unknown;
+}): Promise<ReadySecp256k1SigningMaterial> {
+  const rpId = String(args.rpId || '').trim();
+  if (!rpId) {
+    throw new Error('[multichain] Missing rpId for threshold-ecdsa signing');
+  }
+  const keyRef = args.keyRef;
+  const publicFacts = await toVerifiedEcdsaPublicFactsFromKeyRef({ keyRef });
+
+  const resolvedAuthMaterial = createWarmSessionCapabilityReader(
+    {},
+  ).resolveEcdsaAuthByThresholdSessionId(args.queueIdentity.thresholdSessionId);
+  const canonicalRecord = resolvedAuthMaterial?.record || null;
+  const canonicalRecordThresholdKeyId = canonicalRecord
+    ? String(
+        resolveThresholdEcdsaKeyIdFromRecord({
+          record: canonicalRecord,
+        }),
+      )
+    : '';
+  const keyRefThresholdKeyId = String(resolveThresholdEcdsaKeyIdFromKeyRef({ keyRef }));
+  const requestChain = inferThresholdEcdsaSessionChainFromLabel(args.requestLabel);
+  const canonicalRecordMatchesKeyRefLane =
+    !!canonicalRecord &&
+    String(canonicalRecord.walletId || '') === args.queueIdentity.walletId &&
+    (!requestChain || canonicalRecord.chainTarget.kind === requestChain) &&
+    canonicalRecordThresholdKeyId === keyRefThresholdKeyId &&
+    String(canonicalRecord.relayerUrl || '') === String(keyRef.relayerUrl || '');
+
+  const keyRefSessionKind = keyRef.thresholdSessionKind;
+  const recordSessionKind: ThresholdSessionKind = canonicalRecord?.thresholdSessionKind || 'jwt';
+  if (
+    canonicalRecordMatchesKeyRefLane &&
+    keyRefSessionKind &&
+    keyRefSessionKind !== recordSessionKind
+  ) {
+    throw new Error(
+      '[multichain] threshold-ecdsa session kind mismatch; reconnect threshold session',
+    );
+  }
+  const sessionKind: ThresholdSessionKind = keyRefSessionKind || recordSessionKind || 'jwt';
+
+  const recordSessionId = String(
+    (canonicalRecordMatchesKeyRefLane
+      ? canonicalRecord?.thresholdSessionId
+      : args.queueIdentity.thresholdSessionId) || args.queueIdentity.thresholdSessionId,
+  ).trim();
+  if (
+    canonicalRecordMatchesKeyRefLane &&
+    (!recordSessionId || recordSessionId !== args.queueIdentity.thresholdSessionId)
+  ) {
+    throw new Error(
+      '[multichain] threshold-ecdsa sessionId mismatch; reconnect threshold session via bootstrapEcdsaSession',
+    );
+  }
+  const keyRefAuthToken = String(keyRef.thresholdSessionAuthToken || '').trim();
+  const recordAuthToken = String(
+    canonicalRecordMatchesKeyRefLane ? canonicalRecord?.thresholdSessionAuthToken || '' : '',
+  ).trim();
+  const resolvedAuthToken = String(
+    canonicalRecordMatchesKeyRefLane ? resolvedAuthMaterial?.thresholdSessionAuthToken || '' : '',
+  ).trim();
+  const thresholdSessionAuthToken =
+    resolvedAuthToken || recordAuthToken || keyRefAuthToken || undefined;
+
+  if (sessionKind === 'jwt' && !thresholdSessionAuthToken) {
+    throw new Error(
+      '[multichain] threshold-ecdsa session token unavailable; reconnect threshold session via bootstrapEcdsaSession',
+    );
+  }
+  if (
+    sessionKind === 'jwt' &&
+    canonicalRecordMatchesKeyRefLane &&
+    keyRefAuthToken &&
+    recordAuthToken &&
+    keyRefAuthToken !== recordAuthToken
+  ) {
+    console.debug(
+      '[multichain] using current threshold-ecdsa session record auth token over stale keyRef auth token',
+      {
+        thresholdSessionId: args.queueIdentity.thresholdSessionId,
+      },
+    );
+  }
+  const sessionPolicy: ReadyThresholdEcdsaSessionPolicy =
+    canonicalRecordMatchesKeyRefLane && canonicalRecord
+      ? buildKnownReadyThresholdEcdsaSessionPolicy({
+          remainingUses: canonicalRecord.remainingUses,
+          expiresAtMs: canonicalRecord.expiresAtMs,
+        })
+      : buildUnavailableReadyThresholdEcdsaSessionPolicy({
+          source: 'key_ref_fallback',
+        });
+  const signerSession =
+    sessionKind === 'jwt'
+      ? buildReadyEcdsaSignerSession({
+          keyRef,
+          publicFacts,
+          sessionPolicy,
+          thresholdSessionKind: 'jwt',
+          thresholdSessionAuthToken,
+        })
+      : buildReadyEcdsaSignerSession({
+          keyRef,
+          publicFacts,
+          sessionPolicy,
+          thresholdSessionKind: 'cookie',
+        });
+  const signerTransport = signerSession.transport;
+  const canonicalRecordMatchesSignerTransport =
+    canonicalRecordMatchesKeyRefLane &&
+    String(canonicalRecord?.relayerUrl || '') === signerTransport.relayerUrl &&
+    canonicalRecordThresholdKeyId === String(signerTransport.ecdsaThresholdKeyId) &&
+    String(canonicalRecord?.relayerKeyId || '') === signerTransport.relayerKeyId &&
+    String(canonicalRecord?.clientVerifyingShareB64u || '') ===
+      signerTransport.clientVerifyingShareB64u;
+  if (
+    canonicalRecordMatchesSignerTransport &&
+    canonicalRecord?.source === 'email_otp' &&
+    canonicalRecord.emailOtpAuthContext?.retention === 'single_use' &&
+    Number(canonicalRecord.emailOtpAuthContext.consumedAtMs) > 0
+  ) {
+    throw new Error(
+      `[SigningEngine] ${requestChain || canonicalRecord.chainTarget.kind} signing requires fresh Email OTP verification with per_operation policy`,
+    );
+  }
+
+  return buildReadySecp256k1SigningMaterial({
+    walletId: args.queueIdentity.walletId,
+    signerSession,
+    singleUseEmailOtpSession:
+      canonicalRecordMatchesSignerTransport &&
+      canonicalRecord?.source === 'email_otp' &&
+      canonicalRecord.emailOtpAuthContext?.retention === 'single_use',
+  });
+}
+
+export async function buildReadySecp256k1SigningMaterialFromKeyRef(args: {
+  keyRef: ThresholdEcdsaSecp256k1KeyRef;
+  requestLabel: unknown;
+  rpId: unknown;
+}): Promise<ReadySecp256k1SigningMaterial> {
+  return await buildReadySecp256k1SigningMaterialFromKeyRefFallback({
+    keyRef: args.keyRef,
+    queueIdentity: buildSecp256k1KeyRefFallbackQueueIdentity(args.keyRef),
+    requestLabel: args.requestLabel,
+    rpId: args.rpId,
+  });
 }
 
 async function claimEmailOtpWorkerEcdsaSigningShare(args: {
@@ -79,10 +325,7 @@ async function claimEmailOtpWorkerEcdsaSigningShare(args: {
             thresholdSessionId: sealedThresholdSessionId || sessionId,
             chainTarget: args.chainTarget,
           },
-          deleteReason:
-            result.code === 'not_found'
-              ? 'invalid_persisted_record'
-              : result.code,
+          deleteReason: result.code === 'not_found' ? 'invalid_persisted_record' : result.code,
           preserveResolvedIdentity: result.code !== 'not_found',
         }),
       ).catch(() => undefined);
@@ -163,7 +406,7 @@ async function clearEmailOtpWorkerSessionBestEffort(args: {
 }
 
 export type ThresholdEcdsaCommitQueueEnqueueFn = <T>(args: {
-  walletId: string;
+  walletId: WalletId;
   thresholdSessionId: string;
   shouldAbort?: () => boolean;
   task: () => Promise<T>;
@@ -174,7 +417,7 @@ export type ThresholdEcdsaPresignRefillScheduledEvent = {
   result: ThresholdEcdsaClientPresignatureRefillScheduleResult;
 };
 
-export class Secp256k1Engine implements Signer {
+export class Secp256k1Engine {
   readonly algorithm = 'secp256k1' as const;
 
   private readonly getRpId?: () => string | null;
@@ -208,323 +451,219 @@ export class Secp256k1Engine implements Signer {
     this.workerCtx = opts.workerCtx;
   }
 
-  async sign(req: SignRequest, keyRef: KeyRef): Promise<SignatureBytes> {
-    if (req.kind !== 'digest' || req.algorithm !== 'secp256k1') {
+  private async signReadySecp256k1Digest(
+    req: Secp256k1DigestSignRequest,
+    material: ReadySecp256k1SigningMaterial,
+  ): Promise<SignatureBytes> {
+    const signerSession = material.signerSession;
+    const publicFacts = signerSession.publicFacts;
+    const participantIds = publicFacts.participantIds.map((participantId) => Number(participantId));
+    const signerTransport = signerSession.transport;
+    const sessionKind = readySignerSessionKind(signerSession);
+    const signerTransportAuthToken = readySignerSessionAuthToken(signerSession);
+
+    const purpose = String(req.label || 'secp256k1');
+    const authorized = await authorizeEcdsaWithSession({
+      relayerUrl: signerTransport.relayerUrl,
+      keyHandle: String(publicFacts.keyHandle),
+      purpose,
+      signingDigest32: req.digest32,
+      sessionKind,
+      ...(signerTransportAuthToken ? { thresholdSessionAuthToken: signerTransportAuthToken } : {}),
+    });
+    if (!authorized.ok || !authorized.mpcSessionId) {
+      throw new Error(
+        authorized.message || authorized.code || '[multichain] threshold-ecdsa authorize failed',
+      );
+    }
+    const emailOtpWorkerShareSessionId =
+      signerSession.clientShare.kind === 'email_otp_worker_share'
+        ? signerSession.clientShare.handle.sessionId
+        : '';
+    const emailOtpWorkerShareChain = readySignerSessionEmailOtpWorkerShareChain(signerSession);
+    const usesEmailOtpWorkerSession = !!emailOtpWorkerShareSessionId;
+    let emailOtpWorkerShareExhausted = false;
+    const authorizedPresignPoolPolicy = resolveThresholdEcdsaPresignPoolPolicy({
+      ...this.thresholdEcdsaPresignPoolPolicy,
+      ...(authorized.presignPoolPolicy || {}),
+    });
+    const effectiveThresholdEcdsaPresignPoolPolicy = usesEmailOtpWorkerSession
+      ? { ...authorizedPresignPoolPolicy, enabled: false }
+      : authorizedPresignPoolPolicy;
+
+    let clientSigningShare32: Uint8Array | null = null;
+    try {
+      if (signerSession.clientShare.kind === 'email_otp_worker_share') {
+        if (!emailOtpWorkerShareChain) {
+          throw new Error(
+            '[multichain] Missing Email OTP ECDSA chain for signing-session policy update',
+          );
+        }
+        const claimedShare = await claimEmailOtpWorkerEcdsaSigningShare({
+          workerCtx: this.workerCtx,
+          sessionId: signerSession.clientShare.handle.sessionId,
+          sealedThresholdSessionId: String(signerSession.session.thresholdSessionId),
+          chain: emailOtpWorkerShareChain,
+          chainTarget: signerSession.clientShare.handle.laneIdentity.chainTarget,
+        });
+        clientSigningShare32 = claimedShare.clientSigningShare32;
+        emailOtpWorkerShareExhausted =
+          claimedShare.remainingUses <= 0 || claimedShare.expiresAtMs <= Date.now();
+        await updateEmailOtpSealedRecordPolicyAfterEcdsaClaim({
+          thresholdSessionId: String(signerSession.session.thresholdSessionId),
+          chain: emailOtpWorkerShareChain,
+          chainTarget: signerSession.clientShare.handle.laneIdentity.chainTarget,
+          remainingUses: claimedShare.remainingUses,
+          expiresAtMs: claimedShare.expiresAtMs,
+        });
+      } else {
+        try {
+          clientSigningShare32 = base64UrlDecode(
+            signerSession.clientShare.clientAdditiveShare32B64u,
+          );
+        } catch {
+          throw new Error(
+            '[multichain] backend clientAdditiveShare32B64u must be valid base64url; reconnect threshold session',
+          );
+        }
+        if (clientSigningShare32.length !== 32) {
+          throw new Error(
+            '[multichain] backend clientAdditiveShare32B64u must decode to 32 bytes; reconnect threshold session',
+          );
+        }
+      }
+
+      const refillBaseArgs = {
+        relayerUrl: signerTransport.relayerUrl,
+        keyHandle: String(publicFacts.keyHandle),
+        ecdsaThresholdKeyId: String(signerTransport.ecdsaThresholdKeyId),
+        relayerKeyId: signerTransport.relayerKeyId,
+        clientVerifyingShareB64u: signerTransport.clientVerifyingShareB64u,
+        participantIds,
+        thresholdEcdsaPublicKeyB64u: publicFacts.publicKeyB64u,
+        relayerVerifyingShareB64u: signerTransport.relayerVerifyingShareB64u,
+        sessionKind,
+        ...(signerTransportAuthToken
+          ? { thresholdSessionAuthToken: signerTransportAuthToken }
+          : {}),
+        workerCtx: this.workerCtx,
+      };
+      if (usesEmailOtpWorkerSession) {
+        clearThresholdEcdsaClientPresignaturesForLane({
+          relayerUrl: signerTransport.relayerUrl,
+          ecdsaThresholdKeyId: String(signerTransport.ecdsaThresholdKeyId),
+          participantIds,
+        });
+      }
+      const presignPoolDepthAtCommitStart = getThresholdEcdsaClientPresignaturePoolDepth({
+        relayerUrl: signerTransport.relayerUrl,
+        ecdsaThresholdKeyId: String(signerTransport.ecdsaThresholdKeyId),
+        participantIds,
+      });
+      const presignRefillScheduledAtCommitStart =
+        presignPoolDepthAtCommitStart > 0
+          ? scheduleThresholdEcdsaClientPresignaturePoolRefill({
+              ...refillBaseArgs,
+              clientSigningShare32: clientSigningShare32.slice(),
+              poolPolicy: effectiveThresholdEcdsaPresignPoolPolicy,
+              targetDepth: effectiveThresholdEcdsaPresignPoolPolicy.targetDepth,
+              triggerIfDepthAtOrBelow: effectiveThresholdEcdsaPresignPoolPolicy.lowWatermark,
+            })
+          : {
+              scheduled: false,
+              reason: 'cold_start_pool_empty' as const,
+              depth: presignPoolDepthAtCommitStart,
+              targetDepth: effectiveThresholdEcdsaPresignPoolPolicy.targetDepth,
+            };
+      try {
+        this.onThresholdEcdsaPresignRefillScheduled?.({
+          trigger: 'commit_start',
+          result: presignRefillScheduledAtCommitStart,
+        });
+      } catch {}
+
+      const signed = await signThresholdEcdsaDigestWithPool({
+        relayerUrl: signerTransport.relayerUrl,
+        keyHandle: String(publicFacts.keyHandle),
+        ecdsaThresholdKeyId: String(signerTransport.ecdsaThresholdKeyId),
+        relayerKeyId: signerTransport.relayerKeyId,
+        clientVerifyingShareB64u: signerTransport.clientVerifyingShareB64u,
+        mpcSessionId: authorized.mpcSessionId,
+        signingDigest32: req.digest32,
+        clientSigningShare32: clientSigningShare32.slice(),
+        participantIds,
+        thresholdEcdsaPublicKeyB64u: publicFacts.publicKeyB64u,
+        relayerVerifyingShareB64u: signerTransport.relayerVerifyingShareB64u,
+        sessionKind,
+        ...(signerTransportAuthToken
+          ? { thresholdSessionAuthToken: signerTransportAuthToken }
+          : {}),
+        workerCtx: this.workerCtx,
+      });
+      if (!signed.ok) {
+        throw new Error(
+          signed.message || signed.code || '[multichain] threshold-ecdsa signing failed',
+        );
+      }
+
+      const presignRefillScheduledPostSign = scheduleThresholdEcdsaClientPresignaturePoolRefill({
+        ...refillBaseArgs,
+        clientSigningShare32: clientSigningShare32.slice(),
+        poolPolicy: effectiveThresholdEcdsaPresignPoolPolicy,
+        targetDepth: effectiveThresholdEcdsaPresignPoolPolicy.targetDepth,
+        triggerIfDepthAtOrBelow: Math.max(
+          0,
+          effectiveThresholdEcdsaPresignPoolPolicy.targetDepth - 1,
+        ),
+      });
+      try {
+        this.onThresholdEcdsaPresignRefillScheduled?.({
+          trigger: 'post_sign_success',
+          result: presignRefillScheduledPostSign,
+        });
+      } catch {}
+
+      return signed.signature65;
+    } finally {
+      zeroizeBytes(clientSigningShare32);
+      if (
+        emailOtpWorkerShareSessionId &&
+        (material.singleUseEmailOtpSession || emailOtpWorkerShareExhausted)
+      ) {
+        await clearEmailOtpWorkerSessionBestEffort({
+          workerCtx: this.workerCtx,
+          sessionId: emailOtpWorkerShareSessionId,
+        });
+      }
+    }
+  }
+
+  async signReady(
+    req: SignRequest,
+    material: ReadySecp256k1SigningMaterial,
+  ): Promise<SignatureBytes> {
+    if (!isSecp256k1DigestSignRequest(req)) {
       throw new Error('[Secp256k1Engine] unsupported sign request');
     }
     if (req.digest32.length !== 32) {
       throw new Error('[Secp256k1Engine] digest32 must be 32 bytes');
     }
-
-    if (keyRef.type !== 'threshold-ecdsa-secp256k1') {
-      throw new Error(
-        '[Secp256k1Engine] runtime signing requires threshold-ecdsa-secp256k1 keyRef',
-      );
-    }
-    const keyRefThresholdSessionId = String(keyRef.thresholdSessionId || '').trim();
-    if (!keyRefThresholdSessionId) {
-      throw new Error(
-        '[multichain] Missing threshold-ecdsa sessionId on keyRef; reconnect threshold session via bootstrapEcdsaSession',
-      );
-    }
-
     const runCommit = async (): Promise<SignatureBytes> => {
       if (this.shouldAbort?.()) {
         const aborted = new Error('Request cancelled') as Error & { code: 'cancelled' };
         aborted.code = 'cancelled';
         throw aborted;
       }
-
-      const rpId = String(this.getRpId?.() || '').trim();
-      if (!rpId) {
-        throw new Error('[multichain] Missing rpId for threshold-ecdsa signing');
-      }
-      const participantIds = normalizeThresholdEd25519ParticipantIds(keyRef.participantIds);
-      if (!participantIds) {
-        throw new Error(
-          '[multichain] Missing threshold-ecdsa participantIds; reconnect threshold session',
-        );
-      }
-      const relayerKeyId = String(keyRef.backendBinding?.relayerKeyId || '').trim();
-      if (!relayerKeyId) {
-        throw new Error(
-          '[multichain] Missing backend relayerKeyId for threshold-ecdsa signing; reconnect threshold session',
-        );
-      }
-      const clientVerifyingShareB64u = String(
-        keyRef.backendBinding?.clientVerifyingShareB64u || '',
-      ).trim();
-      if (!clientVerifyingShareB64u) {
-        throw new Error(
-          '[multichain] Missing backend clientVerifyingShareB64u for threshold-ecdsa signing; reconnect threshold session',
-        );
-      }
-
-      const resolvedAuthMaterial =
-        createWarmSessionCapabilityReader({}).resolveEcdsaAuthByThresholdSessionId(
-          keyRefThresholdSessionId,
-        );
-      const canonicalRecord = resolvedAuthMaterial?.record || null;
-      const requestChain = inferThresholdEcdsaSessionChainFromLabel(req.label);
-      const canonicalRecordMatchesKeyRefLane =
-        !!canonicalRecord &&
-        String(canonicalRecord.walletId || '') === String(keyRef.userId || '') &&
-        (!requestChain || canonicalRecord.chainTarget.kind === requestChain) &&
-        String(canonicalRecord.ecdsaThresholdKeyId || '') ===
-          String(keyRef.ecdsaThresholdKeyId || '') &&
-        String(canonicalRecord.relayerUrl || '') === String(keyRef.relayerUrl || '') &&
-        String(canonicalRecord.relayerKeyId || '') === relayerKeyId &&
-        String(canonicalRecord.clientVerifyingShareB64u || '') === clientVerifyingShareB64u;
-
-      const keyRefSessionKind = keyRef.thresholdSessionKind;
-      const recordSessionKind: ThresholdSessionKind =
-        canonicalRecord?.thresholdSessionKind || 'jwt';
-      if (
-        canonicalRecordMatchesKeyRefLane &&
-        keyRefSessionKind &&
-        keyRefSessionKind !== recordSessionKind
-      ) {
-        throw new Error(
-          '[multichain] threshold-ecdsa session kind mismatch; reconnect threshold session',
-        );
-      }
-      const sessionKind: ThresholdSessionKind = keyRefSessionKind || recordSessionKind || 'jwt';
-
-      const recordSessionId = String(
-        (canonicalRecordMatchesKeyRefLane
-          ? canonicalRecord?.thresholdSessionId
-          : keyRefThresholdSessionId) || keyRefThresholdSessionId,
-      ).trim();
-      if (
-        canonicalRecordMatchesKeyRefLane &&
-        (!recordSessionId || recordSessionId !== keyRefThresholdSessionId)
-      ) {
-        throw new Error(
-          '[multichain] threshold-ecdsa sessionId mismatch; reconnect threshold session via bootstrapEcdsaSession',
-        );
-      }
-      if (
-        canonicalRecordMatchesKeyRefLane &&
-        canonicalRecord?.source === 'email_otp' &&
-        canonicalRecord.emailOtpAuthContext?.retention === 'single_use' &&
-        Number(canonicalRecord.emailOtpAuthContext.consumedAtMs) > 0
-      ) {
-        throw new Error(
-          `[SigningEngine] ${requestChain || canonicalRecord.chainTarget.kind} signing requires fresh Email OTP verification with per_operation policy`,
-        );
-      }
-
-      const keyRefAuthToken = String(keyRef.thresholdSessionAuthToken || '').trim();
-      const recordAuthToken = String(
-        canonicalRecordMatchesKeyRefLane ? canonicalRecord?.thresholdSessionAuthToken || '' : '',
-      ).trim();
-      const resolvedAuthToken = String(
-        canonicalRecordMatchesKeyRefLane ? resolvedAuthMaterial?.thresholdSessionAuthToken || '' : '',
-      ).trim();
-      const thresholdSessionAuthToken = resolvedAuthToken || recordAuthToken || keyRefAuthToken || undefined;
-
-      if (sessionKind === 'jwt' && !thresholdSessionAuthToken) {
-        throw new Error(
-          '[multichain] threshold-ecdsa session token unavailable; reconnect threshold session via bootstrapEcdsaSession',
-        );
-      }
-      if (sessionKind === 'jwt') {
-        if (canonicalRecordMatchesKeyRefLane && keyRefAuthToken && recordAuthToken && keyRefAuthToken !== recordAuthToken) {
-          console.debug(
-            '[multichain] using current threshold-ecdsa session record auth token over stale keyRef auth token',
-            {
-              thresholdSessionId: keyRefThresholdSessionId,
-            },
-          );
-        }
-      }
-
-      const purpose = String(req.label || 'secp256k1');
-      const authorized = await authorizeEcdsaWithSession({
-        relayerUrl: keyRef.relayerUrl,
-        ecdsaThresholdKeyId: String(keyRef.ecdsaThresholdKeyId || '').trim(),
-        purpose,
-        signingDigest32: req.digest32,
-        sessionKind,
-        ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
-      });
-      if (!authorized.ok || !authorized.mpcSessionId) {
-        throw new Error(
-          authorized.message || authorized.code || '[multichain] threshold-ecdsa authorize failed',
-        );
-      }
-      const emailOtpWorkerShareSessionId = resolveEmailOtpShareHandleSessionId(keyRef);
-      const emailOtpWorkerShareChain = requestChain || canonicalRecord?.chainTarget.kind || null;
-      const usesEmailOtpWorkerSession = !!emailOtpWorkerShareSessionId;
-      let emailOtpWorkerShareExhausted = false;
-      const isSingleUseEmailOtpSession =
-        canonicalRecordMatchesKeyRefLane &&
-        canonicalRecord?.source === 'email_otp' &&
-        canonicalRecord.emailOtpAuthContext?.retention === 'single_use';
-      const authorizedPresignPoolPolicy = resolveThresholdEcdsaPresignPoolPolicy({
-        ...this.thresholdEcdsaPresignPoolPolicy,
-        ...(authorized.presignPoolPolicy || {}),
-      });
-      const effectiveThresholdEcdsaPresignPoolPolicy = usesEmailOtpWorkerSession
-        ? { ...authorizedPresignPoolPolicy, enabled: false }
-        : authorizedPresignPoolPolicy;
-
-      let clientSigningShare32: Uint8Array | null = null;
-      try {
-        if (emailOtpWorkerShareSessionId) {
-          if (!emailOtpWorkerShareChain) {
-            throw new Error(
-              '[multichain] Missing Email OTP ECDSA chain for signing-session policy update',
-            );
-          }
-          const claimedShare = await claimEmailOtpWorkerEcdsaSigningShare({
-            workerCtx: this.workerCtx,
-            sessionId: emailOtpWorkerShareSessionId,
-            sealedThresholdSessionId: keyRefThresholdSessionId,
-            chain: emailOtpWorkerShareChain,
-            chainTarget: keyRef.chainTarget,
-          });
-          clientSigningShare32 = claimedShare.clientSigningShare32;
-          emailOtpWorkerShareExhausted =
-            claimedShare.remainingUses <= 0 || claimedShare.expiresAtMs <= Date.now();
-          await updateEmailOtpSealedRecordPolicyAfterEcdsaClaim({
-            thresholdSessionId: keyRefThresholdSessionId,
-            chain: emailOtpWorkerShareChain,
-            chainTarget: keyRef.chainTarget,
-            remainingUses: claimedShare.remainingUses,
-            expiresAtMs: claimedShare.expiresAtMs,
-          });
-        } else {
-          const clientAdditiveShare32B64u = String(
-            keyRef.backendBinding?.clientAdditiveShare32B64u || '',
-          ).trim();
-          if (!clientAdditiveShare32B64u) {
-            throw new Error(
-              '[multichain] Missing threshold ECDSA signing material; reconnect threshold session',
-            );
-          }
-          try {
-            clientSigningShare32 = base64UrlDecode(clientAdditiveShare32B64u);
-          } catch {
-            throw new Error(
-              '[multichain] backend clientAdditiveShare32B64u must be valid base64url; reconnect threshold session',
-            );
-          }
-          if (clientSigningShare32.length !== 32) {
-            throw new Error(
-              '[multichain] backend clientAdditiveShare32B64u must decode to 32 bytes; reconnect threshold session',
-            );
-          }
-        }
-
-        const refillBaseArgs = {
-          relayerUrl: keyRef.relayerUrl,
-          ecdsaThresholdKeyId: String(keyRef.ecdsaThresholdKeyId || '').trim(),
-          relayerKeyId,
-          clientVerifyingShareB64u,
-          participantIds,
-          thresholdEcdsaPublicKeyB64u: keyRef.thresholdEcdsaPublicKeyB64u,
-          relayerVerifyingShareB64u: keyRef.relayerVerifyingShareB64u,
-          sessionKind,
-          ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
-          workerCtx: this.workerCtx,
-        };
-        if (usesEmailOtpWorkerSession) {
-          clearThresholdEcdsaClientPresignaturesForLane({
-            relayerUrl: keyRef.relayerUrl,
-            ecdsaThresholdKeyId: String(keyRef.ecdsaThresholdKeyId || '').trim(),
-            participantIds,
-          });
-        }
-        const presignPoolDepthAtCommitStart = getThresholdEcdsaClientPresignaturePoolDepth({
-          relayerUrl: keyRef.relayerUrl,
-          ecdsaThresholdKeyId: String(keyRef.ecdsaThresholdKeyId || '').trim(),
-          participantIds,
-        });
-        const presignRefillScheduledAtCommitStart =
-          presignPoolDepthAtCommitStart > 0
-            ? scheduleThresholdEcdsaClientPresignaturePoolRefill({
-                ...refillBaseArgs,
-                clientSigningShare32: clientSigningShare32.slice(),
-                poolPolicy: effectiveThresholdEcdsaPresignPoolPolicy,
-                targetDepth: effectiveThresholdEcdsaPresignPoolPolicy.targetDepth,
-                triggerIfDepthAtOrBelow: effectiveThresholdEcdsaPresignPoolPolicy.lowWatermark,
-              })
-            : {
-                scheduled: false,
-                reason: 'cold_start_pool_empty' as const,
-                depth: presignPoolDepthAtCommitStart,
-                targetDepth: effectiveThresholdEcdsaPresignPoolPolicy.targetDepth,
-              };
-        try {
-          this.onThresholdEcdsaPresignRefillScheduled?.({
-            trigger: 'commit_start',
-            result: presignRefillScheduledAtCommitStart,
-          });
-        } catch {}
-
-        const signed = await signThresholdEcdsaDigestWithPool({
-          relayerUrl: keyRef.relayerUrl,
-          ecdsaThresholdKeyId: String(keyRef.ecdsaThresholdKeyId || '').trim(),
-          relayerKeyId,
-          clientVerifyingShareB64u,
-          mpcSessionId: authorized.mpcSessionId,
-          signingDigest32: req.digest32,
-          clientSigningShare32: clientSigningShare32.slice(),
-          participantIds,
-          thresholdEcdsaPublicKeyB64u: keyRef.thresholdEcdsaPublicKeyB64u,
-          relayerVerifyingShareB64u: keyRef.relayerVerifyingShareB64u,
-          sessionKind,
-          ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
-          workerCtx: this.workerCtx,
-        });
-        if (!signed.ok) {
-          throw new Error(
-            signed.message || signed.code || '[multichain] threshold-ecdsa signing failed',
-          );
-        }
-
-        const presignRefillScheduledPostSign = scheduleThresholdEcdsaClientPresignaturePoolRefill({
-          ...refillBaseArgs,
-          clientSigningShare32: clientSigningShare32.slice(),
-          poolPolicy: effectiveThresholdEcdsaPresignPoolPolicy,
-          targetDepth: effectiveThresholdEcdsaPresignPoolPolicy.targetDepth,
-          triggerIfDepthAtOrBelow: Math.max(
-            0,
-            effectiveThresholdEcdsaPresignPoolPolicy.targetDepth - 1,
-          ),
-        });
-        try {
-          this.onThresholdEcdsaPresignRefillScheduled?.({
-            trigger: 'post_sign_success',
-            result: presignRefillScheduledPostSign,
-          });
-        } catch {}
-
-        return signed.signature65;
-      } finally {
-        zeroizeBytes(clientSigningShare32);
-        if (
-          emailOtpWorkerShareSessionId &&
-          (isSingleUseEmailOtpSession || emailOtpWorkerShareExhausted)
-        ) {
-          await clearEmailOtpWorkerSessionBestEffort({
-            workerCtx: this.workerCtx,
-            sessionId: emailOtpWorkerShareSessionId,
-          });
-        }
-      }
+      return await this.signReadySecp256k1Digest(req, material);
     };
-
     if (this.enqueueThresholdEcdsaCommit) {
       return await this.enqueueThresholdEcdsaCommit({
-        walletId: keyRef.userId,
-        thresholdSessionId: keyRefThresholdSessionId,
+        walletId: toWalletId(material.walletId),
+        thresholdSessionId: String(material.signerSession.session.thresholdSessionId),
         shouldAbort: this.shouldAbort,
         task: runCommit,
       });
     }
-
     return await runCommit();
   }
 }

@@ -980,6 +980,17 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         });
         return;
       }
+      if (
+        expectedThresholdSessionId &&
+        expectedThresholdSessionId !== validated.thresholdSessionId
+      ) {
+        res.status(403).json({
+          ok: false,
+          code: 'threshold_session_mismatch',
+          message: 'Wallet signing-session status token does not match requested threshold session',
+        });
+        return;
+      }
       const remainingUses = Math.max(
         0,
         Math.floor(Number(validated.walletBudgetStatus.remainingUses) || 0),

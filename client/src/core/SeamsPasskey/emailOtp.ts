@@ -66,8 +66,6 @@ export type EmailOtpDeviceEnrollmentRestoreResult = {
   enrollmentId: string;
   enrollmentVersion: string;
   enrollmentSealKeyVersion: string;
-  signingRootId: string;
-  signingRootVersion: string;
   recoveryKeyId: string;
   activeRecoveryWrappedEnrollmentEscrowCount: number;
 };

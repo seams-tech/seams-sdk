@@ -2,10 +2,19 @@ import { expect, test } from '@playwright/test';
 import { ensureEvmFamilyThresholdEcdsaKeyRefReady } from '@/core/signingEngine/flows/signEvmFamily/ecdsaReadiness';
 import {
   getThresholdEcdsaKeyRefByKey,
+  getPasskeyThresholdEcdsaKeyRefForSigning,
   getThresholdEcdsaSessionRecordByKey,
+  thresholdEcdsaRecordRpId,
 } from '@/core/signingEngine/session/persistence/records';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 import { buildEvmFamilyEcdsaKeyIdentityFromRecord } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { selectedEcdsaLane } from '@/core/signingEngine/session/identity/laneIdentity';
+import {
+  buildEcdsaReconnectMaterial,
+  buildEcdsaSessionIdentity,
+  buildEcdsaSessionProvisionPlan,
+} from '@/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toAccountId } from '@/core/types/accountIds';
 import { SigningEventPhase } from '@/core/types/sdkSentEvents';
 import {
@@ -45,30 +54,46 @@ test.describe('EVM family threshold reconnect events', () => {
     });
     const events: any[] = [];
     const provisionedChainIds: unknown[] = [];
+    const staleKeyRef = getPasskeyThresholdEcdsaKeyRefForSigning(ecdsaStore, {
+      walletId: toWalletId('reconnect-events.testnet'),
+      chainTarget: staleRecord.chainTarget,
+      source: 'login',
+    });
     const key = buildEvmFamilyEcdsaKeyIdentityFromRecord({
       record: staleRecord,
-      rpId: staleRecord.rpId,
+      rpId: thresholdEcdsaRecordRpId(staleRecord),
     });
     const lane = {
-      kind: 'selected_lane',
+      ...selectedEcdsaLane({
+        key,
+        keyHandle: staleRecord.keyHandle,
+        walletId: toAccountId('reconnect-events.testnet'),
+        authMethod: 'passkey',
+        walletSigningSessionId,
+        thresholdSessionId: staleRecord.thresholdSessionId,
+        chainTarget: staleRecord.chainTarget,
+      }),
       key,
-      walletId: toAccountId('reconnect-events.testnet'),
-      authMethod: 'passkey',
-      curve: 'ecdsa',
-      chain: 'evm',
       keyKind: 'threshold_ecdsa_secp256k1',
       chainFamily: 'evm',
-      subjectId: staleRecord.subjectId,
-      chainTarget: staleRecord.chainTarget,
-      ecdsaThresholdKeyId: staleRecord.ecdsaThresholdKeyId,
-      signingRootId: staleRecord.signingRootId,
-      signingRootVersion: staleRecord.signingRootVersion || 'default',
-      walletSigningSessionId: SigningSessionIds.walletSigningSession(walletSigningSessionId),
-      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(staleRecord.thresholdSessionId),
       sessionOrigin: 'login',
       storageSource: 'login',
       retention: 'session',
     } as const;
+    const reconnectSessionIdentity = buildEcdsaSessionIdentity({
+      thresholdSessionId: String(lane.thresholdSessionId),
+      walletSigningSessionId: String(lane.walletSigningSessionId),
+    });
+    const reconnectPlan = buildEcdsaSessionProvisionPlan({
+      kind: 'ecdsa_session_reconnect',
+      chainTarget: staleRecord.chainTarget,
+      sessionIdentity: reconnectSessionIdentity,
+      sessionBudgetUses: 3,
+      reconnectMaterial: buildEcdsaReconnectMaterial({
+        record: staleRecord,
+        keyRef: staleKeyRef,
+      }),
+    });
 
     const readyKeyRef = await ensureEvmFamilyThresholdEcdsaKeyRefReady({
       deps: {
@@ -89,15 +114,15 @@ test.describe('EVM family threshold reconnect events', () => {
         seamsPasskeyConfigs: {
           registration: { mode: 'self' },
         },
-        getEmailOtpThresholdEcdsaKeyRefForSigning: () => staleBootstrap.thresholdEcdsaKeyRef,
+        getEmailOtpThresholdEcdsaKeyRefForSigning: () => staleKeyRef,
         getEmailOtpThresholdEcdsaSessionRecordForSigning: () => staleRecord,
-        getPasskeyThresholdEcdsaKeyRefForSigning: () => staleBootstrap.thresholdEcdsaKeyRef,
+        getPasskeyThresholdEcdsaKeyRefForSigning: () => staleKeyRef,
         getPasskeyThresholdEcdsaSessionRecordForSigning: () => staleRecord,
         getThresholdEcdsaSessionRecordByKey: (identity: Parameters<typeof getThresholdEcdsaSessionRecordByKey>[1]) =>
           getThresholdEcdsaSessionRecordByKey(ecdsaStore, identity),
         getThresholdEcdsaKeyRefByKey: (identity: Parameters<typeof getThresholdEcdsaKeyRefByKey>[1]) =>
           getThresholdEcdsaKeyRefByKey(ecdsaStore, identity),
-        clearThresholdEcdsaSessionRecordForLane: () => undefined,
+        clearThresholdEcdsaSessionRecordForWalletTarget: () => undefined,
         provisionThresholdEcdsaSession: async (request: {
           key: {
             walletId: string;
@@ -141,12 +166,9 @@ test.describe('EVM family threshold reconnect events', () => {
       } as any,
       lane,
       chainId: 11_155_111,
-      keyRef: undefined,
-      mode: 'derive_from_lane',
-      reconnectSessionIdentity: {
-        thresholdSessionId: String(lane.thresholdSessionId),
-        walletSigningSessionId: String(lane.walletSigningSessionId),
-      },
+      keyRef: staleKeyRef,
+      reconnectPlan,
+      reconnectSessionIdentity,
       operationUsesNeeded: 1,
       sessionBudgetUses: 3,
       onEvent: (event) => events.push(event),

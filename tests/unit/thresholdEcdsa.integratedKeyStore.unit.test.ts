@@ -41,8 +41,12 @@ test.describe('threshold-ecdsa integrated key store', () => {
     expect(bootstrap.ok).toBe(true);
     const ecdsaThresholdKeyId = String((bootstrap as any).ecdsaThresholdKeyId || '').trim();
     expect(ecdsaThresholdKeyId).not.toBe('');
+    const keyHandle = String((bootstrap as any).keyHandle || '').trim();
+    expect(keyHandle).not.toBe('');
 
-    const integratedKeyRecord = await (svc as any).getEcdsaIntegratedKeyRecord(ecdsaThresholdKeyId);
+    const integratedKeyRecord = await (svc as any).getEcdsaIntegratedKeyRecordByKeyHandle(
+      keyHandle,
+    );
     expect(integratedKeyRecord).toBeTruthy();
     expect(integratedKeyRecord.ecdsaThresholdKeyId).toBe(ecdsaThresholdKeyId);
     expect(integratedKeyRecord.relayerRootShare32B64u).toBeTruthy();

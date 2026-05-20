@@ -151,6 +151,32 @@ test.describe('relay API key auth (express)', () => {
               remainingUses: 5,
             },
           },
+          thresholdEcdsa: {
+            ecdsaThresholdKeyId: 'legacy-ecdsa-key-registration-1',
+            signingRootId: 'project-registration:env-registration',
+            signingRootVersion: 'default',
+            relayerKeyId: 'rk-registration-ecdsa-1',
+            thresholdEcdsaPublicKeyB64u: 'group-public-key',
+            ethereumAddress: `0x${'aa'.repeat(20)}`,
+            relayerVerifyingShareB64u: 'relayer-share',
+            participantIds: [1, 2],
+            session: {
+              sessionKind: 'jwt',
+              sessionId: 'registration-ecdsa-session-1',
+              walletSigningSessionId: 'wallet-signing-session-1',
+              subjectId: 'wallet:alice.testnet',
+              keyHandle: 'ehss-key-registration-1',
+              chainTarget: {
+                kind: 'evm' as const,
+                namespace: 'eip155' as const,
+                chainId: 11155111,
+                networkSlug: 'sepolia',
+              },
+              expiresAtMs: Date.now() + 60_000,
+              participantIds: [1, 2],
+              remainingUses: 5,
+            },
+          },
         }),
       }),
       {
@@ -181,10 +207,26 @@ test.describe('relay API key auth (express)', () => {
       expect((res.json?.thresholdEd25519 as any)?.session?.jwt).toContain(
         'wallet-signing-session-1',
       );
+      expect((res.json?.thresholdEcdsa as any)?.session?.jwt).toContain('wallet-signing-session-1');
+      expect(
+        Object.prototype.hasOwnProperty.call(res.json?.thresholdEcdsa || {}, 'ecdsaThresholdKeyId'),
+      ).toBe(false);
+      expect(
+        Object.prototype.hasOwnProperty.call(res.json?.thresholdEcdsa || {}, 'signingRootId'),
+      ).toBe(false);
+      expect(
+        Object.prototype.hasOwnProperty.call(res.json?.thresholdEcdsa || {}, 'signingRootVersion'),
+      ).toBe(false);
       expect(signedClaims[0]).toMatchObject({
         kind: 'threshold_ed25519_session_v1',
         walletId: 'alice.testnet',
         sessionId: 'registration-session-1',
+        walletSigningSessionId: 'wallet-signing-session-1',
+      });
+      expect(signedClaims[1]).toMatchObject({
+        kind: 'threshold_ecdsa_session_v1',
+        walletId: 'alice.testnet',
+        sessionId: 'registration-ecdsa-session-1',
         walletSigningSessionId: 'wallet-signing-session-1',
       });
     } finally {

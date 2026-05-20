@@ -1,19 +1,20 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
 import type { WarmSessionStatusResult } from '../../uiConfirm/types';
-import type {
+import {
   ThresholdEcdsaSessionRecord,
   ThresholdEd25519SessionRecord,
+  thresholdEcdsaSessionRecordReadModel,
 } from '../persistence/records';
 import {
   selectedEcdsaLane,
   type ThresholdEcdsaSessionStoreSource,
 } from '../identity/laneIdentity';
-import { buildEvmFamilyEcdsaKeyIdentityFromRecord } from '../identity/evmFamilyEcdsaIdentity';
 import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
+  type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildDiscoveredLaneForRecord,
@@ -105,7 +106,7 @@ export type WarmSigningStatusReader = ThresholdWarmSessionStatusReader & {
     tempoClaim: WarmSessionPrfClaim | null;
   }>;
   resolveExactEcdsaRecord: (args: {
-    walletId: AccountId;
+    walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
     thresholdSessionId: string;
     source?: ThresholdEcdsaSessionStoreSource;
@@ -170,7 +171,7 @@ export function createWarmSessionStatusReader(
   }
 
   function listCurrentEcdsaRecords(args: {
-    walletId: AccountId;
+    walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
     source?: ThresholdEcdsaSessionStoreSource;
   }): WarmSessionEcdsaPolicyRecordHint[] {
@@ -189,7 +190,7 @@ export function createWarmSessionStatusReader(
   }
 
   function resolveExactEcdsaRecord(args: {
-    walletId: AccountId;
+    walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
     thresholdSessionId: string;
     source?: ThresholdEcdsaSessionStoreSource;
@@ -201,7 +202,7 @@ export function createWarmSessionStatusReader(
   }
 
   function resolveEcdsaRecordForSigningSession(args: {
-    walletId: AccountId;
+    walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
     thresholdSessionId: string;
   }): WarmSessionEcdsaPolicyRecordHint | null {
@@ -266,7 +267,7 @@ export function createWarmSessionStatusReader(
   }
 
   async function assertEcdsaSigningSessionReady(args: {
-    walletId: AccountId | string;
+    walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
     thresholdSessionId: unknown;
     usesNeeded?: number;
@@ -303,7 +304,7 @@ export function createWarmSessionStatusReader(
   }
 
   async function getEd25519SigningSessionStatusForRecord(args: {
-    nearAccountId: AccountId | string;
+    nearAccountId: AccountId;
     record: ReturnType<typeof readWarmSessionCapabilityRecordsForWallet>['ed25519'];
   }): Promise<SigningSessionStatus | null> {
     const record = args.record;
@@ -321,7 +322,7 @@ export function createWarmSessionStatusReader(
           : {}),
       };
     }
-    const records = readWarmSessionCapabilityRecordsForWallet(toAccountId(args.nearAccountId));
+    const records = readWarmSessionCapabilityRecordsForWallet(args.nearAccountId);
     const { ed25519Claim } = await readWalletScopedClaimsForRecords(records);
     const status = toSigningSessionStatus({
       sessionId: normalizedThresholdSessionId,
@@ -336,9 +337,9 @@ export function createWarmSessionStatusReader(
   }
 
   async function getEd25519SigningSessionStatus(
-    nearAccountId: AccountId | string,
+    nearAccountId: AccountId,
   ): Promise<SigningSessionStatus | null> {
-    const records = readWarmSessionCapabilityRecordsForWallet(toAccountId(nearAccountId));
+    const records = readWarmSessionCapabilityRecordsForWallet(nearAccountId);
     return await getEd25519SigningSessionStatusForRecord({
       nearAccountId,
       record: records.ed25519,
@@ -346,7 +347,7 @@ export function createWarmSessionStatusReader(
   }
 
   async function getEd25519SigningSessionStatusForSession(args: {
-    nearAccountId: AccountId | string;
+    nearAccountId: AccountId;
     thresholdSessionId: string;
   }): Promise<SigningSessionStatus | null> {
     const thresholdSessionId = String(args.thresholdSessionId || '').trim();
@@ -373,10 +374,7 @@ export function createWarmSessionStatusReader(
     claim: WarmSessionPrfClaim | null;
   }): WarmEcdsaRecordBackedSigningSessionStatus {
     const identity = buildEcdsaSessionIdentity(args.record);
-    const key = buildEvmFamilyEcdsaKeyIdentityFromRecord({
-      record: args.record,
-      rpId: args.record.rpId,
-    });
+    const key = thresholdEcdsaSessionRecordReadModel(args.record).key;
     return {
       ...toSigningSessionStatus({
         sessionId: identity.thresholdSessionId,
@@ -387,15 +385,12 @@ export function createWarmSessionStatusReader(
       key,
       lane: selectedEcdsaLane({
         key,
+        keyHandle: args.record.keyHandle,
         walletId: args.record.walletId,
         authMethod: args.record.source === 'email_otp' ? 'email_otp' : 'passkey',
         walletSigningSessionId: identity.walletSigningSessionId,
         thresholdSessionId: identity.thresholdSessionId,
-        subjectId: args.record.subjectId,
         chainTarget: args.record.chainTarget,
-        ecdsaThresholdKeyId: args.record.ecdsaThresholdKeyId,
-        signingRootId: args.record.signingRootId,
-        signingRootVersion: args.record.signingRootVersion,
       }),
       chainTarget: args.record.chainTarget,
       source: args.record.source,
@@ -404,11 +399,13 @@ export function createWarmSessionStatusReader(
   }
 
   async function listEcdsaSigningSessionStatuses(args: {
-    walletId: AccountId | string;
+    walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
   }): Promise<WarmEcdsaRecordBackedSigningSessionStatus[]> {
-    const walletId = toAccountId(args.walletId);
-    const records = listCurrentEcdsaRecords({ walletId, chainTarget: args.chainTarget });
+    const records = listCurrentEcdsaRecords({
+      walletId: args.walletId,
+      chainTarget: args.chainTarget,
+    });
     if (!records.length) return [];
     const claimsByThresholdSessionId = await readWalletScopedLaneClaimsForExactLanes({
       deps,
@@ -425,17 +422,16 @@ export function createWarmSessionStatusReader(
   }
 
   async function getEcdsaSigningSessionStatus(args: {
-    walletId: AccountId | string;
+    walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
     thresholdSessionId: string;
   }): Promise<WarmEcdsaSigningSessionStatus | null> {
-    const walletId = toAccountId(args.walletId);
     const expectedThresholdSessionId = String(args.thresholdSessionId || '').trim();
     if (!expectedThresholdSessionId) {
       throw new Error('[WarmSessionStatusReader] thresholdSessionId is required for ECDSA status');
     }
     const record = resolveEcdsaRecordForSigningSession({
-      walletId,
+      walletId: args.walletId,
       chainTarget: args.chainTarget,
       thresholdSessionId: expectedThresholdSessionId,
     });

@@ -3128,6 +3128,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
             networkSlug: 'arc-testnet',
           },
           ecdsaThresholdKeyId: 'ecdsa-key-stale-cf',
+          keyHandle: 'key-handle-stale-cf',
           relayerKeyId: 'relayer-key-stale-cf',
           rpId: 'example.localhost',
           thresholdExpiresAtMs: Date.now() + 60_000,
@@ -3216,6 +3217,50 @@ test.describe('relayer router (cloudflare) – P0', () => {
       thresholdSessionId: claims.sessionId,
       status: 'active',
       remainingUses: 2,
+    });
+  });
+
+  test('POST /session/signing-budget/status: mismatched threshold session is rejected', async () => {
+    const { claims, ecdsaStatus, walletBudgetStatus } =
+      buildEcdsaCurveCollisionBudgetStatusFixture('cf-threshold-mismatch');
+    const session = makeSessionAdapter({
+      parse: async () => ({ ok: true, claims }),
+    });
+    const service = makeFakeAuthService();
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      session,
+      signingSessionSeal: {
+        service: {
+          applyServerSeal: async () => ({ ok: false, code: 'unused', message: 'unused' }),
+          removeServerSeal: async () => ({ ok: false, code: 'unused', message: 'unused' }),
+        },
+        sessionPolicy: {
+          getThresholdSession: async () => null,
+          getWalletBudgetStatus: async ({ walletSigningSessionId }) =>
+            walletSigningSessionId === claims.walletSigningSessionId ? walletBudgetStatus : null,
+          getThresholdSessionStatuses: async ({ thresholdSessionId }) =>
+            thresholdSessionId === claims.sessionId ? [ecdsaStatus] : [],
+        },
+      },
+    });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/session/signing-budget/status',
+      origin: 'https://example.localhost',
+      headers: { Authorization: 'Bearer ecdsa-token' },
+      body: {
+        walletSigningSessionId: claims.walletSigningSessionId,
+        thresholdSessionId: `${claims.sessionId}-other`,
+      },
+    });
+
+    expect(res.status).toBe(403);
+    expect(res.json).toEqual({
+      ok: false,
+      code: 'threshold_session_mismatch',
+      message: 'Wallet signing-session status token does not match requested threshold session',
     });
   });
 

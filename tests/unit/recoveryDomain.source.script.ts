@@ -49,7 +49,6 @@ const pending: PendingEmailRecovery = {
   recoverySessionId: subject.recoverySessionId,
   nearPublicKey: targetKeys.newNearPublicKey,
   newEvmOwnerAddress: targetKeys.newEvmOwnerAddress,
-  ecdsaThresholdKeyId: 'ehss-recovery-demo',
   deadlineEpochSeconds: subject.deadlineEpochSeconds,
   recoveryEmailPayloadHash: 'sha256:demo',
   recoveryEmailSubject: buildRecoveryEmailSubject(payload),

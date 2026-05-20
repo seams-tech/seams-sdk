@@ -3606,6 +3606,7 @@ test.describe('relayer router (express) – P0', () => {
             networkSlug: 'arc-testnet',
           },
           ecdsaThresholdKeyId: 'ecdsa-key-stale-express',
+          keyHandle: 'key-handle-stale-express',
           relayerKeyId: 'relayer-key-stale-express',
           rpId: 'example.localhost',
           thresholdExpiresAtMs: Date.now() + 60_000,
@@ -3691,6 +3692,50 @@ test.describe('relayer router (express) – P0', () => {
         thresholdSessionId: claims.sessionId,
         status: 'active',
         remainingUses: 2,
+      });
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('POST /session/signing-budget/status: mismatched threshold session is rejected', async () => {
+    const { claims, ecdsaStatus, walletBudgetStatus } =
+      buildEcdsaCurveCollisionBudgetStatusFixture('express-threshold-mismatch');
+    const session = makeSessionAdapter({
+      parse: async () => ({ ok: true, claims }),
+    });
+    const service = makeFakeAuthService();
+    const router = createRelayRouter(service, {
+      session,
+      signingSessionSeal: {
+        service: {
+          applyServerSeal: async () => ({ ok: false, code: 'unused', message: 'unused' }),
+          removeServerSeal: async () => ({ ok: false, code: 'unused', message: 'unused' }),
+        },
+        sessionPolicy: {
+          getThresholdSession: async () => null,
+          getWalletBudgetStatus: async ({ walletSigningSessionId }) =>
+            walletSigningSessionId === claims.walletSigningSessionId ? walletBudgetStatus : null,
+          getThresholdSessionStatuses: async ({ thresholdSessionId }) =>
+            thresholdSessionId === claims.sessionId ? [ecdsaStatus] : [],
+        },
+      },
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/session/signing-budget/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ecdsa-token' },
+        body: JSON.stringify({
+          walletSigningSessionId: claims.walletSigningSessionId,
+          thresholdSessionId: `${claims.sessionId}-other`,
+        }),
+      });
+      expect(res.status).toBe(403);
+      expect(res.json).toEqual({
+        ok: false,
+        code: 'threshold_session_mismatch',
+        message: 'Wallet signing-session status token does not match requested threshold session',
       });
     } finally {
       await srv.close();

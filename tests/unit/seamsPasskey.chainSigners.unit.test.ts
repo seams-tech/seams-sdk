@@ -202,7 +202,6 @@ test.describe('SeamsPasskey chain signer modules', () => {
         walletId: 'alice.testnet',
         walletSessionUserId: 'alice.testnet',
       }),
-      subjectId: TEST_SUBJECT_ID,
       chainTarget: TEMPO_CHAIN_TARGET,
       request: {
         chain: 'tempo',
@@ -277,7 +276,6 @@ test.describe('SeamsPasskey chain signer modules', () => {
         walletId: 'alice.testnet',
         walletSessionUserId: 'alice.testnet',
       }),
-      subjectId: TEST_SUBJECT_ID,
       chainTarget: TEMPO_CHAIN_TARGET,
       relayerUrl: 'https://relay.example.test',
     });
@@ -287,7 +285,6 @@ test.describe('SeamsPasskey chain signer modules', () => {
         walletId: 'alice.testnet',
         walletSessionUserId: 'alice.testnet',
       }),
-      subjectId: TEST_SUBJECT_ID,
       chainTarget: EVM_CHAIN_TARGET,
       relayerUrl: 'https://relay.example.test',
     });
@@ -466,7 +463,7 @@ test.describe('SeamsPasskey chain signer modules', () => {
             getLastUser: async () => null,
             getUserBySignerSlot: async () => null,
             getWarmThresholdEd25519SessionStatus: async () => null,
-            listThresholdEcdsaSessionRecordsForTarget: () =>
+            listThresholdEcdsaSessionRecordsForWalletTarget: () =>
               [
                 { source: 'login', ethereumAddress: `0x${'11'.repeat(20)}` },
                 { source: 'manual-bootstrap', ethereumAddress: `0x${'22'.repeat(20)}` },
@@ -714,7 +711,6 @@ test.describe('SeamsPasskey chain signer modules', () => {
 
       const result = await signer.executeEvmFamilyTransaction({
         walletSession: TEST_WALLET_SESSION,
-        subjectId: TEST_SUBJECT_ID,
         chainTarget: TEMPO_CHAIN_TARGET,
         request: {
           chain: 'evm',
@@ -861,7 +857,6 @@ test.describe('SeamsPasskey chain signer modules', () => {
       await expect(
         signer.executeEvmFamilyTransaction({
           walletSession: TEST_WALLET_SESSION,
-          subjectId: TEST_SUBJECT_ID,
           chainTarget: TEMPO_CHAIN_TARGET,
           request: {
             chain: 'evm',
@@ -1033,7 +1028,6 @@ test.describe('SeamsPasskey chain signer modules', () => {
       await expect(
         signer.executeEvmFamilyTransaction({
           walletSession: TEST_WALLET_SESSION,
-          subjectId: TEST_SUBJECT_ID,
           chainTarget: TEMPO_CHAIN_TARGET,
           request: {
             chain: 'evm',
@@ -1218,7 +1212,6 @@ test.describe('SeamsPasskey chain signer modules', () => {
       await expect(
         signer.executeEvmFamilyTransaction({
           walletSession: TEST_WALLET_SESSION,
-          subjectId: TEST_SUBJECT_ID,
           chainTarget: TEMPO_CHAIN_TARGET,
           request: {
             chain: 'evm',
@@ -1391,7 +1384,6 @@ test.describe('SeamsPasskey chain signer modules', () => {
       await expect(
         signer.executeEvmFamilyTransaction({
           walletSession: TEST_WALLET_SESSION,
-          subjectId: TEST_SUBJECT_ID,
           chainTarget: TEMPO_CHAIN_TARGET,
           request: {
             chain: 'evm',
@@ -1555,7 +1547,6 @@ test.describe('SeamsPasskey chain signer modules', () => {
       await expect(
         signer.executeEvmFamilyTransaction({
           walletSession: TEST_WALLET_SESSION,
-          subjectId: TEST_SUBJECT_ID,
           chainTarget: TEMPO_CHAIN_TARGET,
           request: {
             chain: 'evm',
@@ -1717,7 +1708,6 @@ test.describe('SeamsPasskey chain signer modules', () => {
       await expect(
         signer.executeEvmFamilyTransaction({
           walletSession: TEST_WALLET_SESSION,
-          subjectId: TEST_SUBJECT_ID,
           chainTarget: TEMPO_CHAIN_TARGET,
           request: {
             chain: 'evm',

@@ -9,7 +9,14 @@ import {
   scheduleThresholdEcdsaClientPresignaturePoolRefill,
   signThresholdEcdsaDigestWithPool,
 } from '@/core/signingEngine/threshold/ecdsa/presignPool';
-import { Secp256k1Engine } from '@/core/signingEngine/flows/signEvmFamily/signers/secp256k1';
+import {
+  buildReadySecp256k1SigningMaterialFromKeyRef,
+  Secp256k1Engine,
+} from '@/core/signingEngine/flows/signEvmFamily/signers/secp256k1';
+import type {
+  SignRequest,
+  ThresholdEcdsaSecp256k1KeyRef,
+} from '@/core/signingEngine/interfaces/signing';
 import {
   thresholdEcdsaChainTargetFromChainFamily,
   toWalletSubjectId,
@@ -27,6 +34,7 @@ const EVM_CHAIN_TARGET = thresholdEcdsaChainTargetFromChainFamily({
 });
 const RP_ID = 'example.localhost';
 const PARTICIPANT_IDS = [1, 2];
+const ETHEREUM_ADDRESS = `0x${'11'.repeat(20)}`;
 const SESSION_ID = 'session-1';
 const WALLET_SIGNING_SESSION_ID = 'wallet-session-1';
 
@@ -63,6 +71,59 @@ const GROUP_PUBLIC_KEY_B64U = base64UrlEncode(GROUP_PUBLIC_KEY_33);
 const PRESIGN_BIG_R_B64U = base64UrlEncode(PRESIGN_BIG_R_33);
 const SIGNATURE_65_B64U = base64UrlEncode(SIGNATURE_65);
 const ENTROPY_B64U = base64UrlEncode(ENTROPY_32);
+
+function makeDigestSignRequest(): Extract<SignRequest, { kind: 'digest' }> & {
+  algorithm: 'secp256k1';
+} {
+  return {
+    kind: 'digest',
+    algorithm: 'secp256k1',
+    digest32: DIGEST_32,
+    label: 'evm',
+  };
+}
+
+function makeThresholdEcdsaKeyRef(
+  overrides: Partial<ThresholdEcdsaSecp256k1KeyRef> = {},
+): ThresholdEcdsaSecp256k1KeyRef {
+  const base: ThresholdEcdsaSecp256k1KeyRef = {
+    type: 'threshold-ecdsa-secp256k1',
+    userId: USER_ID,
+    chainTarget: EVM_CHAIN_TARGET,
+    relayerUrl: RELAYER_URL,
+    ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+    signingRootId: 'proj_local:dev',
+    backendBinding: {
+      relayerKeyId: BACKEND_RELAYER_KEY_ID,
+      clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
+      clientAdditiveShare32B64u: BACKEND_CLIENT_ADDITIVE_SHARE_32_B64U,
+    },
+    participantIds: PARTICIPANT_IDS,
+    thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
+    ethereumAddress: ETHEREUM_ADDRESS,
+    thresholdSessionKind: 'cookie',
+    thresholdSessionId: SESSION_ID,
+    walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+  };
+  return {
+    ...base,
+    ...overrides,
+    backendBinding: {
+      ...base.backendBinding!,
+      ...(overrides.backendBinding || {}),
+    },
+  };
+}
+
+async function makeReadySecp256k1Material(
+  overrides: Partial<ThresholdEcdsaSecp256k1KeyRef> = {},
+) {
+  return await buildReadySecp256k1SigningMaterialFromKeyRef({
+    keyRef: makeThresholdEcdsaKeyRef(overrides),
+    requestLabel: 'evm',
+    rpId: RP_ID,
+  });
+}
 
 type ThresholdFetchCounters = {
   authorize: number;
@@ -716,32 +777,9 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
         },
       });
 
-      const signed = await engine.sign(
-        {
-          kind: 'digest',
-          algorithm: 'secp256k1',
-          digest32: DIGEST_32,
-          label: 'evm',
-        },
-        {
-          type: 'threshold-ecdsa-secp256k1',
-          userId: USER_ID,
-          subjectId: USER_SUBJECT_ID,
-          chainTarget: EVM_CHAIN_TARGET,
-          relayerUrl: RELAYER_URL,
-          ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
-          signingRootId: 'proj_local:dev',
-          backendBinding: {
-            relayerKeyId: BACKEND_RELAYER_KEY_ID,
-            clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
-            clientAdditiveShare32B64u: BACKEND_CLIENT_ADDITIVE_SHARE_32_B64U,
-          },
-          participantIds: PARTICIPANT_IDS,
-          thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
-          thresholdSessionKind: 'cookie',
-          thresholdSessionId: SESSION_ID,
-          walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
-        },
+      const signed = await engine.signReady(
+        makeDigestSignRequest(),
+        await makeReadySecp256k1Material(),
       );
 
       expect(signed.length).toBe(65);
@@ -815,32 +853,9 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
         },
       });
 
-      const signed = await engine.sign(
-        {
-          kind: 'digest',
-          algorithm: 'secp256k1',
-          digest32: DIGEST_32,
-          label: 'evm',
-        },
-        {
-          type: 'threshold-ecdsa-secp256k1',
-          userId: USER_ID,
-          subjectId: USER_SUBJECT_ID,
-          chainTarget: EVM_CHAIN_TARGET,
-          relayerUrl: RELAYER_URL,
-          ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
-          signingRootId: 'proj_local:dev',
-          backendBinding: {
-            relayerKeyId: BACKEND_RELAYER_KEY_ID,
-            clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
-            clientAdditiveShare32B64u: BACKEND_CLIENT_ADDITIVE_SHARE_32_B64U,
-          },
-          participantIds: PARTICIPANT_IDS,
-          thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
-          thresholdSessionKind: 'cookie',
-          thresholdSessionId: SESSION_ID,
-          walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
-        },
+      const signed = await engine.signReady(
+        makeDigestSignRequest(),
+        await makeReadySecp256k1Material(),
       );
 
       expect(signed.length).toBe(65);
@@ -948,33 +963,12 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
         },
       });
 
-      const signed = await engine.sign(
-        {
-          kind: 'digest',
-          algorithm: 'secp256k1',
-          digest32: DIGEST_32,
-          label: 'evm',
-        },
-        {
-          type: 'threshold-ecdsa-secp256k1',
-          userId: USER_ID,
-          subjectId: USER_SUBJECT_ID,
-          chainTarget: EVM_CHAIN_TARGET,
-          relayerUrl: RELAYER_URL,
-          ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
-          signingRootId: 'proj_local:dev',
-          backendBinding: {
-            relayerKeyId: BACKEND_RELAYER_KEY_ID,
-            clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
-            clientAdditiveShare32B64u: BACKEND_CLIENT_ADDITIVE_SHARE_32_B64U,
-          },
-          participantIds: PARTICIPANT_IDS,
-          thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
+      const signed = await engine.signReady(
+        makeDigestSignRequest(),
+        await makeReadySecp256k1Material({
           thresholdSessionKind: 'jwt',
-          thresholdSessionId: SESSION_ID,
-          walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
           thresholdSessionAuthToken,
-        },
+        }),
       );
 
       expect(signed.length).toBe(65);

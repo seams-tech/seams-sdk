@@ -1,6 +1,9 @@
 import type { CloudflareRelayContext } from '../createCloudflareRouter';
 import { isObject, json, readJson } from '../http';
-import { signThresholdSessionAuthToken } from '../../commonRouterUtils';
+import {
+  signThresholdSessionAuthToken,
+  stripLegacyThresholdEcdsaIdentityFields,
+} from '../../commonRouterUtils';
 
 export async function handleEmailRecoveryPrepare(
   ctx: CloudflareRelayContext,
@@ -59,6 +62,9 @@ export async function handleEmailRecoveryPrepare(
       );
     }
     result.thresholdEcdsa.session.jwt = signed.jwt;
+  }
+  if (result.ok && result.thresholdEcdsa) {
+    result.thresholdEcdsa = stripLegacyThresholdEcdsaIdentityFields(result.thresholdEcdsa) as any;
   }
   return json(result, { status: result.ok ? 200 : result.code === 'internal' ? 500 : 400 });
 }

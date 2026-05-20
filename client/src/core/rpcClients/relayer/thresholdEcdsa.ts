@@ -29,6 +29,7 @@ type RawThresholdEcdsaHssPrepareHttpResponse = {
   code?: string;
   message?: string;
   ceremonyId?: string;
+  keyHandle?: string;
   preparedServerSessionB64u?: string;
   serverAssistInitB64u?: string;
   hssContext?: {
@@ -61,6 +62,7 @@ type ThresholdEcdsaHssFinalizeHttpResponse = {
   ok?: boolean;
   code?: string;
   message?: string;
+  keyHandle?: string;
   ecdsaThresholdKeyId?: string;
   clientVerifyingShareB64u?: string;
   clientAdditiveShare32B64u?: string;
@@ -93,6 +95,19 @@ type ThresholdEcdsaHssPrepareRequestBase = {
   sessionKind?: 'jwt' | 'cookie';
 };
 
+export type ThresholdEcdsaHssKeySelector = {
+  kind: 'key_handle';
+  keyHandle: string;
+  ecdsaThresholdKeyId?: never;
+};
+
+export function thresholdEcdsaHssKeySelectorFromCanonicalIdentity(args: {
+  keyHandle: string;
+  ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
+}): ThresholdEcdsaHssKeySelector {
+  return { kind: 'key_handle', keyHandle: requireNonEmptyString(args.keyHandle, 'keyHandle') };
+}
+
 type ThresholdEcdsaHssPrepareRequest =
   | (ThresholdEcdsaHssPrepareRequestBase & {
       operation: 'registration_bootstrap';
@@ -104,21 +119,21 @@ type ThresholdEcdsaHssPrepareRequest =
       operation: 'email_otp_bootstrap';
       keygenSessionId: string;
       sessionPolicy: ThresholdSessionPolicyV1;
-      ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
+      keySelector?: ThresholdEcdsaHssKeySelector;
       auth?: ThresholdEcdsaHssRouteAuth;
     })
   | (ThresholdEcdsaHssPrepareRequestBase & {
       operation: 'session_bootstrap';
       keygenSessionId: string;
       sessionPolicy: ThresholdSessionPolicyV1;
-      ecdsaThresholdKeyId: EcdsaThresholdKeyId;
-      auth: ThresholdEcdsaHssRouteAuth;
+      keySelector: ThresholdEcdsaHssKeySelector;
+      auth?: ThresholdEcdsaHssRouteAuth;
     })
   | (ThresholdEcdsaHssPrepareRequestBase & {
       operation: 'explicit_key_export';
       subjectId: WalletSubjectId;
       chainTarget: ThresholdEcdsaChainTarget;
-      ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+      keySelector: ThresholdEcdsaHssKeySelector;
       auth: ThresholdEcdsaHssRouteAuth;
     });
 
@@ -126,7 +141,7 @@ type ThresholdEcdsaHssPrepareBody = {
   walletSessionUserId: string;
   rpId: string;
   operation: ThresholdEcdsaHssPrepareRequest['operation'];
-  ecdsaThresholdKeyId?: string;
+  keyHandle?: string;
   subjectId?: string;
   chainTarget?: ThresholdEcdsaChainTarget;
   keygenSessionId?: string;
@@ -154,6 +169,18 @@ function optionalNonEmptyString(value: unknown): string | undefined {
   return text || undefined;
 }
 
+function thresholdEcdsaHssKeySelectorBody(
+  keySelector: ThresholdEcdsaHssKeySelector,
+): Pick<ThresholdEcdsaHssPrepareBody, 'keyHandle'> {
+  return { keyHandle: requireNonEmptyString(keySelector.keyHandle, 'keyHandle') };
+}
+
+function optionalThresholdEcdsaHssKeySelectorBody(
+  keySelector: ThresholdEcdsaHssKeySelector | undefined,
+): Pick<ThresholdEcdsaHssPrepareBody, 'keyHandle'> {
+  return keySelector ? thresholdEcdsaHssKeySelectorBody(keySelector) : {};
+}
+
 function resolveBearerToken(auth?: ThresholdEcdsaHssRouteAuth): string {
   if (!auth || auth.kind === 'cookie') return '';
   if (auth.kind === 'app_session') return requireAppSessionJwt(auth.jwt);
@@ -166,10 +193,7 @@ function buildThresholdEcdsaHssPrepareBody(
 ): ThresholdEcdsaHssPrepareBody {
   const runtimeEnvironmentId = optionalNonEmptyString(args.runtimeEnvironmentId);
   const base: ThresholdEcdsaHssPrepareBody = {
-    walletSessionUserId: requireNonEmptyString(
-      args.walletSessionUserId,
-      'walletSessionUserId',
-    ),
+    walletSessionUserId: requireNonEmptyString(args.walletSessionUserId, 'walletSessionUserId'),
     rpId: requireNonEmptyString(args.rpId, 'rpId'),
     operation: args.operation,
     ...(runtimeEnvironmentId ? { runtimeEnvironmentId } : {}),
@@ -186,28 +210,29 @@ function buildThresholdEcdsaHssPrepareBody(
         sessionPolicy: args.sessionPolicy,
       };
     case 'email_otp_bootstrap': {
-      const ecdsaThresholdKeyId = optionalNonEmptyString(args.ecdsaThresholdKeyId);
       return {
         ...base,
-        ...(ecdsaThresholdKeyId ? { ecdsaThresholdKeyId } : {}),
+        ...optionalThresholdEcdsaHssKeySelectorBody(args.keySelector),
         keygenSessionId: requireNonEmptyString(args.keygenSessionId, 'keygenSessionId'),
         sessionPolicy: args.sessionPolicy,
       };
     }
-    case 'session_bootstrap':
+    case 'session_bootstrap': {
       return {
         ...base,
-        ecdsaThresholdKeyId: requireNonEmptyString(args.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId'),
+        ...thresholdEcdsaHssKeySelectorBody(args.keySelector),
         keygenSessionId: requireNonEmptyString(args.keygenSessionId, 'keygenSessionId'),
         sessionPolicy: args.sessionPolicy,
       };
-    case 'explicit_key_export':
+    }
+    case 'explicit_key_export': {
       return {
         ...base,
         subjectId: requireNonEmptyString(args.subjectId, 'subjectId'),
         chainTarget: args.chainTarget,
-        ecdsaThresholdKeyId: requireNonEmptyString(args.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId'),
+        ...thresholdEcdsaHssKeySelectorBody(args.keySelector),
       };
+    }
   }
   args satisfies never;
   throw new Error('Unsupported threshold ECDSA HSS prepare operation');
@@ -267,14 +292,16 @@ export async function thresholdEcdsaHssPrepare(
       code: json.code,
       message: json.message,
       ceremonyId: json.ceremonyId,
+      keyHandle: json.keyHandle,
       preparedServerSessionB64u: json.preparedServerSessionB64u,
       serverAssistInitB64u: json.serverAssistInitB64u,
-      hssContext: json.hssContext
-        ? parseServerPlannedEcdsaHssContext(json.hssContext)
-        : undefined,
+      hssContext: json.hssContext ? parseServerPlannedEcdsaHssContext(json.hssContext) : undefined,
     };
   } catch (error: unknown) {
-    return { ok: false, error: errorMessage(error) || 'Failed to prepare threshold-ecdsa hss bootstrap' };
+    return {
+      ok: false,
+      error: errorMessage(error) || 'Failed to prepare threshold-ecdsa hss bootstrap',
+    };
   }
 }
 
@@ -308,7 +335,11 @@ export async function thresholdEcdsaHssRespond(
     );
     const json = await parseRelayJson<ThresholdEcdsaHssRespondHttpResponse>(response);
     if (!response.ok) {
-      return { ok: false, code: json.code || 'http_error', message: json.message || `HTTP ${response.status}` };
+      return {
+        ok: false,
+        code: json.code || 'http_error',
+        message: json.message || `HTTP ${response.status}`,
+      };
     }
     return {
       ok: json.ok === true,
@@ -317,7 +348,10 @@ export async function thresholdEcdsaHssRespond(
       responseMessageB64u: json.responseMessageB64u,
     };
   } catch (error: unknown) {
-    return { ok: false, error: errorMessage(error) || 'Failed to respond to threshold-ecdsa hss bootstrap' };
+    return {
+      ok: false,
+      error: errorMessage(error) || 'Failed to respond to threshold-ecdsa hss bootstrap',
+    };
   }
 }
 
@@ -351,12 +385,17 @@ export async function thresholdEcdsaHssFinalize(
     );
     const json = await parseRelayJson<ThresholdEcdsaHssFinalizeHttpResponse>(response);
     if (!response.ok) {
-      return { ok: false, code: json.code || 'http_error', message: json.message || `HTTP ${response.status}` };
+      return {
+        ok: false,
+        code: json.code || 'http_error',
+        message: json.message || `HTTP ${response.status}`,
+      };
     }
     return {
       ok: json.ok === true,
       code: json.code,
       message: json.message,
+      keyHandle: json.keyHandle,
       ecdsaThresholdKeyId: json.ecdsaThresholdKeyId,
       clientVerifyingShareB64u: json.clientVerifyingShareB64u,
       clientAdditiveShare32B64u: json.clientAdditiveShare32B64u,
@@ -381,6 +420,9 @@ export async function thresholdEcdsaHssFinalize(
       canonicalEthereumAddress: json.canonicalEthereumAddress,
     };
   } catch (error: unknown) {
-    return { ok: false, error: errorMessage(error) || 'Failed to finalize threshold-ecdsa hss bootstrap' };
+    return {
+      ok: false,
+      error: errorMessage(error) || 'Failed to finalize threshold-ecdsa hss bootstrap',
+    };
   }
 }

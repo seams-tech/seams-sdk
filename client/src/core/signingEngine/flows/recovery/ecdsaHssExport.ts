@@ -3,7 +3,6 @@ import {
   thresholdEcdsaHssPrepare,
   thresholdEcdsaHssRespond,
 } from '@/core/rpcClients/relayer/thresholdEcdsa';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import {
   finalizeThresholdEcdsaHssClientRequestWasm,
   prepareThresholdEcdsaHssClientRequestWasm,
@@ -14,15 +13,13 @@ import {
   encodeThresholdEcdsaHssHiddenEvalRequestMessage,
   parseThresholdEcdsaHssHiddenEvalServerResponseMessage,
 } from '../../threshold/ecdsa/hssTransport';
-import type {
-  ThresholdEcdsaChainTarget,
-  WalletSubjectId,
+import {
+  walletSubjectIdFromWalletProfile,
+  type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
-import {
-  toEcdsaHssThresholdKeyId,
-  toWalletSessionUserId,
-} from '../../session/identity/emailOtpHssIdentity';
+import { toWalletSessionUserId } from '../../session/identity/emailOtpHssIdentity';
+import type { ReadyEcdsaSignerSession } from '../../session/identity/evmFamilyEcdsaIdentity';
 
 export type EcdsaHssExplicitExportDeps = {
   getSignerWorkerContext: () => WorkerOperationContext;
@@ -32,10 +29,9 @@ export async function exportEcdsaHssKeyWithThresholdSession(
   deps: EcdsaHssExplicitExportDeps,
   args: {
     walletSessionUserId: string;
-    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     rpId: string;
-    keyRef: ThresholdEcdsaSecp256k1KeyRef;
+    signerSession: ReadyEcdsaSignerSession;
     clientRootShare32B64u: string;
   },
 ): Promise<{
@@ -43,31 +39,45 @@ export async function exportEcdsaHssKeyWithThresholdSession(
   privateKeyHex: string;
   ethereumAddress: string;
 }> {
-  const currentThresholdSessionId = String(args.keyRef.thresholdSessionId || '').trim();
-  const currentThresholdSessionAuthToken = String(
-    args.keyRef.thresholdSessionAuthToken || '',
+  const currentThresholdSessionId = String(
+    args.signerSession.session.thresholdSessionId || '',
   ).trim();
-  const currentRelayerUrl = String(args.keyRef.relayerUrl || '').trim();
-  const currentThresholdKeyId = String(args.keyRef.ecdsaThresholdKeyId || '').trim();
+  const signerTransport = args.signerSession.transport;
+  const signerTransportAuth = signerTransport.auth;
+  const currentThresholdSessionAuthToken =
+    signerTransportAuth.kind === 'jwt_threshold_session_auth'
+      ? String(signerTransportAuth.thresholdSessionAuthToken || '').trim()
+      : '';
+  const currentRelayerUrl = String(signerTransport.relayerUrl || '').trim();
+  const currentKeyHandle = String(args.signerSession.publicFacts.keyHandle || '').trim();
   const walletSessionUserId = toWalletSessionUserId(args.walletSessionUserId);
-  const sessionKind = args.keyRef.thresholdSessionKind === 'cookie' ? 'cookie' : 'jwt';
+  const subjectId = walletSubjectIdFromWalletProfile({
+    walletId: args.walletSessionUserId,
+  });
+  const sessionKind =
+    signerTransportAuth.kind === 'cookie_threshold_session_auth' ? 'cookie' : 'jwt';
   if (
     !currentThresholdSessionId ||
     !currentThresholdSessionAuthToken ||
     !currentRelayerUrl ||
-    !currentThresholdKeyId
+    !currentKeyHandle
   ) {
-    throw new Error('[SigningEngine][ecdsa-export] exact export keyRef is missing canonical transport');
+    throw new Error(
+      '[SigningEngine][ecdsa-export] ready export signer session is missing canonical transport',
+    );
   }
 
   const signerWorkerCtx = deps.getSignerWorkerContext();
   const prepare = await thresholdEcdsaHssPrepare(currentRelayerUrl, {
     walletSessionUserId,
-    subjectId: args.subjectId,
+    subjectId,
     rpId: args.rpId,
     chainTarget: args.chainTarget,
     operation: 'explicit_key_export',
-    ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId(currentThresholdKeyId),
+    keySelector: {
+      kind: 'key_handle',
+      keyHandle: currentKeyHandle,
+    },
     auth: { kind: 'threshold_session', jwt: currentThresholdSessionAuthToken },
     sessionKind,
   });

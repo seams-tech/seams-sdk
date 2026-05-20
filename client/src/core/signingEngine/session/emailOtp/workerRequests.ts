@@ -1,6 +1,5 @@
 import type {
   ThresholdEcdsaChainTarget,
-  WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfaces/signing';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
@@ -24,24 +23,20 @@ export type EmailOtpWarmSessionTransport = {
 export type EmailOtpEcdsaWarmSessionRestore = {
   sessionId: string;
   walletId: string;
-  subjectId: WalletSubjectId;
-  userId?: string;
   rpId: string;
   chainTarget: ThresholdEcdsaChainTarget;
   walletSigningSessionId: string;
-  signingRootId: string;
-  signingRootVersion?: string;
-  ecdsaThresholdKeyId: string;
-  ethereumAddress: string;
+  keyHandle: string;
   relayerKeyId: string;
-  participantIds?: number[];
-  derivationPath?: string;
+  participantIds: number[];
   sessionKind?: 'jwt' | 'cookie';
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   ed25519?: {
     sessionId: string;
+    signingRootId: string;
+    signingRootVersion?: string;
     relayerKeyId: string;
-    participantIds?: number[];
+    participantIds: number[];
   };
 };
 

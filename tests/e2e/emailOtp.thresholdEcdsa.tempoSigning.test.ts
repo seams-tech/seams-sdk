@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   type EmailOtpEcdsaTempoHarness,
   type ReloadSignKind,
@@ -110,7 +111,7 @@ async function mountVisibleEmailOtpUnlockPrompt(
       const pm = new SeamsPasskey(sdkConfig);
       await pm
         .getContext()
-        .signingEngine.clearVolatileWarmSigningMaterial(accountId)
+        .signingEngine.clearVolatileWarmSigningMaterial(toWalletId(accountId))
         .catch(() => undefined);
 
       (window as any).__emailOtpVisibleUnlock = {
@@ -158,7 +159,6 @@ async function mountVisibleEmailOtpUnlockPrompt(
                               walletId: accountId,
                               userId: accountId,
                             },
-                            subjectId: accountId,
                             chainTarget: {
                               kind: 'tempo',
                               chainId: 42431,

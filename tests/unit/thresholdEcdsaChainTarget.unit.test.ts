@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { toAccountId } from '@/core/types/accountIds';
 import {
   nearAccountRefFromAccountId,
   thresholdEcdsaChainTargetFromConfiguredRequest,
@@ -7,15 +8,13 @@ import {
   thresholdEcdsaChainTargetsEqual,
   thresholdEcdsaSessionRecordKeysEqual,
   thresholdEcdsaLaneKey,
-  toWalletSubjectId,
   type ThresholdEcdsaSessionRecordKey,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
-const SUBJECT = toWalletSubjectId('wallet-subject-1');
-
 function makeLane(overrides: Partial<ThresholdEcdsaSessionRecordKey> = {}): ThresholdEcdsaSessionRecordKey {
   return {
-    subjectId: SUBJECT,
+    walletId: toAccountId('wallet-subject-1.testnet'),
+    keyHandle: 'ehss-key-arc',
     authMethod: 'email_otp',
     curve: 'ecdsa',
     chainTarget: {
@@ -24,9 +23,6 @@ function makeLane(overrides: Partial<ThresholdEcdsaSessionRecordKey> = {}): Thre
       chainId: 5_042_002,
       networkSlug: 'arc-testnet',
     },
-    ecdsaThresholdKeyId: 'ehss-arc',
-    signingRootId: 'proj_dev',
-    signingRootVersion: 'default',
     walletSigningSessionId: 'wsess-arc',
     thresholdSessionId: 'tsess-arc',
     ...overrides,
@@ -110,7 +106,7 @@ test.describe('threshold ECDSA concrete chain targets', () => {
     ).toThrow('namespace must be eip155');
   });
 
-  test('canonical lane identity includes subject, threshold key, chain target, root, and session ids', () => {
+  test('canonical lane identity includes wallet, key handle, chain target, and session ids', () => {
     const arc = makeLane();
     const ethereum = makeLane({
       chainTarget: {
@@ -120,17 +116,15 @@ test.describe('threshold ECDSA concrete chain targets', () => {
         networkSlug: 'ethereum-mainnet',
       },
     });
-    const otherKey = makeLane({ ecdsaThresholdKeyId: 'ehss-ethereum' });
+    const otherKey = makeLane({ keyHandle: 'ehss-key-ethereum' });
 
     expect(thresholdEcdsaLaneKey(arc)).toBe(
       [
-        'wallet-subject-1',
-        'ehss-arc',
+        'wallet-subject-1.testnet',
+        'ehss-key-arc',
         'email_otp',
         'ecdsa',
         'evm%3Aeip155%3A5042002',
-        'proj_dev',
-        'default',
         'wsess-arc',
         'tsess-arc',
       ].join(':'),
@@ -139,7 +133,7 @@ test.describe('threshold ECDSA concrete chain targets', () => {
     expect(thresholdEcdsaSessionRecordKeysEqual(arc, otherKey)).toBe(false);
   });
 
-  test('keeps multiple EVM networks with the same subject and key as separate lanes', () => {
+  test('keeps multiple EVM networks with the same wallet and key handle as separate lanes', () => {
     const megaEthTestnet = makeLane({
       chainTarget: {
         kind: 'evm',
@@ -147,7 +141,7 @@ test.describe('threshold ECDSA concrete chain targets', () => {
         chainId: 6_345,
         networkSlug: 'megaeth-testnet',
       },
-      ecdsaThresholdKeyId: 'ehss-shared',
+      keyHandle: 'ehss-shared',
     });
     const polygonMainnet = makeLane({
       chainTarget: {
@@ -156,7 +150,7 @@ test.describe('threshold ECDSA concrete chain targets', () => {
         chainId: 137,
         networkSlug: 'polygon-mainnet',
       },
-      ecdsaThresholdKeyId: 'ehss-shared',
+      keyHandle: 'ehss-shared',
     });
 
     expect(thresholdEcdsaSessionRecordKeysEqual(megaEthTestnet, polygonMainnet)).toBe(false);

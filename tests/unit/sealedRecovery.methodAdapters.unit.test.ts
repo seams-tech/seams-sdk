@@ -46,6 +46,7 @@ function makeEmailOtpEcdsaSealedRecord(
       rpId: 'example.com',
       sessionKind: 'jwt',
       thresholdSessionAuthToken: 'jwt-ecdsa',
+      keyHandle: 'key-handle-ecdsa',
       ecdsaThresholdKeyId: 'ecdsa-key',
       ethereumAddress: `0x${'33'.repeat(20)}`,
       relayerKeyId: 'relayer-key',
@@ -105,6 +106,7 @@ function makeEmailOtpEd25519SealedRecord(
       rpId: 'example.com',
       sessionKind: 'jwt',
       thresholdSessionAuthToken: 'jwt-ecdsa',
+      keyHandle: 'key-handle-ecdsa',
       ecdsaThresholdKeyId: 'ecdsa-key',
       ethereumAddress: `0x${'33'.repeat(20)}`,
       relayerKeyId: 'relayer-key',
@@ -266,7 +268,11 @@ test.describe('sealed recovery method adapters', () => {
 
   test('restores Email OTP Ed25519 companion session through shared readback contracts', async () => {
     const restoredSessions = new Set<string>();
-    const recordedStatuses: Array<{ sessionId: string; remainingUses: number; expiresAtMs: number }> = [];
+    const recordedStatuses: Array<{
+      sessionId: string;
+      remainingUses: number;
+      expiresAtMs: number;
+    }> = [];
     const record = makeEmailOtpEd25519SealedRecord();
 
     const result = await restoreEmailOtpEd25519SealedRecordForAccount({

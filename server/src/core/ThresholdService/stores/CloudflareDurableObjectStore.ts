@@ -2,6 +2,7 @@ import type { NormalizedLogger } from '../../logger';
 import type { CloudflareDurableObjectNamespaceLike, ThresholdStoreConfigInput } from '../../types';
 import { THRESHOLD_DO_OBJECT_NAME_DEFAULT } from '../../defaultConfigsServer';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
+import { deriveThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
 import { parseCurrentThresholdEcdsaKeyRecord } from '../postgresRecords';
 import {
   parseThresholdEcdsaIntegratedKeyRecord,
@@ -66,6 +67,8 @@ type DoSetWithIdentityGuardRequest = {
   key: string;
   identityKey: string;
   identityValue: string;
+  keyHandleKey: string;
+  keyHandleValue: string;
   value: unknown;
   ttlMs?: number;
 };
@@ -74,6 +77,8 @@ type DoDelWithIdentityGuardRequest = {
   key: string;
   identityKey: string;
   identityValue: string;
+  keyHandleKey: string;
+  keyHandleValue: string;
 };
 type DoGetDelRequest = { op: 'getdel'; key: string };
 type DoAuthConsumeUseCountRequest = { op: 'authConsumeUseCount'; key: string };
@@ -143,6 +148,32 @@ function ecdsaSigningRootVersion(record: ThresholdEcdsaIntegratedKeyRecord): str
   return String(record.signingRootVersion || '').trim() || 'default';
 }
 
+async function withThresholdEcdsaRecordKeyHandle(
+  record: ThresholdEcdsaIntegratedKeyRecord,
+): Promise<ThresholdEcdsaIntegratedKeyRecord & { keyHandle: string }> {
+  const parsed = parseCurrentThresholdEcdsaKeyRecord(record);
+  if (!parsed) throw new Error('Invalid threshold-ecdsa integrated key record');
+  const keyHandle = String(
+    await deriveThresholdEcdsaKeyHandle({
+      ecdsaThresholdKeyId: parsed.ecdsaThresholdKeyId,
+      signingRootId: parsed.signingRootId,
+      signingRootVersion: ecdsaSigningRootVersion(parsed),
+    }),
+  );
+  const storedKeyHandle = toOptionalTrimmedString(parsed.keyHandle);
+  if (storedKeyHandle && storedKeyHandle !== keyHandle) {
+    throw new Error('[threshold-ecdsa] ECDSA key handle does not match threshold key identity');
+  }
+  return { ...parsed, keyHandle };
+}
+
+async function parseStoredThresholdEcdsaKeyRecord(
+  raw: unknown,
+): Promise<(ThresholdEcdsaIntegratedKeyRecord & { keyHandle: string }) | null> {
+  const parsed = parseThresholdEcdsaIntegratedKeyRecord(raw);
+  return parsed ? await withThresholdEcdsaRecordKeyHandle(parsed) : null;
+}
+
 function ecdsaParticipantIdsKey(record: ThresholdEcdsaIntegratedKeyRecord): string {
   return record.participantIds.map((id) => String(Number(id))).join(',');
 }
@@ -163,7 +194,9 @@ function thresholdEcdsaSharedIdentityGuard(
       .join('|'),
     identityValue: [
       record.ecdsaThresholdKeyId,
-      String(record.ethereumAddress || '').trim().toLowerCase(),
+      String(record.ethereumAddress || '')
+        .trim()
+        .toLowerCase(),
       ecdsaParticipantIdsKey(record),
     ]
       .map(ecdsaIdentityPart)
@@ -176,6 +209,10 @@ function thresholdEcdsaSharedIdentityIndexKey(
   guard: ThresholdEcdsaSharedIdentityGuard,
 ): string {
   return `${keyPrefix}shared-identity:${guard.contextKey}`;
+}
+
+function thresholdEcdsaKeyHandleIndexKey(keyPrefix: string, keyHandle: string): string {
+  return `${keyPrefix}key-handle:${ecdsaIdentityPart(keyHandle)}`;
 }
 
 function isDurableObjectNamespaceLike(v: unknown): v is CloudflareDurableObjectNamespaceLike {
@@ -358,7 +395,9 @@ export class CloudflareDurableObjectEd25519AuthSessionStore implements Ed25519Au
       ? parseEd25519AuthSessionRecord((entry as { record?: unknown }).record)
       : null;
     const expiresAtMs = entry ? Number((entry as { expiresAtMs?: unknown }).expiresAtMs) : NaN;
-    const remainingUses = entry ? Number((entry as { remainingUses?: unknown }).remainingUses) : NaN;
+    const remainingUses = entry
+      ? Number((entry as { remainingUses?: unknown }).remainingUses)
+      : NaN;
     if (!record || !Number.isFinite(expiresAtMs) || !Number.isFinite(remainingUses)) return null;
     if (Date.now() > expiresAtMs) return null;
     return {
@@ -530,49 +569,101 @@ export class CloudflareDurableObjectThresholdEcdsaIntegratedKeyStore implements 
     this.keyPrefix = input.keyPrefix;
   }
 
-  private key(ecdsaThresholdKeyId: string): string {
-    return `${this.keyPrefix}${ecdsaThresholdKeyId}`;
+  private recordKey(keyHandle: string): string {
+    return `${this.keyPrefix}${keyHandle}`;
   }
 
-  async get(ecdsaThresholdKeyId: string): Promise<ThresholdEcdsaIntegratedKeyRecord | null> {
-    const id = toOptionalTrimmedString(ecdsaThresholdKeyId);
-    if (!id) return null;
-    const resp = await callDo<unknown | null>(this.stub, { op: 'get', key: this.key(id) });
-    if (!resp.ok) return null;
-    return parseThresholdEcdsaIntegratedKeyRecord(resp.value);
+  async getByKeyHandle(keyHandle: string): Promise<ThresholdEcdsaIntegratedKeyRecord | null> {
+    const handle = toOptionalTrimmedString(keyHandle);
+    if (!handle) return null;
+    const directResp = await callDo<unknown | null>(this.stub, {
+      op: 'get',
+      key: this.recordKey(handle),
+    });
+    if (directResp.ok) {
+      const direct = await parseStoredThresholdEcdsaKeyRecord(directResp.value);
+      if (direct) {
+        if (direct.keyHandle !== handle) {
+          throw new Error(
+            '[threshold-ecdsa] ECDSA key handle does not match threshold key identity',
+          );
+        }
+        return direct;
+      }
+    }
+    const indexResp = await callDo<string | null>(this.stub, {
+      op: 'get',
+      key: thresholdEcdsaKeyHandleIndexKey(this.keyPrefix, handle),
+    });
+    if (!indexResp.ok) return null;
+    const recordKey = toOptionalTrimmedString(indexResp.value);
+    if (!recordKey) return null;
+    const recordResp = await callDo<unknown | null>(this.stub, { op: 'get', key: recordKey });
+    if (!recordResp.ok) return null;
+    return await parseStoredThresholdEcdsaKeyRecord(recordResp.value);
   }
 
-  async put(ecdsaThresholdKeyId: string, record: ThresholdEcdsaIntegratedKeyRecord): Promise<void> {
-    const id = toOptionalTrimmedString(ecdsaThresholdKeyId);
-    if (!id) throw new Error('Missing ecdsaThresholdKeyId');
-    const parsed = parseCurrentThresholdEcdsaKeyRecord(record);
-    if (!parsed) throw new Error('Invalid threshold-ecdsa integrated key record');
+  async putByKeyHandle(record: ThresholdEcdsaIntegratedKeyRecord): Promise<void> {
+    const parsed = await withThresholdEcdsaRecordKeyHandle(record);
     const guard = thresholdEcdsaSharedIdentityGuard(parsed);
+    const recordKey = this.recordKey(parsed.keyHandle);
     const resp = await callDo<void>(this.stub, {
       op: 'setWithIdentityGuard',
-      key: this.key(id),
+      key: recordKey,
       identityKey: thresholdEcdsaSharedIdentityIndexKey(this.keyPrefix, guard),
       identityValue: guard.identityValue,
+      keyHandleKey: thresholdEcdsaKeyHandleIndexKey(this.keyPrefix, parsed.keyHandle),
+      keyHandleValue: recordKey,
       value: parsed,
     });
     if (!resp.ok) throw new Error(resp.message);
   }
 
-  async del(ecdsaThresholdKeyId: string): Promise<void> {
-    const id = toOptionalTrimmedString(ecdsaThresholdKeyId);
-    if (!id) return;
-    const existing = await this.get(id);
-    if (!existing) {
-      const resp = await callDo<void>(this.stub, { op: 'del', key: this.key(id) });
+  async deleteByKeyHandle(keyHandle: string): Promise<void> {
+    const handle = toOptionalTrimmedString(keyHandle);
+    if (!handle) return;
+    const keyHandleKey = thresholdEcdsaKeyHandleIndexKey(this.keyPrefix, handle);
+    const canonicalRecordKey = this.recordKey(handle);
+    const canonicalRecordResp = await callDo<unknown | null>(this.stub, {
+      op: 'get',
+      key: canonicalRecordKey,
+    });
+    const canonicalRecord = canonicalRecordResp.ok
+      ? await parseStoredThresholdEcdsaKeyRecord(canonicalRecordResp.value)
+      : null;
+    const indexResp = canonicalRecord
+      ? null
+      : await callDo<string | null>(this.stub, { op: 'get', key: keyHandleKey });
+    const recordKey = canonicalRecord
+      ? canonicalRecordKey
+      : toOptionalTrimmedString(indexResp?.ok ? indexResp.value : null);
+    if (!recordKey) {
+      const resp = await callDo<void>(this.stub, { op: 'del', key: canonicalRecordKey });
       if (!resp.ok) throw new Error(resp.message);
       return;
     }
-    const guard = thresholdEcdsaSharedIdentityGuard(existing);
+    const recordResp = canonicalRecord
+      ? null
+      : await callDo<unknown | null>(this.stub, { op: 'get', key: recordKey });
+    if (recordResp && !recordResp.ok) return;
+    const record =
+      canonicalRecord ||
+      (await parseStoredThresholdEcdsaKeyRecord(recordResp ? recordResp.value : null));
+    if (!record) {
+      const resp = await callDo<void>(this.stub, { op: 'del', key: keyHandleKey });
+      if (!resp.ok) throw new Error(resp.message);
+      const canonicalDel = await callDo<void>(this.stub, { op: 'del', key: canonicalRecordKey });
+      if (!canonicalDel.ok) throw new Error(canonicalDel.message);
+      return;
+    }
+    const guard = thresholdEcdsaSharedIdentityGuard(record);
     const resp = await callDo<void>(this.stub, {
       op: 'delWithIdentityGuard',
-      key: this.key(id),
+      key: recordKey,
       identityKey: thresholdEcdsaSharedIdentityIndexKey(this.keyPrefix, guard),
       identityValue: guard.identityValue,
+      keyHandleKey,
+      keyHandleValue: recordKey,
     });
     if (!resp.ok) throw new Error(resp.message);
   }

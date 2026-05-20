@@ -127,7 +127,7 @@ test.describe('Email OTP operation split guard', () => {
       'client/src/core/signingEngine/session/identity/laneIdentity.ts',
     );
     const authResolver = accountAuthSource.indexOf(
-      'export async function resolveEvmFamilyTransactionAccountAuth',
+      'export async function resolveEvmFamilyTransactionWalletAuth',
     );
     const profileLookup = accountAuthSource.indexOf(
       'resolveProfileAccountContextFromCandidates',
@@ -145,7 +145,7 @@ test.describe('Email OTP operation split guard', () => {
     );
     const selectionSource = selectionModule.slice(selectionModuleResolver);
     const preparedAccountAuthResolution = preparedSigningSource.indexOf(
-      'const accountAuth = await resolveEvmFamilyTransactionAccountAuth',
+      'const accountAuth = await resolveEvmFamilyTransactionWalletAuth',
     );
     const snapshotCandidateSelection = preparedSigningSource.indexOf(
       'const selectedLane = selectTransactionLane({',
@@ -244,7 +244,10 @@ test.describe('Email OTP operation split guard', () => {
       'if (args.source && candidate.source !== args.source) continue;',
     );
     expect(warmSessionStatusReader).toContain(
-      'if (fallback && (!args.source || fallback.source === args.source))',
+      'const record = resolveEcdsaRecordForSigningSession(args);',
+    );
+    expect(warmSessionStatusReader).toContain(
+      'if (args.source && record.source !== args.source) return null;',
     );
     expect(signingSessionReadiness).toContain("source: 'passkey' | 'email_otp'");
     expect(signingSessionReadiness).toContain(

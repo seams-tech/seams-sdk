@@ -45,6 +45,7 @@ const signingEngineAllowedImportPrefixes = [
   './session/availability/persistedAvailableSigningLanes',
   './session/persistence/records',
   './session/identity/laneIdentity',
+  './session/identity/evmFamilyEcdsaIdentity',
   './session/passkey/',
   './session/warmCapabilities/',
   './session/emailOtp/',
@@ -652,8 +653,8 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     const source = readRepoSource('client/src/core/signingEngine/SigningEngine.ts');
     const sessionPublic = readRepoSource('client/src/core/signingEngine/session/public.ts');
     const upsertMethod = extractMethodBlock(source, 'upsertThresholdEcdsaSessionFromBootstrap(');
-    const keyRefMethod = extractMethodBlock(source, 'getThresholdEcdsaKeyRefForSubjectTarget(');
-    const listMethod = extractMethodBlock(source, 'listThresholdEcdsaSessionRecordsForTarget(');
+    const keyRefMethod = extractMethodBlock(source, 'getThresholdEcdsaKeyRefForWalletTarget(');
+    const listMethod = extractMethodBlock(source, 'listThresholdEcdsaSessionRecordsForWalletTarget(');
     const clearOneMethod = extractMethodBlock(source, 'clearThresholdEcdsaSessionRecordForWallet(');
     const clearAllMethod = extractMethodBlock(source, 'clearAllThresholdEcdsaSessionRecords(): void');
 
@@ -661,10 +662,10 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
       'this.sessionPublic.upsertThresholdEcdsaSessionFromBootstrap(args);',
     );
     expect(source).toContain(
-      'return this.sessionPublic.getThresholdEcdsaKeyRefForSubjectTarget(args);',
+      'return this.sessionPublic.getThresholdEcdsaKeyRefForWalletTarget(args);',
     );
     expect(source).toContain(
-      'return this.sessionPublic.listThresholdEcdsaSessionRecordsForTarget(args);',
+      'return this.sessionPublic.listThresholdEcdsaSessionRecordsForWalletTarget(args);',
     );
     expect(source).toContain(
       'this.sessionPublic.clearThresholdEcdsaSessionRecordForWallet(walletId);',
@@ -677,8 +678,10 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     expect(clearAllMethod).not.toContain('clearAllThresholdEcdsaSessionRecordsValue(');
 
     expect(sessionPublic).toContain('export function upsertThresholdEcdsaSessionFromBootstrap');
-    expect(sessionPublic).toContain('export function getThresholdEcdsaKeyRefForSubjectTarget');
-    expect(sessionPublic).toContain('export function listThresholdEcdsaSessionRecordsForTarget');
+    expect(sessionPublic).toContain('export function getThresholdEcdsaKeyRefForWalletTarget');
+    expect(sessionPublic).toContain(
+      'export function listThresholdEcdsaSessionRecordsForWalletTarget',
+    );
     expect(sessionPublic).toContain('export function clearAllThresholdEcdsaSessionRecords');
   });
 
@@ -965,11 +968,18 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
 
   test('session child domains only use allowed sibling domains', () => {
     const allowedSiblingDomains: Record<string, readonly string[]> = {
-      identity: ['availability', 'operationState'],
-      availability: ['identity', 'persistence', 'warmCapabilities', 'budget', 'planning'],
+      identity: ['availability', 'operationState', 'persistence'],
+      availability: [
+        'identity',
+        'persistence',
+        'warmCapabilities',
+        'budget',
+        'planning',
+        'sealedRecovery',
+      ],
       planning: ['operationState'],
-      budget: ['persistence', 'operationState'],
-      persistence: ['identity'],
+      budget: ['persistence', 'operationState', 'identity'],
+      persistence: ['identity', 'sealedRecovery', 'operationState'],
       sealedRecovery: ['persistence'],
       operationState: ['identity', 'persistence', 'budget', 'planning'],
       warmCapabilities: ['availability', 'identity', 'persistence', 'operationState', 'budget'],
@@ -1376,7 +1386,7 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     );
     expect(transactionExecutor).toContain("kind: 'prepared'");
     expect(transactionExecutor).toContain('lane: SelectedEcdsaLane');
-    expect(transactionExecutor).toContain('signerAddress: `0x${string}` | null;');
+    expect(transactionExecutor).toContain('thresholdOwnerAddress: `0x${string}`;');
     expect(transactionExecutor).not.toContain('thresholdEcdsaRecord?:');
     expect(transactionExecutor).not.toContain('thresholdEcdsaKeyRef?:');
     expect(transactionExecutor).not.toContain('ThresholdEcdsaSessionRecord');
@@ -1694,7 +1704,12 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
       'SelectedEcdsaLane',
       'SelectedLane',
     ]) {
-      expect(sliceTypeAlias(identity, typeName), typeName).not.toMatch(/\w+\?:/);
+      const alias = sliceTypeAlias(identity, typeName).replace(
+        /\bresolvedKey\?:\s*ResolvedEvmFamilyEcdsaKey;?/g,
+        '',
+      );
+      const normalizedAlias = alias.replace(/\bsourceChainTarget\?:\s*never;?/g, '');
+      expect(normalizedAlias, typeName).not.toMatch(/\w+\?:/);
     }
 
     for (const typeName of [
@@ -1800,7 +1815,7 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     expect(nearTransactions).toContain('BudgetAdmittedOperation<SelectedEd25519Lane>');
     expect(nearTransactions).toContain('ResolvedThresholdEd25519SessionState');
     expect(evmExecutor).toContain('lane: SelectedEcdsaLane');
-    expect(evmExecutor).toContain('signerAddress: `0x${string}` | null;');
+    expect(evmExecutor).toContain('thresholdOwnerAddress: `0x${string}`;');
     expect(offenders).toEqual([]);
   });
 

@@ -51,15 +51,39 @@ export type ThresholdEcdsaPresignProgress = {
   bigRB64u?: string;
 };
 
-export async function ecdsaPresignInit(args: {
+export type ThresholdEcdsaPresignInitKeySelector = {
+  keyHandle: string;
+  ecdsaThresholdKeyId?: never;
+};
+
+function resolveThresholdEcdsaPresignInitKeySelector(args: {
+  keyHandle?: unknown;
+}):
+  | { ok: true; value: ThresholdEcdsaPresignInitKeySelector }
+  | { ok: false; code: string; message: string } {
+  const keyHandle = String(args.keyHandle || '').trim();
+  if (!keyHandle) {
+    return {
+      ok: false,
+      code: 'invalid_args',
+      message: 'Missing keyHandle for threshold-ecdsa presign/init',
+    };
+  }
+  return { ok: true, value: { keyHandle } };
+}
+
+export type ThresholdEcdsaPresignInitArgs = {
   relayerUrl: string;
-  ecdsaThresholdKeyId: string;
   count?: number;
   sessionKind?: ThresholdSessionKind;
   thresholdSessionAuthToken?: string;
   requestTag?: string;
   requestTimeoutMs?: number;
-}): Promise<ThresholdEcdsaPresignProgress & { presignSessionId?: string }> {
+} & ThresholdEcdsaPresignInitKeySelector;
+
+export async function ecdsaPresignInit(
+  args: ThresholdEcdsaPresignInitArgs,
+): Promise<ThresholdEcdsaPresignProgress & { presignSessionId?: string }> {
   const relayerUrl = resolveRelayerUrl(args.relayerUrl);
   if (!relayerUrl) {
     return {
@@ -75,14 +99,8 @@ export async function ecdsaPresignInit(args: {
       message: 'fetch is not available for threshold-ecdsa presign/init',
     };
   }
-  const ecdsaThresholdKeyId = String(args.ecdsaThresholdKeyId || '').trim();
-  if (!ecdsaThresholdKeyId) {
-    return {
-      ok: false,
-      code: 'invalid_args',
-      message: 'Missing ecdsaThresholdKeyId for threshold-ecdsa presign/init',
-    };
-  }
+  const keySelector = resolveThresholdEcdsaPresignInitKeySelector(args);
+  if (!keySelector.ok) return keySelector;
   const requestTag = String(args.requestTag || '').trim();
 
   const auth = resolvePresignAuthHeaders(args);
@@ -107,7 +125,7 @@ export async function ecdsaPresignInit(args: {
         headers: auth.headers,
         credentials: auth.sessionKind === 'cookie' ? 'include' : 'omit',
         body: JSON.stringify({
-          ecdsaThresholdKeyId,
+          ...keySelector.value,
           count: Number.isFinite(args.count) ? Math.max(1, Math.floor(Number(args.count))) : 1,
           ...(requestTag ? { requestTag } : {}),
         }),

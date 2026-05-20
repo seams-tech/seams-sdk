@@ -41,7 +41,6 @@ export function createNearSigningDeps(args: {
     getSignerWorkerContext: () => createArgs.signerWorkerManager.getContext(),
     requestEmailOtpTransactionSigningChallenge: ({ nearAccountId, chain, authLane }) =>
       createArgs.requestEmailOtpTransactionSigningChallenge?.({
-        kind: 'near_account_challenge',
         nearAccountId,
         chain,
         ...(authLane ? { authLane } : {}),

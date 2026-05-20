@@ -9,11 +9,10 @@ import {
 import {
   getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
   listStoredThresholdEd25519SessionRecordsForAccount,
-  listThresholdEcdsaRuntimeLanesForSubject,
+  listThresholdEcdsaRuntimeLanesForWallet,
 } from '@/core/signingEngine/session/persistence/records';
 import type { listExactSealedSessionsForWallet } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import {
-  ecdsaAvailableLaneIdentityKey,
   ed25519AvailableLaneIdentityKey,
   readAvailableSigningLanes,
   warmStatusToAvailableSigningLanesRuntimeClaim,
@@ -32,6 +31,36 @@ export type EmailOtpPersistedSessionSnapshotPorts = {
   listExactSealedSessionsForWallet: typeof listExactSealedSessionsForWallet;
   readWarmSessionStatusOnly: (sessionId: string) => Promise<WarmSessionStatusResult>;
 };
+
+function runtimeEcdsaRecordBoundaryKey(
+  record: AvailableSigningLanesRuntimeEcdsaRecord,
+): string | null {
+  const verifiedPublicFacts = record.verifiedPublicFacts;
+  if (!verifiedPublicFacts) return null;
+  const keyHandle = String(verifiedPublicFacts.keyHandle || '').trim();
+  const thresholdOwnerAddress = String(verifiedPublicFacts.thresholdOwnerAddress || '')
+    .trim()
+    .toLowerCase();
+  const participantIds = verifiedPublicFacts.participantIds
+    .map((participantId) => Number(participantId))
+    .join(',');
+  const publicKeyB64u = String(verifiedPublicFacts.publicKeyB64u || '').trim();
+  if (!keyHandle || !thresholdOwnerAddress || !publicKeyB64u || !participantIds) return null;
+  return [
+    record.authMethod,
+    record.curve,
+    thresholdEcdsaChainTargetKey(record.chainTarget),
+    record.key.walletId,
+    keyHandle,
+    thresholdOwnerAddress,
+    participantIds,
+    publicKeyB64u,
+    record.walletSigningSessionId,
+    record.thresholdSessionId,
+  ]
+    .map((part) => String(part))
+    .join(':');
+}
 
 export function configuredEmailOtpEcdsaSnapshotChainTargets(
   configs: SeamsConfigsReadonly,
@@ -67,7 +96,6 @@ export async function readEmailOtpPersistedSessionSnapshot(
     {
       ...args,
       walletId: accountId,
-      subjectId: args.subjectId,
       ecdsaChainTargets: configuredEmailOtpEcdsaSnapshotChainTargets(ports.configs),
     },
     {
@@ -97,16 +125,21 @@ export async function readEmailOtpPersistedSessionSnapshot(
         ]);
         return [...emailOtpRecords, ...passkeyRecords];
       },
-      listRuntimeEcdsaLanesForSubject: async ({ subjectId }) => {
+      listRuntimeEcdsaLanesForWallet: async ({ walletId: recordWalletId }) => {
         const runtimeRecords: AvailableSigningLanesRuntimeEcdsaRecord[] = [];
         const seen = new Set<string>();
-        for (const runtimeLane of listThresholdEcdsaRuntimeLanesForSubject(
+        for (const runtimeLane of listThresholdEcdsaRuntimeLanesForWallet(
           { recordsByLane: new Map() },
-          { subjectId },
+          recordWalletId,
         )) {
           if (runtimeLane.authMethod !== 'email_otp') continue;
           const record: AvailableSigningLanesRuntimeEcdsaRecord = {
             key: runtimeLane.key,
+            keyHandle: runtimeLane.keyHandle,
+            ...(runtimeLane.verifiedPublicFacts
+              ? { verifiedPublicFacts: runtimeLane.verifiedPublicFacts }
+              : {}),
+            thresholdEcdsaPublicKeyB64u: runtimeLane.thresholdEcdsaPublicKeyB64u,
             authMethod: 'email_otp',
             curve: 'ecdsa',
             chainTarget: runtimeLane.chainTarget,
@@ -118,7 +151,7 @@ export async function readEmailOtpPersistedSessionSnapshot(
             ...(runtimeLane.expiresAtMs == null ? {} : { expiresAtMs: runtimeLane.expiresAtMs }),
             ...(runtimeLane.updatedAtMs == null ? {} : { updatedAtMs: runtimeLane.updatedAtMs }),
           };
-          const identityKey = ecdsaAvailableLaneIdentityKey(record);
+          const identityKey = runtimeEcdsaRecordBoundaryKey(record);
           if (!identityKey || seen.has(identityKey)) continue;
           seen.add(identityKey);
           runtimeRecords.push(record);

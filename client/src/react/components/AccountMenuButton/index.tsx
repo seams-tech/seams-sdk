@@ -26,7 +26,6 @@ import {
   thresholdEcdsaChainTargetFromConfig,
   toWalletId,
   walletSessionRefFromSession,
-  walletSubjectIdFromWalletProfile,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 function resolveDefaultPortalTarget(
@@ -233,7 +232,6 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
               }
             : {
                 kind: 'ecdsa',
-                subjectId: walletSubjectIdFromWalletProfile({ walletId: nearAccountId }),
                 walletSession: walletSessionRefFromSession({
                   walletId: nearAccountId,
                   walletSessionUserId: nearAccountId,

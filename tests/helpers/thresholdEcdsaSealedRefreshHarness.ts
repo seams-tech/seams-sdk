@@ -940,7 +940,6 @@ export async function runPasskeySigningSessionLifecyclePhase(
                 walletId: accountId,
                 walletSessionUserId: accountId,
               },
-              subjectId: accountId,
               chainTarget: {
                 kind: 'tempo',
                 chainId: 42431,
@@ -996,7 +995,6 @@ export async function runPasskeySigningSessionLifecyclePhase(
               walletId: accountId,
               walletSessionUserId: accountId,
             },
-            subjectId: accountId,
             chainTarget: {
               kind: 'tempo',
               chainId: 42431,

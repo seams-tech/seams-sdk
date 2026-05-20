@@ -4,6 +4,7 @@ import { computeThresholdEcdsaKeygenIntentDigest } from '@/utils/intentDigest';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import {
   thresholdEcdsaHssFinalize,
+  thresholdEcdsaHssKeySelectorFromCanonicalIdentity,
   thresholdEcdsaHssPrepare,
   thresholdEcdsaHssRespond,
   type ThresholdEcdsaHssRouteAuth,
@@ -43,10 +44,14 @@ import {
   type WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
+  EvmFamilyEcdsaKeyHandle,
   EvmFamilyEcdsaKeyIdentity,
   EvmFamilyEcdsaSessionLanePolicy,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
-import { deriveEvmFamilyKeyFingerprint } from '../../session/identity/evmFamilyEcdsaIdentity';
+import {
+  deriveBaseEcdsaSubjectIdFromKey,
+  deriveEvmFamilyKeyFingerprint,
+} from '../../session/identity/evmFamilyEcdsaIdentity';
 import { thresholdEcdsaChainTargetKey } from '../../interfaces/ecdsaChainTarget';
 
 function joinUrlPath(base: string, path: string): string {
@@ -192,7 +197,8 @@ type BootstrapEcdsaRegistrationArgs = BootstrapEcdsaSessionBaseArgs & {
 };
 
 type BootstrapEcdsaExactSessionArgs = BootstrapEcdsaSessionBaseArgs & {
-  bootstrapAuth: ThresholdEcdsaHssRouteAuth;
+  bootstrapAuth?: ThresholdEcdsaHssRouteAuth;
+  keyHandle: EvmFamilyEcdsaKeyHandle;
   key: EvmFamilyEcdsaKeyIdentity;
   lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
   ecdsaThresholdKeyId?: never;
@@ -208,7 +214,8 @@ function isExactSessionBootstrapArgs(
   args: BootstrapEcdsaSessionArgs,
 ): args is BootstrapEcdsaExactSessionArgs {
   return Boolean(
-    args.bootstrapAuth &&
+    'keyHandle' in args &&
+      args.keyHandle &&
       'key' in args &&
       args.key &&
       'lanePolicy' in args &&
@@ -220,6 +227,7 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
   ok: boolean;
   keygenSessionId?: string;
   rpId?: string;
+  keyHandle?: string;
   ecdsaThresholdKeyId?: string;
   clientVerifyingShareB64u?: string;
   clientAdditiveShare32B64u?: string;
@@ -263,9 +271,8 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
   const requestedWalletSigningSessionId = exactSessionBootstrap
     ? String(args.lanePolicy.walletSigningSessionId).trim()
     : String(args.walletSigningSessionId || '').trim();
-  const ecdsaThresholdKeyId = exactSessionBootstrap
-    ? String(args.key.ecdsaThresholdKeyId).trim()
-    : String(args.ecdsaThresholdKeyId || '').trim();
+  const keyHandle = exactSessionBootstrap ? String(args.keyHandle).trim() : '';
+  const ecdsaThresholdKeyId = exactSessionBootstrap ? '' : String(args.ecdsaThresholdKeyId || '').trim();
   const providedClientRootShare32 =
     args.clientRootShare32 instanceof Uint8Array ? args.clientRootShare32 : undefined;
   const providedClientRootShare32B64u = String(args.clientRootShare32B64u || '').trim();
@@ -285,13 +292,13 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
   }
   if (
     exactSessionBootstrap &&
-    (!ecdsaThresholdKeyId || !requestedSessionId || !requestedWalletSigningSessionId)
+    (!keyHandle || !requestedSessionId || !requestedWalletSigningSessionId)
   ) {
     return {
       ok: false,
       code: 'invalid_args',
       message:
-        'Threshold ECDSA session bootstrap requires ecdsaThresholdKeyId, sessionId, and walletSigningSessionId',
+        'Threshold ECDSA session bootstrap requires keyHandle, sessionId, and walletSigningSessionId',
     };
   }
   if (exactSessionBootstrap && !providedClientRootShare32 && !providedClientRootShare32B64u) {
@@ -381,7 +388,7 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
       ? args.lanePolicy.chainTarget
       : args.chainTarget;
     const sessionPolicySubjectId = exactSessionBootstrap
-      ? args.key.subjectId
+      ? deriveBaseEcdsaSubjectIdFromKey(args.key)
       : args.subjectId;
     const evmFamilyKeyFingerprint = exactSessionBootstrap
       ? deriveEvmFamilyKeyFingerprint(args.key)
@@ -394,6 +401,7 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
       subjectId: sessionPolicySubjectId,
       rpId,
       chainTarget: sessionPolicyChainTarget,
+      ...(keyHandle ? { keyHandle } : {}),
       ...(ecdsaThresholdKeyId ? { ecdsaThresholdKeyId } : {}),
       sessionId,
       walletSigningSessionId,
@@ -412,6 +420,7 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
       keygenSessionId,
       chainTargetKey: thresholdEcdsaChainTargetKey(sessionPolicyChainTarget),
       ...(evmFamilyKeyFingerprint ? { evmFamilyKeyFingerprint } : {}),
+      keyHandle: keyHandle || undefined,
       ecdsaThresholdKeyId: ecdsaThresholdKeyId || undefined,
       requestedSessionId: requestedSessionId || undefined,
     };
@@ -438,26 +447,20 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
     } catch {}
     let prepare: Awaited<ReturnType<typeof thresholdEcdsaHssPrepare>>;
     if (exactSessionBootstrap) {
-      const exactEcdsaThresholdKeyId = preparedEcdsaThresholdKeyId;
-      if (!exactEcdsaThresholdKeyId) {
-        return {
-          ok: false,
-          code: 'invalid_args',
-          message: 'Threshold ECDSA session bootstrap requires ecdsaThresholdKeyId',
-        };
-      }
       prepare = await thresholdEcdsaHssPrepare(args.relayerUrl, {
-          walletSessionUserId: sessionPolicy.walletSessionUserId,
-          rpId,
-          operation: 'session_bootstrap',
-          ecdsaThresholdKeyId: exactEcdsaThresholdKeyId,
-          keygenSessionId,
-          webauthnAuthentication,
-          auth: args.bootstrapAuth,
-          ...(runtimeEnvironmentId ? { runtimeEnvironmentId } : {}),
-          sessionPolicy,
-          sessionKind,
-        });
+        walletSessionUserId: sessionPolicy.walletSessionUserId,
+        rpId,
+        operation: 'session_bootstrap',
+        keySelector: thresholdEcdsaHssKeySelectorFromCanonicalIdentity({
+          keyHandle,
+        }),
+        keygenSessionId,
+        webauthnAuthentication,
+        ...(args.bootstrapAuth ? { auth: args.bootstrapAuth } : {}),
+        ...(runtimeEnvironmentId ? { runtimeEnvironmentId } : {}),
+        sessionPolicy,
+        sessionKind,
+      });
     } else {
       prepare = await thresholdEcdsaHssPrepare(args.relayerUrl, {
         walletSessionUserId: sessionPolicy.walletSessionUserId,
@@ -608,6 +611,7 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
         message: bootstrap.message,
         sessionId: bootstrap.sessionId,
         walletSigningSessionId: bootstrap.walletSigningSessionId,
+        keyHandle: bootstrap.keyHandle,
         signingRootId: bootstrap.signingRootId,
         signingRootVersion: bootstrap.signingRootVersion,
       });
@@ -662,6 +666,9 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
       ok: true,
       keygenSessionId,
       rpId,
+      ...(typeof bootstrap.keyHandle === 'string' && bootstrap.keyHandle.trim()
+        ? { keyHandle: bootstrap.keyHandle.trim() }
+        : {}),
       ...(typeof bootstrap.ecdsaThresholdKeyId === 'string' && bootstrap.ecdsaThresholdKeyId.trim()
         ? { ecdsaThresholdKeyId: bootstrap.ecdsaThresholdKeyId.trim() }
         : {}),

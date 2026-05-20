@@ -6,7 +6,11 @@ import {
   THRESHOLD_SESSION_MISSING_ERROR,
 } from '@/core/signingEngine/session/warmCapabilities/statusReader';
 import type { ThresholdWarmSessionStatusReader } from '@/core/signingEngine/session/warmCapabilities/types';
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  toWalletId,
+  type ThresholdEcdsaChainTarget,
+  type WalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   WarmSessionStatusResult,
   WarmSessionStatusReader,
@@ -83,7 +87,7 @@ export async function isThresholdSigningSessionReady(args: {
 
 export async function assertThresholdSigningSessionReady(args: {
   signingSessionCoordinator: Pick<ThresholdWarmSessionStatusReader, 'assertEcdsaSigningSessionReady'>;
-  walletId: string;
+  walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
   sessionId: unknown;
   usesNeeded?: number;

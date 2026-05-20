@@ -154,7 +154,7 @@ export function buildThresholdWarmSessionRequestEnvelope(args: {
 export async function prepareThresholdEd25519RegistrationWithHss(args: {
   context: PasskeyManagerContext;
   credential: WebAuthnRegistrationCredential;
-  nearAccountId: AccountId | string;
+  nearAccountId: AccountId;
   rpId: string;
   authenticatorOptions?: AuthenticatorOptions;
   onProgress?: (message: string) => void;
@@ -340,7 +340,7 @@ export function completeRegisteredThresholdEd25519Registration(args: {
 }
 
 export async function storeThresholdEd25519KeyMaterial(args: {
-  nearAccountId: AccountId | string;
+  nearAccountId: AccountId;
   signerSlot: number;
   publicKey: string;
   relayerKeyId: string;
@@ -480,7 +480,7 @@ export async function persistRegisteredThresholdEd25519Session(args: {
 export async function reconstructThresholdEd25519ClientBaseFromWarmSession(args: {
   context: PasskeyManagerContext;
   credential: WebAuthnRegistrationCredential | WebAuthnAuthenticationCredential;
-  nearAccountId: AccountId | string;
+  nearAccountId: AccountId;
   relayerUrl: string;
   relayerKeyId: string;
   session: ThresholdWarmSessionRelayResult;
@@ -564,7 +564,7 @@ export async function reconstructThresholdEd25519ClientBaseFromWarmSession(args:
 export async function prewarmThresholdEd25519ClientBaseFromCredential(args: {
   context: PasskeyManagerContext;
   credential: WebAuthnRegistrationCredential | WebAuthnAuthenticationCredential;
-  nearAccountId: AccountId | string;
+  nearAccountId: AccountId;
   signerSlot: number;
 }): Promise<void> {
   const nearAccountId = String(args.nearAccountId || '').trim();
@@ -643,7 +643,7 @@ export async function prewarmThresholdEd25519ClientBaseFromCredential(args: {
 
 export async function hydrateThresholdWarmSessionFromRelay(args: {
   context: PasskeyManagerContext;
-  nearAccountId: AccountId | string;
+  nearAccountId: AccountId;
   relayerUrl: string;
   rpId: string;
   relayerKeyId: string;

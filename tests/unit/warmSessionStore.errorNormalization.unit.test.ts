@@ -20,7 +20,6 @@ import {
   seedEcdsaWarmSessionRecord,
   testEcdsaChainTarget,
 } from './helpers/warmSessionStore.fixtures';
-import { toWalletSubjectId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 async function resolveNearThresholdSigningAuthForTest(args: Parameters<
   typeof resolveNearThresholdSigningAuthContext
@@ -72,7 +71,6 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
       store.provisionEcdsaCapability({
         kind: 'passkey_cookie_reconnect_ecdsa_bootstrap',
         walletId: 'bootstrap-error.testnet',
-        subjectId: toWalletSubjectId('bootstrap-error.testnet'),
         chainTarget: testEcdsaChainTarget('evm'),
         source: 'manual-bootstrap',
         sessionKind: 'cookie',

@@ -1,4 +1,5 @@
 import type { AccountId } from '@/core/types/accountIds';
+import { toAccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
 import type {
   VolatileWarmMaterialPort,
@@ -10,6 +11,7 @@ import {
   type ThresholdEcdsaSessionRecord,
   type ThresholdEd25519SessionRecord,
 } from '../persistence/records';
+import { deriveBaseEcdsaSubjectIdFromWalletId } from '../identity/evmFamilyEcdsaIdentity';
 import type { ThresholdEcdsaSessionStoreSource } from '../identity/laneIdentity';
 import type {
   SigningSessionSealedRecordFilter,
@@ -29,15 +31,22 @@ import {
   toWarmSessionClaimFromStatusResult,
 } from '../warmCapabilities/readModel';
 import {
+  ecdsaWalletBudgetOwner,
+  ed25519WalletBudgetOwner,
   isEcdsaLaneBudgetStatusCheck,
   thresholdSessionIdsForBudgetStatusCheck,
+  walletBudgetOwnerId,
+  walletBudgetOwnerKey,
   type SigningSessionBudgetStatusAuth,
   type SigningSessionBudgetStatusCheck,
+  type WalletBudgetOwner,
 } from '../budget/budget';
 import type { SigningSessionReadiness } from '../planning/planner';
 import {
   thresholdEcdsaChainTargetKey,
+  toWalletId,
   type ThresholdEcdsaChainTarget,
+  type WalletId,
   type WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
@@ -57,7 +66,7 @@ export type DiscoveredSigningSessionLane = SigningSessionLane & {
 };
 
 export type WalletSigningSessionStatusOverride = {
-  walletId: string;
+  owner: WalletBudgetOwner;
   walletSigningSessionId: string;
   status: SigningSessionStatus;
   thresholdSessionIds: Set<string>;
@@ -80,15 +89,15 @@ export type WalletSigningSessionReadinessDeps = {
     uses?: number;
   }) => Promise<WarmSessionStatusResult>;
   clearEmailOtpWarmSessionMaterial?: (args: { sessionId: string }) => Promise<void>;
-  clearThresholdEcdsaSessionRecordForLane?: (args: {
-    subjectId: WalletSubjectId;
+  clearThresholdEcdsaSessionRecordForWalletTarget?: (args: {
+    walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
     source?: ThresholdEcdsaSessionStoreSource;
   }) => void;
   updateExactSealedSessionPolicy?: typeof updateExactSealedSessionPolicy;
   deleteExactSealedSession?: typeof deleteExactSealedSession;
   markThresholdEd25519EmailOtpSessionConsumedForAccount?: (args: {
-    nearAccountId: AccountId | string;
+    nearAccountId: AccountId;
     thresholdSessionId?: string;
     uses?: number;
   }) => void;
@@ -106,7 +115,7 @@ export type ConsumeResultEntry = {
 };
 
 export type WalletSigningSessionConsumeUseInput = {
-  walletId: AccountId | string;
+  owner: WalletBudgetOwner;
   walletSigningSessionId: string;
   uses: number;
   budgetStatusCheck: SigningSessionBudgetStatusCheck;
@@ -206,10 +215,10 @@ function toLaneSource(
 
 function resolveRecordWalletOwnerId(
   record: ThresholdEd25519SessionRecord | ThresholdEcdsaSessionRecord,
-): string {
+): WalletBudgetOwner {
   return 'walletId' in record
-    ? normalizeNonEmpty(record.walletId)
-    : normalizeNonEmpty(record.nearAccountId);
+    ? ecdsaWalletBudgetOwner(toWalletId(record.walletId))
+    : ed25519WalletBudgetOwner(toAccountId(record.nearAccountId));
 }
 
 export function resolveEmailOtpEcdsaWorkerSessionId(record: ThresholdEcdsaSessionRecord): string {
@@ -287,9 +296,9 @@ export function buildDiscoveredLaneForRecord(
 
 export function discoverLanesForWallet(
   deps: WalletSigningSessionReadinessDeps,
-  walletId: AccountId | string,
+  walletId: WalletId,
 ): DiscoveredSigningSessionLane[] {
-  const records = readWarmSessionCapabilityRecordsForWallet(walletId);
+  const records = readWarmSessionCapabilityRecordsForWallet(toAccountId(walletId));
   const lanes: DiscoveredSigningSessionLane[] = [];
   const ed25519Record = records.ed25519;
   if (ed25519Record) {
@@ -302,10 +311,10 @@ export function discoverLanesForWallet(
     const thresholdSessionId = normalizeNonEmpty(record.thresholdSessionId);
     const chainTarget = record.chainTarget;
     const key = [
-      record.subjectId,
+      String(deriveBaseEcdsaSubjectIdFromWalletId(record.walletId)),
       thresholdEcdsaChainTargetKey(chainTarget),
       record.source,
-      record.ecdsaThresholdKeyId,
+      record.keyHandle,
       record.walletSigningSessionId,
       thresholdSessionId,
     ].join(':');
@@ -318,7 +327,7 @@ export function discoverLanesForWallet(
 
 export function getLanesForWalletSession(args: {
   deps: WalletSigningSessionReadinessDeps;
-  walletId: AccountId | string;
+  walletId: WalletId;
   walletSigningSessionId?: string;
 }): DiscoveredSigningSessionLane[] {
   const walletSigningSessionId = normalizeNonEmpty(args.walletSigningSessionId);
@@ -341,10 +350,12 @@ export function walletScopedClaimsForLanes(args: {
 
   const scoped = new Map<string, WarmSessionPrfClaim | null>();
   for (const group of grouped.values()) {
-    const walletSigningSessionId = group[0]?.walletSigningSessionId || '';
-    const walletId = group[0] ? resolveRecordWalletOwnerId(group[0].record) : '';
+    const firstLane = group[0];
+    if (!firstLane) continue;
+    const walletSigningSessionId = firstLane.walletSigningSessionId;
+    const owner = resolveRecordWalletOwnerId(firstLane.record);
     const override = args.statusOverrides?.get(
-      walletSigningSessionStatusOverrideKey(walletId, walletSigningSessionId),
+      walletOwnerSigningSessionStatusOverrideKey(owner, walletSigningSessionId),
     );
     const applicableOverride = override
       ? resolveApplicableWalletSigningSessionStatusOverride({
@@ -435,16 +446,16 @@ export function walletScopedClaimsForLanes(args: {
   return scoped;
 }
 
-export function walletSigningSessionStatusOverrideKey(
-  walletId: AccountId | string,
+export function walletOwnerSigningSessionStatusOverrideKey(
+  owner: WalletBudgetOwner,
   walletSigningSessionId: string,
 ): string {
-  return `${normalizeNonEmpty(walletId)}:${normalizeNonEmpty(walletSigningSessionId)}`;
+  return `${walletBudgetOwnerKey(owner)}:${normalizeNonEmpty(walletSigningSessionId)}`;
 }
 
 export function rememberWalletSigningSessionStatusOverride(args: {
   overrides: Map<string, WalletSigningSessionStatusOverride>;
-  walletId: AccountId | string;
+  owner: WalletBudgetOwner;
   walletSigningSessionId: string;
   lanes: DiscoveredSigningSessionLane[];
   status: SigningSessionStatus;
@@ -453,9 +464,9 @@ export function rememberWalletSigningSessionStatusOverride(args: {
   if (!walletSigningSessionId) return;
   const now = Date.now();
   args.overrides.set(
-    walletSigningSessionStatusOverrideKey(args.walletId, walletSigningSessionId),
+    walletOwnerSigningSessionStatusOverrideKey(args.owner, walletSigningSessionId),
     {
-      walletId: normalizeNonEmpty(args.walletId),
+      owner: args.owner,
       walletSigningSessionId,
       status: {
         ...args.status,
@@ -486,7 +497,7 @@ function resolveApplicableWalletSigningSessionStatusOverride(args: {
   });
   if (freshActiveLane) {
     args.statusOverrides?.delete(
-      walletSigningSessionStatusOverrideKey(
+      walletOwnerSigningSessionStatusOverrideKey(
         resolveRecordWalletOwnerId(freshActiveLane.record),
         args.override.walletSigningSessionId,
       ),
@@ -578,7 +589,7 @@ export async function readClaimsForLanes(args: {
 
 export async function readWalletScopedLaneClaimsForWallet(args: {
   deps: WalletSigningSessionReadinessDeps;
-  walletId: AccountId | string;
+  walletId: WalletId;
   statusOverrides?: Map<string, WalletSigningSessionStatusOverride>;
 }): Promise<Map<string, WarmSessionPrfClaim | null>> {
   const lanes = discoverLanesForWallet(args.deps, args.walletId);
@@ -779,6 +790,7 @@ export async function consumeWalletSigningSessionUse(args: {
   input: WalletSigningSessionConsumeUseInput;
 }): Promise<SigningSessionStatus> {
   const input = args.input;
+  const walletId = toWalletId(walletBudgetOwnerId(input.owner));
   const walletSigningSessionId = normalizeNonEmpty(input.walletSigningSessionId);
   if (!walletSigningSessionId) {
     throw new Error('[SigningSessionCoordinator] walletSigningSessionId is required');
@@ -795,7 +807,7 @@ export async function consumeWalletSigningSessionUse(args: {
   const targetThreshold = budgetTargets.thresholdSessionIds;
   const lanes = getLanesForWalletSession({
     deps: args.deps,
-    walletId: input.walletId,
+    walletId,
     walletSigningSessionId,
   });
   const hasExplicitTarget = targetBacking.size > 0 || targetThreshold.size > 0;
@@ -890,9 +902,9 @@ export async function consumeWalletSigningSessionUse(args: {
       lane.source === 'email_otp' &&
       !alreadyConsumedThreshold.has(lane.thresholdSessionId),
   );
-  if (ed25519EmailOtpLane) {
+  if (ed25519EmailOtpLane && input.owner.curve === 'ed25519') {
     args.deps.markThresholdEd25519EmailOtpSessionConsumedForAccount?.({
-      nearAccountId: input.walletId,
+      nearAccountId: input.owner.accountId,
       thresholdSessionId: ed25519EmailOtpLane.thresholdSessionId,
       uses,
     });
@@ -917,7 +929,7 @@ export async function consumeWalletSigningSessionUse(args: {
   });
   rememberWalletSigningSessionStatusOverride({
     overrides: args.statusOverrides,
-    walletId: input.walletId,
+    owner: input.owner,
     walletSigningSessionId,
     lanes: consumedOrTargetedLanes,
     status: resolvedStatus,
@@ -934,7 +946,7 @@ export async function consumeWalletSigningSessionUse(args: {
 export async function clearWalletSigningSession(args: {
   deps: WalletSigningSessionReadinessDeps;
   statusOverrides: Map<string, WalletSigningSessionStatusOverride>;
-  walletId: AccountId | string;
+  walletId: WalletId;
   walletSigningSessionId: string;
 }): Promise<void> {
   const lanes = getLanesForWalletSession({
@@ -943,14 +955,23 @@ export async function clearWalletSigningSession(args: {
     walletSigningSessionId: args.walletSigningSessionId,
   });
   args.statusOverrides.delete(
-    walletSigningSessionStatusOverrideKey(args.walletId, args.walletSigningSessionId),
+    walletOwnerSigningSessionStatusOverrideKey(
+      ecdsaWalletBudgetOwner(args.walletId),
+      args.walletSigningSessionId,
+    ),
+  );
+  args.statusOverrides.delete(
+    walletOwnerSigningSessionStatusOverrideKey(
+      ed25519WalletBudgetOwner(toAccountId(args.walletId)),
+      args.walletSigningSessionId,
+    ),
   );
   const cleared = new Set<string>();
   let clearEd25519Record = false;
   const ecdsaLanesToClear = new Map<
     string,
     {
-      subjectId: WalletSubjectId;
+      walletId: AccountId;
       chainTarget: ThresholdEcdsaChainTarget;
       source: ThresholdEcdsaSessionStoreSource;
     }
@@ -961,7 +982,7 @@ export async function clearWalletSigningSession(args: {
       if (lane.curve === 'ecdsa' && lane.chainTarget) {
         const source = (lane.record as ThresholdEcdsaSessionRecord).source;
         ecdsaLanesToClear.set(`${thresholdEcdsaChainTargetKey(lane.chainTarget)}:${source}`, {
-          subjectId: (lane.record as ThresholdEcdsaSessionRecord).subjectId,
+          walletId: (lane.record as ThresholdEcdsaSessionRecord).walletId,
           chainTarget: lane.chainTarget,
           source,
         });
@@ -987,8 +1008,8 @@ export async function clearWalletSigningSession(args: {
     clearStoredThresholdEd25519SessionRecordForAccount(args.walletId);
   }
   for (const lane of ecdsaLanesToClear.values()) {
-    args.deps.clearThresholdEcdsaSessionRecordForLane?.({
-      subjectId: lane.subjectId,
+    args.deps.clearThresholdEcdsaSessionRecordForWalletTarget?.({
+      walletId: toWalletId(lane.walletId),
       chainTarget: lane.chainTarget,
       source: lane.source,
     });

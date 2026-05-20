@@ -21,10 +21,11 @@ import type {
   ThresholdEcdsaSessionRecord,
 } from '../../session/persistence/records';
 import type { ThresholdEcdsaSessionStoreSource } from '../../session/identity/laneIdentity';
-import { thresholdEcdsaChainTargetFromChainFamily } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
-  buildEcdsaReconnectMaterial,
-  buildEcdsaSessionProvisionPlan,
+  thresholdEcdsaChainTargetFromChainFamily,
+  toWalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
   buildEcdsaSessionIdentity,
   getEcdsaSessionProvisionIdentity,
   type EcdsaSessionProvisionPlan,
@@ -38,7 +39,6 @@ type EvmFamilyThresholdEcdsaReadinessBaseArgs = {
   deps: EvmFamilyThresholdEcdsaReadinessDeps;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
   chainId: number;
-  keyRef: ThresholdEcdsaSecp256k1KeyRef | undefined;
   reconnectSessionIdentity: {
     thresholdSessionId: string;
     walletSigningSessionId: string;
@@ -50,12 +50,8 @@ type EvmFamilyThresholdEcdsaReadinessBaseArgs = {
 };
 
 type PlannedEvmFamilyThresholdEcdsaReadinessArgs = EvmFamilyThresholdEcdsaReadinessBaseArgs & {
-  mode: 'planned_reconnect';
+  keyRef: ThresholdEcdsaSecp256k1KeyRef;
   reconnectPlan: EcdsaSessionProvisionPlan;
-};
-
-type DerivedEvmFamilyThresholdEcdsaReadinessArgs = EvmFamilyThresholdEcdsaReadinessBaseArgs & {
-  mode: 'derive_from_lane';
 };
 
 function resolveManagedRuntimeScopeBootstrap(
@@ -84,7 +80,7 @@ function requireEcdsaStoreSource(
 }
 
 export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(
-  args: PlannedEvmFamilyThresholdEcdsaReadinessArgs | DerivedEvmFamilyThresholdEcdsaReadinessArgs,
+  args: PlannedEvmFamilyThresholdEcdsaReadinessArgs,
 ): Promise<ThresholdEcdsaSecp256k1KeyRef> {
   throwIfEvmFamilySigningCancelled(args.shouldAbort);
 
@@ -94,7 +90,7 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(
     chainId: args.chainId,
   });
   const source = requireEcdsaStoreSource(args.lane);
-  const walletId = String(args.lane.walletId);
+  const walletId = toWalletId(args.lane.walletId);
   const reconnectSessionIdentity = buildEcdsaSessionIdentity({
     thresholdSessionId: args.reconnectSessionIdentity.thresholdSessionId,
     walletSigningSessionId: args.reconnectSessionIdentity.walletSigningSessionId,
@@ -109,12 +105,7 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(
     1,
     Math.floor(Number(args.sessionBudgetUses) || 1),
   );
-  const resolvedKeyRef =
-    args.keyRef ||
-    readSelectedEcdsaKeyRefForLane({
-      deps: args.deps,
-      lane: args.lane,
-    });
+  const resolvedKeyRef = args.keyRef;
   let selectedRecord: ThresholdEcdsaSessionRecord | undefined;
   try {
     selectedRecord = readSelectedEcdsaRecordForLane({
@@ -124,27 +115,7 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(
   } catch {
     selectedRecord = undefined;
   }
-  const reconnectPlan =
-    args.mode === 'planned_reconnect'
-      ? args.reconnectPlan
-      : (() => {
-          if (!resolvedKeyRef || !selectedRecord) {
-            throw new Error(
-              '[SigningEngine][ecdsa] derived reconnect planning requires exact record and keyRef material',
-            );
-          }
-          return buildEcdsaSessionProvisionPlan({
-            kind: 'ecdsa_session_reconnect',
-            subjectId: args.lane.subjectId,
-            chainTarget,
-            sessionIdentity: reconnectSessionIdentity,
-            sessionBudgetUses,
-            reconnectMaterial: buildEcdsaReconnectMaterial({
-              keyRef: resolvedKeyRef,
-              record: selectedRecord,
-            }),
-          });
-        })();
+  const reconnectPlan = args.reconnectPlan;
   const reconnectPlanIdentity = getEcdsaSessionProvisionIdentity(reconnectPlan);
   if (
     reconnectPlanIdentity.thresholdSessionId !== thresholdSessionId ||
@@ -172,7 +143,6 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(
 
   const readyCapability = await warmSessionServices.ensureEcdsaCapabilityReady({
     walletId,
-    subjectId: args.lane.subjectId,
     chainTarget,
     plan: reconnectPlan,
     keyRef: resolvedKeyRef,
@@ -197,11 +167,9 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(
     },
   });
 
-  const refreshedThresholdSessionId = String(
-    readyCapability.keyRef?.thresholdSessionId || '',
-  ).trim();
+  const refreshedThresholdSessionId = String(readyCapability.keyRef.thresholdSessionId).trim();
   const refreshedWalletSigningSessionId = String(
-    readyCapability.keyRef?.walletSigningSessionId || '',
+    readyCapability.keyRef.walletSigningSessionId,
   ).trim();
   if (
     refreshedThresholdSessionId !== thresholdSessionId ||

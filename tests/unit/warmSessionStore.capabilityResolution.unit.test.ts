@@ -162,7 +162,7 @@ test.describe('WarmSessionStore capability resolution', () => {
           state: 'exhausted',
         },
       }),
-      clearThresholdEcdsaSessionRecordForLane: () => {
+      clearThresholdEcdsaSessionRecordForWalletTarget: () => {
         clearCount += 1;
       },
     });
@@ -241,8 +241,9 @@ test.describe('WarmSessionStore capability resolution', () => {
     expect('thresholdSessionAuth' in evmBootstrap).toBe(false);
     expect(tempoBootstrap).toMatchObject({
       kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
+      keyHandle: warmRecord.keyHandle,
       key: {
-        ecdsaThresholdKeyId: 'ek-shared-bootstrap',
+        ecdsaThresholdKeyId: `legacy-key-handle:${warmRecord.keyHandle}`,
       },
       lanePolicy: {
         chainTarget: {

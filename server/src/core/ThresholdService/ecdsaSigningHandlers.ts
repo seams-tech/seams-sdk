@@ -44,6 +44,7 @@ import {
 type ThresholdEcdsaMpcSessionRecord = {
   expiresAtMs: number;
   ecdsaThresholdKeyId?: string;
+  keyHandle?: string;
   relayerKeyId: string;
   purpose: string;
   intentDigestB64u: string;
@@ -169,18 +170,32 @@ function parseThresholdEcdsaSignFinalizeRequest(
   return { ok: true, value: { signingSessionId, clientSignatureShareB64u } };
 }
 
+type ThresholdEcdsaIntegratedKeyRecordSelector = {
+  kind: 'key_handle';
+  keyHandle: string;
+  ecdsaThresholdKeyId?: never;
+};
+
 function parseThresholdEcdsaPresignInitRequest(
   request: ThresholdEcdsaPresignInitRequest,
 ): ParseResult<{
-  ecdsaThresholdKeyId: string;
+  keySelector: ThresholdEcdsaIntegratedKeyRecordSelector;
   count: number;
 }> {
+  const keyHandle = toOptionalTrimmedString((request as { keyHandle?: unknown }).keyHandle);
   const ecdsaThresholdKeyId = toOptionalTrimmedString(request.ecdsaThresholdKeyId);
-  if (!ecdsaThresholdKeyId) {
+  if (ecdsaThresholdKeyId) {
     return {
       ok: false,
       code: 'invalid_body',
-      message: 'ecdsaThresholdKeyId is required',
+      message: 'keyHandle is required for threshold-ecdsa presign/init',
+    };
+  }
+  if (!keyHandle) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'keyHandle is required for threshold-ecdsa presign/init',
     };
   }
   const countRaw = (request as { count?: unknown }).count;
@@ -191,7 +206,7 @@ function parseThresholdEcdsaPresignInitRequest(
   return {
     ok: true,
     value: {
-      ecdsaThresholdKeyId,
+      keySelector: { kind: 'key_handle', keyHandle },
       count,
     },
   };
@@ -333,9 +348,9 @@ export class ThresholdEcdsaSigningHandlers {
   private readonly signingSessionStore: ThresholdEcdsaSigningSessionStore;
   private readonly presignSessionStore: ThresholdEcdsaPresignSessionStore;
   private readonly presignaturePool: ThresholdEcdsaPresignaturePool;
-  private readonly resolveIntegratedKeyRecord: (args: {
-    ecdsaThresholdKeyId: string;
-  }) => Promise<ThresholdEcdsaIntegratedKeyRecord | null>;
+  private readonly resolveIntegratedKeyRecord: (
+    args: ThresholdEcdsaIntegratedKeyRecordSelector,
+  ) => Promise<ThresholdEcdsaIntegratedKeyRecord | null>;
   private readonly ensureReady: () => Promise<void>;
   private readonly createSigningSessionId: () => string;
   private readonly createPresignSessionId: () => string;
@@ -359,9 +374,9 @@ export class ThresholdEcdsaSigningHandlers {
     signingSessionStore: ThresholdEcdsaSigningSessionStore;
     presignSessionStore: ThresholdEcdsaPresignSessionStore;
     presignaturePool: ThresholdEcdsaPresignaturePool;
-    resolveIntegratedKeyRecord: (args: {
-      ecdsaThresholdKeyId: string;
-    }) => Promise<ThresholdEcdsaIntegratedKeyRecord | null>;
+    resolveIntegratedKeyRecord: (
+      args: ThresholdEcdsaIntegratedKeyRecordSelector,
+    ) => Promise<ThresholdEcdsaIntegratedKeyRecord | null>;
     ensureReady: () => Promise<void>;
     createSigningSessionId: () => string;
     createPresignSessionId: () => string;
@@ -399,15 +414,20 @@ export class ThresholdEcdsaSigningHandlers {
   }
 
   private async resolvePresignInitKeyMaterial(input: {
-    ecdsaThresholdKeyId: string;
+    keySelector: ThresholdEcdsaIntegratedKeyRecordSelector;
     walletSessionUserId: string;
     rpId: string;
     participantIds: number[];
     tokenRelayerKeyId: string;
-    tokenSigningRoot: Pick<ThresholdEcdsaSigningRootMetadata, 'signingRootId' | 'signingRootVersion'>;
+    tokenKeyHandle: string;
+    tokenSigningRoot: Pick<
+      ThresholdEcdsaSigningRootMetadata,
+      'signingRootId' | 'signingRootVersion'
+    >;
   }): Promise<
     | {
         ok: true;
+        ecdsaThresholdKeyId: string;
         relayerKeyId: string;
         clientVerifyingShareB64u: string;
         relayerBackendInputB64u: string;
@@ -415,17 +435,29 @@ export class ThresholdEcdsaSigningHandlers {
       }
     | { ok: false; code: string; message: string }
   > {
-    const ecdsaThresholdKeyId = toOptionalTrimmedString(input.ecdsaThresholdKeyId);
-    if (!ecdsaThresholdKeyId) {
-      return { ok: false, code: 'invalid_body', message: 'ecdsaThresholdKeyId is required' };
-    }
-
-    const integratedKey = await this.resolveIntegratedKeyRecord({ ecdsaThresholdKeyId });
+    const integratedKey = await this.resolveIntegratedKeyRecord(input.keySelector);
     if (!integratedKey) {
       return {
         ok: false,
         code: 'unauthorized',
-        message: 'ecdsaThresholdKeyId is not active on this server',
+        message: 'ECDSA key selector is not active on this server',
+      };
+    }
+    const ecdsaThresholdKeyId = toOptionalTrimmedString(integratedKey.ecdsaThresholdKeyId);
+    if (!ecdsaThresholdKeyId) {
+      return {
+        ok: false,
+        code: 'unauthorized',
+        message: 'ECDSA key selector is missing threshold-key identity',
+      };
+    }
+    const tokenKeyHandle = toOptionalTrimmedString(input.tokenKeyHandle);
+    const integratedKeyHandle = toOptionalTrimmedString(integratedKey.keyHandle);
+    if (!tokenKeyHandle || !integratedKeyHandle || tokenKeyHandle !== integratedKeyHandle) {
+      return {
+        ok: false,
+        code: 'unauthorized',
+        message: 'keyHandle does not match threshold session scope',
       };
     }
     if (
@@ -475,6 +507,7 @@ export class ThresholdEcdsaSigningHandlers {
     }
     return {
       ok: true,
+      ecdsaThresholdKeyId,
       relayerKeyId: integratedRelayerKeyId,
       clientVerifyingShareB64u: integratedClientVerifyingShareB64u,
       relayerBackendInputB64u,
@@ -604,7 +637,7 @@ export class ThresholdEcdsaSigningHandlers {
 
     const parsedRequest = parseThresholdEcdsaPresignInitRequest(input.request);
     if (!parsedRequest.ok) return parsedRequest;
-    const { ecdsaThresholdKeyId } = parsedRequest.value;
+    const { keySelector } = parsedRequest.value;
 
     const claims = input.claims;
     const walletSessionUserId = toOptionalTrimmedString(claims?.walletId);
@@ -628,11 +661,12 @@ export class ThresholdEcdsaSigningHandlers {
       };
     }
     const resolvedKeyMaterial = await this.resolvePresignInitKeyMaterial({
-      ecdsaThresholdKeyId,
+      keySelector,
       walletSessionUserId,
       rpId: tokenRpId,
       participantIds: claims.participantIds,
       tokenRelayerKeyId,
+      tokenKeyHandle: claims.keyHandle,
       tokenSigningRoot,
     });
     if (!resolvedKeyMaterial.ok) return resolvedKeyMaterial;
@@ -1423,16 +1457,19 @@ export class ThresholdEcdsaSigningHandlers {
         message: 'mpcSessionId is missing clientVerifyingShareB64u',
       };
     }
-    const ecdsaThresholdKeyId = toOptionalTrimmedString(sess.ecdsaThresholdKeyId);
-    if (!ecdsaThresholdKeyId) {
+    const keyHandle = toOptionalTrimmedString(sess.keyHandle);
+    if (!keyHandle) {
       await this.presignaturePool.discard(relayerKeyId, presignature.presignatureId);
       return {
         ok: false,
         code: 'internal',
-        message: 'mpcSessionId is missing ecdsaThresholdKeyId',
+        message: 'mpcSessionId is missing keyHandle',
       };
     }
-    const integratedKey = await this.resolveIntegratedKeyRecord({ ecdsaThresholdKeyId });
+    const integratedKey = await this.resolveIntegratedKeyRecord({
+      kind: 'key_handle',
+      keyHandle,
+    });
     const thresholdEcdsaPublicKeyB64u = toOptionalTrimmedString(
       integratedKey?.thresholdEcdsaPublicKeyB64u,
     );
@@ -1450,6 +1487,15 @@ export class ThresholdEcdsaSigningHandlers {
         ok: false,
         code: 'internal',
         message: 'ecdsaThresholdKeyId is missing persisted signing-root metadata',
+      };
+    }
+    const ecdsaThresholdKeyId = toOptionalTrimmedString(sess.ecdsaThresholdKeyId);
+    if (ecdsaThresholdKeyId && integratedKey.ecdsaThresholdKeyId !== ecdsaThresholdKeyId) {
+      await this.presignaturePool.discard(relayerKeyId, presignature.presignatureId);
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'keyHandle does not match mpcSessionId threshold key scope',
       };
     }
     const signingRootMetadata = signingRootMetadataFromIntegratedKey(integratedKey);

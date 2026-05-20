@@ -1,6 +1,6 @@
 import { thresholdEcdsaChainTargetFromChainFamily } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
-  buildEvmFamilyEcdsaKeyIdentity,
+  buildSessionBootstrapKeyContext,
   buildEvmFamilyEcdsaSessionLanePolicy,
 } from './evmFamilyEcdsaIdentity';
 import {
@@ -31,15 +31,10 @@ const subjectId = toEcdsaHssWalletSubjectId('wallet.testnet');
 const ecdsaThresholdKeyId = toEcdsaHssThresholdKeyId('ecdsa-key-1');
 const sessionId = toEcdsaHssThresholdSessionId('threshold-session-1');
 const walletSigningSessionId = toEcdsaHssWalletSigningSessionId('wallet-signing-session-1');
-const key = buildEvmFamilyEcdsaKeyIdentity({
+const keyContext = buildSessionBootstrapKeyContext({
   walletId: walletSessionUserId,
-  subjectId,
   rpId: 'wallet.example.test',
-  ecdsaThresholdKeyId,
-  signingRootId: 'signing-root-1',
-  signingRootVersion: 'default',
   participantIds: [1, 2],
-  thresholdOwnerAddress: '0x1111111111111111111111111111111111111111',
 });
 const lanePolicy = buildEvmFamilyEcdsaSessionLanePolicy({
   chainTarget,
@@ -107,12 +102,13 @@ void ({
 
 void ({
   operation: 'email_otp_bootstrap',
-  ecdsaThresholdKeyId,
+  keyHandle: 'ehss-key-handle-1',
 } satisfies EmailOtpExistingKeyBootstrap);
 
 void ({
   operation: 'session_bootstrap',
-  key,
+  keyHandle: 'ehss-key-handle-1',
+  keyContext,
   lanePolicy,
 } satisfies SessionBootstrap);
 
@@ -124,21 +120,36 @@ void ({
 
 void ({
   operation: 'email_otp_bootstrap',
-  // @ts-expect-error existing-key bootstrap must carry an ECDSA key id
+  // @ts-expect-error existing-key bootstrap must carry keyHandle
+} satisfies EmailOtpExistingKeyBootstrap);
+
+void ({
+  operation: 'email_otp_bootstrap',
+  // @ts-expect-error existing-key bootstrap rejects scattered threshold-key identity
+  ecdsaThresholdKeyId,
+  keyHandle: 'ehss-key-handle-1',
 } satisfies EmailOtpExistingKeyBootstrap);
 
 void ({
   operation: 'session_bootstrap',
-  key,
+  keyContext,
   // @ts-expect-error session bootstrap requires a concrete lane policy
 } satisfies SessionBootstrap);
 
 void ({
   operation: 'session_bootstrap',
-  key,
+  keyHandle: 'ehss-key-handle-1',
+  keyContext,
   lanePolicy,
-  // @ts-expect-error session bootstrap derives key id from canonical key identity
+  // @ts-expect-error session bootstrap rejects top-level threshold-key identifiers
   ecdsaThresholdKeyId,
+} satisfies SessionBootstrap);
+
+void ({
+  operation: 'session_bootstrap',
+  keyContext,
+  lanePolicy,
+  // @ts-expect-error session bootstrap requires keyHandle at the boundary.
 } satisfies SessionBootstrap);
 
 export {};

@@ -332,7 +332,6 @@ async function runPasskeyEvmSign(
             walletId: accountId,
             walletSessionUserId: accountId,
           },
-          subjectId: accountId,
           chainTarget: {
             kind: 'evm' as const,
             namespace: 'eip155' as const,

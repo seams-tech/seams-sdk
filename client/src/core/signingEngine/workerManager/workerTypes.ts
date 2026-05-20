@@ -303,7 +303,7 @@ export interface EmailOtpWorkerOperationMap {
       clientRootShare32B64u: string;
       chainTarget: ThresholdEcdsaChainTarget;
       publicationChainTargets: ThresholdEcdsaChainTarget[];
-      ecdsaThresholdKeyId?: string;
+      keyHandle?: string;
       participantIds?: number[];
       sessionKind?: 'jwt' | 'cookie';
       sessionId?: string;
@@ -405,24 +405,20 @@ export interface EmailOtpWorkerOperationMap {
       restore: {
         sessionId: string;
         walletId: string;
-        subjectId: WalletSubjectId;
-        userId?: string;
         rpId: string;
         chainTarget: ThresholdEcdsaChainTarget;
         walletSigningSessionId: string;
-        signingRootId: string;
-        signingRootVersion?: string;
-        ecdsaThresholdKeyId: string;
-        ethereumAddress: string;
+        keyHandle: string;
         relayerKeyId: string;
-        participantIds?: number[];
-        derivationPath?: string;
+        participantIds: number[];
         sessionKind?: 'jwt' | 'cookie';
         runtimePolicyScope?: ThresholdRuntimePolicyScope;
         ed25519?: {
           sessionId: string;
+          signingRootId: string;
+          signingRootVersion?: string;
           relayerKeyId: string;
-          participantIds?: number[];
+          participantIds: number[];
         };
       };
     };
@@ -466,7 +462,7 @@ export interface EmailOtpWorkerOperationMap {
       thresholdSessionAuthToken?: string;
       sessionKind?: 'jwt' | 'cookie';
       subjectId: WalletSubjectId;
-      ecdsaThresholdKeyId: string;
+      keyHandle: string;
       chainTarget: ThresholdEcdsaChainTarget;
       runtimePolicyScope?: ThresholdRuntimePolicyScope;
     };
