@@ -382,6 +382,10 @@ export async function exportEcdsaKeyWithAuthorization(
   const relayUrl = String(args.record.relayerUrl || ports.requireRelayUrl()).trim();
   const shamirPrimeB64u = String(ports.requireShamirPrimeB64u()).trim();
   const keyHandle = String(toEvmFamilyEcdsaKeyHandle(args.record.keyHandle));
+  const roleLocalState = args.record.ecdsaHssRoleLocalClientState;
+  if (!roleLocalState) {
+    throw new Error('Email OTP ECDSA export requires role-local HSS client state');
+  }
   const thresholdSessionAuthToken = String(args.record.thresholdSessionAuthToken || '').trim();
   const sessionKind = args.record.thresholdSessionKind || 'jwt';
   if (!thresholdSessionAuthToken && sessionKind !== 'cookie') {
@@ -427,8 +431,16 @@ export async function exportEcdsaKeyWithAuthorization(
         thresholdSessionAuthToken,
         sessionKind,
         subjectId: deriveBaseEcdsaSubjectIdFromWalletId(args.walletSession.walletId),
+        ecdsaThresholdKeyId: args.record.ecdsaThresholdKeyId,
+        signingRootId: args.record.signingRootId,
+        signingRootVersion: args.record.signingRootVersion,
+        relayerKeyId: args.record.relayerKeyId,
+        roleLocalState,
+        thresholdSessionId: args.record.thresholdSessionId,
+        walletSigningSessionId: args.record.walletSigningSessionId,
+        thresholdExpiresAtMs: args.record.expiresAtMs,
+        participantIds: args.record.participantIds,
         keyHandle,
-        chainTarget: args.record.chainTarget,
         ...(args.record.runtimePolicyScope
           ? { runtimePolicyScope: args.record.runtimePolicyScope }
           : {}),

@@ -705,7 +705,7 @@ test.describe('signing engine refactor 36 guards', () => {
     expect(offenders, offenders.join('\n')).toEqual([]);
   });
 
-  test('ECDSA HSS prepare request types keep lane identity explicit', () => {
+  test('ECDSA HSS role-local bootstrap types keep lane identity explicit', () => {
     const clientSource = readRepoFile('client/src/core/rpcClients/relayer/thresholdEcdsa.ts');
     const clientSessionPolicySource = readRepoFile(
       'client/src/core/signingEngine/threshold/sessionPolicy.ts',
@@ -718,61 +718,79 @@ test.describe('signing engine refactor 36 guards', () => {
       'client/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts',
     );
     const offenders: string[] = [];
+    const requiredRoleLocalBootstrapFields = [
+      'walletSessionUserId',
+      'rpId',
+      'subjectId',
+      'ecdsaThresholdKeyId',
+      'signingRootId',
+      'signingRootVersion',
+      'keyScope',
+      'relayerKeyId',
+      'clientPublicKey33B64u',
+      'contextBinding32B64u',
+      'sessionId',
+      'walletSigningSessionId',
+      'participantIds',
+    ];
 
-    for (const { source, file, baseName, policyName, policyWalletField, keyIdentityFields } of [
+    for (const { source, file, typeName } of [
       {
         source: clientSource,
         file: 'client/src/core/rpcClients/relayer/thresholdEcdsa.ts',
-        baseName: 'ThresholdEcdsaHssPrepareRequestBase',
-        policyName: null,
-        policyWalletField: 'walletSessionUserId',
-        keyIdentityFields: ['keySelector', 'keyHandle'],
+        typeName: 'ThresholdEcdsaHssRoleLocalBootstrapRequest',
+      },
+      {
+        source: clientSource,
+        file: 'client/src/core/rpcClients/relayer/thresholdEcdsa.ts',
+        typeName: 'ThresholdEcdsaHssRoleLocalBootstrapBody',
       },
       {
         source: serverSource,
         file: 'server/src/core/types.ts',
-        baseName: 'ThresholdEcdsaHssPrepareRequestBase',
-        policyName: 'ThresholdEcdsaBootstrapSessionPolicy',
-        policyWalletField: 'walletSessionUserId',
-        keyIdentityFields: ['keyHandle', 'keySelector'],
+        typeName: 'EcdsaHssClientBootstrapRequestBase',
       },
     ]) {
-      const baseBlock = findTypeDeclaration(source, baseName);
-      const policyBlock =
-        policyName === null ? null : findTypeDeclaration(source, policyName);
-      const prepareBlock = findTypeDeclaration(source, 'ThresholdEcdsaHssPrepareRequest');
-      const policyOffenders =
-        policyBlock === null
-          ? []
-          : [
-              ...expectRequiredFields(
-                policyBlock,
-                [policyWalletField, 'subjectId', 'chainTarget', 'sessionId'],
-                `${file} ${policyName}`,
-              ),
-              ...expectNoNearAccountId(policyBlock, `${file} ${policyName}`),
-            ];
+      const block = findTypeDeclaration(source, typeName);
       offenders.push(
-        ...expectRequiredFields(baseBlock, ['walletSessionUserId'], `${file} ${baseName}`),
-        ...expectNoNearAccountId(baseBlock, `${file} ${baseName}`),
-        ...policyOffenders,
-        ...expectRequiredFields(
-          prepareBlock,
-          ['sessionPolicy', 'subjectId', 'chainTarget'],
-          `${file} ThresholdEcdsaHssPrepareRequest`,
-        ),
-        ...expectAnyDeclaredField(
-          prepareBlock,
-          keyIdentityFields,
-          `${file} ThresholdEcdsaHssPrepareRequest`,
-        ),
-        ...expectNoNearAccountId(
-          prepareBlock,
-          `${file} ThresholdEcdsaHssPrepareRequest`,
-          { allowNeverTripwire: true },
-        ),
+        ...expectRequiredFields(block, requiredRoleLocalBootstrapFields, `${file} ${typeName}`),
+        ...expectNoField(block, 'chainTarget', `${file} ${typeName}`),
+        ...expectNoField(block, 'keyHandle', `${file} ${typeName}`),
+        ...expectNoNearAccountId(block, `${file} ${typeName}`, {
+          allowNeverTripwire: true,
+        }),
       );
     }
+
+    const serverRoleLocalRecordBlock = findTypeDeclaration(serverSource, 'EcdsaHssRoleLocalKeyRecord');
+    offenders.push(
+      ...expectRequiredFields(
+        serverRoleLocalRecordBlock,
+        [
+          'version',
+          'keyHandle',
+          'walletSessionUserId',
+          'subjectId',
+          'ecdsaThresholdKeyId',
+          'relayerKeyId',
+          'clientPublicKey33B64u',
+          'relayerPublicKey33B64u',
+          'groupPublicKey33B64u',
+          'relayerShare32B64u',
+          'relayerCaitSithInput',
+        ],
+        'server/src/core/types.ts EcdsaHssRoleLocalKeyRecord',
+      ),
+      ...expectNoField(
+        serverRoleLocalRecordBlock,
+        'chainTarget',
+        'server/src/core/types.ts EcdsaHssRoleLocalKeyRecord',
+      ),
+      ...expectNoNearAccountId(
+        serverRoleLocalRecordBlock,
+        'server/src/core/types.ts EcdsaHssRoleLocalKeyRecord',
+      ),
+    );
 
     const clientEcdsaPolicyBlock = findTypeDeclaration(
       clientSessionPolicySource,
@@ -845,6 +863,59 @@ test.describe('signing engine refactor 36 guards', () => {
           offenders.push(`${context} must reject ${field} with never`);
         }
       }
+    }
+
+    expect(offenders, offenders.join('\n')).toEqual([]);
+  });
+
+  test('ECDSA HSS WASM package exports stay role-local', () => {
+    const clientDts = readRepoFile('wasm/hss_client_signer/pkg/hss_client_signer.d.ts');
+    const serverDts = readRepoFile('wasm/eth_signer/pkg/eth_signer.d.ts');
+    const nearWorkerDts = readRepoFile('wasm/near_signer/pkg/wasm_signer_worker.d.ts');
+    const offenders: string[] = [];
+
+    for (const symbol of [
+      'threshold_ecdsa_hss_prepare_session',
+      'threshold_ecdsa_hss_prepare_client_request',
+      'threshold_ecdsa_hss_finalize_client_request',
+      'threshold_ecdsa_hss_prepare_server_session',
+      'threshold_ecdsa_hss_prepare_server_ceremony',
+      'threshold_ecdsa_hss_finalize_server_report',
+      'threshold_ecdsa_hss_open_server_output',
+    ]) {
+      if (clientDts.includes(symbol)) offenders.push(`client WASM still exports ${symbol}`);
+      if (serverDts.includes(symbol)) offenders.push(`server WASM still exports ${symbol}`);
+    }
+
+    for (const symbol of [
+      'PrepareThresholdEcdsaHssSession',
+      'PrepareThresholdEcdsaHssClientRequest',
+      'FinalizeThresholdEcdsaHssClientRequest',
+    ]) {
+      if (nearWorkerDts.includes(symbol)) offenders.push(`near worker still exposes ${symbol}`);
+    }
+
+    for (const symbol of [
+      'threshold_ecdsa_hss_role_local_client_bootstrap',
+      'threshold_ecdsa_hss_role_local_export_artifact',
+    ]) {
+      if (!clientDts.includes(symbol)) offenders.push(`client WASM is missing ${symbol}`);
+    }
+
+    if (clientDts.includes('threshold_ecdsa_hss_role_local_relayer_bootstrap')) {
+      offenders.push('client WASM exposes relayer bootstrap helper');
+    }
+    if (!serverDts.includes('threshold_ecdsa_hss_role_local_relayer_bootstrap')) {
+      offenders.push('server WASM is missing role-local relayer bootstrap helper');
+    }
+
+    for (const line of [
+      'BuildThresholdEcdsaHssRoleLocalClientBootstrap = 13',
+      'BuildThresholdEcdsaHssRoleLocalExportArtifact = 14',
+      'BuildThresholdEcdsaHssRoleLocalClientBootstrapSuccess = 30',
+      'BuildThresholdEcdsaHssRoleLocalExportArtifactSuccess = 32',
+    ]) {
+      if (!nearWorkerDts.includes(line)) offenders.push(`near worker is missing ${line}`);
     }
 
     expect(offenders, offenders.join('\n')).toEqual([]);

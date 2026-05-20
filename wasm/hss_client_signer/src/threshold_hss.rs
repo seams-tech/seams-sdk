@@ -3,14 +3,16 @@ use crate::js::{
     get_required_string, get_required_u16_vec, get_required_u32, object, set_string, set_u16_vec,
     set_u32,
 };
-use ecdsa_hss::{encode_context_v1 as encode_ecdsa_context_v1, EcdsaHssStableKeyContextV1};
+use ecdsa_hss::{
+    derive_client_share_v1, reconstruct_export_key_v1, EcdsaHssStableKeyContextV1,
+    PublicIdentityV1,
+};
 use ed25519_hss::{
     client::ClientDriverState, protocol::prepare_prime_order_succinct_hss_client,
     shared::CanonicalContext, wire::WireMessage,
 };
 use js_sys::{Reflect, Uint8Array};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -132,107 +134,93 @@ pub fn threshold_ed25519_hss_open_seed_output(args: JsValue) -> Result<JsValue, 
 }
 
 #[wasm_bindgen]
-pub fn threshold_ecdsa_hss_prepare_session(args: JsValue) -> Result<JsValue, JsValue> {
+pub fn threshold_ecdsa_hss_role_local_client_bootstrap(args: JsValue) -> Result<JsValue, JsValue> {
     let context = ecdsa_canonical_context_from_js(&args)?;
     let y_client32_le = get_required_client_root_share32(&args)?;
-    let context_binding = ecdsa_context_binding(&context)?;
-    let state = ThresholdEcdsaHssClientSessionState {
-        wallet_session_user_id: context.wallet_session_user_id,
-        subject_id: context.subject_id,
-        chain_target: context.chain_target,
-        ecdsa_threshold_key_id: context.ecdsa_threshold_key_id,
-        signing_root_id: context.signing_root_id,
-        signing_root_version: context.signing_root_version,
-        key_purpose: context.key_purpose,
-        key_version: context.key_version,
-        context_binding,
-        y_client32_le,
-    };
+    let client_share = derive_client_share_v1(&context, y_client32_le)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
     let out = object();
-    set_string(&out, "walletSessionUserId", &state.wallet_session_user_id)?;
-    set_string(&out, "subjectId", &state.subject_id)?;
-    set_string(&out, "chainTarget", &state.chain_target)?;
-    set_string(&out, "ecdsaThresholdKeyId", &state.ecdsa_threshold_key_id)?;
-    set_string(&out, "signingRootId", &state.signing_root_id)?;
-    set_string(&out, "signingRootVersion", &state.signing_root_version)?;
-    set_string(&out, "keyPurpose", &state.key_purpose)?;
-    set_string(&out, "keyVersion", &state.key_version)?;
+    set_string(&out, "walletSessionUserId", &context.wallet_session_user_id)?;
+    set_string(&out, "subjectId", &context.subject_id)?;
+    set_string(&out, "ecdsaThresholdKeyId", &context.ecdsa_threshold_key_id)?;
+    set_string(&out, "signingRootId", &context.signing_root_id)?;
+    set_string(&out, "signingRootVersion", &context.signing_root_version)?;
+    set_string(&out, "keyPurpose", &context.key_purpose)?;
+    set_string(&out, "keyVersion", &context.key_version)?;
     set_string(
         &out,
-        "contextBindingB64u",
-        &base64_url_encode(&state.context_binding),
+        "contextBinding32B64u",
+        &base64_url_encode(&client_share.context_binding32),
     )?;
     set_string(
         &out,
-        "evaluatorDriverStateB64u",
-        &encode_state_blob(&state, "threshold ecdsa hss client session state")
-            .map_err(|e| JsValue::from_str(&e))?,
+        "clientShare32B64u",
+        &base64_url_encode(&client_share.x_client32),
+    )?;
+    set_string(
+        &out,
+        "clientPublicKey33B64u",
+        &base64_url_encode(&client_share.client_public_key33),
+    )?;
+    set_u32(&out, "clientShareRetryCounter", client_share.retry_counter)?;
+    set_string(
+        &out,
+        "mappedPrivateShare32B64u",
+        &base64_url_encode(&client_share.mapped_client_share32),
+    )?;
+    set_string(
+        &out,
+        "verifyingShare33B64u",
+        &base64_url_encode(&client_share.client_public_key33),
     )?;
     Ok(out.into())
 }
 
 #[wasm_bindgen]
-pub fn threshold_ecdsa_hss_prepare_client_request(args: JsValue) -> Result<JsValue, JsValue> {
-    let evaluator_driver_state_b64u = get_required_string(&args, "evaluatorDriverStateB64u")?;
-    let server_assist_init_message_b64u =
-        get_required_string(&args, "serverAssistInitMessageB64u")?;
-
-    let state: ThresholdEcdsaHssClientSessionState =
-        decode_state_blob(&evaluator_driver_state_b64u, "evaluatorDriverStateB64u")?;
-    let expected_client_root_share32 = get_required_client_root_share32(&args)?;
-    if expected_client_root_share32 != state.y_client32_le {
-        return Err(JsValue::from_str(
-            "clientRootShare32 did not match the prepared ECDSA HSS client session",
-        ));
-    }
-    let server_assist_init: ThresholdEcdsaHssServerAssistInitWire = decode_state_blob(
-        &server_assist_init_message_b64u,
-        "serverAssistInitMessageB64u",
+pub fn threshold_ecdsa_hss_role_local_export_artifact(args: JsValue) -> Result<JsValue, JsValue> {
+    let context = ecdsa_canonical_context_from_js(&args)?;
+    let y_client32_le = get_required_client_root_share32(&args)?;
+    let client_share = derive_client_share_v1(&context, y_client32_le)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let server_export_share32 = decode_fixed_32(
+        &get_required_string(&args, "serverExportShare32B64u")?,
+        "serverExportShare32B64u",
     )?;
-    if server_assist_init.context_binding != state.context_binding {
-        return Err(JsValue::from_str(
-            "serverAssistInitMessageB64u did not match the prepared ECDSA HSS client session",
-        ));
-    }
-
-    let request = ThresholdEcdsaHssClientEvalRequestWire {
-        context_binding: state.context_binding,
-        y_client32_le: state.y_client32_le,
+    let identity = PublicIdentityV1 {
+        context_bytes: client_share.context_bytes.clone(),
+        context_binding32: decode_fixed_32(
+            &get_required_string(&args, "contextBinding32B64u")?,
+            "contextBinding32B64u",
+        )?,
+        client_public_key33: decode_fixed_33(
+            &get_required_string(&args, "clientPublicKey33B64u")?,
+            "clientPublicKey33B64u",
+        )?,
+        relayer_public_key33: decode_fixed_33(
+            &get_required_string(&args, "relayerPublicKey33B64u")?,
+            "relayerPublicKey33B64u",
+        )?,
+        threshold_public_key33: decode_fixed_33(
+            &get_required_string(&args, "groupPublicKey33B64u")?,
+            "groupPublicKey33B64u",
+        )?,
+        threshold_ethereum_address20: decode_ethereum_address20(
+            &get_required_string(&args, "ethereumAddress")?,
+        )?,
+        client_share_retry_counter: get_required_u32(&args, "clientShareRetryCounter")?,
+        relayer_share_retry_counter: 0,
     };
+    let private_key32 = reconstruct_export_key_v1(&client_share, &server_export_share32, &identity)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
     let out = object();
+    set_string(&out, "publicKeyHex", &hex_prefixed(&identity.threshold_public_key33))?;
+    set_string(&out, "privateKeyHex", &hex_prefixed(&private_key32))?;
     set_string(
         &out,
-        "clientEvalRequestB64u",
-        &encode_state_blob(&request, "threshold ecdsa hss client eval request")
-            .map_err(|e| JsValue::from_str(&e))?,
-    )?;
-    Ok(out.into())
-}
-
-#[wasm_bindgen]
-pub fn threshold_ecdsa_hss_finalize_client_request(args: JsValue) -> Result<JsValue, JsValue> {
-    let evaluator_driver_state_b64u = get_required_string(&args, "evaluatorDriverStateB64u")?;
-    let server_eval_response_b64u = get_required_string(&args, "serverEvalResponseB64u")?;
-    let state: ThresholdEcdsaHssClientSessionState =
-        decode_state_blob(&evaluator_driver_state_b64u, "evaluatorDriverStateB64u")?;
-    let server_eval_response: ThresholdEcdsaHssServerEvalResponseWire =
-        decode_state_blob(&server_eval_response_b64u, "serverEvalResponseB64u")?;
-    if server_eval_response.context_binding != state.context_binding {
-        return Err(JsValue::from_str(
-            "serverEvalResponseB64u did not match the prepared ECDSA HSS client session",
-        ));
-    }
-
-    let finalize = ThresholdEcdsaHssClientFinalizeWire {
-        context_binding: state.context_binding,
-    };
-    let out = object();
-    set_string(
-        &out,
-        "clientEvalFinalizeB64u",
-        &encode_state_blob(&finalize, "threshold ecdsa hss client finalize")
-            .map_err(|e| JsValue::from_str(&e))?,
+        "ethereumAddress",
+        &hex_prefixed(&identity.threshold_ethereum_address20),
     )?;
     Ok(out.into())
 }
@@ -272,58 +260,16 @@ fn get_required_client_root_share32(args: &JsValue) -> Result<[u8; 32], JsValue>
     decode_fixed_32(&client_root_share32_b64u, "clientRootShare32B64u")
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ThresholdEcdsaHssClientSessionState {
-    wallet_session_user_id: String,
-    subject_id: String,
-    chain_target: String,
-    ecdsa_threshold_key_id: String,
-    signing_root_id: String,
-    signing_root_version: String,
-    key_purpose: String,
-    key_version: String,
-    context_binding: [u8; 32],
-    y_client32_le: [u8; 32],
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ThresholdEcdsaHssServerAssistInitWire {
-    context_binding: [u8; 32],
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ThresholdEcdsaHssClientEvalRequestWire {
-    context_binding: [u8; 32],
-    y_client32_le: [u8; 32],
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ThresholdEcdsaHssServerEvalResponseWire {
-    context_binding: [u8; 32],
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ThresholdEcdsaHssClientFinalizeWire {
-    context_binding: [u8; 32],
-}
-
 fn ecdsa_canonical_context_from_js(args: &JsValue) -> Result<EcdsaHssStableKeyContextV1, JsValue> {
     Ok(EcdsaHssStableKeyContextV1::new(
         get_required_string(args, "walletSessionUserId")?,
         get_required_string(args, "subjectId")?,
-        get_required_string(args, "chainTarget")?,
         get_required_string(args, "ecdsaThresholdKeyId")?,
         get_required_string(args, "signingRootId")?,
         get_required_string(args, "signingRootVersion")?,
         get_required_string(args, "keyPurpose")?,
         get_required_string(args, "keyVersion")?,
     ))
-}
-
-fn ecdsa_context_binding(context: &EcdsaHssStableKeyContextV1) -> Result<[u8; 32], JsValue> {
-    let encoded =
-        encode_ecdsa_context_v1(context).map_err(|e| JsValue::from_str(&e.to_string()))?;
-    Ok(Sha256::digest(encoded).into())
 }
 
 fn decode_state_blob<T: for<'de> Deserialize<'de>>(
@@ -349,6 +295,40 @@ fn decode_fixed_32(value: &str, field_name: &str) -> Result<[u8; 32], JsValue> {
         .as_slice()
         .try_into()
         .map_err(|_| JsValue::from_str(&format!("{field_name} must decode to 32 bytes")))
+}
+
+fn decode_fixed_33(value: &str, field_name: &str) -> Result<[u8; 33], JsValue> {
+    let decoded = base64_url_decode(value)
+        .map_err(|e| JsValue::from_str(&format!("Invalid {field_name}: {e}")))?;
+    decoded
+        .as_slice()
+        .try_into()
+        .map_err(|_| JsValue::from_str(&format!("{field_name} must decode to 33 bytes")))
+}
+
+fn decode_ethereum_address20(value: &str) -> Result<[u8; 20], JsValue> {
+    let text = value.trim().strip_prefix("0x").unwrap_or(value.trim());
+    if text.len() != 40 {
+        return Err(JsValue::from_str("ethereumAddress must be 20 bytes hex"));
+    }
+    let mut out = [0u8; 20];
+    for (i, byte) in out.iter_mut().enumerate() {
+        let start = i * 2;
+        *byte = u8::from_str_radix(&text[start..start + 2], 16)
+            .map_err(|_| JsValue::from_str("ethereumAddress must be hex"))?;
+    }
+    Ok(out)
+}
+
+fn hex_prefixed(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(2 + bytes.len() * 2);
+    out.push_str("0x");
+    for byte in bytes {
+        out.push(HEX[(byte >> 4) as usize] as char);
+        out.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    out
 }
 
 fn decode_wire_message(value: &str, field_name: &str) -> Result<WireMessage, JsValue> {

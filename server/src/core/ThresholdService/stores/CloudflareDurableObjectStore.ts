@@ -3,9 +3,8 @@ import type { CloudflareDurableObjectNamespaceLike, ThresholdStoreConfigInput } 
 import { THRESHOLD_DO_OBJECT_NAME_DEFAULT } from '../../defaultConfigsServer';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { deriveThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
-import { parseCurrentThresholdEcdsaKeyRecord } from '../postgresRecords';
 import {
-  parseThresholdEcdsaIntegratedKeyRecord,
+  parseEcdsaHssRoleLocalKeyRecord,
   isObject,
   parseThresholdEcdsaPresignSessionRecord,
   parseThresholdEcdsaPresignatureRelayerShareRecord,
@@ -27,6 +26,7 @@ import {
   toThresholdEd25519SessionPrefix,
 } from '../validation';
 import type {
+  ThresholdAuthReplayGuardResult,
   ThresholdEd25519AuthConsumeUsesResult,
   Ed25519AuthSessionRecord,
   Ed25519AuthSessionStore,
@@ -36,7 +36,7 @@ import type {
   ThresholdEd25519KeyRecord,
   ThresholdEd25519KeyStore,
 } from './KeyStore';
-import type { ThresholdEcdsaIntegratedKeyRecord } from '../../types';
+import type { EcdsaHssRoleLocalKeyRecord } from '../../types';
 import type {
   ThresholdEd25519CoordinatorSigningSessionRecord,
   ThresholdEd25519MpcSessionRecord,
@@ -87,6 +87,11 @@ type DoAuthConsumeUseCountOnceRequest = {
   key: string;
   idempotencyKey: string;
 };
+type DoAuthReserveReplayGuardRequest = {
+  op: 'authReserveReplayGuard';
+  key: string;
+  expiresAtMs: number;
+};
 type DoEcdsaPresignPutRequest = { op: 'ecdsaPresignPut'; listKey: string; value: unknown };
 type DoEcdsaPresignReserveRequest = {
   op: 'ecdsaPresignReserve';
@@ -123,6 +128,7 @@ type DoRequest =
   | DoGetDelRequest
   | DoAuthConsumeUseCountRequest
   | DoAuthConsumeUseCountOnceRequest
+  | DoAuthReserveReplayGuardRequest
   | DoEcdsaPresignPutRequest
   | DoEcdsaPresignReserveRequest
   | DoEcdsaPresignReserveByIdRequest
@@ -139,20 +145,21 @@ type ThresholdEcdsaSharedIdentityGuard = {
   contextKey: string;
   identityValue: string;
 };
+type ThresholdEcdsaStoredKeyRecord = EcdsaHssRoleLocalKeyRecord;
 
 function ecdsaIdentityPart(value: unknown): string {
   return encodeURIComponent(String(value ?? '').trim());
 }
 
-function ecdsaSigningRootVersion(record: ThresholdEcdsaIntegratedKeyRecord): string {
+function ecdsaSigningRootVersion(record: ThresholdEcdsaStoredKeyRecord): string {
   return String(record.signingRootVersion || '').trim() || 'default';
 }
 
-async function withThresholdEcdsaRecordKeyHandle(
-  record: ThresholdEcdsaIntegratedKeyRecord,
-): Promise<ThresholdEcdsaIntegratedKeyRecord & { keyHandle: string }> {
-  const parsed = parseCurrentThresholdEcdsaKeyRecord(record);
-  if (!parsed) throw new Error('Invalid threshold-ecdsa integrated key record');
+async function withEcdsaHssRoleLocalRecordKeyHandle(
+  record: EcdsaHssRoleLocalKeyRecord,
+): Promise<EcdsaHssRoleLocalKeyRecord & { keyHandle: string }> {
+  const parsed = parseEcdsaHssRoleLocalKeyRecord(record);
+  if (!parsed) throw new Error('Invalid threshold-ecdsa role-local key record');
   const keyHandle = String(
     await deriveThresholdEcdsaKeyHandle({
       ecdsaThresholdKeyId: parsed.ecdsaThresholdKeyId,
@@ -160,26 +167,21 @@ async function withThresholdEcdsaRecordKeyHandle(
       signingRootVersion: ecdsaSigningRootVersion(parsed),
     }),
   );
-  const storedKeyHandle = toOptionalTrimmedString(parsed.keyHandle);
-  if (storedKeyHandle && storedKeyHandle !== keyHandle) {
+  if (parsed.keyHandle !== keyHandle) {
     throw new Error('[threshold-ecdsa] ECDSA key handle does not match threshold key identity');
   }
   return { ...parsed, keyHandle };
 }
 
-async function parseStoredThresholdEcdsaKeyRecord(
+async function parseStoredEcdsaHssRoleLocalKeyRecord(
   raw: unknown,
-): Promise<(ThresholdEcdsaIntegratedKeyRecord & { keyHandle: string }) | null> {
-  const parsed = parseThresholdEcdsaIntegratedKeyRecord(raw);
-  return parsed ? await withThresholdEcdsaRecordKeyHandle(parsed) : null;
-}
-
-function ecdsaParticipantIdsKey(record: ThresholdEcdsaIntegratedKeyRecord): string {
-  return record.participantIds.map((id) => String(Number(id))).join(',');
+): Promise<(EcdsaHssRoleLocalKeyRecord & { keyHandle: string }) | null> {
+  const parsed = parseEcdsaHssRoleLocalKeyRecord(raw);
+  return parsed ? await withEcdsaHssRoleLocalRecordKeyHandle(parsed) : null;
 }
 
 function thresholdEcdsaSharedIdentityGuard(
-  record: ThresholdEcdsaIntegratedKeyRecord,
+  record: ThresholdEcdsaStoredKeyRecord,
 ): ThresholdEcdsaSharedIdentityGuard {
   return {
     contextKey: [
@@ -197,7 +199,7 @@ function thresholdEcdsaSharedIdentityGuard(
       String(record.ethereumAddress || '')
         .trim()
         .toLowerCase(),
-      ecdsaParticipantIdsKey(record),
+      record.relayerKeyId,
     ]
       .map(ecdsaIdentityPart)
       .join('|'),
@@ -351,6 +353,10 @@ export class CloudflareDurableObjectEd25519AuthSessionStore implements Ed25519Au
     return `${this.keyPrefix}${id}`;
   }
 
+  private replayGuardKey(scopeId: string, replayKey: string): string {
+    return `${this.keyPrefix}replay:${toOptionalTrimmedString(scopeId) || 'missing'}:${toOptionalTrimmedString(replayKey) || 'missing'}`;
+  }
+
   async putSession(
     id: string,
     record: Ed25519AuthSessionRecord,
@@ -427,6 +433,20 @@ export class CloudflareDurableObjectEd25519AuthSessionStore implements Ed25519Au
     });
     if (!resp.ok) return { ok: false, code: resp.code, message: resp.message };
     return { ok: true, remainingUses: resp.value.remainingUses };
+  }
+
+  async reserveReplayGuard(
+    scopeId: string,
+    replayKey: string,
+    expiresAtMs: number,
+  ): Promise<ThresholdAuthReplayGuardResult> {
+    const resp = await callDo<{ reserved: true }>(this.stub, {
+      op: 'authReserveReplayGuard',
+      key: this.replayGuardKey(scopeId, replayKey),
+      expiresAtMs,
+    });
+    if (!resp.ok) return { ok: false, code: resp.code, message: resp.message };
+    return { ok: true };
   }
 }
 
@@ -573,7 +593,7 @@ export class CloudflareDurableObjectThresholdEcdsaIntegratedKeyStore implements 
     return `${this.keyPrefix}${keyHandle}`;
   }
 
-  async getByKeyHandle(keyHandle: string): Promise<ThresholdEcdsaIntegratedKeyRecord | null> {
+  async getRoleLocalByKeyHandle(keyHandle: string): Promise<EcdsaHssRoleLocalKeyRecord | null> {
     const handle = toOptionalTrimmedString(keyHandle);
     if (!handle) return null;
     const directResp = await callDo<unknown | null>(this.stub, {
@@ -581,7 +601,7 @@ export class CloudflareDurableObjectThresholdEcdsaIntegratedKeyStore implements 
       key: this.recordKey(handle),
     });
     if (directResp.ok) {
-      const direct = await parseStoredThresholdEcdsaKeyRecord(directResp.value);
+      const direct = await parseStoredEcdsaHssRoleLocalKeyRecord(directResp.value);
       if (direct) {
         if (direct.keyHandle !== handle) {
           throw new Error(
@@ -600,11 +620,11 @@ export class CloudflareDurableObjectThresholdEcdsaIntegratedKeyStore implements 
     if (!recordKey) return null;
     const recordResp = await callDo<unknown | null>(this.stub, { op: 'get', key: recordKey });
     if (!recordResp.ok) return null;
-    return await parseStoredThresholdEcdsaKeyRecord(recordResp.value);
+    return await parseStoredEcdsaHssRoleLocalKeyRecord(recordResp.value);
   }
 
-  async putByKeyHandle(record: ThresholdEcdsaIntegratedKeyRecord): Promise<void> {
-    const parsed = await withThresholdEcdsaRecordKeyHandle(record);
+  async putRoleLocalByKeyHandle(record: EcdsaHssRoleLocalKeyRecord): Promise<void> {
+    const parsed = await withEcdsaHssRoleLocalRecordKeyHandle(record);
     const guard = thresholdEcdsaSharedIdentityGuard(parsed);
     const recordKey = this.recordKey(parsed.keyHandle);
     const resp = await callDo<void>(this.stub, {
@@ -629,7 +649,7 @@ export class CloudflareDurableObjectThresholdEcdsaIntegratedKeyStore implements 
       key: canonicalRecordKey,
     });
     const canonicalRecord = canonicalRecordResp.ok
-      ? await parseStoredThresholdEcdsaKeyRecord(canonicalRecordResp.value)
+      ? await parseStoredEcdsaHssRoleLocalKeyRecord(canonicalRecordResp.value)
       : null;
     const indexResp = canonicalRecord
       ? null
@@ -648,7 +668,7 @@ export class CloudflareDurableObjectThresholdEcdsaIntegratedKeyStore implements 
     if (recordResp && !recordResp.ok) return;
     const record =
       canonicalRecord ||
-      (await parseStoredThresholdEcdsaKeyRecord(recordResp ? recordResp.value : null));
+      (await parseStoredEcdsaHssRoleLocalKeyRecord(recordResp ? recordResp.value : null));
     if (!record) {
       const resp = await callDo<void>(this.stub, { op: 'del', key: keyHandleKey });
       if (!resp.ok) throw new Error(resp.message);

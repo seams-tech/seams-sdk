@@ -50,6 +50,9 @@ function makeStore(entries: {
     async consumeUseCountOnce(id: string) {
       return consume[id] || { ok: false, code: 'not_found', message: 'missing' };
     },
+    async reserveReplayGuard() {
+      return { ok: true };
+    },
   };
 }
 

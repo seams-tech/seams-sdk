@@ -7,7 +7,6 @@ import {
 import type { InitInput } from '../../../wasm/near_signer/pkg/wasm_signer_worker.js';
 import type { Logger } from './logger';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
-import type { WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
 import type {
   SigningRootSecretDecryptAdapter,
   SigningRootSecretResolverAdapters,
@@ -946,133 +945,6 @@ export type EcdsaThresholdKeyId = string;
 export type ThresholdEcdsaChainTarget =
   import('./thresholdEcdsaChainTarget').ThresholdEcdsaChainTarget;
 
-export type ThresholdEcdsaHssOperation =
-  | 'registration_bootstrap'
-  | 'email_otp_bootstrap'
-  | 'session_bootstrap'
-  | 'explicit_key_export';
-
-type ThresholdEcdsaEmailOtpEnrollmentClaims = {
-  walletId: string;
-  userId: string;
-  otpChannel: WalletEmailOtpChannel;
-  thresholdEcdsaClientVerifyingShareB64u: string;
-};
-
-type ThresholdEcdsaHssPrepareRequestBase = {
-  walletSessionUserId: string;
-  rpId: string;
-  runtimeEnvironmentId?: string;
-  /**
-   * Internal relay field: optional validated threshold-ed25519 session claims
-   * extracted from bearer/cookie transport by the route layer.
-   */
-  ed25519SessionClaims?: Record<string, unknown>;
-  /**
-   * Internal relay field: optional validated app-session claims extracted from
-   * bearer/cookie transport by the route layer.
-   */
-  appSessionClaims?: Record<string, unknown>;
-  /**
-   * Internal relay field: validated Email OTP enrollment metadata extracted by
-   * the route layer for Email OTP-authorized threshold ECDSA bootstrap.
-   */
-  emailOtpEnrollmentClaims?: ThresholdEcdsaEmailOtpEnrollmentClaims;
-  /**
-   * Internal relay field: optional validated threshold-ecdsa session claims
-   * extracted from bearer/cookie transport by the route layer.
-   */
-  ecdsaSessionClaims?: Record<string, unknown>;
-  /**
-   * Internal relay field: registration-scoped continuation claims extracted by
-   * the route layer for post-registration ECDSA provisioning.
-   */
-  registrationContinuationClaims?: Record<string, unknown>;
-  sessionKind?: 'jwt' | 'cookie';
-};
-
-export type ThresholdEcdsaHssPrepareRequest =
-  | (ThresholdEcdsaHssPrepareRequestBase & {
-      operation: 'registration_bootstrap';
-      keygenSessionId: string;
-      sessionPolicy: ThresholdEcdsaBootstrapSessionPolicy;
-      webauthn_authentication?: WebAuthnAuthenticationCredential;
-      keyHandle?: never;
-      ecdsaThresholdKeyId?: never;
-      subjectId?: never;
-      chainTarget?: never;
-    })
-  | (ThresholdEcdsaHssPrepareRequestBase & {
-      operation: 'email_otp_bootstrap';
-      keygenSessionId: string;
-      sessionPolicy: ThresholdEcdsaBootstrapSessionPolicy;
-      keyHandle?: string;
-      ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
-      webauthn_authentication?: WebAuthnAuthenticationCredential;
-      subjectId?: never;
-      chainTarget?: never;
-    })
-  | (ThresholdEcdsaHssPrepareRequestBase & {
-      operation: 'session_bootstrap';
-      keygenSessionId: string;
-      sessionPolicy: ThresholdEcdsaBootstrapSessionPolicy;
-      keyHandle?: string;
-      ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
-      webauthn_authentication?: WebAuthnAuthenticationCredential;
-      subjectId?: never;
-      chainTarget?: never;
-    })
-  | (ThresholdEcdsaHssPrepareRequestBase & {
-      operation: 'explicit_key_export';
-      subjectId: string;
-      chainTarget: ThresholdEcdsaChainTarget;
-      keyHandle?: string;
-      ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
-      ecdsaSessionClaims: Record<string, unknown>;
-      keygenSessionId?: never;
-      sessionPolicy?: never;
-      webauthn_authentication?: never;
-      emailOtpEnrollmentClaims?: never;
-      registrationContinuationClaims?: never;
-    });
-
-export interface ThresholdEcdsaHssPrepareResponse {
-  ok: boolean;
-  code?: string;
-  message?: string;
-  ceremonyId?: string;
-  keyHandle?: string;
-  preparedServerSessionB64u?: string;
-  serverAssistInitB64u?: string;
-  hssContext?: {
-    walletSessionUserId: string;
-    subjectId: string;
-    chainTarget: ThresholdEcdsaChainTarget;
-    ecdsaThresholdKeyId: EcdsaThresholdKeyId;
-    signingRootId: string;
-    signingRootVersion: string;
-    keyPurpose: string;
-    keyVersion: string;
-  };
-}
-
-export interface ThresholdEcdsaHssRespondRequest {
-  ceremonyId: string;
-  requestMessageB64u: string;
-}
-
-export interface ThresholdEcdsaHssRespondResponse {
-  ok: boolean;
-  code?: string;
-  message?: string;
-  responseMessageB64u?: string;
-}
-
-export interface ThresholdEcdsaHssFinalizeRequest {
-  ceremonyId: string;
-  clientFinalizeMessageB64u: string;
-}
-
 export interface ThresholdEcdsaHssFinalizeResponse {
   ok: boolean;
   code?: string;
@@ -1106,28 +978,170 @@ export interface ThresholdEcdsaHssFinalizeResponse {
   canonicalEthereumAddress?: string;
 }
 
-export interface ThresholdEcdsaIntegratedKeyRecord {
-  version: 'threshold_ecdsa_hss_key_v1';
-  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
-  keyHandle?: string;
+export type EcdsaHssErrorCode =
+  | 'invalid_body'
+  | 'unauthorized'
+  | 'forbidden'
+  | 'not_found'
+  | 'stale_state'
+  | 'relayer_key_mismatch'
+  | 'context_mismatch'
+  | 'public_key_invalid'
+  | 'identity_mismatch'
+  | 'zero_canonical_key'
+  | 'export_authorization_invalid'
+  | 'export_authorization_expired'
+  | 'export_nonce_replay'
+  | 'presign_session_invalid'
+  | 'presign_session_burned'
+  | 'pool_empty'
+  | 'internal';
+
+export type EcdsaHssRouteResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; code: EcdsaHssErrorCode; message: string; retryAfterMs?: number };
+
+export type EcdsaHssRoleLocalFormatVersion = 'ecdsa-hss-role-local';
+export type EcdsaHssRoleLocalExportFormatVersion = 'ecdsa-hss-role-local-export';
+export type EcdsaHssKeyScope = 'evm-family';
+
+export interface EcdsaHssPublicIdentity {
+  clientPublicKey33B64u: string;
+  relayerPublicKey33B64u: string;
+  groupPublicKey33B64u: string;
+  ethereumAddress: string;
+}
+
+export interface EcdsaHssCaitSithInput {
+  participantId: 1 | 2;
+  mappedPrivateShare32B64u: string;
+  verifyingShare33B64u: string;
+}
+
+export interface EcdsaHssClientRootProof {
+  version: 'ecdsa-hss:role-local:first-bootstrap-root-proof:v1';
+  digest32B64u: string;
+  signature65B64u: string;
+}
+
+export interface EcdsaHssPasskeyFirstBootstrapAuthorization {
+  kind: 'passkey_first_bootstrap';
+  webauthn_authentication: WebAuthnAuthenticationCredential;
+  runtimePolicyScope?: RuntimePolicyScope;
+  runtimeEnvironmentId?: string;
+}
+
+interface EcdsaHssClientBootstrapRequestBase {
+  formatVersion: EcdsaHssRoleLocalFormatVersion;
   walletSessionUserId: string;
-  subjectId: string;
   rpId: string;
-  schemeId: string;
-  clientVerifyingShareB64u: string;
+  subjectId: string;
+  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  signingRootId: string;
+  signingRootVersion: string;
+  keyScope: EcdsaHssKeyScope;
+  relayerKeyId: string;
+  clientPublicKey33B64u: string;
+  clientShareRetryCounter: number;
+  contextBinding32B64u: string;
+  requestId: string;
+  sessionId: string;
+  walletSigningSessionId: string;
+  ttlMs: number;
+  remainingUses: number;
+  participantIds: number[];
+}
+
+export type EcdsaHssClientBootstrapRequest =
+  | (EcdsaHssClientBootstrapRequestBase & {
+      clientRootProof: EcdsaHssClientRootProof;
+      passkeyFirstBootstrapAuthorization?: never;
+    })
+  | (EcdsaHssClientBootstrapRequestBase & {
+      clientRootProof?: never;
+      passkeyFirstBootstrapAuthorization: EcdsaHssPasskeyFirstBootstrapAuthorization;
+    })
+  | (EcdsaHssClientBootstrapRequestBase & {
+      clientRootProof?: never;
+      passkeyFirstBootstrapAuthorization?: never;
+    });
+
+export interface EcdsaHssServerBootstrapResponse {
+  formatVersion: EcdsaHssRoleLocalFormatVersion;
+  walletSessionUserId: string;
+  rpId: string;
+  subjectId: string;
+  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  relayerKeyId: string;
+  contextBinding32B64u: string;
+  publicIdentity: EcdsaHssPublicIdentity;
+  publicTranscriptDigest32B64u: string;
+  keyHandle: string;
+  signingRootId: string;
+  signingRootVersion: string;
   thresholdEcdsaPublicKeyB64u: string;
   ethereumAddress: string;
-  signingRootId: string;
-  signingRootVersion?: string;
-  walletKeyVersion: string;
-  derivationVersion: number;
+  relayerVerifyingShareB64u: string;
   participantIds: number[];
-  relayerKeyId?: string;
-  relayerVerifyingShareB64u?: string;
-  relayerRootShare32B64u: string;
-  relayerBackendInputB64u: string;
+  sessionId: string;
+  walletSigningSessionId: string;
+  expiresAtMs: number;
+  expiresAt: string;
+  remainingUses: number;
+}
+
+export interface EcdsaHssRoleLocalKeyRecord {
+  version: 'threshold_ecdsa_hss_role_local';
+  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  keyHandle: string;
+  walletSessionUserId: string;
+  rpId: string;
+  subjectId: string;
+  signingRootId: string;
+  signingRootVersion: string;
+  keyScope: EcdsaHssKeyScope;
+  relayerKeyId: string;
+  contextBinding32B64u: string;
+  relayerShare32B64u: string;
+  relayerPublicKey33B64u: string;
+  clientPublicKey33B64u: string;
+  groupPublicKey33B64u: string;
+  ethereumAddress: string;
+  relayerCaitSithInput: EcdsaHssCaitSithInput & { participantId: 2 };
+  publicTranscriptDigest32B64u: string;
   createdAtMs: number;
   updatedAtMs: number;
+}
+
+export interface EcdsaHssExportShareRequest {
+  formatVersion: EcdsaHssRoleLocalExportFormatVersion;
+  walletSessionUserId: string;
+  rpId: string;
+  subjectId: string;
+  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  relayerKeyId: string;
+  contextBinding32B64u: string;
+  publicIdentity: EcdsaHssPublicIdentity;
+  exportRequestNonce32B64u: string;
+  confirmationDigest32B64u: string;
+  authorizationDigest32B64u: string;
+  issuedAtUnixMs: number;
+  expiresAtUnixMs: number;
+  clientDeviceId: string;
+  clientSessionId: string;
+}
+
+export interface EcdsaHssExportShareResponse {
+  formatVersion: EcdsaHssRoleLocalExportFormatVersion;
+  walletSessionUserId: string;
+  rpId: string;
+  subjectId: string;
+  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  relayerKeyId: string;
+  contextBinding32B64u: string;
+  publicIdentity: EcdsaHssPublicIdentity;
+  exportAuthorizationDigest32B64u: string;
+  serverExportShare32B64u: string;
 }
 
 export type EcdsaSessionPolicy = {

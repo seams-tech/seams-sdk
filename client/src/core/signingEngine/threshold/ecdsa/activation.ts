@@ -447,6 +447,9 @@ export async function activateEcdsaSession(
       relayerKeyId,
       clientVerifyingShareB64u,
       ...(clientAdditiveShare32B64u ? { clientAdditiveShare32B64u } : {}),
+      ...(bootstrap.ecdsaHssRoleLocalClientState
+        ? { ecdsaHssRoleLocalClientState: bootstrap.ecdsaHssRoleLocalClientState }
+        : {}),
     },
     participantIds,
     ...(typeof bootstrap.thresholdEcdsaPublicKeyB64u === 'string' &&

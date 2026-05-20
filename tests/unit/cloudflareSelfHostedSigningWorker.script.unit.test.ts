@@ -441,7 +441,7 @@ test('self-host signing-root verify-wallet route delegates to threshold signing-
         walletSigningSessionId: 'wallet-signing-alpha',
         thresholdSessionId: 'threshold-alpha',
         rpId: 'wallet.example.test',
-        clientRootShare32B64u: base64UrlEncode(new Uint8Array(32).fill(0x07)),
+        clientPublicKey33B64u: base64UrlEncode(new Uint8Array(33).fill(0x07)),
         expectedEthereumAddress: `0x${'11'.repeat(20)}`,
       }),
     }),
@@ -466,7 +466,7 @@ test('self-host signing-root verify-wallet route delegates to threshold signing-
       walletSigningSessionId: 'wallet-signing-alpha',
       thresholdSessionId: 'threshold-alpha',
       rpId: 'wallet.example.test',
-      clientRootShare32B64u: base64UrlEncode(new Uint8Array(32).fill(0x07)),
+      clientPublicKey33B64u: base64UrlEncode(new Uint8Array(33).fill(0x07)),
       expectedEthereumAddress: `0x${'11'.repeat(20)}`,
     },
   ]);

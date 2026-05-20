@@ -52,15 +52,17 @@ and likely new runtime assumptions.
 
 The preferred v1 integration path is:
 
-1. `ecdsa-hss` derives canonical hidden secp256k1 scalar `x`.
-2. `ecdsa-hss` derives additive 2-party shares:
-   - `x_client`
-   - `x_relayer`
-3. Those additive shares are mapped into the current
+1. the client derives `x_client` locally from client-owned material and stable
+   key context
+2. the relayer derives `x_relayer` locally from relayer-owned material and stable
+   key context
+3. the public identity is computed as `X = x_clientG + x_relayerG`
+4. those additive shares are mapped into the current
    `near/threshold-signatures` share encoding using the existing 2-party
-   mapping layer.
-4. The current presign/sign backend operates unchanged on the mapped shares.
-5. Export returns canonical `x`.
+   mapping layer
+5. the current presign/sign backend operates unchanged on the mapped shares
+6. explicit export releases an authorized relayer export share, and the client
+   reconstructs canonical `x`
 
 This is the intended design because it:
 
@@ -106,11 +108,12 @@ relayer master secret` bootstrap lane without changing the sign-time backend.
 
 The crate-side bootstrap entrypoint for that shape is:
 
-- `bootstrap_evm_threshold_v1(...)`
+- client and relayer role-local bootstrap builders
 
 Its job is to:
 
-- run the staged canonical-key derivation flow
+- derive role-local additive shares without reconstructing canonical `x` in the
+  server path
 - produce the shared threshold identity
 - produce client and relayer presign inputs in the current backend format
 
@@ -130,12 +133,11 @@ flow end-to-end.
 If the current backend cannot safely consume directly derived additive shares,
 the fallback path is:
 
-1. `ecdsa-hss` derives canonical hidden secp256k1 scalar `x`.
-2. `ecdsa-hss` derives an initial hidden sharing of `x`.
-3. A public-key-preserving resharing step adapts that sharing into the exact
+1. `ecdsa-hss` derives role-local additive shares.
+2. A public-key-preserving resharing step adapts that sharing into the exact
    format expected by the current backend.
-4. The current backend signs using the reshared material.
-5. Export still returns canonical `x`.
+3. The current backend signs using the reshared material.
+4. Explicit export still reconstructs canonical `x` client-side.
 
 This fallback is acceptable only if it preserves:
 
@@ -161,7 +163,7 @@ The current backend is only an acceptable integration target if all of these
 hold:
 
 1. It can consume externally derived share material.
-2. It can be given the public key corresponding to canonical `x`.
+2. It can be given the public key corresponding to logical canonical `x`.
 3. Its additive-share mapping layer preserves the same group secret and public
    key.
 4. It does not require a second independent keygen lane that would recreate the
@@ -251,7 +253,7 @@ So the migration rule is explicit:
 
 The working recommendation for implementation is:
 
-- try direct additive-share derivation from canonical `x` first
+- use direct role-local additive-share derivation first
 - keep resharing as the fallback
 - do not write a new threshold ECDSA signing backend unless backend reuse
   fails

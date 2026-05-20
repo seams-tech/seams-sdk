@@ -275,4 +275,4 @@ into browser storage.
 - Security model:
   [security.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/security.md)
 - Integration shape:
-  [integration-near-threshold.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/specs/integration-near-threshold.md)
+  [integration-cait-sith-backend.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/specs/integration-cait-sith-backend.md)

@@ -2,12 +2,11 @@ import {
   WorkerRequestType,
   WorkerResponseType,
   type WasmBuildThresholdEd25519SeedExportArtifactResult,
+  type WasmBuildThresholdEcdsaHssRoleLocalClientBootstrapResult,
+  type WasmBuildThresholdEcdsaHssRoleLocalExportArtifactResult,
   type WasmDeriveThresholdEd25519HssClientInputsResult,
-  type WasmFinalizeThresholdEcdsaHssClientRequestResult,
   type WasmOpenThresholdEd25519HssClientOutputResult,
   type WasmOpenThresholdEd25519HssSeedOutputResult,
-  type WasmPrepareThresholdEcdsaHssClientRequestResult,
-  type WasmPrepareThresholdEcdsaHssSessionResult,
   type WasmPrepareThresholdEd25519HssClientRequestResult,
   type WasmPrepareThresholdEd25519HssSessionResult,
 } from '@/core/types/signer-worker';
@@ -17,7 +16,6 @@ import {
 } from '../../workerManager/executeWorkerOperation';
 import {
   thresholdEcdsaChainTargetFromRequest,
-  thresholdEcdsaChainTargetKey,
   type ThresholdEcdsaChainTarget,
   type WalletSubjectId,
 } from '../../interfaces/ecdsaChainTarget';
@@ -112,17 +110,34 @@ export type ServerPlannedEcdsaHssContext = ThresholdEcdsaHssStableKeyContext & {
   readonly [serverPlannedEcdsaHssContextBrand]: true;
 };
 
-export type ThresholdEcdsaHssPreparedSessionEnvelope = {
-  contextBindingB64u: string;
-  evaluatorDriverStateB64u: string;
+export type ThresholdEcdsaHssRoleLocalClientContext = Omit<
+  ThresholdEcdsaHssStableKeyContext,
+  'chainTarget'
+>;
+
+export type ThresholdEcdsaHssRoleLocalClientBootstrap = {
+  walletSessionUserId: WalletSessionUserId;
+  subjectId: WalletSubjectId;
+  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  signingRootId: SigningRootId;
+  signingRootVersion: SigningRootVersion;
+  keyPurpose: string;
+  keyVersion: string;
+  contextBinding32B64u: string;
+  clientShare32B64u: string;
+  clientPublicKey33B64u: string;
+  clientShareRetryCounter: number;
+  clientCaitSithInput: {
+    participantId: 1;
+    mappedPrivateShare32B64u: string;
+    verifyingShare33B64u: string;
+  };
 };
 
-export type ThresholdEcdsaHssClientRequestEnvelope = {
-  clientEvalRequestB64u: string;
-};
-
-export type ThresholdEcdsaHssClientFinalizeEnvelope = {
-  clientEvalFinalizeB64u: string;
+export type ThresholdEcdsaHssRoleLocalExportArtifact = {
+  publicKeyHex: string;
+  privateKeyHex: string;
+  ethereumAddress: string;
 };
 
 function buildThresholdEcdsaClientRootSharePayload(args: {
@@ -456,24 +471,23 @@ export async function buildThresholdEd25519SeedExportArtifactWasm(input: {
   };
 }
 
-export async function prepareThresholdEcdsaHssSessionWasm(input: {
-  context: ServerPlannedEcdsaHssContext;
+export async function buildThresholdEcdsaHssRoleLocalClientBootstrapWasm(input: {
+  context: ThresholdEcdsaHssRoleLocalClientContext;
   clientRootShare32?: Uint8Array;
   clientRootShare32B64u?: string;
   workerCtx: WorkerOperationContext;
-}): Promise<ThresholdEcdsaHssPreparedSessionEnvelope> {
+}): Promise<ThresholdEcdsaHssRoleLocalClientBootstrap> {
   const clientRootSharePayload = buildThresholdEcdsaClientRootSharePayload(input);
   try {
     const response = await executeWorkerOperation({
       ctx: input.workerCtx,
       kind: 'hssClient',
       request: {
-        type: WorkerRequestType.PrepareThresholdEcdsaHssSession,
+        type: WorkerRequestType.BuildThresholdEcdsaHssRoleLocalClientBootstrap,
         timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
         payload: {
           walletSessionUserId: input.context.walletSessionUserId,
           subjectId: input.context.subjectId,
-          chainTarget: thresholdEcdsaChainTargetKey(input.context.chainTarget),
           ecdsaThresholdKeyId: input.context.ecdsaThresholdKeyId,
           signingRootId: input.context.signingRootId,
           signingRootVersion: input.context.signingRootVersion,
@@ -484,80 +498,116 @@ export async function prepareThresholdEcdsaHssSessionWasm(input: {
       },
     });
 
-    if (response.type !== WorkerResponseType.PrepareThresholdEcdsaHssSessionSuccess) {
-      throw new Error('PrepareThresholdEcdsaHssSession failed');
+    if (response.type !== WorkerResponseType.BuildThresholdEcdsaHssRoleLocalClientBootstrapSuccess) {
+      throw new Error('BuildThresholdEcdsaHssRoleLocalClientBootstrap failed');
     }
 
-    const result = response.payload as WasmPrepareThresholdEcdsaHssSessionResult;
+    const result =
+      response.payload as WasmBuildThresholdEcdsaHssRoleLocalClientBootstrapResult;
+    const contextBinding32B64u = String(result.contextBinding32B64u || '').trim();
+    const clientShare32B64u = String(result.clientShare32B64u || '').trim();
+    const clientPublicKey33B64u = String(result.clientPublicKey33B64u || '').trim();
+    const mappedPrivateShare32B64u = String(result.mappedPrivateShare32B64u || '').trim();
+    const verifyingShare33B64u = String(result.verifyingShare33B64u || '').trim();
+    const clientShareRetryCounter = Number(result.clientShareRetryCounter);
+    if (
+      !contextBinding32B64u ||
+      !clientShare32B64u ||
+      !clientPublicKey33B64u ||
+      !mappedPrivateShare32B64u ||
+      !verifyingShare33B64u ||
+      !Number.isInteger(clientShareRetryCounter)
+    ) {
+      throw new Error('Threshold ECDSA HSS role-local client bootstrap returned incomplete data');
+    }
+
     return {
-      contextBindingB64u: String(result.contextBindingB64u || '').trim(),
-      evaluatorDriverStateB64u: String(result.evaluatorDriverStateB64u || '').trim(),
+      walletSessionUserId: toWalletSessionUserId(
+        result.walletSessionUserId || input.context.walletSessionUserId,
+      ),
+      subjectId: toEcdsaHssWalletSubjectId(result.subjectId || input.context.subjectId),
+      ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId(
+        result.ecdsaThresholdKeyId || input.context.ecdsaThresholdKeyId,
+      ),
+      signingRootId: toEcdsaHssSigningRootId(result.signingRootId || input.context.signingRootId),
+      signingRootVersion: toEcdsaHssSigningRootVersion(
+        result.signingRootVersion || input.context.signingRootVersion,
+      ),
+      keyPurpose: String(result.keyPurpose || input.context.keyPurpose).trim(),
+      keyVersion: String(result.keyVersion || input.context.keyVersion).trim(),
+      contextBinding32B64u,
+      clientShare32B64u,
+      clientPublicKey33B64u,
+      clientShareRetryCounter,
+      clientCaitSithInput: {
+        participantId: 1,
+        mappedPrivateShare32B64u,
+        verifyingShare33B64u,
+      },
     };
   } finally {
     zeroizeThresholdEcdsaClientRootSharePayload(clientRootSharePayload);
   }
 }
 
-export async function prepareThresholdEcdsaHssClientRequestWasm(input: {
-  evaluatorDriverStateB64u: string;
-  serverAssistInitMessageB64u: string;
+export async function buildThresholdEcdsaHssRoleLocalExportArtifactWasm(input: {
+  context: ThresholdEcdsaHssRoleLocalClientContext;
   clientRootShare32?: Uint8Array;
   clientRootShare32B64u?: string;
+  serverExportShare32B64u: string;
+  publicIdentity: {
+    clientPublicKey33B64u: string;
+    relayerPublicKey33B64u: string;
+    groupPublicKey33B64u: string;
+    ethereumAddress: string;
+  };
+  contextBinding32B64u: string;
+  clientShareRetryCounter: number;
   workerCtx: WorkerOperationContext;
-}): Promise<ThresholdEcdsaHssClientRequestEnvelope> {
+}): Promise<ThresholdEcdsaHssRoleLocalExportArtifact> {
   const clientRootSharePayload = buildThresholdEcdsaClientRootSharePayload(input);
   try {
     const response = await executeWorkerOperation({
       ctx: input.workerCtx,
       kind: 'hssClient',
       request: {
-        type: WorkerRequestType.PrepareThresholdEcdsaHssClientRequest,
+        type: WorkerRequestType.BuildThresholdEcdsaHssRoleLocalExportArtifact,
         timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
         payload: {
-          evaluatorDriverStateB64u: input.evaluatorDriverStateB64u,
-          serverAssistInitMessageB64u: input.serverAssistInitMessageB64u,
+          walletSessionUserId: input.context.walletSessionUserId,
+          subjectId: input.context.subjectId,
+          ecdsaThresholdKeyId: input.context.ecdsaThresholdKeyId,
+          signingRootId: input.context.signingRootId,
+          signingRootVersion: input.context.signingRootVersion,
+          keyPurpose: input.context.keyPurpose,
+          keyVersion: input.context.keyVersion,
           ...clientRootSharePayload,
+          serverExportShare32B64u: input.serverExportShare32B64u,
+          contextBinding32B64u: input.contextBinding32B64u,
+          clientPublicKey33B64u: input.publicIdentity.clientPublicKey33B64u,
+          relayerPublicKey33B64u: input.publicIdentity.relayerPublicKey33B64u,
+          groupPublicKey33B64u: input.publicIdentity.groupPublicKey33B64u,
+          ethereumAddress: input.publicIdentity.ethereumAddress,
+          clientShareRetryCounter: input.clientShareRetryCounter,
         },
       },
     });
 
-    if (response.type !== WorkerResponseType.PrepareThresholdEcdsaHssClientRequestSuccess) {
-      throw new Error('PrepareThresholdEcdsaHssClientRequest failed');
+    if (response.type !== WorkerResponseType.BuildThresholdEcdsaHssRoleLocalExportArtifactSuccess) {
+      throw new Error('BuildThresholdEcdsaHssRoleLocalExportArtifact failed');
     }
 
-    const result = response.payload as WasmPrepareThresholdEcdsaHssClientRequestResult;
-    return {
-      clientEvalRequestB64u: String(result.clientEvalRequestB64u || '').trim(),
-    };
+    const result =
+      response.payload as WasmBuildThresholdEcdsaHssRoleLocalExportArtifactResult;
+    const publicKeyHex = String(result.publicKeyHex || '').trim();
+    const privateKeyHex = String(result.privateKeyHex || '').trim();
+    const ethereumAddress = String(result.ethereumAddress || '').trim();
+    if (!publicKeyHex || !privateKeyHex || !ethereumAddress) {
+      throw new Error('Threshold ECDSA HSS role-local export artifact returned incomplete data');
+    }
+
+    return { publicKeyHex, privateKeyHex, ethereumAddress };
   } finally {
     zeroizeThresholdEcdsaClientRootSharePayload(clientRootSharePayload);
   }
-}
-
-export async function finalizeThresholdEcdsaHssClientRequestWasm(input: {
-  evaluatorDriverStateB64u: string;
-  serverEvalResponseB64u: string;
-  workerCtx: WorkerOperationContext;
-}): Promise<ThresholdEcdsaHssClientFinalizeEnvelope> {
-  const response = await executeWorkerOperation({
-    ctx: input.workerCtx,
-    kind: 'hssClient',
-    request: {
-      type: WorkerRequestType.FinalizeThresholdEcdsaHssClientRequest,
-      timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
-      payload: {
-        evaluatorDriverStateB64u: input.evaluatorDriverStateB64u,
-        serverEvalResponseB64u: input.serverEvalResponseB64u,
-      },
-    },
-  });
-
-  if (response.type !== WorkerResponseType.FinalizeThresholdEcdsaHssClientRequestSuccess) {
-    throw new Error('FinalizeThresholdEcdsaHssClientRequest failed');
-  }
-
-  const result = response.payload as WasmFinalizeThresholdEcdsaHssClientRequestResult;
-  return {
-    clientEvalFinalizeB64u: String(result.clientEvalFinalizeB64u || '').trim(),
-  };
 }

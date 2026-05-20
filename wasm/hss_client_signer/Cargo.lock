@@ -403,8 +403,6 @@ version = "0.1.0"
 dependencies = [
  "hex",
  "k256",
- "num-bigint",
- "num-traits",
  "serde",
  "serde_json",
  "sha2",

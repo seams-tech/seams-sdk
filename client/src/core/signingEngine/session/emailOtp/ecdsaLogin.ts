@@ -42,6 +42,7 @@ import {
   emailOtpEcdsaPublicationChainTargets,
   type EmailOtpEcdsaPublicationPorts,
 } from './ecdsaPublication';
+import { resolveEmailOtpEcdsaRoleLocalKeyIdentityForHandle } from './ecdsaRoleLocalIdentity';
 import { unlockEmailOtpWallet } from './walletUnlock';
 import {
   assertEmailOtpSigningSessionAuthLane,
@@ -330,6 +331,13 @@ export async function loginWithEmailOtpEcdsaCapability(
     ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
     ...(args.onProgress ? { onProgress: args.onProgress } : {}),
   });
+  const roleLocalKeyIdentity = await resolveEmailOtpEcdsaRoleLocalKeyIdentityForHandle({
+    keyHandle: args.keyHandle,
+    walletSessionUserId,
+    rpId,
+    subjectId,
+    ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
+  });
   const bootstrapResult = await workerCtx.requestWorkerOperation({
     kind: 'emailOtp',
     request: {
@@ -346,6 +354,7 @@ export async function loginWithEmailOtpEcdsaCapability(
         chainTarget,
         publicationChainTargets,
         ...(args.keyHandle ? { keyHandle: args.keyHandle } : {}),
+        ...(roleLocalKeyIdentity ? { roleLocalKeyIdentity } : {}),
         ...(Array.isArray(args.participantIds) && args.participantIds.length > 0
           ? { participantIds: args.participantIds }
           : {}),

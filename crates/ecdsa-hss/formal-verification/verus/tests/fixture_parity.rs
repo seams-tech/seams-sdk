@@ -1,279 +1,266 @@
-use ecdsa_hss::fixtures::{FixtureCorpusFile, FixtureRecord, FIXTURE_FORMAT_VERSION};
-use ecdsa_hss::shared::context::{
-    ECDSA_HSS_V1_CONTEXT_DOMAIN_TAG, ECDSA_HSS_V1_CURVE, ECDSA_HSS_V1_KEY_SCOPE,
-    ECDSA_HSS_V1_PARTICIPANT_IDS, ECDSA_HSS_V1_SCHEME_ID,
+use ecdsa_hss::{
+    context_binding_v1, derive_client_share_v1, derive_relayer_share_for_client_public_v1,
+    encode_context_v1, export_authorization_digest_v1, public_transcript_digest_v1,
+    reconstruct_export_key_v1, EcdsaHssStableKeyContextV1, ExplicitExportAuthorizationV1,
+    PublicIdentityV1, ServerEvalOperationV1,
 };
-use k256::elliptic_curve::sec1::ToEncodedPoint;
-use k256::SecretKey;
-use num_bigint::BigUint;
-use num_traits::Num;
-use sha2::{Digest as Sha2Digest, Sha512};
-use sha3::Keccak256;
-use signer_core::secp256k1::map_additive_share_to_threshold_signatures_share_2p;
+use signer_core::secp256k1::{
+    add_secp256k1_public_keys_33, secp256k1_public_key_33_to_ethereum_address_20,
+};
 
-const SECP256K1_ORDER_HEX: &str =
-    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141";
-const DOMAIN_CANONICAL_X_V1: &[u8] = b"ecdsa-hss:v1:canonical-x";
-const DOMAIN_SHARE_V1: &[u8] = b"ecdsa-hss:v1:additive-share:client";
-
-fn fixture_corpus() -> FixtureCorpusFile {
-    let bytes = include_bytes!("../../../fixtures/phase1_v1.json");
-    serde_json::from_slice(bytes).expect("fixture corpus should parse")
-}
-
-fn secp256k1_order() -> BigUint {
-    BigUint::from_str_radix(SECP256K1_ORDER_HEX, 16).expect("order should parse")
-}
-
-fn hex_to_bytes(hex: &str) -> Vec<u8> {
-    let normalized = hex.strip_prefix("0x").unwrap_or(hex);
-    assert!(normalized.len() % 2 == 0, "hex must have even length");
-    (0..normalized.len())
-        .step_by(2)
-        .map(|idx| {
-            u8::from_str_radix(&normalized[idx..idx + 2], 16).expect("hex byte should parse")
-        })
-        .collect()
-}
-
-fn bytes_to_hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-fn bytes_to_biguint_le(bytes: &[u8]) -> BigUint {
-    BigUint::from_bytes_le(bytes)
-}
-
-fn biguint_to_32_be(value: &BigUint) -> [u8; 32] {
-    let bytes = value.to_bytes_be();
-    assert!(bytes.len() <= 32, "value must fit into 32 bytes");
-    let mut out = [0u8; 32];
-    let offset = out.len() - bytes.len();
-    out[offset..].copy_from_slice(&bytes);
-    out
-}
-
-fn biguint_to_32_le(value: &BigUint) -> [u8; 32] {
-    let bytes = value.to_bytes_le();
-    assert!(bytes.len() <= 32, "value must fit into 32 bytes");
-    let mut out = [0u8; 32];
-    out[..bytes.len()].copy_from_slice(&bytes);
-    out
-}
-
-fn encode_ascii_field(value: &str) -> Vec<u8> {
-    assert!(!value.is_empty(), "v1 strings must be non-empty");
-    assert!(value.is_ascii(), "v1 strings must be ASCII");
-    let mut out = Vec::with_capacity(2 + value.len());
-    out.extend_from_slice(&(value.len() as u16).to_be_bytes());
-    out.extend_from_slice(value.as_bytes());
-    out
-}
-
-fn encode_context_v1(record: &FixtureRecord) -> Vec<u8> {
-    assert_eq!(ECDSA_HSS_V1_PARTICIPANT_IDS, [1, 2]);
-    let mut out = Vec::new();
-    out.extend_from_slice(ECDSA_HSS_V1_CONTEXT_DOMAIN_TAG);
-    out.extend_from_slice(&encode_ascii_field(ECDSA_HSS_V1_SCHEME_ID));
-    out.extend_from_slice(&encode_ascii_field(ECDSA_HSS_V1_CURVE));
-    out.extend_from_slice(&encode_ascii_field(&record.context.wallet_session_user_id));
-    out.extend_from_slice(&encode_ascii_field(&record.context.subject_id));
-    out.extend_from_slice(&encode_ascii_field(ECDSA_HSS_V1_KEY_SCOPE));
-    out.extend_from_slice(&encode_ascii_field(&record.context.ecdsa_threshold_key_id));
-    out.extend_from_slice(&encode_ascii_field(&record.context.signing_root_id));
-    out.extend_from_slice(&encode_ascii_field(&record.context.signing_root_version));
-    out.extend_from_slice(&encode_ascii_field(&record.context.key_purpose));
-    out.extend_from_slice(&encode_ascii_field(&record.context.key_version));
-    out.extend_from_slice(&[2u8, 0, 1, 0, 2]);
-    out
-}
-
-fn derive_canonical_x_v1(
-    record: &FixtureRecord,
-    context_bytes: &[u8],
-) -> ([u8; 32], [u8; 32], [u8; 32]) {
-    let y_client = bytes_to_biguint_le(&hex_to_bytes(&record.inputs.y_client32_le_hex));
-    let y_relayer = bytes_to_biguint_le(&hex_to_bytes(&record.inputs.y_relayer32_le_hex));
-    let two_256 = BigUint::from(1u8) << 256usize;
-    let m = (y_client + y_relayer) % two_256;
-    let m_le = biguint_to_32_le(&m);
-    let d_le = m_le;
-
-    let mut hasher = Sha512::new();
-    hasher.update(DOMAIN_CANONICAL_X_V1);
-    hasher.update(context_bytes);
-    hasher.update(d_le);
-    let digest = hasher.finalize();
-
-    let order = secp256k1_order();
-    let one = BigUint::from(1u8);
-    let x = (BigUint::from_bytes_be(&digest) % (&order - &one)) + &one;
-    let x_be = biguint_to_32_be(&x);
-    (m_le, d_le, x_be)
-}
-
-fn derive_additive_shares_v1(x_be: &[u8; 32], context_bytes: &[u8]) -> (u32, [u8; 32], [u8; 32]) {
-    let order = secp256k1_order();
-    let one = BigUint::from(1u8);
-    let x = BigUint::from_bytes_be(x_be);
-
-    for counter in 0u32.. {
-        let mut hasher = Sha512::new();
-        hasher.update(DOMAIN_SHARE_V1);
-        hasher.update(context_bytes);
-        hasher.update(counter.to_be_bytes());
-        hasher.update(x_be);
-        let digest = hasher.finalize();
-        let candidate = (BigUint::from_bytes_be(&digest) % (&order - &one)) + &one;
-        if candidate == x {
-            continue;
-        }
-        let x_client_be = biguint_to_32_be(&candidate);
-        let x_relayer = if x >= candidate {
-            &x - &candidate
-        } else {
-            (&x + &order) - &candidate
-        };
-        let x_relayer_be = biguint_to_32_be(&x_relayer);
-        assert_ne!(
-            x_relayer,
-            BigUint::from(0u8),
-            "relayer share must be non-zero"
-        );
-        return (counter, x_client_be, x_relayer_be);
-    }
-    unreachable!("u32 counter space should not exhaust")
-}
-
-fn derive_public_key_and_address(x_be: &[u8; 32]) -> (String, String) {
-    let secret_key =
-        SecretKey::from_slice(x_be).expect("fixture x should be a valid secp256k1 scalar");
-    let compressed = secret_key.public_key().to_encoded_point(true);
-    let uncompressed = secret_key.public_key().to_encoded_point(false);
-
-    let mut hasher = Keccak256::new();
-    hasher.update(&uncompressed.as_bytes()[1..]);
-    let digest = hasher.finalize();
-    let address = &digest[digest.len() - 20..];
-
-    (
-        bytes_to_hex(compressed.as_bytes()),
-        format!("0x{}", bytes_to_hex(address)),
+fn context() -> EcdsaHssStableKeyContextV1 {
+    EcdsaHssStableKeyContextV1::new(
+        "parity.test.near",
+        "parity-subject",
+        "ehss-parity",
+        "parity-root",
+        "root-v1",
+        "evm-signing",
+        "v1",
     )
 }
 
+fn hex32(value: &str) -> [u8; 32] {
+    hex::decode(value)
+        .expect("valid hex")
+        .try_into()
+        .expect("32-byte hex")
+}
+
 #[test]
-fn phase1_fixture_corpus_matches_frozen_derivation_rules() {
-    let corpus = fixture_corpus();
-    assert_eq!(corpus.format_version, FIXTURE_FORMAT_VERSION);
-    assert!(
-        !corpus.fixtures.is_empty(),
-        "fixture corpus should not be empty"
+fn context_encoding_matches_evm_family_scope() {
+    let context = context();
+    let bytes = encode_context_v1(&context).expect("context");
+    assert!(bytes
+        .windows(ecdsa_hss::ECDSA_HSS_V1_SCHEME_ID.len())
+        .any(|window| window == ecdsa_hss::ECDSA_HSS_V1_SCHEME_ID.as_bytes()));
+    assert!(bytes
+        .windows(ecdsa_hss::ECDSA_HSS_V1_CURVE.len())
+        .any(|window| window == ecdsa_hss::ECDSA_HSS_V1_CURVE.as_bytes()));
+    assert!(bytes
+        .windows("evm-family".len())
+        .any(|window| window == b"evm-family"));
+    assert_eq!(context_binding_v1(&context), context_binding_v1(&context));
+}
+
+#[test]
+fn role_local_identity_matches_public_key_addition() {
+    let context = context();
+    let client_share = derive_client_share_v1(&context, [0x11u8; 32]).expect("client share");
+    let (relayer_share, identity) = derive_relayer_share_for_client_public_v1(
+        &context,
+        [0x22u8; 32],
+        &client_share.client_public_key33,
+        client_share.retry_counter,
+    )
+    .expect("relayer share");
+
+    let threshold_public_key33 = add_secp256k1_public_keys_33(
+        &client_share.client_public_key33,
+        &relayer_share.relayer_public_key33,
+    )
+    .expect("public key sum");
+    let address20 =
+        secp256k1_public_key_33_to_ethereum_address_20(&threshold_public_key33).expect("address");
+
+    assert_eq!(
+        identity.threshold_public_key33.as_slice(),
+        threshold_public_key33
+    );
+    assert_eq!(identity.threshold_ethereum_address20.as_slice(), address20);
+    assert_eq!(
+        identity.client_share_retry_counter,
+        client_share.retry_counter
+    );
+    assert_eq!(
+        identity.relayer_share_retry_counter,
+        relayer_share.retry_counter
+    );
+}
+
+#[test]
+fn role_local_derivation_is_deterministic() {
+    let context = context();
+    let first_client = derive_client_share_v1(&context, [0x33u8; 32]).expect("first client");
+    let second_client = derive_client_share_v1(&context, [0x33u8; 32]).expect("second client");
+    assert_eq!(first_client, second_client);
+
+    let first_relayer = derive_relayer_share_for_client_public_v1(
+        &context,
+        [0x44u8; 32],
+        &first_client.client_public_key33,
+        first_client.retry_counter,
+    )
+    .expect("first relayer");
+    let second_relayer = derive_relayer_share_for_client_public_v1(
+        &context,
+        [0x44u8; 32],
+        &second_client.client_public_key33,
+        second_client.retry_counter,
+    )
+    .expect("second relayer");
+    assert_eq!(first_relayer, second_relayer);
+}
+
+#[test]
+fn committed_fixture_context_frame_and_binding_match() {
+    let fixture: serde_json::Value =
+        serde_json::from_str(include_str!("../../../fixtures/role_local_v1.json"))
+            .expect("fixture json");
+    let context_json = &fixture["context"];
+    let context = EcdsaHssStableKeyContextV1::new(
+        context_json["wallet_session_user_id"]
+            .as_str()
+            .expect("wallet id"),
+        context_json["subject_id"].as_str().expect("subject id"),
+        context_json["ecdsa_threshold_key_id"]
+            .as_str()
+            .expect("threshold key id"),
+        context_json["signing_root_id"]
+            .as_str()
+            .expect("signing root id"),
+        context_json["signing_root_version"]
+            .as_str()
+            .expect("signing root version"),
+        context_json["key_purpose"].as_str().expect("key purpose"),
+        context_json["key_version"].as_str().expect("key version"),
     );
 
-    for fixture in corpus.fixtures.iter() {
-        let context_bytes = encode_context_v1(fixture);
-        assert_eq!(
-            bytes_to_hex(&context_bytes),
-            fixture.outputs.context_bytes_hex,
-            "{} context bytes drifted",
-            fixture.name
-        );
+    assert_eq!(
+        fixture["context_encoding_hex"]
+            .as_str()
+            .expect("context encoding"),
+        hex::encode(encode_context_v1(&context).expect("context encoding"))
+    );
+    assert_eq!(
+        fixture["context_binding32_hex"]
+            .as_str()
+            .expect("context binding"),
+        hex::encode(context_binding_v1(&context).expect("context binding"))
+    );
 
-        let (m_le, d_le, x_be) = derive_canonical_x_v1(fixture, &context_bytes);
-        assert_eq!(
-            bytes_to_hex(&d_le),
-            fixture.outputs.d32_hex,
-            "{} d drifted",
-            fixture.name
-        );
-        assert_eq!(
-            bytes_to_hex(&x_be),
-            fixture.outputs.x32_hex,
-            "{} canonical x drifted",
-            fixture.name
-        );
-        assert_eq!(m_le, d_le, "{} m and d should match in v1", fixture.name);
-        let x_big = BigUint::from_bytes_be(&x_be);
-        let order = secp256k1_order();
-        assert!(
-            x_big > BigUint::from(0u8),
-            "{} canonical x must be non-zero",
-            fixture.name
-        );
-        assert!(
-            x_big < order,
-            "{} canonical x must be in scalar range",
-            fixture.name
-        );
-
-        let (retry_counter, x_client_be, x_relayer_be) =
-            derive_additive_shares_v1(&x_be, &context_bytes);
-        assert_eq!(
-            retry_counter, fixture.outputs.retry_counter,
-            "{} retry counter drifted",
-            fixture.name
-        );
-        assert_eq!(
-            bytes_to_hex(&x_client_be),
-            fixture.outputs.x_client32_hex,
-            "{} client share drifted",
-            fixture.name
-        );
-        assert_eq!(
-            bytes_to_hex(&x_relayer_be),
-            fixture.outputs.x_relayer32_hex,
-            "{} relayer share drifted",
-            fixture.name
-        );
-        let x_client_big = BigUint::from_bytes_be(&x_client_be);
-        let x_relayer_big = BigUint::from_bytes_be(&x_relayer_be);
-        let reconstructed = (&x_client_big + &x_relayer_big) % &order;
-        assert!(
-            x_client_big > BigUint::from(0u8) && x_client_big < order,
-            "{} client share must be in scalar range",
-            fixture.name
-        );
-        assert!(
-            x_relayer_big > BigUint::from(0u8) && x_relayer_big < order,
-            "{} relayer share must be in scalar range",
-            fixture.name
-        );
-        assert_eq!(
-            reconstructed, x_big,
-            "{} additive shares must reconstruct the canonical scalar",
-            fixture.name
-        );
-
-        let mapped_1 = map_additive_share_to_threshold_signatures_share_2p(&x_client_be, 1)
-            .expect("participant 1 mapping should succeed");
-        let mapped_2 = map_additive_share_to_threshold_signatures_share_2p(&x_relayer_be, 2)
-            .expect("participant 2 mapping should succeed");
-        assert_eq!(
-            bytes_to_hex(&mapped_1),
-            fixture.outputs.mapped_client_share32_hex,
-            "{} participant 1 mapped share drifted",
-            fixture.name
-        );
-        assert_eq!(
-            bytes_to_hex(&mapped_2),
-            fixture.outputs.mapped_relayer_share32_hex,
-            "{} participant 2 mapped share drifted",
-            fixture.name
-        );
-
-        let (compressed_public_key_hex, ethereum_address_hex) =
-            derive_public_key_and_address(&x_be);
-        assert_eq!(
-            compressed_public_key_hex, fixture.outputs.public_key33_hex,
-            "{} public key drifted",
-            fixture.name
-        );
-        assert_eq!(
-            hex_to_bytes(&ethereum_address_hex),
-            hex_to_bytes(&fixture.outputs.ethereum_address20_hex),
-            "{} ethereum address drifted",
-            fixture.name
-        );
-    }
+    let inputs_json = &fixture["inputs"];
+    let client_share = derive_client_share_v1(
+        &context,
+        hex32(
+            inputs_json["y_client32_le_hex"]
+                .as_str()
+                .expect("client root"),
+        ),
+    )
+    .expect("client share");
+    let (relayer_share, identity) = derive_relayer_share_for_client_public_v1(
+        &context,
+        hex32(
+            inputs_json["y_relayer32_le_hex"]
+                .as_str()
+                .expect("relayer root"),
+        ),
+        &client_share.client_public_key33,
+        client_share.retry_counter,
+    )
+    .expect("relayer identity");
+    let public_identity = PublicIdentityV1 {
+        context_bytes: encode_context_v1(&context).expect("context encoding"),
+        context_binding32: context_binding_v1(&context).expect("context binding"),
+        client_public_key33: identity.client_public_key33,
+        relayer_public_key33: identity.relayer_public_key33,
+        threshold_public_key33: identity.threshold_public_key33,
+        threshold_ethereum_address20: identity.threshold_ethereum_address20,
+        client_share_retry_counter: identity.client_share_retry_counter,
+        relayer_share_retry_counter: identity.relayer_share_retry_counter,
+    };
+    let x_export32 =
+        reconstruct_export_key_v1(&client_share, &relayer_share.x_relayer32, &public_identity)
+            .expect("export key");
+    let derived_json = &fixture["derived"];
+    assert_eq!(
+        derived_json["x_client32_hex"].as_str().expect("x client"),
+        hex::encode(client_share.x_client32)
+    );
+    assert_eq!(
+        derived_json["x_relayer32_hex"].as_str().expect("x relayer"),
+        hex::encode(relayer_share.x_relayer32)
+    );
+    assert_eq!(
+        derived_json["mapped_client_share32_hex"]
+            .as_str()
+            .expect("mapped client share"),
+        hex::encode(client_share.mapped_client_share32)
+    );
+    assert_eq!(
+        derived_json["mapped_relayer_share32_hex"]
+            .as_str()
+            .expect("mapped relayer share"),
+        hex::encode(relayer_share.mapped_relayer_share32)
+    );
+    assert_eq!(
+        derived_json["x_export32_hex"].as_str().expect("export key"),
+        hex::encode(x_export32)
+    );
+    let authorization_json = &fixture["export_authorization"];
+    let authorization = ExplicitExportAuthorizationV1 {
+        wallet_session_user_id: authorization_json["wallet_session_user_id"]
+            .as_str()
+            .expect("wallet id")
+            .to_string(),
+        ecdsa_threshold_key_id: authorization_json["ecdsa_threshold_key_id"]
+            .as_str()
+            .expect("threshold key id")
+            .to_string(),
+        client_device_id: authorization_json["client_device_id"]
+            .as_str()
+            .expect("client device id")
+            .to_string(),
+        client_session_id: authorization_json["client_session_id"]
+            .as_str()
+            .expect("client session id")
+            .to_string(),
+        relayer_key_id: authorization_json["relayer_key_id"]
+            .as_str()
+            .expect("relayer key id")
+            .to_string(),
+        export_request_nonce32: hex32(
+            authorization_json["export_request_nonce32_hex"]
+                .as_str()
+                .expect("export nonce"),
+        ),
+        confirmation_digest32: hex32(
+            authorization_json["confirmation_digest32_hex"]
+                .as_str()
+                .expect("confirmation digest"),
+        ),
+        authorization_digest32: hex32(
+            authorization_json["authorization_digest32_hex"]
+                .as_str()
+                .expect("authorization digest"),
+        ),
+        issued_at_unix_ms: authorization_json["issued_at_unix_ms"]
+            .as_u64()
+            .expect("issued at"),
+        expires_at_unix_ms: authorization_json["expires_at_unix_ms"]
+            .as_u64()
+            .expect("expires at"),
+    };
+    assert_eq!(
+        authorization.authorization_digest32,
+        export_authorization_digest_v1(
+            ServerEvalOperationV1::ExplicitKeyExport,
+            &public_identity,
+            &authorization,
+        )
+        .expect("authorization digest")
+    );
+    assert_eq!(
+        fixture["public_transcript_digest32_hex"]
+            .as_str()
+            .expect("public transcript digest"),
+        hex::encode(
+            public_transcript_digest_v1(
+                ServerEvalOperationV1::ExplicitKeyExport,
+                &public_identity,
+            )
+            .expect("public transcript digest")
+        )
+    );
 }

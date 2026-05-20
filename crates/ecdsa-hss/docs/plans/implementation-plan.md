@@ -258,7 +258,7 @@ Deliverables:
 - `security.md`
 - `specs/protocol.md`
 - `specs/export.md`
-- `specs/integration-near-threshold.md`
+- `specs/integration-cait-sith-backend.md`
 
 The specs must define:
 
@@ -480,7 +480,7 @@ crates/ecdsa-hss/
   specs/
     protocol.md
     export.md
-    integration-near-threshold.md
+    integration-cait-sith-backend.md
   docs/plans/
     implementation-plan.md
     refactor-1.md
@@ -737,7 +737,7 @@ code starts:
 - [x] create `crates/ecdsa-hss/optimizations.md`
 - [x] create `crates/ecdsa-hss/specs/protocol.md`
 - [x] create `crates/ecdsa-hss/specs/export.md`
-- [x] create `crates/ecdsa-hss/specs/integration-near-threshold.md`
+- [x] create `crates/ecdsa-hss/specs/integration-cait-sith-backend.md`
 - [x] create `crates/ecdsa-hss/docs/plans/refactor-1.md`
 - [x] create `crates/ecdsa-hss/docs/plans/boundary.md`
 - [x] create `crates/ecdsa-hss/docs/plans/optimization-v1.md`

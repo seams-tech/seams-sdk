@@ -18,18 +18,19 @@ import {
 } from '../../server/src/core/ThresholdService/signingRootSecretSealing';
 import { InMemorySigningRootSecretStore } from '../../server/src/core/ThresholdService/stores/SigningRootSecretStore';
 import {
-  ecdsaHssBootstrapNonExportSign,
-  ecdsaHssExplicitExport,
-  prepareThresholdEcdsaHssServerSession,
+  roleLocalThresholdEcdsaHssRelayerBootstrap,
+  secp256k1PrivateKey32ToPublicKey33,
 } from '../../server/src/core/ThresholdService/ethSignerWasm';
+import {
+  initSync as initHssClientSignerWasmSync,
+  threshold_ecdsa_hss_role_local_client_bootstrap,
+  threshold_ecdsa_hss_role_local_export_artifact,
+} from '../../wasm/hss_client_signer/pkg/hss_client_signer.js';
 import type {
   SigningRootSecretShareId,
   SealedSigningRootSecretShare,
 } from '../../server/src/core/ThresholdService/signingRootSecretShareWires';
-import type {
-  ThresholdEcdsaHssPrepareRequest,
-  ThresholdStoreConfigInput,
-} from '../../server/src/core/types';
+import type { ThresholdStoreConfigInput } from '../../server/src/core/types';
 
 type ThresholdPrfFixtureShare = {
   readonly id: SigningRootSecretShareId;
@@ -53,6 +54,10 @@ type ThresholdPrfFixtureCorpus = {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURE_PATH = resolve(__dirname, '../../crates/threshold-prf/fixtures/protocol-v1.json');
+const HSS_CLIENT_SIGNER_WASM_URL = new URL(
+  '../../wasm/hss_client_signer/pkg/hss_client_signer_bg.wasm',
+  import.meta.url,
+);
 const PROJECT_ID = 'project-alpha';
 const ENV_ID = 'dev';
 const SIGNING_ROOT_ID = `${PROJECT_ID}:${ENV_ID}`;
@@ -76,6 +81,15 @@ const ECDSA_CONTEXT = {
   keyVersion: 'v1',
 };
 const ECDSA_SUBJECT_ID = ECDSA_CONTEXT.subjectId;
+const ROLE_LOCAL_KEY_PURPOSE = 'evm-signing';
+const ROLE_LOCAL_KEY_VERSION = 'v1';
+let hssClientSignerWasmInitialized = false;
+
+function ensureHssClientSignerWasm(): void {
+  if (hssClientSignerWasmInitialized) return;
+  initHssClientSignerWasmSync({ module: readFileSync(HSS_CLIENT_SIGNER_WASM_URL) });
+  hssClientSignerWasmInitialized = true;
+}
 
 function loadCorpus(): ThresholdPrfFixtureCorpus {
   return JSON.parse(readFileSync(FIXTURE_PATH, 'utf8')) as ThresholdPrfFixtureCorpus;
@@ -93,6 +107,63 @@ function hexToBytes(hex: string): Uint8Array {
 
 function bytesToHex(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString('hex');
+}
+
+function bytesB64u(bytes: Uint8Array): string {
+  return Buffer.from(bytes).toString('base64url');
+}
+
+function hexToBytesPrefixed(hex: string): Uint8Array {
+  return hexToBytes(hex.replace(/^0x/i, ''));
+}
+
+async function roleLocalWalletFromShares(input: {
+  yClient32Le: Uint8Array;
+  yRelayer32Le: Uint8Array;
+}) {
+  ensureHssClientSignerWasm();
+  const context = {
+    walletSessionUserId: ECDSA_CONTEXT.walletSessionUserId,
+    subjectId: ECDSA_CONTEXT.subjectId,
+    ecdsaThresholdKeyId: ECDSA_CONTEXT.ecdsaThresholdKeyId,
+    signingRootId: ECDSA_CONTEXT.signingRootId,
+    signingRootVersion: ECDSA_CONTEXT.signingRootVersion,
+    keyPurpose: ROLE_LOCAL_KEY_PURPOSE,
+    keyVersion: ROLE_LOCAL_KEY_VERSION,
+  };
+  const clientBootstrap = threshold_ecdsa_hss_role_local_client_bootstrap({
+    ...context,
+    clientRootShare32B64u: bytesB64u(input.yClient32Le),
+  }) as {
+    contextBinding32B64u: string;
+    clientPublicKey33B64u: string;
+    clientShareRetryCounter: number;
+  };
+  const relayerBootstrap = await roleLocalThresholdEcdsaHssRelayerBootstrap({
+    ...context,
+    relayerKeyId: 'ehss-relayer-signing-root-test',
+    yRelayer32Le: input.yRelayer32Le,
+    clientPublicKey33: Buffer.from(clientBootstrap.clientPublicKey33B64u, 'base64url'),
+    clientShareRetryCounter: clientBootstrap.clientShareRetryCounter,
+  });
+  const exportArtifact = threshold_ecdsa_hss_role_local_export_artifact({
+    ...context,
+    clientRootShare32: input.yClient32Le,
+    serverExportShare32B64u: bytesB64u(relayerBootstrap.relayerShare32),
+    contextBinding32B64u: clientBootstrap.contextBinding32B64u,
+    clientPublicKey33B64u: clientBootstrap.clientPublicKey33B64u,
+    relayerPublicKey33B64u: bytesB64u(relayerBootstrap.relayerPublicKey33),
+    groupPublicKey33B64u: bytesB64u(relayerBootstrap.groupPublicKey33),
+    ethereumAddress: `0x${bytesToHex(relayerBootstrap.ethereumAddress20)}`,
+    clientShareRetryCounter: clientBootstrap.clientShareRetryCounter,
+  }) as { publicKeyHex: string; ethereumAddress: string };
+
+  return {
+    groupPublicKey33: relayerBootstrap.groupPublicKey33,
+    ethereumAddress20: relayerBootstrap.ethereumAddress20,
+    exportedPublicKey33: hexToBytesPrefixed(exportArtifact.publicKeyHex),
+    exportedEthereumAddress20: hexToBytesPrefixed(exportArtifact.ethereumAddress),
+  };
 }
 
 function shareWirePairForIds(
@@ -115,6 +186,54 @@ function createAuthServiceMock(): AuthService {
     verifyWebAuthnAuthenticationLite: async () => ({ success: true, verified: true }),
     viewAccessKeyList: async () => ({ keys: [] }),
   } as unknown as AuthService;
+}
+
+async function roleLocalBootstrapWithClientShare(args: {
+  service: ReturnType<typeof createThresholdSigningService>;
+  clientRootShare32B64u: string;
+  sessionId: string;
+  walletSigningSessionId: string;
+  signingRootId?: string;
+  signingRootVersion?: string;
+}) {
+  ensureHssClientSignerWasm();
+  const signingRootId = args.signingRootId || SIGNING_ROOT_ID;
+  const signingRootVersion = args.signingRootVersion || SIGNING_ROOT_VERSION;
+  const clientBootstrap = threshold_ecdsa_hss_role_local_client_bootstrap({
+    walletSessionUserId: ECDSA_CONTEXT.walletSessionUserId,
+    subjectId: ECDSA_SUBJECT_ID,
+    ecdsaThresholdKeyId: ECDSA_CONTEXT.ecdsaThresholdKeyId,
+    signingRootId,
+    signingRootVersion,
+    keyPurpose: ROLE_LOCAL_KEY_PURPOSE,
+    keyVersion: ROLE_LOCAL_KEY_VERSION,
+    clientRootShare32B64u: args.clientRootShare32B64u,
+  }) as {
+    contextBinding32B64u: string;
+    clientPublicKey33B64u: string;
+    clientShareRetryCounter: number;
+  };
+
+  return await args.service.ecdsaHssRoleLocalBootstrap({
+    formatVersion: 'ecdsa-hss-role-local',
+    walletSessionUserId: ECDSA_CONTEXT.walletSessionUserId,
+    rpId: 'example.localhost',
+    subjectId: ECDSA_SUBJECT_ID,
+    ecdsaThresholdKeyId: ECDSA_CONTEXT.ecdsaThresholdKeyId,
+    signingRootId,
+    signingRootVersion,
+    keyScope: 'evm-family',
+    relayerKeyId: 'ehss-relayer-signing-root-test',
+    clientPublicKey33B64u: clientBootstrap.clientPublicKey33B64u,
+    clientShareRetryCounter: clientBootstrap.clientShareRetryCounter,
+    contextBinding32B64u: clientBootstrap.contextBinding32B64u,
+    requestId: `request:${args.sessionId}`,
+    sessionId: args.sessionId,
+    walletSigningSessionId: args.walletSigningSessionId,
+    ttlMs: 60_000,
+    remainingUses: 1,
+    participantIds: [1, 2],
+  });
 }
 
 function sealedShareRecord(shareId: SigningRootSecretShareId): SealedSigningRootSecretShare {
@@ -166,28 +285,13 @@ test('ECDSA HSS consumes threshold-prf signing-root y_relayer without changing b
   if (!derivedYRelayer.ok) throw new Error(derivedYRelayer.message);
 
   const yClient32Le = new Uint8Array(32).fill(0x07);
-  const bootstrapped = await ecdsaHssBootstrapNonExportSign({
-    ...ECDSA_CONTEXT,
+  const wallet = await roleLocalWalletFromShares({
     yClient32Le,
-    yRelayer32Le: derivedYRelayer.value,
-  });
-  const exported = await ecdsaHssExplicitExport({
-    ...ECDSA_CONTEXT,
-    yClient32Le,
-    yRelayer32Le: derivedYRelayer.value,
-  });
-  const prepared = await prepareThresholdEcdsaHssServerSession({
-    ...ECDSA_CONTEXT,
-    operation: 'registration_bootstrap',
     yRelayer32Le: derivedYRelayer.value,
   });
 
-  expect(bytesToHex(bootstrapped.groupPublicKey33)).toBe(bytesToHex(exported.canonicalPublicKey33));
-  expect(bytesToHex(bootstrapped.ethereumAddress20)).toBe(
-    bytesToHex(exported.canonicalEthereumAddress20),
-  );
-  expect(prepared.preparedServerSessionB64u).toBeTruthy();
-  expect(prepared.serverAssistInitMessageB64u).toBeTruthy();
+  expect(bytesToHex(wallet.groupPublicKey33)).toBe(bytesToHex(wallet.exportedPublicKey33));
+  expect(bytesToHex(wallet.ethereumAddress20)).toBe(bytesToHex(wallet.exportedEthereumAddress20));
 
   derivedYRelayer.value.fill(0);
   yClient32Le.fill(0);
@@ -207,22 +311,18 @@ test('ECDSA wallet identity is stable across local and pairwise partial-combine 
 
     expect(bytesToHex(localYRelayer)).toBe(bytesToHex(pairwiseYRelayer));
 
-    const localWallet = await ecdsaHssExplicitExport({
-      ...ECDSA_CONTEXT,
+    const localWallet = await roleLocalWalletFromShares({
       yClient32Le,
       yRelayer32Le: localYRelayer,
     });
-    const pairwiseWallet = await ecdsaHssExplicitExport({
-      ...ECDSA_CONTEXT,
+    const pairwiseWallet = await roleLocalWalletFromShares({
       yClient32Le,
       yRelayer32Le: pairwiseYRelayer,
     });
 
-    expect(bytesToHex(localWallet.canonicalPublicKey33)).toBe(
-      bytesToHex(pairwiseWallet.canonicalPublicKey33),
-    );
-    expect(bytesToHex(localWallet.canonicalEthereumAddress20)).toBe(
-      bytesToHex(pairwiseWallet.canonicalEthereumAddress20),
+    expect(bytesToHex(localWallet.groupPublicKey33)).toBe(bytesToHex(pairwiseWallet.groupPublicKey33));
+    expect(bytesToHex(localWallet.ethereumAddress20)).toBe(
+      bytesToHex(pairwiseWallet.ethereumAddress20),
     );
 
     localShareWires[0].fill(0);
@@ -234,7 +334,7 @@ test('ECDSA wallet identity is stable across local and pairwise partial-combine 
   yClient32Le.fill(0);
 });
 
-test('ECDSA HSS prepare uses signing-root resolver when configured and preserves response shape', async () => {
+test('ECDSA role-local bootstrap uses signing-root resolver when configured and preserves response shape', async () => {
   const resolverCalls: SigningRootSecretShareKekResolutionInput[] = [];
   const resolveKek = async (input: SigningRootSecretShareKekResolutionInput): Promise<Uint8Array> => {
     resolverCalls.push(input);
@@ -273,114 +373,21 @@ test('ECDSA HSS prepare uses signing-root resolver when configured and preserves
     thresholdStore: thresholdConfig,
     isNode: true,
   });
-  const sessionPolicy: ThresholdEcdsaHssPrepareRequest['sessionPolicy'] = {
-    version: 'threshold_session_v1',
-    walletSessionUserId: ECDSA_CONTEXT.walletSessionUserId,
-    subjectId: ECDSA_SUBJECT_ID,
-    chainTarget: ECDSA_CHAIN_TARGET,
-    rpId: 'example.localhost',
+  expect(service.hasSigningRootShareResolver()).toBe(true);
+  const bootstrapped = await roleLocalBootstrapWithClientShare({
+    service,
+    clientRootShare32B64u: Buffer.from(new Uint8Array(32).fill(0x07)).toString('base64url'),
     sessionId: 'ecdsa-session-1',
     walletSigningSessionId: 'wallet-signing-session-1',
-    runtimePolicyScope: {
-      orgId: 'org-alpha',
-      projectId: PROJECT_ID,
-      envId: ENV_ID,
-      signingRootVersion: SIGNING_ROOT_VERSION,
-    },
-    participantIds: [1, 2],
-    ttlMs: 60_000,
-    remainingUses: 1,
-  };
-
-  expect(service.hasSigningRootShareResolver()).toBe(true);
-  const prepared = await service.ecdsaHss.prepare({
-    walletSessionUserId: ECDSA_CONTEXT.walletSessionUserId,
-    rpId: 'example.localhost',
-    operation: 'registration_bootstrap',
-    keygenSessionId: 'keygen-session-1',
-    sessionPolicy,
-    webauthn_authentication: {} as ThresholdEcdsaHssPrepareRequest['webauthn_authentication'],
-  });
-
-  if (!prepared.ok) throw new Error(prepared.message);
-  expect(prepared.ok).toBe(true);
-  expect(prepared.ceremonyId).toBeTruthy();
-  expect(prepared.preparedServerSessionB64u).toBeTruthy();
-  expect(prepared.serverAssistInitB64u).toBeTruthy();
-  expect(resolverCalls.map((call) => call.shareId)).toEqual([1, 2, 1, 2]);
-});
-
-test('ECDSA first bootstrap uses signing-root resolver when configured and no secp256k1 master secret is present', async () => {
-  const resolverCalls: SigningRootSecretShareKekResolutionInput[] = [];
-  const resolveKek = async (input: SigningRootSecretShareKekResolutionInput): Promise<Uint8Array> => {
-    resolverCalls.push(input);
-    return KEK_BYTES;
-  };
-  const store = new InMemorySigningRootSecretStore();
-  const vector = vectorForPurpose('ecdsa-hss/y_relayer');
-  for (const share of vector.shares.slice(0, 2)) {
-    const parsed = parseSigningRootSecretShareWireV1(hexToBytes(share.wire_hex));
-    if (!parsed.ok) throw new Error(parsed.message);
-    const sealedShare = await sealSigningRootSecretShareWireV1({
-      signingRootId: SIGNING_ROOT_ID,
-      signingRootVersion: SIGNING_ROOT_VERSION,
-      shareId: share.id,
-      kekId: KEK_ID,
-      plaintextShareWire: parsed.value,
-      resolveKek,
-    });
-    parsed.value.fill(0);
-    await store.putSealedSigningRootSecretShare({
-      signingRootId: SIGNING_ROOT_ID,
-      signingRootVersion: SIGNING_ROOT_VERSION,
-      shareId: share.id,
-      kekId: KEK_ID,
-      sealedShare,
-    });
-  }
-
-  const thresholdConfig: ThresholdStoreConfigInput = {
-    kind: 'in-memory',
-    signingRootSecretStore: store,
-    signingRootSecretShareKekResolver: resolveKek,
-  };
-  const service = createThresholdSigningService({
-    authService: createAuthServiceMock(),
-    thresholdStore: thresholdConfig,
-    isNode: true,
-  });
-  const clientRootShare32B64u = Buffer.from(new Uint8Array(32).fill(0x07)).toString('base64url');
-
-  const bootstrapped = await service.bootstrapEcdsaFromRegistrationMaterial({
-    walletSessionUserId: ECDSA_CONTEXT.walletSessionUserId,
-    rpId: 'example.localhost',
-    clientRootShare32B64u,
-    sessionPolicy: {
-      version: 'threshold_session_v1',
-      walletSessionUserId: ECDSA_CONTEXT.walletSessionUserId,
-      subjectId: ECDSA_SUBJECT_ID,
-      chainTarget: ECDSA_CHAIN_TARGET,
-      rpId: 'example.localhost',
-      sessionId: 'ecdsa-bootstrap-session-1',
-      walletSigningSessionId: 'wallet-signing-bootstrap-1',
-      runtimePolicyScope: {
-        orgId: 'org-alpha',
-        projectId: PROJECT_ID,
-        envId: ENV_ID,
-        signingRootVersion: SIGNING_ROOT_VERSION,
-      },
-      participantIds: [1, 2],
-      ttlMs: 60_000,
-      remainingUses: 1,
-    },
   });
 
   if (!bootstrapped.ok) throw new Error(bootstrapped.message);
   expect(bootstrapped.ok).toBe(true);
-  expect(bootstrapped.ecdsaThresholdKeyId).toBeTruthy();
-  expect(bootstrapped.thresholdEcdsaPublicKeyB64u).toBeTruthy();
-  expect(bootstrapped.ethereumAddress).toMatch(/^0x[0-9a-f]{40}$/);
-  expect(bootstrapped.sessionId).toBe('ecdsa-bootstrap-session-1');
+  expect(bootstrapped.value.keyHandle).toBeTruthy();
+  expect(bootstrapped.value.thresholdEcdsaPublicKeyB64u).toBeTruthy();
+  expect(bootstrapped.value.ethereumAddress).toMatch(/^0x[0-9a-f]{40}$/);
+  expect(bootstrapped.value.sessionId).toBe('ecdsa-session-1');
+  expect(bootstrapped.value.walletSigningSessionId).toBe('wallet-signing-session-1');
   expect(resolverCalls.map((call) => call.shareId)).toEqual([1, 2, 1, 2]);
 });
 
@@ -388,6 +395,7 @@ test('ECDSA self-host signing-root resolver supplies fixed project scope when se
   const vector = vectorForPurpose('ecdsa-hss/y_relayer');
   const signingRootShareResolver = createSelfHostedSigningRootShareResolver({
     signingRootId: SIGNING_ROOT_ID,
+    signingRootVersion: SIGNING_ROOT_VERSION,
     shares: vector.shares.slice(0, 2).map((share) => ({
       shareId: share.id,
       shareWireHex: share.wire_hex,
@@ -401,42 +409,20 @@ test('ECDSA self-host signing-root resolver supplies fixed project scope when se
     },
     isNode: true,
   });
-  const sessionPolicy: ThresholdEcdsaHssPrepareRequest['sessionPolicy'] = {
-    version: 'threshold_session_v1',
-    walletSessionUserId: ECDSA_CONTEXT.walletSessionUserId,
-    subjectId: ECDSA_SUBJECT_ID,
-    chainTarget: ECDSA_CHAIN_TARGET,
-    rpId: 'example.localhost',
+  const bootstrapped = await roleLocalBootstrapWithClientShare({
+    service,
+    clientRootShare32B64u: Buffer.from(new Uint8Array(32).fill(0x07)).toString('base64url'),
     sessionId: 'ecdsa-self-host-session-1',
     walletSigningSessionId: 'wallet-signing-self-host-1',
-    participantIds: [1, 2],
-    ttlMs: 60_000,
-    remainingUses: 1,
-  };
-
-  const prepared = await service.ecdsaHss.prepare({
-    walletSessionUserId: ECDSA_CONTEXT.walletSessionUserId,
-    rpId: 'example.localhost',
-    operation: 'registration_bootstrap',
-    keygenSessionId: 'self-host-keygen-session-1',
-    sessionPolicy,
-    webauthn_authentication: {} as ThresholdEcdsaHssPrepareRequest['webauthn_authentication'],
-  });
-  expect(prepared.ok).toBe(true);
-  if (!prepared.ok) throw new Error(prepared.message);
-
-  const bootstrapped = await service.bootstrapEcdsaFromRegistrationMaterial({
-    walletSessionUserId: ECDSA_CONTEXT.walletSessionUserId,
-    rpId: 'example.localhost',
-    clientRootShare32B64u: Buffer.from(new Uint8Array(32).fill(0x07)).toString('base64url'),
-    sessionPolicy,
   });
 
   expect(bootstrapped.ok).toBe(true);
   if (!bootstrapped.ok) throw new Error(bootstrapped.message);
-  expect(bootstrapped.ecdsaThresholdKeyId).toBeTruthy();
-  expect(bootstrapped.ethereumAddress).toMatch(/^0x[0-9a-f]{40}$/);
-  expect(bootstrapped.sessionId).toBe('ecdsa-self-host-session-1');
+  expect(bootstrapped.value.ecdsaThresholdKeyId).toBeTruthy();
+  expect(bootstrapped.value.ethereumAddress).toMatch(/^0x[0-9a-f]{40}$/);
+  expect(bootstrapped.value.sessionId).toBe('ecdsa-self-host-session-1');
+  expect(bootstrapped.value.signingRootId).toBe(SIGNING_ROOT_ID);
+  expect(bootstrapped.value.signingRootVersion).toBe(SIGNING_ROOT_VERSION);
 });
 
 test('ECDSA signing-root wallet verification derives the known address from imported root-versioned shares', async () => {
@@ -478,7 +464,10 @@ test('ECDSA signing-root wallet verification derives the known address from impo
     },
     isNode: true,
   });
-  const clientRootShare32B64u = Buffer.from(new Uint8Array(32).fill(0x07)).toString('base64url');
+  const clientRootShare32 = new Uint8Array(32).fill(0x07);
+  const clientPublicKey33B64u = Buffer.from(
+    await secp256k1PrivateKey32ToPublicKey33(clientRootShare32),
+  ).toString('base64url');
 
   const first = await service.verifyEcdsaSigningRootWalletAddress({
     signingRootId: SIGNING_ROOT_ID,
@@ -488,7 +477,7 @@ test('ECDSA signing-root wallet verification derives the known address from impo
     chainTarget: ECDSA_CONTEXT.chainTarget,
     ecdsaThresholdKeyId: ECDSA_CONTEXT.ecdsaThresholdKeyId,
     rpId: 'example.localhost',
-    clientRootShare32B64u,
+    clientPublicKey33B64u,
   });
   expect(first.ok).toBe(true);
   if (!first.ok) throw new Error(first.message);
@@ -503,7 +492,7 @@ test('ECDSA signing-root wallet verification derives the known address from impo
     chainTarget: ECDSA_CONTEXT.chainTarget,
     ecdsaThresholdKeyId: ECDSA_CONTEXT.ecdsaThresholdKeyId,
     rpId: 'example.localhost',
-    clientRootShare32B64u,
+    clientPublicKey33B64u,
     expectedEthereumAddress: first.canonicalEthereumAddress,
   });
   expect(second).toMatchObject({
@@ -520,7 +509,7 @@ test('ECDSA signing-root wallet verification derives the known address from impo
     chainTarget: ECDSA_CONTEXT.chainTarget,
     ecdsaThresholdKeyId: ECDSA_CONTEXT.ecdsaThresholdKeyId,
     rpId: 'example.localhost',
-    clientRootShare32B64u,
+    clientPublicKey33B64u,
     expectedEthereumAddress: `0x${'11'.repeat(20)}`,
   });
   expect(mismatch).toMatchObject({

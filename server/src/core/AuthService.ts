@@ -62,9 +62,15 @@ import type {
   CreateAccountAndRegisterResult,
   OidcExchangeIssuerConfig,
   ThresholdRuntimePolicyScope,
+  EcdsaHssClientBootstrapRequest,
+  EcdsaHssExportShareRequest,
+  EcdsaHssExportShareResponse,
+  EcdsaHssRouteResult,
+  EcdsaHssServerBootstrapResponse,
   WebAuthnAuthenticationCredential,
   SignerWasmModuleSupplier,
 } from './types';
+import type { ThresholdEcdsaSessionClaims } from './ThresholdService/validation';
 
 export type GoogleEmailOtpResolutionMode =
   | 'existing_wallet'
@@ -3313,60 +3319,8 @@ export class AuthService {
         }
 
         if (thresholdEcdsaClientRootShare32B64u) {
-          const thresholdEcdsaKeygenStartedAt = Date.now();
-          const out = await thresholdService!.bootstrapEcdsaFromRegistrationMaterial({
-            walletSessionUserId: accountId,
-            rpId,
-            clientRootShare32B64u: thresholdEcdsaClientRootShare32B64u,
-            sessionPolicy: thresholdEcdsaSessionPolicy as Record<string, unknown>,
-          });
-          if (!out.ok) {
-            throw new Error(out.message || 'threshold-ecdsa registration keygen failed');
-          }
-
-          const ecdsaThresholdKeyId = String(out.ecdsaThresholdKeyId || '').trim();
-          const signingRootId = String(out.signingRootId || '').trim();
-          const signingRootVersion = String(out.signingRootVersion || '').trim();
-          const relayerKeyId = String(out.relayerKeyId || '').trim();
-          const thresholdEcdsaPublicKeyB64u = String(out.thresholdEcdsaPublicKeyB64u || '').trim();
-          const ethereumAddress = String(out.ethereumAddress || '').trim();
-          const relayerVerifyingShareB64u = String(out.relayerVerifyingShareB64u || '').trim();
-          if (
-            !ecdsaThresholdKeyId ||
-            !signingRootId ||
-            !relayerKeyId ||
-            !thresholdEcdsaPublicKeyB64u ||
-            !ethereumAddress ||
-            !relayerVerifyingShareB64u
-          ) {
-            throw new Error('threshold-ecdsa registration keygen returned incomplete key material');
-          }
-          thresholdEcdsaKeygen = {
-            ecdsaThresholdKeyId,
-            signingRootId,
-            ...(signingRootVersion ? { signingRootVersion } : {}),
-            clientVerifyingShareB64u: String(out.clientVerifyingShareB64u || '').trim(),
-            clientAdditiveShare32B64u: String(out.clientAdditiveShare32B64u || '').trim(),
-            relayerKeyId,
-            thresholdEcdsaPublicKeyB64u,
-            ethereumAddress,
-            relayerVerifyingShareB64u,
-            ...(Array.isArray(out.participantIds) ? { participantIds: out.participantIds } : {}),
-          };
-          logDuration(
-            registrationTimings,
-            'thresholdEcdsaRegistrationMaterialMs',
-            thresholdEcdsaKeygenStartedAt,
-          );
-          const normalizedSession = toThresholdEcdsaBootstrapSession(out);
-          if (!normalizedSession) {
-            throw new Error('threshold-ecdsa registration session bootstrap failed');
-          }
-          thresholdEcdsaSession = normalizedSession;
-          logDuration(
-            registrationTimings,
-            'thresholdEcdsaSessionMintMs',
-            thresholdEcdsaKeygenStartedAt,
+          throw new Error(
+            'threshold-ecdsa client-root registration bootstrap has been removed; use role-local ECDSA HSS bootstrap',
           );
         }
 
@@ -3658,14 +3612,6 @@ export class AuthService {
                   relayerParticipantId: thresholdKeygen.relayerParticipantId,
                   participantIds: thresholdKeygen.participantIds,
                   ...(thresholdEd25519Session ? { session: thresholdEd25519Session } : {}),
-                },
-              }
-            : {}),
-          ...(thresholdEcdsaKeygen
-            ? {
-                thresholdEcdsa: {
-                  ...thresholdEcdsaKeygen,
-                  ...(thresholdEcdsaSession ? { session: thresholdEcdsaSession } : {}),
                 },
               }
             : {}),
@@ -7298,6 +7244,36 @@ export class AuthService {
     return { records, diagnostics };
   }
 
+  async ecdsaHssRoleLocalBootstrap(
+    request: EcdsaHssClientBootstrapRequest,
+  ): Promise<EcdsaHssRouteResult<EcdsaHssServerBootstrapResponse>> {
+    const threshold = this.getThresholdSigningService();
+    if (!threshold) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'Threshold signing service is not configured',
+      };
+    }
+    return await threshold.ecdsaHssRoleLocalBootstrap(request);
+  }
+
+  async ecdsaHssRoleLocalExportShare(input: {
+    request: EcdsaHssExportShareRequest;
+    keyHandle: string;
+    claims: ThresholdEcdsaSessionClaims;
+  }): Promise<EcdsaHssRouteResult<EcdsaHssExportShareResponse>> {
+    const threshold = this.getThresholdSigningService();
+    if (!threshold) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'Threshold signing service is not configured',
+      };
+    }
+    return await threshold.ecdsaHssRoleLocalExportShare(input);
+  }
+
   async verifyWebAuthnSyncAccount(request: {
     challengeId?: unknown;
     challenge_id?: unknown;
@@ -8105,53 +8081,12 @@ export class AuthService {
       }
 
       if (thresholdEcdsaClientRootShare32B64u) {
-        const out = await threshold.bootstrapEcdsaFromRegistrationMaterial({
-          walletSessionUserId: accountId,
-          rpId,
-          clientRootShare32B64u: thresholdEcdsaClientRootShare32B64u,
-          sessionPolicy: thresholdEcdsaSessionPolicy as Record<string, unknown>,
-        });
-        if (!out.ok) {
-          return {
-            ok: false,
-            code: out.code || 'internal',
-            message: out.message || 'threshold-ecdsa link-device bootstrap failed',
-          };
-        }
-        const relayerKeyId = String(out.relayerKeyId || '').trim();
-        const thresholdEcdsaPublicKeyB64u = String(out.thresholdEcdsaPublicKeyB64u || '').trim();
-        const ethereumAddress = String(out.ethereumAddress || '').trim();
-        const relayerVerifyingShareB64u = String(out.relayerVerifyingShareB64u || '').trim();
-        if (
-          !relayerKeyId ||
-          !thresholdEcdsaPublicKeyB64u ||
-          !ethereumAddress ||
-          !relayerVerifyingShareB64u
-        ) {
-          return {
-            ok: false,
-            code: 'internal',
-            message: 'threshold-ecdsa link-device bootstrap returned incomplete key material',
-          };
-        }
-        thresholdEcdsaKeygen = {
-          clientVerifyingShareB64u: String(out.clientVerifyingShareB64u || '').trim(),
-          clientAdditiveShare32B64u: String(out.clientAdditiveShare32B64u || '').trim(),
-          relayerKeyId,
-          thresholdEcdsaPublicKeyB64u,
-          ethereumAddress,
-          relayerVerifyingShareB64u,
-          ...(Array.isArray(out.participantIds) ? { participantIds: out.participantIds } : {}),
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message:
+            'threshold-ecdsa client-root link-device bootstrap has been removed; use role-local ECDSA HSS bootstrap',
         };
-        const normalizedSession = toThresholdEcdsaBootstrapSession(out);
-        if (!normalizedSession) {
-          return {
-            ok: false,
-            code: 'internal',
-            message: 'threshold-ecdsa link-device bootstrap failed',
-          };
-        }
-        thresholdEcdsaSession = normalizedSession;
       }
 
       const credentialIdB64u = String(registration?.registrationInfo?.credential?.id || '').trim();
@@ -8616,53 +8551,12 @@ export class AuthService {
       }
 
       if (thresholdEcdsaClientRootShare32B64u) {
-        const out = await threshold.bootstrapEcdsaFromRegistrationMaterial({
-          walletSessionUserId: accountId,
-          rpId,
-          clientRootShare32B64u: thresholdEcdsaClientRootShare32B64u,
-          sessionPolicy: thresholdEcdsaSessionPolicy as Record<string, unknown>,
-        });
-        if (!out.ok) {
-          return {
-            ok: false,
-            code: out.code || 'internal',
-            message: out.message || 'threshold-ecdsa email-recovery bootstrap failed',
-          };
-        }
-        const relayerKeyId = String(out.relayerKeyId || '').trim();
-        const thresholdEcdsaPublicKeyB64u = String(out.thresholdEcdsaPublicKeyB64u || '').trim();
-        const ethereumAddress = String(out.ethereumAddress || '').trim();
-        const relayerVerifyingShareB64u = String(out.relayerVerifyingShareB64u || '').trim();
-        if (
-          !relayerKeyId ||
-          !thresholdEcdsaPublicKeyB64u ||
-          !ethereumAddress ||
-          !relayerVerifyingShareB64u
-        ) {
-          return {
-            ok: false,
-            code: 'internal',
-            message: 'threshold-ecdsa email-recovery bootstrap returned incomplete key material',
-          };
-        }
-        thresholdEcdsaKeygen = {
-          clientVerifyingShareB64u: String(out.clientVerifyingShareB64u || '').trim(),
-          clientAdditiveShare32B64u: String(out.clientAdditiveShare32B64u || '').trim(),
-          relayerKeyId,
-          thresholdEcdsaPublicKeyB64u,
-          ethereumAddress,
-          relayerVerifyingShareB64u,
-          ...(Array.isArray(out.participantIds) ? { participantIds: out.participantIds } : {}),
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message:
+            'threshold-ecdsa client-root email-recovery bootstrap has been removed; use role-local ECDSA HSS bootstrap',
         };
-        const normalizedSession = toThresholdEcdsaBootstrapSession(out);
-        if (!normalizedSession) {
-          return {
-            ok: false,
-            code: 'internal',
-            message: 'threshold-ecdsa email-recovery bootstrap failed',
-          };
-        }
-        thresholdEcdsaSession = normalizedSession;
       }
 
       const credentialIdB64u = String(registration?.registrationInfo?.credential?.id || '').trim();

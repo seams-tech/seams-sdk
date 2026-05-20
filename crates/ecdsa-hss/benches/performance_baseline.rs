@@ -1,18 +1,14 @@
-use criterion::{
-    black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput,
-};
-use ecdsa_hss::fixtures::committed_fixture_corpus;
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use ecdsa_hss::{
-    bootstrap_evm_threshold_v1, compute_client_signature_share_v1, derive_additive_shares_v1,
-    derive_canonical_secret_v1, export_evm_threshold_v1, finalize_signature_v1,
-    init_client_presign_session_v1, init_relayer_presign_session_v1, parse_presignature97_v1,
-    prepare_signing_session_v1, sign_with_session_v1, EcdsaHssStableKeyContextV1,
-    EvmThresholdBootstrapAdapterV1, EvmThresholdBootstrapRequestV1, EvmThresholdExportRequestV1,
-    EvmThresholdPresignatureV1, EvmThresholdSigningOperationV1, RootShareInputsV1,
-    ServerEvalOperationV1,
+    complete_presign_roundtrip_v1, context_binding_v1, derive_client_share_v1,
+    derive_relayer_share_for_client_public_v1, export_authorization_digest_v1,
+    export_from_respond_response_v1, sign_with_role_materials_v1, ClientRoleShareV1,
+    EcdsaHssStableKeyContextV1, EvmThresholdClientBootstrapV1, EvmThresholdRelayerBootstrapV1,
+    ExplicitExportAuthorizationV1, ExplicitExportRespondRequestV1, ExportNonceReplayGuardV1,
+    PrepareEnvelopeV1, PublicIdentityV1, RespondRequestV1, RespondResponseV1,
+    ServerEvalOperationV1, ServerPrepareInputsV1, StagedServerSessionV1, ThresholdRespondRequestV1,
 };
 use sha2::{Digest, Sha512};
-use signer_core::threshold_ecdsa::ThresholdEcdsaPresignSession;
 
 #[derive(Clone)]
 struct BenchmarkFixture {
@@ -20,21 +16,22 @@ struct BenchmarkFixture {
     context: EcdsaHssStableKeyContextV1,
     y_client32_le: [u8; 32],
     y_relayer32_le: [u8; 32],
-    canonical_x32: [u8; 32],
 }
 
 fn representative_fixture() -> BenchmarkFixture {
-    let fixtures = committed_fixture_corpus().expect("committed fixture corpus");
-    let fixture = fixtures
-        .into_iter()
-        .find(|fixture| fixture.name == "derived-beta")
-        .expect("derived-beta fixture");
     BenchmarkFixture {
-        name: "derived-beta",
-        context: fixture.context,
-        y_client32_le: fixture.y_client32_le,
-        y_relayer32_le: fixture.y_relayer32_le,
-        canonical_x32: fixture.canonical.x32,
+        name: "role-local",
+        context: EcdsaHssStableKeyContextV1::new(
+            "bench-wallet-session-user",
+            "bench-subject",
+            "bench-ecdsa-threshold-key",
+            "bench-signing-root",
+            "1",
+            "evm-family",
+            "1",
+        ),
+        y_client32_le: [0x11u8; 32],
+        y_relayer32_le: [0x22u8; 32],
     }
 }
 
@@ -45,160 +42,147 @@ fn fixed_digest32(label: &[u8]) -> [u8; 32] {
     out
 }
 
-struct PrimedPresignState {
-    client: ThresholdEcdsaPresignSession,
-    relayer: ThresholdEcdsaPresignSession,
+fn relayer_key_id() -> String {
+    "bench-relayer-key-1".to_string()
 }
 
-fn init_presign_state(adapter: &EvmThresholdBootstrapAdapterV1) -> PrimedPresignState {
-    let client = init_client_presign_session_v1(adapter).expect("client presign init");
-    let relayer = init_relayer_presign_session_v1(adapter).expect("relayer presign init");
-
-    PrimedPresignState { client, relayer }
+fn export_authorization(
+    context: &EcdsaHssStableKeyContextV1,
+    relayer_key_id: &str,
+    identity: &PublicIdentityV1,
+) -> ExplicitExportAuthorizationV1 {
+    let mut authorization = ExplicitExportAuthorizationV1 {
+        wallet_session_user_id: context.wallet_session_user_id.clone(),
+        ecdsa_threshold_key_id: context.ecdsa_threshold_key_id.clone(),
+        client_device_id: "bench-client-device".to_string(),
+        client_session_id: "bench-client-session".to_string(),
+        relayer_key_id: relayer_key_id.to_string(),
+        export_request_nonce32: [0x55u8; 32],
+        confirmation_digest32: [0x66u8; 32],
+        authorization_digest32: [0u8; 32],
+        issued_at_unix_ms: 1_000,
+        expires_at_unix_ms: 2_000,
+    };
+    authorization.authorization_digest32 = export_authorization_digest_v1(
+        ServerEvalOperationV1::ExplicitKeyExport,
+        identity,
+        &authorization,
+    )
+    .expect("authorization digest");
+    authorization
 }
 
-fn run_until_triples_done(adapter: &EvmThresholdBootstrapAdapterV1) -> PrimedPresignState {
-    let mut state = init_presign_state(adapter);
-
-    for _ in 0..64 {
-        if state.client.stage() == "triples_done" && state.relayer.stage() == "triples_done" {
-            return state;
-        }
-
-        pump_presign_pair_until_wait_or_done(
-            &mut state.client,
-            &mut state.relayer,
-            adapter.client.participant_id,
-            adapter.relayer.participant_id,
-        );
-    }
-
-    panic!("presign protocol did not reach triples_done within step budget");
+#[derive(Clone)]
+struct BenchmarkBootstrap {
+    client_share: ClientRoleShareV1,
+    client_response: RespondResponseV1,
+    client_bootstrap: EvmThresholdClientBootstrapV1,
+    relayer_bootstrap: EvmThresholdRelayerBootstrapV1,
 }
 
-fn finish_started_presign(
-    adapter: &EvmThresholdBootstrapAdapterV1,
-    mut state: PrimedPresignState,
-) -> (EvmThresholdPresignatureV1, EvmThresholdPresignatureV1) {
-    for _ in 0..64 {
-        pump_presign_pair_until_wait_or_done(
-            &mut state.client,
-            &mut state.relayer,
-            adapter.client.participant_id,
-            adapter.relayer.participant_id,
-        );
-
-        if state.client.is_done() && state.relayer.is_done() {
-            let client_presignature = parse_presignature97_v1(
-                &state
-                    .client
-                    .take_presignature_97()
-                    .expect("client presignature bytes"),
+fn bootstrap_roles(
+    operation: ServerEvalOperationV1,
+    context: EcdsaHssStableKeyContextV1,
+    y_client32_le: [u8; 32],
+    y_relayer32_le: [u8; 32],
+) -> BenchmarkBootstrap {
+    let relayer_key_id = relayer_key_id();
+    let client_share = derive_client_share_v1(&context, y_client32_le).expect("client share");
+    let (_, identity) = derive_relayer_share_for_client_public_v1(
+        &context,
+        y_relayer32_le,
+        &client_share.client_public_key33,
+        client_share.retry_counter,
+    )
+    .expect("relayer identity");
+    let staged = StagedServerSessionV1::prepare(ServerPrepareInputsV1 {
+        prepare: PrepareEnvelopeV1 {
+            operation,
+            context: context.clone(),
+            relayer_key_id: relayer_key_id.clone(),
+        },
+        y_relayer32_le,
+    })
+    .expect("stage server");
+    let result = if operation == ServerEvalOperationV1::ExplicitKeyExport {
+        let mut replay_guard = ExportNonceReplayGuardV1::new();
+        staged
+            .respond_explicit_export(
+                &ExplicitExportRespondRequestV1 {
+                    client_public_key33: client_share.client_public_key33,
+                    client_share_retry_counter: client_share.retry_counter,
+                    authorization: export_authorization(&context, &relayer_key_id, &identity),
+                },
+                &mut replay_guard,
+                1_500,
             )
-            .expect("parse client presignature");
-            let relayer_presignature = parse_presignature97_v1(
-                &state
-                    .relayer
-                    .take_presignature_97()
-                    .expect("relayer presignature bytes"),
-            )
-            .expect("parse relayer presignature");
-            assert_eq!(client_presignature.big_r33, relayer_presignature.big_r33);
-            return (client_presignature, relayer_presignature);
-        }
-    }
-
-    panic!("presign protocol did not complete within step budget");
-}
-
-fn start_presign_on_state(mut state: PrimedPresignState) -> PrimedPresignState {
-    state.client.start_presign().expect("client start presign");
-    state
-        .relayer
-        .start_presign()
-        .expect("relayer start presign");
-    state
-}
-
-fn run_presign_protocol(
-    adapter: &EvmThresholdBootstrapAdapterV1,
-) -> (EvmThresholdPresignatureV1, EvmThresholdPresignatureV1) {
-    let state = start_presign_on_state(run_until_triples_done(adapter));
-    finish_started_presign(adapter, state)
-}
-
-fn run_presign_protocol_before_start(adapter: &EvmThresholdBootstrapAdapterV1) {
-    let _ = run_until_triples_done(adapter);
-}
-
-fn pump_presign_pair_until_wait_or_done(
-    client: &mut ThresholdEcdsaPresignSession,
-    relayer: &mut ThresholdEcdsaPresignSession,
-    client_participant_id: u32,
-    relayer_participant_id: u32,
-) {
-    loop {
-        let mut progressed = false;
-
-        let client_progress = client.poll().expect("client poll");
-        if client_progress.event != "none" || !client_progress.outgoing.is_empty() {
-            progressed = true;
-        }
-        for msg in client_progress.outgoing {
-            relayer
-                .message(client_participant_id, &msg)
-                .expect("deliver client->relayer");
-        }
-
-        let relayer_progress = relayer.poll().expect("relayer poll");
-        if relayer_progress.event != "none" || !relayer_progress.outgoing.is_empty() {
-            progressed = true;
-        }
-        for msg in relayer_progress.outgoing {
-            client
-                .message(relayer_participant_id, &msg)
-                .expect("deliver relayer->client");
-        }
-
-        if client.is_done() && relayer.is_done() {
-            return;
-        }
-        if !progressed {
-            return;
-        }
+            .expect("respond explicit export")
+    } else {
+        staged
+            .respond(&RespondRequestV1::Threshold(ThresholdRespondRequestV1 {
+                client_public_key33: client_share.client_public_key33,
+                client_share_retry_counter: client_share.retry_counter,
+                expected_relayer_key_id: relayer_key_id,
+            }))
+            .expect("respond")
+    };
+    let client_bootstrap =
+        EvmThresholdClientBootstrapV1::from_client_response(&result.client_response, &client_share)
+            .expect("client bootstrap");
+    let relayer_bootstrap = EvmThresholdRelayerBootstrapV1::from_finalized_server_session(
+        &result.finalized_server_session,
+    )
+    .expect("relayer bootstrap");
+    BenchmarkBootstrap {
+        client_share,
+        client_response: result.client_response.clone(),
+        client_bootstrap,
+        relayer_bootstrap,
     }
 }
 
 fn bench_derivation_paths(c: &mut Criterion) {
     let fixture = representative_fixture();
-    let root_shares = RootShareInputsV1::new(fixture.y_client32_le, fixture.y_relayer32_le);
+    let client_share =
+        derive_client_share_v1(&fixture.context, fixture.y_client32_le).expect("client share");
 
     let mut group = c.benchmark_group("derivation_paths");
     group.sample_size(20);
     group.throughput(Throughput::Elements(1));
 
     group.bench_with_input(
-        BenchmarkId::new("canonical_derivation", fixture.name),
+        BenchmarkId::new("context_binding", fixture.name),
+        &fixture,
+        |b, fixture| b.iter(|| context_binding_v1(black_box(&fixture.context)).expect("context")),
+    );
+
+    group.bench_with_input(
+        BenchmarkId::new("client_share", fixture.name),
         &fixture,
         |b, fixture| {
             b.iter(|| {
-                derive_canonical_secret_v1(black_box(&root_shares), black_box(&fixture.context))
-                    .expect("canonical derivation")
-            });
+                derive_client_share_v1(
+                    black_box(&fixture.context),
+                    black_box(fixture.y_client32_le),
+                )
+                .expect("client share")
+            })
         },
     );
 
     group.bench_with_input(
-        BenchmarkId::new("share_derivation", fixture.name),
+        BenchmarkId::new("relayer_share_and_identity", fixture.name),
         &fixture,
         |b, fixture| {
             b.iter(|| {
-                derive_additive_shares_v1(
-                    black_box(&fixture.canonical_x32),
+                derive_relayer_share_for_client_public_v1(
                     black_box(&fixture.context),
+                    black_box(fixture.y_relayer32_le),
+                    black_box(&client_share.client_public_key33),
+                    black_box(client_share.retry_counter),
                 )
-                .expect("share derivation")
-            });
+                .expect("relayer share")
+            })
         },
     );
 
@@ -209,33 +193,16 @@ fn bench_integration_paths(c: &mut Criterion) {
     let fixture = representative_fixture();
     let digest32 = fixed_digest32(b"ecdsa-hss/bench/digest");
     let entropy32 = fixed_digest32(b"ecdsa-hss/bench/entropy");
-    let bootstrap_request = EvmThresholdBootstrapRequestV1 {
-        operation: ServerEvalOperationV1::NonExportSign,
-        context: fixture.context.clone(),
-        y_client32_le: fixture.y_client32_le,
-        y_relayer32_le: fixture.y_relayer32_le,
-    };
-    let export_request = EvmThresholdExportRequestV1 {
-        context: fixture.context.clone(),
-        y_client32_le: fixture.y_client32_le,
-        y_relayer32_le: fixture.y_relayer32_le,
-    };
-    let bootstrap = bootstrap_evm_threshold_v1(bootstrap_request.clone()).expect("bootstrap");
-    let (client_presignature, relayer_presignature) = run_presign_protocol(&bootstrap.adapter);
-    let client_signature_share32 = compute_client_signature_share_v1(
-        &bootstrap.adapter,
-        &client_presignature,
-        &digest32,
-        &entropy32,
-    )
-    .expect("client signature share");
-    let signing_session = prepare_signing_session_v1(
-        EvmThresholdSigningOperationV1::NonExportSign,
+    let bootstrap = bootstrap_roles(
+        ServerEvalOperationV1::NonExportSign,
         fixture.context.clone(),
         fixture.y_client32_le,
         fixture.y_relayer32_le,
-    )
-    .expect("prepare signing session");
+    );
+    let signing_pair = (
+        bootstrap.client_bootstrap.clone(),
+        bootstrap.relayer_bootstrap.clone(),
+    );
 
     let mut group = c.benchmark_group("integration_paths");
     group.sample_size(10);
@@ -243,49 +210,38 @@ fn bench_integration_paths(c: &mut Criterion) {
 
     group.bench_with_input(
         BenchmarkId::new("bootstrap_adapter", fixture.name),
-        &bootstrap_request,
-        |b, request| {
-            b.iter(|| bootstrap_evm_threshold_v1(black_box(request.clone())).expect("bootstrap"))
-        },
-    );
-
-    group.bench_with_input(
-        BenchmarkId::new("sign_session_prepare", fixture.name),
         &fixture,
         |b, fixture| {
             b.iter(|| {
-                prepare_signing_session_v1(
-                    black_box(EvmThresholdSigningOperationV1::NonExportSign),
+                bootstrap_roles(
+                    black_box(ServerEvalOperationV1::NonExportSign),
                     black_box(fixture.context.clone()),
                     black_box(fixture.y_client32_le),
                     black_box(fixture.y_relayer32_le),
                 )
-                .expect("prepare signing session")
             })
         },
     );
 
     group.bench_with_input(
-        BenchmarkId::new("presign_session_init_pair", fixture.name),
-        &bootstrap,
-        |b, bootstrap| {
+        BenchmarkId::new("first_presign_roundtrip", fixture.name),
+        &signing_pair,
+        |b, (client, relayer)| {
             b.iter(|| {
-                let client =
-                    init_client_presign_session_v1(black_box(&bootstrap.adapter)).expect("client");
-                let relayer = init_relayer_presign_session_v1(black_box(&bootstrap.adapter))
-                    .expect("relayer");
-                black_box((client, relayer))
+                complete_presign_roundtrip_v1(black_box(client), black_box(relayer))
+                    .expect("presign roundtrip")
             })
         },
     );
 
     group.bench_with_input(
         BenchmarkId::new("sign_bridge_full", fixture.name),
-        &signing_session,
-        |b, session| {
+        &signing_pair,
+        |b, (client, relayer)| {
             b.iter(|| {
-                sign_with_session_v1(
-                    black_box(&session.clone()),
+                sign_with_role_materials_v1(
+                    black_box(client),
+                    black_box(relayer),
                     black_box(&digest32),
                     black_box(&entropy32),
                 )
@@ -295,83 +251,22 @@ fn bench_integration_paths(c: &mut Criterion) {
     );
 
     group.bench_with_input(
-        BenchmarkId::new("presign_protocol_roundtrip", fixture.name),
-        &bootstrap,
-        |b, bootstrap| b.iter(|| run_presign_protocol(black_box(&bootstrap.adapter))),
-    );
-
-    group.bench_with_input(
-        BenchmarkId::new("presign_before_start", fixture.name),
-        &bootstrap,
-        |b, bootstrap| b.iter(|| run_presign_protocol_before_start(black_box(&bootstrap.adapter))),
-    );
-
-    group.bench_with_input(
-        BenchmarkId::new("presign_start_transition", fixture.name),
-        &bootstrap,
-        |b, bootstrap| {
-            b.iter_batched(
-                || run_until_triples_done(&bootstrap.adapter),
-                |state| {
-                    let _ = black_box(start_presign_on_state(state));
-                },
-                BatchSize::SmallInput,
-            )
-        },
-    );
-
-    group.bench_with_input(
-        BenchmarkId::new("presign_after_start", fixture.name),
-        &bootstrap,
-        |b, bootstrap| {
-            b.iter_batched(
-                || start_presign_on_state(run_until_triples_done(&bootstrap.adapter)),
-                |state| {
-                    let _ = finish_started_presign(black_box(&bootstrap.adapter), state);
-                },
-                BatchSize::SmallInput,
-            )
-        },
-    );
-
-    group.bench_with_input(
-        BenchmarkId::new("client_signature_share_compute", fixture.name),
-        &bootstrap,
-        |b, bootstrap| {
-            b.iter(|| {
-                compute_client_signature_share_v1(
-                    black_box(&bootstrap.adapter),
-                    black_box(&client_presignature),
-                    black_box(&digest32),
-                    black_box(&entropy32),
-                )
-                .expect("client signature share")
-            })
-        },
-    );
-
-    group.bench_with_input(
-        BenchmarkId::new("signature_finalize", fixture.name),
-        &bootstrap,
-        |b, bootstrap| {
-            b.iter(|| {
-                finalize_signature_v1(
-                    black_box(&bootstrap.adapter),
-                    black_box(&relayer_presignature),
-                    black_box(&digest32),
-                    black_box(&entropy32),
-                    black_box(&client_signature_share32),
-                )
-                .expect("finalize signature")
-            })
-        },
-    );
-
-    group.bench_with_input(
         BenchmarkId::new("explicit_export", fixture.name),
-        &export_request,
-        |b, request| {
-            b.iter(|| export_evm_threshold_v1(black_box(request.clone())).expect("export"))
+        &fixture,
+        |b, fixture| {
+            b.iter(|| {
+                let bootstrap = bootstrap_roles(
+                    black_box(ServerEvalOperationV1::ExplicitKeyExport),
+                    black_box(fixture.context.clone()),
+                    black_box(fixture.y_client32_le),
+                    black_box(fixture.y_relayer32_le),
+                );
+                export_from_respond_response_v1(
+                    black_box(&bootstrap.client_response),
+                    black_box(&bootstrap.client_share),
+                )
+                .expect("export")
+            })
         },
     );
 

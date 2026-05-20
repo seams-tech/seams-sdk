@@ -49,7 +49,7 @@
     "show-report": "pnpm -C tests show-report",
     "benchmark:threshold-ecdsa": "node ./benchmarks/threshold-ecdsa-presign/src/runner.mjs",
     "benchmark:threshold-ecdsa:report-only": "node ./benchmarks/threshold-ecdsa-presign/src/runner.mjs --skip-doc-sync",
-    "benchmark:ecdsa-hss:wasm": "bash -lc 'if [ -z \"${CC_wasm32_unknown_unknown:-}\" ] && [ -x /opt/homebrew/opt/llvm/bin/clang ]; then export CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang; fi; cd wasm/eth_signer && wasm-pack build --target web --out-dir pkg && cd ../.. && node ./benchmarks/ecdsa-hss-wasm/src/runner.mjs'",
+    "benchmark:ecdsa-hss:wasm": "bash -lc 'if [ -z \"${CC_wasm32_unknown_unknown:-}\" ] && [ -x /opt/homebrew/opt/llvm/bin/clang ]; then export CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang; fi; cd wasm/eth_signer && wasm-pack build --target web --out-dir pkg && cd ../hss_client_signer && wasm-pack build --target web --out-dir pkg && cd ../.. && node ./benchmarks/ecdsa-hss-wasm/src/runner.mjs'",
     "benchmark:threshold-load": "node ./benchmarks/threshold-load/src/runner.mjs",
     "benchmark:threshold-load:ci": "node ./benchmarks/threshold-load/src/runner.mjs --group smoke --skip-doc-sync",
     "benchmark:threshold-load:medium": "node ./benchmarks/threshold-load/src/runner.mjs --group medium --skip-doc-sync",

@@ -27,7 +27,7 @@ export async function computeThresholdEcdsaKeygenIntentDigest(args: {
   keygenSessionId: string;
 }): Promise<string> {
   // WebAuthn-only keygen challenge policy (v1). This digest is used as the raw WebAuthn
-  // challenge bytes (32 bytes) during staged `threshold-ecdsa/hss/prepare`.
+  // challenge bytes (32 bytes) during role-local threshold ECDSA bootstrap authorization.
   const json = alphabetizeStringify({ version: 'threshold_ecdsa_keygen_v1', ...args });
   return sha256Base64UrlUtf8(json);
 }

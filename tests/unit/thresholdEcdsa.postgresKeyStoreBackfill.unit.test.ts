@@ -104,7 +104,7 @@ test.describe('threshold-ecdsa postgres key store schema validation', () => {
           logger: normalizeLogger(null),
           isNode: true,
         });
-        const found = await store.getByKeyHandle(keyHandle);
+        const found = await store.getRoleLocalByKeyHandle(keyHandle);
         expect(found).toBeNull();
         expect(validatedIndexedColumns).toBe(true);
       },

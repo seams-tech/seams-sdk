@@ -36,6 +36,9 @@ export function buildThresholdEcdsaSecp256k1KeyRefFromRecord(args: {
       ...(record.clientAdditiveShareHandle
         ? { clientAdditiveShareHandle: record.clientAdditiveShareHandle }
         : {}),
+      ...(record.ecdsaHssRoleLocalClientState
+        ? { ecdsaHssRoleLocalClientState: record.ecdsaHssRoleLocalClientState }
+        : {}),
     },
     ...(args.exportArtifact ? { ecdsaHssExportArtifact: args.exportArtifact } : {}),
     participantIds: record.participantIds,

@@ -179,4 +179,4 @@ generated digest corpus.
 - export spec:
   [../specs/export.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/specs/export.md)
 - integration spec:
-  [../specs/integration-near-threshold.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/specs/integration-near-threshold.md)
+  [../specs/integration-cait-sith-backend.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/specs/integration-cait-sith-backend.md)

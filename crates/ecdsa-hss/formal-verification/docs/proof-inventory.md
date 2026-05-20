@@ -15,14 +15,12 @@ The current verification posture is:
 
 - Verus bootstrap crate exists under:
   [verus/](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/verus)
-- published fixed-function corpus exists at:
-  [../fixtures/phase1_v1.json](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/fixtures/phase1_v1.json)
 - current scope is intentionally limited to:
   - `encode_context_v1`
-  - canonical `x` derivation shape
-  - additive-share derivation shape
+  - role-local client and relayer derivation shape
+  - public identity composition
   - fixed participant-ID mapping shape for the current backend seam
-  - explicit-export output-policy shape
+  - explicit-export relayer-share release policy shape
   - initial true-blind role-local boundary mirror
 - Lean boundary extraction now exists for the frozen server-visible staged
   boundary
@@ -265,9 +263,9 @@ Planned track:
 
 Status:
 
-- a frozen Rust hidden-eval/reference facade now exists in
-  [../../src/server/reference_boundary.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/server/reference_boundary.rs)
-- the `lean-boundary/` extraction path now includes that facade
+- the previous Rust hidden-eval/reference facade has been removed from the
+  active crate during the role-local MVP rewrite
+- the `lean-boundary/` extraction path remains a post-MVP bridge task
 - handwritten hidden-eval boundary models now exist for:
   input, transport-visible response, and persisted accepted state
 - the generated hidden-eval boundary now matches the handwritten seam model

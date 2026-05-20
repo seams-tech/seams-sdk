@@ -510,12 +510,11 @@ These are main protocol identity checks.
 
 ## Fixture And Reference Requirements
 
-The current committed fixture corpus covers the existing fixed-function slice:
+The joined-root fixture corpus has been removed. The active fixture emitter is:
 
-- [fixtures/phase1_v1.json](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/fixtures/phase1_v1.json)
+- [emit_fixture_json.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/bin/emit_fixture_json.rs)
 
-Before the Rust role-local implementation lands, generate a new role-local
-fixture corpus covering:
+The next committed role-local fixture corpus should cover:
 
 - `y_client`
 - `y_relayer`
@@ -606,4 +605,4 @@ document are the design source of truth.
 - Export semantics:
   [export.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/specs/export.md)
 - Integration shape:
-  [integration-near-threshold.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/specs/integration-near-threshold.md)
+  [integration-cait-sith-backend.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/specs/integration-cait-sith-backend.md)

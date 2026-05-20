@@ -48,7 +48,7 @@ type SelfHostedEcdsaSigningRootWalletVerifier = {
     readonly walletSigningSessionId: string;
     readonly thresholdSessionId: string;
     readonly rpId: string;
-    readonly clientRootShare32B64u: string;
+    readonly clientPublicKey33B64u: string;
     readonly expectedEthereumAddress?: string;
     readonly walletKeyVersion?: string;
   }) => Promise<unknown>;
@@ -281,7 +281,7 @@ async function handleSigningRootAdminRoutes(
     const walletSigningSessionId = requireBodyString(body, 'walletSigningSessionId');
     const thresholdSessionId = requireBodyString(body, 'thresholdSessionId');
     const rpId = requireBodyString(body, 'rpId');
-    const clientRootShare32B64u = requireBodyString(body, 'clientRootShare32B64u');
+    const clientPublicKey33B64u = requireBodyString(body, 'clientPublicKey33B64u');
     if (
       !signingRootId ||
       !signingRootVersion ||
@@ -292,14 +292,14 @@ async function handleSigningRootAdminRoutes(
       !walletSigningSessionId ||
       !thresholdSessionId ||
       !rpId ||
-      !clientRootShare32B64u
+      !clientPublicKey33B64u
     ) {
       return json(
         {
           ok: false,
           code: 'invalid_request',
           message:
-            'signingRootId, signingRootVersion, walletSessionUserId, subjectId, chainTarget, ecdsaThresholdKeyId, walletSigningSessionId, thresholdSessionId, rpId, and clientRootShare32B64u are required',
+            'signingRootId, signingRootVersion, walletSessionUserId, subjectId, chainTarget, ecdsaThresholdKeyId, walletSigningSessionId, thresholdSessionId, rpId, and clientPublicKey33B64u are required',
         },
         { status: 400 },
       );
@@ -328,7 +328,7 @@ async function handleSigningRootAdminRoutes(
       walletSigningSessionId,
       thresholdSessionId,
       rpId,
-      clientRootShare32B64u,
+      clientPublicKey33B64u,
       ...(expectedEthereumAddress ? { expectedEthereumAddress } : {}),
       ...(walletKeyVersion ? { walletKeyVersion } : {}),
     });

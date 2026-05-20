@@ -39,6 +39,10 @@ export type ThresholdEd25519AuthConsumeUsesResult =
   | { ok: true; remainingUses: number }
   | { ok: false; code: string; message: string };
 
+export type ThresholdAuthReplayGuardResult =
+  | { ok: true }
+  | { ok: false; code: string; message: string };
+
 export type Ed25519AuthSessionStatus = {
   record: Ed25519AuthSessionRecord;
   expiresAtMs: number;
@@ -64,6 +68,11 @@ export interface Ed25519AuthSessionStore {
     id: string,
     idempotencyKey: string,
   ): Promise<ThresholdEd25519AuthConsumeUsesResult>;
+  reserveReplayGuard(
+    scopeId: string,
+    replayKey: string,
+    expiresAtMs: number,
+  ): Promise<ThresholdAuthReplayGuardResult>;
 }
 
 class InMemoryEd25519AuthSessionStore implements Ed25519AuthSessionStore {
@@ -77,6 +86,7 @@ class InMemoryEd25519AuthSessionStore implements Ed25519AuthSessionStore {
       consumedIdempotencyKeys: Set<string>;
     }
   >();
+  private readonly replayGuards = new Map<string, number>();
 
   constructor(input: { keyPrefix?: string }) {
     this.keyPrefix = toThresholdEd25519AuthPrefix(input.keyPrefix);
@@ -84,6 +94,10 @@ class InMemoryEd25519AuthSessionStore implements Ed25519AuthSessionStore {
 
   private key(id: string): string {
     return `${this.keyPrefix}${id}`;
+  }
+
+  private replayGuardKey(scopeId: string, replayKey: string): string {
+    return `${this.keyPrefix}replay:${normalizeConsumeOnceKey(scopeId)}:${normalizeConsumeOnceKey(replayKey)}`;
   }
 
   async putSession(
@@ -167,6 +181,25 @@ class InMemoryEd25519AuthSessionStore implements Ed25519AuthSessionStore {
     if (consumeKey) entry.consumedIdempotencyKeys.add(consumeKey);
     return { ok: true, remainingUses: entry.remainingUses };
   }
+
+  async reserveReplayGuard(
+    scopeId: string,
+    replayKey: string,
+    expiresAtMs: number,
+  ): Promise<ThresholdAuthReplayGuardResult> {
+    const key = this.replayGuardKey(scopeId, replayKey);
+    if (!key) return replayGuardInvalid();
+    const nowMs = Date.now();
+    const existingExpiresAtMs = this.replayGuards.get(key);
+    if (existingExpiresAtMs !== undefined && existingExpiresAtMs > nowMs) {
+      return replayGuardDuplicate();
+    }
+    if (existingExpiresAtMs !== undefined) this.replayGuards.delete(key);
+    const ttlMs = replayGuardTtlMs(expiresAtMs, nowMs);
+    if (ttlMs <= 0) return replayGuardExpired();
+    this.replayGuards.set(key, nowMs + ttlMs);
+    return { ok: true };
+  }
 }
 
 function normalizeConsumeOnceKey(value: string): string {
@@ -174,6 +207,32 @@ function normalizeConsumeOnceKey(value: string): string {
     .trim()
     .replace(/[^A-Za-z0-9._:-]/g, '_')
     .slice(0, 512);
+}
+
+function replayGuardTtlMs(expiresAtMs: number, nowMs = Date.now()): number {
+  const expires = Number(expiresAtMs);
+  if (!Number.isFinite(expires)) return 0;
+  return Math.max(0, Math.floor(expires - nowMs));
+}
+
+function replayGuardInvalid(): ThresholdAuthReplayGuardResult {
+  return { ok: false, code: 'invalid_body', message: 'Invalid replay guard key' };
+}
+
+function replayGuardExpired(): ThresholdAuthReplayGuardResult {
+  return { ok: false, code: 'export_authorization_expired', message: 'Export authorization expired' };
+}
+
+function replayGuardDuplicate(): ThresholdAuthReplayGuardResult {
+  return { ok: false, code: 'export_nonce_replay', message: 'Export authorization nonce already used' };
+}
+
+function parseRedisReplayGuardResult(raw: unknown): ThresholdAuthReplayGuardResult {
+  const text = String(raw ?? '').trim();
+  if (text === 'ok') return { ok: true };
+  if (text === 'duplicate') return replayGuardDuplicate();
+  if (text === 'expired') return replayGuardExpired();
+  return { ok: false, code: 'internal', message: 'Redis replay guard returned invalid response' };
 }
 
 function parseRedisConsumeOnceResult(raw: unknown): ThresholdEd25519AuthConsumeUsesResult {
@@ -219,6 +278,19 @@ end
 return 'ok:' .. tostring(remaining)
 `;
 
+const REPLAY_GUARD_LUA = `
+local key = KEYS[1]
+local ttl_seconds = tonumber(ARGV[1] or '')
+if ttl_seconds == nil or ttl_seconds <= 0 then
+  return 'expired'
+end
+if redis.call('EXISTS', key) == 1 then
+  return 'duplicate'
+end
+redis.call('SET', key, '1', 'EX', ttl_seconds)
+return 'ok'
+`;
+
 class UpstashRedisRestEd25519AuthSessionStore implements Ed25519AuthSessionStore {
   private readonly client: UpstashRedisRestClient;
   private readonly keyPrefix: string;
@@ -242,6 +314,10 @@ class UpstashRedisRestEd25519AuthSessionStore implements Ed25519AuthSessionStore
 
   private consumeOnceKey(id: string, idempotencyKey: string): string {
     return `${this.usesKey(id)}:once:${normalizeConsumeOnceKey(idempotencyKey)}`;
+  }
+
+  private replayGuardKey(scopeId: string, replayKey: string): string {
+    return `${this.keyPrefix}replay:${normalizeConsumeOnceKey(scopeId)}:${normalizeConsumeOnceKey(replayKey)}`;
   }
 
   async putSession(
@@ -314,6 +390,30 @@ class UpstashRedisRestEd25519AuthSessionStore implements Ed25519AuthSessionStore
       return { ok: false, code: 'internal', message: msg };
     }
   }
+
+  async reserveReplayGuard(
+    scopeId: string,
+    replayKey: string,
+    expiresAtMs: number,
+  ): Promise<ThresholdAuthReplayGuardResult> {
+    try {
+      const ttlMs = replayGuardTtlMs(expiresAtMs);
+      if (ttlMs <= 0) return replayGuardExpired();
+      const raw = await this.client.eval(
+        REPLAY_GUARD_LUA,
+        [this.replayGuardKey(scopeId, replayKey)],
+        [String(Math.max(1, Math.ceil(ttlMs / 1000)))],
+      );
+      return parseRedisReplayGuardResult(raw);
+    } catch (e: unknown) {
+      const msg = String(
+        e && typeof e === 'object' && 'message' in e
+          ? (e as { message?: unknown }).message
+          : e || 'Failed to reserve replay guard',
+      );
+      return { ok: false, code: 'internal', message: msg };
+    }
+  }
 }
 
 class RedisTcpEd25519AuthSessionStore implements Ed25519AuthSessionStore {
@@ -337,6 +437,10 @@ class RedisTcpEd25519AuthSessionStore implements Ed25519AuthSessionStore {
 
   private consumeOnceKey(id: string, idempotencyKey: string): string {
     return `${this.usesKey(id)}:once:${normalizeConsumeOnceKey(idempotencyKey)}`;
+  }
+
+  private replayGuardKey(scopeId: string, replayKey: string): string {
+    return `${this.keyPrefix}replay:${normalizeConsumeOnceKey(scopeId)}:${normalizeConsumeOnceKey(replayKey)}`;
   }
 
   async putSession(
@@ -417,6 +521,38 @@ class RedisTcpEd25519AuthSessionStore implements Ed25519AuthSessionStore {
         e && typeof e === 'object' && 'message' in e
           ? (e as { message?: unknown }).message
           : e || 'Failed to consume threshold session',
+      );
+      return { ok: false, code: 'internal', message: msg };
+    }
+  }
+
+  async reserveReplayGuard(
+    scopeId: string,
+    replayKey: string,
+    expiresAtMs: number,
+  ): Promise<ThresholdAuthReplayGuardResult> {
+    try {
+      const ttlMs = replayGuardTtlMs(expiresAtMs);
+      if (ttlMs <= 0) return replayGuardExpired();
+      const resp = await this.client.send([
+        'SET',
+        this.replayGuardKey(scopeId, replayKey),
+        '1',
+        'NX',
+        'EX',
+        String(Math.max(1, Math.ceil(ttlMs / 1000))),
+      ]);
+      if (resp.type === 'error') {
+        return { ok: false, code: 'internal', message: `Redis SET error: ${resp.value}` };
+      }
+      if (resp.type === 'bulk' && resp.value === null) return replayGuardDuplicate();
+      if (resp.type === 'simple' && resp.value === 'OK') return { ok: true };
+      return { ok: false, code: 'internal', message: 'Redis replay guard returned invalid response' };
+    } catch (e: unknown) {
+      const msg = String(
+        e && typeof e === 'object' && 'message' in e
+          ? (e as { message?: unknown }).message
+          : e || 'Failed to reserve replay guard',
       );
       return { ok: false, code: 'internal', message: msg };
     }
@@ -678,6 +814,47 @@ class PostgresEd25519AuthSessionStore implements Ed25519AuthSessionStore {
       return { ok: false, code: 'internal', message: msg };
     } finally {
       client.release();
+    }
+  }
+
+  async reserveReplayGuard(
+    scopeId: string,
+    replayKey: string,
+    expiresAtMs: number,
+  ): Promise<ThresholdAuthReplayGuardResult> {
+    const scopeKey = normalizeConsumeOnceKey(scopeId);
+    const consumeKey = normalizeConsumeOnceKey(replayKey);
+    if (!scopeKey || !consumeKey) return replayGuardInvalid();
+    const nowMs = Date.now();
+    const ttlMs = replayGuardTtlMs(expiresAtMs, nowMs);
+    if (ttlMs <= 0) return replayGuardExpired();
+    try {
+      const pool = await this.poolPromise;
+      await pool.query(
+        `
+          DELETE FROM threshold_ed25519_auth_consumptions
+          WHERE namespace = $1 AND session_id = $2 AND idempotency_key = $3 AND expires_at_ms <= $4
+        `,
+        [this.namespace, scopeKey, consumeKey, nowMs],
+      );
+      const { rows } = await pool.query(
+        `
+          INSERT INTO threshold_ed25519_auth_consumptions (namespace, session_id, idempotency_key, expires_at_ms)
+          VALUES ($1, $2, $3, $4)
+          ON CONFLICT (namespace, session_id, idempotency_key) DO NOTHING
+          RETURNING 1
+        `,
+        [this.namespace, scopeKey, consumeKey, Math.floor(nowMs + ttlMs)],
+      );
+      if (!rows[0]) return replayGuardDuplicate();
+      return { ok: true };
+    } catch (e: unknown) {
+      const msg = String(
+        e && typeof e === 'object' && 'message' in e
+          ? (e as { message?: unknown }).message
+          : e || 'Failed to reserve replay guard',
+      );
+      return { ok: false, code: 'internal', message: msg };
     }
   }
 }

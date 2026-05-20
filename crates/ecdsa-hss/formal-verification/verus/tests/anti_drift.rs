@@ -1,402 +1,219 @@
 use ecdsa_hss::{
-    encode_context_v1,
-    hidden_eval_boundary_from_staged_request_and_response_v1, AllowedOutputKindV1,
-    EcdsaHssStableKeyContextV1, HiddenEvalBoundaryV1,
-    HiddenEvalInputBoundaryV1, HiddenEvalPersistedStateBoundaryV1,
-    HiddenEvalTransportBoundaryV1, PrepareEnvelopeV1, RespondRequestV1,
-    ServerEvalOperationV1, ServerPrepareInputsV1, StagedServerSessionV1, VisibleClientBoundaryV1,
-    VisibleExplicitExportBoundaryV1, VisibleFinalizeBoundaryV1, VisibleNonExportBoundaryV1,
-    VisibleOperationBoundaryV1,
+    derive_client_share_v1, derive_relayer_share_for_client_public_v1,
+    export_authorization_digest_v1, AllowedOutputKindV1, ClientOutputV1,
+    EcdsaHssStableKeyContextV1, ExplicitExportAuthorizationV1, ExplicitExportClientOutputV1,
+    ExplicitExportRespondRequestV1, ExportNonceReplayGuardV1, NonExportClientOutputV1,
+    PrepareEnvelopeV1, PublicIdentityV1, RespondRequestV1, ServerEvalOperationV1,
+    ServerPrepareInputsV1, ServerRespondResultV1, StagedServerSessionV1, ThresholdRespondRequestV1,
 };
-use ecdsa_hss::fixtures::{FixtureCorpusFile, COMMITTED_FIXTURE_CORPUS_JSON};
-use k256::elliptic_curve::bigint::U512;
-use k256::elliptic_curve::ops::Reduce;
-use k256::{FieldBytes, NonZeroScalar, SecretKey, WideBytes};
-use num_bigint::BigUint;
-use num_traits::Num;
-use sha2::{Digest, Sha512};
 
-const CANONICAL_X_DOMAIN_TAG: &[u8] = b"ecdsa-hss:v1:canonical-x";
-const ADDITIVE_CLIENT_DOMAIN_TAG: &[u8] = b"ecdsa-hss:v1:additive-share:client";
-const SECP256K1_ORDER_HEX: &str =
-    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141";
-
-fn hex_to_array_32(hex: &str) -> [u8; 32] {
-    let mut bytes = Vec::with_capacity(hex.len() / 2);
-    for idx in (0..hex.len()).step_by(2) {
-        bytes.push(u8::from_str_radix(&hex[idx..idx + 2], 16).expect("hex decode"));
-    }
-    let mut out = [0u8; 32];
-    out.copy_from_slice(&bytes);
-    out
+fn context() -> EcdsaHssStableKeyContextV1 {
+    EcdsaHssStableKeyContextV1::new(
+        "anti-drift.test.near",
+        "anti-drift-subject",
+        "ehss-anti-drift",
+        "anti-drift-root",
+        "root-v1",
+        "evm-signing",
+        "v1",
+    )
 }
 
-fn committed_fixture_corpus_file() -> FixtureCorpusFile {
-    serde_json::from_str(COMMITTED_FIXTURE_CORPUS_JSON).expect("fixture corpus")
+fn relayer_key_id() -> String {
+    "anti-drift-relayer-key-1".to_string()
 }
 
-fn secp256k1_order() -> BigUint {
-    BigUint::from_str_radix(SECP256K1_ORDER_HEX, 16).expect("parse secp256k1 order")
+fn export_authorization(
+    context: &EcdsaHssStableKeyContextV1,
+    relayer_key_id: &str,
+    identity: &PublicIdentityV1,
+) -> ExplicitExportAuthorizationV1 {
+    let mut authorization = ExplicitExportAuthorizationV1 {
+        wallet_session_user_id: context.wallet_session_user_id.clone(),
+        ecdsa_threshold_key_id: context.ecdsa_threshold_key_id.clone(),
+        client_device_id: "anti-drift-device".to_string(),
+        client_session_id: "anti-drift-session".to_string(),
+        relayer_key_id: relayer_key_id.to_string(),
+        export_request_nonce32: [0x55u8; 32],
+        confirmation_digest32: [0x66u8; 32],
+        authorization_digest32: [0u8; 32],
+        issued_at_unix_ms: 1_000,
+        expires_at_unix_ms: 2_000,
+    };
+    authorization.authorization_digest32 = export_authorization_digest_v1(
+        ServerEvalOperationV1::ExplicitKeyExport,
+        identity,
+        &authorization,
+    )
+    .expect("authorization digest");
+    authorization
 }
 
-fn biguint_to_32_be(value: &BigUint) -> [u8; 32] {
-    let bytes = value.to_bytes_be();
-    assert!(bytes.len() <= 32, "value must fit into 32 bytes");
-    let mut out = [0u8; 32];
-    out[(32 - bytes.len())..].copy_from_slice(&bytes);
-    out
-}
-
-fn deterministic_digest(label: &str) -> [u8; 64] {
-    Sha512::digest(label.as_bytes()).into()
-}
-
-fn scalar_boundary_samples() -> Vec<[u8; 32]> {
-    let order = secp256k1_order();
-    vec![
-        biguint_to_32_be(&BigUint::from(1u8)),
-        biguint_to_32_be(&BigUint::from(2u8)),
-        biguint_to_32_be(&BigUint::from(3u8)),
-        biguint_to_32_be(&(&order - BigUint::from(2u8))),
-        biguint_to_32_be(&(&order - BigUint::from(1u8))),
-    ]
-}
-
-fn reduce_digest_formula(digest64: &[u8; 64]) -> [u8; 32] {
-    let order = secp256k1_order();
-    let one = BigUint::from(1u8);
-    let reduced = (BigUint::from_bytes_be(digest64) % (&order - &one)) + &one;
-    let bytes = reduced.to_bytes_be();
-    let mut out = [0u8; 32];
-    out[(32 - bytes.len())..].copy_from_slice(&bytes);
-    out
-}
-
-fn reduce_digest_k256(digest64: &[u8; 64]) -> [u8; 32] {
-    let mut wide = WideBytes::default();
-    wide.copy_from_slice(digest64);
-    let reduced = <NonZeroScalar as Reduce<U512>>::reduce_bytes(&wide);
-    let field_bytes = FieldBytes::from(reduced);
-    let mut out = [0u8; 32];
-    out.copy_from_slice(field_bytes.as_ref());
-    out
-}
-
-fn nonzero_scalar_roundtrip_bytes(bytes32: &[u8; 32]) -> [u8; 32] {
-    let secret = SecretKey::from_slice(bytes32).expect("valid non-zero scalar");
-    let scalar = secret.to_nonzero_scalar();
-    let field_bytes = FieldBytes::from(&scalar);
-    let mut out = [0u8; 32];
-    out.copy_from_slice(field_bytes.as_ref());
-    out
-}
-
-fn sample_hidden_eval_boundary(operation: ServerEvalOperationV1) -> HiddenEvalBoundaryV1 {
+fn sample_response(operation: ServerEvalOperationV1) -> ServerRespondResultV1 {
+    let context = context();
+    let relayer_key_id = relayer_key_id();
+    let y_relayer32_le = [0x42u8; 32];
+    let client_share = derive_client_share_v1(&context, [0x24u8; 32]).expect("client share");
+    let (_, identity) = derive_relayer_share_for_client_public_v1(
+        &context,
+        y_relayer32_le,
+        &client_share.client_public_key33,
+        client_share.retry_counter,
+    )
+    .expect("relayer identity");
     let staged = StagedServerSessionV1::prepare(ServerPrepareInputsV1 {
         prepare: PrepareEnvelopeV1 {
             operation,
-            context: EcdsaHssStableKeyContextV1::new(
-                "anti-drift.test.near",
-                "anti-drift-subject",
-                "evm:eip155:11155111",
-                "ehss-anti-drift",
-                "anti-drift-root",
-                "root-v1",
-                "evm-signing",
-                "v1",
-            ),
+            context: context.clone(),
+            relayer_key_id: relayer_key_id.clone(),
         },
-        y_relayer32_le: [0x42u8; 32],
+        y_relayer32_le,
     })
     .expect("prepare");
-    let request = RespondRequestV1 {
-        y_client32_le: [0x24u8; 32],
+
+    if operation == ServerEvalOperationV1::ExplicitKeyExport {
+        let mut replay_guard = ExportNonceReplayGuardV1::new();
+        staged
+            .respond_explicit_export(
+                &ExplicitExportRespondRequestV1 {
+                    client_public_key33: client_share.client_public_key33,
+                    client_share_retry_counter: client_share.retry_counter,
+                    authorization: export_authorization(&context, &relayer_key_id, &identity),
+                },
+                &mut replay_guard,
+                1_500,
+            )
+            .expect("respond explicit export")
+    } else {
+        staged
+            .respond(&RespondRequestV1::Threshold(ThresholdRespondRequestV1 {
+                client_public_key33: client_share.client_public_key33,
+                client_share_retry_counter: client_share.retry_counter,
+                expected_relayer_key_id: relayer_key_id,
+            }))
+            .expect("respond")
+    }
+}
+
+#[test]
+fn anti_drift_operation_policy_has_no_canonical_secret_variant() {
+    assert_eq!(
+        ServerEvalOperationV1::NonExportSign.allowed_output_kind(),
+        AllowedOutputKindV1::ThresholdMaterialOnly
+    );
+    assert_eq!(
+        ServerEvalOperationV1::ExplicitKeyExport.allowed_output_kind(),
+        AllowedOutputKindV1::ThresholdMaterialAndRelayerExportShare
+    );
+}
+
+#[test]
+fn anti_drift_respond_request_shape_is_public_client_commitment() {
+    let context = context();
+    let client_share = derive_client_share_v1(&context, [0x24u8; 32]).expect("client share");
+    let request = RespondRequestV1::Threshold(ThresholdRespondRequestV1 {
+        client_public_key33: client_share.client_public_key33,
+        client_share_retry_counter: client_share.retry_counter,
+        expected_relayer_key_id: relayer_key_id(),
+    });
+
+    let RespondRequestV1::Threshold(request) = request else {
+        panic!("threshold request should use threshold branch");
     };
-    let response = staged.clone().respond(&request).expect("respond");
-    hidden_eval_boundary_from_staged_request_and_response_v1(&staged, &request, &response)
-        .expect("hidden-eval boundary")
+    assert_eq!(
+        request.client_public_key33,
+        client_share.client_public_key33
+    );
+    assert_eq!(
+        request.client_share_retry_counter,
+        client_share.retry_counter
+    );
+    assert_eq!(request.expected_relayer_key_id, relayer_key_id());
 }
 
 #[test]
-fn anti_drift_hidden_eval_input_boundary_shape_matches_frozen_seam() {
-    let boundary = sample_hidden_eval_boundary(ServerEvalOperationV1::NonExportSign);
-    let HiddenEvalBoundaryV1 {
-        input:
-            HiddenEvalInputBoundaryV1 {
-                operation,
-                allowed_output_kind,
-                context,
-                y_client32_le,
-                y_relayer32_le,
-            },
-        transport: _,
-        persisted: _,
-    } = boundary;
-
-    assert_eq!(operation, ServerEvalOperationV1::NonExportSign);
-    assert_eq!(allowed_output_kind, AllowedOutputKindV1::ThresholdMaterialOnly);
-    assert_eq!(context.wallet_session_user_id, "anti-drift.test.near");
-    assert_eq!(context.subject_id, "anti-drift-subject");
-    assert_eq!(context.chain_target, "evm:eip155:11155111");
-    assert_eq!(context.ecdsa_threshold_key_id, "ehss-anti-drift");
-    assert_eq!(context.signing_root_id, "anti-drift-root");
-    assert_eq!(context.signing_root_version, "root-v1");
-    assert_eq!(context.key_purpose, "evm-signing");
-    assert_eq!(context.key_version, "v1");
-    assert_eq!(y_client32_le, [0x24u8; 32]);
-    assert_eq!(y_relayer32_le, [0x42u8; 32]);
-}
-
-#[test]
-fn anti_drift_hidden_eval_non_export_transport_shape_matches_frozen_seam() {
-    let boundary = sample_hidden_eval_boundary(ServerEvalOperationV1::NonExportSign);
-    let HiddenEvalBoundaryV1 {
-        input: _,
-        transport,
-        persisted:
-            HiddenEvalPersistedStateBoundaryV1 {
-                operation: persisted_operation,
-                raw_root_material_dropped: persisted_raw_root_material_dropped,
-                relayer_threshold_share32: _,
-                relayer_public_key33: _,
-                threshold_public_key33: persisted_threshold_public_key33,
-                threshold_ethereum_address20: persisted_threshold_ethereum_address20,
-                retry_counter: persisted_retry_counter,
-            },
-    } = boundary;
-    let HiddenEvalTransportBoundaryV1 {
-        operation:
-            VisibleOperationBoundaryV1 {
-                operation,
-                allowed_output_kind,
-            },
-        client_output,
-        finalize:
-            VisibleFinalizeBoundaryV1 {
-                operation: finalize_operation,
-                raw_root_material_dropped,
-                threshold_public_key33: finalize_threshold_public_key33,
-                threshold_ethereum_address20: finalize_threshold_ethereum_address20,
-                retry_counter: finalize_retry_counter,
-            },
-    } = transport;
-    let VisibleClientBoundaryV1::NonExport(VisibleNonExportBoundaryV1 {
-        x_client32,
+fn anti_drift_non_export_output_shape_excludes_secret_shares() {
+    let response = sample_response(ServerEvalOperationV1::NonExportSign);
+    let ClientOutputV1::NonExport(NonExportClientOutputV1 {
         client_public_key33,
+        relayer_public_key33,
         threshold_public_key33,
         threshold_ethereum_address20,
-        retry_counter,
-    }) = client_output
+        client_share_retry_counter,
+        relayer_share_retry_counter,
+    }) = response.client_response.client_output
     else {
-        panic!("non-export operation must use non-export transport boundary");
+        panic!("non-export operation must return non-export output");
     };
 
-    assert_eq!(operation, ServerEvalOperationV1::NonExportSign);
-    assert_eq!(allowed_output_kind, AllowedOutputKindV1::ThresholdMaterialOnly);
-    assert_ne!(x_client32, [0u8; 32]);
-    assert_eq!(client_public_key33.len(), 33);
-    assert_eq!(threshold_public_key33.len(), 33);
-    assert_eq!(threshold_ethereum_address20.len(), 20);
-    assert_eq!(finalize_operation, operation);
-    assert!(raw_root_material_dropped);
-    assert_eq!(persisted_operation, operation);
-    assert!(persisted_raw_root_material_dropped);
-    assert_eq!(finalize_threshold_public_key33, threshold_public_key33);
-    assert_eq!(persisted_threshold_public_key33, threshold_public_key33);
     assert_eq!(
-        finalize_threshold_ethereum_address20,
-        threshold_ethereum_address20
+        client_public_key33,
+        response.client_response.finalize.client_public_key33
     );
     assert_eq!(
-        persisted_threshold_ethereum_address20,
-        threshold_ethereum_address20
+        relayer_public_key33,
+        response.client_response.finalize.relayer_public_key33
     );
-    assert_eq!(finalize_retry_counter, retry_counter);
-    assert_eq!(persisted_retry_counter, retry_counter);
+    assert_eq!(
+        threshold_public_key33,
+        response.client_response.finalize.threshold_public_key33
+    );
+    assert_eq!(
+        threshold_ethereum_address20,
+        response.client_response.finalize.threshold_ethereum_address20
+    );
+    assert_eq!(
+        client_share_retry_counter,
+        response.client_response.finalize.client_share_retry_counter
+    );
+    assert_eq!(
+        relayer_share_retry_counter,
+        response.client_response.finalize.relayer_share_retry_counter
+    );
 }
 
 #[test]
-fn anti_drift_hidden_eval_explicit_export_transport_shape_matches_frozen_seam() {
-    let boundary = sample_hidden_eval_boundary(ServerEvalOperationV1::ExplicitKeyExport);
-    let HiddenEvalBoundaryV1 {
-        input:
-            HiddenEvalInputBoundaryV1 {
-                operation: input_operation,
-                allowed_output_kind: input_allowed_output_kind,
-                context: _,
-                y_client32_le: _,
-                y_relayer32_le: _,
-            },
-        transport,
-        persisted:
-            HiddenEvalPersistedStateBoundaryV1 {
-                operation: persisted_operation,
-                raw_root_material_dropped: persisted_raw_root_material_dropped,
-                relayer_threshold_share32: _,
-                relayer_public_key33: _,
-                threshold_public_key33: persisted_threshold_public_key33,
-                threshold_ethereum_address20: persisted_threshold_ethereum_address20,
-                retry_counter: persisted_retry_counter,
-            },
-    } = boundary;
-    let HiddenEvalTransportBoundaryV1 {
-        operation:
-            VisibleOperationBoundaryV1 {
-                operation,
-                allowed_output_kind,
-            },
-        client_output,
-        finalize:
-            VisibleFinalizeBoundaryV1 {
-                operation: finalize_operation,
-                raw_root_material_dropped,
-                threshold_public_key33: finalize_threshold_public_key33,
-                threshold_ethereum_address20: finalize_threshold_ethereum_address20,
-                retry_counter: finalize_retry_counter,
-            },
-    } = transport;
-    let VisibleClientBoundaryV1::ExplicitExport(VisibleExplicitExportBoundaryV1 {
-        canonical_x32,
-        canonical_public_key33,
-        canonical_ethereum_address20,
-        x_client32,
+fn anti_drift_explicit_export_output_releases_only_relayer_export_share() {
+    let response = sample_response(ServerEvalOperationV1::ExplicitKeyExport);
+    let ClientOutputV1::ExplicitExport(ExplicitExportClientOutputV1 {
+        relayer_export_share32,
         client_public_key33,
+        relayer_public_key33,
         threshold_public_key33,
         threshold_ethereum_address20,
-        retry_counter,
-    }) = client_output
+        client_share_retry_counter,
+        relayer_share_retry_counter,
+    }) = response.client_response.client_output
     else {
-        panic!("explicit export operation must use explicit-export transport boundary");
+        panic!("explicit export operation must return export output");
     };
 
-    assert_eq!(input_operation, ServerEvalOperationV1::ExplicitKeyExport);
     assert_eq!(
-        input_allowed_output_kind,
-        AllowedOutputKindV1::ThresholdMaterialAndCanonicalSecret
-    );
-    assert_eq!(operation, ServerEvalOperationV1::ExplicitKeyExport);
-    assert_eq!(
-        allowed_output_kind,
-        AllowedOutputKindV1::ThresholdMaterialAndCanonicalSecret
-    );
-    assert_ne!(canonical_x32, [0u8; 32]);
-    assert_eq!(canonical_public_key33.len(), 33);
-    assert_eq!(canonical_ethereum_address20.len(), 20);
-    assert_ne!(x_client32, [0u8; 32]);
-    assert_eq!(client_public_key33.len(), 33);
-    assert_eq!(threshold_public_key33.len(), 33);
-    assert_eq!(threshold_ethereum_address20.len(), 20);
-    assert_eq!(finalize_operation, operation);
-    assert!(raw_root_material_dropped);
-    assert_eq!(persisted_operation, operation);
-    assert!(persisted_raw_root_material_dropped);
-    assert_eq!(finalize_threshold_public_key33, threshold_public_key33);
-    assert_eq!(persisted_threshold_public_key33, threshold_public_key33);
-    assert_eq!(
-        finalize_threshold_ethereum_address20,
-        threshold_ethereum_address20
+        relayer_export_share32,
+        response.finalized_server_session.retained.relayer_share32
     );
     assert_eq!(
-        persisted_threshold_ethereum_address20,
-        threshold_ethereum_address20
+        client_public_key33,
+        response.client_response.finalize.client_public_key33
     );
-    assert_eq!(finalize_retry_counter, retry_counter);
-    assert_eq!(persisted_retry_counter, retry_counter);
-}
-
-#[test]
-fn anti_drift_k256_nonzero_reduction_matches_frozen_v1_formula() {
-    let mut digests = vec![[0u8; 64], [0xffu8; 64], [0x80u8; 64]];
-    let mut ramp = [0u8; 64];
-    for (idx, byte) in ramp.iter_mut().enumerate() {
-        *byte = idx as u8;
-    }
-    digests.push(ramp);
-    for idx in 0..64 {
-        digests.push(deterministic_digest(&format!(
-            "ecdsa-hss/fv/reduction-sample/{idx}"
-        )));
-    }
-
-    for digest in digests {
-        assert_eq!(reduce_digest_k256(&digest), reduce_digest_formula(&digest));
-    }
-
-    let corpus = committed_fixture_corpus_file();
-    for fixture in corpus.fixtures {
-        let context = EcdsaHssStableKeyContextV1::new(
-            fixture.context.wallet_session_user_id,
-            fixture.context.subject_id,
-            fixture.context.chain_target,
-            fixture.context.ecdsa_threshold_key_id,
-            fixture.context.signing_root_id,
-            fixture.context.signing_root_version,
-            fixture.context.key_purpose,
-            fixture.context.key_version,
-        );
-        let context_bytes = encode_context_v1(&context).expect("encode context");
-        let d32 = hex_to_array_32(&fixture.outputs.d32_hex);
-
-        let mut canonical_hasher = Sha512::new();
-        canonical_hasher.update(CANONICAL_X_DOMAIN_TAG);
-        canonical_hasher.update(&context_bytes);
-        canonical_hasher.update(d32);
-        let canonical_digest: [u8; 64] = canonical_hasher.finalize().into();
-        let canonical_formula = reduce_digest_formula(&canonical_digest);
-        assert_eq!(reduce_digest_k256(&canonical_digest), canonical_formula);
-        assert_eq!(canonical_formula, hex_to_array_32(&fixture.outputs.x32_hex));
-
-        let x32 = hex_to_array_32(&fixture.outputs.x32_hex);
-        let mut share_hasher = Sha512::new();
-        share_hasher.update(ADDITIVE_CLIENT_DOMAIN_TAG);
-        share_hasher.update(&context_bytes);
-        share_hasher.update(fixture.outputs.retry_counter.to_be_bytes());
-        share_hasher.update(x32);
-        let share_digest: [u8; 64] = share_hasher.finalize().into();
-        let client_formula = reduce_digest_formula(&share_digest);
-        assert_eq!(reduce_digest_k256(&share_digest), client_formula);
-        assert_eq!(client_formula, hex_to_array_32(&fixture.outputs.x_client32_hex));
-    }
-}
-
-#[test]
-fn anti_drift_scalar_byte_encoding_roundtrips_for_boundary_and_production_scalars() {
-    for bytes32 in scalar_boundary_samples() {
-        assert_eq!(nonzero_scalar_roundtrip_bytes(&bytes32), bytes32);
-    }
-
-    let corpus = committed_fixture_corpus_file();
-    for fixture in corpus.fixtures {
-        for scalar_hex in [
-            fixture.outputs.x32_hex.as_str(),
-            fixture.outputs.x_client32_hex.as_str(),
-            fixture.outputs.x_relayer32_hex.as_str(),
-            fixture.outputs.mapped_client_share32_hex.as_str(),
-            fixture.outputs.mapped_relayer_share32_hex.as_str(),
-        ] {
-            let bytes32 = hex_to_array_32(scalar_hex);
-            assert_eq!(nonzero_scalar_roundtrip_bytes(&bytes32), bytes32);
-        }
-    }
-}
-
-#[test]
-fn anti_drift_scalar_parser_accepts_domain_boundaries_and_rejects_invalid_edges() {
-    for bytes32 in scalar_boundary_samples() {
-        SecretKey::from_slice(&bytes32).expect("boundary scalar must parse");
-    }
-
-    let order = secp256k1_order();
-    let invalid_samples = vec![
-        [0u8; 32],
-        biguint_to_32_be(&order),
-        [0xffu8; 32],
-    ];
-
-    for bytes32 in invalid_samples {
-        assert!(
-            SecretKey::from_slice(&bytes32).is_err(),
-            "invalid scalar boundary should be rejected"
-        );
-    }
+    assert_eq!(
+        relayer_public_key33,
+        response.client_response.finalize.relayer_public_key33
+    );
+    assert_eq!(
+        threshold_public_key33,
+        response.client_response.finalize.threshold_public_key33
+    );
+    assert_eq!(
+        threshold_ethereum_address20,
+        response.client_response.finalize.threshold_ethereum_address20
+    );
+    assert_eq!(
+        client_share_retry_counter,
+        response.client_response.finalize.client_share_retry_counter
+    );
+    assert_eq!(
+        relayer_share_retry_counter,
+        response.client_response.finalize.relayer_share_retry_counter
+    );
 }

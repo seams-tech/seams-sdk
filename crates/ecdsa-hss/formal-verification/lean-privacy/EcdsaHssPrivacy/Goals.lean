@@ -2,6 +2,8 @@ import EcdsaHssPrivacy.Assumptions
 
 namespace EcdsaHssPrivacy
 
+open EcdsaHssBoundary
+
 def ServerCannotSeeCanonicalSecret : Prop :=
   ServerViewIndistinguishableUnderClientSecretVariation
 
@@ -30,22 +32,19 @@ def revealedCanonicalX?
     (clientOutput : EcdsaHssBoundary.ClientBoundaryModel) : Option Bytes32 :=
   match clientOutput with
   | EcdsaHssBoundary.ClientBoundaryModel.nonExport _ => none
-  | EcdsaHssBoundary.ClientBoundaryModel.explicitExport boundary =>
-    some boundary.canonicalX32
+  | EcdsaHssBoundary.ClientBoundaryModel.explicitExport _ => none
 
 def revealedCanonicalPublicKey?
     (clientOutput : EcdsaHssBoundary.ClientBoundaryModel) : Option Bytes33 :=
   match clientOutput with
   | EcdsaHssBoundary.ClientBoundaryModel.nonExport _ => none
-  | EcdsaHssBoundary.ClientBoundaryModel.explicitExport boundary =>
-    some boundary.canonicalPublicKey33
+  | EcdsaHssBoundary.ClientBoundaryModel.explicitExport _ => none
 
 def revealedCanonicalEthereumAddress?
     (clientOutput : EcdsaHssBoundary.ClientBoundaryModel) : Option Bytes20 :=
   match clientOutput with
   | EcdsaHssBoundary.ClientBoundaryModel.nonExport _ => none
-  | EcdsaHssBoundary.ClientBoundaryModel.explicitExport boundary =>
-    some boundary.canonicalEthereumAddress20
+  | EcdsaHssBoundary.ClientBoundaryModel.explicitExport _ => none
 
 def clientBoundaryRevealsCanonicalX
     (clientOutput : EcdsaHssBoundary.ClientBoundaryModel) : Prop :=
@@ -58,7 +57,7 @@ def allowedOutputKindForClientBoundary
   | EcdsaHssBoundary.ClientBoundaryModel.nonExport _ =>
     ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialOnly
   | EcdsaHssBoundary.ClientBoundaryModel.explicitExport _ =>
-    ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialAndCanonicalSecret
+    ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialAndRelayerExportShare
 
 def BoundaryRespectsFrozenDisclosurePolicy
     (boundary : EcdsaHssBoundary.RespondBoundaryModel) : Prop :=
@@ -74,13 +73,12 @@ def NonExportPayloadDoesNotRevealCanonicalX : Prop :=
 def ExplicitExportPayloadRevealsCanonicalX : Prop :=
   ∀ (boundary : EcdsaHssBoundary.ExplicitExportBoundaryModel),
     revealedCanonicalX? (EcdsaHssBoundary.ClientBoundaryModel.explicitExport boundary) =
-      some boundary.canonicalX32
+      none
 
 def ExplicitExportIsOnlyCanonicalSecretDisclosureException : Prop :=
   ∀ (boundary : EcdsaHssBoundary.RespondBoundaryModel),
     BoundaryRespectsFrozenDisclosurePolicy boundary →
-    clientBoundaryRevealsCanonicalX boundary.clientOutput
-      ↔ boundary.operation.operation = ecdsa_hss.wire.ServerEvalOperationV1.ExplicitKeyExport
+    ¬ clientBoundaryRevealsCanonicalX boundary.clientOutput
 
 def ServerCannotSeeClientOutputPayloads : Prop :=
   ∀ (left right : ProtocolExecutionState),
@@ -163,10 +161,7 @@ def HiddenEvalTransportExplicitExportIsOnlyCanonicalSecretDisclosureException :
   ∀ (boundary : HiddenEvalBoundaryModel),
       BoundaryRespectsFrozenDisclosurePolicy
           (respondBoundaryOfHiddenEvalBoundary boundary) →
-      transportBoundaryRevealsCanonicalX boundary.transport
-        ↔
-        boundary.transport.operation.operation =
-          ecdsa_hss.wire.ServerEvalOperationV1.ExplicitKeyExport
+      ¬ transportBoundaryRevealsCanonicalX boundary.transport
 
 theorem serverCannotSeeCanonicalSecret_proved :
     ServerCannotSeeCanonicalSecret := by
@@ -217,14 +212,8 @@ theorem explicitExportPayloadRevealsCanonicalX_proved :
 theorem explicitExportIsOnlyCanonicalSecretDisclosureException_proved :
     ExplicitExportIsOnlyCanonicalSecretDisclosureException := by
   intro boundary hPolicy
-  rcases hPolicy with ⟨hOperation, hClientOutput⟩
-  cases boundary.operation.operation <;> cases boundary.clientOutput <;>
-    simp [BoundaryRespectsFrozenDisclosurePolicy,
-      clientBoundaryRevealsCanonicalX,
-      revealedCanonicalX?,
-      allowedOutputKindForClientBoundary,
-      EcdsaHssBoundary.expectedAllowedOutputKindForOperation] at hOperation hClientOutput ⊢
-  all_goals contradiction
+  cases boundary.clientOutput <;>
+    simp [clientBoundaryRevealsCanonicalX, revealedCanonicalX?]
 
 theorem serverCannotSeeClientOutputPayloads_proved :
     ServerCannotSeeClientOutputPayloads := by
@@ -239,13 +228,14 @@ theorem hiddenEvalBoundaryIndistinguishableUnderClientSecretVariation_proved :
 theorem hiddenEvalNonExportTransportExcludesCanonicalSecret_proved :
     HiddenEvalNonExportTransportExcludesCanonicalSecret := by
   intro boundary hAllowed
-  cases boundary.clientOutput <;>
-    simp [transportBoundaryRevealsCanonicalX?, revealedCanonicalX?] at hAllowed ⊢
+  cases boundary with
+  | mk operation clientOutput finalize =>
+    cases clientOutput <;> rfl
 
 theorem hiddenEvalTransportNeverCarriesRawRootMaterial_proved :
     HiddenEvalTransportNeverCarriesRawRootMaterial := by
   intro boundary
-  simp [HiddenEvalTransportNeverCarriesRawRootMaterial, transportBoundaryCarriesRawRootMaterial]
+  simp [transportBoundaryCarriesRawRootMaterial]
 
 theorem hiddenEvalTransportNeverCarriesRootShares_proved :
     HiddenEvalTransportNeverCarriesRootShares := by
@@ -272,8 +262,12 @@ theorem acceptedPersistedStateExcludesForbiddenRootMaterial_proved :
 theorem hiddenEvalTransportExplicitExportIsOnlyCanonicalSecretDisclosureException_proved :
     HiddenEvalTransportExplicitExportIsOnlyCanonicalSecretDisclosureException := by
   intro boundary hPolicy
-  simpa [transportBoundaryRevealsCanonicalX, transportBoundaryRevealsCanonicalX?]
-    using explicitExportIsOnlyCanonicalSecretDisclosureException_proved
-      (respondBoundaryOfHiddenEvalBoundary boundary) hPolicy
+  cases boundary with
+  | mk input transport persisted =>
+    cases transport with
+    | mk operation clientOutput finalize =>
+      cases clientOutput <;>
+        simp [transportBoundaryRevealsCanonicalX, transportBoundaryRevealsCanonicalX?,
+          revealedCanonicalX?]
 
 end EcdsaHssPrivacy

@@ -38,7 +38,7 @@ Relevant existing material:
 - export semantics:
   [specs/export.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/specs/export.md)
 - threshold backend integration:
-  [specs/integration-near-threshold.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/specs/integration-near-threshold.md)
+  [specs/integration-cait-sith-backend.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/specs/integration-cait-sith-backend.md)
 - formal verification area:
   [formal-verification](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification)
 - current native benchmark:
@@ -135,14 +135,13 @@ Formal verification scope for the MVP:
   property
 - keep Verus focused on mirror claims that block forbidden fields, mismatched
   identities, and unauthorized export share release
-- defer generated Aeneas extraction until the Rust boundary has stabilized
+- keep generated Aeneas extraction scoped to the role-local boundary facade
 - avoid proving hash internals, ECDSA/Cait-Sith internals, logging policy,
   performance claims, and product packaging in this MVP phase
 
 Post-MVP work:
 
 - broaden golden vectors into a shared Rust/WASM/Verus/Lean corpus
-- add Aeneas-generated bridge artifacts for the implemented boundary
 - expand WASM bundle and FFI surface tests after bindings are touched
 - add audit/log redaction and import-guard tests after the production module
   shape settles
@@ -268,23 +267,26 @@ Turn the Lean model into a concrete implementation contract.
   release, and role-local signing-session identity/context binding.
 - [x] Align the Verus context mirror and fixture parity tests with the fixed
   `evm-family` key scope used for EVM-family addresses.
-- [ ] Delete v1 request/response compatibility from production boundaries.
-- [ ] Define reference-only code paths for fixture generation and algebraic tests.
+- [x] Delete v1 request/response compatibility from production boundaries.
+- [x] Define reference-only code paths for fixture generation and algebraic tests.
 
 ## Immediate Next Steps
 
 - [x] Update protocol, export, and security docs to use the role-local
   derivation contract proved in Lean and mirrored in Verus.
-- [ ] Implement the MVP Rust boundary: role-local derivation, public identity
+- [x] Implement the MVP Rust boundary: role-local derivation, public identity
   composition, retained role state, explicit export reconstruction, and
   Cait-Sith share handoff.
-- [ ] Add the MVP regression tests for algebra, forbidden fields, export
-  reconstruction, public key validation, relayer key mismatch, and nonce
-  freshness.
-- [ ] Run the targeted crate tests and the existing Lean/Verus gates after the
+- [x] Add the first MVP regression tests for algebra, forbidden fields, export
+  reconstruction, public key validation, and role-local signing.
+- [x] Add the remaining MVP regression tests for relayer key mismatch and nonce
+  freshness when those request/persistence fields land.
+- [x] Run the targeted crate tests and the existing Lean/Verus gates after the
   MVP Rust boundary compiles.
-- [ ] Extend Verus/Aeneas/Lean bridges after the implemented Rust boundary
-  stabilizes.
+- [x] Disable the stale Aeneas extraction path after the role-local rewrite
+  deleted the old production `server::reference_boundary` facade.
+- [x] Add a non-production role-local extraction facade, then extend
+  Verus/Aeneas/Lean bridges over that generated boundary.
 
 Validation note at this pause point:
 
@@ -292,18 +294,23 @@ Validation note at this pause point:
   model and boundary contract.
 - `lake build EcdsaHssPrivacy.Views` passes for the older privacy view module
   after Lean 4.28 proof cleanup.
-- The full generated boundary bridge remains pending until the role-local Rust
-  boundary implementation lands and is extracted back through Aeneas.
+- The generated boundary bridge now uses a non-production role-local extraction
+  crate and maps the generated Aeneas types back into the handwritten boundary
+  model.
 - `just ecdsa-hss-fv-verus` and `just ecdsa-hss-fv-parity` pass for the
   formal-verification mirror.
-- `cargo test -q --manifest-path crates/ecdsa-hss/Cargo.toml` currently fails
-  in unmodified production reference tests because
-  [tests/phase1_reference.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/tests/phase1_reference.rs)
-  still expects the old chain-specific context field
-  `evm:eip155:11155111`, while
-  [src/shared/context.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/shared/context.rs)
-  encodes the fixed EVM-family key scope `evm-family`. Resolving this belongs to
-  the Rust implementation/test phase.
+- `just ecdsa-hss-fv` passes for the current default `ecdsa-hss` formal gate:
+  Verus parity, Verus verification, Aeneas boundary extraction, and the Lean
+  privacy workspace.
+- `cargo test --manifest-path crates/ecdsa-hss/Cargo.toml` passes for the
+  role-local MVP regression suite.
+- `cargo check --manifest-path crates/ecdsa-hss/Cargo.toml --all-targets`
+  passes.
+- A manual constant-time review found no custom `%`, `/`, bigint arithmetic, or
+  secret-dependent branches in the changed scalar derivation, export
+  reconstruction, share mapping, or server authorization paths. The local
+  scripted analyzer from the `constant-time-analysis` skill was unavailable in
+  this workspace, so this remains a manual gate.
 
 ## Phase 3: Rust Implementation
 
@@ -626,9 +633,9 @@ struct ExplicitExportRelayerShareEnvelope {
 }
 
 struct ClientExportReconstruction {
-    canonical_x32: SecretScalarBytes32,
-    canonical_public_key33: PublicKey33,
-    canonical_ethereum_address20: EthereumAddress20,
+    x_export32: SecretScalarBytes32,
+    export_public_key33: PublicKey33,
+    export_ethereum_address20: EthereumAddress20,
 }
 ```
 
@@ -1002,33 +1009,33 @@ Constant-time validation gate:
 - custom `%`, `/`, variable-time big integer arithmetic, and early-exit
   comparisons over secret-derived bytes are release blockers
 
-- [ ] Add role-local client/relayer share derivation helpers, public identity
+- [x] Add role-local client/relayer share derivation helpers, public identity
   composition, and client-side explicit export reconstruction in
   [src/shared/derive.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/shared/derive.rs).
-- [ ] Replace canonical derivation from joined roots in
+- [x] Replace canonical derivation from joined roots in
   [src/shared/derive.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/shared/derive.rs)
   with role-local additive share derivation.
-- [ ] Remove production APIs that accept both `y_client` and `y_relayer` in one
+- [x] Remove production APIs that accept both `y_client` and `y_relayer` in one
   process.
-- [ ] Replace
+- [x] Replace
   [src/wire/mod.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/wire/mod.rs)
   request types so the server never receives plaintext client root material.
-- [ ] Replace
+- [x] Replace
   [src/client/mod.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/client/mod.rs)
   transport outputs so non-export returns public verification data only while the
   client retains `x_client` locally.
-- [ ] Replace
+- [x] Replace
   [src/server/mod.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/server/mod.rs)
   retained state so it stores only `x_relayer`, `X_relayer`, shared public key
   `X`, address, and verification data.
-- [ ] Update
+- [x] Update
   [src/integration/mod.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/integration/mod.rs)
   so Cait-Sith receives mapped shares derived from role-local additive shares.
-- [ ] Update explicit export so the server response carries a relayer export
+- [x] Update explicit export so the server response carries a relayer export
   share payload instead of canonical `x`.
-- [ ] Move full-key reconstruction to the client export runtime.
-- [ ] Delete old fixtures tied to joined-root v1 derivation.
-- [ ] Regenerate fixtures for additive derivation.
+- [x] Move full-key reconstruction to the client export runtime.
+- [x] Delete old fixtures tied to joined-root v1 derivation.
+- [x] Regenerate fixtures for additive derivation.
 - [ ] Update WASM bindings so browser code exposes only client-role derivation
   and export reconstruction.
 - [ ] Update server bindings so server code exposes only relayer-role derivation
@@ -1054,8 +1061,8 @@ Performance risks:
 
 Todo:
 
-- [ ] Measure context encoding time.
-- [ ] Measure context payload size.
+- [x] Measure context encoding and binding time.
+- [x] Measure context payload size.
 - [ ] Cache context binding within a ceremony.
 
 ### Stage 1: Client Share Derivation
@@ -1074,8 +1081,8 @@ Performance risks:
 Todo:
 
 - [ ] Measure browser client-share derivation time.
-- [ ] Measure `X_client` verification payload size.
-- [ ] Assert no server-owned fields enter the client derivation API.
+- [x] Measure `X_client` verification payload size.
+- [x] Assert no server-owned fields enter the client derivation API.
 
 ### Stage 2: Server Share Derivation
 
@@ -1092,10 +1099,10 @@ Performance risks:
 
 Todo:
 
-- [ ] Measure server share derivation time.
+- [x] Measure server share derivation time.
 - [ ] Measure public-key addition time.
-- [ ] Measure retained server state size.
-- [ ] Assert no client root/share fields enter the server derivation API.
+- [x] Measure retained server state size.
+- [x] Assert no client root/share fields enter the server derivation API.
 
 ### Stage 3: Public Key And Address Verification
 
@@ -1112,7 +1119,8 @@ Performance risks:
 
 Todo:
 
-- [ ] Measure public-key parse/add/address derivation time.
+- [x] Measure public-key parse/add/address derivation time as part of relayer
+  identity derivation.
 - [ ] Cache verified public identity per key id.
 - [ ] Assert every persisted key record includes `X_client`, `X_relayer`, `X`,
   and address.
@@ -1134,7 +1142,7 @@ Todo:
 
 - [ ] Measure additive-share mapping time per role.
 - [ ] Cache mapped participant share for persisted signing sessions.
-- [ ] Assert mapped shares reconstruct the same public key `X`.
+- [x] Assert mapped shares reconstruct the same public key `X`.
 
 ### Stage 5: Non-Export Presign/Sign
 
@@ -1150,8 +1158,8 @@ Performance risks:
 
 Todo:
 
-- [ ] Measure first presign after bootstrap.
-- [ ] Measure normal presign/sign with persisted shares.
+- [x] Measure first presign after bootstrap.
+- [x] Measure normal presign/sign with persisted shares.
 - [ ] Confirm round-trip count matches the current signing path.
 - [ ] Confirm triple/presign behavior is unchanged by role-local HSS.
 
@@ -1172,10 +1180,10 @@ Performance risks:
 
 Todo:
 
-- [ ] Benchmark export separately from non-export flows.
-- [ ] Measure export envelope size.
+- [x] Benchmark export separately from non-export flows.
+- [x] Measure export envelope size.
 - [ ] Measure client-side scalar addition and public-key verification time.
-- [ ] Assert server never returns `privateKeyHex` or canonical `x`.
+- [x] Assert server never returns `privateKeyHex` or canonical `x`.
 
 ## Phase 4: Rust Verification Bridge
 
@@ -1207,8 +1215,8 @@ Post-MVP verification hooks:
 Bridge procedure:
 
 1. Extend Verus predicates for the implemented MVP Rust types first.
-2. Extract only the implemented role-local boundary slice with Aeneas after the
-   MVP Rust API stabilizes.
+2. Extract only the implemented role-local boundary slice with Aeneas through
+   the non-production `formal-verification/lean-boundary/rust-boundary` crate.
 3. Keep the generated extraction small: public wire structs, retained role-local
    states, export authorization envelope, and public identity composition.
 4. Write handwritten bridge lemmas from generated types into
@@ -1219,31 +1227,38 @@ Bridge procedure:
 
 MVP checklist:
 
-- [ ] Add Verus anti-drift checks that fail if server production types gain
+- [x] Add Verus anti-drift checks that fail if server production types gain
   client-owned secrets.
-- [ ] Add Verus anti-drift checks that fail if client non-export types gain
+- [x] Add Verus anti-drift checks that fail if client non-export types gain
   server-owned secrets.
-- [ ] Update Verus specifications for role-local derivation, public-key addition,
+- [x] Update Verus specifications for role-local derivation, public-key addition,
   output type separation, forbidden-field absence, and export isolation.
-- [ ] Run focused constant-time validation on scalar derivation, scalar
+- [x] Run focused constant-time validation on scalar derivation, scalar
   addition, export reconstruction, share mapping, and secret comparisons.
-- [ ] Run the formal verification gate:
+- [x] Run the formal verification gate:
 
   ```sh
-  cd crates/ecdsa-hss/formal-verification
-  make check
+  just ecdsa-hss-fv
   ```
 
 Post-MVP checklist:
 
-- [ ] Run Aeneas extraction for the new visible boundary slice after the MVP API
-  stabilizes.
-- [ ] Update generated Lean boundary artifacts under
+- [x] Disable the stale Aeneas extraction script and remove it from the default
+  `ecdsa-hss` formal gate after deleting the old production extraction facade.
+- [x] Add a non-production role-local extraction facade.
+- [x] Run Aeneas extraction for the new visible boundary slice after the MVP API
+  stabilizes and the facade exists.
+- [x] Update generated Lean boundary artifacts under
   [formal-verification/lean-boundary/generated](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/lean-boundary/generated).
-- [ ] Prove bridge lemmas from generated boundary types to the Lean privacy
+- [x] Prove bridge lemmas from generated boundary types to the Lean privacy
   model.
-- [ ] Add proof/model hooks for framed digest field order, public transcript
-  binding, export authorization binding, and golden vector parity.
+- [x] Add proof/model hooks for context frame field order and context-binding
+  golden vector parity.
+- [x] Add proof/model hooks for public transcript and export authorization
+  binding, with committed export authorization digest parity.
+- [x] Add proof/model hooks for role-local hash-to-scalar, Cait-Sith mapping,
+  public identity, and export reconstruction golden vector parity.
+- [ ] Add proof/model hooks for broader product/WASM golden vector parity.
 
 ## Phase 5: Tests
 
@@ -1283,33 +1298,38 @@ Post-MVP regression matrix:
 
 MVP checklist:
 
-- [ ] Add algebraic tests for:
+- [x] Add algebraic tests for:
 
   ```text
   X = x_clientG + x_relayerG
   X = (x_client + x_relayer)G
   ```
 
-- [ ] Add export tests proving client-side reconstruction produces the persisted
+- [x] Add export tests proving client-side reconstruction produces the persisted
   address.
-- [ ] Add boundary tests that fail if a server request accepts `y_client`,
+- [x] Add boundary tests that fail if a server request accepts `y_client`,
   `x_client`, or canonical `x`.
-- [ ] Add boundary tests that fail if a non-export client response includes
+- [x] Add boundary tests that fail if a non-export client response includes
   `x_relayer`.
-- [ ] Add integration tests for bootstrap, session resume, presign, sign, and
+- [x] Add integration tests for bootstrap, session resume, presign, sign, and
   export.
-- [ ] Add regression tests that no server API returns `privateKeyHex` or
+- [x] Add regression tests that no server API returns `privateKeyHex` or
   canonical `x`.
-- [ ] Add zero-canonical-key regression using a deterministic fixture or mocked
-  derivation that forces `X_client + X_relayer` to identity, then assert relayer
-  retry and transcript binding.
-- [ ] Add chain-target invariance tests proving concrete `chainTarget` changes
-  do not change HSS context binding, public key, or address.
-- [ ] Add export nonce replay tests for success, digest failure, policy failure,
-  and relayer key rotation.
-- [ ] Add relayer key mismatch tests for bootstrap, signing, presign, and export.
-- [ ] Delete tests whose only purpose is preserving joined-root behavior.
-- [ ] Run the crate test suite:
+- [x] Add zero-canonical-key regression using a deterministic mocked relayer
+  share that forces `X_client + X_relayer` to identity, then assert public
+  identity rejection before export/signing state is accepted.
+- [x] Remove `chain_target` from the HSS context and add a regression proving
+  the crate context binds only the EVM-family key scope.
+- [x] Add export nonce replay tests for fresh authorization, repeated nonce, and
+  expired authorization.
+- [x] Add crate-level export authorization digest failure tests.
+- [ ] Add product-level export policy failure and relayer key rotation tests when
+  product persistence and authorization digest storage are wired.
+- [x] Add relayer key mismatch tests for threshold response and explicit export.
+- [ ] Add relayer key mismatch tests for product signing and presign paths when
+  those routes consume the new crate boundary.
+- [x] Delete tests whose only purpose is preserving joined-root behavior.
+- [x] Run the crate test suite:
 
   ```sh
   cargo test --manifest-path crates/ecdsa-hss/Cargo.toml
@@ -1321,9 +1341,11 @@ Post-MVP checklist:
 - [ ] Add reference-helper import guard tests for production server/client
   modules.
 - [ ] Add audit/log redaction tests for signing and explicit export failures.
-- [ ] Add golden vector tests for frame encoding, context binding,
-  hash-to-scalar, public transcript, export authorization, role-local public
-  identity, Cait-Sith mapping, and explicit export reconstruction.
+- [x] Add golden vector tests for context frame encoding and context binding.
+- [x] Add golden vector tests for public transcript digest binding.
+- [x] Add golden vector tests for export authorization digest binding.
+- [x] Add golden vector tests for hash-to-scalar, role-local public identity,
+  Cait-Sith mapping, and explicit export reconstruction.
 - [ ] Add persistence transaction tests for concurrent export nonce insertions,
   relayer key rotation, and failed bootstrap/export/signing writes.
 - [ ] Add stable error-code tests for every failure class in the taxonomy.
@@ -1384,27 +1406,31 @@ latency, or WASM size.
   cargo bench --manifest-path crates/ecdsa-hss/Cargo.toml
   ```
 
-- [ ] Capture post-change native derivation benchmarks:
+- [x] Capture post-change native derivation benchmarks:
 
   ```sh
   cargo bench --manifest-path crates/ecdsa-hss/Cargo.toml
   ```
 
-- [ ] Measure:
+- [x] Measure native crate-local:
   context binding time,
   client share derivation time,
   server share derivation time,
-  public-key addition time,
-  address derivation time,
-  additive-share mapping time,
+  public-key addition/address derivation as part of relayer identity,
+  additive-share mapping as part of role derivation,
   first presign after bootstrap,
   normal presign/sign with persisted shares,
-  explicit export time,
-  WASM artifact size,
+  and explicit export time.
+- [x] Measure native crate-local logical:
   request/response byte sizes,
   retained server state size,
   and retained client state size.
-- [ ] Emit a per-stage benchmark table covering:
+- [ ] Measure:
+  WASM artifact size,
+  product/FFI serialized request/response byte sizes,
+  product retained server state size,
+  and product retained client state size.
+- [x] Emit a native per-stage benchmark table covering:
   context binding,
   client share derivation,
   server share derivation,
@@ -1412,33 +1438,74 @@ latency, or WASM size.
   Cait-Sith share mapping,
   non-export presign/sign,
   and explicit export.
-- [ ] Compare against current notes:
+- [x] Compare native results against current notes:
   native derivation/bootstrap/export sub-millisecond,
-  native sign about `~40 ms`,
-  and Node-hosted wasm non-export sign about `~120 ms`.
+  and native sign about `~40 ms`.
+- [ ] Compare Node-hosted wasm non-export sign against current notes of
+  `~120 ms`.
 - [ ] Treat any Cait-Sith presign/sign regression as a release blocker unless it
   is explained by intentional backend changes.
 - [ ] Keep export overhead isolated from non-export signing.
+
+Native role-local benchmark snapshot from `cargo bench --manifest-path
+crates/ecdsa-hss/Cargo.toml --bench performance_baseline`:
+
+| Stage | Mean |
+| --- | ---: |
+| Context binding | `668.03 ns` |
+| Client share derivation | `33.785 us` |
+| Relayer share + public identity | `63.104 us` |
+| Bootstrap adapter | `215.38 us` |
+| First presign roundtrip | `39.272 ms` |
+| Full sign bridge | `39.736 ms` |
+| Explicit export | `354.66 us` |
+
+Interpretation:
+
+- native derivation, bootstrap, and export remain sub-millisecond
+- native sign remains aligned with the existing `~40 ms` note
+- this does not cover browser/Node-hosted WASM size or latency
+
+Native logical byte-size snapshot from
+`crates/ecdsa-hss/fixtures/role_local_v1.json`:
+
+These are crate-local logical binary estimates using fixed-width scalar/point
+fields plus `u16` string lengths where strings cross a boundary. The
+`ecdsa-hss` crate has no canonical serde wire format, so product/FFI serialized
+sizes still need to be measured in the SDK integration layer.
+
+| Item | Logical bytes |
+| --- | ---: |
+| HSS context encoding | `177` |
+| Threshold request | `60` |
+| Prepare non-export request | `201` |
+| Bootstrap non-export response | `127` |
+| Bootstrap explicit-export response | `159` |
+| Finalize server envelope | `152` |
+| Retained server state | `183` |
+| Retained client role share | `310` |
+| Public identity | `336` |
+| Export authorization payload | `240` |
 
 ## Completion Criteria
 
 MVP completion:
 
 - [x] Lean privacy theorems for true ECDSA HSS server blindness pass.
-- [ ] Rust implementation exposes one active production protocol shape.
-- [ ] Production server cannot reconstruct canonical `x`.
-- [ ] Production client cannot reconstruct `x_relayer` in non-export flows.
-- [ ] Explicit export reconstructs canonical `x` client-side.
-- [ ] Threshold signing and export verify against the same public key `X` and
+- [x] Rust implementation exposes one active production protocol shape.
+- [x] Production server cannot reconstruct canonical `x`.
+- [x] Production client cannot reconstruct `x_relayer` in non-export flows.
+- [x] Explicit export reconstructs canonical `x` client-side.
+- [x] Threshold signing and export verify against the same public key `X` and
   Ethereum address.
-- [ ] Production crate joined-root request, wire, and derivation paths are
+- [x] Production crate joined-root request, wire, and derivation paths are
   deleted or moved into reference-only fixture helpers.
 - [x] Verus checks pass.
-- [ ] Rust tests pass.
+- [x] Rust tests pass.
 
 Post-MVP completion:
 
 - [ ] Product account records, server migrations, and IndexedDB readers for the
   superseded protocol are removed.
-- [ ] Aeneas/Lean boundary bridge passes.
+- [x] Aeneas/Lean boundary bridge passes.
 - [ ] Native and browser benchmark results are committed.

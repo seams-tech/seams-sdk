@@ -29,14 +29,21 @@ def serverVisibleBoundaryOfRespondBoundary
     allowedOutputKind := boundary.operation.allowedOutputKind
     finalizeOperation := boundary.finalize.operation
     rawRootMaterialDropped := boundary.finalize.rawRootMaterialDropped
+    relayerKeyId := boundary.finalize.relayerKeyId
+    clientPublicKey33 := boundary.finalize.clientPublicKey33
+    relayerPublicKey33 := boundary.finalize.relayerPublicKey33
     thresholdPublicKey33 := boundary.finalize.thresholdPublicKey33
     thresholdEthereumAddress20 := boundary.finalize.thresholdEthereumAddress20
-    retryCounter := boundary.finalize.retryCounter
-    relayerThresholdShare32 := boundary.retained.relayerThresholdShare32
-    relayerPublicKey33 := boundary.retained.relayerPublicKey33
+    clientShareRetryCounter := boundary.finalize.clientShareRetryCounter
+    relayerShareRetryCounter := boundary.finalize.relayerShareRetryCounter
+    retainedRelayerKeyId := boundary.retained.relayerKeyId
+    relayerShare32 := boundary.retained.relayerShare32
+    retainedClientPublicKey33 := boundary.retained.clientPublicKey33
+    retainedRelayerPublicKey33 := boundary.retained.relayerPublicKey33
     retainedThresholdPublicKey33 := boundary.retained.thresholdPublicKey33
     retainedThresholdEthereumAddress20 := boundary.retained.thresholdEthereumAddress20
-    retainedRetryCounter := boundary.retained.retryCounter
+    retainedClientShareRetryCounter := boundary.retained.clientShareRetryCounter
+    retainedRelayerShareRetryCounter := boundary.retained.relayerShareRetryCounter
   }
 
 def respondBoundaryOfHiddenEvalBoundary
@@ -47,11 +54,14 @@ def respondBoundaryOfHiddenEvalBoundary
     finalize := boundary.transport.finalize
     retained := {
       rawRootMaterialDropped := boundary.persisted.rawRootMaterialDropped
-      relayerThresholdShare32 := boundary.persisted.relayerThresholdShare32
+      relayerKeyId := boundary.persisted.relayerKeyId
+      relayerShare32 := boundary.persisted.relayerShare32
+      clientPublicKey33 := boundary.persisted.clientPublicKey33
       relayerPublicKey33 := boundary.persisted.relayerPublicKey33
       thresholdPublicKey33 := boundary.persisted.thresholdPublicKey33
       thresholdEthereumAddress20 := boundary.persisted.thresholdEthereumAddress20
-      retryCounter := boundary.persisted.retryCounter
+      clientShareRetryCounter := boundary.persisted.clientShareRetryCounter
+      relayerShareRetryCounter := boundary.persisted.relayerShareRetryCounter
     }
   }
 
@@ -114,7 +124,7 @@ def nonExportServerView?
   match state.boundary.operation.allowedOutputKind with
   | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialOnly =>
     some (serverObservableProfile state)
-  | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialAndCanonicalSecret =>
+  | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialAndRelayerExportShare =>
     none
 
 def explicitExportServerView?
@@ -122,7 +132,7 @@ def explicitExportServerView?
   match state.boundary.operation.allowedOutputKind with
   | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialOnly =>
     none
-  | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialAndCanonicalSecret =>
+  | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialAndRelayerExportShare =>
     some (serverObservableProfile state)
 
 def statesShareClientVisibleBoundary
@@ -184,7 +194,7 @@ theorem nonExportServerView_exists_exactly_for_threshold_only_output
     (nonExportServerView? state).isSome =
       match state.boundary.operation.allowedOutputKind with
       | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialOnly => true
-      | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialAndCanonicalSecret => false := by
+      | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialAndRelayerExportShare => false := by
   cases state with
   | mk boundary canonicalX32 clientSecrets serverSecrets =>
     cases boundary with
@@ -198,7 +208,7 @@ theorem explicitExportServerView_exists_exactly_for_export_output
     (explicitExportServerView? state).isSome =
       match state.boundary.operation.allowedOutputKind with
       | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialOnly => false
-      | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialAndCanonicalSecret => true := by
+      | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialAndRelayerExportShare => true := by
   cases state with
   | mk boundary canonicalX32 clientSecrets serverSecrets =>
     cases boundary with

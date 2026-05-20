@@ -1547,3 +1547,10 @@ been cleaned.
   - [x] Postgres key-store/backfill tests, updated to assert current schema
         behavior.
   - [x] SDK type-check.
+
+## Post-Completion Cleanup Owner
+
+Refactor 39 is complete. Remaining cleanup around
+`EvmFamilyEcdsaWalletKey`, profile-continuity parsing, Postgres
+shared-identity lookup shape, and stale `needs_ed25519_inventory` naming is
+tracked in `docs/rework-registration-flows.md` Phase 8.

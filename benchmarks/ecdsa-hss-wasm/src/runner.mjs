@@ -1,52 +1,164 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
+import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   initSync as initEthSignerSync,
-  ecdsa_hss_bootstrap_non_export_sign,
-  ecdsa_hss_derive_additive_shares,
-  ecdsa_hss_derive_canonical_secret,
-  ecdsa_hss_explicit_export,
-  ecdsa_hss_sign_non_export,
-  ecdsa_hss_sign_non_export_profiled,
+  threshold_ecdsa_hss_role_local_relayer_bootstrap,
 } from '../../../wasm/eth_signer/pkg/eth_signer.js';
+import {
+  initSync as initHssClientSignerSync,
+  threshold_ecdsa_hss_role_local_client_bootstrap,
+  threshold_ecdsa_hss_role_local_export_artifact,
+} from '../../../wasm/hss_client_signer/pkg/hss_client_signer.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../..');
 const OUT_ROOT = path.join(REPO_ROOT, 'benchmarks', 'ecdsa-hss-wasm', 'out');
-const FIXTURE_PATH = path.join(REPO_ROOT, 'crates', 'ecdsa-hss', 'fixtures', 'phase1_v1.json');
-const WASM_PATH = path.join(REPO_ROOT, 'wasm', 'eth_signer', 'pkg', 'eth_signer_bg.wasm');
+const FIXTURE_PATH = path.join(REPO_ROOT, 'crates', 'ecdsa-hss', 'fixtures', 'role_local_v1.json');
+const ETH_SIGNER_WASM_PATH = path.join(
+  REPO_ROOT,
+  'wasm',
+  'eth_signer',
+  'pkg',
+  'eth_signer_bg.wasm',
+);
+const HSS_CLIENT_SIGNER_WASM_PATH = path.join(
+  REPO_ROOT,
+  'wasm',
+  'hss_client_signer',
+  'pkg',
+  'hss_client_signer_bg.wasm',
+);
 
 let wasmReady = false;
 
 function ensureWasm() {
   if (wasmReady) return;
-  const wasmBytes = readFileSync(WASM_PATH);
-  initEthSignerSync({ module: wasmBytes });
+  initEthSignerSync({ module: readFileSync(ETH_SIGNER_WASM_PATH) });
+  initHssClientSignerSync({ module: readFileSync(HSS_CLIENT_SIGNER_WASM_PATH) });
   wasmReady = true;
 }
 
+function hexToBytes(hex) {
+  return new Uint8Array(Buffer.from(hex, 'hex'));
+}
+
+function bytesToB64u(bytes) {
+  return Buffer.from(bytes).toString('base64url');
+}
+
+function b64uToBytes(value) {
+  return new Uint8Array(Buffer.from(value, 'base64url'));
+}
+
+function bytesToHexPrefixed(bytes) {
+  return `0x${Buffer.from(bytes).toString('hex')}`;
+}
+
+function byteLengthJson(value) {
+  return Buffer.byteLength(JSON.stringify(value), 'utf8');
+}
+
 function readRepresentativeFixture() {
-  const parsed = JSON.parse(readFileSync(FIXTURE_PATH, 'utf8'));
-  const fixture = parsed.fixtures.find((entry) => entry.name === 'derived-beta');
-  if (!fixture) throw new Error('Missing derived-beta fixture');
+  const fixture = JSON.parse(readFileSync(FIXTURE_PATH, 'utf8'));
+  const context = fixture.context;
   return {
-    nearAccountId: fixture.context.near_account_id,
-    keyPurpose: fixture.context.key_purpose,
-    keyVersion: fixture.context.key_version,
-    yClient32Le: Buffer.from(fixture.inputs.y_client32_le_hex, 'hex'),
-    yRelayer32Le: Buffer.from(fixture.inputs.y_relayer32_le_hex, 'hex'),
+    walletSessionUserId: context.wallet_session_user_id,
+    subjectId: context.subject_id,
+    ecdsaThresholdKeyId: context.ecdsa_threshold_key_id,
+    signingRootId: context.signing_root_id,
+    signingRootVersion: context.signing_root_version,
+    keyPurpose: context.key_purpose,
+    keyVersion: context.key_version,
+    relayerKeyId: fixture.inputs.relayer_key_id,
+    yClient32Le: hexToBytes(fixture.inputs.y_client32_le_hex),
+    yRelayer32Le: hexToBytes(fixture.inputs.y_relayer32_le_hex),
+    expected: {
+      contextBinding32: hexToBytes(fixture.context_binding32_hex),
+      clientPublicKey33: hexToBytes(fixture.identity.client_public_key33_hex),
+      relayerPublicKey33: hexToBytes(fixture.identity.relayer_public_key33_hex),
+      groupPublicKey33: hexToBytes(fixture.identity.threshold_public_key33_hex),
+      ethereumAddress20: hexToBytes(fixture.identity.threshold_ethereum_address20_hex),
+      clientShareRetryCounter: fixture.identity.client_share_retry_counter,
+      relayerShare32: hexToBytes(fixture.derived.x_relayer32_hex),
+    },
   };
 }
 
-function fixedDigest32(label) {
-  const bytes = new TextEncoder().encode(label);
-  const out = new Uint8Array(32);
-  const hash = createHash('sha256').update(bytes).digest();
-  out.set(hash.subarray(0, 32));
-  return out;
+function contextPayload(fixture) {
+  return {
+    walletSessionUserId: fixture.walletSessionUserId,
+    subjectId: fixture.subjectId,
+    ecdsaThresholdKeyId: fixture.ecdsaThresholdKeyId,
+    signingRootId: fixture.signingRootId,
+    signingRootVersion: fixture.signingRootVersion,
+    keyPurpose: fixture.keyPurpose,
+    keyVersion: fixture.keyVersion,
+  };
+}
+
+function clientBootstrapPayload(fixture) {
+  return {
+    ...contextPayload(fixture),
+    clientRootShare32: fixture.yClient32Le,
+  };
+}
+
+function relayerBootstrapPayload(fixture, clientBootstrap) {
+  return {
+    ...contextPayload(fixture),
+    relayerKeyId: fixture.relayerKeyId,
+    yRelayer32Le: Array.from(fixture.yRelayer32Le),
+    clientPublicKey33: Array.from(b64uToBytes(clientBootstrap.clientPublicKey33B64u)),
+    clientShareRetryCounter: Number(clientBootstrap.clientShareRetryCounter),
+  };
+}
+
+function exportArtifactPayload(fixture, clientBootstrap, relayerBootstrap) {
+  return {
+    ...contextPayload(fixture),
+    clientRootShare32: fixture.yClient32Le,
+    serverExportShare32B64u: bytesToB64u(fixture.expected.relayerShare32),
+    contextBinding32B64u: clientBootstrap.contextBinding32B64u,
+    clientPublicKey33B64u: clientBootstrap.clientPublicKey33B64u,
+    relayerPublicKey33B64u: bytesToB64u(relayerBootstrap.relayerPublicKey33),
+    groupPublicKey33B64u: bytesToB64u(relayerBootstrap.groupPublicKey33),
+    ethereumAddress: bytesToHexPrefixed(relayerBootstrap.ethereumAddress20),
+    clientShareRetryCounter: Number(clientBootstrap.clientShareRetryCounter),
+  };
+}
+
+function assertBytesEqual(label, actual, expected) {
+  const actualHex = Buffer.from(actual).toString('hex');
+  const expectedHex = Buffer.from(expected).toString('hex');
+  if (actualHex !== expectedHex) {
+    throw new Error(`${label} mismatch: got ${actualHex}, expected ${expectedHex}`);
+  }
+}
+
+function validateFixturePath(fixture, clientBootstrap, relayerBootstrap) {
+  assertBytesEqual(
+    'client public key',
+    b64uToBytes(clientBootstrap.clientPublicKey33B64u),
+    fixture.expected.clientPublicKey33,
+  );
+  assertBytesEqual(
+    'relayer public key',
+    relayerBootstrap.relayerPublicKey33,
+    fixture.expected.relayerPublicKey33,
+  );
+  assertBytesEqual(
+    'group public key',
+    relayerBootstrap.groupPublicKey33,
+    fixture.expected.groupPublicKey33,
+  );
+  assertBytesEqual(
+    'ethereum address',
+    relayerBootstrap.ethereumAddress20,
+    fixture.expected.ethereumAddress20,
+  );
 }
 
 function median(values) {
@@ -80,26 +192,16 @@ function measure(label, fn, { warmup = 5, iterations = 20 } = {}) {
   };
 }
 
-function toByteArray(bufferLike) {
-  const u8 = bufferLike instanceof Uint8Array ? bufferLike : new Uint8Array(bufferLike);
-  return Array.from(u8);
-}
-
-function makeRootPayload(fixture) {
+function summarizeSamples(label, samplesMs, { warmup = 0, iterations = samplesMs.length } = {}) {
   return {
-    nearAccountId: fixture.nearAccountId,
-    keyPurpose: fixture.keyPurpose,
-    keyVersion: fixture.keyVersion,
-    yClient32Le: toByteArray(fixture.yClient32Le),
-    yRelayer32Le: toByteArray(fixture.yRelayer32Le),
-  };
-}
-
-function makeSignPayload(fixture) {
-  return {
-    ...makeRootPayload(fixture),
-    digest32: toByteArray(fixedDigest32('ecdsa-hss/wasm-bench/digest')),
-    entropy32: toByteArray(fixedDigest32('ecdsa-hss/wasm-bench/entropy')),
+    label,
+    warmup,
+    iterations,
+    medianMs: Number(median(samplesMs).toFixed(3)),
+    meanMs: Number(mean(samplesMs).toFixed(3)),
+    minMs: Number(Math.min(...samplesMs).toFixed(3)),
+    maxMs: Number(Math.max(...samplesMs).toFixed(3)),
+    samplesMs: samplesMs.map((value) => Number(value.toFixed(3))),
   };
 }
 
@@ -108,8 +210,8 @@ function renderMarkdown(summary) {
   lines.push('# `ecdsa-hss` WASM Benchmark Summary');
   lines.push('');
   lines.push(`- Run ID: \`${summary.runId}\``);
-  lines.push('- Runtime: Node-hosted wasm (`wasm/eth_signer/pkg`, web target)');
-  lines.push('- Scope: crate lifecycle through wasm boundary');
+  lines.push('- Runtime: Node-hosted wasm (`wasm/eth_signer/pkg` + `wasm/hss_client_signer/pkg`)');
+  lines.push('- Scope: active role-local client/server/bootstrap/export boundary');
   lines.push('');
   lines.push('| Path | Median | Mean | Min | Max |');
   lines.push('| --- | ---: | ---: | ---: | ---: |');
@@ -117,6 +219,14 @@ function renderMarkdown(summary) {
     lines.push(
       `| \`${bench.label}\` | \`${bench.medianMs} ms\` | \`${bench.meanMs} ms\` | \`${bench.minMs} ms\` | \`${bench.maxMs} ms\` |`,
     );
+  }
+  lines.push('');
+  lines.push('## Serialized Sizes');
+  lines.push('');
+  lines.push('| Payload | Bytes |');
+  lines.push('| --- | ---: |');
+  for (const size of summary.serializedSizes) {
+    lines.push(`| \`${size.label}\` | \`${size.bytes}\` |`);
   }
   lines.push('');
   if (summary.signProfile) {
@@ -137,76 +247,178 @@ function renderMarkdown(summary) {
   return `${lines.join('\n')}\n`;
 }
 
-function summarizeSeries(label, values) {
-  return {
-    label,
-    medianMs: Number(median(values).toFixed(3)),
-    meanMs: Number(mean(values).toFixed(3)),
-    minMs: Number(Math.min(...values).toFixed(3)),
-    maxMs: Number(Math.max(...values).toFixed(3)),
-    samplesMs: values.map((value) => Number(value.toFixed(3))),
-  };
+async function withStaticServer(fn) {
+  const server = http.createServer((req, res) => {
+    try {
+      const url = new URL(req.url || '/', 'http://127.0.0.1');
+      if (url.pathname === '/' || url.pathname === '/blank') {
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        res.end('<!doctype html><meta charset="utf-8"><title>ecdsa-hss wasm bench</title>');
+        return;
+      }
+      const filePath = path.resolve(REPO_ROOT, `.${url.pathname}`);
+      if (!filePath.startsWith(REPO_ROOT)) {
+        res.writeHead(403);
+        res.end('forbidden');
+        return;
+      }
+      const contentType = filePath.endsWith('.wasm')
+        ? 'application/wasm'
+        : filePath.endsWith('.js')
+          ? 'text/javascript; charset=utf-8'
+          : 'application/octet-stream';
+      res.writeHead(200, { 'content-type': contentType });
+      res.end(readFileSync(filePath));
+    } catch (error) {
+      res.writeHead(404);
+      res.end(String(error?.message || error || 'not found'));
+    }
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('benchmark static server failed');
+  const origin = `http://127.0.0.1:${address.port}`;
+  try {
+    return await fn(origin);
+  } finally {
+    await new Promise((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
+  }
 }
 
-function main() {
+async function measureBrowserClientBootstrap(fixture) {
+  const { chromium } = await import('playwright');
+  return await withStaticServer(async (origin) => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.goto(`${origin}/blank`);
+      const result = await page.evaluate(
+        async ({ origin: pageOrigin, payload }) => {
+          const mod = await import(
+            `${pageOrigin}/wasm/hss_client_signer/pkg/hss_client_signer.js`
+          );
+          await mod.default(
+            `${pageOrigin}/wasm/hss_client_signer/pkg/hss_client_signer_bg.wasm`,
+          );
+          for (let i = 0; i < 20; i += 1) {
+            mod.threshold_ecdsa_hss_role_local_client_bootstrap({
+              ...payload,
+              clientRootShare32: new Uint8Array(payload.clientRootShare32),
+            });
+          }
+          const samplesMs = [];
+          for (let i = 0; i < 120; i += 1) {
+            const started = performance.now();
+            mod.threshold_ecdsa_hss_role_local_client_bootstrap({
+              ...payload,
+              clientRootShare32: new Uint8Array(payload.clientRootShare32),
+            });
+            samplesMs.push(performance.now() - started);
+          }
+          return samplesMs;
+        },
+        {
+          origin,
+          payload: {
+            ...contextPayload(fixture),
+            clientRootShare32: Array.from(fixture.yClient32Le),
+          },
+        },
+      );
+      return summarizeSamples('browser_role_local_client_bootstrap_wasm', result, {
+        warmup: 20,
+        iterations: 120,
+      });
+    } finally {
+      await browser.close();
+    }
+  });
+}
+
+async function main() {
   ensureWasm();
   const fixture = readRepresentativeFixture();
-  const rootPayload = makeRootPayload(fixture);
-  const signPayload = makeSignPayload(fixture);
+  const initialClientBootstrap = threshold_ecdsa_hss_role_local_client_bootstrap(
+    clientBootstrapPayload(fixture),
+  );
+  const initialRelayerBootstrap = threshold_ecdsa_hss_role_local_relayer_bootstrap(
+    relayerBootstrapPayload(fixture, initialClientBootstrap),
+  );
+  validateFixturePath(fixture, initialClientBootstrap, initialRelayerBootstrap);
+
+  const clientPayload = clientBootstrapPayload(fixture);
+  const relayerPayload = relayerBootstrapPayload(fixture, initialClientBootstrap);
+  const artifactPayload = exportArtifactPayload(
+    fixture,
+    initialClientBootstrap,
+    initialRelayerBootstrap,
+  );
 
   const benchmarks = [
-    measure('canonical_derivation_wasm', () => ecdsa_hss_derive_canonical_secret(rootPayload), {
-      warmup: 10,
-      iterations: 120,
-    }),
-    measure('share_derivation_wasm', () => ecdsa_hss_derive_additive_shares(rootPayload), {
-      warmup: 10,
-      iterations: 80,
-    }),
-    measure('bootstrap_non_export_wasm', () => ecdsa_hss_bootstrap_non_export_sign(rootPayload), {
-      warmup: 8,
-      iterations: 60,
-    }),
-    measure('sign_non_export_wasm', () => ecdsa_hss_sign_non_export(signPayload), {
-      warmup: 5,
-      iterations: 20,
-    }),
-    measure('explicit_export_wasm', () => ecdsa_hss_explicit_export(rootPayload), {
-      warmup: 8,
-      iterations: 60,
-    }),
+    measure(
+      'role_local_client_bootstrap_wasm',
+      () => threshold_ecdsa_hss_role_local_client_bootstrap(clientPayload),
+      { warmup: 20, iterations: 200 },
+    ),
+    measure(
+      'role_local_server_bootstrap_wasm',
+      () => threshold_ecdsa_hss_role_local_relayer_bootstrap(relayerPayload),
+      { warmup: 20, iterations: 200 },
+    ),
+    measure(
+      'role_local_full_bootstrap_wasm',
+      () => {
+        const client = threshold_ecdsa_hss_role_local_client_bootstrap(clientPayload);
+        return threshold_ecdsa_hss_role_local_relayer_bootstrap(
+          relayerBootstrapPayload(fixture, client),
+        );
+      },
+      { warmup: 20, iterations: 120 },
+    ),
+    measure(
+      'role_local_export_artifact_wasm',
+      () => threshold_ecdsa_hss_role_local_export_artifact(artifactPayload),
+      { warmup: 20, iterations: 200 },
+    ),
   ];
+  benchmarks.push(await measureBrowserClientBootstrap(fixture));
 
-  const profiledSamples = [];
-  for (let i = 0; i < 5; i += 1) ecdsa_hss_sign_non_export_profiled(signPayload);
-  for (let i = 0; i < 20; i += 1) {
-    profiledSamples.push(ecdsa_hss_sign_non_export_profiled(signPayload));
-  }
-  const signProfile = [
-    summarizeSeries(
-      'sign_parse_input_wasm',
-      profiledSamples.map((sample) => sample.parseInputMs),
-    ),
-    summarizeSeries(
-      'sign_prepare_session_wasm',
-      profiledSamples.map((sample) => sample.prepareSessionMs),
-    ),
-    summarizeSeries(
-      'sign_presign_roundtrip_wasm',
-      profiledSamples.map((sample) => sample.presignRoundtripMs),
-    ),
-    summarizeSeries(
-      'sign_client_signature_share_wasm',
-      profiledSamples.map((sample) => sample.clientSignatureShareMs),
-    ),
-    summarizeSeries(
-      'sign_finalize_signature_wasm',
-      profiledSamples.map((sample) => sample.finalizeSignatureMs),
-    ),
-    summarizeSeries(
-      'sign_total_core_wasm',
-      profiledSamples.map((sample) => sample.totalCoreMs),
-    ),
+  const serializedSizes = [
+    { label: 'client_bootstrap_request_json', bytes: byteLengthJson(clientPayload) },
+    {
+      label: 'client_bootstrap_response_json',
+      bytes: byteLengthJson(initialClientBootstrap),
+    },
+    { label: 'server_bootstrap_request_json', bytes: byteLengthJson(relayerPayload) },
+    {
+      label: 'server_bootstrap_response_json',
+      bytes: byteLengthJson(initialRelayerBootstrap),
+    },
+    { label: 'client_export_artifact_request_json', bytes: byteLengthJson(artifactPayload) },
+    {
+      label: 'role_local_client_state_json',
+      bytes: byteLengthJson({
+        contextBinding32B64u: initialClientBootstrap.contextBinding32B64u,
+        clientShare32B64u: initialClientBootstrap.clientShare32B64u,
+        clientPublicKey33B64u: initialClientBootstrap.clientPublicKey33B64u,
+        clientShareRetryCounter: initialClientBootstrap.clientShareRetryCounter,
+        relayerPublicKey33B64u: bytesToB64u(initialRelayerBootstrap.relayerPublicKey33),
+        groupPublicKey33B64u: bytesToB64u(initialRelayerBootstrap.groupPublicKey33),
+        ethereumAddress: bytesToHexPrefixed(initialRelayerBootstrap.ethereumAddress20),
+      }),
+    },
+    {
+      label: 'role_local_server_record_json',
+      bytes: byteLengthJson({
+        contextBinding32B64u: bytesToB64u(initialRelayerBootstrap.contextBinding32),
+        relayerShare32B64u: bytesToB64u(initialRelayerBootstrap.relayerShare32),
+        relayerPublicKey33B64u: bytesToB64u(initialRelayerBootstrap.relayerPublicKey33),
+        clientPublicKey33B64u: initialClientBootstrap.clientPublicKey33B64u,
+        groupPublicKey33B64u: bytesToB64u(initialRelayerBootstrap.groupPublicKey33),
+        ethereumAddress: bytesToHexPrefixed(initialRelayerBootstrap.ethereumAddress20),
+        publicTranscriptDigest32B64u: bytesToB64u(initialRelayerBootstrap.publicTranscriptDigest32),
+      }),
+    },
   ];
 
   const runId = new Date().toISOString().replace(/[:.]/g, '-');
@@ -216,9 +428,9 @@ function main() {
   const summary = {
     runId,
     runtime: 'node-hosted-wasm-web-target',
-    fixture: 'derived-beta',
+    fixture: 'role_local_v1',
     benchmarks,
-    signProfile,
+    serializedSizes,
   };
 
   const rawSummaryPath = path.join(outDir, 'raw-summary.json');
@@ -234,11 +446,9 @@ function main() {
       `[benchmark] ${bench.label} median_ms=${bench.medianMs} mean_ms=${bench.meanMs} min_ms=${bench.minMs} max_ms=${bench.maxMs}`,
     );
   }
-  for (const bucket of signProfile) {
-    console.log(
-      `[benchmark] ${bucket.label} median_ms=${bucket.medianMs} mean_ms=${bucket.meanMs} min_ms=${bucket.minMs} max_ms=${bucket.maxMs}`,
-    );
+  for (const size of serializedSizes) {
+    console.log(`[benchmark] ${size.label} bytes=${size.bytes}`);
   }
 }
 
-main();
+await main();

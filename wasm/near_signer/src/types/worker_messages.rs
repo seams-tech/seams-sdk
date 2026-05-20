@@ -28,9 +28,8 @@ pub enum WorkerRequestType {
     OpenThresholdEd25519HssClientOutput,
     OpenThresholdEd25519HssSeedOutput,
     BuildThresholdEd25519SeedExportArtifact,
-    PrepareThresholdEcdsaHssSession,
-    PrepareThresholdEcdsaHssClientRequest,
-    FinalizeThresholdEcdsaHssClientRequest,
+    BuildThresholdEcdsaHssRoleLocalClientBootstrap,
+    BuildThresholdEcdsaHssRoleLocalExportArtifact,
 }
 
 impl From<u32> for WorkerRequestType {
@@ -49,9 +48,8 @@ impl From<u32> for WorkerRequestType {
             10 => WorkerRequestType::OpenThresholdEd25519HssClientOutput,
             11 => WorkerRequestType::OpenThresholdEd25519HssSeedOutput,
             12 => WorkerRequestType::BuildThresholdEd25519SeedExportArtifact,
-            13 => WorkerRequestType::PrepareThresholdEcdsaHssSession,
-            14 => WorkerRequestType::PrepareThresholdEcdsaHssClientRequest,
-            15 => WorkerRequestType::FinalizeThresholdEcdsaHssClientRequest,
+            13 => WorkerRequestType::BuildThresholdEcdsaHssRoleLocalClientBootstrap,
+            14 => WorkerRequestType::BuildThresholdEcdsaHssRoleLocalExportArtifact,
             _ => panic!("Invalid WorkerRequestType value: {}", value),
         }
     }
@@ -86,14 +84,11 @@ impl WorkerRequestType {
             WorkerRequestType::BuildThresholdEd25519SeedExportArtifact => {
                 "BUILD_THRESHOLD_ED25519_SEED_EXPORT_ARTIFACT"
             }
-            WorkerRequestType::PrepareThresholdEcdsaHssSession => {
-                "PREPARE_THRESHOLD_ECDSA_HSS_SESSION"
+            WorkerRequestType::BuildThresholdEcdsaHssRoleLocalClientBootstrap => {
+                "BUILD_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_CLIENT_BOOTSTRAP"
             }
-            WorkerRequestType::PrepareThresholdEcdsaHssClientRequest => {
-                "PREPARE_THRESHOLD_ECDSA_HSS_CLIENT_REQUEST"
-            }
-            WorkerRequestType::FinalizeThresholdEcdsaHssClientRequest => {
-                "FINALIZE_THRESHOLD_ECDSA_HSS_CLIENT_REQUEST"
+            WorkerRequestType::BuildThresholdEcdsaHssRoleLocalExportArtifact => {
+                "BUILD_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_EXPORT_ARTIFACT"
             }
         }
     }
@@ -130,14 +125,11 @@ pub fn worker_request_type_name(request_type: WorkerRequestType) -> &'static str
         WorkerRequestType::BuildThresholdEd25519SeedExportArtifact => {
             "BUILD_THRESHOLD_ED25519_SEED_EXPORT_ARTIFACT"
         }
-        WorkerRequestType::PrepareThresholdEcdsaHssSession => {
-            "PREPARE_THRESHOLD_ECDSA_HSS_SESSION"
+        WorkerRequestType::BuildThresholdEcdsaHssRoleLocalClientBootstrap => {
+            "BUILD_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_CLIENT_BOOTSTRAP"
         }
-        WorkerRequestType::PrepareThresholdEcdsaHssClientRequest => {
-            "PREPARE_THRESHOLD_ECDSA_HSS_CLIENT_REQUEST"
-        }
-        WorkerRequestType::FinalizeThresholdEcdsaHssClientRequest => {
-            "FINALIZE_THRESHOLD_ECDSA_HSS_CLIENT_REQUEST"
+        WorkerRequestType::BuildThresholdEcdsaHssRoleLocalExportArtifact => {
+            "BUILD_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_EXPORT_ARTIFACT"
         }
     }
 }
@@ -195,12 +187,10 @@ pub enum WorkerResponseType {
     OpenThresholdEd25519HssSeedOutputFailure = 27,
     BuildThresholdEd25519SeedExportArtifactSuccess = 28,
     BuildThresholdEd25519SeedExportArtifactFailure = 29,
-    PrepareThresholdEcdsaHssSessionSuccess = 30,
-    PrepareThresholdEcdsaHssSessionFailure = 31,
-    PrepareThresholdEcdsaHssClientRequestSuccess = 32,
-    PrepareThresholdEcdsaHssClientRequestFailure = 33,
-    FinalizeThresholdEcdsaHssClientRequestSuccess = 34,
-    FinalizeThresholdEcdsaHssClientRequestFailure = 35,
+    BuildThresholdEcdsaHssRoleLocalClientBootstrapSuccess = 30,
+    BuildThresholdEcdsaHssRoleLocalClientBootstrapFailure = 31,
+    BuildThresholdEcdsaHssRoleLocalExportArtifactSuccess = 32,
+    BuildThresholdEcdsaHssRoleLocalExportArtifactFailure = 33,
 }
 impl From<WorkerResponseType> for u32 {
     fn from(value: WorkerResponseType) -> Self {
@@ -245,12 +235,10 @@ impl From<u32> for WorkerResponseType {
             27 => WorkerResponseType::OpenThresholdEd25519HssSeedOutputFailure,
             28 => WorkerResponseType::BuildThresholdEd25519SeedExportArtifactSuccess,
             29 => WorkerResponseType::BuildThresholdEd25519SeedExportArtifactFailure,
-            30 => WorkerResponseType::PrepareThresholdEcdsaHssSessionSuccess,
-            31 => WorkerResponseType::PrepareThresholdEcdsaHssSessionFailure,
-            32 => WorkerResponseType::PrepareThresholdEcdsaHssClientRequestSuccess,
-            33 => WorkerResponseType::PrepareThresholdEcdsaHssClientRequestFailure,
-            34 => WorkerResponseType::FinalizeThresholdEcdsaHssClientRequestSuccess,
-            35 => WorkerResponseType::FinalizeThresholdEcdsaHssClientRequestFailure,
+            30 => WorkerResponseType::BuildThresholdEcdsaHssRoleLocalClientBootstrapSuccess,
+            31 => WorkerResponseType::BuildThresholdEcdsaHssRoleLocalClientBootstrapFailure,
+            32 => WorkerResponseType::BuildThresholdEcdsaHssRoleLocalExportArtifactSuccess,
+            33 => WorkerResponseType::BuildThresholdEcdsaHssRoleLocalExportArtifactFailure,
             _ => panic!("Invalid WorkerResponseType value: {}", value),
         }
     }
@@ -335,23 +323,17 @@ pub fn worker_response_type_name(response_type: WorkerResponseType) -> &'static 
         WorkerResponseType::BuildThresholdEd25519SeedExportArtifactFailure => {
             "BUILD_THRESHOLD_ED25519_SEED_EXPORT_ARTIFACT_FAILURE"
         }
-        WorkerResponseType::PrepareThresholdEcdsaHssSessionSuccess => {
-            "PREPARE_THRESHOLD_ECDSA_HSS_SESSION_SUCCESS"
+        WorkerResponseType::BuildThresholdEcdsaHssRoleLocalClientBootstrapSuccess => {
+            "BUILD_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_CLIENT_BOOTSTRAP_SUCCESS"
         }
-        WorkerResponseType::PrepareThresholdEcdsaHssSessionFailure => {
-            "PREPARE_THRESHOLD_ECDSA_HSS_SESSION_FAILURE"
+        WorkerResponseType::BuildThresholdEcdsaHssRoleLocalClientBootstrapFailure => {
+            "BUILD_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_CLIENT_BOOTSTRAP_FAILURE"
         }
-        WorkerResponseType::PrepareThresholdEcdsaHssClientRequestSuccess => {
-            "PREPARE_THRESHOLD_ECDSA_HSS_CLIENT_REQUEST_SUCCESS"
+        WorkerResponseType::BuildThresholdEcdsaHssRoleLocalExportArtifactSuccess => {
+            "BUILD_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_EXPORT_ARTIFACT_SUCCESS"
         }
-        WorkerResponseType::PrepareThresholdEcdsaHssClientRequestFailure => {
-            "PREPARE_THRESHOLD_ECDSA_HSS_CLIENT_REQUEST_FAILURE"
-        }
-        WorkerResponseType::FinalizeThresholdEcdsaHssClientRequestSuccess => {
-            "FINALIZE_THRESHOLD_ECDSA_HSS_CLIENT_REQUEST_SUCCESS"
-        }
-        WorkerResponseType::FinalizeThresholdEcdsaHssClientRequestFailure => {
-            "FINALIZE_THRESHOLD_ECDSA_HSS_CLIENT_REQUEST_FAILURE"
+        WorkerResponseType::BuildThresholdEcdsaHssRoleLocalExportArtifactFailure => {
+            "BUILD_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_EXPORT_ARTIFACT_FAILURE"
         }
     }
 }

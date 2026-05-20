@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { ensurePostgresSchema, getPostgresPool } from '../../server/src/storage/postgres';
+import { createEcdsaAuthSessionStore } from '../../server/src/core/ThresholdService/stores/AuthSessionStore';
 import { createThresholdEcdsaSigningStores } from '../../server/src/core/ThresholdService/stores/EcdsaSigningStore';
 
 function randPrefix(tag: string): string {
@@ -11,6 +12,9 @@ function makeSigningSessionRecord(args: { relayerKeyId: string; presignatureId: 
     expiresAtMs: Date.now() + 60_000,
     mpcSessionId: 'mpc-session-1',
     relayerKeyId: args.relayerKeyId,
+    presignPoolKey: `keyHandle:${args.relayerKeyId}`,
+    ecdsaThresholdKeyId: 'threshold-key-1',
+    thresholdEcdsaPublicKeyB64u: 'public-key',
     signingDigestB64u: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     userId: 'user-1',
     rpId: 'example.localhost',
@@ -18,6 +22,9 @@ function makeSigningSessionRecord(args: { relayerKeyId: string; presignatureId: 
     participantIds: [1, 2],
     presignatureId: args.presignatureId,
     entropyB64u: 'ccccccccccccccccccccccccccccccccccccccccccc',
+    signingRootId: 'signing-root',
+    walletKeyVersion: 'v1',
+    derivationVersion: 1,
   };
 }
 
@@ -46,6 +53,7 @@ function makePresignSessionRecord(args?: {
     userId: 'user-1',
     rpId: 'example.localhost',
     relayerKeyId: 'rk-presign',
+    presignPoolKey: 'keyHandle:rk-presign',
     participantIds: [1, 2],
     clientParticipantId: 1,
     relayerParticipantId: 2,
@@ -54,10 +62,82 @@ function makePresignSessionRecord(args?: {
     wasmSessionStateB64u: 'cHJlc2lnbi1zZXNzaW9uLXN0YXRl',
     createdAtMs: Date.now(),
     updatedAtMs: Date.now(),
+    signingRootId: 'signing-root',
+    walletKeyVersion: 'v1',
+    derivationVersion: 1,
   };
 }
 
 test.describe('threshold-ecdsa durable presign pool + signing sessions', () => {
+  test.describe('auth export replay guard', () => {
+    test('in-memory store rejects duplicate export nonce inside the same scope', async () => {
+      const authPrefix = randPrefix('threshold-ecdsa:auth:memory');
+      const store = createEcdsaAuthSessionStore({
+        config: {
+          kind: 'in-memory',
+          THRESHOLD_ECDSA_AUTH_PREFIX: authPrefix,
+        } as any,
+        logger: console as any,
+        isNode: true,
+      });
+
+      const expiresAtMs = Date.now() + 60_000;
+      await expect(store.reserveReplayGuard('scope-a', 'nonce-a', expiresAtMs)).resolves.toEqual({
+        ok: true,
+      });
+      await expect(store.reserveReplayGuard('scope-a', 'nonce-a', expiresAtMs)).resolves.toEqual({
+        ok: false,
+        code: 'export_nonce_replay',
+        message: 'Export authorization nonce already used',
+      });
+      await expect(store.reserveReplayGuard('scope-b', 'nonce-a', expiresAtMs)).resolves.toEqual({
+        ok: true,
+      });
+      await expect(store.reserveReplayGuard('scope-a', 'nonce-expired', Date.now() - 1)).resolves
+        .toMatchObject({
+          ok: false,
+          code: 'export_authorization_expired',
+        });
+    });
+
+    test('Postgres store reserves export nonce once under concurrency', async () => {
+      const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
+      test.skip(!postgresUrl, 'POSTGRES_URL not set');
+      await ensurePostgresSchema({ postgresUrl, logger: console as any });
+
+      const authPrefix = randPrefix('threshold-ecdsa:auth:pg');
+      const store = createEcdsaAuthSessionStore({
+        config: {
+          kind: 'postgres',
+          POSTGRES_URL: postgresUrl,
+          THRESHOLD_ECDSA_AUTH_PREFIX: authPrefix,
+        } as any,
+        logger: console as any,
+        isNode: true,
+      });
+
+      try {
+        const expiresAtMs = Date.now() + 60_000;
+        const results = await Promise.all([
+          store.reserveReplayGuard('scope-pg', 'nonce-pg', expiresAtMs),
+          store.reserveReplayGuard('scope-pg', 'nonce-pg', expiresAtMs),
+        ]);
+
+        expect(results.filter((result) => result.ok).length).toBe(1);
+        const duplicate = results.find((result) => !result.ok);
+        expect(duplicate).toMatchObject({
+          ok: false,
+          code: 'export_nonce_replay',
+        });
+      } finally {
+        const pool = await getPostgresPool(postgresUrl);
+        await pool.query('DELETE FROM threshold_ed25519_auth_consumptions WHERE namespace = $1', [
+          authPrefix,
+        ]);
+      }
+    });
+  });
+
   test.describe('Postgres', () => {
     const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
     const enabled = Boolean(postgresUrl);

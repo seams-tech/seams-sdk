@@ -375,9 +375,9 @@ export async function exportThresholdEcdsaKeyWithAuthorization(
     { getSignerWorkerContext: deps.getSignerWorkerContext },
     {
       walletSessionUserId: args.walletSessionUserId,
-      chainTarget: args.exportLane.session.chainTarget,
       rpId,
       signerSession: args.material.signerSession,
+      record: args.material.record,
       clientRootShare32B64u: yClient32LeB64u,
     },
   );

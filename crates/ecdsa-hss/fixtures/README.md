@@ -1,19 +1,14 @@
-# `ecdsa-hss` Fixture Corpus
+# `ecdsa-hss` Fixtures
 
-This directory holds deterministic fixture corpora for the frozen v1 specs.
+This directory is reserved for the role-local ECDSA HSS fixture corpus.
 
-Current corpus:
+The active production path derives:
 
-- [protocol-v1.json](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/fixtures/protocol-v1.json)
+- client role share from client-local root material
+- relayer role share from relayer-local root material
+- public identity from `X_client + X_relayer`
+- explicit export key in the client export runtime
 
-The current corpus is the narrow fixed-function reference set for:
-
-- `encode_context_v1`
-- canonical `x` derivation
-- compressed public-key derivation
-- Ethereum address derivation
-- additive-share derivation
-- fixed `{1, 2}` backend share mapping
-
-These fixtures are the source of truth for early cross-runtime parity and
-future proof/anti-drift work.
+Use `cargo run --manifest-path crates/ecdsa-hss/Cargo.toml --bin emit_fixture_json`
+to emit the current minimal role-local fixture JSON. The committed fixture is
+[role_local_v1.json](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/fixtures/role_local_v1.json).

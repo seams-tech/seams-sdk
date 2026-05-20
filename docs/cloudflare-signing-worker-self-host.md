@@ -143,7 +143,7 @@ First-bootstrap from registration material:
 ThresholdSigningService.bootstrapEcdsaFromRegistrationMaterial
   -> deriveEcdsaKeyMaterialForFirstBootstrapFromClientRootShare
   -> deriveEcdsaHssYRelayerFromSigningRootSecretResolver
-  -> ecdsaHssBootstrapNonExportSign
+  -> roleLocalThresholdEcdsaHssRelayerBootstrap
   -> upsertIntegratedEcdsaKeyRecord
 ```
 
@@ -798,9 +798,9 @@ Import must validate:
 
 Verification should derive at least one known wallet public identity from the
 imported signing-root shares and compare it to an exported wallet inventory
-entry. For ECDSA, the route must receive a user/device-supplied
-`clientRootShare32B64u`; the server signing root alone cannot determine the
-threshold wallet address.
+entry. For ECDSA, the route receives a user/device-supplied
+`clientPublicKey33B64u`, adds it to the relayer public share derived from the
+imported signing root, and compares the resulting threshold wallet address.
 
 ### 8. Add hosted export tooling
 

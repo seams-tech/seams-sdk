@@ -16,31 +16,29 @@ The implementation-facing guarantees stay in Verus.
 Current status:
 
 - the Verus stable slice is complete and green
-- the extraction target is now frozen to the narrow boundary slice
+- a non-production Rust extraction crate mirrors the role-local boundary without
+  reintroducing joined-root production APIs
 - the Lean workspace exists and builds locally
-- a narrow Rust extraction facade now exists at:
-  [`../../src/server/reference_boundary.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/server/reference_boundary.rs)
 - the pinned `aeneas` and `charon` toolchain is installed locally
-- the first Rust extraction artifact now exists under:
+- the Rust extraction artifact is generated under:
   - [`generated/visible-boundary-input/ecdsa_hss.llbc`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/lean-boundary/generated/visible-boundary-input/ecdsa_hss.llbc)
   - [`generated/visible-boundary-package/EcdsaHss/Funs.lean`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/lean-boundary/generated/visible-boundary-package/EcdsaHss/Funs.lean)
-- the checked-in generated package now lives in:
+- the checked-in generated package lives in:
   - [`EcdsaHss/Funs.lean`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/lean-boundary/EcdsaHss/Funs.lean)
   - [`EcdsaHss/Types.lean`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/lean-boundary/EcdsaHss/Types.lean)
-  - [`EcdsaHss/FunsExternal.lean`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/lean-boundary/EcdsaHss/FunsExternal.lean)
-- the handwritten boundary model is now typed to the generated field layout in:
+- the handwritten boundary model is typed to that generated field layout in:
   - [`EcdsaHssBoundary/Scope.lean`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/lean-boundary/EcdsaHssBoundary/Scope.lean)
-- the current bridge lemmas now live in:
+- the bridge lemmas live in:
   - [`EcdsaHssBoundary/GeneratedVisibleBoundary.lean`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/lean-boundary/EcdsaHssBoundary/GeneratedVisibleBoundary.lean)
-- the narrow generated boundary now matches the handwritten boundary model for:
+- the generated boundary matches the handwritten boundary model for:
   - operation-to-output-kind boundary shape
   - non-export visible output shape
   - explicit-export visible output shape
   - finalized retained-state shape
+  - hidden-eval input, transport, and persisted-state shape
 
-The initial extraction scope is intentionally narrow:
+The extraction scope is intentionally narrow:
 
-- [`../../src/server/reference_boundary.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/server/reference_boundary.rs)
 - only the subset needed to connect:
   - non-export visible outputs
   - explicit export visible outputs
@@ -58,21 +56,14 @@ Those stay in the Verus track until the Rust-to-Lean bridge is real.
 
 ## Commands
 
-The boundary command is:
+Run the boundary extraction and Lean bridge check with:
 
 ```sh
 just ecdsa-hss-fv-boundary
 ```
 
-Today that command:
-
-- regenerates the narrow boundary artifact with Charon + Aeneas
-- copies the generated Lean package into `EcdsaHss/`
-- builds the Lean workspace
-
-It is part of the default crate-local `ecdsa-hss` proof path through
-`just ecdsa-hss-fv`; its scope remains limited to boundary extraction and the
-Lean workspace build.
+The default crate-local `ecdsa-hss` proof path includes Verus parity, Verus
+verification, the Aeneas boundary extraction, and the Lean privacy workspace.
 
 The setup script for the extraction toolchain is:
 

@@ -10,8 +10,6 @@ import type {
   ThresholdEd25519HssCanonicalContext,
   ThresholdEd25519HssServerInputs,
 } from '../types';
-import type { ThresholdEcdsaChainTarget } from '../thresholdEcdsaChainTarget';
-import { thresholdEcdsaChainTargetKey } from '../thresholdEcdsaChainTarget';
 import type { SigningRootSecretShareWirePair } from './signingRootSecretShareWires';
 
 const THRESHOLD_PRF_WASM_PATH_CANDIDATES = [
@@ -28,7 +26,6 @@ let thresholdPrfWasmReady = false;
 export type EcdsaHssStableKeyPrfContext = {
   readonly walletSessionUserId: string;
   readonly subjectId: string;
-  readonly chainTarget: ThresholdEcdsaChainTarget;
   readonly ecdsaThresholdKeyId: string;
   readonly signingRootId: string;
   readonly signingRootVersion: string;
@@ -110,7 +107,6 @@ export async function deriveEcdsaHssYRelayerFromSigningRootSecretShares(input: {
     new Uint8Array(input.shareWires[1]),
     requiredTrimmed('walletSessionUserId', input.context.walletSessionUserId),
     requiredTrimmed('subjectId', input.context.subjectId),
-    thresholdEcdsaChainTargetKey(input.context.chainTarget),
     requiredTrimmed('ecdsaThresholdKeyId', input.context.ecdsaThresholdKeyId),
     requiredTrimmed('signingRootId', input.context.signingRootId),
     requiredTrimmed('signingRootVersion', input.context.signingRootVersion),

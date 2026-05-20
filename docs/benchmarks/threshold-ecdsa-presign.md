@@ -1,78 +1,153 @@
 # Threshold ECDSA Presign Benchmark Report
 
-Generated: 2026-04-01T17:16:21.707Z
-Run ID: `20260401-171621Z`
+Generated: 2026-05-20T13:29:08.989Z
+Run ID: `20260520-132907Z`
 
 ## Scenario Results
 
 ### cold_first_sign_no_pool
 
 - Description: First sign with empty presign pool
-- Status: error
+- Status: ok
 - Command: `node ./benchmarks/threshold-ecdsa-presign/src/scenario-harness.mjs --scenario cold_first_sign_no_pool --iterations 2`
-- Error: Scenario command exited with code 1
+
+| End-to-End Scenario Total | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) |
+|---|---:|---:|---:|---:|---:|
+| `cold_first_sign_no_pool` | 2 | 144 | 186 | 186 | 165.0 |
+
+| Route | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) |
+|---|---:|---:|---:|---:|---:|
+| `/threshold-ecdsa/authorize` | 2 | 1 | 5 | 5 | 3.0 |
+| `/threshold-ecdsa/hss/bootstrap` | 1 | 72 | 72 | 72 | 72.0 |
+| `/threshold-ecdsa/presign/init` | 2 | 1 | 7 | 7 | 4.0 |
+| `/threshold-ecdsa/presign/step` | 12 | 2 | 60 | 60 | 13.4 |
+| `/threshold-ecdsa/sign/finalize` | 2 | 1 | 1 | 1 | 1.0 |
+| `/threshold-ecdsa/sign/init` | 2 | 1 | 1 | 1 | 1.0 |
+
+| Presign Perf | Value |
+|---|---:|
+| presign_live_cache_hit | 12 |
+| presign_live_cache_miss | 0 |
+| presign_stale_session_state | 0 |
+| liveCacheHitRatio | 100.0% |
+| staleSessionRatio | 0.0% |
+| gateWaitP95ForegroundMs | 0 |
+| gateWaitP95BackgroundMs | n/a |
+| backgroundPresignRequestRatio | 0.0% |
+| poolEmptyResponses | 0 |
 
 ### warm_sign_pool_hit
 
 - Description: Warm sign with available presign pool entry
-- Status: error
+- Status: ok
 - Command: `node ./benchmarks/threshold-ecdsa-presign/src/scenario-harness.mjs --scenario warm_sign_pool_hit --iterations 2`
-- Error: Scenario command exited with code 1
 
-### background_refill_contention
+| End-to-End Scenario Total | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) |
+|---|---:|---:|---:|---:|---:|
+| `warm_sign_pool_hit` | 2 | 7 | 10 | 10 | 8.5 |
 
-- Description: Foreground sign while background refill traffic is active
-- Status: error
-- Command: `node ./benchmarks/threshold-ecdsa-presign/src/scenario-harness.mjs --scenario background_refill_contention --iterations 2`
-- Error: Scenario command exited with code 1
+| Route | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) |
+|---|---:|---:|---:|---:|---:|
+| `/threshold-ecdsa/authorize` | 2 | 1 | 2 | 2 | 1.5 |
+| `/threshold-ecdsa/hss/bootstrap` | 1 | 71 | 71 | 71 | 71.0 |
+| `/threshold-ecdsa/presign/init` | 2 | 2 | 9 | 9 | 5.5 |
+| `/threshold-ecdsa/presign/step` | 12 | 2 | 62 | 62 | 15.0 |
+| `/threshold-ecdsa/sign/finalize` | 2 | 1 | 2 | 2 | 1.5 |
+| `/threshold-ecdsa/sign/init` | 2 | 0 | 0 | 0 | 0.0 |
 
-### multi_runtime_contention
+| Presign Perf | Value |
+|---|---:|
+| presign_live_cache_hit | 12 |
+| presign_live_cache_miss | 0 |
+| presign_stale_session_state | 0 |
+| liveCacheHitRatio | 100.0% |
+| staleSessionRatio | 0.0% |
+| gateWaitP95ForegroundMs | n/a |
+| gateWaitP95BackgroundMs | 0 |
+| backgroundPresignRequestRatio | 100.0% |
+| poolEmptyResponses | 0 |
 
-- Description: Duplicate runtime pressure (host + iframe/tab style)
-- Status: error
-- Command: `node ./benchmarks/threshold-ecdsa-presign/src/scenario-harness.mjs --scenario multi_runtime_contention --iterations 2`
-- Error: Scenario command exited with code 1
+### pool_empty_retry
 
-### store_backend_compare
+- Description: Sign init against an empty presignature pool and measure retry signal
+- Status: ok
+- Command: `node ./benchmarks/threshold-ecdsa-presign/src/scenario-harness.mjs --scenario pool_empty_retry --iterations 2`
 
-- Description: Store backend benchmark (Postgres vs Redis/Upstash)
-- Status: error
-- Command: `node ./benchmarks/threshold-ecdsa-presign/src/scenario-harness.mjs --scenario store_backend_compare --iterations 2`
-- Error: Scenario command exited with code 1
+| End-to-End Scenario Total | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) |
+|---|---:|---:|---:|---:|---:|
+| `pool_empty_retry` | 2 | 2 | 3 | 3 | 2.5 |
 
-### live_cache_miss_path
+| Route | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) |
+|---|---:|---:|---:|---:|---:|
+| `/threshold-ecdsa/authorize` | 2 | 0 | 4 | 4 | 2.0 |
+| `/threshold-ecdsa/hss/bootstrap` | 1 | 67 | 67 | 67 | 67.0 |
+| `/threshold-ecdsa/sign/init` | 2 | 0 | 1 | 1 | 0.5 |
 
-- Description: Force live-cache miss and stale-session retry path
-- Status: error
-- Command: `node ./benchmarks/threshold-ecdsa-presign/src/scenario-harness.mjs --scenario live_cache_miss_path --iterations 2`
-- Error: Scenario command exited with code 1
+| Presign Perf | Value |
+|---|---:|
+| presign_live_cache_hit | 0 |
+| presign_live_cache_miss | 0 |
+| presign_stale_session_state | 0 |
+| liveCacheHitRatio | n/a |
+| staleSessionRatio | n/a |
+| gateWaitP95ForegroundMs | n/a |
+| gateWaitP95BackgroundMs | n/a |
+| backgroundPresignRequestRatio | n/a |
+| poolEmptyResponses | 2 |
+
+### explicit_export_product
+
+- Description: Explicit role-local ECDSA HSS export-share route plus client artifact creation
+- Status: ok
+- Command: `node ./benchmarks/threshold-ecdsa-presign/src/scenario-harness.mjs --scenario explicit_export_product --iterations 2`
+
+| End-to-End Scenario Total | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) |
+|---|---:|---:|---:|---:|---:|
+| `explicit_export_product` | 2 | 3 | 6 | 6 | 4.5 |
+
+| Route | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) |
+|---|---:|---:|---:|---:|---:|
+| `/threshold-ecdsa/hss/bootstrap` | 1 | 63 | 63 | 63 | 63.0 |
+| `/threshold-ecdsa/hss/export/share` | 2 | 0 | 1 | 1 | 0.5 |
+
+| Presign Perf | Value |
+|---|---:|
+| presign_live_cache_hit | 0 |
+| presign_live_cache_miss | 0 |
+| presign_stale_session_state | 0 |
+| liveCacheHitRatio | n/a |
+| staleSessionRatio | n/a |
+| gateWaitP95ForegroundMs | n/a |
+| gateWaitP95BackgroundMs | n/a |
+| backgroundPresignRequestRatio | n/a |
+| poolEmptyResponses | 0 |
 
 ## SLO Gates
 
 - Enabled: yes
-- Passed: 0
+- Passed: 5
 - Failed: 0
-- Skipped: 5
+- Skipped: 0
 
 | Gate | Status | Actual | Comparator | Threshold | Reason |
 |---|---|---:|---|---:|---|
-| first_sign_p95_ms | skipped | n/a | <= | 4000.00 | `cold_first_sign_no_pool` was not executed |
-| warm_sign_p95_ms | skipped | n/a | <= | 1500.00 | `warm_sign_pool_hit` was not executed |
-| presign_step_p95_ms | skipped | n/a | <= | 900.00 | No `/threshold-ecdsa/presign/step` p95 values were collected |
-| presign_step_p99_ms | skipped | n/a | <= | 1300.00 | No `/threshold-ecdsa/presign/step` p99 values were collected |
-| stale_session_ratio_nonmiss_max | skipped | n/a | <= | 0.01 | No stale session ratios were collected |
+| first_sign_p95_ms | pass | 186.00 | <= | 4000.00 |  |
+| warm_sign_p95_ms | pass | 10.00 | <= | 1500.00 |  |
+| presign_step_p95_ms | pass | 62.00 | <= | 900.00 |  |
+| presign_step_p99_ms | pass | 62.00 | <= | 1300.00 |  |
+| stale_session_ratio_nonmiss_max | pass | 0.00 | <= | 0.01 |  |
 
 ## Presign Pool Configuration Recommendation
 
 | Setting | Recommended |
 |---|---:|
-| targetDepth | 3 |
-| lowWatermark | 1 |
+| targetDepth | 4 |
+| lowWatermark | 2 |
 | maxRefillInFlight | 1 |
 
 Rationale:
 
-- Current data supports keeping defaults (targetDepth=3, lowWatermark=1, maxRefillInFlight=1).
+- Observed 2 pool_empty responses; raise depth to reduce cold misses.
 
 ## Notes
 

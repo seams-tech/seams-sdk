@@ -3,12 +3,21 @@
 `ecdsa-hss` is the secp256k1 / ECDSA sibling to
 [ed25519-hss](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss).
 
-The crate derives one canonical hidden secp256k1 private scalar `x` for each
-stable EVM-family key identity. That key is:
+The crate derives one logical secp256k1 private scalar `x` for each stable
+EVM-family key identity. The live protocol represents that key as role-local
+additive shares:
+
+```text
+x = x_client + x_relayer mod n
+X = x_clientG + x_relayerG
+```
+
+That key is:
 
 - threshold-signable
 - explicitly exportable through the `ExplicitKeyExport` operation
-- deterministic from client/server root-share material and stable key context
+- deterministic from role-local client/server root-share material and stable key
+  context
 - server-blind
 
 The crate provides:
@@ -18,7 +27,7 @@ The crate provides:
 - one Ethereum address derived from `X`
 - additive 2-party signing shares `x_client` and `x_relayer`
 - mapped private-share inputs for the `threshold-signatures` ECDSA backend
-- explicit export output that returns the same canonical `x`
+- explicit client-side export reconstruction of the same logical `x`
 
 ## V1 Scope
 
@@ -28,7 +37,7 @@ The v1 implementation is fixed to:
 - 2-of-2 threshold ECDSA
 - secp256k1 / Ethereum address derivation
 - stable key scope `evm-family`
-- direct additive-share derivation from canonical `x`
+- role-local additive-share derivation
 - the existing `threshold-signatures` sign-time backend through the
   additive-share mapping layer
 
@@ -45,16 +54,18 @@ exported_private_key = x
 
 The v1 lifecycle is:
 
-1. Client and relayer provide root-share inputs.
-2. `ecdsa-hss` encodes the stable key context.
-3. `ecdsa-hss` derives canonical scalar `x`.
-4. `ecdsa-hss` derives additive shares `x_client` and `x_relayer`.
+1. The client derives `x_client` locally from client-owned root-share material
+   and stable key context.
+2. The relayer derives `x_relayer` locally from relayer-owned root-share material
+   and stable key context.
+3. The roles exchange public share commitments.
+4. The shared public identity is computed as `X = x_clientG + x_relayerG`.
 5. The additive shares are mapped into `threshold-signatures` participant-share
    encoding.
-6. Threshold ECDSA presign/sign runs with the mapped shares and public key
-   `X = x * G`.
-7. Explicit export returns canonical `x` and verifies that `pub(x)` matches the
-   threshold signing identity.
+6. Threshold ECDSA presign/sign runs with mapped role-local shares and public key
+   `X`.
+7. Explicit export releases an authorized relayer export share to the client,
+   and the client reconstructs and verifies `x` locally.
 
 The sign-time backend seam is:
 
@@ -77,17 +88,20 @@ The operation type controls what leaves the HSS boundary:
 
 - `RegistrationBootstrap`, `SessionBootstrap`, and `NonExportSign` return
   threshold material only.
-- `ExplicitKeyExport` returns threshold material and canonical `x`.
+- `ExplicitKeyExport` returns threshold material and an export-authorized relayer
+  share envelope. The client reconstructs canonical `x`.
 
 Server-retained state contains:
 
-- relayer threshold share
+- relayer additive share
 - relayer public key
 - threshold public key
 - threshold Ethereum address
 - retry counter
 
 Server-retained state excludes canonical `x`.
+Client-wire non-export responses exclude `x_relayer`. Server-retained state is
+returned only through server-owned result types for persistence.
 
 ## Status
 
@@ -100,7 +114,7 @@ The crate-local reference implementation includes:
 - bootstrap -> sign -> export regression coverage
 - Verus coverage for the frozen implementation-facing scope
 - Lean boundary and privacy checks for the frozen server-visible staged boundary
-- native and wasm performance baselines
+- native performance baselines
 
 The crate is ready for crate-level review. Product rollout, QA, and integration
 tracking live in
@@ -111,8 +125,8 @@ Current performance notes:
 - derivation, bootstrap, and export are sub-millisecond in native benchmarks
 - full native sign latency is dominated by upstream `threshold-signatures`
   triples/presign work, roughly `~40 ms`
-- Node-hosted wasm non-export sign is about `~120 ms`
-- wasm profiling shows most sign cost lives in presign/triples roundtrip
+- current role-local WASM numbers are pending until the bindings and benchmark
+  runner are updated
 
 ## Docs
 
@@ -127,7 +141,7 @@ Current performance notes:
 - Export semantics:
   [specs/export.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/specs/export.md)
 - Integration with the threshold ECDSA backend:
-  [specs/integration-near-threshold.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/specs/integration-near-threshold.md)
+  [specs/integration-cait-sith-backend.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/specs/integration-cait-sith-backend.md)
 - Implementation plan:
   [docs/plans/implementation-plan.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/docs/plans/implementation-plan.md)
 - Share-derivation design memo:

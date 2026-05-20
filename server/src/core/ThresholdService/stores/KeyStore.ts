@@ -1,5 +1,8 @@
 import type { NormalizedLogger } from '../../logger';
-import type { ThresholdEcdsaIntegratedKeyRecord, ThresholdStoreConfigInput } from '../../types';
+import type {
+  EcdsaHssRoleLocalKeyRecord,
+  ThresholdStoreConfigInput,
+} from '../../types';
 import {
   RedisTcpClient,
   UpstashRedisRestClient,
@@ -10,10 +13,7 @@ import {
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { deriveThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
 import { getPostgresPool, getPostgresUrlFromConfig } from '../../../storage/postgres';
-import {
-  parseCurrentThresholdEcdsaKeyRecord,
-  parseCurrentThresholdEd25519KeyRecord,
-} from '../postgresRecords';
+import { parseCurrentThresholdEd25519KeyRecord } from '../postgresRecords';
 import {
   isObject,
   toThresholdEcdsaKeyPrefix,
@@ -21,6 +21,7 @@ import {
   toThresholdEd25519KeyPrefix,
   toThresholdEd25519PrefixFromBase,
   parseThresholdEd25519KeyRecord,
+  parseEcdsaHssRoleLocalKeyRecord,
 } from '../validation';
 import {
   createCloudflareDurableObjectThresholdEcdsaStores,
@@ -30,6 +31,10 @@ import {
 type ThresholdEcdsaSharedIdentityGuard = {
   contextKey: string;
   identityValue: string;
+};
+type ThresholdEcdsaStoredKeyRecord = EcdsaHssRoleLocalKeyRecord;
+type ThresholdEcdsaStoredKeyRecordWithHandle = ThresholdEcdsaStoredKeyRecord & {
+  keyHandle: string;
 };
 
 const ECDSA_SHARED_IDENTITY_CONFLICT_MESSAGE =
@@ -71,12 +76,12 @@ function ecdsaIdentityPart(value: unknown): string {
   return encodeURIComponent(String(value ?? '').trim());
 }
 
-function ecdsaSigningRootVersion(record: ThresholdEcdsaIntegratedKeyRecord): string {
+function ecdsaSigningRootVersion(record: ThresholdEcdsaStoredKeyRecord): string {
   return String(record.signingRootVersion || '').trim() || 'default';
 }
 
 async function deriveThresholdEcdsaRecordKeyHandle(
-  record: ThresholdEcdsaIntegratedKeyRecord,
+  record: ThresholdEcdsaStoredKeyRecord,
 ): Promise<string> {
   return String(
     await deriveThresholdEcdsaKeyHandle({
@@ -87,23 +92,23 @@ async function deriveThresholdEcdsaRecordKeyHandle(
   );
 }
 
-async function withThresholdEcdsaRecordKeyHandle(
-  record: ThresholdEcdsaIntegratedKeyRecord,
-): Promise<ThresholdEcdsaIntegratedKeyRecord & { keyHandle: string }> {
-  const parsed = ensureParsedThresholdEcdsaKeyRecord(record);
+async function withEcdsaHssRoleLocalRecordKeyHandle(
+  record: EcdsaHssRoleLocalKeyRecord,
+): Promise<EcdsaHssRoleLocalKeyRecord & { keyHandle: string }> {
+  const parsed = parseEcdsaHssRoleLocalKeyRecord(record);
+  if (!parsed) throw new Error('Invalid threshold-ecdsa role-local key record');
   const keyHandle = await deriveThresholdEcdsaRecordKeyHandle(parsed);
-  const storedKeyHandle = toOptionalTrimmedString(parsed.keyHandle);
-  if (storedKeyHandle && storedKeyHandle !== keyHandle) {
+  if (parsed.keyHandle !== keyHandle) {
     throw new Error(ECDSA_KEY_HANDLE_INTEGRITY_MESSAGE);
   }
   return { ...parsed, keyHandle };
 }
 
-async function parseStoredThresholdEcdsaKeyRecord(
+async function parseStoredEcdsaHssRoleLocalKeyRecord(
   raw: unknown,
-): Promise<(ThresholdEcdsaIntegratedKeyRecord & { keyHandle: string }) | null> {
-  const parsed = parseCurrentThresholdEcdsaKeyRecord(raw);
-  return parsed ? await withThresholdEcdsaRecordKeyHandle(parsed) : null;
+): Promise<(EcdsaHssRoleLocalKeyRecord & { keyHandle: string }) | null> {
+  const parsed = parseEcdsaHssRoleLocalKeyRecord(raw);
+  return parsed ? await withEcdsaHssRoleLocalRecordKeyHandle(parsed) : null;
 }
 
 type ThresholdEcdsaIndexedIdentityRow = {
@@ -117,7 +122,7 @@ type ThresholdEcdsaIndexedIdentityRow = {
 
 function assertThresholdEcdsaIndexedIdentityMatchesRecord(args: {
   row: ThresholdEcdsaIndexedIdentityRow;
-  record: ThresholdEcdsaIntegratedKeyRecord & { keyHandle: string };
+  record: ThresholdEcdsaStoredKeyRecordWithHandle;
 }): void {
   const rowKeyHandle = toOptionalTrimmedString(args.row.key_handle);
   const rowThresholdKeyId = toOptionalTrimmedString(args.row.threshold_key_id);
@@ -131,18 +136,18 @@ function assertThresholdEcdsaIndexedIdentityMatchesRecord(args: {
     rowSigningRootId !== args.record.signingRootId ||
     rowSigningRootVersion !== ecdsaSigningRootVersion(args.record) ||
     rowOwnerAddress !== args.record.ethereumAddress ||
-    rowPublicKey !== args.record.thresholdEcdsaPublicKeyB64u
+    rowPublicKey !== thresholdEcdsaRecordPublicKeyB64u(args.record)
   ) {
     throw new Error(ECDSA_PUBLIC_FACTS_INTEGRITY_MESSAGE);
   }
 }
 
-function ecdsaParticipantIdsKey(record: ThresholdEcdsaIntegratedKeyRecord): string {
-  return record.participantIds.map((id) => String(Number(id))).join(',');
+function thresholdEcdsaRecordPublicKeyB64u(record: ThresholdEcdsaStoredKeyRecord): string {
+  return record.groupPublicKey33B64u;
 }
 
 function thresholdEcdsaSharedIdentityGuard(
-  record: ThresholdEcdsaIntegratedKeyRecord,
+  record: ThresholdEcdsaStoredKeyRecord,
 ): ThresholdEcdsaSharedIdentityGuard {
   return {
     contextKey: [
@@ -160,7 +165,7 @@ function thresholdEcdsaSharedIdentityGuard(
       String(record.ethereumAddress || '')
         .trim()
         .toLowerCase(),
-      ecdsaParticipantIdsKey(record),
+      record.relayerKeyId,
     ]
       .map(ecdsaIdentityPart)
       .join('|'),
@@ -168,8 +173,8 @@ function thresholdEcdsaSharedIdentityGuard(
 }
 
 function assertNoThresholdEcdsaSharedIdentityConflict(
-  incoming: ThresholdEcdsaIntegratedKeyRecord,
-  existing: ThresholdEcdsaIntegratedKeyRecord,
+  incoming: ThresholdEcdsaStoredKeyRecord,
+  existing: ThresholdEcdsaStoredKeyRecord,
 ): void {
   const incomingGuard = thresholdEcdsaSharedIdentityGuard(incoming);
   const existingGuard = thresholdEcdsaSharedIdentityGuard(existing);
@@ -192,20 +197,12 @@ function thresholdEcdsaKeyHandleIndexKey(keyPrefix: string, keyHandle: string): 
   return `${keyPrefix}key-handle:${ecdsaIdentityPart(keyHandle)}`;
 }
 
-function ensureParsedThresholdEcdsaKeyRecord(
-  record: ThresholdEcdsaIntegratedKeyRecord,
-): ThresholdEcdsaIntegratedKeyRecord {
-  const parsed = parseCurrentThresholdEcdsaKeyRecord(record);
-  if (!parsed) throw new Error('Invalid threshold-ecdsa integrated key record');
-  return parsed;
-}
-
 async function upstashSetEcdsaRecordWithIdentityGuard(args: {
   client: UpstashRedisRestClient;
   recordKey: string;
   identityKey: string;
   keyHandleKey: string;
-  record: ThresholdEcdsaIntegratedKeyRecord;
+  record: ThresholdEcdsaStoredKeyRecord;
   identityValue: string;
   keyHandleValue: string;
 }): Promise<void> {
@@ -242,7 +239,7 @@ async function redisSetEcdsaRecordWithIdentityGuard(args: {
   recordKey: string;
   identityKey: string;
   keyHandleKey: string;
-  record: ThresholdEcdsaIntegratedKeyRecord;
+  record: ThresholdEcdsaStoredKeyRecord;
   identityValue: string;
   keyHandleValue: string;
 }): Promise<void> {
@@ -312,8 +309,8 @@ export interface ThresholdEd25519KeyStore {
 }
 
 export interface ThresholdEcdsaIntegratedKeyStore {
-  getByKeyHandle(keyHandle: string): Promise<ThresholdEcdsaIntegratedKeyRecord | null>;
-  putByKeyHandle(record: ThresholdEcdsaIntegratedKeyRecord): Promise<void>;
+  getRoleLocalByKeyHandle(keyHandle: string): Promise<EcdsaHssRoleLocalKeyRecord | null>;
+  putRoleLocalByKeyHandle(record: EcdsaHssRoleLocalKeyRecord): Promise<void>;
   deleteByKeyHandle(keyHandle: string): Promise<void>;
 }
 
@@ -462,7 +459,7 @@ class PostgresThresholdEd25519KeyStore implements ThresholdEd25519KeyStore {
 }
 
 class InMemoryThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegratedKeyStore {
-  private readonly recordsByKeyHandle = new Map<string, ThresholdEcdsaIntegratedKeyRecord>();
+  private readonly recordsByKeyHandle = new Map<string, ThresholdEcdsaStoredKeyRecord>();
   private readonly namespace: string;
 
   constructor(input?: { namespace?: string }) {
@@ -473,18 +470,20 @@ class InMemoryThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
     return `${this.namespace}:${keyHandle}`;
   }
 
-  async getByKeyHandle(keyHandle: string): Promise<ThresholdEcdsaIntegratedKeyRecord | null> {
+  async getRoleLocalByKeyHandle(keyHandle: string): Promise<EcdsaHssRoleLocalKeyRecord | null> {
     const handle = toOptionalTrimmedString(keyHandle);
     if (!handle) return null;
-    return await parseStoredThresholdEcdsaKeyRecord(this.recordsByKeyHandle.get(this.key(handle)));
+    return await parseStoredEcdsaHssRoleLocalKeyRecord(
+      this.recordsByKeyHandle.get(this.key(handle)),
+    );
   }
 
-  async putByKeyHandle(record: ThresholdEcdsaIntegratedKeyRecord): Promise<void> {
-    const parsed = await withThresholdEcdsaRecordKeyHandle(record);
+  async putRoleLocalByKeyHandle(record: EcdsaHssRoleLocalKeyRecord): Promise<void> {
+    const parsed = await withEcdsaHssRoleLocalRecordKeyHandle(record);
     const mapKey = this.key(parsed.keyHandle);
     for (const [storedKey, storedRecord] of this.recordsByKeyHandle.entries()) {
       if (storedKey === mapKey) continue;
-      const existing = await parseStoredThresholdEcdsaKeyRecord(storedRecord);
+      const existing = await parseStoredEcdsaHssRoleLocalKeyRecord(storedRecord);
       if (!existing) continue;
       if (existing.ecdsaThresholdKeyId === parsed.ecdsaThresholdKeyId) continue;
       if (existing.keyHandle === parsed.keyHandle) {
@@ -493,7 +492,7 @@ class InMemoryThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
       assertNoThresholdEcdsaSharedIdentityConflict(parsed, existing);
     }
     for (const [storedKey, storedRecord] of this.recordsByKeyHandle.entries()) {
-      const existing = await parseStoredThresholdEcdsaKeyRecord(storedRecord);
+      const existing = await parseStoredEcdsaHssRoleLocalKeyRecord(storedRecord);
       if (existing?.ecdsaThresholdKeyId === parsed.ecdsaThresholdKeyId && storedKey !== mapKey) {
         this.recordsByKeyHandle.delete(storedKey);
       }
@@ -525,10 +524,10 @@ class UpstashRedisRestThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsa
     return `${this.keyPrefix}${keyHandle}`;
   }
 
-  async getByKeyHandle(keyHandle: string): Promise<ThresholdEcdsaIntegratedKeyRecord | null> {
+  async getRoleLocalByKeyHandle(keyHandle: string): Promise<EcdsaHssRoleLocalKeyRecord | null> {
     const handle = toOptionalTrimmedString(keyHandle);
     if (!handle) return null;
-    const direct = await parseStoredThresholdEcdsaKeyRecord(
+    const direct = await parseStoredEcdsaHssRoleLocalKeyRecord(
       await this.client.getJson(this.recordKey(handle)),
     );
     if (direct) {
@@ -539,11 +538,11 @@ class UpstashRedisRestThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsa
       await this.client.getRaw(thresholdEcdsaKeyHandleIndexKey(this.keyPrefix, handle)),
     );
     if (!recordKey) return null;
-    return await parseStoredThresholdEcdsaKeyRecord(await this.client.getJson(recordKey));
+    return await parseStoredEcdsaHssRoleLocalKeyRecord(await this.client.getJson(recordKey));
   }
 
-  async putByKeyHandle(record: ThresholdEcdsaIntegratedKeyRecord): Promise<void> {
-    const parsed = await withThresholdEcdsaRecordKeyHandle(record);
+  async putRoleLocalByKeyHandle(record: EcdsaHssRoleLocalKeyRecord): Promise<void> {
+    const parsed = await withEcdsaHssRoleLocalRecordKeyHandle(record);
     const guard = thresholdEcdsaSharedIdentityGuard(parsed);
     const recordKey = this.recordKey(parsed.keyHandle);
     await upstashSetEcdsaRecordWithIdentityGuard({
@@ -562,7 +561,7 @@ class UpstashRedisRestThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsa
     if (!handle) return;
     const keyHandleKey = thresholdEcdsaKeyHandleIndexKey(this.keyPrefix, handle);
     const canonicalRecordKey = this.recordKey(handle);
-    const canonicalRecord = await parseStoredThresholdEcdsaKeyRecord(
+    const canonicalRecord = await parseStoredEcdsaHssRoleLocalKeyRecord(
       await this.client.getJson(canonicalRecordKey),
     );
     const recordKey = canonicalRecord
@@ -574,7 +573,7 @@ class UpstashRedisRestThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsa
     }
     const record =
       canonicalRecord ||
-      (await parseStoredThresholdEcdsaKeyRecord(await this.client.getJson(recordKey)));
+      (await parseStoredEcdsaHssRoleLocalKeyRecord(await this.client.getJson(recordKey)));
     if (!record) {
       await this.client.del(keyHandleKey);
       await this.client.del(canonicalRecordKey);
@@ -607,10 +606,10 @@ class RedisTcpThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
     return `${this.keyPrefix}${keyHandle}`;
   }
 
-  async getByKeyHandle(keyHandle: string): Promise<ThresholdEcdsaIntegratedKeyRecord | null> {
+  async getRoleLocalByKeyHandle(keyHandle: string): Promise<EcdsaHssRoleLocalKeyRecord | null> {
     const handle = toOptionalTrimmedString(keyHandle);
     if (!handle) return null;
-    const direct = await parseStoredThresholdEcdsaKeyRecord(
+    const direct = await parseStoredEcdsaHssRoleLocalKeyRecord(
       await redisGetJson(this.client, this.recordKey(handle)),
     );
     if (direct) {
@@ -622,11 +621,11 @@ class RedisTcpThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
       thresholdEcdsaKeyHandleIndexKey(this.keyPrefix, handle),
     );
     if (!recordKey) return null;
-    return await parseStoredThresholdEcdsaKeyRecord(await redisGetJson(this.client, recordKey));
+    return await parseStoredEcdsaHssRoleLocalKeyRecord(await redisGetJson(this.client, recordKey));
   }
 
-  async putByKeyHandle(record: ThresholdEcdsaIntegratedKeyRecord): Promise<void> {
-    const parsed = await withThresholdEcdsaRecordKeyHandle(record);
+  async putRoleLocalByKeyHandle(record: EcdsaHssRoleLocalKeyRecord): Promise<void> {
+    const parsed = await withEcdsaHssRoleLocalRecordKeyHandle(record);
     const guard = thresholdEcdsaSharedIdentityGuard(parsed);
     const recordKey = this.recordKey(parsed.keyHandle);
     await redisSetEcdsaRecordWithIdentityGuard({
@@ -645,7 +644,7 @@ class RedisTcpThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
     if (!handle) return;
     const keyHandleKey = thresholdEcdsaKeyHandleIndexKey(this.keyPrefix, handle);
     const canonicalRecordKey = this.recordKey(handle);
-    const canonicalRecord = await parseStoredThresholdEcdsaKeyRecord(
+    const canonicalRecord = await parseStoredEcdsaHssRoleLocalKeyRecord(
       await redisGetJson(this.client, canonicalRecordKey),
     );
     const recordKey = canonicalRecord
@@ -657,7 +656,7 @@ class RedisTcpThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
     }
     const record =
       canonicalRecord ||
-      (await parseStoredThresholdEcdsaKeyRecord(await redisGetJson(this.client, recordKey)));
+      (await parseStoredEcdsaHssRoleLocalKeyRecord(await redisGetJson(this.client, recordKey)));
     if (!record) {
       await redisDel(this.client, keyHandleKey);
       await redisDel(this.client, canonicalRecordKey);
@@ -765,13 +764,13 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
           CREATE INDEX IF NOT EXISTS threshold_ecdsa_keys_shared_identity_idx
           ON threshold_ecdsa_keys (
             namespace,
-            (COALESCE(record_json->>'walletSessionUserId', record_json->>'userId')),
+            (record_json->>'walletSessionUserId'),
             (record_json->>'subjectId'),
             (record_json->>'rpId'),
             signing_root_id,
             signing_root_version
           )
-          WHERE record_json->>'version' = 'threshold_ecdsa_hss_key_v1'
+          WHERE record_json->>'version' = 'threshold_ecdsa_hss_role_local'
         `);
       })().catch((error) => {
         this.ensureTablePromise = null;
@@ -781,7 +780,7 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
     await this.ensureTablePromise;
   }
 
-  async getByKeyHandle(keyHandle: string): Promise<ThresholdEcdsaIntegratedKeyRecord | null> {
+  async getRoleLocalByKeyHandle(keyHandle: string): Promise<EcdsaHssRoleLocalKeyRecord | null> {
     const handle = toOptionalTrimmedString(keyHandle);
     if (!handle) return null;
     await this.ensureTable();
@@ -802,7 +801,7 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
       `,
       [this.namespace, handle],
     );
-    const parsed = await parseStoredThresholdEcdsaKeyRecord(rows[0]?.record_json);
+    const parsed = await parseStoredEcdsaHssRoleLocalKeyRecord(rows[0]?.record_json);
     if (!parsed && rows[0]) {
       await pool.query(
         'DELETE FROM threshold_ecdsa_keys WHERE namespace = $1 AND key_handle = $2',
@@ -822,8 +821,8 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
     return parsed;
   }
 
-  async putByKeyHandle(record: ThresholdEcdsaIntegratedKeyRecord): Promise<void> {
-    const parsed = await withThresholdEcdsaRecordKeyHandle(record);
+  async putRoleLocalByKeyHandle(record: EcdsaHssRoleLocalKeyRecord): Promise<void> {
+    const parsed = await withEcdsaHssRoleLocalRecordKeyHandle(record);
     await this.ensureTable();
     const pool = await this.poolPromise;
     const id = parsed.ecdsaThresholdKeyId;
@@ -847,8 +846,8 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
         FROM threshold_ecdsa_keys
         WHERE namespace = $1
           AND relayer_key_id <> $2
-          AND record_json->>'version' = 'threshold_ecdsa_hss_key_v1'
-          AND COALESCE(record_json->>'walletSessionUserId', record_json->>'userId') = $3
+          AND record_json->>'version' = 'threshold_ecdsa_hss_role_local'
+          AND record_json->>'walletSessionUserId' = $3
           AND record_json->>'subjectId' = $4
           AND record_json->>'rpId' = $5
           AND record_json->>'signingRootId' = $6
@@ -865,7 +864,7 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
         ecdsaSigningRootVersion(parsed),
       ],
     );
-    const conflicting = parseCurrentThresholdEcdsaKeyRecord(rows[0]?.record_json);
+    const conflicting = await parseStoredEcdsaHssRoleLocalKeyRecord(rows[0]?.record_json);
     if (conflicting) {
       assertNoThresholdEcdsaSharedIdentityConflict(parsed, conflicting);
     }
@@ -902,7 +901,7 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
           parsed.signingRootId,
           ecdsaSigningRootVersion(parsed),
           parsed.ethereumAddress,
-          parsed.thresholdEcdsaPublicKeyB64u,
+          parsed.groupPublicKey33B64u,
           parsed,
         ],
       );

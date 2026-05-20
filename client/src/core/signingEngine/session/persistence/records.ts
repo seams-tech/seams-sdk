@@ -18,6 +18,7 @@ import type { EmailOtpAuthPolicy } from '@/core/types/seams';
 import { THRESHOLD_ECDSA_SESSION_STORE_SOURCES } from '../identity/laneIdentity';
 import type {
   ThresholdEcdsaClientAdditiveShareHandle,
+  ThresholdEcdsaHssRoleLocalClientState,
   EcdsaThresholdKeyId,
   ThresholdEcdsaCanonicalExportArtifact,
   ThresholdEcdsaSecp256k1KeyRef,
@@ -86,6 +87,7 @@ type ThresholdEcdsaSessionRecordCore = {
   clientVerifyingShareB64u: string;
   clientAdditiveShare32B64u?: string;
   clientAdditiveShareHandle?: ThresholdEcdsaClientAdditiveShareHandle;
+  ecdsaHssRoleLocalClientState?: ThresholdEcdsaHssRoleLocalClientState;
   participantIds: number[];
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   thresholdSessionKind: 'jwt' | 'cookie';
@@ -894,6 +896,9 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
   const clientAdditiveShareHandle = normalizeThresholdEcdsaClientAdditiveShareHandle(
     obj.clientAdditiveShareHandle,
   );
+  const ecdsaHssRoleLocalClientState = normalizeThresholdEcdsaHssRoleLocalClientState(
+    obj.ecdsaHssRoleLocalClientState,
+  );
   const participantIds = normalizeThresholdEd25519ParticipantIds(obj.participantIds);
   const thresholdSessionKind = normalizeThresholdSessionKind(obj.thresholdSessionKind);
   const thresholdSessionId = String(obj.thresholdSessionId || '').trim();
@@ -941,6 +946,7 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
     !keyHandle ||
     !relayerKeyId ||
     !clientVerifyingShareB64u ||
+    !ecdsaHssRoleLocalClientState ||
     !participantIds ||
     !thresholdSessionId ||
     !walletSigningSessionId ||
@@ -992,6 +998,7 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
     clientVerifyingShareB64u,
     ...(source !== 'email_otp' && clientAdditiveShare32B64u ? { clientAdditiveShare32B64u } : {}),
     ...(source === 'email_otp' && clientAdditiveShareHandle ? { clientAdditiveShareHandle } : {}),
+    ecdsaHssRoleLocalClientState,
     participantIds,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     thresholdSessionKind,
@@ -1011,6 +1018,60 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
     source,
     chainTarget,
   } as ThresholdEcdsaSessionRecord;
+}
+
+function normalizeThresholdEcdsaHssRoleLocalClientState(
+  value: unknown,
+): ThresholdEcdsaHssRoleLocalClientState | null {
+  const obj = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+  if (
+    String(obj.kind || '').trim() !== 'role_local_ready' ||
+    String(obj.artifactKind || '').trim() !== 'ecdsa-hss-role-local-client-state'
+  ) {
+    return null;
+  }
+  const caitSithInput =
+    obj.clientCaitSithInput &&
+    typeof obj.clientCaitSithInput === 'object' &&
+    !Array.isArray(obj.clientCaitSithInput)
+      ? (obj.clientCaitSithInput as Record<string, unknown>)
+      : {};
+  const participantId = Number(caitSithInput.participantId);
+  const state = {
+    kind: 'role_local_ready' as const,
+    artifactKind: 'ecdsa-hss-role-local-client-state' as const,
+    contextBinding32B64u: normalizeOptionalNonEmptyString(obj.contextBinding32B64u) || '',
+    clientShare32B64u: normalizeOptionalNonEmptyString(obj.clientShare32B64u) || '',
+    clientPublicKey33B64u: normalizeOptionalNonEmptyString(obj.clientPublicKey33B64u) || '',
+    clientShareRetryCounter: normalizeInteger(obj.clientShareRetryCounter) ?? -1,
+    relayerPublicKey33B64u: normalizeOptionalNonEmptyString(obj.relayerPublicKey33B64u) || '',
+    groupPublicKey33B64u: normalizeOptionalNonEmptyString(obj.groupPublicKey33B64u) || '',
+    ethereumAddress: normalizeOptionalNonEmptyString(obj.ethereumAddress) || '',
+    clientCaitSithInput: {
+      participantId: 1 as const,
+      mappedPrivateShare32B64u:
+        normalizeOptionalNonEmptyString(caitSithInput.mappedPrivateShare32B64u) || '',
+      verifyingShare33B64u:
+        normalizeOptionalNonEmptyString(caitSithInput.verifyingShare33B64u) || '',
+    },
+    createdAtMs: normalizeInteger(obj.createdAtMs) || Date.now(),
+    updatedAtMs: normalizeInteger(obj.updatedAtMs) || Date.now(),
+  };
+  if (
+    participantId !== 1 ||
+    !state.contextBinding32B64u ||
+    !state.clientShare32B64u ||
+    !state.clientPublicKey33B64u ||
+    state.clientShareRetryCounter < 0 ||
+    !state.relayerPublicKey33B64u ||
+    !state.groupPublicKey33B64u ||
+    !state.ethereumAddress ||
+    !state.clientCaitSithInput.mappedPrivateShare32B64u ||
+    !state.clientCaitSithInput.verifyingShare33B64u
+  ) {
+    throw new Error('Invalid threshold ECDSA role-local client state');
+  }
+  return state;
 }
 
 function normalizeThresholdEcdsaClientAdditiveShareHandle(
@@ -1592,6 +1653,9 @@ function buildEcdsaRecordFromBootstrap(args: {
           keyRef.backendBinding?.clientAdditiveShareHandle,
         )
       : null;
+  const ecdsaHssRoleLocalClientState = normalizeThresholdEcdsaHssRoleLocalClientState(
+    keyRef.backendBinding?.ecdsaHssRoleLocalClientState,
+  );
   const signingSessionSealKeyVersion = normalizeOptionalNonEmptyString(
     args.signingSessionSeal?.keyVersion,
   );
@@ -1602,6 +1666,9 @@ function buildEcdsaRecordFromBootstrap(args: {
     throw new Error(
       '[SigningEngine] threshold ECDSA bootstrap did not provide thresholdSessionAuthToken',
     );
+  }
+  if (!ecdsaHssRoleLocalClientState) {
+    throw new Error('[SigningEngine] threshold ECDSA bootstrap did not provide role-local state');
   }
 
   return normalizeThresholdEcdsaSessionRecord({
@@ -1619,6 +1686,7 @@ function buildEcdsaRecordFromBootstrap(args: {
     clientVerifyingShareB64u: keyRef.backendBinding?.clientVerifyingShareB64u,
     ...(clientAdditiveShare32B64u ? { clientAdditiveShare32B64u } : {}),
     ...(clientAdditiveShareHandle ? { clientAdditiveShareHandle } : {}),
+    ecdsaHssRoleLocalClientState,
     participantIds,
     thresholdSessionKind,
     thresholdSessionId,

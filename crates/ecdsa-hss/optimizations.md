@@ -1,6 +1,6 @@
 # `ecdsa-hss` Optimizations
 
-Last updated: 2026-04-09
+Last updated: 2026-05-20
 
 ## Purpose
 
@@ -26,11 +26,13 @@ Dedicated benchmark suite:
 
 Measured paths:
 
-1. `canonical_derivation`
-2. `share_derivation`
-3. `bootstrap_adapter`
-4. `sign_bridge`
-5. `explicit_export`
+1. `context_binding`
+2. `client_share`
+3. `relayer_share_and_identity`
+4. `bootstrap_adapter`
+5. `first_presign_roundtrip`
+6. `sign_bridge_full`
+7. `explicit_export`
 
 Command:
 
@@ -46,7 +48,7 @@ pnpm benchmark:ecdsa-hss:wasm
 
 Representative benchmark input:
 
-- committed fixture corpus entry: `derived-beta`
+- committed fixture corpus entry: `role_local_v1`
 
 ## Baseline
 
@@ -96,6 +98,10 @@ WASM sign-stage breakdown from the profiled runner:
 | `sign_client_signature_share_wasm` | `~0 ms` |
 | `sign_finalize_signature_wasm` | `~1 ms` |
 | `sign_total_core_wasm` | `~120-121 ms` |
+
+Current role-local WASM numbers are pending. The existing Node-hosted WASM
+runner still targets the pre-role-local binding names and needs to be updated
+before it can measure the active API shape.
 
 ## Initial Target Budgets
 
@@ -152,22 +158,23 @@ An optimization attempt is accepted only if all of these are true:
 
 ## Current Stop Point
 
-Current accepted crate benchmark band after the kept direct-relay improvement:
+Current native role-local benchmark snapshot:
 
 | Path | Current band |
 | --- | ---: |
-| `canonical_derivation` | `~27-29 µs` |
-| `share_derivation` | `~113-121 µs` |
-| `bootstrap_adapter` | `~188-208 µs` |
-| `explicit_export` | `~189-204 µs` |
-| `sign_bridge_full` | `~39-42 ms` |
-| `presign_protocol_roundtrip` | `~39-41 ms` |
-| `presign_before_start` | `~38-40 ms` |
+| `context_binding` | `~668 ns` |
+| `client_share` | `~34 µs` |
+| `relayer_share_and_identity` | `~63 µs` |
+| `bootstrap_adapter` | `~215 µs` |
+| `explicit_export` | `~355 µs` |
+| `sign_bridge_full` | `~40 ms` |
+| `first_presign_roundtrip` | `~39 ms` |
 
 Decision:
 
 - optimization is complete enough for the crate phase
-- derivation/bootstrap/export paths are already small
+- derivation/bootstrap/export paths remain sub-millisecond after role-local
+  derivation
 - the only remaining hotspot is the upstream triples stage
 - recent backend-adjacent micro-cuts have mostly been regressions or noise
 
@@ -276,7 +283,8 @@ For wasm specifically, this also means:
   - session preparation is not the problem
   - presign-session initialization is negligible
   - the real cost remains inside the threshold presign/sign execution loop
-  - the next optimization pass should target the body of `sign_with_session_v1`
+  - the next optimization pass should target the body of
+    `sign_with_role_materials_v1`
     and the underlying `signer-core` threshold ECDSA path, not session setup
 
 ### Entry 2: Sign Bridge Inner Split
@@ -679,3 +687,38 @@ For wasm specifically, this also means:
     wasm target
   - after this deeper-driver rejection, the remaining optimization space looks
     increasingly high-risk for limited likely payoff
+
+### Entry 15: Role-Local HSS Boundary Snapshot
+
+- date: 2026-05-20
+- change:
+  - replaced joined-root derivation with role-local client and relayer share
+    derivation
+  - updated the native benchmark suite to measure the active role-local API
+    shape
+  - recorded crate-local logical request/response and retained-state byte-size
+    estimates from `role_local_v1`
+- command:
+  - `cargo bench --manifest-path crates/ecdsa-hss/Cargo.toml --bench performance_baseline`
+- result:
+  - accepted
+- native means:
+  - `context_binding`: `668.03 ns`
+  - `client_share`: `33.785 us`
+  - `relayer_share_and_identity`: `63.104 us`
+  - `bootstrap_adapter`: `215.38 us`
+  - `first_presign_roundtrip`: `39.272 ms`
+  - `sign_bridge_full`: `39.736 ms`
+  - `explicit_export`: `354.66 us`
+- logical byte-size estimates:
+  - threshold request: `60 bytes`
+  - prepare non-export request: `201 bytes`
+  - bootstrap non-export response: `127 bytes`
+  - bootstrap explicit-export response: `159 bytes`
+  - retained server state: `183 bytes`
+  - retained client role share: `310 bytes`
+- conclusion:
+  - role-local derivation keeps setup and export work sub-millisecond
+  - the signing hot path remains about `40 ms`
+  - current role-local WASM latency and bundle size still need a refreshed
+    `wasm/eth_signer` benchmark runner

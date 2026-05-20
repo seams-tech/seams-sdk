@@ -1,12 +1,7 @@
 import initEthSignerWasm, {
   add_secp256k1_public_keys_33,
   compute_eip1559_tx_hash,
-  ecdsa_hss_bootstrap_non_export_sign_full,
-  ecdsa_hss_explicit_export,
-  threshold_ecdsa_hss_finalize_server_report,
-  threshold_ecdsa_hss_open_server_output,
-  threshold_ecdsa_hss_prepare_server_ceremony,
-  threshold_ecdsa_hss_prepare_server_session,
+  threshold_ecdsa_hss_role_local_relayer_bootstrap,
   encode_eip1559_signed_tx_from_signature65,
   init_eth_signer,
   map_additive_share_to_threshold_signatures_share_2p,
@@ -18,8 +13,6 @@ import initEthSignerWasm, {
   verify_secp256k1_recoverable_signature_against_public_key_33,
 } from '../../../../wasm/eth_signer/pkg/eth_signer.js';
 import type { InitInput } from '../../../../wasm/eth_signer/pkg/eth_signer.js';
-import type { ThresholdEcdsaChainTarget } from '../thresholdEcdsaChainTarget';
-import { thresholdEcdsaChainTargetKey } from '../thresholdEcdsaChainTarget';
 
 const ETH_SIGNER_WASM_PATH_CANDIDATES = [
   // Source-tree execution (server/src/* -> repo/wasm/*)
@@ -269,51 +262,50 @@ export async function mapAdditiveShareToThresholdSignaturesShare2p(input: {
   return checkedBytes('map_additive_share_to_threshold_signatures_share_2p output', out, 32);
 }
 
-export async function ecdsaHssBootstrapNonExportSign(input: {
+export async function roleLocalThresholdEcdsaHssRelayerBootstrap(input: {
   walletSessionUserId: string;
   subjectId: string;
-  chainTarget: ThresholdEcdsaChainTarget;
   ecdsaThresholdKeyId: string;
   signingRootId: string;
   signingRootVersion: string;
   keyPurpose: string;
   keyVersion: string;
-  yClient32Le: Uint8Array;
+  relayerKeyId: string;
   yRelayer32Le: Uint8Array;
+  clientPublicKey33: Uint8Array;
+  clientShareRetryCounter: number;
 }): Promise<{
+  contextBinding32: Uint8Array;
+  relayerShare32: Uint8Array;
+  relayerPublicKey33: Uint8Array;
   groupPublicKey33: Uint8Array;
   ethereumAddress20: Uint8Array;
-  clientAdditiveShare32: Uint8Array;
-  clientPublicKey33: Uint8Array;
-  relayerAdditiveShare32: Uint8Array;
-  relayerPublicKey33: Uint8Array;
-  clientThresholdPrivateShare32: Uint8Array;
-  relayerThresholdPrivateShare32: Uint8Array;
-  retryCounter: number;
+  relayerMappedPrivateShare32: Uint8Array;
+  relayerShareRetryCounter: number;
+  publicTranscriptDigest32: Uint8Array;
 }> {
   await ensureEthSignerWasm();
-  const walletSessionUserId = String(input.walletSessionUserId || '').trim();
-  const raw = ecdsa_hss_bootstrap_non_export_sign_full({
-    walletSessionUserId,
+  const raw = threshold_ecdsa_hss_role_local_relayer_bootstrap({
+    walletSessionUserId: String(input.walletSessionUserId || '').trim(),
     subjectId: String(input.subjectId || '').trim(),
-    chainTarget: thresholdEcdsaChainTargetKey(input.chainTarget),
     ecdsaThresholdKeyId: String(input.ecdsaThresholdKeyId || '').trim(),
     signingRootId: String(input.signingRootId || '').trim(),
     signingRootVersion: String(input.signingRootVersion || '').trim(),
     keyPurpose: String(input.keyPurpose || '').trim(),
     keyVersion: String(input.keyVersion || '').trim(),
-    yClient32Le: Array.from(checkedBytes('yClient32Le', input.yClient32Le, 32)),
+    relayerKeyId: String(input.relayerKeyId || '').trim(),
     yRelayer32Le: Array.from(checkedBytes('yRelayer32Le', input.yRelayer32Le, 32)),
+    clientPublicKey33: Array.from(checkedBytes('clientPublicKey33', input.clientPublicKey33, 33)),
+    clientShareRetryCounter: Number(input.clientShareRetryCounter),
   }) as {
+    contextBinding32?: Uint8Array | number[];
+    relayerShare32?: Uint8Array | number[];
+    relayerPublicKey33?: Uint8Array | number[];
     groupPublicKey33?: Uint8Array | number[];
     ethereumAddress20?: Uint8Array | number[];
-    clientAdditiveShare32?: Uint8Array | number[];
-    clientPublicKey33?: Uint8Array | number[];
-    relayerAdditiveShare32?: Uint8Array | number[];
-    relayerPublicKey33?: Uint8Array | number[];
-    clientThresholdPrivateShare32?: Uint8Array | number[];
-    relayerThresholdPrivateShare32?: Uint8Array | number[];
-    retryCounter?: number;
+    relayerMappedPrivateShare32?: Uint8Array | number[];
+    relayerShareRetryCounter?: number;
+    publicTranscriptDigest32?: Uint8Array | number[];
   };
   const toBytes = (
     label: string,
@@ -322,164 +314,25 @@ export async function ecdsaHssBootstrapNonExportSign(input: {
   ): Uint8Array =>
     checkedBytes(label, value instanceof Uint8Array ? value : Uint8Array.from(value || []), len);
   return {
+    contextBinding32: toBytes('ecdsa_hss contextBinding32', raw.contextBinding32, 32),
+    relayerShare32: toBytes('ecdsa_hss relayerShare32', raw.relayerShare32, 32),
+    relayerPublicKey33: toBytes('ecdsa_hss relayerPublicKey33', raw.relayerPublicKey33, 33),
     groupPublicKey33: toBytes('ecdsa_hss groupPublicKey33', raw.groupPublicKey33, 33),
     ethereumAddress20: toBytes('ecdsa_hss ethereumAddress20', raw.ethereumAddress20, 20),
-    clientAdditiveShare32: toBytes(
-      'ecdsa_hss clientAdditiveShare32',
-      raw.clientAdditiveShare32,
+    relayerMappedPrivateShare32: toBytes(
+      'ecdsa_hss relayerMappedPrivateShare32',
+      raw.relayerMappedPrivateShare32,
       32,
     ),
-    clientPublicKey33: toBytes('ecdsa_hss clientPublicKey33', raw.clientPublicKey33, 33),
-    relayerAdditiveShare32: toBytes(
-      'ecdsa_hss relayerAdditiveShare32',
-      raw.relayerAdditiveShare32,
+    relayerShareRetryCounter: Number.isFinite(raw.relayerShareRetryCounter)
+      ? Math.floor(Number(raw.relayerShareRetryCounter))
+      : 0,
+    publicTranscriptDigest32: toBytes(
+      'ecdsa_hss publicTranscriptDigest32',
+      raw.publicTranscriptDigest32,
       32,
-    ),
-    relayerPublicKey33: toBytes('ecdsa_hss relayerPublicKey33', raw.relayerPublicKey33, 33),
-    clientThresholdPrivateShare32: toBytes(
-      'ecdsa_hss clientThresholdPrivateShare32',
-      raw.clientThresholdPrivateShare32,
-      32,
-    ),
-    relayerThresholdPrivateShare32: toBytes(
-      'ecdsa_hss relayerThresholdPrivateShare32',
-      raw.relayerThresholdPrivateShare32,
-      32,
-    ),
-    retryCounter: Number.isFinite(raw.retryCounter) ? Math.floor(Number(raw.retryCounter)) : 0,
-  };
-}
-
-export async function ecdsaHssExplicitExport(input: {
-  walletSessionUserId: string;
-  subjectId: string;
-  chainTarget: ThresholdEcdsaChainTarget;
-  ecdsaThresholdKeyId: string;
-  signingRootId: string;
-  signingRootVersion: string;
-  keyPurpose: string;
-  keyVersion: string;
-  yClient32Le: Uint8Array;
-  yRelayer32Le: Uint8Array;
-}): Promise<{
-  canonicalX32: Uint8Array;
-  canonicalPublicKey33: Uint8Array;
-  canonicalEthereumAddress20: Uint8Array;
-}> {
-  await ensureEthSignerWasm();
-  const walletSessionUserId = String(input.walletSessionUserId || '').trim();
-  const raw = ecdsa_hss_explicit_export({
-    walletSessionUserId,
-    subjectId: String(input.subjectId || '').trim(),
-    chainTarget: thresholdEcdsaChainTargetKey(input.chainTarget),
-    ecdsaThresholdKeyId: String(input.ecdsaThresholdKeyId || '').trim(),
-    signingRootId: String(input.signingRootId || '').trim(),
-    signingRootVersion: String(input.signingRootVersion || '').trim(),
-    keyPurpose: String(input.keyPurpose || '').trim(),
-    keyVersion: String(input.keyVersion || '').trim(),
-    yClient32Le: Array.from(checkedBytes('yClient32Le', input.yClient32Le, 32)),
-    yRelayer32Le: Array.from(checkedBytes('yRelayer32Le', input.yRelayer32Le, 32)),
-  }) as {
-    canonicalX32?: Uint8Array | number[];
-    canonicalPublicKey33?: Uint8Array | number[];
-    canonicalEthereumAddress20?: Uint8Array | number[];
-  };
-  const toBytes = (
-    label: string,
-    value: Uint8Array | number[] | undefined,
-    len: number,
-  ): Uint8Array =>
-    checkedBytes(label, value instanceof Uint8Array ? value : Uint8Array.from(value || []), len);
-  return {
-    canonicalX32: toBytes('ecdsa_hss canonicalX32', raw.canonicalX32, 32),
-    canonicalPublicKey33: toBytes('ecdsa_hss canonicalPublicKey33', raw.canonicalPublicKey33, 33),
-    canonicalEthereumAddress20: toBytes(
-      'ecdsa_hss canonicalEthereumAddress20',
-      raw.canonicalEthereumAddress20,
-      20,
     ),
   };
-}
-
-export async function prepareThresholdEcdsaHssServerSession(input: {
-  walletSessionUserId: string;
-  subjectId: string;
-  chainTarget: ThresholdEcdsaChainTarget;
-  ecdsaThresholdKeyId: string;
-  signingRootId: string;
-  signingRootVersion: string;
-  keyPurpose: string;
-  keyVersion: string;
-  operation:
-    | 'registration_bootstrap'
-    | 'session_bootstrap'
-    | 'non_export_sign'
-    | 'explicit_key_export';
-  yRelayer32Le: Uint8Array;
-}): Promise<{
-  preparedServerSessionB64u: string;
-  serverAssistInitMessageB64u: string;
-}> {
-  await ensureEthSignerWasm();
-  const walletSessionUserId = String(input.walletSessionUserId || '').trim();
-  return threshold_ecdsa_hss_prepare_server_session({
-    walletSessionUserId,
-    subjectId: String(input.subjectId || '').trim(),
-    chainTarget: thresholdEcdsaChainTargetKey(input.chainTarget),
-    ecdsaThresholdKeyId: String(input.ecdsaThresholdKeyId || '').trim(),
-    signingRootId: String(input.signingRootId || '').trim(),
-    signingRootVersion: String(input.signingRootVersion || '').trim(),
-    keyPurpose: String(input.keyPurpose || '').trim(),
-    keyVersion: String(input.keyVersion || '').trim(),
-    operation: String(input.operation || '').trim(),
-    yRelayer32Le: Array.from(checkedBytes('yRelayer32Le', input.yRelayer32Le, 32)),
-  });
-}
-
-export async function prepareThresholdEcdsaHssServerCeremony(input: {
-  preparedServerSessionB64u: string;
-  clientEvalRequestB64u: string;
-  serverAssistInitB64u: string;
-}): Promise<{
-  serverEvalResponseB64u: string;
-}> {
-  await ensureEthSignerWasm();
-  return threshold_ecdsa_hss_prepare_server_ceremony({
-    preparedServerSessionB64u: String(input.preparedServerSessionB64u || '').trim(),
-    clientEvalRequestB64u: String(input.clientEvalRequestB64u || '').trim(),
-    serverAssistInitB64u: String(input.serverAssistInitB64u || '').trim(),
-  });
-}
-
-export async function finalizeThresholdEcdsaHssServerReport(input: {
-  preparedServerSessionB64u: string;
-  clientEvalRequestB64u: string;
-  clientEvalFinalizeB64u: string;
-  serverEvalResponseB64u: string;
-}): Promise<{
-  serverOutputMessageB64u: string;
-}> {
-  await ensureEthSignerWasm();
-  return threshold_ecdsa_hss_finalize_server_report({
-    preparedServerSessionB64u: String(input.preparedServerSessionB64u || '').trim(),
-    clientEvalRequestB64u: String(input.clientEvalRequestB64u || '').trim(),
-    clientEvalFinalizeB64u: String(input.clientEvalFinalizeB64u || '').trim(),
-    serverEvalResponseB64u: String(input.serverEvalResponseB64u || '').trim(),
-  });
-}
-
-export async function openThresholdEcdsaHssServerOutput(input: {
-  preparedServerSessionB64u: string;
-  serverOutputMessageB64u: string;
-}): Promise<{
-  contextBindingB64u: string;
-  yClient32LeB64u: string;
-}> {
-  await ensureEthSignerWasm();
-  return threshold_ecdsa_hss_open_server_output({
-    preparedServerSessionB64u: String(input.preparedServerSessionB64u || '').trim(),
-    serverOutputMessageB64u: String(input.serverOutputMessageB64u || '').trim(),
-  });
 }
 
 export async function secp256k1PublicKey33ToEthereumAddress(

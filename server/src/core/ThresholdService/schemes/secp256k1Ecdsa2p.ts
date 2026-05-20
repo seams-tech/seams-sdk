@@ -1,12 +1,6 @@
 import type {
   ThresholdEcdsaAuthorizeResponse,
   ThresholdEcdsaAuthorizeWithSessionRequest,
-  ThresholdEcdsaHssFinalizeRequest,
-  ThresholdEcdsaHssFinalizeResponse,
-  ThresholdEcdsaHssPrepareRequest,
-  ThresholdEcdsaHssPrepareResponse,
-  ThresholdEcdsaHssRespondRequest,
-  ThresholdEcdsaHssRespondResponse,
   ThresholdEcdsaPresignInitRequest,
   ThresholdEcdsaPresignInitResponse,
   ThresholdEcdsaPresignStepRequest,
@@ -18,17 +12,6 @@ import type { ThresholdEcdsaSessionClaims } from '../validation';
 
 export type ThresholdSecp256k1Ecdsa2pSchemeModuleDeps = {
   healthz?: () => Promise<{ ok: boolean; code?: string; message?: string }>;
-  hss?: {
-    prepare(
-      request: ThresholdEcdsaHssPrepareRequest,
-    ): Promise<ThresholdEcdsaHssPrepareResponse>;
-    respond(
-      request: ThresholdEcdsaHssRespondRequest,
-    ): Promise<ThresholdEcdsaHssRespondResponse>;
-    finalize(
-      request: ThresholdEcdsaHssFinalizeRequest,
-    ): Promise<ThresholdEcdsaHssFinalizeResponse>;
-  };
   authorize(input: {
     claims: ThresholdEcdsaSessionClaims;
     request: ThresholdEcdsaAuthorizeWithSessionRequest;
@@ -60,7 +43,6 @@ export function createThresholdSecp256k1Ecdsa2pSchemeModule(
     async healthz() {
       return deps.healthz ? await deps.healthz() : { ok: true };
     },
-    ...(deps.hss ? { hss: deps.hss } : {}),
     authorize: deps.authorize,
     presign: deps.presign,
     protocol: deps.protocol,

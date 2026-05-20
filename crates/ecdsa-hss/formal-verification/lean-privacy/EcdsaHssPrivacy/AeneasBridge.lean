@@ -190,11 +190,8 @@ theorem generatedBoundary_serverCannotSeeClientOutputPayloads
 theorem generatedBoundary_explicitExportIsOnlyCanonicalSecretDisclosureException
     (boundary : GeneratedVisibleRespondBoundaryV1) :
     BoundaryRespectsFrozenDisclosurePolicy (toHandwrittenRespondBoundary boundary) →
-    clientBoundaryRevealsCanonicalX
-        (toHandwrittenRespondBoundary boundary).clientOutput
-      ↔
-      (toHandwrittenRespondBoundary boundary).operation.operation =
-        ecdsa_hss.wire.ServerEvalOperationV1.ExplicitKeyExport := by
+    ¬ clientBoundaryRevealsCanonicalX
+        (toHandwrittenRespondBoundary boundary).clientOutput := by
   intro hPolicy
   exact explicitExportIsOnlyCanonicalSecretDisclosureException_proved
     (toHandwrittenRespondBoundary boundary) hPolicy
@@ -279,11 +276,8 @@ theorem generatedHiddenEvalTransportExplicitExportIsOnlyCanonicalSecretDisclosur
     (boundary : GeneratedHiddenEvalBoundaryV1) :
     BoundaryRespectsFrozenDisclosurePolicy
         (respondBoundaryOfHiddenEvalBoundary (toHandwrittenHiddenEvalBoundary boundary)) →
-    transportBoundaryRevealsCanonicalX
-        (hiddenEvalTransportBoundaryOfGeneratedBoundary boundary)
-      ↔
-      (hiddenEvalTransportBoundaryOfGeneratedBoundary boundary).operation.operation =
-        ecdsa_hss.wire.ServerEvalOperationV1.ExplicitKeyExport := by
+    ¬ transportBoundaryRevealsCanonicalX
+        (hiddenEvalTransportBoundaryOfGeneratedBoundary boundary) := by
   intro hPolicy
   exact hiddenEvalTransportExplicitExportIsOnlyCanonicalSecretDisclosureException_proved
     (toHandwrittenHiddenEvalBoundary boundary) hPolicy

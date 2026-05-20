@@ -317,6 +317,7 @@ class SplitAuthSessionStore implements Ed25519AuthSessionStore {
   readonly records = new Map<string, Ed25519AuthSessionRecord>();
   readonly uses = new Map<string, number>();
   readonly consumedOnceKeys = new Map<string, Set<string>>();
+  readonly replayGuards = new Set<string>();
   consumeUseCalls = 0;
   consumeUseCountCalls = 0;
 
@@ -386,6 +387,15 @@ class SplitAuthSessionStore implements Ed25519AuthSessionStore {
       this.consumedOnceKeys.set(id, consumed);
     }
     return result;
+  }
+
+  async reserveReplayGuard(scopeId: string, replayKey: string) {
+    const key = `${scopeId}:${replayKey}`;
+    if (this.replayGuards.has(key)) {
+      return { ok: false as const, code: 'export_nonce_replay', message: 'duplicate' };
+    }
+    this.replayGuards.add(key);
+    return { ok: true as const };
   }
 }
 

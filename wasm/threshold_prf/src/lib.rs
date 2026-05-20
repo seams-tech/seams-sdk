@@ -49,7 +49,6 @@ fn push_len16(out: &mut Vec<u8>, label: &str, value: &str) -> Result<(), JsValue
 fn encode_ecdsa_hss_context_v1(
     wallet_session_user_id: &str,
     subject_id: &str,
-    _chain_target: &str,
     ecdsa_threshold_key_id: &str,
     signing_root_id: &str,
     signing_root_version: &str,
@@ -188,7 +187,6 @@ pub fn threshold_prf_derive_ecdsa_hss_y_relayer(
     share_wire_j: Vec<u8>,
     wallet_session_user_id: String,
     subject_id: String,
-    chain_target: String,
     ecdsa_threshold_key_id: String,
     signing_root_id: String,
     signing_root_version: String,
@@ -198,7 +196,6 @@ pub fn threshold_prf_derive_ecdsa_hss_y_relayer(
     let context_bytes = encode_ecdsa_hss_context_v1(
         &wallet_session_user_id,
         &subject_id,
-        &chain_target,
         &ecdsa_threshold_key_id,
         &signing_root_id,
         &signing_root_version,

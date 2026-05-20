@@ -4,7 +4,11 @@ import fs from 'node:fs';
 import expressImport from 'express';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { createRelayRouter } from '../../../sdk/dist/esm/server/router/express.js';
-import { AuthService, createThresholdSigningService } from '../../../sdk/dist/esm/server/index.js';
+import {
+  AuthService,
+  createSelfHostedSigningRootShareResolver,
+  createThresholdSigningService,
+} from '../../../sdk/dist/esm/server/index.js';
 import { ThresholdEcdsaSigningHandlers } from '../../../sdk/dist/esm/server/core/ThresholdService/ecdsaSigningHandlers.js';
 import { createThresholdEcdsaSigningStores } from '../../../sdk/dist/esm/server/core/ThresholdService/stores/EcdsaSigningStore.js';
 import { THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID } from '../../../sdk/dist/esm/server/core/ThresholdService/schemes/schemeIds.js';
@@ -12,16 +16,18 @@ import {
   alphabetizeStringify,
   sha256BytesUtf8,
 } from '../../../sdk/dist/esm/shared/src/utils/digests.js';
-import {
-  addSecp256k1PublicKeys33,
-  deriveThresholdSecp256k1RelayerShare,
-} from '../../../sdk/dist/esm/server/core/ThresholdService/ethSignerWasm.js';
+import { deriveThresholdEcdsaKeyHandle } from '../../../sdk/dist/esm/shared/src/utils/thresholdEcdsaKeyHandle.js';
 import {
   initSync as initEthSignerWasmSync,
   ThresholdEcdsaPresignSession,
   map_additive_share_to_threshold_signatures_share_2p,
   threshold_ecdsa_compute_signature_share,
 } from '../../../wasm/eth_signer/pkg/eth_signer.js';
+import {
+  initSync as initHssClientSignerWasmSync,
+  threshold_ecdsa_hss_role_local_client_bootstrap,
+  threshold_ecdsa_hss_role_local_export_artifact,
+} from '../../../wasm/hss_client_signer/pkg/hss_client_signer.js';
 import { base64UrlEncode, base64UrlDecode } from '../../../sdk/dist/esm/shared/src/utils/base64.js';
 
 const TEST_MASTER_SECRET_B64U = Buffer.from(new Uint8Array(32).fill(9)).toString('base64url');
@@ -29,6 +35,26 @@ const DEFAULT_PARTICIPANT_IDS = [1, 2];
 const DEFAULT_CLIENT_PARTICIPANT_ID = 1;
 const DEFAULT_RELAYER_PARTICIPANT_ID = 2;
 const MAX_HANDSHAKE_STEPS = 64;
+const BENCH_SIGNING_ROOT_ID = 'bench-project:bench-env';
+const BENCH_SIGNING_ROOT_VERSION = 'v1';
+const BENCH_RUNTIME_POLICY_SCOPE = {
+  orgId: 'bench-org',
+  projectId: 'bench-project',
+  envId: 'bench-env',
+  signingRootVersion: BENCH_SIGNING_ROOT_VERSION,
+};
+const BENCH_CHAIN_TARGET = {
+  kind: 'evm',
+  namespace: 'eip155',
+  chainId: 1,
+  networkSlug: 'ethereum-mainnet',
+};
+const BENCH_ECDSA_KEY_PURPOSE = 'evm-signing';
+const BENCH_ECDSA_KEY_VERSION = 'v1';
+const ECDSA_HSS_EXPORT_CONFIRMATION_DIGEST_VERSION =
+  'ecdsa-hss:role-local:product-export-confirmation:v1';
+const ECDSA_HSS_EXPORT_AUTHORIZATION_DIGEST_VERSION =
+  'ecdsa-hss:role-local:product-export-authorization:v1';
 
 function parseArgs(argv) {
   const out = {
@@ -89,6 +115,10 @@ function randomDigest32() {
   return out;
 }
 
+async function digestB64u(input) {
+  return base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(input)));
+}
+
 function toB64uMessages(messages) {
   return messages.map((entry) => base64UrlEncode(entry));
 }
@@ -114,15 +144,67 @@ async function deriveRelayerKeyId(input) {
   return `secp-${base64UrlEncode(digest32)}`;
 }
 
-async function deriveGroupPublicKey33(input) {
-  const relayerShare = await deriveThresholdSecp256k1RelayerShare({
-    masterSecretB64u: TEST_MASTER_SECRET_B64U,
-    relayerKeyId: input.relayerKeyId,
+async function deriveBenchmarkKeyHandle(input) {
+  return String(
+    await deriveThresholdEcdsaKeyHandle({
+      ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
+      signingRootId: input.signingRootId,
+      signingRootVersion: input.signingRootVersion,
+    }),
+  );
+}
+
+function createBenchmarkSigningRootShareResolver() {
+  const corpus = JSON.parse(
+    fs.readFileSync(
+      new URL('../../../crates/threshold-prf/fixtures/protocol-v1.json', import.meta.url),
+      'utf8',
+    ),
+  );
+  const vector = (corpus.vectors || []).find((entry) => entry.purpose === 'ecdsa-hss/y_relayer');
+  if (!vector || !Array.isArray(vector.shares) || vector.shares.length < 2) {
+    throw new Error('Missing ecdsa-hss/y_relayer threshold-prf fixture shares');
+  }
+  return createSelfHostedSigningRootShareResolver({
+    signingRootId: BENCH_SIGNING_ROOT_ID,
+    signingRootVersion: BENCH_SIGNING_ROOT_VERSION,
+    shares: vector.shares.slice(0, 2).map((share) => ({
+      shareId: share.id,
+      shareWireHex: share.wire_hex,
+    })),
   });
-  return await addSecp256k1PublicKeys33({
-    left33: input.clientVerifyingShare33,
-    right33: relayerShare.relayerVerifyingShare33,
+}
+
+function roleLocalClientBootstrap(input) {
+  const result = threshold_ecdsa_hss_role_local_client_bootstrap({
+    walletSessionUserId: input.walletSessionUserId,
+    subjectId: input.subjectId,
+    ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
+    signingRootId: BENCH_SIGNING_ROOT_ID,
+    signingRootVersion: BENCH_SIGNING_ROOT_VERSION,
+    keyPurpose: BENCH_ECDSA_KEY_PURPOSE,
+    keyVersion: BENCH_ECDSA_KEY_VERSION,
+    clientRootShare32B64u: base64UrlEncode(input.clientRootShare32),
   });
+  const clientPublicKey33B64u = String(result?.clientPublicKey33B64u || '').trim();
+  const contextBinding32B64u = String(result?.contextBinding32B64u || '').trim();
+  const mappedPrivateShare32B64u = String(result?.mappedPrivateShare32B64u || '').trim();
+  if (!clientPublicKey33B64u || !contextBinding32B64u || !mappedPrivateShare32B64u) {
+    throw new Error('role-local client bootstrap returned incomplete material');
+  }
+  return {
+    clientPublicKey33B64u,
+    contextBinding32B64u,
+    mappedPrivateShare32: base64UrlDecode(mappedPrivateShare32B64u),
+    clientShareRetryCounter: Number(result.clientShareRetryCounter || 0),
+  };
+}
+
+function routeValue(responseJson) {
+  if (responseJson?.ok === true && responseJson.value && typeof responseJson.value === 'object') {
+    return responseJson.value;
+  }
+  return responseJson;
 }
 
 function mapStatusFromResult(result) {
@@ -205,6 +287,11 @@ function createCacheMissHandlers(input) {
       signingSessionStore: signingStores.signingSessionStore,
       presignSessionStore: signingStores.presignSessionStore,
       presignaturePool: signingStores.presignaturePool,
+      resolveRoleLocalKeyRecord: async (selector) =>
+        input.roleLocalRecord && selector.keyHandle === input.roleLocalRecord.keyHandle
+          ? input.roleLocalRecord
+          : null,
+      resolveIntegratedKeyRecord: async () => null,
       ensureReady: async () => {},
       createSigningSessionId: () => randomUuidLike('bench-sign'),
       createPresignSessionId: () => `bench-presign-${++presignIdCounter}`,
@@ -366,6 +453,10 @@ function parseThresholdStoreConfigFromEnv() {
 }
 
 function makeAuthServiceForThreshold(logger) {
+  const thresholdStore = {
+    ...parseThresholdStoreConfigFromEnv(),
+    signingRootShareResolver: createBenchmarkSigningRootShareResolver(),
+  };
   const service = new AuthService({
     relayerAccount: 'relayer.testnet',
     relayerPrivateKey: 'ed25519:dummy',
@@ -373,64 +464,81 @@ function makeAuthServiceForThreshold(logger) {
     networkId: 'testnet',
     accountInitialBalance: '1',
     createAccountAndRegisterGas: '1',
+    thresholdStore,
     logger,
   });
 
   service.verifyWebAuthnAuthenticationLite = async () => ({ success: true, verified: true });
 
-  const threshold = createThresholdSigningService({
-    authService: service,
-    thresholdStore: parseThresholdStoreConfigFromEnv(),
-    logger,
-  });
+  const threshold =
+    service.getThresholdSigningService?.() ||
+    createThresholdSigningService({
+      authService: service,
+      thresholdStore,
+      signingRootShareResolver: thresholdStore.signingRootShareResolver,
+      logger,
+    });
 
   return { service, threshold };
 }
 
-async function bootstrapContext(baseUrl, userId, rpId, clientVerifyingShareB64u, participantIds) {
-  const sessionId = randomUuidLike('bench-session');
-  const bootstrap = await fetchJson(`${baseUrl}/threshold-ecdsa/bootstrap`, {
+async function bootstrapContext(input) {
+  const bootstrap = await fetchJson(`${input.baseUrl}/threshold-ecdsa/hss/bootstrap`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${input.jwt}`,
+    },
     body: JSON.stringify({
-      userId,
-      rpId,
-      keygenSessionId: randomUuidLike('bench-keygen'),
-      clientVerifyingShareB64u,
-      webauthn_authentication: fakeWebAuthnAuthentication(),
-      sessionKind: 'jwt',
-      sessionPolicy: {
-        version: 'threshold_session_v1',
-        userId,
-        rpId,
-        sessionId,
-        ttlMs: 120_000,
-        remainingUses: 100,
-        participantIds,
-      },
+      formatVersion: 'ecdsa-hss-role-local',
+      walletSessionUserId: input.userId,
+      rpId: input.rpId,
+      subjectId: input.subjectId,
+      ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
+      signingRootId: BENCH_SIGNING_ROOT_ID,
+      signingRootVersion: BENCH_SIGNING_ROOT_VERSION,
+      keyScope: 'evm-family',
+      relayerKeyId: input.relayerKeyId,
+      clientPublicKey33B64u: input.clientBootstrap.clientPublicKey33B64u,
+      clientShareRetryCounter: input.clientBootstrap.clientShareRetryCounter,
+      contextBinding32B64u: input.clientBootstrap.contextBinding32B64u,
+      requestId: randomUuidLike('bench-bootstrap-request'),
+      sessionId: input.sessionId,
+      walletSigningSessionId: input.walletSigningSessionId,
+      ttlMs: 120_000,
+      remainingUses: 100,
+      participantIds: input.participantIds,
     }),
   });
   if (bootstrap.status !== 200 || !bootstrap.json?.ok) {
     throw new Error(`bootstrap failed: ${bootstrap.text}`);
   }
-  const jwt = String(bootstrap.json.jwt || '').trim();
-  const relayerKeyId = String(bootstrap.json.relayerKeyId || '').trim();
-  const groupPublicKeyB64u = String(bootstrap.json.groupPublicKeyB64u || '').trim();
-  if (!jwt || !relayerKeyId || !groupPublicKeyB64u) {
+  const payload = routeValue(bootstrap.json);
+  const keyHandle = String(payload.keyHandle || '').trim();
+  const relayerKeyId = String(payload.relayerKeyId || '').trim();
+  const groupPublicKeyB64u = String(payload.thresholdEcdsaPublicKeyB64u || '').trim();
+  if (!keyHandle || !relayerKeyId || !groupPublicKeyB64u) {
     throw new Error(`bootstrap missing fields: ${bootstrap.text}`);
   }
   return {
-    jwt,
+    jwt: input.jwt,
+    keyHandle,
     relayerKeyId,
     groupPublicKey33: base64UrlDecode(groupPublicKeyB64u),
+    contextBinding32B64u: input.clientBootstrap.contextBinding32B64u,
+    publicIdentity: {
+      clientPublicKey33B64u: input.clientBootstrap.clientPublicKey33B64u,
+      relayerPublicKey33B64u: String(payload.relayerVerifyingShareB64u || '').trim(),
+      groupPublicKey33B64u: groupPublicKeyB64u,
+      ethereumAddress: String(payload.ethereumAddress || '').trim(),
+    },
   };
 }
 
 async function authorizeMpcSession(
   baseUrl,
   jwt,
-  relayerKeyId,
-  clientVerifyingShareB64u,
+  keyHandle,
   digest32,
   purpose,
 ) {
@@ -441,8 +549,7 @@ async function authorizeMpcSession(
       Authorization: `Bearer ${jwt}`,
     },
     body: JSON.stringify({
-      relayerKeyId,
-      clientVerifyingShareB64u,
+      keyHandle,
       purpose,
       signing_digest_32: Array.from(digest32),
     }),
@@ -463,8 +570,7 @@ async function runPresignHandshake(args) {
       Authorization: `Bearer ${args.jwt}`,
     },
     body: JSON.stringify({
-      relayerKeyId: args.relayerKeyId,
-      clientVerifyingShareB64u: args.clientVerifyingShareB64u,
+      keyHandle: args.keyHandle,
       count: 1,
       ...(args.requestTag ? { requestTag: args.requestTag } : {}),
     }),
@@ -476,10 +582,12 @@ async function runPresignHandshake(args) {
   const presignSessionId = String(init.json.presignSessionId || '').trim();
   if (!presignSessionId) throw new Error(`presign/init missing presignSessionId: ${init.text}`);
 
-  const clientThresholdSigningShare32 = map_additive_share_to_threshold_signatures_share_2p(
-    args.clientSigningShare32,
-    args.clientParticipantId,
-  );
+  const clientThresholdSigningShare32 =
+    args.clientMappedPrivateShare32 ||
+    map_additive_share_to_threshold_signatures_share_2p(
+      args.clientSigningShare32,
+      args.clientParticipantId,
+    );
 
   const localSession = new ThresholdEcdsaPresignSession(
     new Uint32Array(args.participantIds),
@@ -661,8 +769,7 @@ async function runSingleFlow(args) {
   const mpcSessionId = await authorizeMpcSession(
     args.baseUrl,
     args.jwt,
-    args.relayerKeyId,
-    args.clientVerifyingShareB64u,
+    args.keyHandle,
     digest32,
     args.purpose,
   );
@@ -671,9 +778,10 @@ async function runSingleFlow(args) {
     (await runPresignHandshake({
       baseUrl: args.baseUrl,
       jwt: args.jwt,
+      keyHandle: args.keyHandle,
       relayerKeyId: args.relayerKeyId,
-      clientVerifyingShareB64u: args.clientVerifyingShareB64u,
       clientSigningShare32: args.clientSigningShare32,
+      clientMappedPrivateShare32: args.clientMappedPrivateShare32,
       groupPublicKey33: args.groupPublicKey33,
       participantIds: args.participantIds,
       clientParticipantId: args.clientParticipantId,
@@ -693,19 +801,198 @@ async function runSingleFlow(args) {
   return true;
 }
 
+async function runPoolEmptyRetry(args) {
+  const digest32 = randomDigest32();
+  const mpcSessionId = await authorizeMpcSession(
+    args.baseUrl,
+    args.jwt,
+    args.keyHandle,
+    digest32,
+    'bench:pool_empty_retry',
+  );
+  const startedAtMs = Date.now();
+  const signInit = await fetchJson(`${args.baseUrl}/threshold-ecdsa/sign/init`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      mpcSessionId,
+      relayerKeyId: args.relayerKeyId,
+      signingDigestB64u: base64UrlEncode(digest32),
+    }),
+  });
+  const totalMs = Date.now() - startedAtMs;
+  if (signInit.json?.code !== 'pool_empty') {
+    throw new Error(`pool_empty_retry expected pool_empty, got ${signInit.text}`);
+  }
+  return {
+    scenario: 'pool_empty_retry',
+    totalMs,
+    poolEmptyCount: 1,
+    status: signInit.status,
+  };
+}
+
+async function runExplicitExportProduct(args) {
+  const publicIdentity = args.publicIdentity;
+  if (
+    !publicIdentity?.clientPublicKey33B64u ||
+    !publicIdentity?.relayerPublicKey33B64u ||
+    !publicIdentity?.groupPublicKey33B64u ||
+    !publicIdentity?.ethereumAddress
+  ) {
+    throw new Error('explicit export benchmark missing public identity');
+  }
+  const startedAtMs = Date.now();
+  const issuedAtUnixMs = Date.now();
+  const expiresAtUnixMs = issuedAtUnixMs + 60_000;
+  const exportRequestNonce32B64u = base64UrlEncode(randomDigest32());
+  const confirmationDigest32B64u = await digestB64u({
+    version: ECDSA_HSS_EXPORT_CONFIRMATION_DIGEST_VERSION,
+    walletSessionUserId: args.userId,
+    rpId: args.rpId,
+    subjectId: args.subjectId,
+    ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
+    relayerKeyId: args.relayerKeyId,
+    contextBinding32B64u: args.contextBinding32B64u,
+    publicIdentity,
+    clientDeviceId: args.walletSigningSessionId,
+    clientSessionId: args.sessionId,
+    exportRequestNonce32B64u,
+    issuedAtUnixMs,
+    expiresAtUnixMs,
+  });
+  const authorizationDigest32B64u = await digestB64u({
+    version: ECDSA_HSS_EXPORT_AUTHORIZATION_DIGEST_VERSION,
+    operation: 'explicit_key_export',
+    keyHandle: args.keyHandle,
+    walletSessionUserId: args.userId,
+    rpId: args.rpId,
+    subjectId: args.subjectId,
+    ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
+    relayerKeyId: args.relayerKeyId,
+    signingRootId: BENCH_SIGNING_ROOT_ID,
+    signingRootVersion: BENCH_SIGNING_ROOT_VERSION,
+    contextBinding32B64u: args.contextBinding32B64u,
+    publicIdentity,
+    exportRequestNonce32B64u,
+    confirmationDigest32B64u,
+    issuedAtUnixMs,
+    expiresAtUnixMs,
+    clientDeviceId: args.walletSigningSessionId,
+    clientSessionId: args.sessionId,
+    thresholdSessionId: args.sessionId,
+    walletSigningSessionId: args.walletSigningSessionId,
+    thresholdExpiresAtMs: args.thresholdExpiresAtMs,
+    participantIds: args.participantIds,
+  });
+  const exportShare = await fetchJson(`${args.baseUrl}/threshold-ecdsa/hss/export/share`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${args.jwt}`,
+    },
+    body: JSON.stringify({
+      formatVersion: 'ecdsa-hss-role-local-export',
+      walletSessionUserId: args.userId,
+      rpId: args.rpId,
+      subjectId: args.subjectId,
+      ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
+      relayerKeyId: args.relayerKeyId,
+      contextBinding32B64u: args.contextBinding32B64u,
+      publicIdentity,
+      exportRequestNonce32B64u,
+      confirmationDigest32B64u,
+      authorizationDigest32B64u,
+      issuedAtUnixMs,
+      expiresAtUnixMs,
+      clientDeviceId: args.walletSigningSessionId,
+      clientSessionId: args.sessionId,
+    }),
+  });
+  if (exportShare.status !== 200 || !exportShare.json?.ok) {
+    throw new Error(`explicit export share failed: ${exportShare.text}`);
+  }
+  const exportValue = routeValue(exportShare.json);
+  if ('privateKeyHex' in exportValue) {
+    throw new Error('explicit export route returned privateKeyHex');
+  }
+  const artifact = threshold_ecdsa_hss_role_local_export_artifact({
+    walletSessionUserId: args.userId,
+    subjectId: args.subjectId,
+    ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
+    signingRootId: BENCH_SIGNING_ROOT_ID,
+    signingRootVersion: BENCH_SIGNING_ROOT_VERSION,
+    keyPurpose: BENCH_ECDSA_KEY_PURPOSE,
+    keyVersion: BENCH_ECDSA_KEY_VERSION,
+    clientRootShare32B64u: base64UrlEncode(args.clientRootShare32),
+    serverExportShare32B64u: exportValue.serverExportShare32B64u,
+    contextBinding32B64u: args.contextBinding32B64u,
+    clientPublicKey33B64u: publicIdentity.clientPublicKey33B64u,
+    relayerPublicKey33B64u: publicIdentity.relayerPublicKey33B64u,
+    groupPublicKey33B64u: publicIdentity.groupPublicKey33B64u,
+    ethereumAddress: publicIdentity.ethereumAddress,
+    clientShareRetryCounter: args.clientBootstrap.clientShareRetryCounter,
+  });
+  if (!String(artifact?.privateKeyHex || '').trim()) {
+    throw new Error('explicit export client artifact missing privateKeyHex');
+  }
+  return {
+    scenario: 'explicit_export_product',
+    totalMs: Date.now() - startedAtMs,
+    routeStatus: exportShare.status,
+    exportShareBytes: Buffer.byteLength(JSON.stringify(exportValue), 'utf8'),
+  };
+}
+
 async function runLiveCacheMissHandshake(base) {
   const userId = 'bench-live-cache-miss.testnet';
   const rpId = 'example.localhost';
-  const relayerKeyId = await deriveRelayerKeyId({
-    userId,
+  const relayerKeyId = base.relayerKeyId;
+  const keyHandle = base.keyHandle;
+  const fakeRelayerMappedShare32 = randomSecpSecretKey32();
+  const fakeRelayerPublicKey33B64u = base64UrlEncode(
+    secp256k1.getPublicKey(fakeRelayerMappedShare32, true),
+  );
+  const nowMs = Date.now();
+  const roleLocalRecord = {
+    version: 'threshold_ecdsa_hss_role_local',
+    ecdsaThresholdKeyId: 'bench-live-cache-miss-key',
+    keyHandle,
+    walletSessionUserId: userId,
     rpId,
-    clientVerifyingShareB64u: base.clientVerifyingShareB64u,
-  });
+    subjectId: userId,
+    signingRootId: BENCH_SIGNING_ROOT_ID,
+    signingRootVersion: BENCH_SIGNING_ROOT_VERSION,
+    keyScope: 'evm-family',
+    relayerKeyId,
+    contextBinding32B64u: base64UrlEncode(randomDigest32()),
+    relayerShare32B64u: base64UrlEncode(fakeRelayerMappedShare32),
+    relayerPublicKey33B64u: fakeRelayerPublicKey33B64u,
+    clientPublicKey33B64u: base.clientVerifyingShareB64u,
+    groupPublicKey33B64u: base64UrlEncode(base.groupPublicKey33),
+    ethereumAddress: `0x${'11'.repeat(20)}`,
+    relayerCaitSithInput: {
+      participantId: 2,
+      mappedPrivateShare32B64u: base64UrlEncode(fakeRelayerMappedShare32),
+      verifyingShare33B64u: fakeRelayerPublicKey33B64u,
+    },
+    publicTranscriptDigest32B64u: base64UrlEncode(randomDigest32()),
+    createdAtMs: nowMs,
+    updatedAtMs: nowMs,
+  };
 
   const claims = {
     sub: userId,
+    walletId: userId,
+    kind: 'threshold_ecdsa_session_v1',
+    sessionId: 'bench-live-cache-miss-session',
+    walletSigningSessionId: 'bench-live-cache-miss-wallet-session',
+    subjectId: userId,
+    keyHandle,
+    chainTarget: BENCH_CHAIN_TARGET,
     rpId,
     relayerKeyId,
+    runtimePolicyScope: BENCH_RUNTIME_POLICY_SCOPE,
     participantIds: base.participantIds,
     thresholdExpiresAtMs: Date.now() + 120_000,
   };
@@ -714,21 +1001,20 @@ async function runLiveCacheMissHandshake(base) {
     participantIds: base.participantIds,
     clientParticipantId: base.clientParticipantId,
     relayerParticipantId: base.relayerParticipantId,
+    roleLocalRecord,
   });
 
   const init = await invokeHandlerWithRouteLog({
     route: '/threshold-ecdsa/presign/init',
     requestMeta: {
-      relayerKeyId,
-      clientVerifyingShareB64u_len: base.clientVerifyingShareB64u.length,
+      keyHandle,
       count: 1,
     },
     fn: () =>
       handlers.handlerA.ecdsaPresignInit({
         claims,
         request: {
-          relayerKeyId,
-          clientVerifyingShareB64u: base.clientVerifyingShareB64u,
+          keyHandle,
           count: 1,
         },
       }),
@@ -847,6 +1133,14 @@ async function runScenario(base, scenario) {
     };
   }
 
+  if (scenario === 'pool_empty_retry') {
+    return await runPoolEmptyRetry(base);
+  }
+
+  if (scenario === 'explicit_export_product') {
+    return await runExplicitExportProduct(base);
+  }
+
   throw new Error(`unsupported scenario: ${scenario}`);
 }
 
@@ -856,6 +1150,10 @@ async function main() {
     new URL('../../../wasm/eth_signer/pkg/eth_signer_bg.wasm', import.meta.url),
   );
   initEthSignerWasmSync({ module: wasmBytes });
+  const hssClientWasmBytes = fs.readFileSync(
+    new URL('../../../wasm/hss_client_signer/pkg/hss_client_signer_bg.wasm', import.meta.url),
+  );
+  initHssClientSignerWasmSync({ module: hssClientWasmBytes });
   const logger = createLogger();
   const { service, threshold } = makeAuthServiceForThreshold(logger);
   const session = makeSessionAdapter();
@@ -865,20 +1163,60 @@ async function main() {
   try {
     const userId = 'bench-user.testnet';
     const rpId = 'example.localhost';
+    const subjectId = userId;
     const participantIds = DEFAULT_PARTICIPANT_IDS.slice();
     const clientParticipantId = DEFAULT_CLIENT_PARTICIPANT_ID;
     const relayerParticipantId = DEFAULT_RELAYER_PARTICIPANT_ID;
-    const clientSigningShare32 = randomSecpSecretKey32();
-    const clientVerifyingShareB64u = base64UrlEncode(
-      secp256k1.getPublicKey(clientSigningShare32, true),
-    );
-    const boot = await bootstrapContext(
-      server.baseUrl,
+    const clientRootShare32 = randomSecpSecretKey32();
+    const ecdsaThresholdKeyId = randomUuidLike('bench-ecdsa-key');
+    const keyHandle = await deriveBenchmarkKeyHandle({
+      ecdsaThresholdKeyId,
+      signingRootId: BENCH_SIGNING_ROOT_ID,
+      signingRootVersion: BENCH_SIGNING_ROOT_VERSION,
+    });
+    const clientBootstrap = roleLocalClientBootstrap({
+      walletSessionUserId: userId,
+      subjectId,
+      ecdsaThresholdKeyId,
+      clientRootShare32,
+    });
+    const clientVerifyingShareB64u = clientBootstrap.clientPublicKey33B64u;
+    const relayerKeyId = await deriveRelayerKeyId({
       userId,
       rpId,
       clientVerifyingShareB64u,
       participantIds,
-    );
+    });
+    const sessionId = randomUuidLike('bench-token-session');
+    const walletSigningSessionId = randomUuidLike('bench-token-wallet-session');
+    const thresholdExpiresAtMs = Date.now() + 120_000;
+    const jwt = await session.signJwt(userId, {
+      kind: 'threshold_ecdsa_session_v1',
+      walletId: userId,
+      sessionId,
+      walletSigningSessionId,
+      subjectId,
+      keyHandle,
+      chainTarget: BENCH_CHAIN_TARGET,
+      relayerKeyId,
+      rpId,
+      runtimePolicyScope: BENCH_RUNTIME_POLICY_SCOPE,
+      participantIds,
+      thresholdExpiresAtMs,
+    });
+    const boot = await bootstrapContext({
+      baseUrl: server.baseUrl,
+      jwt,
+      userId,
+      rpId,
+      subjectId,
+      ecdsaThresholdKeyId,
+      relayerKeyId,
+      clientBootstrap,
+      sessionId,
+      walletSigningSessionId,
+      participantIds,
+    });
 
     const runs = [];
     for (let i = 0; i < args.iterations; i += 1) {
@@ -886,13 +1224,26 @@ async function main() {
         {
           baseUrl: server.baseUrl,
           jwt: boot.jwt,
+          keyHandle: boot.keyHandle,
           relayerKeyId: boot.relayerKeyId,
           groupPublicKey33: boot.groupPublicKey33,
           participantIds,
           clientParticipantId,
           relayerParticipantId,
-          clientSigningShare32,
+          clientSigningShare32: clientRootShare32,
+          clientMappedPrivateShare32: clientBootstrap.mappedPrivateShare32,
           clientVerifyingShareB64u,
+          userId,
+          rpId,
+          subjectId,
+          ecdsaThresholdKeyId,
+          sessionId,
+          walletSigningSessionId,
+          thresholdExpiresAtMs,
+          clientRootShare32,
+          clientBootstrap,
+          contextBinding32B64u: boot.contextBinding32B64u,
+          publicIdentity: boot.publicIdentity,
         },
         args.scenario,
       );

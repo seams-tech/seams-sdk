@@ -229,6 +229,9 @@ test.describe('signing engine refactor 37 guards', () => {
     const hssTypecheck = readRepoFile(
       'client/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.typecheck.ts',
     );
+    const thresholdEcdsaRpcTypecheck = readRepoFile(
+      'client/src/core/rpcClients/relayer/thresholdEcdsa.typecheck.ts',
+    );
     const thresholdAdmission = readRepoFile(
       'client/src/core/signingEngine/flows/signEvmFamily/thresholdAdmission.typecheck.ts',
     );
@@ -260,6 +263,18 @@ test.describe('signing engine refactor 37 guards', () => {
     );
     expect(hssTypecheck).toContain(
       '@ts-expect-error stable ECDSA HSS key context rejects volatile threshold session ids',
+    );
+    expect(thresholdEcdsaRpcTypecheck).toContain(
+      '@ts-expect-error role-local bootstrap accepts exactly one first-bootstrap authorization branch',
+    );
+    expect(thresholdEcdsaRpcTypecheck).toContain(
+      '@ts-expect-error role-local bootstrap request rejects client root share material',
+    );
+    expect(thresholdEcdsaRpcTypecheck).toContain(
+      '@ts-expect-error role-local bootstrap request rejects relayer export share material',
+    );
+    expect(thresholdEcdsaRpcTypecheck).toContain(
+      '@ts-expect-error role-local bootstrap request rejects canonical private key material',
     );
     expect(thresholdAdmission).toContain(
       '@ts-expect-error reauth results must carry canonical ready EVM-family material',
@@ -418,7 +433,7 @@ test.describe('signing engine refactor 37 guards', () => {
     expect(syncAccount).not.toContain('rawRecord.signerId || metadata.ownerAddress');
     expect(syncAccount).not.toContain('thresholdOwnerAddress: signerId');
     expect(hssBootstrapPolicy).toContain(
-      'registration_bootstrap derives the same shared key id and owner across EVM-family targets',
+      'role-local bootstrap derives one shared key id and owner for evm-family scope',
     );
     expect(identityUnit).toContain(
       'derives one shared fingerprint across Tempo and Arc/EVM session lanes',
@@ -772,7 +787,7 @@ test.describe('signing engine refactor 37 guards', () => {
     expect(enrollment).toContain('toWalletSessionUserId(');
   });
 
-  test('Phase 4 ECDSA HSS prepare uses opaque server-planned context', () => {
+  test('Phase 4 ECDSA HSS bootstrap uses role-local client context', () => {
     const hssClient = readRepoFile(
       'client/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts',
     );
@@ -787,19 +802,21 @@ test.describe('signing engine refactor 37 guards', () => {
       'client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
     );
 
-    expect(hssClient).toContain('export type ServerPlannedEcdsaHssContext');
-    expect(hssClient).toContain('context: ServerPlannedEcdsaHssContext;');
-    expect(relayer).toContain('parseServerPlannedEcdsaHssContext(json.hssContext)');
-    expect(bootstrapSession).toContain('context: prepare.hssContext');
-    expect(explicitExport).toContain('context: prepare.hssContext');
+    expect(hssClient).toContain('export type ThresholdEcdsaHssRoleLocalClientContext');
+    expect(hssClient).toContain('context: ThresholdEcdsaHssRoleLocalClientContext;');
+    expect(relayer).toContain('export async function thresholdEcdsaHssRoleLocalBootstrap');
+    expect(bootstrapSession).toContain('buildThresholdEcdsaHssRoleLocalClientBootstrapWasm({');
+    expect(explicitExport).toContain('buildThresholdEcdsaHssRoleLocalExportArtifactWasm({');
     expect(bootstrapSession).not.toContain(
       'buildThresholdEcdsaHssStableKeyContext(prepare.hssContext)',
     );
     expect(explicitExport).not.toContain(
       'buildThresholdEcdsaHssStableKeyContext(prepare.hssContext)',
     );
+    expect(emailOtpWorker).toContain('bootstrapRequestBase');
+    expect(emailOtpWorker).toContain('satisfies ThresholdEcdsaHssRoleLocalBootstrapRequest');
     expect(emailOtpWorker).toContain(
-      'chainTarget: thresholdEcdsaChainTargetKey(hssContext.chainTarget)',
+      'thresholdEcdsaHssRoleLocalBootstrap(relayerUrl, bootstrapRequest)',
     );
     expect(emailOtpWorker).not.toMatch(/toEcdsaHss\w+\(hssContext\./);
   });
@@ -1255,11 +1272,15 @@ test.describe('signing engine refactor 37 guards', () => {
     expect(keyStore).toContain(
       'CREATE INDEX IF NOT EXISTS threshold_ecdsa_keys_shared_identity_idx',
     );
+    expect(keyStore).toContain("WHERE record_json->>'version' = 'threshold_ecdsa_hss_role_local'");
+    expect(keyStore).not.toContain("WHERE record_json->>'version' = 'threshold_ecdsa_hss_key_v1'");
     expect(keyStore).toContain('threshold_ecdsa_keys_key_handle_uidx');
     expect(keyStore).toContain('key_handle = EXCLUDED.key_handle');
-    expect(keyStore).toContain('withThresholdEcdsaRecordKeyHandle');
-    expect(keyStore).toContain('getByKeyHandle(keyHandle: string)');
-    expect(keyStore).toContain('putByKeyHandle(record: ThresholdEcdsaIntegratedKeyRecord)');
+    expect(keyStore).not.toContain('withThresholdEcdsaRecordKeyHandle');
+    expect(keyStore).not.toContain('getByKeyHandle(keyHandle: string)');
+    expect(keyStore).not.toContain('putByKeyHandle(record: ThresholdEcdsaIntegratedKeyRecord)');
+    expect(keyStore).toContain('getRoleLocalByKeyHandle(keyHandle: string)');
+    expect(keyStore).toContain('putRoleLocalByKeyHandle(record: EcdsaHssRoleLocalKeyRecord)');
     expect(keyStore).toContain('deleteByKeyHandle(keyHandle: string)');
     expect(keyStore).toContain('WHERE namespace = $1 AND key_handle = $2');
   });
@@ -1273,8 +1294,10 @@ test.describe('signing engine refactor 37 guards', () => {
     );
 
     expect(store).toContain('thresholdEcdsaKeyHandleIndexKey');
-    expect(store).toContain('getByKeyHandle(keyHandle: string)');
-    expect(store).toContain('putByKeyHandle(record: ThresholdEcdsaIntegratedKeyRecord)');
+    expect(store).not.toContain('getByKeyHandle(keyHandle: string)');
+    expect(store).not.toContain('putByKeyHandle(record: ThresholdEcdsaIntegratedKeyRecord)');
+    expect(store).toContain('getRoleLocalByKeyHandle(keyHandle: string)');
+    expect(store).toContain('putRoleLocalByKeyHandle(record: EcdsaHssRoleLocalKeyRecord)');
     expect(store).toContain('deleteByKeyHandle(keyHandle: string)');
     expect(store).toContain('keyHandleKey: thresholdEcdsaKeyHandleIndexKey');
     expect(store).toContain('keyHandleValue: recordKey');
@@ -1307,7 +1330,7 @@ test.describe('signing engine refactor 37 guards', () => {
     expect(exportKeypairOperation).not.toContain('ecdsaThresholdKeyId:');
     expect(bootstrapSession).toContain("console.info('[threshold-ecdsa][hss-prepare][diagnostic]'");
     expect(bootstrapSession).toContain(
-      "console.info('[threshold-ecdsa][hss-finalize][diagnostic]'",
+      "console.info('[threshold-ecdsa][hss-role-local-bootstrap][diagnostic]'",
     );
     expect(bootstrapSession).toContain('evmFamilyKeyFingerprint');
   });
@@ -1399,6 +1422,7 @@ test.describe('signing engine refactor 37 guards', () => {
     const allowedLegacyKeyHandleFiles = new Set([
       'client/src/core/SeamsPasskey/login.ts',
       'docs/refactor-39.md',
+      'docs/rework-registration-flows.md',
       'tests/unit/signingEngine.refactor37.guard.unit.test.ts',
       'tests/unit/seamsPasskey.loginThresholdWarm.unit.test.ts',
     ]);

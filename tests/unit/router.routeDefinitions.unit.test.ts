@@ -44,9 +44,6 @@ const ALLOWLISTED_PUBLIC_RELAY_ROUTE_IDS = [
   'threshold_ed25519_internal_cosign_init',
   'threshold_ed25519_internal_cosign_finalize',
   'threshold_ecdsa_healthz',
-  'threshold_ecdsa_hss_prepare',
-  'threshold_ecdsa_hss_respond',
-  'threshold_ecdsa_hss_finalize',
   'threshold_ecdsa_sign_init',
   'threshold_ecdsa_sign_finalize',
   'threshold_ecdsa_internal_cosign_init',
@@ -128,6 +125,13 @@ test.describe('route definition scaffolding', () => {
     expect(sessionState).toBeTruthy();
     expect(sessionState?.path).toBe('/session/state');
     expect(sessionState?.aliases).toBeUndefined();
+
+    const routePaths = routes.map((route) => route.path);
+    expect(routePaths).toContain('/threshold-ecdsa/hss/bootstrap');
+    expect(routePaths).toContain('/threshold-ecdsa/hss/export/share');
+    expect(routePaths).not.toContain('/threshold-ecdsa/hss/prepare');
+    expect(routePaths).not.toContain('/threshold-ecdsa/hss/respond');
+    expect(routePaths).not.toContain('/threshold-ecdsa/hss/finalize');
 
     const wellKnown = routes.find((route) => route.id === 'relay_well_known_webauthn');
     expect(wellKnown?.aliases).toEqual(['/.well-known/webauthn/']);

@@ -53,14 +53,21 @@ structure ServerVisibleBoundary where
   allowedOutputKind : wire.AllowedOutputKindV1
   finalizeOperation : wire.ServerEvalOperationV1
   rawRootMaterialDropped : Bool
+  relayerKeyId : String
+  clientPublicKey33 : Bytes33
+  relayerPublicKey33 : Bytes33
   thresholdPublicKey33 : Bytes33
   thresholdEthereumAddress20 : Bytes20
-  retryCounter : UInt32
-  relayerThresholdShare32 : Bytes32
-  relayerPublicKey33 : Bytes33
+  clientShareRetryCounter : Std.U32
+  relayerShareRetryCounter : Std.U32
+  retainedRelayerKeyId : String
+  relayerShare32 : Bytes32
+  retainedClientPublicKey33 : Bytes33
+  retainedRelayerPublicKey33 : Bytes33
   retainedThresholdPublicKey33 : Bytes33
   retainedThresholdEthereumAddress20 : Bytes20
-  retainedRetryCounter : UInt32
+  retainedClientShareRetryCounter : Std.U32
+  retainedRelayerShareRetryCounter : Std.U32
   deriving DecidableEq, Repr
 
 /-- Observable server profile used for the narrow privacy claim. -/

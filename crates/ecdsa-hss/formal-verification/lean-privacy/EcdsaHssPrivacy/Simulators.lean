@@ -37,13 +37,13 @@ def simulateNonExportServerView
   match input.visibleBoundary.allowedOutputKind with
   | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialOnly =>
     some { boundary := input.visibleBoundary }
-  | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialAndCanonicalSecret => none
+  | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialAndRelayerExportShare => none
 
 def simulateExplicitExportServerView
     (input : ExplicitExportServerSimulatorInput) : Option ServerObservableProfile :=
   match input.visibleBoundary.allowedOutputKind with
   | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialOnly => none
-  | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialAndCanonicalSecret =>
+  | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialAndRelayerExportShare =>
     some { boundary := input.visibleBoundary }
 
 theorem simulateNonExportClientView_matches_state_projection
@@ -74,7 +74,13 @@ theorem simulateNonExportServerView_matches_state_projection
         }
       =
       nonExportServerView? state := by
-  cases state.boundary.operation.allowedOutputKind <;> rfl
+  cases state with
+  | mk boundary canonicalX32 clientSecrets serverSecrets =>
+    cases boundary with
+    | mk operation clientOutput finalize retained =>
+      cases operation with
+      | mk operation allowedOutputKind =>
+        cases allowedOutputKind <;> rfl
 
 theorem simulateExplicitExportServerView_matches_state_projection
     (state : ProtocolExecutionState) :
@@ -84,6 +90,12 @@ theorem simulateExplicitExportServerView_matches_state_projection
         }
       =
       explicitExportServerView? state := by
-  cases state.boundary.operation.allowedOutputKind <;> rfl
+  cases state with
+  | mk boundary canonicalX32 clientSecrets serverSecrets =>
+    cases boundary with
+    | mk operation clientOutput finalize retained =>
+      cases operation with
+      | mk operation allowedOutputKind =>
+        cases allowedOutputKind <;> rfl
 
 end EcdsaHssPrivacy

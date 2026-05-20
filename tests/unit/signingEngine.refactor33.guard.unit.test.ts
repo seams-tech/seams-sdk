@@ -984,7 +984,14 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
       operationState: ['identity', 'persistence', 'budget', 'planning'],
       warmCapabilities: ['availability', 'identity', 'persistence', 'operationState', 'budget'],
       passkey: ['identity', 'persistence', 'operationState', 'sealedRecovery', 'warmCapabilities'],
-      emailOtp: ['availability', 'identity', 'persistence', 'sealedRecovery', 'warmCapabilities'],
+      emailOtp: [
+        'availability',
+        'budget',
+        'identity',
+        'persistence',
+        'sealedRecovery',
+        'warmCapabilities',
+      ],
     };
     const offenders: string[] = [];
 
@@ -1874,7 +1881,6 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     const protocolFiles = [
       'client/src/core/signingEngine/threshold/ecdsa/authorize.ts',
       'client/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts',
-      'client/src/core/signingEngine/threshold/ecdsa/hssTransport.ts',
       'client/src/core/signingEngine/threshold/ecdsa/presignPool.ts',
       'client/src/core/signingEngine/threshold/ecdsa/sign.ts',
       'client/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts',

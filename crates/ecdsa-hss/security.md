@@ -319,7 +319,7 @@ Why it mattered:
 - malformed responses could carry inconsistent secret/public tuples across the
   client/server seam
 - explicit export checked some public identity fields without fully tying the
-  canonical scalar to the expected public key and address
+  client-reconstructed export scalar to the expected public key and address
 
 Implemented mitigation:
 
@@ -328,8 +328,8 @@ Implemented mitigation:
   - `pub(x_relayer32) == relayer_public_key33`
   - `pub(x_client32) + pub(x_relayer32) == threshold_public_key33`
   - `addr(threshold_public_key33) == threshold_ethereum_address20`
-  - `pub(canonical_x32) == canonical_public_key33`
-  - `addr(canonical_public_key33) == canonical_ethereum_address20`
+  - `pub(x_export32) == threshold_public_key33`
+  - `addr(threshold_public_key33) == threshold_ethereum_address20`
 - the client-output threshold identity is checked against retained server
   identity
 
@@ -414,7 +414,7 @@ Still intentionally out of scope:
 - Export semantics:
   [specs/export.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/specs/export.md)
 - Integration with the current backend:
-  [specs/integration-near-threshold.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/specs/integration-near-threshold.md)
+  [specs/integration-cait-sith-backend.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/specs/integration-cait-sith-backend.md)
 - Implementation plan:
   [docs/plans/implementation-plan.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/docs/plans/implementation-plan.md)
 - Share-derivation design memo:

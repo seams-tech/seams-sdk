@@ -4,9 +4,6 @@ import type {
   ThresholdEcdsaAuthorizeWithSessionRequest,
   ThresholdEcdsaCosignFinalizeRequest,
   ThresholdEcdsaCosignInitRequest,
-  ThresholdEcdsaHssFinalizeRequest,
-  ThresholdEcdsaHssPrepareRequest,
-  ThresholdEcdsaHssRespondRequest,
   ThresholdEcdsaPresignInitRequest,
   ThresholdEcdsaPresignStepRequest,
   ThresholdEcdsaSignFinalizeRequest,
@@ -14,7 +11,8 @@ import type {
 } from '../../../core/types';
 import {
   parseAppSessionClaims,
-  parseRegistrationContinuationClaims,
+  parseEcdsaHssClientBootstrapRequest,
+  parseEcdsaHssExportShareRequest,
   parseThresholdEcdsaSessionClaims,
   parseThresholdEd25519SessionClaims,
   resolveAppSessionWalletIdForWalletScope,
@@ -25,23 +23,57 @@ import { thresholdEcdsaStatusCode } from '../../../threshold/statusCodes';
 import { parseSessionKind, resolveThresholdScheme } from '../../relay';
 import {
   resolveThresholdRuntimePolicyScope,
-  signThresholdSessionAuthToken,
   validateThresholdEcdsaAuthorizeInputs,
   validateThresholdEcdsaSessionInputs,
   validateThresholdEd25519SessionTokenInputs,
 } from '../../commonRouterUtils';
 import { validateRuntimeSnapshotExpectation } from '../../runtimeSnapshotConsumer';
-import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
+import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
+import {
+  computeEcdsaHssRoleLocalFirstBootstrapRootProofDigest32B64u,
+  computeEcdsaHssRoleLocalPasskeyFirstBootstrapAuthDigest32B64u,
+  computeEcdsaHssRoleLocalRelayerKeyId,
+  computeEcdsaHssRoleLocalThresholdKeyId,
+} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+import {
+  signingRootScopeFromRuntimePolicyScope,
+  type RuntimePolicyScope,
+} from '@shared/threshold/signingRootScope';
+import { verifySecp256k1RecoverableSignatureAgainstPublicKey33 } from '../../../core/ThresholdService/ethSignerWasm';
 
-type EcdsaRuntimePolicyScope = NonNullable<
-  ThresholdEcdsaHssPrepareRequest['sessionPolicy']
->['runtimePolicyScope'];
+type EcdsaRuntimePolicyScope = RuntimePolicyScope;
+type ThresholdEcdsaSessionClaims = NonNullable<ReturnType<typeof parseThresholdEcdsaSessionClaims>>;
 
 const NOT_IMPLEMENTED = {
   ok: false,
   code: 'not_implemented',
   message: 'threshold-ecdsa is not implemented',
 } as const;
+
+function validateEcdsaHssSessionIdentity(input: {
+  claims: ThresholdEcdsaSessionClaims;
+  walletSessionUserId: string;
+  rpId: string;
+  subjectId: string;
+  relayerKeyId: string;
+}): { ok: true } | { ok: false; code: string; message: string } {
+  if (input.claims.thresholdExpiresAtMs <= Date.now()) {
+    return { ok: false, code: 'unauthorized', message: 'Threshold ECDSA session is expired' };
+  }
+  if (input.walletSessionUserId !== input.claims.walletId) {
+    return { ok: false, code: 'identity_mismatch', message: 'walletSessionUserId mismatch' };
+  }
+  if (input.rpId !== input.claims.rpId) {
+    return { ok: false, code: 'identity_mismatch', message: 'rpId mismatch' };
+  }
+  if (input.subjectId !== input.claims.subjectId) {
+    return { ok: false, code: 'identity_mismatch', message: 'subjectId mismatch' };
+  }
+  if (input.relayerKeyId !== input.claims.relayerKeyId) {
+    return { ok: false, code: 'relayer_key_mismatch', message: 'relayerKeyId mismatch' };
+  }
+  return { ok: true };
+}
 
 type PresignTrafficClass = 'foreground' | 'background';
 
@@ -175,136 +207,194 @@ function resolveEcdsaRuntimePolicyScopeFromClaims(input: {
   appSessionClaims: ReturnType<typeof parseAppSessionClaims>;
   ed25519SessionClaims: ReturnType<typeof parseThresholdEd25519SessionClaims>;
   ecdsaSessionClaims: ReturnType<typeof parseThresholdEcdsaSessionClaims>;
-  registrationContinuationClaims: ReturnType<typeof parseRegistrationContinuationClaims>;
 }): EcdsaRuntimePolicyScope | undefined {
   return (
-    normalizeEcdsaRuntimePolicyScope(input.registrationContinuationClaims?.runtimePolicyScope) ||
     normalizeEcdsaRuntimePolicyScope(input.ed25519SessionClaims?.runtimePolicyScope) ||
     normalizeEcdsaRuntimePolicyScope(input.appSessionClaims?.runtimePolicyScope) ||
     normalizeEcdsaRuntimePolicyScope(input.ecdsaSessionClaims?.runtimePolicyScope)
   );
 }
 
-function applyEcdsaRuntimePolicyScope(
-  body: ThresholdEcdsaHssPrepareRequest,
-  runtimePolicyScope: EcdsaRuntimePolicyScope | undefined,
-): ThresholdEcdsaHssPrepareRequest {
-  if (!runtimePolicyScope) return body;
-  switch (body.operation) {
-    case 'registration_bootstrap':
-    case 'email_otp_bootstrap':
-    case 'session_bootstrap':
-      return {
-        ...body,
-        sessionPolicy: {
-          ...body.sessionPolicy,
-          runtimePolicyScope,
-        },
-      };
-    case 'explicit_key_export':
-      return body;
+async function authorizeEcdsaHssRoleLocalFirstBootstrap(input: {
+  ctx: ExpressRelayContext;
+  headers: Request['headers'];
+  request: NonNullable<ReturnType<typeof parseEcdsaHssClientBootstrapRequest>>;
+}): Promise<{ ok: true } | { ok: false; code: string; message: string }> {
+  const { ctx, headers, request } = input;
+  const expectedRelayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
+    walletSessionUserId: request.walletSessionUserId,
+    rpId: request.rpId,
+  });
+  if (request.relayerKeyId !== expectedRelayerKeyId) {
+    return { ok: false, code: 'relayer_key_mismatch', message: 'relayerKeyId mismatch' };
   }
-}
-
-function attachEcdsaPrepareRouteClaims(input: {
-  body: ThresholdEcdsaHssPrepareRequest;
-  appSessionClaims: ReturnType<typeof parseAppSessionClaims>;
-  ed25519SessionClaims: ReturnType<typeof parseThresholdEd25519SessionClaims>;
-  ecdsaSessionClaims: ReturnType<typeof parseThresholdEcdsaSessionClaims>;
-  registrationContinuationClaims: ReturnType<typeof parseRegistrationContinuationClaims>;
-  emailOtpEnrollmentClaims: ThresholdEcdsaHssPrepareRequest['emailOtpEnrollmentClaims'] | undefined;
-}): ThresholdEcdsaHssPrepareRequest {
-  const shared = {
-    appSessionClaims: input.appSessionClaims || undefined,
-    ed25519SessionClaims: input.ed25519SessionClaims || undefined,
-    ecdsaSessionClaims: input.ecdsaSessionClaims || undefined,
-  };
-  switch (input.body.operation) {
-    case 'registration_bootstrap':
-      return {
-        ...input.body,
-        ...shared,
-        registrationContinuationClaims: input.registrationContinuationClaims || undefined,
-      };
-    case 'email_otp_bootstrap':
-      return {
-        ...input.body,
-        ...shared,
-        emailOtpEnrollmentClaims: input.emailOtpEnrollmentClaims,
-      };
-    case 'session_bootstrap':
-      return {
-        ...input.body,
-        ...shared,
-        registrationContinuationClaims: input.registrationContinuationClaims || undefined,
-      };
-    case 'explicit_key_export':
-      return {
-        ...input.body,
-        ...shared,
-        ecdsaSessionClaims: input.ecdsaSessionClaims || input.body.ecdsaSessionClaims,
-      };
+  const expectedThresholdKeyId = await computeEcdsaHssRoleLocalThresholdKeyId({
+    walletSessionUserId: request.walletSessionUserId,
+    rpId: request.rpId,
+    subjectId: request.subjectId,
+    signingRootId: request.signingRootId,
+    signingRootVersion: request.signingRootVersion,
+  });
+  if (request.ecdsaThresholdKeyId !== expectedThresholdKeyId) {
+    return {
+      ok: false,
+      code: 'ecdsa_key_mismatch',
+      message: 'ecdsaThresholdKeyId mismatch',
+    };
   }
-}
-
-async function resolveEmailOtpEnrollmentClaimsForThresholdEcdsa(
-  ctx: ExpressRelayContext,
-  body: ThresholdEcdsaHssPrepareRequest,
-  runtimePolicyScope: EcdsaRuntimePolicyScope | undefined,
-  appSessionClaims: ReturnType<typeof parseAppSessionClaims>,
-  ed25519SessionClaims: ReturnType<typeof parseThresholdEd25519SessionClaims>,
-  ecdsaSessionClaims: ReturnType<typeof parseThresholdEcdsaSessionClaims>,
-): Promise<ThresholdEcdsaHssPrepareRequest['emailOtpEnrollmentClaims'] | undefined> {
-  if (body.operation !== 'email_otp_bootstrap') return undefined;
+  const proof = request.clientRootProof;
+  const passkeyAuthorization = request.passkeyFirstBootstrapAuthorization;
+  if (passkeyAuthorization) {
+    const runtimePolicyScopeResolution = await resolveThresholdRuntimePolicyScope({
+      explicitScopeRaw: passkeyAuthorization.runtimePolicyScope,
+      runtimeEnvironmentIdRaw: passkeyAuthorization.runtimeEnvironmentId,
+      headers: headers || {},
+      origin: Array.isArray(headers?.origin) ? headers.origin[0] : headers?.origin,
+      publishableKeyAuth: ctx.opts.publishableKeyAuth || null,
+      orgProjectEnv: ctx.opts.orgProjectEnv || null,
+    });
+    if (!runtimePolicyScopeResolution.ok) {
+      return {
+        ok: false,
+        code: runtimePolicyScopeResolution.code,
+        message: runtimePolicyScopeResolution.message,
+      };
+    }
+    const runtimePolicyScope = runtimePolicyScopeResolution.scope;
+    if (!runtimePolicyScope) {
+      return { ok: false, code: 'unauthorized', message: 'Missing runtime policy scope' };
+    }
+    const signingRootScope = signingRootScopeFromRuntimePolicyScope(runtimePolicyScope);
+    if (
+      request.signingRootId !== signingRootScope.signingRootId ||
+      request.signingRootVersion !==
+        (signingRootScope.signingRootVersion || runtimePolicyScope.signingRootVersion)
+    ) {
+      return { ok: false, code: 'identity_mismatch', message: 'signing root mismatch' };
+    }
+    const expectedChallenge =
+      await computeEcdsaHssRoleLocalPasskeyFirstBootstrapAuthDigest32B64u({
+        walletSessionUserId: request.walletSessionUserId,
+        rpId: request.rpId,
+        subjectId: request.subjectId,
+        ecdsaThresholdKeyId: request.ecdsaThresholdKeyId,
+        signingRootId: request.signingRootId,
+        signingRootVersion: request.signingRootVersion,
+        keyScope: request.keyScope,
+        relayerKeyId: request.relayerKeyId,
+        requestId: request.requestId,
+        sessionId: request.sessionId,
+        walletSigningSessionId: request.walletSigningSessionId,
+        ttlMs: request.ttlMs,
+        remainingUses: request.remainingUses,
+        participantIds: request.participantIds,
+      });
+    const verified = await ctx.service.verifyWebAuthnAuthenticationLite({
+      nearAccountId: request.walletSessionUserId,
+      rpId: request.rpId,
+      expectedChallenge,
+      webauthn_authentication: passkeyAuthorization.webauthn_authentication,
+    });
+    if (!verified.success || !verified.verified) {
+      return {
+        ok: false,
+        code: verified.code || 'unauthorized',
+        message: verified.message || 'Invalid passkey bootstrap authorization',
+      };
+    }
+    return { ok: true };
+  }
+  if (!proof) {
+    return {
+      ok: false,
+      code: 'unauthorized',
+      message: 'First bootstrap requires client root proof',
+    };
+  }
+  const expectedDigest32B64u =
+    await computeEcdsaHssRoleLocalFirstBootstrapRootProofDigest32B64u(request);
+  if (proof.digest32B64u !== expectedDigest32B64u) {
+    return {
+      ok: false,
+      code: 'unauthorized',
+      message: 'Invalid client root proof digest',
+    };
+  }
+  const session = ctx.opts.session;
+  if (!session) {
+    return { ok: false, code: 'unauthorized', message: 'Session transport is not configured' };
+  }
+  const parsedSession = await session.parse(headers || {});
+  if (!parsedSession.ok) {
+    return { ok: false, code: 'unauthorized', message: 'Missing bootstrap authorization session' };
+  }
+  let appSessionClaims = parseAppSessionClaims(parsedSession.claims);
+  if (appSessionClaims) {
+    const validated = await ctx.service.validateAppSessionVersion({
+      userId: appSessionClaims.sub,
+      appSessionVersion: appSessionClaims.appSessionVersion,
+    });
+    if (!validated.ok) appSessionClaims = null;
+  }
+  const ed25519SessionClaims = parseThresholdEd25519SessionClaims(parsedSession.claims);
+  const ecdsaSessionClaims = parseThresholdEcdsaSessionClaims(parsedSession.claims);
   const sessionClaims = appSessionClaims || ed25519SessionClaims || ecdsaSessionClaims;
-  if (!sessionClaims) return undefined;
-  const walletSessionUserId = String(body.walletSessionUserId || '').trim();
-  if (!walletSessionUserId) {
-    return undefined;
+  if (!sessionClaims) {
+    return { ok: false, code: 'unauthorized', message: 'Invalid bootstrap authorization session' };
   }
   const appSessionWalletId = resolveAppSessionWalletIdForWalletScope(
     appSessionClaims,
-    walletSessionUserId,
+    request.walletSessionUserId,
   );
   const appSessionProviderUserId = resolveAppSessionProviderUserIdForWalletScope(
     appSessionClaims,
-    walletSessionUserId,
+    request.walletSessionUserId,
   );
   if (appSessionClaims) {
-    if (appSessionWalletId && appSessionWalletId !== walletSessionUserId) return undefined;
-    if (!appSessionWalletId && !appSessionProviderUserId) return undefined;
-  } else if (String(sessionClaims.walletId || '').trim() !== walletSessionUserId) {
-    return undefined;
+    if (appSessionWalletId && appSessionWalletId !== request.walletSessionUserId) {
+      return { ok: false, code: 'identity_mismatch', message: 'walletSessionUserId mismatch' };
+    }
+    if (!appSessionWalletId && !appSessionProviderUserId) {
+      return { ok: false, code: 'identity_mismatch', message: 'walletSessionUserId mismatch' };
+    }
+  } else if (String(sessionClaims.walletId || '').trim() !== request.walletSessionUserId) {
+    return { ok: false, code: 'identity_mismatch', message: 'walletSessionUserId mismatch' };
   }
-  const sessionOrgId =
-    appSessionClaims?.runtimePolicyScope?.orgId ||
-    ed25519SessionClaims?.runtimePolicyScope?.orgId ||
-    ecdsaSessionClaims?.runtimePolicyScope?.orgId ||
-    runtimePolicyScope?.orgId;
+  const runtimePolicyScope = resolveEcdsaRuntimePolicyScopeFromClaims({
+    appSessionClaims,
+    ed25519SessionClaims,
+    ecdsaSessionClaims,
+  });
   const enrollment = await ctx.service.readActiveEmailOtpEnrollment({
-    walletId: walletSessionUserId,
-    orgId: String(sessionOrgId || '').trim() || undefined,
+    walletId: request.walletSessionUserId,
+    orgId: String(runtimePolicyScope?.orgId || '').trim() || undefined,
     providerUserId: appSessionProviderUserId,
   });
-  if (!enrollment.ok) return undefined;
+  if (!enrollment.ok) {
+    return { ok: false, code: 'unauthorized', message: 'Missing active Email OTP enrollment' };
+  }
   const verifier = String(
     enrollment.enrollment.thresholdEcdsaClientVerifyingShareB64u || '',
   ).trim();
-  // App-session subjects can be provider-scoped or wallet-scoped depending on
-  // the issuing unlock path.
   if (
-    (appSessionProviderUserId &&
-      enrollment.enrollment.providerUserId !== appSessionProviderUserId) ||
-    !verifier
+    !verifier ||
+    (appSessionProviderUserId && enrollment.enrollment.providerUserId !== appSessionProviderUserId)
   ) {
-    return undefined;
+    return { ok: false, code: 'unauthorized', message: 'Invalid Email OTP enrollment' };
   }
-  return {
-    walletId: enrollment.enrollment.walletId,
-    userId: enrollment.enrollment.providerUserId,
-    otpChannel: EMAIL_OTP_CHANNEL,
-    thresholdEcdsaClientVerifyingShareB64u: verifier,
-  };
+  try {
+    const recovered33 = await verifySecp256k1RecoverableSignatureAgainstPublicKey33(
+      base64UrlDecode(proof.digest32B64u),
+      base64UrlDecode(proof.signature65B64u),
+      base64UrlDecode(verifier),
+    );
+    if (base64UrlEncode(recovered33) !== verifier) {
+      return { ok: false, code: 'unauthorized', message: 'Invalid client root proof' };
+    }
+  } catch {
+    return { ok: false, code: 'unauthorized', message: 'Invalid client root proof' };
+  }
+  return { ok: true };
 }
 
 function parseForwardHop(value: string | undefined): number {
@@ -411,254 +501,124 @@ export function registerThresholdEcdsaRoutes(
     });
   });
 
-  router.post('/threshold-ecdsa/hss/prepare', async (req: Request, res: Response) => {
-    const body = (req.body || {}) as ThresholdEcdsaHssPrepareRequest;
+  router.post('/threshold-ecdsa/hss/bootstrap', async (req: Request, res: Response) => {
+    const body = req.body || {};
     await handle(
       ctx,
       req,
       res,
-      '/threshold-ecdsa/hss/prepare',
+      '/threshold-ecdsa/hss/bootstrap',
       {
         walletSessionUserId:
-          typeof body.walletSessionUserId === 'string'
-            ? body.walletSessionUserId
+          typeof (body as { walletSessionUserId?: unknown }).walletSessionUserId === 'string'
+            ? (body as { walletSessionUserId: string }).walletSessionUserId
             : undefined,
-        rpId: typeof body.rpId === 'string' ? body.rpId : undefined,
-        operation: typeof body.operation === 'string' ? body.operation : undefined,
-        subjectId:
-          typeof body.sessionPolicy?.subjectId === 'string'
-            ? body.sessionPolicy.subjectId
+        rpId:
+          typeof (body as { rpId?: unknown }).rpId === 'string'
+            ? (body as { rpId: string }).rpId
             : undefined,
-        chainTarget: body.sessionPolicy?.chainTarget,
-        keyHandle:
-          typeof body.keyHandle === 'string'
-            ? body.keyHandle
-            : typeof body.sessionPolicy?.keyHandle === 'string'
-              ? body.sessionPolicy.keyHandle
-              : undefined,
         ecdsaThresholdKeyId:
-          typeof body.ecdsaThresholdKeyId === 'string'
-            ? body.ecdsaThresholdKeyId
-            : typeof body.sessionPolicy?.ecdsaThresholdKeyId === 'string'
-              ? body.sessionPolicy.ecdsaThresholdKeyId
-              : undefined,
-        sessionId:
-          typeof body.sessionPolicy?.sessionId === 'string'
-            ? body.sessionPolicy.sessionId
+          typeof (body as { ecdsaThresholdKeyId?: unknown }).ecdsaThresholdKeyId === 'string'
+            ? (body as { ecdsaThresholdKeyId: string }).ecdsaThresholdKeyId
             : undefined,
-        walletSigningSessionId:
-          typeof body.sessionPolicy?.walletSigningSessionId === 'string'
-            ? body.sessionPolicy.walletSigningSessionId
+        relayerKeyId:
+          typeof (body as { relayerKeyId?: unknown }).relayerKeyId === 'string'
+            ? (body as { relayerKeyId: string }).relayerKeyId
+            : undefined,
+        requestId:
+          typeof (body as { requestId?: unknown }).requestId === 'string'
+            ? (body as { requestId: string }).requestId
             : undefined,
       },
       async () => {
-        const resolved = resolveThresholdScheme(
-          ctx.opts.threshold,
-          THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
-          {
-            notFoundMessage: 'threshold-ecdsa scheme is not enabled on this server',
-          },
-        );
-        if (!resolved.ok) return resolved;
-        const scheme = resolved.scheme;
-        if (!scheme.hss) {
-          return {
-            ok: false,
-            code: 'not_implemented',
-            message: 'threshold-ecdsa hss prepare is not implemented on this server',
-          };
+        const parsed = parseEcdsaHssClientBootstrapRequest(body);
+        if (!parsed) {
+          return { ok: false, code: 'invalid_body', message: 'Invalid ECDSA HSS bootstrap body' };
         }
-        const session = ctx.opts.session;
-        let appSessionClaims: ReturnType<typeof parseAppSessionClaims> = null;
-        let ed25519SessionClaims: ReturnType<typeof parseThresholdEd25519SessionClaims> = null;
-        let ecdsaSessionClaims: ReturnType<typeof parseThresholdEcdsaSessionClaims> = null;
-        let registrationContinuationClaims: ReturnType<
-          typeof parseRegistrationContinuationClaims
-        > = null;
-        if (session) {
-          const parsedSession = await session.parse(req.headers || {});
-          if (parsedSession.ok) {
-            appSessionClaims = parseAppSessionClaims(parsedSession.claims);
-            if (appSessionClaims) {
-              const validated = await ctx.service.validateAppSessionVersion({
-                userId: appSessionClaims.sub,
-                appSessionVersion: appSessionClaims.appSessionVersion,
-              });
-              if (!validated.ok) {
-                appSessionClaims = null;
-              }
-            }
-            ed25519SessionClaims = parseThresholdEd25519SessionClaims(parsedSession.claims);
-            ecdsaSessionClaims = parseThresholdEcdsaSessionClaims(parsedSession.claims);
-            registrationContinuationClaims = parseRegistrationContinuationClaims(
-              parsedSession.claims,
-            );
-          }
-        }
-        const inheritedRuntimePolicyScope = resolveEcdsaRuntimePolicyScopeFromClaims({
-          appSessionClaims,
-          ed25519SessionClaims,
-          ecdsaSessionClaims,
-          registrationContinuationClaims,
-        });
-        const runtimePolicyScopeResolution = await resolveThresholdRuntimePolicyScope({
-          explicitScopeRaw: inheritedRuntimePolicyScope ?? body.sessionPolicy?.runtimePolicyScope,
-          runtimeEnvironmentIdRaw: (body as { runtimeEnvironmentId?: unknown })
-            .runtimeEnvironmentId,
+        const validated = await validateThresholdEcdsaSessionInputs({
+          body,
           headers: req.headers || {},
-          origin: Array.isArray(req.headers?.origin) ? req.headers.origin[0] : req.headers?.origin,
-          publishableKeyAuth: ctx.opts.publishableKeyAuth || null,
-          orgProjectEnv: ctx.opts.orgProjectEnv || null,
+          session: ctx.opts.session,
         });
-        if (!runtimePolicyScopeResolution.ok) {
-          return {
-            ok: false,
-            code: runtimePolicyScopeResolution.code,
-            message: runtimePolicyScopeResolution.message,
-          };
+        if (validated.ok) {
+          const identity = validateEcdsaHssSessionIdentity({
+            claims: validated.claims,
+            walletSessionUserId: parsed.walletSessionUserId,
+            rpId: parsed.rpId,
+            subjectId: parsed.subjectId,
+            relayerKeyId: parsed.relayerKeyId,
+          });
+          if (!identity.ok) return identity;
+        } else {
+          const firstBootstrap = await authorizeEcdsaHssRoleLocalFirstBootstrap({
+            ctx,
+            headers: req.headers || {},
+            request: parsed,
+          });
+          if (!firstBootstrap.ok) return firstBootstrap;
         }
-        const runtimePolicyScope = runtimePolicyScopeResolution.scope;
-        const scopedBody = applyEcdsaRuntimePolicyScope(body, runtimePolicyScope);
-        const emailOtpEnrollmentClaims = await resolveEmailOtpEnrollmentClaimsForThresholdEcdsa(
-          ctx,
-          scopedBody,
-          runtimePolicyScope,
-          appSessionClaims,
-          ed25519SessionClaims,
-          ecdsaSessionClaims,
-        );
-        const request = attachEcdsaPrepareRouteClaims({
-          body: scopedBody,
-          appSessionClaims,
-          emailOtpEnrollmentClaims,
-          ed25519SessionClaims,
-          ecdsaSessionClaims,
-          registrationContinuationClaims,
-        });
-        return await scheme.hss.prepare(request);
+        return await ctx.service.ecdsaHssRoleLocalBootstrap(parsed);
       },
     );
   });
 
-  router.post('/threshold-ecdsa/hss/respond', async (req: Request, res: Response) => {
-    const body = (req.body || {}) as ThresholdEcdsaHssRespondRequest;
+  router.post('/threshold-ecdsa/hss/export/share', async (req: Request, res: Response) => {
+    const body = req.body || {};
     await handle(
       ctx,
       req,
       res,
-      '/threshold-ecdsa/hss/respond',
+      '/threshold-ecdsa/hss/export/share',
       {
-        ceremonyId: typeof body.ceremonyId === 'string' ? body.ceremonyId : undefined,
-        requestMessageB64u_len:
-          typeof body.requestMessageB64u === 'string' ? body.requestMessageB64u.length : undefined,
-      },
-      async () => {
-        const resolved = resolveThresholdScheme(
-          ctx.opts.threshold,
-          THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
-          {
-            notFoundMessage: 'threshold-ecdsa scheme is not enabled on this server',
-          },
-        );
-        if (!resolved.ok) return resolved;
-        const scheme = resolved.scheme;
-        if (!scheme.hss) {
-          return {
-            ok: false,
-            code: 'not_implemented',
-            message: 'threshold-ecdsa hss respond is not implemented on this server',
-          };
-        }
-        return await scheme.hss.respond(body);
-      },
-    );
-  });
-
-  router.post('/threshold-ecdsa/hss/finalize', async (req: Request, res: Response) => {
-    const body = (req.body || {}) as ThresholdEcdsaHssFinalizeRequest;
-    await handle(
-      ctx,
-      req,
-      res,
-      '/threshold-ecdsa/hss/finalize',
-      {
-        ceremonyId: typeof body.ceremonyId === 'string' ? body.ceremonyId : undefined,
-        clientFinalizeMessageB64u_len:
-          typeof body.clientFinalizeMessageB64u === 'string'
-            ? body.clientFinalizeMessageB64u.length
+        walletSessionUserId:
+          typeof (body as { walletSessionUserId?: unknown }).walletSessionUserId === 'string'
+            ? (body as { walletSessionUserId: string }).walletSessionUserId
+            : undefined,
+        rpId:
+          typeof (body as { rpId?: unknown }).rpId === 'string'
+            ? (body as { rpId: string }).rpId
+            : undefined,
+        ecdsaThresholdKeyId:
+          typeof (body as { ecdsaThresholdKeyId?: unknown }).ecdsaThresholdKeyId === 'string'
+            ? (body as { ecdsaThresholdKeyId: string }).ecdsaThresholdKeyId
+            : undefined,
+        relayerKeyId:
+          typeof (body as { relayerKeyId?: unknown }).relayerKeyId === 'string'
+            ? (body as { relayerKeyId: string }).relayerKeyId
+            : undefined,
+        clientDeviceId:
+          typeof (body as { clientDeviceId?: unknown }).clientDeviceId === 'string'
+            ? (body as { clientDeviceId: string }).clientDeviceId
             : undefined,
       },
       async () => {
-        const resolved = resolveThresholdScheme(
-          ctx.opts.threshold,
-          THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
-          {
-            notFoundMessage: 'threshold-ecdsa scheme is not enabled on this server',
-          },
-        );
-        if (!resolved.ok) return resolved;
-        const scheme = resolved.scheme;
-        if (!scheme.hss) {
+        const parsed = parseEcdsaHssExportShareRequest(body);
+        if (!parsed) {
           return {
             ok: false,
-            code: 'not_implemented',
-            message: 'threshold-ecdsa hss finalize is not implemented on this server',
+            code: 'invalid_body',
+            message: 'Invalid ECDSA HSS export-share body',
           };
         }
-        const result = await scheme.hss.finalize(body);
-        if (!result.ok) return result;
-        if (!result.sessionId || !result.sessionAuthTokenUserId || !result.sessionAuthTokenRpId) {
-          return result;
-        }
-        const signed = await signThresholdSessionAuthToken({
+        const validated = await validateThresholdEcdsaSessionInputs({
+          body,
+          headers: req.headers || {},
           session: ctx.opts.session,
-          kind: 'threshold_ecdsa_session_v1',
-          userId: result.sessionAuthTokenUserId,
-          rpId: result.sessionAuthTokenRpId,
-          relayerKeyId: result.relayerKeyId,
-          allowedSessionKinds: ['jwt', 'cookie'],
-          sessionInfo: {
-            sessionKind: result.sessionKind,
-            sessionId: result.sessionId,
-            walletSigningSessionId: result.walletSigningSessionId,
-            expiresAtMs: result.expiresAtMs,
-            participantIds: result.participantIds,
-            subjectId: result.subjectId,
-            chainTarget: result.chainTarget,
-            keyHandle: result.keyHandle,
-            ...(result.runtimePolicyScope ? { runtimePolicyScope: result.runtimePolicyScope } : {}),
-          },
-          fallbackParticipantIds: result.participantIds,
-          requireJwtErrorMessage:
-            'threshold-ecdsa hss finalize requires sessionKind "jwt" or "cookie"',
-          invalidPayloadErrorMessage:
-            'threshold-ecdsa hss finalize returned invalid session payload',
-          sessionsDisabledMessage: 'Sessions are not configured on this server',
         });
-        if (!signed.ok) {
-          return {
-            ok: false,
-            code: signed.code,
-            message: signed.message,
-          };
-        }
-        const {
-          sessionAuthTokenUserId: _sessionAuthTokenUserId,
-          sessionAuthTokenRpId: _sessionAuthTokenRpId,
-          jwt: _rawJwt,
-          ...rest
-        } = result;
-        if (result.sessionKind === 'cookie') {
-          res.set('Set-Cookie', ctx.opts.session!.buildSetCookie(signed.jwt));
-          return {
-            ...rest,
-            jwt: undefined,
-          };
-        }
-        return {
-          ...rest,
-          jwt: signed.jwt,
-        };
+        if (!validated.ok) return validated;
+        const identity = validateEcdsaHssSessionIdentity({
+          claims: validated.claims,
+          walletSessionUserId: parsed.walletSessionUserId,
+          rpId: parsed.rpId,
+          subjectId: parsed.subjectId,
+          relayerKeyId: parsed.relayerKeyId,
+        });
+        if (!identity.ok) return identity;
+        return await ctx.service.ecdsaHssRoleLocalExportShare({
+          request: parsed,
+          keyHandle: validated.claims.keyHandle,
+          claims: validated.claims,
+        });
       },
     );
   });

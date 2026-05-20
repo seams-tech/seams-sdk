@@ -214,6 +214,11 @@ pub fn validate_secp256k1_public_key_33(public_key33: &[u8]) -> CoreResult<Vec<u
             bytes.len()
         )));
     }
+    if bytes != public_key33 {
+        return Err(SignerCoreError::decode_error(
+            "compressed secp256k1 public key must use canonical SEC1 encoding",
+        ));
+    }
     Ok(bytes.to_vec())
 }
 
@@ -329,7 +334,9 @@ pub fn verify_secp256k1_recoverable_signature_against_public_key_33(
         return Err(SignerCoreError::invalid_length("digest32 must be 32 bytes"));
     }
     if signature65.len() != 65 {
-        return Err(SignerCoreError::invalid_length("signature65 must be 65 bytes"));
+        return Err(SignerCoreError::invalid_length(
+            "signature65 must be 65 bytes",
+        ));
     }
 
     let expected_vk = VerifyingKey::from_sec1_bytes(public_key33)

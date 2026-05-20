@@ -53,6 +53,7 @@ type DoReq =
   | { op: 'getdel'; key: string }
   | { op: 'authConsumeUseCount'; key: string }
   | { op: 'authConsumeUseCountOnce'; key: string; idempotencyKey: string }
+  | { op: 'authReserveReplayGuard'; key: string; expiresAtMs: number }
   | { op: 'ecdsaPresignPut'; listKey: string; value: unknown }
   | { op: 'ecdsaPresignReserve'; listKey: string; reservedKeyPrefix: string; ttlMs?: number }
   | {
@@ -577,6 +578,35 @@ export class ThresholdStoreDurableObject {
         await store.put(key, entry, { expirationTtl: ttlSeconds });
 
         return ok({ remainingUses: entry.remainingUses });
+      });
+
+      return json(res);
+    }
+
+    if (op === 'authReserveReplayGuard') {
+      const key = toKey((req as { key?: unknown }).key);
+      const expiresAtMs = Number((req as { expiresAtMs?: unknown }).expiresAtMs);
+      if (!key) return json(err('invalid_body', 'Missing key'));
+      if (!Number.isFinite(expiresAtMs)) {
+        return json(err('invalid_body', 'Invalid expiresAtMs'));
+      }
+
+      const res: DoResp<unknown> = await withTxn(this.state, async (store) => {
+        const nowMs = Date.now();
+        if (expiresAtMs <= nowMs) {
+          return err('export_authorization_expired', 'Export authorization expired');
+        }
+        const raw = await store.get(key);
+        const existingExpiresAtMs =
+          raw && typeof raw === 'object' && 'expiresAtMs' in raw
+            ? Number((raw as { expiresAtMs?: unknown }).expiresAtMs)
+            : NaN;
+        if (Number.isFinite(existingExpiresAtMs) && existingExpiresAtMs > nowMs) {
+          return err('export_nonce_replay', 'Export authorization nonce already used');
+        }
+        const ttlSeconds = Math.max(1, Math.ceil((expiresAtMs - nowMs) / 1000));
+        await store.put(key, { expiresAtMs }, { expirationTtl: ttlSeconds });
+        return ok({ reserved: true });
       });
 
       return json(res);

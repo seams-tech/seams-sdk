@@ -437,8 +437,6 @@ dependencies = [
  "criterion",
  "hex",
  "k256",
- "num-bigint",
- "num-traits",
  "serde",
  "serde_json",
  "sha2",

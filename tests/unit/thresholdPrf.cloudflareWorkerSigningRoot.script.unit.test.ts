@@ -14,10 +14,12 @@ import {
   type SigningRootSecretShareKekResolutionInput,
 } from '../../server/src/core/ThresholdService/signingRootSecretSealing';
 import { CloudflareDurableObjectSigningRootSecretStore } from '../../server/src/core/ThresholdService/stores/SigningRootSecretStore';
+import { roleLocalThresholdEcdsaHssRelayerBootstrap } from '../../server/src/core/ThresholdService/ethSignerWasm';
 import {
-  ecdsaHssBootstrapNonExportSign,
-  ecdsaHssExplicitExport,
-} from '../../server/src/core/ThresholdService/ethSignerWasm';
+  initSync as initHssClientSignerWasmSync,
+  threshold_ecdsa_hss_role_local_client_bootstrap,
+  threshold_ecdsa_hss_role_local_export_artifact,
+} from '../../wasm/hss_client_signer/pkg/hss_client_signer.js';
 import type {
   CloudflareDurableObjectNamespaceLike,
   CloudflareDurableObjectStubLike,
@@ -53,6 +55,10 @@ type DoResp<T> = DoOk<T> | DoErr;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURE_PATH = resolve(__dirname, '../../crates/threshold-prf/fixtures/protocol-v1.json');
+const HSS_CLIENT_SIGNER_WASM_URL = new URL(
+  '../../wasm/hss_client_signer/pkg/hss_client_signer_bg.wasm',
+  import.meta.url,
+);
 const PROJECT_ID = 'project-alpha';
 const ENV_ID = 'dev';
 const SIGNING_ROOT_ID = `${PROJECT_ID}:${ENV_ID}`;
@@ -75,6 +81,15 @@ const ECDSA_CONTEXT = {
   keyPurpose: 'wallet',
   keyVersion: 'v1',
 };
+const ROLE_LOCAL_KEY_PURPOSE = 'evm-signing';
+const ROLE_LOCAL_KEY_VERSION = 'v1';
+let hssClientSignerWasmInitialized = false;
+
+function ensureHssClientSignerWasm(): void {
+  if (hssClientSignerWasmInitialized) return;
+  initHssClientSignerWasmSync({ module: readFileSync(HSS_CLIENT_SIGNER_WASM_URL) });
+  hssClientSignerWasmInitialized = true;
+}
 
 function vectorForPurpose(purpose: string): ThresholdPrfFixtureVector {
   const corpus = JSON.parse(readFileSync(FIXTURE_PATH, 'utf8')) as ThresholdPrfFixtureCorpus;
@@ -89,6 +104,63 @@ function hexToBytes(hex: string): Uint8Array {
 
 function bytesToHex(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString('hex');
+}
+
+function bytesB64u(bytes: Uint8Array): string {
+  return Buffer.from(bytes).toString('base64url');
+}
+
+function hexToBytesPrefixed(hex: string): Uint8Array {
+  return hexToBytes(hex.replace(/^0x/i, ''));
+}
+
+async function roleLocalWalletFromShares(input: {
+  yClient32Le: Uint8Array;
+  yRelayer32Le: Uint8Array;
+}) {
+  ensureHssClientSignerWasm();
+  const context = {
+    walletSessionUserId: ECDSA_CONTEXT.walletSessionUserId,
+    subjectId: ECDSA_CONTEXT.subjectId,
+    ecdsaThresholdKeyId: ECDSA_CONTEXT.ecdsaThresholdKeyId,
+    signingRootId: ECDSA_CONTEXT.signingRootId,
+    signingRootVersion: ECDSA_CONTEXT.signingRootVersion,
+    keyPurpose: ROLE_LOCAL_KEY_PURPOSE,
+    keyVersion: ROLE_LOCAL_KEY_VERSION,
+  };
+  const clientBootstrap = threshold_ecdsa_hss_role_local_client_bootstrap({
+    ...context,
+    clientRootShare32B64u: bytesB64u(input.yClient32Le),
+  }) as {
+    contextBinding32B64u: string;
+    clientPublicKey33B64u: string;
+    clientShareRetryCounter: number;
+  };
+  const relayerBootstrap = await roleLocalThresholdEcdsaHssRelayerBootstrap({
+    ...context,
+    relayerKeyId: 'ehss-relayer-signing-root-test',
+    yRelayer32Le: input.yRelayer32Le,
+    clientPublicKey33: Buffer.from(clientBootstrap.clientPublicKey33B64u, 'base64url'),
+    clientShareRetryCounter: clientBootstrap.clientShareRetryCounter,
+  });
+  const exportArtifact = threshold_ecdsa_hss_role_local_export_artifact({
+    ...context,
+    clientRootShare32: input.yClient32Le,
+    serverExportShare32B64u: bytesB64u(relayerBootstrap.relayerShare32),
+    contextBinding32B64u: clientBootstrap.contextBinding32B64u,
+    clientPublicKey33B64u: clientBootstrap.clientPublicKey33B64u,
+    relayerPublicKey33B64u: bytesB64u(relayerBootstrap.relayerPublicKey33),
+    groupPublicKey33B64u: bytesB64u(relayerBootstrap.groupPublicKey33),
+    ethereumAddress: `0x${bytesToHex(relayerBootstrap.ethereumAddress20)}`,
+    clientShareRetryCounter: clientBootstrap.clientShareRetryCounter,
+  }) as { publicKeyHex: string; ethereumAddress: string };
+
+  return {
+    groupPublicKey33: relayerBootstrap.groupPublicKey33,
+    ethereumAddress20: relayerBootstrap.ethereumAddress20,
+    exportedPublicKey33: hexToBytesPrefixed(exportArtifact.publicKeyHex),
+    exportedEthereumAddress20: hexToBytesPrefixed(exportArtifact.ethereumAddress),
+  };
 }
 
 function createMemoryDurableObjectNamespace(input?: {
@@ -199,21 +271,13 @@ test('Cloudflare Durable Object signing-root store feeds sealed-share decrypt, t
   if (!yRelayer.ok) throw new Error(yRelayer.message);
 
   const yClient32Le = new Uint8Array(32).fill(0x07);
-  const bootstrapped = await ecdsaHssBootstrapNonExportSign({
-    ...ECDSA_CONTEXT,
-    yClient32Le,
-    yRelayer32Le: yRelayer.value,
-  });
-  const exported = await ecdsaHssExplicitExport({
-    ...ECDSA_CONTEXT,
+  const wallet = await roleLocalWalletFromShares({
     yClient32Le,
     yRelayer32Le: yRelayer.value,
   });
 
-  expect(bytesToHex(bootstrapped.groupPublicKey33)).toBe(bytesToHex(exported.canonicalPublicKey33));
-  expect(bytesToHex(bootstrapped.ethereumAddress20)).toBe(
-    bytesToHex(exported.canonicalEthereumAddress20),
-  );
+  expect(bytesToHex(wallet.groupPublicKey33)).toBe(bytesToHex(wallet.exportedPublicKey33));
+  expect(bytesToHex(wallet.ethereumAddress20)).toBe(bytesToHex(wallet.exportedEthereumAddress20));
   expect(resolverCalls.map((call) => call.shareId)).toEqual([1, 2, 1, 2]);
 
   yRelayer.value.fill(0);

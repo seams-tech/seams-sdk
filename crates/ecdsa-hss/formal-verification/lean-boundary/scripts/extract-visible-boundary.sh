@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BOUNDARY_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-CRATE_DIR="$(cd "${BOUNDARY_DIR}/../.." && pwd)"
+CRATE_DIR="${BOUNDARY_DIR}/rust-boundary"
 CHARON_BIN="${BOUNDARY_DIR}/tools/charon/bin/charon"
 AENEAS_BIN="${BOUNDARY_DIR}/tools/aeneas/bin/aeneas"
 LLBC_DIR="${BOUNDARY_DIR}/generated/visible-boundary-input"
@@ -29,8 +29,11 @@ mkdir -p "${GENERATED_DIR}"
   cd "${CRATE_DIR}"
   "${CHARON_BIN}" cargo \
     --preset aeneas \
-    --start-from ecdsa_hss::server::reference_boundary::visible_boundary_from_respond_response_v1 \
-    --start-from ecdsa_hss::server::reference_boundary::hidden_eval_boundary_from_staged_request_and_response_v1 \
+    --start-from ecdsa_hss::server::boundary::visible_boundary_from_respond_response_v1 \
+    --start-from ecdsa_hss::server::boundary::hidden_eval_input_boundary_from_staged_request_v1 \
+    --start-from ecdsa_hss::server::boundary::hidden_eval_transport_boundary_from_respond_response_v1 \
+    --start-from ecdsa_hss::server::boundary::hidden_eval_persisted_state_boundary_from_finalized_session_v1 \
+    --start-from ecdsa_hss::server::boundary::hidden_eval_boundary_from_parts_v1 \
     --dest-file "${LLBC_FILE}" \
     -- --lib
 )
@@ -46,4 +49,8 @@ rm -rf "${TARGET_DIR}"
 mkdir -p "${TARGET_DIR}"
 cp "${GENERATED_DIR}/EcdsaHss/Types.lean" "${TARGET_DIR}/Types.lean"
 cp "${GENERATED_DIR}/EcdsaHss/Funs.lean" "${TARGET_DIR}/Funs.lean"
-cp "${GENERATED_DIR}/EcdsaHss/FunsExternal_Template.lean" "${TARGET_DIR}/FunsExternal.lean"
+if [[ -f "${GENERATED_DIR}/EcdsaHss/FunsExternal_Template.lean" ]]; then
+  cp "${GENERATED_DIR}/EcdsaHss/FunsExternal_Template.lean" "${TARGET_DIR}/FunsExternal.lean"
+else
+  rm -f "${TARGET_DIR}/FunsExternal.lean"
+fi

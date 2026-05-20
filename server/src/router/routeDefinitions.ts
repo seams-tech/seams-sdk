@@ -1680,44 +1680,21 @@ export function createRelayRouteDefinitions(
       'ed25519',
       ['threshold', 'session'],
     ),
-    publicRoute(
-      'threshold_ecdsa_hss_prepare',
+    thresholdSessionRoute(
+      'threshold_ecdsa_hss_bootstrap',
       'POST',
-      '/threshold-ecdsa/hss/prepare',
-      'Prepare staged threshold ECDSA HSS bootstrap ceremony',
-      {
-        plane: 'public',
-        proof: 'webauthn',
-        rationale:
-          'Staged ecdsa-hss bootstrap remains public because proof validation happens inside the threshold bootstrap flow.',
-      },
-      ['threshold'],
+      '/threshold-ecdsa/hss/bootstrap',
+      'Bootstrap role-local threshold ECDSA HSS material',
+      'ecdsa',
+      ['threshold', 'session'],
     ),
-    publicRoute(
-      'threshold_ecdsa_hss_respond',
+    thresholdSessionRoute(
+      'threshold_ecdsa_hss_export_share',
       'POST',
-      '/threshold-ecdsa/hss/respond',
-      'Continue staged threshold ECDSA HSS bootstrap ceremony',
-      {
-        plane: 'public',
-        proof: 'threshold_protocol_state',
-        rationale:
-          'Staged ecdsa-hss respond remains public because it is gated by protocol state rather than route auth.',
-      },
-      ['threshold'],
-    ),
-    publicRoute(
-      'threshold_ecdsa_hss_finalize',
-      'POST',
-      '/threshold-ecdsa/hss/finalize',
-      'Finalize staged threshold ECDSA HSS bootstrap ceremony',
-      {
-        plane: 'public',
-        proof: 'threshold_protocol_state',
-        rationale:
-          'Staged ecdsa-hss finalize remains public because it is gated by protocol state rather than route auth.',
-      },
-      ['threshold'],
+      '/threshold-ecdsa/hss/export/share',
+      'Release an authorized threshold ECDSA HSS relayer export share',
+      'ecdsa',
+      ['threshold', 'session'],
     ),
     thresholdSessionRoute(
       'threshold_ecdsa_authorize',

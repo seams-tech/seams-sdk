@@ -27,6 +27,25 @@ export type ThresholdEcdsaClientAdditiveShareHandle = {
   sessionId: string;
 };
 
+export type ThresholdEcdsaHssRoleLocalClientState = {
+  kind: 'role_local_ready';
+  artifactKind: 'ecdsa-hss-role-local-client-state';
+  contextBinding32B64u: string;
+  clientShare32B64u: string;
+  clientPublicKey33B64u: string;
+  clientShareRetryCounter: number;
+  relayerPublicKey33B64u: string;
+  groupPublicKey33B64u: string;
+  ethereumAddress: string;
+  clientCaitSithInput: {
+    participantId: 1;
+    mappedPrivateShare32B64u: string;
+    verifyingShare33B64u: string;
+  };
+  createdAtMs: number;
+  updatedAtMs: number;
+};
+
 export type ThresholdEcdsaBackendBinding = {
   /**
    * Backend integration identifier for the current threshold-signatures signer
@@ -48,6 +67,7 @@ export type ThresholdEcdsaBackendBinding = {
    * The handle is not secret material; callers must ask the worker for a one-time byte handoff.
    */
   clientAdditiveShareHandle?: ThresholdEcdsaClientAdditiveShareHandle;
+  ecdsaHssRoleLocalClientState?: ThresholdEcdsaHssRoleLocalClientState;
 };
 
 export type KeyRef =

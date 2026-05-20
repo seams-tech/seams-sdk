@@ -41,6 +41,20 @@ export const SCENARIOS = [
     defaultCommand:
       'node ./benchmarks/threshold-ecdsa-presign/src/scenario-harness.mjs --scenario live_cache_miss_path --iterations 2',
   },
+  {
+    id: 'pool_empty_retry',
+    description: 'Sign init against an empty presignature pool and measure retry signal',
+    commandEnv: 'BENCH_CMD_POOL_EMPTY_RETRY',
+    defaultCommand:
+      'node ./benchmarks/threshold-ecdsa-presign/src/scenario-harness.mjs --scenario pool_empty_retry --iterations 2',
+  },
+  {
+    id: 'explicit_export_product',
+    description: 'Explicit role-local ECDSA HSS export-share route plus client artifact creation',
+    commandEnv: 'BENCH_CMD_EXPLICIT_EXPORT_PRODUCT',
+    defaultCommand:
+      'node ./benchmarks/threshold-ecdsa-presign/src/scenario-harness.mjs --scenario explicit_export_product --iterations 2',
+  },
 ];
 
 export function resolveScenarioById(id) {

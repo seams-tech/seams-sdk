@@ -50,14 +50,21 @@ def ServerVisibleBoundaryEquivalent
   left.allowedOutputKind = right.allowedOutputKind ∧
   left.finalizeOperation = right.finalizeOperation ∧
   left.rawRootMaterialDropped = right.rawRootMaterialDropped ∧
+  left.relayerKeyId = right.relayerKeyId ∧
+  left.clientPublicKey33 = right.clientPublicKey33 ∧
+  left.relayerPublicKey33 = right.relayerPublicKey33 ∧
   left.thresholdPublicKey33 = right.thresholdPublicKey33 ∧
   left.thresholdEthereumAddress20 = right.thresholdEthereumAddress20 ∧
-  left.retryCounter = right.retryCounter ∧
-  left.relayerThresholdShare32 = right.relayerThresholdShare32 ∧
-  left.relayerPublicKey33 = right.relayerPublicKey33 ∧
+  left.clientShareRetryCounter = right.clientShareRetryCounter ∧
+  left.relayerShareRetryCounter = right.relayerShareRetryCounter ∧
+  left.retainedRelayerKeyId = right.retainedRelayerKeyId ∧
+  left.relayerShare32 = right.relayerShare32 ∧
+  left.retainedClientPublicKey33 = right.retainedClientPublicKey33 ∧
+  left.retainedRelayerPublicKey33 = right.retainedRelayerPublicKey33 ∧
   left.retainedThresholdPublicKey33 = right.retainedThresholdPublicKey33 ∧
   left.retainedThresholdEthereumAddress20 = right.retainedThresholdEthereumAddress20 ∧
-  left.retainedRetryCounter = right.retainedRetryCounter
+  left.retainedClientShareRetryCounter = right.retainedClientShareRetryCounter ∧
+  left.retainedRelayerShareRetryCounter = right.retainedRelayerShareRetryCounter
 
 def ClientObservableProfilesEquivalent
     (left right : ClientObservableProfile) : Prop :=

@@ -10,6 +10,7 @@ import type {
   ThresholdEcdsaChainTarget,
   WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { ThresholdEcdsaHssRoleLocalClientState } from '../interfaces/signing';
 import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import type { WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
@@ -304,6 +305,12 @@ export interface EmailOtpWorkerOperationMap {
       chainTarget: ThresholdEcdsaChainTarget;
       publicationChainTargets: ThresholdEcdsaChainTarget[];
       keyHandle?: string;
+      roleLocalKeyIdentity?: {
+        ecdsaThresholdKeyId: string;
+        signingRootId: string;
+        signingRootVersion: string;
+        relayerKeyId: string;
+      };
       participantIds?: number[];
       sessionKind?: 'jwt' | 'cookie';
       sessionId?: string;
@@ -462,8 +469,16 @@ export interface EmailOtpWorkerOperationMap {
       thresholdSessionAuthToken?: string;
       sessionKind?: 'jwt' | 'cookie';
       subjectId: WalletSubjectId;
+      ecdsaThresholdKeyId: string;
+      signingRootId: string;
+      signingRootVersion?: string;
+      relayerKeyId: string;
+      roleLocalState: ThresholdEcdsaHssRoleLocalClientState;
+      thresholdSessionId: string;
+      walletSigningSessionId: string;
+      thresholdExpiresAtMs: number;
+      participantIds: number[];
       keyHandle: string;
-      chainTarget: ThresholdEcdsaChainTarget;
       runtimePolicyScope?: ThresholdRuntimePolicyScope;
     };
     result: {
@@ -542,9 +557,8 @@ export type HssWorkerOperationType =
   | typeof WorkerRequestType.OpenThresholdEd25519HssClientOutput
   | typeof WorkerRequestType.OpenThresholdEd25519HssSeedOutput
   | typeof WorkerRequestType.BuildThresholdEd25519SeedExportArtifact
-  | typeof WorkerRequestType.PrepareThresholdEcdsaHssSession
-  | typeof WorkerRequestType.PrepareThresholdEcdsaHssClientRequest
-  | typeof WorkerRequestType.FinalizeThresholdEcdsaHssClientRequest;
+  | typeof WorkerRequestType.BuildThresholdEcdsaHssRoleLocalClientBootstrap
+  | typeof WorkerRequestType.BuildThresholdEcdsaHssRoleLocalExportArtifact;
 
 type HssWorkerOperationEntry<T extends HssWorkerOperationType> = WorkerRequestTypeMap[T] extends {
   request: infer P;

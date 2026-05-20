@@ -45,10 +45,11 @@ bridge.
 
 Preferred v1 path:
 
-1. derive canonical hidden scalar `x`
-2. derive additive 2-party shares of `x`
-3. map those shares into the current backend share encoding
+1. derive role-local additive shares `x_client` and `x_relayer`
+2. compute the shared public identity as `X = x_clientG + x_relayerG`
+3. map each role's share into the current backend share encoding
 4. reuse the current presign/sign backend unchanged
+5. reconstruct canonical `x` only in the explicit client export runtime
 
 ## Fallback Path
 
@@ -61,7 +62,7 @@ That fallback is acceptable only if:
 
 - the public key is unchanged
 - the Ethereum address is unchanged
-- export still returns canonical `x`
+- export still reconstructs canonical `x` client-side
 - the server remains blind to `x`
 
 ## Explicit Rejection

@@ -3,7 +3,6 @@ import { base64UrlDecode } from '@shared/utils/encoders';
 import {
   parseThresholdEd25519CoordinatorSigningSessionRecord,
   parseEd25519AuthSessionRecord,
-  parseThresholdEcdsaIntegratedKeyRecord,
   parseThresholdEcdsaPresignSessionRecord,
   parseThresholdEcdsaPresignatureRelayerShareRecord,
   parseThresholdEcdsaSigningSessionRecord,
@@ -50,10 +49,6 @@ export type CurrentThresholdEd25519StoreSessionRow =
       record: CurrentThresholdEd25519CoordinatorSigningSessionRecord;
       expiresAtMs: number;
     };
-
-export type CurrentThresholdEcdsaKeyRecord = NonNullable<
-  ReturnType<typeof parseThresholdEcdsaIntegratedKeyRecord>
->;
 
 export type CurrentThresholdEcdsaSigningSessionRecord = NonNullable<
   ReturnType<typeof parseThresholdEcdsaSigningSessionRecord>
@@ -196,26 +191,6 @@ export function parseCurrentThresholdEd25519StoreSessionRow(input: {
       return { kind: 'coordinator', record, expiresAtMs };
     }
   }
-}
-
-export function parseCurrentThresholdEcdsaKeyRecord(
-  raw: unknown,
-): CurrentThresholdEcdsaKeyRecord | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const record = raw as Record<string, unknown>;
-  const parsed = parseThresholdEcdsaIntegratedKeyRecord(record);
-  if (!parsed) return null;
-  const participantIds = normalizeThresholdEd25519ParticipantIds(record.participantIds);
-  const createdAtMs = toPositiveSafeInt(record.createdAtMs);
-  const updatedAtMs = toPositiveSafeInt(record.updatedAtMs);
-  if (!participantIds || !createdAtMs || !updatedAtMs) return null;
-  if (!hasIncreasingTimestamps(createdAtMs, updatedAtMs)) return null;
-  return {
-    ...parsed,
-    participantIds,
-    createdAtMs,
-    updatedAtMs,
-  };
 }
 
 export function parseCurrentThresholdEcdsaSigningSessionRecord(

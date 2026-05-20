@@ -447,14 +447,7 @@ export async function installCreateAccountAndRegisterUserMock(
       projectId: string;
       envId: string;
     };
-    threshold?: {
-      bootstrapEcdsaFromRegistrationMaterial?: (request: {
-        walletSessionUserId: string;
-        rpId: string;
-        clientRootShare32B64u: string;
-        sessionPolicy: Record<string, unknown>;
-      }) => Promise<ThresholdEcdsaRegistrationBootstrapResult>;
-    };
+    threshold?: unknown;
   },
 ): Promise<void> {
   await page.route(`${input.relayerBaseUrl}/registration/bootstrap`, async (route) => {
@@ -547,11 +540,21 @@ export async function installCreateAccountAndRegisterUserMock(
             };
           })()
         : undefined;
+    const thresholdEcdsaBootstrap = (
+      input.threshold as
+        | {
+            bootstrapEcdsaFromRegistrationMaterial?: (request: {
+              walletSessionUserId: string;
+              rpId: string;
+              clientRootShare32B64u: string;
+              sessionPolicy: Record<string, unknown>;
+            }) => Promise<ThresholdEcdsaRegistrationBootstrapResult>;
+          }
+        | undefined
+    )?.bootstrapEcdsaFromRegistrationMaterial;
     const ecdsaBootstrap =
-      thresholdEcdsaMode &&
-      input.threshold?.bootstrapEcdsaFromRegistrationMaterial &&
-      ecdsaSessionPolicy
-        ? await input.threshold.bootstrapEcdsaFromRegistrationMaterial({
+      thresholdEcdsaMode && thresholdEcdsaBootstrap && ecdsaSessionPolicy
+        ? await thresholdEcdsaBootstrap({
             walletSessionUserId: accountId,
             rpId: String(payload?.rp_id || '').trim() || 'example.localhost',
             clientRootShare32B64u: thresholdEcdsaClientRootShare32B64u,

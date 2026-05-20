@@ -32,6 +32,7 @@ export type ThresholdEcdsaSigningSessionRecord = {
   expiresAtMs: number;
   mpcSessionId: string;
   relayerKeyId: string;
+  presignPoolKey: string;
   ecdsaThresholdKeyId: string;
   thresholdEcdsaPublicKeyB64u: string;
   signingDigestB64u: string;
@@ -62,6 +63,7 @@ export type ThresholdEcdsaPresignSessionRecord = {
   walletSessionUserId: string;
   rpId: string;
   relayerKeyId: string;
+  presignPoolKey: string;
   ownerInstanceId?: string;
   participantIds: number[];
   clientParticipantId: number;

@@ -1,7 +1,8 @@
 import {
+  buildThresholdEcdsaHssRoleLocalClientBootstrapWasm,
   parseServerPlannedEcdsaHssContext,
-  prepareThresholdEcdsaHssSessionWasm,
   type ServerPlannedEcdsaHssContext,
+  type ThresholdEcdsaHssRoleLocalClientContext,
   type ThresholdEcdsaHssStableKeyContext,
 } from './hssClientSignerWasm';
 import {
@@ -72,17 +73,40 @@ const stableContextWithThresholdSessionId: ThresholdEcdsaHssStableKeyContext = {
 };
 void stableContextWithThresholdSessionId;
 
+const roleLocalClientContext: ThresholdEcdsaHssRoleLocalClientContext = {
+  walletSessionUserId: toWalletSessionUserId('wallet-user'),
+  subjectId: toEcdsaHssWalletSubjectId('wallet-subject'),
+  ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId('ehss-stable'),
+  signingRootId: toEcdsaHssSigningRootId('project:dev'),
+  signingRootVersion: toEcdsaHssSigningRootVersion('default'),
+  keyPurpose: 'evm-signing',
+  keyVersion: 'v1',
+};
+
+void ({
+  ...roleLocalClientContext,
+  // @ts-expect-error role-local client context excludes chain-specific HSS derivation fields.
+  chainTarget: {
+    kind: 'evm',
+    namespace: 'eip155',
+    chainId: 11155111,
+    networkSlug: 'ethereum-sepolia',
+  },
+} satisfies ThresholdEcdsaHssRoleLocalClientContext);
+
 declare const workerCtx: WorkerOperationContext;
 
-void prepareThresholdEcdsaHssSessionWasm({
-  context: serverPlannedContext,
-  clientRootShare32B64u: 'client-root-share',
-  workerCtx,
-});
+async function assertRoleLocalBootstrapShape(): Promise<void> {
+  const bootstrap = await buildThresholdEcdsaHssRoleLocalClientBootstrapWasm({
+    context: roleLocalClientContext,
+    clientRootShare32B64u: 'client-root-share',
+    workerCtx,
+  });
+  void (bootstrap.clientCaitSithInput satisfies {
+    participantId: 1;
+    mappedPrivateShare32B64u: string;
+    verifyingShare33B64u: string;
+  });
+}
 
-void prepareThresholdEcdsaHssSessionWasm({
-  // @ts-expect-error ECDSA HSS session preparation requires server-planned prepare context.
-  context: locallyConstructedStableContext,
-  clientRootShare32B64u: 'client-root-share',
-  workerCtx,
-});
+void assertRoleLocalBootstrapShape;

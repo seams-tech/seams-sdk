@@ -52,7 +52,7 @@ ecdsa-hss-fv:
   just ecdsa-hss-fv-boundary
   just ecdsa-hss-fv-privacy
 
-# Run the Lean boundary extraction and workspace build for `ecdsa-hss`.
+# Run the Aeneas/Lean boundary extraction and workspace check for `ecdsa-hss`.
 ecdsa-hss-fv-boundary:
   cd crates/ecdsa-hss/formal-verification/lean-boundary && ./scripts/extract-visible-boundary.sh
   cd crates/ecdsa-hss/formal-verification/lean-boundary && $HOME/.elan/bin/lake build

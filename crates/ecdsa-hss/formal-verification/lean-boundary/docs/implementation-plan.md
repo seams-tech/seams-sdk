@@ -1,6 +1,6 @@
 # `ecdsa-hss` Aeneas Lean Boundary Plan
 
-Last updated: 2026-04-08
+Last updated: 2026-05-20
 
 ## Goal
 
@@ -15,24 +15,30 @@ boundary model for:
 
 ## Plan Status
 
-This track now has a working local extraction path for the narrow staged
-server boundary.
+This track previously had a working local extraction path for the narrow staged
+server boundary. The role-local rewrite deleted the production
+`server::reference_boundary` facade. The current track uses a non-production
+extraction crate that mirrors the role-local boundary for Aeneas without adding
+a runtime reference path.
 
 Current observed state:
 
 - the Verus stable slice is complete and warning-free
 - the Rust boundary is stable enough to justify a narrow extraction target
+- the non-production extraction crate exists under `rust-boundary/`
 - the Lean workspace bootstrap exists
 - the pinned `aeneas` and `charon` toolchain is installed locally
-- the first generated Lean artifact exists under `generated/visible-boundary-*`
+- the generated Lean artifact exists under `generated/visible-boundary-*`
 - the generated package is copied into `EcdsaHss/`
-- handwritten bridge lemmas remain in `EcdsaHssBoundary/`
-- the handwritten boundary model is now typed to the generated field layout
-- initial bridge lemmas cover:
+- handwritten bridge lemmas live in `EcdsaHssBoundary/`
+- the handwritten boundary model is typed to the role-local generated field
+  layout
+- bridge lemmas cover:
   - operation-to-output-kind policy
   - visible non-export output shape
   - visible explicit-export output shape
   - retained-state boundary shape
+  - hidden-eval input, transport, and persisted-state shape
 
 ## Completed Checklist
 
@@ -48,20 +54,35 @@ Current observed state:
 - [x] Add pinned Aeneas/Charon toolchain metadata.
 - [x] Add a repo-local setup script for the future Aeneas/Charon toolchain.
 - [x] Add a repo-local wrapper command for the Lean boundary bootstrap.
-- [x] Add a narrow Rust boundary facade for extraction.
+- [x] Add a narrow Rust boundary facade for the previous extraction.
+- [x] Delete the previous production facade during the role-local rewrite.
+- [x] Disable the stale extraction command so it cannot be mistaken for current
+      role-local bridge coverage.
+- [x] Add a non-production role-local extraction crate.
+- [x] Regenerate the Rust-derived Lean boundary artifact from the role-local
+      crate.
+- [x] Update handwritten bridge lemmas for the role-local generated field
+      layout.
+- [x] Re-enable the Aeneas boundary command in the default `ecdsa-hss` formal
+      gate.
 
 ## Remaining Checklist
 
 - [x] Install the pinned Aeneas/Charon toolchain for local development.
-- [x] Generate the first Rust-derived Lean boundary artifact for the narrow
+- [x] Generate the first Rust-derived Lean boundary artifact for the previous
       non-export/export boundary.
 - [x] Keep the generated Aeneas modules separate from handwritten bridge
       lemmas.
 - [x] Define the type-level mapping from the generated boundary to the
       handwritten Lean boundary.
 - [x] Prove the generated boundary matches the handwritten boundary model.
-- [ ] Decide whether a separate `lean-privacy/` workspace is justified after
+- [x] Decide whether a separate `lean-privacy/` workspace is justified after
       the first boundary bridge works.
+- [x] Add a non-production role-local extraction crate or fixture-only facade.
+- [x] Regenerate the Rust-derived Lean boundary artifact from the role-local
+      facade.
+- [x] Update handwritten bridge lemmas for the role-local generated field
+      layout.
 
 ## Next Expansion: Hidden-Eval Boundary
 
@@ -96,10 +117,9 @@ It should not try to cover:
 
 ## Current Scope
 
-The extraction target is intentionally frozen at the staged server boundary
-facade in:
-
-- [`../../src/server/reference_boundary.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/server/reference_boundary.rs)
+The extraction target is a non-production facade that mirrors the role-local
+server/client boundary. Keep the production crate free of
+`server::reference_boundary` modules.
 
 The first bridge should stop at:
 

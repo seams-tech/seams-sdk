@@ -48,8 +48,8 @@ pretending the full protocol is already implemented.
   [tests/anti_drift.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/verus/tests/anti_drift.rs)
 - proof inventory exists at:
   [../docs/proof-inventory.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/docs/proof-inventory.md)
-- fixed-function corpus exists at:
-  [../../fixtures/phase1_v1.json](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/fixtures/phase1_v1.json)
+- role-local fixture output is emitted by:
+  [../../src/bin/emit_fixture_json.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/bin/emit_fixture_json.rs)
 
 ## Current Command Path
 

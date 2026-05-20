@@ -10,7 +10,6 @@ pub const ECDSA_HSS_V1_PARTICIPANT_IDS: [u16; 2] = [1, 2];
 pub struct EcdsaHssStableKeyContextV1 {
     pub wallet_session_user_id: String,
     pub subject_id: String,
-    pub chain_target: String,
     pub ecdsa_threshold_key_id: String,
     pub signing_root_id: String,
     pub signing_root_version: String,
@@ -22,7 +21,6 @@ impl EcdsaHssStableKeyContextV1 {
     pub fn new(
         wallet_session_user_id: impl Into<String>,
         subject_id: impl Into<String>,
-        chain_target: impl Into<String>,
         ecdsa_threshold_key_id: impl Into<String>,
         signing_root_id: impl Into<String>,
         signing_root_version: impl Into<String>,
@@ -32,7 +30,6 @@ impl EcdsaHssStableKeyContextV1 {
         Self {
             wallet_session_user_id: wallet_session_user_id.into(),
             subject_id: subject_id.into(),
-            chain_target: chain_target.into(),
             ecdsa_threshold_key_id: ecdsa_threshold_key_id.into(),
             signing_root_id: signing_root_id.into(),
             signing_root_version: signing_root_version.into(),
@@ -44,7 +41,6 @@ impl EcdsaHssStableKeyContextV1 {
     pub fn validate(&self) -> CoreResult<()> {
         validate_ascii_field("wallet_session_user_id", &self.wallet_session_user_id)?;
         validate_ascii_field("subject_id", &self.subject_id)?;
-        validate_ascii_field("chain_target", &self.chain_target)?;
         validate_ascii_field("ecdsa_threshold_key_id", &self.ecdsa_threshold_key_id)?;
         validate_ascii_field("signing_root_id", &self.signing_root_id)?;
         validate_ascii_field("signing_root_version", &self.signing_root_version)?;

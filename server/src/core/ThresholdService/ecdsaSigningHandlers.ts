@@ -2,7 +2,7 @@ import type { NormalizedLogger } from '../logger';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type {
-  ThresholdEcdsaIntegratedKeyRecord,
+  EcdsaHssRoleLocalKeyRecord,
   ThresholdEcdsaSigningRootMetadata,
   ThresholdEcdsaPresignInitRequest,
   ThresholdEcdsaPresignInitResponse,
@@ -29,10 +29,7 @@ import type {
 } from './stores/EcdsaSigningStore';
 import type { ThresholdEcdsaSessionClaims } from './validation';
 import {
-  addSecp256k1PublicKeys33,
   ensureEthSignerWasm,
-  mapAdditiveShareToThresholdSignaturesShare2p,
-  secp256k1PrivateKey32ToPublicKey33,
   sha256BytesSync,
   validateSecp256k1PublicKey33,
 } from './ethSignerWasm';
@@ -40,6 +37,9 @@ import {
   ThresholdEcdsaPresignSession,
   threshold_ecdsa_finalize_signature,
 } from '../../../../wasm/eth_signer/pkg/eth_signer.js';
+
+const THRESHOLD_ECDSA_HSS_ROLE_LOCAL_WALLET_KEY_VERSION = 'v1';
+const THRESHOLD_ECDSA_HSS_ROLE_LOCAL_DERIVATION_VERSION = 1;
 
 type ThresholdEcdsaMpcSessionRecord = {
   expiresAtMs: number;
@@ -62,15 +62,19 @@ type ParseResult<T> = ParseOk<T> | ParseErr;
 const PRESIGN_FORWARD_HOP_HEADER = 'x-threshold-ecdsa-presign-forward-hop';
 const PRESIGN_FORWARDED_BY_HEADER = 'x-threshold-ecdsa-presign-forwarded-by';
 
-function signingRootMetadataFromIntegratedKey(
-  record: ThresholdEcdsaIntegratedKeyRecord,
+function signingRootMetadataFromRoleLocalKey(
+  record: EcdsaHssRoleLocalKeyRecord,
 ): ThresholdEcdsaSigningRootMetadata {
   return {
     signingRootId: record.signingRootId,
-    ...(record.signingRootVersion ? { signingRootVersion: record.signingRootVersion } : {}),
-    walletKeyVersion: record.walletKeyVersion,
-    derivationVersion: record.derivationVersion,
+    signingRootVersion: record.signingRootVersion,
+    walletKeyVersion: THRESHOLD_ECDSA_HSS_ROLE_LOCAL_WALLET_KEY_VERSION,
+    derivationVersion: THRESHOLD_ECDSA_HSS_ROLE_LOCAL_DERIVATION_VERSION,
   };
+}
+
+function ecdsaPresignPoolKey(keyHandle: string): string {
+  return `keyHandle:${keyHandle}`;
 }
 
 function signingRootMetadataFromRuntimePolicyScope(
@@ -170,16 +174,32 @@ function parseThresholdEcdsaSignFinalizeRequest(
   return { ok: true, value: { signingSessionId, clientSignatureShareB64u } };
 }
 
-type ThresholdEcdsaIntegratedKeyRecordSelector = {
+type ThresholdEcdsaRoleLocalKeyRecordSelector = {
   kind: 'key_handle';
   keyHandle: string;
   ecdsaThresholdKeyId?: never;
 };
 
+type ThresholdEcdsaRelayerSigningShare = {
+  kind: 'cait_sith_mapped';
+  share32B64u: string;
+};
+
+type ThresholdEcdsaSigningKeyMaterial = {
+  ecdsaThresholdKeyId: string;
+  keyHandle: string;
+  relayerKeyId: string;
+  clientVerifyingShareB64u: string;
+  thresholdEcdsaPublicKeyB64u: string;
+  signingRootMetadata: ThresholdEcdsaSigningRootMetadata;
+  relayerSigningShare: ThresholdEcdsaRelayerSigningShare;
+  presignPoolKey: string;
+};
+
 function parseThresholdEcdsaPresignInitRequest(
   request: ThresholdEcdsaPresignInitRequest,
 ): ParseResult<{
-  keySelector: ThresholdEcdsaIntegratedKeyRecordSelector;
+  keySelector: ThresholdEcdsaRoleLocalKeyRecordSelector;
   count: number;
 }> {
   const keyHandle = toOptionalTrimmedString((request as { keyHandle?: unknown }).keyHandle);
@@ -344,13 +364,14 @@ export class ThresholdEcdsaSigningHandlers {
   private readonly relayerParticipantId: number;
   private readonly sessionStore: {
     takeMpcSession(id: string): Promise<ThresholdEcdsaMpcSessionRecord | null>;
+    putMpcSession(id: string, record: ThresholdEcdsaMpcSessionRecord, ttlMs: number): Promise<void>;
   };
   private readonly signingSessionStore: ThresholdEcdsaSigningSessionStore;
   private readonly presignSessionStore: ThresholdEcdsaPresignSessionStore;
   private readonly presignaturePool: ThresholdEcdsaPresignaturePool;
-  private readonly resolveIntegratedKeyRecord: (
-    args: ThresholdEcdsaIntegratedKeyRecordSelector,
-  ) => Promise<ThresholdEcdsaIntegratedKeyRecord | null>;
+  private readonly resolveRoleLocalKeyRecord: (
+    args: ThresholdEcdsaRoleLocalKeyRecordSelector,
+  ) => Promise<EcdsaHssRoleLocalKeyRecord | null>;
   private readonly ensureReady: () => Promise<void>;
   private readonly createSigningSessionId: () => string;
   private readonly createPresignSessionId: () => string;
@@ -370,13 +391,18 @@ export class ThresholdEcdsaSigningHandlers {
     coordinatorPeers?: ThresholdCoordinatorPeer[];
     sessionStore: {
       takeMpcSession(id: string): Promise<ThresholdEcdsaMpcSessionRecord | null>;
+      putMpcSession(
+        id: string,
+        record: ThresholdEcdsaMpcSessionRecord,
+        ttlMs: number,
+      ): Promise<void>;
     };
     signingSessionStore: ThresholdEcdsaSigningSessionStore;
     presignSessionStore: ThresholdEcdsaPresignSessionStore;
     presignaturePool: ThresholdEcdsaPresignaturePool;
-    resolveIntegratedKeyRecord: (
-      args: ThresholdEcdsaIntegratedKeyRecordSelector,
-    ) => Promise<ThresholdEcdsaIntegratedKeyRecord | null>;
+    resolveRoleLocalKeyRecord: (
+      args: ThresholdEcdsaRoleLocalKeyRecordSelector,
+    ) => Promise<EcdsaHssRoleLocalKeyRecord | null>;
     ensureReady: () => Promise<void>;
     createSigningSessionId: () => string;
     createPresignSessionId: () => string;
@@ -407,14 +433,14 @@ export class ThresholdEcdsaSigningHandlers {
     this.signingSessionStore = input.signingSessionStore;
     this.presignSessionStore = input.presignSessionStore;
     this.presignaturePool = input.presignaturePool;
-    this.resolveIntegratedKeyRecord = input.resolveIntegratedKeyRecord;
+    this.resolveRoleLocalKeyRecord = input.resolveRoleLocalKeyRecord;
     this.ensureReady = input.ensureReady;
     this.createSigningSessionId = input.createSigningSessionId;
     this.createPresignSessionId = input.createPresignSessionId;
   }
 
   private async resolvePresignInitKeyMaterial(input: {
-    keySelector: ThresholdEcdsaIntegratedKeyRecordSelector;
+    keySelector: ThresholdEcdsaRoleLocalKeyRecordSelector;
     walletSessionUserId: string;
     rpId: string;
     participantIds: number[];
@@ -424,36 +450,19 @@ export class ThresholdEcdsaSigningHandlers {
       ThresholdEcdsaSigningRootMetadata,
       'signingRootId' | 'signingRootVersion'
     >;
-  }): Promise<
-    | {
-        ok: true;
-        ecdsaThresholdKeyId: string;
-        relayerKeyId: string;
-        clientVerifyingShareB64u: string;
-        relayerBackendInputB64u: string;
-        signingRootMetadata: ThresholdEcdsaSigningRootMetadata;
-      }
-    | { ok: false; code: string; message: string }
-  > {
-    const integratedKey = await this.resolveIntegratedKeyRecord(input.keySelector);
-    if (!integratedKey) {
+  }): Promise<ParseResult<ThresholdEcdsaSigningKeyMaterial>> {
+    const roleLocalKey = await this.resolveRoleLocalKeyRecord(input.keySelector);
+    if (!roleLocalKey) {
       return {
         ok: false,
         code: 'unauthorized',
         message: 'ECDSA key selector is not active on this server',
       };
     }
-    const ecdsaThresholdKeyId = toOptionalTrimmedString(integratedKey.ecdsaThresholdKeyId);
-    if (!ecdsaThresholdKeyId) {
-      return {
-        ok: false,
-        code: 'unauthorized',
-        message: 'ECDSA key selector is missing threshold-key identity',
-      };
-    }
+    const ecdsaThresholdKeyId = toOptionalTrimmedString(roleLocalKey.ecdsaThresholdKeyId);
+    const keyHandle = toOptionalTrimmedString(roleLocalKey.keyHandle);
     const tokenKeyHandle = toOptionalTrimmedString(input.tokenKeyHandle);
-    const integratedKeyHandle = toOptionalTrimmedString(integratedKey.keyHandle);
-    if (!tokenKeyHandle || !integratedKeyHandle || tokenKeyHandle !== integratedKeyHandle) {
+    if (!ecdsaThresholdKeyId || !keyHandle || !tokenKeyHandle || tokenKeyHandle !== keyHandle) {
       return {
         ok: false,
         code: 'unauthorized',
@@ -461,8 +470,8 @@ export class ThresholdEcdsaSigningHandlers {
       };
     }
     if (
-      integratedKey.walletSessionUserId !== input.walletSessionUserId ||
-      integratedKey.rpId !== input.rpId
+      roleLocalKey.walletSessionUserId !== input.walletSessionUserId ||
+      roleLocalKey.rpId !== input.rpId
     ) {
       return {
         ok: false,
@@ -470,14 +479,14 @@ export class ThresholdEcdsaSigningHandlers {
         message: 'ecdsaThresholdKeyId does not match threshold session scope',
       };
     }
-    if (!sameParticipantIds(integratedKey.participantIds, input.participantIds)) {
+    if (!sameParticipantIds(this.participantIds2p, input.participantIds)) {
       return {
         ok: false,
         code: 'unauthorized',
         message: 'ecdsaThresholdKeyId participantIds do not match threshold session scope',
       };
     }
-    const signingRootMetadata = signingRootMetadataFromIntegratedKey(integratedKey);
+    const signingRootMetadata = signingRootMetadataFromRoleLocalKey(roleLocalKey);
     if (
       signingRootMetadata.signingRootId !== input.tokenSigningRoot.signingRootId ||
       signingRootMetadata.signingRootVersion !== input.tokenSigningRoot.signingRootVersion
@@ -488,17 +497,7 @@ export class ThresholdEcdsaSigningHandlers {
         message: 'ecdsaThresholdKeyId signing root does not match threshold session scope',
       };
     }
-    const integratedRelayerKeyId = toOptionalTrimmedString(integratedKey.relayerKeyId);
-    const integratedClientVerifyingShareB64u = toOptionalTrimmedString(
-      integratedKey.clientVerifyingShareB64u,
-    );
-    const relayerBackendInputB64u = toOptionalTrimmedString(integratedKey.relayerBackendInputB64u);
-    if (
-      !integratedRelayerKeyId ||
-      !integratedClientVerifyingShareB64u ||
-      !relayerBackendInputB64u ||
-      integratedRelayerKeyId !== input.tokenRelayerKeyId
-    ) {
+    if (roleLocalKey.relayerKeyId !== input.tokenRelayerKeyId) {
       return {
         ok: false,
         code: 'unauthorized',
@@ -507,11 +506,19 @@ export class ThresholdEcdsaSigningHandlers {
     }
     return {
       ok: true,
-      ecdsaThresholdKeyId,
-      relayerKeyId: integratedRelayerKeyId,
-      clientVerifyingShareB64u: integratedClientVerifyingShareB64u,
-      relayerBackendInputB64u,
-      signingRootMetadata,
+      value: {
+        ecdsaThresholdKeyId,
+        keyHandle,
+        relayerKeyId: roleLocalKey.relayerKeyId,
+        clientVerifyingShareB64u: roleLocalKey.clientPublicKey33B64u,
+        thresholdEcdsaPublicKeyB64u: roleLocalKey.groupPublicKey33B64u,
+        signingRootMetadata,
+        relayerSigningShare: {
+          kind: 'cait_sith_mapped',
+          share32B64u: roleLocalKey.relayerCaitSithInput.mappedPrivateShare32B64u,
+        },
+        presignPoolKey: ecdsaPresignPoolKey(keyHandle),
+      },
     };
   }
 
@@ -670,8 +677,14 @@ export class ThresholdEcdsaSigningHandlers {
       tokenSigningRoot,
     });
     if (!resolvedKeyMaterial.ok) return resolvedKeyMaterial;
-    const { relayerKeyId, clientVerifyingShareB64u, relayerBackendInputB64u, signingRootMetadata } =
-      resolvedKeyMaterial;
+    const {
+      relayerKeyId,
+      clientVerifyingShareB64u,
+      thresholdEcdsaPublicKeyB64u,
+      relayerSigningShare,
+      signingRootMetadata,
+      presignPoolKey,
+    } = resolvedKeyMaterial.value;
 
     if (relayerKeyId !== tokenRelayerKeyId) {
       return {
@@ -730,31 +743,34 @@ export class ThresholdEcdsaSigningHandlers {
 
     let relayerSigningShare32: Uint8Array;
     try {
-      relayerSigningShare32 = base64UrlDecode(relayerBackendInputB64u);
+      relayerSigningShare32 = base64UrlDecode(relayerSigningShare.share32B64u);
     } catch {
       return {
         ok: false,
         code: 'internal',
-        message: 'Persisted relayer backend input is not valid base64url',
+        message: 'Persisted relayer signing share is not valid base64url',
       };
     }
     if (relayerSigningShare32.length !== 32) {
       return {
         ok: false,
         code: 'internal',
-        message: 'Persisted relayer backend input must decode to 32 bytes',
+        message: 'Persisted relayer signing share must decode to 32 bytes',
       };
     }
-    const relayerVerifyingShare33 = await secp256k1PrivateKey32ToPublicKey33(relayerSigningShare32);
-    const groupPublicKeyBytes = await addSecp256k1PublicKeys33({
-      left33: validatedClientPublicKey33,
-      right33: relayerVerifyingShare33,
-    });
-
-    const relayerThresholdShare32 = await mapAdditiveShareToThresholdSignaturesShare2p({
-      additiveShare32: relayerSigningShare32,
-      participantId: this.relayerParticipantId,
-    });
+    let groupPublicKeyBytes: Uint8Array;
+    try {
+      groupPublicKeyBytes = await validateSecp256k1PublicKey33(
+        base64UrlDecode(thresholdEcdsaPublicKeyB64u),
+      );
+    } catch (e: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: `Persisted thresholdEcdsaPublicKeyB64u is invalid: ${String(e || 'error')}`,
+      };
+    }
+    const relayerThresholdShare32 = relayerSigningShare32;
 
     const participantIds = normalizeThresholdEd25519ParticipantIds(claims.participantIds) || [
       ...this.participantIds2p,
@@ -791,6 +807,7 @@ export class ThresholdEcdsaSigningHandlers {
         walletSessionUserId,
         rpId: tokenRpId,
         relayerKeyId,
+        presignPoolKey,
         ...(this.coordinatorInstanceId ? { ownerInstanceId: this.coordinatorInstanceId } : {}),
         participantIds,
         clientParticipantId: this.clientParticipantId,
@@ -1238,7 +1255,7 @@ export class ThresholdEcdsaSigningHandlers {
       perf.wasmStepMs = Math.max(0, Date.now() - wasmStepStartedAtMs);
       if (!prepared.ok) {
         this.evictLivePresignSession(presignSessionId);
-        if (prepared.code === 'internal') {
+        if (ownedLocally) {
           await this.presignSessionStore.deleteSession(presignSessionId);
         }
         perf.resultCode = prepared.code;
@@ -1253,7 +1270,7 @@ export class ThresholdEcdsaSigningHandlers {
 
       if (prepared.value.mode === 'terminal') {
         await this.presignaturePool.put({
-          relayerKeyId: record.relayerKeyId,
+          relayerKeyId: record.presignPoolKey,
           presignatureId: prepared.value.presignDone.presignatureId,
           bigRB64u: prepared.value.presignDone.bigRB64u,
           kShareB64u: prepared.value.presignDone.kShareB64u,
@@ -1335,7 +1352,7 @@ export class ThresholdEcdsaSigningHandlers {
           };
         }
         await this.presignaturePool.put({
-          relayerKeyId: record.relayerKeyId,
+          relayerKeyId: record.presignPoolKey,
           presignatureId: presignDone.presignatureId,
           bigRB64u: presignDone.bigRB64u,
           kShareB64u: presignDone.kShareB64u,
@@ -1418,8 +1435,97 @@ export class ThresholdEcdsaSigningHandlers {
       };
     }
 
-    const presignature = await this.reserveSignInitPresignature(relayerKeyId, clientPresignatureId);
+    if (typeof crypto === 'undefined' || typeof crypto.getRandomValues !== 'function') {
+      return {
+        ok: false,
+        code: 'unsupported',
+        message: 'crypto.getRandomValues is unavailable in this runtime',
+      };
+    }
+
+    const ttlMs = Math.max(0, Math.min(60_000, sess.expiresAtMs - Date.now()));
+    if (ttlMs <= 0) {
+      return { ok: false, code: 'unauthorized', message: 'mpcSessionId expired' };
+    }
+    const clientVerifyingShareB64u = toOptionalTrimmedString(sess.clientVerifyingShareB64u);
+    if (!clientVerifyingShareB64u) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'mpcSessionId is missing clientVerifyingShareB64u',
+      };
+    }
+    const keyHandle = toOptionalTrimmedString(sess.keyHandle);
+    if (!keyHandle) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'mpcSessionId is missing keyHandle',
+      };
+    }
+    const tokenSigningRootId = toOptionalTrimmedString(sess.signingRootId);
+    if (!tokenSigningRootId) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'mpcSessionId is missing signing-root metadata',
+      };
+    }
+    const tokenSigningRoot = {
+      signingRootId: tokenSigningRootId,
+      ...(toOptionalTrimmedString(sess.signingRootVersion)
+        ? { signingRootVersion: toOptionalTrimmedString(sess.signingRootVersion) }
+        : {}),
+    };
+    const keyMaterial = await this.resolvePresignInitKeyMaterial({
+      keySelector: { kind: 'key_handle', keyHandle },
+      walletSessionUserId: sess.walletSessionUserId,
+      rpId: sess.rpId,
+      participantIds,
+      tokenRelayerKeyId: sess.relayerKeyId,
+      tokenKeyHandle: keyHandle,
+      tokenSigningRoot,
+    });
+    if (!keyMaterial.ok) return keyMaterial;
+    const signingMaterial = keyMaterial.value;
+    const thresholdEcdsaPublicKeyB64u = toOptionalTrimmedString(
+      signingMaterial.thresholdEcdsaPublicKeyB64u,
+    );
+    if (!thresholdEcdsaPublicKeyB64u) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'ecdsaThresholdKeyId is missing persisted thresholdEcdsaPublicKeyB64u',
+      };
+    }
+    const ecdsaThresholdKeyId = toOptionalTrimmedString(sess.ecdsaThresholdKeyId);
+    if (ecdsaThresholdKeyId && signingMaterial.ecdsaThresholdKeyId !== ecdsaThresholdKeyId) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'keyHandle does not match mpcSessionId threshold key scope',
+      };
+    }
+    const signingRootMetadata = signingMaterial.signingRootMetadata;
+    if (
+      sess.signingRootId !== signingRootMetadata.signingRootId ||
+      sess.signingRootVersion !== signingRootMetadata.signingRootVersion ||
+      sess.walletKeyVersion !== signingRootMetadata.walletKeyVersion ||
+      sess.derivationVersion !== signingRootMetadata.derivationVersion
+    ) {
+      return {
+        ok: false,
+        code: 'unauthorized',
+        message: 'mpcSessionId signing root does not match ECDSA key',
+      };
+    }
+
+    const presignature = await this.reserveSignInitPresignature(
+      signingMaterial.presignPoolKey,
+      clientPresignatureId,
+    );
     if (!presignature) {
+      await this.sessionStore.putMpcSession(mpcSessionId, sess, ttlMs);
       if (clientPresignatureId) {
         return {
           ok: false,
@@ -1434,85 +1540,6 @@ export class ThresholdEcdsaSigningHandlers {
       };
     }
 
-    if (typeof crypto === 'undefined' || typeof crypto.getRandomValues !== 'function') {
-      await this.presignaturePool.discard(relayerKeyId, presignature.presignatureId);
-      return {
-        ok: false,
-        code: 'unsupported',
-        message: 'crypto.getRandomValues is unavailable in this runtime',
-      };
-    }
-
-    const ttlMs = Math.max(0, Math.min(60_000, sess.expiresAtMs - Date.now()));
-    if (ttlMs <= 0) {
-      await this.presignaturePool.discard(relayerKeyId, presignature.presignatureId);
-      return { ok: false, code: 'unauthorized', message: 'mpcSessionId expired' };
-    }
-    const clientVerifyingShareB64u = toOptionalTrimmedString(sess.clientVerifyingShareB64u);
-    if (!clientVerifyingShareB64u) {
-      await this.presignaturePool.discard(relayerKeyId, presignature.presignatureId);
-      return {
-        ok: false,
-        code: 'internal',
-        message: 'mpcSessionId is missing clientVerifyingShareB64u',
-      };
-    }
-    const keyHandle = toOptionalTrimmedString(sess.keyHandle);
-    if (!keyHandle) {
-      await this.presignaturePool.discard(relayerKeyId, presignature.presignatureId);
-      return {
-        ok: false,
-        code: 'internal',
-        message: 'mpcSessionId is missing keyHandle',
-      };
-    }
-    const integratedKey = await this.resolveIntegratedKeyRecord({
-      kind: 'key_handle',
-      keyHandle,
-    });
-    const thresholdEcdsaPublicKeyB64u = toOptionalTrimmedString(
-      integratedKey?.thresholdEcdsaPublicKeyB64u,
-    );
-    if (!thresholdEcdsaPublicKeyB64u) {
-      await this.presignaturePool.discard(relayerKeyId, presignature.presignatureId);
-      return {
-        ok: false,
-        code: 'internal',
-        message: 'ecdsaThresholdKeyId is missing persisted thresholdEcdsaPublicKeyB64u',
-      };
-    }
-    if (!integratedKey) {
-      await this.presignaturePool.discard(relayerKeyId, presignature.presignatureId);
-      return {
-        ok: false,
-        code: 'internal',
-        message: 'ecdsaThresholdKeyId is missing persisted signing-root metadata',
-      };
-    }
-    const ecdsaThresholdKeyId = toOptionalTrimmedString(sess.ecdsaThresholdKeyId);
-    if (ecdsaThresholdKeyId && integratedKey.ecdsaThresholdKeyId !== ecdsaThresholdKeyId) {
-      await this.presignaturePool.discard(relayerKeyId, presignature.presignatureId);
-      return {
-        ok: false,
-        code: 'internal',
-        message: 'keyHandle does not match mpcSessionId threshold key scope',
-      };
-    }
-    const signingRootMetadata = signingRootMetadataFromIntegratedKey(integratedKey);
-    if (
-      sess.signingRootId !== signingRootMetadata.signingRootId ||
-      sess.signingRootVersion !== signingRootMetadata.signingRootVersion ||
-      sess.walletKeyVersion !== signingRootMetadata.walletKeyVersion ||
-      sess.derivationVersion !== signingRootMetadata.derivationVersion
-    ) {
-      await this.presignaturePool.discard(relayerKeyId, presignature.presignatureId);
-      return {
-        ok: false,
-        code: 'unauthorized',
-        message: 'mpcSessionId signing root does not match integrated key',
-      };
-    }
-
     const signingSessionId = this.createSigningSessionId();
     const entropyB64u = base64UrlEncode(crypto.getRandomValues(new Uint8Array(32)));
     const walletSessionUserId = sess.walletSessionUserId;
@@ -1521,6 +1548,7 @@ export class ThresholdEcdsaSigningHandlers {
       expiresAtMs: sess.expiresAtMs,
       mpcSessionId,
       relayerKeyId,
+      presignPoolKey: signingMaterial.presignPoolKey,
       ecdsaThresholdKeyId,
       thresholdEcdsaPublicKeyB64u,
       signingDigestB64u: sess.signingDigestB64u,
@@ -1581,12 +1609,12 @@ export class ThresholdEcdsaSigningHandlers {
       return { ok: false, code: 'unauthorized', message: 'signingSessionId expired or invalid' };
     }
     if (Date.now() > sess.expiresAtMs) {
-      await this.presignaturePool.discard(sess.relayerKeyId, sess.presignatureId);
+      await this.presignaturePool.discard(sess.presignPoolKey, sess.presignatureId);
       return { ok: false, code: 'unauthorized', message: 'signingSessionId expired' };
     }
 
     if (this.clientParticipantId !== 1 || this.relayerParticipantId !== 2) {
-      await this.presignaturePool.discard(sess.relayerKeyId, sess.presignatureId);
+      await this.presignaturePool.discard(sess.presignPoolKey, sess.presignatureId);
       return {
         ok: false,
         code: 'unsupported',
@@ -1598,7 +1626,7 @@ export class ThresholdEcdsaSigningHandlers {
     try {
       clientSignatureShare32 = base64UrlDecode(clientSignatureShareB64u);
       if (clientSignatureShare32.length !== 32) {
-        await this.presignaturePool.discard(sess.relayerKeyId, sess.presignatureId);
+        await this.presignaturePool.discard(sess.presignPoolKey, sess.presignatureId);
         return {
           ok: false,
           code: 'invalid_body',
@@ -1606,7 +1634,7 @@ export class ThresholdEcdsaSigningHandlers {
         };
       }
     } catch (e: unknown) {
-      await this.presignaturePool.discard(sess.relayerKeyId, sess.presignatureId);
+      await this.presignaturePool.discard(sess.presignPoolKey, sess.presignatureId);
       return {
         ok: false,
         code: 'invalid_body',
@@ -1615,7 +1643,7 @@ export class ThresholdEcdsaSigningHandlers {
     }
 
     const presignature = await this.presignaturePool.consume(
-      sess.relayerKeyId,
+      sess.presignPoolKey,
       sess.presignatureId,
     );
     if (!presignature) {

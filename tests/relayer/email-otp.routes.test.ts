@@ -1,7 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { AuthService } from '@server/core/AuthService';
 import { signSecp256k1Recoverable } from '@server/core/ThresholdService/ethSignerWasm';
-import { THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID } from '@server/core/ThresholdService/schemes/schemeIds';
 import {
   createInMemoryConsoleWebhookService,
   createRelayRouter,
@@ -80,35 +79,6 @@ function makeWrappedCiphertext(plaintextSecretB64u: string): {
     }),
   );
   return { wrappedCiphertext, clientCiphertext };
-}
-
-function makeEcdsaThresholdAdapter(input: {
-  prepare: (request: Record<string, unknown>) => Promise<Record<string, unknown>>;
-}): {
-  getSchemeModule: (schemeId: string) => Record<string, unknown> | null;
-} {
-  return {
-    getSchemeModule: (schemeId: string) => {
-      if (schemeId !== THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID) return null;
-      return {
-        schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
-        healthz: async () => ({ ok: true }),
-        hss: {
-          prepare: async (request: Record<string, unknown>) => await input.prepare(request),
-          respond: async () => ({
-            ok: false,
-            code: 'not_implemented',
-            message: 'not implemented',
-          }),
-          finalize: async () => ({
-            ok: false,
-            code: 'not_implemented',
-            message: 'not implemented',
-          }),
-        },
-      };
-    },
-  };
 }
 
 function removeClientSeal(ciphertextB64u: string): string {
@@ -1050,18 +1020,6 @@ test.describe('Email OTP routes', () => {
     expect(appVersion.ok).toBe(true);
     const appSessionVersion = (appVersion as { appSessionVersion: string }).appSessionVersion;
     const thresholdClaims = makeThresholdSessionClaims();
-    let capturedPrepareRequest: Record<string, unknown> | null = null;
-    const threshold = makeEcdsaThresholdAdapter({
-      prepare: async (request) => {
-        capturedPrepareRequest = request;
-        return {
-          ok: true,
-          ceremonyId: 'ecdsa-email-otp-route-ceremony-1',
-          preparedServerSessionB64u: 'prepared-server-session',
-          serverAssistInitB64u: 'server-assist-init',
-        };
-      },
-    });
     const router = createRelayRouter(service, {
       session: makeTokenBoundAppSessionAdapter({
         'google-app-session': {
@@ -1077,7 +1035,6 @@ test.describe('Email OTP routes', () => {
         'threshold-session': thresholdClaims,
       }),
       signingSessionSeal: makeSigningSessionSealOptions({ claims: thresholdClaims }),
-      threshold: threshold as any,
     });
     const srv = await startExpressRouter(router);
     try {
@@ -1119,44 +1076,6 @@ test.describe('Email OTP routes', () => {
       expect((service as any).emailOtpMemoryOutbox.get(challengeId)?.email).toBe(
         'alice@example.com',
       );
-
-      const prepare = await fetchJson(`${srv.baseUrl}/threshold-ecdsa/hss/prepare`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: 'Bearer threshold-session',
-        },
-        body: JSON.stringify({
-          userId: 'alice.testnet',
-          rpId: 'example.localhost',
-          operation: 'email_otp_bootstrap',
-          keygenSessionId: 'ecdsa-email-otp-route-keygen-1',
-          sessionPolicy: {
-            version: 'threshold_session_v1',
-            userId: 'alice.testnet',
-            rpId: 'example.localhost',
-            sessionId: 'ecdsa-session-email-otp-route-1',
-            walletSigningSessionId: 'wallet-signing-session-1',
-            ttlMs: 60_000,
-            remainingUses: 3,
-            participantIds: [1, 2],
-          },
-        }),
-      });
-      expect(prepare.status).toBe(200);
-      expect(prepare.json?.ok).toBe(true);
-      const captured = capturedPrepareRequest as Record<string, unknown> | null;
-      expect(captured).not.toBeNull();
-      expect((captured as Record<string, unknown>).ecdsaSessionClaims).toMatchObject({
-        sub: 'alice.testnet',
-        walletSigningSessionId: 'wallet-signing-session-1',
-      });
-      expect((captured as Record<string, unknown>).emailOtpEnrollmentClaims).toMatchObject({
-        walletId: 'alice.testnet',
-        userId: GOOGLE_EMAIL_OTP_USER_ID,
-        otpChannel: 'email_otp',
-        thresholdEcdsaClientVerifyingShareB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
-      });
     } finally {
       await srv.close();
     }

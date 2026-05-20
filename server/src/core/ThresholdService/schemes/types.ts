@@ -5,12 +5,6 @@ import type {
   ThresholdEd25519CosignFinalizeResponse,
   ThresholdEd25519CosignInitRequest,
   ThresholdEd25519CosignInitResponse,
-  ThresholdEcdsaHssFinalizeRequest,
-  ThresholdEcdsaHssFinalizeResponse,
-  ThresholdEcdsaHssPrepareRequest,
-  ThresholdEcdsaHssPrepareResponse,
-  ThresholdEcdsaHssRespondRequest,
-  ThresholdEcdsaHssRespondResponse,
   ThresholdEcdsaAuthorizeResponse,
   ThresholdEcdsaAuthorizeWithSessionRequest,
   ThresholdEcdsaCosignFinalizeRequest,
@@ -153,17 +147,6 @@ export type ThresholdSecp256k1Ecdsa2pSchemeModule = {
     claims: ThresholdEcdsaSessionClaims;
     request: ThresholdEcdsaAuthorizeWithSessionRequest;
   }): Promise<ThresholdEcdsaAuthorizeResponse>;
-  hss?: {
-    prepare(
-      request: ThresholdEcdsaHssPrepareRequest,
-    ): Promise<ThresholdEcdsaHssPrepareResponse>;
-    respond(
-      request: ThresholdEcdsaHssRespondRequest,
-    ): Promise<ThresholdEcdsaHssRespondResponse>;
-    finalize(
-      request: ThresholdEcdsaHssFinalizeRequest,
-    ): Promise<ThresholdEcdsaHssFinalizeResponse>;
-  };
   presign: {
     init(input: {
       claims: ThresholdEcdsaSessionClaims;
