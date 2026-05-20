@@ -107,32 +107,40 @@ test.describe('chain family naming', () => {
     expect(result.evmExplorerFallback).toBe('https://arc-explorer.example');
   });
 
-  test('default chain fixtures include a non-Arc EVM network', async ({ page }) => {
+  test('explicit chain config is the authoritative active network set', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
-        const chainsMod = await import(paths.chains);
         const defaultsMod = await import(paths.defaults);
         const defaults = Array.isArray(defaultsMod.PASSKEY_MANAGER_DEFAULT_CONFIGS?.network?.chains)
           ? defaultsMod.PASSKEY_MANAGER_DEFAULT_CONFIGS.network.chains
           : [];
 
-        const nonArcEvmNetworks = defaults
-          .filter(
-            (chain: { network: string }) =>
-              chainsMod.chainFamilyFromNetwork(chain.network) === 'evm' &&
-              !String(chain.network).startsWith('arc-'),
-          )
-          .map((chain: { network: string }) => chain.network);
-
         return {
           defaultNetworks: defaults.map((chain: { network: string }) => chain.network),
-          nonArcEvmNetworks,
+          builtNetworks: defaultsMod
+            .buildConfigsFromEnv({
+              relayer: { url: 'https://relay.example' },
+              chains: [
+                {
+                  network: 'near-testnet',
+                  rpcUrl: 'https://near-rpc.example',
+                  explorerUrl: 'https://near-explorer.example',
+                },
+                {
+                  network: 'arc-testnet',
+                  rpcUrl: 'https://arc-rpc.example',
+                  explorerUrl: 'https://arc-explorer.example',
+                  chainId: 5042002,
+                },
+              ],
+            })
+            .network.chains.map((chain: { network: string }) => chain.network),
         };
       },
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.defaultNetworks).toContain('ethereum-sepolia');
-    expect(result.nonArcEvmNetworks).toContain('ethereum-sepolia');
+    expect(result.defaultNetworks.length).toBeGreaterThan(0);
+    expect(result.builtNetworks).toEqual(['near-testnet', 'arc-testnet']);
   });
 });

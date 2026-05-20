@@ -31,6 +31,12 @@ const EVM_CHAIN_TARGET = {
   chainId: 5042002,
   networkSlug: 'arc-testnet',
 } as const satisfies ThresholdEcdsaChainTarget;
+const SEPOLIA_CHAIN_TARGET = {
+  kind: 'evm',
+  namespace: 'eip155',
+  chainId: 11155111,
+  networkSlug: 'ethereum-sepolia',
+} as const satisfies ThresholdEcdsaChainTarget;
 const THRESHOLD_OWNER_ADDRESS = `0x${'aa'.repeat(20)}`;
 
 function canonicalEcdsaRecord(overrides?: Record<string, unknown>): Record<string, unknown> {
@@ -695,7 +701,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     expect(bootstrapCalls).toBe(0);
   });
 
-  test('wallet unlock fails before clearing volatile material on profile-only owner metadata after IndexedDB cleanup', async () => {
+  test('wallet unlock ignores profile-only owner metadata before clearing volatile material', async () => {
     const bootstrapArgs: Array<Record<string, unknown>> = [];
     let clearVolatileCalls = 0;
     const originalFetch = globalThis.fetch;
@@ -795,7 +801,7 @@ test.describe('unlock threshold warm-session requirements', () => {
       );
 
       expect(result.success).toBe(false);
-      expect(String(result.error || '')).toContain('requires keyHandle metadata');
+      expect(String(result.error || '')).toContain('requires keyHandle selectors');
       expect(bootstrapArgs).toHaveLength(0);
       expect(clearVolatileCalls).toBe(0);
     } finally {
@@ -803,7 +809,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     }
   });
 
-  test('wallet unlock rejects synthetic legacy profile key ids before clearing volatile material', async () => {
+  test('wallet unlock ignores synthetic legacy profile key ids before clearing volatile material', async () => {
     const originalFetch = globalThis.fetch;
     const bootstrapArgs: Array<Record<string, unknown>> = [];
     let clearVolatileCalls = 0;
@@ -889,9 +895,164 @@ test.describe('unlock threshold warm-session requirements', () => {
       );
 
       expect(result.success).toBe(false);
-      expect(String(result.error || '')).toContain('synthetic legacy key id without keyHandle');
+      expect(String(result.error || '')).toContain('requires keyHandle selectors');
       expect(bootstrapArgs).toHaveLength(0);
       expect(clearVolatileCalls).toBe(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('wallet unlock completes configured shared ECDSA targets when one stale profile signer lacks keyHandle', async () => {
+    const originalFetch = globalThis.fetch;
+    const bootstrapChains: string[] = [];
+    const inventoryRequests: unknown[] = [];
+    globalThis.fetch = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body || '{}')) as { keyTargets?: unknown[] };
+      inventoryRequests.push(body);
+      const keyTargets = Array.isArray(body.keyTargets) ? body.keyTargets : [];
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          ecdsaKeyIdentityTargets: keyTargets.map((target) =>
+            ecdsaKeyIdentityTargetRecord(
+              (target as { chainTarget: ThresholdEcdsaChainTarget }).chainTarget,
+            ),
+          ),
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }) as typeof fetch;
+    const context = createBaseContext({
+      configs: {
+        network: {
+          relayer: { url: 'https://relay.example' },
+          chains: [
+            {
+              network: 'tempo-testnet',
+              rpcUrl: 'https://rpc.tempo.test',
+              explorerUrl: 'https://explorer.tempo.test',
+              chainId: 42431,
+            },
+            {
+              network: 'arc-testnet',
+              rpcUrl: 'https://rpc.arc.test',
+              explorerUrl: 'https://explorer.arc.test',
+              chainId: 5042002,
+            },
+            {
+              network: 'ethereum-sepolia',
+              rpcUrl: 'https://rpc.sepolia.test',
+              explorerUrl: 'https://explorer.sepolia.test',
+              chainId: 11155111,
+            },
+          ],
+        },
+      },
+      signingEngine: {
+        listThresholdEcdsaSessionRecordsForWalletTarget: () => [],
+        bootstrapEcdsaSession: async (args: Record<string, unknown>) => {
+          bootstrapChains.push(thresholdEcdsaChainTargetKey(bootstrapChainTarget(args)));
+          const ecdsaThresholdKeyId = bootstrapEcdsaThresholdKeyId(args);
+          return {
+            thresholdEcdsaKeyRef: {
+              type: 'threshold-ecdsa-secp256k1',
+              userId: 'alice.testnet',
+              relayerUrl: 'https://relay.example',
+              keyHandle: bootstrapKeyHandle(args),
+              ecdsaThresholdKeyId,
+              signingRootId: 'proj_local:dev',
+              signingRootVersion: 'default',
+              backendBinding: {
+                relayerKeyId: 'rk-1',
+                clientVerifyingShareB64u: 'AQ',
+              },
+              participantIds: [1, 2],
+              thresholdSessionKind: 'jwt',
+              thresholdSessionId: 'session-1',
+              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              thresholdSessionAuthToken: 'jwt-ecdsa',
+            },
+            keygen: {
+              ok: true,
+              ecdsaThresholdKeyId,
+              relayerKeyId: 'rk-1',
+              clientVerifyingShareB64u: 'AQ',
+              participantIds: [1, 2],
+              ethereumAddress: THRESHOLD_OWNER_ADDRESS,
+            },
+            session: {
+              ok: true,
+              sessionId: 'session-1',
+              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              jwt: 'jwt-ecdsa',
+              remainingUses: 3,
+              expiresAtMs: Date.now() + 60_000,
+            },
+          };
+        },
+      },
+    });
+
+    try {
+      const result = await withMockedMostRecentProjection(
+        async () => await unlock(context, ACCOUNT_ID),
+        {
+          profileContinuitySnapshot: {
+            chainAccounts: [],
+            accountSigners: [
+              {
+                chainIdKey: thresholdEcdsaChainTargetKey(TEMPO_CHAIN_TARGET),
+                accountAddress: THRESHOLD_OWNER_ADDRESS,
+                signerId: THRESHOLD_OWNER_ADDRESS,
+                signerKind: 'threshold-ecdsa',
+                signerAuthMethod: 'passkey',
+                status: 'active',
+                metadata: {
+                  keyHandle: ECDSA_KEY_HANDLE,
+                  ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+                  chainTarget: TEMPO_CHAIN_TARGET,
+                  subjectId: ACCOUNT_ID,
+                  rpId: 'example.localhost',
+                  signingRootId: 'proj_local:dev',
+                  signingRootVersion: 'default',
+                  participantIds: [1, 2],
+                  thresholdOwnerAddress: THRESHOLD_OWNER_ADDRESS,
+                },
+              },
+              {
+                chainIdKey: thresholdEcdsaChainTargetKey(SEPOLIA_CHAIN_TARGET),
+                accountAddress: THRESHOLD_OWNER_ADDRESS,
+                signerId: THRESHOLD_OWNER_ADDRESS,
+                signerKind: 'threshold-ecdsa',
+                signerAuthMethod: 'passkey',
+                status: 'active',
+                metadata: {
+                  ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+                  chainTarget: SEPOLIA_CHAIN_TARGET,
+                  subjectId: ACCOUNT_ID,
+                  rpId: 'example.localhost',
+                  signingRootId: 'proj_local:dev',
+                  signingRootVersion: 'default',
+                  participantIds: [1, 2],
+                  thresholdOwnerAddress: THRESHOLD_OWNER_ADDRESS,
+                },
+              },
+            ],
+          },
+        },
+      );
+
+      expect(result.success).toBe(true);
+      expect(inventoryRequests).toHaveLength(1);
+      expect(bootstrapChains).toEqual([
+        'tempo:42431',
+        'evm:eip155:5042002',
+        'evm:eip155:11155111',
+      ]);
     } finally {
       globalThis.fetch = originalFetch;
     }

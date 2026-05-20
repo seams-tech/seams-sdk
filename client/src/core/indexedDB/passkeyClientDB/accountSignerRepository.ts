@@ -177,6 +177,41 @@ export function createAccountSignerRepository(args: {
     );
   }
 
+  function assertActiveThresholdEcdsaSignerMetadata(input: {
+    next: AccountSignerRecord;
+  }): void {
+    if (input.next.status !== 'active') return;
+    if (String(input.next.signerKind || '') !== 'threshold-ecdsa') return;
+    const metadata = input.next.metadata || {};
+    const keyHandle = toTrimmedString(metadata.keyHandle);
+    const ecdsaThresholdKeyId = toTrimmedString(metadata.ecdsaThresholdKeyId);
+    const signingRootId = toTrimmedString(metadata.signingRootId);
+    if (!keyHandle && (!ecdsaThresholdKeyId || !signingRootId)) {
+      throw args.createConstraintError(
+        'INVALID_SIGNER_METADATA',
+        'Active threshold ECDSA signer requires keyHandle or canonical signing-root identity metadata',
+        {
+          chainIdKey: input.next.chainIdKey,
+          accountAddress: input.next.accountAddress,
+          signerId: input.next.signerId,
+          signerKind: input.next.signerKind,
+        },
+      );
+    }
+    if (!metadata.chainTarget || typeof metadata.chainTarget !== 'object') {
+      throw args.createConstraintError(
+        'INVALID_SIGNER_METADATA',
+        'Active threshold ECDSA signer requires metadata.chainTarget',
+        {
+          chainIdKey: input.next.chainIdKey,
+          accountAddress: input.next.accountAddress,
+          signerId: input.next.signerId,
+          signerKind: input.next.signerKind,
+        },
+      );
+    }
+  }
+
   function ensureRevokedSignerHasRemovedAt(input: {
     status: AccountSignerStatus;
     removedAt?: number;
@@ -331,6 +366,8 @@ export function createAccountSignerRepository(args: {
           );
         }
       }
+
+      assertActiveThresholdEcdsaSignerMetadata({ next: input.next });
 
       if (input.existingStatus && input.existingStatus !== input.next.status) {
         assertSignerStatusTransition({

@@ -204,34 +204,35 @@ export function resolveChains(
   defaults: readonly SeamsChainConfig[],
   overrides: SeamsConfigsInput['chains'],
 ): SeamsChainConfig[] {
-  const byNetwork = new Map<SeamsChainNetwork, SeamsChainConfig>(
-    defaults.map((chain) => [chain.network, { ...chain }]),
-  );
-  const orderedNetworks: SeamsChainNetwork[] = [];
-
   if (Array.isArray(overrides)) {
+    const defaultsByNetwork = new Map<SeamsChainNetwork, SeamsChainConfig>(
+      defaults.map((chain) => [chain.network, { ...chain }]),
+    );
+    const byNetwork = new Map<SeamsChainNetwork, SeamsChainConfig>();
+    const orderedNetworks: SeamsChainNetwork[] = [];
     for (const override of overrides) {
       const network = resolveChainNetwork((override as { network?: unknown }).network);
       const resolved = resolveChainConfig({
         input: override as SeamsChainConfigInput,
-        fallback: byNetwork.get(network),
+        fallback: defaultsByNetwork.get(network),
       });
       byNetwork.set(network, resolved);
       if (!orderedNetworks.includes(network)) {
         orderedNetworks.push(network);
       }
     }
-  }
-
-  for (const chain of defaults) {
-    if (!orderedNetworks.includes(chain.network)) {
-      orderedNetworks.push(chain.network);
+    const resolved = orderedNetworks
+      .map((network) => byNetwork.get(network))
+      .filter((chain): chain is SeamsChainConfig => !!chain);
+    if (!resolved.some((chain) => isNearChainNetwork(chain.network))) {
+      throw new Error(
+        '[configPresets] Missing required config: chains (at least one near-* network)',
+      );
     }
+    return resolved;
   }
 
-  const resolved = orderedNetworks
-    .map((network) => byNetwork.get(network))
-    .filter((chain): chain is SeamsChainConfig => !!chain);
+  const resolved = defaults.map((chain) => ({ ...chain }));
   if (!resolved.some((chain) => isNearChainNetwork(chain.network))) {
     throw new Error(
       '[configPresets] Missing required config: chains (at least one near-* network)',

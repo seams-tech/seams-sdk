@@ -23,6 +23,7 @@ import {
   toError,
 } from '@shared/utils/errors';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
+import { deriveThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
 import { isObject } from '@shared/utils/validation';
 import { IndexedDBManager } from '../indexedDB';
 import {
@@ -965,6 +966,16 @@ type ThresholdEcdsaKeyIdentityTargetRequest = {
   chainTarget: ThresholdEcdsaChainTarget;
 };
 
+type ProfileContinuityEcdsaKeyHandleResolution =
+  | {
+      kind: 'resolved';
+      keyHandle: string;
+    }
+  | {
+      kind: 'blocked';
+      reason: 'missing_key_handle' | 'synthetic_legacy_key_id';
+    };
+
 function thresholdEcdsaKeyIdentityTargetRequestsFromContext(args: {
   context: CanonicalThresholdEcdsaWarmSessionContext;
   configuredTargets: readonly ConfiguredThresholdEcdsaPublicationTarget[];
@@ -1000,15 +1011,17 @@ function requireThresholdEcdsaWarmupKeyIdentityTargets(args: {
     configuredTargets: args.configuredTargets,
   });
   if (!args.configuredTargets.length) return keyTargets;
-  const targetKeysWithKeyHandles = new Set(
-    keyTargets.map((target) => thresholdEcdsaChainTargetKey(target.chainTarget)),
-  );
-  const missingTargetKeys = args.configuredTargets
-    .map((target) => thresholdEcdsaChainTargetKey(target.chainTarget))
-    .filter((targetKey) => !targetKeysWithKeyHandles.has(targetKey));
-  if (missingTargetKeys.length) {
+  if (!keyTargets.length) {
     throw new Error(
-      `[login] threshold ECDSA warm-up ${args.source} requires keyHandle selectors for ${missingTargetKeys.join(
+      `[login] threshold ECDSA warm-up ${args.source} requires keyHandle selectors for ${args.configuredTargets
+        .map((target) => thresholdEcdsaChainTargetKey(target.chainTarget))
+        .join(', ')}`,
+    );
+  }
+  const keyHandles = [...new Set(keyTargets.map((target) => String(target.keyHandle).trim()))];
+  if (keyHandles.length > 1) {
+    throw new Error(
+      `[login] threshold ECDSA warm-up ${args.source} received ambiguous keyHandle selectors: ${keyHandles.join(
         ', ',
       )}`,
     );
@@ -1900,27 +1913,45 @@ function createThresholdLoginWarmSessionId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function resolveProfileContinuityEcdsaKeyHandle(args: {
+async function resolveProfileContinuityEcdsaKeyHandle(args: {
   metadata: Record<string, unknown>;
   targetKey: string;
-}): string {
+}): Promise<ProfileContinuityEcdsaKeyHandleResolution> {
   const { metadata } = args;
   const directKeyHandle =
     String(metadata.keyHandle || '').trim() ||
     (isObject(metadata.sharedEvmFamilyKey)
       ? String(metadata.sharedEvmFamilyKey.keyHandle || '').trim()
       : '');
-  if (directKeyHandle) return directKeyHandle;
-
-  const ecdsaThresholdKeyId = String(metadata.ecdsaThresholdKeyId || '').trim();
-  if (ecdsaThresholdKeyId.startsWith('legacy-key-handle:')) {
-    throw new Error(
-      `[login] active ECDSA profile signer for ${args.targetKey} has synthetic legacy key id without keyHandle`,
-    );
+  if (directKeyHandle) {
+    return { kind: 'resolved', keyHandle: directKeyHandle };
   }
-  throw new Error(
-    `[login] active ECDSA profile signer for ${args.targetKey} requires keyHandle metadata`,
-  );
+
+  const sharedEvmFamilyKey = isObject(metadata.sharedEvmFamilyKey)
+    ? metadata.sharedEvmFamilyKey
+    : {};
+  const ecdsaThresholdKeyId =
+    String(metadata.ecdsaThresholdKeyId || '').trim() ||
+    String(sharedEvmFamilyKey.ecdsaThresholdKeyId || '').trim();
+  if (ecdsaThresholdKeyId.startsWith('legacy-key-handle:')) {
+    return { kind: 'blocked', reason: 'synthetic_legacy_key_id' };
+  }
+  const signingRootId =
+    String(metadata.signingRootId || '').trim() ||
+    String(sharedEvmFamilyKey.signingRootId || '').trim();
+  const signingRootVersion =
+    String(metadata.signingRootVersion || '').trim() ||
+    String(sharedEvmFamilyKey.signingRootVersion || '').trim() ||
+    'default';
+  if (ecdsaThresholdKeyId && signingRootId) {
+    const derivedKeyHandle = await deriveThresholdEcdsaKeyHandle({
+      ecdsaThresholdKeyId,
+      signingRootId,
+      signingRootVersion,
+    });
+    return { kind: 'resolved', keyHandle: derivedKeyHandle };
+  }
+  return { kind: 'blocked', reason: 'missing_key_handle' };
 }
 
 async function resolveProfileContinuityEcdsaWarmKeys(
@@ -1960,11 +1991,22 @@ async function resolveProfileContinuityEcdsaWarmKeys(
       continue;
     }
     const targetKey = thresholdEcdsaChainTargetKey(chainTarget);
-    const keyHandle = resolveProfileContinuityEcdsaKeyHandle({ metadata, targetKey });
+    const keyHandleResolution = await resolveProfileContinuityEcdsaKeyHandle({
+      metadata,
+      targetKey,
+    });
+    if (keyHandleResolution.kind === 'blocked') {
+      console.warn('[login][ecdsa-warmup-diagnostic] ignoring incomplete profile ECDSA signer', {
+        nearAccountId,
+        targetKey,
+        reason: keyHandleResolution.reason,
+      });
+      continue;
+    }
     keys.push(
       configuredTargetThresholdEcdsaWarmKey({
         chainTarget,
-        keyHandle,
+        keyHandle: keyHandleResolution.keyHandle,
       }),
     );
   }
