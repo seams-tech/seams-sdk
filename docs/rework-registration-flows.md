@@ -10,6 +10,17 @@ Registration should support three first-class modes with one WebAuthn `create()`
 
 Later signer creation should use a fresh WebAuthn `get()` assertion or an explicitly approved app-session policy. Initial registration should not require a threshold-session auth token, an Ed25519 session token, or a registration continuation JWT to create ECDSA key material.
 
+Wallet unlock should mirror the same signer-family independence:
+
+- Unlock Ed25519 only.
+- Unlock ECDSA only.
+- Unlock Ed25519 and ECDSA together.
+
+ECDSA unlock may need authenticated key-identity inventory, but that authority
+must come from wallet/authenticator auth or an explicit app-session policy. It
+should not require an Ed25519 signing session, Ed25519 threshold-session auth
+token, or NEAR account continuity.
+
 ## Current Shape
 
 The current passkey registration path is NEAR-account and Ed25519 anchored:
@@ -277,6 +288,133 @@ Rules:
 - Threshold-session auth tokens should never authorize signer creation.
 - Registration continuation JWTs should be deleted once this add-signer flow exists.
 
+## Wallet Unlock Model
+
+Unlock should be signer-selection driven, not NEAR-first or Ed25519-first:
+
+```ts
+type WalletUnlockSelection =
+  | {
+      mode: 'ed25519_only';
+      ed25519: Ed25519UnlockSpec;
+    }
+  | {
+      mode: 'ecdsa_only';
+      ecdsa: EcdsaUnlockSpec;
+    }
+  | {
+      mode: 'ed25519_and_ecdsa';
+      ed25519: Ed25519UnlockSpec;
+      ecdsa: EcdsaUnlockSpec;
+    };
+
+type Ed25519UnlockSpec = {
+  walletSubjectId: WalletSubjectId;
+  nearAccountId: string;
+  signerSlot: number;
+};
+
+type EcdsaUnlockSpec = {
+  walletSubjectId: WalletSubjectId;
+  chainTargets: NonEmptyArray<ThresholdEcdsaChainTarget>;
+};
+```
+
+Rules:
+
+- Ed25519 unlock provisions Ed25519 signing sessions from Ed25519 signer
+  records.
+- ECDSA unlock provisions ECDSA signing sessions from ECDSA signer records.
+- ECDSA-only unlock must work without a NEAR account, Ed25519 signer record, or
+  Ed25519 signing session.
+- Combined unlock may run Ed25519 and ECDSA planning independently and then
+  provision both families in parallel where the runtime allows it.
+- ECDSA key-identity inventory fetches require wallet/authenticator authority or
+  an app-session policy with ECDSA unlock/read permission.
+- The inventory state should be named for the domain need, such as
+  `awaiting_key_identity_inventory` or
+  `awaiting_authenticated_key_inventory`; avoid Ed25519-specific names.
+- Threshold-session auth tokens remain signing-session capabilities. They may
+  refresh or reconnect an existing same-curve signing session, but they should
+  not authorize signer discovery or cross-curve unlock.
+
+## ECDSA Wallet Key Model
+
+`keyHandle` is an opaque server selector for an integrated ECDSA key. It is
+required when the client asks the ECDSA key server to prepare, refresh, export,
+or sign with that key. Treat wallet identity, shared EVM-family identity, and
+lane correctness as canonical key-identity facts.
+
+Core code should use one resolved active-key type that carries both facts:
+
+```ts
+type EcdsaServerSelector = {
+  keyHandle: EvmFamilyEcdsaKeyHandle;
+};
+
+type EcdsaKeyIdentity = {
+  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  signingRootId: SigningRootId;
+  signingRootVersion: SigningRootVersion;
+  thresholdEcdsaPublicKeyB64u: ThresholdEcdsaPublicKeyB64u;
+  thresholdOwnerAddress: EvmAddress;
+  participantIds: NonEmptyParticipantIds;
+};
+
+type EvmFamilyEcdsaWalletKey = {
+  kind: 'evm_family_ecdsa_wallet_key';
+  keyHandle: EvmFamilyEcdsaKeyHandle;
+  identity: EcdsaKeyIdentity;
+};
+
+type EcdsaWalletSignerRecord = {
+  kind: 'ecdsa';
+  walletSubjectId: WalletSubjectId;
+  subjectId: WalletSubjectId;
+  chainTarget: ThresholdEcdsaChainTarget;
+  walletKey: EvmFamilyEcdsaWalletKey;
+  status: 'active';
+  createdAtMs: number;
+};
+```
+
+Rules:
+
+- Server and persistence boundaries may parse raw `keyHandle`, legacy request
+  names, or database field names once. Core registration, unlock, warm-up,
+  signing, export, and budget logic consumes `EcdsaWalletSignerRecord` or
+  `EvmFamilyEcdsaWalletKey` for resolved active keys.
+- Transport helpers may project `EcdsaServerSelector` from
+  `EvmFamilyEcdsaWalletKey` when an endpoint only needs `keyHandle`.
+- Operations that select a wallet key, compare lanes, enforce same-address
+  EVM-family policy, finalize budgets, or contact the ECDSA key server require
+  `EvmFamilyEcdsaWalletKey`.
+- Exact warm-up and reconnect lifecycle states require
+  `EvmFamilyEcdsaWalletKey`; broad target-based registration intent must not
+  flow into exact-session activation.
+- Registration-before-finalize, authenticated inventory needed, blocked signer
+  records, and raw profile metadata are separate discriminated states. They
+  cannot manufacture `EvmFamilyEcdsaWalletKey` until both selector and identity
+  facts are present.
+- No production code may derive `ecdsaThresholdKeyId`, `signingRootId`, or
+  `signingRootVersion` from `keyHandle`.
+- `legacy-key-handle:*` is a rejected compatibility shape at the boundary after
+  the current development data has been pruned.
+
+Tradeoffs:
+
+- Benefit: the active-key invariant is represented once. Core code cannot
+  receive a server selector without canonical wallet-key identity.
+- Benefit: unlock, warm-up, reconnect, signing, export, and budget code can use
+  one resolved key object instead of repeating parallel field checks.
+- Benefit: partial states stay explicit. Registration-finalize pending,
+  inventory-needed, blocked, and raw persistence records remain separate union
+  branches.
+- Cost: transport code still needs narrow selector projections for endpoints
+  that only require `keyHandle`.
+- Cost: persistence may need separate selector and identity indexes even though
+  core code sees one active-key object.
+
 ## Server Data Changes
 
 Introduce or normalize these records:
@@ -315,11 +453,8 @@ type WalletSignerRecord =
       walletSubjectId: WalletSubjectId;
       subjectId: WalletSubjectId;
       chainTarget: ThresholdEcdsaChainTarget;
-      ecdsaThresholdKeyId: string;
+      walletKey: EvmFamilyEcdsaWalletKey;
       relayerKeyId: string;
-      thresholdEcdsaPublicKeyB64u: string;
-      ethereumAddress: string;
-      participantIds: NonEmptyParticipantIds;
       status: 'active';
       createdAtMs: number;
     };
@@ -329,13 +464,16 @@ Required indexes:
 
 - Unique `(rpId, credentialIdB64u)` for authenticator bindings.
 - Unique `(walletSubjectId, kind, nearAccountId, signerSlot)` for Ed25519 signer records.
-- Unique `(walletSubjectId, kind, chainTarget, ecdsaThresholdKeyId)` for ECDSA
-  lane/session records.
+- Unique `(walletSubjectId, kind, chainTarget, walletKey.keyHandle)` for ECDSA
+  selector lookup.
+- Unique `(walletSubjectId, kind, chainTarget,
+  walletKey.identity.ecdsaThresholdKeyId, walletKey.identity.signingRootId,
+  walletKey.identity.signingRootVersion)` for canonical ECDSA identity lookup.
 - Unique ECDSA public key and owner address indexes within runtime scope.
 - Funds-safety invariant: EVM SIGNERS MUST ALL SHARE THE SAME ADDRESS for the
   same wallet subject, RP, signing root, and key version. Registration may write
   separate Tempo/EVM lane records, but those records must carry one shared
-  `ecdsaThresholdKeyId`, threshold public key, and owner address.
+  `walletKey.identity`.
 
 ## Client API Changes
 
@@ -491,6 +629,14 @@ Client files to edit:
   - Replace NEAR-first registration orchestration with signer-selection orchestration.
   - Delete `provisionThresholdEcdsaAfterRegistration`.
   - Persist wallet-subject signer records without requiring NEAR profile continuity.
+- `client/src/core/SeamsPasskey/login.ts`
+  - Replace NEAR-first unlock orchestration with signer-selection unlock
+    planning.
+  - Split Ed25519 and ECDSA unlock planning so either signer family can unlock
+    independently or both can unlock in one flow.
+  - Move ECDSA profile metadata and key-identity inventory parsing to boundary
+    modules.
+  - Delete any ECDSA unlock dependency on Ed25519 signing-session auth.
 - `client/src/core/SeamsPasskey/faucets/createAccountRelayServer.ts`
   - Replace `/registration/bootstrap` request construction with `/wallets/register/*` RPC helpers.
   - Delete registration continuation normalization and request fields.
@@ -542,10 +688,24 @@ Client files to edit:
 - `client/src/core/signingEngine/session/passkey/ecdsaProvisioner.ts`
   - Provision ECDSA warm sessions from existing signer records after registration.
   - Avoid creating signer records from warm-session provisioning.
+  - Consume exact ECDSA activation records that carry
+    `EvmFamilyEcdsaWalletKey`; do not accept target-only registration intent
+    in exact-session activation code.
+- `client/src/core/signingEngine/session/passkey/unlockEcdsaWarmupPlanner.ts`
+  - Add a pure ECDSA unlock planner that accepts normalized signer records,
+    configured targets, local records, current session facts, and runtime config.
+  - Return closed lifecycle states for no configured targets, ready plans,
+    authenticated inventory fetches, and blocked plans.
 - `client/src/core/signingEngine/session/passkey/ed25519Provisioner.ts`
   - Provision Ed25519 warm sessions from existing signer records after registration.
 - `client/src/core/signingEngine/session/passkey/ed25519SessionProvision.ts`
   - Keep Ed25519 signing-session provisioning separate from Ed25519 signer creation.
+- `client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.ts`
+  - Build `EvmFamilyEcdsaWalletKey` only from a valid `keyHandle` plus
+    canonical `EcdsaKeyIdentity`.
+  - Keep `EcdsaServerSelector` projection at transport boundaries.
+  - Add a guard that prevents `ecdsaThresholdKeyId`, `signingRootId`, or
+    `signingRootVersion` construction from `keyHandle`.
 - `client/src/core/signingEngine/webauthnAuth/credentials/credentialExtensions.ts`
   - Parse WebAuthn PRF extension output once at the boundary.
   - Return precise registration PRF root types to registration orchestration.
@@ -605,6 +765,19 @@ Tests to edit or add:
   - Ensure warm-session provisioning consumes existing ECDSA signer records.
 - `tests/unit/passkeyLoginMenu.thresholdProvision.unit.test.ts`
   - Update login provisioning expectations for wallet-subject signer records.
+- `tests/unit/seamsPasskey.loginThresholdWarm.unit.test.ts`
+  - Add independent unlock coverage for Ed25519-only, ECDSA-only, and combined
+    unlock.
+  - Add ECDSA key-identity inventory parser rejection tests.
+  - Add mutation-ordering tests that blocked ECDSA plans do not clear volatile
+    warm material.
+  - Add coverage that active ECDSA signer records require
+    `EvmFamilyEcdsaWalletKey`.
+- `tests/unit/evmFamilyEcdsaIdentity.typecheck.ts`
+  - Add type fixtures that reject `keyHandle` as `ecdsaThresholdKeyId`,
+    `signingRootId`, or `signingRootVersion`.
+  - Add fixtures that reject exact activation without
+    `EvmFamilyEcdsaWalletKey`.
 - `tests/unit/signingEngine.refactor33.guard.unit.test.ts`
   - Keep deleted import paths and import-direction checks aligned with the new registration modules.
 - `tests/unit/signingEngine.refactor36.guard.unit.test.ts`
@@ -618,10 +791,18 @@ Tests to edit or add:
 ### Phase 1: Types And Boundaries
 
 - [ ] Add wallet subject, authenticator binding, signer selection, and ceremony state types in `server/src/core/types.ts` and `client/src/core/SeamsPasskey/interfaces.ts`.
+- [ ] Add explicit `EcdsaServerSelector`, `EcdsaKeyIdentity`,
+      `EvmFamilyEcdsaWalletKey`, and `EcdsaWalletSignerRecord` types.
+- [ ] Split raw `keyHandle` boundary parsing from canonical ECDSA key-identity
+      parsing.
+- [ ] Make core resolved active-key flows consume `EvmFamilyEcdsaWalletKey`;
+      delete loose `keyHandle` and identity peer-field inputs.
 - [ ] Add raw request normalizers for wallet registration and add-signer flows.
 - [ ] Add canonical `RegistrationIntentV1` and add-signer digest helpers in `client/src/utils/intentDigest.ts`.
 - [ ] Add server-side digest verification helpers for the same intent encodings.
 - [ ] Add architecture guards against optional lifecycle signer fields in registration core types.
+- [ ] Add architecture guards that reject `ecdsaThresholdKeyId`,
+      `signingRootId`, or `signingRootVersion` derivation from `keyHandle`.
 - [ ] Add client lifecycle-plan builders for any registration/add-signer path that creates warm-session or signer-provisioning material.
 - [ ] Keep registration client imports aligned with `docs/refactor-33.md`; avoid resurrecting deleted `threshold/workflows/*`, `threshold/session/*`, `api/*`, or `orchestration/*` paths.
 - [ ] Keep session ownership aligned with `docs/refactor-35-sealed-recovery.md`; use `session/passkey/*`, `session/emailOtp/*`, `session/warmCapabilities/*`, and `session/operationState/*` according to owner.
@@ -658,7 +839,89 @@ Tests to edit or add:
 - [ ] Wire React context and SDK flow tracking to the new registration API.
 - [ ] Wire WalletIframe message contracts and handlers to `registerWallet` and `addWalletSigner`.
 
-### Phase 4: Add-Signer Flow
+### Phase 4: Independent Wallet Unlock
+
+- [ ] Add signer-selection unlock input types for Ed25519-only, ECDSA-only, and
+      combined unlock.
+- [ ] Extract wallet-unlock ECDSA planning from `login.ts` into a pure planner
+      module.
+  - [ ] Create an `unlockEcdsaWarmupPlanner.ts` boundary that accepts only
+        normalized ECDSA signer records, configured ECDSA targets, local ECDSA
+        session records, current session facts, and runtime config.
+  - [ ] Make the planner return a closed discriminated union:
+        `no_configured_ecdsa_targets`, `ready`,
+        `awaiting_authenticated_key_inventory`, and `blocked`.
+  - [ ] Delete `needs_ed25519_inventory` naming. The state is about missing
+        authenticated ECDSA key facts, not about Ed25519.
+  - [ ] Keep `blocked` branch reasons explicit:
+        `missing_key_handle`, `ambiguous_key_handle`,
+        `missing_chain_target`, `synthetic_legacy_key_id`,
+        `missing_canonical_key_identity`, and `invalid_signer_record`.
+- [ ] Normalize active ECDSA signer metadata once at the signer-record/profile
+      boundary.
+  - [ ] Add a parser that converts raw profile signer metadata into
+        `ActiveEcdsaSignerRecord` or a blocked signer-record reason.
+  - [ ] Require active ECDSA signers to carry exact
+        `EvmFamilyEcdsaWalletKey` and concrete `chainTarget`.
+  - [ ] Accept canonical `EcdsaKeyIdentity` only when all required key
+        facts are present; otherwise emit a blocked reason without partial
+        objects.
+  - [ ] Remove direct reads of raw `metadata` bags from the unlock hot path.
+- [ ] Split unlock/login execution into typed phases.
+  - [ ] Phase 1: read and normalize wallet subject, authenticator, and signer
+        records.
+  - [ ] Phase 2: build independent Ed25519 and ECDSA unlock plans from
+        `WalletUnlockSelection`.
+  - [ ] Phase 3: preflight ECDSA blocked states before mutating volatile
+        session material.
+  - [ ] Phase 4: acquire wallet/authenticator auth only for plans that require
+        authenticated key-identity inventory.
+  - [ ] Phase 5: resolve deferred ECDSA inventory using the preflighted
+        key-target request list.
+  - [ ] Phase 6: clear volatile warm material only after requested signer-family
+        plans are ready or conclusively absent.
+  - [ ] Phase 7: provision requested Ed25519 and ECDSA signing sessions from
+        their independent ready plans.
+  - [ ] Make each phase consume the prior phase's narrow union instead of the
+        broad login context.
+- [ ] Move the ECDSA key-identity inventory parser out of `login.ts`.
+  - [ ] Create a boundary parser for `/threshold-ecdsa/key-identities`
+        responses.
+  - [ ] Require `keyHandle`, concrete `chainTarget`, canonical
+        `ecdsaThresholdKeyId`, `signingRootId`, `signingRootVersion`,
+        participant ids, owner address, and public facts.
+  - [ ] Reject synthetic legacy ids, missing key handles, mismatched wallet ids,
+        mismatched rp ids, and owner-address drift at the parser boundary.
+  - [ ] Return exact `EvmFamilyEcdsaWalletKey` entries keyed by concrete
+        target; downstream unlock logic must not inspect raw response records.
+- [ ] Tighten lifecycle request state around ECDSA signing-session operation
+      selection.
+  - [ ] Split ECDSA registration/add-signer requests from ECDSA exact-session
+        warm-up requests at the type level.
+  - [ ] Make exact-session warm-up consume a branch with
+        `EvmFamilyEcdsaWalletKey` and lane policy already resolved.
+  - [ ] Encode server operation from lifecycle state:
+        registration/add-signer branches emit registration ceremony operations;
+        existing-key activation and recovery branches emit `session_bootstrap`.
+  - [ ] Keep auth proof envelopes inside the selected lifecycle branch.
+  - [ ] Remove optional fields that permit exact activation to degrade into
+        target-based registration.
+- [ ] Add static and unit coverage for independent unlock.
+  - [ ] Type fixtures reject broad object-spread construction of unlock plans,
+        raw profile metadata in core planner inputs, activation without
+        `EvmFamilyEcdsaWalletKey`, activation with `keyIntent`, and
+        registration/add-signer requests with exact-session fields.
+  - [ ] Unit tests cover Ed25519-only unlock, ECDSA-only unlock, combined
+        unlock, no configured ECDSA targets, ready local ECDSA records,
+        authenticated inventory fetch, missing key handle, synthetic legacy id,
+        ambiguous key handle, parser rejection, and inventory owner drift.
+  - [ ] Add a mutation-ledger test proving blocked and inventory-deferred ECDSA
+        plans do not call `clearVolatileWarmSigningMaterial` before all exact
+        ECDSA warm-up inputs are resolved.
+  - [ ] Add a guard test that prevents raw profile `metadata` reads and raw
+        inventory response records from re-entering the unlock execution path.
+
+### Phase 5: Add-Signer Flow
 
 - [ ] Add `/wallets/:walletSubjectId/signers/start`, `/wallets/:walletSubjectId/signers/hss/respond`, and `/wallets/:walletSubjectId/signers/finalize`.
 - [ ] Add verified add-signer auth boundary in `server/src/core/ThresholdService/ThresholdSigningService.ts`.
@@ -669,10 +932,16 @@ Tests to edit or add:
 - [ ] Persist newly attached signer records without re-registering the authenticator.
 - [ ] Cover later ECDSA from Ed25519-only wallets and later Ed25519 from ECDSA-only wallets.
 
-### Phase 5: Cleanup
+### Phase 6: Cleanup
 
 - [ ] Delete `registrationContinuation` request and response types from `server/src/core/types.ts`.
 - [ ] Delete `signRegistrationContinuationJwt` from `server/src/router/commonRouterUtils.ts`.
+- [ ] Delete all production construction of synthetic
+      `legacy-key-handle:*` ECDSA key ids.
+- [ ] Delete any production fallback that fills `signingRootId` or
+      `signingRootVersion` from `keyHandle`.
+- [ ] Keep compatibility parsing only at request and persistence boundaries
+      until development data is pruned, then remove those parsers.
 - [ ] Delete registration-continuation claim parsing from threshold validation.
 - [ ] Delete continuation-token generation from `server/src/router/relayRegistrationBootstrap.ts`.
 - [ ] Delete `provisionThresholdEcdsaAfterRegistration` from `client/src/core/SeamsPasskey/registration.ts`.
@@ -686,7 +955,7 @@ Tests to edit or add:
 - [ ] Rename threshold signing-session auth fields to opaque auth-token names as covered by `docs/signing-session-architecture/threshold-session-auth-token.md`.
 - [ ] Update route definitions, architecture guards, and tests so deleted continuation symbols are absent from production code.
 
-### Phase 6: Test And Verification
+### Phase 7: Test And Verification
 
 - [ ] Add unit tests for registration intent digest canonicalization.
 - [ ] Add unit tests for registration signer-selection normalization.
@@ -695,8 +964,13 @@ Tests to edit or add:
 - [ ] Add relayer tests that combined registration verifies WebAuthn `create()` once.
 - [ ] Add tests that fake object-shaped WebAuthn auth fails add-signer preparation.
 - [ ] Add client tests for `registerWallet`, `registerNearWallet`, and `registerEvmWallet`.
+- [ ] Add client tests for Ed25519-only, ECDSA-only, and combined wallet unlock.
+- [ ] Add ECDSA key-identity inventory parser unit tests.
+- [ ] Add ECDSA bootstrap lifecycle type fixtures.
 - [ ] Run `tests/unit/signingEngine.refactor33.guard.unit.test.ts` after client registration moves.
 - [ ] Run `tests/unit/signingEngine.refactor36.guard.unit.test.ts` after registration/add-signer lifecycle type changes.
+- [ ] Run unlock/login threshold warm-session tests after independent unlock
+      planning moves.
 - [ ] Run `tests/unit/sealedRecovery.methodAdapters.unit.test.ts` if registration changes sealed recovery or warm-session persistence inputs.
 - [ ] Add cleanup tests that production code contains no `registrationContinuation` or `registration_continuation` symbols.
 
@@ -715,6 +989,13 @@ Add unit and integration coverage for:
 - Registration HSS respond/finalize rejects signer kinds absent from the stored ceremony.
 - Later ECDSA add-signer succeeds from an Ed25519-only wallet with WebAuthn `get()`.
 - Later Ed25519 add-signer succeeds from an ECDSA-only wallet with WebAuthn `get()`.
+- Ed25519-only unlock provisions no ECDSA signing session.
+- ECDSA-only unlock provisions no Ed25519 signing session and requires no NEAR
+  account.
+- Combined unlock provisions both signer families without cross-family auth
+  dependencies.
+- ECDSA unlock key-identity inventory uses wallet/authenticator authority or an
+  explicit app-session policy, not Ed25519 threshold-session auth.
 - App-session add-signer requires an explicit signer-provisioning policy.
 - Deleted registration continuation token names are absent from production code.
 

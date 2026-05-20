@@ -94,7 +94,6 @@ function resolveRegistrationThresholdEcdsaBootstrapIdentity(
   });
   const ecdsaThresholdKeyId = resolveThresholdEcdsaKeyIdFromRecord({
     record: {
-      keyHandle: canonicalKeyHandle,
       ecdsaThresholdKeyId: keyRef.ecdsaThresholdKeyId,
     },
   });

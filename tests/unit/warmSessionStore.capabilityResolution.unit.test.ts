@@ -243,7 +243,7 @@ test.describe('WarmSessionStore capability resolution', () => {
       kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
       keyHandle: warmRecord.keyHandle,
       key: {
-        ecdsaThresholdKeyId: `legacy-key-handle:${warmRecord.keyHandle}`,
+        ecdsaThresholdKeyId: warmRecord.ecdsaThresholdKeyId,
       },
       lanePolicy: {
         chainTarget: {

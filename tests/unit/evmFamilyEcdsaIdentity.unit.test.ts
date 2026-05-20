@@ -970,6 +970,7 @@ test.describe('EVM-family ECDSA identity', () => {
           signingRootId: undefined,
           chainTarget: TEMPO_TARGET,
           keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-conflicting'),
+          ecdsaThresholdKeyId: 'ehss-conflicting-key',
           thresholdSessionId: 'threshold-session-second-key',
           walletSigningSessionId: 'wallet-session-second-key',
         }),

@@ -56,6 +56,8 @@ function makePreparedLinkDeviceService() {
       },
       thresholdEcdsa: {
         ecdsaThresholdKeyId: 'ehss-link-device-prepare-1',
+        signingRootId: 'signing-root-link-device-prepare',
+        signingRootVersion: 'default',
         clientAdditiveShare32B64u: 'client-additive-share-b64u',
         relayerKeyId: 'rk-evm',
         thresholdEcdsaPublicKeyB64u: 'group-public-key',
@@ -69,6 +71,8 @@ function makePreparedLinkDeviceService() {
           subjectId: 'alice.testnet',
           keyHandle: 'ehss-key-link-device-1',
           ecdsaThresholdKeyId: 'ehss-link-device-prepare-1',
+          signingRootId: 'signing-root-link-device-prepare',
+          signingRootVersion: 'default',
           chainTarget: {
             kind: 'evm' as const,
             namespace: 'eip155' as const,
@@ -111,9 +115,9 @@ test.describe('link-device prepare routing', () => {
       expect(res.status).toBe(200);
       expect((res.json?.thresholdEd25519 as any)?.session?.jwt).toContain('near-session-1');
       expect((res.json?.thresholdEcdsa as any)?.session?.jwt).toContain('evm-session-1');
-      expect(
-        Object.prototype.hasOwnProperty.call(res.json?.thresholdEcdsa || {}, 'ecdsaThresholdKeyId'),
-      ).toBe(false);
+      expect((res.json?.thresholdEcdsa as any)?.ecdsaThresholdKeyId).toBe(
+        'ehss-link-device-prepare-1',
+      );
       expect(res.json).not.toHaveProperty('linkedAccounts');
     } finally {
       await srv.close();
@@ -146,9 +150,9 @@ test.describe('link-device prepare routing', () => {
     expect(res.status).toBe(200);
     expect((res.json?.thresholdEd25519 as any)?.session?.jwt).toContain('near-session-1');
     expect((res.json?.thresholdEcdsa as any)?.session?.jwt).toContain('evm-session-1');
-    expect(
-      Object.prototype.hasOwnProperty.call(res.json?.thresholdEcdsa || {}, 'ecdsaThresholdKeyId'),
-    ).toBe(false);
+    expect((res.json?.thresholdEcdsa as any)?.ecdsaThresholdKeyId).toBe(
+      'ehss-link-device-prepare-1',
+    );
     expect(res.json).not.toHaveProperty('linkedAccounts');
   });
 });

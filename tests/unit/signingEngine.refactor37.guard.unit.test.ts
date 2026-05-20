@@ -503,6 +503,7 @@ test.describe('signing engine refactor 37 guards', () => {
       'client/src/core/signingEngine/session/operationState/lanes.ts::EcdsaEmailOtpSigningLaneInput',
       'client/src/core/signingEngine/session/operationState/types.ts::EcdsaSigningSessionPlanningLane',
       'client/src/core/signingEngine/session/operationState/types.ts::ResolvedEcdsaSigningSessionIdentity',
+      'client/src/core/signingEngine/session/persistence/records.ts::ThresholdEcdsaSessionRecordCore',
     ]);
     const roots = [
       'client/src/core/signingEngine/session',
@@ -1392,5 +1393,23 @@ test.describe('signing engine refactor 37 guards', () => {
       'export',
       'nonce_resolution',
     ]);
+  });
+
+  test('Batch 6 keeps legacy key-handle synthesis out of production and fixtures', () => {
+    const allowedLegacyKeyHandleFiles = new Set([
+      'client/src/core/SeamsPasskey/login.ts',
+      'docs/refactor-39.md',
+      'tests/unit/signingEngine.refactor37.guard.unit.test.ts',
+      'tests/unit/seamsPasskey.loginThresholdWarm.unit.test.ts',
+    ]);
+    const offenders = ['client', 'server', 'shared', 'tests', 'docs']
+      .flatMap((dir) => listRepoFiles(dir))
+      .filter((relativePath) => {
+        if (allowedLegacyKeyHandleFiles.has(relativePath)) return false;
+        const source = readRepoFile(relativePath);
+        return source.includes('legacy-key-handle:');
+      });
+
+    expect(offenders).toEqual([]);
   });
 });

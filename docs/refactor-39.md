@@ -1454,96 +1454,96 @@ Goal: remove the remaining `legacy-key-handle:${keyHandle}` compatibility path
 and finish the temporary prune-code deletion after the Postgres database has
 been cleaned.
 
-- [ ] Clean up every `ecdsaThresholdKeyId: legacy-key-handle:*` value that is
+- [x] Clean up every `ecdsaThresholdKeyId: legacy-key-handle:*` value that is
       paired with a missing `keyHandle`.
-  - [ ] Inventory production code, server routes, IndexedDB/profile
+  - [x] Inventory production code, server routes, IndexedDB/profile
         persistence adapters, Postgres record adapters, tests, and fixtures for
         synthetic key ids.
-  - [ ] Replace valid fixtures and current-shape records with explicit
+  - [x] Replace valid fixtures and current-shape records with explicit
         `keyHandle` plus canonical `ecdsaThresholdKeyId`.
-  - [ ] Keep synthetic legacy ids only in boundary rejection fixtures while the
+  - [x] Keep synthetic legacy ids only in boundary rejection fixtures while the
         cleanup batch is under test.
-  - [ ] Add a guard test that fails if production code constructs
+  - [x] Add a guard test that fails if production code constructs
         `legacy-key-handle:` outside the boundary parser/rejection test.
-  - [ ] Make any record with `ecdsaThresholdKeyId: legacy-key-handle:*` and no
+  - [x] Make any record with `ecdsaThresholdKeyId: legacy-key-handle:*` and no
         `keyHandle` invalid at the request/persistence boundary.
-- [ ] Delete the synthetic `legacy-key-handle:` threshold-key-id fallback from
+- [x] Delete the synthetic `legacy-key-handle:` threshold-key-id fallback from
       `evmFamilyEcdsaIdentity.ts`.
-  - [ ] Remove `LEGACY_KEY_HANDLE_THRESHOLD_KEY_ID_PREFIX`.
-  - [ ] Remove the helper that materializes `ecdsaThresholdKeyId` from
+  - [x] Remove `LEGACY_KEY_HANDLE_THRESHOLD_KEY_ID_PREFIX`.
+  - [x] Remove the helper that materializes `ecdsaThresholdKeyId` from
         `keyHandle`.
-  - [ ] Make `resolveThresholdEcdsaKeyIdFromRecord` require a canonical
+  - [x] Make `resolveThresholdEcdsaKeyIdFromRecord` require a canonical
         `ecdsaThresholdKeyId` at the boundary.
-  - [ ] Make `resolveThresholdEcdsaKeyIdFromKeyRef` reject missing
+  - [x] Make `resolveThresholdEcdsaKeyIdFromKeyRef` reject missing
         `ecdsaThresholdKeyId`.
-- [ ] Remove unlock/profile continuity handling for synthetic
+- [x] Remove unlock/profile continuity handling for synthetic
       `legacy-key-handle:` ids.
-  - [ ] Make active profile ECDSA signers require `metadata.keyHandle`.
-  - [ ] Fail closed when profile metadata only contains a synthetic legacy id or
+  - [x] Make active profile ECDSA signers require `metadata.keyHandle`.
+  - [x] Fail closed when profile metadata only contains a synthetic legacy id or
         canonical key metadata without a key handle.
-  - [ ] Stop deriving key handles from
+  - [x] Stop deriving key handles from
         `ecdsaThresholdKeyId + signingRootId + signingRootVersion` during
         unlock; profile continuity must already carry the key selector.
-- [ ] Harden wallet unlock ECDSA warm-up planning.
-  - [ ] Build an exact unlock ECDSA warm-up plan before clearing volatile
+- [x] Harden wallet unlock ECDSA warm-up planning.
+  - [x] Build an exact unlock ECDSA warm-up plan before clearing volatile
         session material.
-  - [ ] Model the plan as explicit states:
+  - [x] Model the plan as explicit states:
         `no_configured_ecdsa_targets`, `ready`, `needs_ed25519_inventory`, and
         `blocked`.
-  - [ ] Allow `needs_ed25519_inventory` only when every configured ECDSA target
+  - [x] Allow `needs_ed25519_inventory` only when every configured ECDSA target
         has an exact `keyHandle` selector and unlock only needs
         server-certified key/public facts from the Ed25519-authorized inventory
         route.
-  - [ ] Treat missing key handles, ambiguous key handles, missing chain targets,
+  - [x] Treat missing key handles, ambiguous key handles, missing chain targets,
         and synthetic legacy ids as `blocked`.
-  - [ ] Preflight the warm-up plan before
+  - [x] Preflight the warm-up plan before
         `clearVolatileWarmSigningMaterial`; blocked plans must leave current
         volatile material intact.
-  - [ ] Resolve the deferred Ed25519 inventory using the preflighted key-target
+  - [x] Resolve the deferred Ed25519 inventory using the preflighted key-target
         request list instead of recomputing selectors after session mutation.
-  - [ ] Add regression tests for missing profile key handles, synthetic legacy
+  - [x] Add regression tests for missing profile key handles, synthetic legacy
         ids, deferred inventory selectors, and mutation ordering.
-- [ ] Refactor ECDSA bootstrap request conversion around lifecycle state.
-  - [ ] Replace broad auth/bootstrap-family conversion in
+- [x] Refactor ECDSA bootstrap request conversion around lifecycle state.
+  - [x] Replace broad auth/bootstrap-family conversion in
         `toBootstrapEcdsaSessionRequest` with lifecycle-specific command
         branches.
-  - [ ] Model command branches such as `register_new_key`,
+  - [x] Model command branches such as `register_new_key`,
         `activate_existing_key`, and `recover_existing_key`; each branch must
         carry exactly the fields needed for its protocol operation.
-  - [ ] Select server operation from lifecycle state:
+  - [x] Select server operation from lifecycle state:
         `register_new_key` emits `registration_bootstrap`, and
         `activate_existing_key` emits `session_bootstrap`.
-  - [ ] Keep auth method selection inside the chosen lifecycle branch. Auth must
+  - [x] Keep auth method selection inside the chosen lifecycle branch. Auth must
         provide the proof envelope for the operation and must not choose between
         registration and existing-key activation.
-  - [ ] Make existing-key activation require exact `keyHandle`, canonical `key`,
+  - [x] Make existing-key activation require exact `keyHandle`, canonical `key`,
         and `lanePolicy`.
-  - [ ] Make registration require target/key intent and reject exact-key fields.
-  - [ ] Delete optional/fallback fields that let exact activation degrade into a
+  - [x] Make registration require target/key intent and reject exact-key fields.
+  - [x] Delete optional/fallback fields that let exact activation degrade into a
         target-based registration request.
-  - [ ] Add type fixtures rejecting invalid branch combinations:
+  - [x] Add type fixtures rejecting invalid branch combinations:
         activation without `keyHandle`, activation with `keyIntent`,
         registration with `keyHandle`, and broad object-spread construction of
         lifecycle commands.
-  - [ ] Add focused unit tests proving post-exhaustion passkey ECDSA
+  - [x] Add focused unit tests proving post-exhaustion passkey ECDSA
         reactivation emits `session_bootstrap`, registration emits
         `registration_bootstrap`, and existing-key activation never sends
         `keyIntent`.
-- [ ] Update tests that still construct or assert synthetic
+- [x] Update tests that still construct or assert synthetic
       `legacy-key-handle:` values.
-  - [ ] Replace valid fixtures with canonical key ids plus key handles.
-  - [ ] Keep one boundary rejection test that proves synthetic legacy ids are
+  - [x] Replace valid fixtures with canonical key ids plus key handles.
+  - [x] Keep one boundary rejection test that proves synthetic legacy ids are
         rejected.
-- [ ] After the live Postgres prune has run and schema constraints are in
+- [x] After the live Postgres prune has run and schema constraints are in
       place, delete temporary key-store startup prune/backfill code.
-  - [ ] Remove the `record_json` column backfill path for ECDSA indexed
+  - [x] Remove the `record_json` column backfill path for ECDSA indexed
         identity columns.
-  - [ ] Remove legacy-row prune branches that delete rows missing indexed
+  - [x] Remove legacy-row prune branches that delete rows missing indexed
         ECDSA identity.
-  - [ ] Keep only schema assertions and normal current-shape reads/writes.
-- [ ] Run focused validation after deletion.
-  - [ ] ECDSA identity unit tests.
-  - [ ] login threshold warm-session tests.
-  - [ ] Postgres key-store/backfill tests, updated to assert current schema
+  - [x] Keep only schema assertions and normal current-shape reads/writes.
+- [x] Run focused validation after deletion.
+  - [x] ECDSA identity unit tests.
+  - [x] login threshold warm-session tests.
+  - [x] Postgres key-store/backfill tests, updated to assert current schema
         behavior.
-  - [ ] SDK type-check.
+  - [x] SDK type-check.

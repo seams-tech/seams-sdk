@@ -334,84 +334,105 @@ function applyCommonActivationRequestFields<T extends EcdsaBootstrapRequest>(
   return args;
 }
 
+export type EcdsaBootstrapLifecycleCommand =
+  | {
+      kind: 'passkey_existing_session_activation';
+      request: ThresholdEcdsaPasskeyActivationRequest;
+    }
+  | {
+      kind: 'email_otp_existing_session_activation';
+      request: ThresholdEcdsaEmailOtpActivationRequest;
+    }
+  | {
+      kind: 'threshold_session_auth_existing_session_reconnect';
+      request: ThresholdEcdsaThresholdSessionAuthReconnectRequest;
+    }
+  | {
+      kind: 'cookie_existing_session_reconnect';
+      request: ThresholdEcdsaCookieReconnectRequest;
+    };
+
+function toEcdsaBootstrapLifecycleCommand(
+  request: ThresholdEcdsaActivationRequest,
+): EcdsaBootstrapLifecycleCommand {
+  switch (request.kind) {
+    case 'passkey_ecdsa_activation':
+      return { kind: 'passkey_existing_session_activation', request };
+    case 'email_otp_ecdsa_activation':
+      return { kind: 'email_otp_existing_session_activation', request };
+    case 'threshold_session_auth_reconnect':
+      return { kind: 'threshold_session_auth_existing_session_reconnect', request };
+    case 'cookie_reconnect':
+      return { kind: 'cookie_existing_session_reconnect', request };
+  }
+  request satisfies never;
+  throw new Error('[SigningEngine][ecdsa] unsupported activation request');
+}
+
 function toBootstrapEcdsaSessionRequest(
   request: ThresholdEcdsaActivationRequest,
 ): EcdsaBootstrapRequest {
-  const walletId = request.key.walletId;
-  const chainTarget = request.lanePolicy.chainTarget;
-  const ecdsaThresholdKeyId = String(request.key.ecdsaThresholdKeyId);
-  const participantIds = request.key.participantIds.map((participantId) => Number(participantId));
-  const keyIntent = {
-    kind: 'existing_ecdsa_key' as const,
-    ecdsaThresholdKeyId,
-    participantIds,
-  };
-  switch (request.kind) {
-    case 'passkey_ecdsa_activation':
+  const command = toEcdsaBootstrapLifecycleCommand(request);
+  switch (command.kind) {
+    case 'passkey_existing_session_activation':
       return applyCommonActivationRequestFields(
         {
           kind: 'passkey_fresh_ecdsa_bootstrap',
-          keyHandle: request.keyHandle,
-          key: request.key,
-          lanePolicy: request.lanePolicy,
-          source: request.source,
-          relayerUrl: request.relayerUrl,
-          clientRootShare32B64u: request.clientRootShare32B64u,
-          webauthnAuthentication: request.webauthnAuthentication,
+          keyHandle: command.request.keyHandle,
+          key: command.request.key,
+          lanePolicy: command.request.lanePolicy,
+          source: command.request.source,
+          relayerUrl: command.request.relayerUrl,
+          clientRootShare32B64u: command.request.clientRootShare32B64u,
+          webauthnAuthentication: command.request.webauthnAuthentication,
         },
-        request,
+        command.request,
       );
-    case 'email_otp_ecdsa_activation':
+    case 'email_otp_existing_session_activation':
       return applyCommonActivationRequestFields(
         {
           kind: 'email_otp_ecdsa_bootstrap',
-          walletId,
-          chainTarget,
+          keyHandle: command.request.keyHandle,
+          key: command.request.key,
+          lanePolicy: command.request.lanePolicy,
           source: 'email_otp',
-          relayerUrl: request.relayerUrl,
-          keyIntent,
-          sessionKind: request.sessionKind,
-          sessionIdentity: request.sessionIdentity,
-          remainingUses: request.sessionBudgetUses,
-          clientRootShare32B64u: request.clientRootShare32B64u,
-          emailOtpAuthContext: request.emailOtpAuthContext,
+          relayerUrl: command.request.relayerUrl,
+          clientRootShare32B64u: command.request.clientRootShare32B64u,
+          emailOtpAuthContext: command.request.emailOtpAuthContext,
         },
-        request,
+        command.request,
       );
-    case 'threshold_session_auth_reconnect':
+    case 'threshold_session_auth_existing_session_reconnect':
       return applyCommonActivationRequestFields(
         {
           kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
-          source: request.source,
-          relayerUrl: request.relayerUrl,
-          keyHandle: request.keyHandle,
-          key: request.key,
-          lanePolicy: request.lanePolicy,
-          clientRootShare32B64u: request.clientRootShare32B64u,
+          source: command.request.source,
+          relayerUrl: command.request.relayerUrl,
+          keyHandle: command.request.keyHandle,
+          key: command.request.key,
+          lanePolicy: command.request.lanePolicy,
+          clientRootShare32B64u: command.request.clientRootShare32B64u,
           routeAuth: {
             kind: 'threshold_session',
-            jwt: request.thresholdSessionAuth.thresholdSessionAuthToken,
+            jwt: command.request.thresholdSessionAuth.thresholdSessionAuthToken,
           },
         },
-        request,
+        command.request,
       );
-    case 'cookie_reconnect':
+    case 'cookie_existing_session_reconnect':
       return applyCommonActivationRequestFields(
         {
           kind: 'passkey_cookie_reconnect_ecdsa_bootstrap',
-          walletId,
-          chainTarget,
-          source: request.source,
-          relayerUrl: request.relayerUrl,
-          keyIntent,
-          sessionKind: request.sessionKind,
-          sessionIdentity: request.sessionIdentity,
-          remainingUses: request.sessionBudgetUses,
+          keyHandle: command.request.keyHandle,
+          key: command.request.key,
+          lanePolicy: command.request.lanePolicy,
+          source: command.request.source,
+          relayerUrl: command.request.relayerUrl,
         },
-        request,
+        command.request,
       );
   }
-  request satisfies never;
+  command satisfies never;
   throw new Error('[SigningEngine][ecdsa] unsupported activation request');
 }
 

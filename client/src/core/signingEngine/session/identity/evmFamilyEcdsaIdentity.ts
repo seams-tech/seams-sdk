@@ -534,43 +534,18 @@ export function toEvmFamilyEcdsaKeyHandle(value: unknown): EvmFamilyEcdsaKeyHand
   return requiredString(value, 'keyHandle') as EvmFamilyEcdsaKeyHandle;
 }
 
-const LEGACY_KEY_HANDLE_THRESHOLD_KEY_ID_PREFIX = 'legacy-key-handle:';
-
-// Compatibility boundary: some persisted records and sealed recovery payloads
-// still carry only keyHandle. Adapter paths synthesize a stable key id from it.
-function toLegacyThresholdEcdsaKeyIdFromKeyHandle(args: {
-  keyHandle: unknown;
-}): EcdsaThresholdKeyId {
-  const keyHandle = toEvmFamilyEcdsaKeyHandle(args.keyHandle);
-  return `${LEGACY_KEY_HANDLE_THRESHOLD_KEY_ID_PREFIX}${String(keyHandle)}` as EcdsaThresholdKeyId;
-}
-
 export function resolveThresholdEcdsaKeyIdFromRecord(args: {
-  record: Pick<ThresholdEcdsaSessionRecord, 'keyHandle'> & {
-    ecdsaThresholdKeyId?: unknown;
-  };
+  record: { ecdsaThresholdKeyId: unknown };
 }): EcdsaThresholdKeyId {
   const persisted = String(args.record.ecdsaThresholdKeyId ?? '').trim();
-  if (persisted) return normalizeEcdsaThresholdKeyId(persisted);
-  return toLegacyThresholdEcdsaKeyIdFromKeyHandle({
-    keyHandle: args.record.keyHandle,
-  });
+  return normalizeEcdsaThresholdKeyId(persisted);
 }
 
 export function resolveThresholdEcdsaKeyIdFromKeyRef(args: {
-  keyRef: Pick<ThresholdEcdsaSecp256k1KeyRef, 'keyHandle' | 'ecdsaThresholdKeyId'>;
+  keyRef: { ecdsaThresholdKeyId: unknown };
 }): EcdsaThresholdKeyId {
   const explicitKeyId = String(args.keyRef.ecdsaThresholdKeyId || '').trim();
-  if (explicitKeyId) {
-    return normalizeEcdsaThresholdKeyId(explicitKeyId);
-  }
-  const keyHandle = String(args.keyRef.keyHandle || '').trim();
-  if (keyHandle) {
-    return toLegacyThresholdEcdsaKeyIdFromKeyHandle({
-      keyHandle,
-    });
-  }
-  return normalizeEcdsaThresholdKeyId(args.keyRef.ecdsaThresholdKeyId);
+  return normalizeEcdsaThresholdKeyId(explicitKeyId);
 }
 
 export function resolveThresholdSigningRootBindingFromRecord(args: {
@@ -593,11 +568,7 @@ export function resolveThresholdSigningRootBindingFromRecord(args: {
     } catch {}
   }
 
-  const explicitSigningRootId = String(args.record.signingRootId ?? '').trim();
-  const fallbackSigningRootId = explicitSigningRootId
-    ? explicitSigningRootId
-    : `${LEGACY_KEY_HANDLE_THRESHOLD_KEY_ID_PREFIX}${String(toEvmFamilyEcdsaKeyHandle(args.record.keyHandle))}`;
-  const signingRootId = normalizeSigningRootId(fallbackSigningRootId);
+  const signingRootId = normalizeSigningRootId(args.record.signingRootId);
   return {
     signingRootId,
     signingRootVersion: normalizeSigningRootVersion(args.record.signingRootVersion),

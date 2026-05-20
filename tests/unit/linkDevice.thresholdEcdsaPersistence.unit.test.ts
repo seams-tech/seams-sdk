@@ -46,6 +46,9 @@ test.describe('link-device threshold-ecdsa bootstrap', () => {
             relayerUrl: 'https://relay.example.test',
             chainTarget,
             thresholdEcdsa: {
+              ecdsaThresholdKeyId: 'ehss-link-device-prepare-1',
+              signingRootId: 'project-link-device:env-link-device',
+              signingRootVersion: 'default',
               clientVerifyingShareB64u: 'client-share-b64u',
               clientAdditiveShare32B64u: 'client-additive-share-b64u',
               relayerKeyId: 'rk-evm',
@@ -95,7 +98,7 @@ test.describe('link-device threshold-ecdsa bootstrap', () => {
     expect(output.sessionCalls[0]?.bootstrap?.thresholdEcdsaKeyRef).toEqual(
       expect.objectContaining({
         keyHandle: 'ehss-key-link-device-1',
-        ecdsaThresholdKeyId: 'legacy-key-handle:ehss-key-link-device-1',
+        ecdsaThresholdKeyId: 'ehss-link-device-prepare-1',
         signingRootId: 'project-link-device:env-link-device',
         signingRootVersion: 'default',
         thresholdSessionId: 'ecdsa-session-1',

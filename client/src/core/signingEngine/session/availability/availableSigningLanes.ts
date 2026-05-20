@@ -714,10 +714,7 @@ async function recordToEcdsaLane(args: {
     ecdsaThresholdKeyId = String(
       resolveThresholdEcdsaKeyIdFromRecord({
         record: {
-          keyHandle: toEvmFamilyEcdsaKeyHandle(recoveryRecord.keyHandle),
-          ...(recoveryRecord.ecdsaThresholdKeyId
-            ? { ecdsaThresholdKeyId: recoveryRecord.ecdsaThresholdKeyId }
-            : {}),
+          ecdsaThresholdKeyId: recoveryRecord.ecdsaThresholdKeyId,
         },
       }),
     ).trim();

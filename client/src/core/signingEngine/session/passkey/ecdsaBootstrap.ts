@@ -141,6 +141,10 @@ type PasskeyFreshEcdsaBootstrapExactRequest =
   | (PasskeyFreshEcdsaBootstrapExactRequestBase & {
       routeAuth: PasskeyFreshBootstrapRouteAuth;
       webauthnAuthentication?: never;
+    })
+  | (PasskeyFreshEcdsaBootstrapExactRequestBase & {
+      routeAuth?: never;
+      webauthnAuthentication?: never;
     });
 
 export type PasskeyFreshEcdsaBootstrapRequest =
@@ -166,10 +170,8 @@ export type PasskeyFreshEcdsaBootstrapRequest =
       routeAuth?: never;
     });
 
-export type PasskeyCookieReconnectEcdsaBootstrapRequest = EcdsaBootstrapTargetRequestBase & {
+export type PasskeyCookieReconnectEcdsaBootstrapRequest = EcdsaBootstrapExactRequestBase & {
   kind: 'passkey_cookie_reconnect_ecdsa_bootstrap';
-  sessionKind: 'cookie';
-  sessionIdentity: EcdsaBootstrapSessionIdentityInput;
   routeAuth?: never;
   webauthnAuthentication?: never;
   clientRootShare32B64u?: never;
@@ -201,7 +203,7 @@ export type EmailOtpEcdsaBootstrapRequest =
       emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
       clientRootShare32B64u: string;
       webauthnAuthentication?: never;
-      routeAuth: EmailOtpBootstrapRouteAuth;
+      routeAuth?: EmailOtpBootstrapRouteAuth;
     });
 
 export type EcdsaBootstrapRequest =
@@ -354,7 +356,7 @@ function toActivateEcdsaSessionRequest(
   const exactSessionRequest = (
     exactRequest: Extract<EcdsaBootstrapRequest, { key: EvmFamilyEcdsaKeyIdentity }>,
     thresholdSessionAuth: ThresholdEcdsaHssRouteAuth | undefined,
-    clientRootShare32B64u: string,
+    clientRootShare32B64u: string | undefined,
     webauthnAuthentication: WebAuthnAuthenticationCredential | undefined,
   ): ActivateEcdsaSessionRequest => {
     return {
@@ -363,7 +365,7 @@ function toActivateEcdsaSessionRequest(
       keyHandle: toEvmFamilyEcdsaKeyHandle(exactRequest.keyHandle),
       key: exactRequest.key,
       lanePolicy: exactRequest.lanePolicy,
-      clientRootShare32B64u,
+      ...(clientRootShare32B64u ? { clientRootShare32B64u } : {}),
       ...(webauthnAuthentication ? { webauthnAuthentication } : {}),
       ...(thresholdSessionAuth ? { thresholdSessionAuth } : {}),
       runtimeScopeBootstrap: exactRequest.runtimeScopeBootstrap,
@@ -401,16 +403,7 @@ function toActivateEcdsaSessionRequest(
       };
     }
     case 'passkey_cookie_reconnect_ecdsa_bootstrap': {
-      const cookieReconnectIdentity = buildEcdsaSessionIdentity(request.sessionIdentity);
-      return {
-        ...registrationBase(request),
-        sessionPlan: {
-          kind: 'requested_session' as const,
-          sessionKind: request.sessionKind,
-          sessionId: cookieReconnectIdentity.thresholdSessionId,
-          walletSigningSessionId: cookieReconnectIdentity.walletSigningSessionId,
-        },
-      };
+      return exactSessionRequest(request, undefined, undefined, undefined);
     }
     case 'threshold_session_auth_reconnect_ecdsa_bootstrap': {
       return exactSessionRequest(request, request.routeAuth, request.clientRootShare32B64u, undefined);

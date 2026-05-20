@@ -4,7 +4,6 @@ import type { WalletSubjectId } from '@/core/signingEngine/interfaces/ecdsaChain
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EcdsaBootstrapRequest } from './ecdsaBootstrap';
 import { buildEcdsaSessionIdentity } from '../warmCapabilities/ecdsaProvisionPlan';
-import { SigningSessionIds } from '../operationState/types';
 import type {
   EvmFamilyEcdsaKeyHandle,
   EvmFamilyEcdsaKeyIdentity,
@@ -87,10 +86,9 @@ const validPasskeyFreshCookieBootstrap = {
 
 const validCookieReconnectBootstrap = {
   kind: 'passkey_cookie_reconnect_ecdsa_bootstrap',
-  walletId,
-  chainTarget,
-  sessionKind: 'cookie',
-  sessionIdentity,
+  keyHandle,
+  key,
+  lanePolicy,
 } satisfies EcdsaBootstrapRequest;
 
 const validThresholdSessionReconnectBootstrap = {
@@ -191,16 +189,13 @@ const invalidPasskeyFreshWithMixedAuth: EcdsaBootstrapRequest = {
   webauthnAuthentication,
 };
 
-const invalidCookieReconnectWithoutWalletSession: EcdsaBootstrapRequest = {
+// @ts-expect-error cookie reconnect uses exact key and lane identity.
+const invalidCookieReconnectWithTargetIdentity: EcdsaBootstrapRequest = {
   kind: 'passkey_cookie_reconnect_ecdsa_bootstrap',
   walletId,
   chainTarget,
-  sessionKind: 'cookie',
-  // @ts-expect-error cookie reconnect bootstrap requires walletSigningSessionId
-  sessionIdentity: {
-    thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('threshold-session-id'),
-  },
 };
+void invalidCookieReconnectWithTargetIdentity;
 
 // @ts-expect-error threshold-session reconnect rejects WebAuthn authentication
 const invalidThresholdSessionReconnectWithWebauthn: EcdsaBootstrapRequest = {
@@ -245,12 +240,11 @@ void invalidPasskeyFreshBootstrapWithSubjectId;
 
 const invalidCookieReconnectBootstrapWithSubjectId: EcdsaBootstrapRequest = {
   kind: 'passkey_cookie_reconnect_ecdsa_bootstrap',
-  walletId,
-  // @ts-expect-error target-branch cookie reconnect derives subject from walletId.
+  keyHandle,
+  key,
+  lanePolicy,
+  // @ts-expect-error exact cookie reconnect derives subject from key identity.
   subjectId,
-  chainTarget,
-  sessionKind: 'cookie',
-  sessionIdentity,
 };
 void invalidCookieReconnectBootstrapWithSubjectId;
 

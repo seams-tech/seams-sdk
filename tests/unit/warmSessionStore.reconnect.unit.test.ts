@@ -103,7 +103,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
       source: 'sealed_restore',
       bootstrap: {
         thresholdEcdsaKeyRef: {
-          ecdsaThresholdKeyId: `legacy-key-handle:${bootstrap.thresholdEcdsaKeyRef.keyHandle}`,
+          ecdsaThresholdKeyId: bootstrap.thresholdEcdsaKeyRef.ecdsaThresholdKeyId,
           thresholdSessionId: 'no-prompt-restore-session',
         },
       },
@@ -196,7 +196,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
             keyHandle: restoredBootstrap.thresholdEcdsaKeyRef.keyHandle,
             key: {
               walletId,
-              ecdsaThresholdKeyId: `legacy-key-handle:${restoredBootstrap.thresholdEcdsaKeyRef.keyHandle}`,
+              ecdsaThresholdKeyId: restoredBootstrap.thresholdEcdsaKeyRef.ecdsaThresholdKeyId,
             },
             lanePolicy: {
               chainTarget,
@@ -472,7 +472,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
       listThresholdEcdsaKeyRefsForWalletTarget: () => [],
       provisionThresholdEcdsaSession: async (request) => {
         capturedRequest = request as Record<string, unknown>;
-        if (!request.key || !request.lanePolicy || !request.sessionIdentity) {
+        if (!request.key || !request.lanePolicy) {
           throw new Error('expected exact ECDSA reconnect request');
         }
         const walletId = request.key.walletId;
@@ -481,8 +481,8 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
           nearAccountId: String(walletId),
           chain: chainTarget.kind,
           ecdsaThresholdKeyId: 'ek-restored-source',
-          sessionId: request.sessionIdentity.thresholdSessionId,
-          walletSigningSessionId: request.sessionIdentity.walletSigningSessionId,
+          sessionId: request.lanePolicy.thresholdSessionId,
+          walletSigningSessionId: request.lanePolicy.walletSigningSessionId,
           sessionAuthToken: 'jwt:restored-evm-session',
         });
         const refreshedRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {

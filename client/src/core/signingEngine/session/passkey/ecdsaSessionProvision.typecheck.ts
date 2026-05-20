@@ -18,6 +18,7 @@ import {
   buildPasskeyReconnectEcdsaActivation,
   buildPasskeyRegistrationEcdsaActivation,
   buildThresholdSessionReconnectEcdsaActivation,
+  type EcdsaBootstrapLifecycleCommand,
 } from './ecdsaSessionProvision';
 
 const walletId = 'wallet.testnet';
@@ -258,5 +259,48 @@ void buildPasskeyReconnectEcdsaActivation({
   clientRootShare32B64u: 'client-root',
   webauthnAuthentication,
 });
+
+const validPasskeyLifecycleCommand = {
+  kind: 'passkey_existing_session_activation',
+  request: buildPasskeyReconnectEcdsaActivation({
+    ...exactActivationCommon,
+    sessionIdentity,
+    sessionKind: 'jwt',
+    clientRootShare32B64u: 'client-root',
+    webauthnAuthentication,
+  }),
+} satisfies EcdsaBootstrapLifecycleCommand;
+void validPasskeyLifecycleCommand;
+
+const invalidLifecycleCommandWithBroadIdentity = {
+  kind: 'passkey_existing_session_activation',
+  // @ts-expect-error lifecycle bootstrap commands require exact keyHandle/key/lanePolicy state.
+  request: {
+    kind: 'passkey_ecdsa_activation',
+    ...broadActivationCommon,
+    sessionIdentity,
+    sessionKind: 'jwt',
+    clientRootShare32B64u: 'client-root',
+    webauthnAuthentication,
+  },
+} satisfies EcdsaBootstrapLifecycleCommand;
+void invalidLifecycleCommandWithBroadIdentity;
+
+const invalidLifecycleCommandWithTargetIntent = {
+  kind: 'cookie_existing_session_reconnect',
+  request: {
+    kind: 'cookie_reconnect',
+    ...exactActivationCommon,
+    // @ts-expect-error lifecycle bootstrap commands cannot carry target keyIntent state.
+    keyIntent: {
+      kind: 'existing_ecdsa_key',
+      ecdsaThresholdKeyId: 'ecdsa-key-1',
+      participantIds: [1, 2],
+    },
+    sessionIdentity,
+    sessionKind: 'cookie',
+  },
+} satisfies EcdsaBootstrapLifecycleCommand;
+void invalidLifecycleCommandWithTargetIntent;
 
 export {};

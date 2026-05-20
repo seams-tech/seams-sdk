@@ -212,38 +212,33 @@ async function bootstrapPasskeyCookieReconnect(
 ): Promise<ThresholdEcdsaSessionBootstrapResult> {
   const clientRootShare32B64u = await claimWarmSessionPrfFirst({
     touchConfirm: deps.touchConfirm,
-    thresholdSessionId: request.sessionIdentity.thresholdSessionId,
+    thresholdSessionId: request.lanePolicy.thresholdSessionId,
     errorContext: 'threshold-ecdsa restored-session bootstrap',
     uses: 1,
     curve: 'ecdsa',
-    chainTarget: request.chainTarget,
+    chainTarget: request.lanePolicy.chainTarget,
     restoreBeforeClaim: async () => {
       if (typeof deps.touchConfirm.restorePersistedSessionForSigning !== 'function') return;
       await deps.touchConfirm.restorePersistedSessionForSigning({
         walletId: String(walletId),
         authMethod: 'passkey',
         curve: 'ecdsa',
-        chainTarget: request.chainTarget,
-        walletSigningSessionId: request.sessionIdentity.walletSigningSessionId,
-        thresholdSessionId: request.sessionIdentity.thresholdSessionId,
+        chainTarget: request.lanePolicy.chainTarget,
+        walletSigningSessionId: request.lanePolicy.walletSigningSessionId,
+        thresholdSessionId: request.lanePolicy.thresholdSessionId,
         reason: 'transaction',
       });
     },
   });
   return await bootstrapDirectEcdsaRequest(deps, {
     kind: 'passkey_fresh_ecdsa_bootstrap',
-    walletId,
-    chainTarget: request.chainTarget,
+    keyHandle: request.keyHandle,
+    key: request.key,
+    lanePolicy: request.lanePolicy,
     source: request.source,
     relayerUrl: request.relayerUrl,
-    ...(request.keyIntent ? { keyIntent: request.keyIntent } : {}),
     operationIntent: request.operationIntent,
-    runtimePolicyScope: request.runtimePolicyScope,
     runtimeScopeBootstrap: request.runtimeScopeBootstrap,
-    ttlMs: request.ttlMs,
-    remainingUses: request.remainingUses,
-    sessionKind: request.sessionKind,
-    sessionIdentity: request.sessionIdentity,
     clientRootShare32B64u,
   });
 }

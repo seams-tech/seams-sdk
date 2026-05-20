@@ -516,6 +516,37 @@ export class LinkDeviceFlow {
           ...(String(prepareObj.thresholdEcdsa.keyHandle || '').trim()
             ? { keyHandle: String(prepareObj.thresholdEcdsa.keyHandle || '').trim() }
             : {}),
+          ecdsaThresholdKeyId: String(
+            prepareObj.thresholdEcdsa.ecdsaThresholdKeyId ||
+              (isObject(prepareObj.thresholdEcdsa.session)
+                ? prepareObj.thresholdEcdsa.session.ecdsaThresholdKeyId
+                : '') ||
+              '',
+          ).trim(),
+          signingRootId: String(
+            prepareObj.thresholdEcdsa.signingRootId ||
+              (isObject(prepareObj.thresholdEcdsa.session)
+                ? prepareObj.thresholdEcdsa.session.signingRootId
+                : '') ||
+              '',
+          ).trim(),
+          ...(String(
+            prepareObj.thresholdEcdsa.signingRootVersion ||
+              (isObject(prepareObj.thresholdEcdsa.session)
+                ? prepareObj.thresholdEcdsa.session.signingRootVersion
+                : '') ||
+              '',
+          ).trim()
+            ? {
+                signingRootVersion: String(
+                  prepareObj.thresholdEcdsa.signingRootVersion ||
+                    (isObject(prepareObj.thresholdEcdsa.session)
+                      ? prepareObj.thresholdEcdsa.session.signingRootVersion
+                      : '') ||
+                    '',
+                ).trim(),
+              }
+            : {}),
           clientVerifyingShareB64u: String(
             prepareObj.thresholdEcdsa.clientVerifyingShareB64u || '',
           ).trim(),

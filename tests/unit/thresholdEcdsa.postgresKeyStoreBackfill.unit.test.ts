@@ -44,14 +44,14 @@ async function withFakePgPool<T>(input: {
   }
 }
 
-test.describe('threshold-ecdsa postgres key store startup prune', () => {
-  test('prunes legacy rows missing indexed identity before NOT NULL validation', async () => {
+test.describe('threshold-ecdsa postgres key store schema validation', () => {
+  test('validates indexed identity columns without startup prune or backfill', async () => {
     const postgresUrl = 'postgres://threshold-backfill/shared';
     const namespace = 'threshold-backfill-namespace';
-    const legacyKeyHandle = 'ehss-key-legacy';
+    const keyHandle = 'ehss-key-current';
 
     const queryLog: string[] = [];
-    let prunedLegacyRows = false;
+    let validatedIndexedColumns = false;
     await withFakePgPool({
       postgresUrl,
       pool: {
@@ -59,21 +59,20 @@ test.describe('threshold-ecdsa postgres key store startup prune', () => {
           const normalized = text.replace(/\s+/g, ' ').trim();
           queryLog.push(normalized);
           if (
+            normalized.startsWith('UPDATE threshold_ecdsa_keys') &&
+            normalized.includes("record_json->>'keyHandle'")
+          ) {
+            throw new Error('startup key identity backfill should not run');
+          }
+          if (
             normalized.startsWith('DELETE FROM threshold_ecdsa_keys') &&
             normalized.includes('key_handle IS NULL OR') &&
             normalized.includes('public_key_b64u IS NULL')
           ) {
-            prunedLegacyRows = true;
-            return { rows: [], rowCount: 1 };
+            throw new Error('startup legacy-row prune should not run');
           }
           if (normalized.includes('SELECT COUNT(*)::INT AS missing_count')) {
-            const pruneQueryIndex = queryLog.findIndex(
-              (entry) =>
-                entry.startsWith('DELETE FROM threshold_ecdsa_keys') &&
-                entry.includes('key_handle IS NULL OR'),
-            );
-            expect(prunedLegacyRows).toBe(true);
-            expect(pruneQueryIndex).toBeGreaterThan(-1);
+            validatedIndexedColumns = true;
             return { rows: [{ missing_count: 0 }] };
           }
           if (
@@ -81,7 +80,8 @@ test.describe('threshold-ecdsa postgres key store startup prune', () => {
             normalized.includes('WHERE namespace = $1 AND key_handle = $2') &&
             normalized.includes('LIMIT 1')
           ) {
-            expect(values).toEqual([namespace, legacyKeyHandle]);
+            expect(validatedIndexedColumns).toBe(true);
+            expect(values).toEqual([namespace, keyHandle]);
             return { rows: [] };
           }
           if (
@@ -104,8 +104,9 @@ test.describe('threshold-ecdsa postgres key store startup prune', () => {
           logger: normalizeLogger(null),
           isNode: true,
         });
-        const found = await store.getByKeyHandle(legacyKeyHandle);
+        const found = await store.getByKeyHandle(keyHandle);
         expect(found).toBeNull();
+        expect(validatedIndexedColumns).toBe(true);
       },
     });
   });

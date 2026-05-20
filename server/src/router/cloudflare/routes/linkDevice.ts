@@ -1,9 +1,6 @@
 import type { CloudflareRelayContext } from '../createCloudflareRouter';
 import { isObject, json, readJson } from '../http';
-import {
-  signThresholdSessionAuthToken,
-  stripLegacyThresholdEcdsaIdentityFields,
-} from '../../commonRouterUtils';
+import { signThresholdSessionAuthToken } from '../../commonRouterUtils';
 
 export async function handleLinkDevice(ctx: CloudflareRelayContext): Promise<Response | null> {
   if (ctx.method === 'GET' && ctx.pathname.startsWith('/link-device/session/')) {
@@ -105,9 +102,6 @@ export async function handleLinkDevice(ctx: CloudflareRelayContext): Promise<Res
       );
     }
     result.thresholdEcdsa.session.jwt = signed.jwt;
-  }
-  if (result.ok && result.thresholdEcdsa) {
-    result.thresholdEcdsa = stripLegacyThresholdEcdsaIdentityFields(result.thresholdEcdsa) as any;
   }
   return json(result, { status: result.ok ? 200 : result.code === 'internal' ? 500 : 400 });
 }

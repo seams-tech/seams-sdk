@@ -72,16 +72,17 @@ test.describe('WarmSessionStore ECDSA bootstrap resolution', () => {
 
     expect(fallbackBootstrap).toMatchObject({
       kind: 'passkey_cookie_reconnect_ecdsa_bootstrap',
-      walletId: 'fallback.testnet',
-      keyIntent: {
-        kind: 'existing_ecdsa_key',
-        ecdsaThresholdKeyId: `legacy-key-handle:${String(fallbackEcdsaRecord.keyHandle)}`,
+      keyHandle: fallbackEcdsaRecord.keyHandle,
+      key: {
+        walletId: 'fallback.testnet',
+        ecdsaThresholdKeyId: fallbackEcdsaRecord.ecdsaThresholdKeyId,
         participantIds: [1, 2],
       },
-      sessionKind: 'cookie',
-      sessionIdentity: {
+      lanePolicy: {
+        chainTarget: fallbackEcdsaRecord.chainTarget,
         thresholdSessionId: 'sess-ecdsa-cookie',
         walletSigningSessionId: 'wsess-sess-ecdsa-cookie',
+        thresholdSessionKind: 'cookie',
       },
     });
     expect('thresholdSessionAuth' in fallbackBootstrap).toBe(false);
@@ -91,7 +92,7 @@ test.describe('WarmSessionStore ECDSA bootstrap resolution', () => {
       keyHandle: primaryEcdsaRecord.keyHandle,
       key: {
         walletId: 'primary.testnet',
-        ecdsaThresholdKeyId: `legacy-key-handle:${String(primaryEcdsaRecord.keyHandle)}`,
+        ecdsaThresholdKeyId: primaryEcdsaRecord.ecdsaThresholdKeyId,
         participantIds: [1, 2],
       },
       lanePolicy: {

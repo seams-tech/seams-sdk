@@ -8,6 +8,8 @@ import {
   buildNearThresholdSigningAuthPlan,
   resolveNearThresholdSigningAuthContext,
 } from '@/core/signingEngine/flows/signNear/shared/thresholdAuthMode';
+import { buildEvmFamilyEcdsaSessionLanePolicy } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { thresholdEcdsaSessionRecordReadModel } from '@/core/signingEngine/session/persistence/records';
 import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
 import { SigningAuthPlanKind } from '@/core/signingEngine/stepUpConfirmation/types';
 import {
@@ -70,14 +72,17 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
     await expect(
       store.provisionEcdsaCapability({
         kind: 'passkey_cookie_reconnect_ecdsa_bootstrap',
-        walletId: 'bootstrap-error.testnet',
-        chainTarget: testEcdsaChainTarget('evm'),
-        source: 'manual-bootstrap',
-        sessionKind: 'cookie',
-        sessionIdentity: {
+        keyHandle: record.keyHandle,
+        key: thresholdEcdsaSessionRecordReadModel(record).key,
+        lanePolicy: buildEvmFamilyEcdsaSessionLanePolicy({
+          chainTarget: testEcdsaChainTarget('evm'),
           thresholdSessionId: record.thresholdSessionId,
           walletSigningSessionId: record.walletSigningSessionId,
-        },
+          thresholdSessionKind: 'cookie',
+          ttlMs: Math.max(1, Number(record.expiresAtMs || Date.now() + 60_000) - Date.now()),
+          remainingUses: Number(record.remainingUses || 1),
+        }),
+        source: 'manual-bootstrap',
       }),
     ).rejects.toThrow(
       'Missing warm PRF material for threshold-ecdsa restored-session bootstrap (missing)',

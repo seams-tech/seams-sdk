@@ -1,9 +1,6 @@
 import type { Router as ExpressRouter } from 'express';
 import type { ExpressRelayContext } from '../createRelayRouter';
-import {
-  signThresholdSessionAuthToken,
-  stripLegacyThresholdEcdsaIdentityFields,
-} from '../../commonRouterUtils';
+import { signThresholdSessionAuthToken } from '../../commonRouterUtils';
 
 export function registerLinkDeviceRoutes(router: ExpressRouter, ctx: ExpressRelayContext): void {
   router.get('/link-device/session/:sessionId', async (req: any, res: any) => {
@@ -127,10 +124,6 @@ export function registerLinkDeviceRoutes(router: ExpressRouter, ctx: ExpressRela
         }
         result.thresholdEcdsa!.session!.jwt = signed.jwt;
       }
-      if (result.thresholdEcdsa) {
-        result.thresholdEcdsa = stripLegacyThresholdEcdsaIdentityFields(result.thresholdEcdsa) as any;
-      }
-
       res.status(200).json(result);
     } catch (e: any) {
       res

@@ -79,6 +79,9 @@ type ThresholdEcdsaSessionRecordCore = {
   chainTarget: ThresholdEcdsaChainTarget;
   relayerUrl: string;
   keyHandle: EvmFamilyEcdsaKeyHandle;
+  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  signingRootId: string;
+  signingRootVersion?: string;
   relayerKeyId: string;
   clientVerifyingShareB64u: string;
   clientAdditiveShare32B64u?: string;
@@ -102,15 +105,7 @@ type ThresholdEcdsaSessionRecordCore = {
   source: ThresholdEcdsaSessionStoreSource;
 };
 
-type ThresholdEcdsaSessionRecordLegacyIdentity = {
-  // Compatibility boundary only; current records should not persist these fields.
-  ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
-  signingRootId?: string;
-  signingRootVersion?: string;
-};
-
-export type ThresholdEcdsaSessionRecord = ThresholdEcdsaSessionRecordCore &
-  ThresholdEcdsaSessionRecordLegacyIdentity;
+export type ThresholdEcdsaSessionRecord = ThresholdEcdsaSessionRecordCore;
 
 export type ThresholdEcdsaRuntimeLaneKey = string & {
   readonly __brand: 'ThresholdEcdsaRuntimeLaneKey';
@@ -911,7 +906,11 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
     obj.signingSessionSealShamirPrimeB64u,
   );
   const runtimePolicyScope = normalizeStoredRuntimePolicyScope(obj, thresholdSessionAuthToken);
-  normalizeStoredSigningRootBinding(obj, runtimePolicyScope);
+  const ecdsaThresholdKeyId = String(obj.ecdsaThresholdKeyId || '').trim();
+  if (!ecdsaThresholdKeyId) {
+    throw new Error('Invalid threshold ECDSA canonical session record: missing ecdsaThresholdKeyId');
+  }
+  const signingRootBinding = normalizeStoredSigningRootBinding(obj, runtimePolicyScope);
   const sourceRaw = String(obj.source || '').trim();
   const source: ThresholdEcdsaSessionStoreSource =
     sourceRaw === 'login' ||
@@ -982,6 +981,13 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
     authMetadata: { rpId },
     relayerUrl,
     keyHandle: toEvmFamilyEcdsaKeyHandle(keyHandle),
+    ecdsaThresholdKeyId: resolveThresholdEcdsaKeyIdFromRecord({
+      record: { ecdsaThresholdKeyId },
+    }),
+    signingRootId: signingRootBinding.signingRootId,
+    ...(signingRootBinding.signingRootVersion
+      ? { signingRootVersion: signingRootBinding.signingRootVersion }
+      : {}),
     relayerKeyId,
     clientVerifyingShareB64u,
     ...(source !== 'email_otp' && clientAdditiveShare32B64u ? { clientAdditiveShare32B64u } : {}),
@@ -1563,10 +1569,8 @@ function buildEcdsaRecordFromBootstrap(args: {
       (args.bootstrap.session as { runtimePolicyScope?: unknown }).runtimePolicyScope,
     ) ||
     normalizeThresholdRuntimePolicyScope(parseThresholdRuntimePolicyScopeFromJwt(thresholdSessionAuthToken));
-  // Validate and normalize legacy key/root compatibility at the bootstrap boundary.
-  resolveThresholdEcdsaKeyIdFromRecord({
+  const ecdsaThresholdKeyId = resolveThresholdEcdsaKeyIdFromRecord({
     record: {
-      keyHandle: canonicalKeyHandle,
       ecdsaThresholdKeyId: keyRef.ecdsaThresholdKeyId,
     },
   });
@@ -1606,6 +1610,7 @@ function buildEcdsaRecordFromBootstrap(args: {
     chainTarget: args.chainTarget,
     relayerUrl: keyRef.relayerUrl,
     keyHandle,
+    ecdsaThresholdKeyId,
     signingRootId: signingRootBinding.signingRootId,
     ...(signingRootBinding.signingRootVersion
       ? { signingRootVersion: signingRootBinding.signingRootVersion }

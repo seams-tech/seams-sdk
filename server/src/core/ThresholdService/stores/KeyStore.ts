@@ -721,29 +721,6 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
         await pool.query(
           'ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS public_key_b64u TEXT',
         );
-        await pool.query(`
-          UPDATE threshold_ecdsa_keys
-          SET
-            key_handle = COALESCE(key_handle, record_json->>'keyHandle'),
-            threshold_key_id = COALESCE(threshold_key_id, record_json->>'ecdsaThresholdKeyId'),
-            signing_root_id = COALESCE(signing_root_id, record_json->>'signingRootId'),
-            signing_root_version = COALESCE(signing_root_version, COALESCE(NULLIF(record_json->>'signingRootVersion', ''), 'default')),
-            owner_address = COALESCE(owner_address, record_json->>'ethereumAddress'),
-            public_key_b64u = COALESCE(public_key_b64u, record_json->>'thresholdEcdsaPublicKeyB64u')
-          WHERE record_json->>'version' = 'threshold_ecdsa_hss_key_v1'
-        `);
-        await pool.query(
-          `
-            DELETE FROM threshold_ecdsa_keys
-            WHERE
-              key_handle IS NULL OR
-              threshold_key_id IS NULL OR
-              signing_root_id IS NULL OR
-              signing_root_version IS NULL OR
-              owner_address IS NULL OR
-              public_key_b64u IS NULL
-          `,
-        );
         const missingIndexedIdentityColumns = await pool.query(
           `
             SELECT COUNT(*)::INT AS missing_count
@@ -759,7 +736,7 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
         );
         if (Number(missingIndexedIdentityColumns.rows[0]?.missing_count || 0) > 0) {
           throw new Error(
-            '[threshold-ecdsa] Missing indexed ECDSA key identity columns after legacy-row prune',
+            '[threshold-ecdsa] Missing indexed ECDSA key identity columns',
           );
         }
         await pool.query('ALTER TABLE threshold_ecdsa_keys ALTER COLUMN key_handle SET NOT NULL');

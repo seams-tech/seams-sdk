@@ -705,14 +705,24 @@ function resolveTestEcdsaBootstrapArgs(args: {
     };
   }
   if (sessionId && walletSigningSessionId) {
+    if (!reusableWarmCapability?.record) {
+      throw new Error('test cookie reconnect requires a reusable ECDSA record');
+    }
+    const readModel = thresholdEcdsaSessionRecordReadModel(reusableWarmCapability.record);
     return {
-      ...targetBaseArgs,
       kind: 'passkey_cookie_reconnect_ecdsa_bootstrap',
-      sessionKind: 'cookie',
-      sessionIdentity: {
+      source: targetBaseArgs.source,
+      relayerUrl: targetBaseArgs.relayerUrl,
+      keyHandle: reusableWarmCapability.record.keyHandle,
+      key: readModel.key,
+      lanePolicy: buildEvmFamilyEcdsaSessionLanePolicy({
+        chainTarget,
         thresholdSessionId: sessionId,
         walletSigningSessionId,
-      },
+        thresholdSessionKind: 'cookie',
+        ttlMs: Math.max(1, readModel.lane.expiresAtMs - Date.now()),
+        remainingUses: readModel.lane.remainingUses,
+      }),
     };
   }
   return reuseBaseArgs;
@@ -797,14 +807,13 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
       return await provisionThresholdEcdsaSession(args);
     }
     const clientRootShare32B64u = await claimPrfFirstByThresholdSessionId({
-      thresholdSessionId: args.sessionIdentity.thresholdSessionId,
+      thresholdSessionId: args.lanePolicy.thresholdSessionId,
       errorContext: 'threshold-ecdsa restored-session bootstrap',
       uses: 1,
     });
     return await provisionThresholdEcdsaSession({
       ...args,
       kind: 'passkey_fresh_ecdsa_bootstrap',
-      sessionKind: 'cookie',
       clientRootShare32B64u,
     });
   };

@@ -1105,7 +1105,6 @@ function parseThresholdEcdsaKeyIdentityRecord(args: {
     const canonicalKeyHandle = toEvmFamilyEcdsaKeyHandle(keyHandle);
     const ecdsaThresholdKeyId = resolveThresholdEcdsaKeyIdFromRecord({
       record: {
-        keyHandle: canonicalKeyHandle,
         ecdsaThresholdKeyId: raw.ecdsaThresholdKeyId,
       },
     });
@@ -1113,6 +1112,8 @@ function parseThresholdEcdsaKeyIdentityRecord(args: {
       record: {
         keyHandle: canonicalKeyHandle,
         runtimePolicyScope: args.runtimePolicyScope,
+        signingRootId: raw.signingRootId || raw.key.signingRootId,
+        signingRootVersion: raw.signingRootVersion || raw.key.signingRootVersion,
       },
     });
     key = buildBaseEvmFamilyEcdsaKeyIdentity({

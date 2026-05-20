@@ -17,6 +17,9 @@ import { normalizeThresholdRuntimePolicyScope } from '../../signingEngine/thresh
 
 export type PreparedLinkDeviceThresholdEcdsa = {
   keyHandle?: string;
+  ecdsaThresholdKeyId: string;
+  signingRootId: string;
+  signingRootVersion?: string;
   clientVerifyingShareB64u: string;
   clientAdditiveShare32B64u: string;
   relayerKeyId: string;
@@ -34,6 +37,9 @@ export type PreparedLinkDeviceThresholdEcdsa = {
     remainingUses?: number;
     jwt?: string;
     keyHandle?: string;
+    ecdsaThresholdKeyId?: string;
+    signingRootId?: string;
+    signingRootVersion?: string;
     runtimePolicyScope?: unknown;
   };
 };
@@ -70,11 +76,17 @@ function buildThresholdEcdsaBootstrap(args: {
     record: {
       keyHandle: canonicalKeyHandle,
       runtimePolicyScope,
+      signingRootId: String(args.thresholdEcdsa.signingRootId || session.signingRootId || '').trim(),
+      signingRootVersion: String(
+        args.thresholdEcdsa.signingRootVersion || session.signingRootVersion || '',
+      ).trim(),
     },
   });
   const ecdsaThresholdKeyId = resolveThresholdEcdsaKeyIdFromRecord({
     record: {
-      keyHandle: canonicalKeyHandle,
+      ecdsaThresholdKeyId: String(
+        args.thresholdEcdsa.ecdsaThresholdKeyId || session.ecdsaThresholdKeyId || '',
+      ).trim(),
     },
   });
   const relayerKeyId = String(args.thresholdEcdsa.relayerKeyId || '').trim();
