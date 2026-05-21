@@ -262,7 +262,7 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
     }
   });
 
-  test('role-local bootstrap retries relayer share when public key sum would be identity', async () => {
+  test('role-local bootstrap rejects client public key changes for an existing key handle', async () => {
     const { svc } = createThresholdSigningServiceForUnitTests({});
     const walletSessionUserId = 'alice-identity-sum.near';
     const rpId = 'wallet.example.test';
@@ -297,13 +297,10 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
       participantIds: [1, 2],
     });
 
-    expect(retry, JSON.stringify(retry)).toMatchObject({ ok: true });
-    if (!retry.ok) throw new Error(retry.message);
-    expect(retry.value.publicIdentity.clientPublicKey33B64u).toBe(negatedRelayerPublicKey33B64u);
-    expect(retry.value.publicIdentity.relayerPublicKey33B64u).not.toBe(
-      first.relayerVerifyingShareB64u,
-    );
-    expect(retry.value.publicIdentity.groupPublicKey33B64u).toBeTruthy();
+    expect(retry, JSON.stringify(retry)).toMatchObject({
+      ok: false,
+      code: 'identity_mismatch',
+    });
   });
 
   test('role-local bootstrap rejects relayer key rotation for an existing key handle', async () => {
@@ -362,6 +359,61 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
     });
   });
 
+  test('role-local bootstrap rejects client share changes for an existing key handle', async () => {
+    const { svc } = createThresholdSigningServiceForUnitTests({});
+    const walletSessionUserId = 'alice-client-share-rotation.near';
+    const rpId = 'wallet.example.test';
+    const first = await createRoleLocalBootstrap({
+      svc,
+      walletSessionUserId,
+      rpId,
+      clientRootShare32B64u: rootShare32B64u(56),
+      sessionId: 'ecdsa-session-client-share-first',
+    });
+
+    ensureHssClientSignerWasm();
+    const changedClientBootstrap = threshold_ecdsa_hss_role_local_client_bootstrap({
+      walletSessionUserId,
+      subjectId: walletSessionUserId,
+      ecdsaThresholdKeyId: first.ecdsaThresholdKeyId,
+      signingRootId: first.signingRootId,
+      signingRootVersion: first.signingRootVersion,
+      keyPurpose: KEY_PURPOSE,
+      keyVersion: KEY_VERSION,
+      clientRootShare32B64u: rootShare32B64u(57),
+    }) as {
+      contextBinding32B64u: string;
+      clientPublicKey33B64u: string;
+      clientShareRetryCounter: number;
+    };
+
+    const changedClient = await svc.ecdsaHssRoleLocalBootstrap({
+      formatVersion: 'ecdsa-hss-role-local',
+      walletSessionUserId,
+      rpId,
+      subjectId: walletSessionUserId,
+      ecdsaThresholdKeyId: first.ecdsaThresholdKeyId,
+      signingRootId: first.signingRootId,
+      signingRootVersion: first.signingRootVersion,
+      keyScope: 'evm-family',
+      relayerKeyId: first.relayerKeyId,
+      clientPublicKey33B64u: changedClientBootstrap.clientPublicKey33B64u,
+      clientShareRetryCounter: changedClientBootstrap.clientShareRetryCounter,
+      contextBinding32B64u: changedClientBootstrap.contextBinding32B64u,
+      requestId: 'request:client-share-change',
+      sessionId: 'ecdsa-session-client-share-second',
+      walletSigningSessionId: 'wallet-signing-client-share-second',
+      ttlMs: 60_000,
+      remainingUses: 2,
+      participantIds: [1, 2],
+    });
+
+    expect(changedClient).toMatchObject({
+      ok: false,
+      code: 'identity_mismatch',
+    });
+  });
+
   test('authorize resolves keyHandle selector against role-local threshold-session scope', async () => {
     const { svc } = createThresholdSigningServiceForUnitTests({});
     const walletSessionUserId = 'alice-authorize-key-handle.near';
@@ -386,12 +438,7 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
         sub: walletSessionUserId,
         walletId: walletSessionUserId,
         subjectId: walletSessionUserId,
-        chainTarget: {
-          kind: 'evm',
-          namespace: 'eip155',
-          chainId: 11155111,
-          networkSlug: 'sepolia',
-        },
+        keyScope: 'evm-family',
         keyHandle: bootstrapped.keyHandle,
         sessionId: bootstrapped.sessionId,
         walletSigningSessionId: bootstrapped.walletSigningSessionId,

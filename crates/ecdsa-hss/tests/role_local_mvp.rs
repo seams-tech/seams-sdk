@@ -4,9 +4,9 @@ use ecdsa_hss::{
     export_from_respond_response_v1, public_transcript_digest_v1, reconstruct_export_key_v1,
     sign_with_role_materials_v1, ClientOutputV1, ClientRoleShareV1, EcdsaHssStableKeyContextV1,
     EvmThresholdClientBootstrapV1, EvmThresholdRelayerBootstrapV1, ExplicitExportAuthorizationV1,
-    ExplicitExportRespondRequestV1, ExportNonceReplayGuardV1, PrepareEnvelopeV1, PublicIdentityV1,
-    RelayerRoleShareV1, RespondRequestV1, RespondResponseV1, ServerEvalOperationV1,
-    ServerPrepareInputsV1, StagedServerSessionV1, ThresholdRespondRequestV1,
+    ExplicitExportClientOutputV1, ExplicitExportRespondRequestV1, ExportNonceReplayGuardV1,
+    PrepareEnvelopeV1, PublicIdentityV1, RelayerRoleShareV1, RespondRequestV1, RespondResponseV1,
+    ServerEvalOperationV1, ServerPrepareInputsV1, StagedServerSessionV1, ThresholdRespondRequestV1,
 };
 use k256::{FieldBytes, SecretKey};
 use signer_core::secp256k1::{
@@ -742,6 +742,56 @@ fn signing_uses_role_local_shares() {
     )
     .expect("sign");
     assert_eq!(signature.len(), 65);
+}
+
+#[test]
+fn debug_output_redacts_secret_bearing_fields() {
+    let (y_client, y_relayer) = fixed_inputs();
+    let ctx = context();
+    let roles = bootstrap_roles(
+        ServerEvalOperationV1::SessionBootstrap,
+        ctx.clone(),
+        y_client,
+        y_relayer,
+    );
+    let auth = explicit_export_authorization_for_client_share(
+        &ctx,
+        y_relayer,
+        &relayer_key_id(),
+        &roles.client_share,
+    );
+    let explicit_client_output = ClientOutputV1::ExplicitExport(ExplicitExportClientOutputV1 {
+        relayer_export_share32: [0x77; 32],
+        client_public_key33: roles.client_bootstrap.identity.client_verifying_share33,
+        relayer_public_key33: roles.client_bootstrap.identity.relayer_verifying_share33,
+        threshold_public_key33: roles.client_bootstrap.identity.group_public_key33,
+        threshold_ethereum_address20: roles.client_bootstrap.identity.ethereum_address20,
+        client_share_retry_counter: roles.client_bootstrap.identity.client_share_retry_counter,
+        relayer_share_retry_counter: roles.client_bootstrap.identity.relayer_share_retry_counter,
+    });
+
+    let debug_text = format!(
+        "{:?}\n{:?}\n{:?}\n{:?}\n{:?}",
+        roles.client_share,
+        roles.client_response,
+        roles.client_bootstrap,
+        auth,
+        explicit_client_output
+    );
+
+    for redacted_field in [
+        "x_client32",
+        "mapped_client_share32",
+        "relayer_export_share32",
+        "additive_share32",
+        "threshold_private_share32",
+        "export_request_nonce32",
+    ] {
+        assert!(
+            debug_text.contains(&format!("{redacted_field}: \"<redacted>\"")),
+            "missing redaction marker for {redacted_field}: {debug_text}"
+        );
+    }
 }
 
 #[test]

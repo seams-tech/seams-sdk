@@ -10,6 +10,8 @@ use signer_core::threshold_ecdsa::{
     ThresholdEcdsaPresignEvent, ThresholdEcdsaPresignSession,
 };
 
+use core::fmt;
+
 use crate::client::ClientOutputV1;
 use crate::server::{FinalizedServerSessionV1, RespondResponseV1};
 use crate::wire::ServerEvalOperationV1;
@@ -31,7 +33,7 @@ pub struct EvmThresholdIdentityV1 {
     pub relayer_share_retry_counter: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
+#[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 pub struct EvmThresholdPartyBootstrapMaterialV1 {
     #[zeroize(skip)]
     pub participant_ids: [u32; 2],
@@ -42,21 +44,52 @@ pub struct EvmThresholdPartyBootstrapMaterialV1 {
     pub ethereum_address20: [u8; 20],
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
+impl fmt::Debug for EvmThresholdPartyBootstrapMaterialV1 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EvmThresholdPartyBootstrapMaterialV1")
+            .field("participant_ids", &self.participant_ids)
+            .field("participant_id", &self.participant_id)
+            .field("additive_share32", &"<redacted>")
+            .field("threshold_private_share32", &"<redacted>")
+            .field("group_public_key33", &self.group_public_key33)
+            .field("ethereum_address20", &self.ethereum_address20)
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 pub struct EvmThresholdClientBootstrapV1 {
     #[zeroize(skip)]
     pub identity: EvmThresholdIdentityV1,
     pub material: EvmThresholdPartyBootstrapMaterialV1,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
+impl fmt::Debug for EvmThresholdClientBootstrapV1 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EvmThresholdClientBootstrapV1")
+            .field("identity", &self.identity)
+            .field("material", &self.material)
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 pub struct EvmThresholdRelayerBootstrapV1 {
     #[zeroize(skip)]
     pub identity: EvmThresholdIdentityV1,
     pub material: EvmThresholdPartyBootstrapMaterialV1,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
+impl fmt::Debug for EvmThresholdRelayerBootstrapV1 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EvmThresholdRelayerBootstrapV1")
+            .field("identity", &self.identity)
+            .field("material", &self.material)
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 pub struct EvmThresholdExplicitExportV1 {
     pub x_export32: [u8; 32],
     pub export_public_key33: [u8; 33],
@@ -67,11 +100,44 @@ pub struct EvmThresholdExplicitExportV1 {
     pub relayer_share_retry_counter: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
+impl fmt::Debug for EvmThresholdExplicitExportV1 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EvmThresholdExplicitExportV1")
+            .field("x_export32", &"<redacted>")
+            .field("export_public_key33", &self.export_public_key33)
+            .field("export_ethereum_address20", &self.export_ethereum_address20)
+            .field("threshold_public_key33", &self.threshold_public_key33)
+            .field(
+                "threshold_ethereum_address20",
+                &self.threshold_ethereum_address20,
+            )
+            .field(
+                "client_share_retry_counter",
+                &self.client_share_retry_counter,
+            )
+            .field(
+                "relayer_share_retry_counter",
+                &self.relayer_share_retry_counter,
+            )
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 pub struct EvmThresholdPresignatureV1 {
     pub big_r33: [u8; 33],
     pub k_share32: [u8; 32],
     pub sigma_share32: [u8; 32],
+}
+
+impl fmt::Debug for EvmThresholdPresignatureV1 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EvmThresholdPresignatureV1")
+            .field("big_r33", &self.big_r33)
+            .field("k_share32", &"<redacted>")
+            .field("sigma_share32", &"<redacted>")
+            .finish()
+    }
 }
 
 impl EvmThresholdClientBootstrapV1 {

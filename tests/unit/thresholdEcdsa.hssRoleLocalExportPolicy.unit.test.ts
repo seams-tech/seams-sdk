@@ -21,10 +21,8 @@ const EXPRESS_THRESHOLD_ECDSA_ROUTE_URL = new URL(
   '../../server/src/router/express/routes/thresholdEcdsa.ts',
   import.meta.url,
 );
-const EXPORT_CONFIRMATION_DIGEST_VERSION =
-  'ecdsa-hss:role-local:product-export-confirmation:v1';
-const EXPORT_AUTHORIZATION_DIGEST_VERSION =
-  'ecdsa-hss:role-local:product-export-authorization:v1';
+const EXPORT_CONFIRMATION_DIGEST_VERSION = 'ecdsa-hss:role-local:product-export-confirmation:v1';
+const EXPORT_AUTHORIZATION_DIGEST_VERSION = 'ecdsa-hss:role-local:product-export-authorization:v1';
 const KEY_PURPOSE = 'evm-signing';
 const KEY_VERSION = 'v1';
 
@@ -44,7 +42,7 @@ async function digestB64u(value: unknown): Promise<string> {
   return bytesB64u(await sha256BytesUtf8(alphabetizeStringify(value)));
 }
 
-async function createRoleLocalExportFixture() {
+async function createRoleLocalExportFixture(input?: { bootstrapTtlMs?: number }) {
   ensureHssClientSignerWasm();
   const { svc } = createThresholdSigningServiceForUnitTests({});
   const clientRootShare32 = Buffer.alloc(32, 0);
@@ -90,7 +88,7 @@ async function createRoleLocalExportFixture() {
     requestId: 'bootstrap-request-1',
     sessionId: 'threshold-session-1',
     walletSigningSessionId: 'wallet-signing-session-1',
-    ttlMs: 60_000,
+    ttlMs: input?.bootstrapTtlMs ?? 60_000,
     remainingUses: 2,
     participantIds,
   });
@@ -105,12 +103,7 @@ async function createRoleLocalExportFixture() {
     sessionId: bootstrapValue.sessionId,
     walletSigningSessionId: bootstrapValue.walletSigningSessionId,
     subjectId,
-    chainTarget: {
-      kind: 'evm',
-      namespace: 'eip155',
-      chainId: 1,
-      networkSlug: 'ethereum',
-    },
+    keyScope: 'evm-family',
     keyHandle: bootstrapValue.keyHandle,
     relayerKeyId,
     rpId,
@@ -308,6 +301,35 @@ test.describe('threshold ECDSA HSS role-local export policy', () => {
       ok: false,
       code: 'export_nonce_replay',
     });
+  });
+
+  test('retains export nonce replay guard beyond the export authorization expiry', async () => {
+    const originalNow = Date.now;
+    let nowMs = originalNow();
+    Date.now = () => nowMs;
+    try {
+      const fixture = await createRoleLocalExportFixture({ bootstrapTtlMs: 2 * 60 * 60_000 });
+      const nonce = bytesB64u(Buffer.alloc(32, 18));
+      const first = await fixture.svc.ecdsaHssRoleLocalExportShare({
+        request: await fixture.makeExportRequest({ nonce }),
+        keyHandle: fixture.keyHandle,
+        claims: fixture.claims,
+      });
+      expect(first.ok).toBe(true);
+
+      nowMs += 2 * 60_000;
+      const replayWithFreshAuthorization = await fixture.svc.ecdsaHssRoleLocalExportShare({
+        request: await fixture.makeExportRequest({ nonce }),
+        keyHandle: fixture.keyHandle,
+        claims: fixture.claims,
+      });
+      expect(replayWithFreshAuthorization).toMatchObject({
+        ok: false,
+        code: 'export_nonce_replay',
+      });
+    } finally {
+      Date.now = originalNow;
+    }
   });
 
   test('rejects invalid export authorization digest and expired authorization', async () => {

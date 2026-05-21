@@ -1,7 +1,7 @@
 import type {
   ThresholdEcdsaHssRoleLocalBootstrapRequest,
   ThresholdEcdsaHssRoleLocalClientRootProof,
-  ThresholdEcdsaHssRoleLocalPasskeyFirstBootstrapAuthorization,
+  ThresholdEcdsaHssRoleLocalPasskeyBootstrapAuthorization,
 } from './thresholdEcdsa';
 import {
   toEcdsaHssThresholdKeyId,
@@ -36,7 +36,7 @@ const clientRootProof = {
   signature65B64u: 'signature',
 } satisfies ThresholdEcdsaHssRoleLocalClientRootProof;
 
-declare const passkeyFirstBootstrapAuthorization: ThresholdEcdsaHssRoleLocalPasskeyFirstBootstrapAuthorization;
+declare const passkeyBootstrapAuthorization: ThresholdEcdsaHssRoleLocalPasskeyBootstrapAuthorization;
 
 void ({
   ...bootstrapBase,
@@ -45,14 +45,14 @@ void ({
 
 void ({
   ...bootstrapBase,
-  passkeyFirstBootstrapAuthorization,
+  passkeyBootstrapAuthorization,
 } satisfies ThresholdEcdsaHssRoleLocalBootstrapRequest);
 
 void ({
   ...bootstrapBase,
   clientRootProof,
-  passkeyFirstBootstrapAuthorization,
-  // @ts-expect-error role-local bootstrap accepts exactly one first-bootstrap authorization branch
+  passkeyBootstrapAuthorization,
+  // @ts-expect-error role-local bootstrap accepts exactly one proof branch
 } satisfies ThresholdEcdsaHssRoleLocalBootstrapRequest);
 
 void ({

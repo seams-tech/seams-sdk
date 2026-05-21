@@ -208,8 +208,8 @@ async function stagedBootstrapThresholdEcdsa(args: {
       ttlMs,
       remainingUses,
       participantIds: args.participantIds,
-      passkeyFirstBootstrapAuthorization: {
-        kind: 'passkey_first_bootstrap',
+      passkeyBootstrapAuthorization: {
+        kind: 'passkey_bootstrap',
         webauthn_authentication: fakeWebAuthnAuthentication(),
         runtimePolicyScope: TEST_RUNTIME_SCOPE,
       },
@@ -224,12 +224,7 @@ async function stagedBootstrapThresholdEcdsa(args: {
     sessionId: String(value.sessionId || args.sessionId),
     walletSigningSessionId: String(value.walletSigningSessionId || walletSigningSessionId),
     subjectId,
-    chainTarget: {
-      kind: 'evm',
-      namespace: 'eip155',
-      chainId: 11155111,
-      networkSlug: 'sepolia',
-    },
+    keyScope: 'evm-family',
     keyHandle: String(value.keyHandle || ''),
     relayerKeyId: String(value.relayerKeyId || relayerKeyId),
     rpId: args.rpId,

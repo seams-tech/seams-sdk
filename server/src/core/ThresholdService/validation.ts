@@ -13,6 +13,7 @@ import {
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { REGISTRATION_CONTINUATION_JWT_KIND } from '@shared/utils/sessionTokens';
+import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
 import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetFromValue,
@@ -20,7 +21,7 @@ import {
 } from '../thresholdEcdsaChainTarget';
 import type {
   EcdsaHssClientBootstrapRequest,
-  EcdsaHssPasskeyFirstBootstrapAuthorization,
+  EcdsaHssPasskeyBootstrapAuthorization,
   EcdsaHssExportShareRequest,
   EcdsaHssPublicIdentity,
   EcdsaHssRoleLocalKeyRecord,
@@ -87,11 +88,11 @@ function parseEcdsaHssClientRootProof(
   };
 }
 
-function parseEcdsaHssPasskeyFirstBootstrapAuthorization(
+function parseEcdsaHssPasskeyBootstrapAuthorization(
   value: unknown,
-): EcdsaHssPasskeyFirstBootstrapAuthorization | null {
+): EcdsaHssPasskeyBootstrapAuthorization | null {
   if (!isObject(value)) return null;
-  if (toOptionalString(value.kind) !== 'passkey_first_bootstrap') return null;
+  if (toOptionalString(value.kind) !== 'passkey_bootstrap') return null;
   if (!isObject(value.webauthn_authentication)) return null;
   let runtimePolicyScope: RuntimePolicyScope | undefined;
   if (value.runtimePolicyScope !== undefined) {
@@ -103,7 +104,7 @@ function parseEcdsaHssPasskeyFirstBootstrapAuthorization(
   }
   const runtimeEnvironmentId = toOptionalString(value.runtimeEnvironmentId);
   return {
-    kind: 'passkey_first_bootstrap',
+    kind: 'passkey_bootstrap',
     webauthn_authentication: value.webauthn_authentication as any,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     ...(runtimeEnvironmentId ? { runtimeEnvironmentId } : {}),
@@ -331,14 +332,18 @@ export function parseEcdsaHssClientBootstrapRequest(
   const clientShareRetryCounter = raw.clientShareRetryCounter;
   const ttlMs = raw.ttlMs;
   const remainingUses = raw.remainingUses;
+  const sessionKind = normalizeJwtCookieSessionKind(raw.sessionKind);
   const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds);
+  const runtimePolicyScopeRaw = (raw as { runtimePolicyScope?: unknown }).runtimePolicyScope;
+  const runtimePolicyScope =
+    runtimePolicyScopeRaw === undefined ? null : parseRuntimePolicyScope(runtimePolicyScopeRaw);
   const clientRootProof =
     raw.clientRootProof === undefined ? null : parseEcdsaHssClientRootProof(raw.clientRootProof);
-  const passkeyFirstBootstrapAuthorization =
-    raw.passkeyFirstBootstrapAuthorization === undefined
+  const passkeyBootstrapAuthorization =
+    raw.passkeyBootstrapAuthorization === undefined
       ? null
-      : parseEcdsaHssPasskeyFirstBootstrapAuthorization(
-          raw.passkeyFirstBootstrapAuthorization,
+      : parseEcdsaHssPasskeyBootstrapAuthorization(
+          raw.passkeyBootstrapAuthorization,
         );
   if (
     !walletSessionUserId ||
@@ -357,10 +362,13 @@ export function parseEcdsaHssClientBootstrapRequest(
     !isNonNegativeInteger(ttlMs) ||
     !isNonNegativeInteger(remainingUses) ||
     !participantIds ||
+    (runtimePolicyScopeRaw !== undefined && !runtimePolicyScope) ||
     (raw.clientRootProof !== undefined && !clientRootProof) ||
-    (raw.passkeyFirstBootstrapAuthorization !== undefined &&
-      !passkeyFirstBootstrapAuthorization) ||
-    (raw.clientRootProof !== undefined && raw.passkeyFirstBootstrapAuthorization !== undefined)
+    (raw.passkeyBootstrapAuthorization !== undefined &&
+      !passkeyBootstrapAuthorization) ||
+    [raw.clientRootProof, raw.passkeyBootstrapAuthorization].filter(
+      (value) => value !== undefined,
+    ).length > 1
   ) {
     return null;
   }
@@ -383,10 +391,12 @@ export function parseEcdsaHssClientBootstrapRequest(
     ttlMs,
     remainingUses,
     participantIds,
+    sessionKind,
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
   };
   if (clientRootProof) return { ...base, clientRootProof };
-  if (passkeyFirstBootstrapAuthorization) {
-    return { ...base, passkeyFirstBootstrapAuthorization };
+  if (passkeyBootstrapAuthorization) {
+    return { ...base, passkeyBootstrapAuthorization };
   }
   return base;
 }
@@ -1193,7 +1203,7 @@ export type ThresholdEcdsaSessionClaims = {
   sessionId: string;
   walletSigningSessionId: string;
   subjectId: string;
-  chainTarget: ThresholdEcdsaChainTarget;
+  keyScope: 'evm-family';
   keyHandle: string;
   relayerKeyId: string;
   rpId: string;
@@ -1225,9 +1235,7 @@ export function parseThresholdEcdsaSessionClaims(raw: unknown): ThresholdEcdsaSe
     (raw as { walletSigningSessionId?: unknown }).walletSigningSessionId,
   );
   const subjectId = toOptionalString((raw as { subjectId?: unknown }).subjectId);
-  const chainTarget = thresholdEcdsaChainTargetFromValue(
-    (raw as { chainTarget?: unknown }).chainTarget,
-  );
+  const keyScope = toOptionalString((raw as { keyScope?: unknown }).keyScope);
   const keyHandle = toOptionalString((raw as { keyHandle?: unknown }).keyHandle);
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
   const rpId = toOptionalString(raw.rpId);
@@ -1238,7 +1246,7 @@ export function parseThresholdEcdsaSessionClaims(raw: unknown): ThresholdEcdsaSe
     !sessionId ||
     !walletSigningSessionId ||
     !subjectId ||
-    !chainTarget ||
+    keyScope !== 'evm-family' ||
     !keyHandle ||
     !relayerKeyId ||
     !rpId
@@ -1257,7 +1265,7 @@ export function parseThresholdEcdsaSessionClaims(raw: unknown): ThresholdEcdsaSe
     sessionId,
     walletSigningSessionId,
     subjectId,
-    chainTarget,
+    keyScope,
     keyHandle,
     relayerKeyId,
     rpId,

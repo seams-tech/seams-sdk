@@ -5,8 +5,8 @@ const THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID = 'threshold-secp256k1-ecdsa-2p-
 
 export const ECDSA_HSS_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION =
   'ecdsa-hss:role-local:first-bootstrap-root-proof:v1' as const;
-export const ECDSA_HSS_ROLE_LOCAL_PASSKEY_FIRST_BOOTSTRAP_AUTH_VERSION =
-  'ecdsa-hss:role-local:passkey-first-bootstrap-auth:v1' as const;
+export const ECDSA_HSS_ROLE_LOCAL_PASSKEY_BOOTSTRAP_AUTH_VERSION =
+  'ecdsa-hss:role-local:passkey-bootstrap-auth:v1' as const;
 
 export type EcdsaHssRoleLocalFirstBootstrapRootProof = {
   version: typeof ECDSA_HSS_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION;
@@ -34,7 +34,7 @@ export type EcdsaHssRoleLocalBootstrapIdentity = {
   participantIds: number[];
 };
 
-export type EcdsaHssRoleLocalPasskeyFirstBootstrapIdentity = Omit<
+export type EcdsaHssRoleLocalPasskeyBootstrapIdentity = Omit<
   EcdsaHssRoleLocalBootstrapIdentity,
   'clientPublicKey33B64u' | 'clientShareRetryCounter' | 'contextBinding32B64u'
 >;
@@ -108,12 +108,12 @@ export async function computeEcdsaHssRoleLocalFirstBootstrapRootProofDigest32B64
   return base64UrlEncode(await computeEcdsaHssRoleLocalFirstBootstrapRootProofDigest32(input));
 }
 
-export async function computeEcdsaHssRoleLocalPasskeyFirstBootstrapAuthDigest32(
-  input: EcdsaHssRoleLocalPasskeyFirstBootstrapIdentity,
+export async function computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32(
+  input: EcdsaHssRoleLocalPasskeyBootstrapIdentity,
 ): Promise<Uint8Array> {
   return await sha256BytesUtf8(
     alphabetizeStringify({
-      version: ECDSA_HSS_ROLE_LOCAL_PASSKEY_FIRST_BOOTSTRAP_AUTH_VERSION,
+      version: ECDSA_HSS_ROLE_LOCAL_PASSKEY_BOOTSTRAP_AUTH_VERSION,
       walletSessionUserId: input.walletSessionUserId,
       rpId: input.rpId,
       subjectId: input.subjectId,
@@ -132,10 +132,10 @@ export async function computeEcdsaHssRoleLocalPasskeyFirstBootstrapAuthDigest32(
   );
 }
 
-export async function computeEcdsaHssRoleLocalPasskeyFirstBootstrapAuthDigest32B64u(
-  input: EcdsaHssRoleLocalPasskeyFirstBootstrapIdentity,
+export async function computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u(
+  input: EcdsaHssRoleLocalPasskeyBootstrapIdentity,
 ): Promise<string> {
   return base64UrlEncode(
-    await computeEcdsaHssRoleLocalPasskeyFirstBootstrapAuthDigest32(input),
+    await computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32(input),
   );
 }

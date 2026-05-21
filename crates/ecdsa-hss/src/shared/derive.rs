@@ -1,3 +1,4 @@
+use core::fmt;
 use k256::elliptic_curve::bigint::U512;
 use k256::elliptic_curve::ops::Reduce;
 use k256::elliptic_curve::Group;
@@ -56,7 +57,7 @@ pub struct PublicIdentityV1 {
     pub relayer_share_retry_counter: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
+#[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 pub struct ClientRoleShareV1 {
     #[zeroize(skip)]
     pub context_bytes: Vec<u8>,
@@ -67,7 +68,20 @@ pub struct ClientRoleShareV1 {
     pub mapped_client_share32: [u8; 32],
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
+impl fmt::Debug for ClientRoleShareV1 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ClientRoleShareV1")
+            .field("context_bytes_len", &self.context_bytes.len())
+            .field("context_binding32", &self.context_binding32)
+            .field("retry_counter", &self.retry_counter)
+            .field("x_client32", &"<redacted>")
+            .field("client_public_key33", &self.client_public_key33)
+            .field("mapped_client_share32", &"<redacted>")
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 pub struct RelayerRoleShareV1 {
     #[zeroize(skip)]
     pub context_bytes: Vec<u8>,
@@ -76,6 +90,19 @@ pub struct RelayerRoleShareV1 {
     pub x_relayer32: [u8; 32],
     pub relayer_public_key33: [u8; 33],
     pub mapped_relayer_share32: [u8; 32],
+}
+
+impl fmt::Debug for RelayerRoleShareV1 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RelayerRoleShareV1")
+            .field("context_bytes_len", &self.context_bytes.len())
+            .field("context_binding32", &self.context_binding32)
+            .field("retry_counter", &self.retry_counter)
+            .field("x_relayer32", &"<redacted>")
+            .field("relayer_public_key33", &self.relayer_public_key33)
+            .field("mapped_relayer_share32", &"<redacted>")
+            .finish()
+    }
 }
 
 pub fn context_binding_v1(context: &EcdsaHssStableKeyContextV1) -> CoreResult<[u8; 32]> {

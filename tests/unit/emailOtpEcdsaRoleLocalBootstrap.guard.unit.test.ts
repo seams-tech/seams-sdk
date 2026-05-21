@@ -5,6 +5,10 @@ const EMAIL_OTP_WORKER_URL = new URL(
   '../../client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
   import.meta.url,
 );
+const EMAIL_OTP_ECDSA_ENROLLMENT_URL = new URL(
+  '../../client/src/core/signingEngine/session/emailOtp/ecdsaEnrollment.ts',
+  import.meta.url,
+);
 
 test.describe('Email OTP ECDSA role-local bootstrap guard', () => {
   test('bootstrap uses role-local paths and rejects missing role-local identity', () => {
@@ -35,5 +39,24 @@ test.describe('Email OTP ECDSA role-local bootstrap guard', () => {
     expect(roleLocalBlock).not.toContain('thresholdEcdsaHssPrepare(');
     expect(roleLocalBlock).not.toContain('thresholdEcdsaHssRespond(');
     expect(roleLocalBlock).not.toContain('thresholdEcdsaHssFinalize(');
+  });
+
+  test('enrollment derives runtime policy scope from app-session auth before worker bootstrap', () => {
+    const source = readFileSync(EMAIL_OTP_ECDSA_ENROLLMENT_URL, 'utf8');
+    const functionStart = source.indexOf(
+      'export async function enrollAndLoginWithEmailOtpEcdsaCapability',
+    );
+    expect(functionStart).toBeGreaterThan(-1);
+    const functionEnd = source.indexOf(
+      'const workerCtx = ports.getSignerWorkerContext',
+      functionStart,
+    );
+    expect(functionEnd).toBeGreaterThan(functionStart);
+    const enrollmentSetup = source.slice(functionStart, functionEnd);
+
+    expect(enrollmentSetup).toContain('parseThresholdRuntimePolicyScopeFromJwt(args.appSessionJwt)');
+    expect(enrollmentSetup).toContain('parseThresholdRuntimePolicyScopeFromJwt(routeAuth?.jwt)');
+    expect(source).toContain('resolveEmailOtpEcdsaRoleLocalKeyIdentityForHandle({');
+    expect(source).toContain('...(runtimePolicyScope ? { runtimePolicyScope } : {})');
   });
 });

@@ -22,11 +22,11 @@ test.describe('Passkey ECDSA role-local first bootstrap guard', () => {
     const roleLocalBlock = source.slice(functionStart);
 
     expect(roleLocalBlock).toContain(
-      'computeEcdsaHssRoleLocalPasskeyFirstBootstrapAuthDigest32B64u',
+      'computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u',
     );
-    expect(roleLocalBlock).toContain('passkeyFirstBootstrapIdentity');
-    expect(roleLocalBlock).toContain('passkeyFirstBootstrapAuthorization');
-    expect(roleLocalBlock).toContain("kind: 'passkey_first_bootstrap'");
+    expect(roleLocalBlock).toContain('passkeyBootstrapIdentity');
+    expect(roleLocalBlock).toContain('passkeyBootstrapAuthorization');
+    expect(roleLocalBlock).toContain("kind: 'passkey_bootstrap'");
     expect(roleLocalBlock).toContain('thresholdEcdsaHssRoleLocalBootstrap');
     expect(roleLocalBlock).toContain("code: 'role_local_required'");
     expect(roleLocalBlock).not.toContain('thresholdEcdsaHssPrepare(');
@@ -34,22 +34,58 @@ test.describe('Passkey ECDSA role-local first bootstrap guard', () => {
     expect(roleLocalBlock).not.toContain('thresholdEcdsaHssFinalize(');
   });
 
+  test('exact shared-key bootstrap derives role-local relayer id without chain-scoping HSS identity', () => {
+    const source = readFileSync(BOOTSTRAP_SESSION_URL, 'utf8');
+    const functionStart = source.indexOf('export async function bootstrapEcdsaSession');
+    expect(functionStart).toBeGreaterThan(-1);
+    const roleLocalBlock = source.slice(functionStart);
+
+    expect(roleLocalBlock).toContain('const exactBootstrapRelayerKeyId = exactSessionBootstrap');
+    expect(roleLocalBlock).toContain('computeEcdsaHssRoleLocalRelayerKeyId({');
+    expect(roleLocalBlock).toContain(
+      'computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u',
+    );
+    expect(roleLocalBlock).toContain('passkeyBootstrapAuthorization');
+    expect(roleLocalBlock).toContain('walletSessionUserId: userId');
+    expect(roleLocalBlock).toContain('exactBootstrapRelayerKeyId ||');
+    expect(roleLocalBlock).not.toContain('relayerKeyIdFromHssAuth');
+    expect(roleLocalBlock).toContain('clientAdditiveShare32B64u: clientBootstrap.clientShare32B64u');
+    expect(roleLocalBlock).not.toContain(
+      'clientAdditiveShare32B64u: clientBootstrap.clientCaitSithInput.mappedPrivateShare32B64u',
+    );
+
+    const requestStart = roleLocalBlock.indexOf('const bootstrapRequestBase = {');
+    expect(requestStart).toBeGreaterThan(-1);
+    const requestEnd = roleLocalBlock.indexOf(
+      '} satisfies ThresholdEcdsaHssRoleLocalBootstrapRequest;',
+      requestStart,
+    );
+    expect(requestEnd).toBeGreaterThan(requestStart);
+    const hssRequestBlock = roleLocalBlock.slice(requestStart, requestEnd);
+
+    expect(hssRequestBlock).not.toContain('chainTarget');
+    expect(hssRequestBlock).not.toContain('chainTargetKey');
+  });
+
   test('server verifies passkey WebAuthn authorization before role-local bootstrap persistence', () => {
     for (const routeUrl of [EXPRESS_ROUTE_URL, CLOUDFLARE_ROUTE_URL]) {
       const source = readFileSync(routeUrl, 'utf8');
-      const functionStart = source.indexOf('async function authorizeEcdsaHssRoleLocalFirstBootstrap');
+      const functionStart = source.indexOf('async function authorizeEcdsaHssRoleLocalBootstrap');
       expect(functionStart).toBeGreaterThan(-1);
       const functionEnd = source.indexOf('const presignPriorityGate', functionStart);
       expect(functionEnd).toBeGreaterThan(functionStart);
       const authorizeBlock = source.slice(functionStart, functionEnd);
 
-      expect(authorizeBlock).toContain('passkeyFirstBootstrapAuthorization');
+      expect(authorizeBlock).toContain('passkeyBootstrapAuthorization');
       expect(authorizeBlock).toContain(
-        'computeEcdsaHssRoleLocalPasskeyFirstBootstrapAuthDigest32B64u',
+        'computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u',
       );
       expect(authorizeBlock).toContain('signingRootScopeFromRuntimePolicyScope');
       expect(authorizeBlock).toContain('verifyWebAuthnAuthenticationLite');
       expect(authorizeBlock).toContain('Invalid passkey bootstrap authorization');
+      expect(authorizeBlock).toContain('parseRegistrationContinuationClaims');
+      expect(authorizeBlock).toContain('validateRegistrationContinuationBootstrapScope');
+      expect(source).toContain('registration continuation signing root mismatch');
     }
   });
 });

@@ -307,10 +307,8 @@ type EcdsaSigningRootReference = {
   signingRootVersion?: string;
 };
 
-const ECDSA_HSS_UNVERSIONED_SIGNING_ROOT_VERSION = 'unversioned';
-
 function canonicalEcdsaHssSigningRootVersion(signingRootVersion: unknown): string {
-  return toOptionalTrimmedString(signingRootVersion) || ECDSA_HSS_UNVERSIONED_SIGNING_ROOT_VERSION;
+  return toOptionalTrimmedString(signingRootVersion) || 'default';
 }
 
 async function deriveThresholdEcdsaHssKeyHandle(input: {
@@ -2721,12 +2719,35 @@ export class ThresholdSigningService {
         signingRootVersion: signingRootMetadata.signingRootVersion,
       });
       const existing = await this.ecdsaKeyStore.getRoleLocalByKeyHandle(keyHandle);
-      if (existing && existing.relayerKeyId !== request.relayerKeyId) {
-        return {
-          ok: false,
-          code: 'relayer_key_mismatch',
-          message: 'relayerKeyId mismatch requires ECDSA HSS re-bootstrap',
-        };
+      if (existing) {
+        const signingRootVersion = canonicalEcdsaHssSigningRootVersion(
+          signingRootMetadata.signingRootVersion,
+        );
+        if (existing.relayerKeyId !== request.relayerKeyId) {
+          return {
+            ok: false,
+            code: 'relayer_key_mismatch',
+            message: 'relayerKeyId mismatch requires ECDSA HSS re-bootstrap',
+          };
+        }
+        if (
+          existing.ecdsaThresholdKeyId !== request.ecdsaThresholdKeyId ||
+          existing.keyHandle !== keyHandle ||
+          existing.walletSessionUserId !== request.walletSessionUserId ||
+          existing.rpId !== request.rpId ||
+          existing.subjectId !== request.subjectId ||
+          existing.signingRootId !== signingRootMetadata.signingRootId ||
+          existing.signingRootVersion !== signingRootVersion ||
+          existing.keyScope !== request.keyScope ||
+          existing.contextBinding32B64u !== request.contextBinding32B64u ||
+          existing.clientPublicKey33B64u !== request.clientPublicKey33B64u
+        ) {
+          return {
+            ok: false,
+            code: 'identity_mismatch',
+            message: 'ECDSA HSS key identity mismatch',
+          };
+        }
       }
       const session = await this.ecdsaMintSessionWithoutWebAuthn({
         relayerKeyId: request.relayerKeyId,

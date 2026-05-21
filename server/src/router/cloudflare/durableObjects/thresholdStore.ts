@@ -28,6 +28,9 @@ type DoOk<T> = { ok: true; value: T };
 type DoErr = { ok: false; code: string; message: string };
 type DoResp<T> = DoOk<T> | DoErr;
 
+const EXPORT_REPLAY_GUARD_CLOCK_SKEW_MS = 5 * 60_000;
+const EXPORT_REPLAY_GUARD_MIN_RETENTION_MS = 24 * 60 * 60_000;
+
 type DoReq =
   | { op: 'get'; key: string }
   | { op: 'set'; key: string; value: unknown; ttlMs?: number }
@@ -604,8 +607,12 @@ export class ThresholdStoreDurableObject {
         if (Number.isFinite(existingExpiresAtMs) && existingExpiresAtMs > nowMs) {
           return err('export_nonce_replay', 'Export authorization nonce already used');
         }
-        const ttlSeconds = Math.max(1, Math.ceil((expiresAtMs - nowMs) / 1000));
-        await store.put(key, { expiresAtMs }, { expirationTtl: ttlSeconds });
+        const retainedUntilMs = Math.max(
+          nowMs + EXPORT_REPLAY_GUARD_MIN_RETENTION_MS,
+          expiresAtMs + EXPORT_REPLAY_GUARD_CLOCK_SKEW_MS,
+        );
+        const ttlSeconds = Math.max(1, Math.ceil((retainedUntilMs - nowMs) / 1000));
+        await store.put(key, { expiresAtMs: retainedUntilMs }, { expirationTtl: ttlSeconds });
         return ok({ reserved: true });
       });
 

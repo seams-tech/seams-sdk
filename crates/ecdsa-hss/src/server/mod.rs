@@ -1,3 +1,4 @@
+use core::fmt;
 use std::collections::HashSet;
 
 use signer_core::error::CoreResult;
@@ -14,14 +15,23 @@ use crate::wire::{
     PrepareEnvelopeV1, RespondRequestV1, ServerEvalOperationV1, ThresholdRespondRequestV1,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
+#[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 pub struct ServerPrepareInputsV1 {
     #[zeroize(skip)]
     pub prepare: PrepareEnvelopeV1,
     pub y_relayer32_le: [u8; 32],
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
+impl fmt::Debug for ServerPrepareInputsV1 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ServerPrepareInputsV1")
+            .field("prepare", &self.prepare)
+            .field("y_relayer32_le", &"<redacted>")
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 pub struct FinalizedServerSessionV1 {
     #[zeroize(skip)]
     pub operation: ServerEvalOperationV1,
@@ -30,7 +40,17 @@ pub struct FinalizedServerSessionV1 {
     pub retained: RetainedServerStateV1,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
+impl fmt::Debug for FinalizedServerSessionV1 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FinalizedServerSessionV1")
+            .field("operation", &self.operation)
+            .field("context", &self.context)
+            .field("retained", &self.retained)
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 pub struct RetainedServerStateV1 {
     pub raw_root_material_dropped: bool,
     #[zeroize(skip)]
@@ -44,11 +64,45 @@ pub struct RetainedServerStateV1 {
     pub relayer_share_retry_counter: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
+impl fmt::Debug for RetainedServerStateV1 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RetainedServerStateV1")
+            .field("raw_root_material_dropped", &self.raw_root_material_dropped)
+            .field("relayer_key_id", &self.relayer_key_id)
+            .field("relayer_share32", &"<redacted>")
+            .field("client_public_key33", &self.client_public_key33)
+            .field("relayer_public_key33", &self.relayer_public_key33)
+            .field("threshold_public_key33", &self.threshold_public_key33)
+            .field(
+                "threshold_ethereum_address20",
+                &self.threshold_ethereum_address20,
+            )
+            .field(
+                "client_share_retry_counter",
+                &self.client_share_retry_counter,
+            )
+            .field(
+                "relayer_share_retry_counter",
+                &self.relayer_share_retry_counter,
+            )
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 pub struct StagedServerSessionV1 {
     #[zeroize(skip)]
     prepare: PrepareEnvelopeV1,
     y_relayer32_le: [u8; 32],
+}
+
+impl fmt::Debug for StagedServerSessionV1 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StagedServerSessionV1")
+            .field("prepare", &self.prepare)
+            .field("y_relayer32_le", &"<redacted>")
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]

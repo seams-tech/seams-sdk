@@ -32,8 +32,8 @@ export type ThresholdEcdsaHssRoleLocalClientRootProof = {
   signature65B64u: string;
 };
 
-export type ThresholdEcdsaHssRoleLocalPasskeyFirstBootstrapAuthorization = {
-  kind: 'passkey_first_bootstrap';
+export type ThresholdEcdsaHssRoleLocalPasskeyBootstrapAuthorization = {
+  kind: 'passkey_bootstrap';
   webauthn_authentication: WebAuthnAuthenticationCredential;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   runtimeEnvironmentId?: string;
@@ -60,20 +60,21 @@ type ThresholdEcdsaHssRoleLocalBootstrapRequestBase = {
   participantIds: number[];
   auth?: ThresholdEcdsaHssRouteAuth;
   sessionKind?: 'jwt' | 'cookie';
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
 };
 
 export type ThresholdEcdsaHssRoleLocalBootstrapRequest =
   | (ThresholdEcdsaHssRoleLocalBootstrapRequestBase & {
       clientRootProof: ThresholdEcdsaHssRoleLocalClientRootProof;
-      passkeyFirstBootstrapAuthorization?: never;
+      passkeyBootstrapAuthorization?: never;
     })
   | (ThresholdEcdsaHssRoleLocalBootstrapRequestBase & {
       clientRootProof?: never;
-      passkeyFirstBootstrapAuthorization: ThresholdEcdsaHssRoleLocalPasskeyFirstBootstrapAuthorization;
+      passkeyBootstrapAuthorization: ThresholdEcdsaHssRoleLocalPasskeyBootstrapAuthorization;
     })
   | (ThresholdEcdsaHssRoleLocalBootstrapRequestBase & {
       clientRootProof?: never;
-      passkeyFirstBootstrapAuthorization?: never;
+      passkeyBootstrapAuthorization?: never;
     });
 
 type ThresholdEcdsaHssRoleLocalBootstrapBodyBase = {
@@ -95,20 +96,21 @@ type ThresholdEcdsaHssRoleLocalBootstrapBodyBase = {
   ttlMs: number;
   remainingUses: number;
   participantIds: number[];
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
 };
 
 type ThresholdEcdsaHssRoleLocalBootstrapBody =
   | (ThresholdEcdsaHssRoleLocalBootstrapBodyBase & {
       clientRootProof: ThresholdEcdsaHssRoleLocalClientRootProof;
-      passkeyFirstBootstrapAuthorization?: never;
+      passkeyBootstrapAuthorization?: never;
     })
   | (ThresholdEcdsaHssRoleLocalBootstrapBodyBase & {
       clientRootProof?: never;
-      passkeyFirstBootstrapAuthorization: ThresholdEcdsaHssRoleLocalPasskeyFirstBootstrapAuthorization;
+      passkeyBootstrapAuthorization: ThresholdEcdsaHssRoleLocalPasskeyBootstrapAuthorization;
     })
   | (ThresholdEcdsaHssRoleLocalBootstrapBodyBase & {
       clientRootProof?: never;
-      passkeyFirstBootstrapAuthorization?: never;
+      passkeyBootstrapAuthorization?: never;
     });
 
 export type ThresholdEcdsaHssRoleLocalBootstrapValue = {
@@ -133,6 +135,7 @@ export type ThresholdEcdsaHssRoleLocalBootstrapValue = {
   expiresAtMs: number;
   expiresAt: string;
   remainingUses: number;
+  jwt?: string;
 };
 
 export type ThresholdEcdsaHssRoleLocalExportShareRequest = {
@@ -330,6 +333,7 @@ function parseThresholdEcdsaHssRoleLocalBootstrapValue(
     expiresAtMs: requireNumber(record.expiresAtMs, 'expiresAtMs'),
     expiresAt: requireNonEmptyString(record.expiresAt, 'expiresAt'),
     remainingUses: requireNumber(record.remainingUses, 'remainingUses'),
+    ...(String(record.jwt || '').trim() ? { jwt: String(record.jwt).trim() } : {}),
   };
 }
 
@@ -428,6 +432,7 @@ export async function thresholdEcdsaHssRoleLocalBootstrap(
       ttlMs: requireNonNegativeInteger(args.ttlMs, 'ttlMs'),
       remainingUses: requireNonNegativeInteger(args.remainingUses, 'remainingUses'),
       participantIds: requireParticipantIds(args.participantIds),
+      ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
     };
     const body: ThresholdEcdsaHssRoleLocalBootstrapBody = args.clientRootProof
       ? {
@@ -444,21 +449,21 @@ export async function thresholdEcdsaHssRoleLocalBootstrap(
             ),
           },
         }
-      : args.passkeyFirstBootstrapAuthorization
+      : args.passkeyBootstrapAuthorization
         ? {
             ...bodyBase,
-            passkeyFirstBootstrapAuthorization: {
-              kind: 'passkey_first_bootstrap',
+            passkeyBootstrapAuthorization: {
+              kind: 'passkey_bootstrap',
               webauthn_authentication:
-                args.passkeyFirstBootstrapAuthorization.webauthn_authentication,
-              ...(args.passkeyFirstBootstrapAuthorization.runtimePolicyScope
-                ? { runtimePolicyScope: args.passkeyFirstBootstrapAuthorization.runtimePolicyScope }
+                args.passkeyBootstrapAuthorization.webauthn_authentication,
+              ...(args.passkeyBootstrapAuthorization.runtimePolicyScope
+                ? { runtimePolicyScope: args.passkeyBootstrapAuthorization.runtimePolicyScope }
                 : {}),
-              ...(args.passkeyFirstBootstrapAuthorization.runtimeEnvironmentId
+              ...(args.passkeyBootstrapAuthorization.runtimeEnvironmentId
                 ? {
                     runtimeEnvironmentId: requireNonEmptyString(
-                      args.passkeyFirstBootstrapAuthorization.runtimeEnvironmentId,
-                      'passkeyFirstBootstrapAuthorization.runtimeEnvironmentId',
+                      args.passkeyBootstrapAuthorization.runtimeEnvironmentId,
+                      'passkeyBootstrapAuthorization.runtimeEnvironmentId',
                     ),
                   }
                 : {}),

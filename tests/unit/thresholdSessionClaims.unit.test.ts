@@ -22,7 +22,7 @@ function baseClaims(kind: 'threshold_ed25519_session_v1' | 'threshold_ecdsa_sess
   return {
     ...claims,
     subjectId: 'wallet-subject-alice',
-    chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 5042002 },
+    keyScope: 'evm-family',
     keyHandle: 'ehss-key-test',
   };
 }
@@ -72,18 +72,19 @@ test.describe('threshold session auth token claims', () => {
     ).toBeNull();
   });
 
-  test('threshold-ecdsa session tokens require concrete lane identity claims', () => {
+  test('threshold-ecdsa session tokens require EVM-family key identity claims', () => {
     const claims = baseClaims('threshold_ecdsa_session_v1');
 
     expect(parseThresholdEcdsaSessionClaims(claims)?.subjectId).toBe('wallet-subject-alice');
     expect(parseThresholdEcdsaSessionClaims(claims)?.keyHandle).toBe('ehss-key-test');
+    expect(parseThresholdEcdsaSessionClaims(claims)?.keyScope).toBe('evm-family');
     expect(parseThresholdEcdsaSessionClaims({ ...claims, subjectId: undefined })).toBeNull();
-    expect(parseThresholdEcdsaSessionClaims({ ...claims, chainTarget: undefined })).toBeNull();
+    expect(parseThresholdEcdsaSessionClaims({ ...claims, keyScope: undefined })).toBeNull();
     expect(parseThresholdEcdsaSessionClaims({ ...claims, keyHandle: undefined })).toBeNull();
     expect(
       parseThresholdEcdsaSessionClaims({
         ...claims,
-        chainTarget: { kind: 'evm', namespace: 'eip155', chainId: '5042002' },
+        keyScope: 'tempo',
       }),
     ).toBeNull();
   });
@@ -113,7 +114,6 @@ test.describe('threshold session auth token claims', () => {
         expiresAtMs: Date.now() + 60_000,
         participantIds: [1, 2],
         subjectId: 'wallet-subject-alice',
-        chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 5042002 },
         keyHandle: 'ehss-key-signed',
       },
       requireJwtErrorMessage: 'jwt required',
@@ -122,6 +122,7 @@ test.describe('threshold session auth token claims', () => {
 
     expect(result.ok).toBe(true);
     expect(signedPayload).toEqual(expect.objectContaining({ keyHandle: 'ehss-key-signed' }));
+    expect(signedPayload).toEqual(expect.objectContaining({ keyScope: 'evm-family' }));
     expect(signedPayload).not.toHaveProperty('ecdsaThresholdKeyId');
     expect(parseThresholdEcdsaSessionClaims(signedPayload)?.keyHandle).toBe('ehss-key-signed');
   });

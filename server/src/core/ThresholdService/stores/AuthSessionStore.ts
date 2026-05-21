@@ -1,8 +1,5 @@
 import type { NormalizedLogger } from '../../logger';
-import type {
-  ThresholdEcdsaSigningRootMetadata,
-  ThresholdStoreConfigInput,
-} from '../../types';
+import type { ThresholdEcdsaSigningRootMetadata, ThresholdStoreConfigInput } from '../../types';
 import { RedisTcpClient, UpstashRedisRestClient, redisGetJson, redisSetJson } from '../kv';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import {
@@ -48,6 +45,9 @@ export type Ed25519AuthSessionStatus = {
   expiresAtMs: number;
   remainingUses: number;
 };
+
+const EXPORT_REPLAY_GUARD_CLOCK_SKEW_MS = 5 * 60_000;
+const EXPORT_REPLAY_GUARD_MIN_RETENTION_MS = 24 * 60 * 60_000;
 
 export interface Ed25519AuthSessionStore {
   putSession(
@@ -212,7 +212,11 @@ function normalizeConsumeOnceKey(value: string): string {
 function replayGuardTtlMs(expiresAtMs: number, nowMs = Date.now()): number {
   const expires = Number(expiresAtMs);
   if (!Number.isFinite(expires)) return 0;
-  return Math.max(0, Math.floor(expires - nowMs));
+  if (expires <= nowMs) return 0;
+  return Math.max(
+    EXPORT_REPLAY_GUARD_MIN_RETENTION_MS,
+    Math.floor(expires + EXPORT_REPLAY_GUARD_CLOCK_SKEW_MS - nowMs),
+  );
 }
 
 function replayGuardInvalid(): ThresholdAuthReplayGuardResult {
@@ -220,11 +224,19 @@ function replayGuardInvalid(): ThresholdAuthReplayGuardResult {
 }
 
 function replayGuardExpired(): ThresholdAuthReplayGuardResult {
-  return { ok: false, code: 'export_authorization_expired', message: 'Export authorization expired' };
+  return {
+    ok: false,
+    code: 'export_authorization_expired',
+    message: 'Export authorization expired',
+  };
 }
 
 function replayGuardDuplicate(): ThresholdAuthReplayGuardResult {
-  return { ok: false, code: 'export_nonce_replay', message: 'Export authorization nonce already used' };
+  return {
+    ok: false,
+    code: 'export_nonce_replay',
+    message: 'Export authorization nonce already used',
+  };
 }
 
 function parseRedisReplayGuardResult(raw: unknown): ThresholdAuthReplayGuardResult {
@@ -547,7 +559,11 @@ class RedisTcpEd25519AuthSessionStore implements Ed25519AuthSessionStore {
       }
       if (resp.type === 'bulk' && resp.value === null) return replayGuardDuplicate();
       if (resp.type === 'simple' && resp.value === 'OK') return { ok: true };
-      return { ok: false, code: 'internal', message: 'Redis replay guard returned invalid response' };
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'Redis replay guard returned invalid response',
+      };
     } catch (e: unknown) {
       const msg = String(
         e && typeof e === 'object' && 'message' in e

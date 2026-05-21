@@ -1024,8 +1024,8 @@ export interface EcdsaHssClientRootProof {
   signature65B64u: string;
 }
 
-export interface EcdsaHssPasskeyFirstBootstrapAuthorization {
-  kind: 'passkey_first_bootstrap';
+export interface EcdsaHssPasskeyBootstrapAuthorization {
+  kind: 'passkey_bootstrap';
   webauthn_authentication: WebAuthnAuthenticationCredential;
   runtimePolicyScope?: RuntimePolicyScope;
   runtimeEnvironmentId?: string;
@@ -1050,20 +1050,22 @@ interface EcdsaHssClientBootstrapRequestBase {
   ttlMs: number;
   remainingUses: number;
   participantIds: number[];
+  sessionKind?: 'jwt' | 'cookie';
+  runtimePolicyScope?: RuntimePolicyScope;
 }
 
 export type EcdsaHssClientBootstrapRequest =
   | (EcdsaHssClientBootstrapRequestBase & {
       clientRootProof: EcdsaHssClientRootProof;
-      passkeyFirstBootstrapAuthorization?: never;
+      passkeyBootstrapAuthorization?: never;
     })
   | (EcdsaHssClientBootstrapRequestBase & {
       clientRootProof?: never;
-      passkeyFirstBootstrapAuthorization: EcdsaHssPasskeyFirstBootstrapAuthorization;
+      passkeyBootstrapAuthorization: EcdsaHssPasskeyBootstrapAuthorization;
     })
   | (EcdsaHssClientBootstrapRequestBase & {
       clientRootProof?: never;
-      passkeyFirstBootstrapAuthorization?: never;
+      passkeyBootstrapAuthorization?: never;
     });
 
 export interface EcdsaHssServerBootstrapResponse {
@@ -1088,6 +1090,7 @@ export interface EcdsaHssServerBootstrapResponse {
   expiresAtMs: number;
   expiresAt: string;
   remainingUses: number;
+  jwt?: string;
 }
 
 export interface EcdsaHssRoleLocalKeyRecord {

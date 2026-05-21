@@ -229,7 +229,6 @@ export async function signThresholdSessionAuthToken(args: {
     participantIds?: unknown;
     runtimePolicyScope?: unknown;
     subjectId?: unknown;
-    chainTarget?: unknown;
     keyHandle?: unknown;
   };
   fallbackParticipantIds?: unknown;
@@ -283,10 +282,6 @@ export async function signThresholdSessionAuthToken(args: {
   })();
   const subjectId = String(args.sessionInfo?.subjectId || '').trim();
   const keyHandle = String(args.sessionInfo?.keyHandle || '').trim();
-  const chainTarget: ThresholdEcdsaChainTarget | null =
-    args.kind === 'threshold_ecdsa_session_v1'
-      ? thresholdEcdsaChainTargetFromValue(args.sessionInfo?.chainTarget)
-      : null;
 
   if (
     !userId ||
@@ -298,8 +293,7 @@ export async function signThresholdSessionAuthToken(args: {
     thresholdExpiresAtMs <= 0 ||
     !participantIds ||
     participantIds.length < 2 ||
-    (args.kind === 'threshold_ecdsa_session_v1' &&
-      (!subjectId || !keyHandle || !chainTarget))
+    (args.kind === 'threshold_ecdsa_session_v1' && (!subjectId || !keyHandle))
   ) {
     return {
       ok: false,
@@ -325,7 +319,7 @@ export async function signThresholdSessionAuthToken(args: {
       ? {
           subjectId,
           keyHandle,
-          chainTarget,
+          keyScope: 'evm-family',
         }
       : {}),
     iat: nowSec,
