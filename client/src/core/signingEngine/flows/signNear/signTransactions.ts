@@ -283,7 +283,7 @@ export async function runNearTransactionsWithActionsSigning({
   });
 
   // UserConfirm before sending anything to the signer worker.
-  // WebAuthn uses a challenge digest (threshold sessions use `sessionPolicyDigest32`).
+  // WebAuthn uses the typed threshold session policy challenge when passkey reauth is required.
   if (!ctx.touchConfirm) {
     throw new Error('UiConfirm bridge not available for signing');
   }
@@ -421,8 +421,10 @@ export async function runNearTransactionsWithActionsSigning({
       ...(preparedStepUp.kind === 'passkey' &&
       preparedStepUp.plannedPasskeyReconnect.sessionPolicyDigest32
         ? {
-            sessionPolicyDigest32:
-              preparedStepUp.plannedPasskeyReconnect.sessionPolicyDigest32,
+            webauthnChallenge: {
+              kind: 'threshold_session_policy' as const,
+              digest32B64u: preparedStepUp.plannedPasskeyReconnect.sessionPolicyDigest32,
+            },
           }
         : {}),
       onProgress: emitUiConfirmProgress,

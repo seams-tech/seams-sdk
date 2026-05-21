@@ -463,7 +463,7 @@ test.describe('ECDSA export lane selection', () => {
     expect(selected.session.walletSigningSessionId).toBe('wallet-session-active');
   });
 
-  test('uses a concrete family lane when requested target has only shared-key completion', async () => {
+  test('resolves shared-key target lane to concrete source material', async () => {
     const sourceLane = ecdsaLane({
       chainTarget: EVM_TARGET,
       walletSigningSessionId: 'wallet-session-evm-source',
@@ -529,6 +529,36 @@ test.describe('ECDSA export lane selection', () => {
       },
     );
 
+    expect(restoreCalls.passkeyChainTargets).toEqual([EVM_TARGET]);
+  });
+
+  test('uses shared-key target lane when source material is absent from export inventory', async () => {
+    const restoreCalls = { passkeyChainTargets: [] as ThresholdEcdsaChainTarget[] };
+    const sharedTempoLane = ecdsaLane({
+      chainTarget: TEMPO_TARGET,
+      source: 'evm_family_shared_key',
+      sourceChainTarget: EVM_TARGET,
+      state: 'deferred',
+      walletSigningSessionId: 'wallet-session-shared-only',
+      thresholdSessionId: 'threshold-session-shared-only',
+    });
+
+    const selected = await restoreEcdsaSessionForExport(
+      depsForTargets(
+        {
+          [thresholdEcdsaChainTargetKey(TEMPO_TARGET)]: [sharedTempoLane],
+        },
+        restoreCalls,
+      ),
+      {
+        walletId: WALLET_ID,
+        rpId: RP_ID,
+        signingTarget: TEMPO_TARGET,
+      },
+    );
+
+    expect(selected.session.chainTarget).toEqual(EVM_TARGET);
+    expect(selected.session.thresholdSessionId).toBe('threshold-session-shared-only');
     expect(restoreCalls.passkeyChainTargets).toEqual([EVM_TARGET]);
   });
 });

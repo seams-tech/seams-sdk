@@ -50,7 +50,6 @@ function unsignedJwt(payload: Record<string, unknown>): string {
 function thresholdEcdsaSessionJwt(args: {
   thresholdSessionId: string;
   walletSigningSessionId: string;
-  chainTarget: ThresholdEcdsaChainTarget;
   keyHandle: string;
 }): string {
   return unsignedJwt({
@@ -58,7 +57,7 @@ function thresholdEcdsaSessionJwt(args: {
     sub: WALLET_ID,
     walletId: WALLET_ID,
     keyHandle: args.keyHandle,
-    chainTarget: args.chainTarget,
+    keyScope: 'evm-family',
     sessionId: args.thresholdSessionId,
     walletSigningSessionId: args.walletSigningSessionId,
   });
@@ -105,7 +104,6 @@ function sealedEcdsaRecord(args: {
             thresholdSessionAuthToken: thresholdEcdsaSessionJwt({
               thresholdSessionId: args.thresholdSessionId,
               walletSigningSessionId: args.walletSigningSessionId,
-              chainTarget,
               keyHandle: args.keyHandle || TEST_ECDSA_KEY_HANDLE,
             }),
           }

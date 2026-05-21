@@ -311,7 +311,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
           ...(participantIds?.length ? { participantIds } : {}),
           remainingUses,
         });
-        const passkeyBootstrapAuthorizationDigest32 =
+        const passkeyBootstrapDigest32B64u =
           await computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u({
             walletSessionUserId: policy.walletSessionUserId,
             rpId: policy.rpId,
@@ -327,12 +327,15 @@ export async function createEvmFamilySigningFlowRuntime(args: {
             ttlMs: policy.ttlMs,
             remainingUses: policy.remainingUses,
             participantIds: policy.participantIds || participantIds,
-          });
+        });
         return {
-          sessionId: policy.sessionId,
-          walletSigningSessionId: policy.walletSigningSessionId,
-          requestId,
-          passkeyBootstrapAuthorizationDigest32,
+          webauthnChallenge: {
+            kind: 'ecdsa_role_local_bootstrap' as const,
+            digest32B64u: passkeyBootstrapDigest32B64u,
+            requestId,
+            thresholdSessionId: policy.sessionId,
+            walletSigningSessionId: policy.walletSigningSessionId,
+          },
         };
       },
       reconnect: async ({

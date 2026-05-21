@@ -80,10 +80,13 @@ test.describe('step-up authorization builders', () => {
           },
         },
         plannedPasskeyReconnect: {
-          sessionId: 'threshold-session-passkey',
-          walletSigningSessionId: 'wallet-session-passkey',
-          requestId: 'request-1',
-          passkeyBootstrapAuthorizationDigest32: 'digest-32',
+          webauthnChallenge: {
+            kind: 'ecdsa_role_local_bootstrap',
+            digest32B64u: 'digest-32',
+            requestId: 'request-1',
+            thresholdSessionId: 'threshold-session-passkey',
+            walletSigningSessionId: 'wallet-session-passkey',
+          },
         },
       },
       confirmation: {
@@ -101,10 +104,13 @@ test.describe('step-up authorization builders', () => {
       },
       credential: TEST_WEBAUTHN_CREDENTIAL,
       plannedPasskeyReconnect: {
-        sessionId: 'threshold-session-passkey',
-        walletSigningSessionId: 'wallet-session-passkey',
-        requestId: 'request-1',
-        passkeyBootstrapAuthorizationDigest32: 'digest-32',
+        webauthnChallenge: {
+          kind: 'ecdsa_role_local_bootstrap',
+          digest32B64u: 'digest-32',
+          requestId: 'request-1',
+          thresholdSessionId: 'threshold-session-passkey',
+          walletSigningSessionId: 'wallet-session-passkey',
+        },
       },
     });
   });

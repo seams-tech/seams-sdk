@@ -179,8 +179,8 @@ export async function orchestrateSigningConfirmation(
             displayModel: eagerDisplayModel,
             rpcCall: params.rpcCall,
             ...(params.nearPublicKeyStr ? { nearPublicKeyStr: params.nearPublicKeyStr } : {}),
-            ...(params.sessionPolicyDigest32
-              ? { sessionPolicyDigest32: params.sessionPolicyDigest32 }
+            ...(params.webauthnChallenge
+              ? { webauthnChallenge: params.webauthnChallenge }
               : {}),
             signingAuthPlan: params.signingAuthPlan,
             ...(params.emailOtpPrompt ? { emailOtpPrompt: params.emailOtpPrompt } : {}),
@@ -215,8 +215,8 @@ export async function orchestrateSigningConfirmation(
           displayModel,
           rpcCall: params.rpcCall,
           ...(params.nearPublicKeyStr ? { nearPublicKeyStr: params.nearPublicKeyStr } : {}),
-          ...(params.sessionPolicyDigest32
-            ? { sessionPolicyDigest32: params.sessionPolicyDigest32 }
+          ...(params.webauthnChallenge
+            ? { webauthnChallenge: params.webauthnChallenge }
             : {}),
           signingAuthPlan: params.signingAuthPlan,
           ...(params.emailOtpPrompt ? { emailOtpPrompt: params.emailOtpPrompt } : {}),
@@ -273,8 +273,8 @@ export async function orchestrateSigningConfirmation(
           displayModel,
           rpcCall: params.rpcCall,
           ...(params.nearPublicKeyStr ? { nearPublicKeyStr: params.nearPublicKeyStr } : {}),
-          ...(params.sessionPolicyDigest32
-            ? { sessionPolicyDigest32: params.sessionPolicyDigest32 }
+          ...(params.webauthnChallenge
+            ? { webauthnChallenge: params.webauthnChallenge }
             : {}),
           signingAuthPlan: params.signingAuthPlan,
           ...(params.emailOtpPrompt ? { emailOtpPrompt: params.emailOtpPrompt } : {}),
@@ -303,8 +303,8 @@ export async function orchestrateSigningConfirmation(
           ...(params.nearPublicKeyStr ? { nearPublicKeyStr: params.nearPublicKeyStr } : {}),
           message: params.message,
           recipient: params.recipient,
-          ...(params.sessionPolicyDigest32
-            ? { sessionPolicyDigest32: params.sessionPolicyDigest32 }
+          ...(params.webauthnChallenge
+            ? { webauthnChallenge: params.webauthnChallenge }
             : {}),
           signingAuthPlan: params.signingAuthPlan,
           ...(params.emailOtpPrompt ? { emailOtpPrompt: params.emailOtpPrompt } : {}),
@@ -342,8 +342,8 @@ export async function orchestrateSigningConfirmation(
           nearAccountId: params.signerAccountId,
           challengeB64u,
           displayModel,
-          ...(params.sessionPolicyDigest32
-            ? { sessionPolicyDigest32: params.sessionPolicyDigest32 }
+          ...(params.webauthnChallenge
+            ? { webauthnChallenge: params.webauthnChallenge }
             : {}),
           signingAuthPlan: params.signingAuthPlan,
           ...(params.emailOtpPrompt ? { emailOtpPrompt: params.emailOtpPrompt } : {}),

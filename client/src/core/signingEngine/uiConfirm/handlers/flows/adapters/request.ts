@@ -63,6 +63,20 @@ function assertSigningRequestUsesAuthPlanOnly(request: UserConfirmRequest): void
   if (!isSigningAuthPlan(payload.signingAuthPlan)) {
     throw new Error('Invalid secure confirm request: missing or invalid signingAuthPlan');
   }
+  if (payload.sessionPolicyDigest32 !== undefined) {
+    throw new Error(
+      'Invalid secure confirm request: sessionPolicyDigest32 is not accepted; use webauthnChallenge',
+    );
+  }
+  if (
+    request.type === UserConfirmationType.SIGN_INTENT_DIGEST &&
+    (payload.signingAuthPlan as SigningAuthPlan).kind === SigningAuthPlanKind.PasskeyReauth &&
+    !isWebAuthnChallenge(payload.webauthnChallenge)
+  ) {
+    throw new Error(
+      'Invalid secure confirm request: passkey intent signing requires webauthnChallenge',
+    );
+  }
 }
 
 function isSigningAuthPlan(value: unknown): value is SigningAuthPlan {
@@ -73,6 +87,29 @@ function isSigningAuthPlan(value: unknown): value is SigningAuthPlan {
   }
   if (plan.kind === SigningAuthPlanKind.PasskeyReauth) return plan.method === 'passkey';
   if (plan.kind === SigningAuthPlanKind.EmailOtpReauth) return plan.method === 'email_otp';
+  return false;
+}
+
+function isWebAuthnChallenge(value: unknown): boolean {
+  if (!isObject(value)) return false;
+  const challenge = value as {
+    kind?: unknown;
+    challengeB64u?: unknown;
+    digest32B64u?: unknown;
+    requestId?: unknown;
+    thresholdSessionId?: unknown;
+    walletSigningSessionId?: unknown;
+  };
+  if (challenge.kind === 'intent_digest') return isString(challenge.challengeB64u);
+  if (challenge.kind === 'threshold_session_policy') return isString(challenge.digest32B64u);
+  if (challenge.kind === 'ecdsa_role_local_bootstrap') {
+    return (
+      isString(challenge.digest32B64u) &&
+      isString(challenge.requestId) &&
+      isString(challenge.thresholdSessionId) &&
+      isString(challenge.walletSigningSessionId)
+    );
+  }
   return false;
 }
 

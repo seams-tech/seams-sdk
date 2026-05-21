@@ -64,8 +64,10 @@ export function buildEvmFamilyPasskeyEcdsaProvisionPlan(args: {
     key: args.material.lane.key,
     chainTarget: args.material.lane.chainTarget,
     newSessionIdentity: buildEcdsaSessionIdentity({
-      thresholdSessionId: args.authorization.plannedPasskeyReconnect.sessionId,
-      walletSigningSessionId: args.authorization.plannedPasskeyReconnect.walletSigningSessionId,
+      thresholdSessionId:
+        args.authorization.plannedPasskeyReconnect.webauthnChallenge.thresholdSessionId,
+      walletSigningSessionId:
+        args.authorization.plannedPasskeyReconnect.webauthnChallenge.walletSigningSessionId,
     }),
     signingKeyContext: buildEcdsaSigningKeyContextFromPairedMaterial({
       keyRef: args.material.keyRef,
@@ -74,7 +76,7 @@ export function buildEvmFamilyPasskeyEcdsaProvisionPlan(args: {
     sessionKind:
       args.material.record.thresholdSessionKind || args.material.keyRef.thresholdSessionKind || 'jwt',
     sessionBudgetUses: args.sessionBudgetUses,
-    requestId: args.authorization.plannedPasskeyReconnect.requestId,
+    requestId: args.authorization.plannedPasskeyReconnect.webauthnChallenge.requestId,
     clientRootShare32B64u,
     webauthnAuthentication: args.authorization.credential,
   };

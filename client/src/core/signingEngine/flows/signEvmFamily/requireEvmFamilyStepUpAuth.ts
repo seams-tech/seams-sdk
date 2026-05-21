@@ -4,6 +4,7 @@ import type {
   SigningAuthPlan,
   StepUpPolicy,
 } from '@/core/signingEngine/stepUpConfirmation/types';
+import type { WebAuthnChallenge } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import {
   isEmailOtpSigningAuthPlan,
   isPasskeySigningAuthPlan,
@@ -22,10 +23,7 @@ import type {
 import type { EvmFamilySigningAuthSideEffect } from './freshAuthRetryPolicy';
 
 export type EvmFamilyPasskeyReconnectPlan = {
-  sessionId: string;
-  walletSigningSessionId: string;
-  requestId: string;
-  passkeyBootstrapAuthorizationDigest32: string;
+  webauthnChallenge: Extract<WebAuthnChallenge, { kind: 'ecdsa_role_local_bootstrap' }>;
 };
 
 export type EvmFamilyPasskeyReconnectPlanner = {
@@ -110,7 +108,7 @@ export type EvmFamilyPasskeyStepUpAuth = EvmFamilyPreparedStepUpAuthBase & {
   confirmationAuthPayload: {
     signingAuthPlan: Extract<SigningAuthPlan, { kind: 'passkeyReauth' }>;
   };
-  plannedPasskeyReconnect?: EvmFamilyPasskeyReconnectPlan;
+  plannedPasskeyReconnect: EvmFamilyPasskeyReconnectPlan;
 };
 
 export type EvmFamilyPreparedStepUpAuth =
@@ -253,12 +251,15 @@ export async function requireEvmFamilyStepUpAuth(args: {
   if (!isPasskeySigningAuthPlan(stepUpPlan)) {
     throw new Error('[chains] passkey step-up requires a passkey signing auth plan');
   }
+  if (!plannedPasskeyReconnect) {
+    throw new Error('[chains] passkey ECDSA step-up requires a prepared reconnect challenge');
+  }
   return {
     kind: 'passkey',
     confirmationAuthPayload: {
       signingAuthPlan: stepUpPlan,
     },
-    ...(plannedPasskeyReconnect ? { plannedPasskeyReconnect } : {}),
+    plannedPasskeyReconnect,
   };
 }
 

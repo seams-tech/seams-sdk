@@ -121,6 +121,32 @@ export interface Nep413Summary {
   accountId: string;
 }
 
+export type WebAuthnChallenge =
+  | {
+      kind: 'intent_digest';
+      challengeB64u: string;
+      digest32B64u?: never;
+      requestId?: never;
+      thresholdSessionId?: never;
+      walletSigningSessionId?: never;
+    }
+  | {
+      kind: 'threshold_session_policy';
+      digest32B64u: string;
+      challengeB64u?: never;
+      requestId?: never;
+      thresholdSessionId?: never;
+      walletSigningSessionId?: never;
+    }
+  | {
+      kind: 'ecdsa_role_local_bootstrap';
+      digest32B64u: string;
+      requestId: string;
+      thresholdSessionId: string;
+      walletSigningSessionId: string;
+      challengeB64u?: never;
+    };
+
 // V2 request envelope
 export type UserConfirmPayloadByType = {
   [UserConfirmationType.SIGN_TRANSACTION]: SignTransactionPayload;
@@ -164,13 +190,7 @@ export interface SignTransactionPayload {
   displayModel?: TxDisplayModel;
   rpcCall: RpcCallPayload;
   nearPublicKeyStr?: string;
-  /**
-   * Optional base64url-encoded 32-byte digest used as the preferred WebAuthn challenge for signing flows.
-   *
-   * In threshold-signer mode, this is typically the `sessionPolicyDigest32` produced when minting a
-   * threshold session token (so the same digest can be used for both session mint + subsequent signing auth).
-   */
-  sessionPolicyDigest32?: string;
+  webauthnChallenge?: WebAuthnChallenge;
   signingAuthPlan: SigningAuthPlan;
   emailOtpPrompt?: EmailOtpConfirmPrompt;
 }
@@ -222,15 +242,12 @@ export interface SignNep413Payload {
   message: string;
   recipient: string;
   displayModel?: TxDisplayModel;
-  /**
-   * Optional base64url-encoded 32-byte digest used as the preferred WebAuthn challenge for this signing flow.
-   */
-  sessionPolicyDigest32?: string;
+  webauthnChallenge?: WebAuthnChallenge;
   signingAuthPlan: SigningAuthPlan;
   emailOtpPrompt?: EmailOtpConfirmPrompt;
 }
 
-export interface SignIntentDigestPayload {
+type SignIntentDigestPayloadBase = {
   nearAccountId: string;
   /**
    * Base64url-encoded 32-byte digest used as WebAuthn challenge when the
@@ -238,15 +255,18 @@ export interface SignIntentDigestPayload {
    */
   challengeB64u: string;
   displayModel?: TxDisplayModel;
-  /**
-   * Optional base64url-encoded 32-byte session-policy digest. Passkey
-   * threshold-session reauth uses this as the WebAuthn challenge so the same
-   * assertion can both confirm the transaction and mint the one-use session.
-   */
-  sessionPolicyDigest32?: string;
-  signingAuthPlan: SigningAuthPlan;
   emailOtpPrompt?: EmailOtpConfirmPrompt;
-}
+};
+
+export type SignIntentDigestPayload =
+  | (SignIntentDigestPayloadBase & {
+      signingAuthPlan: Extract<SigningAuthPlan, { kind: 'passkeyReauth' }>;
+      webauthnChallenge: WebAuthnChallenge;
+    })
+  | (SignIntentDigestPayloadBase & {
+      signingAuthPlan: Exclude<SigningAuthPlan, Extract<SigningAuthPlan, { kind: 'passkeyReauth' }>>;
+      webauthnChallenge?: WebAuthnChallenge;
+    });
 
 // Type guards
 export function isUserConfirmRequestV2(x: unknown): x is UserConfirmRequest {

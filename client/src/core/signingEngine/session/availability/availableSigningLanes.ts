@@ -37,7 +37,6 @@ import {
 } from '../identity/evmFamilyEcdsaIdentity';
 import {
   thresholdEcdsaChainTargetKey,
-  thresholdEcdsaChainTargetFromRequest,
   type ThresholdEcdsaChainTarget,
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -544,7 +543,6 @@ function ecdsaRecoveryRecordForDurableLane(
 type DurableEcdsaThresholdSessionJwtClaims = {
   walletId: string;
   keyHandle: string;
-  chainTarget: ThresholdEcdsaChainTarget;
   sessionId: string;
   walletSigningSessionId: string;
 };
@@ -554,18 +552,7 @@ function parseDurableEcdsaThresholdSessionJwtClaims(
 ): DurableEcdsaThresholdSessionJwtClaims | null {
   const payload = decodeJwtPayloadRecord(jwt);
   if (!payload || payload.kind !== THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND) return null;
-  let chainTarget: ThresholdEcdsaChainTarget;
-  try {
-    chainTarget = thresholdEcdsaChainTargetFromRequest(
-      payload.chainTarget &&
-        typeof payload.chainTarget === 'object' &&
-        !Array.isArray(payload.chainTarget)
-        ? (payload.chainTarget as Record<string, unknown>)
-        : {},
-    );
-  } catch {
-    return null;
-  }
+  if (String(payload.keyScope || '').trim() !== 'evm-family') return null;
   const sessionId = String(payload.sessionId || '').trim();
   const walletSigningSessionId = String(payload.walletSigningSessionId || '').trim();
   const walletId = String(payload.walletId || '').trim();
@@ -574,7 +561,6 @@ function parseDurableEcdsaThresholdSessionJwtClaims(
   return {
     walletId,
     keyHandle,
-    chainTarget,
     sessionId,
     walletSigningSessionId,
   };
@@ -595,7 +581,6 @@ function durableEcdsaJwtMatchesRecord(args: {
   if (claims.keyHandle !== args.expectedKeyHandle) return false;
 
   return (
-    thresholdEcdsaChainTargetKey(claims.chainTarget) === thresholdEcdsaChainTargetKey(args.chainTarget) &&
     claims.sessionId === args.thresholdSessionId &&
     claims.walletSigningSessionId === args.record.walletSigningSessionId
   );

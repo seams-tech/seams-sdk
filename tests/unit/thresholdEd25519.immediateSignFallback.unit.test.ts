@@ -1262,7 +1262,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
         });
 
         let reconnectCalls = 0;
-        let preparedSessionPolicyDigest = '';
+        let preparedWebAuthnChallengeDigest = '';
         let reconnectSessionId = '';
         let reconnectWalletSigningSessionId = '';
         const signingLane = buildNearTransactionSigningLane({
@@ -1280,7 +1280,9 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
             relayerKeyId,
             rpId,
             orchestrateSigningConfirmation: async (params: any) => {
-              preparedSessionPolicyDigest = String(params?.sessionPolicyDigest32 || '').trim();
+              preparedWebAuthnChallengeDigest = String(
+                params?.webauthnChallenge?.digest32B64u || '',
+              ).trim();
               params?.onProgress?.({
                 requestId: 'request-near-passkey-trace',
                 step: 1,
@@ -1349,7 +1351,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
 
         expect(signed).toHaveLength(1);
         expect(reconnectCalls).toBe(1);
-        expect(preparedSessionPolicyDigest).toBe('planned-ed25519-session-policy-digest');
+        expect(preparedWebAuthnChallengeDigest).toBe('planned-ed25519-session-policy-digest');
         expect(reconnectSessionId).toBe(thresholdSessionId);
         expect(reconnectWalletSigningSessionId).toBe(walletSigningSessionId);
         const boundaryEvents = debugCalls

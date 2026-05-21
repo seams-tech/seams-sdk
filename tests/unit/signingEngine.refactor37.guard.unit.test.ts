@@ -724,33 +724,20 @@ test.describe('signing engine refactor 37 guards', () => {
     const provisionPlan = readRepoFile(
       'client/src/core/signingEngine/flows/signEvmFamily/provisionPlan.ts',
     );
-    const flowOrchestrator = readRepoFile(
-      'client/src/core/signingEngine/uiConfirm/handlers/flowOrchestrator.ts',
-    );
     const bootstrapSession = readRepoFile(
       'client/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts',
     );
 
     expect(runtime).toContain('computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u');
     expect(runtime).toContain('const requestId = generateEvmFamilyEcdsaBootstrapRequestId();');
-    expect(runtime).toContain('passkeyBootstrapAuthorizationDigest32');
+    expect(runtime).toContain("kind: 'ecdsa_role_local_bootstrap' as const");
+    expect(runtime).toContain('digest32B64u: passkeyBootstrapDigest32B64u');
     expect(runtime).toContain('requestId,');
     expect(runtime).not.toContain('const { policy, sessionPolicyDigest32 }');
-    expect(signingFlow).toContain(
-      'stepUp.plannedPasskeyReconnect.passkeyBootstrapAuthorizationDigest32',
-    );
+    expect(signingFlow).toContain('stepUp.plannedPasskeyReconnect.webauthnChallenge');
     expect(provisionPlan).toContain(
-      'requestId: args.authorization.plannedPasskeyReconnect.requestId',
+      'requestId: args.authorization.plannedPasskeyReconnect.webauthnChallenge.requestId',
     );
-    const intentDigestStart = flowOrchestrator.indexOf(
-      'type: UserConfirmationType.SIGN_INTENT_DIGEST',
-    );
-    const intentDigestEnd = flowOrchestrator.indexOf(
-      'confirmationConfig: params.confirmationConfigOverride',
-      intentDigestStart,
-    );
-    const intentDigestBranch = flowOrchestrator.slice(intentDigestStart, intentDigestEnd);
-    expect(intentDigestBranch).toContain('sessionPolicyDigest32: params.sessionPolicyDigest32');
     expect(bootstrapSession).toContain(
       'const requestedKeygenSessionId = String(args.requestId ||',
     );

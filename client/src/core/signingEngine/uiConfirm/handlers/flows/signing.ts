@@ -10,7 +10,9 @@ import {
   type TransactionSummary,
   type SigningUserConfirmRequest,
   type IntentDigestUserConfirmRequest,
+  type WebAuthnChallenge,
 } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
+import { SigningAuthPlanKind } from '@/core/signingEngine/stepUpConfirmation/types';
 import {
   isUserCancelledUserConfirm,
   ERROR_MESSAGES,
@@ -34,6 +36,8 @@ import {
   type IntentDigestPreparationResult,
 } from '@/core/signingEngine/stepUpConfirmation/intentDigestPreparation';
 import { consumeConfirmationReadiness } from '@/core/signingEngine/uiConfirm/confirmationReadinessRegistry';
+import { sha256BytesUtf8 } from '@shared/utils/digests';
+import { base64UrlEncode } from '@shared/utils/encoders';
 
 const TOUCH_CONFIRM_PROGRESS_PHASE = {
   CONFIRMATION_COMPLETE: 'confirmation.complete',
@@ -68,6 +72,78 @@ function normalizeSixDigitOtpCode(value: unknown): string {
     throw new Error('Enter the 6-digit Email OTP code to continue');
   }
   return code;
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unsupported WebAuthn challenge branch: ${JSON.stringify(value)}`);
+}
+
+function resolveTypedWebAuthnChallenge(args: {
+  webauthnChallenge?: WebAuthnChallenge;
+  fallbackChallengeB64u: string;
+  requireTypedChallenge: boolean;
+}): {
+  challengeB64u: string;
+  challengeKind: WebAuthnChallenge['kind'];
+  requestId?: string;
+  thresholdSessionId?: string;
+  walletSigningSessionId?: string;
+} {
+  const fallbackChallengeB64u = String(args.fallbackChallengeB64u || '').trim();
+  if (!args.webauthnChallenge) {
+    if (args.requireTypedChallenge) {
+      throw new Error('Missing typed WebAuthn challenge for passkey signing flow');
+    }
+    return {
+      challengeB64u: fallbackChallengeB64u,
+      challengeKind: 'intent_digest',
+    };
+  }
+
+  switch (args.webauthnChallenge.kind) {
+    case 'intent_digest':
+      return {
+        challengeB64u: String(args.webauthnChallenge.challengeB64u || '').trim(),
+        challengeKind: args.webauthnChallenge.kind,
+      };
+    case 'threshold_session_policy':
+      return {
+        challengeB64u: String(args.webauthnChallenge.digest32B64u || '').trim(),
+        challengeKind: args.webauthnChallenge.kind,
+      };
+    case 'ecdsa_role_local_bootstrap':
+      return {
+        challengeB64u: String(args.webauthnChallenge.digest32B64u || '').trim(),
+        challengeKind: args.webauthnChallenge.kind,
+        requestId: args.webauthnChallenge.requestId,
+        thresholdSessionId: args.webauthnChallenge.thresholdSessionId,
+        walletSigningSessionId: args.webauthnChallenge.walletSigningSessionId,
+      };
+  }
+  return assertNever(args.webauthnChallenge);
+}
+
+async function emitWebAuthnChallengeDiagnostic(args: {
+  stage: string;
+  challengeB64u: string;
+  challengeKind: WebAuthnChallenge['kind'];
+  requestId?: string;
+  thresholdSessionId?: string;
+  walletSigningSessionId?: string;
+}): Promise<void> {
+  try {
+    const challengeHash8 = base64UrlEncode(await sha256BytesUtf8(args.challengeB64u)).slice(0, 8);
+    console.info('[ui-confirm][webauthn-challenge]', {
+      stage: args.stage,
+      challengeKind: args.challengeKind,
+      challengeHash8,
+      ...(args.requestId ? { requestId: args.requestId } : {}),
+      ...(args.thresholdSessionId ? { thresholdSessionId: args.thresholdSessionId } : {}),
+      ...(args.walletSigningSessionId
+        ? { walletSigningSessionId: args.walletSigningSessionId }
+        : {}),
+    });
+  } catch {}
 }
 
 export async function handleTransactionSigningFlow(
@@ -119,7 +195,6 @@ export async function handleTransactionSigningFlow(
     }
     let resolvedChallengeB64u = resolvedIntentDigest;
     resolvedIntentDigestForResponse = resolvedIntentDigest;
-    const sessionPolicyDigest32 = request.payload.sessionPolicyDigest32;
     const reserveNearNonces = shouldReserveNearNonceLeases(request, transactionSummary);
 
     // 1) Start NEAR context fetch + nonce reservation immediately.
@@ -377,10 +452,31 @@ export async function handleTransactionSigningFlow(
     }
 
     // 5) Collect authentication credential.
-    const challengeB64u = String(sessionPolicyDigest32 || resolvedChallengeB64u || '').trim();
+    const resolvedWebAuthnChallenge = resolveTypedWebAuthnChallenge({
+      webauthnChallenge: request.payload.webauthnChallenge,
+      fallbackChallengeB64u: String(resolvedChallengeB64u || '').trim(),
+      requireTypedChallenge:
+        request.payload.signingAuthPlan.kind === SigningAuthPlanKind.PasskeyReauth &&
+        Boolean(request.payload.webauthnChallenge),
+    });
+    const challengeB64u = resolvedWebAuthnChallenge.challengeB64u;
     if (!challengeB64u) {
       throw new Error('Missing WebAuthn challenge digest for signing flow');
     }
+    await emitWebAuthnChallengeDiagnostic({
+      stage: 'transaction_prompt',
+      challengeB64u,
+      challengeKind: resolvedWebAuthnChallenge.challengeKind,
+      ...(resolvedWebAuthnChallenge.requestId
+        ? { requestId: resolvedWebAuthnChallenge.requestId }
+        : {}),
+      ...(resolvedWebAuthnChallenge.thresholdSessionId
+        ? { thresholdSessionId: resolvedWebAuthnChallenge.thresholdSessionId }
+        : {}),
+      ...(resolvedWebAuthnChallenge.walletSigningSessionId
+        ? { walletSigningSessionId: resolvedWebAuthnChallenge.walletSigningSessionId }
+        : {}),
+    });
     const serializedCredential = await collectAuthenticationCredentialForChallengeB64u({
       indexedDB: ctx.indexedDB,
       touchIdPrompt: ctx.touchIdPrompt,
@@ -452,7 +548,6 @@ export async function handleIntentDigestSigningFlow(
 
   try {
     const signingAuthMode = getIntentDigestSigningAuthMode(request);
-    const sessionPolicyDigest32 = request.payload.sessionPolicyDigest32;
     let resolvedIntentDigest = String(getIntentDigest(request) || '').trim() || undefined;
     let resolvedChallengeB64u = String(request.payload.challengeB64u || '').trim();
     const requiresExplicitConfirmClick =
@@ -590,10 +685,30 @@ export async function handleIntentDigestSigningFlow(
       });
     }
 
-    const challengeB64u = String(sessionPolicyDigest32 || resolvedChallengeB64u || '').trim();
+    const resolvedWebAuthnChallenge = resolveTypedWebAuthnChallenge({
+      webauthnChallenge: request.payload.webauthnChallenge,
+      fallbackChallengeB64u: String(resolvedChallengeB64u || '').trim(),
+      requireTypedChallenge:
+        request.payload.signingAuthPlan.kind === SigningAuthPlanKind.PasskeyReauth,
+    });
+    const challengeB64u = resolvedWebAuthnChallenge.challengeB64u;
     if (!challengeB64u) {
       throw new Error('Missing WebAuthn challenge digest for intent signing flow');
     }
+    await emitWebAuthnChallengeDiagnostic({
+      stage: 'intent_digest_prompt',
+      challengeB64u,
+      challengeKind: resolvedWebAuthnChallenge.challengeKind,
+      ...(resolvedWebAuthnChallenge.requestId
+        ? { requestId: resolvedWebAuthnChallenge.requestId }
+        : {}),
+      ...(resolvedWebAuthnChallenge.thresholdSessionId
+        ? { thresholdSessionId: resolvedWebAuthnChallenge.thresholdSessionId }
+        : {}),
+      ...(resolvedWebAuthnChallenge.walletSigningSessionId
+        ? { walletSigningSessionId: resolvedWebAuthnChallenge.walletSigningSessionId }
+        : {}),
+    });
 
     sendConfirmProgress(worker, {
       requestId: request.requestId,

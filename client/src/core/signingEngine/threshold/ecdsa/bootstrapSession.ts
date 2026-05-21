@@ -1,5 +1,6 @@
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { base64UrlEncode } from '@shared/utils/base64';
+import { sha256BytesUtf8 } from '@shared/utils/digests';
 import {
   computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u,
   computeEcdsaHssRoleLocalRelayerKeyId,
@@ -164,6 +165,28 @@ function summarizeHssRouteAuth(auth: ThresholdEcdsaHssRouteAuth | undefined): Re
   }
   if (auth.kind === 'cookie') return { kind: 'cookie' };
   return { kind: auth.kind, hasToken: Boolean(String(auth.token || '').trim()) };
+}
+
+async function emitBootstrapChallengeDiagnostic(args: {
+  challengeB64u?: string;
+  requestId: string;
+  sessionId: string;
+  walletSigningSessionId: string;
+  challengeKind: 'ecdsa_role_local_bootstrap';
+}): Promise<void> {
+  const challengeB64u = String(args.challengeB64u || '').trim();
+  if (!challengeB64u) return;
+  try {
+    const challengeHash8 = base64UrlEncode(await sha256BytesUtf8(challengeB64u)).slice(0, 8);
+    console.info('[threshold-ecdsa][webauthn-challenge]', {
+      stage: 'bootstrap_verify',
+      challengeKind: args.challengeKind,
+      challengeHash8,
+      requestId: args.requestId,
+      thresholdSessionId: args.sessionId,
+      walletSigningSessionId: args.walletSigningSessionId,
+    });
+  } catch {}
 }
 
 type BootstrapEcdsaSessionBaseArgs = {
@@ -446,6 +469,13 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
           passkeyBootstrapIdentity,
         )
       : undefined;
+    await emitBootstrapChallengeDiagnostic({
+      challengeB64u,
+      requestId: keygenSessionId,
+      sessionId,
+      walletSigningSessionId,
+      challengeKind: 'ecdsa_role_local_bootstrap',
+    });
     const resolvedClientRootShare = await resolveThresholdEcdsaClientRootShare({
       indexedDB: args.indexedDB,
       touchIdPrompt: args.touchIdPrompt,

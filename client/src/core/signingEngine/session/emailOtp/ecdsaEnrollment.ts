@@ -11,8 +11,11 @@ import type {
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { walletSubjectIdFromWalletProfile } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
-import { generateWalletSigningSessionId } from '@/core/signingEngine/threshold/sessionPolicy';
+import {
+  generateWalletSigningSessionId,
+  parseThresholdRuntimePolicyScopeFromJwt,
+  type ThresholdRuntimePolicyScope,
+} from '@/core/signingEngine/threshold/sessionPolicy';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type { WarmSessionEcdsaCapabilityState } from '@/core/signingEngine/session/warmCapabilities/types';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
@@ -137,6 +140,10 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
   });
   const walletSigningSessionId = mintingSession.walletSigningSessionId;
   const routeAuth = routeAuthFromEmailOtpRoutePlan(routePlan);
+  const runtimePolicyScope =
+    args.runtimePolicyScope ||
+    parseThresholdRuntimePolicyScopeFromJwt(args.appSessionJwt) ||
+    parseThresholdRuntimePolicyScopeFromJwt(routeAuth?.jwt);
   const workerCtx = ports.getSignerWorkerContext();
   if (!workerCtx) {
     throw new Error('Email OTP enrollment login requires the dedicated emailOtp worker');
@@ -185,7 +192,7 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
     walletSessionUserId,
     rpId,
     subjectId,
-    ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
   });
   const bootstrapResult = await workerCtx.requestWorkerOperation({
     kind: 'emailOtp',
@@ -212,7 +219,7 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
         ...(routeAuth ? { routeAuth } : {}),
         ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
         ...(typeof remainingUses === 'number' ? { remainingUses } : {}),
-        ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
+        ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
       },
       onEvent: args.onProgress,
     },
@@ -247,7 +254,7 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
       ...(freshThresholdSessionAuth || routeAuth
         ? { routeAuth: freshThresholdSessionAuth || routeAuth }
         : {}),
-      ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
+      ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
       ...(args.registrationAttemptId ? { registrationAttemptId: args.registrationAttemptId } : {}),
       ...(Array.isArray(args.participantIds) ? { participantIds: args.participantIds } : {}),
       ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),

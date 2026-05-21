@@ -10,6 +10,7 @@ import type {
   SerializableCredential,
   UserConfirmDecision,
   UserConfirmRequest,
+  WebAuthnChallenge,
 } from './channel/confirmTypes';
 import type { NonceLeaseRef } from '../interfaces/nonceLease';
 import type { TxDisplayModel } from '../interfaces/display';
@@ -32,69 +33,87 @@ export type ConfirmationReadiness = {
   body?: string;
 };
 
-export interface OrchestrateSigningConfirmationBaseParams {
+export type OrchestrateSigningConfirmationBaseParams = {
   ctx: UiConfirmRequestBridgeContext;
   sessionId: string;
   chain: SigningConfirmationChain;
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   onProgress?: (progress: UserConfirmProgressEvent) => void;
-  signingAuthPlan: SigningAuthPlan;
   emailOtpPrompt?: EmailOtpConfirmPrompt;
   confirmationReadiness?: ConfirmationReadiness;
-  sessionPolicyDigest32?: string;
-}
+};
 
-export interface OrchestrateNearTransactionSigningConfirmationParams
-  extends OrchestrateSigningConfirmationBaseParams {
-  chain: 'near';
-  kind: 'transaction';
-  txSigningRequests: TransactionInputWasm[];
-  rpcCall: RpcCallPayload;
-  nearPublicKeyStr?: string;
-  title?: string;
-  body?: string;
-}
-
-export interface OrchestrateNearDelegateSigningConfirmationParams
-  extends OrchestrateSigningConfirmationBaseParams {
-  chain: 'near';
-  kind: 'delegate';
-  nearAccountId: string;
-  title?: string;
-  body?: string;
-  delegate: {
-    senderId: string;
-    receiverId: string;
-    actions: TransactionInputWasm['actions'];
-    nonce: string | number | bigint;
-    maxBlockHeight: string | number | bigint;
+type OrchestrateSigningConfirmationAuthParams =
+  {
+    signingAuthPlan: SigningAuthPlan;
+    webauthnChallenge?: WebAuthnChallenge;
   };
-  rpcCall: RpcCallPayload;
-  nearPublicKeyStr?: string;
-}
 
-export interface OrchestrateNearNep413SigningConfirmationParams
-  extends OrchestrateSigningConfirmationBaseParams {
-  chain: 'near';
-  kind: 'nep413';
-  nearAccountId: string;
-  nearPublicKeyStr?: string;
-  message: string;
-  recipient: string;
-  title?: string;
-  body?: string;
-}
+type OrchestrateIntentDigestSigningConfirmationAuthParams =
+  | {
+      signingAuthPlan: Extract<SigningAuthPlan, { kind: 'passkeyReauth' }>;
+      webauthnChallenge: WebAuthnChallenge;
+    }
+  | {
+      signingAuthPlan: Exclude<SigningAuthPlan, Extract<SigningAuthPlan, { kind: 'passkeyReauth' }>>;
+      webauthnChallenge?: WebAuthnChallenge;
+    };
 
-export interface OrchestrateIntentDigestSigningConfirmationParams
-  extends OrchestrateSigningConfirmationBaseParams {
-  kind: 'intentDigest';
-  signerAccountId: string;
-  challengeB64u: string;
-  intentDigest: string;
-  displayModel?: TxDisplayModel;
-  title?: string;
-  body?: string;
-}
+export type OrchestrateNearTransactionSigningConfirmationParams =
+  OrchestrateSigningConfirmationBaseParams &
+    OrchestrateSigningConfirmationAuthParams & {
+      chain: 'near';
+      kind: 'transaction';
+      txSigningRequests: TransactionInputWasm[];
+      rpcCall: RpcCallPayload;
+      nearPublicKeyStr?: string;
+      title?: string;
+      body?: string;
+    };
+
+export type OrchestrateNearDelegateSigningConfirmationParams =
+  OrchestrateSigningConfirmationBaseParams &
+    OrchestrateSigningConfirmationAuthParams & {
+      chain: 'near';
+      kind: 'delegate';
+      nearAccountId: string;
+      title?: string;
+      body?: string;
+      delegate: {
+        senderId: string;
+        receiverId: string;
+        actions: TransactionInputWasm['actions'];
+        nonce: string | number | bigint;
+        maxBlockHeight: string | number | bigint;
+      };
+      rpcCall: RpcCallPayload;
+      nearPublicKeyStr?: string;
+    };
+
+export type OrchestrateNearNep413SigningConfirmationParams =
+  OrchestrateSigningConfirmationBaseParams &
+    OrchestrateSigningConfirmationAuthParams & {
+      chain: 'near';
+      kind: 'nep413';
+      nearAccountId: string;
+      nearPublicKeyStr?: string;
+      message: string;
+      recipient: string;
+      title?: string;
+      body?: string;
+    };
+
+export type OrchestrateIntentDigestSigningConfirmationParams =
+  OrchestrateSigningConfirmationBaseParams &
+    OrchestrateIntentDigestSigningConfirmationAuthParams & {
+      kind: 'intentDigest';
+      signerAccountId: string;
+      challengeB64u: string;
+      intentDigest: string;
+      displayModel?: TxDisplayModel;
+      title?: string;
+      body?: string;
+    };
 
 export type OrchestrateSigningConfirmationParams =
   | OrchestrateNearTransactionSigningConfirmationParams

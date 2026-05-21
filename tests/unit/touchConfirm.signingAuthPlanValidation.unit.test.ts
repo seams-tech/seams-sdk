@@ -48,9 +48,43 @@ test.describe('touchConfirm signing auth plan validation', () => {
           kind: 'passkeyReauth',
           method: 'passkey',
         },
+        webauthnChallenge: {
+          kind: 'ecdsa_role_local_bootstrap',
+          digest32B64u: 'challenge-digest',
+          requestId: 'request-1',
+          thresholdSessionId: 'threshold-session-1',
+          walletSigningSessionId: 'wallet-session-1',
+        },
       }),
     );
 
     expect(request.type).toBe(UserConfirmationType.SIGN_INTENT_DIGEST);
+  });
+
+  test('rejects passkey intent signing without typed WebAuthn challenge', () => {
+    expect(() =>
+      validateUserConfirmRequest(
+        signIntentDigestRequest({
+          signingAuthPlan: {
+            kind: 'passkeyReauth',
+            method: 'passkey',
+          },
+        }),
+      ),
+    ).toThrow('passkey intent signing requires webauthnChallenge');
+  });
+
+  test('rejects legacy sessionPolicyDigest32 challenge input', () => {
+    expect(() =>
+      validateUserConfirmRequest(
+        signIntentDigestRequest({
+          signingAuthPlan: {
+            kind: 'passkeyReauth',
+            method: 'passkey',
+          },
+          sessionPolicyDigest32: 'legacy-digest',
+        }),
+      ),
+    ).toThrow('sessionPolicyDigest32 is not accepted');
   });
 });

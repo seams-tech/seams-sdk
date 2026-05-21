@@ -46,6 +46,7 @@ import { buildEcdsaSessionIdentity } from '../signingEngine/session/warmCapabili
 import {
   generateWalletSigningSessionId,
   parseThresholdRuntimePolicyScopeFromJwt,
+  type ThresholdRuntimePolicyScope,
 } from '../signingEngine/threshold/sessionPolicy';
 import {
   buildEvmFamilyEcdsaKeyIdentity,
@@ -103,6 +104,16 @@ function resolveRegistrationThresholdEcdsaBootstrapIdentity(
     signingRootId: String(signingRootBinding.signingRootId),
     signingRootVersion: String(signingRootBinding.signingRootVersion),
   };
+}
+
+function resolveRegistrationContinuationRuntimePolicyScope(
+  registrationContinuationToken: string,
+): ThresholdRuntimePolicyScope {
+  const runtimePolicyScope = parseThresholdRuntimePolicyScopeFromJwt(registrationContinuationToken);
+  if (!runtimePolicyScope) {
+    throw new Error('[Registration] ECDSA registration continuation missing runtimePolicyScope');
+  }
+  return runtimePolicyScope;
 }
 
 async function persistRegistrationThresholdEcdsaProfileSigner(args: {
@@ -628,22 +639,25 @@ async function performRegistrationRollback(
   console.debug('Starting registration rollback...', registrationState);
   const rollback: Record<string, unknown> = {
     databaseRolledBack: false,
+    databasePreserved: false,
     onChainRollbackPossible: false,
     contractTransactionId: registrationState.contractTransactionId,
   };
 
-  // Rollback in reverse order
   try {
-    // 1. Rollback database storage
     if (registrationState.databaseStored) {
-      console.debug('Rolling back database storage...');
-      await signingEngine.rollbackUserRegistration(nearAccountId);
-      rollback.databaseRolledBack = true;
-      console.debug('Database rollback completed');
+      if (registrationState.accountCreated || registrationState.contractRegistered) {
+        rollback.databasePreserved = true;
+        rollback.databaseRollbackSkippedReason = 'on_chain_account_created';
+        console.debug('Preserving local registration data because on-chain account state is immutable');
+      } else {
+        console.debug('Rolling back database storage...');
+        await signingEngine.rollbackUserRegistration(nearAccountId);
+        rollback.databaseRolledBack = true;
+        console.debug('Database rollback completed');
+      }
     }
 
-    // 2. On-chain rollback
-    // NOT POSSIBLE - account creation is an on-chain transaction and cannot be rolled back.
     if (registrationState.contractRegistered) {
       console.debug('Registration transaction cannot be rolled back (immutable blockchain state)');
       rollback.onChainStateImmutable = true;
@@ -718,6 +732,9 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
       status: 'running',
     });
 
+    const runtimePolicyScope = resolveRegistrationContinuationRuntimePolicyScope(
+      registrationContinuationToken,
+    );
     const clientRootShare32B64u = String(getPrfFirstB64uFromCredential(args.credential) || '').trim();
     if (!clientRootShare32B64u) {
       throw new Error('Failed to derive threshold ECDSA client root share from credential');
@@ -764,6 +781,7 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
             thresholdSessionKind: 'jwt',
             ttlMs,
             remainingUses,
+            runtimePolicyScope,
           })
         : null;
       const routeAuth = {
@@ -798,6 +816,7 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
               }),
               clientRootShare32B64u,
               routeAuth,
+              runtimePolicyScope,
               ttlMs,
               remainingUses,
             });

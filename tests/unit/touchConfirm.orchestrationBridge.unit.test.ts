@@ -9,6 +9,7 @@ import {
   getEmailOtpPrompt,
   getSigningAuthMode,
 } from '@/core/signingEngine/uiConfirm/handlers/flows/adapters/request';
+import type { WebAuthnChallenge } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import type { SigningAuthPlan } from '@/core/signingEngine/stepUpConfirmation/types';
 
 const passkeyPlan: SigningAuthPlan = {
@@ -27,6 +28,16 @@ function warmSessionPlan(sessionId: string): SigningAuthPlan {
     retention: 'session',
     expiresAtMs: Date.now() + 60_000,
     remainingUses: 1,
+  };
+}
+
+function roleLocalBootstrapChallenge(id: string): WebAuthnChallenge {
+  return {
+    kind: 'ecdsa_role_local_bootstrap',
+    digest32B64u: `role-local-bootstrap-digest-${id}`,
+    requestId: `tecdsa-keygen-${id}`,
+    thresholdSessionId: `threshold-session-${id}`,
+    walletSigningSessionId: `wallet-session-${id}`,
   };
 }
 
@@ -57,6 +68,7 @@ test.describe('touchConfirm orchestration manager bridge', () => {
       challengeB64u: 'AQ',
       intentDigest: 'intent-bridge',
       signingAuthPlan: passkeyPlan,
+      webauthnChallenge: roleLocalBootstrapChallenge('bridge'),
     });
 
     expect(managerCalls).toBe(1);
@@ -74,6 +86,7 @@ test.describe('touchConfirm orchestration manager bridge', () => {
         challengeB64u: 'AQ',
         intentDigest: 'intent-missing',
         signingAuthPlan: passkeyPlan,
+        webauthnChallenge: roleLocalBootstrapChallenge('missing'),
       }),
     ).rejects.toThrow('UserConfirm manager request bridge is unavailable');
   });
@@ -113,6 +126,43 @@ test.describe('touchConfirm orchestration manager bridge', () => {
     expect(capturedRequest?.payload?.signingAuthPlan?.kind).toBe('emailOtpReauth');
     expect(getSigningAuthMode(capturedRequest)).toBe('emailOtp');
     expect(getEmailOtpPrompt(capturedRequest)?.challengeId).toBe('email-otp-plan-challenge');
+  });
+
+  test('intent-digest passkey confirmation forwards typed WebAuthn challenge', async () => {
+    let capturedRequest: any;
+    const webauthnChallenge = {
+      kind: 'ecdsa_role_local_bootstrap' as const,
+      digest32B64u: 'role-local-bootstrap-digest',
+      requestId: 'tecdsa-keygen-request-1',
+      thresholdSessionId: 'threshold-session-passkey',
+      walletSigningSessionId: 'wallet-session-passkey',
+    };
+
+    await orchestrateSigningConfirmation({
+      ctx: {
+        touchConfirm: {
+          requestUserConfirmation: async (request: any) => {
+            capturedRequest = request;
+            return {
+              requestId: request.requestId,
+              confirmed: true,
+              intentDigest: request.intentDigest,
+            };
+          },
+        },
+      } as any,
+      sessionId: 'session-ecdsa-passkey-reconnect',
+      chain: 'tempo',
+      kind: 'intentDigest',
+      signerAccountId: 'alice.testnet',
+      challengeB64u: 'transaction-challenge',
+      intentDigest: 'intent-ecdsa-passkey-reconnect',
+      signingAuthPlan: passkeyPlan,
+      webauthnChallenge,
+    });
+
+    expect(capturedRequest?.payload?.webauthnChallenge).toEqual(webauthnChallenge);
+    expect(capturedRequest?.payload?.sessionPolicyDigest32).toBeUndefined();
   });
 
   test('near warmSession transaction uses placeholder digest and prepares real digest in background', async () => {

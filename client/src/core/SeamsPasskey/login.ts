@@ -22,8 +22,8 @@ import {
   isUserCancellationError,
   toError,
 } from '@shared/utils/errors';
+import { base64UrlEncode } from '@shared/utils/base64';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
-import { deriveThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
 import { isObject } from '@shared/utils/validation';
 import { IndexedDBManager } from '../indexedDB';
 import {
@@ -43,6 +43,7 @@ import {
   type ThresholdEcdsaSessionRecord,
 } from '../signingEngine/session/persistence/records';
 import type { ThresholdEcdsaSessionStoreSource } from '../signingEngine/session/identity/laneIdentity';
+import type { ThresholdEcdsaSessionBootstrapResult } from '../signingEngine/threshold/ecdsa/activation';
 import {
   parseThresholdRuntimePolicyScopeFromJwt,
   type ThresholdRuntimePolicyScope,
@@ -205,6 +206,58 @@ export async function unlock(
     const baseSignerSlot =
       signerSlotHint ??
       (Number.isFinite(userData.signerSlot) && userData.signerSlot >= 1 ? userData.signerSlot : 1);
+    const localUnlockAuthMethod = userData.authMethod || SIGNER_AUTH_METHODS.passkey;
+    const requiresLocalPasskeyUnlock = localUnlockAuthMethod === SIGNER_AUTH_METHODS.passkey;
+
+    const collectFreshLocalPasskeyUnlockCredential = async (): Promise<void> => {
+      if (loginCredential) return;
+      const challengeB64u = createLocalUnlockChallengeB64u();
+      const allowCredentials = authenticators
+        .map((authenticator) => {
+          const id = String(authenticator.credentialId || '').trim();
+          if (!id) return null;
+          return {
+            id,
+            type: 'public-key' as const,
+            transports: Array.isArray(authenticator.transports)
+              ? (authenticator.transports as AuthenticatorTransport[])
+              : [],
+          };
+        })
+        .filter(
+          (
+            credential,
+          ): credential is {
+            id: string;
+            type: 'public-key';
+            transports: AuthenticatorTransport[];
+          } => Boolean(credential),
+        );
+      emitUnlockEvent(onEvent, nearAccountId, {
+        phase: UnlockEventPhase.STEP_03_PASSKEY_PROMPT_STARTED,
+        status: 'waiting_for_user',
+        authMethod: 'passkey',
+        interaction: {
+          kind: 'passkey_assert',
+          overlay: 'show',
+        },
+      });
+      await signingEngine.getAuthenticationCredentialsSerialized({
+        nearAccountId,
+        challengeB64u,
+        allowCredentials,
+        includeSecondPrfOutput: false,
+      });
+      emitUnlockEvent(onEvent, nearAccountId, {
+        phase: UnlockEventPhase.STEP_03_PASSKEY_PROMPT_SUCCEEDED,
+        status: 'succeeded',
+        authMethod: 'passkey',
+        interaction: {
+          kind: 'passkey_assert',
+          overlay: 'hide',
+        },
+      });
+    };
 
     const signingSessionPolicy = (() => {
       const ttlMsRaw =
@@ -277,6 +330,10 @@ export async function unlock(
       const configuredEcdsaTargets = listConfiguredThresholdEcdsaPublicationTargets(
         context.configs.network.chains,
       );
+      const managedRuntimeScopeBootstrap = resolveManagedThresholdRuntimeScopeBootstrap(context);
+      const canFirstBootstrapThresholdEcdsa = Boolean(
+        loginCredential && managedRuntimeScopeBootstrap,
+      );
       let volatileWarmMaterialCleared = false;
       const clearVolatileWarmMaterialForUnlock = async (): Promise<void> => {
         if (volatileWarmMaterialCleared) return;
@@ -336,11 +393,16 @@ export async function unlock(
         };
         resolvedCanonicalEcdsaContext = initialContext;
         signersToWarm = ['ed25519', 'ecdsa'];
-        const freshEcdsaKeyIdentityTargets = requireThresholdEcdsaWarmupKeyIdentityTargets({
-          context: mergedCanonicalEcdsaContext,
-          configuredTargets: configuredEcdsaTargets,
-          source: 'unlock preflight',
-        });
+        const freshEcdsaKeyIdentityTargets = canFirstBootstrapThresholdEcdsa
+          ? thresholdEcdsaKeyIdentityTargetRequestsFromContext({
+              context: mergedCanonicalEcdsaContext,
+              configuredTargets: configuredEcdsaTargets,
+            })
+          : requireThresholdEcdsaWarmupKeyIdentityTargets({
+              context: mergedCanonicalEcdsaContext,
+              configuredTargets: configuredEcdsaTargets,
+              source: 'unlock preflight',
+            });
         ecdsaContextResolution = {
           kind: 'resolve_after_ed25519',
           initialContext,
@@ -351,15 +413,16 @@ export async function unlock(
                 '[login] threshold ECDSA warm-up requires Ed25519 threshold session auth before signer inventory fetch',
               );
             }
-            const freshKeyIdentityInventory =
-              await resolveThresholdEcdsaKeyIdentityInventoryFromThresholdEd25519Auth({
-                relayerUrl,
-                nearAccountId,
-                rpId: String(signingEngine.getRpId() || '').trim(),
-                thresholdSessionAuthToken,
-                keyTargets: freshEcdsaKeyIdentityTargets,
-                source: 'fresh_ed25519',
-              });
+            const freshKeyIdentityInventory = freshEcdsaKeyIdentityTargets.length
+              ? await resolveThresholdEcdsaKeyIdentityInventoryFromThresholdEd25519Auth({
+                  relayerUrl,
+                  nearAccountId,
+                  rpId: String(signingEngine.getRpId() || '').trim(),
+                  thresholdSessionAuthToken,
+                  keyTargets: freshEcdsaKeyIdentityTargets,
+                  source: 'fresh_ed25519',
+                })
+              : [];
             const postEd25519InventoryContext = resolveThresholdEcdsaKeyInventoryWarmSessionContext(
               {
                 keyIdentityInventory: [...keyIdentityInventory, ...freshKeyIdentityInventory],
@@ -370,13 +433,19 @@ export async function unlock(
               mergedCanonicalEcdsaContext,
               postEd25519InventoryContext,
             );
-            return requireCompleteSharedKeyTargetContext({
-              completion: buildSharedKeyTargetCompletion({
-                context: postEd25519MergedContext,
-                configuredTargets: configuredEcdsaTargets,
-              }),
-              source: 'fresh Ed25519 signer inventory',
+            const completion = buildSharedKeyTargetCompletion({
+              context: postEd25519MergedContext,
+              configuredTargets: configuredEcdsaTargets,
             });
+            if (completion.kind === 'ambiguous_shared_key_targets') {
+              return requireCompleteSharedKeyTargetContext({
+                completion,
+                source: 'fresh Ed25519 signer inventory',
+              });
+            }
+            return completion.kind === 'complete_shared_key_targets'
+              ? completion.context
+              : postEd25519MergedContext;
           },
         };
       } else {
@@ -422,7 +491,6 @@ export async function unlock(
       });
       await clearVolatileWarmMaterialForUnlock();
       const preferredEd25519SessionId = createThresholdLoginWarmSessionId('threshold-login');
-      const managedRuntimeScopeBootstrap = resolveManagedThresholdRuntimeScopeBootstrap(context);
       await primeThresholdLoginWarmSigners({
         context,
         signingEngine,
@@ -706,6 +774,10 @@ export async function unlock(
       phase: UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_SKIPPED,
       status: 'skipped',
     });
+
+    if (requiresLocalPasskeyUnlock && !loginCredential && !requireThresholdWarmup) {
+      await collectFreshLocalPasskeyUnlockCredential();
+    }
 
     if (requireThresholdWarmup) {
       await maybeWarmThresholdSigningSessions({
@@ -1082,9 +1154,10 @@ function parseThresholdEcdsaKeyIdentityRecord(args: {
   raw: unknown;
 }): ParsedThresholdEcdsaKeyIdentityRecord | null {
   const { raw } = args;
-  if (!isObject(raw) || !isObject(raw.key) || !isObject(raw.chainTarget)) {
+  if (!isObject(raw) || !isObject(raw.chainTarget)) {
     return null;
   }
+  const rawKey = isObject(raw.key) ? raw.key : raw;
   let chainTarget: ThresholdEcdsaChainTarget;
   try {
     chainTarget = thresholdEcdsaChainTargetFromRequest(raw.chainTarget);
@@ -1094,13 +1167,15 @@ function parseThresholdEcdsaKeyIdentityRecord(args: {
   const keyHandle = String(raw.keyHandle || '').trim();
   const accountAddress = normalizeEvmOwnerAddress(raw.accountAddress);
   const ownerAddress = normalizeEvmOwnerAddress(raw.ownerAddress);
-  const keyWalletId = String(raw.key.walletId || '').trim();
-  const rawKeySubjectId = String(raw.key.subjectId || '').trim();
+  const keyWalletId = String(rawKey.walletId || rawKey.walletSessionUserId || '').trim();
+  const rawKeySubjectId = String(rawKey.subjectId || '').trim();
   const expectedKeySubjectId = String(
     walletSubjectIdFromWalletProfile({ walletId: args.nearAccountId }),
   );
-  const keyRpId = String(raw.key.rpId || '').trim();
-  const thresholdOwnerAddress = normalizeEvmOwnerAddress(raw.key.thresholdOwnerAddress);
+  const keyRpId = String(rawKey.rpId || '').trim();
+  const thresholdOwnerAddress = normalizeEvmOwnerAddress(
+    rawKey.thresholdOwnerAddress || raw.ownerAddress || raw.accountAddress || raw.ethereumAddress,
+  );
   if (
     !keyHandle ||
     !ownerAddress ||
@@ -1125,8 +1200,8 @@ function parseThresholdEcdsaKeyIdentityRecord(args: {
       record: {
         keyHandle: canonicalKeyHandle,
         runtimePolicyScope: args.runtimePolicyScope,
-        signingRootId: raw.signingRootId || raw.key.signingRootId,
-        signingRootVersion: raw.signingRootVersion || raw.key.signingRootVersion,
+        signingRootId: raw.signingRootId || rawKey.signingRootId,
+        signingRootVersion: raw.signingRootVersion || rawKey.signingRootVersion,
       },
     });
     key = buildBaseEvmFamilyEcdsaKeyIdentity({
@@ -1135,7 +1210,7 @@ function parseThresholdEcdsaKeyIdentityRecord(args: {
       ecdsaThresholdKeyId,
       signingRootId: signingRootBinding.signingRootId,
       signingRootVersion: signingRootBinding.signingRootVersion,
-      participantIds: raw.key.participantIds,
+      participantIds: rawKey.participantIds || raw.participantIds,
       thresholdOwnerAddress,
     });
   } catch {
@@ -1387,10 +1462,16 @@ function resolveThresholdEcdsaKeyInventoryWarmSessionContext(args: {
   const matchingEntries = args.keyIdentityInventory.filter((entry) =>
     configuredTargets.some((target) => thresholdEcdsaChainTargetsEqual(entry.chainTarget, target)),
   );
-  if (!matchingEntries.length) return null;
+  const entries = matchingEntries.length
+    ? matchingEntries
+    : singleSharedKeyInventoryFallback({
+        keyIdentityInventory: args.keyIdentityInventory,
+        configuredTargets: args.configuredTargets,
+      });
+  if (!entries.length) return null;
 
   const keys: ConfiguredTargetThresholdEcdsaWarmKey[] = [];
-  for (const entry of matchingEntries) {
+  for (const entry of entries) {
     keys.push(
       configuredTargetThresholdEcdsaWarmKey({
         chainTarget: entry.chainTarget,
@@ -1407,6 +1488,63 @@ function resolveThresholdEcdsaKeyInventoryWarmSessionContext(args: {
 
   return {
     ecdsaKeys,
+  };
+}
+
+function singleSharedKeyInventoryFallback(args: {
+  keyIdentityInventory: readonly ThresholdEcdsaKeyIdentityInventoryEntry[];
+  configuredTargets: readonly ConfiguredThresholdEcdsaPublicationTarget[];
+}): ThresholdEcdsaKeyIdentityInventoryEntry[] {
+  const fingerprints = [
+    ...new Set(args.keyIdentityInventory.map((entry) => deriveEvmFamilyKeyFingerprint(entry.key))),
+  ];
+  const keyHandles = [
+    ...new Set(args.keyIdentityInventory.map((entry) => String(entry.keyHandle || '').trim())),
+  ].filter(Boolean);
+  if (fingerprints.length !== 1 || keyHandles.length !== 1) return [];
+  const source = args.keyIdentityInventory[0];
+  const target = args.configuredTargets[0]?.chainTarget;
+  if (!source || !target) return [];
+  return [
+    {
+      ...source,
+      chainTarget: target,
+    },
+  ];
+}
+
+function resolveLoginThresholdEcdsaBootstrapIdentity(
+  bootstrap: ThresholdEcdsaSessionBootstrapResult,
+): {
+  keyHandle: string;
+  ecdsaThresholdKeyId: string;
+  signingRootId: string;
+  signingRootVersion: string;
+} {
+  const keyRef = bootstrap.thresholdEcdsaKeyRef;
+  const keyHandle = String(keyRef.keyHandle || '').trim();
+  if (!keyHandle) {
+    throw new Error('[login] threshold ECDSA bootstrap missing keyHandle');
+  }
+  const canonicalKeyHandle = toEvmFamilyEcdsaKeyHandle(keyHandle);
+  const runtimePolicyScope = parseThresholdRuntimePolicyScopeFromJwt(
+    String(bootstrap.session.jwt || keyRef.thresholdSessionAuthToken || '').trim(),
+  );
+  const signingRootBinding = resolveThresholdSigningRootBindingFromRecord({
+    record: {
+      keyHandle: canonicalKeyHandle,
+      ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+      signingRootId: keyRef.signingRootId,
+      signingRootVersion: keyRef.signingRootVersion,
+    },
+  });
+  return {
+    keyHandle,
+    ecdsaThresholdKeyId: resolveThresholdEcdsaKeyIdFromRecord({
+      record: { ecdsaThresholdKeyId: keyRef.ecdsaThresholdKeyId },
+    }),
+    signingRootId: String(signingRootBinding.signingRootId),
+    signingRootVersion: String(signingRootBinding.signingRootVersion),
   };
 }
 
@@ -1625,6 +1763,55 @@ async function primeThresholdLoginWarmSigners(args: {
         const configuredEcdsaTargets = listConfiguredThresholdEcdsaPublicationTargets(
           args.context.configs.network.chains,
         );
+        const completeActiveContextFromSharedKey = (source: string): void => {
+          const completion = buildSharedKeyTargetCompletion({
+            context: activeCanonicalEcdsaContext,
+            configuredTargets: configuredEcdsaTargets,
+          });
+          if (completion.kind === 'complete_shared_key_targets') {
+            activeCanonicalEcdsaContext = completion.context;
+            return;
+          }
+          if (completion.kind === 'ambiguous_shared_key_targets') {
+            requireCompleteSharedKeyTargetContext({ completion, source });
+          }
+        };
+        const rememberBootstrappedKey = (input: {
+          target: (typeof configuredEcdsaTargets)[number];
+          bootstrap: ThresholdEcdsaSessionBootstrapResult;
+        }): ConfiguredTargetThresholdEcdsaWarmKey => {
+          const keyRef = input.bootstrap.thresholdEcdsaKeyRef;
+          const identity = resolveLoginThresholdEcdsaBootstrapIdentity(input.bootstrap);
+          const thresholdOwnerAddress = String(
+            input.bootstrap.keygen.ethereumAddress || keyRef.ethereumAddress || '',
+          ).trim();
+          const key = buildBaseEvmFamilyEcdsaKeyIdentity({
+            walletId: args.nearAccountId,
+            rpId: String(args.signingEngine.getRpId() || '').trim(),
+            ecdsaThresholdKeyId: identity.ecdsaThresholdKeyId,
+            signingRootId: identity.signingRootId,
+            signingRootVersion: identity.signingRootVersion,
+            participantIds: keyRef.participantIds || input.bootstrap.keygen.participantIds,
+            thresholdOwnerAddress,
+          });
+          const warmKey = configuredTargetThresholdEcdsaWarmKey({
+            chainTarget: input.target.chainTarget,
+            keyHandle: identity.keyHandle,
+            key,
+          });
+          const runtimePolicyScope = parseThresholdRuntimePolicyScopeFromJwt(
+            String(input.bootstrap.session.jwt || keyRef.thresholdSessionAuthToken || '').trim(),
+          );
+          activeCanonicalEcdsaContext = mergeCanonicalThresholdEcdsaWarmSessionContexts(
+            activeCanonicalEcdsaContext,
+            {
+              ecdsaKeys: [warmKey],
+              ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+            },
+          );
+          completeActiveContextFromSharedKey('login first-bootstrapped ECDSA key');
+          return warmKey;
+        };
         const bootstrapTarget = async (
           target: (typeof configuredEcdsaTargets)[number],
           targetEcdsaKey: ConfiguredTargetThresholdEcdsaWarmKey,
@@ -1667,27 +1854,86 @@ async function primeThresholdLoginWarmSigners(args: {
               : {}),
           });
         };
+        const firstBootstrapTarget = async (target: (typeof configuredEcdsaTargets)[number]) => {
+          if (!args.credential) {
+            throw new Error(
+              '[login] threshold ECDSA first bootstrap requires the current passkey assertion',
+            );
+          }
+          if (!args.managedRuntimeScopeBootstrap) {
+            throw new Error(
+              '[login] threshold ECDSA first bootstrap requires managed runtime scope bootstrap',
+            );
+          }
+          const walletSigningSessionId = String(warmState.walletSigningSessionId || '').trim();
+          if (!walletSigningSessionId) {
+            throw new Error(
+              '[login] threshold ECDSA first bootstrap requires the primed Ed25519 walletSigningSessionId',
+            );
+          }
+          const thresholdSessionId = createThresholdLoginWarmSessionId('threshold-ecdsa-login');
+          return await args.signingEngine.bootstrapEcdsaSession({
+            kind: 'passkey_fresh_ecdsa_bootstrap',
+            walletId: args.nearAccountId,
+            chainTarget: target.chainTarget,
+            source: 'login',
+            relayerUrl: args.relayerUrl,
+            sessionKind: args.useAppSessionCookie ? 'cookie' : 'jwt',
+            sessionIdentity: buildEcdsaSessionIdentity({
+              thresholdSessionId,
+              walletSigningSessionId,
+            }),
+            clientRootShare32B64u: warmState.ecdsaHssClientRootShare32B64u,
+            webauthnAuthentication: args.credential,
+            runtimeScopeBootstrap: args.managedRuntimeScopeBootstrap,
+            ttlMs: args.ttlMs,
+            remainingUses: unlockRemainingUses,
+          });
+        };
         const bootstrapConfiguredTargets = async () => {
+          completeActiveContextFromSharedKey('login ECDSA warm-up preflight');
           for (const target of configuredEcdsaTargets) {
             const targetKey = thresholdEcdsaChainTargetKey(target.chainTarget);
-            const targetEcdsaKey = activeCanonicalEcdsaContext.ecdsaKeys.find(
+            let targetEcdsaKey = activeCanonicalEcdsaContext.ecdsaKeys.find(
               (key) => key.targetKey === targetKey,
             );
             const keyHandle = String(targetEcdsaKey?.keyHandle || '').trim();
-            if (!targetEcdsaKey || !keyHandle) {
-              throw new Error(
-                `[login] threshold ECDSA warm-up requires keyHandle for ${targetKey}`,
-              );
+            if (!targetEcdsaKey?.key || !keyHandle) {
+              console.info('[login] threshold ECDSA warm-up first-bootstrap target selected', {
+                nearAccountId: args.nearAccountId,
+                targetKey,
+                chainTarget: target.chainTarget,
+                reason: targetEcdsaKey ? 'missing_canonical_key' : 'missing_key_handle',
+              });
+              const bootstrap = await firstBootstrapTarget(target);
+              targetEcdsaKey = rememberBootstrappedKey({ target, bootstrap });
+              console.info('[login] threshold ECDSA warm-up first-bootstrap target provisioned', {
+                nearAccountId: args.nearAccountId,
+                targetKey,
+                chainTarget: target.chainTarget,
+                keyHandle: targetEcdsaKey.keyHandle,
+                thresholdSessionId:
+                  bootstrap.thresholdEcdsaKeyRef?.thresholdSessionId ||
+                  bootstrap.session?.sessionId ||
+                  null,
+                walletSigningSessionId:
+                  bootstrap.thresholdEcdsaKeyRef?.walletSigningSessionId ||
+                  bootstrap.session?.walletSigningSessionId ||
+                  null,
+                remainingUses: bootstrap.session?.remainingUses,
+                expiresAtMs: bootstrap.session?.expiresAtMs,
+              });
+              continue;
             }
             console.info('[login] threshold ECDSA warm-up target selected', {
               nearAccountId: args.nearAccountId,
               targetKey,
               chainTarget: target.chainTarget,
-              keyHandle,
+              keyHandle: targetEcdsaKey.keyHandle,
             });
             const bootstrap = await bootstrapTarget(target, targetEcdsaKey);
             const returnedKeyHandle = String(bootstrap.thresholdEcdsaKeyRef?.keyHandle || '').trim();
-            if (returnedKeyHandle !== keyHandle) {
+            if (returnedKeyHandle !== targetEcdsaKey.keyHandle) {
               throw new Error(
                 `[login] threshold ECDSA warm-up returned a different keyHandle for ${targetKey}`,
               );
@@ -1913,6 +2159,15 @@ function createThresholdLoginWarmSessionId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+function createLocalUnlockChallengeB64u(): string {
+  if (typeof crypto === 'undefined' || typeof crypto.getRandomValues !== 'function') {
+    throw new Error('Secure random is unavailable for passkey wallet unlock');
+  }
+  const challenge = new Uint8Array(32);
+  crypto.getRandomValues(challenge);
+  return base64UrlEncode(challenge);
+}
+
 async function resolveProfileContinuityEcdsaKeyHandle(args: {
   metadata: Record<string, unknown>;
   targetKey: string;
@@ -1927,30 +2182,6 @@ async function resolveProfileContinuityEcdsaKeyHandle(args: {
     return { kind: 'resolved', keyHandle: directKeyHandle };
   }
 
-  const sharedEvmFamilyKey = isObject(metadata.sharedEvmFamilyKey)
-    ? metadata.sharedEvmFamilyKey
-    : {};
-  const ecdsaThresholdKeyId =
-    String(metadata.ecdsaThresholdKeyId || '').trim() ||
-    String(sharedEvmFamilyKey.ecdsaThresholdKeyId || '').trim();
-  if (ecdsaThresholdKeyId.startsWith('legacy-key-handle:')) {
-    return { kind: 'blocked', reason: 'synthetic_legacy_key_id' };
-  }
-  const signingRootId =
-    String(metadata.signingRootId || '').trim() ||
-    String(sharedEvmFamilyKey.signingRootId || '').trim();
-  const signingRootVersion =
-    String(metadata.signingRootVersion || '').trim() ||
-    String(sharedEvmFamilyKey.signingRootVersion || '').trim() ||
-    'default';
-  if (ecdsaThresholdKeyId && signingRootId) {
-    const derivedKeyHandle = await deriveThresholdEcdsaKeyHandle({
-      ecdsaThresholdKeyId,
-      signingRootId,
-      signingRootVersion,
-    });
-    return { kind: 'resolved', keyHandle: derivedKeyHandle };
-  }
   return { kind: 'blocked', reason: 'missing_key_handle' };
 }
 

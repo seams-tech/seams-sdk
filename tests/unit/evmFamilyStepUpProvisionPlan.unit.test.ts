@@ -173,10 +173,13 @@ test.describe('EVM-family step-up provision-plan builders', () => {
         },
         credential: TEST_WEBAUTHN_CREDENTIAL,
         plannedPasskeyReconnect: {
-          sessionId: 'threshold-session-2',
-          walletSigningSessionId: 'wallet-session-2',
-          requestId: 'request-1',
-          passkeyBootstrapAuthorizationDigest32: 'policy-digest-1',
+          webauthnChallenge: {
+            kind: 'ecdsa_role_local_bootstrap',
+            digest32B64u: 'policy-digest-1',
+            requestId: 'request-1',
+            thresholdSessionId: 'threshold-session-2',
+            walletSigningSessionId: 'wallet-session-2',
+          },
         },
       },
       material,

@@ -6,6 +6,9 @@ import type {
   WarmSessionStatusReader,
 } from '@/core/signingEngine/uiConfirm/types';
 import type {
+  ConfirmIntentDigestSigningOperationRequest,
+} from '@/core/signingEngine/stepUpConfirmation/confirmOperation';
+import type {
   KeyRef,
   SignRequest,
   Signer,
@@ -471,31 +474,40 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
         },
       });
     }
+    const confirmationRequestBase = {
+      ctx: { touchConfirm: input.touchConfirm },
+      sessionId,
+      chain: config.targetKind,
+      kind: 'intentDigest' as const,
+      signerAccountId: input.walletId,
+      challengeB64u: PENDING_CHALLENGE_B64U,
+      intentDigest: PENDING_INTENT_DIGEST,
+      ...(eagerDisplayModel ? { displayModel: eagerDisplayModel } : {}),
+      title: config.title,
+      body: config.body,
+      onProgress: emitUiConfirmProgress,
+      confirmationConfigOverride: input.confirmationConfigOverride,
+    };
+    const confirmationRequest: ConfirmIntentDigestSigningOperationRequest =
+      stepUp.kind === 'passkey'
+        ? {
+            ...confirmationRequestBase,
+            ...stepUp.confirmationAuthPayload,
+            webauthnChallenge: stepUp.plannedPasskeyReconnect.webauthnChallenge,
+          }
+        : stepUp.kind === 'email_otp'
+          ? {
+              ...confirmationRequestBase,
+              ...stepUp.confirmationAuthPayload,
+              emailOtpPrompt: stepUp.emailOtpPrompt,
+            }
+          : {
+              ...confirmationRequestBase,
+              ...stepUp.confirmationAuthPayload,
+            };
     const runConfirmation = createSigningConfirmationCommandHandler({
       runtime: input.touchConfirm,
-      request: {
-        ctx: { touchConfirm: input.touchConfirm },
-        sessionId,
-        chain: config.targetKind,
-        kind: 'intentDigest',
-        signerAccountId: input.walletId,
-        challengeB64u: PENDING_CHALLENGE_B64U,
-        intentDigest: PENDING_INTENT_DIGEST,
-        ...(eagerDisplayModel ? { displayModel: eagerDisplayModel } : {}),
-        title: config.title,
-        body: config.body,
-        ...confirmationAuthPayload,
-        ...(stepUp.kind === 'email_otp' ? { emailOtpPrompt: stepUp.emailOtpPrompt } : {}),
-        ...(stepUp.kind === 'passkey' &&
-        stepUp.plannedPasskeyReconnect?.passkeyBootstrapAuthorizationDigest32
-          ? {
-              sessionPolicyDigest32:
-                stepUp.plannedPasskeyReconnect.passkeyBootstrapAuthorizationDigest32,
-            }
-          : {}),
-        onProgress: emitUiConfirmProgress,
-        confirmationConfigOverride: input.confirmationConfigOverride,
-      },
+      request: confirmationRequest,
     });
     confirmation = await runConfirmation();
     notifyAuthSideEffectStarted('auth_confirmed');

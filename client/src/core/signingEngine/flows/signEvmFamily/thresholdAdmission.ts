@@ -6,6 +6,7 @@ import {
 import type { SelectedEcdsaLane } from '../../session/identity/laneIdentity';
 import type { BudgetAdmittedTransactionOperation } from '../../session/operationState/transactionState';
 import type { SigningAuthPlan } from '../../stepUpConfirmation/types';
+import type { WebAuthnChallenge } from '../../stepUpConfirmation/channel/confirmTypes';
 import type {
   EvmFamilyEcdsaEmailOtpStepUpAuthorization,
   EvmFamilyEcdsaPasskeyStepUpAuthorization,
@@ -68,10 +69,7 @@ export type EvmFamilyThresholdEcdsaPasskeyReconnect = {
 };
 
 export type EvmFamilyThresholdEcdsaPasskeyReconnectPlan = {
-  sessionId: string;
-  walletSigningSessionId: string;
-  requestId: string;
-  passkeyBootstrapAuthorizationDigest32: string;
+  webauthnChallenge: Extract<WebAuthnChallenge, { kind: 'ecdsa_role_local_bootstrap' }>;
 };
 
 export type EvmFamilyThresholdEcdsaAdmissionCompletion = {
@@ -158,7 +156,7 @@ export async function completeEvmFamilyThresholdEcdsaAdmissionAfterConfirmation(
     }
     if (
       String(result.operation.lane.thresholdSessionId || '').trim() !==
-        args.confirmation.authorization.plannedPasskeyReconnect.sessionId
+        args.confirmation.authorization.plannedPasskeyReconnect.webauthnChallenge.thresholdSessionId
     ) {
       throw new Error(
         '[chains] threshold ECDSA reconnect admitted a different session id than the confirmed session policy',
@@ -166,7 +164,8 @@ export async function completeEvmFamilyThresholdEcdsaAdmissionAfterConfirmation(
     }
     if (
       String(result.operation.lane.walletSigningSessionId || '').trim() !==
-        args.confirmation.authorization.plannedPasskeyReconnect.walletSigningSessionId
+        args.confirmation.authorization.plannedPasskeyReconnect.webauthnChallenge
+          .walletSigningSessionId
     ) {
       throw new Error(
         '[chains] threshold ECDSA reconnect admitted a different wallet signing-session id than the confirmed session policy',

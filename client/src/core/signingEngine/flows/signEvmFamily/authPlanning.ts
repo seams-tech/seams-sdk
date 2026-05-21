@@ -12,6 +12,10 @@ import type {
   SigningSessionCoordinator,
   SigningSessionReadiness,
 } from '../../session/SigningSessionCoordinator';
+import {
+  isSigningSessionBudgetExhaustedError,
+  type SigningSessionBudgetStatusAuth,
+} from '../../session/budget/budget';
 import { resolveEmailOtpEcdsaWorkerSessionId } from '../../session/availability/readiness';
 import type { SigningSessionPlan } from '../../session/operationState/types';
 import { SigningOperationIntent, SigningSessionPlanKind } from '../../session/operationState/types';
@@ -28,6 +32,10 @@ import {
   isEmailOtpThresholdEcdsaSigningContext,
   type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
+import {
+  resolveReadyEvmFamilyEcdsaMaterial,
+  toReadyEcdsaSignerSessionFromReadyMaterial,
+} from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { EvmFamilyEcdsaSessionReaderDeps } from '../../interfaces/operationDeps';
 import {
   createEmailOtpEcdsaTransactionSigningBridge,
@@ -108,7 +116,10 @@ export type ResolveEvmFamilyTransactionStepUpArgs =
     });
 
 export async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
-  deps: Pick<EvmFamilyPreConfirmSigningDeps, 'touchConfirm' | 'getEmailOtpWarmSessionStatus'>;
+  deps: Pick<
+    EvmFamilyPreConfirmSigningDeps,
+    'touchConfirm' | 'getEmailOtpWarmSessionStatus' | 'signingSessionCoordinator'
+  >;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
   material: EcdsaMaterialState;
 }): Promise<{
@@ -166,9 +177,79 @@ export async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
     });
   }
 
+  const trustedPasskeyReadiness = await resolvePasskeyEcdsaTrustedBudgetReadiness({
+    deps: args.deps,
+    lane: args.lane,
+    material: args.material,
+  });
+  if (trustedPasskeyReadiness) return trustedPasskeyReadiness;
+
   const expiresAtMs = record.expiresAtMs;
   const remainingUses = record.remainingUses;
   return buildBackingReadiness({ expiresAtMs, remainingUses });
+}
+
+async function resolvePasskeyEcdsaTrustedBudgetReadiness(args: {
+  deps: Pick<EvmFamilyPreConfirmSigningDeps, 'signingSessionCoordinator'>;
+  lane: ResolvedEvmFamilyEcdsaSigningLane;
+  material: EcdsaMaterialState;
+}): Promise<{
+  readiness: SigningSessionReadiness;
+  expiresAtMs: number;
+  remainingUses: number;
+} | null> {
+  const record = getEcdsaMaterialRecord(args.material);
+  const keyRef = getEcdsaMaterialKeyRef(args.material);
+  if (!record || !keyRef || args.lane.authMethod !== SIGNER_AUTH_METHODS.passkey) return null;
+  const readyMaterial = resolveReadyEvmFamilyEcdsaMaterial({
+    record,
+    keyRef,
+    rpId: record.rpId,
+    expected: {
+      walletId: record.walletId,
+      chainTarget: args.lane.chainTarget,
+      authMethod: args.lane.authMethod,
+      source: record.source,
+      thresholdSessionId: args.lane.thresholdSessionId,
+      walletSigningSessionId: args.lane.walletSigningSessionId,
+    },
+  });
+  if (readyMaterial.kind !== 'ready') return null;
+  const signerSession = await toReadyEcdsaSignerSessionFromReadyMaterial({
+    material: readyMaterial.material,
+  });
+  const trustedStatusAuth: SigningSessionBudgetStatusAuth = {
+    relayerUrl: signerSession.transport.relayerUrl,
+    thresholdSessionId: String(signerSession.session.thresholdSessionId),
+    ...(signerSession.transport.auth.kind === 'jwt_threshold_session_auth'
+      ? { thresholdSessionAuthToken: signerSession.transport.auth.thresholdSessionAuthToken }
+      : {}),
+  };
+  try {
+    const budgetIdentity = await args.deps.signingSessionCoordinator.prepareBudgetIdentity({
+      lane: args.lane,
+      trustedStatusAuth,
+      operationUsesNeeded: 1,
+    });
+    return {
+      readiness: {
+        status: 'ready',
+        thresholdSessionId: args.lane.thresholdSessionId,
+      },
+      expiresAtMs: Math.floor(Number(budgetIdentity.status.expiresAtMs) || 0),
+      remainingUses: Math.floor(Number(budgetIdentity.status.remainingUses) || 0),
+    };
+  } catch (error: unknown) {
+    if (!isSigningSessionBudgetExhaustedError(error)) return null;
+    return {
+      readiness: {
+        status: 'exhausted',
+        thresholdSessionId: args.lane.thresholdSessionId,
+      },
+      expiresAtMs: 0,
+      remainingUses: 0,
+    };
+  }
 }
 
 export async function resolveEvmFamilyTransactionStepUp(

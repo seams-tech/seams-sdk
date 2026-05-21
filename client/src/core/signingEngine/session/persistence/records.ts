@@ -1635,6 +1635,12 @@ function buildEcdsaRecordFromBootstrap(args: {
       ecdsaThresholdKeyId: keyRef.ecdsaThresholdKeyId,
     },
   });
+  const thresholdEcdsaPublicKeyB64u =
+    normalizeOptionalNonEmptyString(keyRef.thresholdEcdsaPublicKeyB64u) ||
+    normalizeOptionalNonEmptyString(args.bootstrap.keygen.thresholdEcdsaPublicKeyB64u);
+  const ethereumAddress =
+    normalizeOptionalNonEmptyString(keyRef.ethereumAddress) ||
+    normalizeOptionalNonEmptyString(args.bootstrap.keygen.ethereumAddress);
   const signingRootBinding = resolveThresholdSigningRootBindingFromRecord({
     record: {
       keyHandle: canonicalKeyHandle,
@@ -1697,8 +1703,8 @@ function buildEcdsaRecordFromBootstrap(args: {
     ...(signingSessionSealShamirPrimeB64u ? { signingSessionSealShamirPrimeB64u } : {}),
     expiresAtMs: args.bootstrap.session.expiresAtMs,
     remainingUses: args.bootstrap.session.remainingUses,
-    thresholdEcdsaPublicKeyB64u: keyRef.thresholdEcdsaPublicKeyB64u,
-    ethereumAddress: keyRef.ethereumAddress,
+    thresholdEcdsaPublicKeyB64u,
+    ethereumAddress,
     relayerVerifyingShareB64u: keyRef.relayerVerifyingShareB64u,
     ...(args.emailOtpAuthContext ? { emailOtpAuthContext: args.emailOtpAuthContext } : {}),
     updatedAtMs: args.nowMs,

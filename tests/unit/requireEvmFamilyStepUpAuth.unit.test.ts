@@ -89,10 +89,13 @@ test.describe('requireEvmFamilyStepUpAuth', () => {
       runtime: {
         passkeyReconnect: {
           prepare: async () => ({
-            sessionId: 'threshold-session-passkey',
-            walletSigningSessionId: 'wallet-session-passkey',
-            requestId: 'request-1',
-            passkeyBootstrapAuthorizationDigest32: 'digest-32',
+            webauthnChallenge: {
+              kind: 'ecdsa_role_local_bootstrap',
+              digest32B64u: 'digest-32',
+              requestId: 'request-1',
+              thresholdSessionId: 'threshold-session-passkey',
+              walletSigningSessionId: 'wallet-session-passkey',
+            },
           }),
           reconnect: async () => {
             throw new Error('not used in prepare test');
@@ -111,10 +114,13 @@ test.describe('requireEvmFamilyStepUpAuth', () => {
     expect(prepared.kind).toBe('passkey');
     if (prepared.kind !== 'passkey') throw new Error('expected passkey branch');
     expect(prepared.plannedPasskeyReconnect).toEqual({
-      sessionId: 'threshold-session-passkey',
-      walletSigningSessionId: 'wallet-session-passkey',
-      requestId: 'request-1',
-      passkeyBootstrapAuthorizationDigest32: 'digest-32',
+      webauthnChallenge: {
+        kind: 'ecdsa_role_local_bootstrap',
+        digest32B64u: 'digest-32',
+        requestId: 'request-1',
+        thresholdSessionId: 'threshold-session-passkey',
+        walletSigningSessionId: 'wallet-session-passkey',
+      },
     });
   });
 });
