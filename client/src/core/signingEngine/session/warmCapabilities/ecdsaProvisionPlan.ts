@@ -58,6 +58,7 @@ export type PasskeyEcdsaSessionProvision = {
   signingKeyContext: EcdsaSigningKeyContext;
   sessionKind: ThresholdSessionKind;
   sessionBudgetUses: number;
+  requestId: string;
 
   // Branch-specific fields.
   clientRootShare32B64u: string;
@@ -134,6 +135,7 @@ type BuildPasskeyEcdsaSessionProvisionPlanArgs = {
   signingKeyContext: EcdsaSigningKeyContext;
   sessionKind: ThresholdSessionKind;
   sessionBudgetUses: number;
+  requestId: string;
   clientRootShare32B64u: string;
   webauthnAuthentication: WebAuthnAuthenticationCredential;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -432,6 +434,7 @@ export function buildPasskeyEcdsaSessionProvision(args: {
   signingKeyContext: EcdsaSigningKeyContext;
   sessionKind: ThresholdSessionKind;
   sessionBudgetUses: number;
+  requestId: string;
   clientRootShare32B64u: string;
   webauthnAuthentication: WebAuthnAuthenticationCredential;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -444,6 +447,7 @@ export function buildPasskeyEcdsaSessionProvision(args: {
     signingKeyContext: args.signingKeyContext,
     sessionKind: normalizeThresholdSessionKind(args.sessionKind),
     sessionBudgetUses: requirePositiveInteger(args.sessionBudgetUses, 'sessionBudgetUses'),
+    requestId: requireNonEmptyString(args.requestId, 'requestId'),
 
     // Branch-specific fields.
     clientRootShare32B64u: requireNonEmptyString(
@@ -564,6 +568,7 @@ export function buildEcdsaSessionProvisionPlan(
         signingKeyContext: args.signingKeyContext,
         sessionKind: args.sessionKind,
         sessionBudgetUses: args.sessionBudgetUses,
+        requestId: args.requestId,
         clientRootShare32B64u: requireNonEmptyString(
           args.clientRootShare32B64u,
           'clientRootShare32B64u',

@@ -175,7 +175,8 @@ test.describe('EVM-family step-up provision-plan builders', () => {
         plannedPasskeyReconnect: {
           sessionId: 'threshold-session-2',
           walletSigningSessionId: 'wallet-session-2',
-          sessionPolicyDigest32: 'policy-digest-1',
+          requestId: 'request-1',
+          passkeyBootstrapAuthorizationDigest32: 'policy-digest-1',
         },
       },
       material,
@@ -187,6 +188,7 @@ test.describe('EVM-family step-up provision-plan builders', () => {
       thresholdSessionId: 'threshold-session-2',
       walletSigningSessionId: 'wallet-session-2',
     });
+    expect(plan.requestId).toBe('request-1');
     expect(plan.clientRootShare32B64u).toBe('first-prf');
   });
 

@@ -486,8 +486,12 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
         body: config.body,
         ...confirmationAuthPayload,
         ...(stepUp.kind === 'email_otp' ? { emailOtpPrompt: stepUp.emailOtpPrompt } : {}),
-        ...(stepUp.kind === 'passkey' && stepUp.plannedPasskeyReconnect?.sessionPolicyDigest32
-          ? { sessionPolicyDigest32: stepUp.plannedPasskeyReconnect.sessionPolicyDigest32 }
+        ...(stepUp.kind === 'passkey' &&
+        stepUp.plannedPasskeyReconnect?.passkeyBootstrapAuthorizationDigest32
+          ? {
+              sessionPolicyDigest32:
+                stepUp.plannedPasskeyReconnect.passkeyBootstrapAuthorizationDigest32,
+            }
           : {}),
         onProgress: emitUiConfirmProgress,
         confirmationConfigOverride: input.confirmationConfigOverride,

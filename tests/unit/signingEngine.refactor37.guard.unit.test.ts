@@ -265,7 +265,7 @@ test.describe('signing engine refactor 37 guards', () => {
       '@ts-expect-error stable ECDSA HSS key context rejects volatile threshold session ids',
     );
     expect(thresholdEcdsaRpcTypecheck).toContain(
-      '@ts-expect-error role-local bootstrap accepts exactly one first-bootstrap authorization branch',
+      '@ts-expect-error role-local bootstrap accepts exactly one proof branch',
     );
     expect(thresholdEcdsaRpcTypecheck).toContain(
       '@ts-expect-error role-local bootstrap request rejects client root share material',
@@ -711,6 +711,51 @@ test.describe('signing engine refactor 37 guards', () => {
     expect(source).toContain('resolveExactActivationOwnerAddress({');
     expect(source).toContain(
       'threshold-ecdsa exact activation owner address mismatches server bootstrap result',
+    );
+  });
+
+  test('EVM-family passkey reconnect signs the role-local bootstrap challenge', () => {
+    const runtime = readRepoFile(
+      'client/src/core/signingEngine/flows/signEvmFamily/signingFlowRuntime.ts',
+    );
+    const signingFlow = readRepoFile(
+      'client/src/core/signingEngine/flows/signEvmFamily/signingFlow.ts',
+    );
+    const provisionPlan = readRepoFile(
+      'client/src/core/signingEngine/flows/signEvmFamily/provisionPlan.ts',
+    );
+    const flowOrchestrator = readRepoFile(
+      'client/src/core/signingEngine/uiConfirm/handlers/flowOrchestrator.ts',
+    );
+    const bootstrapSession = readRepoFile(
+      'client/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts',
+    );
+
+    expect(runtime).toContain('computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u');
+    expect(runtime).toContain('const requestId = generateEvmFamilyEcdsaBootstrapRequestId();');
+    expect(runtime).toContain('passkeyBootstrapAuthorizationDigest32');
+    expect(runtime).toContain('requestId,');
+    expect(runtime).not.toContain('const { policy, sessionPolicyDigest32 }');
+    expect(signingFlow).toContain(
+      'stepUp.plannedPasskeyReconnect.passkeyBootstrapAuthorizationDigest32',
+    );
+    expect(provisionPlan).toContain(
+      'requestId: args.authorization.plannedPasskeyReconnect.requestId',
+    );
+    const intentDigestStart = flowOrchestrator.indexOf(
+      'type: UserConfirmationType.SIGN_INTENT_DIGEST',
+    );
+    const intentDigestEnd = flowOrchestrator.indexOf(
+      'confirmationConfig: params.confirmationConfigOverride',
+      intentDigestStart,
+    );
+    const intentDigestBranch = flowOrchestrator.slice(intentDigestStart, intentDigestEnd);
+    expect(intentDigestBranch).toContain('sessionPolicyDigest32: params.sessionPolicyDigest32');
+    expect(bootstrapSession).toContain(
+      'const requestedKeygenSessionId = String(args.requestId ||',
+    );
+    expect(bootstrapSession).toContain(
+      'const keygenSessionId = requestedKeygenSessionId || generateKeygenSessionId();',
     );
   });
 
@@ -1162,6 +1207,9 @@ test.describe('signing engine refactor 37 guards', () => {
     const policy = readRepoFile(
       'client/src/core/signingEngine/flows/signEvmFamily/freshAuthRetryPolicy.ts',
     );
+    const authPlanning = readRepoFile(
+      'client/src/core/signingEngine/flows/signEvmFamily/authPlanning.ts',
+    );
     const signEvmFamily = readRepoFile(
       'client/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts',
     );
@@ -1191,6 +1239,10 @@ test.describe('signing engine refactor 37 guards', () => {
     );
     expect(freshEmailOtpRetry).toMatch(/trigger:\s*'email_otp_auth_unavailable'/);
     expect(signEvmFamily).toMatch(/trigger:\s*'wallet_signing_budget_exhausted'/);
+    expect(authPlanning).toContain('resolvePasskeyEcdsaTrustedBudgetReadiness');
+    expect(authPlanning).toContain('signingSessionCoordinator.prepareBudgetIdentity({');
+    expect(authPlanning).toContain('trustedStatusAuth');
+    expect(authPlanning).toContain("status: 'exhausted'");
     expect(signEvmFamily).toContain('sideEffectState: freshAuthRetrySideEffectState');
     expect(signEvmFamily).toContain('recordFreshAuthRetryDecision(decision, error)');
     expect(signingFlow).toContain("notifyAuthSideEffectStarted('auth_confirmed')");

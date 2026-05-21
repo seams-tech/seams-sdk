@@ -74,6 +74,7 @@ export function buildEvmFamilyPasskeyEcdsaProvisionPlan(args: {
     sessionKind:
       args.material.record.thresholdSessionKind || args.material.keyRef.thresholdSessionKind || 'jwt',
     sessionBudgetUses: args.sessionBudgetUses,
+    requestId: args.authorization.plannedPasskeyReconnect.requestId,
     clientRootShare32B64u,
     webauthnAuthentication: args.authorization.credential,
   };
@@ -85,6 +86,7 @@ export function buildEvmFamilyPasskeyEcdsaProvisionPlan(args: {
       signingKeyContext: baseArgs.signingKeyContext,
       sessionKind: baseArgs.sessionKind,
       sessionBudgetUses: baseArgs.sessionBudgetUses,
+      requestId: baseArgs.requestId,
       clientRootShare32B64u: baseArgs.clientRootShare32B64u,
       webauthnAuthentication: baseArgs.webauthnAuthentication,
       runtimePolicyScope: args.material.record.runtimePolicyScope,

@@ -955,6 +955,7 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
                 sessionIdentity: identity,
                 signingKeyContext,
                 sessionBudgetUses,
+                requestId: 'test-request-id',
                 sessionKind:
                   record.thresholdSessionKind || keyRefCandidate.thresholdSessionKind || 'jwt',
                 clientRootShare32B64u: String(args.clientRootShare32B64u || ''),

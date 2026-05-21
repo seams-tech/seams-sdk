@@ -80,6 +80,7 @@ export type ThresholdEcdsaPasskeyActivationRequest = ThresholdEcdsaActivationReq
   kind: 'passkey_ecdsa_activation';
   sessionIdentity: EcdsaSessionIdentity;
   sessionKind: ThresholdSessionKind;
+  requestId: string;
   clientRootShare32B64u: string;
   webauthnAuthentication: WebAuthnAuthenticationCredential;
   thresholdSessionAuth?: never;
@@ -128,6 +129,7 @@ type BuildThresholdEcdsaActivationRequestCommon = ThresholdEcdsaActivationReques
 type BuildPasskeyEcdsaActivationArgs = BuildThresholdEcdsaActivationRequestCommon & {
   sessionIdentity: EcdsaSessionIdentity;
   sessionKind: ThresholdSessionKind;
+  requestId: string;
   clientRootShare32B64u: string;
   webauthnAuthentication: WebAuthnAuthenticationCredential;
   thresholdSessionAuth?: never;
@@ -202,6 +204,7 @@ function buildPasskeyEcdsaActivationRequest(
     sessionIdentity: args.sessionIdentity,
     sessionKind: args.sessionKind,
     sessionBudgetUses: args.sessionBudgetUses,
+    requestId: args.requestId,
     runtimePolicy: args.runtimePolicy,
     clientRootShare32B64u: args.clientRootShare32B64u,
     webauthnAuthentication: args.webauthnAuthentication,
@@ -383,6 +386,7 @@ function toBootstrapEcdsaSessionRequest(
           lanePolicy: command.request.lanePolicy,
           source: command.request.source,
           relayerUrl: command.request.relayerUrl,
+          requestId: command.request.requestId,
           clientRootShare32B64u: command.request.clientRootShare32B64u,
           webauthnAuthentication: command.request.webauthnAuthentication,
         },

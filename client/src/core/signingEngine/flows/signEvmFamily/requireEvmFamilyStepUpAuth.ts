@@ -24,7 +24,8 @@ import type { EvmFamilySigningAuthSideEffect } from './freshAuthRetryPolicy';
 export type EvmFamilyPasskeyReconnectPlan = {
   sessionId: string;
   walletSigningSessionId: string;
-  sessionPolicyDigest32: string;
+  requestId: string;
+  passkeyBootstrapAuthorizationDigest32: string;
 };
 
 export type EvmFamilyPasskeyReconnectPlanner = {

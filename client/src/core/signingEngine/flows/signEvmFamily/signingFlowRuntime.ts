@@ -68,6 +68,10 @@ import {
   resolveSigningBudgetPolicyRemainingUses,
   type SigningBudgetAllowance,
 } from '../../session/budget/policy';
+import {
+  computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u,
+  computeEcdsaHssRoleLocalRelayerKeyId,
+} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 
 function resolveEvmFamilyStepUpOperationId(
   operation: SigningOperationContext | undefined,
@@ -145,6 +149,14 @@ function requireReadyEvmFamilyEcdsaMaterial(args: {
     );
   }
   return resolution.material;
+}
+
+function generateEvmFamilyEcdsaBootstrapRequestId(): string {
+  const id =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `tecdsa-keygen-${id}`;
 }
 
 export async function createEvmFamilySigningFlowRuntime(args: {
@@ -262,15 +274,20 @@ export async function createEvmFamilySigningFlowRuntime(args: {
         if (!rpId) {
           throw new Error('[SigningEngine] missing rpId for passkey ECDSA reconnect');
         }
-        const relayerKeyId = String(
+        const materialRelayerKeyId = String(
           material.record.relayerKeyId || material.keyRef.backendBinding?.relayerKeyId || '',
         ).trim();
-        if (!relayerKeyId) {
+        if (!materialRelayerKeyId) {
           throw new Error('[SigningEngine] missing relayerKeyId for passkey ECDSA reconnect');
         }
-        // Passkey step-up mints a fresh wallet signing session. The planned
-        // policy digest must be the confirmation challenge so the reconnect
-        // can consume that same WebAuthn assertion.
+        const relayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
+          walletSessionUserId: walletId,
+          rpId,
+        });
+        if (materialRelayerKeyId !== relayerKeyId) {
+          throw new Error('[SigningEngine] passkey ECDSA reconnect relayer key mismatch');
+        }
+        const requestId = generateEvmFamilyEcdsaBootstrapRequestId();
         const remainingUses = postExhaustionStepUpSessionBudgetUses;
         const ecdsaThresholdKeyId = String(material.signingKeyContext.ecdsaThresholdKeyId).trim();
         if (!ecdsaThresholdKeyId) {
@@ -281,7 +298,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
         const participantIds = material.signingKeyContext.participantIds.map((participantId) =>
           Number(participantId),
         );
-        const { policy, sessionPolicyDigest32 } = await buildEcdsaSessionPolicy({
+        const { policy } = await buildEcdsaSessionPolicy({
           walletSessionUserId: walletId,
           subjectId: deriveBaseEcdsaSubjectIdFromKey(lane.key),
           rpId,
@@ -294,10 +311,28 @@ export async function createEvmFamilySigningFlowRuntime(args: {
           ...(participantIds?.length ? { participantIds } : {}),
           remainingUses,
         });
+        const passkeyBootstrapAuthorizationDigest32 =
+          await computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u({
+            walletSessionUserId: policy.walletSessionUserId,
+            rpId: policy.rpId,
+            subjectId: policy.subjectId,
+            ecdsaThresholdKeyId: policy.ecdsaThresholdKeyId,
+            signingRootId: material.signingKeyContext.signingRootId,
+            signingRootVersion: material.signingKeyContext.signingRootVersion || 'default',
+            keyScope: 'evm-family',
+            relayerKeyId,
+            requestId,
+            sessionId: policy.sessionId,
+            walletSigningSessionId: policy.walletSigningSessionId,
+            ttlMs: policy.ttlMs,
+            remainingUses: policy.remainingUses,
+            participantIds: policy.participantIds || participantIds,
+          });
         return {
           sessionId: policy.sessionId,
           walletSigningSessionId: policy.walletSigningSessionId,
-          sessionPolicyDigest32,
+          requestId,
+          passkeyBootstrapAuthorizationDigest32,
         };
       },
       reconnect: async ({

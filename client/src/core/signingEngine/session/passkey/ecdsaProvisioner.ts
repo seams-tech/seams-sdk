@@ -577,6 +577,7 @@ async function provisionPasskeyEcdsaSession(
     sessionIdentity: plan.newSessionIdentity,
     sessionKind: plan.sessionKind,
     sessionBudgetUses: plan.sessionBudgetUses,
+    requestId: plan.requestId,
     runtimePolicy: activation.runtimePolicy,
     ...(activation.runtimeScopeBootstrap
       ? { runtimeScopeBootstrap: activation.runtimeScopeBootstrap }
@@ -592,6 +593,7 @@ async function provisionPasskeyEcdsaSession(
       sessionIdentity: baseArgs.sessionIdentity,
       sessionKind: baseArgs.sessionKind,
       sessionBudgetUses: baseArgs.sessionBudgetUses,
+      requestId: baseArgs.requestId,
       runtimePolicy: baseArgs.runtimePolicy,
       ...(baseArgs.runtimeScopeBootstrap
         ? { runtimeScopeBootstrap: baseArgs.runtimeScopeBootstrap }

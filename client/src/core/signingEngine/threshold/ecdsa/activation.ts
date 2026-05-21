@@ -75,6 +75,7 @@ export type ActivateEcdsaSessionDeps = {
 
 type ActivateEcdsaSessionRequestCommon = {
   relayerUrl: string;
+  requestId?: string;
   clientRootShare32?: Uint8Array;
   clientRootShare32B64u?: string;
   webauthnAuthentication?: WebAuthnAuthenticationCredential;
@@ -170,7 +171,6 @@ function inferThresholdEcdsaBootstrapAuthMethod(
   args: ActivateEcdsaSessionRequest,
 ): 'passkey' | 'email_otp' | 'unknown' {
   if (args.webauthnAuthentication) return 'passkey';
-  if ('thresholdSessionAuth' in args && args.thresholdSessionAuth) return 'email_otp';
   return 'unknown';
 }
 
@@ -243,6 +243,7 @@ export async function activateEcdsaSession(
     clientRootShare32: args.clientRootShare32,
     clientRootShare32B64u: args.clientRootShare32B64u,
     webauthnAuthentication: args.webauthnAuthentication,
+    requestId: args.requestId,
     runtimePolicyScope: exactActivation ? undefined : args.runtimePolicyScope,
     runtimeScopeBootstrap: args.runtimeScopeBootstrap,
     ttlMs: exactActivation ? undefined : args.ttlMs,

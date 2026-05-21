@@ -82,7 +82,8 @@ test.describe('step-up authorization builders', () => {
         plannedPasskeyReconnect: {
           sessionId: 'threshold-session-passkey',
           walletSigningSessionId: 'wallet-session-passkey',
-          sessionPolicyDigest32: 'digest-32',
+          requestId: 'request-1',
+          passkeyBootstrapAuthorizationDigest32: 'digest-32',
         },
       },
       confirmation: {
@@ -102,7 +103,8 @@ test.describe('step-up authorization builders', () => {
       plannedPasskeyReconnect: {
         sessionId: 'threshold-session-passkey',
         walletSigningSessionId: 'wallet-session-passkey',
-        sessionPolicyDigest32: 'digest-32',
+        requestId: 'request-1',
+        passkeyBootstrapAuthorizationDigest32: 'digest-32',
       },
     });
   });

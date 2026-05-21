@@ -91,7 +91,8 @@ test.describe('requireEvmFamilyStepUpAuth', () => {
           prepare: async () => ({
             sessionId: 'threshold-session-passkey',
             walletSigningSessionId: 'wallet-session-passkey',
-            sessionPolicyDigest32: 'digest-32',
+            requestId: 'request-1',
+            passkeyBootstrapAuthorizationDigest32: 'digest-32',
           }),
           reconnect: async () => {
             throw new Error('not used in prepare test');
@@ -112,7 +113,8 @@ test.describe('requireEvmFamilyStepUpAuth', () => {
     expect(prepared.plannedPasskeyReconnect).toEqual({
       sessionId: 'threshold-session-passkey',
       walletSigningSessionId: 'wallet-session-passkey',
-      sessionPolicyDigest32: 'digest-32',
+      requestId: 'request-1',
+      passkeyBootstrapAuthorizationDigest32: 'digest-32',
     });
   });
 });

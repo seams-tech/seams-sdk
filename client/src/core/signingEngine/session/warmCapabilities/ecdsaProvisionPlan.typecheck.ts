@@ -108,6 +108,7 @@ void buildPasskeyEcdsaSessionProvision({
   signingKeyContext,
   sessionKind: 'jwt',
   sessionBudgetUses: 1,
+  requestId: 'request-1',
   clientRootShare32B64u: 'client-root',
   webauthnAuthentication,
 });
@@ -119,6 +120,7 @@ void buildPasskeyEcdsaSessionProvision({
   signingKeyContext,
   sessionKind: 'jwt',
   sessionBudgetUses: 1,
+  requestId: 'request-1',
   clientRootShare32B64u: 'client-root',
   webauthnAuthentication,
   // @ts-expect-error passkey provision must not accept threshold-session auth
@@ -134,6 +136,7 @@ void buildPasskeyEcdsaSessionProvision({
   signingKeyContext,
   sessionKind: 'jwt',
   sessionBudgetUses: 1,
+  requestId: 'request-1',
   clientRootShare32B64u: 'client-root',
   webauthnAuthentication,
 });
@@ -225,6 +228,7 @@ void buildEcdsaSessionProvisionPlan({
   signingKeyContext,
   sessionKind: 'jwt',
   sessionBudgetUses: 1,
+  requestId: 'request-1',
   clientRootShare32B64u: 'client-root',
   webauthnAuthentication,
   reconnectMaterial: buildEcdsaReconnectMaterial({
@@ -241,6 +245,7 @@ void buildEcdsaSessionProvisionPlan({
   signingKeyContext,
   sessionKind: 'jwt',
   sessionBudgetUses: 1,
+  requestId: 'request-1',
   clientRootShare32B64u: 'client-root',
   webauthnAuthentication,
 });

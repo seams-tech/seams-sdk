@@ -70,7 +70,8 @@ export type EvmFamilyThresholdEcdsaPasskeyReconnect = {
 export type EvmFamilyThresholdEcdsaPasskeyReconnectPlan = {
   sessionId: string;
   walletSigningSessionId: string;
-  sessionPolicyDigest32?: string;
+  requestId: string;
+  passkeyBootstrapAuthorizationDigest32: string;
 };
 
 export type EvmFamilyThresholdEcdsaAdmissionCompletion = {

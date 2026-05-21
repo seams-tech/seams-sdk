@@ -342,6 +342,9 @@ export async function orchestrateSigningConfirmation(
           nearAccountId: params.signerAccountId,
           challengeB64u,
           displayModel,
+          ...(params.sessionPolicyDigest32
+            ? { sessionPolicyDigest32: params.sessionPolicyDigest32 }
+            : {}),
           signingAuthPlan: params.signingAuthPlan,
           ...(params.emailOtpPrompt ? { emailOtpPrompt: params.emailOtpPrompt } : {}),
         },

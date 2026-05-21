@@ -52,6 +52,7 @@ type EcdsaBootstrapRequestCommon = {
   source?: ThresholdEcdsaSessionStoreSource;
   relayerUrl?: string;
   operationIntent?: SigningOperationIntent;
+  requestId?: string;
   runtimeScopeBootstrap?: {
     environmentId: string;
     publishableKey: string;
@@ -365,6 +366,7 @@ function toActivateEcdsaSessionRequest(
       keyHandle: toEvmFamilyEcdsaKeyHandle(exactRequest.keyHandle),
       key: exactRequest.key,
       lanePolicy: exactRequest.lanePolicy,
+      ...(exactRequest.requestId ? { requestId: exactRequest.requestId } : {}),
       ...(clientRootShare32B64u ? { clientRootShare32B64u } : {}),
       ...(webauthnAuthentication ? { webauthnAuthentication } : {}),
       ...(thresholdSessionAuth ? { thresholdSessionAuth } : {}),
