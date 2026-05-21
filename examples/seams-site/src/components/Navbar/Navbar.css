@@ -715,34 +715,29 @@ html[data-w3a-theme='dark'] .navbar-static__themed-image-dark {
   background: transparent;
 }
 
-.navbar-static__access-plan-kicker {
-  width: fit-content;
-  max-width: 100%;
-  border-radius: 999px;
-  padding: 6px 10px;
+.navbar-static__access-plan-title {
   color: var(--navbar-text);
-  font-size: 12px;
-  font-weight: 800;
-  line-height: 1;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  background: color-mix(in srgb, var(--navbar-surface2) 76%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--navbar-access-divider) 72%, transparent);
+  font-size: clamp(21px, 1.65vw, 26px);
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+  padding-top: 1rem;
 }
 
 .navbar-static__access-plan {
   min-width: 0;
   display: grid;
-  gap: 8px;
+  gap: 5px;
   align-content: start;
-  padding: 4px 0 2px;
+  padding: 0 0 2px;
 }
 
 .navbar-static__access-plan-price {
-  color: var(--navbar-text);
-  font-size: clamp(26px, 2.45vw, 38px);
+  color: var(--navbar-access-muted);
+  font-size: 14px;
   font-weight: 700;
-  line-height: 1.04;
+  line-height: 1.25;
   letter-spacing: 0;
   overflow-wrap: anywhere;
 }

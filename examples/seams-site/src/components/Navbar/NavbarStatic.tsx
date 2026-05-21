@@ -14,13 +14,16 @@ import {
 import menuAccessPassesImage from '@/assets/navbar/menu-access-passes-wire-light.png';
 import menuBiometricAuthDarkImage from '@/assets/navbar/menu-biometric-auth-wire-dark.png';
 import menuBiometricAuthLightImage from '@/assets/navbar/menu-biometric-auth-wire-light.png';
-import menuBlogImage from '@/assets/navbar/menu-blog.png';
-import menuCompanyImage from '@/assets/navbar/menu-company.png';
+import menuCompanyDarkImage from '@/assets/navbar/menu-company-wire-dark.png';
+import menuCompanyLightImage from '@/assets/navbar/menu-company-wire-light.png';
 import menuEmbeddedWalletsImage from '@/assets/navbar/menu-embedded-wallets-wire-light.png';
 import menuGuidesImage from '@/assets/navbar/menu-guides-wire-light.png';
-import menuSupportImage from '@/assets/navbar/menu-support.png';
+import menuSupportDarkImage from '@/assets/navbar/menu-support-wire-dark.png';
+import menuSupportLightImage from '@/assets/navbar/menu-support-wire-light.png';
 import menuToolsImage from '@/assets/navbar/menu-tools-wire-light.png';
 import menuUseCasesImage from '@/assets/navbar/menu-use-cases-wire-light.png';
+import menuWritingDarkImage from '@/assets/navbar/menu-writing-wire-dark.png';
+import menuWritingLightImage from '@/assets/navbar/menu-writing-wire-light.png';
 import './Navbar.css';
 
 type DropdownId = 'products' | 'documentation' | 'about' | 'pricing';
@@ -171,7 +174,8 @@ const aboutSections: DropdownSection[] = [
         description: 'Company details',
         to: '/company/#careers',
         visual: 'image',
-        imageSrc: menuCompanyImage,
+        imageSrc: menuCompanyLightImage,
+        imageDarkSrc: menuCompanyDarkImage,
       },
     ],
   },
@@ -183,7 +187,8 @@ const aboutSections: DropdownSection[] = [
         description: 'Read the latest from our team',
         to: '/company/#blog',
         visual: 'image',
-        imageSrc: menuBlogImage,
+        imageSrc: menuWritingLightImage,
+        imageDarkSrc: menuWritingDarkImage,
       },
     ],
   },
@@ -195,7 +200,8 @@ const aboutSections: DropdownSection[] = [
         description: 'Join our developer Slack community',
         to: '/contact/',
         visual: 'image',
-        imageSrc: menuSupportImage,
+        imageSrc: menuSupportLightImage,
+        imageDarkSrc: menuSupportDarkImage,
       },
     ],
   },
@@ -1096,12 +1102,12 @@ export function NavbarStatic(): React.JSX.Element {
                         </span>
                       ) : (
                         <>
-                          <span className="navbar-static__access-plan-kicker">{item.title}</span>
+                          <span className="navbar-static__access-plan-title">{item.title}</span>
                           <span className="navbar-static__access-plan">
-                            <span className="navbar-static__access-plan-price">{item.price}</span>
                             <span className="navbar-static__access-plan-note">
                               {item.priceNote}
                             </span>
+                            <span className="navbar-static__access-plan-price">{item.price}</span>
                           </span>
                           <span className="navbar-static__access-plan-copy">
                             {item.description}
