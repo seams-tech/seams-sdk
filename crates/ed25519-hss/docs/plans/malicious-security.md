@@ -96,6 +96,22 @@ during execution. It hardens the retained and delivered boundary, while still
 assuming the server process is not arbitrarily inspecting every executor
 allocation at runtime.
 
+Level A claim language:
+
+- product phrasing:
+  "The relay only handles a client-masked signing share; the client unblinds it
+  locally."
+- technical phrasing:
+  "Under trusted-server execution, the server never receives, stores, logs, or
+  returns the unmasked client signing share. It handles
+  `x_client_base_blinded = x_client_base + r_client mod l`, and the client
+  derives `r_client` and unblinds locally."
+
+Avoid saying only "the server never sees client secrets" for Level A, because
+that phrase can imply arbitrary memory-inspection resistance. Use the Level B
+claim when the intended meaning is that a malicious server process cannot read
+executor memory and reconstruct the client share.
+
 **Level B: executor-memory-safe client output.**
 
 Required before claiming that a malicious server process with arbitrary memory
@@ -275,6 +291,122 @@ Recovery codes authenticate or unlock the backup path. They are not the IKM for
    - Regenerate the native phase3 hidden-eval benchmark.
    - Compare `output_projector`, `total_hidden_eval`, and delivery total against
      the current native baseline.
+
+## SDK/API Integration Surface
+
+The Level A implementation changes the crate API and the SDKs that drive the
+HSS ceremony. The intended public client result can remain `xClientBaseB64u`,
+but the server-owned protocol state, final reports, and route payloads need to
+represent the blinded output and transcript-bound projection mode explicitly.
+
+### Rust crate surfaces
+
+Update the core output and transcript types first:
+
+- [src/ddh/hidden_eval_executor.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/ddh/hidden_eval_executor.rs)
+  - replace `DdhHiddenEvalOutputBundles.x_client_base` with a blinded client
+    output field
+  - update `execute_output_projector_stage` so the stored client-facing bundle
+    is labeled and committed as `x_client_base_blinded`
+  - update output digest hashing to commit to the blinded output
+- [src/protocol/transcript.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/protocol/transcript.rs)
+  - bind `OutputProjectionMode`, mask commitment, and blinded output commitment
+    into evaluation and final-report digests
+- [src/client/outputs.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/client/outputs.rs)
+  - open `x_client_base_blinded`, re-derive the mask, subtract it locally, and
+    return unmasked client output
+- [src/client/api.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/client/api.rs)
+  - seal the blinded client output in staged artifacts and reports
+- [src/server/api.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/server/api.rs)
+  and [src/server/state.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/server/state.rs)
+  - persist only blinded client output and projection-mode metadata in server
+    finalize state
+
+### WASM bindings
+
+The generated JS/TS package files should be regenerated from Rust changes, not
+hand-edited.
+
+- [wasm/hss_client_signer/src/threshold_hss.rs](/Users/pta/Dev/rust/simple-threshold-signer/wasm/hss_client_signer/src/threshold_hss.rs)
+  - add mask-derivation inputs or opaque client mask state to prepare/open
+    requests
+  - update `threshold_ed25519_hss_open_client_output` to unmask locally before
+    returning `xClientBaseB64u`
+- [wasm/hss_client_signer/src/lib.rs](/Users/pta/Dev/rust/simple-threshold-signer/wasm/hss_client_signer/src/lib.rs)
+  - export the revised opening API
+- [wasm/near_signer/src/threshold/threshold_hss.rs](/Users/pta/Dev/rust/simple-threshold-signer/wasm/near_signer/src/threshold/threshold_hss.rs)
+  - carry projection mode and mask commitment through server-side prepare,
+    respond, and finalize wrappers
+- [wasm/threshold_prf/src/lib.rs](/Users/pta/Dev/rust/simple-threshold-signer/wasm/threshold_prf/src/lib.rs)
+  - update context-binding helpers if projection mode becomes part of the HSS
+    context binding
+
+### Client SDK
+
+The client SDK must carry mask policy and derivation context through the HSS
+lifecycle, while preserving the post-open result shape consumed by signing
+flows.
+
+- [client/src/core/types/signer-worker.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/types/signer-worker.ts)
+  - add worker request/result fields for projection mode, mask commitment, and
+    client-only mask derivation context
+  - keep lifecycle/auth/session fields required, following the TypeScript domain
+    state rules
+- [client/src/core/signingEngine/workerManager/workers/hss-client.worker.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/signingEngine/workerManager/workers/hss-client.worker.ts)
+  - pass the new mask state to WASM opening
+  - review the PRF-secret payload guard so it still blocks accidental leakage
+    while allowing the approved mask derivation path
+- [client/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts)
+  - add typed wrappers for masked projection prepare/open inputs
+  - continue returning unmasked `xClientBaseB64u` only after local unmasking
+- [client/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts)
+  - thread projection policy through prepare, respond, finalize, and client
+    open
+  - reject downgrade when the client requires `ClientMaskedProjection`
+- [client/src/core/signingEngine/threshold/ed25519/hssClientBase.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/signingEngine/threshold/ed25519/hssClientBase.ts)
+  - derive or re-derive mask state from the same recoverable client secret path
+    used to recover the HSS client base
+
+Downstream consumers that only need the final opened `xClientBaseB64u` should
+require little or no shape change after the opening layer is updated. Audit the
+signing flows, warm-session bootstrap, email-recovery provisioning, passkey
+session code, and sealed-session persistence to confirm they only see the
+post-open result.
+
+### Server SDK and routes
+
+The server SDK and route layer must accept the client-selected projection mode
+and commitment, then persist them with ceremony state.
+
+- [server/src/core/ThresholdService/ed25519HssWasm.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/core/ThresholdService/ed25519HssWasm.ts)
+  - add projection mode and mask commitment to server prepare, ceremony, and
+    report-finalization wrappers
+  - keep server output opening centered on `xRelayerBaseB64u`
+- [server/src/core/ThresholdService/ThresholdSigningService.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/core/ThresholdService/ThresholdSigningService.ts)
+  - persist projection mode and mask commitment in HSS ceremony records for
+    registration and warm-session flows
+- [server/src/core/types.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/core/types.ts)
+  - update HSS request/response domain types so blinded client output is
+    distinct from opened client output
+- [server/src/router/express/routes/thresholdEd25519.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/express/routes/thresholdEd25519.ts)
+  and [server/src/router/cloudflare/routes/thresholdEd25519.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/cloudflare/routes/thresholdEd25519.ts)
+  - validate and pass projection metadata through prepare, respond, and finalize
+- [server/src/router/relayRegistrationThresholdEd25519Hss.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/relayRegistrationThresholdEd25519Hss.ts)
+  plus the Express and Cloudflare registration route wrappers
+  - mirror the same projection metadata for registration ceremonies
+- [server/src/router/relay.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/relay.ts)
+  - update the relay interface shape for the revised HSS API
+
+### Tests and generated artifacts
+
+Add targeted coverage before broad builds:
+
+- Rust protocol-flow tests for masked projection and downgrade rejection
+- TypeScript type fixtures for invalid projection-mode state, missing mask
+  commitment, and raw route payloads crossing into core lifecycle code
+- route/service tests for registration and warm-session HSS ceremonies
+- worker tests showing raw mask material is absent from server payloads and logs
+- regenerated WASM JS/TS artifacts after the Rust APIs are finalized
 
 ## Expected Cost
 

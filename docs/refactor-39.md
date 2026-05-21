@@ -1548,6 +1548,60 @@ been cleaned.
         behavior.
   - [x] SDK type-check.
 
+## Post-Completion Hardening: Typed WebAuthn Challenge Propagation
+
+The post-exhaustion ECDSA passkey reconnect regression exposed one remaining
+loose boundary: confirmation requests carried `sessionPolicyDigest32?: string`
+as a generic WebAuthn challenge override. EVM-family signing used the
+`SIGN_INTENT_DIGEST` confirmation branch, and that branch failed to forward the
+override. TouchID signed the transaction challenge while role-local bootstrap
+verified the ECDSA bootstrap challenge.
+
+Implement a small follow-up that makes passkey challenge intent explicit and
+required in the branches that need it.
+
+- [x] Introduce a discriminated WebAuthn challenge type near the confirmation
+      boundary:
+      - `intent_digest`, carrying the transaction/intent digest challenge.
+      - `threshold_session_policy`, carrying the Ed25519 or generic threshold
+        session policy digest.
+      - `ecdsa_role_local_bootstrap`, carrying the role-local bootstrap digest
+        plus `requestId`, `thresholdSessionId`, and `walletSigningSessionId`.
+- [x] Replace generic `sessionPolicyDigest32?: string` in shared confirmation
+      params with the typed challenge object. Boundary validation now rejects
+      the old request field before core confirmation logic runs.
+- [x] Make passkey ECDSA reconnect planning return
+      `webauthnChallenge: { kind: 'ecdsa_role_local_bootstrap', ... }` instead
+      of a bare digest string. The same object must supply the confirmation
+      challenge and the bootstrap `requestId`.
+- [x] Make `SIGN_INTENT_DIGEST` confirmation payload construction require a
+      typed WebAuthn challenge whenever `signingAuthPlan.kind` is
+      `passkeyReauth`. Type fixtures should reject a passkey reauth payload that
+      lacks the challenge object.
+- [x] Update UI confirmation handlers to switch exhaustively over
+      `webauthnChallenge.kind`; use `assertNever` for unsupported branches.
+      The selected challenge bytes must come only from the typed branch.
+- [x] Cover post-exhaustion EVM-family passkey reconnect with targeted tests:
+      - the reconnect planner returns a role-local bootstrap challenge object;
+      - confirmation orchestration forwards that object to
+        `requestUserConfirmation`;
+      - ECDSA provision planning reads `requestId`, `thresholdSessionId`, and
+        `walletSigningSessionId` from the same challenge object;
+      - the role-local bootstrap relayer test verifies passkey WebAuthn against
+        the deterministic bootstrap challenge.
+- [x] Add redacted diagnostics at prompt creation and bootstrap verification:
+      `challengeKind`, `challengeHash8`, `requestId`, `thresholdSessionId`, and
+      `walletSigningSessionId`. Do not log raw challenges, credentials, PRF
+      material, client shares, or bearer tokens.
+- [x] Delete source-text guard coverage that only checks forwarding strings
+      after typed challenge and provisioning coverage exists.
+- [x] Validation:
+      - `pnpm -C sdk exec tsc --noEmit --pretty false`
+      - `pnpm -C tests exec playwright test ./unit/touchConfirm.orchestrationBridge.unit.test.ts ./unit/touchConfirm.signingAuthPlanValidation.unit.test.ts --reporter=line`
+      - `pnpm -C tests exec playwright test ./unit/requireEvmFamilyStepUpAuth.unit.test.ts ./unit/evmFamilyStepUpProvisionPlan.unit.test.ts ./unit/stepUpAuthorization.builders.unit.test.ts --reporter=line`
+      - `pnpm -C tests exec playwright test ./unit/signingEngine.refactor37.guard.unit.test.ts --reporter=line`
+      - `pnpm -C tests exec playwright test --config=playwright.relayer.config.ts ./relayer/threshold-ecdsa-role-local-passkey-bootstrap.test.ts --reporter=line`
+
 ## Post-Completion Cleanup Owner
 
 Refactor 39 is complete. Remaining cleanup around

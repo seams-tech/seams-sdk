@@ -109,23 +109,78 @@ endpoint still uses subject wording, the boundary adapter should project
 `walletSubjectId` into that field and immediately normalize responses back to
 wallet-subject types.
 
+## Resolved Implementation Decisions
+
+These decisions close the plan ambiguities that can otherwise create divergent
+registration implementations:
+
+- Wallet subject allocation happens before WebAuthn through
+  `POST /wallets/register/intent`. `RegisterWalletSubjectInput.kind =
+  'server_generated'` means the server allocates a fresh `walletSubjectId`;
+  `kind = 'provided'` means the server validates the caller-provided id and
+  reserves it for the short-lived intent.
+- `/wallets/register/intent` is the environment-bound route. It resolves
+  `runtimePolicyScope`, origin policy, API-key or bootstrap-token authority,
+  and registration metering context. `/wallets/register/start` is a public
+  proof route whose authority is the exact `registrationIntentGrant` plus the
+  WebAuthn `create()` credential for the matching digest.
+- Registration ceremony state lives behind a new `RegistrationCeremonyStore`
+  interface. Express production uses Postgres, Cloudflare uses Durable Object
+  storage, and local tests may use memory. The current in-process Ed25519 HSS
+  ceremony map remains usable only for local single-process tests after this
+  rework.
+- ECDSA initial registration performs one EVM-family HSS keygen per
+  `EcdsaRegistrationSpec`, then writes one signer record per requested
+  `chainTarget` carrying the same `EvmFamilyEcdsaWalletKey`.
+- `EvmFamilyEcdsaWalletKey` is the canonical active ECDSA key type.
+  `VerifiedEcdsaPublicFacts`, `ResolvedEvmFamilyEcdsaKey`, and
+  `ThresholdEcdsaSecp256k1KeyRef` become boundary or transition projections.
+  Core unlock, signing, export, budget, and warm-up code consumes
+  `EvmFamilyEcdsaWalletKey`.
+- Invalid development ECDSA profile rows are pruned through an explicit
+  one-shot maintenance path. Runtime login and unlock report
+  `repair_required` or `blocked` states; they do not synthesize direct
+  `keyHandle` values for active signer records.
+- Authenticated ECDSA key-facts inventory moves to a wallet-subject repair
+  endpoint authorized by WebAuthn `get()` or an app-session policy with
+  `ecdsa_key_facts_inventory` permission. Ed25519 threshold-session tokens have
+  no signer-discovery authority.
+
 ## Registration Ceremony
 
-Initial registration should be a server-owned ceremony with one WebAuthn `create()` verification. HSS remains multi-round where needed, using a server-side ceremony id for transcript correlation.
+Initial registration should be a server-owned ceremony with one WebAuthn
+`create()` verification. HSS remains multi-round where needed, using a
+server-side ceremony id for transcript correlation.
 
-Suggested endpoints:
+Endpoints:
 
 ```http
+POST /wallets/register/intent
 POST /wallets/register/start
 POST /wallets/register/hss/respond
 POST /wallets/register/finalize
 ```
+
+`/wallets/register/intent`:
+
+- Validates raw signer selection and requested wallet-subject allocation.
+- Resolves the caller's runtime policy scope from the API key, bootstrap token,
+  or managed registration grant context.
+- Allocates or reserves `walletSubjectId`.
+- Generates server nonce material.
+- Returns `RegistrationIntentV1`, `registrationIntentDigestB64u`,
+  `registrationIntentGrant`, and `expiresAtMs`.
+- Records intent-grant replay state keyed by grant id until expiry.
 
 `/wallets/register/start`:
 
 - Validates and normalizes raw request JSON.
 - Verifies WebAuthn `create()` exactly once.
 - Validates the challenge against a canonical registration intent digest.
+- Verifies `registrationIntentGrant` against the same digest, signer selection,
+  `walletSubjectId`, `rpId`, nonce, runtime policy scope, origin binding, and
+  expiry.
+- Consumes the intent grant so it cannot start another ceremony.
 - Creates a short-lived server-side registration ceremony record.
 - Prepares Ed25519 HSS state when Ed25519 is requested.
 - Prepares ECDSA HSS state when ECDSA is requested.
@@ -150,6 +205,74 @@ POST /wallets/register/finalize
 
 `registrationCeremonyId` is an opaque server-side state handle. It should carry no JWT claims and no signing/export authority. Possession of the handle alone should be insufficient to create key material; the HSS transcript must validate against the client’s PRF-derived inputs.
 
+Intent request and response:
+
+```ts
+type CreateRegistrationIntentRequest = {
+  walletSubject: RegisterWalletSubjectInput;
+  rpId: string;
+  signerSelection: RegistrationSignerSelection;
+};
+
+type RegistrationIntentGrant = string & {
+  readonly __registrationIntentGrantBrand: unique symbol;
+};
+
+type CreateRegistrationIntentResponse = {
+  intent: RegistrationIntentV1;
+  registrationIntentDigestB64u: string;
+  registrationIntentGrant: RegistrationIntentGrant;
+  expiresAtMs: number;
+};
+```
+
+Start request and response:
+
+```ts
+type WalletRegistrationStartRequest = {
+  intent: RegistrationIntentV1;
+  registrationIntentDigestB64u: string;
+  registrationIntentGrant: RegistrationIntentGrant;
+  webauthnRegistration: VerifiedRegistrationCredentialInput;
+};
+
+type WalletRegistrationStartResponse = {
+  registrationCeremonyId: string;
+  ed25519?: Ed25519RegistrationHssPreparePayload;
+  ecdsa?: EcdsaRegistrationHssPreparePayload;
+};
+
+type EcdsaRegistrationHssPreparePayload = {
+  kind: 'evm_family_ecdsa_keygen';
+  chainTargets: NonEmptyArray<ThresholdEcdsaChainTarget>;
+  prepare: ThresholdEcdsaHssPreparePayload;
+};
+```
+
+HSS response requests are keyed by `registrationCeremonyId` and signer family.
+ECDSA uses the single `evm_family_ecdsa_keygen` transcript from start; it does
+not accept per-target keygen overrides during respond or finalize.
+
+Ceremony persistence:
+
+```ts
+type RegistrationCeremonyRecord = {
+  registrationCeremonyId: string;
+  status: 'started' | 'hss_responded' | 'finalizing' | 'completed' | 'failed';
+  intent: RegistrationIntentV1;
+  normalizedRequest: NormalizedRegistrationRequest;
+  webauthn: VerifiedRegistrationSummary;
+  ed25519?: Ed25519RegistrationCeremonyState;
+  ecdsa?: EcdsaRegistrationCeremonyState;
+  routeContext: RegistrationRouteContext;
+  createdAtMs: number;
+  expiresAtMs: number;
+};
+```
+
+The store must support atomic consume/take semantics for finalize. Expired
+ceremonies release HSS server buffers and cannot be finalized.
+
 ## WebAuthn Challenge Binding
 
 The WebAuthn `create()` challenge should bind the whole registration intent:
@@ -169,6 +292,14 @@ Rules:
 
 - The server verifies the `clientDataJSON.challenge` against the canonical digest of `RegistrationIntentV1`.
 - The digest must include requested signer modes, NEAR account id when present, ECDSA chain targets, participant ids, and runtime policy scope.
+- The digest is computed from canonical JSON with sorted object keys,
+  normalized chain-target encodings, normalized participant ids, and base64url
+  nonce bytes. Client and server helpers must share fixtures for byte-for-byte
+  digest parity.
+- `registrationIntentGrant` claims bind `walletSubjectId`, `rpId`,
+  `registrationIntentDigestB64u`, `runtimePolicyScope`, origin policy,
+  environment ids, grant id, issued time, and expiry. The grant carries no
+  signer material, no signing-session authority, and no continuation authority.
 - The server stores the verified normalized request on the ceremony record.
 - Later HSS steps use the stored normalized request. They should not accept raw signer plan overrides.
 
@@ -286,6 +417,29 @@ type AddSignerAuth =
     };
 ```
 
+Ed25519 add-signer intent must use explicit account behavior:
+
+```ts
+type Ed25519AddSignerSpec =
+  | {
+      mode: 'create_near_account';
+      nearAccountId: string;
+      signerSlot: number;
+      participantIds: NonEmptyParticipantIds;
+    }
+  | {
+      mode: 'link_existing_near_account';
+      nearAccountId: string;
+      signerSlot: number;
+      participantIds: NonEmptyParticipantIds;
+      accountOwnershipProof: NearAccountOwnershipProof;
+    };
+```
+
+`link_existing_near_account` requires a server-verified proof that the wallet
+subject is allowed to attach a signer to the existing NEAR account. Initial
+Ed25519 registration wrappers use `create_near_account`.
+
 Rules:
 
 - Adding ECDSA later to an Ed25519-only wallet uses WebAuthn `get()` or an app session approved for signer provisioning.
@@ -296,7 +450,8 @@ Rules:
 
 ## Wallet Unlock Model
 
-Unlock should be signer-selection driven, not NEAR-first or Ed25519-first:
+Unlock is signer-selection driven and independent of NEAR-first or
+Ed25519-first assumptions:
 
 ```ts
 type WalletUnlockSelection =
@@ -343,6 +498,40 @@ Rules:
 - Threshold-session auth tokens remain signing-session capabilities. They may
   refresh or reconnect an existing same-curve signing session, but they should
   not authorize signer discovery or cross-curve unlock.
+
+Authenticated ECDSA key-facts inventory uses a wallet-subject repair endpoint:
+
+```http
+POST /wallets/:walletSubjectId/signers/ecdsa/key-facts/inventory
+```
+
+```ts
+type WalletKeyFactsInventoryAuth =
+  | {
+      kind: 'webauthn_assertion';
+      credential: WebAuthnAuthenticationCredential;
+      expectedChallengeDigestB64u: string;
+    }
+  | {
+      kind: 'app_session';
+      claims: AppSessionClaims;
+      policy: EcdsaKeyFactsInventoryPolicy;
+    };
+
+type EcdsaKeyFactsInventoryPolicy = {
+  permission: 'ecdsa_key_facts_inventory';
+  walletSubjectId: WalletSubjectId;
+  chainTargets: NonEmptyArray<ThresholdEcdsaChainTarget>;
+  runtimePolicyScope: RuntimePolicyScope;
+  expiresAtMs: number;
+};
+```
+
+The inventory challenge digest includes wallet subject id, RP ID, requested
+chain targets, requested key handles when known, runtime policy scope, and a
+server nonce. Normal unlock only reads local active signer records. The
+inventory endpoint is reachable from explicit repair/recovery states and from
+app sessions carrying the exact policy above.
 
 ## ECDSA Wallet Key Model
 
@@ -401,6 +590,21 @@ Rules:
   `signingRootVersion` from `keyHandle`.
 - `legacy-key-handle:*` is an invalid persisted/request shape. Prune or
   recreate development data that still contains it.
+
+Projection and transition rules:
+
+- `EvmFamilyEcdsaWalletKey` is the storage and core-domain source of truth for
+  active ECDSA signers.
+- `VerifiedEcdsaPublicFacts` is a projection of `walletKey.keyHandle` plus the
+  public subset of `walletKey.keyFacts`. Builders may accept
+  `EvmFamilyEcdsaWalletKey` and wire responses; core active-signer code should
+  not store `VerifiedEcdsaPublicFacts` by itself.
+- `ResolvedEvmFamilyEcdsaKey` is a transition read model for availability and
+  display surfaces. New activation, unlock, signing, export, and budget inputs
+  should consume `EvmFamilyEcdsaWalletKey` directly.
+- `ThresholdEcdsaSecp256k1KeyRef` remains a transport adapter shape at relay,
+  worker, and external SDK boundaries until Phase 8 removes it from core
+  surfaces.
 
 Tradeoffs:
 
@@ -531,6 +735,35 @@ Required indexes:
   separate Tempo/EVM lane records, but those records must carry one shared
   `walletKey.keyFacts`.
 
+Registration ceremony tables:
+
+- `wallet_registration_intents`
+  - `grant_id`
+  - `wallet_subject_id`
+  - `rp_id`
+  - `intent_digest_b64u`
+  - `runtime_policy_scope_json`
+  - `route_context_json`
+  - `origin_policy_json`
+  - `expires_at_ms`
+  - `consumed_at_ms`
+- `wallet_registration_ceremonies`
+  - `registration_ceremony_id`
+  - `wallet_subject_id`
+  - `status`
+  - `intent_json`
+  - `normalized_request_json`
+  - `webauthn_summary_json`
+  - `ed25519_state_json`
+  - `ecdsa_state_json`
+  - `route_context_json`
+  - `created_at_ms`
+  - `expires_at_ms`
+
+Postgres stores binary HSS state as base64url fields inside the state JSON or
+as separate bytea columns if the implementation needs row-level updates. The
+store API must expose typed ceremony states to core code.
+
 ## Client API Changes
 
 Replace the current NEAR-first registration entrypoint with signer-selection APIs:
@@ -556,7 +789,7 @@ type AddWalletSignerArgs =
   | {
       kind: 'ed25519';
       walletSubjectId: WalletSubjectId;
-      ed25519: Ed25519RegistrationSpec;
+      ed25519: Ed25519AddSignerSpec;
       options?: AddSignerHooksOptions;
     }
   | {
@@ -576,16 +809,50 @@ SDK modules:
 
 Delete the old continuation-token-based initial ECDSA provisioning path in the same refactor.
 
+Client registration sequence:
+
+1. `registerWallet(args)` calls `/wallets/register/intent`.
+2. The SDK computes the WebAuthn `create()` challenge from the returned
+   `RegistrationIntentV1`.
+3. The SDK collects one WebAuthn credential and parses PRF extension output.
+4. The SDK calls `/wallets/register/start` with the returned grant and the
+   verified intent digest.
+5. The SDK runs requested Ed25519 and ECDSA HSS respond steps against the single
+   `registrationCeremonyId`.
+6. The SDK calls `/wallets/register/finalize`.
+7. The SDK persists returned wallet-subject signer records and immediate
+   signing-session material.
+
 ## Route Auth Policy
 
 Registration route auth should be:
 
-- `/wallets/register/start`: public WebAuthn proof route.
-- `/wallets/register/hss/respond`: public threshold protocol state route bound to a ceremony id.
-- `/wallets/register/finalize`: public threshold protocol state route bound to a ceremony id.
-- `/wallets/:walletSubjectId/signers/*`: WebAuthn assertion or app-session policy route.
+- `/wallets/register/intent`: API-credential route. Accept secret-key,
+  bootstrap-token, or managed publishable-key grant flows according to the
+  deployment. This route resolves environment binding, origin binding,
+  runtime policy scope, and metering context.
+- `/wallets/register/start`: public proof route. Requires a valid
+  `registrationIntentGrant` and a WebAuthn `create()` credential bound to the
+  same intent digest.
+- `/wallets/register/hss/respond`: public threshold protocol state route bound
+  to an unexpired ceremony id.
+- `/wallets/register/finalize`: public threshold protocol state route bound to
+  an unexpired ceremony id with complete requested HSS transcripts.
+- `/wallets/:walletSubjectId/signers/*`: WebAuthn assertion or app-session
+  policy route.
+- `/wallets/:walletSubjectId/signers/ecdsa/key-facts/inventory`: WebAuthn
+  assertion or app-session policy route for explicit repair/recovery inventory.
 
-Threshold-session auth tokens are signing-session capabilities. They should be accepted by signing, presign, export, and session refresh routes only.
+Threshold-session auth tokens are signing-session capabilities. They should be
+accepted by signing, presign, export, and session refresh routes only.
+
+Metering:
+
+- `/wallets/register/intent` records grant issuance and environment selection.
+- `/wallets/register/finalize` records `wallet_created` only after requested
+  signer records are persisted.
+- Failed start/respond/finalize attempts are observable diagnostics tied to the
+  grant or ceremony id. They must not count as wallet creation.
 
 ## Refactor 33, 35, And 36 Alignment
 
@@ -611,7 +878,9 @@ This plan targets the current signing-engine layout from `docs/refactor-33.md`, 
 Server files to edit:
 
 - `server/src/router/routeDefinitions.ts`
-  - Add route definitions for `/wallets/register/*` and `/wallets/:walletSubjectId/signers/*`.
+  - Add route definitions for `/wallets/register/intent`,
+    `/wallets/register/*`, `/wallets/:walletSubjectId/signers/*`, and
+    `/wallets/:walletSubjectId/signers/ecdsa/key-facts/inventory`.
   - Remove initial-registration authority from `/threshold-ecdsa/hss/*`.
   - Delete `/registration/bootstrap` and `/registration/threshold-ed25519/hss/*` in the route replacement phase.
 - `server/src/router/express/createRelayRouter.ts`
@@ -640,12 +909,21 @@ Server files to edit:
   - Delete `signRegistrationContinuationJwt`.
   - Keep threshold signing-session token signing for signing-session routes.
 - `server/src/router/bootstrapGrantBroker.ts`
-  - Replace grant targets for `/registration/bootstrap` and `/registration/threshold-ed25519/hss/*` with the new `/wallets/register/*` targets.
+  - Replace grant targets for `/registration/bootstrap` and `/registration/threshold-ed25519/hss/*` with `/wallets/register/intent`.
+  - Keep managed grant issuance scoped to intent allocation only.
 
 Server core files to edit:
 
+- `server/src/core/RegistrationCeremonyStore.ts`
+  - Add the `RegistrationCeremonyStore` interface with create, read, update,
+    consume-intent, take-finalize, fail, and expire operations.
+  - Add memory implementation for tests and local single-process development.
+  - Add Postgres and Cloudflare Durable Object implementations before
+    production rollout.
 - `server/src/core/AuthService.ts`
   - Introduce wallet-subject registration service methods.
+  - Add `/wallets/register/intent` allocation and intent-grant consumption
+    service methods.
   - Extract NEAR account provisioning as an Ed25519 signer side effect.
   - Delete `createAccountAndRegisterUser` as the primary registration implementation.
   - Delete the raw `threshold_ecdsa.client_root_share32_b64u` registration path.
@@ -655,6 +933,8 @@ Server core files to edit:
   - Remove `registrationContinuation` result types.
 - `server/src/core/ThresholdService/ThresholdSigningService.ts`
   - Add a verified add-signer policy boundary for WebAuthn `get()` and app-session auth.
+  - Add a verified ECDSA key-facts inventory policy boundary for repair/recovery
+    reads.
   - Remove object-shape WebAuthn checks from ECDSA registration bootstrap.
   - Move ECDSA registration HSS state behind the new registration ceremony.
   - Delete registration-continuation authorization branches.
@@ -668,8 +948,10 @@ Server core files to edit:
   - Replace Ed25519-specific binding records with wallet authenticator bindings.
   - Move signer metadata into wallet signer records.
 - `server/src/storage/postgres.ts`
-  - Add `wallet_subjects`, `wallet_authenticators`, and `wallet_signers`.
+  - Add `wallet_subjects`, `wallet_authenticators`, `wallet_signers`,
+    `wallet_registration_intents`, and `wallet_registration_ceremonies`.
   - Add unique indexes for authenticator and signer records.
+  - Add expiry indexes for intent and ceremony cleanup.
   - Remove obsolete registration-continuation-dependent tables or indexes if any exist by then.
 
 Client files to edit:
@@ -683,6 +965,8 @@ Client files to edit:
   - Replace NEAR-account-only registration capability types.
 - `client/src/core/SeamsPasskey/registration.ts`
   - Replace NEAR-first registration orchestration with signer-selection orchestration.
+  - Start with `/wallets/register/intent`, then compute WebAuthn challenge from
+    the returned intent.
   - Delete `provisionThresholdEcdsaAfterRegistration`.
   - Persist wallet-subject signer records without requiring NEAR profile continuity.
 - `client/src/core/SeamsPasskey/login.ts`
@@ -718,8 +1002,9 @@ Client files to edit:
 - `client/src/core/signingEngine/threshold/ecdsa/keygen.ts`
   - Accept registration-domain ECDSA root-share material through typed protocol inputs.
   - Delete raw relay-bound root-share request shapes.
-- `client/src/core/signingEngine/threshold/ecdsa/hssTransport.ts`
-  - Reuse the ECDSA HSS transport for registration and add-signer ceremonies.
+- `client/src/core/rpcClients/relayer/walletRegistration.ts`
+  - Add registration intent, start, HSS respond, and finalize RPC helpers.
+  - Keep ECDSA HSS transport details behind wallet registration RPC calls.
   - Remove `registration_continuation` route auth from registration traffic.
 - `client/src/core/signingEngine/threshold/ecdsa/clientSecretSource.ts`
   - Split signing-session client-secret lookup from registration-domain PRF derivation.
@@ -752,6 +1037,10 @@ Client files to edit:
     configured targets, local records, current session facts, and runtime config.
   - Return closed lifecycle states for no configured targets, ready plans,
     authenticated inventory fetches, and blocked plans.
+- `client/src/core/signingEngine/session/passkey/ecdsaKeyFactsInventory.ts`
+  - Add wallet-subject repair inventory RPC and parser helpers.
+  - Require WebAuthn assertion or app-session inventory policy inputs.
+  - Return `EvmFamilyEcdsaWalletKey` records keyed by concrete chain target.
 - `client/src/core/signingEngine/session/passkey/ed25519Provisioner.ts`
   - Provision Ed25519 warm sessions from existing signer records after registration.
 - `client/src/core/signingEngine/session/passkey/ed25519SessionProvision.ts`
@@ -847,15 +1136,24 @@ Tests to edit or add:
 ### Phase 1: Types And Boundaries
 
 - [ ] Add wallet subject, authenticator binding, signer selection, and ceremony state types in `server/src/core/types.ts` and `client/src/core/SeamsPasskey/interfaces.ts`.
+- [ ] Add `CreateRegistrationIntentRequest`,
+      `CreateRegistrationIntentResponse`, `RegistrationIntentGrant`, and
+      grant-claim types.
 - [ ] Add explicit `EcdsaKeyFacts`, `EvmFamilyEcdsaWalletKey`, and
       `EcdsaWalletSignerRecord` types.
+- [ ] Add `RegistrationCeremonyStore` state unions for intent allocation,
+      started ceremonies, HSS-responded ceremonies, finalizing ceremonies,
+      completed ceremonies, and failed ceremonies.
+- [ ] Add `WalletKeyFactsInventoryAuth` and
+      `EcdsaKeyFactsInventoryPolicy` types.
 - [ ] Remove ECDSA subject fields from registration, signer-record, unlock,
       warm-up, and persistence-domain types; use `walletSubjectId` as the
       single subject identifier.
 - [ ] Split raw `keyHandle` boundary parsing from ECDSA `keyFacts` parsing.
 - [ ] Make core resolved active-key flows consume `EvmFamilyEcdsaWalletKey`;
       delete loose `keyHandle` and peer-field `keyFacts` inputs.
-- [ ] Add raw request normalizers for wallet registration and add-signer flows.
+- [ ] Add raw request normalizers for registration intent, wallet registration,
+      add-signer, and ECDSA key-facts inventory flows.
 - [ ] Add canonical `RegistrationIntentV1` and add-signer digest helpers in `client/src/utils/intentDigest.ts`.
 - [ ] Add server-side digest verification helpers for the same intent encodings.
 - [ ] Add architecture guards against optional lifecycle signer fields in registration core types.
@@ -869,15 +1167,32 @@ Tests to edit or add:
 
 ### Phase 2: Server Ceremony
 
-- [ ] Add `/wallets/register/start`, `/wallets/register/hss/respond`, and `/wallets/register/finalize` route definitions in `server/src/router/routeDefinitions.ts`.
+- [ ] Add `/wallets/register/intent`, `/wallets/register/start`,
+      `/wallets/register/hss/respond`, and `/wallets/register/finalize` route
+      definitions in `server/src/router/routeDefinitions.ts`.
 - [ ] Add Express and Cloudflare route modules for the new registration ceremony.
+- [ ] Add `RegistrationCeremonyStore` implementations.
+  - [ ] Memory store for tests and local single-process development.
+  - [ ] Postgres store for Express production.
+  - [ ] Cloudflare Durable Object store for Worker production.
 - [ ] Add wallet-subject registration service methods in `server/src/core/AuthService.ts`.
+- [ ] Add `/wallets/register/intent` service method.
+  - [ ] Resolve runtime policy scope from API key, bootstrap token, or managed
+        grant context.
+  - [ ] Allocate or reserve `walletSubjectId`.
+  - [ ] Create and persist a one-use registration intent grant.
+  - [ ] Return `RegistrationIntentV1` and its canonical digest.
+- [ ] Make `/wallets/register/start` verify and consume the
+      `registrationIntentGrant` before ceremony creation.
 - [ ] Verify WebAuthn `create()` once, then store normalized signer selection on the ceremony record.
 - [ ] Prepare Ed25519 and ECDSA HSS state from the same verified registration context.
 - [ ] Run independent Ed25519 and ECDSA HSS preparation concurrently where the runtime allows it.
 - [ ] Finalize requested signer material and persist wallet subject, authenticator binding, and signer records.
 - [ ] Gate NEAR account creation behind Ed25519 signer finalization.
 - [ ] Persist ECDSA signer metadata without requiring a NEAR account or NEAR profile continuity.
+- [ ] Run exactly one ECDSA HSS keygen per `EcdsaRegistrationSpec`, then create
+      one active signer record per requested `chainTarget` carrying the shared
+      `EvmFamilyEcdsaWalletKey`.
 - [ ] Make ECDSA registration/add-signer finalization produce a complete
       `EvmFamilyEcdsaWalletKey` for every requested chain target before any
       signer record is marked active.
@@ -889,13 +1204,21 @@ Tests to edit or add:
         ceremony failed/pending instead of writing a partial active signer.
   - [ ] Return the same complete wallet-key facts in the finalize response.
 - [ ] Add Postgres schema changes in `server/src/storage/postgres.ts`.
+  - [ ] Add wallet subject, authenticator, signer, registration intent, and
+        registration ceremony tables.
+  - [ ] Add unique signer indexes and expiry indexes.
+  - [ ] Ensure ceremony finalize consumes the ceremony atomically.
 
 ### Phase 3: Client Flow
 
 - [ ] Add `registerWallet(args)` in `client/src/core/SeamsPasskey/index.ts`.
 - [ ] Replace NEAR-first orchestration in `client/src/core/SeamsPasskey/registration.ts`.
 - [ ] Build signer selection from explicit user options.
+- [ ] Resolve `RegisterWalletSubjectInput` through `/wallets/register/intent`
+      before collecting a WebAuthn credential.
 - [ ] Update WebAuthn confirmation to accept canonical registration intent inputs.
+- [ ] Compute WebAuthn `create()` challenge from the returned
+      `RegistrationIntentV1` and verify local digest parity before prompting.
 - [ ] Derive Ed25519 and ECDSA PRF inputs with domain-separated labels.
 - [ ] Run selected signer HSS work inside the combined registration ceremony.
 - [ ] Route Ed25519 protocol work through `threshold/ed25519/*` and ECDSA protocol work through `threshold/ecdsa/*`.
@@ -974,7 +1297,8 @@ Tests to edit or add:
   - [ ] Make each phase consume the prior phase's narrow union instead of the
         broad login context.
 - [ ] Move the ECDSA key-facts inventory parser out of `login.ts`.
-  - [ ] Create a boundary parser for `/threshold-ecdsa/key-identities`
+  - [ ] Create a boundary parser for
+        `/wallets/:walletSubjectId/signers/ecdsa/key-facts/inventory`
         responses.
   - [ ] Require `keyHandle`, concrete `chainTarget`,
         `ecdsaThresholdKeyId`, `signingRootId`, `signingRootVersion`,
@@ -1020,11 +1344,20 @@ Tests to edit or add:
 - [ ] Add client `addWalletSigner(args)`.
 - [ ] Persist newly attached signer records without re-registering the authenticator.
 - [ ] Cover later ECDSA from Ed25519-only wallets and later Ed25519 from ECDSA-only wallets.
+- [ ] Add `/wallets/:walletSubjectId/signers/ecdsa/key-facts/inventory` after
+      add-signer auth policy helpers are in place.
+- [ ] Verify inventory WebAuthn `get()` against a challenge digest that includes
+      wallet subject id, RP ID, chain targets, known key handles, runtime policy
+      scope, and server nonce.
+- [ ] Enforce `ecdsa_key_facts_inventory` app-session policy for app-session
+      repair inventory flows.
 
 ### Phase 6: Cleanup
 
 - [ ] Delete `registrationContinuation` request and response types from `server/src/core/types.ts`.
 - [ ] Delete `signRegistrationContinuationJwt` from `server/src/router/commonRouterUtils.ts`.
+- [ ] Delete old managed bootstrap grant targets after `/wallets/register/intent`
+      replaces `/registration/bootstrap`.
 - [ ] Delete all production construction of synthetic
       `legacy-key-handle:*` ECDSA key ids.
 - [ ] Delete any production fallback that fills `signingRootId` or
@@ -1032,8 +1365,9 @@ Tests to edit or add:
 - [ ] Delete login/profile-boundary derivation of `keyHandle` from
       `ecdsaThresholdKeyId + signingRootId + signingRootVersion`.
 - [ ] Delete normal-unlock inventory fetches. Keep `/threshold-ecdsa/key-identities`
-      usage only in explicit repair/recovery flows with wallet/authenticator
-      authority or app-session policy.
+      usage only until the wallet-subject inventory endpoint is live.
+      Explicit repair/recovery flows should use the wallet-subject inventory
+      endpoint.
 - [ ] Keep request/persistence boundary parsing strict for active ECDSA wallet
       keys: direct `keyHandle` is required, synthetic legacy selectors are
       rejected, and incomplete active rows are invalid.
@@ -1049,15 +1383,26 @@ Tests to edit or add:
 - [ ] Delete any internal registration or add-signer helper that infers lifecycle route from optional auth fields.
 - [ ] Rename threshold signing-session auth fields to opaque auth-token names as covered by `docs/signing-session-architecture/threshold-session-auth-token.md`.
 - [ ] Update route definitions, architecture guards, and tests so deleted continuation symbols are absent from production code.
+- [ ] Add a one-shot development maintenance path that prunes active ECDSA
+      signer rows missing direct `keyHandle` or complete `keyFacts`; keep it
+      outside normal login and unlock.
 
 ### Phase 7: Test And Verification
 
 - [ ] Add unit tests for registration intent digest canonicalization.
+- [ ] Add unit tests for registration intent allocation and grant replay
+      rejection.
 - [ ] Add unit tests for registration signer-selection normalization.
 - [ ] Add relayer tests for the three initial registration modes.
+- [ ] Add relayer tests for `/wallets/register/intent` environment binding,
+      origin binding, and metering context.
 - [ ] Add relayer tests that ECDSA-only registration creates no NEAR account.
 - [ ] Add relayer tests that combined registration verifies WebAuthn `create()` once.
+- [ ] Add relayer tests that one ECDSA HSS keygen creates shared wallet-key facts
+      across all requested EVM-family chain targets.
 - [ ] Add tests that fake object-shaped WebAuthn auth fails add-signer preparation.
+- [ ] Add tests that ECDSA repair inventory rejects Ed25519 threshold-session
+      auth and accepts WebAuthn/app-session inventory policy.
 - [ ] Add client tests for `registerWallet`, `registerNearWallet`, and `registerEvmWallet`.
 - [ ] Add client tests for Ed25519-only, ECDSA-only, and combined wallet unlock.
 - [ ] Add an unlock regression test proving active ECDSA signer rows with
@@ -1159,12 +1504,21 @@ Add unit and integration coverage for:
 - Combined unlock provisions both signer families without cross-family auth
   dependencies.
 - ECDSA unlock key-facts inventory uses wallet/authenticator authority or an
-  explicit app-session policy, not Ed25519 threshold-session auth.
+  explicit app-session policy. Ed25519 threshold-session auth is rejected for
+  inventory.
 - App-session add-signer requires an explicit signer-provisioning policy.
 - Deleted registration continuation token names are absent from production code.
 
-## Decisions Before Implementation
+## Decisions Locked For Implementation
 
-- Wallet subject id source: server-generated opaque id, client-provided id normalized by server, or account-derived id for NEAR wrappers.
-- Ed25519 later behavior for ECDSA-only wallets: create a new NEAR account, attach to an existing account, or support both as explicit sub-modes.
-- Runtime storage layout: new wallet subject tables or normalized records on top of existing identity and signer stores.
+- Wallet subject id source: `/wallets/register/intent` allocates or reserves it
+  before WebAuthn and returns the exact intent to challenge-bind.
+- Ed25519 later behavior: add-signer supports explicit
+  `create_near_account` and `link_existing_near_account` sub-modes with
+  branch-specific required fields.
+- Runtime storage layout: add new wallet subject, wallet authenticator, wallet
+  signer, registration intent, and registration ceremony tables.
+- ECDSA development data cleanup: prune incomplete active rows through a
+  one-shot maintenance path outside login/unlock.
+- ECDSA key-facts repair inventory: use the wallet-subject inventory endpoint
+  with WebAuthn or app-session policy authority.
