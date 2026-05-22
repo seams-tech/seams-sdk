@@ -21,6 +21,8 @@ The current security claims are for:
 
 - passive/semi-honest cryptographic execution
 - hardened client/server runtime boundaries for the deployed staged flow
+- Level A client-masked projection under the trusted-server/code-as-deployed
+  assumption
 
 This crate does not yet claim full malicious security.
 
@@ -86,6 +88,34 @@ Those projector prerequisites are:
 - not final output bundles
 - kept only because delaying them further would require recomputation from
   relayer roots that have already been dropped
+
+## Level A Client-Masked Projection
+
+The current production client-owned finalization path uses
+`ClientMaskedProjection`.
+
+Under the trusted-server/code-as-deployed assumption, the server-side protocol
+path does not receive or materialize the client's sensitive key-derivation
+secret during Ed25519 HSS key derivation:
+
+- `clientRecoverableSecretB64u` is kept on the client side
+- `clientOutputMaskB64u` is derived on the client side from recoverable client
+  material and canonical HSS transcript context
+- server-owned routes reject raw client PRF/client-secret material and client
+  mask material
+- server finalization consumes a client-owned staged artifact whose client
+  output value is `ClientBlindedBase`
+- the client opens the masked output locally to recover `x_client_base`
+
+This supports the product statement:
+
+> Under trusted-service deployment assumptions, the server does not see the
+> client's sensitive key-derivation secret during Ed25519 HSS key derivation.
+
+This is still a Level A trusted-service boundary. It does not claim that a
+malicious server process can never learn client-sensitive material if it can
+modify delivered client code, compromise the client runtime, or inspect/alter
+arbitrary client-side execution.
 
 ## ExplicitKeyExport Exception
 

@@ -119,6 +119,15 @@ intended boundary?" Use `lean-privacy/` to answer "what privacy claim are we
 making over that boundary?" Use `lean-boundary/` to answer "how do we connect
 the Rust boundary mechanically to Lean?"
 
+The current Verus anti-drift track also models the Level A
+`ClientMaskedProjection` boundary: client-owned WASM/SDK artifact construction
+and client-output opening must carry a fixed 32-byte `clientOutputMaskB64u`,
+and server finalize state must not retain client-output bundles or mask
+material. This supports the trusted-server/code-as-deployed claim that the
+server-side protocol path does not receive or materialize the client's
+sensitive key-derivation secret during Ed25519 HSS key derivation. It does not
+upgrade the protocol to a full malicious-server security proof.
+
 See also:
 
 - [`docs/spec-corpus.md`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/formal-verification/docs/spec-corpus.md)

@@ -21,6 +21,25 @@ This crate is not a generic garbling framework and not a generic threshold
 signing crate. It is an implementation-focused fixed-function protocol for the
 Ed25519 shared-root lifecycle.
 
+## Server-Blind Boundary
+
+The current production path uses `ClientMaskedProjection` for client-owned
+finalization. Under the trusted-server/code-as-deployed assumption:
+
+- the server does not receive the client's recoverable secret material
+- the server does not receive the client's output mask
+- the server finalizes against a client-blinded output artifact
+- the client derives the mask locally and opens the final `x_client_base`
+
+This supports the Level A claim: the deployed server protocol does not receive
+or materialize the client's sensitive key-derivation secret during Ed25519 HSS
+key derivation.
+
+This is a server-blind trusted-service boundary. It is not a full
+malicious-server security claim: a maliciously modified server, compromised
+client runtime, supply-chain compromise, or arbitrary inspection/modification of
+client-side code is outside this Level A guarantee.
+
 ## Docs
 
 - API and runtime entrypoint:
