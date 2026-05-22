@@ -76,21 +76,23 @@ export type EmailOtpThresholdEcdsaLoginResult = {
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
   warmCapability: WarmSessionEcdsaCapabilityState;
   clientRootShare32B64u: string;
-  ed25519SessionMaterial?: EmailOtpThresholdEd25519ProvisioningResult;
-  ed25519Reconstruction?:
-    | {
-        kind: 'completed';
-        sessionMaterial: EmailOtpThresholdEd25519ProvisioningResult;
-      }
-    | {
-        kind: 'deferred';
-        reason:
-          | 'missing_ed25519_key_identity'
-          | 'missing_route_auth'
-          | 'missing_runtime_policy_scope'
-          | 'not_needed_for_ecdsa';
-      };
+  ed25519Reconstruction: EmailOtpEd25519ReconstructionResult;
 };
+
+export type EmailOtpEd25519ReconstructionResult =
+  | {
+      kind: 'completed';
+      sessionMaterial: EmailOtpThresholdEd25519ProvisioningResult;
+    }
+  | {
+      kind: 'deferred';
+      reason:
+        | 'missing_client_seed_material'
+        | 'missing_ed25519_key_identity'
+        | 'missing_route_auth'
+        | 'missing_runtime_policy_scope'
+        | 'not_needed_for_ecdsa';
+    };
 
 export type LoginEmailOtpEcdsaCapabilityArgs = {
   walletSession: WalletSessionRef;
@@ -107,14 +109,13 @@ export type LoginEmailOtpEcdsaCapabilityArgs = {
   routeAuth?: AppOrThresholdSessionAuth;
   keyHandle?: string;
   participantIds?: number[];
-  ed25519ParticipantIds?: number[];
   sessionKind?: 'jwt' | 'cookie';
   routePlan?: EmailOtpRoutePlan;
   ttlMs?: number;
   remainingUses?: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   onProgress?: (progress: EmailOtpWorkerProgressEvent) => void;
-  ed25519ReconstructionMode?: 'await' | 'skip';
+  ed25519ReconstructionMode: 'await' | 'skip';
   ed25519SessionReconstruction: EmailOtpEd25519SessionReconstructionPlan;
   authSubjectId?: string;
   includeEcdsaExportArtifact?: boolean;
@@ -197,6 +198,7 @@ export async function loginWithEmailOtpEcdsaCapabilityForSigning(
       operation,
       routePlan,
       remainingUses,
+      ed25519ReconstructionMode: 'skip',
       ed25519SessionReconstruction: {
         kind: 'defer',
         reason: 'not_needed_for_ecdsa',
@@ -237,6 +239,7 @@ export async function loginWithEmailOtpEcdsaCapabilityForSigning(
     authSubjectId: record.emailOtpAuthContext?.authSubjectId,
     remainingUses,
     ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
+    ed25519ReconstructionMode: 'skip',
     ed25519SessionReconstruction: {
       kind: 'defer',
       reason: 'not_needed_for_ecdsa',
@@ -415,13 +418,13 @@ export async function loginWithEmailOtpEcdsaCapability(
   const thresholdEd25519PrfFirstB64u = String(
     workerResult.recovery?.thresholdEd25519PrfFirstB64u || '',
   ).trim();
-  let ed25519SessionMaterial: EmailOtpThresholdEd25519ProvisioningResult | undefined;
-  let ed25519Reconstruction: EmailOtpThresholdEcdsaLoginResult['ed25519Reconstruction'];
+  let ed25519Reconstruction: EmailOtpEd25519ReconstructionResult = {
+    kind: 'deferred',
+    reason: 'missing_client_seed_material',
+  };
   if (thresholdEd25519PrfFirstB64u) {
     const freshThresholdSessionAuth = thresholdSessionAuthFromEcdsaBootstrap(bootstrap);
-    const shouldAwaitEd25519Reconstruction =
-      args.ed25519ReconstructionMode === 'await' ||
-      (!args.ed25519ReconstructionMode && resolvedEmailOtpAuthContext.retention === 'session');
+    const shouldAwaitEd25519Reconstruction = args.ed25519ReconstructionMode === 'await';
     const reconstructionAuth = freshThresholdSessionAuth || routeAuth;
     const ed25519ReconstructionPlan = args.ed25519SessionReconstruction;
     if (ed25519ReconstructionPlan.kind === 'reconstruct' && reconstructionAuth) {
@@ -444,12 +447,17 @@ export async function loginWithEmailOtpEcdsaCapability(
         ecdsaThresholdSessionId: thresholdSessionIdFromEcdsaBootstrap(bootstrap),
       };
       if (shouldAwaitEd25519Reconstruction) {
-        ed25519SessionMaterial = await ports.reconstructEd25519Session(
+        const sessionMaterial = await ports.reconstructEd25519Session(
           ed25519ReconstructionArgs,
         );
         ed25519Reconstruction = {
           kind: 'completed',
-          sessionMaterial: ed25519SessionMaterial,
+          sessionMaterial,
+        };
+      } else {
+        ed25519Reconstruction = {
+          kind: 'deferred',
+          reason: 'not_needed_for_ecdsa',
         };
       }
     } else if (shouldAwaitEd25519Reconstruction) {
@@ -474,7 +482,6 @@ export async function loginWithEmailOtpEcdsaCapability(
     bootstrap,
     warmCapability,
     clientRootShare32B64u: workerResult.clientRootShare32B64u,
-    ...(ed25519SessionMaterial ? { ed25519SessionMaterial } : {}),
-    ...(ed25519Reconstruction ? { ed25519Reconstruction } : {}),
+    ed25519Reconstruction,
   };
 }

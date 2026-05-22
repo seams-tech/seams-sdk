@@ -955,6 +955,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
         envId: 'dev',
         signingRootVersion: 'v1',
       },
+      ed25519ReconstructionMode: 'skip',
       ed25519SessionReconstruction: DEFER_ED25519_RECONSTRUCTION_FOR_ECDSA,
     });
 
@@ -1040,6 +1041,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       keyHandle: 'ehss-key-handle-1',
       participantIds: [1, 3],
       sessionKind: 'jwt',
+      ed25519ReconstructionMode: 'skip',
       ed25519SessionReconstruction: DEFER_ED25519_RECONSTRUCTION_FOR_ECDSA,
     });
 
@@ -1208,6 +1210,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       keyHandle: 'ehss-key-handle-1',
       participantIds: [1, 3],
       sessionKind: 'jwt',
+      ed25519ReconstructionMode: 'skip',
       ed25519SessionReconstruction: DEFER_ED25519_RECONSTRUCTION_FOR_ECDSA,
     });
 
@@ -1270,6 +1273,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
         keyHandle: 'ehss-key-handle-1',
         participantIds: [1, 3],
         sessionKind: 'jwt',
+        ed25519ReconstructionMode: 'skip',
         ed25519SessionReconstruction: DEFER_ED25519_RECONSTRUCTION_FOR_ECDSA,
       }),
     ).rejects.toThrow('Email OTP sealed refresh tempo:42431 record was not durably persisted');
@@ -1307,6 +1311,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       keyHandle: 'ehss-key-handle-1',
       participantIds: [1, 3],
       sessionKind: 'jwt',
+      ed25519ReconstructionMode: 'skip',
       ed25519SessionReconstruction: DEFER_ED25519_RECONSTRUCTION_FOR_ECDSA,
     });
 

@@ -37,6 +37,7 @@ export type LoginWithEmailOtpEcdsaCapabilityInternalArgs = {
   ttlMs?: number;
   remainingUses?: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  ed25519ReconstructionMode: 'await' | 'skip';
   ed25519SessionReconstruction: EmailOtpEd25519SessionReconstructionPlan;
   onProgress?: (progress: EmailOtpWorkerProgressEvent) => void;
 };
@@ -139,6 +140,7 @@ export async function requestEmailOtpSigningSessionChallenge(
               kind: 'defer',
               reason: 'not_needed_for_ecdsa',
             },
+            ed25519ReconstructionMode: 'skip',
           }),
       },
     },
@@ -173,6 +175,7 @@ export async function refreshEmailOtpSigningSession(
               kind: 'defer',
               reason: 'not_needed_for_ecdsa',
             },
+            ed25519ReconstructionMode: loginArgs.ed25519ReconstructionMode,
           }),
       },
     },

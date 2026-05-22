@@ -257,7 +257,6 @@ export class EmailOtpEd25519Warmup {
       otpCode: args.otpCode,
       operation,
       participantIds: ecdsaRecord?.participantIds || args.record.participantIds,
-      ed25519ParticipantIds: args.record.participantIds,
       sessionKind: args.record.thresholdSessionKind,
       routePlan,
       ...(args.record.runtimePolicyScope
@@ -280,10 +279,10 @@ export class EmailOtpEd25519Warmup {
             reason: 'missing_runtime_policy_scope',
           },
     });
-    const provisioned = ecdsaLogin.ed25519SessionMaterial;
-    if (!provisioned?.sessionId) {
+    if (ecdsaLogin.ed25519Reconstruction.kind !== 'completed') {
       throw new Error('Email OTP Ed25519 signing did not provision an Ed25519 signing session');
     }
+    const provisioned = ecdsaLogin.ed25519Reconstruction.sessionMaterial;
     const refreshedRecord = this.ports.getThresholdEd25519SessionRecordByThresholdSessionId(
       provisioned.sessionId,
     );

@@ -212,8 +212,9 @@ export type BootstrapLoginEcdsaSessionFromRestoredEd25519Args = {
 
 type SigningEngineEmailOtpEcdsaLoginInput = Omit<
   LoginWithEmailOtpEcdsaCapabilityInternalArgs,
-  'ed25519SessionReconstruction'
+  'ed25519ReconstructionMode' | 'ed25519SessionReconstruction'
 > & {
+  ed25519ReconstructionMode?: 'await' | 'skip';
   ed25519SessionReconstruction?: EmailOtpEd25519SessionReconstructionPlan;
 };
 
@@ -900,6 +901,7 @@ export class SigningEngine {
           });
     return await this.emailOtpPublic.loginWithEmailOtpEcdsaCapabilityInternal({
       ...args,
+      ed25519ReconstructionMode: args.ed25519ReconstructionMode || 'await',
       ed25519SessionReconstruction,
     });
   }

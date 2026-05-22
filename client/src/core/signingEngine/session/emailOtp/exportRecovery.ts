@@ -476,6 +476,7 @@ export async function exportEcdsaKeyWithFreshEmailOtpLane(
       remainingUses: 1;
       authSubjectId?: string;
       runtimePolicyScope?: ThresholdRuntimePolicyScope;
+      ed25519ReconstructionMode: 'await' | 'skip';
       ed25519SessionReconstruction: EmailOtpEd25519SessionReconstructionPlan;
       includeEcdsaExportArtifact: true;
     }) => Promise<{
@@ -516,6 +517,7 @@ export async function exportEcdsaKeyWithFreshEmailOtpLane(
     remainingUses: 1,
     ...(args.authSubjectId ? { authSubjectId: args.authSubjectId } : {}),
     ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
+    ed25519ReconstructionMode: 'skip',
     ed25519SessionReconstruction: {
       kind: 'defer',
       reason: 'not_needed_for_ecdsa',

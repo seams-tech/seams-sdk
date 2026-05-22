@@ -120,6 +120,11 @@ test.describe('Email OTP ECDSA role-local bootstrap guard', () => {
     expect(source).toContain(
       'ed25519SessionReconstruction: EmailOtpEd25519SessionReconstructionPlan',
     );
+    expect(source).toContain('ed25519Reconstruction: EmailOtpEd25519ReconstructionResult');
+    expect(source).toContain("ed25519ReconstructionMode: 'await' | 'skip'");
+    expect(source).not.toContain('ed25519Reconstruction?:');
+    expect(source).not.toContain('ed25519ReconstructionMode?:');
+    expect(source).not.toContain('ed25519SessionMaterial?:');
     expect(source).not.toContain('ed25519SessionReconstruction?:');
     expect(source).not.toContain('ed25519SessionReconstruction?.runtimePolicyScope');
     expect(source).toContain('await ports.reconstructEd25519Session(');

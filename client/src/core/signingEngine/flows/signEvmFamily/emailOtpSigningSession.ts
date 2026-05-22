@@ -72,7 +72,7 @@ export type EmailOtpEcdsaSigningSessionDeps = {
       remainingUses?: number;
       runtimePolicyScope?: ThresholdRuntimePolicyScope;
       routeAuth?: AppOrThresholdSessionAuth;
-      ed25519ReconstructionMode?: 'await' | 'skip';
+      ed25519ReconstructionMode: 'await' | 'skip';
     }) => Promise<{
       recovery: EmailOtpBootstrapRecovery;
       bootstrap: ThresholdEcdsaSessionBootstrapResult;
