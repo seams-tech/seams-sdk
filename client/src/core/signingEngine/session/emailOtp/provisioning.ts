@@ -7,6 +7,7 @@ import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold
 import {
   buildEd25519SessionPolicy,
   normalizeThresholdRuntimePolicyScope,
+  parseThresholdRuntimePolicyScopeFromJwt,
 } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import {
@@ -116,6 +117,15 @@ type NormalizedEmailOtpEd25519ProvisioningInput =
       ecdsaThresholdSessionId: string;
     });
 
+type EmailOtpEd25519RegistrationGrantAdmission =
+  | {
+      kind: 'registration_grant_admitted';
+      registrationAttemptId: string;
+    }
+  | {
+      kind: 'registration_grant_forbidden';
+    };
+
 function normalizeOptionalString(value: unknown): string | undefined {
   const normalized = String(value ?? '').trim();
   return normalized || undefined;
@@ -170,6 +180,19 @@ function normalizeEmailOtpEd25519ProvisioningInput(
   };
 }
 
+function resolveRegistrationGrantAdmission(
+  input: NormalizedEmailOtpEd25519ProvisioningInput,
+): EmailOtpEd25519RegistrationGrantAdmission {
+  const registrationAttemptId = normalizeOptionalString(input.registrationAttemptId);
+  if (registrationAttemptId) {
+    return {
+      kind: 'registration_grant_admitted',
+      registrationAttemptId,
+    };
+  }
+  return { kind: 'registration_grant_forbidden' };
+}
+
 export async function provisionEmailOtpEd25519Capability(args: {
   input: ProvisionEmailOtpThresholdEd25519CapabilityArgs;
   configs: SeamsConfigsReadonly;
@@ -222,10 +245,18 @@ export async function provisionEmailOtpEd25519Capability(args: {
     configs: args.configs,
     relayerUrl,
   });
+  const registrationGrantAdmission = resolveRegistrationGrantAdmission(input);
 
-  let runtimePolicyScope = input.runtimePolicyScope;
+  let runtimePolicyScope =
+    input.runtimePolicyScope ||
+    parseThresholdRuntimePolicyScopeFromJwt(input.appSessionJwt) ||
+    parseThresholdRuntimePolicyScopeFromJwt(input.routeAuth?.jwt);
   let managedGrantForNextRegistrationRequest: ManagedRegistrationBootstrapGrant | null = null;
-  if (!runtimePolicyScope && registrationTransport.mode === 'managed') {
+  if (
+    !runtimePolicyScope &&
+    registrationTransport.mode === 'managed' &&
+    registrationGrantAdmission.kind === 'registration_grant_admitted'
+  ) {
     managedGrantForNextRegistrationRequest = await requestManagedRegistrationBootstrapGrant({
       relayerUrl: registrationTransport.relayerUrl,
       environmentId: registrationTransport.environmentId,
@@ -266,6 +297,11 @@ export async function provisionEmailOtpEd25519Capability(args: {
 
   const registrationHeaders = async (): Promise<Record<string, string>> => {
     if (registrationTransport.mode !== 'managed') return {};
+    if (registrationGrantAdmission.kind === 'registration_grant_forbidden') {
+      throw new Error(
+        'Email OTP threshold-ed25519 registration bootstrap requires a registration attempt',
+      );
+    }
     if (managedGrantForNextRegistrationRequest) {
       const grant = managedGrantForNextRegistrationRequest;
       managedGrantForNextRegistrationRequest = null;

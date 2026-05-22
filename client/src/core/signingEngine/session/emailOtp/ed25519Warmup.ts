@@ -118,6 +118,9 @@ export class EmailOtpEd25519Warmup {
       ) => Promise<EmailOtpThresholdEd25519ProvisioningResult>;
     },
   ): void {
+    if (args.kind === 'companion_to_ecdsa_provisioning' && !args.registrationAttemptId) {
+      return;
+    }
     const accountId = this.normalizeWarmupAccountId(args.nearAccountId);
     if (!accountId) return;
     const warmupMap = this.getWarmupMap();

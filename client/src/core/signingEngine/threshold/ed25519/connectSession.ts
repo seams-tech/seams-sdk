@@ -14,63 +14,6 @@ import {
 } from '../sessionPolicy';
 import { mintEd25519AuthSession } from '../ed25519/authSession';
 
-function joinUrlPath(baseUrl: string, path: string): string {
-  const base = String(baseUrl || '').replace(/\/+$/, '');
-  const suffix = String(path || '').replace(/^\/?/, '/');
-  return `${base}${suffix}`;
-}
-
-async function readJsonObject(response: Response): Promise<Record<string, unknown>> {
-  const data = (await response.json().catch(() => ({}))) as unknown;
-  return data && typeof data === 'object' && !Array.isArray(data)
-    ? (data as Record<string, unknown>)
-    : {};
-}
-
-async function resolveManagedRuntimePolicyScope(args: {
-  relayerUrl: string;
-  environmentId: string;
-  publishableKey: string;
-  nearAccountId: string;
-  rpId: string;
-}): Promise<ThresholdRuntimePolicyScope> {
-  const response = await fetch(joinUrlPath(args.relayerUrl, '/v1/registration/bootstrap-grants'), {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${args.publishableKey}`,
-    },
-    body: JSON.stringify({
-      environmentId: args.environmentId,
-      newAccountId: args.nearAccountId,
-      rpId: args.rpId,
-      flow: 'registration_v1',
-    }),
-  });
-  const data = await readJsonObject(response);
-  if (!response.ok || data.ok === false) {
-    throw new Error(
-      String(
-        data.message ||
-          data.code ||
-          `Managed runtime scope lookup failed with HTTP ${response.status}`,
-      ),
-    );
-  }
-  const grant =
-    data.grant && typeof data.grant === 'object' && !Array.isArray(data.grant)
-      ? (data.grant as Record<string, unknown>)
-      : {};
-  const orgId = String(grant.orgId || '').trim();
-  const projectId = String(grant.projectId || '').trim();
-  const envId = String(grant.envId || '').trim();
-  const signingRootVersion = String(grant.signingRootVersion || '').trim();
-  if (!orgId || !projectId || !envId || !signingRootVersion) {
-    throw new Error('Managed runtime scope lookup response missing canonical runtime scope');
-  }
-  return { orgId, projectId, envId, signingRootVersion };
-}
-
 /**
  * Wallet-origin helper:
  * - build a threshold session policy (and digest)
@@ -122,24 +65,7 @@ export async function connectEd25519Session(args: {
   const appSessionJwt = String(args.appSessionJwt || '').trim();
   const hasAppSessionAuth = Boolean(appSessionJwt || args.useAppSessionCookie === true);
   const appSessionRuntimePolicyScope = parseThresholdRuntimePolicyScopeFromJwt(appSessionJwt);
-  // JWT-backed unlocks with a signed runtime scope are already authenticated; bootstrap
-  // grants are registration-style publishable-key flows and consume free registration quota.
-  // Cookie-only calls may not have a session cookie in local/e2e runtimes, so keep their
-  // existing managed bootstrap path unless the caller supplied canonical scope.
-  const shouldResolveManagedRuntimePolicyScope =
-    !appSessionRuntimePolicyScope && !args.runtimePolicyScope && Boolean(args.runtimeScopeBootstrap);
-  const runtimePolicyScope =
-    args.runtimePolicyScope ||
-    appSessionRuntimePolicyScope ||
-    (shouldResolveManagedRuntimePolicyScope && args.runtimeScopeBootstrap
-      ? await resolveManagedRuntimePolicyScope({
-          relayerUrl: args.relayerUrl,
-          environmentId: args.runtimeScopeBootstrap.environmentId,
-          publishableKey: args.runtimeScopeBootstrap.publishableKey,
-          nearAccountId: args.nearAccountId,
-          rpId,
-        })
-      : undefined);
+  const runtimePolicyScope = args.runtimePolicyScope || appSessionRuntimePolicyScope;
 
   const { policy, sessionPolicyDigest32 } = await buildEd25519SessionPolicy({
     nearAccountId: args.nearAccountId,

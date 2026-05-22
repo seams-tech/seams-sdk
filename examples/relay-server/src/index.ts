@@ -1405,7 +1405,7 @@ async function main() {
     },
     quotasByBucket: {
       default: { maxIssued: 1_000 },
-      free_registrations_v1: { maxIssued: 1_000 },
+      free_registrations_v1: { maxIssued: 100_000 },
     },
   });
   const consoleOnboarding = createInMemoryConsoleOnboardingService({

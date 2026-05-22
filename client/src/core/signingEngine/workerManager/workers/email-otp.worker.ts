@@ -2773,10 +2773,10 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
     if (!resolvedParticipantIds) {
       throw new Error('Threshold role-local bootstrap response missing participantIds');
     }
-    const emailOtpClientAdditiveShare32 = base64UrlDecode(mappedPrivateShare32B64u);
+    const emailOtpClientAdditiveShare32 = base64UrlDecode(clientShare32B64u);
     if (emailOtpClientAdditiveShare32.length !== 32) {
       zeroizeBytes(emailOtpClientAdditiveShare32);
-      throw new Error('mappedPrivateShare32B64u must decode to 32 bytes');
+      throw new Error('clientShare32B64u must decode to 32 bytes');
     }
     const nowMs = Date.now();
     const ecdsaHssRoleLocalClientState: ThresholdEcdsaHssRoleLocalClientState = {
@@ -2802,7 +2802,8 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
       sessionId: value.sessionId,
     };
     const thresholdSessionAuthToken =
-      routeAuth.kind === 'threshold_session' ? readOptionalString(routeAuth.jwt) : undefined;
+      readOptionalString(value.jwt) ||
+      (routeAuth.kind === 'threshold_session' ? readOptionalString(routeAuth.jwt) : undefined);
     return {
       thresholdEcdsaKeyRef: {
         type: 'threshold-ecdsa-secp256k1',

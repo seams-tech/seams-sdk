@@ -14,7 +14,10 @@ import {
   walletSubjectIdFromWalletProfile,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
-import { generateWalletSigningSessionId } from '@/core/signingEngine/threshold/sessionPolicy';
+import {
+  generateWalletSigningSessionId,
+  parseThresholdRuntimePolicyScopeFromJwt,
+} from '@/core/signingEngine/threshold/sessionPolicy';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type { WarmSessionEcdsaCapabilityState } from '@/core/signingEngine/session/warmCapabilities/types';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
@@ -299,6 +302,10 @@ export async function loginWithEmailOtpEcdsaCapability(
   });
   const walletSigningSessionId = mintingSession.walletSigningSessionId;
   const routeAuth = routeAuthFromEmailOtpRoutePlan(routePlan);
+  const runtimePolicyScope =
+    args.runtimePolicyScope ||
+    parseThresholdRuntimePolicyScopeFromJwt(args.appSessionJwt) ||
+    parseThresholdRuntimePolicyScopeFromJwt(routeAuth?.jwt);
 
   if (!workerCtx) {
     throw new Error('Email OTP login requires the dedicated emailOtp worker');
@@ -328,7 +335,7 @@ export async function loginWithEmailOtpEcdsaCapability(
     routePlan,
     workerCtx,
     ...(args.challengeId ? { challengeId: args.challengeId } : {}),
-    ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     ...(args.onProgress ? { onProgress: args.onProgress } : {}),
   });
   const roleLocalKeyIdentity = await resolveEmailOtpEcdsaRoleLocalKeyIdentityForHandle({
@@ -336,7 +343,7 @@ export async function loginWithEmailOtpEcdsaCapability(
     walletSessionUserId,
     rpId,
     subjectId,
-    ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
   });
   const bootstrapResult = await workerCtx.requestWorkerOperation({
     kind: 'emailOtp',
@@ -363,7 +370,7 @@ export async function loginWithEmailOtpEcdsaCapability(
         ...(routeAuth ? { routeAuth } : {}),
         ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
         ...(typeof remainingUses === 'number' ? { remainingUses } : {}),
-        ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
+        ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
         ...(args.includeEcdsaExportArtifact ? { includeEcdsaExportArtifact: true } : {}),
       },
       onEvent: args.onProgress,
@@ -402,7 +409,7 @@ export async function loginWithEmailOtpEcdsaCapability(
       ...(freshThresholdSessionAuth || routeAuth
         ? { routeAuth: freshThresholdSessionAuth || routeAuth }
         : {}),
-      ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
+      ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
       ...(Array.isArray(args.ed25519ParticipantIds)
         ? { participantIds: args.ed25519ParticipantIds }
         : Array.isArray(args.participantIds)
