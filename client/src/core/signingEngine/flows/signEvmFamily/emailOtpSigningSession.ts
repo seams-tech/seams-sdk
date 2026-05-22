@@ -72,7 +72,7 @@ export type EmailOtpEcdsaSigningSessionDeps = {
       remainingUses?: number;
       runtimePolicyScope?: ThresholdRuntimePolicyScope;
       routeAuth?: AppOrThresholdSessionAuth;
-      ed25519ProvisioningMode?: 'await' | 'skip';
+      ed25519ReconstructionMode?: 'await' | 'skip';
     }) => Promise<{
       recovery: EmailOtpBootstrapRecovery;
       bootstrap: ThresholdEcdsaSessionBootstrapResult;
@@ -324,6 +324,6 @@ export async function refreshEmailOtpSigningSession(
     ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
     ...(typeof args.remainingUses === 'number' ? { remainingUses: args.remainingUses } : {}),
     ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
-    ed25519ProvisioningMode: 'await',
+    ed25519ReconstructionMode: 'await',
   });
 }

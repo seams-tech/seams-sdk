@@ -882,9 +882,11 @@ export class SigningEngine {
       runtimePolicyScope
         ? {
             kind: 'reconstruct',
-            relayerKeyId: thresholdKeyMaterial.relayerKeyId,
-            keyVersion: thresholdKeyMaterial.keyVersion,
-            participantIds,
+            ed25519Key: {
+              relayerKeyId: thresholdKeyMaterial.relayerKeyId,
+              keyVersion: thresholdKeyMaterial.keyVersion,
+              participantIds,
+            },
             runtimePolicyScope,
           }
         : {

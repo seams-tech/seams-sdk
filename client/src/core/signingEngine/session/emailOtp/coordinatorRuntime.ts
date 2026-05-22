@@ -122,8 +122,6 @@ export class EmailOtpThresholdSessionRuntime {
       publicationPorts: () => this.sealedSessionRegistry.ecdsaPublicationPorts(),
       provisionEd25519Capability: (request) => this.provisionEd25519Capability(request),
       reconstructEd25519Session: (request) => this.reconstructEd25519Session(request),
-      scheduleEd25519CapabilityProvisioning: (request) =>
-        this.scheduleEd25519CapabilityProvisioning(request),
     });
     this.exportRecoveryRuntime = new EmailOtpExportRecoveryRuntime({
       getSignerWorkerContext: deps.getSignerWorkerContext,

@@ -70,6 +70,7 @@ export type EnrollAndLoginEmailOtpEcdsaCapabilityArgs = {
   routeAuth?: AppOrThresholdSessionAuth;
   keyHandle?: string;
   participantIds?: number[];
+  ed25519ParticipantIds?: number[];
   sessionKind?: 'jwt' | 'cookie';
   routePlan?: EmailOtpRoutePlan;
   ttlMs?: number;
@@ -262,7 +263,9 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
         ? { routeAuth: freshThresholdSessionAuth || routeAuth }
         : {}),
       ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-      ...(Array.isArray(args.participantIds) ? { participantIds: args.participantIds } : {}),
+      ...(Array.isArray(args.ed25519ParticipantIds)
+        ? { participantIds: args.ed25519ParticipantIds }
+        : {}),
       ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
       ...(typeof remainingUses === 'number' ? { remainingUses } : {}),
       walletSigningSessionId: walletSigningSessionIdFromEcdsaBootstrap(

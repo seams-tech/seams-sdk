@@ -58,9 +58,6 @@ export class EmailOtpEcdsaLifecycleRuntime {
       reconstructEd25519Session: (
         args: ReconstructEmailOtpEd25519SessionArgs,
       ) => Promise<EmailOtpThresholdEd25519ProvisioningResult>;
-      scheduleEd25519CapabilityProvisioning: (
-        args: RegisterEmailOtpEd25519CapabilityArgs,
-      ) => void;
     },
   ) {}
 
@@ -86,11 +83,7 @@ export class EmailOtpEcdsaLifecycleRuntime {
       requireRpId: (operation) => this.ports.runtimeConfig.requireRpId(operation),
       rememberAppSessionJwt: (request) => this.ports.rememberAppSessionJwt(request),
       publicationPorts: this.ports.publicationPorts(),
-      provisionEd25519Capability: (request) =>
-        this.ports.provisionEd25519Capability(request),
       reconstructEd25519Session: (request) => this.ports.reconstructEd25519Session(request),
-      scheduleEd25519CapabilityProvisioning: (request) =>
-        this.ports.scheduleEd25519CapabilityProvisioning(request),
     });
   }
 

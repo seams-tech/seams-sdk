@@ -70,6 +70,7 @@ export type EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs = {
   appSessionJwt?: string;
   routeAuth?: AppOrThresholdSessionAuth;
   participantIds?: number[];
+  ed25519ParticipantIds?: number[];
   keyHandle?: string;
   sessionKind?: 'jwt' | 'cookie';
   ttlMs?: number;

@@ -98,9 +98,7 @@ void validReconstruction;
 
 const validReconstructionPlan = {
   kind: 'reconstruct',
-  relayerKeyId: 'ed25519:relayer',
-  keyVersion: 'threshold-ed25519-hss-v1',
-  participantIds: [1, 2],
+  ed25519Key: validReconstruction.ed25519Key,
   runtimePolicyScope: validReconstruction.runtimePolicyScope,
 } satisfies EmailOtpEd25519SessionReconstructionPlan;
 
@@ -111,9 +109,7 @@ const validDeferredReconstructionPlan = {
 
 const invalidReconstructionPlanWithoutRuntimeScope: EmailOtpEd25519SessionReconstructionPlan = {
   kind: 'reconstruct',
-  relayerKeyId: 'ed25519:relayer',
-  keyVersion: 'threshold-ed25519-hss-v1',
-  participantIds: [1, 2],
+  ed25519Key: validReconstruction.ed25519Key,
   // @ts-expect-error reconstruction plans require runtime policy scope
   runtimePolicyScope: undefined,
 };

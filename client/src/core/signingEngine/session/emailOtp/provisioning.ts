@@ -89,9 +89,7 @@ export type EmailOtpEd25519SessionReconstructionKey = {
 export type EmailOtpEd25519SessionReconstructionPlan =
   | {
       kind: 'reconstruct';
-      relayerKeyId: string;
-      keyVersion: string;
-      participantIds: number[];
+      ed25519Key: EmailOtpEd25519SessionReconstructionKey;
       runtimePolicyScope: ThresholdRuntimePolicyScope;
     }
   | {
@@ -487,20 +485,6 @@ export async function registerEmailOtpEd25519Capability(args: {
       thresholdSessionAuthToken: jwt,
     },
   });
-  if (input.kind === 'registration_ed25519_companion_provisioning') {
-    await attachEd25519SessionToEmailOtpSigningSessionSealBestEffort({
-      sessionPersistenceMode: args.sessionPersistenceMode,
-      ecdsaThresholdSessionId: input.ecdsaThresholdSessionId,
-      ed25519ThresholdSessionId: sessionId,
-      readExactSealedSession: args.readExactSealedSession,
-      getThresholdEcdsaSessionRecordByThresholdSessionId:
-        args.getThresholdEcdsaSessionRecordByThresholdSessionId,
-      getThresholdEd25519SessionRecordByThresholdSessionId:
-        args.getThresholdEd25519SessionRecordByThresholdSessionId,
-      registerSigningSession: args.registerSigningSession,
-    });
-  }
-
   const completed = await runThresholdEd25519HssCeremonyWithSessionValue({
     relayerUrl,
     thresholdSessionAuthToken: jwt,
@@ -717,17 +701,6 @@ export async function reconstructEmailOtpEd25519Session(args: {
       relayerUrl,
       thresholdSessionAuthToken: jwt,
     },
-  });
-  await attachEd25519SessionToEmailOtpSigningSessionSealBestEffort({
-    sessionPersistenceMode: args.sessionPersistenceMode,
-    ecdsaThresholdSessionId,
-    ed25519ThresholdSessionId: sessionId,
-    readExactSealedSession: args.readExactSealedSession,
-    getThresholdEcdsaSessionRecordByThresholdSessionId:
-      args.getThresholdEcdsaSessionRecordByThresholdSessionId,
-    getThresholdEd25519SessionRecordByThresholdSessionId:
-      args.getThresholdEd25519SessionRecordByThresholdSessionId,
-    registerSigningSession: args.registerSigningSession,
   });
   const completed = await runThresholdEd25519HssCeremonyWithSessionValue({
     relayerUrl,

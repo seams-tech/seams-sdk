@@ -264,13 +264,15 @@ export class EmailOtpEd25519Warmup {
         ? { runtimePolicyScope: args.record.runtimePolicyScope }
         : {}),
       remainingUses: defaultRemainingUses,
-      ed25519ProvisioningMode: 'await',
+      ed25519ReconstructionMode: 'await',
       ed25519SessionReconstruction: args.record.runtimePolicyScope
         ? {
             kind: 'reconstruct',
-            relayerKeyId: args.record.relayerKeyId,
-            keyVersion: EMAIL_OTP_THRESHOLD_ED25519_HSS_KEY_VERSION,
-            participantIds: args.record.participantIds,
+            ed25519Key: {
+              relayerKeyId: args.record.relayerKeyId,
+              keyVersion: EMAIL_OTP_THRESHOLD_ED25519_HSS_KEY_VERSION,
+              participantIds: args.record.participantIds,
+            },
             runtimePolicyScope: args.record.runtimePolicyScope,
           }
         : {
@@ -278,7 +280,7 @@ export class EmailOtpEd25519Warmup {
             reason: 'missing_runtime_policy_scope',
           },
     });
-    const provisioned = ecdsaLogin.ed25519Provisioning;
+    const provisioned = ecdsaLogin.ed25519SessionMaterial;
     if (!provisioned?.sessionId) {
       throw new Error('Email OTP Ed25519 signing did not provision an Ed25519 signing session');
     }
