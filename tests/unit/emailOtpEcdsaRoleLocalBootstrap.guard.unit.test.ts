@@ -17,6 +17,10 @@ const EMAIL_OTP_PROVISIONING_URL = new URL(
   '../../client/src/core/signingEngine/session/emailOtp/provisioning.ts',
   import.meta.url,
 );
+const SIGNING_ENGINE_URL = new URL(
+  '../../client/src/core/signingEngine/SigningEngine.ts',
+  import.meta.url,
+);
 
 test.describe('Email OTP ECDSA role-local bootstrap guard', () => {
   test('bootstrap uses role-local paths and rejects missing role-local identity', () => {
@@ -87,46 +91,64 @@ test.describe('Email OTP ECDSA role-local bootstrap guard', () => {
     expect(source).toContain('...(runtimePolicyScope ? { runtimePolicyScope } : {})');
   });
 
-  test('login forwards parsed runtime policy scope into companion Ed25519 provisioning', () => {
+  test('login reconstructs existing Ed25519 sessions through session-auth path', () => {
     const source = readFileSync(EMAIL_OTP_ECDSA_LOGIN_URL, 'utf8');
-    const provisioningArgsStart = source.indexOf('const ed25519ProvisioningArgs');
-    expect(provisioningArgsStart).toBeGreaterThan(-1);
-    const provisioningArgsEnd = source.indexOf('};', provisioningArgsStart);
-    expect(provisioningArgsEnd).toBeGreaterThan(provisioningArgsStart);
-    const provisioningArgs = source.slice(provisioningArgsStart, provisioningArgsEnd);
+    const reconstructionArgsStart = source.indexOf('const ed25519ReconstructionArgs');
+    expect(reconstructionArgsStart).toBeGreaterThan(-1);
+    const reconstructionArgsEnd = source.indexOf('};', reconstructionArgsStart);
+    expect(reconstructionArgsEnd).toBeGreaterThan(reconstructionArgsStart);
+    const reconstructionArgs = source.slice(reconstructionArgsStart, reconstructionArgsEnd);
 
-    expect(provisioningArgs).toContain('...(runtimePolicyScope ? { runtimePolicyScope } : {})');
-    expect(provisioningArgs).not.toContain(
-      '...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {})',
+    expect(reconstructionArgs).toContain("kind: 'session_ed25519_reconstruction'");
+    expect(reconstructionArgs).toContain('routeAuth: reconstructionAuth');
+    expect(reconstructionArgs).toContain(
+      'runtimePolicyScope: ed25519ReconstructionPlan.runtimePolicyScope',
     );
+    expect(source).toContain(
+      'ed25519SessionReconstruction: EmailOtpEd25519SessionReconstructionPlan',
+    );
+    expect(source).not.toContain('ed25519SessionReconstruction?:');
+    expect(source).not.toContain('ed25519SessionReconstruction?.runtimePolicyScope');
+    expect(source).toContain('await ports.reconstructEd25519Session(ed25519ReconstructionArgs)');
+    expect(source).not.toContain('canUseRegistrationEd25519Provisioning');
   });
 
-  test('Ed25519 companion provisioning does not spend registration grants during unlock', () => {
+  test('Ed25519 registration and reconstruction paths are split', () => {
     const source = readFileSync(EMAIL_OTP_PROVISIONING_URL, 'utf8');
-    const functionStart = source.indexOf(
-      'export async function provisionEmailOtpEd25519Capability',
+    const registrationStart = source.indexOf('export async function registerEmailOtpEd25519Capability');
+    const reconstructionStart = source.indexOf(
+      'export async function reconstructEmailOtpEd25519Session',
     );
-    expect(functionStart).toBeGreaterThan(-1);
-    const grantRequestStart = source.indexOf(
-      'requestManagedRegistrationBootstrapGrant({',
-      functionStart,
-    );
-    expect(grantRequestStart).toBeGreaterThan(functionStart);
-    const preGrantBlock = source.slice(functionStart, grantRequestStart);
+    const helperStart = source.indexOf('function joinUrlPath', reconstructionStart);
+    expect(registrationStart).toBeGreaterThan(-1);
+    expect(reconstructionStart).toBeGreaterThan(registrationStart);
+    expect(helperStart).toBeGreaterThan(reconstructionStart);
+    const registrationBlock = source.slice(registrationStart, reconstructionStart);
+    const reconstructionBlock = source.slice(reconstructionStart, helperStart);
 
-    expect(preGrantBlock).toContain('parseThresholdRuntimePolicyScopeFromJwt(input.appSessionJwt)');
-    expect(preGrantBlock).toContain('parseThresholdRuntimePolicyScopeFromJwt(input.routeAuth?.jwt)');
-    expect(preGrantBlock).toContain(
-      'const registrationGrantAdmission = resolveRegistrationGrantAdmission(input);',
-    );
-    expect(preGrantBlock).toContain(
-      "registrationGrantAdmission.kind === 'registration_grant_admitted'",
-    );
-    expect(source).toContain(
-      "if (registrationGrantAdmission.kind === 'registration_grant_forbidden')",
-    );
-    expect(source).toContain(
-      'Email OTP threshold-ed25519 registration bootstrap requires a registration attempt',
-    );
+    expect(registrationBlock).toContain("kind === 'registration_ed25519_companion_provisioning'");
+    expect(registrationBlock).toContain('/registration/threshold-ed25519/hss/prepare');
+    expect(registrationBlock).toContain('requestManagedRegistrationBootstrapGrant({');
+    expect(reconstructionBlock).toContain('ReconstructEmailOtpEd25519SessionArgs');
+    expect(reconstructionBlock).toContain('/threshold-ed25519/session');
+    expect(reconstructionBlock).not.toContain('/registration/threshold-ed25519/hss/prepare');
+    expect(reconstructionBlock).not.toContain('requestManagedRegistrationBootstrapGrant({');
+  });
+
+  test('SDK Email OTP ECDSA login forwards stored Ed25519 key identity for reconstruction', () => {
+    const source = readFileSync(SIGNING_ENGINE_URL, 'utf8');
+    const functionStart = source.indexOf('async loginWithEmailOtpEcdsaCapabilityInternal');
+    expect(functionStart).toBeGreaterThan(-1);
+    const functionEnd = source.indexOf('async requestEmailOtpSigningSessionChallenge', functionStart);
+    expect(functionEnd).toBeGreaterThan(functionStart);
+    const loginBridge = source.slice(functionStart, functionEnd);
+
+    expect(loginBridge).toContain('getLastLoggedInSignerSlot(walletId, IndexedDBManager.clientDB)');
+    expect(loginBridge).toContain('getNearThresholdKeyMaterial(');
+    expect(loginBridge).toContain('ed25519SessionReconstruction');
+    expect(loginBridge).toContain('relayerKeyId: thresholdKeyMaterial.relayerKeyId');
+    expect(loginBridge).toContain('keyVersion: thresholdKeyMaterial.keyVersion');
+    expect(loginBridge).toContain('participantIds');
+    expect(loginBridge).toContain("'missing_runtime_policy_scope'");
   });
 });

@@ -29,7 +29,8 @@ import {
 import { EmailOtpAppSessionJwtCache } from './appSessionJwtCache';
 import {
   type EmailOtpThresholdEd25519ProvisioningResult,
-  type ProvisionEmailOtpThresholdEd25519CapabilityArgs,
+  type ReconstructEmailOtpEd25519SessionArgs,
+  type RegisterEmailOtpEd25519CapabilityArgs,
 } from './provisioning';
 import type { EmailOtpThresholdSessionCoordinatorDeps } from './ports';
 import { readEmailOtpPersistedSessionSnapshot } from './persistedSnapshot';
@@ -120,6 +121,7 @@ export class EmailOtpThresholdSessionRuntime {
       resolveAppSessionJwt: (request) => this.resolveAppSessionJwt(request),
       publicationPorts: () => this.sealedSessionRegistry.ecdsaPublicationPorts(),
       provisionEd25519Capability: (request) => this.provisionEd25519Capability(request),
+      reconstructEd25519Session: (request) => this.reconstructEd25519Session(request),
       scheduleEd25519CapabilityProvisioning: (request) =>
         this.scheduleEd25519CapabilityProvisioning(request),
     });
@@ -287,7 +289,7 @@ export class EmailOtpThresholdSessionRuntime {
   }
 
   scheduleEd25519CapabilityProvisioning(
-    args: ProvisionEmailOtpThresholdEd25519CapabilityArgs,
+    args: RegisterEmailOtpEd25519CapabilityArgs,
   ): void {
     this.ed25519Warmup.scheduleProvisioning(args, {
       provisionCapability: (request) => this.provisionEd25519Capability(request),
@@ -355,9 +357,15 @@ export class EmailOtpThresholdSessionRuntime {
   }
 
   async provisionEd25519Capability(
-    args: ProvisionEmailOtpThresholdEd25519CapabilityArgs,
+    args: RegisterEmailOtpEd25519CapabilityArgs,
   ): Promise<EmailOtpThresholdEd25519ProvisioningResult> {
     return await this.ed25519Warmup.provisionCapability(args);
+  }
+
+  async reconstructEd25519Session(
+    args: ReconstructEmailOtpEd25519SessionArgs,
+  ): Promise<EmailOtpThresholdEd25519ProvisioningResult> {
+    return await this.ed25519Warmup.reconstructSession(args);
   }
 
 }

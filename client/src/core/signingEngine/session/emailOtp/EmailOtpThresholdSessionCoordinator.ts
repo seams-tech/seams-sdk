@@ -168,4 +168,10 @@ export class EmailOtpThresholdSessionCoordinator {
   ): ReturnType<EmailOtpThresholdSessionRuntime['provisionEd25519Capability']> {
     return this.runtime.provisionEd25519Capability(args);
   }
+
+  reconstructEd25519Session(
+    args: Parameters<EmailOtpThresholdSessionRuntime['reconstructEd25519Session']>[0],
+  ): ReturnType<EmailOtpThresholdSessionRuntime['reconstructEd25519Session']> {
+    return this.runtime.reconstructEd25519Session(args);
+  }
 }

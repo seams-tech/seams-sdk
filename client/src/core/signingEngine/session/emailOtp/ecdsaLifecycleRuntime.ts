@@ -22,7 +22,8 @@ import {
 } from './ecdsaEnrollment';
 import type {
   EmailOtpThresholdEd25519ProvisioningResult,
-  ProvisionEmailOtpThresholdEd25519CapabilityArgs,
+  ReconstructEmailOtpEd25519SessionArgs,
+  RegisterEmailOtpEd25519CapabilityArgs,
 } from './provisioning';
 
 export type LoginEmailOtpEcdsaCapabilityForSigningArgs = {
@@ -52,10 +53,13 @@ export class EmailOtpEcdsaLifecycleRuntime {
       }) => Promise<string>;
       publicationPorts: () => EmailOtpEcdsaPublicationPorts;
       provisionEd25519Capability: (
-        args: ProvisionEmailOtpThresholdEd25519CapabilityArgs,
+        args: RegisterEmailOtpEd25519CapabilityArgs,
+      ) => Promise<EmailOtpThresholdEd25519ProvisioningResult>;
+      reconstructEd25519Session: (
+        args: ReconstructEmailOtpEd25519SessionArgs,
       ) => Promise<EmailOtpThresholdEd25519ProvisioningResult>;
       scheduleEd25519CapabilityProvisioning: (
-        args: ProvisionEmailOtpThresholdEd25519CapabilityArgs,
+        args: RegisterEmailOtpEd25519CapabilityArgs,
       ) => void;
     },
   ) {}
@@ -84,6 +88,7 @@ export class EmailOtpEcdsaLifecycleRuntime {
       publicationPorts: this.ports.publicationPorts(),
       provisionEd25519Capability: (request) =>
         this.ports.provisionEd25519Capability(request),
+      reconstructEd25519Session: (request) => this.ports.reconstructEd25519Session(request),
       scheduleEd25519CapabilityProvisioning: (request) =>
         this.ports.scheduleEd25519CapabilityProvisioning(request),
     });

@@ -48,7 +48,7 @@ import {
 } from './routePlan';
 import type {
   EmailOtpThresholdEd25519ProvisioningResult,
-  ProvisionEmailOtpThresholdEd25519CapabilityArgs,
+  RegisterEmailOtpEd25519CapabilityArgs,
 } from './provisioning';
 
 export type EmailOtpThresholdEcdsaEnrollmentResult = {
@@ -93,7 +93,7 @@ export type EmailOtpEcdsaEnrollmentPorts = {
   }) => void;
   publicationPorts: EmailOtpEcdsaPublicationPorts;
   provisionEd25519Capability: (
-    args: ProvisionEmailOtpThresholdEd25519CapabilityArgs,
+    args: RegisterEmailOtpEd25519CapabilityArgs,
   ) => Promise<EmailOtpThresholdEd25519ProvisioningResult>;
 };
 
@@ -242,9 +242,16 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
   );
   const thresholdEd25519PrfFirstB64u = String(enrollment.thresholdEd25519PrfFirstB64u || '').trim();
   if (thresholdEd25519PrfFirstB64u) {
+    const registrationAttemptId = String(args.registrationAttemptId || '').trim();
+    if (!registrationAttemptId) {
+      throw new Error(
+        'Email OTP threshold-ed25519 registration provisioning requires a registration attempt',
+      );
+    }
     const freshThresholdSessionAuth = thresholdSessionAuthFromEcdsaBootstrap(bootstrap);
     await ports.provisionEd25519Capability({
-      kind: 'companion_to_ecdsa_provisioning',
+      kind: 'registration_ed25519_companion_provisioning',
+      registrationAttemptId,
       nearAccountId,
       relayUrl,
       rpId,
@@ -255,7 +262,6 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
         ? { routeAuth: freshThresholdSessionAuth || routeAuth }
         : {}),
       ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-      ...(args.registrationAttemptId ? { registrationAttemptId: args.registrationAttemptId } : {}),
       ...(Array.isArray(args.participantIds) ? { participantIds: args.participantIds } : {}),
       ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
       ...(typeof remainingUses === 'number' ? { remainingUses } : {}),

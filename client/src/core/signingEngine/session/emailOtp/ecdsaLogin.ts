@@ -58,8 +58,10 @@ import {
   walletSigningSessionIdFromEcdsaBootstrap,
 } from './routePlan';
 import type {
+  EmailOtpEd25519SessionReconstructionPlan,
   EmailOtpThresholdEd25519ProvisioningResult,
-  ProvisionEmailOtpThresholdEd25519CapabilityArgs,
+  ReconstructEmailOtpEd25519SessionArgs,
+  RegisterEmailOtpEd25519CapabilityArgs,
 } from './provisioning';
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import {
@@ -76,6 +78,19 @@ export type EmailOtpThresholdEcdsaLoginResult = {
   warmCapability: WarmSessionEcdsaCapabilityState;
   clientRootShare32B64u: string;
   ed25519Provisioning?: EmailOtpThresholdEd25519ProvisioningResult;
+  ed25519Reconstruction?:
+    | {
+        kind: 'completed';
+        provisioning: EmailOtpThresholdEd25519ProvisioningResult;
+      }
+    | {
+        kind: 'deferred';
+        reason:
+          | 'missing_ed25519_key_identity'
+          | 'missing_route_auth'
+          | 'missing_runtime_policy_scope'
+          | 'not_needed_for_ecdsa';
+      };
 };
 
 export type LoginEmailOtpEcdsaCapabilityArgs = {
@@ -101,6 +116,7 @@ export type LoginEmailOtpEcdsaCapabilityArgs = {
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   onProgress?: (progress: EmailOtpWorkerProgressEvent) => void;
   ed25519ProvisioningMode?: 'schedule' | 'await' | 'skip';
+  ed25519SessionReconstruction: EmailOtpEd25519SessionReconstructionPlan;
   authSubjectId?: string;
   includeEcdsaExportArtifact?: boolean;
 };
@@ -117,10 +133,13 @@ export type EmailOtpEcdsaLoginPorts = {
   }) => void;
   publicationPorts: EmailOtpEcdsaPublicationPorts;
   provisionEd25519Capability: (
-    args: ProvisionEmailOtpThresholdEd25519CapabilityArgs,
+    args: RegisterEmailOtpEd25519CapabilityArgs,
+  ) => Promise<EmailOtpThresholdEd25519ProvisioningResult>;
+  reconstructEd25519Session: (
+    args: ReconstructEmailOtpEd25519SessionArgs,
   ) => Promise<EmailOtpThresholdEd25519ProvisioningResult>;
   scheduleEd25519CapabilityProvisioning: (
-    args: ProvisionEmailOtpThresholdEd25519CapabilityArgs,
+    args: RegisterEmailOtpEd25519CapabilityArgs,
   ) => void;
 };
 
@@ -185,6 +204,10 @@ export async function loginWithEmailOtpEcdsaCapabilityForSigning(
       operation,
       routePlan,
       remainingUses,
+      ed25519SessionReconstruction: {
+        kind: 'defer',
+        reason: 'not_needed_for_ecdsa',
+      },
     });
   }
   const explicitAuthLane = args.authLane;
@@ -221,6 +244,10 @@ export async function loginWithEmailOtpEcdsaCapabilityForSigning(
     authSubjectId: record.emailOtpAuthContext?.authSubjectId,
     remainingUses,
     ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
+    ed25519SessionReconstruction: {
+      kind: 'defer',
+      reason: 'not_needed_for_ecdsa',
+    },
   });
 }
 
@@ -396,42 +423,59 @@ export async function loginWithEmailOtpEcdsaCapability(
     workerResult.recovery?.thresholdEd25519PrfFirstB64u || '',
   ).trim();
   let ed25519Provisioning: EmailOtpThresholdEd25519ProvisioningResult | undefined;
+  let ed25519Reconstruction: EmailOtpThresholdEcdsaLoginResult['ed25519Reconstruction'];
   if (thresholdEd25519PrfFirstB64u) {
     const freshThresholdSessionAuth = thresholdSessionAuthFromEcdsaBootstrap(bootstrap);
-    const ed25519ProvisioningArgs: ProvisionEmailOtpThresholdEd25519CapabilityArgs = {
-      kind: 'companion_to_ecdsa_provisioning',
-      nearAccountId,
-      relayUrl,
-      rpId,
-      prfFirstB64u: thresholdEd25519PrfFirstB64u,
-      emailOtpAuthContext,
-      ...(appSessionJwt ? { appSessionJwt } : {}),
-      ...(freshThresholdSessionAuth || routeAuth
-        ? { routeAuth: freshThresholdSessionAuth || routeAuth }
-        : {}),
-      ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-      ...(Array.isArray(args.ed25519ParticipantIds)
-        ? { participantIds: args.ed25519ParticipantIds }
-        : Array.isArray(args.participantIds)
-          ? { participantIds: args.participantIds }
-          : {}),
-      ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
-      ...(typeof remainingUses === 'number' ? { remainingUses } : {}),
-      walletSigningSessionId: walletSigningSessionIdFromEcdsaBootstrap(
-        bootstrap,
-        walletSigningSessionId,
-      ),
-      ecdsaThresholdSessionId: thresholdSessionIdFromEcdsaBootstrap(bootstrap),
-    };
     const shouldAwaitEd25519Provisioning =
       args.ed25519ProvisioningMode === 'await' ||
       (!args.ed25519ProvisioningMode && resolvedEmailOtpAuthContext.retention === 'session');
-    if (shouldAwaitEd25519Provisioning) {
-      // Session-mode OTP unlock should not report completion until both signing
-      // lanes are durable; otherwise a quick refresh can strand the wallet.
-      ed25519Provisioning = await ports.provisionEd25519Capability(ed25519ProvisioningArgs);
-    } else if (args.ed25519ProvisioningMode !== 'skip') {
-      ports.scheduleEd25519CapabilityProvisioning(ed25519ProvisioningArgs);
+    const reconstructionAuth = freshThresholdSessionAuth || routeAuth;
+    const ed25519ReconstructionPlan = args.ed25519SessionReconstruction;
+    if (ed25519ReconstructionPlan.kind === 'reconstruct' && reconstructionAuth) {
+      const ed25519ReconstructionArgs: ReconstructEmailOtpEd25519SessionArgs = {
+        kind: 'session_ed25519_reconstruction',
+        nearAccountId,
+        relayUrl,
+        rpId,
+        prfFirstB64u: thresholdEd25519PrfFirstB64u,
+        emailOtpAuthContext,
+        routeAuth: reconstructionAuth,
+        runtimePolicyScope: ed25519ReconstructionPlan.runtimePolicyScope,
+        ed25519Key: {
+          relayerKeyId: ed25519ReconstructionPlan.relayerKeyId,
+          keyVersion: ed25519ReconstructionPlan.keyVersion,
+          participantIds: ed25519ReconstructionPlan.participantIds,
+        },
+        ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
+        ...(typeof remainingUses === 'number' ? { remainingUses } : {}),
+        walletSigningSessionId: walletSigningSessionIdFromEcdsaBootstrap(
+          bootstrap,
+          walletSigningSessionId,
+        ),
+        ecdsaThresholdSessionId: thresholdSessionIdFromEcdsaBootstrap(bootstrap),
+      };
+      if (shouldAwaitEd25519Provisioning) {
+        ed25519Provisioning = await ports.reconstructEd25519Session(ed25519ReconstructionArgs);
+        ed25519Reconstruction = {
+          kind: 'completed',
+          provisioning: ed25519Provisioning,
+        };
+      }
+    } else if (shouldAwaitEd25519Provisioning) {
+      ed25519Reconstruction = {
+        kind: 'deferred',
+        reason:
+          ed25519ReconstructionPlan.kind === 'reconstruct' && !reconstructionAuth
+            ? 'missing_route_auth'
+            : ed25519ReconstructionPlan.kind === 'defer'
+            ? ed25519ReconstructionPlan.reason
+            : 'missing_ed25519_key_identity',
+      };
+    } else {
+      ed25519Reconstruction = {
+        kind: 'deferred',
+        reason: 'not_needed_for_ecdsa',
+      };
     }
   }
   return {
@@ -440,5 +484,6 @@ export async function loginWithEmailOtpEcdsaCapability(
     warmCapability,
     clientRootShare32B64u: workerResult.clientRootShare32B64u,
     ...(ed25519Provisioning ? { ed25519Provisioning } : {}),
+    ...(ed25519Reconstruction ? { ed25519Reconstruction } : {}),
   };
 }

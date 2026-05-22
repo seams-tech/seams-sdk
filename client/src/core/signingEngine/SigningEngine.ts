@@ -1,5 +1,6 @@
 import { IndexedDBManager } from '@/core/indexedDB';
 import type { ClientAuthenticatorData, ClientUserData, StoreUserDataInput } from '../accountData/near/types';
+import { getNearThresholdKeyMaterial } from '../accountData/near/keyMaterial';
 import type { NearClient, SignedTransaction } from '../rpcClients/near/NearClient';
 import type { NonceCoordinator } from './nonce/NonceCoordinator';
 import { toAccountId, type AccountId } from '../types/accountIds';
@@ -38,6 +39,7 @@ import type { TempoSigningRequest } from './chains/tempo/types';
 import type { TempoSignedResult } from './chains/tempo/tempoAdapter';
 import type { EcdsaBootstrapRequest } from './session/passkey/ecdsaBootstrap';
 import { claimWarmSessionPrfFirst } from './session/passkey/prfClaim';
+import { getLastLoggedInSignerSlot } from './webauthnAuth/device/signerSlot';
 import type {
   EvmFamilyEcdsaKeyHandle,
   EvmFamilyEcdsaKeyIdentity,
@@ -82,7 +84,10 @@ import {
 import {
   type ThresholdEcdsaLoginPrefillResult,
 } from './session/warmCapabilities/ecdsaLoginPrefill';
-import type { ThresholdRuntimePolicyScope } from './threshold/sessionPolicy';
+import {
+  parseThresholdRuntimePolicyScopeFromJwt,
+  type ThresholdRuntimePolicyScope,
+} from './threshold/sessionPolicy';
 import {
   signNear as signNearValue,
   type NearSignIntentRequest,
@@ -138,6 +143,7 @@ import {
   type LoginWithEmailOtpEcdsaCapabilityInternalArgs,
   type LoginWithEmailOtpEcdsaCapabilityInternalResult,
 } from './flows/signEvmFamily/emailOtpPublic';
+import type { EmailOtpEd25519SessionReconstructionPlan } from './session/emailOtp/provisioning';
 import { initializeSigningEngineRuntime } from './assembly/createSigningEngineRuntime';
 import { createManagerAssembly } from './assembly/createManagers';
 import { verifySealedRefreshStartupParity } from '../rpcClients/relayer/sealedRefreshCapabilities';
@@ -202,6 +208,13 @@ export type BootstrapLoginEcdsaSessionFromRestoredEd25519Args = {
     environmentId: string;
     publishableKey: string;
   };
+};
+
+type SigningEngineEmailOtpEcdsaLoginInput = Omit<
+  LoginWithEmailOtpEcdsaCapabilityInternalArgs,
+  'ed25519SessionReconstruction'
+> & {
+  ed25519SessionReconstruction?: EmailOtpEd25519SessionReconstructionPlan;
 };
 
 /**
@@ -840,9 +853,53 @@ export class SigningEngine {
   }
 
   async loginWithEmailOtpEcdsaCapabilityInternal(
-    args: LoginWithEmailOtpEcdsaCapabilityInternalArgs,
+    args: SigningEngineEmailOtpEcdsaLoginInput,
   ): Promise<LoginWithEmailOtpEcdsaCapabilityInternalResult> {
-    return await this.emailOtpPublic.loginWithEmailOtpEcdsaCapabilityInternal(args);
+    const walletId = toAccountId(args.walletSession.walletId);
+    const signerSlot = await getLastLoggedInSignerSlot(walletId, IndexedDBManager.clientDB).catch(
+      () => 1,
+    );
+    const thresholdKeyMaterial = await getNearThresholdKeyMaterial(
+      {
+        clientDB: IndexedDBManager.clientDB,
+        accountKeyMaterialDB: IndexedDBManager.accountKeyMaterialDB,
+      },
+      walletId,
+      signerSlot,
+    ).catch(() => null);
+    const participantIds = thresholdKeyMaterial?.participants
+      .map((participant) => Number(participant.id))
+      .filter((participantId) => Number.isSafeInteger(participantId) && participantId > 0);
+    const runtimePolicyScope =
+      args.runtimePolicyScope ||
+      parseThresholdRuntimePolicyScopeFromJwt(args.appSessionJwt) ||
+      parseThresholdRuntimePolicyScopeFromJwt(args.routeAuth?.jwt);
+    const ed25519SessionReconstruction: EmailOtpEd25519SessionReconstructionPlan =
+      args.ed25519SessionReconstruction ||
+      (thresholdKeyMaterial?.relayerKeyId &&
+      thresholdKeyMaterial.keyVersion &&
+      participantIds?.length &&
+      runtimePolicyScope
+        ? {
+            kind: 'reconstruct',
+            relayerKeyId: thresholdKeyMaterial.relayerKeyId,
+            keyVersion: thresholdKeyMaterial.keyVersion,
+            participantIds,
+            runtimePolicyScope,
+          }
+        : {
+            kind: 'defer',
+            reason:
+              thresholdKeyMaterial?.relayerKeyId &&
+              thresholdKeyMaterial.keyVersion &&
+              participantIds?.length
+                ? 'missing_runtime_policy_scope'
+                : 'missing_ed25519_key_identity',
+          });
+    return await this.emailOtpPublic.loginWithEmailOtpEcdsaCapabilityInternal({
+      ...args,
+      ed25519SessionReconstruction,
+    });
   }
 
   async requestEmailOtpSigningSessionChallenge(args: {

@@ -1766,55 +1766,55 @@ type EmailOtpEd25519SessionReconstruction = {
 
 Implementation plan:
 
-- [ ] Replace the broad `ProvisionEmailOtpThresholdEd25519CapabilityArgs` union
+- [x] Replace the broad `ProvisionEmailOtpThresholdEd25519CapabilityArgs` union
       with branch-specific registration and session-reconstruction inputs.
-  - [ ] Registration branch requires `registrationAttemptId`.
-  - [ ] Session-reconstruction branch rejects `registrationAttemptId`.
-  - [ ] Session-reconstruction branch requires existing Ed25519 key identity:
+  - [x] Registration branch requires `registrationAttemptId`.
+  - [x] Session-reconstruction branch rejects `registrationAttemptId`.
+  - [x] Session-reconstruction branch requires existing Ed25519 key identity:
         `relayerKeyId`, `keyVersion`, `participantIds`, and
         `runtimePolicyScope`.
-  - [ ] Session-reconstruction branch requires threshold/app session auth
+  - [x] Session-reconstruction branch requires threshold/app session auth
         material. It must never accept publishable-key or bootstrap-grant
         material.
-- [ ] Split implementation functions:
-  - [ ] `registerEmailOtpEd25519Capability` may request managed registration
+- [x] Split implementation functions:
+  - [x] `registerEmailOtpEd25519Capability` may request managed registration
         grants and may call `/registration/threshold-ed25519/hss/*`.
-  - [ ] `reconstructEmailOtpEd25519Session` may mint a threshold Ed25519 session
+  - [x] `reconstructEmailOtpEd25519Session` may mint a threshold Ed25519 session
         and run reconstruction through `/threshold-ed25519/hss/*` with session
         auth only.
-  - [ ] Delete the runtime `registrationGrantAdmission` guard after the types
+  - [x] Delete the runtime `registrationGrantAdmission` guard after the types
         make the grant boundary explicit.
-- [ ] Update callers:
-  - [ ] Email OTP registration/enrollment calls
+- [x] Update callers:
+  - [x] Email OTP registration/enrollment calls
         `registerEmailOtpEd25519Capability`.
-  - [ ] Email OTP unlock/step-up calls `reconstructEmailOtpEd25519Session` only
+  - [x] Email OTP unlock/step-up calls `reconstructEmailOtpEd25519Session` only
         when existing Ed25519 key identity is available.
-  - [ ] Background companion warm-up skips cleanly when the existing Ed25519
+  - [x] Background companion warm-up skips cleanly when the existing Ed25519
         identity is unavailable, without throwing quota or registration errors.
-  - [ ] Awaited session-mode unlock returns a typed
-        `ed25519_reconstruction_deferred` result when reconstruction cannot be
+  - [x] Awaited session-mode unlock returns a typed
+        `ed25519Reconstruction.kind === 'deferred'` result when reconstruction cannot be
         performed during unlock. NEAR signing may then perform explicit Email OTP
         step-up reconstruction.
-- [ ] Type fixtures:
-  - [ ] Reject session reconstruction with `registrationAttemptId`.
-  - [ ] Reject registration provisioning without `registrationAttemptId`.
-  - [ ] Reject session reconstruction without `runtimePolicyScope`.
-  - [ ] Reject session reconstruction without `routeAuth`.
-  - [ ] Reject session reconstruction without concrete Ed25519 key identity.
-- [ ] Behavior tests:
-  - [ ] OTP wallet unlock with managed config never calls
+- [x] Type fixtures:
+  - [x] Reject session reconstruction with `registrationAttemptId`.
+  - [x] Reject registration provisioning without `registrationAttemptId`.
+  - [x] Reject session reconstruction without `runtimePolicyScope`.
+  - [x] Reject session reconstruction without `routeAuth`.
+  - [x] Reject session reconstruction without concrete Ed25519 key identity.
+- [x] Behavior tests:
+  - [x] OTP wallet unlock with managed config never calls
         `/v1/registration/bootstrap-grants`.
-  - [ ] OTP session unlock with awaited Ed25519 companion work uses session
+  - [x] OTP session unlock with awaited Ed25519 companion work uses session
         reconstruction endpoints only.
-  - [ ] OTP registration still spends registration grants and calls
+  - [x] OTP registration still spends registration grants and calls
         `/registration/threshold-ed25519/hss/*`.
-  - [ ] Exhausted Email OTP NEAR step-up succeeds after registration quota is
+  - [x] Exhausted Email OTP NEAR step-up succeeds after registration quota is
         exhausted and does not call `/v1/registration/bootstrap-grants`.
   - [ ] Existing Tempo/EVM step-up coverage remains green.
-- [ ] Validation:
-  - [ ] `pnpm -C sdk exec tsc --noEmit --pretty false`
-  - [ ] Focused Email OTP coordinator/provisioning tests.
-  - [ ] Focused Ed25519 immediate-sign fallback tests.
+- [x] Validation:
+  - [x] `pnpm -C sdk exec tsc --noEmit --pretty false`
+  - [x] Focused Email OTP coordinator/provisioning tests.
+  - [x] Focused Ed25519 immediate-sign fallback tests.
   - [ ] Focused EVM-family Email OTP step-up tests.
   - [ ] Manual OTP registration, wallet unlock, NEAR, Tempo, EVM, key export,
         and post-session-exhaustion signing.

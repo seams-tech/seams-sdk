@@ -15,6 +15,7 @@ import type {
 import { walletSessionRefFromSession } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
+import type { EmailOtpEd25519SessionReconstructionPlan } from './provisioning';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 import {
   EMAIL_OTP_CHANNEL,
@@ -475,6 +476,7 @@ export async function exportEcdsaKeyWithFreshEmailOtpLane(
       remainingUses: 1;
       authSubjectId?: string;
       runtimePolicyScope?: ThresholdRuntimePolicyScope;
+      ed25519SessionReconstruction: EmailOtpEd25519SessionReconstructionPlan;
       includeEcdsaExportArtifact: true;
     }) => Promise<{
       bootstrap: { thresholdEcdsaKeyRef: { ecdsaHssExportArtifact?: EmailOtpEcdsaExportArtifact } };
@@ -514,6 +516,10 @@ export async function exportEcdsaKeyWithFreshEmailOtpLane(
     remainingUses: 1,
     ...(args.authSubjectId ? { authSubjectId: args.authSubjectId } : {}),
     ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
+    ed25519SessionReconstruction: {
+      kind: 'defer',
+      reason: 'not_needed_for_ecdsa',
+    },
     includeEcdsaExportArtifact: true,
   });
   const artifact = result.bootstrap.thresholdEcdsaKeyRef.ecdsaHssExportArtifact;

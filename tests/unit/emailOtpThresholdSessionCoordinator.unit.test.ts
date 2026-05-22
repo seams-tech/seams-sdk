@@ -26,6 +26,7 @@ import {
   walletSessionRefFromSession,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toEvmFamilyEcdsaKeyHandle } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import type { EmailOtpEd25519SessionReconstructionPlan } from '@/core/signingEngine/session/emailOtp/provisioning';
 
 const TEST_SUBJECT_ID = toWalletSubjectId('alice.testnet');
 const TEMPO_CHAIN_TARGET = thresholdEcdsaChainTargetFromChainFamily({
@@ -42,6 +43,10 @@ const TEST_WALLET_SESSION = walletSessionRefFromSession({
   walletId: 'alice.testnet',
   walletSessionUserId: 'alice.testnet',
 });
+const DEFER_ED25519_RECONSTRUCTION_FOR_ECDSA = {
+  kind: 'defer',
+  reason: 'not_needed_for_ecdsa',
+} satisfies EmailOtpEd25519SessionReconstructionPlan;
 
 function jsonB64u(value: unknown): string {
   return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
@@ -500,7 +505,9 @@ function createCoordinator(overrides?: {
   });
   const runtime = (coordinator as any).runtime;
   const runtimeProvisionEd25519Capability = runtime?.provisionEd25519Capability?.bind(runtime);
+  const runtimeReconstructEd25519Session = runtime?.reconstructEd25519Session?.bind(runtime);
   let provisionEd25519CapabilityImpl = coordinator.provisionEd25519Capability.bind(coordinator);
+  let reconstructEd25519SessionImpl = coordinator.reconstructEd25519Session.bind(coordinator);
   Object.defineProperty(coordinator, 'provisionEd25519Capability', {
     configurable: true,
     get: () => provisionEd25519CapabilityImpl,
@@ -511,8 +518,21 @@ function createCoordinator(overrides?: {
       }
     },
   });
+  Object.defineProperty(coordinator, 'reconstructEd25519Session', {
+    configurable: true,
+    get: () => reconstructEd25519SessionImpl,
+    set: (value) => {
+      reconstructEd25519SessionImpl = value;
+      if (runtime) {
+        runtime.reconstructEd25519Session = value;
+      }
+    },
+  });
   if (runtime && runtimeProvisionEd25519Capability) {
     runtime.provisionEd25519Capability = runtimeProvisionEd25519Capability;
+  }
+  if (runtime && runtimeReconstructEd25519Session) {
+    runtime.reconstructEd25519Session = runtimeReconstructEd25519Session;
   }
 
   return {
@@ -775,10 +795,9 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
   test('logs in Ed25519 Email OTP capability with normalized auth context', async () => {
     const { coordinator, ed25519ProvisionCalls } = createCoordinator();
     const thresholdSessionAuthToken = 'threshold-jwt';
-    coordinator.provisionEd25519Capability = async (args) => {
+    coordinator.reconstructEd25519Session = async (args) => {
       ed25519ProvisionCalls.push(args);
       return {
-        publicKey: 'ed25519-public',
         relayerKeyId: 'relayer-key',
         keyVersion: 'v1',
         sessionId: 'ed-session',
@@ -807,6 +826,12 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
         thresholdSessionAuthToken,
         expiresAtMs: Date.now() + 60_000,
         remainingUses: 1,
+        runtimePolicyScope: {
+          orgId: 'org',
+          projectId: 'project',
+          envId: 'dev',
+          signingRootVersion: 'root',
+        },
         source: 'email_otp',
       } as any,
     });
@@ -819,7 +844,11 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       rpId: 'localhost',
       prfFirstB64u: 'prf-first-ecdsa-login',
       routeAuth: { kind: 'threshold_session', jwt: expect.any(String) },
-      participantIds: [1, 2],
+      ed25519Key: {
+        relayerKeyId: 'relayer-key',
+        keyVersion: 'threshold-ed25519-hss-v1',
+        participantIds: [1, 2],
+      },
       remainingUses: 1,
       ecdsaThresholdSessionId: 'ecdsa-session',
       emailOtpAuthContext: {
@@ -926,6 +955,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
         envId: 'dev',
         signingRootVersion: 'v1',
       },
+      ed25519SessionReconstruction: DEFER_ED25519_RECONSTRUCTION_FOR_ECDSA,
     });
 
     expect(result.bootstrap.thresholdEcdsaKeyRef.ecdsaThresholdKeyId).toBe('ecdsa-key');
@@ -1010,6 +1040,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       keyHandle: 'ehss-key-handle-1',
       participantIds: [1, 3],
       sessionKind: 'jwt',
+      ed25519SessionReconstruction: DEFER_ED25519_RECONSTRUCTION_FOR_ECDSA,
     });
 
     expect(workerCalls.at(-1)).toMatchObject({
@@ -1177,6 +1208,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       keyHandle: 'ehss-key-handle-1',
       participantIds: [1, 3],
       sessionKind: 'jwt',
+      ed25519SessionReconstruction: DEFER_ED25519_RECONSTRUCTION_FOR_ECDSA,
     });
 
     const sealCall = workerCalls.find(
@@ -1238,6 +1270,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
         keyHandle: 'ehss-key-handle-1',
         participantIds: [1, 3],
         sessionKind: 'jwt',
+        ed25519SessionReconstruction: DEFER_ED25519_RECONSTRUCTION_FOR_ECDSA,
       }),
     ).rejects.toThrow('Email OTP sealed refresh tempo:42431 record was not durably persisted');
   });
@@ -1274,6 +1307,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       keyHandle: 'ehss-key-handle-1',
       participantIds: [1, 3],
       sessionKind: 'jwt',
+      ed25519SessionReconstruction: DEFER_ED25519_RECONSTRUCTION_FOR_ECDSA,
     });
 
     expect(

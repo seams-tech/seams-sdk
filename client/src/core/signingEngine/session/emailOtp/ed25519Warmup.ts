@@ -38,9 +38,12 @@ import {
   selectEmailOtpEcdsaRecordForEd25519Signing,
 } from './companionSessions';
 import {
-  provisionEmailOtpEd25519Capability,
+  EMAIL_OTP_THRESHOLD_ED25519_HSS_KEY_VERSION,
+  reconstructEmailOtpEd25519Session,
+  registerEmailOtpEd25519Capability,
   type EmailOtpThresholdEd25519ProvisioningResult,
-  type ProvisionEmailOtpThresholdEd25519CapabilityArgs,
+  type ReconstructEmailOtpEd25519SessionArgs,
+  type RegisterEmailOtpEd25519CapabilityArgs,
 } from './provisioning';
 import type {
   EmailOtpThresholdEcdsaLoginResult,
@@ -111,16 +114,13 @@ export class EmailOtpEd25519Warmup {
   }
 
   scheduleProvisioning(
-    args: ProvisionEmailOtpThresholdEd25519CapabilityArgs,
+    args: RegisterEmailOtpEd25519CapabilityArgs,
     options?: {
       provisionCapability?: (
-        args: ProvisionEmailOtpThresholdEd25519CapabilityArgs,
+        args: RegisterEmailOtpEd25519CapabilityArgs,
       ) => Promise<EmailOtpThresholdEd25519ProvisioningResult>;
     },
   ): void {
-    if (args.kind === 'companion_to_ecdsa_provisioning' && !args.registrationAttemptId) {
-      return;
-    }
     const accountId = this.normalizeWarmupAccountId(args.nearAccountId);
     if (!accountId) return;
     const warmupMap = this.getWarmupMap();
@@ -146,14 +146,32 @@ export class EmailOtpEd25519Warmup {
   }
 
   async provisionCapability(
-    args: ProvisionEmailOtpThresholdEd25519CapabilityArgs,
+    args: RegisterEmailOtpEd25519CapabilityArgs,
   ): Promise<EmailOtpThresholdEd25519ProvisioningResult> {
-    return await provisionEmailOtpEd25519Capability({
+    return await registerEmailOtpEd25519Capability({
       input: args,
       configs: this.ports.configs,
       getSignerWorkerContext: this.ports.getSignerWorkerContext,
       persistEmailOtpThresholdEd25519LocalMetadata:
         this.ports.persistEmailOtpThresholdEd25519LocalMetadata,
+      persistWarmSessionEd25519Capability: this.ports.persistWarmSessionEd25519Capability,
+      hydrateSigningSession: this.ports.hydrateSigningSession,
+      sessionPersistenceMode: this.ports.configs.signing.sessionPersistenceMode,
+      readExactSealedSession: this.ports.readExactSealedSession,
+      getThresholdEcdsaSessionRecordByThresholdSessionId:
+        this.ports.getThresholdEcdsaSessionRecordByThresholdSessionId,
+      getThresholdEd25519SessionRecordByThresholdSessionId:
+        this.ports.getThresholdEd25519SessionRecordByThresholdSessionId,
+      registerSigningSession: (record) => this.ports.registerSigningSession(record),
+    });
+  }
+
+  async reconstructSession(
+    args: ReconstructEmailOtpEd25519SessionArgs,
+  ): Promise<EmailOtpThresholdEd25519ProvisioningResult> {
+    return await reconstructEmailOtpEd25519Session({
+      input: args,
+      getSignerWorkerContext: this.ports.getSignerWorkerContext,
       persistWarmSessionEd25519Capability: this.ports.persistWarmSessionEd25519Capability,
       hydrateSigningSession: this.ports.hydrateSigningSession,
       sessionPersistenceMode: this.ports.configs.signing.sessionPersistenceMode,
@@ -247,6 +265,18 @@ export class EmailOtpEd25519Warmup {
         : {}),
       remainingUses: defaultRemainingUses,
       ed25519ProvisioningMode: 'await',
+      ed25519SessionReconstruction: args.record.runtimePolicyScope
+        ? {
+            kind: 'reconstruct',
+            relayerKeyId: args.record.relayerKeyId,
+            keyVersion: EMAIL_OTP_THRESHOLD_ED25519_HSS_KEY_VERSION,
+            participantIds: args.record.participantIds,
+            runtimePolicyScope: args.record.runtimePolicyScope,
+          }
+        : {
+            kind: 'defer',
+            reason: 'missing_runtime_policy_scope',
+          },
     });
     const provisioned = ecdsaLogin.ed25519Provisioning;
     if (!provisioned?.sessionId) {

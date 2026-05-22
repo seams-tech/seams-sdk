@@ -19,6 +19,7 @@ import {
   requestEmailOtpSigningSessionChallenge as requestEmailOtpSigningSessionChallengeValue,
   refreshEmailOtpSigningSession as refreshEmailOtpSigningSessionValue,
 } from './emailOtpSigningSession';
+import type { EmailOtpEd25519SessionReconstructionPlan } from '../../session/emailOtp/provisioning';
 
 export type LoginWithEmailOtpEcdsaCapabilityInternalArgs = {
   walletSession: WalletSessionRef;
@@ -36,6 +37,7 @@ export type LoginWithEmailOtpEcdsaCapabilityInternalArgs = {
   ttlMs?: number;
   remainingUses?: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  ed25519SessionReconstruction: EmailOtpEd25519SessionReconstructionPlan;
   onProgress?: (progress: EmailOtpWorkerProgressEvent) => void;
 };
 
@@ -132,6 +134,10 @@ export async function requestEmailOtpSigningSessionChallenge(
             participantIds: publicFacts.participantIds.map((participantId) =>
               Number(participantId),
             ),
+            ed25519SessionReconstruction: {
+              kind: 'defer',
+              reason: 'not_needed_for_ecdsa',
+            },
           }),
       },
     },
@@ -160,7 +166,13 @@ export async function refreshEmailOtpSigningSession(
         requestTransactionSigningChallenge: (challengeArgs) =>
           deps.emailOtpSessions.requestTransactionSigningChallenge(challengeArgs),
         loginWithEcdsaCapabilityInternal: (loginArgs) =>
-          deps.emailOtpSessions.loginWithEcdsaCapabilityInternal(loginArgs),
+          deps.emailOtpSessions.loginWithEcdsaCapabilityInternal({
+            ...loginArgs,
+            ed25519SessionReconstruction: {
+              kind: 'defer',
+              reason: 'not_needed_for_ecdsa',
+            },
+          }),
       },
     },
     {
