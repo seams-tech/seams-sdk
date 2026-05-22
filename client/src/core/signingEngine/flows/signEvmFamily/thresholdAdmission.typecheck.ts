@@ -2,25 +2,36 @@ import type {
   ReadyEcdsaSignerSession,
   ReadyEvmFamilyEcdsaMaterial,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
+import type { ReadyEcdsaMaterial } from './ecdsaMaterialState';
 import type {
   EvmFamilyThresholdEcdsaEmailOtpSigning,
   EvmFamilyThresholdEcdsaOperation,
   EvmFamilyThresholdEcdsaPasskeyReconnect,
   EvmFamilyThresholdEcdsaReauthResult,
 } from './thresholdAdmission';
-import type { EvmFamilyThresholdReconnectRuntime } from './requireEvmFamilyStepUpAuth';
+import type {
+  EvmFamilyThresholdEcdsaStepUp,
+  EvmFamilyThresholdEcdsaStepUpRuntime,
+  EvmFamilyThresholdReconnectRuntime,
+} from './requireEvmFamilyStepUpAuth';
+import type { SigningAuthPlan } from '../../stepUpConfirmation/types';
 
 declare const readyMaterial: ReadyEvmFamilyEcdsaMaterial;
+declare const readyToSignMaterial: ReadyEcdsaMaterial;
 declare const signerSession: ReadyEcdsaSignerSession;
 declare const operation: EvmFamilyThresholdEcdsaOperation;
+declare const signingAuthPlan: SigningAuthPlan;
+declare const stepUpRuntime: EvmFamilyThresholdEcdsaStepUpRuntime;
 
 void ({
+  readyToSignMaterial,
   readyMaterial,
   signerSession,
   operation,
 } satisfies EvmFamilyThresholdEcdsaReauthResult);
 
 void ({
+  readyToSignMaterial,
   readyMaterial,
   signerSession,
   // @ts-expect-error reauth results must not expose key-ref material
@@ -45,7 +56,7 @@ const missingSignerSession = {
 void (missingSignerSession satisfies EvmFamilyThresholdEcdsaReauthResult);
 
 void ({
-  complete: async () => ({ readyMaterial, signerSession, operation }),
+  complete: async () => ({ readyToSignMaterial, readyMaterial, signerSession, operation }),
 } satisfies EvmFamilyThresholdEcdsaEmailOtpSigning);
 
 void ({
@@ -54,7 +65,7 @@ void ({
 } satisfies EvmFamilyThresholdEcdsaEmailOtpSigning);
 
 void ({
-  reconnect: async () => ({ readyMaterial, signerSession, operation }),
+  reconnect: async () => ({ readyToSignMaterial, readyMaterial, signerSession, operation }),
 } satisfies EvmFamilyThresholdEcdsaPasskeyReconnect);
 
 void ({
@@ -64,6 +75,7 @@ void ({
 
 void ({
   ensureThresholdEcdsaReadyMaterial: async () => ({
+    readyToSignMaterial,
     readyMaterial,
     signerSession,
     operation,
@@ -74,5 +86,31 @@ void ({
   // @ts-expect-error threshold reconnect must return ready material
   ensureThresholdEcdsaReadyMaterial: async () => ({ signerSession, operation }),
 } satisfies EvmFamilyThresholdReconnectRuntime);
+
+void ({
+  kind: 'required_admitted',
+  authPlan: {
+    kind: 'planned',
+    signingAuthPlan,
+  },
+  operation,
+  signerSession,
+  singleUseEmailOtpSession: false,
+  runtime: stepUpRuntime,
+} satisfies EvmFamilyThresholdEcdsaStepUp);
+
+const admittedWithoutSignerSession = {
+  kind: 'required_admitted',
+  authPlan: {
+    kind: 'planned',
+    signingAuthPlan,
+  },
+  operation,
+  singleUseEmailOtpSession: false,
+  runtime: stepUpRuntime,
+};
+
+// @ts-expect-error admitted threshold ECDSA step-up state requires ready signer material
+void (admittedWithoutSignerSession satisfies EvmFamilyThresholdEcdsaStepUp);
 
 export {};

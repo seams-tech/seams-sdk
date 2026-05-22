@@ -25,7 +25,7 @@ const missingHotMaterialSelection: ReauthRequiredEvmFamilyEcdsaSigningSelection 
   authMethod: 'email_otp',
   lane: {} as ReauthRequiredEvmFamilyEcdsaSigningSelection['lane'],
   material: {
-    kind: 'missing',
+    kind: 'public_identity_unavailable',
     authMethod: 'email_otp',
     source: 'email_otp',
     chainTarget: {} as ReauthRequiredEvmFamilyEcdsaSigningSelection['material']['chainTarget'],
@@ -52,7 +52,7 @@ const invalidReadySelection: ReadyEvmFamilyEcdsaSigningSelection = {
   authMethod: 'passkey',
   source: 'manual-bootstrap',
   lane: readySelection.lane,
-  // @ts-expect-error ready selections require ready_material
+  // @ts-expect-error ready selections require ready-to-sign material
   material: missingHotMaterialSelection.material,
   diagnostics: readySelection.diagnostics,
 };

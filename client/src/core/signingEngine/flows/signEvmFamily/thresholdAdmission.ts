@@ -1,12 +1,12 @@
-import {
-  toReadyEcdsaSignerSessionFromReadyMaterial,
-  type ReadyEcdsaSignerSession,
-  type ReadyEvmFamilyEcdsaMaterial,
+import type {
+  ReadyEcdsaSignerSession,
+  ReadyEvmFamilyEcdsaMaterial,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { SelectedEcdsaLane } from '../../session/identity/laneIdentity';
 import type { BudgetAdmittedTransactionOperation } from '../../session/operationState/transactionState';
 import type { SigningAuthPlan } from '../../stepUpConfirmation/types';
 import type { WebAuthnChallenge } from '../../stepUpConfirmation/channel/confirmTypes';
+import type { ReadyEcdsaMaterial } from './ecdsaMaterialState';
 import type {
   EvmFamilyEcdsaEmailOtpStepUpAuthorization,
   EvmFamilyEcdsaPasskeyStepUpAuthorization,
@@ -19,20 +19,20 @@ export type EvmFamilyThresholdEcdsaOperation = BudgetAdmittedTransactionOperatio
 >;
 
 export type EvmFamilyThresholdEcdsaReauthResult = {
+  readyToSignMaterial: ReadyEcdsaMaterial;
   readyMaterial: ReadyEvmFamilyEcdsaMaterial;
   signerSession: ReadyEcdsaSignerSession;
   operation: EvmFamilyThresholdEcdsaOperation;
 };
 
 export async function buildEvmFamilyThresholdEcdsaReauthResult(args: {
-  readyMaterial: ReadyEvmFamilyEcdsaMaterial;
+  readyToSignMaterial: ReadyEcdsaMaterial;
   operation: EvmFamilyThresholdEcdsaOperation;
 }): Promise<EvmFamilyThresholdEcdsaReauthResult> {
   return {
-    readyMaterial: args.readyMaterial,
-    signerSession: await toReadyEcdsaSignerSessionFromReadyMaterial({
-      material: args.readyMaterial,
-    }),
+    readyToSignMaterial: args.readyToSignMaterial,
+    readyMaterial: args.readyToSignMaterial.readyMaterial,
+    signerSession: args.readyToSignMaterial.signerSession,
     operation: args.operation,
   };
 }

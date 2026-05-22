@@ -280,20 +280,24 @@ function readinessFromSelection(selection: EvmFamilyEcdsaSigningSelectionResult)
         expiresAtMs: Math.floor(Number(selection.material.record.expiresAtMs) || 0),
         remainingUses: Math.max(0, Math.floor(Number(selection.material.record.remainingUses) || 0)),
       };
-    case 'reauth_required':
+    case 'reauth_required': {
+      const status =
+        selection.material.kind === 'public_identity_unavailable'
+          ? 'missing_session'
+          : selection.reason === 'expired'
+            ? 'expired'
+            : selection.reason === 'exhausted'
+              ? 'exhausted'
+              : 'missing_session';
       return {
         readiness: {
-          status:
-            selection.reason === 'expired'
-              ? 'expired'
-              : selection.reason === 'exhausted'
-                ? 'exhausted'
-                : 'missing_session',
+          status,
           thresholdSessionId: selection.lane.thresholdSessionId,
         },
         expiresAtMs: 0,
         remainingUses: 0,
       };
+    }
     case 'budget_blocked':
       return {
         readiness: {
@@ -742,9 +746,9 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
             selection,
             material: selection.material,
             availableLanesGeneration: availableLanes.generation,
-            ...(selection.material.kind === 'missing'
-              ? {}
-              : { signingRootId: selection.material.signingKeyContext.signingRootId }),
+            ...(selection.material.kind === 'ready_to_sign'
+              ? { signingRootId: selection.material.signingKeyContext.signingRootId }
+              : {}),
           },
         };
       },

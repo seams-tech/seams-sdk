@@ -927,6 +927,14 @@ function buildThresholdEcdsaSignerClientShare(args: {
   };
 }
 
+function hasReadyThresholdEcdsaClientShare(keyRef: ThresholdEcdsaSecp256k1KeyRef): boolean {
+  const handle = keyRef.backendBinding?.clientAdditiveShareHandle;
+  if (handle?.kind === 'email_otp_worker_session') {
+    return Boolean(String(handle.sessionId || '').trim());
+  }
+  return Boolean(String(keyRef.backendBinding?.clientAdditiveShare32B64u || '').trim());
+}
+
 export function buildKnownReadyThresholdEcdsaSessionPolicy(args: {
   remainingUses: unknown;
   expiresAtMs: unknown;
@@ -1406,6 +1414,9 @@ export function resolveReadyEvmFamilyEcdsaMaterial(
   }
   if (input.record.expiresAtMs > 0 && input.record.expiresAtMs <= nowMs) {
     return { kind: 'stale', reason: staleReason('expired') };
+  }
+  if (!hasReadyThresholdEcdsaClientShare(input.keyRef)) {
+    return { kind: 'stale', reason: staleReason('auth_missing') };
   }
 
   let lane: EvmFamilyEcdsaSessionLane;

@@ -78,6 +78,8 @@ import {
   requireResolvedEvmFamilyEcdsaSigningLane,
   selectedEvmFamilyEcdsaLaneForMaterialIdentity,
   isEmailOtpThresholdEcdsaSigningContext,
+  readSelectedEcdsaKeyRefForLane,
+  readSelectedEcdsaRecordForLane,
   summarizeEvmFamilyEcdsaKeyRef,
   summarizeEvmFamilyEcdsaLane,
   summarizeEvmFamilyEcdsaSessionRecord,
@@ -153,7 +155,7 @@ import {
 import {
   deriveEvmFamilyKeyFingerprintFromRecordPublicFacts,
   toReadyEcdsaSignerSessionFromReadyMaterial,
-  toVerifiedEcdsaPublicFactsFromReadyMaterial,
+  toVerifiedEcdsaPublicFactsFromPairedRecordAndKeyRef,
   type ReadyEcdsaSignerSession,
   type ReadyEvmFamilyEcdsaMaterial,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
@@ -335,7 +337,7 @@ async function signEvmFamilyAttempt(
   const derivePreparedEvmFamilyKeyFingerprint = (
     prepared: PreparedEvmFamilyEcdsaSigningSession | undefined,
   ): string | undefined =>
-    prepared && prepared.material.kind === 'ready_material'
+    prepared && prepared.material.kind === 'ready_to_sign'
       ? safeDerivePreparedRecordFingerprint({
           walletId: prepared.material.readyMaterial.key.walletId,
           record: prepared.material.readyMaterial.record,
@@ -358,7 +360,7 @@ async function signEvmFamilyAttempt(
       ),
       ecdsaThresholdKeyId:
         prepared?.signingLane.key.ecdsaThresholdKeyId ||
-        (material && material.kind !== 'missing'
+        (material && material.kind === 'ready_to_sign'
           ? material.signingKeyContext.ecdsaThresholdKeyId
           : undefined),
       walletSigningSessionId: prepared
@@ -436,8 +438,18 @@ async function signEvmFamilyAttempt(
     ecdsaSigningLane = preparedEcdsaSigningSession.signingLane;
     selectedEcdsaAuthMethod = preparedEcdsaSigningSession.authMethod;
     accountAuth = preparedEcdsaSigningSession.accountAuth;
-    thresholdEcdsaRecord = getEcdsaMaterialRecord(preparedEcdsaSigningSession.material);
-    thresholdEcdsaKeyRef = getEcdsaMaterialKeyRef(preparedEcdsaSigningSession.material);
+    thresholdEcdsaRecord =
+      getEcdsaMaterialRecord(preparedEcdsaSigningSession.material) ||
+      readSelectedEcdsaRecordForLane({
+        deps,
+        lane: preparedEcdsaSigningSession.signingLane,
+      });
+    thresholdEcdsaKeyRef =
+      getEcdsaMaterialKeyRef(preparedEcdsaSigningSession.material) ||
+      readSelectedEcdsaKeyRefForLane({
+        deps,
+        lane: preparedEcdsaSigningSession.signingLane,
+      });
     emitSigningSessionFlowTrace('evm-family', {
       stage: 'ecdsa_attempt.prepared',
       accountId: walletId,
@@ -998,12 +1010,12 @@ async function signEvmFamilyAttempt(
           preparedEcdsaSigningSession = admittedAfterReauth;
           ecdsaSigningLane = admittedAfterReauth.signingLane;
           selectedEcdsaAuthMethod = admittedAfterReauth.authMethod;
-          const readyMaterial = requireReadyEcdsaMaterial(
+          const readyToSignMaterial = requireReadyEcdsaMaterial(
             admittedAfterReauth.material,
             'Email OTP ECDSA reauth completion',
-          ).readyMaterial;
+          );
           return await buildEvmFamilyThresholdEcdsaReauthResult({
-            readyMaterial,
+            readyToSignMaterial,
             operation: {
               ...admittedAfterReauth.budget.operation,
               authPlan: signingAuthPlan,
@@ -1092,13 +1104,15 @@ async function signEvmFamilyAttempt(
             forceRefreshBudgetIdentity: !walletSigningSessionBudgetReserved,
           });
         }
-        const refreshedReadyMaterial = requireReadyEcdsaMaterial(
+        const refreshedReadyToSignMaterial = requireReadyEcdsaMaterial(
           updatedPrepared.material,
           'EVM-family signing keyRef refresh',
-        ).readyMaterial;
+        );
         const admittedPrepared = await admitPreparedEcdsaTransactionBudget(
           updatedPrepared,
-          await trustedBudgetStatusAuthFromReadyMaterial(refreshedReadyMaterial),
+          trustedBudgetStatusAuthFromReadySignerSession(
+            refreshedReadyToSignMaterial.signerSession,
+          ),
         );
         if (admittedPrepared.budget.kind !== 'BudgetAdmitted') {
           throw new Error(
@@ -1110,12 +1124,12 @@ async function signEvmFamilyAttempt(
         selectedEcdsaAuthMethod = admittedPrepared.authMethod;
         thresholdEcdsaRecord = getEcdsaMaterialRecord(admittedPrepared.material);
         thresholdEcdsaKeyRef = getEcdsaMaterialKeyRef(admittedPrepared.material);
-        const readyMaterial = requireReadyEcdsaMaterial(
+        const readyToSignMaterial = requireReadyEcdsaMaterial(
           admittedPrepared.material,
           'EVM-family signing keyRef refresh',
-        ).readyMaterial;
+        );
         return await buildEvmFamilyThresholdEcdsaReauthResult({
-          readyMaterial,
+          readyToSignMaterial,
           operation: {
             ...admittedPrepared.budget.operation,
             authPlan: signingAuthPlan,
@@ -1344,26 +1358,15 @@ async function signEvmFamilyAttempt(
     });
   }
   const preparedExecutorSession = getPreparedEcdsaSigningSessionIfEcdsa();
-  const preparedExecutorReadyMaterial = preparedExecutorSession
-    ? requireReadyEcdsaMaterial(
-        preparedExecutorSession.material,
-        'prepared executor signer session',
-      ).readyMaterial
-    : null;
-  const preparedExecutorSignerSession = preparedExecutorReadyMaterial
-    ? await toReadyEcdsaSignerSessionFromReadyMaterial({
-        material: preparedExecutorReadyMaterial,
-      })
-    : null;
+  const preparedExecutorReadyMaterial =
+    preparedExecutorSession?.material.kind === 'ready_to_sign'
+      ? preparedExecutorSession.material
+      : null;
+  const preparedExecutorSignerSession = preparedExecutorReadyMaterial?.signerSession || null;
   const preparedExecutorSingleUseEmailOtpSession =
-    preparedExecutorReadyMaterial?.record.source === 'email_otp' &&
-    preparedExecutorReadyMaterial.record.emailOtpAuthContext?.retention === 'single_use';
-  const requirePreparedExecutorSignerSession = () => {
-    if (!preparedExecutorSignerSession) {
-      throw new Error('[SigningEngine][ecdsa] prepared executor requires ready signer material');
-    }
-    return preparedExecutorSignerSession;
-  };
+    preparedExecutorReadyMaterial?.readyMaterial.record.source === 'email_otp' &&
+    preparedExecutorReadyMaterial.readyMaterial.record.emailOtpAuthContext?.retention ===
+      'single_use';
   const requireThresholdEcdsaStepUpRuntime = () => {
     const runtime = flowArgs.thresholdEcdsaStepUpRuntime;
     if (!runtime) {
@@ -1374,7 +1377,7 @@ async function signEvmFamilyAttempt(
     return runtime;
   };
   const thresholdEcdsaStepUp: EvmFamilyThresholdEcdsaStepUp = preparedExecutorSession
-    ? preparedExecutorSession.budget.kind === 'BudgetAdmitted'
+    ? preparedExecutorSession.budget.kind === 'BudgetAdmitted' && preparedExecutorSignerSession
       ? {
           kind: 'required_admitted',
           authPlan: {
@@ -1385,7 +1388,7 @@ async function signEvmFamilyAttempt(
             ...preparedExecutorSession.budget.operation,
             authPlan: signingAuthPlan,
           },
-          signerSession: requirePreparedExecutorSignerSession(),
+          signerSession: preparedExecutorSignerSession,
           singleUseEmailOtpSession: preparedExecutorSingleUseEmailOtpSession,
           runtime: requireThresholdEcdsaStepUpRuntime(),
         }
@@ -1409,14 +1412,19 @@ async function signEvmFamilyAttempt(
     if (!signingSessionPlan) {
       throw new Error('[SigningEngine][ecdsa] prepared executor requires a signing session plan');
     }
-    const readyMaterial = preparedExecutorReadyMaterial;
-    if (!readyMaterial) {
-      throw new Error('[SigningEngine][ecdsa] prepared executor requires ready ECDSA material');
-    }
-    const publicFacts = await toVerifiedEcdsaPublicFactsFromReadyMaterial({
-      material: readyMaterial,
-    });
-    const thresholdOwnerAddress = toOptionalEvmAddress(publicFacts.thresholdOwnerAddress);
+    const readyMaterial = preparedExecutorReadyMaterial?.readyMaterial || null;
+    const publicFacts = preparedExecutorReadyMaterial
+      ? preparedExecutorReadyMaterial.publicFacts
+      : thresholdEcdsaRecord && thresholdEcdsaKeyRef
+        ? await toVerifiedEcdsaPublicFactsFromPairedRecordAndKeyRef({
+            record: thresholdEcdsaRecord,
+            keyRef: thresholdEcdsaKeyRef,
+            context: 'prepared EVM-family reauth sender identity',
+          })
+        : null;
+    const thresholdOwnerAddress = toOptionalEvmAddress(
+      publicFacts?.thresholdOwnerAddress,
+    );
     if (!thresholdOwnerAddress) {
       throw new Error(
         '[SigningEngine][ecdsa] prepared EVM-family signing requires threshold owner address',

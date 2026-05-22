@@ -982,6 +982,8 @@ test.describe('signing engine refactor 37 guards', () => {
 
     expect(materialState).toContain('resolveReadyEvmFamilyEcdsaMaterial({');
     expect(materialState).toContain('buildEcdsaMaterialStateForResolvedLane');
+    expect(materialState).toContain("kind: 'ready_to_sign'");
+    expect(materialState).toContain("kind: 'reauth_required'");
     expect(materialState).toContain('readyMaterial: readyResolution.material');
     expect(materialState).toContain(
       'signingKeyContext: readyResolution.material.signingKeyContext',
@@ -995,6 +997,7 @@ test.describe('signing engine refactor 37 guards', () => {
     expect(materialState).not.toContain("record ? 'record_only'");
     expect(materialState).not.toContain("'key_ref_only'");
     expect(thresholdAdmission).toContain('readyMaterial: ReadyEvmFamilyEcdsaMaterial;');
+    expect(thresholdAdmission).toContain('readyToSignMaterial: ReadyEcdsaMaterial;');
     expect(thresholdAdmission).not.toContain('keyRef: ThresholdEcdsaSecp256k1KeyRef;');
     expect(thresholdAdmission).not.toContain('!result?.keyRef');
     expect(thresholdAdmission).toContain('ensureThresholdEcdsaReadyMaterial');
@@ -1005,7 +1008,7 @@ test.describe('signing engine refactor 37 guards', () => {
     expect(requireStepUpAuth).not.toContain('ensureThresholdEcdsaKeyRefReady');
     expect(ecdsaSelection).toContain('material: ReadyEcdsaMaterial;');
     expect(preparedSigning).toContain('material: EcdsaMaterialState;');
-    expect(signingRuntime).toContain('readyMaterial: updated.readyMaterial');
+    expect(signingRuntime).toContain('return updated;');
     expect(signingRuntime).toContain('requireReadyEvmFamilyEcdsaMaterial({');
     expect(signingRuntime).toContain(
       'passkey ECDSA reconnect requires exact record and keyRef material',
@@ -1057,7 +1060,7 @@ test.describe('signing engine refactor 37 guards', () => {
     expect(ecdsaHssExport).not.toContain('keyRef: ThresholdEcdsaSecp256k1KeyRef;');
     expect(exportKeypairOperation).toContain("kind === 'ready_threshold_ecdsa_export_material'");
     expect(signEvmFamily).toContain('buildEcdsaMaterialStateForResolvedLane({');
-    expect(signEvmFamily).toContain('toVerifiedEcdsaPublicFactsFromReadyMaterial({');
+    expect(signEvmFamily).toContain('preparedExecutorReadyMaterial.publicFacts');
     expect(signEvmFamily).toContain('trustedBudgetStatusAuthFromReadySignerSession');
     expect(signEvmFamily).not.toContain('trustedBudgetStatusAuthFromEcdsaKeyRef');
     expect(signEvmFamily).not.toContain('keyRef?.relayerUrl');
@@ -1124,7 +1127,11 @@ test.describe('signing engine refactor 37 guards', () => {
     expect(signingFlow).toContain('type EvmFamilySigningEngines = {');
     expect(signingFlow).toContain('secp256k1?: ReadySecp256k1Signer;');
     expect(signEvmFamily).toContain('toReadyEcdsaSignerSessionFromReadyMaterial');
-    expect(signEvmFamily).toContain('signerSession: requirePreparedExecutorSignerSession()');
+    expect(signEvmFamily).toContain(
+      "preparedExecutorSession.budget.kind === 'BudgetAdmitted' && preparedExecutorSignerSession",
+    );
+    expect(signEvmFamily).toContain('signerSession: preparedExecutorSignerSession');
+    expect(signEvmFamily).not.toContain('prepared executor requires ready signer material');
     const signReadyStart = secp256k1Signer.indexOf('async signReady(');
     const signReadyBlock = findBalancedBlock(
       secp256k1Signer,
@@ -1147,6 +1154,9 @@ test.describe('signing engine refactor 37 guards', () => {
     expect(thresholdAdmissionTypecheck).toContain('signerSession,');
     expect(thresholdAdmissionTypecheck).toContain(
       '@ts-expect-error passkey reconnect must return ready material',
+    );
+    expect(thresholdAdmissionTypecheck).toContain(
+      '@ts-expect-error admitted threshold ECDSA step-up state requires ready signer material',
     );
   });
 

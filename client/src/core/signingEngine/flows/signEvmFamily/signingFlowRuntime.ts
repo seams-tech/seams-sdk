@@ -38,10 +38,7 @@ import type { EvmSigningRequest } from '../../chains/evm/types';
 import type { TempoSigningRequest } from '../../chains/tempo/types';
 import { buildEcdsaSessionPolicy } from '../../threshold/sessionPolicy';
 import { buildEcdsaSessionIdentity } from '../../session/warmCapabilities/ecdsaProvisionPlan';
-import {
-  buildEvmFamilyThresholdEcdsaReauthResult,
-  type EvmFamilyThresholdEcdsaReauthResult,
-} from './thresholdAdmission';
+import type { EvmFamilyThresholdEcdsaReauthResult } from './thresholdAdmission';
 import type { EvmFamilyThresholdEcdsaStepUpRuntime } from './requireEvmFamilyStepUpAuth';
 import type { EvmFamilySigningAuthSideEffect } from './freshAuthRetryPolicy';
 import { buildReadySecp256k1SigningMaterialFromKeyRef } from './signers/secp256k1';
@@ -106,10 +103,7 @@ type EvmFamilyThresholdEcdsaKeyRefUpdate = {
   };
 };
 
-type EvmFamilyThresholdEcdsaKeyRefUpdateResult = Pick<
-  EvmFamilyThresholdEcdsaReauthResult,
-  'operation' | 'readyMaterial'
->;
+type EvmFamilyThresholdEcdsaKeyRefUpdateResult = EvmFamilyThresholdEcdsaReauthResult;
 
 function requirePlannedReconnectSessionIdentity(args: {
   sessionId: string;
@@ -430,10 +424,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
           },
           budgetKind: updated.operation.budgetAdmission ? 'admitted' : 'missing',
         });
-        return await buildEvmFamilyThresholdEcdsaReauthResult({
-          readyMaterial: updated.readyMaterial,
-          operation: updated.operation,
-        });
+        return updated;
       },
     };
   };
@@ -510,10 +501,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
                   walletSigningSessionId: String(lane.walletSigningSessionId),
                 },
               });
-              return await buildEvmFamilyThresholdEcdsaReauthResult({
-                readyMaterial: updated.readyMaterial,
-                operation: updated.operation,
-              });
+              return updated;
             },
           },
           onAuthSideEffectStarted: emitConfirmedAuthSideEffectStarted,

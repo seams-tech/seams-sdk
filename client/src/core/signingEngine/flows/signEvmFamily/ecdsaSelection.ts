@@ -407,7 +407,7 @@ function selectPasskeyMaterialForCandidate(args: {
       chainTarget: args.chainTarget,
       materialChainTarget: args.materialChainTarget,
     });
-    if (exactMaterial.kind === 'ready_material') {
+    if (exactMaterial.kind === 'ready_to_sign') {
       return {
         kind: 'selected',
         material: exactMaterial,
@@ -429,7 +429,7 @@ function selectPasskeyMaterialForCandidate(args: {
       chainTarget: args.chainTarget,
       materialChainTarget: args.materialChainTarget,
     });
-    if (material.kind === 'ready_material') {
+    if (material.kind === 'ready_to_sign') {
       return { kind: 'selected', material, selected: candidateMaterial };
     }
   }
@@ -586,7 +586,7 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
   if (
     !args.allowMissingHotMaterial &&
     exactEcdsaCandidateRequiresHotMaterial(args.laneCandidate) &&
-    exactCandidateMaterial.kind !== 'ready_material'
+    exactCandidateMaterial.kind !== 'ready_to_sign'
   ) {
     return {
       kind: 'missing_material',
@@ -623,7 +623,7 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
   }
 
   if (
-    exactCandidateMaterial.kind === 'ready_material' &&
+    exactCandidateMaterial.kind === 'ready_to_sign' &&
     args.laneCandidate.authMethod === SIGNER_AUTH_METHODS.emailOtp &&
     isSingleUseEmailOtpEcdsaRecord(exactCandidateMaterial.record)
   ) {
@@ -638,7 +638,7 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
     });
   }
 
-  if (exactCandidateMaterial.kind !== 'ready_material') {
+  if (exactCandidateMaterial.kind !== 'ready_to_sign') {
     return reauthRequiredSelection({
       accountAuth: selectedAccountAuth,
       candidate: args.laneCandidate,

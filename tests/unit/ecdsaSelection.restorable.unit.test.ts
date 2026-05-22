@@ -35,6 +35,7 @@ const tempoChainTarget = {
 };
 
 const walletId = toWalletId('restorable.testnet');
+const validThresholdEcdsaPublicKeyB64u = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
 function candidate(state: EcdsaLaneCandidate['state']): DirectEcdsaLaneCandidate {
   return {
@@ -132,6 +133,7 @@ function recordForChainTarget(
     thresholdSessionAuthToken: 'threshold-session-token',
     expiresAtMs: Date.now() + 60_000,
     remainingUses: input.state === 'exhausted' ? 0 : 1,
+    thresholdEcdsaPublicKeyB64u: validThresholdEcdsaPublicKeyB64u,
     updatedAtMs: Date.now(),
     source: 'registration',
   };
@@ -166,6 +168,7 @@ function keyRefForChainTarget(
     userId: String(input.walletId),
     chainTarget: materialChainTarget,
     relayerUrl: 'https://relay.example',
+    keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-restorable'),
     ecdsaThresholdKeyId: input.key
       .ecdsaThresholdKeyId as ThresholdEcdsaSecp256k1KeyRef['ecdsaThresholdKeyId'],
     signingRootId: input.key.signingRootId,
@@ -173,8 +176,10 @@ function keyRefForChainTarget(
     backendBinding: {
       relayerKeyId: 'rk-restorable',
       clientVerifyingShareB64u: 'client-verifying-share',
+      clientAdditiveShare32B64u: 'client-share',
     },
     participantIds: [1, 2],
+    thresholdEcdsaPublicKeyB64u: validThresholdEcdsaPublicKeyB64u,
     ethereumAddress: `0x${'aa'.repeat(20)}`,
     thresholdSessionKind: 'jwt',
     thresholdSessionAuthToken: 'threshold-session-token',
@@ -197,6 +202,20 @@ function emailOtpKeyRefForChainTarget(
         kind: 'email_otp_worker_session',
         sessionId: 'email-otp-worker-session',
       },
+    },
+  };
+}
+
+function emailOtpKeyRefWithoutWorkerShareForChainTarget(
+  input: EcdsaLaneCandidate,
+  materialChainTarget: typeof chainTarget | typeof tempoChainTarget,
+): ThresholdEcdsaSecp256k1KeyRef {
+  const keyRef = keyRefForChainTarget(input, materialChainTarget);
+  return {
+    ...keyRef,
+    backendBinding: {
+      relayerKeyId: 'rk-restorable',
+      clientVerifyingShareB64u: 'client-verifying-share',
     },
   };
 }
@@ -262,7 +281,7 @@ test.describe('ECDSA restorable lane selection', () => {
     expect(selection.kind).toBe('reauth_required');
     if (selection.kind !== 'reauth_required') return;
     expect(selection.reason).toBe('exhausted');
-    expect(selection.material.kind).toBe('missing');
+    expect(selection.material.kind).toBe('public_identity_unavailable');
   });
 
   test('uses source material for deferred shared EVM-family lanes without passkey reauth', async () => {
@@ -429,5 +448,71 @@ test.describe('ECDSA restorable lane selection', () => {
       chainTarget,
     });
     expect(selection.diagnostics.selectedPasskeyMaterial).toEqual({ present: false });
+  });
+
+  test('routes exhausted shared Tempo Email OTP lanes with public identity only to OTP reauth', async () => {
+    const input: EcdsaLaneCandidate = {
+      ...emailOtpSharedTempoCandidate(),
+      state: 'exhausted',
+      remainingUses: 0,
+    };
+    const emailOtpRecord = {
+      ...emailOtpRecordForChainTarget(input, chainTarget),
+      remainingUses: 1,
+    };
+    const emailOtpKeyRef = emailOtpKeyRefWithoutWorkerShareForChainTarget(input, chainTarget);
+    const deps: EvmFamilyEcdsaSigningSelectionDeps = {
+      ...selectionDeps(),
+      getEmailOtpThresholdEcdsaSessionRecordForSigning: ({ chainTarget: requestedChainTarget }) => {
+        if (
+          requestedChainTarget.kind === chainTarget.kind &&
+          requestedChainTarget.chainId === chainTarget.chainId
+        ) {
+          return emailOtpRecord;
+        }
+        throw new Error('missing Email OTP source record');
+      },
+      getEmailOtpThresholdEcdsaKeyRefForSigning: ({ chainTarget: requestedChainTarget }) => {
+        if (
+          requestedChainTarget.kind === chainTarget.kind &&
+          requestedChainTarget.chainId === chainTarget.chainId
+        ) {
+          return emailOtpKeyRef;
+        }
+        throw new Error('missing Email OTP source key ref');
+      },
+    };
+
+    const selection = await resolveEvmFamilyEcdsaSigningSelection({
+      deps,
+      walletId,
+      chain: 'tempo',
+      chainTarget: tempoChainTarget,
+      senderSignatureAlgorithm: 'secp256k1',
+      authMethod: 'email_otp',
+      laneCandidate: input,
+    });
+
+    expect(selection.kind).toBe('reauth_required');
+    if (selection.kind !== 'reauth_required') return;
+    expect(selection.authMethod).toBe('email_otp');
+    expect(selection.reason).toBe('exhausted');
+    expect(selection.material).toMatchObject({
+      kind: 'reauth_required',
+      reason: 'missing_worker_share',
+    });
+    expect(selection.diagnostics.exactCandidateMaterial).toMatchObject({
+      present: true,
+      kind: 'reauth_required',
+      hasRecord: true,
+      hasKeyRef: true,
+      publicIdentityPresent: true,
+      signerMaterialPresent: false,
+    });
+    expect(selection.reauthAuthority).toEqual({
+      kind: 'email_otp_signing_session',
+      thresholdSessionId: 'tsess-restorable',
+      chainTarget,
+    });
   });
 });

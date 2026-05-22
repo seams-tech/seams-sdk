@@ -296,4 +296,68 @@ test.describe('Email OTP operation split guard', () => {
     );
     expect(prepareBeforeSelection).not.toContain("(['email_otp', 'passkey'] as const)");
   });
+
+  test('EVM-family exhausted ECDSA lanes defer ready-material requirements until reauth', () => {
+    const evmSigning = readRepoFile('client/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts');
+    const evmFamilyEcdsaIdentity = readRepoFile(
+      'client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.ts',
+    );
+    const executorStart = evmSigning.indexOf('const preparedExecutorSession =');
+    const executorEnd = evmSigning.indexOf('const executePayload =', executorStart);
+    expect(executorStart).toBeGreaterThanOrEqual(0);
+    expect(executorEnd).toBeGreaterThan(executorStart);
+    const executorPreparation = evmSigning.slice(executorStart, executorEnd);
+
+    expect(evmSigning).toContain('readSelectedEcdsaRecordForLane({');
+    expect(evmSigning).toContain('readSelectedEcdsaKeyRefForLane({');
+    expect(executorPreparation).toContain(
+      "preparedExecutorSession?.material.kind === 'ready_to_sign'",
+    );
+    expect(executorPreparation).toContain(
+      "preparedExecutorSession.budget.kind === 'BudgetAdmitted' && preparedExecutorSignerSession",
+    );
+    expect(executorPreparation).not.toContain(
+      "requireReadyEcdsaMaterial(\n        preparedExecutorSession.material,\n        'prepared executor signer session'",
+    );
+    expect(executorPreparation).not.toContain('prepared executor requires ready signer material');
+    expect(executorPreparation).toContain('toVerifiedEcdsaPublicFactsFromPairedRecordAndKeyRef({');
+    expect(executorPreparation).not.toContain(
+      'preparedExecutorSession.signingLane.key.thresholdOwnerAddress',
+    );
+    expect(evmFamilyEcdsaIdentity).toContain('function hasReadyThresholdEcdsaClientShare');
+    expect(evmFamilyEcdsaIdentity).toContain('!hasReadyThresholdEcdsaClientShare(input.keyRef)');
+  });
+
+  test('EVM-family missing ECDSA material remains reauth-planned under active wallet budget', () => {
+    const preparedSigning = readRepoFile('client/src/core/signingEngine/flows/signEvmFamily/preparedSigning.ts');
+    const readinessStart = preparedSigning.indexOf('function readinessFromSelection');
+    const readinessEnd = preparedSigning.indexOf('type PreparedEvmFamilyEcdsaMetadata', readinessStart);
+    expect(readinessStart).toBeGreaterThanOrEqual(0);
+    expect(readinessEnd).toBeGreaterThan(readinessStart);
+    const readinessBlock = preparedSigning.slice(readinessStart, readinessEnd);
+
+    expect(readinessBlock).toContain("selection.material.kind === 'public_identity_unavailable'");
+    expect(readinessBlock).toContain("? 'missing_session'");
+    expect(readinessBlock).toContain("selection.reason === 'exhausted'");
+  });
+
+  test('EVM-family selection diagnostics remain observational', () => {
+    const files = [
+      'client/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.ts',
+      'client/src/core/signingEngine/flows/signEvmFamily/preparedSigning.ts',
+      'client/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts',
+    ];
+    const violations: string[] = [];
+    for (const file of files) {
+      const source = readRepoFile(file);
+      const lines = source.split(/\r?\n/);
+      lines.forEach((line, index) => {
+        if (/\b(if|while)\s*\(.*diagnostics/.test(line)) {
+          violations.push(`${file}:${index + 1}: ${line.trim()}`);
+        }
+      });
+    }
+
+    expect(violations, violations.join('\n')).toEqual([]);
+  });
 });
