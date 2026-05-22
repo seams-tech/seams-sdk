@@ -36,7 +36,7 @@ axiom
     F)
 
 /-- [ed25519_hss::shared::reference::eval_f_expand]:
-    Source: 'src/shared/reference.rs', lines 93:0-120:1
+    Source: 'src/shared/reference.rs', lines 93:0-117:1
     Visibility: public -/
 axiom shared.reference.eval_f_expand
   :

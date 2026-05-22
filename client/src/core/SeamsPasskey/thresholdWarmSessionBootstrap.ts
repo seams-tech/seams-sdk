@@ -188,6 +188,10 @@ export async function prepareThresholdEd25519RegistrationWithHss(args: {
   if (!prepared.success) {
     throw new Error(prepared.error || 'Failed to prepare threshold Ed25519 HSS registration');
   }
+  const prfFirstB64u = String(getPrfFirstB64uFromCredential(args.credential) || '').trim();
+  if (!prfFirstB64u) {
+    throw new Error('Missing PRF.first output from credential for threshold Ed25519 HSS masking');
+  }
 
   args.onProgress?.('Preparing threshold Ed25519 relay ceremony...');
   const preparedRelayCeremony = await prepareThresholdEd25519HssServerCeremonyWithRelayRegistration(
@@ -205,6 +209,24 @@ export async function prepareThresholdEd25519RegistrationWithHss(args: {
       },
     },
   );
+  const hssContext = {
+    signingRootId,
+    nearAccountId: String(args.nearAccountId),
+    keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
+    keyVersion: THRESHOLD_ED25519_SINGLE_KEY_HSS_KEY_VERSION_V1,
+    participantIds: prepared.participantIds,
+    derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
+  };
+  const { clientOutputMaskB64u } =
+    await args.context.signingEngine.deriveThresholdEd25519HssClientOutputMask({
+      clientRecoverableSecretB64u: prfFirstB64u,
+      context: {
+        ...hssContext,
+        contextBindingB64u: preparedRelayCeremony.preparedSession.contextBindingB64u,
+        operation: 'registration',
+        relayerKeyId: `registration:${preparedRelayCeremony.ceremonyHandle}`,
+      },
+    });
 
   const clientRequest = await args.context.signingEngine.prepareThresholdEd25519HssClientRequest({
     evaluatorDriverStateB64u: preparedRelayCeremony.preparedSession.evaluatorDriverStateB64u,
@@ -224,12 +246,21 @@ export async function prepareThresholdEd25519RegistrationWithHss(args: {
     clientRequest,
   });
 
+  const evaluationResult =
+    await args.context.signingEngine.buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact({
+      preparedSession: preparedRelayCeremony.preparedSession,
+      clientRequest,
+      serverInputDelivery: responded,
+      clientOutputMaskB64u,
+    });
+
   args.onProgress?.('Finalizing threshold Ed25519 registration material...');
   const hssFinalize = await finalizeThresholdEd25519HssServerCeremonyWithRelayRegistration({
     context: args.context,
     nearAccountId: String(args.nearAccountId),
     rpId: args.rpId,
     ceremonyHandle: preparedRelayCeremony.ceremonyHandle,
+    evaluationResult,
   });
   if (!hssFinalize.publicKey || !hssFinalize.relayerKeyId) {
     throw new Error('Threshold Ed25519 registration HSS finalize returned incomplete key material');
@@ -511,6 +542,10 @@ export async function reconstructThresholdEd25519ClientBaseFromWarmSession(args:
   if (!relayerUrl || !relayerKeyId || !keyVersion) {
     throw new Error('Threshold Ed25519 warm-session reconstruction is missing relay metadata');
   }
+  const prfFirstB64u = String(getPrfFirstB64uFromCredential(args.credential) || '').trim();
+  if (!prfFirstB64u) {
+    throw new Error('Missing PRF.first output from credential for threshold Ed25519 HSS masking');
+  }
   const prepared =
     await args.context.signingEngine.prepareThresholdEd25519HssClientCeremonyFromCredential({
       credential: args.credential,
@@ -543,6 +578,10 @@ export async function reconstructThresholdEd25519ClientBaseFromWarmSession(args:
       contextBindingB64u: prepared.contextBindingB64u,
       yClientB64u: prepared.yClientB64u,
       tauClientB64u: prepared.tauClientB64u,
+    },
+    outputProjection: {
+      kind: 'client-masked-projection',
+      clientRecoverableSecretB64u: prfFirstB64u,
     },
   });
   if (!completed.success || !completed.clientOutput?.xClientBaseB64u) {

@@ -31,7 +31,8 @@ import type {
   ThresholdEd25519SessionResponse,
   ThresholdEd25519AuthorizeWithSessionRequest,
   ThresholdEd25519HssCanonicalContext,
-  ThresholdEd25519HssClientRequestEnvelope,
+  ThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope,
+  ThresholdEd25519HssServerVisibleClientRequestEnvelope,
   ThresholdEd25519HssFinalizeForRegistrationRequest,
   ThresholdEd25519HssFinalizeForRegistrationResponse,
   ThresholdEd25519HssFinalizeWithSessionRequest,
@@ -88,7 +89,7 @@ import {
   deriveThresholdEd25519VerifyingShareFromSigningShare,
   deriveThresholdEd25519RegistrationMaterialFromHssFinalize,
   finalizeThresholdEd25519HssServerCeremony,
-  prepareThresholdEd25519HssServerCeremony,
+  prepareThresholdEd25519HssRoleSeparatedServerInputDelivery,
   prepareThresholdEd25519HssServerSession,
   releaseThresholdEd25519HssPreparedServerSession,
   releaseThresholdEd25519HssStagedEvaluatorArtifact,
@@ -916,14 +917,13 @@ function parseThresholdEd25519HssPreparedSessionEnvelope(
   };
 }
 
-function parseThresholdEd25519HssClientRequestEnvelope(
+function parseThresholdEd25519HssServerVisibleClientRequestEnvelope(
   raw: unknown,
-): ParseResult<ThresholdEd25519HssClientRequestEnvelope> {
+): ParseResult<ThresholdEd25519HssServerVisibleClientRequestEnvelope> {
   if (!isObject(raw)) {
     return { ok: false, code: 'invalid_body', message: 'clientRequest is required' };
   }
   const clientRequestMessageB64u = toOptionalTrimmedString(raw.clientRequestMessageB64u);
-  const evaluatorOtStateB64u = toOptionalTrimmedString(raw.evaluatorOtStateB64u);
   if (!clientRequestMessageB64u) {
     return {
       ok: false,
@@ -931,16 +931,51 @@ function parseThresholdEd25519HssClientRequestEnvelope(
       message: 'clientRequest.clientRequestMessageB64u is required',
     };
   }
-  if (!evaluatorOtStateB64u) {
+  if (toOptionalTrimmedString(raw.evaluatorOtStateB64u)) {
     return {
       ok: false,
       code: 'invalid_body',
-      message: 'clientRequest.evaluatorOtStateB64u is required',
+      message: 'clientRequest.evaluatorOtStateB64u must stay client-local',
     };
   }
   return {
     ok: true,
-    value: { clientRequestMessageB64u, evaluatorOtStateB64u },
+    value: { clientRequestMessageB64u },
+  };
+}
+
+function parseThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope(
+  raw: unknown,
+): ParseResult<ThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope> {
+  if (!isObject(raw)) {
+    return { ok: false, code: 'invalid_body', message: 'evaluationResult is required' };
+  }
+  const contextBindingB64u = toOptionalTrimmedString(raw.contextBindingB64u);
+  const stagedEvaluatorArtifactB64u = toOptionalTrimmedString(raw.stagedEvaluatorArtifactB64u);
+  if (!contextBindingB64u) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'evaluationResult.contextBindingB64u is required',
+    };
+  }
+  if (!stagedEvaluatorArtifactB64u) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'evaluationResult.stagedEvaluatorArtifactB64u is required',
+    };
+  }
+  if (toOptionalTrimmedString(raw.evaluatorOtStateB64u)) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'evaluationResult.evaluatorOtStateB64u must stay client-local',
+    };
+  }
+  return {
+    ok: true,
+    value: { contextBindingB64u, stagedEvaluatorArtifactB64u },
   };
 }
 
@@ -2218,7 +2253,7 @@ export class ThresholdSigningService {
           participantIds: existingSession.participantIds,
           ttlMs,
           remainingUses,
-          refreshExisting: true,
+          refreshExisting: false,
         });
         if (!walletBudget.ok) return walletBudget;
         return {
@@ -3519,7 +3554,7 @@ export class ThresholdSigningService {
           participantIds: existingSession.participantIds,
           ttlMs,
           remainingUses,
-          refreshExisting: true,
+          refreshExisting: false,
         });
         if (!walletBudget.ok) return walletBudget;
         return {
@@ -3997,7 +4032,8 @@ export class ThresholdSigningService {
       if (ceremony.value.kind !== 'session') {
         return { ok: false, code: 'invalid_body', message: 'ceremonyHandle scope mismatch' };
       }
-      const clientRequest = parseThresholdEd25519HssClientRequestEnvelope(rec.clientRequest);
+      const clientRequest =
+        parseThresholdEd25519HssServerVisibleClientRequestEnvelope(rec.clientRequest);
       if (!clientRequest.ok) return clientRequest;
 
       const scopeError = this.validateThresholdEd25519HssSessionScope({
@@ -4019,7 +4055,7 @@ export class ThresholdSigningService {
       }
 
       const wasmStartedAt = Date.now();
-      const result = await prepareThresholdEd25519HssServerCeremony({
+      const result = await prepareThresholdEd25519HssRoleSeparatedServerInputDelivery({
         operation: ceremony.value.operation,
         preparedServerSession: ceremony.value.preparedServerSession,
         expectedContextBindingB64u: ceremony.value.preparedSession.contextBindingB64u,
@@ -4028,20 +4064,11 @@ export class ThresholdSigningService {
       });
       clearThresholdEd25519HssStoredServerInputs(serverInputs);
       delete ceremony.value.serverInputs;
-      ceremony.value.evaluationResult = result.evaluationResult.stagedEvaluatorArtifactHandle
-        ? {
-            stagedEvaluatorArtifactHandle: result.evaluationResult.stagedEvaluatorArtifactHandle,
-          }
-        : {
-            stagedEvaluatorArtifactBytes: result.evaluationResult.stagedEvaluatorArtifactBytes!,
-          };
-      const ceremonyStateWithEvaluation: ThresholdEd25519HssCeremonyRecord = {
-        ...ceremony.value,
-        evaluationResult: ceremony.value.evaluationResult,
-      };
       const wasmRespondMs = Date.now() - wasmStartedAt;
       const responsePayload = {
         ok: true,
+        contextBindingB64u: result.serverInputDelivery.contextBindingB64u,
+        serverInputDeliveryB64u: result.serverInputDelivery.serverInputDeliveryB64u,
       };
 
       this.logger?.info?.('[threshold-ed25519] hss respond timings', {
@@ -4056,33 +4083,23 @@ export class ThresholdSigningService {
         clientRequestMessageTransportOverheadBytes:
           utf8Bytes(clientRequest.value.clientRequestMessageB64u) -
           base64UrlPayloadBytes(clientRequest.value.clientRequestMessageB64u),
-        evaluatorOtStateBytes: utf8Bytes(clientRequest.value.evaluatorOtStateB64u),
-        evaluatorOtStatePayloadBytes: base64UrlPayloadBytes(
-          clientRequest.value.evaluatorOtStateB64u,
-        ),
-        evaluatorOtStateTransportOverheadBytes:
-          utf8Bytes(clientRequest.value.evaluatorOtStateB64u) -
-          base64UrlPayloadBytes(clientRequest.value.evaluatorOtStateB64u),
         parseMs,
         respondEngine: result.engine,
         wasmRespondMs,
         wasmRespondBreakdownMs: result.timings || null,
-        wasmRespondBreakdownSummary:
-          result.engine === 'wasm'
-            ? summarizeThresholdEd25519HssWasmBreakdown(result.timings)
-            : null,
         responseBytes: jsonBytes(responsePayload),
-        evaluationResultBytes:
-          result.evaluationResult.stagedEvaluatorArtifactBytes?.byteLength ??
-          utf8Bytes(result.evaluationResult.stagedEvaluatorArtifactHandle || ''),
-        ceremonyStateBytes: summarizeThresholdEd25519HssCeremonyRecordBytes(
-          ceremonyStateWithEvaluation,
+        serverInputDeliveryBytes: utf8Bytes(result.serverInputDelivery.serverInputDeliveryB64u),
+        serverInputDeliveryPayloadBytes: base64UrlPayloadBytes(
+          result.serverInputDelivery.serverInputDeliveryB64u,
         ),
+        ceremonyStateBytes: summarizeThresholdEd25519HssCeremonyRecordBytes(ceremony.value),
         totalMs: Date.now() - respondStartedAt,
       });
 
       return {
         ok: true,
+        contextBindingB64u: result.serverInputDelivery.contextBindingB64u,
+        serverInputDeliveryB64u: result.serverInputDelivery.serverInputDeliveryB64u,
       };
     } catch (e: unknown) {
       const msg = errorMessage(e);
@@ -4119,7 +4136,8 @@ export class ThresholdSigningService {
           message: 'ceremonyHandle does not match registration scope',
         };
       }
-      const clientRequest = parseThresholdEd25519HssClientRequestEnvelope(rec.clientRequest);
+      const clientRequest =
+        parseThresholdEd25519HssServerVisibleClientRequestEnvelope(rec.clientRequest);
       if (!clientRequest.ok) return clientRequest;
 
       const scopeError = this.validateThresholdEd25519HssRegistrationScope({
@@ -4141,7 +4159,7 @@ export class ThresholdSigningService {
       }
 
       const wasmStartedAt = Date.now();
-      const result = await prepareThresholdEd25519HssServerCeremony({
+      const result = await prepareThresholdEd25519HssRoleSeparatedServerInputDelivery({
         operation: 'registration',
         preparedServerSession: ceremony.value.preparedServerSession,
         expectedContextBindingB64u: ceremony.value.preparedSession.contextBindingB64u,
@@ -4150,20 +4168,11 @@ export class ThresholdSigningService {
       });
       clearThresholdEd25519HssStoredServerInputs(serverInputs);
       delete ceremony.value.serverInputs;
-      ceremony.value.evaluationResult = result.evaluationResult.stagedEvaluatorArtifactHandle
-        ? {
-            stagedEvaluatorArtifactHandle: result.evaluationResult.stagedEvaluatorArtifactHandle,
-          }
-        : {
-            stagedEvaluatorArtifactBytes: result.evaluationResult.stagedEvaluatorArtifactBytes!,
-          };
-      const ceremonyStateWithEvaluation: ThresholdEd25519HssCeremonyRecord = {
-        ...ceremony.value,
-        evaluationResult: ceremony.value.evaluationResult,
-      };
       const wasmRespondMs = Date.now() - wasmStartedAt;
       const responsePayload = {
         ok: true,
+        contextBindingB64u: result.serverInputDelivery.contextBindingB64u,
+        serverInputDeliveryB64u: result.serverInputDelivery.serverInputDeliveryB64u,
       };
 
       this.logger?.info?.('[threshold-ed25519][registration] hss respond timings', {
@@ -4177,33 +4186,23 @@ export class ThresholdSigningService {
         clientRequestMessageTransportOverheadBytes:
           utf8Bytes(clientRequest.value.clientRequestMessageB64u) -
           base64UrlPayloadBytes(clientRequest.value.clientRequestMessageB64u),
-        evaluatorOtStateBytes: utf8Bytes(clientRequest.value.evaluatorOtStateB64u),
-        evaluatorOtStatePayloadBytes: base64UrlPayloadBytes(
-          clientRequest.value.evaluatorOtStateB64u,
-        ),
-        evaluatorOtStateTransportOverheadBytes:
-          utf8Bytes(clientRequest.value.evaluatorOtStateB64u) -
-          base64UrlPayloadBytes(clientRequest.value.evaluatorOtStateB64u),
         parseMs,
         respondEngine: result.engine,
         wasmRespondMs,
         wasmRespondBreakdownMs: result.timings || null,
-        wasmRespondBreakdownSummary:
-          result.engine === 'wasm'
-            ? summarizeThresholdEd25519HssWasmBreakdown(result.timings)
-            : null,
         responseBytes: jsonBytes(responsePayload),
-        evaluationResultBytes:
-          result.evaluationResult.stagedEvaluatorArtifactBytes?.byteLength ??
-          utf8Bytes(result.evaluationResult.stagedEvaluatorArtifactHandle || ''),
-        ceremonyStateBytes: summarizeThresholdEd25519HssCeremonyRecordBytes(
-          ceremonyStateWithEvaluation,
+        serverInputDeliveryBytes: utf8Bytes(result.serverInputDelivery.serverInputDeliveryB64u),
+        serverInputDeliveryPayloadBytes: base64UrlPayloadBytes(
+          result.serverInputDelivery.serverInputDeliveryB64u,
         ),
+        ceremonyStateBytes: summarizeThresholdEd25519HssCeremonyRecordBytes(ceremony.value),
         totalMs: Date.now() - respondStartedAt,
       });
 
       return {
         ok: true,
+        contextBindingB64u: result.serverInputDelivery.contextBindingB64u,
+        serverInputDeliveryB64u: result.serverInputDelivery.serverInputDeliveryB64u,
       };
     } catch (e: unknown) {
       const msg = errorMessage(e);
@@ -4227,12 +4226,16 @@ export class ThresholdSigningService {
       if (ceremony.value.kind !== 'session') {
         return { ok: false, code: 'invalid_body', message: 'ceremonyHandle scope mismatch' };
       }
-      const evaluationResult = ceremony.value.evaluationResult;
-      if (!evaluationResult) {
+      const evaluationResult =
+        parseThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope(rec.evaluationResult);
+      if (!evaluationResult.ok) return evaluationResult;
+      if (
+        evaluationResult.value.contextBindingB64u !== ceremony.value.preparedSession.contextBindingB64u
+      ) {
         return {
           ok: false,
           code: 'invalid_body',
-          message: 'ceremonyHandle has no staged evaluator artifact',
+          message: 'evaluationResult context binding mismatch',
         };
       }
 
@@ -4259,7 +4262,11 @@ export class ThresholdSigningService {
           operation: takenCeremony.value.operation,
           preparedSession: takenCeremony.value.preparedSession,
           preparedServerSession: takenCeremony.value.preparedServerSession,
-          evaluationResult,
+          evaluationResult: {
+            stagedEvaluatorArtifactBytes: base64UrlDecode(
+              evaluationResult.value.stagedEvaluatorArtifactB64u,
+            ),
+          },
           expectedContextBindingB64u: takenCeremony.value.preparedSession.contextBindingB64u,
         });
         const relayerShareRepairStartedAt = Date.now();
@@ -4277,9 +4284,10 @@ export class ThresholdSigningService {
           relayerKeyId: ceremony.value.relayerKeyId,
           nearAccountId: ceremony.value.context.nearAccountId,
           requestBytes: jsonBytes(input.request || {}),
-          evaluationResultBytes:
-            evaluationResult.stagedEvaluatorArtifactBytes?.byteLength ??
-            utf8Bytes(evaluationResult.stagedEvaluatorArtifactHandle || ''),
+          evaluationResultBytes: utf8Bytes(evaluationResult.value.stagedEvaluatorArtifactB64u),
+          evaluationResultPayloadBytes: base64UrlPayloadBytes(
+            evaluationResult.value.stagedEvaluatorArtifactB64u,
+          ),
           parseMs,
           ensureReadyMs: wasmStartedAt - ensureReadyStartedAt,
           wasmFinalizeMs: relayerShareRepairStartedAt - wasmStartedAt,
@@ -4325,12 +4333,16 @@ export class ThresholdSigningService {
       if (ceremony.value.kind !== 'registration') {
         return { ok: false, code: 'invalid_body', message: 'ceremonyHandle scope mismatch' };
       }
-      const evaluationResult = ceremony.value.evaluationResult;
-      if (!evaluationResult) {
+      const evaluationResult =
+        parseThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope(rec.evaluationResult);
+      if (!evaluationResult.ok) return evaluationResult;
+      if (
+        evaluationResult.value.contextBindingB64u !== ceremony.value.preparedSession.contextBindingB64u
+      ) {
         return {
           ok: false,
           code: 'invalid_body',
-          message: 'ceremonyHandle has no staged evaluator artifact',
+          message: 'evaluationResult context binding mismatch',
         };
       }
       if (ceremony.value.newAccountId !== newAccountId || ceremony.value.rpId !== rpId) {
@@ -4361,7 +4373,11 @@ export class ThresholdSigningService {
           operation: 'registration',
           preparedSession: takenCeremony.value.preparedSession,
           preparedServerSession: takenCeremony.value.preparedServerSession,
-          evaluationResult,
+          evaluationResult: {
+            stagedEvaluatorArtifactBytes: base64UrlDecode(
+              evaluationResult.value.stagedEvaluatorArtifactB64u,
+            ),
+          },
           expectedContextBindingB64u: takenCeremony.value.preparedSession.contextBindingB64u,
         });
         const registrationMaterialStartedAt = Date.now();
@@ -4389,9 +4405,10 @@ export class ThresholdSigningService {
         this.logger?.info?.('[threshold-ed25519][registration] hss finalize timings', {
           nearAccountId: newAccountId,
           requestBytes: jsonBytes(input.request || {}),
-          evaluationResultBytes:
-            evaluationResult.stagedEvaluatorArtifactBytes?.byteLength ??
-            utf8Bytes(evaluationResult.stagedEvaluatorArtifactHandle || ''),
+          evaluationResultBytes: utf8Bytes(evaluationResult.value.stagedEvaluatorArtifactB64u),
+          evaluationResultPayloadBytes: base64UrlPayloadBytes(
+            evaluationResult.value.stagedEvaluatorArtifactB64u,
+          ),
           parseMs,
           hssFinalizeMs: Date.now() - hssFinalizeStartedAt,
           registrationMaterialMs: keyStorePutStartedAt - registrationMaterialStartedAt,

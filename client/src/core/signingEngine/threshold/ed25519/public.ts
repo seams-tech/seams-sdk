@@ -8,7 +8,11 @@ import {
   runThresholdEd25519HssCeremonyWithSession as runThresholdEd25519HssCeremonyWithSessionValue,
   type ThresholdEd25519LifecycleDeps,
 } from './hssLifecycle';
-import { prepareThresholdEd25519HssClientRequestWasm } from '../crypto/hssClientSignerWasm';
+import {
+  buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactWasm,
+  deriveThresholdEd25519HssClientOutputMaskWasm,
+  prepareThresholdEd25519HssClientRequestWasm,
+} from '../crypto/hssClientSignerWasm';
 
 export type ThresholdEd25519PublicDeps = ThresholdEd25519LifecycleDeps;
 
@@ -38,6 +42,29 @@ export function prepareThresholdEd25519HssClientRequest(
   args: Omit<Parameters<typeof prepareThresholdEd25519HssClientRequestWasm>[0], 'workerCtx'>,
 ): ReturnType<typeof prepareThresholdEd25519HssClientRequestWasm> {
   return prepareThresholdEd25519HssClientRequestWasm({
+    ...args,
+    workerCtx: deps.getSignerWorkerContext(),
+  });
+}
+
+export function deriveThresholdEd25519HssClientOutputMask(
+  deps: ThresholdEd25519PublicDeps,
+  args: Omit<Parameters<typeof deriveThresholdEd25519HssClientOutputMaskWasm>[0], 'workerCtx'>,
+): ReturnType<typeof deriveThresholdEd25519HssClientOutputMaskWasm> {
+  return deriveThresholdEd25519HssClientOutputMaskWasm({
+    ...args,
+    workerCtx: deps.getSignerWorkerContext(),
+  });
+}
+
+export function buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact(
+  deps: ThresholdEd25519PublicDeps,
+  args: Omit<
+    Parameters<typeof buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactWasm>[0],
+    'workerCtx'
+  >,
+): ReturnType<typeof buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactWasm> {
+  return buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactWasm({
     ...args,
     workerCtx: deps.getSignerWorkerContext(),
   });
@@ -100,6 +127,18 @@ export function createThresholdEd25519PublicApi(deps: ThresholdEd25519PublicDeps
     prepareThresholdEd25519HssClientRequest: (
       args: Omit<Parameters<typeof prepareThresholdEd25519HssClientRequestWasm>[0], 'workerCtx'>,
     ) => prepareThresholdEd25519HssClientRequest(deps, args),
+    deriveThresholdEd25519HssClientOutputMask: (
+      args: Omit<
+        Parameters<typeof deriveThresholdEd25519HssClientOutputMaskWasm>[0],
+        'workerCtx'
+      >,
+    ) => deriveThresholdEd25519HssClientOutputMask(deps, args),
+    buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact: (
+      args: Omit<
+        Parameters<typeof buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactWasm>[0],
+        'workerCtx'
+      >,
+    ) => buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact(deps, args),
     completeThresholdEd25519HssClientCeremony: (
       args: Omit<
         Parameters<typeof completeThresholdEd25519HssClientCeremonyValue>[0],

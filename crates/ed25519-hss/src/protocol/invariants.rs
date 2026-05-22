@@ -5,15 +5,12 @@ use crate::shared::{ProtoError, ProtoResult};
 use crate::wire::{
     AddStageRequestPayload, AddStageResponsePayload, ClientPacket, ClientStagePayload,
     ClientStageRequestPacket, MessageScheduleRequestPayload, MessageScheduleResponsePayload,
-    OutputProjectionRequestPayload, OutputProjectionResponsePayload,
-    RoundCoreRequestPayload, RoundCoreResponsePayload, ServerAssistInitPacket,
-    ServerStagePayload, ServerStageResponsePacket,
+    OutputProjectionRequestPayload, OutputProjectionResponsePayload, RoundCoreRequestPayload,
+    RoundCoreResponsePayload, ServerAssistInitPacket, ServerStagePayload,
+    ServerStageResponsePacket,
 };
 
-fn ensure_stage_request_state_is_live(
-    state: &ServerEvalState,
-    label: &str,
-) -> ProtoResult<()> {
+fn ensure_stage_request_state_is_live(state: &ServerEvalState, label: &str) -> ProtoResult<()> {
     match state.status {
         ServerEvalStatus::Pending | ServerEvalStatus::InProgress => Ok(()),
         ServerEvalStatus::Finalized => Err(ProtoError::InvalidInput(format!(
@@ -484,7 +481,9 @@ pub(crate) fn validate_round_core_request_packet(
     }
     if let Some(current_execution_digest) = state.current_execution_checkpoint_digest() {
         let expected_prior_execution_digest = if *round_index == 0 {
-            state.prior_execution_checkpoint_digest().unwrap_or(current_execution_digest)
+            state
+                .prior_execution_checkpoint_digest()
+                .unwrap_or(current_execution_digest)
         } else {
             current_execution_digest
         };
@@ -553,13 +552,12 @@ pub(crate) fn validate_round_core_response_packet(
             "round-core response commitments are not bound to the round-core payload".to_string(),
         ));
     }
-    let expected_execution_digest = if state.current_stage
-        == crate::wire::ServerEvalStageId::output_projection()
-    {
-        state.prior_execution_checkpoint_digest()
-    } else {
-        state.current_execution_checkpoint_digest()
-    };
+    let expected_execution_digest =
+        if state.current_stage == crate::wire::ServerEvalStageId::output_projection() {
+            state.prior_execution_checkpoint_digest()
+        } else {
+            state.current_execution_checkpoint_digest()
+        };
     if let Some(expected_execution_digest) = expected_execution_digest {
         if *execution_checkpoint_digest != expected_execution_digest {
             return Err(ProtoError::InvalidInput(
@@ -601,6 +599,7 @@ pub(crate) fn validate_output_projection_request_packet(
     let ClientStagePayload::OutputProjection(OutputProjectionRequestPayload {
         final_client_digest,
         prior_server_stage_digest,
+        projection_mode,
     }) = &packet.client_stage_payload
     else {
         return Err(ProtoError::InvalidInput(
@@ -608,7 +607,7 @@ pub(crate) fn validate_output_projection_request_packet(
                 .to_string(),
         ));
     };
-    if packet.client_stage_commitments.digests.len() < 2 {
+    if packet.client_stage_commitments.digests.len() < 3 {
         return Err(ProtoError::InvalidInput(
             "output-projection request commitments must include final projection digests"
                 .to_string(),
@@ -616,6 +615,8 @@ pub(crate) fn validate_output_projection_request_packet(
     }
     if packet.client_stage_commitments.digests[0] != *final_client_digest
         || packet.client_stage_commitments.digests[1] != *prior_server_stage_digest
+        || packet.client_stage_commitments.digests[2]
+            != crate::protocol::transcript::digest_output_projection_mode(projection_mode)
     {
         return Err(ProtoError::InvalidInput(
             "output-projection request commitments are not bound to the output-projection payload"
@@ -657,6 +658,7 @@ pub(crate) fn validate_output_projection_response_packet(
     let ServerStagePayload::OutputProjection(OutputProjectionResponsePayload {
         final_server_digest,
         output_release_token,
+        projection_mode,
         execution_checkpoint_digest,
         ..
     }) = &response.server_stage_payload
@@ -672,7 +674,22 @@ pub(crate) fn validate_output_projection_response_packet(
                 .to_string(),
         ));
     }
-    if response.server_stage_commitments.digests.len() < 3 {
+    let ClientStagePayload::OutputProjection(OutputProjectionRequestPayload {
+        projection_mode: request_projection_mode,
+        ..
+    }) = &request.client_stage_payload
+    else {
+        return Err(ProtoError::InvalidInput(
+            "client stage request payload must be output-projection for the output-projection round"
+                .to_string(),
+        ));
+    };
+    if projection_mode != request_projection_mode {
+        return Err(ProtoError::InvalidInput(
+            "output-projection response projection mode does not match the request".to_string(),
+        ));
+    }
+    if response.server_stage_commitments.digests.len() < 4 {
         return Err(ProtoError::InvalidInput(
             "output-projection response commitments must include final projection digests"
                 .to_string(),
@@ -681,6 +698,8 @@ pub(crate) fn validate_output_projection_response_packet(
     if response.server_stage_commitments.digests[0] != *final_server_digest
         || response.server_stage_commitments.digests[1] != *output_release_token
         || response.server_stage_commitments.digests[2] != *execution_checkpoint_digest
+        || response.server_stage_commitments.digests[3]
+            != crate::protocol::transcript::digest_output_projection_mode(projection_mode)
     {
         return Err(ProtoError::InvalidInput(
             "output-projection response commitments are not bound to the output-projection payload"

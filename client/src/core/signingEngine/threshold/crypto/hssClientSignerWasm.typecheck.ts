@@ -13,6 +13,11 @@ import {
   toWalletSessionUserId,
 } from '../../session/identity/emailOtpHssIdentity';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
+import type {
+  WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactRequest,
+  WasmDeriveThresholdEd25519HssClientOutputMaskRequest,
+  WasmOpenThresholdEd25519HssClientOutputRequest,
+} from '../../../types/signer-worker';
 
 const serverPlannedContext = parseServerPlannedEcdsaHssContext({
   walletSessionUserId: 'wallet-user',
@@ -110,3 +115,65 @@ async function assertRoleLocalBootstrapShape(): Promise<void> {
 }
 
 void assertRoleLocalBootstrapShape;
+
+const maskedStagedArtifactRequest = {
+  evaluatorDriverStateB64u: 'evaluator-state',
+  clientRequestMessageB64u: 'client-request',
+  evaluatorOtStateB64u: 'evaluator-ot-state',
+  serverInputDeliveryB64u: 'server-input-delivery',
+  clientOutputMaskB64u: 'client-mask',
+} satisfies WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactRequest;
+void maskedStagedArtifactRequest;
+
+// @ts-expect-error client-owned HSS artifact construction requires a client output mask.
+const missingStagedArtifactMask: WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactRequest =
+  {
+    evaluatorDriverStateB64u: 'evaluator-state',
+    clientRequestMessageB64u: 'client-request',
+    evaluatorOtStateB64u: 'evaluator-ot-state',
+    serverInputDeliveryB64u: 'server-input-delivery',
+  };
+void missingStagedArtifactMask;
+
+const clientOutputMaskDerivationRequest = {
+  signingRootId: 'root',
+  nearAccountId: 'alice.testnet',
+  keyPurpose: 'near-ed25519-signing',
+  keyVersion: 'v1',
+  participantIds: [1, 2],
+  derivationVersion: 1,
+  contextBindingB64u: 'context-binding',
+  operation: 'tx_signing',
+  relayerKeyId: 'relayer-key',
+  clientRecoverableSecretB64u: 'client-secret',
+} satisfies WasmDeriveThresholdEd25519HssClientOutputMaskRequest;
+void clientOutputMaskDerivationRequest;
+
+// @ts-expect-error client output mask derivation requires recoverable client secret material.
+const missingClientOutputMaskDerivationSecret: WasmDeriveThresholdEd25519HssClientOutputMaskRequest =
+  {
+    signingRootId: 'root',
+    nearAccountId: 'alice.testnet',
+    keyPurpose: 'near-ed25519-signing',
+    keyVersion: 'v1',
+    participantIds: [1, 2],
+    derivationVersion: 1,
+    contextBindingB64u: 'context-binding',
+    operation: 'tx_signing',
+    relayerKeyId: 'relayer-key',
+  };
+void missingClientOutputMaskDerivationSecret;
+
+const maskedClientOutputOpenRequest = {
+  evaluatorDriverStateB64u: 'evaluator-state',
+  clientOutputMessageB64u: 'client-output',
+  clientOutputMaskB64u: 'client-mask',
+} satisfies WasmOpenThresholdEd25519HssClientOutputRequest;
+void maskedClientOutputOpenRequest;
+
+// @ts-expect-error client output opening requires the client output mask.
+const missingOpenClientOutputMask: WasmOpenThresholdEd25519HssClientOutputRequest = {
+  evaluatorDriverStateB64u: 'evaluator-state',
+  clientOutputMessageB64u: 'client-output',
+};
+void missingOpenClientOutputMask;

@@ -28,6 +28,7 @@ export {
   deriveThresholdEd25519HssPublicKey,
   openThresholdEd25519HssSeedOutput,
   openThresholdEd25519HssServerOutput,
+  prepareThresholdEd25519HssRoleSeparatedServerInputDelivery,
   prepareThresholdEd25519HssServerCeremony,
 } from './ed25519HssWasm';
 export {

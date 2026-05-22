@@ -1071,6 +1071,24 @@ export class SigningEngine {
     return this.thresholdEd25519Public.prepareThresholdEd25519HssClientRequest(args);
   }
 
+  deriveThresholdEd25519HssClientOutputMask(
+    args: Parameters<ThresholdEd25519PublicApi['deriveThresholdEd25519HssClientOutputMask']>[0],
+  ): ReturnType<ThresholdEd25519PublicApi['deriveThresholdEd25519HssClientOutputMask']> {
+    return this.thresholdEd25519Public.deriveThresholdEd25519HssClientOutputMask(args);
+  }
+
+  buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact(
+    args: Parameters<
+      ThresholdEd25519PublicApi['buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact']
+    >[0],
+  ): ReturnType<
+    ThresholdEd25519PublicApi['buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact']
+  > {
+    return this.thresholdEd25519Public.buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact(
+      args,
+    );
+  }
+
   completeThresholdEd25519HssClientCeremony(
     args: Parameters<ThresholdEd25519PublicApi['completeThresholdEd25519HssClientCeremony']>[0],
   ): ReturnType<ThresholdEd25519PublicApi['completeThresholdEd25519HssClientCeremony']> {
@@ -1169,6 +1187,8 @@ export type SigningEnginePublic = Pick<
   | 'deriveThresholdEd25519HssClientInputsFromCredential'
   | 'prepareThresholdEd25519HssClientCeremonyFromCredential'
   | 'prepareThresholdEd25519HssClientRequest'
+  | 'deriveThresholdEd25519HssClientOutputMask'
+  | 'buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact'
   | 'completeThresholdEd25519HssClientCeremony'
   | 'runThresholdEd25519HssCeremonyWithSession'
   | 'openThresholdEd25519HssSeedOutput'

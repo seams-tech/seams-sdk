@@ -412,6 +412,7 @@ dependencies = [
  "getrandom",
  "group",
  "hex",
+ "hkdf",
  "js-sys",
  "merlin",
  "rand_core",

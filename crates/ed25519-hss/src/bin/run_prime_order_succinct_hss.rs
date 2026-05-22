@@ -3,8 +3,7 @@ use std::process;
 
 use ed25519_hss::fixtures::{deterministic_fixture_corpus, FExpandFixture};
 use ed25519_hss::protocol::prepare_prime_order_succinct_hss;
-use ed25519_hss::server::ServerEvalOperation;
-use ed25519_hss::shared::{ProtoResult, FExpandInput};
+use ed25519_hss::shared::{FExpandInput, ProtoResult};
 use ed25519_hss::wire::EvaluationReport;
 
 fn main() {
@@ -18,7 +17,7 @@ fn main() {
 
     let fixture = select_fixture(args.fixture_name.as_deref());
     let report = prepare_prime_order_succinct_hss(&fixture.input.context)
-        .and_then(|session| evaluate_via_staged_server_owned_flow(&session, &fixture.input))
+        .and_then(|session| evaluate_via_client_owned_flow(&session, &fixture.input))
         .expect("evaluate succinct HSS");
     let rendered = if args.emit_json {
         serde_json::to_string_pretty(&report).expect("serialize succinct HSS report")
@@ -45,36 +44,36 @@ fn select_fixture(name: Option<&str>) -> FExpandFixture {
     }
 }
 
-fn evaluate_via_staged_server_owned_flow(
+fn evaluate_via_client_owned_flow(
     session: &ed25519_hss::protocol::PreparedSession,
     input: &FExpandInput,
 ) -> ProtoResult<EvaluationReport> {
     let runtime = session.shared_runtime();
-    let client_ot_offer_message = session.prepare_client_ot_offer_message()?;
-    let garbler_ot_state = session.prepare_garbler_ot_state()?;
-    let (client_request_message, evaluator_ot_state) =
-        session.prepare_client_ot_request_from_offer_message(
+    let garbler_session = session.garbler_session();
+    let evaluator_session = session.evaluator_session();
+    let client_ot_offer_message = garbler_session.client_ot_offer_message()?;
+    let (client_request_message, evaluator_ot_state) = evaluator_session
+        .prepare_client_ot_request_from_offer_message(
             &client_ot_offer_message,
             input.y_client,
             input.tau_client,
         )?;
-    let flow = session.prepare_server_assist_flow_to_output_projection(
-        &garbler_ot_state,
-        &client_request_message,
-        &evaluator_ot_state,
-        input.y_relayer,
-        input.tau_relayer,
-        ServerEvalOperation::Registration,
-    )?;
-    let artifact = session.build_server_owned_staged_evaluator_artifact_from_server_eval_state(
-        &flow.final_server_eval_state,
-    )?;
-    let (_server_finalize, report) = session.prepare_server_finalize_from_staged_evaluator_artifact(
-        &runtime,
-        &flow.final_server_eval_state,
-        &artifact,
-    )?;
-    Ok(report)
+    let (delivery, _server_eval_state) = garbler_session
+        .prepare_role_separated_server_input_delivery_message(
+            &client_request_message,
+            input.y_relayer,
+            input.tau_relayer,
+            ed25519_hss::server::ServerEvalOperation::Registration,
+        )?;
+    let artifact = evaluator_session
+        .build_client_owned_staged_evaluator_artifact_from_role_separated_delivery_message(
+            &runtime,
+            &client_request_message,
+            &evaluator_ot_state,
+            &delivery,
+            [0x5a; 32],
+        )?;
+    runtime.finalize_report_from_staged_evaluator_artifact(&garbler_session, &artifact)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

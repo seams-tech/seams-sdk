@@ -4,8 +4,8 @@ use crate::runtime::SharedRuntime;
 use crate::server::ServerSession;
 use crate::shared::{ProtoError, ProtoResult};
 use crate::wire::{
-    ClientOutputPacket, EvaluationReport, HiddenCoreMaterialization, OutputDelivery,
-    SeedOutputPacket, StagedEvaluatorArtifact, TransportKind,
+    ClientOutputPacket, ClientOutputValueKind, EvaluationReport, HiddenCoreMaterialization,
+    OutputDelivery, SeedOutputPacket, StagedEvaluatorArtifact, TransportKind,
     PRIME_ORDER_SUCCINCT_HSS_REPORT_VERSION,
 };
 
@@ -42,6 +42,7 @@ impl EvaluationReport {
                 hex::encode(self.bindings.run_binding),
                 hex::encode(self.bindings.evaluation_digest),
             ),
+            format!("projection_mode: {:?}", self.projection_mode),
             format!(
                 "evaluator: checksum={:016x} final_point={}",
                 self.evaluator_witness.output_checksum,
@@ -86,6 +87,23 @@ pub(crate) fn finalize_report_from_staged_evaluator_artifact(
     {
         return Err(ProtoError::InvalidInput(
             "evaluation result client output packet is not bound to the reported run".to_string(),
+        ));
+    }
+    if client_packet.projection_mode != artifact.projection_mode {
+        return Err(ProtoError::InvalidInput(
+            "evaluation result client output projection mode does not match artifact".to_string(),
+        ));
+    }
+    if client_packet.value_kind != artifact.client_output_value_kind {
+        return Err(ProtoError::InvalidInput(
+            "evaluation result client output value kind does not match artifact metadata"
+                .to_string(),
+        ));
+    }
+    let expected_value_kind = ClientOutputValueKind::for_projection_mode(&artifact.projection_mode);
+    if client_packet.value_kind != expected_value_kind {
+        return Err(ProtoError::InvalidInput(
+            "evaluation result client output value kind does not match projection mode".to_string(),
         ));
     }
     if seed_packet.run_binding != artifact.bindings.run_binding
@@ -173,6 +191,7 @@ pub(crate) fn finalize_report_from_staged_evaluator_artifact(
         hidden_core_materialization: HiddenCoreMaterialization::DdhPrimitiveBaseline,
         artifact: runtime.artifact.clone(),
         bindings: artifact.bindings.clone(),
+        projection_mode: artifact.projection_mode.clone(),
         evaluator_witness: artifact.evaluator_witness.clone(),
         output_delivery,
         notes: vec![

@@ -64,7 +64,7 @@ impl PreparedSession {
         let garbler_session = self.garbler_session();
         let x_client_base = evaluator_session
             .ddh_evaluator
-            .decode_client_bit_bundle_array(&output.x_client_base)?;
+            .decode_client_bit_bundle_array(output.client_output.as_bundle())?;
         let x_relayer_bundle = garbler_session
             .ddh_garbler
             .join_share_bundle(&output.x_relayer_base_left, &output.x_relayer_base_right)?;

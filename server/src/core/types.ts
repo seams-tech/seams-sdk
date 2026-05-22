@@ -107,6 +107,114 @@ export interface ThresholdEd25519HssClientRequestEnvelope {
   evaluatorOtStateB64u: string;
 }
 
+export interface ThresholdEd25519HssServerVisibleClientRequestEnvelope {
+  clientRequestMessageB64u: string;
+  evaluatorOtStateB64u?: never;
+  yClientB64u?: never;
+  tauClientB64u?: never;
+  rClientB64u?: never;
+  prfFirstB64u?: never;
+  prfOutputB64u?: never;
+  clientSecretB64u?: never;
+  clientSecret32B64u?: never;
+}
+
+export interface ThresholdEd25519HssRoleSeparatedRespondWithSessionRequest {
+  ceremonyHandle: string;
+  clientRequest: ThresholdEd25519HssServerVisibleClientRequestEnvelope;
+}
+
+export interface ThresholdEd25519HssRoleSeparatedRespondForRegistrationRequest {
+  new_account_id: string;
+  rp_id: string;
+  ceremonyHandle: string;
+  clientRequest: ThresholdEd25519HssServerVisibleClientRequestEnvelope;
+}
+
+export interface ThresholdEd25519HssServerInputDeliveryEnvelope {
+  contextBindingB64u: string;
+  serverInputDeliveryB64u: string;
+  evaluatorOtStateB64u?: never;
+  stagedEvaluatorArtifactB64u?: never;
+  yClientB64u?: never;
+  tauClientB64u?: never;
+  yRelayerB64u?: never;
+  tauRelayerB64u?: never;
+  rClientB64u?: never;
+  prfOutputB64u?: never;
+  clientSecret32B64u?: never;
+}
+
+export interface ThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope {
+  contextBindingB64u: string;
+  stagedEvaluatorArtifactB64u: string;
+  stagedEvaluatorArtifactHandle?: never;
+  evaluatorOtStateB64u?: never;
+  xClientBaseB64u?: never;
+  xRelayerBaseB64u?: never;
+  rClientB64u?: never;
+  prfOutputB64u?: never;
+  clientSecret32B64u?: never;
+}
+
+export interface ThresholdEd25519HssRoleSeparatedServerStageResponsesEnvelope {
+  serverAssistInitMessageB64u: string;
+  addStageResponseMessageB64u: string;
+  messageScheduleResponseMessagesB64u: string[];
+  roundCoreResponseMessagesB64u: string[];
+  outputProjectionResponseMessageB64u: string;
+  evaluatorDriverStateB64u?: never;
+  evaluatorOtStateB64u?: never;
+  stagedEvaluatorArtifactB64u?: never;
+  stagedEvaluatorArtifactBytes?: never;
+  yClientB64u?: never;
+  tauClientB64u?: never;
+  yRelayerB64u?: never;
+  tauRelayerB64u?: never;
+}
+
+export interface ThresholdEd25519HssRoleSeparatedOutputDeliveryEnvelope {
+  clientOutputDeliveryMessageB64u: string;
+  outputCommitmentB64u: string;
+  clientMaskCommitmentB64u: string;
+  evaluatorOtStateB64u?: never;
+  rClientB64u?: never;
+  xClientBaseB64u?: never;
+  xClientBaseBlindedB64u?: never;
+  xRelayerBaseB64u?: never;
+  yClientB64u?: never;
+  tauClientB64u?: never;
+  yRelayerB64u?: never;
+  tauRelayerB64u?: never;
+  prfOutputB64u?: never;
+  clientSecret32B64u?: never;
+}
+
+export type ThresholdEd25519HssRoleSeparatedRespondResponse =
+  | {
+      ok: true;
+      contextBindingB64u: string;
+      serverStageResponses: ThresholdEd25519HssRoleSeparatedServerStageResponsesEnvelope;
+      outputDelivery: ThresholdEd25519HssRoleSeparatedOutputDeliveryEnvelope;
+      evaluatorDriverStateB64u?: never;
+      evaluatorOtStateB64u?: never;
+      stagedEvaluatorArtifactB64u?: never;
+      stagedEvaluatorArtifactBytes?: never;
+      clientOutputMessageB64u?: never;
+      seedOutputMessageB64u?: never;
+      xClientBaseB64u?: never;
+      xClientBaseBlindedB64u?: never;
+      xRelayerBaseB64u?: never;
+      rClientB64u?: never;
+      prfOutputB64u?: never;
+      clientSecret32B64u?: never;
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+    };
+
 export type ThresholdEd25519HssStagedEvaluatorArtifactEnvelope =
   | {
       contextBindingB64u: string;
@@ -175,14 +283,14 @@ export interface ThresholdEd25519HssPrepareForRegistrationRequest {
 
 export interface ThresholdEd25519HssRespondWithSessionRequest {
   ceremonyHandle: string;
-  clientRequest: ThresholdEd25519HssClientRequestEnvelope;
+  clientRequest: ThresholdEd25519HssServerVisibleClientRequestEnvelope;
 }
 
 export interface ThresholdEd25519HssRespondForRegistrationRequest {
   new_account_id: string;
   rp_id: string;
   ceremonyHandle: string;
-  clientRequest: ThresholdEd25519HssClientRequestEnvelope;
+  clientRequest: ThresholdEd25519HssServerVisibleClientRequestEnvelope;
 }
 
 export type ThresholdEd25519HssPrepareWithSessionResponse =
@@ -214,6 +322,8 @@ export type ThresholdEd25519HssPrepareForRegistrationResponse =
 export type ThresholdEd25519HssRespondWithSessionResponse =
   | {
       ok: true;
+      contextBindingB64u: string;
+      serverInputDeliveryB64u: string;
     }
   | {
       ok: false;
@@ -224,6 +334,8 @@ export type ThresholdEd25519HssRespondWithSessionResponse =
 export type ThresholdEd25519HssRespondForRegistrationResponse =
   | {
       ok: true;
+      contextBindingB64u: string;
+      serverInputDeliveryB64u: string;
     }
   | {
       ok: false;
@@ -233,12 +345,14 @@ export type ThresholdEd25519HssRespondForRegistrationResponse =
 
 export interface ThresholdEd25519HssFinalizeWithSessionRequest {
   ceremonyHandle: string;
+  evaluationResult: ThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope;
 }
 
 export interface ThresholdEd25519HssFinalizeForRegistrationRequest {
   new_account_id: string;
   rp_id: string;
   ceremonyHandle: string;
+  evaluationResult: ThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope;
   account_provisioning?: {
     mode: 'create_if_missing';
   };

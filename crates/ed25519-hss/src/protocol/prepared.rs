@@ -20,9 +20,10 @@ use crate::runtime::{
 use crate::server::{ot::prepare_garbler_ot_state_for_session, ServerOtState, ServerSession};
 use crate::shared::CanonicalContext;
 use crate::shared::{ProtoError, ProtoResult};
-use crate::wire::ClientOtOffer;
+use crate::wire::{ClientOtOffer, OutputProjectionMode};
 pub struct PreparedSession {
     candidate: FixedHiddenCoreCandidate,
+    projection_mode: OutputProjectionMode,
     artifact: PrimeOrderEncodedArtifact,
     artifact_bytes: Vec<u8>,
     hidden_eval_program: HiddenEvalProgram,
@@ -46,6 +47,7 @@ pub fn prepare_prime_order_succinct_hss(
     }
 
     let artifact = build_prime_order_size_optimized_artifact(&candidate)?;
+    let projection_mode = OutputProjectionMode::trusted_server_projection();
     let artifact_bytes = materialize_prime_order_size_optimized_bytes(&candidate)?;
     let decoded = decode_prime_order_size_optimized_artifact(&artifact_bytes)?;
     let hidden_eval_program = compile_prime_order_hidden_eval_program(&decoded)?;
@@ -78,6 +80,7 @@ pub fn prepare_prime_order_succinct_hss(
     };
     let shared_runtime_cached = SharedRuntime {
         candidate: candidate.clone(),
+        projection_mode: projection_mode.clone(),
         artifact: build_artifact_summary(&candidate, &artifact),
         hidden_eval_program: hidden_eval_program.clone(),
         execution_program: execution_program.clone(),
@@ -102,6 +105,7 @@ pub fn prepare_prime_order_succinct_hss(
 
     Ok(PreparedSession {
         candidate,
+        projection_mode,
         artifact,
         artifact_bytes,
         hidden_eval_program,
@@ -145,6 +149,7 @@ pub fn prepare_prime_order_succinct_hss_client(
                 participant_ids: candidate.context_descriptor.participant_ids.clone(),
                 derivation_version: candidate.context_descriptor.derivation_version,
             },
+            projection_mode: OutputProjectionMode::trusted_server_projection(),
         },
         evaluator_session: crate::client::ClientSessionState {
             context_binding: candidate.context_binding,
@@ -156,6 +161,10 @@ pub fn prepare_prime_order_succinct_hss_client(
 impl PreparedSession {
     pub fn candidate(&self) -> &FixedHiddenCoreCandidate {
         &self.candidate
+    }
+
+    pub fn output_projection_mode(&self) -> &OutputProjectionMode {
+        &self.projection_mode
     }
 
     pub fn artifact(&self) -> &PrimeOrderEncodedArtifact {

@@ -92,6 +92,10 @@ export async function ensureThresholdEd25519HssClientBase(args: {
     operation: 'warm_session_reconstruction',
     context,
     clientInputs,
+    outputProjection: {
+      kind: 'client-masked-projection',
+      clientRecoverableSecretB64u: String(args.prfFirstB64u || '').trim(),
+    },
     workerCtx: { requestWorkerOperation: args.ctx.requestWorkerOperation },
   });
   const relayCeremonyMs = Date.now() - relayCeremonyStartedAt;

@@ -50,6 +50,7 @@ pub struct EvaluatorWitness {
 pub struct DeliveryMaterial {
     pub report_version: String,
     pub fixed_function_id: String,
+    pub projection_mode: OutputProjectionMode,
     pub hidden_core_materialization: HiddenCoreMaterialization,
     pub artifact: ArtifactSummary,
     pub evaluation_key: DdhHssEvaluationKey,
@@ -111,6 +112,19 @@ pub struct ServerPacket {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoleSeparatedServerInputDeliveryPacket {
+    pub context_binding: [u8; 32],
+    pub server_eval_handle: ServerEvalHandle,
+    pub transcript_id: TranscriptId,
+    pub server_input_commitment: [u8; 32],
+    pub y_client_response: DdhHssOtResponseBundle,
+    pub tau_client_response: DdhHssOtResponseBundle,
+    pub y_client_remote_release: DdhHssOtReleasedRemoteBundle,
+    pub tau_client_remote_release: DdhHssOtReleasedRemoteBundle,
+    pub server_inputs: RoleSeparatedServerInputsPacket,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OtTranscript {
     pub context_binding: [u8; 32],
     pub y_client_offer_commitment: [u8; 32],
@@ -125,10 +139,71 @@ pub struct OtTranscript {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum OutputProjectionMode {
+    TrustedServerProjection,
+    ClientMaskedProjection { mask_commitment: [u8; 32] },
+}
+
+impl OutputProjectionMode {
+    pub fn trusted_server_projection() -> Self {
+        Self::TrustedServerProjection
+    }
+
+    pub fn client_masked_projection(mask_commitment: [u8; 32]) -> Self {
+        Self::ClientMaskedProjection { mask_commitment }
+    }
+
+    pub fn domain_tag(&self) -> &'static [u8] {
+        match self {
+            Self::TrustedServerProjection => b"trusted_server_projection",
+            Self::ClientMaskedProjection { .. } => b"client_masked_projection",
+        }
+    }
+
+    pub fn mask_commitment(&self) -> Option<[u8; 32]> {
+        match self {
+            Self::TrustedServerProjection => None,
+            Self::ClientMaskedProjection { mask_commitment } => Some(*mask_commitment),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ClientOutputValueKind {
+    UnmaskedClientBase,
+    ClientBlindedBase,
+}
+
+impl ClientOutputValueKind {
+    pub fn for_projection_mode(projection_mode: &OutputProjectionMode) -> Self {
+        match projection_mode {
+            OutputProjectionMode::TrustedServerProjection => Self::UnmaskedClientBase,
+            OutputProjectionMode::ClientMaskedProjection { .. } => Self::ClientBlindedBase,
+        }
+    }
+
+    pub fn domain_tag(&self) -> &'static [u8] {
+        match self {
+            Self::UnmaskedClientBase => b"unmasked_client_base",
+            Self::ClientBlindedBase => b"client_blinded_base",
+        }
+    }
+
+    pub fn bundle_label(&self) -> &'static str {
+        match self {
+            Self::UnmaskedClientBase => "x_client_base",
+            Self::ClientBlindedBase => "x_client_base_blinded",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClientOutputPacket {
     pub context_binding: [u8; 32],
     pub run_binding: [u8; 32],
     pub evaluation_digest: [u8; 32],
+    pub projection_mode: OutputProjectionMode,
+    pub value_kind: ClientOutputValueKind,
     pub nonce: [u8; 12],
     pub ciphertext: Vec<u8>,
 }
@@ -159,9 +234,37 @@ pub struct OutputDelivery {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RoleSeparatedOutputDeliveryPayload {
+    ClientOutputOnly {
+        client_output: WireMessage,
+        client_output_binding: [u8; 32],
+    },
+    ClientOutputAndSeedOutput {
+        client_output: WireMessage,
+        client_output_binding: [u8; 32],
+        seed_output: WireMessage,
+        seed_output_binding: [u8; 32],
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoleSeparatedOutputDeliveryPacket {
+    pub context_binding: [u8; 32],
+    pub server_eval_handle: ServerEvalHandle,
+    pub final_transcript_digest: [u8; 32],
+    pub bindings: RunBindings,
+    pub projection_mode: OutputProjectionMode,
+    pub allowed_output_kind: AllowedOutputKind,
+    pub payload: RoleSeparatedOutputDeliveryPayload,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StagedEvaluatorArtifact {
     pub context_binding: [u8; 32],
     pub bindings: RunBindings,
+    pub projection_mode: OutputProjectionMode,
+    pub client_output_value_kind: ClientOutputValueKind,
+    pub client_output_commitment: [u8; 32],
     pub evaluator_witness: EvaluatorWitness,
     pub client_output: WireMessage,
     pub client_output_binding: [u8; 32],
@@ -174,6 +277,14 @@ pub struct StagedEvaluatorArtifact {
 #[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerInputsPacket {
+    pub context_binding: [u8; 32],
+    pub server_input_commitment: [u8; 32],
+    pub nonce: [u8; 12],
+    pub ciphertext: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoleSeparatedServerInputsPacket {
     pub context_binding: [u8; 32],
     pub server_input_commitment: [u8; 32],
     pub nonce: [u8; 12],
@@ -280,6 +391,13 @@ pub struct AddStageRequestPayload {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoleSeparatedAddStageRequestPayload {
+    pub client_input_commitment: [u8; 32],
+    pub client_stage_openings_digest: [u8; 32],
+    pub client_stage_nonce: [u8; 16],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AddStageResponsePayload {
     pub server_stage_token: [u8; 32],
     pub server_input_commitment: [u8; 32],
@@ -321,6 +439,7 @@ pub struct RoundCoreResponsePayload {
 pub struct OutputProjectionRequestPayload {
     pub final_client_digest: [u8; 32],
     pub prior_server_stage_digest: [u8; 32],
+    pub projection_mode: OutputProjectionMode,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -328,12 +447,21 @@ pub struct OutputProjectionResponsePayload {
     pub final_server_digest: [u8; 32],
     pub output_release_token: [u8; 32],
     pub allowed_output_kind: AllowedOutputKind,
+    pub projection_mode: OutputProjectionMode,
     pub execution_checkpoint_digest: [u8; 32],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ClientStagePayload {
     AddStage(AddStageRequestPayload),
+    MessageSchedule(MessageScheduleRequestPayload),
+    RoundCore(RoundCoreRequestPayload),
+    OutputProjection(OutputProjectionRequestPayload),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RoleSeparatedClientStagePayload {
+    AddStage(RoleSeparatedAddStageRequestPayload),
     MessageSchedule(MessageScheduleRequestPayload),
     RoundCore(RoundCoreRequestPayload),
     OutputProjection(OutputProjectionRequestPayload),
@@ -378,6 +506,16 @@ pub struct ClientStageRequestPacket {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoleSeparatedClientStageRequestPacket {
+    pub context_binding: [u8; 32],
+    pub server_eval_handle: ServerEvalHandle,
+    pub stage_id: ServerEvalStageId,
+    pub prior_transcript_digest: [u8; 32],
+    pub client_stage_payload: RoleSeparatedClientStagePayload,
+    pub client_stage_commitments: ClientStageCommitments,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerStageResponsePacket {
     pub context_binding: [u8; 32],
     pub server_eval_handle: ServerEvalHandle,
@@ -393,6 +531,7 @@ pub struct ServerFinalizePacket {
     pub server_eval_handle: ServerEvalHandle,
     pub final_transcript_digest: [u8; 32],
     pub allowed_output_kind: AllowedOutputKind,
+    pub projection_mode: OutputProjectionMode,
     pub client_output: WireMessage,
     pub seed_output: Option<WireMessage>,
 }
@@ -405,6 +544,7 @@ pub struct EvaluationReport {
     pub hidden_core_materialization: HiddenCoreMaterialization,
     pub artifact: ArtifactSummary,
     pub bindings: RunBindings,
+    pub projection_mode: OutputProjectionMode,
     pub evaluator_witness: EvaluatorWitness,
     pub output_delivery: OutputDelivery,
     pub notes: Vec<String>,
@@ -445,7 +585,6 @@ pub(crate) struct EncodedTransportPairPayloadRef<'a> {
     pub(crate) right: &'a DdhHssTransportBundle,
 }
 
-#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct EncodedServerInputsPayload {
     pub(crate) y_relayer_left: DdhHssTransportBundle,
@@ -454,7 +593,6 @@ pub(crate) struct EncodedServerInputsPayload {
     pub(crate) tau_relayer_right: DdhHssTransportBundle,
 }
 
-#[cfg(test)]
 #[derive(Debug, Serialize)]
 pub(crate) struct EncodedServerInputsPayloadRef<'a> {
     pub(crate) y_relayer_left: &'a DdhHssTransportBundle,
@@ -629,7 +767,6 @@ pub(crate) fn deserialize_transport_pair_payload(
     Ok((payload.left, payload.right))
 }
 
-#[cfg(test)]
 pub(crate) fn serialize_server_inputs_payload(
     y_relayer: &(DdhHssTransportBundle, DdhHssTransportBundle),
     tau_relayer: &(DdhHssTransportBundle, DdhHssTransportBundle),
@@ -643,7 +780,6 @@ pub(crate) fn serialize_server_inputs_payload(
     serialize_transport_payload_with_label("server_inputs", &payload)
 }
 
-#[cfg(test)]
 pub(crate) fn deserialize_server_inputs_payload(
     plaintext: &[u8],
 ) -> ProtoResult<EncodedServerInputsPayload> {

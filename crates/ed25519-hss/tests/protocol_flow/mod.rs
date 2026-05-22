@@ -4,15 +4,15 @@ use ed25519_hss::protocol::prepare_prime_order_succinct_hss;
 use ed25519_hss::server::{ServerEvalExecutionState, ServerEvalOperation};
 use ed25519_hss::shared::{public_key_from_base_shares, ProtoError};
 use ed25519_hss::wire::{
-    ClientStagePayload, ClientStageRequestPacket, HiddenCoreMaterialization,
+    ClientStagePayload, ClientStageRequestPacket, HiddenCoreMaterialization, OutputProjectionMode,
     ServerAssistInitPacket, ServerStageResponsePacket,
 };
 
 use crate::support::{
-    decode_client_offer, decode_client_output_message, decode_client_request,
-    decode_server_input_delivery, decode_transport_message,
-    ensure_prepared_session_input_context, evaluate_via_staged_server_owned_flow, first_fixture,
-    TransportKind,
+    build_client_owned_staged_evaluator_artifact, decode_client_offer,
+    decode_client_output_message, decode_client_request, decode_server_input_delivery,
+    decode_transport_message, ensure_prepared_session_input_context,
+    evaluate_via_client_owned_flow, first_fixture, TransportKind,
 };
 
 #[test]
@@ -56,6 +56,10 @@ fn prime_order_succinct_hss_prepares_delivery_packets() {
     assert_eq!(
         delivery_material.artifact.context_binding,
         fixture.output.context_binding
+    );
+    assert_eq!(
+        delivery_material.projection_mode,
+        OutputProjectionMode::trusted_server_projection()
     );
     assert_eq!(
         delivery_material.evaluation_key.key_id,
@@ -224,7 +228,7 @@ fn prime_order_succinct_hss_splits_output_delivery_packets() {
     let session =
         prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
     let report =
-        evaluate_via_staged_server_owned_flow(&session, &fixture.input).expect("evaluate session");
+        evaluate_via_client_owned_flow(&session, &fixture.input).expect("evaluate session");
     let delivery = report.output_delivery.clone();
     let output_openers = session.output_openers();
     let client_packet =
@@ -828,7 +832,8 @@ fn prime_order_succinct_hss_prepared_session_can_drive_staged_flow_to_output_pro
         ed25519_hss::server::ServerEvalStatus::Finalized
     );
     assert!(
-        flow.final_server_eval_state.stores_stage_local_continuation(),
+        flow.final_server_eval_state
+            .stores_stage_local_continuation(),
         "staged flow should store a stage-local continuation"
     );
     assert_ne!(
@@ -892,11 +897,10 @@ fn prime_order_succinct_hss_validates_staged_flow_to_output_projection() {
 }
 
 #[test]
-fn prime_order_succinct_hss_prepares_server_finalize_message_from_staged_flow() {
+fn prime_order_succinct_hss_rejects_server_owned_staged_artifact_rebuild_from_finalize_state() {
     let fixture = first_fixture();
     let session =
         prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
-    let runtime = session.shared_runtime();
     let client_ot_offer_message = session
         .prepare_client_ot_offer_message()
         .expect("prepare client OT offer message");
@@ -927,119 +931,37 @@ fn prime_order_succinct_hss_prepares_server_finalize_message_from_staged_flow() 
             &flow,
         )
         .expect("validate staged flow");
-    let staged_evaluator_artifact = session
+
+    let err = session
         .build_server_owned_staged_evaluator_artifact_from_server_eval_state(
             &flow.final_server_eval_state,
         )
-        .expect("server-owned staged evaluator artifact");
-    let (server_finalize_message, report) = session
-        .prepare_server_finalize_message_from_staged_evaluator_artifact(
-            &runtime,
-            &flow.final_server_eval_state,
-            &staged_evaluator_artifact,
-        )
-        .expect("prepare server finalize message");
-    let server_finalize = session
-        .validate_server_assist_flow_to_finalize(
-            &client_request_message,
-            &evaluator_ot_state,
-            &flow,
-            &server_finalize_message,
-        )
-        .expect("validate staged flow to finalize");
-
-    assert_eq!(
-        server_finalize.context_binding,
-        fixture.output.context_binding
+        .expect_err("server-owned staged artifact rebuild must be disabled");
+    assert!(
+        err.to_string().contains("client-owned materialization"),
+        "unexpected server-owned rebuild error: {err}"
     );
-    assert_eq!(
-        server_finalize.server_eval_handle,
-        flow.final_server_eval_state.handle
-    );
-    assert_eq!(
-        server_finalize.final_transcript_digest,
-        flow.final_server_eval_state.current_transcript_digest
-    );
-    assert_eq!(server_finalize.client_output, report.output_delivery.client);
-    assert!(server_finalize.seed_output.is_none());
 }
 
 #[test]
-fn prime_order_succinct_hss_prepares_server_finalize_from_staged_evaluator_artifact() {
+fn prime_order_succinct_hss_finalizes_report_from_client_owned_staged_evaluator_artifact() {
     let fixture = first_fixture();
     let session =
         prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
     let runtime = session.shared_runtime();
-    let client_ot_offer_message = session
-        .prepare_client_ot_offer_message()
-        .expect("prepare client OT offer message");
-    let garbler_ot_state = session
-        .prepare_garbler_ot_state()
-        .expect("prepare garbler ot state");
-    let (client_request_message, evaluator_ot_state) = session
-        .prepare_client_ot_request_from_offer_message(
-            &client_ot_offer_message,
-            fixture.input.y_client,
-            fixture.input.tau_client,
-        )
-        .expect("prepare client ot request from offer");
-    let flow = session
-        .prepare_server_assist_flow_to_output_projection(
-            &garbler_ot_state,
-            &client_request_message,
-            &evaluator_ot_state,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
-            ServerEvalOperation::Registration,
-        )
-        .expect("prepare staged flow to output projection");
-    let _ = session
-        .validate_server_assist_flow_to_finalize(
-            &client_request_message,
-            &evaluator_ot_state,
-            &flow,
-            &session
-                .prepare_server_finalize_message_from_staged_evaluator_artifact(
-                    &runtime,
-                    &flow.final_server_eval_state,
-                    &session
-                        .build_server_owned_staged_evaluator_artifact_from_server_eval_state(
-                            &flow.final_server_eval_state,
-                        )
-                        .expect("server-owned staged evaluator artifact"),
-                )
-                .expect("prepare server finalize message")
-                .0,
-        )
-        .expect("validate staged flow to finalize");
-
-    let artifact = session
-        .build_server_owned_staged_evaluator_artifact_from_server_eval_state(
-            &flow.final_server_eval_state,
-        )
-        .expect("server-owned staged evaluator artifact");
-    let (server_finalize, report) = session
-        .prepare_server_finalize_from_staged_evaluator_artifact(
-            &runtime,
-            &flow.final_server_eval_state,
-            &artifact,
-        )
-        .expect("prepare server finalize from staged artifact");
+    let garbler_session = session.garbler_session();
+    let artifact = build_client_owned_staged_evaluator_artifact(&session, &fixture.input)
+        .expect("client-owned staged evaluator artifact");
+    let report = runtime
+        .finalize_report_from_staged_evaluator_artifact(&garbler_session, &artifact)
+        .expect("finalize report from client-owned staged artifact");
 
     assert_eq!(
-        server_finalize.context_binding,
+        report.artifact.context_binding,
         fixture.output.context_binding
     );
-    assert_eq!(
-        server_finalize.server_eval_handle,
-        flow.final_server_eval_state.handle
-    );
-    assert_eq!(
-        server_finalize.final_transcript_digest,
-        flow.final_server_eval_state.current_transcript_digest
-    );
-    assert_eq!(server_finalize.client_output, report.output_delivery.client);
-    assert!(server_finalize.seed_output.is_none());
+    assert_eq!(report.bindings, artifact.bindings);
+    assert_eq!(report.output_delivery.client, artifact.client_output);
 }
 
 #[test]
@@ -1048,7 +970,7 @@ fn prime_order_succinct_hss_delivery_packets_round_trip_end_to_end() {
     let fixture = first_fixture();
     let session =
         prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
-    let evaluated = evaluate_via_staged_server_owned_flow(&session, &fixture.input)
+    let evaluated = evaluate_via_client_owned_flow(&session, &fixture.input)
         .expect("evaluate prepared session");
     let output_openers = session.output_openers();
     assert_eq!(
@@ -1080,7 +1002,7 @@ fn prime_order_succinct_hss_matches_reference_fixture_smoke() {
     let fixture = first_fixture();
     let session =
         prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
-    let report = evaluate_via_staged_server_owned_flow(&session, &fixture.input)
+    let report = evaluate_via_client_owned_flow(&session, &fixture.input)
         .expect("evaluate prepared session");
 
     let output_openers = session.output_openers();
@@ -1125,7 +1047,7 @@ fn prime_order_succinct_hss_matches_reference_fixtures() {
     for fixture in deterministic_fixture_corpus().expect("fixture corpus") {
         let session =
             prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
-        let report = evaluate_via_staged_server_owned_flow(&session, &fixture.input)
+        let report = evaluate_via_client_owned_flow(&session, &fixture.input)
             .expect("evaluate prepared session");
         let output_openers = session.output_openers();
         let x_client_base = output_openers

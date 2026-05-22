@@ -2,9 +2,13 @@ use crate::client::{
     ot::build_client_ot_request, ClientDriverState, ClientOtState, ClientOutputOpener,
     ClientSession, ClientSessionState, SeedOutputOpener,
 };
-use crate::ddh::hidden_eval_executor::DdhHiddenEvalConstantPool;
+use crate::ddh::hidden_eval_executor::{
+    trace_prime_order_ddh_hidden_eval_program_with_split_server_inputs_and_client_output_projection_with_pool,
+    DdhHiddenEvalConstantPool, DdhHiddenEvalServerInputBundle, DdhHiddenEvalServerInputs,
+};
 use crate::ddh::{
-    DdhHiddenEvalRun, DdhHssInputShareBundle, DdhHssTransportPurpose,
+    DdhHiddenEvalClientOutputProjection, DdhHiddenEvalRun, DdhHssInputShareBundle, DdhHssShareSide,
+    DdhHssTransportBundle, DdhHssTransportPurpose, HiddenEvalInputOwner,
 };
 use crate::runtime::{
     evaluation::{elapsed_ns_u64, monotonic_now_ns},
@@ -13,16 +17,29 @@ use crate::runtime::{
 use crate::shared::{ProtoError, ProtoResult};
 use crate::wire::{
     AddStageRequestPayload, AddStageResponsePayload, ClientOtOffer, ClientOutputPacket,
-    ClientPacket, ClientStageCommitments, ClientStagePayload, ClientStageRequestPacket,
-    MessageScheduleRequestPayload, MessageScheduleResponsePayload,
-    OutputProjectionRequestPayload, OutputProjectionResponsePayload, RoundCoreRequestPayload,
-    RoundCoreResponsePayload, RunBindings, SeedOutputPacket, ServerAssistInitPacket,
-    ServerFinalizePacket, ServerStagePayload, ServerStageResponsePacket,
-    StagedEvaluatorArtifact, TransportKind, WireMessage,
+    ClientOutputValueKind, ClientPacket, ClientStageCommitments, ClientStagePayload,
+    ClientStageRequestPacket, MessageScheduleRequestPayload, MessageScheduleResponsePayload,
+    OutputProjectionMode, OutputProjectionRequestPayload, OutputProjectionResponsePayload,
+    RoleSeparatedAddStageRequestPayload, RoleSeparatedClientStagePayload,
+    RoleSeparatedClientStageRequestPacket, RoleSeparatedOutputDeliveryPacket,
+    RoleSeparatedOutputDeliveryPayload, RoleSeparatedServerInputDeliveryPacket,
+    RoleSeparatedServerInputsPacket, RoundCoreRequestPayload, RoundCoreResponsePayload,
+    RunBindings, SeedOutputPacket, ServerAssistInitPacket, ServerEvalHandle, ServerFinalizePacket,
+    ServerStagePayload, ServerStageResponsePacket, StagedEvaluatorArtifact, TransportKind,
+    WireMessage,
 };
 #[cfg(not(target_arch = "wasm32"))]
 use crate::wire::{EvaluationReport, EvaluatorWitness, OutputDelivery};
 use rand_core::{OsRng, RngCore};
+
+struct AddStageRequestParts {
+    prior_transcript_digest: [u8; 32],
+    client_input_commitment: [u8; 32],
+    client_stage_openings_digest: [u8; 32],
+    client_stage_nonce: [u8; 16],
+    y_client_bundle: DdhHssInputShareBundle,
+    tau_client_bundle: DdhHssInputShareBundle,
+}
 
 impl ClientSessionState {
     pub fn materialize(&self) -> ClientSession {
@@ -161,12 +178,190 @@ impl ClientSession {
         Ok((y_client_bundle, tau_client_bundle))
     }
 
-    pub fn build_add_stage_request(
+    fn server_assist_init_from_role_separated_delivery(
+        packet: &RoleSeparatedServerInputDeliveryPacket,
+    ) -> ServerAssistInitPacket {
+        ServerAssistInitPacket {
+            context_binding: packet.context_binding,
+            server_eval_handle: packet.server_eval_handle,
+            transcript_id: packet.transcript_id,
+            server_input_commitment: packet.server_input_commitment,
+            y_client_response: packet.y_client_response.clone(),
+            tau_client_response: packet.tau_client_response.clone(),
+            y_client_remote_release: packet.y_client_remote_release.clone(),
+            tau_client_remote_release: packet.tau_client_remote_release.clone(),
+        }
+    }
+
+    fn server_input_bundle_from_transport_pair(
+        expected_label: &str,
+        left: DdhHssTransportBundle,
+        right: DdhHssTransportBundle,
+    ) -> ProtoResult<DdhHiddenEvalServerInputBundle> {
+        if left.owner != HiddenEvalInputOwner::Server || right.owner != HiddenEvalInputOwner::Server
+        {
+            return Err(ProtoError::InvalidInput(format!(
+                "role-separated server input {expected_label} owner must be server"
+            )));
+        }
+        if left.label != expected_label || right.label != expected_label {
+            return Err(ProtoError::InvalidInput(format!(
+                "role-separated server input label mismatch for {expected_label}"
+            )));
+        }
+        if left.share_side != DdhHssShareSide::Left || right.share_side != DdhHssShareSide::Right {
+            return Err(ProtoError::InvalidInput(format!(
+                "role-separated server input share sides are invalid for {expected_label}"
+            )));
+        }
+        if left.commitment != right.commitment {
+            return Err(ProtoError::InvalidInput(format!(
+                "role-separated server input commitment mismatch for {expected_label}"
+            )));
+        }
+        Ok(DdhHiddenEvalServerInputBundle {
+            owner: HiddenEvalInputOwner::Server,
+            label: expected_label.to_string(),
+            left_words: left.words,
+            right_words: right.words,
+            commitment: left.commitment,
+        })
+    }
+
+    pub fn open_role_separated_server_inputs(
+        &self,
+        packet: &RoleSeparatedServerInputsPacket,
+    ) -> ProtoResult<DdhHiddenEvalServerInputs> {
+        if packet.context_binding != self.context_binding {
+            return Err(ProtoError::InvalidInput(
+                "role-separated server input context binding does not match evaluator session"
+                    .to_string(),
+            ));
+        }
+        let aad = crate::protocol::transcript::server_input_packet_aad(
+            packet.context_binding,
+            packet.server_input_commitment,
+        );
+        let plaintext = self.ddh_evaluator.open_message(
+            DdhHssTransportPurpose::ServerInput,
+            &aad,
+            packet.nonce,
+            &packet.ciphertext,
+        )?;
+        let payload = crate::wire::deserialize_server_inputs_payload(&plaintext)?;
+        Ok(DdhHiddenEvalServerInputs {
+            y_relayer_bits: Self::server_input_bundle_from_transport_pair(
+                "y_relayer_bits",
+                payload.y_relayer_left,
+                payload.y_relayer_right,
+            )?,
+            tau_relayer_bits: Self::server_input_bundle_from_transport_pair(
+                "tau_relayer_bits",
+                payload.tau_relayer_left,
+                payload.tau_relayer_right,
+            )?,
+        })
+    }
+
+    pub fn build_client_owned_staged_evaluator_artifact_from_role_separated_delivery(
+        &self,
+        runtime: &SharedRuntime,
+        client_packet: &ClientPacket,
+        evaluator_ot_state: &ClientOtState,
+        packet: &RoleSeparatedServerInputDeliveryPacket,
+        client_output_mask: [u8; 32],
+    ) -> ProtoResult<StagedEvaluatorArtifact> {
+        self.build_client_owned_staged_evaluator_artifact_from_role_separated_delivery_with_projection(
+            runtime,
+            client_packet,
+            evaluator_ot_state,
+            packet,
+            DdhHiddenEvalClientOutputProjection::client_masked_projection(client_output_mask),
+        )
+    }
+
+    fn build_client_owned_staged_evaluator_artifact_from_role_separated_delivery_with_projection(
+        &self,
+        runtime: &SharedRuntime,
+        client_packet: &ClientPacket,
+        evaluator_ot_state: &ClientOtState,
+        packet: &RoleSeparatedServerInputDeliveryPacket,
+        client_output_projection: DdhHiddenEvalClientOutputProjection,
+    ) -> ProtoResult<StagedEvaluatorArtifact> {
+        let assist = Self::server_assist_init_from_role_separated_delivery(packet);
+        self.validate_server_assist_init_packet(client_packet, evaluator_ot_state, &assist)?;
+        let (y_client_bundle, tau_client_bundle) = self
+            .reconstruct_client_input_bundles_from_server_assist_init(
+                evaluator_ot_state,
+                &assist,
+            )?;
+        let server_inputs = self.open_role_separated_server_inputs(&packet.server_inputs)?;
+        let hidden_eval_constants = self.hidden_eval_constant_pool()?;
+        let trace =
+            trace_prime_order_ddh_hidden_eval_program_with_split_server_inputs_and_client_output_projection_with_pool(
+            &runtime.hidden_eval_program,
+            &self.ddh_evaluator,
+            &hidden_eval_constants,
+            &y_client_bundle,
+            &server_inputs.y_relayer_bits,
+            &tau_client_bundle,
+            &server_inputs.tau_relayer_bits,
+            client_output_projection,
+        )?;
+        let expected_client_input_commitment = self.ddh_evaluator.combined_input_commitment(
+            HiddenEvalInputOwner::Client,
+            &[&y_client_bundle, &tau_client_bundle],
+        );
+        if trace.run.client_input_commitment != expected_client_input_commitment {
+            return Err(ProtoError::InvalidInput(
+                "role-separated client materialization commitment does not match client inputs"
+                    .to_string(),
+            ));
+        }
+        if trace.run.server_input_commitment != packet.server_input_commitment {
+            return Err(ProtoError::InvalidInput(
+                "role-separated client materialization commitment does not match server inputs"
+                    .to_string(),
+            ));
+        }
+        self.build_staged_evaluator_artifact_from_hidden_eval_outputs(
+            runtime,
+            trace.run.client_input_commitment,
+            trace.run.server_input_commitment,
+            trace.run.output,
+            client_output_projection.client_output_mask(),
+        )
+        .map(|(artifact, _, _)| artifact)
+    }
+
+    pub fn build_client_owned_staged_evaluator_artifact_from_role_separated_delivery_message(
+        &self,
+        runtime: &SharedRuntime,
+        client_request_message: &WireMessage,
+        evaluator_ot_state: &ClientOtState,
+        packet: &RoleSeparatedServerInputDeliveryPacket,
+        client_output_mask: [u8; 32],
+    ) -> ProtoResult<StagedEvaluatorArtifact> {
+        let client_packet: ClientPacket = crate::wire::decode_transport_message(
+            self.context_binding,
+            TransportKind::ClientOtRequest,
+            client_request_message,
+        )?;
+        self.build_client_owned_staged_evaluator_artifact_from_role_separated_delivery(
+            runtime,
+            &client_packet,
+            evaluator_ot_state,
+            packet,
+            client_output_mask,
+        )
+    }
+
+    fn prepare_add_stage_request_parts(
         &self,
         client_packet: &ClientPacket,
         evaluator_ot_state: &ClientOtState,
         packet: &ServerAssistInitPacket,
-    ) -> ProtoResult<ClientStageRequestPacket> {
+    ) -> ProtoResult<AddStageRequestParts> {
         self.validate_server_assist_init_packet(client_packet, evaluator_ot_state, packet)?;
         let (y_client_bundle, tau_client_bundle) = self
             .reconstruct_client_input_bundles_from_server_assist_init(evaluator_ot_state, packet)?;
@@ -212,24 +407,74 @@ impl ClientSession {
                 ot_transcript_digest,
             );
 
+        Ok(AddStageRequestParts {
+            prior_transcript_digest,
+            client_input_commitment,
+            client_stage_openings_digest,
+            client_stage_nonce,
+            y_client_bundle,
+            tau_client_bundle,
+        })
+    }
+
+    pub fn build_add_stage_request(
+        &self,
+        client_packet: &ClientPacket,
+        evaluator_ot_state: &ClientOtState,
+        packet: &ServerAssistInitPacket,
+    ) -> ProtoResult<ClientStageRequestPacket> {
+        let parts =
+            self.prepare_add_stage_request_parts(client_packet, evaluator_ot_state, packet)?;
         Ok(ClientStageRequestPacket {
             context_binding: self.context_binding,
             server_eval_handle: packet.server_eval_handle,
             stage_id: crate::wire::ServerEvalStageId::add_stage(),
-            prior_transcript_digest,
+            prior_transcript_digest: parts.prior_transcript_digest,
             client_stage_payload: ClientStagePayload::AddStage(AddStageRequestPayload {
-                client_input_commitment,
-                client_stage_openings_digest,
-                client_stage_nonce,
+                client_input_commitment: parts.client_input_commitment,
+                client_stage_openings_digest: parts.client_stage_openings_digest,
+                client_stage_nonce: parts.client_stage_nonce,
                 y_client_bundle_payload: crate::wire::serialize_encoded_bundle_payload(
-                    &y_client_bundle,
+                    &parts.y_client_bundle,
                 )?,
                 tau_client_bundle_payload: crate::wire::serialize_encoded_bundle_payload(
-                    &tau_client_bundle,
+                    &parts.tau_client_bundle,
                 )?,
             }),
             client_stage_commitments: ClientStageCommitments {
-                digests: vec![client_input_commitment, client_stage_openings_digest],
+                digests: vec![
+                    parts.client_input_commitment,
+                    parts.client_stage_openings_digest,
+                ],
+            },
+        })
+    }
+
+    pub fn build_role_separated_add_stage_request(
+        &self,
+        client_packet: &ClientPacket,
+        evaluator_ot_state: &ClientOtState,
+        packet: &ServerAssistInitPacket,
+    ) -> ProtoResult<RoleSeparatedClientStageRequestPacket> {
+        let parts =
+            self.prepare_add_stage_request_parts(client_packet, evaluator_ot_state, packet)?;
+        Ok(RoleSeparatedClientStageRequestPacket {
+            context_binding: self.context_binding,
+            server_eval_handle: packet.server_eval_handle,
+            stage_id: crate::wire::ServerEvalStageId::add_stage(),
+            prior_transcript_digest: parts.prior_transcript_digest,
+            client_stage_payload: RoleSeparatedClientStagePayload::AddStage(
+                RoleSeparatedAddStageRequestPayload {
+                    client_input_commitment: parts.client_input_commitment,
+                    client_stage_openings_digest: parts.client_stage_openings_digest,
+                    client_stage_nonce: parts.client_stage_nonce,
+                },
+            ),
+            client_stage_commitments: ClientStageCommitments {
+                digests: vec![
+                    parts.client_input_commitment,
+                    parts.client_stage_openings_digest,
+                ],
             },
         })
     }
@@ -750,6 +995,17 @@ impl ClientSession {
         &self,
         prior_stage_response: &ServerStageResponsePacket,
     ) -> ProtoResult<ClientStageRequestPacket> {
+        self.build_output_projection_request_with_projection_mode(
+            prior_stage_response,
+            &OutputProjectionMode::trusted_server_projection(),
+        )
+    }
+
+    pub fn build_output_projection_request_with_projection_mode(
+        &self,
+        prior_stage_response: &ServerStageResponsePacket,
+        projection_mode: &OutputProjectionMode,
+    ) -> ProtoResult<ClientStageRequestPacket> {
         let ServerStagePayload::RoundCore(round_core_payload) =
             &prior_stage_response.server_stage_payload
         else {
@@ -770,6 +1026,7 @@ impl ClientSession {
                 prior_stage_response.server_eval_handle,
                 stage_id,
                 prior_stage_response.next_transcript_digest,
+                projection_mode,
             );
         let prior_server_stage_digest = round_core_payload.execution_checkpoint_digest;
         Ok(ClientStageRequestPacket {
@@ -781,10 +1038,15 @@ impl ClientSession {
                 OutputProjectionRequestPayload {
                     final_client_digest,
                     prior_server_stage_digest,
+                    projection_mode: projection_mode.clone(),
                 },
             ),
             client_stage_commitments: ClientStageCommitments {
-                digests: vec![final_client_digest, prior_server_stage_digest],
+                digests: vec![
+                    final_client_digest,
+                    prior_server_stage_digest,
+                    crate::protocol::transcript::digest_output_projection_mode(projection_mode),
+                ],
             },
         })
     }
@@ -793,13 +1055,27 @@ impl ClientSession {
         &self,
         prior_stage_response_message: &WireMessage,
     ) -> ProtoResult<WireMessage> {
+        self.prepare_output_projection_request_message_with_projection_mode(
+            prior_stage_response_message,
+            &OutputProjectionMode::trusted_server_projection(),
+        )
+    }
+
+    pub fn prepare_output_projection_request_message_with_projection_mode(
+        &self,
+        prior_stage_response_message: &WireMessage,
+        projection_mode: &OutputProjectionMode,
+    ) -> ProtoResult<WireMessage> {
         let prior_stage_response: ServerStageResponsePacket =
             crate::wire::decode_transport_message(
                 self.context_binding,
                 TransportKind::ServerStageResponse,
                 prior_stage_response_message,
             )?;
-        let request = self.build_output_projection_request(&prior_stage_response)?;
+        let request = self.build_output_projection_request_with_projection_mode(
+            &prior_stage_response,
+            projection_mode,
+        )?;
         crate::wire::encode_transport_message(
             self.context_binding,
             TransportKind::ClientStageRequest,
@@ -836,6 +1112,7 @@ impl ClientSession {
             final_server_digest,
             output_release_token,
             allowed_output_kind,
+            projection_mode,
             execution_checkpoint_digest,
         }) = &response.server_stage_payload
         else {
@@ -846,6 +1123,7 @@ impl ClientSession {
         let ClientStagePayload::OutputProjection(OutputProjectionRequestPayload {
             final_client_digest: _,
             prior_server_stage_digest,
+            projection_mode: request_projection_mode,
         }) = &request.client_stage_payload
         else {
             return Err(ProtoError::InvalidInput(
@@ -869,6 +1147,7 @@ impl ClientSession {
                 *prior_server_stage_digest,
                 expected_token,
                 *allowed_output_kind,
+                projection_mode,
             );
         if *output_release_token != expected_token {
             return Err(ProtoError::InvalidInput(
@@ -882,11 +1161,18 @@ impl ClientSession {
                 "output-projection response digest is invalid".to_string(),
             ));
         }
-        if response.server_stage_commitments.digests.len() < 3
+        if projection_mode != request_projection_mode {
+            return Err(ProtoError::InvalidInput(
+                "output-projection response projection mode does not match the request".to_string(),
+            ));
+        }
+        if response.server_stage_commitments.digests.len() < 4
             || response.server_stage_commitments.digests[2] != *execution_checkpoint_digest
+            || response.server_stage_commitments.digests[3]
+                != crate::protocol::transcript::digest_output_projection_mode(projection_mode)
         {
             return Err(ProtoError::InvalidInput(
-                "output-projection response execution checkpoint digest is not bound to commitments"
+                "output-projection response execution checkpoint or projection mode is not bound to commitments"
                     .to_string(),
             ));
         }
@@ -950,6 +1236,25 @@ impl ClientSession {
         if packet.allowed_output_kind != output_payload.allowed_output_kind {
             return Err(ProtoError::InvalidInput(
                 "server finalize allowed output kind does not match output-projection response"
+                    .to_string(),
+            ));
+        }
+        let client_output_packet: ClientOutputPacket = crate::wire::decode_transport_message(
+            self.context_binding,
+            TransportKind::ClientOutput,
+            &packet.client_output,
+        )?;
+        if client_output_packet.projection_mode != packet.projection_mode {
+            return Err(ProtoError::InvalidInput(
+                "server finalize client output projection mode does not match packet metadata"
+                    .to_string(),
+            ));
+        }
+        let expected_value_kind =
+            ClientOutputValueKind::for_projection_mode(&packet.projection_mode);
+        if client_output_packet.value_kind != expected_value_kind {
+            return Err(ProtoError::InvalidInput(
+                "server finalize client output value kind does not match projection mode"
                     .to_string(),
             ));
         }
@@ -1139,11 +1444,34 @@ impl ClientSession {
         evaluation_digest: [u8; 32],
         bundle: &DdhHssInputShareBundle,
     ) -> ProtoResult<WireMessage> {
-        let aad = crate::protocol::transcript::output_packet_aad(
-            b"client_output",
+        self.seal_client_output_packet_message_with_projection_mode(
+            run_binding,
+            evaluation_digest,
+            OutputProjectionMode::trusted_server_projection(),
+            bundle,
+        )
+    }
+
+    pub fn seal_client_output_packet_message_with_projection_mode(
+        &self,
+        run_binding: [u8; 32],
+        evaluation_digest: [u8; 32],
+        projection_mode: OutputProjectionMode,
+        bundle: &DdhHssInputShareBundle,
+    ) -> ProtoResult<WireMessage> {
+        let value_kind = ClientOutputValueKind::for_projection_mode(&projection_mode);
+        if bundle.label != value_kind.bundle_label() {
+            return Err(ProtoError::InvalidInput(format!(
+                "client output bundle label does not match {:?}",
+                value_kind
+            )));
+        }
+        let aad = crate::protocol::transcript::client_output_packet_aad(
             self.context_binding,
             run_binding,
             evaluation_digest,
+            &projection_mode,
+            value_kind,
         );
         let plaintext = crate::wire::serialize_encoded_bundle_payload(bundle)?;
         let (nonce, ciphertext) = self.ddh_evaluator.seal_message(
@@ -1155,6 +1483,8 @@ impl ClientSession {
             context_binding: self.context_binding,
             run_binding,
             evaluation_digest,
+            projection_mode,
+            value_kind,
             nonce,
             ciphertext,
         };
@@ -1197,6 +1527,46 @@ impl ClientSession {
         )
     }
 
+    pub fn build_role_separated_output_delivery_packet(
+        &self,
+        server_eval_handle: ServerEvalHandle,
+        final_transcript_digest: [u8; 32],
+        allowed_output_kind: crate::wire::AllowedOutputKind,
+        artifact: &StagedEvaluatorArtifact,
+    ) -> ProtoResult<RoleSeparatedOutputDeliveryPacket> {
+        if artifact.context_binding != self.context_binding {
+            return Err(ProtoError::InvalidInput(
+                "role-separated output delivery context binding does not match evaluator session"
+                    .to_string(),
+            ));
+        }
+        let payload = match allowed_output_kind {
+            crate::wire::AllowedOutputKind::ClientOutputOnly => {
+                RoleSeparatedOutputDeliveryPayload::ClientOutputOnly {
+                    client_output: artifact.client_output.clone(),
+                    client_output_binding: artifact.client_output_binding,
+                }
+            }
+            crate::wire::AllowedOutputKind::ClientOutputAndSeedOutput => {
+                RoleSeparatedOutputDeliveryPayload::ClientOutputAndSeedOutput {
+                    client_output: artifact.client_output.clone(),
+                    client_output_binding: artifact.client_output_binding,
+                    seed_output: artifact.seed_output.clone(),
+                    seed_output_binding: artifact.seed_output_binding,
+                }
+            }
+        };
+        Ok(RoleSeparatedOutputDeliveryPacket {
+            context_binding: self.context_binding,
+            server_eval_handle,
+            final_transcript_digest,
+            bindings: artifact.bindings.clone(),
+            projection_mode: artifact.projection_mode.clone(),
+            allowed_output_kind,
+            payload,
+        })
+    }
+
     pub fn build_staged_evaluator_artifact_from_hidden_run(
         &self,
         runtime: &SharedRuntime,
@@ -1207,6 +1577,7 @@ impl ClientSession {
             ddh_run.client_input_commitment,
             ddh_run.server_input_commitment,
             ddh_run.output,
+            None,
         )
     }
 
@@ -1216,6 +1587,7 @@ impl ClientSession {
         client_input_commitment: [u8; 32],
         server_input_commitment: [u8; 32],
         output: crate::ddh::DdhHiddenEvalOutputBundles,
+        client_output_mask: Option<[u8; 32]>,
     ) -> ProtoResult<(StagedEvaluatorArtifact, u64, u64)> {
         let result_assembly_started = monotonic_now_ns();
         let run_binding = self.ddh_evaluator.run_binding(
@@ -1229,12 +1601,37 @@ impl ClientSession {
             &runtime.execution_result,
             &output,
         );
+        let projection_mode = match (output.client_output.value_kind, client_output_mask) {
+            (ClientOutputValueKind::UnmaskedClientBase, None) => {
+                OutputProjectionMode::trusted_server_projection()
+            }
+            (ClientOutputValueKind::ClientBlindedBase, Some(mask)) => {
+                let mask_commitment = crate::protocol::transcript::client_output_mask_commitment(
+                    self.context_binding,
+                    run_binding,
+                    evaluation_digest,
+                    mask,
+                );
+                OutputProjectionMode::client_masked_projection(mask_commitment)
+            }
+            (ClientOutputValueKind::UnmaskedClientBase, Some(_)) => {
+                return Err(ProtoError::InvalidInput(
+                    "client output mask requires a blinded client output bundle".to_string(),
+                ));
+            }
+            (ClientOutputValueKind::ClientBlindedBase, None) => {
+                return Err(ProtoError::InvalidInput(
+                    "blinded client output bundle requires a client output mask".to_string(),
+                ));
+            }
+        };
         let result_assembly_duration_ns = elapsed_ns_u64(result_assembly_started);
         let output_sealing_started = monotonic_now_ns();
-        let client_output = self.seal_client_output_packet_message(
+        let client_output = self.seal_client_output_packet_message_with_projection_mode(
             run_binding,
             evaluation_digest,
-            &output.x_client_base,
+            projection_mode.clone(),
+            output.client_output.as_bundle(),
         )?;
         let client_output_binding = crate::protocol::transcript::nested_output_message_binding(
             self.context_binding,
@@ -1277,6 +1674,9 @@ impl ClientSession {
                     run_binding,
                     evaluation_digest,
                 },
+                projection_mode,
+                client_output_value_kind: output.client_output.value_kind,
+                client_output_commitment: output.client_output.as_bundle().commitment,
                 evaluator_witness: crate::wire::EvaluatorWitness {
                     total_steps: runtime.execution_program.trace.total_steps,
                     curve_cost_units: runtime.execution_program.trace.estimated_curve_cost_units,
@@ -1320,7 +1720,7 @@ impl ClientSession {
         let client_output = self.seal_client_output_packet_message(
             run_binding,
             evaluation_digest,
-            &ddh_run.output.x_client_base,
+            ddh_run.output.client_output.as_bundle(),
         )?;
         let seed_output = self.seal_seed_output_packet_message(
             run_binding,
@@ -1347,6 +1747,7 @@ impl ClientSession {
                     run_binding,
                     evaluation_digest,
                 },
+                projection_mode: OutputProjectionMode::trusted_server_projection(),
                 evaluator_witness: EvaluatorWitness {
                     total_steps: runtime.execution_program.trace.total_steps,
                     curve_cost_units: runtime.execution_program.trace.estimated_curve_cost_units,
@@ -1373,5 +1774,4 @@ impl ClientSession {
             output_sealing_finalization_duration_ns,
         ))
     }
-
 }

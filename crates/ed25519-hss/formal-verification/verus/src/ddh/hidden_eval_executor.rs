@@ -6,14 +6,12 @@
 //! - fixed visible output bundle count
 //! - fixed split relayer transport bundle shape
 
-use vstd::prelude::*;
 use vstd::contrib::auto_spec;
+use vstd::prelude::*;
 
 use crate::shared::reference::{
-    eval_f_expand_visible_boundary_from_input,
+    eval_f_expand_visible_boundary_from_input, Bytes32, FExpandInput, FExpandOutput,
     FExpandVisibleBoundary,
-    FExpandOutput,
-    Bytes32, FExpandInput,
 };
 
 verus! {

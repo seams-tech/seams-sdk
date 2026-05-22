@@ -497,6 +497,10 @@ export async function registerEmailOtpEd25519Capability(args: {
         : signingRootId,
     },
     clientInputs,
+    outputProjection: {
+      kind: 'client-masked-projection',
+      clientRecoverableSecretB64u: prfFirstB64u,
+    },
     workerCtx,
   });
   if (!completed.success || !completed.clientOutput?.xClientBaseB64u) {
@@ -712,6 +716,10 @@ export async function reconstructEmailOtpEd25519Session(args: {
       signingRootId: signingRootScopeFromRuntimePolicyScope(sessionScope).signingRootId,
     },
     clientInputs,
+    outputProjection: {
+      kind: 'client-masked-projection',
+      clientRecoverableSecretB64u: prfFirstB64u,
+    },
     workerCtx,
   });
   if (!completed.success || !completed.clientOutput?.xClientBaseB64u) {

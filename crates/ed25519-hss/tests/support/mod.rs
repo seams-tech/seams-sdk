@@ -11,11 +11,12 @@ use ed25519_hss::server::ServerEvalOperation;
 use ed25519_hss::shared::{ProtoError, ProtoResult};
 use ed25519_hss::wire::{
     ClientOtOffer, ClientOutputPacket, ClientPacket, EvaluationReport, StagedEvaluatorArtifact,
-    WireMessage,
-    PRIME_ORDER_SUCCINCT_HSS_REPORT_VERSION,
+    WireMessage, PRIME_ORDER_SUCCINCT_HSS_REPORT_VERSION,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+
+pub const TEST_CLIENT_OUTPUT_MASK: [u8; 32] = [0x5a; 32];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -37,6 +38,28 @@ struct TransportFrame {
     report_version: String,
     context_binding: [u8; 32],
     kind: TransportKind,
+    payload: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum RuntimeTransportKind {
+    ClientOtOffer,
+    ClientOtRequest,
+    ServerAssistInit,
+    ClientStageRequest,
+    ServerStageResponse,
+    ServerFinalize,
+    ClientOutput,
+    SeedOutput,
+    ServerOutput,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct RuntimeTransportFrame {
+    report_version: String,
+    context_binding: [u8; 32],
+    kind: RuntimeTransportKind,
     payload: Vec<u8>,
 }
 
@@ -88,63 +111,48 @@ pub fn ensure_prepared_session_input_context(
     Ok(())
 }
 
-pub fn build_server_owned_staged_evaluator_artifact(
+pub fn build_client_owned_staged_evaluator_artifact(
     session: &PreparedSession,
     input: &ed25519_hss::shared::FExpandInput,
 ) -> ProtoResult<StagedEvaluatorArtifact> {
     ensure_prepared_session_input_context(session, input)?;
-    let client_ot_offer_message = session.prepare_client_ot_offer_message()?;
-    let garbler_ot_state = session.prepare_garbler_ot_state()?;
-    let (client_request_message, evaluator_ot_state) =
-        session.prepare_client_ot_request_from_offer_message(
+    let runtime = session.shared_runtime();
+    let garbler_session = session.garbler_session();
+    let evaluator_session = session.evaluator_session();
+    let client_ot_offer_message = garbler_session.client_ot_offer_message()?;
+    let (client_request_message, evaluator_ot_state) = evaluator_session
+        .prepare_client_ot_request_from_offer_message(
             &client_ot_offer_message,
             input.y_client,
             input.tau_client,
         )?;
-    let flow = session.prepare_server_assist_flow_to_output_projection(
-        &garbler_ot_state,
-        &client_request_message,
+    let client_packet =
+        decode_client_request(session.candidate().context_binding, &client_request_message)?;
+    let (delivery, _server_eval_state) = garbler_session
+        .prepare_role_separated_server_input_delivery(
+            &client_packet,
+            input.y_relayer,
+            input.tau_relayer,
+            ServerEvalOperation::Registration,
+        )?;
+    evaluator_session.build_client_owned_staged_evaluator_artifact_from_role_separated_delivery(
+        &runtime,
+        &client_packet,
         &evaluator_ot_state,
-        input.y_relayer,
-        input.tau_relayer,
-        ServerEvalOperation::Registration,
-    )?;
-    session.build_server_owned_staged_evaluator_artifact_from_server_eval_state(
-        &flow.final_server_eval_state,
+        &delivery,
+        TEST_CLIENT_OUTPUT_MASK,
     )
 }
 
-pub fn evaluate_via_staged_server_owned_flow(
+pub fn evaluate_via_client_owned_flow(
     session: &PreparedSession,
     input: &ed25519_hss::shared::FExpandInput,
 ) -> ProtoResult<EvaluationReport> {
     ensure_prepared_session_input_context(session, input)?;
     let runtime = session.shared_runtime();
-    let client_ot_offer_message = session.prepare_client_ot_offer_message()?;
-    let garbler_ot_state = session.prepare_garbler_ot_state()?;
-    let (client_request_message, evaluator_ot_state) =
-        session.prepare_client_ot_request_from_offer_message(
-            &client_ot_offer_message,
-            input.y_client,
-            input.tau_client,
-        )?;
-    let flow = session.prepare_server_assist_flow_to_output_projection(
-        &garbler_ot_state,
-        &client_request_message,
-        &evaluator_ot_state,
-        input.y_relayer,
-        input.tau_relayer,
-        ServerEvalOperation::Registration,
-    )?;
-    let artifact = session.build_server_owned_staged_evaluator_artifact_from_server_eval_state(
-        &flow.final_server_eval_state,
-    )?;
-    let (_server_finalize, report) = session.prepare_server_finalize_from_staged_evaluator_artifact(
-        &runtime,
-        &flow.final_server_eval_state,
-        &artifact,
-    )?;
-    Ok(report)
+    let garbler_session = session.garbler_session();
+    let artifact = build_client_owned_staged_evaluator_artifact(session, input)?;
+    runtime.finalize_report_from_staged_evaluator_artifact(&garbler_session, &artifact)
 }
 
 pub fn section_bytes<'a>(
@@ -252,7 +260,63 @@ pub fn decode_client_output_message(
     context_binding: [u8; 32],
     message: &WireMessage,
 ) -> ProtoResult<ClientOutputPacket> {
-    decode_transport_message(context_binding, TransportKind::ClientOutput, message)
+    decode_runtime_client_output_message(context_binding, message)
+}
+
+pub fn decode_runtime_client_output_message(
+    expected_context_binding: [u8; 32],
+    message: &WireMessage,
+) -> ProtoResult<ClientOutputPacket> {
+    let frame: RuntimeTransportFrame = bincode::deserialize(&message.bytes).map_err(|err| {
+        ProtoError::Decode(format!(
+            "failed to decode prime-order succinct HSS client output frame: {err}"
+        ))
+    })?;
+    if frame.report_version != PRIME_ORDER_SUCCINCT_HSS_REPORT_VERSION {
+        return Err(ProtoError::InvalidInput(format!(
+            "prime-order succinct HSS transport frame version mismatch: {}",
+            frame.report_version
+        )));
+    }
+    if frame.context_binding != expected_context_binding {
+        return Err(ProtoError::InvalidInput(
+            "prime-order succinct HSS transport frame context binding does not match the runtime"
+                .to_string(),
+        ));
+    }
+    if frame.kind != RuntimeTransportKind::ClientOutput {
+        return Err(ProtoError::InvalidInput(format!(
+            "prime-order succinct HSS transport frame kind mismatch: expected ClientOutput, got {:?}",
+            frame.kind
+        )));
+    }
+    bincode::deserialize(&frame.payload).map_err(|err| {
+        ProtoError::Decode(format!(
+            "failed to decode transport payload for ClientOutput: {err}"
+        ))
+    })
+}
+
+pub fn encode_runtime_client_output_message(
+    context_binding: [u8; 32],
+    payload: &ClientOutputPacket,
+) -> ProtoResult<WireMessage> {
+    let frame = RuntimeTransportFrame {
+        report_version: PRIME_ORDER_SUCCINCT_HSS_REPORT_VERSION.to_string(),
+        context_binding,
+        kind: RuntimeTransportKind::ClientOutput,
+        payload: bincode::serialize(payload).map_err(|err| {
+            ProtoError::Decode(format!(
+                "failed to serialize transport payload for ClientOutput: {err}"
+            ))
+        })?,
+    };
+    let bytes = bincode::serialize(&frame).map_err(|err| {
+        ProtoError::Decode(format!(
+            "failed to serialize prime-order succinct HSS client output frame: {err}"
+        ))
+    })?;
+    Ok(WireMessage { bytes })
 }
 
 pub fn decode_server_input_delivery(

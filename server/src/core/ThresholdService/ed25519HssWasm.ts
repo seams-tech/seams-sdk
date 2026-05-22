@@ -22,6 +22,8 @@ import type {
   ThresholdEd25519HssOpenedServerOutput,
   ThresholdEd25519HssPreparedSessionEnvelope,
   ThresholdEd25519HssPreparedServerSessionEnvelope,
+  ThresholdEd25519HssServerInputDeliveryEnvelope,
+  ThresholdEd25519HssServerVisibleClientRequestEnvelope,
   ThresholdEd25519HssSessionOperation,
   ThresholdEd25519HssStoredPreparedServerSession,
   ThresholdEd25519HssStoredServerInputs,
@@ -65,6 +67,26 @@ const threshold_ed25519_hss_prepare_server_session_server = (
   garblerDriverStateB64u: string;
   clientOtOfferMessageB64u: string;
   preparedSessionHandle: string;
+};
+
+const threshold_ed25519_hss_prepare_role_separated_server_input_delivery_server = (
+  wasmSignerServerModule as Record<string, unknown>
+).threshold_ed25519_hss_prepare_role_separated_server_input_delivery as (args: {
+  operation: ThresholdEd25519HssSessionOperation | 'registration';
+  preparedSessionHandle: string;
+  garblerDriverStateBytes: Uint8Array;
+  clientRequestMessageBytes: Uint8Array;
+  yRelayerBytes: Uint8Array;
+  tauRelayerBytes: Uint8Array;
+}) => {
+  contextBindingB64u: string;
+  serverInputDeliveryB64u: string;
+  timings?: {
+    decodeMessagesMs?: number;
+    materializeSessionMs?: number;
+    prepareDeliveryMs?: number;
+    encodeDeliveryMs?: number;
+  };
 };
 
 function getSignerWasmUrls(): URL[] {
@@ -528,6 +550,75 @@ export async function prepareThresholdEd25519HssServerCeremony(input: {
           ceremonyRoundCoreMs: Number(result.timings.ceremonyRoundCoreMs || 0),
           ceremonyOutputProjectorMs: Number(result.timings.ceremonyOutputProjectorMs || 0),
           encodeArtifactMs: Number(result.timings.encodeArtifactMs || 0),
+        }
+      : undefined,
+  };
+}
+
+export async function prepareThresholdEd25519HssRoleSeparatedServerInputDelivery(input: {
+  operation: ThresholdEd25519HssSessionOperation | 'registration';
+  preparedServerSession: ThresholdEd25519HssStoredPreparedServerSession;
+  expectedContextBindingB64u: string;
+  clientRequest: ThresholdEd25519HssServerVisibleClientRequestEnvelope;
+  serverInputs: ThresholdEd25519HssStoredServerInputs;
+}): Promise<{
+  engine: 'wasm';
+  serverInputDelivery: ThresholdEd25519HssServerInputDeliveryEnvelope;
+  timings?: {
+    decodeMessagesMs: number;
+    materializeSessionMs: number;
+    prepareDeliveryMs: number;
+    encodeDeliveryMs: number;
+  };
+}> {
+  const expectedBinding = String(input.expectedContextBindingB64u || '').trim();
+  if (!expectedBinding) {
+    throw new Error(
+      '[threshold-ed25519-hss] context binding mismatch during server-input delivery preparation',
+    );
+  }
+
+  await ensureThresholdEd25519HssWasm();
+  requireThresholdEd25519HssWasmReady();
+
+  const result = threshold_ed25519_hss_prepare_role_separated_server_input_delivery_server({
+    operation: input.operation,
+    preparedSessionHandle: String(input.preparedServerSession.preparedSessionHandle || '').trim(),
+    garblerDriverStateBytes: input.preparedServerSession.garblerDriverStateBytes,
+    clientRequestMessageBytes: base64UrlDecode(input.clientRequest.clientRequestMessageB64u),
+    yRelayerBytes: input.serverInputs.yRelayerBytes,
+    tauRelayerBytes: input.serverInputs.tauRelayerBytes,
+  }) as {
+    contextBindingB64u: string;
+    serverInputDeliveryB64u: string;
+    timings?: {
+      decodeMessagesMs?: number;
+      materializeSessionMs?: number;
+      prepareDeliveryMs?: number;
+      encodeDeliveryMs?: number;
+    };
+  };
+
+  const serverInputDelivery = {
+    contextBindingB64u: String(result.contextBindingB64u || '').trim(),
+    serverInputDeliveryB64u: String(result.serverInputDeliveryB64u || '').trim(),
+  };
+  if (serverInputDelivery.contextBindingB64u !== expectedBinding) {
+    throw new Error('[threshold-ed25519-hss] server-input delivery context binding mismatch');
+  }
+  if (!serverInputDelivery.serverInputDeliveryB64u) {
+    throw new Error('[threshold-ed25519-hss] server-input delivery is empty');
+  }
+
+  return {
+    engine: 'wasm',
+    serverInputDelivery,
+    timings: result.timings
+      ? {
+          decodeMessagesMs: Number(result.timings.decodeMessagesMs || 0),
+          materializeSessionMs: Number(result.timings.materializeSessionMs || 0),
+          prepareDeliveryMs: Number(result.timings.prepareDeliveryMs || 0),
+          encodeDeliveryMs: Number(result.timings.encodeDeliveryMs || 0),
         }
       : undefined,
   };

@@ -18,10 +18,12 @@ import type {
   CreateAccountAndRegisterResult,
   ThresholdEd25519HssCanonicalContext,
   ThresholdEd25519HssClientRequestEnvelope,
+  ThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope,
   ThresholdEd25519HssPrepareForRegistrationResponse,
   ThresholdEd25519HssPreparedSessionEnvelope,
   ThresholdEd25519HssRespondForRegistrationResponse,
   ThresholdEd25519HssFinalizeForRegistrationResponse,
+  ThresholdEd25519HssServerInputDeliveryEnvelope,
 } from '@server/core/types';
 import type { Ed25519SessionPolicy } from '../../signingEngine/threshold/sessionPolicy';
 import type { ThresholdRuntimePolicyScope } from '../../signingEngine/threshold/sessionPolicy';
@@ -548,16 +550,17 @@ export async function respondThresholdEd25519HssServerCeremonyWithRelayRegistrat
   nearAccountId: string;
   rpId: string;
   ceremonyHandle: string;
-  clientRequest: ThresholdEd25519HssClientRequestEnvelope;
-}): Promise<{
-}> {
+  clientRequest: Pick<ThresholdEd25519HssClientRequestEnvelope, 'clientRequestMessageB64u'>;
+}): Promise<ThresholdEd25519HssServerInputDeliveryEnvelope> {
   const startedAt = performance.now();
   const registrationTransport = resolveRegistrationTransport(args.context);
   const requestPayload = {
     new_account_id: String(args.nearAccountId || '').trim(),
     rp_id: String(args.rpId || '').trim(),
     ceremonyHandle: String(args.ceremonyHandle || '').trim(),
-    clientRequest: args.clientRequest,
+    clientRequest: {
+      clientRequestMessageB64u: args.clientRequest.clientRequestMessageB64u,
+    },
   };
   const requestBody = JSON.stringify(requestPayload);
   const requestBytes = utf8Bytes(requestBody);
@@ -628,9 +631,17 @@ export async function respondThresholdEd25519HssServerCeremonyWithRelayRegistrat
     >;
     throw new Error(String(failure.message || failure.code || `HTTP ${response.status}`).trim());
   }
-  const responsePayload = { ok: true };
+  const contextBindingB64u = String(result.contextBindingB64u || '').trim();
+  const serverInputDeliveryB64u = String(result.serverInputDeliveryB64u || '').trim();
+  if (!contextBindingB64u || !serverInputDeliveryB64u) {
+    throw new Error('Threshold Ed25519 HSS respond returned incomplete server-input delivery');
+  }
+  const responsePayload = { contextBindingB64u, serverInputDeliveryB64u };
   const responseBytes = jsonBytes(responsePayload);
-  const responseSizeBreakdown = {};
+  const responseSizeBreakdown = {
+    contextBindingBytes: utf8Bytes(contextBindingB64u),
+    serverInputDeliveryBytes: utf8Bytes(serverInputDeliveryB64u),
+  };
   console.debug('[Registration] threshold-ed25519 HSS respond response received', {
     durationMs: Math.round(performance.now() - startedAt),
     status: response.status,
@@ -639,7 +650,7 @@ export async function respondThresholdEd25519HssServerCeremonyWithRelayRegistrat
     responseBytes,
     responseSizeBreakdown,
   });
-  return {};
+  return { contextBindingB64u, serverInputDeliveryB64u };
 }
 
 export async function finalizeThresholdEd25519HssServerCeremonyWithRelayRegistration(args: {
@@ -647,6 +658,7 @@ export async function finalizeThresholdEd25519HssServerCeremonyWithRelayRegistra
   nearAccountId: string;
   rpId: string;
   ceremonyHandle: string;
+  evaluationResult: ThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope;
 }): Promise<ThresholdEd25519RegistrationHssFinalizeResult> {
   const finalizeStartedAt = performance.now();
   const registrationTransport = resolveRegistrationTransport(args.context);
@@ -654,6 +666,7 @@ export async function finalizeThresholdEd25519HssServerCeremonyWithRelayRegistra
     new_account_id: String(args.nearAccountId || '').trim(),
     rp_id: String(args.rpId || '').trim(),
     ceremonyHandle: String(args.ceremonyHandle || '').trim(),
+    evaluationResult: args.evaluationResult,
   };
   const requestBody = JSON.stringify(requestPayload);
   const requestBytes = utf8Bytes(requestBody);
@@ -661,6 +674,7 @@ export async function finalizeThresholdEd25519HssServerCeremonyWithRelayRegistra
     newAccountIdBytes: utf8Bytes(requestPayload.new_account_id),
     rpIdBytes: utf8Bytes(requestPayload.rp_id),
     ceremonyHandleBytes: utf8Bytes(requestPayload.ceremonyHandle),
+    evaluationResultBytes: jsonBytes(args.evaluationResult),
   };
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   let response: Response;

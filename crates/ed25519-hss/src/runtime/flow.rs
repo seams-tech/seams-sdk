@@ -3,8 +3,7 @@ use crate::runtime::SharedRuntime;
 use crate::server::{ServerEvalOperation, ServerEvalState, ServerOtState};
 use crate::shared::{ProtoError, ProtoResult};
 use crate::wire::{
-    ClientOtOffer, ClientStageRequestPacket, EvaluationReport, StagedEvaluatorArtifact,
-    WireMessage,
+    ClientOtOffer, ClientStageRequestPacket, EvaluationReport, StagedEvaluatorArtifact, WireMessage,
 };
 
 pub struct PreparedServerAssistFlow {
@@ -82,12 +81,14 @@ impl PreparedSession {
                 crate::wire::TransportKind::ClientStageRequest,
                 client_stage_request_message,
             )?;
-            server_eval_state = self.garbler_session().materialize_execution_state_from_add_stage_request(
-                &self.shared_runtime(),
-                &self.evaluator_session(),
-                &server_eval_state,
-                &request,
-            )?;
+            server_eval_state = self
+                .garbler_session()
+                .materialize_execution_state_from_add_stage_request(
+                    &self.shared_runtime(),
+                    &self.evaluator_session(),
+                    &server_eval_state,
+                    &request,
+                )?;
         }
         self.garbler_session()
             .prepare_add_stage_response_message(&server_eval_state, client_stage_request_message)
@@ -135,7 +136,10 @@ impl PreparedSession {
         prior_stage_response_message: &WireMessage,
     ) -> ProtoResult<WireMessage> {
         self.evaluator_session()
-            .prepare_output_projection_request_message(prior_stage_response_message)
+            .prepare_output_projection_request_message_with_projection_mode(
+                prior_stage_response_message,
+                self.output_projection_mode(),
+            )
     }
 
     pub fn prepare_output_projection_response_message(
@@ -255,20 +259,14 @@ impl PreparedSession {
         &self,
         server_eval_state: &ServerEvalState,
     ) -> ProtoResult<StagedEvaluatorArtifact> {
-        let finalize_state = server_eval_state.finalize_state().cloned().ok_or_else(|| {
+        let _ = server_eval_state.finalize_state().ok_or_else(|| {
             ProtoError::InvalidInput(
-                "staged flow did not materialize server-owned finalize state".to_string(),
+                "staged flow did not materialize server finalize state".to_string(),
             )
         })?;
-        let (artifact, _, _) = self
-            .evaluator_session()
-            .build_staged_evaluator_artifact_from_hidden_eval_outputs(
-                &self.shared_runtime(),
-                finalize_state.client_input_commitment,
-                finalize_state.server_input_commitment,
-                finalize_state.output,
-            )?;
-        Ok(artifact)
+        Err(ProtoError::InvalidInput(
+            "server-owned staged evaluator artifacts are no longer materialized from finalize state; use client-owned materialization from role-separated delivery".to_string(),
+        ))
     }
 
     pub fn validate_server_assist_flow_to_output_projection(
@@ -301,10 +299,10 @@ impl PreparedSession {
     ) -> ProtoResult<(WireMessage, EvaluationReport)> {
         self.garbler_session()
             .prepare_server_finalize_message_from_staged_evaluator_artifact(
-            runtime,
-            server_eval_state,
-            artifact,
-        )
+                runtime,
+                server_eval_state,
+                artifact,
+            )
     }
 
     pub fn prepare_server_finalize_from_staged_evaluator_artifact(

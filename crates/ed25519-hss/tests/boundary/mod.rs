@@ -1,14 +1,16 @@
+use curve25519_dalek::scalar::Scalar;
 use ed25519_hss::fixtures::deterministic_fixture_corpus;
 use ed25519_hss::protocol::prepare_prime_order_succinct_hss;
 use ed25519_hss::runtime::flow::PreparedServerAssistFlow;
 use ed25519_hss::server::ServerEvalOperation;
 use ed25519_hss::wire::{
-    ClientStageRequestPacket, ServerAssistInitPacket, ServerStageResponsePacket,
+    ClientStageRequestPacket, OutputProjectionMode, RoleSeparatedClientStagePayload,
+    RoleSeparatedOutputDeliveryPayload, ServerAssistInitPacket, ServerStageResponsePacket,
 };
 
 use crate::support::{
-    contains_subslice, decode_server_input_delivery, decode_transport_message,
-    TransportKind,
+    build_client_owned_staged_evaluator_artifact, contains_subslice, decode_client_request,
+    decode_server_input_delivery, decode_transport_message, TransportKind,
 };
 
 fn boundary_fixture() -> ed25519_hss::fixtures::FExpandFixture {
@@ -51,6 +53,73 @@ fn second_boundary_fixture() -> ed25519_hss::fixtures::FExpandFixture {
                 && has_entropy(&fixture.input.tau_relayer)
         })
         .expect("fixture with distinct context")
+}
+
+#[test]
+fn client_output_mask_scalar_round_trip_recovers_base_share() {
+    let x_client_base = Scalar::from_bytes_mod_order([0x42; 32]);
+    let client_output_mask = Scalar::from_bytes_mod_order([0x5a; 32]);
+    let blinded = x_client_base + client_output_mask;
+    let opened = blinded - client_output_mask;
+
+    assert_eq!(opened.to_bytes(), x_client_base.to_bytes());
+    assert_ne!(blinded.to_bytes(), x_client_base.to_bytes());
+}
+
+#[test]
+fn server_finalize_state_omits_client_output_bundle_and_commitment_metadata() {
+    let fixture = boundary_fixture();
+    let session =
+        prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
+    let garbler_ot_state = session
+        .prepare_garbler_ot_state()
+        .expect("prepare garbler OT state");
+    let client_ot_offer_message = session
+        .prepare_client_ot_offer_message()
+        .expect("prepare client OT offer");
+    let (client_request_message, evaluator_ot_state) = session
+        .prepare_client_ot_request_from_offer_message(
+            &client_ot_offer_message,
+            fixture.input.y_client,
+            fixture.input.tau_client,
+        )
+        .expect("prepare client request");
+    let flow = session
+        .prepare_server_assist_flow_to_output_projection(
+            &garbler_ot_state,
+            &client_request_message,
+            &evaluator_ot_state,
+            fixture.input.y_relayer,
+            fixture.input.tau_relayer,
+            ServerEvalOperation::Registration,
+        )
+        .expect("prepare staged flow");
+    let finalize_state = flow
+        .final_server_eval_state
+        .finalize_state()
+        .expect("finalize state");
+    let output_debug = format!("{:?}", finalize_state.output);
+
+    assert!(
+        !output_debug.contains("client_output_value_kind"),
+        "server finalize output state must not retain client-output value-kind metadata",
+    );
+    assert!(
+        !output_debug.contains("client_output_commitment"),
+        "server finalize output state must not retain client-output commitment metadata",
+    );
+    assert!(
+        !output_debug.contains("DdhHiddenEvalClientOutputBundle"),
+        "server finalize output state must not retain the client output bundle",
+    );
+    assert!(
+        !output_debug.contains("bundle:"),
+        "server finalize output state must not retain a client output bundle field",
+    );
+    assert!(
+        !output_debug.contains("x_client_base:"),
+        "server finalize output state must not expose an unmasked x_client_base field name",
+    );
 }
 
 fn extend_staged_flow_bytes(
@@ -221,20 +290,6 @@ fn wire_messages_do_not_embed_clear_client_or_server_inputs() {
             ServerEvalOperation::Registration,
         )
         .expect("prepare staged assist flow");
-    let runtime = session.shared_runtime();
-    let staged_evaluator_artifact = session
-        .build_server_owned_staged_evaluator_artifact_from_server_eval_state(
-            &flow.final_server_eval_state,
-        )
-        .expect("build staged evaluator artifact");
-    let (server_finalize_message, _report) = session
-        .prepare_server_finalize_message_from_staged_evaluator_artifact(
-            &runtime,
-            &flow.final_server_eval_state,
-            &staged_evaluator_artifact,
-        )
-        .expect("prepare server finalize message");
-
     let mut messages: Vec<(&str, &[u8])> = vec![
         ("client_ot_offer", client_ot_offer_message.bytes.as_slice()),
         ("client_request", client_request_message.bytes.as_slice()),
@@ -258,7 +313,6 @@ fn wire_messages_do_not_embed_clear_client_or_server_inputs() {
             "output_projection_response",
             flow.output_projection_response_message.bytes.as_slice(),
         ),
-        ("server_finalize", server_finalize_message.bytes.as_slice()),
     ];
     for message in &flow.message_schedule_request_messages {
         messages.push(("message_schedule_request", message.bytes.as_slice()));
@@ -432,6 +486,301 @@ fn add_stage_round_advances_handle_without_exposing_clear_relayer_roots() {
         ),
         "server add-stage response must not embed clear tau_relayer bytes",
     );
+}
+
+#[test]
+fn role_separated_add_stage_request_omits_joined_client_bundles() {
+    let fixture = boundary_fixture();
+    let session =
+        prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
+    let (_runtime, garbler_session, evaluator_session) = session.split_runtime();
+
+    let client_ot_offer_message = garbler_session
+        .client_ot_offer_message()
+        .expect("prepare client OT offer");
+    let (client_request_message, evaluator_ot_state) = evaluator_session
+        .prepare_client_ot_request_from_offer_message(
+            &client_ot_offer_message,
+            fixture.input.y_client,
+            fixture.input.tau_client,
+        )
+        .expect("prepare client request");
+    let client_packet =
+        decode_client_request(fixture.output.context_binding, &client_request_message)
+            .expect("decode client request");
+
+    let (server_assist_init_message, _server_eval_state) = garbler_session
+        .prepare_server_assist_init_message(
+            &client_request_message,
+            fixture.input.y_relayer,
+            fixture.input.tau_relayer,
+            ServerEvalOperation::Registration,
+        )
+        .expect("prepare server assist init message");
+    let server_assist_init = evaluator_session
+        .decode_server_assist_init_message(
+            &client_request_message,
+            &evaluator_ot_state,
+            &server_assist_init_message,
+        )
+        .expect("decode server assist init message");
+
+    let request = evaluator_session
+        .build_role_separated_add_stage_request(
+            &client_packet,
+            &evaluator_ot_state,
+            &server_assist_init,
+        )
+        .expect("build role-separated add-stage request");
+
+    let RoleSeparatedClientStagePayload::AddStage(payload) = &request.client_stage_payload else {
+        panic!("role-separated request must carry add-stage payload");
+    };
+    assert_eq!(
+        request.stage_id,
+        ed25519_hss::wire::ServerEvalStageId::add_stage()
+    );
+    assert_eq!(
+        request.client_stage_commitments.digests,
+        vec![
+            payload.client_input_commitment,
+            payload.client_stage_openings_digest,
+        ],
+    );
+
+    let request_json = serde_json::to_string(&request).expect("serialize request json");
+    assert!(
+        !request_json.contains("y_client_bundle_payload"),
+        "role-separated add-stage request must not expose joined y_client bundle payload",
+    );
+    assert!(
+        !request_json.contains("tau_client_bundle_payload"),
+        "role-separated add-stage request must not expose joined tau_client bundle payload",
+    );
+
+    let request_wire = bincode::serialize(&request).expect("serialize request bincode");
+    for (label, secret) in [
+        ("y_client", &fixture.input.y_client),
+        ("tau_client", &fixture.input.tau_client),
+        ("y_relayer", &fixture.input.y_relayer),
+        ("tau_relayer", &fixture.input.tau_relayer),
+    ] {
+        assert!(
+            !contains_subslice(&request_wire, secret),
+            "role-separated add-stage request must not embed clear {label} bytes",
+        );
+    }
+}
+
+#[test]
+fn role_separated_client_materialization_keeps_client_bundles_off_server_packet() {
+    let fixture = boundary_fixture();
+    let session =
+        prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
+    let (runtime, garbler_session, evaluator_session) = session.split_runtime();
+
+    let client_ot_offer_message = garbler_session
+        .client_ot_offer_message()
+        .expect("prepare client OT offer");
+    let (client_request_message, evaluator_ot_state) = evaluator_session
+        .prepare_client_ot_request_from_offer_message(
+            &client_ot_offer_message,
+            fixture.input.y_client,
+            fixture.input.tau_client,
+        )
+        .expect("prepare client request");
+    let client_packet =
+        decode_client_request(fixture.output.context_binding, &client_request_message)
+            .expect("decode client request");
+
+    let (delivery, _server_eval_state) = garbler_session
+        .prepare_role_separated_server_input_delivery(
+            &client_packet,
+            fixture.input.y_relayer,
+            fixture.input.tau_relayer,
+            ServerEvalOperation::Registration,
+        )
+        .expect("prepare role-separated server input delivery");
+    let delivery_json = serde_json::to_string(&delivery).expect("serialize delivery json");
+    for forbidden_field in [
+        "y_client_bundle_payload",
+        "tau_client_bundle_payload",
+        "evaluator_ot_state",
+        "evaluatorOtStateB64u",
+    ] {
+        assert!(
+            !delivery_json.contains(forbidden_field),
+            "role-separated server input delivery must not expose {forbidden_field}",
+        );
+    }
+    let delivery_wire = bincode::serialize(&delivery).expect("serialize delivery bincode");
+    for (label, secret) in [
+        ("y_client", &fixture.input.y_client),
+        ("tau_client", &fixture.input.tau_client),
+        ("y_relayer", &fixture.input.y_relayer),
+        ("tau_relayer", &fixture.input.tau_relayer),
+    ] {
+        assert!(
+            !contains_subslice(&delivery_wire, secret),
+            "role-separated server input delivery must not embed clear {label} bytes",
+        );
+    }
+
+    let client_output_mask = [0x5a; 32];
+    let masked_artifact = evaluator_session
+        .build_client_owned_staged_evaluator_artifact_from_role_separated_delivery(
+            &runtime,
+            &client_packet,
+            &evaluator_ot_state,
+            &delivery,
+            client_output_mask,
+        )
+        .expect("build masked client-owned staged evaluator artifact");
+    match masked_artifact.projection_mode {
+        OutputProjectionMode::ClientMaskedProjection { mask_commitment } => {
+            assert_ne!(mask_commitment, [0u8; 32]);
+        }
+        OutputProjectionMode::TrustedServerProjection => {
+            panic!("masked artifact must carry client-masked projection mode");
+        }
+    }
+    assert!(
+        evaluator_session
+            .client_output_opener()
+            .open(&masked_artifact.client_output)
+            .is_err(),
+        "masked client output must not open as an unmasked x_client_base packet",
+    );
+    let unmasked_x_client_base = evaluator_session
+        .client_output_opener()
+        .open_masked(&masked_artifact.client_output, client_output_mask)
+        .expect("open masked client output");
+    assert_eq!(unmasked_x_client_base, fixture.output.x_client_base);
+    let wrong_client_output_mask = [0xa5; 32];
+    assert!(
+        evaluator_session
+            .client_output_opener()
+            .open_masked(&masked_artifact.client_output, wrong_client_output_mask)
+            .is_err(),
+        "masked client output must reject a mask with the wrong commitment",
+    );
+
+    let mut downgraded_artifact = masked_artifact.clone();
+    downgraded_artifact.projection_mode = OutputProjectionMode::trusted_server_projection();
+    assert!(
+        runtime
+            .finalize_report_from_staged_evaluator_artifact(&garbler_session, &downgraded_artifact)
+            .is_err(),
+        "server finalization must reject projection-mode downgrade metadata",
+    );
+
+    let report = runtime
+        .finalize_report_from_staged_evaluator_artifact(&garbler_session, &masked_artifact)
+        .expect("finalize masked client-owned artifact");
+    assert_eq!(report.projection_mode, masked_artifact.projection_mode);
+    assert!(
+        evaluator_session
+            .client_output_opener()
+            .open(&report.output_delivery.client)
+            .is_err(),
+        "final report must preserve the masked client output packet",
+    );
+    let report_x_client_base = evaluator_session
+        .client_output_opener()
+        .open_masked(&report.output_delivery.client, client_output_mask)
+        .expect("open masked final report client output");
+    assert!(
+        evaluator_session
+            .client_output_opener()
+            .open_masked(&report.output_delivery.client, wrong_client_output_mask)
+            .is_err(),
+        "masked final report client output must reject the wrong mask",
+    );
+    let report_x_relayer_base = garbler_session
+        .server_output_opener()
+        .open(&report.output_delivery.server)
+        .expect("open final report server output");
+    assert_eq!(report_x_client_base, fixture.output.x_client_base);
+    assert_eq!(report_x_relayer_base, fixture.output.x_relayer_base);
+}
+
+#[test]
+fn role_separated_output_delivery_omits_server_private_output_material() {
+    let fixture = boundary_fixture();
+    let session =
+        prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
+    let (_runtime, garbler_session, evaluator_session) = session.split_runtime();
+
+    let client_ot_offer_message = garbler_session
+        .client_ot_offer_message()
+        .expect("prepare client OT offer");
+    let (client_request_message, evaluator_ot_state) = evaluator_session
+        .prepare_client_ot_request_from_offer_message(
+            &client_ot_offer_message,
+            fixture.input.y_client,
+            fixture.input.tau_client,
+        )
+        .expect("prepare client request");
+    let garbler_ot_state = session
+        .prepare_garbler_ot_state()
+        .expect("prepare garbler OT state");
+    let flow = session
+        .prepare_server_assist_flow_to_output_projection(
+            &garbler_ot_state,
+            &client_request_message,
+            &evaluator_ot_state,
+            fixture.input.y_relayer,
+            fixture.input.tau_relayer,
+            ServerEvalOperation::Registration,
+        )
+        .expect("prepare staged flow");
+    let artifact = build_client_owned_staged_evaluator_artifact(&session, &fixture.input)
+        .expect("build client-owned staged artifact");
+    let delivery = evaluator_session
+        .build_role_separated_output_delivery_packet(
+            flow.final_server_eval_state.handle,
+            flow.final_server_eval_state.current_transcript_digest,
+            ed25519_hss::wire::AllowedOutputKind::ClientOutputOnly,
+            &artifact,
+        )
+        .expect("build role-separated output delivery");
+
+    let RoleSeparatedOutputDeliveryPayload::ClientOutputOnly {
+        client_output,
+        client_output_binding,
+    } = &delivery.payload
+    else {
+        panic!("registration delivery must expose only client output");
+    };
+    assert_eq!(delivery.bindings, artifact.bindings);
+    assert_eq!(client_output, &artifact.client_output);
+    assert_eq!(*client_output_binding, artifact.client_output_binding);
+
+    let delivery_json = serde_json::to_string(&delivery).expect("serialize delivery json");
+    for forbidden_field in [
+        "server_output_payload",
+        "server_output_payload_binding",
+        "seed_output",
+        "seed_output_binding",
+    ] {
+        assert!(
+            !delivery_json.contains(forbidden_field),
+            "role-separated client delivery must not expose {forbidden_field}",
+        );
+    }
+
+    let delivery_wire = bincode::serialize(&delivery).expect("serialize delivery bincode");
+    for (label, secret) in [
+        ("y_client", &fixture.input.y_client),
+        ("tau_client", &fixture.input.tau_client),
+        ("y_relayer", &fixture.input.y_relayer),
+        ("tau_relayer", &fixture.input.tau_relayer),
+    ] {
+        assert!(
+            !contains_subslice(&delivery_wire, secret),
+            "role-separated client delivery must not embed clear {label} bytes",
+        );
+    }
 }
 
 #[test]
@@ -1573,20 +1922,6 @@ fn client_visible_staged_packets_do_not_reconstruct_relayer_roots() {
             ServerEvalOperation::Registration,
         )
         .expect("prepare staged assist flow");
-    let runtime = session.shared_runtime();
-    let staged_evaluator_artifact = session
-        .build_server_owned_staged_evaluator_artifact_from_server_eval_state(
-            &flow.final_server_eval_state,
-        )
-        .expect("build staged evaluator artifact");
-    let (server_finalize_message, _report) = session
-        .prepare_server_finalize_message_from_staged_evaluator_artifact(
-            &runtime,
-            &flow.final_server_eval_state,
-            &staged_evaluator_artifact,
-        )
-        .expect("prepare server finalize message");
-
     let mut client_visible_messages: Vec<(&str, &ed25519_hss::wire::WireMessage)> = vec![
         ("client_request", &client_request_message),
         ("server_assist_init", &flow.server_assist_init_message),
@@ -1600,7 +1935,6 @@ fn client_visible_staged_packets_do_not_reconstruct_relayer_roots() {
             "output_projection_response",
             &flow.output_projection_response_message,
         ),
-        ("server_finalize", &server_finalize_message),
     ];
     for (idx, message) in flow.message_schedule_request_messages.iter().enumerate() {
         client_visible_messages.push(("message_schedule_request", message));

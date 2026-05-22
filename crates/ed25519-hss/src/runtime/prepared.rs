@@ -29,6 +29,7 @@ impl PreparedSession {
         DeliveryMaterial {
             report_version: PRIME_ORDER_SUCCINCT_HSS_REPORT_VERSION.to_string(),
             fixed_function_id: self.candidate().fixed_function_id.clone(),
+            projection_mode: self.output_projection_mode().clone(),
             hidden_core_materialization: HiddenCoreMaterialization::DdhPrimitiveBaseline,
             artifact: self.artifact_summary(),
             evaluation_key: self.ddh_backend().evaluation_key().clone(),
@@ -38,6 +39,7 @@ impl PreparedSession {
     pub fn shared_runtime_state(&self) -> SharedRuntimeState {
         SharedRuntimeState {
             prepared_context: self.prepared_context(),
+            projection_mode: self.output_projection_mode().clone(),
         }
     }
 

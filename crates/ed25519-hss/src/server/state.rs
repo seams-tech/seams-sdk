@@ -1,15 +1,16 @@
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
+use crate::ddh::ddh_hss::DdhHssPreparedOtSenderStateWord;
 use crate::ddh::hidden_eval_executor::{
     compute_message_schedule_completed_digest, compute_output_projection_continuation_digest,
-    compute_output_projection_output_digest, compute_round_core_completed_digest,
-    DdhHiddenEvalMessageScheduleContinuation, DdhHiddenEvalProjectorInputs,
-    DdhHiddenEvalRoundCoreContinuation,
+    compute_round_core_completed_digest, DdhHiddenEvalMessageScheduleContinuation,
+    DdhHiddenEvalOutputBundles, DdhHiddenEvalProjectorInputs, DdhHiddenEvalRoundCoreContinuation,
+    DdhHiddenEvalServerOutputBundles,
 };
-use crate::ddh::DdhHiddenEvalOutputBundles;
-use crate::ddh::ddh_hss::DdhHssPreparedOtSenderStateWord;
 use crate::ddh::{
-    DdhHssGarbler, DdhHssOtRemoteBundle, DdhHssOtSenderStateBundle, HiddenEvalProgram,
+    DdhHssGarbler, DdhHssOtRemoteBundle, DdhHssOtSenderStateBundle, DdhHssTransportBundle,
+    HiddenEvalProgram,
 };
 use crate::runtime::SharedRuntimeState;
 use crate::wire::{ClientOtOffer, OtTranscript, ServerEvalHandle, ServerEvalStageId, TranscriptId};
@@ -75,10 +76,44 @@ pub struct ServerEvalRelayerRoots {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServerEvalFinalizeOutput {
+    pub canonical_seed_commitment: [u8; 32],
+    pub x_relayer_base_left: DdhHssTransportBundle,
+    pub x_relayer_base_right: DdhHssTransportBundle,
+}
+
+impl ServerEvalFinalizeOutput {
+    pub fn from_hidden_eval_outputs(output: &DdhHiddenEvalOutputBundles) -> Self {
+        Self {
+            canonical_seed_commitment: output.canonical_seed.commitment,
+            x_relayer_base_left: output.x_relayer_base_left.clone(),
+            x_relayer_base_right: output.x_relayer_base_right.clone(),
+        }
+    }
+
+    pub fn from_server_output_bundles(output: &DdhHiddenEvalServerOutputBundles) -> Self {
+        Self {
+            canonical_seed_commitment: output.canonical_seed_commitment,
+            x_relayer_base_left: output.x_relayer_base_left.clone(),
+            x_relayer_base_right: output.x_relayer_base_right.clone(),
+        }
+    }
+
+    pub fn output_projection_digest(&self) -> [u8; 32] {
+        let mut hasher = Sha256::new();
+        hasher.update(b"prime_order_ddh_hidden_eval_server_output_projection_digest_v0");
+        hasher.update(self.canonical_seed_commitment);
+        hasher.update(self.x_relayer_base_left.commitment);
+        hasher.update(self.x_relayer_base_right.commitment);
+        hasher.finalize().into()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServerEvalFinalizeState {
     pub client_input_commitment: [u8; 32],
     pub server_input_commitment: [u8; 32],
-    pub output: DdhHiddenEvalOutputBundles,
+    pub output: ServerEvalFinalizeOutput,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -194,14 +229,12 @@ impl ServerEvalState {
                     compute_round_core_completed_digest(&state.round_core).ok()
                 }
             }
-            Some(ServerEvalExecutionState::OutputProjection(state)) => {
-                Some(compute_output_projection_continuation_digest(
-                    &state.projector_inputs,
-                ))
-            }
-            Some(ServerEvalExecutionState::Finalize(state)) => Some(
-                compute_output_projection_output_digest(&state.output),
+            Some(ServerEvalExecutionState::OutputProjection(state)) => Some(
+                compute_output_projection_continuation_digest(&state.projector_inputs),
             ),
+            Some(ServerEvalExecutionState::Finalize(state)) => {
+                Some(state.output.output_projection_digest())
+            }
             None => None,
         }
     }
@@ -221,8 +254,7 @@ impl ServerEvalState {
             Some(ServerEvalExecutionState::OutputProjection(state)) => {
                 Some(state.prior_execution_checkpoint_digest)
             }
-            Some(ServerEvalExecutionState::Finalize(_))
-            | None => None,
+            Some(ServerEvalExecutionState::Finalize(_)) | None => None,
         }
     }
 
@@ -300,10 +332,10 @@ impl ServerEvalState {
             (other, _) => other.clone(),
         };
         next.current_stage = if final_schedule_round {
-                ServerEvalStageId::round_core(0)
-            } else {
-                ServerEvalStageId::message_schedule(self.current_stage.ordinal + 1)
-            };
+            ServerEvalStageId::round_core(0)
+        } else {
+            ServerEvalStageId::message_schedule(self.current_stage.ordinal + 1)
+        };
         next.current_transcript_digest = next_transcript_digest;
         next.status = ServerEvalStatus::InProgress;
         next.last_request_digest = Some(request_digest);
@@ -317,7 +349,8 @@ impl ServerEvalState {
         next_round_core: DdhHiddenEvalRoundCoreContinuation,
     ) -> Self {
         let mut next = self.clone();
-        let final_round_core = self.current_stage.ordinal + 1 >= ServerEvalStageId::ROUND_CORE_ROUNDS;
+        let final_round_core =
+            self.current_stage.ordinal + 1 >= ServerEvalStageId::ROUND_CORE_ROUNDS;
         next.execution_state = match (&self.execution_state, final_round_core) {
             (Some(ServerEvalExecutionState::RoundCore(state)), true) => Some(
                 ServerEvalExecutionState::OutputProjection(ServerEvalOutputProjectionState {
@@ -345,10 +378,10 @@ impl ServerEvalState {
             (other, _) => other.clone(),
         };
         next.current_stage = if final_round_core {
-                ServerEvalStageId::output_projection()
-            } else {
-                ServerEvalStageId::round_core(self.current_stage.ordinal + 1)
-            };
+            ServerEvalStageId::output_projection()
+        } else {
+            ServerEvalStageId::round_core(self.current_stage.ordinal + 1)
+        };
         next.current_transcript_digest = next_transcript_digest;
         next.status = ServerEvalStatus::InProgress;
         next.last_request_digest = Some(request_digest);

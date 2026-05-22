@@ -59,6 +59,10 @@ export async function runNearEd25519SingleKeyHssExport(
       derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
     },
     clientInputs,
+    outputProjection: {
+      kind: 'client-masked-projection',
+      clientRecoverableSecretB64u: args.prfFirstB64u,
+    },
     workerCtx,
   });
   if (!completed.success || !completed.finalizedReport || !completed.preparedSession) {

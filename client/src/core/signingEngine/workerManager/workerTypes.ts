@@ -554,6 +554,8 @@ export type HssWorkerOperationType =
   | typeof WorkerRequestType.DeriveThresholdEd25519HssClientInputs
   | typeof WorkerRequestType.PrepareThresholdEd25519HssSession
   | typeof WorkerRequestType.PrepareThresholdEd25519HssClientRequest
+  | typeof WorkerRequestType.DeriveThresholdEd25519HssClientOutputMask
+  | typeof WorkerRequestType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact
   | typeof WorkerRequestType.OpenThresholdEd25519HssClientOutput
   | typeof WorkerRequestType.OpenThresholdEd25519HssSeedOutput
   | typeof WorkerRequestType.BuildThresholdEd25519SeedExportArtifact

@@ -154,8 +154,10 @@ fn cmd_server_ceremony_json() -> ProtoResult<()> {
         "clientRequest.evaluatorOtStateB64u",
         &input.client_request.evaluator_ot_state_b64u,
     )?;
-    let y_relayer =
-        decode_b64u_array32_named("serverInputs.yRelayerB64u", &input.server_inputs.y_relayer_b64u)?;
+    let y_relayer = decode_b64u_array32_named(
+        "serverInputs.yRelayerB64u",
+        &input.server_inputs.y_relayer_b64u,
+    )?;
     let tau_relayer = decode_b64u_array32_named(
         "serverInputs.tauRelayerB64u",
         &input.server_inputs.tau_relayer_b64u,
@@ -164,7 +166,8 @@ fn cmd_server_ceremony_json() -> ProtoResult<()> {
 
     if evaluator_driver_state.runtime != garbler_driver_state.runtime {
         return Err(ProtoError::InvalidInput(
-            "evaluator and garbler driver states do not share the same prepared runtime".to_string(),
+            "evaluator and garbler driver states do not share the same prepared runtime"
+                .to_string(),
         ));
     }
     let runtime = evaluator_driver_state.runtime.materialize()?;
@@ -276,7 +279,9 @@ fn decode_b64u_state_blob_named<T: serde::de::DeserializeOwned>(
 ) -> ProtoResult<T> {
     let decoded = base64_url_decode(value)?;
     bincode::deserialize(&decoded).map_err(|err| {
-        ProtoError::Decode(format!("failed to decode base64url state blob {label}: {err}"))
+        ProtoError::Decode(format!(
+            "failed to decode base64url state blob {label}: {err}"
+        ))
     })
 }
 
@@ -293,7 +298,9 @@ fn decode_b64u_array32_named(label: &str, value: &str) -> ProtoResult<[u8; 32]> 
 fn decode_b64u_wire_message_named(label: &str, value: &str) -> ProtoResult<WireMessage> {
     Ok(WireMessage {
         bytes: base64_url_decode(value).map_err(|err| {
-            ProtoError::Decode(format!("failed to decode base64url wire message {label}: {err}"))
+            ProtoError::Decode(format!(
+                "failed to decode base64url wire message {label}: {err}"
+            ))
         })?,
     })
 }

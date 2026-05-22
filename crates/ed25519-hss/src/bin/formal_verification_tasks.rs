@@ -44,7 +44,9 @@ fn run() -> Result<(), DynError> {
 }
 
 fn print_help() {
-    println!("usage: cargo hss-fv [all|check|vectors-check|parity|lean-check|aeneas-check|verus-check]");
+    println!(
+        "usage: cargo hss-fv [all|check|vectors-check|parity|lean-check|aeneas-check|verus-check]"
+    );
 }
 
 fn crate_manifest_path() -> PathBuf {
@@ -172,7 +174,10 @@ fn resolve_aeneas() -> Option<PathBuf> {
         return Some(PathBuf::from("aeneas"));
     }
 
-    let local = lean_boundary_tools_dir().join("aeneas").join("bin").join("aeneas");
+    let local = lean_boundary_tools_dir()
+        .join("aeneas")
+        .join("bin")
+        .join("aeneas");
     local.exists().then_some(local)
 }
 
@@ -181,7 +186,10 @@ fn resolve_charon() -> Option<PathBuf> {
         return Some(PathBuf::from("charon"));
     }
 
-    let local = lean_boundary_tools_dir().join("charon").join("bin").join("charon");
+    let local = lean_boundary_tools_dir()
+        .join("charon")
+        .join("bin")
+        .join("charon");
     local.exists().then_some(local)
 }
 
@@ -280,8 +288,7 @@ fn resolve_lake() -> Option<PathBuf> {
 
 fn require_lake() -> Result<PathBuf, DynError> {
     resolve_lake().ok_or_else(|| {
-        "Lean toolchain not installed; expected `lake` on PATH or `$HOME/.elan/bin/lake`"
-            .into()
+        "Lean toolchain not installed; expected `lake` on PATH or `$HOME/.elan/bin/lake`".into()
     })
 }
 

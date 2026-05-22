@@ -2,8 +2,9 @@ use ed25519_hss::fixtures::committed_fixture_corpus;
 use ed25519_hss::protocol::prepare_prime_order_succinct_hss;
 
 use crate::support::{
-    build_server_owned_staged_evaluator_artifact, decode_transport_message,
-    encode_transport_message, first_fixture, TransportKind,
+    build_client_owned_staged_evaluator_artifact, decode_runtime_client_output_message,
+    decode_transport_message, encode_runtime_client_output_message, encode_transport_message,
+    first_fixture, TransportKind,
 };
 
 #[test]
@@ -378,6 +379,103 @@ fn prime_order_succinct_hss_rejects_output_projection_replay_after_finalization(
 }
 
 #[test]
+fn prime_order_succinct_hss_rejects_output_projection_request_with_tampered_projection_mode() {
+    let fixture = first_fixture();
+    let session =
+        prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
+    let client_ot_offer_message = session
+        .prepare_client_ot_offer_message()
+        .expect("prepare client OT offer message");
+    let garbler_ot_state = session
+        .prepare_garbler_ot_state()
+        .expect("prepare garbler ot state");
+    let (client_request_message, evaluator_ot_state) = session
+        .prepare_client_ot_request_from_offer_message(
+            &client_ot_offer_message,
+            fixture.input.y_client,
+            fixture.input.tau_client,
+        )
+        .expect("prepare client ot request from offer");
+    let (server_assist_init_message, mut server_eval_state) = session
+        .prepare_server_assist_init_message(
+            &garbler_ot_state,
+            &client_request_message,
+            fixture.input.y_relayer,
+            fixture.input.tau_relayer,
+            ed25519_hss::server::ServerEvalOperation::Registration,
+        )
+        .expect("prepare server assist init");
+    let add_stage_request_message = session
+        .prepare_add_stage_request_message(
+            &client_request_message,
+            &evaluator_ot_state,
+            &server_assist_init_message,
+        )
+        .expect("prepare add-stage request");
+    let (add_stage_response_message, next_server_eval_state) = session
+        .prepare_add_stage_response_message(&server_eval_state, &add_stage_request_message)
+        .expect("prepare add-stage response");
+    server_eval_state = next_server_eval_state;
+
+    let mut prior_stage_response_message = add_stage_response_message;
+    for _ in 0..ed25519_hss::wire::ServerEvalStageId::MESSAGE_SCHEDULE_ROUNDS {
+        let request_message = session
+            .prepare_message_schedule_request_message(&prior_stage_response_message)
+            .expect("prepare message-schedule request");
+        let (response_message, next_server_eval_state) = session
+            .prepare_message_schedule_response_message(&server_eval_state, &request_message)
+            .expect("prepare message-schedule response");
+        prior_stage_response_message = response_message;
+        server_eval_state = next_server_eval_state;
+    }
+    for _ in 0..ed25519_hss::wire::ServerEvalStageId::ROUND_CORE_ROUNDS {
+        let request_message = session
+            .prepare_round_core_request_message(&prior_stage_response_message)
+            .expect("prepare round-core request");
+        let (response_message, next_server_eval_state) = session
+            .prepare_round_core_response_message(&server_eval_state, &request_message)
+            .expect("prepare round-core response");
+        prior_stage_response_message = response_message;
+        server_eval_state = next_server_eval_state;
+    }
+
+    let output_projection_request_message = session
+        .prepare_output_projection_request_message(&prior_stage_response_message)
+        .expect("prepare output-projection request");
+    let mut output_projection_request: ed25519_hss::wire::ClientStageRequestPacket =
+        decode_transport_message(
+            fixture.output.context_binding,
+            TransportKind::ClientStageRequest,
+            &output_projection_request_message,
+        )
+        .expect("decode output-projection request");
+    let ed25519_hss::wire::ClientStagePayload::OutputProjection(payload) =
+        &mut output_projection_request.client_stage_payload
+    else {
+        panic!("expected output-projection request payload");
+    };
+    payload.projection_mode =
+        ed25519_hss::wire::OutputProjectionMode::client_masked_projection([0xA5; 32]);
+    let tampered_output_projection_request_message = encode_transport_message(
+        fixture.output.context_binding,
+        TransportKind::ClientStageRequest,
+        &output_projection_request,
+    )
+    .expect("encode tampered output-projection request");
+
+    let err = session
+        .prepare_output_projection_response_message(
+            &server_eval_state,
+            &tampered_output_projection_request_message,
+        )
+        .expect_err("tampered output-projection mode must fail");
+    assert!(
+        err.to_string().contains("commitments") || err.to_string().contains("projection"),
+        "unexpected tampered output-projection mode error: {err}"
+    );
+}
+
+#[test]
 fn prime_order_succinct_hss_rejects_server_finalize_artifact_that_does_not_match_finalize_state() {
     let fixture = first_fixture();
     let session =
@@ -406,12 +504,8 @@ fn prime_order_succinct_hss_rejects_server_finalize_artifact_that_does_not_match
             ed25519_hss::server::ServerEvalOperation::Registration,
         )
         .expect("prepare staged flow to output projection");
-    let mut artifact = session
-        .build_server_owned_staged_evaluator_artifact_from_server_eval_state(
-            &flow.final_server_eval_state,
-        )
-        .expect("server-owned staged evaluator artifact");
-    artifact.bindings.evaluation_digest[0] ^= 0x01;
+    let artifact = build_client_owned_staged_evaluator_artifact(&session, &fixture.input)
+        .expect("client-owned staged evaluator artifact");
 
     let err = session
         .prepare_server_finalize_from_staged_evaluator_artifact(
@@ -422,7 +516,8 @@ fn prime_order_succinct_hss_rejects_server_finalize_artifact_that_does_not_match
         .expect_err("tampered artifact must fail finalize-state binding");
     assert!(
         err.to_string().contains("finalize state")
-            || err.to_string().contains("evaluation digest"),
+            || err.to_string().contains("evaluation digest")
+            || err.to_string().contains("server input commitment"),
         "unexpected finalize-state mismatch error: {err}"
     );
 }
@@ -444,12 +539,15 @@ fn prime_order_succinct_hss_rejects_tampered_server_output_payload_in_evaluation
         )
         .expect("prepare client OT request");
     let mut staged_evaluator_artifact =
-        build_server_owned_staged_evaluator_artifact(&session, &fixture.input)
+        build_client_owned_staged_evaluator_artifact(&session, &fixture.input)
             .expect("staged evaluator artifact");
     staged_evaluator_artifact.server_output_payload[0] ^= 0x01;
 
     let err = runtime
-        .finalize_report_from_staged_evaluator_artifact(&garbler_session, &staged_evaluator_artifact)
+        .finalize_report_from_staged_evaluator_artifact(
+            &garbler_session,
+            &staged_evaluator_artifact,
+        )
         .expect_err("tampered server output payload must fail");
     assert!(
         err.to_string().contains("server output payload binding"),
@@ -474,17 +572,100 @@ fn prime_order_succinct_hss_rejects_tampered_client_output_in_evaluation_result(
         )
         .expect("prepare client OT request");
     let mut staged_evaluator_artifact =
-        build_server_owned_staged_evaluator_artifact(&session, &fixture.input)
+        build_client_owned_staged_evaluator_artifact(&session, &fixture.input)
             .expect("staged evaluator artifact");
     let last_idx = staged_evaluator_artifact.client_output.bytes.len() - 1;
     staged_evaluator_artifact.client_output.bytes[last_idx] ^= 0x01;
 
     let err = runtime
-        .finalize_report_from_staged_evaluator_artifact(&garbler_session, &staged_evaluator_artifact)
+        .finalize_report_from_staged_evaluator_artifact(
+            &garbler_session,
+            &staged_evaluator_artifact,
+        )
         .expect_err("tampered client output must fail");
     assert!(
         err.to_string().contains("client output binding"),
         "unexpected tampered-client-output error: {err}"
+    );
+}
+
+#[test]
+fn prime_order_succinct_hss_rejects_client_output_with_mismatched_value_kind() {
+    let fixture = first_fixture();
+    let session =
+        prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
+    let (runtime, garbler_session, evaluator_session) = session.split_runtime();
+    let client_ot_offer_message = garbler_session
+        .client_ot_offer_message()
+        .expect("prepare client OT offer message");
+    let _ = evaluator_session
+        .prepare_client_ot_request_from_offer_message(
+            &client_ot_offer_message,
+            fixture.input.y_client,
+            fixture.input.tau_client,
+        )
+        .expect("prepare client OT request");
+    let mut staged_evaluator_artifact =
+        build_client_owned_staged_evaluator_artifact(&session, &fixture.input)
+            .expect("staged evaluator artifact");
+    let mut client_output_packet: ed25519_hss::wire::ClientOutputPacket =
+        decode_runtime_client_output_message(
+            fixture.output.context_binding,
+            &staged_evaluator_artifact.client_output,
+        )
+        .expect("decode client output packet");
+    client_output_packet.value_kind = ed25519_hss::wire::ClientOutputValueKind::ClientBlindedBase;
+    staged_evaluator_artifact.client_output =
+        encode_runtime_client_output_message(fixture.output.context_binding, &client_output_packet)
+            .expect("encode mismatched value-kind client output");
+
+    let err = runtime
+        .finalize_report_from_staged_evaluator_artifact(
+            &garbler_session,
+            &staged_evaluator_artifact,
+        )
+        .expect_err("mismatched client output value kind must fail");
+    assert!(
+        err.to_string().contains("value kind"),
+        "unexpected mismatched-value-kind error: {err}"
+    );
+}
+
+#[test]
+fn prime_order_succinct_hss_rejects_unmasked_client_output_under_masked_projection() {
+    let fixture = first_fixture();
+    let session =
+        prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
+    let (runtime, garbler_session, _evaluator_session) = session.split_runtime();
+    let mut staged_evaluator_artifact =
+        build_client_owned_staged_evaluator_artifact(&session, &fixture.input)
+            .expect("staged evaluator artifact");
+    let masked_projection =
+        ed25519_hss::wire::OutputProjectionMode::client_masked_projection([0x5a; 32]);
+    let mut client_output_packet: ed25519_hss::wire::ClientOutputPacket =
+        decode_runtime_client_output_message(
+            fixture.output.context_binding,
+            &staged_evaluator_artifact.client_output,
+        )
+        .expect("decode client output packet");
+    client_output_packet.projection_mode = masked_projection.clone();
+    client_output_packet.value_kind = ed25519_hss::wire::ClientOutputValueKind::UnmaskedClientBase;
+    staged_evaluator_artifact.projection_mode = masked_projection;
+    staged_evaluator_artifact.client_output_value_kind =
+        ed25519_hss::wire::ClientOutputValueKind::UnmaskedClientBase;
+    staged_evaluator_artifact.client_output =
+        encode_runtime_client_output_message(fixture.output.context_binding, &client_output_packet)
+            .expect("encode masked projection with unmasked value kind");
+
+    let err = runtime
+        .finalize_report_from_staged_evaluator_artifact(
+            &garbler_session,
+            &staged_evaluator_artifact,
+        )
+        .expect_err("masked projection must reject unmasked client output");
+    assert!(
+        err.to_string().contains("value kind"),
+        "unexpected masked-unmasked rejection error: {err}"
     );
 }
 
@@ -506,7 +687,7 @@ fn prime_order_succinct_hss_rejects_swapped_client_output_between_same_context_r
         )
         .expect("prepare client OT request A");
     let mut staged_evaluator_artifact_a =
-        build_server_owned_staged_evaluator_artifact(&session, &fixtures[0].input)
+        build_client_owned_staged_evaluator_artifact(&session, &fixtures[0].input)
             .expect("staged evaluator artifact A");
 
     let _ = evaluator_session
@@ -519,7 +700,7 @@ fn prime_order_succinct_hss_rejects_swapped_client_output_between_same_context_r
     let mut same_context_input_b = fixtures[1].input.clone();
     same_context_input_b.context = fixtures[0].input.context.clone();
     let staged_evaluator_artifact_b =
-        build_server_owned_staged_evaluator_artifact(&session, &same_context_input_b)
+        build_client_owned_staged_evaluator_artifact(&session, &same_context_input_b)
             .expect("staged evaluator artifact B");
 
     staged_evaluator_artifact_a.client_output = staged_evaluator_artifact_b.client_output;
@@ -555,7 +736,7 @@ fn prime_order_succinct_hss_rejects_swapped_server_output_payload_between_same_c
         )
         .expect("prepare client OT request A");
     let mut staged_evaluator_artifact_a =
-        build_server_owned_staged_evaluator_artifact(&session, &fixtures[0].input)
+        build_client_owned_staged_evaluator_artifact(&session, &fixtures[0].input)
             .expect("staged evaluator artifact A");
 
     let _ = evaluator_session
@@ -568,7 +749,7 @@ fn prime_order_succinct_hss_rejects_swapped_server_output_payload_between_same_c
     let mut same_context_input_b = fixtures[1].input.clone();
     same_context_input_b.context = fixtures[0].input.context.clone();
     let staged_evaluator_artifact_b =
-        build_server_owned_staged_evaluator_artifact(&session, &same_context_input_b)
+        build_client_owned_staged_evaluator_artifact(&session, &same_context_input_b)
             .expect("staged evaluator artifact B");
 
     staged_evaluator_artifact_a.server_output_payload =

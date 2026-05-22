@@ -12,4 +12,6 @@ pub use reference::{
     sha512_one_block, FExpandInput, FExpandOutput, NonlinearExpansionOutput,
     OutputShareDerivationOutput,
 };
-pub use reference_boundary::{eval_f_expand_visible_boundary, visible_boundary_from_output, FExpandVisibleBoundary};
+pub use reference_boundary::{
+    eval_f_expand_visible_boundary, visible_boundary_from_output, FExpandVisibleBoundary,
+};

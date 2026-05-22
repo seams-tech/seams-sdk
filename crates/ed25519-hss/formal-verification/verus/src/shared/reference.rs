@@ -11,8 +11,8 @@
 //! - `public_key_from_base_shares`
 //! - `eval_f_expand`
 
-use vstd::prelude::*;
 use vstd::contrib::auto_spec;
+use vstd::prelude::*;
 
 verus! {
 

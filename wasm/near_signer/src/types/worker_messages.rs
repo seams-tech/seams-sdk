@@ -30,6 +30,8 @@ pub enum WorkerRequestType {
     BuildThresholdEd25519SeedExportArtifact,
     BuildThresholdEcdsaHssRoleLocalClientBootstrap,
     BuildThresholdEcdsaHssRoleLocalExportArtifact,
+    BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact,
+    DeriveThresholdEd25519HssClientOutputMask,
 }
 
 impl From<u32> for WorkerRequestType {
@@ -50,6 +52,8 @@ impl From<u32> for WorkerRequestType {
             12 => WorkerRequestType::BuildThresholdEd25519SeedExportArtifact,
             13 => WorkerRequestType::BuildThresholdEcdsaHssRoleLocalClientBootstrap,
             14 => WorkerRequestType::BuildThresholdEcdsaHssRoleLocalExportArtifact,
+            15 => WorkerRequestType::BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact,
+            16 => WorkerRequestType::DeriveThresholdEd25519HssClientOutputMask,
             _ => panic!("Invalid WorkerRequestType value: {}", value),
         }
     }
@@ -89,6 +93,12 @@ impl WorkerRequestType {
             }
             WorkerRequestType::BuildThresholdEcdsaHssRoleLocalExportArtifact => {
                 "BUILD_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_EXPORT_ARTIFACT"
+            }
+            WorkerRequestType::BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact => {
+                "BUILD_THRESHOLD_ED25519_HSS_CLIENT_OWNED_STAGED_EVALUATOR_ARTIFACT"
+            }
+            WorkerRequestType::DeriveThresholdEd25519HssClientOutputMask => {
+                "DERIVE_THRESHOLD_ED25519_HSS_CLIENT_OUTPUT_MASK"
             }
         }
     }
@@ -130,6 +140,12 @@ pub fn worker_request_type_name(request_type: WorkerRequestType) -> &'static str
         }
         WorkerRequestType::BuildThresholdEcdsaHssRoleLocalExportArtifact => {
             "BUILD_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_EXPORT_ARTIFACT"
+        }
+        WorkerRequestType::BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact => {
+            "BUILD_THRESHOLD_ED25519_HSS_CLIENT_OWNED_STAGED_EVALUATOR_ARTIFACT"
+        }
+        WorkerRequestType::DeriveThresholdEd25519HssClientOutputMask => {
+            "DERIVE_THRESHOLD_ED25519_HSS_CLIENT_OUTPUT_MASK"
         }
     }
 }
@@ -191,6 +207,10 @@ pub enum WorkerResponseType {
     BuildThresholdEcdsaHssRoleLocalClientBootstrapFailure = 31,
     BuildThresholdEcdsaHssRoleLocalExportArtifactSuccess = 32,
     BuildThresholdEcdsaHssRoleLocalExportArtifactFailure = 33,
+    BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactSuccess = 34,
+    BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFailure = 35,
+    DeriveThresholdEd25519HssClientOutputMaskSuccess = 36,
+    DeriveThresholdEd25519HssClientOutputMaskFailure = 37,
 }
 impl From<WorkerResponseType> for u32 {
     fn from(value: WorkerResponseType) -> Self {
@@ -239,6 +259,10 @@ impl From<u32> for WorkerResponseType {
             31 => WorkerResponseType::BuildThresholdEcdsaHssRoleLocalClientBootstrapFailure,
             32 => WorkerResponseType::BuildThresholdEcdsaHssRoleLocalExportArtifactSuccess,
             33 => WorkerResponseType::BuildThresholdEcdsaHssRoleLocalExportArtifactFailure,
+            34 => WorkerResponseType::BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactSuccess,
+            35 => WorkerResponseType::BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFailure,
+            36 => WorkerResponseType::DeriveThresholdEd25519HssClientOutputMaskSuccess,
+            37 => WorkerResponseType::DeriveThresholdEd25519HssClientOutputMaskFailure,
             _ => panic!("Invalid WorkerResponseType value: {}", value),
         }
     }
@@ -334,6 +358,18 @@ pub fn worker_response_type_name(response_type: WorkerResponseType) -> &'static 
         }
         WorkerResponseType::BuildThresholdEcdsaHssRoleLocalExportArtifactFailure => {
             "BUILD_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_EXPORT_ARTIFACT_FAILURE"
+        }
+        WorkerResponseType::BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactSuccess => {
+            "BUILD_THRESHOLD_ED25519_HSS_CLIENT_OWNED_STAGED_EVALUATOR_ARTIFACT_SUCCESS"
+        }
+        WorkerResponseType::BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFailure => {
+            "BUILD_THRESHOLD_ED25519_HSS_CLIENT_OWNED_STAGED_EVALUATOR_ARTIFACT_FAILURE"
+        }
+        WorkerResponseType::DeriveThresholdEd25519HssClientOutputMaskSuccess => {
+            "DERIVE_THRESHOLD_ED25519_HSS_CLIENT_OUTPUT_MASK_SUCCESS"
+        }
+        WorkerResponseType::DeriveThresholdEd25519HssClientOutputMaskFailure => {
+            "DERIVE_THRESHOLD_ED25519_HSS_CLIENT_OUTPUT_MASK_FAILURE"
         }
     }
 }

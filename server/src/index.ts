@@ -64,6 +64,7 @@ export {
   finalizeThresholdEd25519HssServerCeremony,
   openThresholdEd25519HssSeedOutput,
   openThresholdEd25519HssServerOutput,
+  prepareThresholdEd25519HssRoleSeparatedServerInputDelivery,
   prepareThresholdEd25519HssServerCeremony,
   finalizeThresholdEd25519HssReport,
 } from './core/ThresholdService/ed25519HssWasm';

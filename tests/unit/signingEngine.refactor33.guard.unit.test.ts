@@ -699,6 +699,9 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
       'return this.thresholdEd25519Public.prepareThresholdEd25519HssClientRequest(args);',
     );
     expect(source).toContain(
+      'return this.thresholdEd25519Public.buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact(',
+    );
+    expect(source).toContain(
       'return this.thresholdEd25519Public.buildThresholdEd25519SeedExportArtifactFromHssReport(args);',
     );
     expect(source).not.toContain("from './threshold/ed25519/hssLifecycle';");
@@ -706,6 +709,9 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
 
     expect(thresholdPublic).toContain('export type ThresholdEd25519PublicDeps');
     expect(thresholdPublic).toContain('prepareThresholdEd25519HssClientRequestWasm');
+    expect(thresholdPublic).toContain(
+      'buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactWasm',
+    );
     expect(thresholdPublic).toContain('buildThresholdEd25519SeedExportArtifactFromHssReport');
   });
 

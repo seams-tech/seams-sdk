@@ -98,11 +98,8 @@ pub fn eval_f_expand(input: &FExpandInput) -> ProtoResult<FExpandOutput> {
     let m = add_le_bytes_mod_2_256(input.y_client, input.y_relayer);
     let d = m;
     let nonlinear = eval_nonlinear_expansion(d);
-    let output_shares = derive_output_shares(
-        nonlinear.a,
-        tau_client.to_bytes(),
-        tau_relayer.to_bytes()
-    )?;
+    let output_shares =
+        derive_output_shares(nonlinear.a, tau_client.to_bytes(), tau_relayer.to_bytes())?;
     let public_key = public_key_from_scalar_bytes(nonlinear.a)?;
 
     Ok(FExpandOutput {

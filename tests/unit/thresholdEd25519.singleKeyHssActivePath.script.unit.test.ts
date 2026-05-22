@@ -22,11 +22,16 @@ import {
 import { ActionType, type TransactionInputWasm } from '@/core/types/actions';
 import { WorkerRequestType, WorkerResponseType } from '@/core/types/signer-worker';
 import {
+  buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactWasm,
   deriveThresholdEd25519HssClientInputsWasm,
   openThresholdEd25519HssClientOutputWasm,
   prepareThresholdEd25519HssClientRequestWasm,
   prepareThresholdEd25519HssSessionWasm,
 } from '@/core/signingEngine/threshold/crypto/hssClientSignerWasm';
+import {
+  deriveThresholdEd25519HssClientOutputMaskB64u,
+  validateThresholdEd25519HssOutputProjectionPolicy,
+} from '@/core/signingEngine/threshold/ed25519/clientOutputMask';
 import {
   finalizeThresholdEd25519HssServerCeremonyWithRelayRegistration,
   prepareThresholdEd25519HssServerCeremonyWithRelayRegistration,
@@ -35,7 +40,7 @@ import {
 import {
   deriveThresholdEd25519HssPublicKey,
   finalizeThresholdEd25519HssServerCeremony,
-  prepareThresholdEd25519HssServerCeremony,
+  prepareThresholdEd25519HssRoleSeparatedServerInputDelivery,
   prepareThresholdEd25519HssServerSession,
 } from '../../server/src/core/ThresholdService/ed25519HssWasm';
 import type { ThresholdEd25519HssSessionOperation } from '../../server/src/core/types';
@@ -51,6 +56,8 @@ import {
 import {
   derive_threshold_ed25519_hss_client_inputs,
   initSync as initHssClientSignerWasmSync,
+  threshold_ed25519_hss_build_client_owned_staged_evaluator_artifact,
+  threshold_ed25519_hss_derive_client_output_mask,
   threshold_ed25519_hss_open_client_output,
   threshold_ed25519_hss_open_seed_output,
   threshold_ed25519_hss_prepare_client_request,
@@ -89,6 +96,7 @@ const THRESHOLD_SESSION_ID = 'threshold-ed25519-single-key-hss-session';
 const WALLET_SIGNING_SESSION_ID = 'wallet-signing-session-single-key-hss';
 const THRESHOLD_SESSION_JWT = 'header.payload.signature';
 const ORG_ID = 'org_single_key_hss';
+const TEST_CLIENT_OUTPUT_MASK_B64U = Buffer.alloc(32, 0x5a).toString('base64url');
 const RUNTIME_SCOPE = {
   orgId: ORG_ID,
   projectId: 'project_single_key_hss',
@@ -186,6 +194,7 @@ const CONTEXT = {
   derivationVersion: 1,
 } as const;
 const PRF_FIRST_B64U = Buffer.alloc(32, 11).toString('base64url');
+const EXPECTED_CLIENT_OUTPUT_MASK_B64U = 'sE_I9hyDmS1AdAYfb4CRx_rehIb4IaF9KOoAQTX2QyQ';
 const SIGNING_ROOT_SECRET_SHARE_WIRE_HEX = [
   '011ba5f9c2f4003d409a9358a20b40b37eb32a28daacc5676a468b64a203c1e303',
   '021bb9834016ae79b9a815f68d1f456b35acb1b5631dd04e1cab9f640852aaed0d',
@@ -270,6 +279,14 @@ function buildExportAuthorizationDecision(requestId: string) {
   };
 }
 
+function storedHssEvaluationResultFromClientOwned(input: {
+  stagedEvaluatorArtifactB64u?: string;
+}): { stagedEvaluatorArtifactBytes: Uint8Array } {
+  return {
+    stagedEvaluatorArtifactBytes: base64UrlDecode(String(input.stagedEvaluatorArtifactB64u || '')),
+  };
+}
+
 function createStubbedThresholdEd25519HssCeremonyServer(): {
   prepare: (body: Record<string, any>) => Promise<{
     ok: true;
@@ -279,6 +296,8 @@ function createStubbedThresholdEd25519HssCeremonyServer(): {
   }>;
   respond: (body: Record<string, any>) => Promise<{
     ok: true;
+    contextBindingB64u: string;
+    serverInputDeliveryB64u: string;
   }>;
   finalize: (body: Record<string, any>) => Promise<{
     ok: true;
@@ -292,23 +311,20 @@ function createStubbedThresholdEd25519HssCeremonyServer(): {
 } {
   const ceremoniesByHandle = new Map<
     string,
-	    {
-	      operation: string;
-	      preparedSession: {
-	        contextBindingB64u: string;
-	        evaluatorDriverStateB64u: string;
-	      };
-	      preparedServerSession: {
-	        evaluatorDriverStateBytes: Uint8Array;
+    {
+      operation: string;
+      preparedSession: {
+        contextBindingB64u: string;
+        evaluatorDriverStateB64u: string;
+      };
+      preparedServerSession: {
+        evaluatorDriverStateBytes: Uint8Array;
         garblerDriverStateBytes: Uint8Array;
       };
       serverInputs: {
         yRelayerBytes: Uint8Array;
         tauRelayerBytes: Uint8Array;
       };
-      evaluationResult?: Awaited<
-        ReturnType<typeof prepareThresholdEd25519HssServerCeremony>
-      >['evaluationResult'];
     }
   >();
   let nextCeremonyId = 0;
@@ -326,10 +342,10 @@ function createStubbedThresholdEd25519HssCeremonyServer(): {
       };
       const ceremonyHandle = `ceremony-${++nextCeremonyId}`;
       ceremoniesByHandle.set(ceremonyHandle, {
-	        operation: String(body.operation || '').trim(),
-	        preparedSession,
-	        preparedServerSession: {
-	          evaluatorDriverStateBytes: base64UrlDecode(
+        operation: String(body.operation || '').trim(),
+        preparedSession,
+        preparedServerSession: {
+          evaluatorDriverStateBytes: base64UrlDecode(
             preparedServerSession.evaluatorDriverStateB64u,
           ),
           garblerDriverStateBytes: base64UrlDecode(preparedServerSession.garblerDriverStateB64u),
@@ -352,7 +368,7 @@ function createStubbedThresholdEd25519HssCeremonyServer(): {
       if (!ceremony) {
         throw new Error(`missing prepared session for ceremony handle: ${ceremonyHandle}`);
       }
-      const prepared = await prepareThresholdEd25519HssServerCeremony({
+      const prepared = await prepareThresholdEd25519HssRoleSeparatedServerInputDelivery({
         operation: (ceremony.operation || 'warm_session_reconstruction') as
           | 'registration'
           | ThresholdEd25519HssSessionOperation,
@@ -361,9 +377,9 @@ function createStubbedThresholdEd25519HssCeremonyServer(): {
         clientRequest: body.clientRequest,
         serverInputs: ceremony.serverInputs,
       });
-      ceremony.evaluationResult = prepared.evaluationResult;
       return {
         ok: true as const,
+        ...prepared.serverInputDelivery,
       };
     },
     async finalize(body) {
@@ -371,9 +387,6 @@ function createStubbedThresholdEd25519HssCeremonyServer(): {
       const ceremony = ceremoniesByHandle.get(ceremonyHandle);
       if (!ceremony) {
         throw new Error(`missing prepared session for ceremony handle: ${ceremonyHandle}`);
-      }
-      if (!ceremony.evaluationResult) {
-        throw new Error(`missing staged evaluator artifact for ceremony handle: ${ceremonyHandle}`);
       }
       ceremoniesByHandle.delete(ceremonyHandle);
       const finalized = await finalizeThresholdEd25519HssServerCeremony({
@@ -383,7 +396,7 @@ function createStubbedThresholdEd25519HssCeremonyServer(): {
             : 'warm_session_reconstruction',
         preparedSession: ceremony.preparedSession,
         preparedServerSession: ceremony.preparedServerSession,
-        evaluationResult: ceremony.evaluationResult,
+        evaluationResult: storedHssEvaluationResultFromClientOwned(body.evaluationResult || {}),
         expectedContextBindingB64u: ceremony.preparedSession.contextBindingB64u,
       });
       return {
@@ -634,6 +647,8 @@ async function invokeNearSignerWorkerDirect(request: {
     request.type === WorkerRequestType.DeriveThresholdEd25519HssClientInputs ||
     request.type === WorkerRequestType.PrepareThresholdEd25519HssSession ||
     request.type === WorkerRequestType.PrepareThresholdEd25519HssClientRequest ||
+    request.type === WorkerRequestType.DeriveThresholdEd25519HssClientOutputMask ||
+    request.type === WorkerRequestType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact ||
     request.type === WorkerRequestType.OpenThresholdEd25519HssClientOutput ||
     request.type === WorkerRequestType.OpenThresholdEd25519HssSeedOutput ||
     request.type === WorkerRequestType.BuildThresholdEd25519SeedExportArtifact
@@ -657,6 +672,18 @@ async function invokeNearSignerWorkerDirect(request: {
         return {
           type: WorkerResponseType.PrepareThresholdEd25519HssClientRequestSuccess,
           payload: threshold_ed25519_hss_prepare_client_request(request.payload || {}),
+        };
+      case WorkerRequestType.DeriveThresholdEd25519HssClientOutputMask:
+        return {
+          type: WorkerResponseType.DeriveThresholdEd25519HssClientOutputMaskSuccess,
+          payload: threshold_ed25519_hss_derive_client_output_mask(request.payload || {}),
+        };
+      case WorkerRequestType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact:
+        return {
+          type: WorkerResponseType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactSuccess,
+          payload: threshold_ed25519_hss_build_client_owned_staged_evaluator_artifact(
+            request.payload || {},
+          ),
         };
       case WorkerRequestType.OpenThresholdEd25519HssClientOutput:
         return {
@@ -694,6 +721,151 @@ const TEST_NEAR_SIGNER_WORKER_CTX = {
 };
 
 test.describe('threshold Ed25519 single-key HSS active path', () => {
+  test('derives the client output mask from recoverable material and transcript context', async () => {
+    const context = {
+      ...CONTEXT,
+      participantIds: [...CONTEXT.participantIds],
+      contextBindingB64u: Buffer.alloc(32, 7).toString('base64url'),
+      operation: 'warm_session_reconstruction' as const,
+      relayerKeyId: RELAYER_KEY_ID,
+    };
+
+    const derived = await deriveThresholdEd25519HssClientOutputMaskB64u({
+      clientRecoverableSecretB64u: PRF_FIRST_B64U,
+      context,
+      workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
+    });
+    const otherContextBinding = await deriveThresholdEd25519HssClientOutputMaskB64u({
+      clientRecoverableSecretB64u: PRF_FIRST_B64U,
+      context: {
+        ...context,
+        contextBindingB64u: Buffer.alloc(32, 8).toString('base64url'),
+      },
+      workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
+    });
+    const otherOperation = await deriveThresholdEd25519HssClientOutputMaskB64u({
+      clientRecoverableSecretB64u: PRF_FIRST_B64U,
+      context: {
+        ...context,
+        operation: 'explicit_key_export',
+      },
+      workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
+    });
+
+    expect(derived).toBe(EXPECTED_CLIENT_OUTPUT_MASK_B64U);
+    expect(base64UrlDecode(derived)).toHaveLength(32);
+    expect(otherContextBinding).not.toBe(derived);
+    expect(otherOperation).not.toBe(derived);
+  });
+
+  test('validates client output projection policy before ceremony start', () => {
+    expect(() =>
+      validateThresholdEd25519HssOutputProjectionPolicy({
+        kind: 'trusted-server-projection',
+      } as any),
+    ).toThrow(/Unsupported Ed25519 HSS output projection policy/);
+    expect(() =>
+      validateThresholdEd25519HssOutputProjectionPolicy({
+        kind: 'client-masked-projection',
+        clientRecoverableSecretB64u: PRF_FIRST_B64U,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      validateThresholdEd25519HssOutputProjectionPolicy({
+        kind: 'client-masked-projection-raw-mask',
+        clientOutputMaskB64u: Buffer.alloc(32, 0x5a).toString('base64url'),
+      } as any),
+    ).toThrow(/Unsupported Ed25519 HSS output projection policy/);
+
+    expect(() =>
+      validateThresholdEd25519HssOutputProjectionPolicy({
+        kind: 'client-masked-projection',
+        clientRecoverableSecretB64u: '',
+      }),
+    ).toThrow(/clientRecoverableSecretB64u/);
+  });
+
+  test('forwards required client output mask only through client worker calls', async () => {
+    const requests: any[] = [];
+    const workerCtx = {
+      requestWorkerOperation: async ({ request }: any) => {
+        requests.push(request);
+        switch (request.type) {
+          case WorkerRequestType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact:
+            return {
+              type: WorkerResponseType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactSuccess,
+              payload: {
+                contextBindingB64u: 'ctx',
+                stagedEvaluatorArtifactB64u: 'artifact',
+              },
+            };
+          case WorkerRequestType.OpenThresholdEd25519HssClientOutput:
+            return {
+              type: WorkerResponseType.OpenThresholdEd25519HssClientOutputSuccess,
+              payload: {
+                contextBindingB64u: 'ctx',
+                xClientBaseB64u: 'client-base',
+              },
+            };
+          default:
+            throw new Error(`unexpected worker request type ${request.type}`);
+        }
+      },
+    };
+
+    await expect(
+      buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactWasm({
+        preparedSession: { evaluatorDriverStateB64u: 'evaluator-state' },
+        clientRequest: {
+          clientRequestMessageB64u: 'client-request',
+          evaluatorOtStateB64u: 'evaluator-ot-state',
+        },
+        serverInputDelivery: { serverInputDeliveryB64u: 'server-input-delivery' },
+        clientOutputMaskB64u: Buffer.alloc(31, 0x5a).toString('base64url'),
+        workerCtx: workerCtx as any,
+      }),
+    ).rejects.toThrow(/clientOutputMaskB64u must decode to 32 bytes/);
+    await expect(
+      openThresholdEd25519HssClientOutputWasm({
+        preparedSession: { evaluatorDriverStateB64u: 'evaluator-state' },
+        finalizedReport: { clientOutputMessageB64u: 'client-output' },
+        clientOutputMaskB64u: Buffer.alloc(31, 0x5a).toString('base64url'),
+        workerCtx: workerCtx as any,
+      }),
+    ).rejects.toThrow(/clientOutputMaskB64u must decode to 32 bytes/);
+
+    await buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactWasm({
+      preparedSession: { evaluatorDriverStateB64u: 'evaluator-state' },
+      clientRequest: {
+        clientRequestMessageB64u: 'client-request',
+        evaluatorOtStateB64u: 'evaluator-ot-state',
+      },
+      serverInputDelivery: { serverInputDeliveryB64u: 'server-input-delivery' },
+      clientOutputMaskB64u: TEST_CLIENT_OUTPUT_MASK_B64U,
+      workerCtx: workerCtx as any,
+    });
+    await openThresholdEd25519HssClientOutputWasm({
+      preparedSession: { evaluatorDriverStateB64u: 'evaluator-state' },
+      finalizedReport: { clientOutputMessageB64u: 'client-output' },
+      clientOutputMaskB64u: TEST_CLIENT_OUTPUT_MASK_B64U,
+      workerCtx: workerCtx as any,
+    });
+
+    expect(requests).toHaveLength(2);
+    expect(requests[0].payload).toMatchObject({
+      evaluatorDriverStateB64u: 'evaluator-state',
+      clientRequestMessageB64u: 'client-request',
+      evaluatorOtStateB64u: 'evaluator-ot-state',
+      serverInputDeliveryB64u: 'server-input-delivery',
+      clientOutputMaskB64u: TEST_CLIENT_OUTPUT_MASK_B64U,
+    });
+    expect(requests[1].payload).toMatchObject({
+      evaluatorDriverStateB64u: 'evaluator-state',
+      clientOutputMessageB64u: 'client-output',
+      clientOutputMaskB64u: TEST_CLIENT_OUTPUT_MASK_B64U,
+    });
+  });
+
   test('browser HSS wasm exports do not expose clear relayer roots', async () => {
     const context = {
       signingRootId: CONTEXT.signingRootId,
@@ -1011,6 +1183,7 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
             };
           },
         } as any,
+        nearAccount: { kind: 'named', accountId: NEAR_ACCOUNT_ID },
         transactions: [
           {
             receiverId: NEAR_ACCOUNT_ID,
@@ -1196,6 +1369,7 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
             return await invokeNearSignerWorkerDirect(request);
           },
         } as any,
+        nearAccount: { kind: 'named', accountId: NEAR_ACCOUNT_ID },
         transactions: [
           {
             receiverId: NEAR_ACCOUNT_ID,
@@ -1317,24 +1491,33 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
         yRelayerBytes: base64UrlDecode(serverInputs.yRelayerB64u),
         tauRelayerBytes: base64UrlDecode(serverInputs.tauRelayerB64u),
       };
-      const prepared = await prepareThresholdEd25519HssServerCeremony({
+      const prepared = await prepareThresholdEd25519HssRoleSeparatedServerInputDelivery({
         operation: 'explicit_key_export',
         preparedServerSession: storedPreparedServerSession,
         expectedContextBindingB64u: preparedSession.contextBindingB64u,
-        clientRequest,
+        clientRequest: {
+          clientRequestMessageB64u: clientRequest.clientRequestMessageB64u,
+        },
         serverInputs: storedServerInputs,
       });
-      const evaluationResult = prepared.evaluationResult;
+      const evaluationResult = await buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactWasm({
+        preparedSession,
+        clientRequest,
+        serverInputDelivery: prepared.serverInputDelivery,
+        clientOutputMaskB64u: TEST_CLIENT_OUTPUT_MASK_B64U,
+        workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
+      });
       const finalized = await finalizeThresholdEd25519HssServerCeremony({
         operation: 'explicit_key_export',
         preparedSession,
         preparedServerSession: storedPreparedServerSession,
-        evaluationResult,
+        evaluationResult: storedHssEvaluationResultFromClientOwned(evaluationResult),
         expectedContextBindingB64u: preparedSession.contextBindingB64u,
       });
       const clientOutput = await openThresholdEd25519HssClientOutputWasm({
         preparedSession,
         finalizedReport: finalized.finalizedReport,
+        clientOutputMaskB64u: TEST_CLIENT_OUTPUT_MASK_B64U,
         workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
       });
       const derivedPublicKey = await deriveThresholdEd25519HssPublicKey({
@@ -1657,6 +1840,7 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
             return await invokeNearSignerWorkerDirect(request);
           },
         } as any,
+        nearAccount: { kind: 'named', accountId: NEAR_ACCOUNT_ID },
         transactions: [
           {
             receiverId: NEAR_ACCOUNT_ID,
@@ -1928,13 +2112,18 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
       expect(Object.prototype.hasOwnProperty.call(respondResponses[0], 'evaluationResult')).toBe(
         false,
       );
+      expect(respondResponses[0]).toHaveProperty('serverInputDeliveryB64u');
       expect(Object.prototype.hasOwnProperty.call(respondResponses[0], 'serverOutput')).toBe(false);
       expectNoSigningRootSecretShareWire(respondResponseJson);
 
       expect(finalizeRequests[0]).toHaveProperty('ceremonyHandle');
-      expect(Object.prototype.hasOwnProperty.call(finalizeRequests[0], 'evaluationResult')).toBe(
-        false,
-      );
+      expect(finalizeRequests[0]).toHaveProperty('evaluationResult');
+      expect(
+        Object.prototype.hasOwnProperty.call(
+          finalizeRequests[0].evaluationResult || {},
+          'evaluatorOtStateB64u',
+        ),
+      ).toBe(false);
       expect(Object.prototype.hasOwnProperty.call(finalizeRequests[0], 'preparedSession')).toBe(
         false,
       );
@@ -2105,11 +2294,19 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
         ceremonyHandle: String(preparedRelayCeremony.ceremonyHandle || ''),
         clientRequest,
       });
+      const evaluationResult = await buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactWasm({
+        preparedSession,
+        clientRequest,
+        serverInputDelivery: responded,
+        clientOutputMaskB64u: TEST_CLIENT_OUTPUT_MASK_B64U,
+        workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
+      });
       const finalized = await finalizeThresholdEd25519HssServerCeremonyWithRelayRegistration({
         context: registrationContext,
         nearAccountId: NEAR_ACCOUNT_ID,
         rpId: RP_ID,
         ceremonyHandle: preparedRelayCeremony.ceremonyHandle,
+        evaluationResult,
       });
 
       expect(String(preparedRelayCeremony.clientOtOfferMessageB64u || '')).not.toBe('');

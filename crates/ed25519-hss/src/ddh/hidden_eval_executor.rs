@@ -23,6 +23,8 @@ use crate::ddh::hidden_eval::{
 use crate::ddh::DdhHssBackend;
 use crate::shared::FExpandInput;
 use crate::shared::{ProtoError, ProtoResult};
+use crate::wire::ClientOutputValueKind;
+use curve25519_dalek::scalar::Scalar;
 
 const SHA512_IV: [u64; 8] = [
     0x6a09e667f3bcc908,
@@ -146,9 +148,74 @@ pub struct DdhHiddenEvalInputBundles {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DdhHiddenEvalClientOutputBundle {
+    pub value_kind: ClientOutputValueKind,
+    pub bundle: DdhHssInputShareBundle,
+}
+
+impl DdhHiddenEvalClientOutputBundle {
+    pub fn new(
+        value_kind: ClientOutputValueKind,
+        bundle: DdhHssInputShareBundle,
+    ) -> ProtoResult<Self> {
+        if bundle.label != value_kind.bundle_label() {
+            return Err(ProtoError::InvalidInput(
+                "hidden-eval client output bundle label does not match value kind".to_string(),
+            ));
+        }
+        Ok(Self { value_kind, bundle })
+    }
+
+    pub fn unmasked_client_base(bundle: DdhHssInputShareBundle) -> ProtoResult<Self> {
+        Self::new(ClientOutputValueKind::UnmaskedClientBase, bundle)
+    }
+
+    pub fn as_bundle(&self) -> &DdhHssInputShareBundle {
+        &self.bundle
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DdhHiddenEvalClientOutputProjection {
+    TrustedServerProjection,
+    ClientMaskedProjection { client_output_mask: [u8; 32] },
+}
+
+impl DdhHiddenEvalClientOutputProjection {
+    pub fn trusted_server_projection() -> Self {
+        Self::TrustedServerProjection
+    }
+
+    pub fn client_masked_projection(client_output_mask: [u8; 32]) -> Self {
+        Self::ClientMaskedProjection { client_output_mask }
+    }
+
+    pub fn value_kind(self) -> ClientOutputValueKind {
+        match self {
+            Self::TrustedServerProjection => ClientOutputValueKind::UnmaskedClientBase,
+            Self::ClientMaskedProjection { .. } => ClientOutputValueKind::ClientBlindedBase,
+        }
+    }
+
+    pub fn client_output_mask(self) -> Option<[u8; 32]> {
+        match self {
+            Self::TrustedServerProjection => None,
+            Self::ClientMaskedProjection { client_output_mask } => Some(client_output_mask),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DdhHiddenEvalOutputBundles {
     pub canonical_seed: DdhHssInputShareBundle,
-    pub x_client_base: DdhHssInputShareBundle,
+    pub client_output: DdhHiddenEvalClientOutputBundle,
+    pub x_relayer_base_left: DdhHssTransportBundle,
+    pub x_relayer_base_right: DdhHssTransportBundle,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DdhHiddenEvalServerOutputBundles {
+    pub canonical_seed_commitment: [u8; 32],
     pub x_relayer_base_left: DdhHssTransportBundle,
     pub x_relayer_base_right: DdhHssTransportBundle,
 }
@@ -562,7 +629,8 @@ pub fn compute_output_projection_output_digest(output: &DdhHiddenEvalOutputBundl
     let mut hasher = Sha256::new();
     hasher.update(b"prime_order_ddh_hidden_eval_output_projection_digest_v0");
     hasher.update(output.canonical_seed.commitment);
-    hasher.update(output.x_client_base.commitment);
+    hasher.update(output.client_output.value_kind.domain_tag());
+    hasher.update(output.client_output.bundle.commitment);
     hasher.update(output.x_relayer_base_left.commitment);
     hasher.update(output.x_relayer_base_right.commitment);
     hasher.finalize().into()
@@ -1236,6 +1304,7 @@ pub fn probe_prime_order_ddh_hidden_eval_program_with_pool<B: DdhHssArithmeticBa
         &tau_client_bits_local,
         &input_bundles.server_inputs.tau_relayer_bits.left_words,
         &input_bundles.server_inputs.tau_relayer_bits.right_words,
+        DdhHiddenEvalClientOutputProjection::trusted_server_projection(),
     )?;
     let output_projector_duration_ns = elapsed_ns(output_started_ns);
 
@@ -1381,6 +1450,7 @@ fn execute_prime_order_ddh_hidden_eval_program_internal<B: DdhHssArithmeticBacke
         &tau_client_bits_local,
         &input_bundles.server_inputs.tau_relayer_bits.left_words,
         &input_bundles.server_inputs.tau_relayer_bits.right_words,
+        DdhHiddenEvalClientOutputProjection::trusted_server_projection(),
     )?;
     let output_projector_duration_ns = elapsed_ns(output_started_ns);
     let output_projection_digest = compute_output_projection_output_digest(&output);
@@ -1443,6 +1513,7 @@ fn execute_prime_order_ddh_hidden_eval_program_internal_with_split_server_inputs
     y_relayer_bits: &DdhHiddenEvalServerInputBundle,
     tau_client_bits: &DdhHssInputShareBundle,
     tau_relayer_bits: &DdhHiddenEvalServerInputBundle,
+    client_output_projection: DdhHiddenEvalClientOutputProjection,
 ) -> ProtoResult<ExecutionUntilOutputProjector> {
     let total_started_ns = monotonic_now_ns();
     let input_sharing_started_ns = monotonic_now_ns();
@@ -1513,6 +1584,7 @@ fn execute_prime_order_ddh_hidden_eval_program_internal_with_split_server_inputs
         &tau_client_bits_local,
         &tau_relayer_bits.left_words,
         &tau_relayer_bits.right_words,
+        client_output_projection,
     )?;
     let output_projector_duration_ns = elapsed_ns(output_started_ns);
     let output_projection_digest = compute_output_projection_output_digest(&output);
@@ -1576,6 +1648,30 @@ pub fn trace_prime_order_ddh_hidden_eval_program_with_split_server_inputs_with_p
     tau_client_bits: &DdhHssInputShareBundle,
     tau_relayer_bits: &DdhHiddenEvalServerInputBundle,
 ) -> ProtoResult<DdhHiddenEvalExecutionTrace> {
+    trace_prime_order_ddh_hidden_eval_program_with_split_server_inputs_and_client_output_projection_with_pool(
+        program,
+        backend,
+        constant_pool,
+        y_client_bits,
+        y_relayer_bits,
+        tau_client_bits,
+        tau_relayer_bits,
+        DdhHiddenEvalClientOutputProjection::trusted_server_projection(),
+    )
+}
+
+pub fn trace_prime_order_ddh_hidden_eval_program_with_split_server_inputs_and_client_output_projection_with_pool<
+    B: DdhHssArithmeticBackend,
+>(
+    program: &HiddenEvalProgram,
+    backend: &B,
+    constant_pool: &DdhHiddenEvalConstantPool,
+    y_client_bits: &DdhHssInputShareBundle,
+    y_relayer_bits: &DdhHiddenEvalServerInputBundle,
+    tau_client_bits: &DdhHssInputShareBundle,
+    tau_relayer_bits: &DdhHiddenEvalServerInputBundle,
+    client_output_projection: DdhHiddenEvalClientOutputProjection,
+) -> ProtoResult<DdhHiddenEvalExecutionTrace> {
     let ExecutionUntilOutputProjector {
         run,
         checkpoint_digests,
@@ -1588,6 +1684,7 @@ pub fn trace_prime_order_ddh_hidden_eval_program_with_split_server_inputs_with_p
         y_relayer_bits,
         tau_client_bits,
         tau_relayer_bits,
+        client_output_projection,
     )?;
     Ok(DdhHiddenEvalExecutionTrace {
         run,
@@ -1887,6 +1984,38 @@ pub fn materialize_output_bundles_from_continuations_with_pool<B: DdhHssArithmet
         &tau_client_bits,
         &projector_inputs.tau_relayer_left_bits,
         &projector_inputs.tau_relayer_right_bits,
+        DdhHiddenEvalClientOutputProjection::trusted_server_projection(),
+    )
+}
+
+pub fn materialize_server_output_bundles_from_continuations_with_pool<
+    B: DdhHssArithmeticBackend,
+>(
+    program: &HiddenEvalProgram,
+    backend: &B,
+    constant_pool: &DdhHiddenEvalConstantPool,
+    round_core: &DdhHiddenEvalRoundCoreContinuation,
+    projector_inputs: &DdhHiddenEvalProjectorInputs,
+) -> ProtoResult<DdhHiddenEvalServerOutputBundles> {
+    ensure_program_shape(program)?;
+    let d_bits = SplitLocalBitWord::from_shared_bits(&projector_inputs.add_stage_bits)?;
+    let round_state = RoundKernelState::from_shared_bits(&round_core.state_words)?;
+    let final_words = round_state.finalize_with_iv(
+        backend,
+        &constant_pool.sha512_iv_words,
+        &constant_pool.zero_left,
+        &constant_pool.zero_right,
+    )?;
+    let tau_client_bits = SplitLocalBitWord::from_shared_bits(&projector_inputs.tau_client_bits)?;
+    execute_server_output_projector_stage(
+        backend,
+        constant_pool,
+        &program.stages[6],
+        &d_bits,
+        &final_words,
+        &tau_client_bits,
+        &projector_inputs.tau_relayer_left_bits,
+        &projector_inputs.tau_relayer_right_bits,
     )
 }
 
@@ -1916,6 +2045,7 @@ pub fn materialize_output_bundles_from_projector_inputs_with_pool<B: DdhHssArith
         &tau_client_bits,
         &projector_inputs.tau_relayer_left_bits,
         &projector_inputs.tau_relayer_right_bits,
+        DdhHiddenEvalClientOutputProjection::trusted_server_projection(),
     )
 }
 
@@ -2315,6 +2445,7 @@ fn execute_output_projector_stage<B: DdhHssArithmeticBackend>(
     tau_client_bits: &SplitLocalBitWord,
     tau_relayer_left_bits: &[DdhHssTransportWord],
     tau_relayer_right_bits: &[DdhHssTransportWord],
+    client_output_projection: DdhHiddenEvalClientOutputProjection,
 ) -> ProtoResult<DdhHiddenEvalOutputBundles> {
     if stage.kind != HiddenEvalStageKind::OutputProjector {
         return Err(ProtoError::InvalidInput(
@@ -2322,6 +2453,204 @@ fn execute_output_projector_stage<B: DdhHssArithmeticBackend>(
         ));
     }
 
+    let OutputProjectorCoreBits {
+        reduced_a_bits,
+        tau_bits,
+    } = compute_output_projector_core_bits(
+        backend,
+        constant_pool,
+        final_words,
+        tau_client_bits,
+        tau_relayer_left_bits,
+        tau_relayer_right_bits,
+    )?;
+    let (client_output_bits, x_relayer_base_bits) = match client_output_projection {
+        DdhHiddenEvalClientOutputProjection::TrustedServerProjection => {
+            let client_base_bits = add_words_bits_mod_l_canonical_inputs_local(
+                backend,
+                &reduced_a_bits,
+                &tau_bits,
+                &constant_pool.zero_left,
+                &constant_pool.zero_right,
+                &constant_pool.one_left,
+                &constant_pool.one_right,
+            )?;
+            let relayer_base_bits = add_words_bits_mod_l_canonical_inputs_local(
+                backend,
+                &client_base_bits,
+                &tau_bits,
+                &constant_pool.zero_left,
+                &constant_pool.zero_right,
+                &constant_pool.one_left,
+                &constant_pool.one_right,
+            )?;
+            (client_base_bits, relayer_base_bits)
+        }
+        DdhHiddenEvalClientOutputProjection::ClientMaskedProjection { client_output_mask } => {
+            let canonical_mask = Scalar::from_bytes_mod_order(client_output_mask).to_bytes();
+            let mask_bundle = backend.share_input_bit_bundle(
+                HiddenEvalInputOwner::Client,
+                "client_output_mask",
+                &canonical_mask,
+            )?;
+            let mask_bits = SplitLocalBitWord::from_shared_bits(&mask_bundle.words)?;
+            let tau_plus_mask_bits = add_words_bits_mod_l_canonical_inputs_local(
+                backend,
+                &tau_bits,
+                &mask_bits,
+                &constant_pool.zero_left,
+                &constant_pool.zero_right,
+                &constant_pool.one_left,
+                &constant_pool.one_right,
+            )?;
+            let client_blinded_bits = add_words_bits_mod_l_canonical_inputs_local(
+                backend,
+                &reduced_a_bits,
+                &tau_plus_mask_bits,
+                &constant_pool.zero_left,
+                &constant_pool.zero_right,
+                &constant_pool.one_left,
+                &constant_pool.one_right,
+            )?;
+            let two_tau_bits = add_words_bits_mod_l_canonical_inputs_local(
+                backend,
+                &tau_bits,
+                &tau_bits,
+                &constant_pool.zero_left,
+                &constant_pool.zero_right,
+                &constant_pool.one_left,
+                &constant_pool.one_right,
+            )?;
+            let relayer_base_bits = add_words_bits_mod_l_canonical_inputs_local(
+                backend,
+                &reduced_a_bits,
+                &two_tau_bits,
+                &constant_pool.zero_left,
+                &constant_pool.zero_right,
+                &constant_pool.one_left,
+                &constant_pool.one_right,
+            )?;
+            (client_blinded_bits, relayer_base_bits)
+        }
+    };
+    let client_output_value_kind = client_output_projection.value_kind();
+
+    Ok(DdhHiddenEvalOutputBundles {
+        canonical_seed: build_hidden_bit_output_bundle(
+            backend,
+            HiddenEvalInputOwner::Client,
+            "canonical_seed",
+            d_bits,
+        )?,
+        client_output: DdhHiddenEvalClientOutputBundle::new(
+            client_output_value_kind,
+            build_hidden_bit_output_bundle(
+                backend,
+                HiddenEvalInputOwner::Client,
+                client_output_value_kind.bundle_label(),
+                &client_output_bits,
+            )?,
+        )?,
+        x_relayer_base_left: build_hidden_bit_output_transport_bundle(
+            backend,
+            HiddenEvalInputOwner::Server,
+            "x_relayer_base",
+            &x_relayer_base_bits,
+            DdhHssShareSide::Left,
+        )?,
+        x_relayer_base_right: build_hidden_bit_output_transport_bundle(
+            backend,
+            HiddenEvalInputOwner::Server,
+            "x_relayer_base",
+            &x_relayer_base_bits,
+            DdhHssShareSide::Right,
+        )?,
+    })
+}
+
+fn execute_server_output_projector_stage<B: DdhHssArithmeticBackend>(
+    backend: &B,
+    constant_pool: &DdhHiddenEvalConstantPool,
+    stage: &HiddenEvalStage,
+    d_bits: &SplitLocalBitWord,
+    final_words: &[SplitLocalBitWord],
+    tau_client_bits: &SplitLocalBitWord,
+    tau_relayer_left_bits: &[DdhHssTransportWord],
+    tau_relayer_right_bits: &[DdhHssTransportWord],
+) -> ProtoResult<DdhHiddenEvalServerOutputBundles> {
+    if stage.kind != HiddenEvalStageKind::OutputProjector {
+        return Err(ProtoError::InvalidInput(
+            "unexpected output-projector stage kind".to_string(),
+        ));
+    }
+
+    let OutputProjectorCoreBits {
+        reduced_a_bits,
+        tau_bits,
+    } = compute_output_projector_core_bits(
+        backend,
+        constant_pool,
+        final_words,
+        tau_client_bits,
+        tau_relayer_left_bits,
+        tau_relayer_right_bits,
+    )?;
+    let two_tau_bits = add_words_bits_mod_l_canonical_inputs_local(
+        backend,
+        &tau_bits,
+        &tau_bits,
+        &constant_pool.zero_left,
+        &constant_pool.zero_right,
+        &constant_pool.one_left,
+        &constant_pool.one_right,
+    )?;
+    let x_relayer_base_bits = add_words_bits_mod_l_canonical_inputs_local(
+        backend,
+        &reduced_a_bits,
+        &two_tau_bits,
+        &constant_pool.zero_left,
+        &constant_pool.zero_right,
+        &constant_pool.one_left,
+        &constant_pool.one_right,
+    )?;
+
+    Ok(DdhHiddenEvalServerOutputBundles {
+        canonical_seed_commitment: hidden_bit_output_commitment(
+            backend,
+            HiddenEvalInputOwner::Client,
+            "canonical_seed",
+            d_bits,
+        )?,
+        x_relayer_base_left: build_hidden_bit_output_transport_bundle(
+            backend,
+            HiddenEvalInputOwner::Server,
+            "x_relayer_base",
+            &x_relayer_base_bits,
+            DdhHssShareSide::Left,
+        )?,
+        x_relayer_base_right: build_hidden_bit_output_transport_bundle(
+            backend,
+            HiddenEvalInputOwner::Server,
+            "x_relayer_base",
+            &x_relayer_base_bits,
+            DdhHssShareSide::Right,
+        )?,
+    })
+}
+
+struct OutputProjectorCoreBits {
+    reduced_a_bits: SplitLocalBitWord,
+    tau_bits: SplitLocalBitWord,
+}
+
+fn compute_output_projector_core_bits<B: DdhHssArithmeticBackend>(
+    backend: &B,
+    constant_pool: &DdhHiddenEvalConstantPool,
+    final_words: &[SplitLocalBitWord],
+    tau_client_bits: &SplitLocalBitWord,
+    tau_relayer_left_bits: &[DdhHssTransportWord],
+    tau_relayer_right_bits: &[DdhHssTransportWord],
+) -> ProtoResult<OutputProjectorCoreBits> {
     let clamped_a_bits = extract_clamped_a_bits_local(
         final_words,
         &constant_pool.zero_left,
@@ -2349,52 +2678,9 @@ fn execute_output_projector_stage<B: DdhHssArithmeticBackend>(
         &constant_pool.one_left,
         &constant_pool.one_right,
     )?;
-    let x_client_base_bits = add_words_bits_mod_l_canonical_inputs_local(
-        backend,
-        &reduced_a_bits,
-        &tau_bits,
-        &constant_pool.zero_left,
-        &constant_pool.zero_right,
-        &constant_pool.one_left,
-        &constant_pool.one_right,
-    )?;
-    let x_relayer_base_bits = add_words_bits_mod_l_canonical_inputs_local(
-        backend,
-        &x_client_base_bits,
-        &tau_bits,
-        &constant_pool.zero_left,
-        &constant_pool.zero_right,
-        &constant_pool.one_left,
-        &constant_pool.one_right,
-    )?;
-
-    Ok(DdhHiddenEvalOutputBundles {
-        canonical_seed: build_hidden_bit_output_bundle(
-            backend,
-            HiddenEvalInputOwner::Client,
-            "canonical_seed",
-            d_bits,
-        )?,
-        x_client_base: build_hidden_bit_output_bundle(
-            backend,
-            HiddenEvalInputOwner::Client,
-            "x_client_base",
-            &x_client_base_bits,
-        )?,
-        x_relayer_base_left: build_hidden_bit_output_transport_bundle(
-            backend,
-            HiddenEvalInputOwner::Server,
-            "x_relayer_base",
-            &x_relayer_base_bits,
-            DdhHssShareSide::Left,
-        )?,
-        x_relayer_base_right: build_hidden_bit_output_transport_bundle(
-            backend,
-            HiddenEvalInputOwner::Server,
-            "x_relayer_base",
-            &x_relayer_base_bits,
-            DdhHssShareSide::Right,
-        )?,
+    Ok(OutputProjectorCoreBits {
+        reduced_a_bits,
+        tau_bits,
     })
 }
 
@@ -2769,6 +3055,16 @@ fn build_hidden_bit_output_bundle<B: DdhHssArithmeticBackend>(
         words,
         commitment,
     })
+}
+
+fn hidden_bit_output_commitment<B: DdhHssArithmeticBackend>(
+    backend: &B,
+    owner: HiddenEvalInputOwner,
+    label: &str,
+    bits: &SplitLocalBitWord,
+) -> ProtoResult<[u8; 32]> {
+    let words = canonicalize_hidden_bit_output_words(owner, label, bits)?;
+    Ok(backend.input_commitment(owner, label, &words))
 }
 
 fn build_hidden_bit_output_transport_bundle<B: DdhHssArithmeticBackend>(

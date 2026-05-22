@@ -4,12 +4,18 @@ use crate::js::{
     set_u32,
 };
 use ecdsa_hss::{
-    derive_client_share_v1, reconstruct_export_key_v1, EcdsaHssStableKeyContextV1,
-    PublicIdentityV1,
+    derive_client_share_v1, reconstruct_export_key_v1, EcdsaHssStableKeyContextV1, PublicIdentityV1,
 };
 use ed25519_hss::{
-    client::ClientDriverState, protocol::prepare_prime_order_succinct_hss_client,
-    shared::CanonicalContext, wire::WireMessage,
+    client::{
+        output_mask::{
+            derive_client_output_mask, ClientOutputMaskContext, ClientOutputMaskOperation,
+        },
+        ClientDriverState, ClientOtState,
+    },
+    protocol::prepare_prime_order_succinct_hss_client,
+    shared::CanonicalContext,
+    wire::{RoleSeparatedServerInputDeliveryPacket, WireMessage},
 };
 use js_sys::{Reflect, Uint8Array};
 use serde::{Deserialize, Serialize};
@@ -38,6 +44,35 @@ pub fn threshold_ed25519_hss_prepare_session(args: JsValue) -> Result<JsValue, J
         "evaluatorDriverStateB64u",
         &encode_state_blob(&evaluator_driver_state, "evaluator state")
             .map_err(|e| JsValue::from_str(&e))?,
+    )?;
+    Ok(out.into())
+}
+
+#[wasm_bindgen]
+pub fn threshold_ed25519_hss_derive_client_output_mask(args: JsValue) -> Result<JsValue, JsValue> {
+    let client_recoverable_secret = decode_fixed_32(
+        &get_required_string(&args, "clientRecoverableSecretB64u")?,
+        "clientRecoverableSecretB64u",
+    )?;
+    let context = ClientOutputMaskContext {
+        canonical_context: canonical_context_from_js(&args)?,
+        context_binding: decode_fixed_32(
+            &get_required_string(&args, "contextBindingB64u")?,
+            "contextBindingB64u",
+        )?,
+        operation: get_required_string(&args, "operation")?
+            .parse::<ClientOutputMaskOperation>()
+            .map_err(|e| JsValue::from_str(&e.to_string()))?,
+        relayer_key_id: get_required_string(&args, "relayerKeyId")?,
+    };
+    let client_output_mask = derive_client_output_mask(client_recoverable_secret, &context)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+    let out = object();
+    set_string(
+        &out,
+        "clientOutputMaskB64u",
+        &base64_url_encode(&client_output_mask),
     )?;
     Ok(out.into())
 }
@@ -78,9 +113,62 @@ pub fn threshold_ed25519_hss_prepare_client_request(args: JsValue) -> Result<JsV
 }
 
 #[wasm_bindgen]
+pub fn threshold_ed25519_hss_build_client_owned_staged_evaluator_artifact(
+    args: JsValue,
+) -> Result<JsValue, JsValue> {
+    let evaluator_driver_state_b64u = get_required_string(&args, "evaluatorDriverStateB64u")?;
+    let client_request_message_b64u = get_required_string(&args, "clientRequestMessageB64u")?;
+    let evaluator_ot_state_b64u = get_required_string(&args, "evaluatorOtStateB64u")?;
+    let server_input_delivery_b64u = get_required_string(&args, "serverInputDeliveryB64u")?;
+    let client_output_mask = decode_fixed_32(
+        &get_required_string(&args, "clientOutputMaskB64u")?,
+        "clientOutputMaskB64u",
+    )?;
+
+    let evaluator_state: ClientDriverState =
+        decode_state_blob(&evaluator_driver_state_b64u, "evaluatorDriverStateB64u")?;
+    let evaluator_ot_state: ClientOtState =
+        decode_state_blob(&evaluator_ot_state_b64u, "evaluatorOtStateB64u")?;
+    let server_input_delivery: RoleSeparatedServerInputDeliveryPacket =
+        decode_state_blob(&server_input_delivery_b64u, "serverInputDeliveryB64u")?;
+    let client_request_message =
+        decode_wire_message(&client_request_message_b64u, "clientRequestMessageB64u")?;
+    let (runtime, evaluator_session) = evaluator_state
+        .materialize()
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let artifact = evaluator_session
+        .build_client_owned_staged_evaluator_artifact_from_role_separated_delivery_message(
+            &runtime,
+            &client_request_message,
+            &evaluator_ot_state,
+            &server_input_delivery,
+            client_output_mask,
+        )
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+    let out = object();
+    set_string(
+        &out,
+        "contextBindingB64u",
+        &base64_url_encode(&evaluator_state.evaluator_session.context_binding),
+    )?;
+    set_string(
+        &out,
+        "stagedEvaluatorArtifactB64u",
+        &encode_state_blob(&artifact, "staged evaluator artifact")
+            .map_err(|e| JsValue::from_str(&e))?,
+    )?;
+    Ok(out.into())
+}
+
+#[wasm_bindgen]
 pub fn threshold_ed25519_hss_open_client_output(args: JsValue) -> Result<JsValue, JsValue> {
     let evaluator_driver_state_b64u = get_required_string(&args, "evaluatorDriverStateB64u")?;
     let client_output_message_b64u = get_required_string(&args, "clientOutputMessageB64u")?;
+    let client_output_mask = decode_fixed_32(
+        &get_required_string(&args, "clientOutputMaskB64u")?,
+        "clientOutputMaskB64u",
+    )?;
     let evaluator_state: ClientDriverState =
         decode_state_blob(&evaluator_driver_state_b64u, "evaluatorDriverStateB64u")?;
     let (_runtime, evaluator_session) = evaluator_state
@@ -88,9 +176,9 @@ pub fn threshold_ed25519_hss_open_client_output(args: JsValue) -> Result<JsValue
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
     let client_output_message =
         decode_wire_message(&client_output_message_b64u, "clientOutputMessageB64u")?;
-    let x_client_base = evaluator_session
-        .client_output_opener()
-        .open(&client_output_message)
+    let opener = evaluator_session.client_output_opener();
+    let x_client_base = opener
+        .open_masked(&client_output_message, client_output_mask)
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
     let out = object();
@@ -205,9 +293,10 @@ pub fn threshold_ecdsa_hss_role_local_export_artifact(args: JsValue) -> Result<J
             &get_required_string(&args, "groupPublicKey33B64u")?,
             "groupPublicKey33B64u",
         )?,
-        threshold_ethereum_address20: decode_ethereum_address20(
-            &get_required_string(&args, "ethereumAddress")?,
-        )?,
+        threshold_ethereum_address20: decode_ethereum_address20(&get_required_string(
+            &args,
+            "ethereumAddress",
+        )?)?,
         client_share_retry_counter: get_required_u32(&args, "clientShareRetryCounter")?,
         relayer_share_retry_counter: 0,
     };
@@ -215,7 +304,11 @@ pub fn threshold_ecdsa_hss_role_local_export_artifact(args: JsValue) -> Result<J
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
     let out = object();
-    set_string(&out, "publicKeyHex", &hex_prefixed(&identity.threshold_public_key33))?;
+    set_string(
+        &out,
+        "publicKeyHex",
+        &hex_prefixed(&identity.threshold_public_key33),
+    )?;
     set_string(&out, "privateKeyHex", &hex_prefixed(&private_key32))?;
     set_string(
         &out,

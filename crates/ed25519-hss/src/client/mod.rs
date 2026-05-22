@@ -2,6 +2,7 @@
 
 pub mod api;
 pub mod ot;
+pub mod output_mask;
 pub mod outputs;
 pub mod state;
 

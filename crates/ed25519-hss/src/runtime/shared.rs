@@ -17,11 +17,14 @@ use crate::runtime::{
 };
 use crate::server::ServerSession;
 use crate::shared::{CanonicalContext, ProtoResult};
-use crate::wire::{ArtifactSummary, EvaluationReport, StagedEvaluatorArtifact};
+use crate::wire::{
+    ArtifactSummary, EvaluationReport, OutputProjectionMode, StagedEvaluatorArtifact,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SharedRuntime {
     pub(crate) candidate: FixedHiddenCoreCandidate,
+    pub(crate) projection_mode: OutputProjectionMode,
     pub(crate) artifact: ArtifactSummary,
     pub(crate) hidden_eval_program: HiddenEvalProgram,
     pub(crate) execution_program: PrimeOrderCpuExecutionProgram,
@@ -31,6 +34,7 @@ pub struct SharedRuntime {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SharedRuntimeState {
     pub prepared_context: CanonicalContext,
+    pub projection_mode: OutputProjectionMode,
 }
 
 pub(crate) fn build_artifact_summary(
@@ -59,6 +63,7 @@ impl SharedRuntimeState {
         let execution_result = execute_prime_order_cpu_execution_program(&execution_program)?;
         Ok(SharedRuntime {
             candidate: candidate.clone(),
+            projection_mode: self.projection_mode.clone(),
             artifact: build_artifact_summary(&candidate, &artifact),
             hidden_eval_program,
             execution_program,

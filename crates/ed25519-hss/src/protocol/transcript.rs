@@ -5,9 +5,23 @@ use crate::ddh::{
 };
 use crate::runtime::PrimeOrderCpuExecutionResult;
 use crate::wire::{
-    ClientOtOffer, ClientPacket, ClientStageRequestPacket, OtTranscript, ServerEvalHandle,
-    ServerEvalStageId, TranscriptId,
+    ClientOtOffer, ClientOutputValueKind, ClientPacket, ClientStageRequestPacket, OtTranscript,
+    OutputProjectionMode, ServerEvalHandle, ServerEvalStageId, TranscriptId,
 };
+
+fn bind_output_projection_mode(hasher: &mut Sha256, projection_mode: &OutputProjectionMode) {
+    hasher.update(projection_mode.domain_tag());
+    if let Some(mask_commitment) = projection_mode.mask_commitment() {
+        hasher.update(mask_commitment);
+    }
+}
+
+pub(crate) fn digest_output_projection_mode(projection_mode: &OutputProjectionMode) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(b"succinct-garbling-proto/prime-order-succinct-hss/projection-mode/v0");
+    bind_output_projection_mode(&mut hasher, projection_mode);
+    hasher.finalize().into()
+}
 
 pub(crate) fn compute_ot_transcript_digest_from_commitments(
     context_binding: [u8; 32],
@@ -436,6 +450,7 @@ pub(crate) fn compute_output_projection_request_digest(
     server_eval_handle: ServerEvalHandle,
     stage_id: ServerEvalStageId,
     prior_server_stage_digest: [u8; 32],
+    projection_mode: &OutputProjectionMode,
 ) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(b"succinct-garbling-proto/prime-order-succinct-hss/output-projection-request/v0");
@@ -449,6 +464,7 @@ pub(crate) fn compute_output_projection_request_digest(
     });
     hasher.update(stage_id.ordinal.to_le_bytes());
     hasher.update(prior_server_stage_digest);
+    bind_output_projection_mode(&mut hasher, projection_mode);
     let digest = hasher.finalize();
     let mut out = [0u8; 32];
     out.copy_from_slice(&digest);
@@ -490,6 +506,7 @@ pub(crate) fn compute_output_projection_response_digest(
     prior_server_stage_digest: [u8; 32],
     output_release_token: [u8; 32],
     allowed_output_kind: crate::wire::AllowedOutputKind,
+    projection_mode: &OutputProjectionMode,
 ) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher
@@ -509,10 +526,49 @@ pub(crate) fn compute_output_projection_response_digest(
         crate::wire::AllowedOutputKind::ClientOutputOnly => [0u8],
         crate::wire::AllowedOutputKind::ClientOutputAndSeedOutput => [1u8],
     });
+    bind_output_projection_mode(&mut hasher, projection_mode);
     let digest = hasher.finalize();
     let mut out = [0u8; 32];
     out.copy_from_slice(&digest);
     out
+}
+
+pub(crate) fn client_output_mask_commitment(
+    context_binding: [u8; 32],
+    run_binding: [u8; 32],
+    evaluation_digest: [u8; 32],
+    client_output_mask: [u8; 32],
+) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(b"succinct-garbling-proto/prime-order-succinct-hss/client-output-mask/v0");
+    hasher.update(context_binding);
+    hasher.update(run_binding);
+    hasher.update(evaluation_digest);
+    hasher.update(client_output_mask);
+    hasher.finalize().into()
+}
+
+pub(crate) fn client_output_packet_aad(
+    context_binding: [u8; 32],
+    run_binding: [u8; 32],
+    evaluation_digest: [u8; 32],
+    projection_mode: &OutputProjectionMode,
+    value_kind: ClientOutputValueKind,
+) -> Vec<u8> {
+    let mut aad = output_packet_aad(
+        b"client_output",
+        context_binding,
+        run_binding,
+        evaluation_digest,
+    );
+    aad.extend_from_slice(b"/projection/");
+    aad.extend_from_slice(projection_mode.domain_tag());
+    if let Some(mask_commitment) = projection_mode.mask_commitment() {
+        aad.extend_from_slice(&mask_commitment);
+    }
+    aad.extend_from_slice(b"/value-kind/");
+    aad.extend_from_slice(value_kind.domain_tag());
+    aad
 }
 
 pub(crate) fn output_packet_aad(
@@ -530,7 +586,6 @@ pub(crate) fn output_packet_aad(
     aad
 }
 
-#[cfg(test)]
 pub(crate) fn server_input_packet_aad(
     context_binding: [u8; 32],
     server_input_commitment: [u8; 32],
@@ -548,15 +603,36 @@ pub(crate) fn compute_evaluation_digest(
     executor_result: &PrimeOrderCpuExecutionResult,
     output: &DdhHiddenEvalOutputBundles,
 ) -> [u8; 32] {
+    compute_evaluation_digest_from_output_commitments(
+        artifact_digest,
+        run_binding,
+        executor_result,
+        output.canonical_seed.commitment,
+        output.client_output.value_kind,
+        output.client_output.as_bundle().commitment,
+        output.x_relayer_base_left.commitment,
+    )
+}
+
+pub(crate) fn compute_evaluation_digest_from_output_commitments(
+    artifact_digest: [u8; 32],
+    run_binding: [u8; 32],
+    executor_result: &PrimeOrderCpuExecutionResult,
+    canonical_seed_commitment: [u8; 32],
+    client_output_value_kind: ClientOutputValueKind,
+    client_output_commitment: [u8; 32],
+    x_relayer_base_left_commitment: [u8; 32],
+) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(b"succinct-garbling-proto/prime-order-succinct-hss/evaluation-digest/v0");
     hasher.update(artifact_digest);
     hasher.update(run_binding);
     hasher.update(executor_result.output_checksum.to_le_bytes());
     hasher.update(executor_result.final_point_compressed);
-    hasher.update(output.canonical_seed.commitment);
-    hasher.update(output.x_client_base.commitment);
-    hasher.update(output.x_relayer_base_left.commitment);
+    hasher.update(canonical_seed_commitment);
+    hasher.update(client_output_value_kind.domain_tag());
+    hasher.update(client_output_commitment);
+    hasher.update(x_relayer_base_left_commitment);
     let digest = hasher.finalize();
     let mut out = [0u8; 32];
     out.copy_from_slice(&digest);

@@ -1,44 +1,36 @@
-use crate::ddh::hidden_eval_executor::{
-    advance_message_schedule_continuation_with_pool,
-    advance_round_core_continuation_with_pool,
-    compute_message_schedule_completed_digest,
-    compute_round_core_completed_digest,
-    execute_prime_order_ddh_hidden_eval_program_profiled_with_pool,
-    DdhHiddenEvalConstantPool,
-    DdhHiddenEvalInputBundles,
-    DdhHiddenEvalStageProfile,
-    initialize_round_core_continuation_from_message_schedule_with_pool,
-    materialize_output_bundles_from_continuations_with_pool,
-    materialize_staged_server_execution_with_split_server_inputs_with_pool,
-    prepare_ddh_hidden_eval_constant_pool,
-    DdhHiddenEvalServerInputs,
-};
-use crate::ddh::{
-    DdhHssTransportBundle, DdhHssTransportPurpose,
-};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::ddh::hidden_eval_executor::trace_prime_order_ddh_hidden_eval_program_with_split_server_inputs_with_pool;
-use crate::ddh::{
-    DdhHiddenEvalRun, DdhHssOtReleasedRemoteBundle, DdhHssOtResponseBundle,
-    HiddenEvalProgram,
+use crate::ddh::hidden_eval_executor::{
+    advance_message_schedule_continuation_with_pool, advance_round_core_continuation_with_pool,
+    compute_message_schedule_completed_digest, compute_round_core_completed_digest,
+    execute_prime_order_ddh_hidden_eval_program_profiled_with_pool,
+    initialize_round_core_continuation_from_message_schedule_with_pool,
+    materialize_server_output_bundles_from_continuations_with_pool,
+    materialize_staged_server_execution_with_split_server_inputs_with_pool,
+    prepare_ddh_hidden_eval_constant_pool, DdhHiddenEvalConstantPool, DdhHiddenEvalInputBundles,
+    DdhHiddenEvalServerInputs, DdhHiddenEvalStageProfile,
 };
+use crate::ddh::{
+    DdhHiddenEvalRun, DdhHssOtReleasedRemoteBundle, DdhHssOtResponseBundle, HiddenEvalProgram,
+};
+use crate::ddh::{DdhHssTransportBundle, DdhHssTransportPurpose};
 use crate::runtime::{
     evaluation::{elapsed_ns_u64, monotonic_now_ns},
     EvaluateTiming, SharedRuntime,
 };
 use crate::server::{
     ot::prepare_garbler_ot_state_for_session, ServerDriverState, ServerEvalOperation,
-    ServerEvalRelayerRoots, ServerEvalState, ServerOutputOpener, ServerSession,
-    ServerSessionState,
+    ServerEvalRelayerRoots, ServerEvalState, ServerOutputOpener, ServerSession, ServerSessionState,
 };
 use crate::shared::ProtoResult;
 #[cfg(test)]
 use crate::wire::ServerPacket;
 use crate::wire::{
-    AddStageRequestPayload, AddStageResponsePayload, ClientPacket, ClientStageRequestPacket, EvaluationReport,
-    MessageScheduleResponsePayload, OutputProjectionResponsePayload, RoundCoreResponsePayload,
-    ServerAssistInitPacket, ServerEvalHandle, ServerFinalizePacket, ServerOutputPacket,
-    ServerStageCommitments, ServerStagePayload, ServerStageResponsePacket,
+    AddStageRequestPayload, AddStageResponsePayload, ClientPacket, ClientStageRequestPacket,
+    EvaluationReport, MessageScheduleResponsePayload, OutputProjectionResponsePayload,
+    RoleSeparatedServerInputDeliveryPacket, RoleSeparatedServerInputsPacket,
+    RoundCoreResponsePayload, ServerAssistInitPacket, ServerEvalHandle, ServerFinalizePacket,
+    ServerOutputPacket, ServerStageCommitments, ServerStagePayload, ServerStageResponsePacket,
     StagedEvaluatorArtifact, TransportKind, WireMessage,
 };
 use rand_core::{OsRng, RngCore};
@@ -205,8 +197,7 @@ impl ServerSession {
         }) = &request.client_stage_payload
         else {
             return Err(crate::shared::ProtoError::InvalidInput(
-                "execution state materialization requires an add-stage request payload"
-                    .to_string(),
+                "execution state materialization requires an add-stage request payload".to_string(),
             ));
         };
         let y_client_bundle =
@@ -233,10 +224,9 @@ impl ServerSession {
         let y_relayer_bundle = self
             .ddh_garbler
             .share_server_input_bit_bundle("y_relayer_bits", &relayer_roots.y_relayer)?;
-        let tau_relayer_bundle = self.ddh_garbler.share_server_input_bit_bundle(
-            "tau_relayer_bits",
-            &relayer_roots.tau_relayer,
-        )?;
+        let tau_relayer_bundle = self
+            .ddh_garbler
+            .share_server_input_bit_bundle("tau_relayer_bits", &relayer_roots.tau_relayer)?;
         let server_inputs =
             DdhHiddenEvalServerInputs::from_joint_bundles(&y_relayer_bundle, &tau_relayer_bundle);
         let hidden_eval_constants = evaluator_session.hidden_eval_constant_pool()?;
@@ -355,11 +345,13 @@ impl ServerSession {
             tau_relayer,
             constant_pool,
         )?;
-        let artifact = evaluator_session.build_staged_evaluator_artifact_from_hidden_eval_outputs(
+        let artifact = evaluator_session
+            .build_staged_evaluator_artifact_from_hidden_eval_outputs(
                 runtime,
                 run.client_input_commitment,
                 run.server_input_commitment,
                 run.output,
+                None,
             )
             .map(|(artifact, _, _)| artifact)?;
         Ok((artifact, stage_profile))
@@ -377,21 +369,24 @@ impl ServerSession {
     ) -> ProtoResult<(DdhHiddenEvalRun, DdhHiddenEvalStageProfile)> {
         let (trusted_server_eval, _timing) =
             self.prepare_trusted_server_eval_timed(client_packet, y_relayer, tau_relayer)?;
-        let y_client_bundle = evaluator_session.ddh_evaluator.reconstruct_client_ot_bundle(
-            evaluator_session.context_binding,
-            &trusted_server_eval.y_client_response,
-            &evaluator_ot_state.y_client_local_state,
-            &trusted_server_eval.y_client_remote_release,
-        )?;
-        let tau_client_bundle = evaluator_session.ddh_evaluator.reconstruct_client_ot_bundle(
-            evaluator_session.context_binding,
-            &trusted_server_eval.tau_client_response,
-            &evaluator_ot_state.tau_client_local_state,
-            &trusted_server_eval.tau_client_remote_release,
-        )?;
-        let expected_client_input_commitment = evaluator_session
+        let y_client_bundle = evaluator_session
             .ddh_evaluator
-            .combined_input_commitment(
+            .reconstruct_client_ot_bundle(
+                evaluator_session.context_binding,
+                &trusted_server_eval.y_client_response,
+                &evaluator_ot_state.y_client_local_state,
+                &trusted_server_eval.y_client_remote_release,
+            )?;
+        let tau_client_bundle = evaluator_session
+            .ddh_evaluator
+            .reconstruct_client_ot_bundle(
+                evaluator_session.context_binding,
+                &trusted_server_eval.tau_client_response,
+                &evaluator_ot_state.tau_client_local_state,
+                &trusted_server_eval.tau_client_remote_release,
+            )?;
+        let expected_client_input_commitment =
+            evaluator_session.ddh_evaluator.combined_input_commitment(
                 crate::ddh::HiddenEvalInputOwner::Client,
                 &[&y_client_bundle, &tau_client_bundle],
             );
@@ -573,33 +568,40 @@ impl ServerSession {
         })?;
         let constant_pool = prepare_ddh_hidden_eval_constant_pool(self.ddh_garbler.backend())?;
         let next_message_schedule = match &state.execution_state {
-            Some(crate::server::ServerEvalExecutionState::MessageSchedule(schedule_state)) => Some(
-                advance_message_schedule_continuation_with_pool(
+            Some(crate::server::ServerEvalExecutionState::MessageSchedule(schedule_state)) => {
+                Some(advance_message_schedule_continuation_with_pool(
                     self.ddh_garbler.backend(),
                     &constant_pool,
                     &schedule_state.message_schedule,
-                )?,
-            ),
+                )?)
+            }
             _ => None,
         };
         let execution_checkpoint_digest = next_message_schedule
             .as_ref()
             .map(compute_message_schedule_completed_digest)
             .transpose()?
-            .unwrap_or_else(|| state.current_execution_checkpoint_digest().unwrap_or(server_schedule_digest));
-        let final_schedule_round =
-            state.current_stage.ordinal + 1 >= crate::wire::ServerEvalStageId::MESSAGE_SCHEDULE_ROUNDS;
+            .unwrap_or_else(|| {
+                state
+                    .current_execution_checkpoint_digest()
+                    .unwrap_or(server_schedule_digest)
+            });
+        let final_schedule_round = state.current_stage.ordinal + 1
+            >= crate::wire::ServerEvalStageId::MESSAGE_SCHEDULE_ROUNDS;
         let next_round_core = if final_schedule_round {
-            Some(initialize_round_core_continuation_from_message_schedule_with_pool(
-                hidden_eval_program,
-                self.ddh_garbler.backend(),
-                &constant_pool,
-                next_message_schedule.as_ref().ok_or_else(|| {
-                    crate::shared::ProtoError::InvalidInput(
-                        "message-schedule response requires next schedule continuation".to_string(),
-                    )
-                })?,
-            )?)
+            Some(
+                initialize_round_core_continuation_from_message_schedule_with_pool(
+                    hidden_eval_program,
+                    self.ddh_garbler.backend(),
+                    &constant_pool,
+                    next_message_schedule.as_ref().ok_or_else(|| {
+                        crate::shared::ProtoError::InvalidInput(
+                            "message-schedule response requires next schedule continuation"
+                                .to_string(),
+                        )
+                    })?,
+                )?,
+            )
         } else {
             None
         };
@@ -631,12 +633,11 @@ impl ServerSession {
             next_round_core,
         );
         crate::protocol::invariants::validate_message_schedule_response_packet(
-            &next_state, request, &response,
+            &next_state,
+            request,
+            &response,
         )?;
-        Ok((
-            response,
-            next_state,
-        ))
+        Ok((response, next_state))
     }
 
     pub fn prepare_message_schedule_response_message(
@@ -699,13 +700,11 @@ impl ServerSession {
             }
             _ => {
                 return Err(crate::shared::ProtoError::InvalidInput(
-                    "round-core response requires stored round-core continuation state"
-                        .to_string(),
+                    "round-core response requires stored round-core continuation state".to_string(),
                 ));
             }
         };
-        let execution_checkpoint_digest =
-            compute_round_core_completed_digest(&next_round_core)?;
+        let execution_checkpoint_digest = compute_round_core_completed_digest(&next_round_core)?;
         let response = ServerStageResponsePacket {
             context_binding: state.context_binding,
             server_eval_handle: state.handle,
@@ -728,12 +727,11 @@ impl ServerSession {
         let next_state =
             state.advance_after_round_core(server_round_digest, request_digest, next_round_core);
         crate::protocol::invariants::validate_round_core_response_packet(
-            &next_state, request, &response,
+            &next_state,
+            request,
+            &response,
         )?;
-        Ok((
-            response,
-            next_state,
-        ))
+        Ok((response, next_state))
     }
 
     pub fn prepare_round_core_response_message(
@@ -778,6 +776,7 @@ impl ServerSession {
                 "client stage request payload must be output-projection".to_string(),
             ));
         };
+        let projection_mode = payload.projection_mode.clone();
         let allowed_output_kind = Self::allowed_output_kind_for_operation(state.operation);
         let final_server_digest =
             crate::protocol::transcript::compute_output_projection_response_digest(
@@ -787,6 +786,7 @@ impl ServerSession {
                 payload.prior_server_stage_digest,
                 output_release_token,
                 allowed_output_kind,
+                &projection_mode,
             );
         let execution_checkpoint_digest = state
             .current_execution_checkpoint_digest()
@@ -805,7 +805,7 @@ impl ServerSession {
             )
         })?;
         let constant_pool = prepare_ddh_hidden_eval_constant_pool(self.ddh_garbler.backend())?;
-        let output = materialize_output_bundles_from_continuations_with_pool(
+        let output = materialize_server_output_bundles_from_continuations_with_pool(
             hidden_eval_program,
             self.ddh_garbler.backend(),
             &constant_pool,
@@ -815,7 +815,7 @@ impl ServerSession {
         let finalize = crate::server::ServerEvalFinalizeState {
             client_input_commitment: output_state.client_input_commitment,
             server_input_commitment: output_state.server_input_commitment,
-            output,
+            output: crate::server::ServerEvalFinalizeOutput::from_server_output_bundles(&output),
         };
         let response = ServerStageResponsePacket {
             context_binding: state.context_binding,
@@ -827,6 +827,7 @@ impl ServerSession {
                     final_server_digest,
                     output_release_token,
                     allowed_output_kind,
+                    projection_mode: projection_mode.clone(),
                     execution_checkpoint_digest,
                 },
             ),
@@ -835,6 +836,7 @@ impl ServerSession {
                     final_server_digest,
                     output_release_token,
                     execution_checkpoint_digest,
+                    crate::protocol::transcript::digest_output_projection_mode(&projection_mode),
                 ],
             },
         };
@@ -1008,7 +1010,11 @@ impl ServerSession {
         client_packet: &ClientPacket,
         y_relayer: [u8; 32],
         tau_relayer: [u8; 32],
-    ) -> ProtoResult<(DdhHiddenEvalRun, SameProcessExecutionCheckpoints, EvaluateTiming)> {
+    ) -> ProtoResult<(
+        DdhHiddenEvalRun,
+        SameProcessExecutionCheckpoints,
+        EvaluateTiming,
+    )> {
         let (trusted_server_eval, mut timing) =
             self.prepare_trusted_server_eval_timed(client_packet, y_relayer, tau_relayer)?;
         let ot_open_join_started = monotonic_now_ns();
@@ -1083,6 +1089,78 @@ impl ServerSession {
             operation,
         )?;
         Ok((packet, state))
+    }
+
+    pub fn prepare_role_separated_server_input_delivery(
+        &self,
+        client_packet: &ClientPacket,
+        y_relayer: [u8; 32],
+        tau_relayer: [u8; 32],
+        operation: ServerEvalOperation,
+    ) -> ProtoResult<(RoleSeparatedServerInputDeliveryPacket, ServerEvalState)> {
+        let (assist, state, _timing) = self.prepare_server_assist_init_timed(
+            client_packet,
+            y_relayer,
+            tau_relayer,
+            operation,
+        )?;
+        let y_relayer_bundle = self
+            .ddh_garbler
+            .share_server_input_bit_bundle("y_relayer_bits", &y_relayer)?;
+        let tau_relayer_bundle = self
+            .ddh_garbler
+            .share_server_input_bit_bundle("tau_relayer_bits", &tau_relayer)?;
+        let server_input_commitment = self.ddh_garbler.combined_input_commitment(
+            crate::ddh::HiddenEvalInputOwner::Server,
+            &[&y_relayer_bundle, &tau_relayer_bundle],
+        );
+        if server_input_commitment != assist.server_input_commitment {
+            return Err(crate::shared::ProtoError::InvalidInput(
+                "role-separated server input commitment does not match assist-init commitment"
+                    .to_string(),
+            ));
+        }
+        let y_relayer_split = self.ddh_garbler.split_share_bundle(&y_relayer_bundle);
+        let tau_relayer_split = self.ddh_garbler.split_share_bundle(&tau_relayer_bundle);
+        let server_inputs = self.seal_role_separated_server_inputs_packet(
+            server_input_commitment,
+            &y_relayer_split,
+            &tau_relayer_split,
+        )?;
+        Ok((
+            RoleSeparatedServerInputDeliveryPacket {
+                context_binding: assist.context_binding,
+                server_eval_handle: assist.server_eval_handle,
+                transcript_id: assist.transcript_id,
+                server_input_commitment: assist.server_input_commitment,
+                y_client_response: assist.y_client_response,
+                tau_client_response: assist.tau_client_response,
+                y_client_remote_release: assist.y_client_remote_release,
+                tau_client_remote_release: assist.tau_client_remote_release,
+                server_inputs,
+            },
+            state,
+        ))
+    }
+
+    pub fn prepare_role_separated_server_input_delivery_message(
+        &self,
+        client_request_message: &WireMessage,
+        y_relayer: [u8; 32],
+        tau_relayer: [u8; 32],
+        operation: ServerEvalOperation,
+    ) -> ProtoResult<(RoleSeparatedServerInputDeliveryPacket, ServerEvalState)> {
+        let client_packet: ClientPacket = crate::wire::decode_transport_message(
+            self.context_binding,
+            TransportKind::ClientOtRequest,
+            client_request_message,
+        )?;
+        self.prepare_role_separated_server_input_delivery(
+            &client_packet,
+            y_relayer,
+            tau_relayer,
+            operation,
+        )
     }
 
     pub fn prepare_server_assist_init_timed(
@@ -1338,19 +1416,41 @@ impl ServerSession {
         );
         if artifact.bindings.run_binding != expected_run_binding {
             return Err(crate::shared::ProtoError::InvalidInput(
-                "staged evaluator artifact run binding does not match finalize state"
+                "staged evaluator artifact run binding does not match finalize state".to_string(),
+            ));
+        }
+        let expected_client_output_value_kind =
+            crate::wire::ClientOutputValueKind::for_projection_mode(&artifact.projection_mode);
+        if artifact.client_output_value_kind != expected_client_output_value_kind {
+            return Err(crate::shared::ProtoError::InvalidInput(
+                "staged evaluator artifact client output value kind does not match projection mode"
                     .to_string(),
             ));
         }
-        let expected_evaluation_digest = crate::protocol::transcript::compute_evaluation_digest(
-            runtime.artifact.artifact_digest,
-            expected_run_binding,
-            &runtime.execution_result,
-            &finalize_state.output,
-        );
+        let expected_evaluation_digest =
+            crate::protocol::transcript::compute_evaluation_digest_from_output_commitments(
+                runtime.artifact.artifact_digest,
+                expected_run_binding,
+                &runtime.execution_result,
+                finalize_state.output.canonical_seed_commitment,
+                artifact.client_output_value_kind,
+                artifact.client_output_commitment,
+                finalize_state.output.x_relayer_base_left.commitment,
+            );
         if artifact.bindings.evaluation_digest != expected_evaluation_digest {
             return Err(crate::shared::ProtoError::InvalidInput(
                 "staged evaluator artifact evaluation digest does not match finalize state"
+                    .to_string(),
+            ));
+        }
+        let expected_server_output_payload = crate::wire::serialize_transport_pair_payload(
+            "server_output_bundle",
+            &finalize_state.output.x_relayer_base_left,
+            &finalize_state.output.x_relayer_base_right,
+        )?;
+        if artifact.server_output_payload != expected_server_output_payload {
+            return Err(crate::shared::ProtoError::InvalidInput(
+                "staged evaluator artifact server output payload binding does not match finalize state"
                     .to_string(),
             ));
         }
@@ -1369,6 +1469,7 @@ impl ServerSession {
                 server_eval_handle: server_eval_state.handle,
                 final_transcript_digest: server_eval_state.current_transcript_digest,
                 allowed_output_kind,
+                projection_mode: artifact.projection_mode.clone(),
                 client_output: report.output_delivery.client.clone(),
                 seed_output,
             },
@@ -1427,6 +1528,28 @@ impl ServerSession {
             TransportKind::ServerOutput,
             &packet,
         )
+    }
+
+    pub(crate) fn seal_role_separated_server_inputs_packet(
+        &self,
+        server_input_commitment: [u8; 32],
+        y_relayer: &(DdhHssTransportBundle, DdhHssTransportBundle),
+        tau_relayer: &(DdhHssTransportBundle, DdhHssTransportBundle),
+    ) -> ProtoResult<RoleSeparatedServerInputsPacket> {
+        let aad = crate::protocol::transcript::server_input_packet_aad(
+            self.context_binding,
+            server_input_commitment,
+        );
+        let plaintext = crate::wire::serialize_server_inputs_payload(y_relayer, tau_relayer)?;
+        let (nonce, ciphertext) =
+            self.ddh_garbler
+                .seal_message(DdhHssTransportPurpose::ServerInput, &aad, &plaintext)?;
+        Ok(RoleSeparatedServerInputsPacket {
+            context_binding: self.context_binding,
+            server_input_commitment,
+            nonce,
+            ciphertext,
+        })
     }
 
     #[cfg(test)]
@@ -1692,7 +1815,9 @@ mod tests {
             crate::wire::ServerEvalStageId::add_stage()
         );
         assert_eq!(state.operation, ServerEvalOperation::Registration);
-        let relayer_roots = state.relayer_roots().expect("raw relayer roots on init state");
+        let relayer_roots = state
+            .relayer_roots()
+            .expect("raw relayer roots on init state");
         assert_eq!(relayer_roots.y_relayer, fixture.input.y_relayer);
         assert_eq!(relayer_roots.tau_relayer, fixture.input.tau_relayer);
         assert_eq!(
@@ -1803,7 +1928,9 @@ mod tests {
         let fixture = boundary_fixture();
         let session = crate::protocol::prepare_prime_order_succinct_hss(&fixture.input.context)
             .expect("prepare session");
-        let garbler_ot_state = session.prepare_garbler_ot_state().expect("garbler OT state");
+        let garbler_ot_state = session
+            .prepare_garbler_ot_state()
+            .expect("garbler OT state");
         let client_ot_offer_message = session
             .prepare_client_ot_offer_message()
             .expect("client OT offer message");
@@ -1826,7 +1953,8 @@ mod tests {
             .expect("prepare staged flow");
 
         assert!(
-            flow.final_server_eval_state.stores_stage_local_continuation(),
+            flow.final_server_eval_state
+                .stores_stage_local_continuation(),
             "staged flow should materialize a stage-local continuation",
         );
         assert!(
@@ -1871,51 +1999,49 @@ mod tests {
         .expect("decode client packet");
 
         let client_packet_bytes = serialized_size(&client_packet);
-        let client_packet_word_bytes =
-            serialized_size(
-                &client_packet
-                    .y_client_request
-                    .words
-                    .iter()
-                    .map(|word| SelectionPayloadWord {
-                        receiver_public: word.receiver_public,
-                    })
-                    .collect::<Vec<_>>(),
-            ) + serialized_size(
-                &client_packet
-                    .tau_client_request
-                    .words
-                    .iter()
-                    .map(|word| SelectionPayloadWord {
-                        receiver_public: word.receiver_public,
-                    })
-                    .collect::<Vec<_>>(),
-            );
+        let client_packet_word_bytes = serialized_size(
+            &client_packet
+                .y_client_request
+                .words
+                .iter()
+                .map(|word| SelectionPayloadWord {
+                    receiver_public: word.receiver_public,
+                })
+                .collect::<Vec<_>>(),
+        ) + serialized_size(
+            &client_packet
+                .tau_client_request
+                .words
+                .iter()
+                .map(|word| SelectionPayloadWord {
+                    receiver_public: word.receiver_public,
+                })
+                .collect::<Vec<_>>(),
+        );
         let client_packet_wrapper_bytes = client_packet_bytes - client_packet_word_bytes;
 
         let evaluator_ot_state_bytes = serialized_size(&evaluator_ot_state);
-        let evaluator_ot_state_word_bytes =
-            serialized_size(
-                &evaluator_ot_state
-                    .y_client_local_state
-                    .words
-                    .iter()
-                    .map(|word| ReceiverStatePayloadWord {
-                        selected_branch: word.selected_branch,
-                        shared_point: word.shared_point,
-                    })
-                    .collect::<Vec<_>>(),
-            ) + serialized_size(
-                &evaluator_ot_state
-                    .tau_client_local_state
-                    .words
-                    .iter()
-                    .map(|word| ReceiverStatePayloadWord {
-                        selected_branch: word.selected_branch,
-                        shared_point: word.shared_point,
-                    })
-                    .collect::<Vec<_>>(),
-            );
+        let evaluator_ot_state_word_bytes = serialized_size(
+            &evaluator_ot_state
+                .y_client_local_state
+                .words
+                .iter()
+                .map(|word| ReceiverStatePayloadWord {
+                    selected_branch: word.selected_branch,
+                    shared_point: word.shared_point,
+                })
+                .collect::<Vec<_>>(),
+        ) + serialized_size(
+            &evaluator_ot_state
+                .tau_client_local_state
+                .words
+                .iter()
+                .map(|word| ReceiverStatePayloadWord {
+                    selected_branch: word.selected_branch,
+                    shared_point: word.shared_point,
+                })
+                .collect::<Vec<_>>(),
+        );
         let evaluator_ot_state_wrapper_bytes =
             evaluator_ot_state_bytes - evaluator_ot_state_word_bytes;
 

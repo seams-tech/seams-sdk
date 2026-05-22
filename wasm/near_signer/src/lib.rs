@@ -19,15 +19,18 @@ use crate::threshold::threshold_frost::{
     build_threshold_ed25519_seed_export_artifact_from_seed,
     ThresholdEd25519SeedExportArtifactFromSeedArgs,
 };
+#[cfg(feature = "hss-client-exports")]
+use crate::threshold::threshold_hss::{
+    build_threshold_ed25519_hss_client_owned_staged_evaluator_artifact,
+    derive_threshold_ed25519_hss_client_output_mask, open_threshold_ed25519_hss_client_output,
+    prepare_threshold_ed25519_hss_client_request, prepare_threshold_ed25519_hss_session,
+    ThresholdEd25519HssBuildClientOwnedStagedArtifactArgs,
+    ThresholdEd25519HssDeriveClientOutputMaskArgs, ThresholdEd25519HssOpenClientOutputArgs,
+    ThresholdEd25519HssPrepareClientRequestArgs, ThresholdEd25519HssPrepareSessionArgs,
+};
 #[cfg(any(feature = "hss-client-exports", feature = "hss-server-exports"))]
 use crate::threshold::threshold_hss::{
     open_threshold_ed25519_hss_seed_output, ThresholdEd25519HssOpenSeedOutputArgs,
-};
-#[cfg(feature = "hss-client-exports")]
-use crate::threshold::threshold_hss::{
-    open_threshold_ed25519_hss_client_output, prepare_threshold_ed25519_hss_client_request,
-    prepare_threshold_ed25519_hss_session, ThresholdEd25519HssOpenClientOutputArgs,
-    ThresholdEd25519HssPrepareClientRequestArgs, ThresholdEd25519HssPrepareSessionArgs,
 };
 use crate::types::worker_messages::{
     parse_typed_payload, parse_worker_request_envelope, worker_request_type_name,
@@ -302,6 +305,24 @@ pub async fn handle_signer_message(message_val: JsValue) -> Result<JsValue, JsVa
                 ));
             }
         }
+        WorkerRequestType::DeriveThresholdEd25519HssClientOutputMask => {
+            #[cfg(feature = "hss-client-exports")]
+            {
+                let request: ThresholdEd25519HssDeriveClientOutputMaskArgs =
+                    parse_typed_payload(&payload_js, request_type)?;
+                let result = derive_threshold_ed25519_hss_client_output_mask(request)
+                    .map_err(|e| JsValue::from_str(&e))?;
+                serde_wasm_bindgen::to_value(&result).map_err(|e| {
+                    JsValue::from_str(&format!("Failed to serialize result: {:?}", e))
+                })?
+            }
+            #[cfg(not(feature = "hss-client-exports"))]
+            {
+                return Err(JsValue::from_str(
+                    "DeriveThresholdEd25519HssClientOutputMask is not available in the server HSS runtime",
+                ));
+            }
+        }
         WorkerRequestType::OpenThresholdEd25519HssClientOutput => {
             #[cfg(feature = "hss-client-exports")]
             {
@@ -366,6 +387,25 @@ pub async fn handle_signer_message(message_val: JsValue) -> Result<JsValue, JsVa
                 "BuildThresholdEcdsaHssRoleLocalExportArtifact is handled by the HSS client runtime",
             ));
         }
+        WorkerRequestType::BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact => {
+            #[cfg(feature = "hss-client-exports")]
+            {
+                let request: ThresholdEd25519HssBuildClientOwnedStagedArtifactArgs =
+                    parse_typed_payload(&payload_js, request_type)?;
+                let result =
+                    build_threshold_ed25519_hss_client_owned_staged_evaluator_artifact(request)
+                        .map_err(|e| JsValue::from_str(&e))?;
+                serde_wasm_bindgen::to_value(&result).map_err(|e| {
+                    JsValue::from_str(&format!("Failed to serialize result: {:?}", e))
+                })?
+            }
+            #[cfg(not(feature = "hss-client-exports"))]
+            {
+                return Err(JsValue::from_str(
+                    "BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact is not available in this runtime",
+                ));
+            }
+        }
     };
 
     // At this point, response_payload is the successful JsValue result.
@@ -397,6 +437,9 @@ pub async fn handle_signer_message(message_val: JsValue) -> Result<JsValue, JsVa
         WorkerRequestType::PrepareThresholdEd25519HssClientRequest => {
             WorkerResponseType::PrepareThresholdEd25519HssClientRequestSuccess
         }
+        WorkerRequestType::DeriveThresholdEd25519HssClientOutputMask => {
+            WorkerResponseType::DeriveThresholdEd25519HssClientOutputMaskSuccess
+        }
         WorkerRequestType::OpenThresholdEd25519HssClientOutput => {
             WorkerResponseType::OpenThresholdEd25519HssClientOutputSuccess
         }
@@ -411,6 +454,9 @@ pub async fn handle_signer_message(message_val: JsValue) -> Result<JsValue, JsVa
         }
         WorkerRequestType::BuildThresholdEcdsaHssRoleLocalExportArtifact => {
             WorkerResponseType::BuildThresholdEcdsaHssRoleLocalExportArtifactSuccess
+        }
+        WorkerRequestType::BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact => {
+            WorkerResponseType::BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactSuccess
         }
     };
 
