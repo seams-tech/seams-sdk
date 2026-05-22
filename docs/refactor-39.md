@@ -1602,6 +1602,223 @@ required in the branches that need it.
       - `pnpm -C tests exec playwright test ./unit/signingEngine.refactor37.guard.unit.test.ts --reporter=line`
       - `pnpm -C tests exec playwright test --config=playwright.relayer.config.ts ./relayer/threshold-ecdsa-role-local-passkey-bootstrap.test.ts --reporter=line`
 
+## Post-Completion Hardening: ECDSA Material Readiness and Budget Boundaries
+
+The post-exhaustion Email OTP Tempo regression exposed two remaining lifecycle
+risks. First, public ECDSA identity can be present while the signer-side client
+share is unavailable. Second, an existing-account Email OTP signing path can
+reach Ed25519 companion provisioning without the runtime policy scope and spend
+registration bootstrap quota during transaction signing.
+
+The hard invariant is: wallet budget controls spend admission; signer material
+controls cryptographic readiness. A lane with `record + keyRef` has durable
+public identity. A lane with `record + keyRef + ReadyEcdsaSignerSession` has
+signing readiness. These states must be separate domain branches.
+
+Durable public identity without hot signer material is a valid persisted state:
+it can identify the account, key, address, chain target, relayer binding, and
+session ids. It can feed sender-address, nonce, display, export-identity, and
+reauth planning. It cannot enter threshold signing and cannot become
+`BudgetAdmitted` threshold ECDSA state.
+
+The correct target model is:
+
+```ts
+type EcdsaSigningLaneMaterial =
+  | {
+      kind: 'public_identity_available';
+      publicFacts: VerifiedEcdsaPublicFacts;
+      record: ThresholdEcdsaSessionRecord;
+      keyRef: ThresholdEcdsaSecp256k1KeyRef;
+      signerSession?: never;
+    }
+  | {
+      kind: 'reauth_required';
+      publicFacts: VerifiedEcdsaPublicFacts;
+      record: ThresholdEcdsaSessionRecord;
+      keyRef: ThresholdEcdsaSecp256k1KeyRef;
+      reason: 'missing_worker_share' | 'missing_inline_share' | 'expired' | 'exhausted';
+      signerSession?: never;
+    }
+  | {
+      kind: 'ready_to_sign';
+      publicFacts: VerifiedEcdsaPublicFacts;
+      record: ThresholdEcdsaSessionRecord;
+      keyRef: ThresholdEcdsaSecp256k1KeyRef;
+      signerSession: ReadyEcdsaSignerSession;
+    };
+```
+
+`BudgetAdmitted` threshold ECDSA execution may accept only `ready_to_sign`.
+`public_identity_available` and `reauth_required` may produce confirmation and
+reauth plans, and reauth must return a fresh `ready_to_sign` branch before
+signing.
+
+- [x] Make ECDSA ready-material resolution require a usable client share:
+      inline client share for inline material, or Email OTP worker-share handle
+      for Email OTP worker material.
+- [x] Keep guards that reject "public identity implies signing readiness".
+      Record/keyRef public facts may provide sender identity, while signer
+      admission requires `ReadyEcdsaSignerSession`.
+- [x] Make the prepared ECDSA executor resolve a typed signer-session result.
+      `required_admitted` is built only from a `BudgetAdmitted` operation plus
+      `ReadyEcdsaSignerSession`; missing signer material stays
+      `required_not_admitted`.
+- [x] Add a type fixture proving admitted threshold ECDSA step-up state requires
+      ready signer material.
+- [x] Add regression coverage for the exact lifecycle: exhausted Email OTP
+      Tempo shared lane, source record/keyRef present, worker share missing,
+      wallet budget active, and selection result routed to Email OTP step-up.
+- [x] Keep diagnostics observational only. Selection diagnostics may be logged
+      and asserted in tests, while control flow branches on typed selection,
+      material, readiness, and budget state.
+- [x] Treat wallet budget as a spend-control signal. Budget status never upgrades
+      missing cryptographic material into ready signing material.
+- [x] Replace the current `EcdsaMaterialState` names with the explicit target
+      model above. A `record + keyRef` pair with no signer share should be named
+      `public_identity_available` or `reauth_required`, never `ready_material`.
+- [x] Move `ReadyEcdsaSignerSession` construction into the material builder so
+      `ready_to_sign` is impossible to construct without the hot signer-share
+      transport.
+- [x] Make ECDSA-specific admitted state accept a `ready_to_sign` branch rather
+      than a budget operation plus separately computed signer session.
+- [x] Add type fixtures rejecting:
+      `BudgetAdmitted` threshold ECDSA without `ready_to_sign`,
+      `ready_to_sign` without `ReadyEcdsaSignerSession`,
+      and `public_identity_available` with signer-only fields.
+- [ ] Rename diagnostics that currently call public identity "material" so logs
+      distinguish durable public identity from hot signer material.
+
+Budget-grant boundary fixes:
+
+- [x] Existing-account Email OTP ECDSA login now forwards the parsed
+      `runtimePolicyScope` into companion Ed25519 provisioning.
+- [x] Email OTP Ed25519 companion provisioning now derives runtime scope from
+      `appSessionJwt` or `routeAuth.jwt` before requesting a managed registration
+      bootstrap grant.
+- [x] Guard coverage now proves existing-account companion provisioning has a
+      signing-session runtime scope path before `/v1/registration/bootstrap-grants`.
+- [ ] Manual validation: after registration quota exhaustion, Email OTP NEAR
+      transaction step-up succeeds without calling
+      `/v1/registration/bootstrap-grants`.
+
+## Post-Completion Hardening: Split Email OTP Ed25519 Registration From Unlock Reconstruction
+
+The budget-grant fix removed the direct Ed25519 session-mint call to
+`/v1/registration/bootstrap-grants`, but review found one remaining design
+problem: `provisionEmailOtpEd25519Capability` still serves both registration
+provisioning and existing-account companion reconstruction. The current guard
+uses `registrationAttemptId` to decide whether registration grants are allowed,
+while the lifecycle branch is still named `companion_to_ecdsa_provisioning`.
+
+That keeps the code easy to misuse. Registration bootstrap grants should be
+reachable only from a registration-specific input type. Existing-account unlock,
+step-up, and background warm-up should have no code path that can request
+registration grants or call registration HSS endpoints.
+
+Scope and size:
+
+- This is a medium, targeted refactor, not a large system redesign.
+- Expected files are the Email OTP Ed25519 provisioning module, ECDSA login and
+      enrollment callers, Ed25519 warm-up/coordinator plumbing, and focused unit
+      tests.
+- No server protocol change is required if unlock reconstruction can use the
+      existing `/threshold-ed25519/session` and `/threshold-ed25519/hss/*`
+      session-auth endpoints.
+- The risky part is preserving current Email OTP NEAR, Tempo, EVM, and export
+      behavior while splitting the TypeScript lifecycle. Keep each step small and
+      test after each boundary move.
+
+Target API shape:
+
+```ts
+type EmailOtpEd25519RegistrationProvisioning = {
+  kind: 'registration_ed25519_provisioning';
+  registrationAttemptId: string;
+  nearAccountId: AccountId;
+  relayUrl: string;
+  rpId: string;
+  prfFirstB64u: string;
+  emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  appSessionJwt?: string;
+  routeAuth?: AppOrThresholdSessionAuth;
+};
+
+type EmailOtpEd25519SessionReconstruction = {
+  kind: 'session_ed25519_reconstruction';
+  nearAccountId: AccountId;
+  relayUrl: string;
+  rpId: string;
+  prfFirstB64u: string;
+  emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
+  ed25519Key: {
+    relayerKeyId: string;
+    keyVersion: string;
+    participantIds: number[];
+  };
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+  routeAuth: AppOrThresholdSessionAuth;
+  walletSigningSessionId: string;
+  ecdsaThresholdSessionId: string;
+};
+```
+
+Implementation plan:
+
+- [ ] Replace the broad `ProvisionEmailOtpThresholdEd25519CapabilityArgs` union
+      with branch-specific registration and session-reconstruction inputs.
+  - [ ] Registration branch requires `registrationAttemptId`.
+  - [ ] Session-reconstruction branch rejects `registrationAttemptId`.
+  - [ ] Session-reconstruction branch requires existing Ed25519 key identity:
+        `relayerKeyId`, `keyVersion`, `participantIds`, and
+        `runtimePolicyScope`.
+  - [ ] Session-reconstruction branch requires threshold/app session auth
+        material. It must never accept publishable-key or bootstrap-grant
+        material.
+- [ ] Split implementation functions:
+  - [ ] `registerEmailOtpEd25519Capability` may request managed registration
+        grants and may call `/registration/threshold-ed25519/hss/*`.
+  - [ ] `reconstructEmailOtpEd25519Session` may mint a threshold Ed25519 session
+        and run reconstruction through `/threshold-ed25519/hss/*` with session
+        auth only.
+  - [ ] Delete the runtime `registrationGrantAdmission` guard after the types
+        make the grant boundary explicit.
+- [ ] Update callers:
+  - [ ] Email OTP registration/enrollment calls
+        `registerEmailOtpEd25519Capability`.
+  - [ ] Email OTP unlock/step-up calls `reconstructEmailOtpEd25519Session` only
+        when existing Ed25519 key identity is available.
+  - [ ] Background companion warm-up skips cleanly when the existing Ed25519
+        identity is unavailable, without throwing quota or registration errors.
+  - [ ] Awaited session-mode unlock returns a typed
+        `ed25519_reconstruction_deferred` result when reconstruction cannot be
+        performed during unlock. NEAR signing may then perform explicit Email OTP
+        step-up reconstruction.
+- [ ] Type fixtures:
+  - [ ] Reject session reconstruction with `registrationAttemptId`.
+  - [ ] Reject registration provisioning without `registrationAttemptId`.
+  - [ ] Reject session reconstruction without `runtimePolicyScope`.
+  - [ ] Reject session reconstruction without `routeAuth`.
+  - [ ] Reject session reconstruction without concrete Ed25519 key identity.
+- [ ] Behavior tests:
+  - [ ] OTP wallet unlock with managed config never calls
+        `/v1/registration/bootstrap-grants`.
+  - [ ] OTP session unlock with awaited Ed25519 companion work uses session
+        reconstruction endpoints only.
+  - [ ] OTP registration still spends registration grants and calls
+        `/registration/threshold-ed25519/hss/*`.
+  - [ ] Exhausted Email OTP NEAR step-up succeeds after registration quota is
+        exhausted and does not call `/v1/registration/bootstrap-grants`.
+  - [ ] Existing Tempo/EVM step-up coverage remains green.
+- [ ] Validation:
+  - [ ] `pnpm -C sdk exec tsc --noEmit --pretty false`
+  - [ ] Focused Email OTP coordinator/provisioning tests.
+  - [ ] Focused Ed25519 immediate-sign fallback tests.
+  - [ ] Focused EVM-family Email OTP step-up tests.
+  - [ ] Manual OTP registration, wallet unlock, NEAR, Tempo, EVM, key export,
+        and post-session-exhaustion signing.
+
 ## Post-Completion Cleanup Owner
 
 Refactor 39 is complete. Remaining cleanup around
