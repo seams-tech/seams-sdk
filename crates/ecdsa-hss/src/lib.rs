@@ -18,14 +18,18 @@ pub use server::{
     RetainedServerStateV1, ServerPrepareInputsV1, ServerRespondResultV1, StagedServerSessionV1,
 };
 pub use shared::context::{
-    encode_context_v1, EcdsaHssStableKeyContextV1, ECDSA_HSS_V1_CURVE,
-    ECDSA_HSS_V1_PARTICIPANT_IDS, ECDSA_HSS_V1_SCHEME_ID,
+    encode_context_v1, encode_context_v2, EcdsaHssStableKeyContextV1, EcdsaHssStableKeyContextV2,
+    ECDSA_HSS_V1_CURVE, ECDSA_HSS_V1_PARTICIPANT_IDS, ECDSA_HSS_V1_SCHEME_ID, ECDSA_HSS_V2_CURVE,
+    ECDSA_HSS_V2_PARTICIPANT_IDS, ECDSA_HSS_V2_SCHEME_ID,
 };
 pub use shared::derive::{
-    compose_public_identity_v1, context_binding_v1, derive_client_share_v1,
-    derive_relayer_share_for_client_public_v1, derive_relayer_share_v1,
-    export_authorization_digest_v1, public_transcript_digest_v1, reconstruct_export_key_v1,
-    ClientRoleShareV1, PublicIdentityV1, RelayerRoleShareV1,
+    compose_public_identity_v1, compose_public_identity_v2, context_binding_v1, context_binding_v2,
+    derive_client_share_v1, derive_client_share_v2, derive_relayer_share_for_client_public_v1,
+    derive_relayer_share_for_client_public_v2, derive_relayer_share_v1, derive_relayer_share_v2,
+    export_authorization_digest_v1, export_authorization_digest_v2, public_transcript_digest_v1,
+    public_transcript_digest_v2, reconstruct_export_key_v1, reconstruct_export_key_v2,
+    ClientRoleShareV1, ClientRoleShareV2, PublicIdentityV1, PublicIdentityV2, RelayerRoleShareV1,
+    RelayerRoleShareV2,
 };
 pub use signer_core::error::{
     CoreResult as EcdsaHssResult, SignerCoreError as EcdsaHssError,

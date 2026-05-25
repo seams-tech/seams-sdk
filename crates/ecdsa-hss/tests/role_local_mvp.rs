@@ -1,12 +1,14 @@
 use ecdsa_hss::{
-    compose_public_identity_v1, context_binding_v1, derive_client_share_v1,
-    derive_relayer_share_for_client_public_v1, encode_context_v1, export_authorization_digest_v1,
-    export_from_respond_response_v1, public_transcript_digest_v1, reconstruct_export_key_v1,
-    sign_with_role_materials_v1, ClientOutputV1, ClientRoleShareV1, EcdsaHssStableKeyContextV1,
-    EvmThresholdClientBootstrapV1, EvmThresholdRelayerBootstrapV1, ExplicitExportAuthorizationV1,
-    ExplicitExportClientOutputV1, ExplicitExportRespondRequestV1, ExportNonceReplayGuardV1,
-    PrepareEnvelopeV1, PublicIdentityV1, RelayerRoleShareV1, RespondRequestV1, RespondResponseV1,
-    ServerEvalOperationV1, ServerPrepareInputsV1, StagedServerSessionV1, ThresholdRespondRequestV1,
+    compose_public_identity_v1, context_binding_v1, context_binding_v2, derive_client_share_v1,
+    derive_client_share_v2, derive_relayer_share_for_client_public_v1,
+    derive_relayer_share_for_client_public_v2, encode_context_v1, encode_context_v2,
+    export_authorization_digest_v1, export_from_respond_response_v1, public_transcript_digest_v1,
+    reconstruct_export_key_v1, sign_with_role_materials_v1, ClientOutputV1, ClientRoleShareV1,
+    EcdsaHssStableKeyContextV1, EcdsaHssStableKeyContextV2, EvmThresholdClientBootstrapV1,
+    EvmThresholdRelayerBootstrapV1, ExplicitExportAuthorizationV1, ExplicitExportClientOutputV1,
+    ExplicitExportRespondRequestV1, ExportNonceReplayGuardV1, PrepareEnvelopeV1, PublicIdentityV1,
+    RelayerRoleShareV1, RespondRequestV1, RespondResponseV1, ServerEvalOperationV1,
+    ServerPrepareInputsV1, StagedServerSessionV1, ThresholdRespondRequestV1,
 };
 use k256::{FieldBytes, SecretKey};
 use signer_core::secp256k1::{
@@ -35,6 +37,12 @@ fn hex32(value: &str) -> [u8; 32] {
         .expect("valid hex")
         .try_into()
         .expect("32-byte hex")
+}
+
+fn bytes_contain(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack
+        .windows(needle.len())
+        .any(|window| window == needle)
 }
 
 fn relayer_key_id() -> String {
@@ -393,6 +401,141 @@ fn committed_role_local_fixture_matches_derivation() {
             public_transcript_digest_v1(ServerEvalOperationV1::ExplicitKeyExport, &identity)
                 .expect("public transcript digest")
         )
+    );
+}
+
+#[test]
+fn v2_context_and_identity_differ_from_v1_fixture_without_subject() {
+    let v1_fixture: serde_json::Value =
+        serde_json::from_str(include_str!("../fixtures/role_local_v1.json")).expect("fixture json");
+    let v2_fixture: serde_json::Value =
+        serde_json::from_str(include_str!("../fixtures/role_local_v2.json")).expect("fixture json");
+    let context_json = &v1_fixture["context"];
+    let v2_context_json = &v2_fixture["context"];
+    let inputs_json = &v1_fixture["inputs"];
+    let v1_context = EcdsaHssStableKeyContextV1::new(
+        context_json["wallet_session_user_id"]
+            .as_str()
+            .expect("wallet id"),
+        context_json["subject_id"].as_str().expect("subject id"),
+        context_json["ecdsa_threshold_key_id"]
+            .as_str()
+            .expect("threshold key id"),
+        context_json["signing_root_id"]
+            .as_str()
+            .expect("signing root id"),
+        context_json["signing_root_version"]
+            .as_str()
+            .expect("signing root version"),
+        context_json["key_purpose"].as_str().expect("key purpose"),
+        context_json["key_version"].as_str().expect("key version"),
+    );
+    let v2_context = EcdsaHssStableKeyContextV2::new(
+        v2_context_json["walletId"].as_str().expect("wallet id"),
+        v2_context_json["rpId"].as_str().expect("rp id"),
+        v2_context_json["ecdsaThresholdKeyId"]
+            .as_str()
+            .expect("threshold key id"),
+        v2_context_json["signingRootId"]
+            .as_str()
+            .expect("signing root id"),
+        v2_context_json["signingRootVersion"]
+            .as_str()
+            .expect("signing root version"),
+        v2_context_json["keyPurpose"].as_str().expect("key purpose"),
+        v2_context_json["keyVersion"].as_str().expect("key version"),
+    );
+    let y_client32_le = hex32(
+        inputs_json["y_client32_le_hex"]
+            .as_str()
+            .expect("client root"),
+    );
+    let y_relayer32_le = hex32(
+        inputs_json["y_relayer32_le_hex"]
+            .as_str()
+            .expect("relayer root"),
+    );
+    let v1_context_bytes = encode_context_v1(&v1_context).expect("v1 context encoding");
+    let v2_context_bytes = encode_context_v2(&v2_context).expect("v2 context encoding");
+
+    assert_ne!(v1_context_bytes, v2_context_bytes);
+    assert_eq!(
+        v2_fixture["context_encoding_hex"]
+            .as_str()
+            .expect("v2 context encoding"),
+        hex::encode(&v2_context_bytes)
+    );
+    assert!(!bytes_contain(
+        &v2_context_bytes,
+        context_json["subject_id"]
+            .as_str()
+            .expect("subject id")
+            .as_bytes()
+    ));
+    assert_ne!(
+        context_binding_v1(&v1_context).expect("v1 context binding"),
+        context_binding_v2(&v2_context).expect("v2 context binding")
+    );
+    assert_eq!(
+        v2_fixture["context_binding32_hex"]
+            .as_str()
+            .expect("v2 context binding"),
+        hex::encode(context_binding_v2(&v2_context).expect("v2 context binding"))
+    );
+
+    let v1_client = derive_client_share_v1(&v1_context, y_client32_le).expect("v1 client share");
+    let (_, v1_identity) = derive_relayer_share_for_client_public_v1(
+        &v1_context,
+        y_relayer32_le,
+        &v1_client.client_public_key33,
+        v1_client.retry_counter,
+    )
+    .expect("v1 relayer share");
+    let v2_client = derive_client_share_v2(&v2_context, y_client32_le).expect("v2 client share");
+    let (_, v2_identity) = derive_relayer_share_for_client_public_v2(
+        &v2_context,
+        y_relayer32_le,
+        &v2_client.client_public_key33,
+        v2_client.retry_counter,
+    )
+    .expect("v2 relayer share");
+
+    assert_ne!(v1_client.client_public_key33, v2_client.client_public_key33);
+    assert_eq!(
+        v2_fixture["identity"]["client_public_key33_hex"]
+            .as_str()
+            .expect("v2 client public key"),
+        hex::encode(v2_client.client_public_key33)
+    );
+    assert_ne!(
+        v1_identity.relayer_public_key33,
+        v2_identity.relayer_public_key33
+    );
+    assert_eq!(
+        v2_fixture["identity"]["relayer_public_key33_hex"]
+            .as_str()
+            .expect("v2 relayer public key"),
+        hex::encode(v2_identity.relayer_public_key33)
+    );
+    assert_ne!(
+        v1_identity.threshold_public_key33,
+        v2_identity.threshold_public_key33
+    );
+    assert_eq!(
+        v2_fixture["identity"]["threshold_public_key33_hex"]
+            .as_str()
+            .expect("v2 threshold public key"),
+        hex::encode(v2_identity.threshold_public_key33)
+    );
+    assert_ne!(
+        v1_identity.threshold_ethereum_address20,
+        v2_identity.threshold_ethereum_address20
+    );
+    assert_eq!(
+        v2_fixture["identity"]["threshold_ethereum_address20_hex"]
+            .as_str()
+            .expect("v2 threshold address"),
+        hex::encode(v2_identity.threshold_ethereum_address20)
     );
 }
 

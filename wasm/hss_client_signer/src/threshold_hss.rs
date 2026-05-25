@@ -4,7 +4,8 @@ use crate::js::{
     set_u32,
 };
 use ecdsa_hss::{
-    derive_client_share_v1, reconstruct_export_key_v1, EcdsaHssStableKeyContextV1, PublicIdentityV1,
+    derive_client_share_v2, reconstruct_export_key_v2, EcdsaHssStableKeyContextV2,
+    PublicIdentityV2,
 };
 use ed25519_hss::{
     client::{
@@ -225,12 +226,12 @@ pub fn threshold_ed25519_hss_open_seed_output(args: JsValue) -> Result<JsValue, 
 pub fn threshold_ecdsa_hss_role_local_client_bootstrap(args: JsValue) -> Result<JsValue, JsValue> {
     let context = ecdsa_canonical_context_from_js(&args)?;
     let y_client32_le = get_required_client_root_share32(&args)?;
-    let client_share = derive_client_share_v1(&context, y_client32_le)
+    let client_share = derive_client_share_v2(&context, y_client32_le)
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
     let out = object();
-    set_string(&out, "walletSessionUserId", &context.wallet_session_user_id)?;
-    set_string(&out, "subjectId", &context.subject_id)?;
+    set_string(&out, "walletId", &context.wallet_id)?;
+    set_string(&out, "rpId", &context.rp_id)?;
     set_string(&out, "ecdsaThresholdKeyId", &context.ecdsa_threshold_key_id)?;
     set_string(&out, "signingRootId", &context.signing_root_id)?;
     set_string(&out, "signingRootVersion", &context.signing_root_version)?;
@@ -269,13 +270,13 @@ pub fn threshold_ecdsa_hss_role_local_client_bootstrap(args: JsValue) -> Result<
 pub fn threshold_ecdsa_hss_role_local_export_artifact(args: JsValue) -> Result<JsValue, JsValue> {
     let context = ecdsa_canonical_context_from_js(&args)?;
     let y_client32_le = get_required_client_root_share32(&args)?;
-    let client_share = derive_client_share_v1(&context, y_client32_le)
+    let client_share = derive_client_share_v2(&context, y_client32_le)
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
     let server_export_share32 = decode_fixed_32(
         &get_required_string(&args, "serverExportShare32B64u")?,
         "serverExportShare32B64u",
     )?;
-    let identity = PublicIdentityV1 {
+    let identity = PublicIdentityV2 {
         context_bytes: client_share.context_bytes.clone(),
         context_binding32: decode_fixed_32(
             &get_required_string(&args, "contextBinding32B64u")?,
@@ -300,7 +301,7 @@ pub fn threshold_ecdsa_hss_role_local_export_artifact(args: JsValue) -> Result<J
         client_share_retry_counter: get_required_u32(&args, "clientShareRetryCounter")?,
         relayer_share_retry_counter: 0,
     };
-    let private_key32 = reconstruct_export_key_v1(&client_share, &server_export_share32, &identity)
+    let private_key32 = reconstruct_export_key_v2(&client_share, &server_export_share32, &identity)
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
     let out = object();
@@ -353,16 +354,29 @@ fn get_required_client_root_share32(args: &JsValue) -> Result<[u8; 32], JsValue>
     decode_fixed_32(&client_root_share32_b64u, "clientRootShare32B64u")
 }
 
-fn ecdsa_canonical_context_from_js(args: &JsValue) -> Result<EcdsaHssStableKeyContextV1, JsValue> {
-    Ok(EcdsaHssStableKeyContextV1::new(
-        get_required_string(args, "walletSessionUserId")?,
-        get_required_string(args, "subjectId")?,
+fn ecdsa_canonical_context_from_js(args: &JsValue) -> Result<EcdsaHssStableKeyContextV2, JsValue> {
+    reject_present(args, "subjectId")?;
+    reject_present(args, "walletSessionUserId")?;
+    Ok(EcdsaHssStableKeyContextV2::new(
+        get_required_string(args, "walletId")?,
+        get_required_string(args, "rpId")?,
         get_required_string(args, "ecdsaThresholdKeyId")?,
         get_required_string(args, "signingRootId")?,
         get_required_string(args, "signingRootVersion")?,
         get_required_string(args, "keyPurpose")?,
         get_required_string(args, "keyVersion")?,
     ))
+}
+
+fn reject_present(args: &JsValue, field_name: &str) -> Result<(), JsValue> {
+    let value = Reflect::get(args, &JsValue::from_str(field_name))
+        .map_err(|_| JsValue::from_str(&format!("Invalid args: invalid {field_name}")))?;
+    if value.is_undefined() || value.is_null() {
+        return Ok(());
+    }
+    Err(JsValue::from_str(&format!(
+        "Invalid args: {field_name} is not accepted for ECDSA HSS v2"
+    )))
 }
 
 fn decode_state_blob<T: for<'de> Deserialize<'de>>(

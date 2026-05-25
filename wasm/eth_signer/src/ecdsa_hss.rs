@@ -1,7 +1,8 @@
 use ecdsa_hss::{
-    derive_relayer_share_for_client_public_v1, public_transcript_digest_v1,
-    EcdsaHssStableKeyContextV1, ServerEvalOperationV1,
+    derive_relayer_share_for_client_public_v2, public_transcript_digest_v2,
+    EcdsaHssStableKeyContextV2, ServerEvalOperationV1,
 };
+use js_sys::Reflect;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::JsValue;
 
@@ -9,9 +10,10 @@ use crate::errors::{js_core_err, js_invalid_input_err};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[serde(deny_unknown_fields)]
 pub struct EcdsaHssRoleLocalRelayerBootstrapInputJs {
-    pub wallet_session_user_id: String,
-    pub subject_id: String,
+    pub wallet_id: String,
+    pub rp_id: String,
     pub ecdsa_threshold_key_id: String,
     pub signing_root_id: String,
     pub signing_root_version: String,
@@ -39,11 +41,13 @@ pub struct EcdsaHssRoleLocalRelayerBootstrapResultJs {
 pub fn threshold_ecdsa_hss_role_local_relayer_bootstrap(
     payload: JsValue,
 ) -> Result<JsValue, JsValue> {
+    reject_present(&payload, "subjectId")?;
+    reject_present(&payload, "walletSessionUserId")?;
     let parsed: EcdsaHssRoleLocalRelayerBootstrapInputJs =
         serde_wasm_bindgen::from_value(payload).map_err(|err| js_invalid_input_err(err))?;
-    let context = EcdsaHssStableKeyContextV1::new(
-        parsed.wallet_session_user_id,
-        parsed.subject_id,
+    let context = EcdsaHssStableKeyContextV2::new(
+        parsed.wallet_id,
+        parsed.rp_id,
         parsed.ecdsa_threshold_key_id,
         parsed.signing_root_id,
         parsed.signing_root_version,
@@ -53,7 +57,7 @@ pub fn threshold_ecdsa_hss_role_local_relayer_bootstrap(
     let y_relayer32_le = vec_to_fixed_32(parsed.y_relayer32_le, "yRelayer32Le")?;
     let client_public_key33 = vec_to_fixed_33(parsed.client_public_key33, "clientPublicKey33")?;
     validate_ascii_nonempty("relayerKeyId", &parsed.relayer_key_id)?;
-    let (relayer_share, identity) = derive_relayer_share_for_client_public_v1(
+    let (relayer_share, identity) = derive_relayer_share_for_client_public_v2(
         &context,
         y_relayer32_le,
         &client_public_key33,
@@ -61,7 +65,7 @@ pub fn threshold_ecdsa_hss_role_local_relayer_bootstrap(
     )
     .map_err(js_core_err)?;
     let public_transcript_digest32 =
-        public_transcript_digest_v1(ServerEvalOperationV1::SessionBootstrap, &identity)
+        public_transcript_digest_v2(ServerEvalOperationV1::SessionBootstrap, &identity)
             .map_err(js_core_err)?;
     serde_wasm_bindgen::to_value(&EcdsaHssRoleLocalRelayerBootstrapResultJs {
         context_binding32: identity.context_binding32.to_vec(),
@@ -112,4 +116,15 @@ fn validate_ascii_nonempty(field_name: &str, value: &str) -> Result<(), JsValue>
         )));
     }
     Ok(())
+}
+
+fn reject_present(args: &JsValue, field_name: &str) -> Result<(), JsValue> {
+    let value = Reflect::get(args, &JsValue::from_str(field_name))
+        .map_err(|_| js_invalid_input_err(format!("invalid {field_name}")))?;
+    if value.is_undefined() || value.is_null() {
+        return Ok(());
+    }
+    Err(js_invalid_input_err(format!(
+        "{field_name} is not accepted for ECDSA HSS v2"
+    )))
 }

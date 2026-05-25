@@ -5,6 +5,11 @@ pub const ECDSA_HSS_V1_SCHEME_ID: &str = "ecdsa-hss-v1";
 pub const ECDSA_HSS_V1_CURVE: &str = "secp256k1";
 pub const ECDSA_HSS_V1_KEY_SCOPE: &str = "evm-family";
 pub const ECDSA_HSS_V1_PARTICIPANT_IDS: [u16; 2] = [1, 2];
+pub const ECDSA_HSS_V2_CONTEXT_DOMAIN_TAG: &[u8] = b"ecdsa-hss:context:v2";
+pub const ECDSA_HSS_V2_SCHEME_ID: &str = "ecdsa-hss-v2";
+pub const ECDSA_HSS_V2_CURVE: &str = "secp256k1";
+pub const ECDSA_HSS_V2_KEY_SCOPE: &str = "evm-family";
+pub const ECDSA_HSS_V2_PARTICIPANT_IDS: [u16; 2] = [1, 2];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EcdsaHssStableKeyContextV1 {
@@ -15,6 +20,50 @@ pub struct EcdsaHssStableKeyContextV1 {
     pub signing_root_version: String,
     pub key_purpose: String,
     pub key_version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EcdsaHssStableKeyContextV2 {
+    pub wallet_id: String,
+    pub rp_id: String,
+    pub ecdsa_threshold_key_id: String,
+    pub signing_root_id: String,
+    pub signing_root_version: String,
+    pub key_purpose: String,
+    pub key_version: String,
+}
+
+impl EcdsaHssStableKeyContextV2 {
+    pub fn new(
+        wallet_id: impl Into<String>,
+        rp_id: impl Into<String>,
+        ecdsa_threshold_key_id: impl Into<String>,
+        signing_root_id: impl Into<String>,
+        signing_root_version: impl Into<String>,
+        key_purpose: impl Into<String>,
+        key_version: impl Into<String>,
+    ) -> Self {
+        Self {
+            wallet_id: wallet_id.into(),
+            rp_id: rp_id.into(),
+            ecdsa_threshold_key_id: ecdsa_threshold_key_id.into(),
+            signing_root_id: signing_root_id.into(),
+            signing_root_version: signing_root_version.into(),
+            key_purpose: key_purpose.into(),
+            key_version: key_version.into(),
+        }
+    }
+
+    pub fn validate(&self) -> CoreResult<()> {
+        validate_ascii_field("wallet_id", &self.wallet_id)?;
+        validate_ascii_field("rp_id", &self.rp_id)?;
+        validate_ascii_field("ecdsa_threshold_key_id", &self.ecdsa_threshold_key_id)?;
+        validate_ascii_field("signing_root_id", &self.signing_root_id)?;
+        validate_ascii_field("signing_root_version", &self.signing_root_version)?;
+        validate_ascii_field("key_purpose", &self.key_purpose)?;
+        validate_ascii_field("key_version", &self.key_version)?;
+        Ok(())
+    }
 }
 
 impl EcdsaHssStableKeyContextV1 {
@@ -87,6 +136,49 @@ pub fn encode_context_v1(context: &EcdsaHssStableKeyContextV1) -> CoreResult<Vec
         })?,
     );
     for participant_id in ECDSA_HSS_V1_PARTICIPANT_IDS {
+        out.extend_from_slice(&participant_id.to_be_bytes());
+    }
+
+    Ok(out)
+}
+
+pub fn encode_context_v2(context: &EcdsaHssStableKeyContextV2) -> CoreResult<Vec<u8>> {
+    context.validate()?;
+
+    let mut out = Vec::with_capacity(
+        ECDSA_HSS_V2_CONTEXT_DOMAIN_TAG.len()
+            + encoded_string_len(ECDSA_HSS_V2_SCHEME_ID)?
+            + encoded_string_len(ECDSA_HSS_V2_CURVE)?
+            + encoded_string_len(&context.wallet_id)?
+            + encoded_string_len(&context.rp_id)?
+            + encoded_string_len(ECDSA_HSS_V2_KEY_SCOPE)?
+            + encoded_string_len(&context.ecdsa_threshold_key_id)?
+            + encoded_string_len(&context.signing_root_id)?
+            + encoded_string_len(&context.signing_root_version)?
+            + encoded_string_len(&context.key_purpose)?
+            + encoded_string_len(&context.key_version)?
+            + 1
+            + (ECDSA_HSS_V2_PARTICIPANT_IDS.len() * 2),
+    );
+
+    out.extend_from_slice(ECDSA_HSS_V2_CONTEXT_DOMAIN_TAG);
+    push_ascii_string(&mut out, ECDSA_HSS_V2_SCHEME_ID)?;
+    push_ascii_string(&mut out, ECDSA_HSS_V2_CURVE)?;
+    push_ascii_string(&mut out, &context.wallet_id)?;
+    push_ascii_string(&mut out, &context.rp_id)?;
+    push_ascii_string(&mut out, ECDSA_HSS_V2_KEY_SCOPE)?;
+    push_ascii_string(&mut out, &context.ecdsa_threshold_key_id)?;
+    push_ascii_string(&mut out, &context.signing_root_id)?;
+    push_ascii_string(&mut out, &context.signing_root_version)?;
+    push_ascii_string(&mut out, &context.key_purpose)?;
+    push_ascii_string(&mut out, &context.key_version)?;
+
+    out.push(
+        u8::try_from(ECDSA_HSS_V2_PARTICIPANT_IDS.len()).map_err(|_| {
+            SignerCoreError::invalid_length("participant_ids length exceeds u8 range")
+        })?,
+    );
+    for participant_id in ECDSA_HSS_V2_PARTICIPANT_IDS {
         out.extend_from_slice(&participant_id.to_be_bytes());
     }
 

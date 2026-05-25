@@ -29,11 +29,11 @@ mkdir -p "${GENERATED_DIR}"
   cd "${CRATE_DIR}"
   "${CHARON_BIN}" cargo \
     --preset aeneas \
-    --start-from ecdsa_hss::server::boundary::visible_boundary_from_respond_response_v1 \
-    --start-from ecdsa_hss::server::boundary::hidden_eval_input_boundary_from_staged_request_v1 \
-    --start-from ecdsa_hss::server::boundary::hidden_eval_transport_boundary_from_respond_response_v1 \
-    --start-from ecdsa_hss::server::boundary::hidden_eval_persisted_state_boundary_from_finalized_session_v1 \
-    --start-from ecdsa_hss::server::boundary::hidden_eval_boundary_from_parts_v1 \
+    --start-from ecdsa_hss::server::boundary::visible_boundary_from_respond_response_v2 \
+    --start-from ecdsa_hss::server::boundary::hidden_eval_input_boundary_from_staged_request_v2 \
+    --start-from ecdsa_hss::server::boundary::hidden_eval_transport_boundary_from_respond_response_v2 \
+    --start-from ecdsa_hss::server::boundary::hidden_eval_persisted_state_boundary_from_finalized_session_v2 \
+    --start-from ecdsa_hss::server::boundary::hidden_eval_boundary_from_parts_v2 \
     --dest-file "${LLBC_FILE}" \
     -- --lib
 )

@@ -14,12 +14,12 @@ instance {α : Type u} {n : Aeneas.Std.Usize} [Repr α] :
     Repr (Aeneas.Std.Array α n) where
   reprPrec value prec := reprPrec value.val prec
 
-deriving instance DecidableEq for wire.ServerEvalOperationV1
-deriving instance Repr for wire.ServerEvalOperationV1
-deriving instance DecidableEq for wire.AllowedOutputKindV1
-deriving instance Repr for wire.AllowedOutputKindV1
-deriving instance DecidableEq for shared.context.EcdsaHssStableKeyContextV1
-deriving instance Repr for shared.context.EcdsaHssStableKeyContextV1
+deriving instance DecidableEq for wire.ServerEvalOperationV2
+deriving instance Repr for wire.ServerEvalOperationV2
+deriving instance DecidableEq for wire.AllowedOutputKindV2
+deriving instance Repr for wire.AllowedOutputKindV2
+deriving instance DecidableEq for shared.context.EcdsaHssStableKeyContextV2
+deriving instance Repr for shared.context.EcdsaHssStableKeyContextV2
 
 /-- The initial extraction target is intentionally narrow. -/
 inductive ExtractionTarget where
@@ -29,8 +29,8 @@ inductive ExtractionTarget where
 
 /-- Handwritten boundary model for operation-to-output-kind policy. -/
 structure OperationBoundaryModel where
-  operation : wire.ServerEvalOperationV1
-  allowedOutputKind : wire.AllowedOutputKindV1
+  operation : wire.ServerEvalOperationV2
+  allowedOutputKind : wire.AllowedOutputKindV2
   deriving DecidableEq, Repr
 
 /-- Handwritten boundary model for the visible non-export output. -/
@@ -62,7 +62,7 @@ inductive ClientBoundaryModel where
 
 /-- Handwritten boundary model for the finalize envelope projection. -/
 structure FinalizeBoundaryModel where
-  operation : wire.ServerEvalOperationV1
+  operation : wire.ServerEvalOperationV2
   rawRootMaterialDropped : Bool
   relayerKeyId : String
   clientPublicKey33 : Array Std.U8 33#usize
@@ -96,9 +96,9 @@ structure RespondBoundaryModel where
 
 /-- Handwritten boundary model for the hidden-eval/compiler-facing input seam. -/
 structure HiddenEvalInputBoundaryModel where
-  operation : wire.ServerEvalOperationV1
-  allowedOutputKind : wire.AllowedOutputKindV1
-  context : shared.context.EcdsaHssStableKeyContextV1
+  operation : wire.ServerEvalOperationV2
+  allowedOutputKind : wire.AllowedOutputKindV2
+  context : shared.context.EcdsaHssStableKeyContextV2
   relayerKeyId : String
   clientPublicKey33 : Array Std.U8 33#usize
   clientShareRetryCounter : Std.U32
@@ -115,7 +115,7 @@ structure HiddenEvalTransportBoundaryModel where
 
 /-- Handwritten boundary model for persisted state after accepted finalize. -/
 structure HiddenEvalPersistedStateBoundaryModel where
-  operation : wire.ServerEvalOperationV1
+  operation : wire.ServerEvalOperationV2
   rawRootMaterialDropped : Bool
   relayerKeyId : String
   relayerShare32 : Array Std.U8 32#usize
@@ -134,18 +134,18 @@ structure HiddenEvalBoundaryModel where
   persisted : HiddenEvalPersistedStateBoundaryModel
   deriving DecidableEq, Repr
 
-/-- Handwritten policy function for the frozen v1 operation/output-kind mapping. -/
+/-- Handwritten policy function for the frozen v2 operation/output-kind mapping. -/
 def expectedAllowedOutputKindForOperation
-    (operation : wire.ServerEvalOperationV1) : wire.AllowedOutputKindV1 :=
+    (operation : wire.ServerEvalOperationV2) : wire.AllowedOutputKindV2 :=
   match operation with
-  | wire.ServerEvalOperationV1.RegistrationBootstrap =>
-    wire.AllowedOutputKindV1.ThresholdMaterialOnly
-  | wire.ServerEvalOperationV1.SessionBootstrap =>
-    wire.AllowedOutputKindV1.ThresholdMaterialOnly
-  | wire.ServerEvalOperationV1.NonExportSign =>
-    wire.AllowedOutputKindV1.ThresholdMaterialOnly
-  | wire.ServerEvalOperationV1.ExplicitKeyExport =>
-    wire.AllowedOutputKindV1.ThresholdMaterialAndRelayerExportShare
+  | wire.ServerEvalOperationV2.RegistrationBootstrap =>
+    wire.AllowedOutputKindV2.ThresholdMaterialOnly
+  | wire.ServerEvalOperationV2.SessionBootstrap =>
+    wire.AllowedOutputKindV2.ThresholdMaterialOnly
+  | wire.ServerEvalOperationV2.NonExportSign =>
+    wire.AllowedOutputKindV2.ThresholdMaterialOnly
+  | wire.ServerEvalOperationV2.ExplicitKeyExport =>
+    wire.AllowedOutputKindV2.ThresholdMaterialAndRelayerExportShare
 
 theorem initial_extraction_target_is_staged_server_boundary :
     ExtractionTarget.stagedServerBoundary =
@@ -157,18 +157,18 @@ theorem hidden_eval_extraction_target_is_frozen :
       ExtractionTarget.hiddenEvalBoundary := by
   rfl
 
-theorem expectedAllowedOutputKindForOperation_matches_frozen_v1_policy
-    (operation : wire.ServerEvalOperationV1) :
+theorem expectedAllowedOutputKindForOperation_matches_frozen_v2_policy
+    (operation : wire.ServerEvalOperationV2) :
     expectedAllowedOutputKindForOperation operation =
       match operation with
-      | wire.ServerEvalOperationV1.RegistrationBootstrap =>
-        wire.AllowedOutputKindV1.ThresholdMaterialOnly
-      | wire.ServerEvalOperationV1.SessionBootstrap =>
-        wire.AllowedOutputKindV1.ThresholdMaterialOnly
-      | wire.ServerEvalOperationV1.NonExportSign =>
-        wire.AllowedOutputKindV1.ThresholdMaterialOnly
-      | wire.ServerEvalOperationV1.ExplicitKeyExport =>
-        wire.AllowedOutputKindV1.ThresholdMaterialAndRelayerExportShare := by
+      | wire.ServerEvalOperationV2.RegistrationBootstrap =>
+        wire.AllowedOutputKindV2.ThresholdMaterialOnly
+      | wire.ServerEvalOperationV2.SessionBootstrap =>
+        wire.AllowedOutputKindV2.ThresholdMaterialOnly
+      | wire.ServerEvalOperationV2.NonExportSign =>
+        wire.AllowedOutputKindV2.ThresholdMaterialOnly
+      | wire.ServerEvalOperationV2.ExplicitKeyExport =>
+        wire.AllowedOutputKindV2.ThresholdMaterialAndRelayerExportShare := by
   cases operation <;> rfl
 
 end EcdsaHssBoundary
