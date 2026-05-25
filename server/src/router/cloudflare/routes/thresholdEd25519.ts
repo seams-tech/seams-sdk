@@ -28,6 +28,106 @@ import {
   parseThresholdEcdsaSessionClaims,
 } from '../../../core/ThresholdService/validation';
 
+function isEmailOtpRegistrationHssRequest(body: Record<string, unknown>): boolean {
+  return (
+    body.kind === 'email_otp_registration' &&
+    typeof body.registrationAttemptId === 'string' &&
+    typeof body.new_account_id === 'string' &&
+    typeof body.rp_id === 'string'
+  );
+}
+
+async function resolveEmailOtpRegistrationHssAuth(args: {
+  ctx: CloudflareRelayContext;
+  body: Record<string, unknown>;
+}): Promise<
+  | {
+      ok: true;
+      appSessionClaims: NonNullable<ReturnType<typeof parseAppSessionClaims>>;
+      runtimePolicyScope: NonNullable<
+        NonNullable<ReturnType<typeof parseAppSessionClaims>>['runtimePolicyScope']
+      >;
+    }
+  | { ok: false; code: string; message: string }
+> {
+  const session = args.ctx.opts.session;
+  if (!session) return { ok: false, code: 'sessions_disabled', message: 'Sessions are disabled' };
+  const parsed = await session.parse(Object.fromEntries(args.ctx.request.headers.entries()));
+  if (!parsed.ok) return { ok: false, code: 'unauthorized', message: 'Missing app session' };
+  const appSessionClaims = parseAppSessionClaims(parsed.claims);
+  if (!appSessionClaims) {
+    return { ok: false, code: 'unauthorized', message: 'Email OTP registration requires app session auth' };
+  }
+  if (appSessionClaims.exp !== undefined && appSessionClaims.exp * 1000 <= Date.now()) {
+    return { ok: false, code: 'unauthorized', message: 'App session is expired' };
+  }
+  const validated = await args.ctx.service.validateAppSessionVersion({
+    userId: appSessionClaims.sub,
+    appSessionVersion: appSessionClaims.appSessionVersion,
+  });
+  if (!validated.ok) return { ok: false, code: 'unauthorized', message: validated.message };
+
+  const walletId = String(args.body.new_account_id || '').trim();
+  const registrationAttemptId = String(args.body.registrationAttemptId || '').trim();
+  if (String(appSessionClaims.walletId || '').trim() !== walletId) {
+    return { ok: false, code: 'unauthorized', message: 'Email OTP registration wallet mismatch' };
+  }
+  if (
+    String(
+      (appSessionClaims as { googleEmailOtpRegistrationAttemptId?: unknown })
+        .googleEmailOtpRegistrationAttemptId || '',
+    ).trim() !== registrationAttemptId
+  ) {
+    return {
+      ok: false,
+      code: 'unauthorized',
+      message: 'Email OTP registration attempt mismatch',
+    };
+  }
+  const runtimePolicyScope = appSessionClaims.runtimePolicyScope;
+  if (!runtimePolicyScope?.orgId) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'Email OTP registration requires runtime policy scope',
+    };
+  }
+  return { ok: true, appSessionClaims, runtimePolicyScope };
+}
+
+async function signEmailOtpRegistrationEd25519SessionJwt(args: {
+  ctx: CloudflareRelayContext;
+  nearAccountId: string;
+  rpId: string;
+  relayerKeyId: string;
+  sessionResult: Record<string, unknown>;
+  participantIds: number[];
+  runtimePolicyScope: NonNullable<ReturnType<typeof parseAppSessionClaims>>['runtimePolicyScope'];
+}): Promise<string> {
+  const session = args.ctx.opts.session;
+  if (!session) throw new Error('Sessions are disabled');
+  const sessionId = String(args.sessionResult.sessionId || '').trim();
+  const walletSigningSessionId = String(args.sessionResult.walletSigningSessionId || '').trim();
+  const expiresAtMs = Number(args.sessionResult.expiresAtMs);
+  if (!sessionId || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0) {
+    throw new Error('threshold-ed25519 session bootstrap returned incomplete session state');
+  }
+  const nowSec = Math.floor(Date.now() / 1000);
+  return await session.signJwt(args.nearAccountId, {
+    kind: 'threshold_ed25519_session_v1',
+    walletId: args.nearAccountId,
+    sessionId,
+    ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
+    relayerKeyId: args.relayerKeyId,
+    rpId: args.rpId,
+    participantIds: args.participantIds,
+    thresholdExpiresAtMs: expiresAtMs,
+    ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
+    iat: nowSec,
+    exp: Math.floor(expiresAtMs / 1000),
+  });
+}
+
 export async function handleThresholdEd25519(
   ctx: CloudflareRelayContext,
 ): Promise<Response | null> {
@@ -303,6 +403,20 @@ export async function handleThresholdEd25519(
         };
         return json(result, { status: 501 });
       }
+      if (isEmailOtpRegistrationHssRequest(b)) {
+        const auth = await resolveEmailOtpRegistrationHssAuth({ ctx, body: b });
+        if (!auth.ok) return json(auth, { status: thresholdEd25519StatusCode(auth) });
+        const result = await (threshold.ed25519Hss as any).prepareForRegistration({
+          orgId: auth.runtimePolicyScope.orgId,
+          signingRootId:
+            b.context && typeof b.context === 'object' && !Array.isArray(b.context)
+              ? String((b.context as Record<string, unknown>).signingRootId || '').trim()
+              : undefined,
+          signingRootVersion: auth.runtimePolicyScope.signingRootVersion,
+          request: b as any,
+        });
+        return json(result, { status: thresholdEd25519StatusCode(result) });
+      }
       const validated = await validateThresholdEd25519SessionTokenInputs({
         body,
         headers: Object.fromEntries(ctx.request.headers.entries()),
@@ -347,6 +461,89 @@ export async function handleThresholdEd25519(
         };
         return json(result, { status: 501 });
       }
+      if (isEmailOtpRegistrationHssRequest(b)) {
+        const auth = await resolveEmailOtpRegistrationHssAuth({ ctx, body: b });
+        if (!auth.ok) return json(auth, { status: thresholdEd25519StatusCode(auth) });
+        const finalized = await (threshold.ed25519Hss as any).finalizeForRegistration({
+          orgId: auth.runtimePolicyScope.orgId,
+          request: b as any,
+        });
+        if (!finalized.ok) return json(finalized, { status: thresholdEd25519StatusCode(finalized) });
+        const nearAccountId = String(b.new_account_id || '').trim();
+        const rpId = String(b.rp_id || '').trim();
+        const publicKey = String(finalized.publicKey || '').trim();
+        const created = await ctx.service.createAccount({
+          accountId: nearAccountId,
+          publicKey,
+        });
+        if (!created.success) {
+          const result = {
+            ok: false,
+            code: 'account_creation_failed',
+            message: created.error || created.message || 'Failed to create NEAR account',
+          };
+          return json(result, { status: thresholdEd25519StatusCode(result) });
+        }
+        const keyVersion =
+          b.context && typeof b.context === 'object' && !Array.isArray(b.context)
+            ? String((b.context as Record<string, unknown>).keyVersion || '').trim()
+            : '';
+        const participantIds =
+          b.context && typeof b.context === 'object' && !Array.isArray(b.context)
+            ? ((b.context as Record<string, unknown>).participantIds as number[] | undefined)
+            : undefined;
+        let sessionResult: Record<string, unknown> | null = null;
+        const sessionPolicy = b.sessionPolicy as Record<string, unknown> | undefined;
+        if (sessionPolicy) {
+          const minted = await (threshold as any).mintEd25519SessionFromRegistration({
+            nearAccountId,
+            rpId,
+            relayerKeyId: finalized.relayerKeyId,
+            sessionPolicy: {
+              ...sessionPolicy,
+              nearAccountId,
+              rpId,
+              relayerKeyId: finalized.relayerKeyId,
+              runtimePolicyScope: auth.runtimePolicyScope,
+            },
+          });
+          if (!minted.ok) return json(minted, { status: thresholdEd25519StatusCode(minted) });
+          const jwt = await signEmailOtpRegistrationEd25519SessionJwt({
+            ctx,
+            nearAccountId,
+            rpId,
+            relayerKeyId: finalized.relayerKeyId,
+            sessionResult: minted as Record<string, unknown>,
+            participantIds: Array.isArray(minted.participantIds)
+              ? minted.participantIds
+              : Array.isArray(participantIds)
+                ? participantIds
+                : [],
+            runtimePolicyScope: auth.runtimePolicyScope,
+          });
+          sessionResult = {
+            ...minted,
+            sessionKind: 'jwt',
+            jwt,
+            runtimePolicyScope: auth.runtimePolicyScope,
+          };
+        }
+        const recorded = await ctx.service.recordGoogleEmailOtpRegistrationAttemptPublicKey({
+          registrationAttemptId: b.registrationAttemptId,
+          walletId: nearAccountId,
+          finalizedPublicKey: publicKey,
+        });
+        if (!recorded.ok) return json(recorded, { status: thresholdEd25519StatusCode(recorded) });
+        const result = {
+          ok: true,
+          publicKey,
+          relayerKeyId: finalized.relayerKeyId,
+          keyVersion,
+          recoveryExportCapable: true,
+          ...(sessionResult ? { session: sessionResult } : {}),
+        };
+        return json(result, { status: 200 });
+      }
       const validated = await validateThresholdEd25519SessionTokenInputs({
         body,
         headers: Object.fromEntries(ctx.request.headers.entries()),
@@ -382,6 +579,15 @@ export async function handleThresholdEd25519(
           message: 'Threshold Ed25519 HSS is not configured on this server',
         };
         return json(result, { status: 501 });
+      }
+      if (isEmailOtpRegistrationHssRequest(b)) {
+        const auth = await resolveEmailOtpRegistrationHssAuth({ ctx, body: b });
+        if (!auth.ok) return json(auth, { status: thresholdEd25519StatusCode(auth) });
+        const result = await (threshold.ed25519Hss as any).respondForRegistration({
+          orgId: auth.runtimePolicyScope.orgId,
+          request: b as any,
+        });
+        return json(result, { status: thresholdEd25519StatusCode(result) });
       }
       const validated = await validateThresholdEd25519SessionTokenInputs({
         body,

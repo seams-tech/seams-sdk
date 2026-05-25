@@ -6,11 +6,17 @@ import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/ses
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import {
   buildEd25519SessionPolicy,
+  DEFAULT_THRESHOLD_SESSION_POLICY,
+  generateThresholdSessionId,
+  generateWalletSigningSessionId,
   normalizeThresholdRuntimePolicyScope,
   parseThresholdRuntimePolicyScopeFromJwt,
+  THRESHOLD_SESSION_POLICY_VERSION,
 } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import {
+  buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactWasm,
+  deriveThresholdEd25519HssClientOutputMaskWasm,
   deriveThresholdEd25519HssClientInputsWasm,
   prepareThresholdEd25519HssClientRequestWasm,
 } from '@/core/signingEngine/threshold/crypto/hssClientSignerWasm';
@@ -312,10 +318,209 @@ export async function registerEmailOtpEd25519Capability(args: {
   });
 
   void managedGrantForNextRegistrationRequest;
-  void clientInputs;
-  throw new Error(
-    'Email OTP Ed25519 registration provisioning must use a wallet-subject ceremony before it can run',
-  );
+  const appSessionJwt = String(input.appSessionJwt || '').trim();
+  if (!appSessionJwt) {
+    throw new Error('Email OTP threshold-ed25519 registration requires app-session auth');
+  }
+  const authHeaders = { Authorization: `Bearer ${appSessionJwt}` };
+  const registrationBodyBase = {
+    kind: 'email_otp_registration',
+    registrationAttemptId: input.registrationAttemptId,
+    new_account_id: String(nearAccountId),
+    rp_id: rpId,
+    context,
+  };
+  const prepared = await postJsonExpectOk({
+    url: joinUrlPath(relayerUrl, '/threshold-ed25519/hss/prepare'),
+    headers: authHeaders,
+    credentials: 'include',
+    operation: 'Email OTP threshold-ed25519 registration HSS prepare',
+    body: registrationBodyBase,
+  });
+  const ceremonyHandle = String(prepared.ceremonyHandle || '').trim();
+  const preparedSession =
+    prepared.preparedSession && typeof prepared.preparedSession === 'object'
+      ? (prepared.preparedSession as {
+          contextBindingB64u?: string;
+          evaluatorDriverStateB64u?: string;
+        })
+      : null;
+  const clientOtOfferMessageB64u = String(prepared.clientOtOfferMessageB64u || '').trim();
+  if (
+    !ceremonyHandle ||
+    !preparedSession?.contextBindingB64u ||
+    !preparedSession.evaluatorDriverStateB64u ||
+    !clientOtOfferMessageB64u
+  ) {
+    throw new Error('Email OTP threshold-ed25519 registration HSS prepare returned incomplete data');
+  }
+  const preparedSessionEnvelope = {
+    contextBindingB64u: preparedSession.contextBindingB64u,
+    evaluatorDriverStateB64u: preparedSession.evaluatorDriverStateB64u,
+  };
+  const { clientOutputMaskB64u } = await deriveThresholdEd25519HssClientOutputMaskWasm({
+    clientRecoverableSecretB64u: prfFirstB64u,
+    context: {
+      ...context,
+      contextBindingB64u: preparedSessionEnvelope.contextBindingB64u,
+      operation: 'registration',
+      relayerKeyId: `registration:${ceremonyHandle}`,
+    },
+    workerCtx,
+  });
+  const clientRequest = await prepareThresholdEd25519HssClientRequestWasm({
+    evaluatorDriverStateB64u: preparedSessionEnvelope.evaluatorDriverStateB64u,
+    clientOtOfferMessageB64u,
+    clientInputs,
+    workerCtx,
+  });
+  const responded = await postJsonExpectOk({
+    url: joinUrlPath(relayerUrl, '/threshold-ed25519/hss/respond'),
+    headers: authHeaders,
+    credentials: 'include',
+    operation: 'Email OTP threshold-ed25519 registration HSS respond',
+    body: {
+      ...registrationBodyBase,
+      ceremonyHandle,
+      clientRequest: {
+        clientRequestMessageB64u: clientRequest.clientRequestMessageB64u,
+      },
+    },
+  });
+  const serverInputDeliveryB64u = String(responded.serverInputDeliveryB64u || '').trim();
+  if (!serverInputDeliveryB64u) {
+    throw new Error('Email OTP threshold-ed25519 registration HSS respond returned incomplete data');
+  }
+  const evaluationResult =
+    await buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactWasm({
+      preparedSession: preparedSessionEnvelope,
+      clientRequest,
+      serverInputDelivery: { serverInputDeliveryB64u },
+      clientOutputMaskB64u,
+      workerCtx,
+    });
+  const sessionPolicy = {
+    version: THRESHOLD_SESSION_POLICY_VERSION,
+    nearAccountId: String(nearAccountId),
+    rpId,
+    sessionId: generateThresholdSessionId(),
+    walletSigningSessionId: generateWalletSigningSessionId(),
+    runtimePolicyScope,
+    participantIds,
+    ttlMs:
+      typeof input.ttlMs === 'number'
+        ? input.ttlMs
+        : DEFAULT_THRESHOLD_SESSION_POLICY.ttlMs,
+    remainingUses:
+      typeof input.remainingUses === 'number'
+        ? input.remainingUses
+        : DEFAULT_THRESHOLD_SESSION_POLICY.remainingUses,
+  };
+  const finalized = await postJsonExpectOk({
+    url: joinUrlPath(relayerUrl, '/threshold-ed25519/hss/finalize'),
+    headers: authHeaders,
+    credentials: 'include',
+    operation: 'Email OTP threshold-ed25519 registration HSS finalize',
+    body: {
+      ...registrationBodyBase,
+      ceremonyHandle,
+      evaluationResult,
+      sessionKind: 'jwt',
+      sessionPolicy,
+    },
+  });
+  const publicKey = String(finalized.publicKey || '').trim();
+  const relayerKeyId = String(finalized.relayerKeyId || '').trim();
+  const session =
+    finalized.session && typeof finalized.session === 'object'
+      ? (finalized.session as Record<string, unknown>)
+      : null;
+  const sessionId = String(session?.sessionId || '').trim();
+  const jwt = String(session?.jwt || '').trim();
+  const walletSigningSessionId = normalizeOptionalString(session?.walletSigningSessionId);
+  const expiresAtMs = Number.isFinite(Number(session?.expiresAtMs))
+    ? Math.floor(Number(session?.expiresAtMs))
+    : session?.expiresAt
+      ? Date.parse(String(session.expiresAt))
+      : Date.now() + sessionPolicy.ttlMs;
+  const remainingUses = Number.isFinite(Number(session?.remainingUses))
+    ? Math.floor(Number(session?.remainingUses))
+    : sessionPolicy.remainingUses;
+  const sessionParticipantIds =
+    normalizeThresholdEd25519ParticipantIds(session?.participantIds) || participantIds;
+  const sessionScope =
+    normalizeThresholdRuntimePolicyScope(session?.runtimePolicyScope) || runtimePolicyScope;
+  if (
+    !publicKey ||
+    !relayerKeyId ||
+    !sessionId ||
+    !jwt ||
+    !walletSigningSessionId ||
+    !Number.isFinite(expiresAtMs) ||
+    expiresAtMs <= 0
+  ) {
+    throw new Error('Email OTP threshold-ed25519 registration finalize returned incomplete data');
+  }
+  await args.persistEmailOtpThresholdEd25519LocalMetadata({
+    nearAccountId,
+    rpId,
+    relayerUrl,
+    publicKey,
+    relayerKeyId,
+    keyVersion,
+    participantIds: sessionParticipantIds,
+  });
+  await args.persistWarmSessionEd25519Capability({
+    kind: 'jwt_email_otp',
+    nearAccountId,
+    rpId,
+    relayerUrl,
+    relayerKeyId,
+    runtimePolicyScope: sessionScope,
+    participantIds: sessionParticipantIds,
+    sessionKind: 'jwt',
+    sessionId,
+    walletSigningSessionId,
+    expiresAtMs,
+    remainingUses,
+    jwt,
+    emailOtpAuthContext: input.emailOtpAuthContext,
+    source: 'email_otp',
+  });
+  await args.hydrateSigningSession({
+    sessionId,
+    prfFirstB64u,
+    expiresAtMs,
+    remainingUses,
+    transport: {
+      curve: 'ed25519',
+      relayerUrl,
+      thresholdSessionAuthToken: jwt,
+    },
+  });
+  if (input.kind === 'registration_ed25519_companion_provisioning') {
+    await attachEd25519SessionToEmailOtpSigningSessionSealBestEffort({
+      sessionPersistenceMode: args.sessionPersistenceMode,
+      ecdsaThresholdSessionId: input.ecdsaThresholdSessionId,
+      ed25519ThresholdSessionId: sessionId,
+      readExactSealedSession: args.readExactSealedSession,
+      getThresholdEcdsaSessionRecordByThresholdSessionId:
+        args.getThresholdEcdsaSessionRecordByThresholdSessionId,
+      getThresholdEd25519SessionRecordByThresholdSessionId:
+        args.getThresholdEd25519SessionRecordByThresholdSessionId,
+      registerSigningSession: args.registerSigningSession,
+    });
+  }
+  return {
+    publicKey,
+    relayerKeyId,
+    keyVersion,
+    sessionId,
+    expiresAtMs,
+    remainingUses,
+    participantIds: sessionParticipantIds,
+    jwt,
+  };
 }
 
 export async function reconstructEmailOtpEd25519Session(args: {
