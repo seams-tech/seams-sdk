@@ -4,9 +4,9 @@ import { base64UrlEncode } from '../utils/encoders';
 const THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID = 'threshold-secp256k1-ecdsa-2p-v1';
 
 export const ECDSA_HSS_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION =
-  'ecdsa-hss:role-local:first-bootstrap-root-proof:v1' as const;
+  'ecdsa-hss:role-local:first-bootstrap-root-proof:v2' as const;
 export const ECDSA_HSS_ROLE_LOCAL_PASSKEY_BOOTSTRAP_AUTH_VERSION =
-  'ecdsa-hss:role-local:passkey-bootstrap-auth:v1' as const;
+  'ecdsa-hss:role-local:passkey-bootstrap-auth:v2' as const;
 
 export type EcdsaHssRoleLocalFirstBootstrapRootProof = {
   version: typeof ECDSA_HSS_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION;
@@ -15,9 +15,8 @@ export type EcdsaHssRoleLocalFirstBootstrapRootProof = {
 };
 
 export type EcdsaHssRoleLocalBootstrapIdentity = {
-  walletSessionUserId: string;
+  walletId: string;
   rpId: string;
-  subjectId: string;
   ecdsaThresholdKeyId: string;
   signingRootId: string;
   signingRootVersion: string;
@@ -40,19 +39,17 @@ export type EcdsaHssRoleLocalPasskeyBootstrapIdentity = Omit<
 >;
 
 export async function computeEcdsaHssRoleLocalThresholdKeyId(input: {
-  walletSessionUserId: string;
+  walletId: string;
   rpId: string;
-  subjectId: string;
   signingRootId: string;
   signingRootVersion: string;
 }): Promise<string> {
   const digest32 = await sha256BytesUtf8(
     alphabetizeStringify({
-      version: 'threshold_ecdsa_hss_key_id_v6',
+      version: 'threshold_ecdsa_hss_key_id_v7',
       schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
-      walletSessionUserId: input.walletSessionUserId,
+      walletId: input.walletId,
       rpId: input.rpId,
-      subjectId: input.subjectId,
       signingRootId: input.signingRootId,
       signingRootVersion: input.signingRootVersion,
     }),
@@ -61,14 +58,14 @@ export async function computeEcdsaHssRoleLocalThresholdKeyId(input: {
 }
 
 export async function computeEcdsaHssRoleLocalRelayerKeyId(input: {
-  walletSessionUserId: string;
+  walletId: string;
   rpId: string;
 }): Promise<string> {
   const digest32 = await sha256BytesUtf8(
     alphabetizeStringify({
       version: 'threshold_ecdsa_hss_relayer_key_id_v1',
       schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
-      userId: input.walletSessionUserId,
+      walletId: input.walletId,
       rpId: input.rpId,
     }),
   );
@@ -81,9 +78,8 @@ export async function computeEcdsaHssRoleLocalFirstBootstrapRootProofDigest32(
   return await sha256BytesUtf8(
     alphabetizeStringify({
       version: ECDSA_HSS_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION,
-      walletSessionUserId: input.walletSessionUserId,
+      walletId: input.walletId,
       rpId: input.rpId,
-      subjectId: input.subjectId,
       ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
       signingRootId: input.signingRootId,
       signingRootVersion: input.signingRootVersion,
@@ -114,9 +110,8 @@ export async function computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32(
   return await sha256BytesUtf8(
     alphabetizeStringify({
       version: ECDSA_HSS_ROLE_LOCAL_PASSKEY_BOOTSTRAP_AUTH_VERSION,
-      walletSessionUserId: input.walletSessionUserId,
+      walletId: input.walletId,
       rpId: input.rpId,
-      subjectId: input.subjectId,
       ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
       signingRootId: input.signingRootId,
       signingRootVersion: input.signingRootVersion,

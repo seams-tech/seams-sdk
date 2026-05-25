@@ -5,15 +5,13 @@ import {
 } from '../../client/src/core/rpcClients/relayer/thresholdEcdsa';
 import {
   toEcdsaHssThresholdKeyId,
-  toEcdsaHssWalletSubjectId,
-  toWalletSessionUserId,
 } from '../../client/src/core/signingEngine/session/identity/emailOtpHssIdentity';
+import { toWalletId } from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
 
 const BOOTSTRAP_ARGS = {
   formatVersion: 'ecdsa-hss-role-local' as const,
-  walletSessionUserId: toWalletSessionUserId('wallet-user'),
+  walletId: toWalletId('wallet-user'),
   rpId: 'wallet.example.test',
-  subjectId: toEcdsaHssWalletSubjectId('wallet-user'),
   ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId('ecdsa-threshold-key'),
   signingRootId: 'project:env',
   signingRootVersion: 'default',
@@ -33,9 +31,8 @@ const BOOTSTRAP_ARGS = {
 function bootstrapValue(overrides?: Record<string, unknown>): Record<string, unknown> {
   return {
     formatVersion: 'ecdsa-hss-role-local',
-    walletSessionUserId: 'wallet-user',
+    walletId: 'wallet-user',
     rpId: 'wallet.example.test',
-    subjectId: 'wallet-user',
     ecdsaThresholdKeyId: 'ecdsa-threshold-key',
     relayerKeyId: 'relayer-key',
     contextBinding32B64u: 'context-binding',

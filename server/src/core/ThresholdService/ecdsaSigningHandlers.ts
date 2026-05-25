@@ -470,7 +470,7 @@ export class ThresholdEcdsaSigningHandlers {
       };
     }
     if (
-      roleLocalKey.walletSessionUserId !== input.walletSessionUserId ||
+      roleLocalKey.walletId !== input.walletSessionUserId ||
       roleLocalKey.rpId !== input.rpId
     ) {
       return {

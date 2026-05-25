@@ -110,11 +110,10 @@ function buildRoleLocalKeyRecord(input: {
   });
   const nowMs = Date.now();
   return {
-    version: 'threshold_ecdsa_hss_role_local' as const,
+    version: 'threshold_ecdsa_hss_role_local_v2' as const,
     ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
     keyHandle: input.keyHandle || `ehss-key-${input.ecdsaThresholdKeyId}`,
-    walletSessionUserId: input.userId,
-    subjectId: input.userId,
+    walletId: input.userId,
     rpId: input.rpId,
     signingRootId: TEST_SIGNING_ROOT_ID,
     signingRootVersion: TEST_RUNTIME_SCOPE.signingRootVersion,
@@ -1234,7 +1233,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
           purpose: 'test-sign-init-select',
           intentDigestB64u: signingDigestB64u,
           signingDigestB64u,
-          walletSessionUserId: userId,
+          walletId: userId,
           rpId,
           clientVerifyingShareB64u,
           participantIds,
@@ -1366,7 +1365,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
           purpose: 'test-cross-key',
           intentDigestB64u: signingDigestB64u,
           signingDigestB64u,
-          walletSessionUserId: keyB.walletSessionUserId,
+          walletId: keyB.walletId,
           rpId,
           clientVerifyingShareB64u: keyB.clientPublicKey33B64u,
           participantIds,

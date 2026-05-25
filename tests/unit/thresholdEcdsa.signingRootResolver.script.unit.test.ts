@@ -73,14 +73,14 @@ const ECDSA_CHAIN_TARGET = {
 const ECDSA_CONTEXT = {
   signingRootId: SIGNING_ROOT_ID,
   signingRootVersion: SIGNING_ROOT_VERSION,
-  walletSessionUserId: 'alice.near',
-  subjectId: 'alice-subject',
+  walletId: 'alice.near',
+  rpId: 'wallet.example.test',
   chainTarget: ECDSA_CHAIN_TARGET,
   ecdsaThresholdKeyId: 'ecdsa-alpha',
   keyPurpose: 'wallet',
   keyVersion: 'v1',
 };
-const ECDSA_SUBJECT_ID = ECDSA_CONTEXT.subjectId;
+const ECDSA_SUBJECT_ID = ECDSA_CONTEXT.walletId;
 const ROLE_LOCAL_KEY_PURPOSE = 'evm-signing';
 const ROLE_LOCAL_KEY_VERSION = 'v1';
 let hssClientSignerWasmInitialized = false;
@@ -123,8 +123,8 @@ async function roleLocalWalletFromShares(input: {
 }) {
   ensureHssClientSignerWasm();
   const context = {
-    walletSessionUserId: ECDSA_CONTEXT.walletSessionUserId,
-    subjectId: ECDSA_CONTEXT.subjectId,
+    walletId: ECDSA_CONTEXT.walletId,
+    rpId: ECDSA_CONTEXT.rpId,
     ecdsaThresholdKeyId: ECDSA_CONTEXT.ecdsaThresholdKeyId,
     signingRootId: ECDSA_CONTEXT.signingRootId,
     signingRootVersion: ECDSA_CONTEXT.signingRootVersion,
@@ -200,8 +200,8 @@ async function roleLocalBootstrapWithClientShare(args: {
   const signingRootId = args.signingRootId || SIGNING_ROOT_ID;
   const signingRootVersion = args.signingRootVersion || SIGNING_ROOT_VERSION;
   const clientBootstrap = threshold_ecdsa_hss_role_local_client_bootstrap({
-    walletSessionUserId: ECDSA_CONTEXT.walletSessionUserId,
-    subjectId: ECDSA_SUBJECT_ID,
+    walletId: ECDSA_CONTEXT.walletId,
+    rpId: ECDSA_CONTEXT.rpId,
     ecdsaThresholdKeyId: ECDSA_CONTEXT.ecdsaThresholdKeyId,
     signingRootId,
     signingRootVersion,
@@ -216,9 +216,8 @@ async function roleLocalBootstrapWithClientShare(args: {
 
   return await args.service.ecdsaHssRoleLocalBootstrap({
     formatVersion: 'ecdsa-hss-role-local',
-    walletSessionUserId: ECDSA_CONTEXT.walletSessionUserId,
-    rpId: 'example.localhost',
-    subjectId: ECDSA_SUBJECT_ID,
+    walletId: ECDSA_CONTEXT.walletId,
+    rpId: ECDSA_CONTEXT.rpId,
     ecdsaThresholdKeyId: ECDSA_CONTEXT.ecdsaThresholdKeyId,
     signingRootId,
     signingRootVersion,
@@ -320,7 +319,9 @@ test('ECDSA wallet identity is stable across local and pairwise partial-combine 
       yRelayer32Le: pairwiseYRelayer,
     });
 
-    expect(bytesToHex(localWallet.groupPublicKey33)).toBe(bytesToHex(pairwiseWallet.groupPublicKey33));
+    expect(bytesToHex(localWallet.groupPublicKey33)).toBe(
+      bytesToHex(pairwiseWallet.groupPublicKey33),
+    );
     expect(bytesToHex(localWallet.ethereumAddress20)).toBe(
       bytesToHex(pairwiseWallet.ethereumAddress20),
     );
@@ -336,7 +337,9 @@ test('ECDSA wallet identity is stable across local and pairwise partial-combine 
 
 test('ECDSA role-local bootstrap uses signing-root resolver when configured and preserves response shape', async () => {
   const resolverCalls: SigningRootSecretShareKekResolutionInput[] = [];
-  const resolveKek = async (input: SigningRootSecretShareKekResolutionInput): Promise<Uint8Array> => {
+  const resolveKek = async (
+    input: SigningRootSecretShareKekResolutionInput,
+  ): Promise<Uint8Array> => {
     resolverCalls.push(input);
     return KEK_BYTES;
   };
@@ -427,7 +430,9 @@ test('ECDSA self-host signing-root resolver supplies fixed project scope when se
 
 test('ECDSA signing-root wallet verification derives the known address from imported root-versioned shares', async () => {
   const resolverCalls: SigningRootSecretShareKekResolutionInput[] = [];
-  const resolveKek = async (input: SigningRootSecretShareKekResolutionInput): Promise<Uint8Array> => {
+  const resolveKek = async (
+    input: SigningRootSecretShareKekResolutionInput,
+  ): Promise<Uint8Array> => {
     resolverCalls.push(input);
     return KEK_BYTES;
   };
@@ -472,8 +477,7 @@ test('ECDSA signing-root wallet verification derives the known address from impo
   const first = await service.verifyEcdsaSigningRootWalletAddress({
     signingRootId: SIGNING_ROOT_ID,
     signingRootVersion: SIGNING_ROOT_VERSION,
-    walletSessionUserId: ECDSA_CONTEXT.walletSessionUserId,
-    subjectId: ECDSA_CONTEXT.subjectId,
+    walletId: ECDSA_CONTEXT.walletId,
     chainTarget: ECDSA_CONTEXT.chainTarget,
     ecdsaThresholdKeyId: ECDSA_CONTEXT.ecdsaThresholdKeyId,
     rpId: 'example.localhost',
@@ -487,8 +491,7 @@ test('ECDSA signing-root wallet verification derives the known address from impo
   const second = await service.verifyEcdsaSigningRootWalletAddress({
     signingRootId: SIGNING_ROOT_ID,
     signingRootVersion: SIGNING_ROOT_VERSION,
-    walletSessionUserId: ECDSA_CONTEXT.walletSessionUserId,
-    subjectId: ECDSA_CONTEXT.subjectId,
+    walletId: ECDSA_CONTEXT.walletId,
     chainTarget: ECDSA_CONTEXT.chainTarget,
     ecdsaThresholdKeyId: ECDSA_CONTEXT.ecdsaThresholdKeyId,
     rpId: 'example.localhost',
@@ -504,8 +507,7 @@ test('ECDSA signing-root wallet verification derives the known address from impo
   const mismatch = await service.verifyEcdsaSigningRootWalletAddress({
     signingRootId: SIGNING_ROOT_ID,
     signingRootVersion: SIGNING_ROOT_VERSION,
-    walletSessionUserId: ECDSA_CONTEXT.walletSessionUserId,
-    subjectId: ECDSA_CONTEXT.subjectId,
+    walletId: ECDSA_CONTEXT.walletId,
     chainTarget: ECDSA_CONTEXT.chainTarget,
     ecdsaThresholdKeyId: ECDSA_CONTEXT.ecdsaThresholdKeyId,
     rpId: 'example.localhost',

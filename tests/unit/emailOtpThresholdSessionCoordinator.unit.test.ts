@@ -1126,6 +1126,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       keyHandle: 'ehss-key-handle-1',
       participantIds: [1, 3],
       sessionKind: 'jwt',
+      registrationAttemptId: 'registration-attempt-1',
     });
 
     expect(workerCalls.at(-2)).toMatchObject({
@@ -1149,6 +1150,36 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
           routeAuth: { kind: 'app_session', jwt },
         },
       },
+    });
+  });
+
+  test('Email OTP ECDSA registration defers Ed25519 companion ceremony placeholder', async () => {
+    const { coordinator, ed25519ProvisionCalls } = createCoordinator();
+    const jwt = appSessionJwt();
+    coordinator.provisionEd25519Capability = async (args) => {
+      ed25519ProvisionCalls.push(args);
+      throw new Error(
+        'Email OTP Ed25519 registration provisioning must use a wallet-subject ceremony before it can run',
+      );
+    };
+
+    const result = await coordinator.enrollAndLoginWithEcdsaCapabilityInternal({
+      walletSession: TEST_WALLET_SESSION,
+      chainTarget: TEMPO_CHAIN_TARGET,
+      challengeId: 'challenge-1',
+      otpCode: '123456',
+      appSessionJwt: jwt,
+      keyHandle: 'ehss-key-handle-1',
+      participantIds: [1, 3],
+      sessionKind: 'jwt',
+      registrationAttemptId: 'registration-attempt-1',
+    });
+
+    expect(result.bootstrap.thresholdEcdsaKeyRef.keyHandle).toBe('key-handle-ecdsa');
+    expect(ed25519ProvisionCalls).toHaveLength(1);
+    expect(ed25519ProvisionCalls[0]).toMatchObject({
+      kind: 'registration_ed25519_companion_provisioning',
+      registrationAttemptId: 'registration-attempt-1',
     });
   });
 

@@ -70,7 +70,6 @@ import {
   thresholdEcdsaChainTargetKey,
   type ThresholdEcdsaChainTarget,
   type WalletSessionRef,
-  walletSubjectIdFromWalletProfile,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { throwIfEvmFamilySigningCancelled } from './errors';
 import {
@@ -274,7 +273,6 @@ async function signEvmFamilyAttempt(
 ): Promise<TempoSignedResult | EvmSignedResult> {
   throwIfEvmFamilySigningCancelled(args.shouldAbort);
   const walletId = toWalletId(args.walletSession.walletId);
-  const baseEcdsaSubjectId = walletSubjectIdFromWalletProfile({ walletId });
 
   const signingTarget = evmFamilySigningTargetFromExplicitTarget({
     request: args.request,
@@ -428,7 +426,6 @@ async function signEvmFamilyAttempt(
       diagnostics: ecdsaAttemptDiagnostics,
       signingSessionCoordinator,
       forceFreshAuth: attempt.forceFreshAuth === true,
-      baseEcdsaSubjectId,
     });
     ecdsaSigningLane = preparedEcdsaSigningSession.signingLane;
     selectedEcdsaAuthMethod = preparedEcdsaSigningSession.authMethod;

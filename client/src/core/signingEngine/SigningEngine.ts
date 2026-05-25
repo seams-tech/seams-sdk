@@ -45,6 +45,7 @@ import type {
   EvmFamilyEcdsaKeyIdentity,
   EvmFamilyEcdsaSessionLanePolicy,
 } from './session/identity/evmFamilyEcdsaIdentity';
+import { toRpId } from './session/identity/evmFamilyEcdsaIdentity';
 import {
   createThresholdEd25519PublicApi,
   type ThresholdEd25519PublicApi,
@@ -188,8 +189,6 @@ import {
   toEcdsaHssSigningRootId,
   toEcdsaHssSigningRootVersion,
   toEcdsaHssThresholdKeyId,
-  toEcdsaHssWalletSubjectId,
-  toWalletSessionUserId,
 } from './session/identity/emailOtpHssIdentity';
 
 export type { ThresholdEcdsaSessionBootstrapResult } from './threshold/ecdsa/activation';
@@ -733,8 +732,8 @@ export class SigningEngine {
   }): Promise<WalletRegistrationEcdsaPreparedClientBootstrap> {
     const clientBootstrap = await buildThresholdEcdsaHssRoleLocalClientBootstrapWasm({
       context: {
-        walletSessionUserId: toWalletSessionUserId(args.prepare.walletSessionUserId),
-        subjectId: toEcdsaHssWalletSubjectId(args.prepare.subjectId),
+        walletId: toWalletId(args.prepare.walletId),
+        rpId: toRpId(args.prepare.rpId),
         ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId(args.prepare.ecdsaThresholdKeyId),
         signingRootId: toEcdsaHssSigningRootId(args.prepare.signingRootId),
         signingRootVersion: toEcdsaHssSigningRootVersion(args.prepare.signingRootVersion),

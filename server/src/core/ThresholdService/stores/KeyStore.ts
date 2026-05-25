@@ -112,8 +112,7 @@ type ThresholdEcdsaIndexedIdentityRow = {
   relayer_key_id?: string | null;
   key_handle?: string | null;
   threshold_key_id?: string | null;
-  wallet_session_user_id?: string | null;
-  subject_id?: string | null;
+  wallet_id?: string | null;
   rp_id?: string | null;
   signing_root_id?: string | null;
   signing_root_version?: string | null;
@@ -127,8 +126,7 @@ function thresholdEcdsaIndexedIdentityMatchesRecord(args: {
 }): boolean {
   const rowKeyHandle = toOptionalTrimmedString(args.row.key_handle);
   const rowThresholdKeyId = toOptionalTrimmedString(args.row.threshold_key_id);
-  const rowWalletSessionUserId = toOptionalTrimmedString(args.row.wallet_session_user_id);
-  const rowSubjectId = toOptionalTrimmedString(args.row.subject_id);
+  const rowWalletId = toOptionalTrimmedString(args.row.wallet_id);
   const rowRpId = toOptionalTrimmedString(args.row.rp_id);
   const rowSigningRootId = toOptionalTrimmedString(args.row.signing_root_id);
   const rowSigningRootVersion = toOptionalTrimmedString(args.row.signing_root_version) || 'default';
@@ -137,8 +135,7 @@ function thresholdEcdsaIndexedIdentityMatchesRecord(args: {
   return !(
     rowKeyHandle !== args.record.keyHandle ||
     rowThresholdKeyId !== args.record.ecdsaThresholdKeyId ||
-    rowWalletSessionUserId !== args.record.walletSessionUserId ||
-    rowSubjectId !== args.record.subjectId ||
+    rowWalletId !== args.record.walletId ||
     rowRpId !== args.record.rpId ||
     rowSigningRootId !== args.record.signingRootId ||
     rowSigningRootVersion !== ecdsaSigningRootVersion(args.record) ||
@@ -157,8 +154,7 @@ function thresholdEcdsaSharedIdentityGuard(
   return {
     contextKey: [
       'evm-family',
-      record.walletSessionUserId,
-      record.subjectId,
+      record.walletId,
       record.rpId,
       record.signingRootId,
       ecdsaSigningRootVersion(record),
@@ -699,8 +695,7 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
             relayer_key_id TEXT NOT NULL,
             key_handle TEXT,
             threshold_key_id TEXT,
-            wallet_session_user_id TEXT,
-            subject_id TEXT,
+            wallet_id TEXT,
             rp_id TEXT,
             signing_root_id TEXT,
             signing_root_version TEXT,
@@ -717,10 +712,7 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
           'ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS threshold_key_id TEXT',
         );
         await pool.query(
-          'ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS wallet_session_user_id TEXT',
-        );
-        await pool.query(
-          'ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS subject_id TEXT',
+          'ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS wallet_id TEXT',
         );
         await pool.query('ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS rp_id TEXT');
         await pool.query(
@@ -759,15 +751,13 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
           CREATE UNIQUE INDEX IF NOT EXISTS threshold_ecdsa_keys_shared_identity_uidx
           ON threshold_ecdsa_keys (
             namespace,
-            wallet_session_user_id,
-            subject_id,
+            wallet_id,
             rp_id,
             signing_root_id,
             signing_root_version
           )
           WHERE
-            wallet_session_user_id IS NOT NULL AND
-            subject_id IS NOT NULL AND
+            wallet_id IS NOT NULL AND
             rp_id IS NOT NULL AND
             signing_root_id IS NOT NULL AND
             signing_root_version IS NOT NULL
@@ -796,13 +786,12 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
           SET
             key_handle = $3,
             threshold_key_id = $4,
-            wallet_session_user_id = $5,
-            subject_id = $6,
-            rp_id = $7,
-            signing_root_id = $8,
-            signing_root_version = $9,
-            owner_address = $10,
-            public_key_b64u = $11
+            wallet_id = $5,
+            rp_id = $6,
+            signing_root_id = $7,
+            signing_root_version = $8,
+            owner_address = $9,
+            public_key_b64u = $10
           WHERE namespace = $1 AND relayer_key_id = $2
         `,
         [
@@ -810,8 +799,7 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
           relayerKeyId,
           args.record.keyHandle,
           args.record.ecdsaThresholdKeyId,
-          args.record.walletSessionUserId,
-          args.record.subjectId,
+          args.record.walletId,
           args.record.rpId,
           args.record.signingRootId,
           ecdsaSigningRootVersion(args.record),
@@ -844,8 +832,7 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
           relayer_key_id,
           key_handle,
           threshold_key_id,
-          wallet_session_user_id,
-          subject_id,
+          wallet_id,
           rp_id,
           signing_root_id,
           signing_root_version,
@@ -903,18 +890,16 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
         FROM threshold_ecdsa_keys
         WHERE namespace = $1
           AND relayer_key_id <> $2
-          AND wallet_session_user_id = $3
-          AND subject_id = $4
-          AND rp_id = $5
-          AND signing_root_id = $6
-          AND signing_root_version = $7
+          AND wallet_id = $3
+          AND rp_id = $4
+          AND signing_root_id = $5
+          AND signing_root_version = $6
         LIMIT 1
       `,
       [
         this.namespace,
         id,
-        parsed.walletSessionUserId,
-        parsed.subjectId,
+        parsed.walletId,
         parsed.rpId,
         parsed.signingRootId,
         ecdsaSigningRootVersion(parsed),
@@ -932,8 +917,7 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
             relayer_key_id,
             key_handle,
             threshold_key_id,
-            wallet_session_user_id,
-            subject_id,
+            wallet_id,
             rp_id,
             signing_root_id,
             signing_root_version,
@@ -941,13 +925,12 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
             public_key_b64u,
             record_json
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
           ON CONFLICT (namespace, relayer_key_id)
           DO UPDATE SET
             key_handle = EXCLUDED.key_handle,
             threshold_key_id = EXCLUDED.threshold_key_id,
-            wallet_session_user_id = EXCLUDED.wallet_session_user_id,
-            subject_id = EXCLUDED.subject_id,
+            wallet_id = EXCLUDED.wallet_id,
             rp_id = EXCLUDED.rp_id,
             signing_root_id = EXCLUDED.signing_root_id,
             signing_root_version = EXCLUDED.signing_root_version,
@@ -960,8 +943,7 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
           id,
           parsed.keyHandle,
           parsed.ecdsaThresholdKeyId,
-          parsed.walletSessionUserId,
-          parsed.subjectId,
+          parsed.walletId,
           parsed.rpId,
           parsed.signingRootId,
           ecdsaSigningRootVersion(parsed),

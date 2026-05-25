@@ -60,9 +60,8 @@ function makePreparedRecoveryService() {
         chainTargets: [{ kind: 'evm' as const, namespace: 'eip155' as const, chainId: 1 }],
         prepare: {
           formatVersion: 'ecdsa-hss-role-local' as const,
-          walletSessionUserId: 'alice.testnet',
+          walletId: 'alice.testnet',
           rpId: 'wallet.example.test',
-          subjectId: 'alice.testnet',
           ecdsaThresholdKeyId: 'ecdsa-threshold-key',
           signingRootId: 'root-id',
           signingRootVersion: 'root-v1',
@@ -101,9 +100,8 @@ function makePreparedRecoveryService() {
       ecdsa: {
         bootstrap: {
           formatVersion: 'ecdsa-hss-role-local',
-          walletSessionUserId: 'alice.testnet',
+          walletId: 'alice.testnet',
           rpId: 'wallet.example.test',
-          subjectId: 'alice.testnet',
           ecdsaThresholdKeyId: 'ecdsa-threshold-key',
           signingRootId: 'root-id',
           signingRootVersion: 'root-v1',

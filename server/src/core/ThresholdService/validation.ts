@@ -257,6 +257,8 @@ export function parseThresholdEd25519KeyRecord(
 }
 
 const ECDSA_HSS_BOOTSTRAP_FORBIDDEN_FIELDS = [
+  'subjectId',
+  'walletSessionUserId',
   'chainTarget',
   'yClient32Le',
   'yClient32LeB64u',
@@ -275,6 +277,8 @@ const ECDSA_HSS_BOOTSTRAP_FORBIDDEN_FIELDS = [
 ] as const;
 
 const ECDSA_HSS_EXPORT_REQUEST_FORBIDDEN_FIELDS = [
+  'subjectId',
+  'walletSessionUserId',
   'chainTarget',
   'yClient32Le',
   'yClient32LeB64u',
@@ -311,9 +315,8 @@ export function parseEcdsaHssClientBootstrapRequest(
   if (hasForbiddenFields(raw, ECDSA_HSS_BOOTSTRAP_FORBIDDEN_FIELDS)) return null;
   if (toOptionalString(raw.formatVersion) !== 'ecdsa-hss-role-local') return null;
   if (toOptionalString(raw.keyScope) !== 'evm-family') return null;
-  const walletSessionUserId = toOptionalString(raw.walletSessionUserId);
+  const walletId = toOptionalString(raw.walletId);
   const rpId = toOptionalString(raw.rpId);
-  const subjectId = toOptionalString(raw.subjectId);
   const ecdsaThresholdKeyId = toOptionalString(raw.ecdsaThresholdKeyId);
   const signingRootId = toOptionalString(raw.signingRootId);
   const signingRootVersion = toOptionalString(raw.signingRootVersion);
@@ -340,9 +343,8 @@ export function parseEcdsaHssClientBootstrapRequest(
           raw.passkeyBootstrapAuthorization,
         );
   if (
-    !walletSessionUserId ||
+    !walletId ||
     !rpId ||
-    !subjectId ||
     !ecdsaThresholdKeyId ||
     !signingRootId ||
     !signingRootVersion ||
@@ -368,9 +370,8 @@ export function parseEcdsaHssClientBootstrapRequest(
   }
   const base = {
     formatVersion: 'ecdsa-hss-role-local' as const,
-    walletSessionUserId,
+    walletId,
     rpId,
-    subjectId,
     ecdsaThresholdKeyId,
     signingRootId,
     signingRootVersion,
@@ -401,9 +402,8 @@ export function parseEcdsaHssExportShareRequest(
   if (!isObject(raw)) return null;
   if (hasForbiddenFields(raw, ECDSA_HSS_EXPORT_REQUEST_FORBIDDEN_FIELDS)) return null;
   if (toOptionalString(raw.formatVersion) !== 'ecdsa-hss-role-local-export') return null;
-  const walletSessionUserId = toOptionalString(raw.walletSessionUserId);
+  const walletId = toOptionalString(raw.walletId);
   const rpId = toOptionalString(raw.rpId);
-  const subjectId = toOptionalString(raw.subjectId);
   const ecdsaThresholdKeyId = toOptionalString(raw.ecdsaThresholdKeyId);
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
   const contextBinding32B64u = parseB64uFixed(raw.contextBinding32B64u, 32);
@@ -416,9 +416,8 @@ export function parseEcdsaHssExportShareRequest(
   const clientDeviceId = toOptionalString(raw.clientDeviceId);
   const clientSessionId = toOptionalString(raw.clientSessionId);
   if (
-    !walletSessionUserId ||
+    !walletId ||
     !rpId ||
-    !subjectId ||
     !ecdsaThresholdKeyId ||
     !relayerKeyId ||
     !contextBinding32B64u ||
@@ -436,9 +435,8 @@ export function parseEcdsaHssExportShareRequest(
   }
   return {
     formatVersion: 'ecdsa-hss-role-local-export',
-    walletSessionUserId,
+    walletId,
     rpId,
-    subjectId,
     ecdsaThresholdKeyId,
     relayerKeyId,
     contextBinding32B64u,
@@ -457,13 +455,12 @@ export function parseEcdsaHssRoleLocalKeyRecord(
   raw: unknown,
 ): EcdsaHssRoleLocalKeyRecord | null {
   if (!isObject(raw)) return null;
-  if (toOptionalString(raw.version) !== 'threshold_ecdsa_hss_role_local') return null;
+  if (toOptionalString(raw.version) !== 'threshold_ecdsa_hss_role_local_v2') return null;
   if (toOptionalString(raw.keyScope) !== 'evm-family') return null;
   const ecdsaThresholdKeyId = toOptionalString(raw.ecdsaThresholdKeyId);
   const keyHandle = toOptionalString(raw.keyHandle);
-  const walletSessionUserId = toOptionalString(raw.walletSessionUserId);
+  const walletId = toOptionalString(raw.walletId);
   const rpId = toOptionalString(raw.rpId);
-  const subjectId = toOptionalString(raw.subjectId);
   const signingRootId = toOptionalString(raw.signingRootId);
   const signingRootVersion = toOptionalString(raw.signingRootVersion);
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
@@ -489,9 +486,8 @@ export function parseEcdsaHssRoleLocalKeyRecord(
   if (
     !ecdsaThresholdKeyId ||
     !keyHandle ||
-    !walletSessionUserId ||
+    !walletId ||
     !rpId ||
-    !subjectId ||
     !signingRootId ||
     !signingRootVersion ||
     !relayerKeyId ||
@@ -512,12 +508,11 @@ export function parseEcdsaHssRoleLocalKeyRecord(
     return null;
   }
   return {
-    version: 'threshold_ecdsa_hss_role_local',
+    version: 'threshold_ecdsa_hss_role_local_v2',
     ecdsaThresholdKeyId,
     keyHandle,
-    walletSessionUserId,
+    walletId,
     rpId,
-    subjectId,
     signingRootId,
     signingRootVersion,
     keyScope: 'evm-family',
@@ -1193,10 +1188,9 @@ export type ThresholdEcdsaSessionClaims = {
    */
   sub: string;
   walletId: string;
-  kind: 'threshold_ecdsa_session_v1';
+  kind: 'threshold_ecdsa_session_v2';
   sessionId: string;
   walletSigningSessionId: string;
-  subjectId: string;
   keyScope: 'evm-family';
   keyHandle: string;
   relayerKeyId: string;
@@ -1221,14 +1215,14 @@ export type ThresholdEcdsaSessionClaims = {
 export function parseThresholdEcdsaSessionClaims(raw: unknown): ThresholdEcdsaSessionClaims | null {
   if (!isObject(raw)) return null;
   const kind = toOptionalString(raw.kind);
-  if (kind !== 'threshold_ecdsa_session_v1') return null;
+  if (kind !== 'threshold_ecdsa_session_v2') return null;
+  if ((raw as { subjectId?: unknown }).subjectId !== undefined) return null;
   const sub = toOptionalString(raw.sub);
   const walletId = toOptionalString((raw as { walletId?: unknown }).walletId);
   const sessionId = toOptionalString(raw.sessionId);
   const walletSigningSessionId = toOptionalString(
     (raw as { walletSigningSessionId?: unknown }).walletSigningSessionId,
   );
-  const subjectId = toOptionalString((raw as { subjectId?: unknown }).subjectId);
   const keyScope = toOptionalString((raw as { keyScope?: unknown }).keyScope);
   const keyHandle = toOptionalString((raw as { keyHandle?: unknown }).keyHandle);
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
@@ -1239,7 +1233,6 @@ export function parseThresholdEcdsaSessionClaims(raw: unknown): ThresholdEcdsaSe
     walletId !== sub ||
     !sessionId ||
     !walletSigningSessionId ||
-    !subjectId ||
     keyScope !== 'evm-family' ||
     !keyHandle ||
     !relayerKeyId ||
@@ -1258,7 +1251,6 @@ export function parseThresholdEcdsaSessionClaims(raw: unknown): ThresholdEcdsaSe
     kind,
     sessionId,
     walletSigningSessionId,
-    subjectId,
     keyScope,
     keyHandle,
     relayerKeyId,

@@ -95,7 +95,8 @@ export async function registerPasskeyInternal(
   confirmationConfigOverride?: Partial<ConfirmationConfig>,
 ): Promise<RegistrationResult> {
   const accountId = toAccountId(nearAccountId);
-  const rpId = context.signingEngine.getRpId();
+  const iframeRpId = String(context.configs.wallet.iframe.rpIdOverride || '').trim();
+  const rpId = iframeRpId || context.signingEngine.getRpId();
   if (!rpId) {
     throw new Error('Missing rpId for relay registration');
   }

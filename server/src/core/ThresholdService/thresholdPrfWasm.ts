@@ -24,8 +24,8 @@ let thresholdPrfWasmInitPromise: Promise<void> | null = null;
 let thresholdPrfWasmReady = false;
 
 export type EcdsaHssStableKeyPrfContext = {
-  readonly walletSessionUserId: string;
-  readonly subjectId: string;
+  readonly walletId: string;
+  readonly rpId: string;
   readonly ecdsaThresholdKeyId: string;
   readonly signingRootId: string;
   readonly signingRootVersion: string;
@@ -105,8 +105,8 @@ export async function deriveEcdsaHssYRelayerFromSigningRootSecretShares(input: {
   const out = threshold_prf_derive_ecdsa_hss_y_relayer(
     new Uint8Array(input.shareWires[0]),
     new Uint8Array(input.shareWires[1]),
-    requiredTrimmed('walletSessionUserId', input.context.walletSessionUserId),
-    requiredTrimmed('subjectId', input.context.subjectId),
+    requiredTrimmed('walletId', input.context.walletId),
+    requiredTrimmed('rpId', input.context.rpId),
     requiredTrimmed('ecdsaThresholdKeyId', input.context.ecdsaThresholdKeyId),
     requiredTrimmed('signingRootId', input.context.signingRootId),
     requiredTrimmed('signingRootVersion', input.context.signingRootVersion),

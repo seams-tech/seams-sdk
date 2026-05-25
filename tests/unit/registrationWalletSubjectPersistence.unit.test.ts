@@ -215,9 +215,8 @@ test('wallet add-signer persists ECDSA signer records without re-registering aut
         chainId: 1,
         networkSlug: 'ethereum',
       },
-      walletSessionUserId: 'wallet-session-user',
+      walletId: 'wallet-session-user',
       rpId: 'example.localhost',
-      subjectId: 'wallet_alice',
       keyHandle: 'ehss-key-alice',
       ecdsaThresholdKeyId: 'ehss-key-id-alice',
       signingRootId: 'project_registration:dev',
@@ -260,7 +259,6 @@ test('wallet add-signer persists ECDSA signer records without re-registering aut
       metadata: {
         keyHandle: 'ehss-key-alice',
         walletId: 'wallet_alice',
-        subjectId: 'wallet_alice',
         rpId: 'example.localhost',
         ecdsaThresholdKeyId: 'ehss-key-id-alice',
         signingRootId: 'project_registration:dev',
@@ -268,7 +266,6 @@ test('wallet add-signer persists ECDSA signer records without re-registering aut
         chainTarget: walletKeys[0].chainTarget,
         sharedEvmFamilyKey: {
           walletId: 'wallet_alice',
-          subjectId: 'wallet_alice',
           keyHandle: 'ehss-key-alice',
           thresholdEcdsaPublicKeyB64u:
             'A1111111111111111111111111111111111111111111',
@@ -330,9 +327,8 @@ test('wallet add-signer persistence supports both later signer-family orders', a
         chainId: 1,
         networkSlug: 'ethereum',
       },
-      walletSessionUserId: 'wallet-session-user',
+      walletId: 'wallet-session-user',
       rpId: 'example.localhost',
-      subjectId: 'wallet_matrix',
       keyHandle: 'ehss-key-matrix',
       ecdsaThresholdKeyId: 'ehss-key-id-matrix',
       signingRootId: 'project_registration:dev',

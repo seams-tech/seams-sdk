@@ -377,9 +377,8 @@ export async function loginWithEmailOtpEcdsaCapability(
   });
   const roleLocalKeyIdentity = await resolveEmailOtpEcdsaRoleLocalKeyIdentityForHandle({
     keyHandle: args.keyHandle,
-    walletSessionUserId,
+    walletId: walletSessionUserId,
     rpId,
-    subjectId,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
   });
   const bootstrapResult = await workerCtx.requestWorkerOperation({

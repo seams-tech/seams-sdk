@@ -5,15 +5,13 @@ import type {
 } from './thresholdEcdsa';
 import {
   toEcdsaHssThresholdKeyId,
-  toEcdsaHssWalletSubjectId,
-  toWalletSessionUserId,
 } from '../../signingEngine/session/identity/emailOtpHssIdentity';
+import { toWalletId } from '../../signingEngine/interfaces/ecdsaChainTarget';
 
 const bootstrapBase = {
   formatVersion: 'ecdsa-hss-role-local',
-  walletSessionUserId: toWalletSessionUserId('wallet-user'),
+  walletId: toWalletId('wallet-user'),
   rpId: 'wallet.example.test',
-  subjectId: toEcdsaHssWalletSubjectId('wallet-user'),
   ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId('ecdsa-key'),
   signingRootId: 'project:env',
   signingRootVersion: 'default',
@@ -31,7 +29,7 @@ const bootstrapBase = {
 } satisfies ThresholdEcdsaHssRoleLocalBootstrapRequest;
 
 const clientRootProof = {
-  version: 'ecdsa-hss:role-local:first-bootstrap-root-proof:v1',
+  version: 'ecdsa-hss:role-local:first-bootstrap-root-proof:v2',
   digest32B64u: 'digest',
   signature65B64u: 'signature',
 } satisfies ThresholdEcdsaHssRoleLocalClientRootProof;
@@ -52,7 +50,19 @@ void ({
   ...bootstrapBase,
   clientRootProof,
   passkeyBootstrapAuthorization,
-  // @ts-expect-error role-local bootstrap accepts exactly one proof branch
+  // @ts-expect-error role-local bootstrap accepts exactly one proof branch.
+} satisfies ThresholdEcdsaHssRoleLocalBootstrapRequest);
+
+void ({
+  ...bootstrapBase,
+  // @ts-expect-error role-local bootstrap request rejects legacy wallet session aliases.
+  walletSessionUserId: 'wallet-user',
+} satisfies ThresholdEcdsaHssRoleLocalBootstrapRequest);
+
+void ({
+  ...bootstrapBase,
+  // @ts-expect-error role-local bootstrap request rejects legacy subject ids.
+  subjectId: 'wallet-subject',
 } satisfies ThresholdEcdsaHssRoleLocalBootstrapRequest);
 
 void ({

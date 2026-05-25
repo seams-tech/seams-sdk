@@ -14,7 +14,6 @@ import type { ThresholdEcdsaHssRouteAuth } from '@/core/rpcClients/relayer/thres
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import {
   thresholdEcdsaChainTargetKey,
-  type WalletSubjectId,
   type EvmEip155ChainTarget,
   type TempoChainTarget,
   type ThresholdEcdsaChainTarget,
@@ -25,7 +24,6 @@ import type {
   EvmFamilyEcdsaSessionLanePolicy,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import {
-  deriveBaseEcdsaSubjectIdFromKey,
   deriveEvmFamilyKeyFingerprint,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { ExistingEcdsaBootstrapKeyIntent } from '../../session/passkey/ecdsaBootstrap';
@@ -97,7 +95,6 @@ type ActivateEcdsaRegistrationSessionPlan = {
 type ActivateEcdsaRegistrationRequest = ActivateEcdsaSessionRequestCommon & {
   kind: 'key_enrollment_bootstrap';
   walletId: AccountId | string;
-  subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   keyIntent?: ExistingEcdsaBootstrapKeyIntent;
   sessionPlan?: ActivateEcdsaRegistrationSessionPlan;
@@ -212,7 +209,6 @@ export async function activateEcdsaSession(
 ): Promise<ThresholdEcdsaSessionActivationResult> {
   const exactActivation = args.kind === 'session_bootstrap';
   const walletId = toAccountId(exactActivation ? String(args.key.walletId) : args.walletId);
-  const subjectId = exactActivation ? deriveBaseEcdsaSubjectIdFromKey(args.key) : args.subjectId;
   const chainTarget = exactActivation ? args.lanePolicy.chainTarget : args.chainTarget;
 
   const requestedSessionId = String(
@@ -233,7 +229,6 @@ export async function activateEcdsaSession(
     chainTarget,
     chainId: chainTarget.chainId,
     userId: walletId,
-    subjectId,
     participantIds: exactActivation
       ? undefined
       : args.keyIntent
@@ -254,7 +249,6 @@ export async function activateEcdsaSession(
   };
   const bootstrapRequestSummary = {
     walletId,
-    subjectId,
     chainTarget,
     targetKey: thresholdEcdsaChainTargetKey(chainTarget),
     operationId: requestedSessionId || null,

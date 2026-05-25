@@ -186,9 +186,8 @@ export type WalletAddSignerFinalizeResponse = {
 
 export type WalletRegistrationEcdsaPrepareContext = {
   formatVersion: 'ecdsa-hss-role-local';
-  walletSessionUserId: string;
+  walletId: string;
   rpId: string;
-  subjectId: string;
   ecdsaThresholdKeyId: string;
   signingRootId: string;
   signingRootVersion: string;
@@ -214,9 +213,8 @@ export type WalletRegistrationEcdsaClientBootstrap = WalletRegistrationEcdsaPrep
 export type WalletRegistrationEcdsaWalletKey = {
   keyScope: 'evm-family';
   chainTarget: ThresholdEcdsaChainTarget;
-  walletSessionUserId: string;
+  walletId: string;
   rpId: string;
-  subjectId: string;
   keyHandle: string;
   ecdsaThresholdKeyId: string;
   signingRootId: string;

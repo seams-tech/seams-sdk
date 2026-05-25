@@ -8,8 +8,8 @@ import {
 const BASELINE_ECDSA_HSS_CONTEXT = {
   signingRootId: 'project-alpha:dev',
   signingRootVersion: 'root-v1',
-  walletSessionUserId: 'alice.near',
-  subjectId: 'alice-subject',
+  walletId: 'alice.near',
+  rpId: 'wallet.example.test',
   chainTarget: {
     kind: 'evm' as const,
     namespace: 'eip155' as const,

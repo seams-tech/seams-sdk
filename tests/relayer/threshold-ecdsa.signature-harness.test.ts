@@ -39,9 +39,9 @@ const TEST_SIGNING_ROOT_ID = `${TEST_RUNTIME_SCOPE.projectId}:${TEST_RUNTIME_SCO
 const KEY_PURPOSE = 'evm-signing';
 const KEY_VERSION = 'v1';
 const EXPORT_CONFIRMATION_DIGEST_VERSION =
-  'ecdsa-hss:role-local:product-export-confirmation:v1';
+  'ecdsa-hss:role-local:product-export-confirmation:v2';
 const EXPORT_AUTHORIZATION_DIGEST_VERSION =
-  'ecdsa-hss:role-local:product-export-authorization:v1';
+  'ecdsa-hss:role-local:product-export-authorization:v2';
 let hssClientSignerWasmInitialized = false;
 
 function ensureHssClientSignerWasm(): void {
@@ -150,18 +150,16 @@ async function stagedBootstrapThresholdEcdsa(args: {
   ttlMs?: number;
   remainingUses?: number;
 }) {
-  const subjectId = args.userId;
   const signingRootId = TEST_SIGNING_ROOT_ID;
   const signingRootVersion = TEST_RUNTIME_SCOPE.signingRootVersion;
   const ecdsaThresholdKeyId = await computeEcdsaHssRoleLocalThresholdKeyId({
-    walletSessionUserId: args.userId,
+    walletId: args.userId,
     rpId: args.rpId,
-    subjectId,
     signingRootId,
     signingRootVersion,
   });
   const relayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
-    walletSessionUserId: args.userId,
+    walletId: args.userId,
     rpId: args.rpId,
   });
   const walletSigningSessionId = `${args.sessionId}:wallet-signing`;
@@ -170,8 +168,8 @@ async function stagedBootstrapThresholdEcdsa(args: {
 
   ensureHssClientSignerWasm();
   const clientBootstrap = threshold_ecdsa_hss_role_local_client_bootstrap({
-    walletSessionUserId: args.userId,
-    subjectId,
+    walletId: args.userId,
+    rpId: args.rpId,
     ecdsaThresholdKeyId,
     signingRootId,
     signingRootVersion,
@@ -191,9 +189,8 @@ async function stagedBootstrapThresholdEcdsa(args: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       formatVersion: 'ecdsa-hss-role-local',
-      walletSessionUserId: args.userId,
+      walletId: args.userId,
       rpId: args.rpId,
-      subjectId,
       ecdsaThresholdKeyId,
       signingRootId,
       signingRootVersion,
@@ -219,11 +216,10 @@ async function stagedBootstrapThresholdEcdsa(args: {
   if (bootstrap.status !== 200 || bootstrap.json?.ok !== true) return bootstrap;
   const value = (bootstrap.json.value || {}) as Record<string, unknown>;
   const jwt = await args.session.signJwt(args.userId, {
-    kind: 'threshold_ecdsa_session_v1',
+    kind: 'threshold_ecdsa_session_v2',
     walletId: args.userId,
     sessionId: String(value.sessionId || args.sessionId),
     walletSigningSessionId: String(value.walletSigningSessionId || walletSigningSessionId),
-    subjectId,
     keyScope: 'evm-family',
     keyHandle: String(value.keyHandle || ''),
     relayerKeyId: String(value.relayerKeyId || relayerKeyId),
@@ -271,8 +267,8 @@ async function stagedExplicitExportThresholdEcdsa(args: {
   if (exportedShare.status !== 200 || exportedShare.json?.ok !== true) return exportedShare;
   const exportValue = (exportedShare.json.value || {}) as Record<string, unknown>;
   const artifact = threshold_ecdsa_hss_role_local_export_artifact({
-    walletSessionUserId: args.userId,
-    subjectId: args.userId,
+    walletId: args.userId,
+    rpId: args.rpId,
     ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
     signingRootId: String(args.bootstrapJson.signingRootId || TEST_SIGNING_ROOT_ID),
     signingRootVersion: String(
@@ -324,9 +320,8 @@ async function buildRoleLocalExportShareRequest(args: {
   const exportRequestNonce32B64u = base64UrlEncode(randomSecpSecretKey32());
   const requestWithoutDigests = {
     formatVersion: 'ecdsa-hss-role-local-export',
-    walletSessionUserId: args.userId,
+    walletId: args.userId,
     rpId: args.rpId,
-    subjectId: args.userId,
     ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
     relayerKeyId,
     contextBinding32B64u,
@@ -339,9 +334,8 @@ async function buildRoleLocalExportShareRequest(args: {
   };
   const confirmationDigest32B64u = await digestB64u({
     version: EXPORT_CONFIRMATION_DIGEST_VERSION,
-    walletSessionUserId: args.userId,
+    walletId: args.userId,
     rpId: args.rpId,
-    subjectId: args.userId,
     ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
     relayerKeyId,
     contextBinding32B64u,
@@ -359,9 +353,8 @@ async function buildRoleLocalExportShareRequest(args: {
       version: EXPORT_AUTHORIZATION_DIGEST_VERSION,
       operation: 'explicit_key_export',
       keyHandle,
-      walletSessionUserId: args.userId,
+      walletId: args.userId,
       rpId: args.rpId,
-      subjectId: args.userId,
       ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
       relayerKeyId,
       signingRootId,
@@ -1142,12 +1135,12 @@ test.describe('threshold-ecdsa harness signature verification', () => {
         },
         body: JSON.stringify({
           ...request,
-          walletSessionUserId: 'google:117142622123955425762',
+          walletId: 'google:117142622123955425762',
         }),
       });
       expect(exportedShare.status, exportedShare.text).toBe(400);
       expect(exportedShare.json?.code).toBe('identity_mismatch');
-      expect(exportedShare.json?.message).toBe('walletSessionUserId mismatch');
+      expect(exportedShare.json?.message).toBe('walletId mismatch');
     } finally {
       await srv.close();
     }

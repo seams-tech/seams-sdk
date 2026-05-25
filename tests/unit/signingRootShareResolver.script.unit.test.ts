@@ -35,8 +35,8 @@ const SIGNING_ROOT_VERSION = 'root-v1';
 const ECDSA_HSS_CONTEXT = {
   signingRootId: PROJECT_ID,
   signingRootVersion: SIGNING_ROOT_VERSION,
-  walletSessionUserId: 'alice.near',
-  subjectId: 'alice-subject',
+  walletId: 'alice.near',
+  rpId: 'wallet.example.test',
   chainTarget: {
     kind: 'evm' as const,
     namespace: 'eip155' as const,

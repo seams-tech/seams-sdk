@@ -1,17 +1,19 @@
-import { thresholdEcdsaChainTargetFromChainFamily } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  thresholdEcdsaChainTargetFromChainFamily,
+  toWalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildSessionBootstrapKeyContext,
   buildEvmFamilyEcdsaSessionLanePolicy,
 } from './evmFamilyEcdsaIdentity';
 import {
-  THRESHOLD_SESSION_POLICY_VERSION,
+  THRESHOLD_ECDSA_SESSION_POLICY_VERSION,
   type EcdsaHssSessionPolicy,
 } from '../../threshold/sessionPolicy';
 import {
   toEcdsaHssThresholdKeyId,
   toEcdsaHssThresholdSessionId,
   toEcdsaHssWalletSigningSessionId,
-  toEcdsaHssWalletSubjectId,
   toEmailOtpAuthSubjectId,
   toWalletSessionUserId,
   type EmailOtpExistingKeyBootstrap,
@@ -26,8 +28,8 @@ const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
   chainId: 11155111,
 });
 const walletSessionUserId = toWalletSessionUserId('wallet.testnet');
+const walletId = toWalletId('wallet.testnet');
 const authSubjectId = toEmailOtpAuthSubjectId('google:subject-1');
-const subjectId = toEcdsaHssWalletSubjectId('wallet.testnet');
 const ecdsaThresholdKeyId = toEcdsaHssThresholdKeyId('ecdsa-key-1');
 const sessionId = toEcdsaHssThresholdSessionId('threshold-session-1');
 const walletSigningSessionId = toEcdsaHssWalletSigningSessionId('wallet-signing-session-1');
@@ -46,9 +48,8 @@ const lanePolicy = buildEvmFamilyEcdsaSessionLanePolicy({
 });
 
 void ({
-  version: THRESHOLD_SESSION_POLICY_VERSION,
-  walletSessionUserId,
-  subjectId,
+  version: THRESHOLD_ECDSA_SESSION_POLICY_VERSION,
+  walletId,
   rpId: 'wallet.example.test',
   chainTarget,
   ecdsaThresholdKeyId,
@@ -69,10 +70,9 @@ void invalidWalletSessionUserId;
 void invalidAuthSubjectId;
 
 void ({
-  version: THRESHOLD_SESSION_POLICY_VERSION,
+  version: THRESHOLD_ECDSA_SESSION_POLICY_VERSION,
   // @ts-expect-error raw strings must be normalized to WalletSessionUserId first
-  walletSessionUserId: 'wallet.testnet',
-  subjectId,
+  walletId: 'wallet.testnet',
   rpId: 'wallet.example.test',
   chainTarget,
   ecdsaThresholdKeyId,
@@ -83,9 +83,8 @@ void ({
 } satisfies EcdsaHssSessionPolicy);
 
 void ({
-  version: THRESHOLD_SESSION_POLICY_VERSION,
-  walletSessionUserId,
-  subjectId,
+  version: THRESHOLD_ECDSA_SESSION_POLICY_VERSION,
+  walletId,
   rpId: 'wallet.example.test',
   chainTarget,
   // @ts-expect-error raw key ids must be normalized to EcdsaThresholdKeyId first

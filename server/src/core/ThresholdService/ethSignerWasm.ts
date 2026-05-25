@@ -263,8 +263,8 @@ export async function mapAdditiveShareToThresholdSignaturesShare2p(input: {
 }
 
 export async function roleLocalThresholdEcdsaHssRelayerBootstrap(input: {
-  walletSessionUserId: string;
-  subjectId: string;
+  walletId: string;
+  rpId: string;
   ecdsaThresholdKeyId: string;
   signingRootId: string;
   signingRootVersion: string;
@@ -286,8 +286,8 @@ export async function roleLocalThresholdEcdsaHssRelayerBootstrap(input: {
 }> {
   await ensureEthSignerWasm();
   const raw = threshold_ecdsa_hss_role_local_relayer_bootstrap({
-    walletSessionUserId: String(input.walletSessionUserId || '').trim(),
-    subjectId: String(input.subjectId || '').trim(),
+    walletId: String(input.walletId || '').trim(),
+    rpId: String(input.rpId || '').trim(),
     ecdsaThresholdKeyId: String(input.ecdsaThresholdKeyId || '').trim(),
     signingRootId: String(input.signingRootId || '').trim(),
     signingRootVersion: String(input.signingRootVersion || '').trim(),

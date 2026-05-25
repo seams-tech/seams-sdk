@@ -68,8 +68,8 @@ test('threshold-prf WASM derives ECDSA HSS y_relayer from committed signing-root
     context: {
       signingRootId: 'project-alpha:dev',
       signingRootVersion: 'root-v1',
-      walletSessionUserId: 'alice.near',
-      subjectId: 'alice-subject',
+      walletId: 'alice.near',
+      rpId: 'wallet.example.test',
       ecdsaThresholdKeyId: 'ecdsa-alpha',
       keyPurpose: 'wallet',
       keyVersion: 'v1',

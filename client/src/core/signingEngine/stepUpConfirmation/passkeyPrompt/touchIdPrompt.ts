@@ -17,6 +17,7 @@ function isRegistrableSuffix(host: string, cand: string): boolean {
 function resolveRpId(override: string | undefined, host: string | undefined): string {
   const h = (host || '').toLowerCase();
   const ov = (override || '').toLowerCase();
+  if ((h === 'localhost' || h === '127.0.0.1') && ov.endsWith('.localhost')) return ov;
   if (ov && h && isRegistrableSuffix(h, ov)) return ov;
   return h || ov || '';
 }

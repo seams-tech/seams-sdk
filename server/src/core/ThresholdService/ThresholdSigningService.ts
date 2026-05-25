@@ -242,7 +242,6 @@ type ThresholdEcdsaBootstrapSessionResult =
       ok: true;
       sessionId: string;
       walletSigningSessionId?: string;
-      subjectId?: string;
       chainTarget?: ThresholdEcdsaChainTarget;
       ecdsaThresholdKeyId?: string;
       keyHandle?: string;
@@ -322,14 +321,13 @@ const THRESHOLD_ECDSA_SIGNING_ROOT_VERSION_DEFAULT = 'default';
 const THRESHOLD_ECDSA_DERIVATION_VERSION_V1 = 1;
 const THRESHOLD_ECDSA_HSS_EXPORT_CLOCK_SKEW_MS = 5 * 60_000;
 const THRESHOLD_ECDSA_HSS_EXPORT_CONFIRMATION_DIGEST_VERSION =
-  'ecdsa-hss:role-local:product-export-confirmation:v1';
+  'ecdsa-hss:role-local:product-export-confirmation:v2';
 const THRESHOLD_ECDSA_HSS_EXPORT_AUTHORIZATION_DIGEST_VERSION =
-  'ecdsa-hss:role-local:product-export-authorization:v1';
+  'ecdsa-hss:role-local:product-export-authorization:v2';
 const WALLET_SIGNING_BUDGET_RELAYER_KEY_ID = 'wallet-signing-budget';
 
 export type ThresholdEcdsaKeyIdentityMetadata = {
   walletId: string;
-  subjectId: string;
   rpId: string;
   keyScope: 'evm-family';
   keyHandle: string;
@@ -1429,8 +1427,8 @@ export class ThresholdSigningService {
 
   private async deriveThresholdEcdsaHssYRelayerForContext(input: {
     hssContext: {
-      walletSessionUserId: string;
-      subjectId: string;
+      walletId: string;
+      rpId: string;
       ecdsaThresholdKeyId: string;
       signingRootId: string;
       signingRootVersion: string;
@@ -2365,18 +2363,18 @@ export class ThresholdSigningService {
   }
 
   async getEcdsaKeyIdentityMetadata(input: {
-    walletSessionUserId: string;
+    walletId: string;
     rpId: string;
     keySelector: ThresholdEcdsaKeyHandleSelector;
   }): Promise<ThresholdEcdsaKeyIdentityMetadata | null> {
-    const walletSessionUserId = toOptionalTrimmedString(input.walletSessionUserId);
+    const walletId = toOptionalTrimmedString(input.walletId);
     const rpId = toOptionalTrimmedString(input.rpId);
-    if (!walletSessionUserId || !rpId) return null;
+    if (!walletId || !rpId) return null;
     const record = await this.ecdsaKeyStore.getRoleLocalByKeyHandle(input.keySelector.keyHandle);
     if (!record) return null;
     const keyHandle = toOptionalTrimmedString(record.keyHandle);
     if (keyHandle !== input.keySelector.keyHandle) return null;
-    if (record.walletSessionUserId !== walletSessionUserId || record.rpId !== rpId) {
+    if (record.walletId !== walletId || record.rpId !== rpId) {
       return null;
     }
     const relayerKeyId = toOptionalTrimmedString(record.relayerKeyId);
@@ -2384,8 +2382,7 @@ export class ThresholdSigningService {
     if (!relayerKeyId || !recordOwnerAddress) return null;
     const thresholdOwnerAddress = recordOwnerAddress.toLowerCase();
     return {
-      walletId: record.walletSessionUserId,
-      subjectId: record.subjectId,
+      walletId: record.walletId,
       rpId: record.rpId,
       keyScope: 'evm-family',
       keyHandle,
@@ -2402,8 +2399,7 @@ export class ThresholdSigningService {
   async verifyEcdsaSigningRootWalletAddress(input: {
     signingRootId: string;
     signingRootVersion: string;
-    walletSessionUserId: string;
-    subjectId: string;
+    walletId: string;
     chainTarget: ThresholdEcdsaChainTarget;
     ecdsaThresholdKeyId: string;
     rpId: string;
@@ -2416,7 +2412,7 @@ export class ThresholdSigningService {
         verified: boolean;
         signingRootId: string;
         signingRootVersion: string;
-        walletSessionUserId: string;
+        walletId: string;
         rpId: string;
         walletKeyVersion: string;
         canonicalPublicKeyHex: string;
@@ -2427,8 +2423,7 @@ export class ThresholdSigningService {
   > {
     const signingRootId = toOptionalTrimmedString(input.signingRootId);
     const signingRootVersion = toOptionalTrimmedString(input.signingRootVersion);
-    const walletSessionUserId = toOptionalTrimmedString(input.walletSessionUserId);
-    const subjectId = toOptionalTrimmedString(input.subjectId);
+    const walletId = toOptionalTrimmedString(input.walletId);
     const chainTarget = input.chainTarget;
     const ecdsaThresholdKeyId = toOptionalTrimmedString(input.ecdsaThresholdKeyId);
     const rpId = toOptionalTrimmedString(input.rpId);
@@ -2437,8 +2432,7 @@ export class ThresholdSigningService {
     if (
       !signingRootId ||
       !signingRootVersion ||
-      !walletSessionUserId ||
-      !subjectId ||
+      !walletId ||
       !ecdsaThresholdKeyId ||
       !rpId
     ) {
@@ -2446,7 +2440,7 @@ export class ThresholdSigningService {
         ok: false,
         code: 'invalid_body',
         message:
-          'signingRootId, signingRootVersion, walletSessionUserId, subjectId, chainTarget, ecdsaThresholdKeyId, and rpId are required',
+          'signingRootId, signingRootVersion, walletId, chainTarget, ecdsaThresholdKeyId, and rpId are required',
       };
     }
     if (!this.signingRootShareResolver) {
@@ -2469,9 +2463,8 @@ export class ThresholdSigningService {
     try {
       const signingRootMetadata = createEcdsaSigningRootMetadata(signingRootId, signingRootVersion);
       const hssContext = {
-        walletSessionUserId,
-        subjectId,
-        chainTarget,
+        walletId,
+        rpId,
         ecdsaThresholdKeyId,
         signingRootId,
         signingRootVersion: canonicalEcdsaHssSigningRootVersion(signingRootVersion),
@@ -2499,7 +2492,7 @@ export class ThresholdSigningService {
         verified: normalizedExpected ? canonicalEthereumAddress === normalizedExpected : true,
         signingRootId,
         signingRootVersion,
-        walletSessionUserId,
+        walletId,
         rpId,
         walletKeyVersion,
         canonicalPublicKeyHex: bytesToLowerHex(groupPublicKey33),
@@ -2752,8 +2745,8 @@ export class ThresholdSigningService {
         request.signingRootVersion,
       );
       const hssContext = {
-        walletSessionUserId: request.walletSessionUserId,
-        subjectId: request.subjectId,
+        walletId: request.walletId,
+        rpId: request.rpId,
         ecdsaThresholdKeyId: request.ecdsaThresholdKeyId,
         signingRootId: signingRootMetadata.signingRootId,
         signingRootVersion: canonicalEcdsaHssSigningRootVersion(
@@ -2809,9 +2802,8 @@ export class ThresholdSigningService {
         if (
           existing.ecdsaThresholdKeyId !== request.ecdsaThresholdKeyId ||
           existing.keyHandle !== keyHandle ||
-          existing.walletSessionUserId !== request.walletSessionUserId ||
+          existing.walletId !== request.walletId ||
           existing.rpId !== request.rpId ||
-          existing.subjectId !== request.subjectId ||
           existing.signingRootId !== signingRootMetadata.signingRootId ||
           existing.signingRootVersion !== signingRootVersion ||
           existing.keyScope !== request.keyScope ||
@@ -2828,7 +2820,7 @@ export class ThresholdSigningService {
       const session = await this.ecdsaMintSessionWithoutWebAuthn({
         relayerKeyId: request.relayerKeyId,
         clientVerifyingShareB64u: request.clientPublicKey33B64u,
-        walletSessionUserId: request.walletSessionUserId,
+        walletSessionUserId: request.walletId,
         rpId: request.rpId,
         sessionId: request.sessionId,
         walletSigningSessionId: request.walletSigningSessionId,
@@ -2856,12 +2848,11 @@ export class ThresholdSigningService {
         relayerBootstrap.publicTranscriptDigest32,
       );
       const record = {
-        version: 'threshold_ecdsa_hss_role_local',
+        version: 'threshold_ecdsa_hss_role_local_v2',
         ecdsaThresholdKeyId: request.ecdsaThresholdKeyId,
         keyHandle,
-        walletSessionUserId: request.walletSessionUserId,
+        walletId: request.walletId,
         rpId: request.rpId,
-        subjectId: request.subjectId,
         signingRootId: signingRootMetadata.signingRootId,
         signingRootVersion: canonicalEcdsaHssSigningRootVersion(
           signingRootMetadata.signingRootVersion,
@@ -2890,9 +2881,8 @@ export class ThresholdSigningService {
         ok: true,
         value: {
           formatVersion: 'ecdsa-hss-role-local',
-          walletSessionUserId: request.walletSessionUserId,
+          walletId: request.walletId,
           rpId: request.rpId,
-          subjectId: request.subjectId,
           ecdsaThresholdKeyId: request.ecdsaThresholdKeyId,
           relayerKeyId: request.relayerKeyId,
           contextBinding32B64u: request.contextBinding32B64u,
@@ -2943,9 +2933,8 @@ export class ThresholdSigningService {
     return await sha256BytesUtf8(
       alphabetizeStringify({
         version: THRESHOLD_ECDSA_HSS_EXPORT_CONFIRMATION_DIGEST_VERSION,
-        walletSessionUserId: request.walletSessionUserId,
+        walletId: request.walletId,
         rpId: request.rpId,
-        subjectId: request.subjectId,
         ecdsaThresholdKeyId: request.ecdsaThresholdKeyId,
         relayerKeyId: request.relayerKeyId,
         contextBinding32B64u: request.contextBinding32B64u,
@@ -2971,9 +2960,8 @@ export class ThresholdSigningService {
         version: THRESHOLD_ECDSA_HSS_EXPORT_AUTHORIZATION_DIGEST_VERSION,
         operation: 'explicit_key_export',
         keyHandle: input.keyHandle,
-        walletSessionUserId: request.walletSessionUserId,
+        walletId: request.walletId,
         rpId: request.rpId,
-        subjectId: request.subjectId,
         ecdsaThresholdKeyId: request.ecdsaThresholdKeyId,
         relayerKeyId: request.relayerKeyId,
         signingRootId: record.signingRootId,
@@ -3001,9 +2989,8 @@ export class ThresholdSigningService {
   }): string {
     return [
       'ecdsa-hss-export',
-      input.request.walletSessionUserId,
+      input.request.walletId,
       input.request.rpId,
-      input.request.subjectId,
       input.request.ecdsaThresholdKeyId,
       input.request.relayerKeyId,
       input.keyHandle,
@@ -3055,13 +3042,11 @@ export class ThresholdSigningService {
       }
       const { claims } = input;
       if (
-        record.walletSessionUserId !== request.walletSessionUserId ||
+        record.walletId !== request.walletId ||
         record.rpId !== request.rpId ||
-        record.subjectId !== request.subjectId ||
         record.ecdsaThresholdKeyId !== request.ecdsaThresholdKeyId ||
         record.relayerKeyId !== request.relayerKeyId ||
-        claims.walletId !== request.walletSessionUserId ||
-        claims.subjectId !== request.subjectId ||
+        claims.walletId !== request.walletId ||
         claims.rpId !== request.rpId ||
         claims.relayerKeyId !== request.relayerKeyId ||
         claims.keyHandle !== keyHandle
@@ -3146,9 +3131,8 @@ export class ThresholdSigningService {
         ok: true,
         value: {
           formatVersion: 'ecdsa-hss-role-local-export',
-          walletSessionUserId: request.walletSessionUserId,
+          walletId: request.walletId,
           rpId: request.rpId,
-          subjectId: request.subjectId,
           ecdsaThresholdKeyId: request.ecdsaThresholdKeyId,
           relayerKeyId: request.relayerKeyId,
           contextBinding32B64u: request.contextBinding32B64u,
@@ -3226,7 +3210,7 @@ export class ThresholdSigningService {
       const resolvedKey = {
         keyHandle: roleLocalKey.keyHandle,
         ecdsaThresholdKeyId: roleLocalKey.ecdsaThresholdKeyId,
-        walletSessionUserId: roleLocalKey.walletSessionUserId,
+        walletId: roleLocalKey.walletId,
         rpId: roleLocalKey.rpId,
         participantIds: [...this.participantIds2p],
         signingRootMetadata: createEcdsaSigningRootMetadata(
@@ -3252,7 +3236,7 @@ export class ThresholdSigningService {
         };
       }
       if (
-        resolvedKey.walletSessionUserId !== walletSessionUserId ||
+        resolvedKey.walletId !== walletSessionUserId ||
         resolvedKey.rpId !== tokenRpId
       ) {
         return {

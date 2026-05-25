@@ -126,9 +126,8 @@ const ecdsaPrepare = {
   chainTargets: [ecdsaChainTarget],
   prepare: {
     formatVersion: 'ecdsa-hss-role-local',
-    walletSessionUserId: String(intent.walletSubjectId),
+    walletId: String(intent.walletSubjectId),
     rpId: intent.rpId,
-    subjectId: String(intent.walletSubjectId),
     ecdsaThresholdKeyId: 'ek_registration',
     signingRootId: 'project:env',
     signingRootVersion: 'default',
@@ -145,9 +144,8 @@ const ecdsaPrepare = {
 
 const ecdsaBootstrap = {
   formatVersion: 'ecdsa-hss-role-local',
-  walletSessionUserId: String(intent.walletSubjectId),
+  walletId: String(intent.walletSubjectId),
   rpId: intent.rpId,
-  subjectId: String(intent.walletSubjectId),
   ecdsaThresholdKeyId: 'ek_registration',
   relayerKeyId: 'rk_registration',
   contextBinding32B64u: 'context',
@@ -175,9 +173,8 @@ const ecdsaBootstrap = {
 const ecdsaWalletKey = {
   keyScope: 'evm-family',
   chainTarget: ecdsaChainTarget,
-  walletSessionUserId: String(intent.walletSubjectId),
+  walletId: String(intent.walletSubjectId),
   rpId: intent.rpId,
-  subjectId: String(intent.walletSubjectId),
   keyHandle: 'key-handle',
   ecdsaThresholdKeyId: 'ek_registration',
   signingRootId: 'project:env',

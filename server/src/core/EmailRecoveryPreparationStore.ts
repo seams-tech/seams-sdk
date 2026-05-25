@@ -153,9 +153,8 @@ function parseEcdsaPreparePayload(raw: unknown): WalletRegistrationEcdsaPrepareP
   const remainingUses = parseNonNegativeInteger(prepare.remainingUses);
   const required = {
     formatVersion: toOptionalTrimmedString(prepare.formatVersion),
-    walletSessionUserId: toOptionalTrimmedString(prepare.walletSessionUserId),
+    walletId: toOptionalTrimmedString(prepare.walletId),
     rpId: toOptionalTrimmedString(prepare.rpId),
-    subjectId: toOptionalTrimmedString(prepare.subjectId),
     ecdsaThresholdKeyId: toOptionalTrimmedString(prepare.ecdsaThresholdKeyId),
     signingRootId: toOptionalTrimmedString(prepare.signingRootId),
     signingRootVersion: toOptionalTrimmedString(prepare.signingRootVersion),
@@ -168,9 +167,8 @@ function parseEcdsaPreparePayload(raw: unknown): WalletRegistrationEcdsaPrepareP
   if (
     required.formatVersion !== 'ecdsa-hss-role-local' ||
     required.keyScope !== 'evm-family' ||
-    !required.walletSessionUserId ||
+    !required.walletId ||
     !required.rpId ||
-    !required.subjectId ||
     !required.ecdsaThresholdKeyId ||
     !required.signingRootId ||
     !required.signingRootVersion ||
@@ -189,9 +187,8 @@ function parseEcdsaPreparePayload(raw: unknown): WalletRegistrationEcdsaPrepareP
     chainTargets: chainTargets as WalletRegistrationEcdsaPreparePayload['chainTargets'],
     prepare: {
       formatVersion: 'ecdsa-hss-role-local',
-      walletSessionUserId: required.walletSessionUserId,
+      walletId: required.walletId,
       rpId: required.rpId,
-      subjectId: required.subjectId,
       ecdsaThresholdKeyId: required.ecdsaThresholdKeyId,
       signingRootId: required.signingRootId,
       signingRootVersion: required.signingRootVersion,

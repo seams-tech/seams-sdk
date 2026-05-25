@@ -23,6 +23,11 @@ import type {
   EvmFamilyEcdsaWarmSessionStepUpAuthorization,
 } from './stepUpAuthorization';
 
+type PasskeyEcdsaProvisionMaterial = {
+  lane: Pick<ResolvedEvmFamilyEcdsaSigningLane, 'key' | 'chainTarget'>;
+  record: ThresholdEcdsaSessionRecord;
+};
+
 export type EvmFamilyWarmSessionReconnectPlan =
   | ThresholdSessionAuthEcdsaReconnect
   | CookieEcdsaReconnect;
@@ -47,7 +52,7 @@ export function buildEvmFamilyWarmSessionReconnectPlan(args: {
 
 export async function buildEvmFamilyPasskeyEcdsaProvisionPlan(args: {
   authorization: EvmFamilyEcdsaPasskeyStepUpAuthorization;
-  material: ReadyEvmFamilyEcdsaMaterial;
+  material: PasskeyEcdsaProvisionMaterial;
   sessionBudgetUses: number;
 }): Promise<PasskeyEcdsaSessionProvision> {
   if (!args.authorization.plannedPasskeyReconnect) {

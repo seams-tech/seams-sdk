@@ -23,11 +23,9 @@ import type { SigningOperationIntent } from '../operationState/types';
 import type {
   ThresholdEcdsaChainTarget,
   WalletId,
-  WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   toWalletId,
-  walletSubjectIdFromWalletProfile,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildEcdsaSessionIdentity,
@@ -35,7 +33,6 @@ import {
 } from '../warmCapabilities/ecdsaProvisionPlan';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import {
-  deriveBaseEcdsaSubjectIdFromKey,
   toEvmFamilyEcdsaKeyHandle,
   type EvmFamilyEcdsaKeyHandle,
   type EvmFamilyEcdsaKeyIdentity,
@@ -298,18 +295,6 @@ export function ecdsaBootstrapWalletId(request: EcdsaBootstrapRequest): AccountI
   return hasExactEcdsaBootstrapIdentity(request) ? request.key.walletId : request.walletId;
 }
 
-function targetBootstrapSubjectId(
-  request: Extract<EcdsaBootstrapRequest, { walletId: AccountId | string }>,
-): WalletSubjectId {
-  return walletSubjectIdFromWalletProfile({ walletId: String(request.walletId) });
-}
-
-export function ecdsaBootstrapSubjectId(request: EcdsaBootstrapRequest): WalletSubjectId {
-  return hasExactEcdsaBootstrapIdentity(request)
-    ? deriveBaseEcdsaSubjectIdFromKey(request.key)
-    : targetBootstrapSubjectId(request);
-}
-
 export function ecdsaBootstrapChainTarget(
   request: EcdsaBootstrapRequest,
 ): ThresholdEcdsaChainTarget {
@@ -347,7 +332,6 @@ function toActivateEcdsaSessionRequest(
     return {
       kind: 'key_enrollment_bootstrap',
       walletId: targetRequest.walletId,
-      subjectId: targetBootstrapSubjectId(targetRequest),
       chainTarget: targetRequest.chainTarget,
       relayerUrl,
       ...(targetRequest.keyIntent ? { keyIntent: targetRequest.keyIntent } : {}),

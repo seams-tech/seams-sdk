@@ -192,7 +192,7 @@ export async function validateThresholdEcdsaAuthorizeInputs(input: {
   };
 }
 
-type ThresholdSessionAuthTokenKind = 'threshold_ed25519_session_v1' | 'threshold_ecdsa_session_v1';
+type ThresholdSessionAuthTokenKind = 'threshold_ed25519_session_v1' | 'threshold_ecdsa_session_v2';
 
 export type ThresholdSessionAuthTokenSigningResult =
   | {
@@ -222,7 +222,6 @@ export async function signThresholdSessionAuthToken(args: {
     expiresAtMs?: unknown;
     participantIds?: unknown;
     runtimePolicyScope?: unknown;
-    subjectId?: unknown;
     keyHandle?: unknown;
   };
   fallbackParticipantIds?: unknown;
@@ -274,7 +273,6 @@ export async function signThresholdSessionAuthToken(args: {
       return undefined;
     }
   })();
-  const subjectId = String(args.sessionInfo?.subjectId || '').trim();
   const keyHandle = String(args.sessionInfo?.keyHandle || '').trim();
 
   if (
@@ -287,7 +285,7 @@ export async function signThresholdSessionAuthToken(args: {
     thresholdExpiresAtMs <= 0 ||
     !participantIds ||
     participantIds.length < 2 ||
-    (args.kind === 'threshold_ecdsa_session_v1' && (!subjectId || !keyHandle))
+    (args.kind === 'threshold_ecdsa_session_v2' && !keyHandle)
   ) {
     return {
       ok: false,
@@ -309,9 +307,8 @@ export async function signThresholdSessionAuthToken(args: {
     participantIds,
     thresholdExpiresAtMs,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-    ...(args.kind === 'threshold_ecdsa_session_v1'
+    ...(args.kind === 'threshold_ecdsa_session_v2'
       ? {
-          subjectId,
           keyHandle,
           keyScope: 'evm-family',
         }

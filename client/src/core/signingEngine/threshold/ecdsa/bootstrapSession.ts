@@ -34,26 +34,22 @@ import {
   toEcdsaHssSigningRootId,
   toEcdsaHssSigningRootVersion,
   toEcdsaHssThresholdKeyId,
-  toWalletSessionUserId,
 } from '../../session/identity/emailOtpHssIdentity';
 import {
   buildThresholdEcdsaHssRoleLocalClientBootstrapWasm,
 } from '../crypto/hssClientSignerWasm';
 import { resolveThresholdEcdsaClientRootShare } from './clientSecretSource';
-import {
-  type ThresholdEcdsaChainTarget,
-  type WalletSubjectId,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { type ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   EvmFamilyEcdsaKeyHandle,
   EvmFamilyEcdsaKeyIdentity,
   EvmFamilyEcdsaSessionLanePolicy,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import {
-  deriveBaseEcdsaSubjectIdFromKey,
   deriveEvmFamilyKeyFingerprint,
+  toRpId,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
-import { thresholdEcdsaChainTargetKey } from '../../interfaces/ecdsaChainTarget';
+import { thresholdEcdsaChainTargetKey, toWalletId } from '../../interfaces/ecdsaChainTarget';
 
 function joinUrlPath(base: string, path: string): string {
   return `${String(base || '').replace(/\/+$/, '')}/${String(path || '').replace(/^\/+/, '')}`;
@@ -194,7 +190,6 @@ type BootstrapEcdsaSessionBaseArgs = {
   touchIdPrompt: ThresholdWebAuthnPromptPort;
   relayerUrl: string;
   userId: string;
-  subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   chainId?: number;
   participantIds?: number[];
@@ -355,7 +350,7 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
             environmentId: runtimeEnvironmentId,
             publishableKey: runtimeScopePublishableKey,
             walletId: userId,
-            rpId,
+            rpId: toRpId(rpId),
           })
         : null;
     const runtimePolicyScope =
@@ -369,9 +364,6 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
     const sessionPolicyChainTarget = exactSessionBootstrap
       ? args.lanePolicy.chainTarget
       : args.chainTarget;
-    const sessionPolicySubjectId = exactSessionBootstrap
-      ? deriveBaseEcdsaSubjectIdFromKey(args.key)
-      : args.subjectId;
     const sessionPolicyParticipantIds = exactSessionBootstrap
       ? args.key.participantIds.map((participantId) => Number(participantId))
       : participantIds || undefined;
@@ -389,21 +381,20 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
       exactBootstrapSigningRootScope || firstBootstrapSigningRootScope;
     const exactBootstrapRelayerKeyId = exactSessionBootstrap
       ? await computeEcdsaHssRoleLocalRelayerKeyId({
-          walletSessionUserId: userId,
+          walletId: userId,
           rpId,
         })
       : '';
     const firstBootstrapRelayerKeyId = firstBootstrapSigningRootScope
       ? await computeEcdsaHssRoleLocalRelayerKeyId({
-          walletSessionUserId: userId,
+          walletId: userId,
           rpId,
         })
       : '';
     const firstBootstrapThresholdKeyId = firstBootstrapSigningRootScope
       ? await computeEcdsaHssRoleLocalThresholdKeyId({
-          walletSessionUserId: userId,
+          walletId: userId,
           rpId,
-          subjectId: sessionPolicySubjectId,
           signingRootId: firstBootstrapSigningRootScope.signingRootId,
           signingRootVersion: firstBootstrapSigningRootScope.signingRootVersion || 'default',
         })
@@ -411,9 +402,8 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
     const passkeyBootstrapIdentity =
       exactSessionBootstrap && exactBootstrapSigningRootScope && exactBootstrapRelayerKeyId
         ? {
-            walletSessionUserId: userId,
-            rpId,
-            subjectId: sessionPolicySubjectId,
+            walletId: userId,
+            rpId: toRpId(rpId),
             ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId(args.key.ecdsaThresholdKeyId),
             signingRootId: exactBootstrapSigningRootScope.signingRootId,
             signingRootVersion: exactBootstrapSigningRootScope.signingRootVersion || 'default',
@@ -432,9 +422,8 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
             firstBootstrapThresholdKeyId &&
             (!ecdsaThresholdKeyId || ecdsaThresholdKeyId === firstBootstrapThresholdKeyId)
           ? {
-              walletSessionUserId: userId,
+              walletId: userId,
               rpId,
-              subjectId: sessionPolicySubjectId,
               ecdsaThresholdKeyId: firstBootstrapThresholdKeyId,
               signingRootId: firstBootstrapSigningRootScope.signingRootId,
               signingRootVersion: firstBootstrapSigningRootScope.signingRootVersion || 'default',
@@ -508,8 +497,7 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
       ? deriveEvmFamilyKeyFingerprint(args.key)
       : undefined;
     const sessionPolicy = buildEcdsaHssSessionPolicy({
-      walletSessionUserId: userId,
-      subjectId: sessionPolicySubjectId,
+      walletId: userId,
       rpId,
       chainTarget: sessionPolicyChainTarget,
       ...(keyHandle ? { keyHandle } : {}),
@@ -576,8 +564,8 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
       try {
         clientBootstrap = await buildThresholdEcdsaHssRoleLocalClientBootstrapWasm({
           context: {
-            walletSessionUserId: toWalletSessionUserId(sessionPolicy.walletSessionUserId),
-            subjectId: sessionPolicySubjectId,
+            walletId: toWalletId(sessionPolicy.walletId),
+            rpId: toRpId(rpId),
             ecdsaThresholdKeyId: preparedEcdsaThresholdKeyId,
             signingRootId: toEcdsaHssSigningRootId(roleLocalSigningRootScope.signingRootId),
             signingRootVersion: toEcdsaHssSigningRootVersion(
@@ -602,9 +590,8 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
 
       const bootstrapRequestBase = {
         formatVersion: 'ecdsa-hss-role-local',
-        walletSessionUserId: toWalletSessionUserId(sessionPolicy.walletSessionUserId),
+        walletId: toWalletId(sessionPolicy.walletId),
         rpId,
-        subjectId: sessionPolicySubjectId,
         ecdsaThresholdKeyId: preparedEcdsaThresholdKeyId,
         signingRootId: clientBootstrap.signingRootId,
         signingRootVersion: clientBootstrap.signingRootVersion,

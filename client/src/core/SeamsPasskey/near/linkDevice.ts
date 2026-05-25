@@ -103,9 +103,8 @@ function parseLinkDeviceEcdsaPrepare(value: unknown): WalletRegistrationEcdsaPre
   const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(value.runtimePolicyScope);
   return {
     formatVersion: 'ecdsa-hss-role-local',
-    walletSessionUserId: requireLinkDeviceString(value.walletSessionUserId, 'walletSessionUserId'),
+    walletId: requireLinkDeviceString(value.walletId, 'walletId'),
     rpId: requireLinkDeviceString(value.rpId, 'rpId'),
-    subjectId: requireLinkDeviceString(value.subjectId, 'subjectId'),
     ecdsaThresholdKeyId: requireLinkDeviceString(value.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId'),
     signingRootId: requireLinkDeviceString(value.signingRootId, 'signingRootId'),
     signingRootVersion: requireLinkDeviceString(value.signingRootVersion, 'signingRootVersion'),
@@ -148,9 +147,8 @@ function parseLinkDeviceEcdsaWalletKeys(value: unknown): WalletRegistrationEcdsa
     return {
       keyScope: 'evm-family',
       chainTarget,
-      walletSessionUserId: requireLinkDeviceString(raw.walletSessionUserId, 'walletSessionUserId'),
+      walletId: requireLinkDeviceString(raw.walletId, 'walletId'),
       rpId: requireLinkDeviceString(raw.rpId, 'rpId'),
-      subjectId: requireLinkDeviceString(raw.subjectId, 'subjectId'),
       keyHandle: requireLinkDeviceString(raw.keyHandle, 'keyHandle'),
       ecdsaThresholdKeyId: requireLinkDeviceString(raw.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId'),
       signingRootId: requireLinkDeviceString(raw.signingRootId, 'signingRootId'),

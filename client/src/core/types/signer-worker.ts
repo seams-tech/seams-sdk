@@ -197,8 +197,8 @@ export interface WasmBuildThresholdEd25519SeedExportArtifactResult {
   privateKey: string;
 }
 export interface WasmBuildThresholdEcdsaHssRoleLocalClientBootstrapRequest {
-  walletSessionUserId: string;
-  subjectId: string;
+  walletId: string;
+  rpId: string;
   ecdsaThresholdKeyId: string;
   signingRootId: string;
   signingRootVersion: string;
@@ -208,8 +208,8 @@ export interface WasmBuildThresholdEcdsaHssRoleLocalClientBootstrapRequest {
   clientRootShare32B64u?: string;
 }
 export interface WasmBuildThresholdEcdsaHssRoleLocalClientBootstrapResult {
-  walletSessionUserId: string;
-  subjectId: string;
+  walletId: string;
+  rpId: string;
   ecdsaThresholdKeyId: string;
   signingRootId: string;
   signingRootVersion: string;
@@ -223,8 +223,8 @@ export interface WasmBuildThresholdEcdsaHssRoleLocalClientBootstrapResult {
   verifyingShare33B64u: string;
 }
 export interface WasmBuildThresholdEcdsaHssRoleLocalExportArtifactRequest {
-  walletSessionUserId: string;
-  subjectId: string;
+  walletId: string;
+  rpId: string;
   ecdsaThresholdKeyId: string;
   signingRootId: string;
   signingRootVersion: string;

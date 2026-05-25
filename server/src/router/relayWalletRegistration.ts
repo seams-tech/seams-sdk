@@ -232,8 +232,8 @@ async function attachEcdsaThresholdSessionJwt(
   if (!bootstrap) return null;
   const signed = await signThresholdSessionAuthToken({
     session: input.services.session,
-    kind: 'threshold_ecdsa_session_v1',
-    userId: bootstrap.walletSessionUserId,
+    kind: 'threshold_ecdsa_session_v2',
+    userId: bootstrap.walletId,
     rpId: bootstrap.rpId,
     relayerKeyId: bootstrap.relayerKeyId,
     sessionInfo: {
@@ -243,7 +243,6 @@ async function attachEcdsaThresholdSessionJwt(
       expiresAtMs: bootstrap.expiresAtMs,
       participantIds: bootstrap.participantIds,
       ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-      subjectId: bootstrap.subjectId,
       keyHandle: bootstrap.keyHandle,
     },
     fallbackParticipantIds: bootstrap.participantIds,
@@ -785,9 +784,8 @@ function parseWalletRegistrationHssRespondRequest(
     value.ecdsa = {
       clientBootstrap: {
         formatVersion: parsed.formatVersion,
-        walletSessionUserId: parsed.walletSessionUserId,
+        walletId: parsed.walletId,
         rpId: parsed.rpId,
-        subjectId: parsed.subjectId,
         ecdsaThresholdKeyId: parsed.ecdsaThresholdKeyId,
         signingRootId: parsed.signingRootId,
         signingRootVersion: parsed.signingRootVersion,

@@ -43,7 +43,6 @@ import {
   tryBuildEcdsaSessionIdentity,
 } from '../../session/warmCapabilities/ecdsaProvisionPlan';
 import {
-  deriveBaseEcdsaSubjectIdFromKey,
   type EvmFamilyEcdsaKeyIdentity,
   type ReadyEvmFamilyEcdsaMaterial,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
@@ -211,7 +210,6 @@ export function requireResolvedEvmFamilyEcdsaSigningLane(args: {
   }
   if (
     !key ||
-    !deriveBaseEcdsaSubjectIdFromKey(key) ||
     String(key.walletId) !== String(lane.walletId) ||
     String(lane.keyHandle || '').trim() === ''
   ) {

@@ -80,7 +80,7 @@ function resolveDefaultFrontendUrlNoCaddy(): string {
       .trim();
     const chosenPort = Number(chosenPortRaw);
     if (Number.isFinite(chosenPort) && chosenPort > 0) {
-      const chosen = `http://127.0.0.1:${chosenPort}`;
+      const chosen = `http://localhost:${chosenPort}`;
       process.env.W3A_TEST_FRONTEND_URL = chosen;
       return chosen;
     }

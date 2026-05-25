@@ -3,7 +3,10 @@ import { readFileSync } from 'node:fs';
 import * as EthSignerWasm from '../../wasm/eth_signer/pkg/eth_signer.js';
 import * as HssClientSignerWasm from '../../wasm/hss_client_signer/pkg/hss_client_signer.js';
 
-const ETH_SIGNER_WASM_URL = new URL('../../wasm/eth_signer/pkg/eth_signer_bg.wasm', import.meta.url);
+const ETH_SIGNER_WASM_URL = new URL(
+  '../../wasm/eth_signer/pkg/eth_signer_bg.wasm',
+  import.meta.url,
+);
 const HSS_CLIENT_SIGNER_WASM_URL = new URL(
   '../../wasm/hss_client_signer/pkg/hss_client_signer_bg.wasm',
   import.meta.url,
@@ -65,8 +68,8 @@ function readRoleLocalFixture() {
 
 function contextPayload(fixture: ReturnType<typeof readRoleLocalFixture>) {
   return {
-    walletSessionUserId: fixture.context.wallet_session_user_id,
-    subjectId: fixture.context.subject_id,
+    walletId: fixture.context.wallet_session_user_id,
+    rpId: 'fixture-rp.localhost',
     ecdsaThresholdKeyId: fixture.context.ecdsa_threshold_key_id,
     signingRootId: fixture.context.signing_root_id,
     signingRootVersion: fixture.context.signing_root_version,
@@ -113,36 +116,91 @@ test.describe('threshold ECDSA HSS WASM surface', () => {
     ensureHssClientSignerWasm();
     const fixture = readRoleLocalFixture();
     const context = contextPayload(fixture);
-    const clientBootstrap =
-      HssClientSignerWasm.threshold_ecdsa_hss_role_local_client_bootstrap({
-        ...context,
-        clientRootShare32B64u: bytesB64u(hexToBytes(fixture.inputs.y_client32_le_hex)),
-      }) as { clientPublicKey33B64u: string; clientShareRetryCounter: number };
+    const clientBootstrap = HssClientSignerWasm.threshold_ecdsa_hss_role_local_client_bootstrap({
+      ...context,
+      clientRootShare32B64u: bytesB64u(hexToBytes(fixture.inputs.y_client32_le_hex)),
+    }) as {
+      contextBinding32B64u: string;
+      clientPublicKey33B64u: string;
+      clientShareRetryCounter: number;
+    };
 
     const relayerBootstrap = EthSignerWasm.threshold_ecdsa_hss_role_local_relayer_bootstrap({
       ...context,
       relayerKeyId: fixture.inputs.relayer_key_id,
       yRelayer32Le: Array.from(hexToBytes(fixture.inputs.y_relayer32_le_hex)),
-      clientPublicKey33: Array.from(Buffer.from(clientBootstrap.clientPublicKey33B64u, 'base64url')),
+      clientPublicKey33: Array.from(
+        Buffer.from(clientBootstrap.clientPublicKey33B64u, 'base64url'),
+      ),
       clientShareRetryCounter: clientBootstrap.clientShareRetryCounter,
     }) as {
+      contextBinding32: number[];
       relayerPublicKey33: number[];
       groupPublicKey33: number[];
       ethereumAddress20: number[];
     };
 
-    expect(bytesHex(Buffer.from(clientBootstrap.clientPublicKey33B64u, 'base64url'))).toBe(
+    expect(bytesHex(Buffer.from(clientBootstrap.contextBinding32B64u, 'base64url'))).toBe(
+      bytesHex(relayerBootstrap.contextBinding32),
+    );
+    expect(Buffer.from(clientBootstrap.contextBinding32B64u, 'base64url')).toHaveLength(32);
+    expect(Buffer.from(clientBootstrap.clientPublicKey33B64u, 'base64url')).toHaveLength(33);
+    expect(relayerBootstrap.relayerPublicKey33).toHaveLength(33);
+    expect(relayerBootstrap.groupPublicKey33).toHaveLength(33);
+    expect(relayerBootstrap.ethereumAddress20).toHaveLength(20);
+    expect(bytesHex(Buffer.from(clientBootstrap.clientPublicKey33B64u, 'base64url'))).not.toBe(
       fixture.identity.client_public_key33_hex,
     );
-    expect(bytesHex(relayerBootstrap.relayerPublicKey33)).toBe(
+    expect(bytesHex(relayerBootstrap.relayerPublicKey33)).not.toBe(
       fixture.identity.relayer_public_key33_hex,
     );
-    expect(bytesHex(relayerBootstrap.groupPublicKey33)).toBe(
+    expect(bytesHex(relayerBootstrap.groupPublicKey33)).not.toBe(
       fixture.identity.threshold_public_key33_hex,
     );
-    expect(bytesHex(relayerBootstrap.ethereumAddress20)).toBe(
+    expect(bytesHex(relayerBootstrap.ethereumAddress20)).not.toBe(
       fixture.identity.threshold_ethereum_address20_hex,
     );
+  });
+
+  test('v2 bootstrap FFI rejects v1 subject context fields', () => {
+    ensureEthSignerWasm();
+    ensureHssClientSignerWasm();
+    const fixture = readRoleLocalFixture();
+    const context = contextPayload(fixture);
+    const clientRootShare32B64u = bytesB64u(hexToBytes(fixture.inputs.y_client32_le_hex));
+    const clientBootstrap = HssClientSignerWasm.threshold_ecdsa_hss_role_local_client_bootstrap({
+      ...context,
+      clientRootShare32B64u,
+    }) as { clientPublicKey33B64u: string; clientShareRetryCounter: number };
+    const relayerPayload = {
+      ...context,
+      relayerKeyId: fixture.inputs.relayer_key_id,
+      yRelayer32Le: Array.from(hexToBytes(fixture.inputs.y_relayer32_le_hex)),
+      clientPublicKey33: Array.from(
+        Buffer.from(clientBootstrap.clientPublicKey33B64u, 'base64url'),
+      ),
+      clientShareRetryCounter: clientBootstrap.clientShareRetryCounter,
+    };
+
+    for (const forbiddenField of ['subjectId', 'walletSessionUserId'] as const) {
+      const forbiddenValue =
+        forbiddenField === 'subjectId'
+          ? fixture.context.subject_id
+          : fixture.context.wallet_session_user_id;
+      expect(() =>
+        HssClientSignerWasm.threshold_ecdsa_hss_role_local_client_bootstrap({
+          ...context,
+          [forbiddenField]: forbiddenValue,
+          clientRootShare32B64u,
+        }),
+      ).toThrow(new RegExp(`${forbiddenField} is not accepted`));
+      expect(() =>
+        EthSignerWasm.threshold_ecdsa_hss_role_local_relayer_bootstrap({
+          ...relayerPayload,
+          [forbiddenField]: forbiddenValue,
+        }),
+      ).toThrow(new RegExp(`unknown field.*${forbiddenField}|${forbiddenField}`));
+    }
   });
 
   test('relayer bootstrap FFI rejects wrong scalar and public-key widths', () => {

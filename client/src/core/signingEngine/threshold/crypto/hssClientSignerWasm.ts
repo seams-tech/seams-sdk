@@ -20,19 +20,18 @@ import {
 import {
   thresholdEcdsaChainTargetFromRequest,
   type ThresholdEcdsaChainTarget,
-  type WalletSubjectId,
+  toWalletId,
+  type WalletId,
 } from '../../interfaces/ecdsaChainTarget';
 import {
   toEcdsaHssSigningRootId,
   toEcdsaHssSigningRootVersion,
   toEcdsaHssThresholdKeyId,
-  toEcdsaHssWalletSubjectId,
-  toWalletSessionUserId,
   type EcdsaThresholdKeyId,
   type SigningRootId,
   type SigningRootVersion,
-  type WalletSessionUserId,
 } from '../../session/identity/emailOtpHssIdentity';
+import { toRpId, type RpId } from '../../session/identity/evmFamilyEcdsaIdentity';
 
 const HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS = 20_000;
 const ED25519_HSS_CLIENT_OUTPUT_MASK_BYTES = 32;
@@ -118,8 +117,8 @@ export type ThresholdEd25519SeedExportArtifact = {
 };
 
 export type ThresholdEcdsaHssStableKeyContext = {
-  walletSessionUserId: WalletSessionUserId;
-  subjectId: WalletSubjectId;
+  walletId: WalletId;
+  rpId: RpId;
   chainTarget: ThresholdEcdsaChainTarget;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   signingRootId: SigningRootId;
@@ -142,8 +141,8 @@ export type ThresholdEcdsaHssRoleLocalClientContext = Omit<
 >;
 
 export type ThresholdEcdsaHssRoleLocalClientBootstrap = {
-  walletSessionUserId: WalletSessionUserId;
-  subjectId: WalletSubjectId;
+  walletId: WalletId;
+  rpId: RpId;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   signingRootId: SigningRootId;
   signingRootVersion: SigningRootVersion;
@@ -216,8 +215,8 @@ function readThresholdEcdsaHssChainTarget(value: unknown): ThresholdEcdsaChainTa
 }
 
 function buildThresholdEcdsaHssStableKeyContext(input: {
-  walletSessionUserId: unknown;
-  subjectId: unknown;
+  walletId: unknown;
+  rpId: unknown;
   chainTarget: unknown;
   ecdsaThresholdKeyId: unknown;
   signingRootId: unknown;
@@ -230,8 +229,8 @@ function buildThresholdEcdsaHssStableKeyContext(input: {
   if (!keyPurpose) throw new Error('[email-otp-hss] keyPurpose is required');
   if (!keyVersion) throw new Error('[email-otp-hss] keyVersion is required');
   return {
-    walletSessionUserId: toWalletSessionUserId(input.walletSessionUserId),
-    subjectId: toEcdsaHssWalletSubjectId(input.subjectId),
+    walletId: toWalletId(input.walletId),
+    rpId: toRpId(input.rpId),
     chainTarget: readThresholdEcdsaHssChainTarget(input.chainTarget),
     ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId(input.ecdsaThresholdKeyId),
     signingRootId: toEcdsaHssSigningRootId(input.signingRootId),
@@ -242,8 +241,8 @@ function buildThresholdEcdsaHssStableKeyContext(input: {
 }
 
 export function parseServerPlannedEcdsaHssContext(input: {
-  walletSessionUserId: unknown;
-  subjectId: unknown;
+  walletId: unknown;
+  rpId: unknown;
   chainTarget: unknown;
   ecdsaThresholdKeyId: unknown;
   signingRootId: unknown;
@@ -251,8 +250,6 @@ export function parseServerPlannedEcdsaHssContext(input: {
   keyPurpose: unknown;
   keyVersion: unknown;
 }): ServerPlannedEcdsaHssContext {
-  // Provider subjects authorize Email OTP enrollment. Wallet/session IDs scope
-  // HSS audit and session policy. Server prepare owns ECDSA HSS key context.
   return buildThresholdEcdsaHssStableKeyContext(input) as ServerPlannedEcdsaHssContext;
 }
 
@@ -596,8 +593,8 @@ export async function buildThresholdEcdsaHssRoleLocalClientBootstrapWasm(input: 
         type: WorkerRequestType.BuildThresholdEcdsaHssRoleLocalClientBootstrap,
         timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
         payload: {
-          walletSessionUserId: input.context.walletSessionUserId,
-          subjectId: input.context.subjectId,
+          walletId: input.context.walletId,
+          rpId: input.context.rpId,
           ecdsaThresholdKeyId: input.context.ecdsaThresholdKeyId,
           signingRootId: input.context.signingRootId,
           signingRootVersion: input.context.signingRootVersion,
@@ -632,10 +629,8 @@ export async function buildThresholdEcdsaHssRoleLocalClientBootstrapWasm(input: 
     }
 
     return {
-      walletSessionUserId: toWalletSessionUserId(
-        result.walletSessionUserId || input.context.walletSessionUserId,
-      ),
-      subjectId: toEcdsaHssWalletSubjectId(result.subjectId || input.context.subjectId),
+      walletId: toWalletId(result.walletId || input.context.walletId),
+      rpId: toRpId(result.rpId || input.context.rpId),
       ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId(
         result.ecdsaThresholdKeyId || input.context.ecdsaThresholdKeyId,
       ),
@@ -684,8 +679,8 @@ export async function buildThresholdEcdsaHssRoleLocalExportArtifactWasm(input: {
         type: WorkerRequestType.BuildThresholdEcdsaHssRoleLocalExportArtifact,
         timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
         payload: {
-          walletSessionUserId: input.context.walletSessionUserId,
-          subjectId: input.context.subjectId,
+          walletId: input.context.walletId,
+          rpId: input.context.rpId,
           ecdsaThresholdKeyId: input.context.ecdsaThresholdKeyId,
           signingRootId: input.context.signingRootId,
           signingRootVersion: input.context.signingRootVersion,

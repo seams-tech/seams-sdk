@@ -52,23 +52,20 @@ const NOT_IMPLEMENTED = {
 
 function validateEcdsaHssSessionIdentity(input: {
   claims: ThresholdEcdsaSessionClaims;
-  walletSessionUserId: string;
+  walletId: string;
   rpId: string;
-  subjectId: string;
   relayerKeyId: string;
 }): { ok: true } | { ok: false; code: string; message: string } {
   if (input.claims.thresholdExpiresAtMs <= Date.now()) {
     return { ok: false, code: 'unauthorized', message: 'Threshold ECDSA session is expired' };
   }
-  if (input.walletSessionUserId !== input.claims.walletId) {
-    return { ok: false, code: 'identity_mismatch', message: 'walletSessionUserId mismatch' };
+  if (input.walletId !== input.claims.walletId) {
+    return { ok: false, code: 'identity_mismatch', message: 'walletId mismatch' };
   }
   if (input.rpId !== input.claims.rpId) {
     return { ok: false, code: 'identity_mismatch', message: 'rpId mismatch' };
   }
-  if (input.subjectId !== input.claims.subjectId) {
-    return { ok: false, code: 'identity_mismatch', message: 'subjectId mismatch' };
-  }
+
   if (input.relayerKeyId !== input.claims.relayerKeyId) {
     return { ok: false, code: 'relayer_key_mismatch', message: 'relayerKeyId mismatch' };
   }
@@ -223,16 +220,15 @@ async function authorizeEcdsaHssRoleLocalBootstrap(input: {
 > {
   const { ctx, headers, request } = input;
   const expectedRelayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
-    walletSessionUserId: request.walletSessionUserId,
+    walletId: request.walletId,
     rpId: request.rpId,
   });
   if (request.relayerKeyId !== expectedRelayerKeyId) {
     return { ok: false, code: 'relayer_key_mismatch', message: 'relayerKeyId mismatch' };
   }
   const expectedThresholdKeyId = await computeEcdsaHssRoleLocalThresholdKeyId({
-    walletSessionUserId: request.walletSessionUserId,
+    walletId: request.walletId,
     rpId: request.rpId,
-    subjectId: request.subjectId,
     signingRootId: request.signingRootId,
     signingRootVersion: request.signingRootVersion,
   });
@@ -275,9 +271,8 @@ async function authorizeEcdsaHssRoleLocalBootstrap(input: {
     }
     const expectedChallenge =
       await computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u({
-        walletSessionUserId: request.walletSessionUserId,
+        walletId: request.walletId,
         rpId: request.rpId,
-        subjectId: request.subjectId,
         ecdsaThresholdKeyId: request.ecdsaThresholdKeyId,
         signingRootId: request.signingRootId,
         signingRootVersion: request.signingRootVersion,
@@ -291,7 +286,7 @@ async function authorizeEcdsaHssRoleLocalBootstrap(input: {
         participantIds: request.participantIds,
       });
     const verified = await ctx.service.verifyWebAuthnAuthenticationLite({
-      nearAccountId: request.walletSessionUserId,
+      nearAccountId: request.walletId,
       rpId: request.rpId,
       expectedChallenge,
       webauthn_authentication: passkeyAuthorization.webauthn_authentication,
@@ -344,21 +339,21 @@ async function authorizeEcdsaHssRoleLocalBootstrap(input: {
   }
   const appSessionWalletId = resolveAppSessionWalletIdForWalletScope(
     appSessionClaims,
-    request.walletSessionUserId,
+    request.walletId,
   );
   const appSessionProviderUserId = resolveAppSessionProviderUserIdForWalletScope(
     appSessionClaims,
-    request.walletSessionUserId,
+    request.walletId,
   );
   if (appSessionClaims) {
-    if (appSessionWalletId && appSessionWalletId !== request.walletSessionUserId) {
-      return { ok: false, code: 'identity_mismatch', message: 'walletSessionUserId mismatch' };
+    if (appSessionWalletId && appSessionWalletId !== request.walletId) {
+      return { ok: false, code: 'identity_mismatch', message: 'walletId mismatch' };
     }
     if (!appSessionWalletId && !appSessionProviderUserId) {
-      return { ok: false, code: 'identity_mismatch', message: 'walletSessionUserId mismatch' };
+      return { ok: false, code: 'identity_mismatch', message: 'walletId mismatch' };
     }
-  } else if (String(sessionClaims.walletId || '').trim() !== request.walletSessionUserId) {
-    return { ok: false, code: 'identity_mismatch', message: 'walletSessionUserId mismatch' };
+  } else if (String(sessionClaims.walletId || '').trim() !== request.walletId) {
+    return { ok: false, code: 'identity_mismatch', message: 'walletId mismatch' };
   }
   const runtimePolicyScope = resolveEcdsaRuntimePolicyScopeFromClaims({
     appSessionClaims,
@@ -372,7 +367,7 @@ async function authorizeEcdsaHssRoleLocalBootstrap(input: {
     };
   }
   const enrollment = await ctx.service.readActiveEmailOtpEnrollment({
-    walletId: request.walletSessionUserId,
+    walletId: request.walletId,
     orgId: String(runtimePolicyScope?.orgId || '').trim() || undefined,
     providerUserId: appSessionProviderUserId,
   });
@@ -515,9 +510,9 @@ export function registerThresholdEcdsaRoutes(
       res,
       '/threshold-ecdsa/hss/bootstrap',
       {
-        walletSessionUserId:
-          typeof (body as { walletSessionUserId?: unknown }).walletSessionUserId === 'string'
-            ? (body as { walletSessionUserId: string }).walletSessionUserId
+        walletId:
+          typeof (body as { walletId?: unknown }).walletId === 'string'
+            ? (body as { walletId: string }).walletId
             : undefined,
         rpId:
           typeof (body as { rpId?: unknown }).rpId === 'string'
@@ -551,9 +546,8 @@ export function registerThresholdEcdsaRoutes(
           runtimePolicyScope = validated.claims.runtimePolicyScope;
           const identity = validateEcdsaHssSessionIdentity({
             claims: validated.claims,
-            walletSessionUserId: parsed.walletSessionUserId,
+            walletId: parsed.walletId,
             rpId: parsed.rpId,
-            subjectId: parsed.subjectId,
             relayerKeyId: parsed.relayerKeyId,
           });
           if (!identity.ok) return identity;
@@ -570,8 +564,8 @@ export function registerThresholdEcdsaRoutes(
         if (!bootstrap.ok || parsed.sessionKind === 'cookie') return bootstrap;
         const signed = await signThresholdSessionAuthToken({
           session: ctx.opts.session,
-          kind: 'threshold_ecdsa_session_v1',
-          userId: parsed.walletSessionUserId,
+          kind: 'threshold_ecdsa_session_v2',
+          userId: parsed.walletId,
           rpId: parsed.rpId,
           relayerKeyId: parsed.relayerKeyId,
           sessionInfo: {
@@ -581,7 +575,6 @@ export function registerThresholdEcdsaRoutes(
             expiresAtMs: bootstrap.value.expiresAtMs,
             participantIds: bootstrap.value.participantIds,
             ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-            subjectId: parsed.subjectId,
             keyHandle: bootstrap.value.keyHandle,
           },
           fallbackParticipantIds: bootstrap.value.participantIds,
@@ -610,9 +603,9 @@ export function registerThresholdEcdsaRoutes(
       res,
       '/threshold-ecdsa/hss/export/share',
       {
-        walletSessionUserId:
-          typeof (body as { walletSessionUserId?: unknown }).walletSessionUserId === 'string'
-            ? (body as { walletSessionUserId: string }).walletSessionUserId
+        walletId:
+          typeof (body as { walletId?: unknown }).walletId === 'string'
+            ? (body as { walletId: string }).walletId
             : undefined,
         rpId:
           typeof (body as { rpId?: unknown }).rpId === 'string'
@@ -648,9 +641,8 @@ export function registerThresholdEcdsaRoutes(
         if (!validated.ok) return validated;
         const identity = validateEcdsaHssSessionIdentity({
           claims: validated.claims,
-          walletSessionUserId: parsed.walletSessionUserId,
+          walletId: parsed.walletId,
           rpId: parsed.rpId,
-          subjectId: parsed.subjectId,
           relayerKeyId: parsed.relayerKeyId,
         });
         if (!identity.ok) return identity;

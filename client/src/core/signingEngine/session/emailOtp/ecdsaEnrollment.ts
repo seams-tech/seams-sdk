@@ -98,6 +98,13 @@ export type EmailOtpEcdsaEnrollmentPorts = {
   ) => Promise<EmailOtpThresholdEd25519ProvisioningResult>;
 };
 
+const ED25519_REGISTRATION_CEREMONY_REQUIRED_MESSAGE =
+  'Email OTP Ed25519 registration provisioning must use a wallet-subject ceremony before it can run';
+
+function isDeferredEd25519RegistrationProvisioning(error: unknown): boolean {
+  return error instanceof Error && error.message === ED25519_REGISTRATION_CEREMONY_REQUIRED_MESSAGE;
+}
+
 export async function enrollAndLoginWithEmailOtpEcdsaCapability(
   args: EnrollAndLoginEmailOtpEcdsaCapabilityArgs,
   ports: EmailOtpEcdsaEnrollmentPorts,
@@ -190,9 +197,8 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
   });
   const roleLocalKeyIdentity = await resolveEmailOtpEcdsaRoleLocalKeyIdentityForHandle({
     keyHandle: args.keyHandle,
-    walletSessionUserId,
+    walletId: walletSessionUserId,
     rpId,
-    subjectId,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
   });
   const bootstrapResult = await workerCtx.requestWorkerOperation({
@@ -245,35 +251,45 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
   if (thresholdEd25519PrfFirstB64u) {
     const registrationAttemptId = String(args.registrationAttemptId || '').trim();
     if (!registrationAttemptId) {
-      throw new Error(
-        'Email OTP threshold-ed25519 registration provisioning requires a registration attempt',
-      );
+      console.warn('[email-otp] deferred threshold-ed25519 registration provisioning', {
+        walletId: String(args.walletSession.walletId),
+        reason: 'missing_registration_attempt',
+      });
+    } else {
+      const freshThresholdSessionAuth = thresholdSessionAuthFromEcdsaBootstrap(bootstrap);
+      try {
+        await ports.provisionEd25519Capability({
+          kind: 'registration_ed25519_companion_provisioning',
+          registrationAttemptId,
+          nearAccountId,
+          relayUrl,
+          rpId,
+          prfFirstB64u: thresholdEd25519PrfFirstB64u,
+          emailOtpAuthContext,
+          ...(appSessionJwt ? { appSessionJwt } : {}),
+          ...(freshThresholdSessionAuth || routeAuth
+            ? { routeAuth: freshThresholdSessionAuth || routeAuth }
+            : {}),
+          ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+          ...(Array.isArray(args.ed25519ParticipantIds)
+            ? { participantIds: args.ed25519ParticipantIds }
+            : {}),
+          ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
+          ...(typeof remainingUses === 'number' ? { remainingUses } : {}),
+          walletSigningSessionId: walletSigningSessionIdFromEcdsaBootstrap(
+            bootstrap,
+            walletSigningSessionId,
+          ),
+          ecdsaThresholdSessionId: thresholdSessionIdFromEcdsaBootstrap(bootstrap),
+        });
+      } catch (error) {
+        if (!isDeferredEd25519RegistrationProvisioning(error)) throw error;
+        console.warn('[email-otp] deferred threshold-ed25519 registration provisioning', {
+          walletId: String(args.walletSession.walletId),
+          reason: 'wallet_subject_ceremony_required',
+        });
+      }
     }
-    const freshThresholdSessionAuth = thresholdSessionAuthFromEcdsaBootstrap(bootstrap);
-    await ports.provisionEd25519Capability({
-      kind: 'registration_ed25519_companion_provisioning',
-      registrationAttemptId,
-      nearAccountId,
-      relayUrl,
-      rpId,
-      prfFirstB64u: thresholdEd25519PrfFirstB64u,
-      emailOtpAuthContext,
-      ...(appSessionJwt ? { appSessionJwt } : {}),
-      ...(freshThresholdSessionAuth || routeAuth
-        ? { routeAuth: freshThresholdSessionAuth || routeAuth }
-        : {}),
-      ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-      ...(Array.isArray(args.ed25519ParticipantIds)
-        ? { participantIds: args.ed25519ParticipantIds }
-        : {}),
-      ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
-      ...(typeof remainingUses === 'number' ? { remainingUses } : {}),
-      walletSigningSessionId: walletSigningSessionIdFromEcdsaBootstrap(
-        bootstrap,
-        walletSigningSessionId,
-      ),
-      ecdsaThresholdSessionId: thresholdSessionIdFromEcdsaBootstrap(bootstrap),
-    });
   }
   return {
     enrollment,

@@ -457,9 +457,8 @@ export type WalletRegistrationEcdsaPreparePayload = {
   chainTargets: ThresholdEcdsaChainTarget[];
   prepare: {
     formatVersion: EcdsaHssRoleLocalFormatVersion;
-    walletSessionUserId: string;
+    walletId: string;
     rpId: string;
-    subjectId: string;
     ecdsaThresholdKeyId: EcdsaThresholdKeyId;
     signingRootId: string;
     signingRootVersion: string;
@@ -477,9 +476,8 @@ export type WalletRegistrationEcdsaPreparePayload = {
 
 export type WalletRegistrationEcdsaClientBootstrap = {
   formatVersion: EcdsaHssRoleLocalFormatVersion;
-  walletSessionUserId: string;
+  walletId: string;
   rpId: string;
-  subjectId: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   signingRootId: string;
   signingRootVersion: string;
@@ -502,9 +500,8 @@ export type WalletRegistrationEcdsaClientBootstrap = {
 export type WalletRegistrationEcdsaWalletKey = {
   keyScope: 'evm-family';
   chainTarget: ThresholdEcdsaChainTarget;
-  walletSessionUserId: string;
+  walletId: string;
   rpId: string;
-  subjectId: string;
   keyHandle: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   signingRootId: string;
@@ -1416,7 +1413,6 @@ export interface ThresholdEcdsaHssFinalizeResponse {
   chainId?: number;
   sessionId?: string;
   walletSigningSessionId?: string;
-  subjectId?: string;
   chainTarget?: ThresholdEcdsaChainTarget;
   expiresAtMs?: number;
   expiresAt?: string;
@@ -1471,7 +1467,7 @@ export interface EcdsaHssCaitSithInput {
 }
 
 export interface EcdsaHssClientRootProof {
-  version: 'ecdsa-hss:role-local:first-bootstrap-root-proof:v1';
+  version: 'ecdsa-hss:role-local:first-bootstrap-root-proof:v2';
   digest32B64u: string;
   signature65B64u: string;
 }
@@ -1485,9 +1481,8 @@ export interface EcdsaHssPasskeyBootstrapAuthorization {
 
 interface EcdsaHssClientBootstrapRequestBase {
   formatVersion: EcdsaHssRoleLocalFormatVersion;
-  walletSessionUserId: string;
+  walletId: string;
   rpId: string;
-  subjectId: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   signingRootId: string;
   signingRootVersion: string;
@@ -1522,9 +1517,8 @@ export type EcdsaHssClientBootstrapRequest =
 
 export interface EcdsaHssServerBootstrapResponse {
   formatVersion: EcdsaHssRoleLocalFormatVersion;
-  walletSessionUserId: string;
+  walletId: string;
   rpId: string;
-  subjectId: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   relayerKeyId: string;
   contextBinding32B64u: string;
@@ -1546,12 +1540,11 @@ export interface EcdsaHssServerBootstrapResponse {
 }
 
 export interface EcdsaHssRoleLocalKeyRecord {
-  version: 'threshold_ecdsa_hss_role_local';
+  version: 'threshold_ecdsa_hss_role_local_v2';
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   keyHandle: string;
-  walletSessionUserId: string;
+  walletId: string;
   rpId: string;
-  subjectId: string;
   signingRootId: string;
   signingRootVersion: string;
   keyScope: EcdsaHssKeyScope;
@@ -1570,9 +1563,8 @@ export interface EcdsaHssRoleLocalKeyRecord {
 
 export interface EcdsaHssExportShareRequest {
   formatVersion: EcdsaHssRoleLocalExportFormatVersion;
-  walletSessionUserId: string;
+  walletId: string;
   rpId: string;
-  subjectId: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   relayerKeyId: string;
   contextBinding32B64u: string;
@@ -1588,9 +1580,8 @@ export interface EcdsaHssExportShareRequest {
 
 export interface EcdsaHssExportShareResponse {
   formatVersion: EcdsaHssRoleLocalExportFormatVersion;
-  walletSessionUserId: string;
+  walletId: string;
   rpId: string;
-  subjectId: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   relayerKeyId: string;
   contextBinding32B64u: string;
@@ -1600,9 +1591,8 @@ export interface EcdsaHssExportShareResponse {
 }
 
 export type EcdsaSessionPolicy = {
-  version: 'threshold_session_v1';
-  walletSessionUserId: string;
-  subjectId: string;
+  version: 'threshold_session_policy_v2';
+  walletId: string;
   rpId: string;
   relayerKeyId: string;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -1618,9 +1608,8 @@ export type EcdsaSessionPolicy = {
 };
 
 export type ThresholdEcdsaBootstrapSessionPolicy = {
-  version: 'threshold_session_v1';
-  walletSessionUserId: string;
-  subjectId: string;
+  version: 'threshold_session_policy_v2';
+  walletId: string;
   rpId: string;
   chainTarget: ThresholdEcdsaChainTarget;
   keyHandle?: string;

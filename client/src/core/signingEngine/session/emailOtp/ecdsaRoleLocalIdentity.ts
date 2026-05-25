@@ -21,9 +21,8 @@ function nonEmptyString(value: unknown, field: string): string {
 
 export async function resolveEmailOtpEcdsaRoleLocalKeyIdentityForHandle(args: {
   keyHandle?: string;
-  walletSessionUserId: string;
+  walletId: string;
   rpId: string;
-  subjectId: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
 }): Promise<EmailOtpEcdsaRoleLocalKeyIdentity | undefined> {
   const keyHandle = String(args.keyHandle || '').trim();
@@ -35,13 +34,11 @@ export async function resolveEmailOtpEcdsaRoleLocalKeyIdentityForHandle(args: {
     signingRootScope.signingRootVersion,
     'signingRootVersion',
   );
-  const walletSessionUserId = nonEmptyString(args.walletSessionUserId, 'walletSessionUserId');
+  const walletId = nonEmptyString(args.walletId, 'walletId');
   const rpId = nonEmptyString(args.rpId, 'rpId');
-  const subjectId = nonEmptyString(args.subjectId, 'subjectId');
   const ecdsaThresholdKeyId = await computeEcdsaHssRoleLocalThresholdKeyId({
-    walletSessionUserId,
+    walletId,
     rpId,
-    subjectId,
     signingRootId,
     signingRootVersion,
   });
@@ -58,7 +55,7 @@ export async function resolveEmailOtpEcdsaRoleLocalKeyIdentityForHandle(args: {
     signingRootId,
     signingRootVersion,
     relayerKeyId: await computeEcdsaHssRoleLocalRelayerKeyId({
-      walletSessionUserId,
+      walletId,
       rpId,
     }),
   };

@@ -81,9 +81,8 @@ export type StoreWalletSubjectEd25519SignerRecordInput = {
 export type StoreWalletSubjectEcdsaWalletKey = {
   keyScope: 'evm-family';
   chainTarget: ThresholdEcdsaChainTarget;
-  walletSessionUserId: string;
+  walletId: string;
   rpId: string;
-  subjectId: string;
   keyHandle: string;
   ecdsaThresholdKeyId: string;
   signingRootId: string;
@@ -769,9 +768,9 @@ export async function storeWalletSubjectEcdsaSignerRecords(
     if (walletKey.keyScope !== 'evm-family') {
       throw new Error('PasskeyClientDB: threshold ECDSA wallet keyScope must be evm-family');
     }
-    const subjectId = requireStoreWalletSubjectString(walletKey.subjectId, 'wallet key subjectId');
-    if (subjectId !== walletSubjectId) {
-      throw new Error('PasskeyClientDB: threshold ECDSA wallet key subjectId mismatch');
+    const walletId = requireStoreWalletSubjectString(walletKey.walletId, 'wallet key walletId');
+    if (walletId !== walletSubjectId) {
+      throw new Error('PasskeyClientDB: threshold ECDSA wallet key walletId mismatch');
     }
     const keyHandle = requireStoreWalletSubjectString(walletKey.keyHandle, 'wallet key keyHandle');
     const ecdsaThresholdKeyId = requireStoreWalletSubjectString(
@@ -826,7 +825,6 @@ export async function storeWalletSubjectEcdsaSignerRecords(
           keyScope: walletKey.keyScope,
           keyHandle,
           walletId: walletSubjectId,
-          subjectId,
           rpId,
           ecdsaThresholdKeyId,
           signingRootId,
@@ -845,7 +843,6 @@ export async function storeWalletSubjectEcdsaSignerRecords(
           },
           sharedEvmFamilyKey: {
             walletId: walletSubjectId,
-            subjectId,
             rpId,
             keyScope: walletKey.keyScope,
             keyHandle,

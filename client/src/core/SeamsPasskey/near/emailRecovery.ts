@@ -87,9 +87,8 @@ function parseEmailRecoveryEcdsaPrepare(value: unknown): WalletRegistrationEcdsa
   const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(value.runtimePolicyScope);
   return {
     formatVersion: 'ecdsa-hss-role-local',
-    walletSessionUserId: requireEmailRecoveryString(value.walletSessionUserId, 'walletSessionUserId'),
+    walletId: requireEmailRecoveryString(value.walletId, 'walletId'),
     rpId: requireEmailRecoveryString(value.rpId, 'rpId'),
-    subjectId: requireEmailRecoveryString(value.subjectId, 'subjectId'),
     ecdsaThresholdKeyId: requireEmailRecoveryString(value.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId'),
     signingRootId: requireEmailRecoveryString(value.signingRootId, 'signingRootId'),
     signingRootVersion: requireEmailRecoveryString(value.signingRootVersion, 'signingRootVersion'),
@@ -132,9 +131,8 @@ function parseEmailRecoveryEcdsaWalletKeys(value: unknown): WalletRegistrationEc
     return {
       keyScope: 'evm-family',
       chainTarget,
-      walletSessionUserId: requireEmailRecoveryString(raw.walletSessionUserId, 'walletSessionUserId'),
+      walletId: requireEmailRecoveryString(raw.walletId, 'walletId'),
       rpId: requireEmailRecoveryString(raw.rpId, 'rpId'),
-      subjectId: requireEmailRecoveryString(raw.subjectId, 'subjectId'),
       keyHandle: requireEmailRecoveryString(raw.keyHandle, 'keyHandle'),
       ecdsaThresholdKeyId: requireEmailRecoveryString(raw.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId'),
       signingRootId: requireEmailRecoveryString(raw.signingRootId, 'signingRootId'),

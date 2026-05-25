@@ -45,6 +45,7 @@ import {
   thresholdEcdsaChainTargetFromRequest,
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
+  toWalletId,
   toWalletSubjectId,
   type ThresholdEcdsaChainTarget,
   type WalletSubjectId,
@@ -125,9 +126,9 @@ const EMAIL_OTP_DEVICE_ENROLLMENT_VERSION = '1';
 const EMAIL_OTP_DEVICE_ENROLLMENT_SIGNING_ROOT_ID = 'email_otp_default_signing_root';
 const EMAIL_OTP_DEVICE_ENROLLMENT_SIGNING_ROOT_VERSION = 'default';
 const ECDSA_HSS_EXPORT_CONFIRMATION_DIGEST_VERSION =
-  'ecdsa-hss:role-local:product-export-confirmation:v1';
+  'ecdsa-hss:role-local:product-export-confirmation:v2';
 const ECDSA_HSS_EXPORT_AUTHORIZATION_DIGEST_VERSION =
-  'ecdsa-hss:role-local:product-export-authorization:v1';
+  'ecdsa-hss:role-local:product-export-authorization:v2';
 const ECDSA_HSS_EXPORT_AUTH_TTL_MS = 60_000;
 const ECDSA_HSS_KEY_PURPOSE = 'evm-signing';
 const ECDSA_HSS_KEY_VERSION = 'v1';
@@ -2583,12 +2584,9 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
   await ensureHssClientSignerWasm();
   const relayerUrl = readString(args.relayUrl, 'relayUrl');
   const exactSessionBootstrap = args.operation === 'session_bootstrap';
-  const walletSessionUserId = exactSessionBootstrap
-    ? toWalletSessionUserId(args.keyContext.walletId)
-    : args.walletSessionUserId;
-  const subjectId = exactSessionBootstrap
-    ? deriveBaseEcdsaSubjectIdFromWalletId(args.keyContext.walletId)
-    : args.subjectId;
+  const walletId = toWalletId(
+    exactSessionBootstrap ? args.keyContext.walletId : args.walletSessionUserId,
+  );
   const rpId = exactSessionBootstrap
     ? String(args.keyContext.rpId).trim()
     : readString(args.rpId, 'rpId');
@@ -2636,8 +2634,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
 
   args.onProgress?.('signer.ecdsa.bootstrap.started');
   const sessionPolicy = buildEcdsaHssSessionPolicy({
-    walletSessionUserId,
-    subjectId,
+    walletId,
     rpId,
     chainTarget,
     ...(keyHandle ? { keyHandle } : {}),
@@ -2659,8 +2656,8 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
   }): Promise<EmailOtpThresholdEcdsaBootstrapResult> => {
     args.onProgress?.('signer.ecdsa.bootstrap.started');
     const clientBootstrap = threshold_ecdsa_hss_role_local_client_bootstrap({
-      walletSessionUserId,
-      subjectId,
+      walletId,
+      rpId,
       ecdsaThresholdKeyId: roleLocalArgs.ecdsaThresholdKeyId,
       signingRootId: roleLocalArgs.signingRootId,
       signingRootVersion: roleLocalArgs.signingRootVersion,
@@ -2697,9 +2694,8 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
       throw new Error('clientShareRetryCounter must be a non-negative safe integer');
     }
     const bootstrapIdentity = {
-      walletSessionUserId,
+      walletId,
       rpId,
-      subjectId,
       ecdsaThresholdKeyId: roleLocalArgs.ecdsaThresholdKeyId,
       signingRootId: roleLocalArgs.signingRootId,
       signingRootVersion: roleLocalArgs.signingRootVersion,
@@ -2730,9 +2726,8 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
 
     const bootstrapRequestBase = {
       formatVersion: 'ecdsa-hss-role-local',
-      walletSessionUserId,
+      walletId,
       rpId,
-      subjectId,
       ecdsaThresholdKeyId: roleLocalArgs.ecdsaThresholdKeyId,
       signingRootId: roleLocalArgs.signingRootId,
       signingRootVersion: roleLocalArgs.signingRootVersion,
@@ -2807,7 +2802,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
     return {
       thresholdEcdsaKeyRef: {
         type: 'threshold-ecdsa-secp256k1',
-        userId: walletSessionUserId,
+        userId: walletId,
         chainTarget,
         relayerUrl,
         keyHandle: value.keyHandle,
@@ -2902,9 +2897,8 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
     );
     const ecdsaThresholdKeyId = toEcdsaHssThresholdKeyId(
       await computeEcdsaHssRoleLocalThresholdKeyId({
-        walletSessionUserId,
+        walletId,
         rpId,
-        subjectId,
         signingRootId,
         signingRootVersion,
       }),
@@ -2914,7 +2908,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
       signingRootId,
       signingRootVersion,
       relayerKeyId: await computeEcdsaHssRoleLocalRelayerKeyId({
-        walletSessionUserId,
+        walletId,
         rpId,
       }),
       includeClientRootProof: true,
@@ -3146,9 +3140,8 @@ async function runThresholdEcdsaRoleLocalExportFromClientRootShare(args: {
   const exportRequestNonce32B64u = randomB64u32();
   const confirmationDigest32B64u = await digestB64u({
     version: ECDSA_HSS_EXPORT_CONFIRMATION_DIGEST_VERSION,
-    walletSessionUserId,
+    walletId: walletSessionUserId,
     rpId,
-    subjectId,
     ecdsaThresholdKeyId,
     relayerKeyId,
     contextBinding32B64u: args.roleLocalState.contextBinding32B64u,
@@ -3163,9 +3156,8 @@ async function runThresholdEcdsaRoleLocalExportFromClientRootShare(args: {
     version: ECDSA_HSS_EXPORT_AUTHORIZATION_DIGEST_VERSION,
     operation: 'explicit_key_export',
     keyHandle,
-    walletSessionUserId,
+    walletId: walletSessionUserId,
     rpId,
-    subjectId,
     ecdsaThresholdKeyId,
     relayerKeyId,
     signingRootId,
@@ -3185,9 +3177,8 @@ async function runThresholdEcdsaRoleLocalExportFromClientRootShare(args: {
   });
   const exportShare = await thresholdEcdsaHssRoleLocalExportShare(relayerUrl, {
     formatVersion: 'ecdsa-hss-role-local-export',
-    walletSessionUserId,
+    walletId: toWalletId(walletSessionUserId),
     rpId,
-    subjectId,
     ecdsaThresholdKeyId,
     relayerKeyId,
     contextBinding32B64u: args.roleLocalState.contextBinding32B64u,
@@ -3208,8 +3199,8 @@ async function runThresholdEcdsaRoleLocalExportFromClientRootShare(args: {
     );
   }
   const artifact = threshold_ecdsa_hss_role_local_export_artifact({
-    walletSessionUserId,
-    subjectId,
+    walletId: walletSessionUserId,
+    rpId,
     ecdsaThresholdKeyId,
     signingRootId,
     signingRootVersion,

@@ -6,7 +6,7 @@ import {
 import { signThresholdSessionAuthToken } from '../../server/src/router/commonRouterUtils';
 import type { SessionAdapter } from '../../server/src/router/relay';
 
-function baseClaims(kind: 'threshold_ed25519_session_v1' | 'threshold_ecdsa_session_v1') {
+function baseClaims(kind: 'threshold_ed25519_session_v1' | 'threshold_ecdsa_session_v2') {
   const claims = {
     kind,
     sub: 'alice.testnet',
@@ -18,10 +18,9 @@ function baseClaims(kind: 'threshold_ed25519_session_v1' | 'threshold_ecdsa_sess
     thresholdExpiresAtMs: Date.now() + 60_000,
     participantIds: [1, 2],
   };
-  if (kind !== 'threshold_ecdsa_session_v1') return claims;
+  if (kind !== 'threshold_ecdsa_session_v2') return claims;
   return {
     ...claims,
-    subjectId: 'wallet-subject-alice',
     keyScope: 'evm-family',
     keyHandle: 'ehss-key-test',
   };
@@ -36,7 +35,7 @@ test.describe('threshold session auth token claims', () => {
   });
 
   test('requires explicit walletId on threshold-ecdsa session tokens', () => {
-    const claims = baseClaims('threshold_ecdsa_session_v1');
+    const claims = baseClaims('threshold_ecdsa_session_v2');
 
     expect(parseThresholdEcdsaSessionClaims(claims)?.walletId).toBe('alice.testnet');
     expect(parseThresholdEcdsaSessionClaims({ ...claims, walletId: undefined })).toBeNull();
@@ -51,7 +50,7 @@ test.describe('threshold session auth token claims', () => {
     ).toBeNull();
     expect(
       parseThresholdEcdsaSessionClaims({
-        ...baseClaims('threshold_ecdsa_session_v1'),
+        ...baseClaims('threshold_ecdsa_session_v2'),
         walletSigningSessionId: undefined,
       }),
     ).toBeNull();
@@ -66,16 +65,16 @@ test.describe('threshold session auth token claims', () => {
     ).toBeNull();
     expect(
       parseThresholdEcdsaSessionClaims({
-        ...baseClaims('threshold_ecdsa_session_v1'),
+        ...baseClaims('threshold_ecdsa_session_v2'),
         walletId: 'bob.testnet',
       }),
     ).toBeNull();
   });
 
   test('threshold-ecdsa session tokens require EVM-family key identity claims', () => {
-    const claims = baseClaims('threshold_ecdsa_session_v1');
+    const claims = baseClaims('threshold_ecdsa_session_v2');
 
-    expect(parseThresholdEcdsaSessionClaims(claims)?.subjectId).toBe('wallet-subject-alice');
+    expect(parseThresholdEcdsaSessionClaims(claims)?.walletId).toBe('wallet-subject-alice');
     expect(parseThresholdEcdsaSessionClaims(claims)?.keyHandle).toBe('ehss-key-test');
     expect(parseThresholdEcdsaSessionClaims(claims)?.keyScope).toBe('evm-family');
     expect(parseThresholdEcdsaSessionClaims({ ...claims, subjectId: undefined })).toBeNull();
@@ -103,7 +102,7 @@ test.describe('threshold session auth token claims', () => {
     };
     const result = await signThresholdSessionAuthToken({
       session,
-      kind: 'threshold_ecdsa_session_v1',
+      kind: 'threshold_ecdsa_session_v2',
       userId: 'alice.testnet',
       rpId: 'example.localhost',
       relayerKeyId: 'relayer-key-1',
@@ -113,7 +112,6 @@ test.describe('threshold session auth token claims', () => {
         walletSigningSessionId: 'wallet-signing-session-1',
         expiresAtMs: Date.now() + 60_000,
         participantIds: [1, 2],
-        subjectId: 'wallet-subject-alice',
         keyHandle: 'ehss-key-signed',
       },
       requireJwtErrorMessage: 'jwt required',

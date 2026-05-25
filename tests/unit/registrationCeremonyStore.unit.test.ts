@@ -145,9 +145,8 @@ function makeAddSignerCeremony(expiresAtMs = Date.now() + 60_000): StoredWalletA
       chainTargets: [{ kind: 'tempo', chainId: 42431 }],
       prepare: {
         formatVersion: 'ecdsa-hss-role-local',
-        walletSessionUserId: String(INTENT.walletSubjectId),
+        walletId: String(INTENT.walletSubjectId),
         rpId: INTENT.rpId,
-        subjectId: String(INTENT.walletSubjectId),
         ecdsaThresholdKeyId: 'ek_add_signer',
         signingRootId: 'project:dev',
         signingRootVersion: 'default',

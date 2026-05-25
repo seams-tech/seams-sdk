@@ -9,9 +9,9 @@ import {
   toEcdsaHssSigningRootId,
   toEcdsaHssSigningRootVersion,
   toEcdsaHssThresholdKeyId,
-  toEcdsaHssWalletSubjectId,
-  toWalletSessionUserId,
 } from '../../session/identity/emailOtpHssIdentity';
+import { toWalletId } from '../../interfaces/ecdsaChainTarget';
+import { toRpId } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import type {
   WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactRequest,
@@ -20,8 +20,8 @@ import type {
 } from '../../../types/signer-worker';
 
 const serverPlannedContext = parseServerPlannedEcdsaHssContext({
-  walletSessionUserId: 'wallet-user',
-  subjectId: 'wallet-subject',
+  walletId: 'wallet-user',
+  rpId: 'wallet.example.test',
   chainTarget: {
     kind: 'evm',
     namespace: 'eip155',
@@ -37,8 +37,8 @@ const serverPlannedContext = parseServerPlannedEcdsaHssContext({
 void (serverPlannedContext satisfies ServerPlannedEcdsaHssContext);
 
 const locallyConstructedStableContext: ThresholdEcdsaHssStableKeyContext = {
-  walletSessionUserId: toWalletSessionUserId('wallet-user'),
-  subjectId: toEcdsaHssWalletSubjectId('wallet-subject'),
+  walletId: toWalletId('wallet-user'),
+  rpId: toRpId('wallet.example.test'),
   chainTarget: {
     kind: 'evm',
     namespace: 'eip155',
@@ -54,8 +54,14 @@ const locallyConstructedStableContext: ThresholdEcdsaHssStableKeyContext = {
 
 void ({
   ...locallyConstructedStableContext,
-  // @ts-expect-error stable ECDSA HSS key context requires branded wallet session ids.
-  walletSessionUserId: 'wallet-user',
+  // @ts-expect-error stable ECDSA HSS key context requires branded wallet ids.
+  walletId: 'wallet-user',
+} satisfies ThresholdEcdsaHssStableKeyContext);
+
+void ({
+  ...locallyConstructedStableContext,
+  // @ts-expect-error stable ECDSA HSS key context rejects legacy subject ids.
+  subjectId: 'wallet-subject',
 } satisfies ThresholdEcdsaHssStableKeyContext);
 
 void ({
@@ -79,8 +85,8 @@ const stableContextWithThresholdSessionId: ThresholdEcdsaHssStableKeyContext = {
 void stableContextWithThresholdSessionId;
 
 const roleLocalClientContext: ThresholdEcdsaHssRoleLocalClientContext = {
-  walletSessionUserId: toWalletSessionUserId('wallet-user'),
-  subjectId: toEcdsaHssWalletSubjectId('wallet-subject'),
+  walletId: toWalletId('wallet-user'),
+  rpId: toRpId('wallet.example.test'),
   ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId('ehss-stable'),
   signingRootId: toEcdsaHssSigningRootId('project:dev'),
   signingRootVersion: toEcdsaHssSigningRootVersion('default'),

@@ -37,7 +37,10 @@ import {
 import type { EvmSigningRequest } from '../../chains/evm/types';
 import type { TempoSigningRequest } from '../../chains/tempo/types';
 import { buildEcdsaSessionPolicy } from '../../threshold/sessionPolicy';
-import { buildEcdsaSessionIdentity } from '../../session/warmCapabilities/ecdsaProvisionPlan';
+import {
+  buildEcdsaSessionIdentity,
+  buildEcdsaSigningKeyContextFromRecord,
+} from '../../session/warmCapabilities/ecdsaProvisionPlan';
 import type { EvmFamilyThresholdEcdsaReauthResult } from './thresholdAdmission';
 import type { EvmFamilyThresholdEcdsaStepUpRuntime } from './requireEvmFamilyStepUpAuth';
 import type { EvmFamilySigningAuthSideEffect } from './freshAuthRetryPolicy';
@@ -55,7 +58,6 @@ import {
   buildEvmFamilyWarmSessionReconnectPlan,
 } from './provisionPlan';
 import {
-  deriveBaseEcdsaSubjectIdFromKey,
   resolveReadyEvmFamilyEcdsaMaterial,
   type ReadyEvmFamilyEcdsaMaterial,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
@@ -238,21 +240,17 @@ export async function createEvmFamilySigningFlowRuntime(args: {
             '[SigningEngine][ecdsa] passkey ECDSA reconnect requires exact session record material',
           );
         }
-        const material = requireReadyEvmFamilyEcdsaMaterial({
-          lane,
-          record,
-          context: 'passkey reconnect preparation',
-        });
         const rpId = String(ctx.touchIdPrompt.getRpId() || '').trim();
         if (!rpId) {
           throw new Error('[SigningEngine] missing rpId for passkey ECDSA reconnect');
         }
-        const materialRelayerKeyId = String(material.record.relayerKeyId || '').trim();
+        const signingKeyContext = buildEcdsaSigningKeyContextFromRecord(record);
+        const materialRelayerKeyId = String(record.relayerKeyId || '').trim();
         if (!materialRelayerKeyId) {
           throw new Error('[SigningEngine] missing relayerKeyId for passkey ECDSA reconnect');
         }
         const relayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
-          walletSessionUserId: walletId,
+          walletId,
           rpId,
         });
         if (materialRelayerKeyId !== relayerKeyId) {
@@ -260,36 +258,34 @@ export async function createEvmFamilySigningFlowRuntime(args: {
         }
         const requestId = generateEvmFamilyEcdsaBootstrapRequestId();
         const remainingUses = postExhaustionStepUpSessionBudgetUses;
-        const ecdsaThresholdKeyId = String(material.signingKeyContext.ecdsaThresholdKeyId).trim();
+        const ecdsaThresholdKeyId = String(signingKeyContext.ecdsaThresholdKeyId).trim();
         if (!ecdsaThresholdKeyId) {
           throw new Error(
             '[SigningEngine] passkey ECDSA reconnect requires threshold key identity',
           );
         }
-        const participantIds = material.signingKeyContext.participantIds.map((participantId) =>
+        const participantIds = signingKeyContext.participantIds.map((participantId) =>
           Number(participantId),
         );
         const { policy } = await buildEcdsaSessionPolicy({
-          walletSessionUserId: walletId,
-          subjectId: deriveBaseEcdsaSubjectIdFromKey(lane.key),
+          walletId,
           rpId,
           relayerKeyId,
           chainTarget: lane.chainTarget,
           ecdsaThresholdKeyId,
-          ...(material.record.runtimePolicyScope
-            ? { runtimePolicyScope: material.record.runtimePolicyScope }
+          ...(record.runtimePolicyScope
+            ? { runtimePolicyScope: record.runtimePolicyScope }
             : {}),
           ...(participantIds?.length ? { participantIds } : {}),
           remainingUses,
         });
         const passkeyBootstrapDigest32B64u =
           await computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u({
-            walletSessionUserId: policy.walletSessionUserId,
+            walletId: policy.walletId,
             rpId: policy.rpId,
-            subjectId: policy.subjectId,
             ecdsaThresholdKeyId: policy.ecdsaThresholdKeyId,
-            signingRootId: material.signingKeyContext.signingRootId,
-            signingRootVersion: material.signingKeyContext.signingRootVersion || 'default',
+            signingRootId: signingKeyContext.signingRootId,
+            signingRootVersion: signingKeyContext.signingRootVersion || 'default',
             keyScope: 'evm-family',
             relayerKeyId,
             requestId,
@@ -332,14 +328,9 @@ export async function createEvmFamilySigningFlowRuntime(args: {
             '[SigningEngine][ecdsa] passkey ECDSA reconnect requires exact session record material',
           );
         }
-        const material = requireReadyEvmFamilyEcdsaMaterial({
-          lane,
-          record,
-          context: 'passkey reconnect',
-        });
         const reconnectPlan = await buildEvmFamilyPasskeyEcdsaProvisionPlan({
           authorization,
-          material,
+          material: { lane, record },
           sessionBudgetUses: postExhaustionStepUpSessionBudgetUses,
         });
         const reconnectSessionIdentity = requirePlannedReconnectSessionIdentity({

@@ -114,6 +114,9 @@ function isRpIdAllowedForOrigin(input: { origin: string; rpId: string }): boolea
   if (!origin || !rpId) return false;
   try {
     const host = new URL(origin).hostname.toLowerCase();
+    if ((host === 'localhost' || host === '127.0.0.1') && rpId.endsWith('.localhost')) {
+      return true;
+    }
     return host === rpId || host.endsWith(`.${rpId}`);
   } catch {
     return false;

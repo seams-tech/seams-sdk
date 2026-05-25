@@ -37,7 +37,6 @@ import {
   toWalletId,
   type WalletId,
   type WalletSessionRef,
-  walletSubjectIdFromWalletProfile,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { type PreparedThresholdSigningOperation } from '../../session/operationState/preparedOperation';
 import {
@@ -365,7 +364,6 @@ export type PrepareEvmFamilyEcdsaSigningDeps = EvmFamilyEcdsaSigningSelectionDep
 export async function prepareEvmFamilyEcdsaSigningSession(args: {
   deps: PrepareEvmFamilyEcdsaSigningDeps;
   walletSession: WalletSessionRef;
-  baseEcdsaSubjectId?: ReturnType<typeof walletSubjectIdFromWalletProfile>;
   signingTarget: EvmFamilySigningTarget;
   diagnostics: Record<string, unknown>;
   signingSessionCoordinator: SigningSessionCoordinator;
@@ -374,8 +372,6 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
   const chainTarget = args.signingTarget;
   const chain = chainTarget.kind;
   const walletId = toWalletId(args.walletSession.walletId);
-  const baseEcdsaSubjectId =
-    args.baseEcdsaSubjectId || walletSubjectIdFromWalletProfile({ walletId });
   const preparedTransaction = await prepareTransactionSigningOperation({
     intent: buildEvmFamilyTransactionSigningIntent({
       walletId,
@@ -401,7 +397,6 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
         });
           const laneReadDiagnostic = {
             accountId: walletId,
-            subjectId: baseEcdsaSubjectId,
           chain,
           chainTarget,
           targetKey: thresholdEcdsaChainTargetKey(chainTarget),
@@ -494,7 +489,6 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           const noLaneDiagnostic = {
             stage: 'ecdsa_prepare.exact_available_lane_missing',
             accountId: walletId,
-            subjectId: baseEcdsaSubjectId,
             chain,
             chainTarget,
             targetKey: thresholdEcdsaChainTargetKey(chainTarget),

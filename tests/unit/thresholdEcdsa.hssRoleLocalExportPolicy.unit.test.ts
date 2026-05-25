@@ -48,9 +48,8 @@ async function createRoleLocalExportFixture(input?: { bootstrapTtlMs?: number })
   const clientRootShare32 = Buffer.alloc(32, 0);
   clientRootShare32[31] = 7;
 
-  const walletSessionUserId = 'wallet-user-1';
+  const walletId = 'wallet-user-1';
   const rpId = 'wallet.example.test';
-  const subjectId = walletSessionUserId;
   const ecdsaThresholdKeyId = 'ecdsa-key-1';
   const signingRootId = 'signing-root';
   const signingRootVersion = 'default';
@@ -58,8 +57,8 @@ async function createRoleLocalExportFixture(input?: { bootstrapTtlMs?: number })
   const participantIds = [1, 2];
 
   const clientBootstrap = threshold_ecdsa_hss_role_local_client_bootstrap({
-    walletSessionUserId,
-    subjectId,
+    walletId,
+    rpId,
     ecdsaThresholdKeyId,
     signingRootId,
     signingRootVersion,
@@ -74,9 +73,8 @@ async function createRoleLocalExportFixture(input?: { bootstrapTtlMs?: number })
 
   const bootstrap = await svc.ecdsaHssRoleLocalBootstrap({
     formatVersion: 'ecdsa-hss-role-local',
-    walletSessionUserId,
+    walletId,
     rpId,
-    subjectId,
     ecdsaThresholdKeyId,
     signingRootId,
     signingRootVersion,
@@ -97,12 +95,11 @@ async function createRoleLocalExportFixture(input?: { bootstrapTtlMs?: number })
   const bootstrapValue = bootstrap.value;
 
   const claims: ThresholdEcdsaSessionClaims = {
-    sub: walletSessionUserId,
-    walletId: walletSessionUserId,
-    kind: 'threshold_ecdsa_session_v1',
+    sub: walletId,
+    walletId: walletId,
+    kind: 'threshold_ecdsa_session_v2',
     sessionId: bootstrapValue.sessionId,
     walletSigningSessionId: bootstrapValue.walletSigningSessionId,
-    subjectId,
     keyScope: 'evm-family',
     keyHandle: bootstrapValue.keyHandle,
     relayerKeyId,
@@ -122,9 +119,8 @@ async function createRoleLocalExportFixture(input?: { bootstrapTtlMs?: number })
     const publicIdentity = input?.publicIdentity ?? bootstrapValue.publicIdentity;
     const requestWithoutDigests = {
       formatVersion: 'ecdsa-hss-role-local-export' as const,
-      walletSessionUserId,
+      walletId,
       rpId,
-      subjectId,
       ecdsaThresholdKeyId,
       relayerKeyId,
       contextBinding32B64u: input?.contextBinding32B64u ?? clientBootstrap.contextBinding32B64u,
@@ -137,9 +133,8 @@ async function createRoleLocalExportFixture(input?: { bootstrapTtlMs?: number })
     };
     const confirmationDigest32B64u = await digestB64u({
       version: EXPORT_CONFIRMATION_DIGEST_VERSION,
-      walletSessionUserId,
+      walletId,
       rpId,
-      subjectId,
       ecdsaThresholdKeyId,
       relayerKeyId,
       contextBinding32B64u: requestWithoutDigests.contextBinding32B64u,
@@ -161,9 +156,8 @@ async function createRoleLocalExportFixture(input?: { bootstrapTtlMs?: number })
         version: EXPORT_AUTHORIZATION_DIGEST_VERSION,
         operation: 'explicit_key_export',
         keyHandle: bootstrapValue.keyHandle,
-        walletSessionUserId,
+        walletId,
         rpId,
-        subjectId,
         ecdsaThresholdKeyId,
         relayerKeyId,
         signingRootId: bootstrapValue.signingRootId,
@@ -201,8 +195,8 @@ test.describe('threshold ECDSA HSS role-local export policy', () => {
       patch: Partial<EcdsaHssExportShareRequest>;
     }> = [
       {
-        name: 'walletSessionUserId',
-        patch: { walletSessionUserId: 'other-wallet-user' },
+        name: 'walletId',
+        patch: { walletId: 'other-wallet-user' },
       },
       {
         name: 'ecdsaThresholdKeyId',
@@ -395,7 +389,7 @@ test.describe('threshold ECDSA HSS role-local export policy', () => {
     const routeStart = source.indexOf("'/threshold-ecdsa/hss/export/share'");
     expect(routeStart).toBeGreaterThan(-1);
     const routeLogMeta = source.slice(routeStart, source.indexOf('async () =>', routeStart));
-    expect(routeLogMeta).toContain('walletSessionUserId');
+    expect(routeLogMeta).toContain('walletId');
     expect(routeLogMeta).toContain('ecdsaThresholdKeyId');
     expect(routeLogMeta).toContain('relayerKeyId');
 

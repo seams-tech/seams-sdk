@@ -1,22 +1,24 @@
 import { thresholdEcdsaHssRoleLocalExportShare } from '@/core/rpcClients/relayer/thresholdEcdsa';
-import { walletSubjectIdFromWalletProfile } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import {
   toEcdsaHssSigningRootId,
   toEcdsaHssSigningRootVersion,
   toEcdsaHssThresholdKeyId,
-  toWalletSessionUserId,
 } from '../../session/identity/emailOtpHssIdentity';
-import type { ReadyEcdsaSignerSession } from '../../session/identity/evmFamilyEcdsaIdentity';
+import {
+  toRpId,
+  type ReadyEcdsaSignerSession,
+} from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
 import { buildThresholdEcdsaHssRoleLocalExportArtifactWasm } from '../../threshold/crypto/hssClientSignerWasm';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
 
 const ECDSA_HSS_EXPORT_CONFIRMATION_DIGEST_VERSION =
-  'ecdsa-hss:role-local:product-export-confirmation:v1';
+  'ecdsa-hss:role-local:product-export-confirmation:v2';
 const ECDSA_HSS_EXPORT_AUTHORIZATION_DIGEST_VERSION =
-  'ecdsa-hss:role-local:product-export-authorization:v1';
+  'ecdsa-hss:role-local:product-export-authorization:v2';
 const ECDSA_HSS_EXPORT_AUTH_TTL_MS = 60_000;
 const ECDSA_HSS_KEY_PURPOSE = 'evm-signing';
 const ECDSA_HSS_KEY_VERSION = 'v1';
@@ -60,10 +62,7 @@ export async function exportEcdsaHssKeyWithThresholdSession(
       : '';
   const relayerUrl = String(signerTransport.relayerUrl || '').trim();
   const keyHandle = String(args.signerSession.publicFacts.keyHandle || '').trim();
-  const walletSessionUserId = toWalletSessionUserId(args.walletSessionUserId);
-  const subjectId = walletSubjectIdFromWalletProfile({
-    walletId: args.walletSessionUserId,
-  });
+  const walletId = toWalletId(args.walletSessionUserId);
   const sessionKind =
     signerTransportAuth.kind === 'cookie_threshold_session_auth' ? 'cookie' : 'jwt';
   if (!relayerUrl || !keyHandle || (!thresholdSessionAuthToken && sessionKind !== 'cookie')) {
@@ -99,9 +98,8 @@ export async function exportEcdsaHssKeyWithThresholdSession(
   const exportRequestNonce32B64u = randomB64u32();
   const confirmationDigest32B64u = await digestB64u({
     version: ECDSA_HSS_EXPORT_CONFIRMATION_DIGEST_VERSION,
-    walletSessionUserId,
+    walletId,
     rpId: args.rpId,
-    subjectId,
     ecdsaThresholdKeyId,
     relayerKeyId: signerTransport.relayerKeyId,
     contextBinding32B64u: roleLocalState.contextBinding32B64u,
@@ -116,9 +114,8 @@ export async function exportEcdsaHssKeyWithThresholdSession(
     version: ECDSA_HSS_EXPORT_AUTHORIZATION_DIGEST_VERSION,
     operation: 'explicit_key_export',
     keyHandle,
-    walletSessionUserId,
+    walletId,
     rpId: args.rpId,
-    subjectId,
     ecdsaThresholdKeyId,
     relayerKeyId: signerTransport.relayerKeyId,
     signingRootId,
@@ -139,9 +136,8 @@ export async function exportEcdsaHssKeyWithThresholdSession(
 
   const exportShare = await thresholdEcdsaHssRoleLocalExportShare(relayerUrl, {
     formatVersion: 'ecdsa-hss-role-local-export',
-    walletSessionUserId,
+    walletId,
     rpId: args.rpId,
-    subjectId,
     ecdsaThresholdKeyId,
     relayerKeyId: signerTransport.relayerKeyId,
     contextBinding32B64u: roleLocalState.contextBinding32B64u,
@@ -167,8 +163,8 @@ export async function exportEcdsaHssKeyWithThresholdSession(
 
   return await buildThresholdEcdsaHssRoleLocalExportArtifactWasm({
     context: {
-      walletSessionUserId,
-      subjectId,
+      walletId,
+      rpId: toRpId(args.rpId),
       ecdsaThresholdKeyId,
       signingRootId,
       signingRootVersion,
