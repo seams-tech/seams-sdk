@@ -309,8 +309,8 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
     let provisionCalls = 0;
     const store = createWarmSessionTestServices({
       touchConfirm: fixture.touchConfirm,
-      listThresholdEcdsaKeyRefsForWalletTarget: () => [
-        { source: 'login', keyRef: bootstrap.thresholdEcdsaKeyRef },
+      listThresholdEcdsaRecordsForWalletTarget: () => [
+        { source: 'login', record },
       ],
       provisionThresholdEcdsaSession: async () => {
         provisionCalls += 1;
@@ -329,7 +329,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
 
     expect(provisionCalls).toBe(0);
     expect(ready.reconnected).toBe(false);
-    expect(ready.keyRef).toMatchObject({
+    expect(ready.record).toMatchObject({
       ecdsaThresholdKeyId: 'ek-reuse-ready',
       thresholdSessionId: 'reuse-ready-session',
     });
@@ -370,15 +370,15 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
     let provisionCalls = 0;
     const store = createWarmSessionTestServices({
       touchConfirm: fixture.touchConfirm,
-      listThresholdEcdsaKeyRefsForWalletTarget: () => [
-        { source: 'login', keyRef: staleBootstrap.thresholdEcdsaKeyRef },
+      listThresholdEcdsaRecordsForWalletTarget: () => [
+        { source: 'login', record: staleRecord },
       ],
       provisionThresholdEcdsaSession: async (request) => {
         provisionCalls += 1;
-        if (!request.key || !request.lanePolicy) {
+        if (!('walletKey' in request) || !('lanePolicy' in request)) {
           throw new Error('expected exact ECDSA activation request');
         }
-        const walletId = request.key.walletId;
+        const walletId = request.walletKey.walletId;
         const chainTarget = request.lanePolicy.chainTarget;
         const refreshedBootstrap = createThresholdEcdsaBootstrapFixture({
           nearAccountId: String(walletId),
@@ -414,7 +414,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
 
     expect(provisionCalls).toBe(1);
     expect(ready.reconnected).toBe(true);
-    expect(ready.keyRef).toMatchObject({
+    expect(ready.record).toMatchObject({
       ecdsaThresholdKeyId: 'ek-reconnect',
       thresholdSessionId: 'fresh-evm-session',
     });
@@ -469,13 +469,13 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
     let capturedRequest: Record<string, unknown> | null = null;
     const store = createWarmSessionTestServices({
       touchConfirm: fixture.touchConfirm,
-      listThresholdEcdsaKeyRefsForWalletTarget: () => [],
+      listThresholdEcdsaRecordsForWalletTarget: () => [],
       provisionThresholdEcdsaSession: async (request) => {
         capturedRequest = request as Record<string, unknown>;
-        if (!request.key || !request.lanePolicy) {
+        if (!('walletKey' in request) || !('lanePolicy' in request)) {
           throw new Error('expected exact ECDSA reconnect request');
         }
-        const walletId = request.key.walletId;
+        const walletId = request.walletKey.walletId;
         const chainTarget = request.lanePolicy.chainTarget;
         const refreshedBootstrap = createThresholdEcdsaBootstrapFixture({
           nearAccountId: String(walletId),
@@ -508,7 +508,6 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
       }),
       sessionBudgetUses: 1,
       reconnectMaterial: buildEcdsaReconnectMaterial({
-        keyRef: restoredKeyRef,
         record: restoredRecord,
       }),
     });
@@ -526,7 +525,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
     expect(ready.reconnected).toBe(true);
     expect(capturedRequest).toMatchObject({
       kind: 'threshold_session_auth_reconnect',
-      key: { walletId: 'restored-source.testnet' },
+      walletKey: { walletId: 'restored-source.testnet' },
       lanePolicy: {
         thresholdSessionId: restoredRecord.thresholdSessionId,
         walletSigningSessionId: restoredRecord.walletSigningSessionId,

@@ -1,5 +1,8 @@
 import { SigningEngine } from '../signingEngine/SigningEngine';
-import { registerPasskey } from './registration';
+import {
+  addWalletSigner as addWalletSignerWithUnifiedCeremony,
+  registerWallet as registerWalletWithUnifiedCeremony,
+} from './registration';
 import { registerPasskeyInternal } from './registration';
 import {
   MinimalNearClient,
@@ -35,7 +38,8 @@ import {
 import { ConfirmationConfig, type ConfirmationBehavior } from '../types/signer-worker';
 import { cloneAuthenticatorOptions } from '../types/authenticatorOptions';
 import { toAccountId, type AccountId } from '../types/accountIds';
-import { configureIndexedDB } from '../indexedDB';
+import { configureIndexedDB, IndexedDBManager } from '../indexedDB';
+import { getNearThresholdKeyMaterial } from '../accountData/near/keyMaterial';
 import { ActionType } from '../types/actions';
 import type { PreferencesChangedPayload } from '../WalletIframe/shared/messages';
 import { __isWalletIframeHostMode } from '../WalletIframe/host-mode';
@@ -84,6 +88,13 @@ import {
   type WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EmailOtpWorkerProgressEvent } from '../signingEngine/workerManager/workerTypes';
+import { getLastLoggedInSignerSlot } from '../signingEngine/webauthnAuth/device/signerSlot';
+import {
+  parseThresholdRuntimePolicyScopeFromJwt,
+} from '../signingEngine/threshold/sessionPolicy';
+import type {
+  EmailOtpEd25519SessionReconstructionPlan,
+} from '../signingEngine/session/emailOtp/provisioning';
 import { EmailRecoveryDomain } from './near/emailRecovery';
 import {
   exchangeGoogleEmailOtpSession,
@@ -94,6 +105,8 @@ import { DeviceLinkingDomain } from './near/linkDevice';
 import { NearSigner } from './near';
 import { TempoSigner } from './tempo';
 import { EvmSigner } from './evm';
+import { walletSubjectIdFromString } from '@shared/utils/registrationIntent';
+import { buildPasskeyNearWalletRegistrationSignerSelection } from './registrationSignerSelection';
 
 ///////////////////////////////////////
 // PASSKEY MANAGER
@@ -107,6 +120,52 @@ function requireConcreteEcdsaChainTarget(
     throw new Error(`[SeamsPasskey] ${operation} requires a concrete ECDSA chainTarget`);
   }
   return thresholdEcdsaChainTargetFromRequest(value as Record<string, unknown>);
+}
+
+async function resolveEmailOtpEd25519SessionReconstruction(
+  args: EmailOtpEcdsaCapabilityArgs,
+): Promise<EmailOtpEd25519SessionReconstructionPlan> {
+  const walletId = toAccountId(args.walletSession.walletId);
+  const signerSlot = await getLastLoggedInSignerSlot(walletId, IndexedDBManager.clientDB).catch(
+    () => 1,
+  );
+  const thresholdKeyMaterial = await getNearThresholdKeyMaterial(
+    {
+      clientDB: IndexedDBManager.clientDB,
+      accountKeyMaterialDB: IndexedDBManager.accountKeyMaterialDB,
+    },
+    walletId,
+    signerSlot,
+  ).catch(() => null);
+  const participantIds = thresholdKeyMaterial?.participants
+    .map((participant) => Number(participant.id))
+    .filter((participantId) => Number.isSafeInteger(participantId) && participantId > 0);
+  const runtimePolicyScope = parseThresholdRuntimePolicyScopeFromJwt(args.appSessionJwt);
+
+  if (
+    thresholdKeyMaterial?.relayerKeyId &&
+    thresholdKeyMaterial.keyVersion &&
+    participantIds?.length &&
+    runtimePolicyScope
+  ) {
+    return {
+      kind: 'reconstruct',
+      ed25519Key: {
+        relayerKeyId: thresholdKeyMaterial.relayerKeyId,
+        keyVersion: thresholdKeyMaterial.keyVersion,
+        participantIds,
+      },
+      runtimePolicyScope,
+    };
+  }
+
+  return {
+    kind: 'defer',
+    reason:
+      thresholdKeyMaterial?.relayerKeyId && thresholdKeyMaterial.keyVersion && participantIds?.length
+        ? 'missing_runtime_policy_scope'
+        : 'missing_ed25519_key_identity',
+  };
 }
 
 /**
@@ -216,6 +275,8 @@ export class SeamsPasskey {
         await this.enrollAndLoginWithEmailOtpEcdsaCapability(args),
     };
     this.registration = {
+      addWalletSigner: async (args) => await this.addWalletSigner(args),
+      registerWallet: async (args) => await this.registerWallet(args),
       registerPasskey: async (nearAccountId, options) =>
         await this.registerPasskey(nearAccountId, options),
       registerPasskeyInternal: async (nearAccountId, options, confirmationConfigOverride) =>
@@ -399,6 +460,69 @@ export class SeamsPasskey {
   // === Registration and Login ===
   ///////////////////////////////////////
 
+  async registerWallet(
+    args: Parameters<RegistrationCapability['registerWallet']>[0],
+  ): Promise<RegistrationResult> {
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      try {
+        const nearAccountId =
+          args.signerSelection.mode === 'ed25519_only' ||
+          args.signerSelection.mode === 'ed25519_and_ecdsa'
+            ? args.signerSelection.ed25519.nearAccountId
+            : undefined;
+        const router = await this.walletIframe.requireRouter(nearAccountId);
+        const res = await router.registerWallet(args);
+        if (nearAccountId) {
+          void (async () => {
+            try {
+              await this.initWalletIframe(nearAccountId);
+            } catch {}
+          })();
+        }
+        await args.options?.afterCall?.(true, res);
+        return res;
+      } catch (error: unknown) {
+        const e = toError(error);
+        await args.options?.onError?.(e);
+        await args.options?.afterCall?.(false);
+        throw e;
+      }
+    }
+    return await registerWalletWithUnifiedCeremony({
+      context: this.getContext(),
+      walletSubject: args.walletSubject,
+      rpId: args.rpId,
+      signerSelection: args.signerSelection,
+      options: args.options || {},
+      authenticatorOptions: cloneAuthenticatorOptions(this.configs.webauthn.authenticatorOptions),
+    });
+  }
+
+  async addWalletSigner(
+    args: Parameters<RegistrationCapability['addWalletSigner']>[0],
+  ): Promise<RegistrationResult> {
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      try {
+        const router = await this.walletIframe.requireRouter(String(args.walletSubjectId || ''));
+        const res = await router.addWalletSigner(args);
+        await args.options?.afterCall?.(true, res);
+        return res;
+      } catch (error: unknown) {
+        const e = toError(error);
+        await args.options?.onError?.(e);
+        await args.options?.afterCall?.(false);
+        throw e;
+      }
+    }
+    return await addWalletSignerWithUnifiedCeremony({
+      context: this.getContext(),
+      walletSubjectId: args.walletSubjectId,
+      rpId: args.rpId,
+      signerSelection: args.signerSelection,
+      options: args.options || {},
+    });
+  }
+
   /**
    * Register a new passkey for the given NEAR account ID
    * Uses AccountId for on-chain operations and PRF salt derivation
@@ -436,12 +560,24 @@ export class SeamsPasskey {
         throw e;
       }
     }
-    return registerPasskey(
-      this.getContext(),
-      toAccountId(nearAccountId),
+    const accountId = toAccountId(nearAccountId);
+    const rpId = this.signingEngine.getRpId();
+    if (!rpId) {
+      throw new Error('Missing rpId for relay registration');
+    }
+    return await this.registerWallet({
+      walletSubject: {
+        kind: 'provided',
+        walletSubjectId: walletSubjectIdFromString(String(accountId)),
+      },
+      rpId,
+      signerSelection: buildPasskeyNearWalletRegistrationSignerSelection({
+        configs: this.configs,
+        nearAccountId: String(accountId),
+        options,
+      }),
       options,
-      cloneAuthenticatorOptions(this.configs.webauthn.authenticatorOptions),
-    );
+    });
   }
 
   /**
@@ -1199,9 +1335,14 @@ export class SeamsPasskey {
         if (workerProgressPhases.has(input.phase)) return;
         this.emitEmailOtpUnlockEvent(args.onEvent, input);
       };
+      const ed25519SessionReconstruction =
+        await resolveEmailOtpEd25519SessionReconstruction(args);
       const result = await this.signingEngine.loginWithEmailOtpEcdsaCapabilityInternal({
         ...args,
         chainTarget,
+        ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
+        ed25519ReconstructionMode: 'await',
+        ed25519SessionReconstruction,
         onProgress: markWorkerProgress,
       });
       emitIfWorkerProgressMissing({

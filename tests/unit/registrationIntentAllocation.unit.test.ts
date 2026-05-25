@@ -1,0 +1,1202 @@
+import { expect, test } from '@playwright/test';
+import { generateKeyPairSync, sign } from 'node:crypto';
+import { AuthService } from '@server/core/AuthService';
+import {
+  serializeNearAccountOwnershipProofMessageV1,
+  walletSubjectIdFromString,
+  type AddSignerIntentV1,
+  type NearAccountOwnershipProofV1,
+  type RegistrationSignerSelection,
+} from '@shared/utils/registrationIntent';
+import { base58Encode, base64UrlEncode } from '@shared/utils/encoders';
+import { DEFAULT_TEST_CONFIG } from '../setup/config';
+
+const ORG_ID = 'org_registration_intent_allocation_tests';
+const RUNTIME_POLICY_SCOPE = {
+  orgId: ORG_ID,
+  projectId: 'project_registration_intent_allocation_tests',
+  envId: 'dev',
+  signingRootVersion: 'default',
+} as const;
+
+const SIGNER_SELECTION = {
+  mode: 'ed25519_only',
+  ed25519: {
+    nearAccountId: 'alice.testnet',
+    signerSlot: 1,
+    participantIds: [1, 2],
+    keyPurpose: 'near_tx',
+    keyVersion: 'threshold-ed25519-hss-v1',
+    derivationVersion: 1,
+    createNearAccount: true,
+  },
+} satisfies RegistrationSignerSelection;
+
+const ECDSA_SIGNER_SELECTION = {
+  mode: 'ecdsa_only',
+  ecdsa: {
+    chainTargets: [
+      { kind: 'evm', namespace: 'eip155', chainId: 1 },
+      { kind: 'tempo', chainId: 42431 },
+    ],
+    participantIds: [1, 2],
+  },
+} satisfies RegistrationSignerSelection;
+
+const COMBINED_SIGNER_SELECTION = {
+  mode: 'ed25519_and_ecdsa',
+  ed25519: SIGNER_SELECTION.ed25519,
+  ecdsa: ECDSA_SIGNER_SELECTION.ecdsa,
+} satisfies RegistrationSignerSelection;
+
+const ECDSA_ADD_SIGNER_INTENT = {
+  version: 'add_signer_intent_v1',
+  walletSubjectId: walletSubjectIdFromString('wallet_subject_alice'),
+  rpId: 'wallet.example.test',
+  signerSelection: {
+    mode: 'ecdsa',
+    ecdsa: {
+      chainTargets: ECDSA_SIGNER_SELECTION.ecdsa.chainTargets,
+      participantIds: [1, 2],
+    },
+  },
+  runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+  nonceB64u: 'add-signer-nonce',
+} satisfies AddSignerIntentV1;
+
+const ED25519_ADD_SIGNER_INTENT = {
+  version: 'add_signer_intent_v1',
+  walletSubjectId: walletSubjectIdFromString('wallet_subject_alice'),
+  rpId: 'wallet.example.test',
+  signerSelection: {
+    mode: 'ed25519',
+    ed25519: {
+      mode: 'create_near_account',
+      nearAccountId: 'alice.testnet',
+      signerSlot: 2,
+      participantIds: [1, 2],
+      keyPurpose: 'near_tx',
+      keyVersion: 'threshold-ed25519-hss-v1',
+      derivationVersion: 1,
+    },
+  },
+  runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+  nonceB64u: 'add-signer-nonce',
+} satisfies AddSignerIntentV1;
+
+function makeService(): AuthService {
+  return new AuthService({
+    relayerAccount: 'relayer.testnet',
+    relayerPrivateKey: 'ed25519:dummy',
+    nearRpcUrl: DEFAULT_TEST_CONFIG.nearRpcUrl,
+    networkId: DEFAULT_TEST_CONFIG.nearNetwork,
+    accountInitialBalance: '1',
+    createAccountAndRegisterGas: '1',
+    logger: null,
+  });
+}
+
+async function allocateIntent(
+  service: AuthService,
+  signerSelection: RegistrationSignerSelection = SIGNER_SELECTION,
+) {
+  return await service.createRegistrationIntent({
+    request: {
+      walletSubject: {
+        kind: 'provided',
+        walletSubjectId: walletSubjectIdFromString('wallet_subject_alice'),
+      },
+      rpId: 'wallet.example.test',
+      signerSelection,
+    },
+    orgId: ORG_ID,
+    runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+    expectedOrigin: 'https://wallet.example.test',
+  });
+}
+
+async function allocateAddSignerIntent(
+  service: AuthService,
+  signerSelection: AddSignerIntentV1['signerSelection'] = ECDSA_ADD_SIGNER_INTENT.signerSelection,
+) {
+  return await service.createAddSignerIntent({
+    request: {
+      walletSubjectId: walletSubjectIdFromString('wallet_subject_alice'),
+      rpId: 'wallet.example.test',
+      signerSelection,
+    },
+    orgId: ORG_ID,
+    runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+    expectedOrigin: 'https://wallet.example.test',
+  });
+}
+
+function clientDataJsonB64u(input: { challenge: string }): string {
+  return base64UrlEncode(
+    new TextEncoder().encode(
+      JSON.stringify({
+        type: 'webauthn.create',
+        challenge: input.challenge,
+        origin: 'https://wallet.example.test',
+      }),
+    ),
+  );
+}
+
+function createNearAccountOwnershipProof(input: {
+  walletSubjectId: ReturnType<typeof walletSubjectIdFromString>;
+  rpId: string;
+  nearAccountId: string;
+  issuedAtMs?: number;
+  expiresAtMs?: number;
+}): NearAccountOwnershipProofV1 {
+  const { publicKey, privateKey } = generateKeyPairSync('ed25519');
+  const publicKeyDer = new Uint8Array(
+    publicKey.export({ format: 'der', type: 'spki' }) as ArrayBuffer,
+  );
+  const publicKeyBytes = publicKeyDer.slice(-32);
+  const message = {
+    version: 'near_account_ownership_proof_message_v1' as const,
+    walletSubjectId: input.walletSubjectId,
+    rpId: input.rpId,
+    nearAccountId: input.nearAccountId,
+    publicKey: `ed25519:${base58Encode(publicKeyBytes)}`,
+    nonceB64u: base64UrlEncode(new Uint8Array(16).fill(7)),
+    issuedAtMs: input.issuedAtMs ?? Date.now() - 1_000,
+    expiresAtMs: input.expiresAtMs ?? Date.now() + 60_000,
+  };
+  const signature = sign(
+    null,
+    Buffer.from(serializeNearAccountOwnershipProofMessageV1(message)),
+    privateKey,
+  );
+  return {
+    version: 'near_account_ownership_proof_v1',
+    message,
+    signatureB64u: base64UrlEncode(new Uint8Array(signature)),
+  };
+}
+
+function ecdsaServerBootstrapValue(input: {
+  request: Record<string, unknown>;
+  keyHandle: string;
+  ownerAddress: string;
+  overrides?: Record<string, unknown>;
+}): Record<string, unknown> {
+  const expiresAtMs = Date.now() + 60_000;
+  return {
+    formatVersion: 'ecdsa-hss-role-local',
+    walletSessionUserId: input.request.walletSessionUserId,
+    rpId: input.request.rpId,
+    subjectId: input.request.subjectId,
+    ecdsaThresholdKeyId: input.request.ecdsaThresholdKeyId,
+    relayerKeyId: input.request.relayerKeyId,
+    contextBinding32B64u: input.request.contextBinding32B64u,
+    publicIdentity: {
+      clientPublicKey33B64u: input.request.clientPublicKey33B64u,
+      relayerPublicKey33B64u: 'relayer-public-key',
+      groupPublicKey33B64u: 'group-public-key',
+      ethereumAddress: input.ownerAddress,
+    },
+    publicTranscriptDigest32B64u: 'transcript-digest',
+    keyHandle: input.keyHandle,
+    signingRootId: input.request.signingRootId,
+    signingRootVersion: input.request.signingRootVersion,
+    thresholdEcdsaPublicKeyB64u: 'group-public-key',
+    ethereumAddress: input.ownerAddress,
+    relayerVerifyingShareB64u: 'relayer-public-key',
+    participantIds: input.request.participantIds,
+    sessionId: input.request.sessionId,
+    walletSigningSessionId: input.request.walletSigningSessionId,
+    expiresAtMs,
+    expiresAt: new Date(expiresAtMs).toISOString(),
+    remainingUses: input.request.remainingUses,
+    ...input.overrides,
+  };
+}
+
+test.describe('registration intent allocation', () => {
+  test('allocates distinct intent grants and nonce-bound digests', async () => {
+    const service = makeService();
+    const first = await allocateIntent(service);
+    const second = await allocateIntent(service);
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    if (!first.ok) throw new Error(first.message);
+    if (!second.ok) throw new Error(second.message);
+
+    expect(first.registrationIntentGrant).toMatch(/^rig_/);
+    expect(second.registrationIntentGrant).toMatch(/^rig_/);
+    expect(first.registrationIntentGrant).not.toBe(second.registrationIntentGrant);
+    expect(first.intent.nonceB64u).not.toBe(second.intent.nonceB64u);
+    expect(first.registrationIntentDigestB64u).not.toBe(second.registrationIntentDigestB64u);
+  });
+
+  test('rejects replay after a registration intent grant is consumed', async () => {
+    const service = makeService();
+    const allocated = await allocateIntent(service);
+
+    expect(allocated.ok).toBe(true);
+    if (!allocated.ok) throw new Error(allocated.message);
+
+    const startRequest = {
+      registrationIntentGrant: allocated.registrationIntentGrant,
+      registrationIntentDigestB64u: allocated.registrationIntentDigestB64u,
+      intent: allocated.intent,
+      webauthn_registration: {
+        response: {
+          clientDataJSON: clientDataJsonB64u({ challenge: 'wrong-challenge' }),
+        },
+      },
+    };
+
+    await expect(service.startWalletRegistration(startRequest)).resolves.toMatchObject({
+      ok: false,
+      code: 'challenge_mismatch',
+    });
+    await expect(service.startWalletRegistration(startRequest)).resolves.toMatchObject({
+      ok: false,
+      code: 'invalid_grant',
+    });
+  });
+
+  test('runs combined Ed25519 and ECDSA registration through one ceremony', async () => {
+    const service = makeService();
+    let webAuthnCreateVerifications = 0;
+    (service as any).verifyRegistrationCredentialForIntent = async () => {
+      webAuthnCreateVerifications += 1;
+      return {
+        ok: true,
+        credential: {
+          credentialIdB64u: 'credential-id',
+          credentialPublicKeyB64u: 'credential-public-key',
+          counter: 0,
+        },
+      };
+    };
+    let accountCreation: Record<string, unknown> | null = null;
+    let bindingWrite: Record<string, unknown> | null = null;
+    let authenticatorWrites = 0;
+    let ed25519PrepareRequest: Record<string, unknown> | null = null;
+    let ed25519RespondRequest: Record<string, unknown> | null = null;
+    let ed25519FinalizeRequest: Record<string, unknown> | null = null;
+    let ecdsaBootstrapRequest: Record<string, unknown> | null = null;
+    (service as any).createAccount = async (request: Record<string, unknown>) => {
+      accountCreation = request;
+      return { success: true };
+    };
+    (service as any).getWebAuthnAuthenticatorStore = () => ({
+      put: async () => {
+        authenticatorWrites += 1;
+      },
+    });
+    (service as any).getWebAuthnCredentialBindingStore = () => ({
+      put: async (record: Record<string, unknown>) => {
+        bindingWrite = record;
+      },
+    });
+    (service as any).getThresholdSigningService = () => ({
+      ed25519Hss: {
+        prepareForRegistration: async (request: Record<string, unknown>) => {
+          ed25519PrepareRequest = request;
+          return {
+            ok: true,
+            ceremonyHandle: 'combined-ed25519-handle',
+            preparedSession: { prepared: true },
+            clientOtOfferMessageB64u: 'client-ot-offer',
+          };
+        },
+        respondForRegistration: async (request: Record<string, unknown>) => {
+          ed25519RespondRequest = request;
+          return {
+            ok: true,
+            contextBindingB64u: 'context-binding',
+            serverInputDeliveryB64u: 'server-input-delivery',
+          };
+        },
+        finalizeForRegistration: async (request: Record<string, unknown>) => {
+          ed25519FinalizeRequest = request;
+          return {
+            ok: true,
+            publicKey: 'ed25519:public-key',
+            relayerKeyId: 'relayer-key-ed25519',
+          };
+        },
+      },
+      ecdsaHssRoleLocalBootstrap: async (request: Record<string, unknown>) => {
+        ecdsaBootstrapRequest = request;
+        return {
+          ok: true,
+          value: ecdsaServerBootstrapValue({
+            request,
+            keyHandle: 'ehss-combined-key-alice',
+            ownerAddress: '0x3333333333333333333333333333333333333333',
+          }),
+        };
+      },
+      getSchemeModule: () => ({
+        schemeId: 'threshold-ed25519-frost-2p-v1',
+        registration: {
+          keygenFromRegistrationMaterial: async () => ({
+            ok: true,
+            publicKey: 'ed25519:public-key',
+            relayerKeyId: 'relayer-key-ed25519',
+            keyVersion: 'threshold-ed25519-hss-v1',
+            recoveryExportCapable: true,
+            clientParticipantId: 1,
+            relayerParticipantId: 2,
+            participantIds: [1, 2],
+          }),
+        },
+      }),
+    });
+
+    const allocated = await allocateIntent(service, COMBINED_SIGNER_SELECTION);
+
+    expect(allocated.ok).toBe(true);
+    if (!allocated.ok) throw new Error(allocated.message);
+
+    const startRequest = {
+      registrationIntentGrant: allocated.registrationIntentGrant,
+      registrationIntentDigestB64u: allocated.registrationIntentDigestB64u,
+      intent: allocated.intent,
+      webauthn_registration: {
+        response: {
+          clientDataJSON: clientDataJsonB64u({ challenge: allocated.registrationIntentDigestB64u }),
+        },
+      },
+    };
+
+    const started = await service.startWalletRegistration(startRequest);
+    expect(started).toMatchObject({
+      ok: true,
+      ed25519: {
+        ceremonyHandle: 'combined-ed25519-handle',
+      },
+      ecdsa: {
+        kind: 'evm_family_ecdsa_keygen',
+        chainTargets: ECDSA_SIGNER_SELECTION.ecdsa.chainTargets,
+      },
+    });
+    if (!started.ok || !started.ed25519 || !started.ecdsa) {
+      throw new Error('combined registration start failed');
+    }
+    expect(webAuthnCreateVerifications).toBe(1);
+    expect(ed25519PrepareRequest).toMatchObject({
+      orgId: ORG_ID,
+      request: {
+        new_account_id: 'alice.testnet',
+        rp_id: 'wallet.example.test',
+      },
+    });
+
+    const clientBootstrap = {
+      ...started.ecdsa.prepare,
+      runtimePolicyScope: {
+        signingRootVersion: RUNTIME_POLICY_SCOPE.signingRootVersion,
+        envId: RUNTIME_POLICY_SCOPE.envId,
+        projectId: RUNTIME_POLICY_SCOPE.projectId,
+        orgId: RUNTIME_POLICY_SCOPE.orgId,
+      },
+      clientPublicKey33B64u: 'client-public-key',
+      clientShareRetryCounter: 0,
+      contextBinding32B64u: 'context-binding',
+    };
+    const responded = await service.respondWalletRegistrationHss({
+      registrationCeremonyId: started.registrationCeremonyId,
+      ed25519: {
+        clientRequest: { clientRequestMessageB64u: 'client-request' } as any,
+      },
+      ecdsa: {
+        clientBootstrap,
+      },
+    });
+    expect(responded).toMatchObject({
+      ok: true,
+      ed25519: {
+        serverInputDeliveryB64u: 'server-input-delivery',
+      },
+      ecdsa: {
+        bootstrap: {
+          keyHandle: 'ehss-combined-key-alice',
+        },
+      },
+    });
+    expect(ed25519RespondRequest).toMatchObject({
+      request: {
+        ceremonyHandle: 'combined-ed25519-handle',
+      },
+    });
+    expect(ecdsaBootstrapRequest).toMatchObject(clientBootstrap);
+
+    const finalized = await service.finalizeWalletRegistration({
+      registrationCeremonyId: started.registrationCeremonyId,
+      ed25519: {
+        evaluationResult: { stagedEvaluatorArtifactB64u: 'evaluation-result' } as any,
+      },
+      ecdsa: {
+        expectedKeyHandles: ['ehss-combined-key-alice'],
+      },
+    });
+    expect(finalized).toMatchObject({
+      ok: true,
+      walletSubjectId: 'wallet_subject_alice',
+      rpId: 'wallet.example.test',
+      ed25519: {
+        nearAccountId: 'alice.testnet',
+        publicKey: 'ed25519:public-key',
+      },
+    });
+    expect(finalized.ok && finalized.ecdsa?.walletKeys).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          chainTarget: COMBINED_SIGNER_SELECTION.ecdsa.chainTargets[0],
+          keyHandle: 'ehss-combined-key-alice',
+          thresholdOwnerAddress: '0x3333333333333333333333333333333333333333',
+        }),
+        expect.objectContaining({
+          chainTarget: COMBINED_SIGNER_SELECTION.ecdsa.chainTargets[1],
+          keyHandle: 'ehss-combined-key-alice',
+          thresholdOwnerAddress: '0x3333333333333333333333333333333333333333',
+        }),
+      ]),
+    );
+    expect(finalized.ok && finalized.ecdsa?.walletKeys).toHaveLength(2);
+    expect(ed25519FinalizeRequest).toMatchObject({
+      request: {
+        ceremonyHandle: 'combined-ed25519-handle',
+      },
+    });
+    expect(accountCreation).toMatchObject({
+      accountId: 'alice.testnet',
+      publicKey: 'ed25519:public-key',
+    });
+    expect(authenticatorWrites).toBe(1);
+    expect(bindingWrite).toMatchObject({
+      userId: 'wallet_subject_alice',
+      signerSlot: 1,
+      publicKey: 'ed25519:public-key',
+    });
+  });
+
+  test('runs ECDSA-only registration through start, respond, and finalize', async () => {
+    const service = makeService();
+    (service as any).verifyRegistrationCredentialForIntent = async () => ({
+      ok: true,
+      credential: {
+        credentialIdB64u: 'credential-id',
+        credentialPublicKeyB64u: 'credential-public-key',
+        counter: 0,
+      },
+    });
+
+    let bootstrapRequest: Record<string, unknown> | null = null;
+    let accountCreationCalls = 0;
+    (service as any).createAccount = async () => {
+      accountCreationCalls += 1;
+      return { success: true };
+    };
+    (service as any).getThresholdSigningService = () => ({
+      ecdsaHssRoleLocalBootstrap: async (request: Record<string, unknown>) => {
+        bootstrapRequest = request;
+        return {
+          ok: true,
+          value: ecdsaServerBootstrapValue({
+            request,
+            keyHandle: 'ehss-key-alice',
+            ownerAddress: '0x1111111111111111111111111111111111111111',
+          }),
+        };
+      },
+    });
+
+    const allocated = await allocateIntent(service, ECDSA_SIGNER_SELECTION);
+    expect(allocated.ok).toBe(true);
+    if (!allocated.ok) throw new Error(allocated.message);
+
+    const started = await service.startWalletRegistration({
+      registrationIntentGrant: allocated.registrationIntentGrant,
+      registrationIntentDigestB64u: allocated.registrationIntentDigestB64u,
+      intent: allocated.intent,
+      webauthn_registration: {
+        response: {
+          clientDataJSON: clientDataJsonB64u({ challenge: allocated.registrationIntentDigestB64u }),
+        },
+      },
+    });
+
+    expect(started).toMatchObject({
+      ok: true,
+      ecdsa: {
+        kind: 'evm_family_ecdsa_keygen',
+        chainTargets: ECDSA_SIGNER_SELECTION.ecdsa.chainTargets,
+      },
+    });
+    if (!started.ok || !started.ecdsa) throw new Error('ECDSA start failed');
+
+    const clientBootstrap = {
+      ...started.ecdsa.prepare,
+      clientPublicKey33B64u: 'client-public-key',
+      clientShareRetryCounter: 0,
+      contextBinding32B64u: 'context-binding',
+    };
+    const responded = await service.respondWalletRegistrationHss({
+      registrationCeremonyId: started.registrationCeremonyId,
+      ecdsa: {
+        clientBootstrap,
+      },
+    });
+
+    expect(responded).toMatchObject({
+      ok: true,
+      ecdsa: {
+        bootstrap: {
+          keyHandle: 'ehss-key-alice',
+        },
+      },
+    });
+    expect(bootstrapRequest).toMatchObject(clientBootstrap);
+
+    const finalized = await service.finalizeWalletRegistration({
+      registrationCeremonyId: started.registrationCeremonyId,
+      ecdsa: {
+        expectedKeyHandles: ['ehss-key-alice'],
+      },
+    });
+
+    expect(finalized).toMatchObject({
+      ok: true,
+      walletSubjectId: 'wallet_subject_alice',
+      rpId: 'wallet.example.test',
+      ecdsa: {
+        walletKeys: [
+          {
+            keyHandle: 'ehss-key-alice',
+            chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 1 },
+            thresholdOwnerAddress: '0x1111111111111111111111111111111111111111',
+          },
+          {
+            keyHandle: 'ehss-key-alice',
+            chainTarget: { kind: 'tempo', chainId: 42431 },
+            thresholdOwnerAddress: '0x1111111111111111111111111111111111111111',
+          },
+        ],
+      },
+    });
+    if (!finalized.ok || !finalized.ecdsa) throw new Error('ECDSA finalize failed');
+    const [evmWalletKey, tempoWalletKey] = finalized.ecdsa.walletKeys;
+    expect(evmWalletKey).toMatchObject({
+      keyHandle: 'ehss-key-alice',
+      ecdsaThresholdKeyId: tempoWalletKey.ecdsaThresholdKeyId,
+      signingRootId: tempoWalletKey.signingRootId,
+      signingRootVersion: tempoWalletKey.signingRootVersion,
+      thresholdEcdsaPublicKeyB64u: tempoWalletKey.thresholdEcdsaPublicKeyB64u,
+      thresholdOwnerAddress: tempoWalletKey.thresholdOwnerAddress,
+      relayerKeyId: tempoWalletKey.relayerKeyId,
+      relayerVerifyingShareB64u: tempoWalletKey.relayerVerifyingShareB64u,
+      participantIds: tempoWalletKey.participantIds,
+    });
+    expect(accountCreationCalls).toBe(0);
+  });
+
+  test('rejects ECDSA-only registration finalize when bootstrap key facts are incomplete', async () => {
+    const service = makeService();
+    (service as any).verifyRegistrationCredentialForIntent = async () => ({
+      ok: true,
+      credential: {
+        credentialIdB64u: 'credential-id',
+        credentialPublicKeyB64u: 'credential-public-key',
+        counter: 0,
+      },
+    });
+    let authenticatorWrites = 0;
+    (service as any).getWebAuthnAuthenticatorStore = () => ({
+      put: async () => {
+        authenticatorWrites += 1;
+      },
+    });
+    (service as any).getThresholdSigningService = () => ({
+      ecdsaHssRoleLocalBootstrap: async (request: Record<string, unknown>) => ({
+        ok: true,
+        value: ecdsaServerBootstrapValue({
+          request,
+          keyHandle: '',
+          ownerAddress: '0x1111111111111111111111111111111111111111',
+        }),
+      }),
+    });
+
+    const allocated = await allocateIntent(service, ECDSA_SIGNER_SELECTION);
+    expect(allocated.ok).toBe(true);
+    if (!allocated.ok) throw new Error(allocated.message);
+
+    const started = await service.startWalletRegistration({
+      registrationIntentGrant: allocated.registrationIntentGrant,
+      registrationIntentDigestB64u: allocated.registrationIntentDigestB64u,
+      intent: allocated.intent,
+      webauthn_registration: {
+        response: {
+          clientDataJSON: clientDataJsonB64u({ challenge: allocated.registrationIntentDigestB64u }),
+        },
+      },
+    });
+    expect(started.ok).toBe(true);
+    if (!started.ok || !started.ecdsa) throw new Error('ECDSA start failed');
+
+    const responded = await service.respondWalletRegistrationHss({
+      registrationCeremonyId: started.registrationCeremonyId,
+      ecdsa: {
+        clientBootstrap: {
+          ...started.ecdsa.prepare,
+          clientPublicKey33B64u: 'client-public-key',
+          clientShareRetryCounter: 0,
+          contextBinding32B64u: 'context-binding',
+        },
+      },
+    });
+    expect(responded.ok).toBe(true);
+
+    await expect(
+      service.finalizeWalletRegistration({
+        registrationCeremonyId: started.registrationCeremonyId,
+        ecdsa: {
+          expectedKeyHandles: [],
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'incomplete_ecdsa_wallet_key',
+      message: expect.stringContaining('keyHandle'),
+    });
+    expect(authenticatorWrites).toBe(0);
+  });
+
+  test('runs Ed25519 add-signer through start, respond, and finalize without re-registering authenticator', async () => {
+    const service = makeService();
+    let accountCreation: Record<string, unknown> | null = null;
+    let bindingWrite: Record<string, unknown> | null = null;
+    let authenticatorWrites = 0;
+    let prepareRequest: Record<string, unknown> | null = null;
+    let respondRequest: Record<string, unknown> | null = null;
+    let finalizeRequest: Record<string, unknown> | null = null;
+    let keygenRequest: Record<string, unknown> | null = null;
+
+    (service as any).createAccount = async (request: Record<string, unknown>) => {
+      accountCreation = request;
+      return { success: true };
+    };
+    (service as any).getWebAuthnAuthenticatorStore = () => ({
+      put: async () => {
+        authenticatorWrites += 1;
+      },
+    });
+    (service as any).getWebAuthnCredentialBindingStore = () => ({
+      put: async (record: Record<string, unknown>) => {
+        bindingWrite = record;
+      },
+    });
+    (service as any).getThresholdSigningService = () => ({
+      ed25519Hss: {
+        prepareForRegistration: async (request: Record<string, unknown>) => {
+          prepareRequest = request;
+          return {
+            ok: true,
+            ceremonyHandle: 'ed25519-add-signer-handle',
+            preparedSession: { prepared: true },
+            clientOtOfferMessageB64u: 'client-ot-offer',
+          };
+        },
+        respondForRegistration: async (request: Record<string, unknown>) => {
+          respondRequest = request;
+          return {
+            ok: true,
+            contextBindingB64u: 'context-binding',
+            serverInputDeliveryB64u: 'server-input-delivery',
+          };
+        },
+        finalizeForRegistration: async (request: Record<string, unknown>) => {
+          finalizeRequest = request;
+          return {
+            ok: true,
+            publicKey: 'ed25519:public-key',
+            relayerKeyId: 'relayer-key-ed25519',
+          };
+        },
+      },
+      getSchemeModule: () => ({
+        schemeId: 'threshold-ed25519-frost-2p-v1',
+        registration: {
+          keygenFromRegistrationMaterial: async (request: Record<string, unknown>) => {
+            keygenRequest = request;
+            return {
+              ok: true,
+              publicKey: 'ed25519:public-key',
+              relayerKeyId: 'relayer-key-ed25519',
+              keyVersion: 'threshold-ed25519-hss-v1',
+              recoveryExportCapable: true,
+              clientParticipantId: 1,
+              relayerParticipantId: 2,
+              participantIds: [1, 2],
+            };
+          },
+        },
+      }),
+    });
+
+    const allocated = await allocateAddSignerIntent(
+      service,
+      ED25519_ADD_SIGNER_INTENT.signerSelection,
+    );
+    expect(allocated.ok).toBe(true);
+    if (!allocated.ok) throw new Error(allocated.message);
+
+    const started = await service.startWalletAddSigner({
+      walletSubjectId: allocated.intent.walletSubjectId,
+      addSignerIntentGrant: allocated.addSignerIntentGrant,
+      addSignerIntentDigestB64u: allocated.addSignerIntentDigestB64u,
+      intent: allocated.intent,
+      auth: {
+        kind: 'webauthn_assertion',
+        credential: {
+          id: 'Y3JlZGVudGlhbC1pZA',
+          rawId: 'Y3JlZGVudGlhbC1pZA',
+          type: 'public-key',
+          authenticatorAttachment: null,
+          response: {
+            clientDataJSON: 'client-data-json',
+            authenticatorData: 'authenticator-data',
+            signature: 'signature',
+            userHandle: null,
+          },
+          clientExtensionResults: null,
+        },
+        expectedChallengeDigestB64u: allocated.addSignerIntentDigestB64u,
+      },
+    });
+
+    expect(started).toMatchObject({
+      ok: true,
+      ed25519: {
+        ceremonyHandle: 'ed25519-add-signer-handle',
+        clientOtOfferMessageB64u: 'client-ot-offer',
+      },
+    });
+    if (!started.ok || !started.ed25519) throw new Error('Ed25519 add-signer start failed');
+    expect(prepareRequest).toMatchObject({
+      orgId: ORG_ID,
+      request: {
+        new_account_id: 'alice.testnet',
+        rp_id: 'wallet.example.test',
+        context: {
+          nearAccountId: 'alice.testnet',
+          keyPurpose: 'near_tx',
+          keyVersion: 'threshold-ed25519-hss-v1',
+          participantIds: [1, 2],
+          derivationVersion: 1,
+        },
+      },
+    });
+
+    const responded = await service.respondWalletAddSignerHss({
+      addSignerCeremonyId: started.addSignerCeremonyId,
+      ed25519: {
+        clientRequest: { clientRequestMessageB64u: 'client-request' } as any,
+      },
+    });
+
+    expect(responded).toMatchObject({
+      ok: true,
+      ed25519: {
+        contextBindingB64u: 'context-binding',
+        serverInputDeliveryB64u: 'server-input-delivery',
+      },
+    });
+    expect(respondRequest).toMatchObject({
+      orgId: ORG_ID,
+      request: {
+        new_account_id: 'alice.testnet',
+        rp_id: 'wallet.example.test',
+        ceremonyHandle: 'ed25519-add-signer-handle',
+      },
+    });
+
+    const finalized = await service.finalizeWalletAddSigner({
+      addSignerCeremonyId: started.addSignerCeremonyId,
+      ed25519: {
+        evaluationResult: { stagedEvaluatorArtifactB64u: 'evaluation-result' } as any,
+      },
+    });
+
+    expect(finalized).toMatchObject({
+      ok: true,
+      walletSubjectId: 'wallet_subject_alice',
+      rpId: 'wallet.example.test',
+      ed25519: {
+        nearAccountId: 'alice.testnet',
+        publicKey: 'ed25519:public-key',
+        relayerKeyId: 'relayer-key-ed25519',
+        keyVersion: 'threshold-ed25519-hss-v1',
+      },
+    });
+    expect(finalizeRequest).toMatchObject({
+      request: {
+        new_account_id: 'alice.testnet',
+        rp_id: 'wallet.example.test',
+        ceremonyHandle: 'ed25519-add-signer-handle',
+      },
+    });
+    expect(keygenRequest).toMatchObject({
+      nearAccountId: 'alice.testnet',
+      rpId: 'wallet.example.test',
+      keyVersion: 'threshold-ed25519-hss-v1',
+      publicKey: 'ed25519:public-key',
+      relayerKeyId: 'relayer-key-ed25519',
+    });
+    expect(accountCreation).toEqual({
+      accountId: 'alice.testnet',
+      publicKey: 'ed25519:public-key',
+    });
+    expect(bindingWrite).toMatchObject({
+      rpId: 'wallet.example.test',
+      credentialIdB64u: 'Y3JlZGVudGlhbC1pZA',
+      userId: 'wallet_subject_alice',
+      signerSlot: 2,
+      publicKey: 'ed25519:public-key',
+      relayerKeyId: 'relayer-key-ed25519',
+      keyVersion: 'threshold-ed25519-hss-v1',
+      recoveryExportCapable: true,
+      participantIds: [1, 2],
+    });
+    expect(authenticatorWrites).toBe(0);
+  });
+
+  test('does not consume existing-account Ed25519 add-signer grants when ownership proof verification fails', async () => {
+    const service = makeService();
+    const proof = createNearAccountOwnershipProof({
+      walletSubjectId: walletSubjectIdFromString('wallet_subject_alice'),
+      rpId: 'wallet.example.test',
+      nearAccountId: 'alice.testnet',
+    });
+    (service as any).nearClient = {
+      ...(service as any).nearClient,
+      viewAccessKey: async () => ({ nonce: 1, permission: 'FullAccess' }),
+    };
+    const allocated = await allocateAddSignerIntent(service, {
+      mode: 'ed25519',
+      ed25519: {
+        mode: 'link_existing_near_account',
+        nearAccountId: 'alice.testnet',
+        signerSlot: 2,
+        participantIds: [1, 2],
+        keyPurpose: 'near_tx',
+        keyVersion: 'threshold-ed25519-hss-v1',
+        derivationVersion: 1,
+        accountOwnershipProof: {
+          ...proof,
+          signatureB64u: base64UrlEncode(new Uint8Array(64).fill(1)),
+        },
+      },
+    });
+    expect(allocated.ok).toBe(true);
+    if (!allocated.ok) throw new Error(allocated.message);
+
+    const startRequest = {
+      walletSubjectId: allocated.intent.walletSubjectId,
+      addSignerIntentGrant: allocated.addSignerIntentGrant,
+      addSignerIntentDigestB64u: allocated.addSignerIntentDigestB64u,
+      intent: allocated.intent,
+      auth: {
+        kind: 'app_session' as const,
+        policy: {
+          permission: 'wallet_signer_provision' as const,
+          walletSubjectId: allocated.intent.walletSubjectId,
+          signerSelection: allocated.intent.signerSelection,
+          runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+          expiresAtMs: Date.now() + 60_000,
+        },
+      },
+    };
+
+    await expect(service.startWalletAddSigner(startRequest)).resolves.toMatchObject({
+      ok: false,
+      code: 'invalid_account_ownership_proof',
+    });
+    await expect(service.startWalletAddSigner(startRequest)).resolves.toMatchObject({
+      ok: false,
+      code: 'invalid_account_ownership_proof',
+    });
+  });
+
+  test('starts existing-account Ed25519 add-signer after verifying account ownership proof', async () => {
+    const service = makeService();
+    const proof = createNearAccountOwnershipProof({
+      walletSubjectId: walletSubjectIdFromString('wallet_subject_alice'),
+      rpId: 'wallet.example.test',
+      nearAccountId: 'alice.testnet',
+    });
+    let viewedAccessKey: Record<string, unknown> | null = null;
+    let prepareRequest: Record<string, unknown> | null = null;
+    (service as any).nearClient = {
+      ...(service as any).nearClient,
+      viewAccessKey: async (
+        accountId: string,
+        publicKey: string,
+        finalityQuery: Record<string, unknown>,
+      ) => {
+        viewedAccessKey = { accountId, publicKey, finalityQuery };
+        return { nonce: 1, permission: 'FullAccess' };
+      },
+    };
+    (service as any).getThresholdSigningService = () => ({
+      ed25519Hss: {
+        prepareForRegistration: async (request: Record<string, unknown>) => {
+          prepareRequest = request;
+          return {
+            ok: true,
+            ceremonyHandle: 'ed25519-link-signer-handle',
+            preparedSession: { prepared: true },
+            clientOtOfferMessageB64u: 'client-ot-offer',
+          };
+        },
+      },
+    });
+
+    const allocated = await allocateAddSignerIntent(service, {
+      mode: 'ed25519',
+      ed25519: {
+        mode: 'link_existing_near_account',
+        nearAccountId: 'alice.testnet',
+        signerSlot: 2,
+        participantIds: [1, 2],
+        keyPurpose: 'near_tx',
+        keyVersion: 'threshold-ed25519-hss-v1',
+        derivationVersion: 1,
+        accountOwnershipProof: proof,
+      },
+    });
+    expect(allocated.ok).toBe(true);
+    if (!allocated.ok) throw new Error(allocated.message);
+
+    await expect(
+      service.startWalletAddSigner({
+        walletSubjectId: allocated.intent.walletSubjectId,
+        addSignerIntentGrant: allocated.addSignerIntentGrant,
+        addSignerIntentDigestB64u: allocated.addSignerIntentDigestB64u,
+        intent: allocated.intent,
+        auth: {
+          kind: 'app_session',
+          policy: {
+            permission: 'wallet_signer_provision',
+            walletSubjectId: allocated.intent.walletSubjectId,
+            signerSelection: allocated.intent.signerSelection,
+            runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+            expiresAtMs: Date.now() + 60_000,
+          },
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      ed25519: {
+        ceremonyHandle: 'ed25519-link-signer-handle',
+        clientOtOfferMessageB64u: 'client-ot-offer',
+      },
+    });
+    expect(viewedAccessKey).toEqual({
+      accountId: 'alice.testnet',
+      publicKey: proof.message.publicKey,
+      finalityQuery: { finality: 'final' },
+    });
+    expect(prepareRequest).toMatchObject({
+      request: {
+        new_account_id: 'alice.testnet',
+        rp_id: 'wallet.example.test',
+      },
+    });
+  });
+
+  test('runs ECDSA add-signer through start, respond, and finalize without re-registering authenticator', async () => {
+    const service = makeService();
+    let authenticatorWrites = 0;
+    (service as any).getWebAuthnAuthenticatorStore = () => ({
+      put: async () => {
+        authenticatorWrites += 1;
+      },
+    });
+
+    let bootstrapRequest: Record<string, unknown> | null = null;
+    (service as any).getThresholdSigningService = () => ({
+      ecdsaHssRoleLocalBootstrap: async (request: Record<string, unknown>) => {
+        bootstrapRequest = request;
+        return {
+          ok: true,
+          value: ecdsaServerBootstrapValue({
+            request,
+            keyHandle: 'ehss-add-signer-key-alice',
+            ownerAddress: '0x2222222222222222222222222222222222222222',
+          }),
+        };
+      },
+    });
+
+    const allocated = await allocateAddSignerIntent(service);
+    expect(allocated.ok).toBe(true);
+    if (!allocated.ok) throw new Error(allocated.message);
+    const started = await service.startWalletAddSigner({
+      walletSubjectId: allocated.intent.walletSubjectId,
+      addSignerIntentGrant: allocated.addSignerIntentGrant,
+      addSignerIntentDigestB64u: allocated.addSignerIntentDigestB64u,
+      intent: allocated.intent,
+      auth: {
+        kind: 'webauthn_assertion',
+        credential: {
+          id: 'Y3JlZGVudGlhbC1pZA',
+          rawId: 'Y3JlZGVudGlhbC1pZA',
+          type: 'public-key',
+          authenticatorAttachment: null,
+          response: {
+            clientDataJSON: 'client-data-json',
+            authenticatorData: 'authenticator-data',
+            signature: 'signature',
+            userHandle: null,
+          },
+          clientExtensionResults: null,
+        },
+        expectedChallengeDigestB64u: allocated.addSignerIntentDigestB64u,
+      },
+    });
+
+    expect(started).toMatchObject({
+      ok: true,
+      ecdsa: {
+        kind: 'evm_family_ecdsa_keygen',
+        chainTargets: ECDSA_SIGNER_SELECTION.ecdsa.chainTargets,
+      },
+    });
+    if (!started.ok || !started.ecdsa) throw new Error('ECDSA add-signer start failed');
+
+    const clientBootstrap = {
+      ...started.ecdsa.prepare,
+      clientPublicKey33B64u: 'client-public-key',
+      clientShareRetryCounter: 0,
+      contextBinding32B64u: 'context-binding',
+    };
+    const responded = await service.respondWalletAddSignerHss({
+      addSignerCeremonyId: started.addSignerCeremonyId,
+      ecdsa: {
+        clientBootstrap,
+      },
+    });
+
+    expect(responded).toMatchObject({
+      ok: true,
+      ecdsa: {
+        bootstrap: {
+          keyHandle: 'ehss-add-signer-key-alice',
+        },
+      },
+    });
+    expect(bootstrapRequest).toMatchObject(clientBootstrap);
+
+    const finalized = await service.finalizeWalletAddSigner({
+      addSignerCeremonyId: started.addSignerCeremonyId,
+      ecdsa: {
+        expectedKeyHandles: ['ehss-add-signer-key-alice'],
+      },
+    });
+
+    expect(finalized).toMatchObject({
+      ok: true,
+      walletSubjectId: 'wallet_subject_alice',
+      rpId: 'wallet.example.test',
+      ecdsa: {
+        walletKeys: [
+          {
+            keyHandle: 'ehss-add-signer-key-alice',
+            chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 1 },
+            thresholdOwnerAddress: '0x2222222222222222222222222222222222222222',
+          },
+          {
+            keyHandle: 'ehss-add-signer-key-alice',
+            chainTarget: { kind: 'tempo', chainId: 42431 },
+            thresholdOwnerAddress: '0x2222222222222222222222222222222222222222',
+          },
+        ],
+      },
+    });
+    expect(authenticatorWrites).toBe(0);
+  });
+
+  test('rejects ECDSA add-signer finalize when bootstrap key facts are incomplete', async () => {
+    const service = makeService();
+    (service as any).getThresholdSigningService = () => ({
+      ecdsaHssRoleLocalBootstrap: async (request: Record<string, unknown>) => ({
+        ok: true,
+        value: ecdsaServerBootstrapValue({
+          request,
+          keyHandle: 'ehss-add-signer-key-alice',
+          ownerAddress: '0x2222222222222222222222222222222222222222',
+          overrides: {
+            thresholdEcdsaPublicKeyB64u: '',
+          },
+        }),
+      }),
+    });
+
+    const allocated = await allocateAddSignerIntent(service);
+    expect(allocated.ok).toBe(true);
+    if (!allocated.ok) throw new Error(allocated.message);
+
+    const started = await service.startWalletAddSigner({
+      walletSubjectId: allocated.intent.walletSubjectId,
+      addSignerIntentGrant: allocated.addSignerIntentGrant,
+      addSignerIntentDigestB64u: allocated.addSignerIntentDigestB64u,
+      intent: allocated.intent,
+      auth: {
+        kind: 'webauthn_assertion',
+        credential: {
+          id: 'Y3JlZGVudGlhbC1pZA',
+          rawId: 'Y3JlZGVudGlhbC1pZA',
+          type: 'public-key',
+          authenticatorAttachment: null,
+          response: {
+            clientDataJSON: 'client-data-json',
+            authenticatorData: 'authenticator-data',
+            signature: 'signature',
+            userHandle: null,
+          },
+          clientExtensionResults: null,
+        },
+        expectedChallengeDigestB64u: allocated.addSignerIntentDigestB64u,
+      },
+    });
+    expect(started.ok).toBe(true);
+    if (!started.ok || !started.ecdsa) throw new Error('ECDSA add-signer start failed');
+
+    const responded = await service.respondWalletAddSignerHss({
+      addSignerCeremonyId: started.addSignerCeremonyId,
+      ecdsa: {
+        clientBootstrap: {
+          ...started.ecdsa.prepare,
+          clientPublicKey33B64u: 'client-public-key',
+          clientShareRetryCounter: 0,
+          contextBinding32B64u: 'context-binding',
+        },
+      },
+    });
+    expect(responded.ok).toBe(true);
+
+    await expect(
+      service.finalizeWalletAddSigner({
+        addSignerCeremonyId: started.addSignerCeremonyId,
+        ecdsa: {
+          expectedKeyHandles: [],
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'incomplete_ecdsa_wallet_key',
+      message: expect.stringContaining('thresholdEcdsaPublicKeyB64u'),
+    });
+  });
+});

@@ -1,4 +1,4 @@
-import type { SignIntentDigestPayload } from './confirmTypes';
+import type { RegisterAccountPayload, SignIntentDigestPayload } from './confirmTypes';
 
 const passkeyPlan = {
   kind: 'passkeyReauth',
@@ -38,3 +38,23 @@ const validEmailOtpIntentPayload: SignIntentDigestPayload = {
   signingAuthPlan: emailOtpPlan,
 };
 void validEmailOtpIntentPayload;
+
+const validRegistrationPayload: RegisterAccountPayload = {
+  nearAccountId: 'alice.testnet',
+  signerSlot: 1,
+  webauthnChallenge: {
+    kind: 'intent_digest',
+    challengeB64u: 'registration-intent-digest',
+  },
+};
+void validRegistrationPayload;
+
+void ({
+  nearAccountId: 'alice.testnet',
+  signerSlot: 1,
+  // @ts-expect-error registration credential prompts must not carry NEAR RPC context
+  rpcCall: {
+    nearRpcUrl: 'https://rpc.testnet.near.org',
+    nearAccountId: 'alice.testnet',
+  },
+} satisfies RegisterAccountPayload);

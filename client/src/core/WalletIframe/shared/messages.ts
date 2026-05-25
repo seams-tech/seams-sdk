@@ -21,6 +21,12 @@ import type {
 import type { EmailOtpAuthPolicy, SeamsConfigsInput } from '../../types/seams';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
 import type { WalletFlowEvent } from '../../types/sdkSentEvents';
+import type {
+  AddSignerSelection,
+  RegisterWalletSubjectInput,
+  RegistrationSignerSelection,
+  WalletSubjectId,
+} from '@shared/utils/registrationIntent';
 
 export type WalletProtocolVersion = '1.0.0';
 
@@ -30,6 +36,8 @@ export type ParentToChildType =
   | 'PM_CANCEL'
   // SeamsPasskey API surface
   | 'PM_REGISTER'
+  | 'PM_REGISTER_WALLET'
+  | 'PM_ADD_WALLET_SIGNER'
   | 'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION'
   | 'PM_UNLOCK'
   | 'PM_LOCK'
@@ -121,6 +129,22 @@ export interface PMRegisterPayload {
   nearAccountId: string;
   uiMode?: 'modal' | 'drawer';
   // Optional per-call confirmation override
+  confirmationConfig?: Partial<ConfirmationConfig>;
+  options?: Record<string, unknown>;
+}
+
+export interface PMRegisterWalletPayload {
+  walletSubject: RegisterWalletSubjectInput;
+  rpId: string;
+  signerSelection: RegistrationSignerSelection;
+  confirmationConfig?: Partial<ConfirmationConfig>;
+  options?: Record<string, unknown>;
+}
+
+export interface PMAddWalletSignerPayload {
+  walletSubjectId: WalletSubjectId | string;
+  rpId: string;
+  signerSelection: AddSignerSelection;
   confirmationConfig?: Partial<ConfirmationConfig>;
   options?: Record<string, unknown>;
 }
@@ -418,6 +442,8 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_SET_CONFIG', PMSetConfigPayload>
   | RpcEnvelope<'PM_CANCEL', PMCancelPayload>
   | RpcEnvelope<'PM_REGISTER', PMRegisterPayload>
+  | RpcEnvelope<'PM_REGISTER_WALLET', PMRegisterWalletPayload>
+  | RpcEnvelope<'PM_ADD_WALLET_SIGNER', PMAddWalletSignerPayload>
   | RpcEnvelope<'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION', PMBootstrapThresholdEcdsaSessionPayload>
   | RpcEnvelope<'PM_UNLOCK', PMUnlockPayload>
   | RpcEnvelope<'PM_LOCK'>

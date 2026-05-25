@@ -72,7 +72,7 @@ export type RequestRegistrationCredentialConfirmationParams = {
   signerSlot: number;
   confirmerText?: { title?: string; body?: string };
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
-  nearRpcUrl: string;
+  challengeB64u?: string;
 };
 
 export interface WarmSessionMaterialWriter {

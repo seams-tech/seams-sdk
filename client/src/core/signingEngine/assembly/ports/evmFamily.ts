@@ -24,21 +24,10 @@ export function createEvmFamilySigningDeps(args: {
     nonceCoordinator: createArgs.nonceCoordinator,
     ensureSealedRefreshStartupParity: createArgs.ensureSealedRefreshStartupParity,
     getSignerWorkerContext: () => createArgs.signerWorkerManager.getContext(),
-    getEmailOtpThresholdEcdsaKeyRefForSigning: ({ walletId, chainTarget }) =>
-      createArgs.getEmailOtpThresholdEcdsaKeyRefForSigning({
-        walletId,
-        chainTarget,
-      }),
     getEmailOtpThresholdEcdsaSessionRecordForSigning: ({ walletId, chainTarget }) =>
       createArgs.getEmailOtpThresholdEcdsaSessionRecordForSigning({
         walletId,
         chainTarget,
-      }),
-    getPasskeyThresholdEcdsaKeyRefForSigning: ({ walletId, chainTarget, source }) =>
-      createArgs.getPasskeyThresholdEcdsaKeyRefForSigning({
-        walletId,
-        chainTarget,
-        source,
       }),
     getPasskeyThresholdEcdsaSessionRecordForSigning: ({ walletId, chainTarget, source }) =>
       createArgs.getPasskeyThresholdEcdsaSessionRecordForSigning({
@@ -60,7 +49,6 @@ export function createEvmFamilySigningDeps(args: {
       }),
     getThresholdEcdsaSessionRecordByKey: (identity) =>
       createArgs.getThresholdEcdsaSessionRecordByKey(identity),
-    getThresholdEcdsaKeyRefByKey: (identity) => createArgs.getThresholdEcdsaKeyRefByKey(identity),
     requestEmailOtpTransactionSigningChallenge: ({ walletSession, chain, authLane }) =>
       createArgs.requestEmailOtpTransactionSigningChallenge?.({
         walletSession,
@@ -119,6 +107,7 @@ export function createEvmFamilySigningDeps(args: {
       otpCode,
       record,
       authLane,
+      remainingUses,
     }) =>
       createArgs.loginWithEmailOtpEcdsaCapabilityForSigning?.({
         walletSession,
@@ -127,6 +116,7 @@ export function createEvmFamilySigningDeps(args: {
         otpCode,
         record,
         ...(authLane ? { authLane } : {}),
+        ...(typeof remainingUses === 'number' ? { remainingUses } : {}),
       }) || Promise.reject(new Error('Email OTP signing bootstrap is not configured')),
     restorePersistedSessionForSigning: (restoreArgs) =>
       createArgs.restorePersistedSessionForSigning(restoreArgs),

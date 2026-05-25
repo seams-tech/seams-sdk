@@ -67,7 +67,6 @@ export function createSigningEnginePorts(
     registrationAccountLifecycleDeps: createRegistrationAccountLifecycleDeps(args),
     registrationSessionDeps: createRegistrationSessionDeps({
       createArgs: args,
-      nearRpcUrl,
     }),
     thresholdSessionActivationDeps: createThresholdSessionActivationDeps({
       createArgs: args,

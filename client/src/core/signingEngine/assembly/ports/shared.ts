@@ -17,7 +17,6 @@ import type {
   RegistrationAccountLifecycleDeps,
   RegistrationSessionDeps,
 } from '../../interfaces/operationDeps';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type { NonceCoordinator } from '../../nonce/NonceCoordinator';
 import type {
   ReadAvailableSigningLanesForSigningInput,
@@ -118,22 +117,10 @@ export type CreateSigningEnginePortsArgs = {
   getThresholdEcdsaSessionRecordByKey: (
     identity: ThresholdEcdsaSessionRecordKey,
   ) => ThresholdEcdsaSessionRecord | null;
-  getThresholdEcdsaKeyRefByKey: (
-    identity: ThresholdEcdsaSessionRecordKey,
-  ) => ThresholdEcdsaKeyRefLookupResult | null;
-  getEmailOtpThresholdEcdsaKeyRefForSigning: (args: {
-    walletId: WalletId;
-    chainTarget: ThresholdEcdsaChainTarget;
-  }) => ThresholdEcdsaSecp256k1KeyRef;
   getEmailOtpThresholdEcdsaSessionRecordForSigning: (args: {
     walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
   }) => ThresholdEcdsaSessionRecord;
-  getPasskeyThresholdEcdsaKeyRefForSigning: (args: {
-    walletId: WalletId;
-    chainTarget: ThresholdEcdsaChainTarget;
-    source: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
-  }) => ThresholdEcdsaSecp256k1KeyRef;
   getPasskeyThresholdEcdsaSessionRecordForSigning: (args: {
     walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;

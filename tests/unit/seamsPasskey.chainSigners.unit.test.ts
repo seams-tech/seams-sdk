@@ -31,6 +31,10 @@ const EVM_CHAIN_TARGET = thresholdEcdsaChainTargetFromChainFamily({
   networkSlug: 'arc-testnet',
 });
 
+function b64u(bytes: number[]): string {
+  return Buffer.from(bytes).toString('base64url');
+}
+
 function createTestSigningEvent(
   phase: SigningEventPhase,
   status: 'started' | 'waiting_for_user' | 'running' | 'succeeded' | 'failed' | 'cancelled',
@@ -333,7 +337,7 @@ test.describe('SeamsPasskey chain signer modules', () => {
           signerId: ownerAddress,
           signerSlot: 1,
           signerType: 'threshold',
-          signerKind: 'threshold_ecdsa',
+          signerKind: 'threshold-ecdsa',
           signerAuthMethod: 'passkey',
           signerSource: 'passkey_registration',
           status: 'active',
@@ -384,7 +388,119 @@ test.describe('SeamsPasskey chain signer modules', () => {
     }
   });
 
-  test('wallet session ignores conflicting threshold ECDSA record addresses without profile fallback', async () => {
+  test('wallet session exposes registered threshold ECDSA owner address from complete profile key facts', async () => {
+    const clientDb = IndexedDBManager.clientDB as unknown as Record<string, unknown>;
+    const originalResolveProfileAccountContext = clientDb.resolveProfileAccountContext;
+    const originalGetProfileContinuitySnapshot = clientDb.getProfileContinuitySnapshot;
+    const ownerAddress = `0x${'33'.repeat(20)}`;
+    const publicKeyB64u = b64u([2, ...Array(32).fill(7)]);
+
+    clientDb.resolveProfileAccountContext = async () => ({
+      profileId: 'profile-registered-ecdsa',
+      accountRef: {
+        chainIdKey: 'near:testnet',
+        accountAddress: 'alice.testnet',
+      },
+    });
+    clientDb.getProfileContinuitySnapshot = async () => ({
+      profile: {
+        profileId: 'profile-registered-ecdsa',
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      chainAccounts: [
+        {
+          profileId: 'profile-registered-ecdsa',
+          chainIdKey: 'evm:5042002',
+          accountAddress: ownerAddress,
+          accountModel: 'threshold-ecdsa',
+          status: 'active',
+          isPrimary: true,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+      accountSigners: [
+        {
+          profileId: 'profile-registered-ecdsa',
+          chainIdKey: 'evm:5042002',
+          accountAddress: ownerAddress,
+          signerId: ownerAddress,
+          signerSlot: 1,
+          signerType: 'threshold',
+          signerKind: 'threshold-ecdsa',
+          signerAuthMethod: 'passkey',
+          signerSource: 'passkey_registration',
+          status: 'active',
+          addedAt: 1,
+          updatedAt: 1,
+          metadata: {
+            ownerAddress,
+            thresholdOwnerAddress: ownerAddress,
+            keyScope: 'evm-family',
+            keyHandle: 'ehss-key-registered',
+            walletId: 'alice.testnet',
+            rpId: 'wallet.example.test',
+            ecdsaThresholdKeyId: 'ehss-registered',
+            signingRootId: 'project:dev',
+            signingRootVersion: 'default',
+            thresholdEcdsaPublicKeyB64u: publicKeyB64u,
+            participantIds: [1, 2],
+            chainTarget: EVM_CHAIN_TARGET,
+            sharedEvmFamilyKey: {
+              walletId: 'alice.testnet',
+              rpId: 'wallet.example.test',
+              keyHandle: 'ehss-key-registered',
+              ecdsaThresholdKeyId: 'ehss-registered',
+              signingRootId: 'project:dev',
+              signingRootVersion: 'default',
+              participantIds: [1, 2],
+              thresholdOwnerAddress: ownerAddress,
+              thresholdEcdsaPublicKeyB64u: publicKeyB64u,
+            },
+          },
+        },
+      ],
+    });
+
+    try {
+      const walletSession = await getWalletSession(
+        {
+          configs: {
+            network: {
+              chains: [
+                {
+                  network: 'arc-testnet',
+                  chainId: 5042002,
+                },
+              ],
+            },
+            signing: {
+              sessionDefaults: {
+                ttlMs: 60_000,
+                remainingUses: 3,
+              },
+            },
+          },
+          signingEngine: {
+            assertSealedRefreshStartupParity: async () => undefined,
+            getLastUser: async () => null,
+            getUserBySignerSlot: async () => null,
+            getWarmThresholdEd25519SessionStatus: async () => null,
+          },
+        } as any,
+        'alice.testnet',
+      );
+
+      expect(walletSession.login.thresholdEcdsaEthereumAddress).toBe(ownerAddress);
+      expect(walletSession.login.thresholdEcdsaPublicKeyB64u).toBe(publicKeyB64u);
+    } finally {
+      clientDb.resolveProfileAccountContext = originalResolveProfileAccountContext;
+      clientDb.getProfileContinuitySnapshot = originalGetProfileContinuitySnapshot;
+    }
+  });
+
+  test('wallet session ignores conflicting threshold ECDSA record addresses without complete profile fallback', async () => {
     const clientDb = IndexedDBManager.clientDB as unknown as Record<string, unknown>;
     const originalResolveProfileAccountContext = clientDb.resolveProfileAccountContext;
     const originalGetProfileContinuitySnapshot = clientDb.getProfileContinuitySnapshot;
@@ -425,7 +541,7 @@ test.describe('SeamsPasskey chain signer modules', () => {
           signerId: ownerAddress,
           signerSlot: 1,
           signerType: 'threshold',
-          signerKind: 'threshold_ecdsa',
+          signerKind: 'threshold-ecdsa',
           signerAuthMethod: 'passkey',
           signerSource: 'passkey_registration',
           status: 'active',

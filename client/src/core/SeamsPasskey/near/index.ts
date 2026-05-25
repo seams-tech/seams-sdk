@@ -9,6 +9,7 @@ import type { SignedTransaction } from '../../rpcClients/near/NearClient';
 import type {
   ActionResult,
   DelegateRelayResult,
+  RegistrationResult,
   SignAndSendDelegateActionResult,
   SignDelegateActionResult,
   SignTransactionResult,
@@ -38,6 +39,11 @@ import {
   sendDelegateActionViaRelayer as sendDelegateActionViaRelayerCore,
 } from './delegateAction';
 import { signNEP413Message as signNEP413MessageCore } from './signNEP413';
+import { registerWallet as registerWalletWithUnifiedCeremony } from '../registration';
+import type { RegistrationCapability } from '../interfaces';
+import { walletSubjectIdFromString } from '@shared/utils/registrationIntent';
+import { cloneAuthenticatorOptions } from '../../types/authenticatorOptions';
+import { buildPasskeyNearWalletRegistrationSignerSelection } from '../registrationSignerSelection';
 
 type ChainSignerDeps = {
   getContext: () => import('../index').PasskeyManagerContext;
@@ -55,6 +61,54 @@ export class NearSigner implements NearSignerCapability {
   constructor(deps: ChainSignerDeps) {
     this.getContext = deps.getContext;
     this.walletIframe = deps.walletIframe;
+  }
+
+  async registerNearWallet(
+    args: Parameters<NearSignerCapability['registerNearWallet']>[0],
+  ): Promise<RegistrationResult> {
+    const context = this.getContext();
+    const accountId = toAccountId(args.nearAccountId);
+    const rpId = context.signingEngine.getRpId();
+    if (!rpId) {
+      throw new Error('[SeamsPasskey][near] registerNearWallet requires rpId');
+    }
+    const registerWalletArgs = {
+      walletSubject: {
+        kind: 'provided',
+        walletSubjectId: walletSubjectIdFromString(String(accountId)),
+      },
+      rpId,
+      signerSelection: buildPasskeyNearWalletRegistrationSignerSelection({
+        configs: context.configs,
+        nearAccountId: String(accountId),
+        options: args.options || {},
+      }),
+      options: args.options || {},
+    } satisfies Parameters<RegistrationCapability['registerWallet']>[0];
+
+    return await routeWalletIframeOrLocal({
+      walletIframe: this.walletIframe,
+      walletId: String(accountId),
+      remote: async (router) => {
+        const result = await router.registerWallet(registerWalletArgs);
+        await args.options?.afterCall?.(true, result);
+        return result;
+      },
+      onRemoteError: async (error) => {
+        const e = toError(error);
+        await args.options?.onError?.(e);
+        await args.options?.afterCall?.(false, undefined, e);
+        throw e;
+      },
+      local: async () =>
+        await registerWalletWithUnifiedCeremony({
+          context,
+          ...registerWalletArgs,
+          authenticatorOptions: cloneAuthenticatorOptions(
+            context.configs.webauthn.authenticatorOptions,
+          ),
+        }),
+    });
   }
 
   async executeAction(args: {

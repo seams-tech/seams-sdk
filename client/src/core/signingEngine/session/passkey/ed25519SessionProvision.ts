@@ -1,10 +1,7 @@
 import { toAccountId } from '@/core/types/accountIds';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { connectEd25519Session } from '../../threshold/ed25519/connectSession';
-import {
-  cacheSigningSessionPrfFirst,
-  generateSessionId,
-} from './prfCache';
+import { cacheSigningSessionPrfFirst, generateSessionId } from './prfCache';
 import {
   persistWarmSessionEd25519Capability,
   type PersistWarmSessionEd25519CapabilityArgs,
@@ -23,9 +20,7 @@ export type ProvisionThresholdEd25519SessionDeps = {
   touchConfirm: Parameters<typeof cacheSigningSessionPrfFirst>[0];
   defaultRelayerUrl: string;
   getSignerWorkerContext: () => ConnectEd25519SessionInput['workerCtx'];
-  persistWarmSessionEd25519Capability?: (
-    args: PersistWarmSessionEd25519CapabilityArgs,
-  ) => unknown;
+  persistWarmSessionEd25519Capability?: (args: PersistWarmSessionEd25519CapabilityArgs) => unknown;
 };
 
 export async function provisionThresholdEd25519Session(
@@ -54,9 +49,7 @@ export async function provisionThresholdEd25519Session(
     touchIdPrompt: deps.touchIdPrompt,
     relayerUrl,
     relayerKeyId: args.relayerKeyId,
-    ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
-    ...(args.useAppSessionCookie ? { useAppSessionCookie: args.useAppSessionCookie } : {}),
-    ...(args.localPrfCredential ? { localPrfCredential: args.localPrfCredential } : {}),
+    ...(args.auth ? { auth: args.auth } : {}),
     ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
     ...(args.runtimeScopeBootstrap ? { runtimeScopeBootstrap: args.runtimeScopeBootstrap } : {}),
     nearAccountId,
@@ -74,8 +67,7 @@ export async function provisionThresholdEd25519Session(
     return {
       ok: false,
       code: String(connected.code || 'worker_error').trim() || 'worker_error',
-      message:
-        String(connected.message || '').trim() || 'Threshold Ed25519 session mint failed',
+      message: String(connected.message || '').trim() || 'Threshold Ed25519 session mint failed',
     };
   }
 

@@ -1,4 +1,5 @@
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
+import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EmailOtpAuthPolicy } from '@/core/types/seams';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 import type {
@@ -24,6 +25,51 @@ export type EmailOtpSigningSessionChallengeOperation =
 
 export const EMAIL_OTP_SIGNING_SESSION_AUTH_UNAVAILABLE =
   'Email OTP signing-session authority is unavailable; unlock wallet again';
+
+export type EmailOtpAppSessionRouteAuth = {
+  kind: 'app_session';
+  jwt: string;
+  curve?: never;
+  thresholdSessionId?: never;
+  walletSigningSessionId?: never;
+  chainTarget?: never;
+};
+
+export type EmailOtpThresholdEd25519RouteAuth = {
+  kind: 'threshold_ed25519_session';
+  jwt: string;
+  curve: 'ed25519';
+  thresholdSessionId: string;
+  walletSigningSessionId: AuthorizingWalletSigningSessionId;
+  chainTarget?: never;
+};
+
+export type EmailOtpThresholdEcdsaRouteAuth = {
+  kind: 'threshold_ecdsa_session';
+  jwt: string;
+  curve: 'ecdsa';
+  thresholdSessionId: string;
+  walletSigningSessionId: AuthorizingWalletSigningSessionId;
+  chainTarget: ThresholdEcdsaChainTarget;
+};
+
+export type EmailOtpEcdsaBootstrapRouteAuth =
+  | EmailOtpAppSessionRouteAuth
+  | EmailOtpThresholdEcdsaRouteAuth;
+
+export type EmailOtpEcdsaBootstrapAuthorization =
+  | {
+      kind: 'route_plan_auth';
+      routeAuth?: never;
+    }
+  | {
+      kind: 'explicit_route_auth';
+      routeAuth: EmailOtpEcdsaBootstrapRouteAuth;
+    };
+
+function assertNever(value: never): never {
+  throw new Error(`Unexpected Email OTP route auth branch: ${String(value)}`);
+}
 
 export function buildFreshEmailOtpRoutePlan(args: {
   freshRouteFamily: 'login' | 'registration';
@@ -64,6 +110,46 @@ export function routeAuthFromEmailOtpRoutePlan(
   routePlan: EmailOtpRoutePlan,
 ): AppOrThresholdSessionAuth | undefined {
   return authLaneToRouteAuth(routePlan.authLane);
+}
+
+export function emailOtpEcdsaBootstrapRouteAuthFromAuthLane(
+  authLane: EmailOtpAuthLane,
+): EmailOtpEcdsaBootstrapRouteAuth | undefined {
+  if (authLane.kind === 'app_session') {
+    return {
+      kind: 'app_session',
+      jwt: authLane.jwt,
+    };
+  }
+  if (authLane.kind === 'signing_session' && authLane.curve === 'ecdsa') {
+    return {
+      kind: 'threshold_ecdsa_session',
+      jwt: authLane.jwt,
+      curve: 'ecdsa',
+      thresholdSessionId: authLane.thresholdSessionId,
+      walletSigningSessionId: authLane.authorizingWalletSigningSessionId,
+      chainTarget: authLane.chainTarget,
+    };
+  }
+  return undefined;
+}
+
+export function emailOtpEcdsaBootstrapRouteAuthFromRoutePlan(
+  routePlan: EmailOtpRoutePlan,
+): EmailOtpEcdsaBootstrapRouteAuth | undefined {
+  return emailOtpEcdsaBootstrapRouteAuthFromAuthLane(routePlan.authLane);
+}
+
+export function emailOtpEcdsaBootstrapRouteAuthToTransport(
+  auth: EmailOtpEcdsaBootstrapRouteAuth,
+): AppOrThresholdSessionAuth {
+  switch (auth.kind) {
+    case 'app_session':
+      return { kind: 'app_session', jwt: auth.jwt };
+    case 'threshold_ecdsa_session':
+      return { kind: 'threshold_session', jwt: auth.jwt };
+  }
+  return assertNever(auth);
 }
 
 export type EmailOtpEcdsaMintingSession =

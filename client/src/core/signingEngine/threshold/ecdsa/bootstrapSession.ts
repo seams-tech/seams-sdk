@@ -269,6 +269,7 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
   signingRootId?: string;
   signingRootVersion?: string;
   jwt?: string;
+  passkeyPrfFirstB64u?: string;
   ecdsaHssRoleLocalClientState?: ThresholdEcdsaHssRoleLocalClientState;
   code?: string;
   message?: string;
@@ -325,15 +326,6 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
       code: 'invalid_args',
       message:
         'Threshold ECDSA session bootstrap requires keyHandle, sessionId, and walletSigningSessionId',
-    };
-  }
-  if (exactSessionBootstrap && !providedClientRootShare32 && !providedClientRootShare32B64u) {
-    return {
-      ok: false,
-      code: 'invalid_args',
-      message: requestedSessionId
-        ? 'Missing threshold-ecdsa client root share for authorization bootstrap; reconnect session priming and retry'
-        : 'Missing threshold-ecdsa client root share for authorization bootstrap; reconnect session priming and retry (missing sessionId)',
     };
   }
   let credential: WebAuthnAuthenticationCredential | null = null;
@@ -489,6 +481,9 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
       return resolvedClientRootShare;
     }
     credential = resolvedClientRootShare.credential || null;
+    const passkeyPrfFirstB64u = String(
+      resolvedClientRootShare.passkeyPrfFirstB64u || '',
+    ).trim();
     const clientRootShare32 = resolvedClientRootShare.clientRootShare32;
     yClient32Le = clientRootShare32;
     // Authorization bootstraps may still be driven by a fresh WebAuthn proof
@@ -533,7 +528,7 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
       : sessionPolicy.ecdsaThresholdKeyId ||
         (ecdsaThresholdKeyId ? toEcdsaHssThresholdKeyId(ecdsaThresholdKeyId) : undefined);
     const hssDiagnosticIdentity = {
-      operation: exactSessionBootstrap ? 'session_bootstrap' : 'registration_bootstrap',
+      operation: exactSessionBootstrap ? 'session_bootstrap' : 'key_enrollment_bootstrap',
       userId,
       rpId,
       keygenSessionId,
@@ -715,6 +710,7 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
         expiresAtMs: value.expiresAtMs,
         remainingUses: value.remainingUses,
         ...(String(value.jwt || '').trim() ? { jwt: String(value.jwt).trim() } : {}),
+        ...(passkeyPrfFirstB64u ? { passkeyPrfFirstB64u } : {}),
         signingRootId: value.signingRootId,
         signingRootVersion: value.signingRootVersion,
         ecdsaHssRoleLocalClientState,

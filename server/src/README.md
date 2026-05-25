@@ -128,9 +128,10 @@ export default {
 
 ## Routes exposed by the routers
 
-- POST `/registration/bootstrap` — atomic account creation + passkey registration (contract-free). Body:
-  - `{ new_account_id, signer_slot?, rp_id, webauthn_registration, expected_origin?, authenticator_options?, threshold_ed25519?, threshold_ecdsa? }`
-  - Note: `new_account_id` must be a subaccount of `relayerAccount` (`RELAYER_ACCOUNT_ID`) because the relayer signs the `CreateAccount` transaction.
+- POST `/wallets/register/intent` — allocate a wallet-registration intent before WebAuthn create.
+- POST `/wallets/register/start` — verify WebAuthn create and prepare requested signer ceremonies.
+- POST `/wallets/register/hss/respond` — deliver client HSS response material for the ceremony.
+- POST `/wallets/register/finalize` — finalize signer material, create any requested NEAR account, and persist wallet-subject signer rows.
 - POST `/auth/passkey/options` — mint a server-side WebAuthn login challenge (replay-protected). Body:
   - `{ user_id, rp_id, ttl_ms? }` → returns `{ challengeId, challengeB64u, expiresAtMs }`
 - POST `/auth/passkey/verify` — WebAuthn verification only (contract-free). Body:

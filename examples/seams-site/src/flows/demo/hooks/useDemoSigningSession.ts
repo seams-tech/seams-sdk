@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { walletSessionRefFromSession, walletSubjectIdFromWalletProfile } from '@seams/sdk';
+import { walletSessionRefFromSession } from '@seams/sdk';
 import { useSeams } from '@seams/sdk/react';
 import { toast } from 'sonner';
 import { resolveDemoThresholdEcdsaChainTarget } from '../demoChainTargets';
@@ -163,7 +163,6 @@ export function useDemoSigningSession(args: UseDemoSigningSessionArgs) {
             walletId: nearAccountId,
             userId: nearAccountId,
           }),
-          subjectId: walletSubjectIdFromWalletProfile({ walletId: nearAccountId }),
           chainTarget: resolveDemoThresholdEcdsaChainTarget('tempo'),
         });
         const emailHint = String(challenge.emailHint || '').trim();
@@ -182,7 +181,6 @@ export function useDemoSigningSession(args: UseDemoSigningSessionArgs) {
             walletId: nearAccountId,
             userId: nearAccountId,
           }),
-          subjectId: walletSubjectIdFromWalletProfile({ walletId: nearAccountId }),
           chainTarget: resolveDemoThresholdEcdsaChainTarget('tempo'),
           challengeId: challenge.challengeId,
           otpCode,

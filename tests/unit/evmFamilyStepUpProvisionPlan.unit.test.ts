@@ -4,7 +4,6 @@ import {
   toWalletSubjectId,
   type ThresholdEcdsaChainTarget,
 } from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../../client/src/core/signingEngine/interfaces/signing';
 import {
   thresholdEcdsaRecordRpId,
   type ThresholdEcdsaSessionRecord,
@@ -19,6 +18,7 @@ import {
   buildEvmFamilyPasskeyEcdsaProvisionPlan,
   buildEvmFamilyWarmSessionReconnectPlan,
 } from '../../client/src/core/signingEngine/flows/signEvmFamily/provisionPlan';
+import { derivePasskeyThresholdEcdsaClientRootShare32B64uFromPrfFirst } from '../../client/src/core/signingEngine/session/passkey/ecdsaClientRoot';
 import { SigningAuthPlanKind } from '../../client/src/core/signingEngine/stepUpConfirmation/types';
 import type { WebAuthnAuthenticationCredential } from '../../client/src/core/types/webauthn';
 
@@ -28,6 +28,7 @@ const CHAIN_TARGET: ThresholdEcdsaChainTarget = {
   chainId: 1,
   networkSlug: 'ethereum',
 };
+const TEST_PRF_FIRST_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
 const TEST_WEBAUTHN_CREDENTIAL = {
   id: 'credential-id',
@@ -43,7 +44,7 @@ const TEST_WEBAUTHN_CREDENTIAL = {
   clientExtensionResults: {
     prf: {
       results: {
-        first: 'first-prf',
+        first: TEST_PRF_FIRST_B64U,
         second: undefined,
       },
     },
@@ -64,32 +65,6 @@ function makeThresholdSessionAuthToken(args: {
   })}.signature`;
 }
 
-function makeKeyRef(): ThresholdEcdsaSecp256k1KeyRef {
-  return {
-    type: 'threshold-ecdsa-secp256k1',
-    userId: 'alice.testnet',
-    chainTarget: CHAIN_TARGET,
-    relayerUrl: 'https://relayer.test',
-    keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-step-up'),
-    ecdsaThresholdKeyId: 'ecdsa-key-1',
-    signingRootId: 'root-1',
-    signingRootVersion: 'v1',
-    backendBinding: {
-      relayerKeyId: 'relayer-key-1',
-      clientVerifyingShareB64u: 'verifying-share',
-    },
-    participantIds: [1, 2, 3],
-    ethereumAddress: THRESHOLD_OWNER_ADDRESS,
-    thresholdSessionKind: 'jwt',
-    thresholdSessionAuthToken: makeThresholdSessionAuthToken({
-      thresholdSessionId: 'threshold-session-1',
-      walletSigningSessionId: 'wallet-session-1',
-    }),
-    thresholdSessionId: 'threshold-session-1',
-    walletSigningSessionId: 'wallet-session-1',
-  };
-}
-
 function makeRecord(): ThresholdEcdsaSessionRecord {
   return {
     walletId: toAccountId('alice.testnet'),
@@ -102,6 +77,7 @@ function makeRecord(): ThresholdEcdsaSessionRecord {
     signingRootVersion: 'v1',
     relayerKeyId: 'relayer-key-1',
     clientVerifyingShareB64u: 'verifying-share',
+    clientAdditiveShare32B64u: 'client-share',
     participantIds: [1, 2, 3],
     ethereumAddress: THRESHOLD_OWNER_ADDRESS,
     thresholdSessionKind: 'jwt',
@@ -126,13 +102,11 @@ function makeRecord(): ThresholdEcdsaSessionRecord {
 
 function makeReadyMaterial(args: {
   record: ThresholdEcdsaSessionRecord;
-  keyRef: ThresholdEcdsaSecp256k1KeyRef;
   authMethod: 'passkey' | 'email_otp';
   source: 'login' | 'email_otp';
 }): ReadyEvmFamilyEcdsaMaterial {
   const material = resolveReadyEvmFamilyEcdsaMaterial({
     record: args.record,
-    keyRef: args.keyRef,
     rpId: thresholdEcdsaRecordRpId(args.record),
     expected: {
       walletId: args.record.walletId,
@@ -150,8 +124,7 @@ function makeReadyMaterial(args: {
 }
 
 test.describe('EVM-family step-up provision-plan builders', () => {
-  test('buildEvmFamilyPasskeyEcdsaProvisionPlan returns a passkey provision branch', () => {
-    const keyRef = makeKeyRef();
+  test('buildEvmFamilyPasskeyEcdsaProvisionPlan returns a passkey provision branch', async () => {
     const record: ThresholdEcdsaSessionRecord = {
       ...makeRecord(),
       source: 'login',
@@ -159,12 +132,11 @@ test.describe('EVM-family step-up provision-plan builders', () => {
     };
     const material = makeReadyMaterial({
       record,
-      keyRef,
       authMethod: 'passkey',
       source: 'login',
     });
 
-    const plan = buildEvmFamilyPasskeyEcdsaProvisionPlan({
+    const plan = await buildEvmFamilyPasskeyEcdsaProvisionPlan({
       authorization: {
         kind: 'passkey',
         signingAuthPlan: {
@@ -185,6 +157,8 @@ test.describe('EVM-family step-up provision-plan builders', () => {
       material,
       sessionBudgetUses: 1,
     });
+    const expectedClientRootShare32B64u =
+      await derivePasskeyThresholdEcdsaClientRootShare32B64uFromPrfFirst(TEST_PRF_FIRST_B64U);
 
     expect(plan.kind).toBe('passkey_ecdsa_session_provision');
     expect(plan.newSessionIdentity).toEqual({
@@ -192,11 +166,10 @@ test.describe('EVM-family step-up provision-plan builders', () => {
       walletSigningSessionId: 'wallet-session-2',
     });
     expect(plan.requestId).toBe('request-1');
-    expect(plan.clientRootShare32B64u).toBe('first-prf');
+    expect(plan.clientRootShare32B64u).toBe(expectedClientRootShare32B64u);
   });
 
   test('buildEvmFamilyWarmSessionReconnectPlan returns a threshold-session reconnect branch', () => {
-    const keyRef = makeKeyRef();
     const record: ThresholdEcdsaSessionRecord = {
       ...makeRecord(),
       source: 'login' as const,
@@ -204,7 +177,6 @@ test.describe('EVM-family step-up provision-plan builders', () => {
     };
     const material = makeReadyMaterial({
       record,
-      keyRef,
       authMethod: 'passkey',
       source: 'login',
     });
@@ -241,11 +213,9 @@ test.describe('EVM-family step-up provision-plan builders', () => {
   });
 
   test('buildEvmFamilyEmailOtpEcdsaProvisionPlan returns an email-otp provision branch', () => {
-    const keyRef = makeKeyRef();
     const record = makeRecord();
     const material = makeReadyMaterial({
       record,
-      keyRef,
       authMethod: 'email_otp',
       source: 'email_otp',
     });

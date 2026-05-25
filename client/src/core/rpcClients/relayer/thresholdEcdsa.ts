@@ -39,7 +39,7 @@ export type ThresholdEcdsaHssRoleLocalPasskeyBootstrapAuthorization = {
   runtimeEnvironmentId?: string;
 };
 
-type ThresholdEcdsaHssRoleLocalBootstrapRequestBase = {
+export type ThresholdEcdsaHssRoleLocalBootstrapRequest = {
   formatVersion: 'ecdsa-hss-role-local';
   walletSessionUserId: WalletSessionUserId;
   rpId: string;
@@ -61,21 +61,20 @@ type ThresholdEcdsaHssRoleLocalBootstrapRequestBase = {
   auth?: ThresholdEcdsaHssRouteAuth;
   sessionKind?: 'jwt' | 'cookie';
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
-};
-
-export type ThresholdEcdsaHssRoleLocalBootstrapRequest =
-  | (ThresholdEcdsaHssRoleLocalBootstrapRequestBase & {
+} & (
+  | {
       clientRootProof: ThresholdEcdsaHssRoleLocalClientRootProof;
       passkeyBootstrapAuthorization?: never;
-    })
-  | (ThresholdEcdsaHssRoleLocalBootstrapRequestBase & {
+    }
+  | {
       clientRootProof?: never;
       passkeyBootstrapAuthorization: ThresholdEcdsaHssRoleLocalPasskeyBootstrapAuthorization;
-    })
-  | (ThresholdEcdsaHssRoleLocalBootstrapRequestBase & {
+    }
+  | {
       clientRootProof?: never;
       passkeyBootstrapAuthorization?: never;
-    });
+    }
+);
 
 type ThresholdEcdsaHssRoleLocalBootstrapBodyBase = {
   formatVersion: 'ecdsa-hss-role-local';
@@ -99,19 +98,40 @@ type ThresholdEcdsaHssRoleLocalBootstrapBodyBase = {
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
 };
 
-type ThresholdEcdsaHssRoleLocalBootstrapBody =
-  | (ThresholdEcdsaHssRoleLocalBootstrapBodyBase & {
+type ThresholdEcdsaHssRoleLocalBootstrapBody = {
+  formatVersion: 'ecdsa-hss-role-local';
+  walletSessionUserId: string;
+  rpId: string;
+  subjectId: string;
+  ecdsaThresholdKeyId: string;
+  signingRootId: string;
+  signingRootVersion: string;
+  keyScope: 'evm-family';
+  relayerKeyId: string;
+  clientPublicKey33B64u: string;
+  clientShareRetryCounter: number;
+  contextBinding32B64u: string;
+  requestId: string;
+  sessionId: string;
+  walletSigningSessionId: string;
+  ttlMs: number;
+  remainingUses: number;
+  participantIds: number[];
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+} & (
+  | {
       clientRootProof: ThresholdEcdsaHssRoleLocalClientRootProof;
       passkeyBootstrapAuthorization?: never;
-    })
-  | (ThresholdEcdsaHssRoleLocalBootstrapBodyBase & {
+    }
+  | {
       clientRootProof?: never;
       passkeyBootstrapAuthorization: ThresholdEcdsaHssRoleLocalPasskeyBootstrapAuthorization;
-    })
-  | (ThresholdEcdsaHssRoleLocalBootstrapBodyBase & {
+    }
+  | {
       clientRootProof?: never;
       passkeyBootstrapAuthorization?: never;
-    });
+    }
+);
 
 export type ThresholdEcdsaHssRoleLocalBootstrapValue = {
   formatVersion: 'ecdsa-hss-role-local';
@@ -204,8 +224,7 @@ export type ThresholdEcdsaHssRouteAuth =
   | AppOrThresholdSessionAuth
   | CookieSessionAuth
   | { kind: 'bootstrap_grant'; token: string }
-  | { kind: 'publishable_key'; token: string }
-  | { kind: 'registration_continuation'; token: string };
+  | { kind: 'publishable_key'; token: string };
 
 function requireNonEmptyString(value: unknown, field: string): string {
   const text = String(value || '').trim();

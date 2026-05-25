@@ -235,6 +235,239 @@ test.describe('PasskeyClientDB repositories', () => {
     expect(result).toEqual({ ok: false, code: 'MISSING_SIGNER_KIND' });
   });
 
+  test('account signer repository rejects active ECDSA signers missing direct keyHandle', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const { createAccountSignerRepository } = await import(paths.accountSignerRepository);
+        const { PasskeyClientDBManager } = await import(paths.clientDB);
+        const { DB_CONFIG } = await import(paths.schema);
+
+        const db = new PasskeyClientDBManager({
+          ...DB_CONFIG,
+          dbName: `PasskeyClientDBRepoTest-${crypto.randomUUID()}`,
+        });
+        const createConstraintError = (
+          code: string,
+          message: string,
+          details?: Record<string, unknown>,
+        ) => Object.assign(new Error(message), { code, details });
+        const repository = createAccountSignerRepository({
+          getDB: () => (db as any).getDB(),
+          accountSignersStore: DB_CONFIG.accountSignersStore,
+          chainAccountsStore: DB_CONFIG.chainAccountsStore,
+          createConstraintError,
+        });
+
+        const profileId = 'profile-repo-ecdsa-strict-key-handle';
+        await db.upsertProfile({
+          profileId,
+          defaultSignerSlot: 1,
+          passkeyCredential: { id: 'cred-ecdsa-strict', rawId: 'raw-ecdsa-strict' },
+        });
+        await db.upsertChainAccount({
+          profileId,
+          chainIdKey: 'eip155:978',
+          accountAddress: '0x1111111111111111111111111111111111111111',
+          accountModel: 'threshold-ecdsa',
+          isPrimary: true,
+        });
+
+        try {
+          await repository.upsertAccountSignerDirect({
+            profileId,
+            chainIdKey: 'eip155:978',
+            accountAddress: '0x1111111111111111111111111111111111111111',
+            signerId: 'threshold-ecdsa:legacy-identity-only',
+            signerSlot: 1,
+            signerType: 'threshold',
+            signerKind: 'threshold-ecdsa',
+            signerAuthMethod: 'passkey',
+            signerSource: 'passkey_registration',
+            status: 'active',
+            metadata: {
+              ecdsaThresholdKeyId: 'ehss-legacy-id',
+              signingRootId: 'project:dev',
+              chainTarget: { chain: 'tempo', chainId: 978 },
+            },
+          });
+          return { ok: true };
+        } catch (error: any) {
+          return {
+            ok: false,
+            code: String(error?.code || ''),
+            message: String(error?.message || ''),
+          };
+        }
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      code: 'INVALID_SIGNER_METADATA',
+      message: 'Active threshold ECDSA signer requires metadata.keyHandle',
+    });
+  });
+
+  test('prunes incomplete active ECDSA signer rows as an explicit maintenance action', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const { PasskeyClientDBManager } = await import(paths.clientDB);
+        const { DB_CONFIG } = await import(paths.schema);
+
+        const db = new PasskeyClientDBManager({
+          ...DB_CONFIG,
+          dbName: `PasskeyClientDBRepoTest-${crypto.randomUUID()}`,
+        });
+        const profileId = 'profile-repo-ecdsa-prune';
+        const chainIdKey = 'eip155:978';
+        const accountAddress = '0x2222222222222222222222222222222222222222';
+        await db.upsertProfile({
+          profileId,
+          defaultSignerSlot: 1,
+          passkeyCredential: { id: 'cred-ecdsa-prune', rawId: 'raw-ecdsa-prune' },
+        });
+        await db.upsertChainAccount({
+          profileId,
+          chainIdKey,
+          accountAddress,
+          accountModel: 'threshold-ecdsa',
+          isPrimary: true,
+        });
+
+        const now = 1_800_000_000_000;
+        const completeMetadata = {
+          keyHandle: 'ecdsa-handle-complete',
+          rpId: 'https://app.example',
+          chainTarget: { chain: 'tempo', chainId: 978 },
+          sharedEvmFamilyKey: {
+            walletId: profileId,
+            rpId: 'https://app.example',
+            ecdsaThresholdKeyId: 'ehss-complete',
+            signingRootId: 'signing-root-dev',
+            signingRootVersion: '1',
+            participantIds: [1, 2],
+            thresholdOwnerAddress: accountAddress,
+            thresholdEcdsaPublicKeyB64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+          },
+        };
+        await db.upsertAccountSigner({
+          profileId,
+          chainIdKey,
+          accountAddress,
+          signerId: 'threshold-ecdsa:complete',
+          signerSlot: 1,
+          signerType: 'threshold',
+          signerKind: 'threshold-ecdsa',
+          signerAuthMethod: 'passkey',
+          signerSource: 'passkey_registration',
+          status: 'active',
+          metadata: completeMetadata,
+          mutation: { routeThroughOutbox: false },
+        });
+
+        const idb = await (db as any).getDB();
+        const tx = idb.transaction(DB_CONFIG.accountSignersStore, 'readwrite');
+        const incompleteRows = [
+          {
+            profileId,
+            chainIdKey,
+            accountAddress,
+            signerId: 'threshold-ecdsa:missing-direct-key-handle',
+            signerSlot: 2,
+            signerType: 'threshold',
+            signerKind: 'threshold-ecdsa',
+            signerAuthMethod: 'passkey',
+            signerSource: 'passkey_registration',
+            status: 'active',
+            addedAt: now,
+            updatedAt: now,
+            metadata: {
+              chainTarget: { chain: 'tempo', chainId: 978 },
+              sharedEvmFamilyKey: {
+                ...completeMetadata.sharedEvmFamilyKey,
+                keyHandle: 'nested-only-handle',
+              },
+            },
+          },
+          {
+            profileId,
+            chainIdKey,
+            accountAddress,
+            signerId: 'threshold-ecdsa:missing-key-facts',
+            signerSlot: 3,
+            signerType: 'threshold',
+            signerKind: 'threshold-ecdsa',
+            signerAuthMethod: 'passkey',
+            signerSource: 'passkey_registration',
+            status: 'active',
+            addedAt: now,
+            updatedAt: now,
+            metadata: {
+              keyHandle: 'ecdsa-handle-incomplete',
+              rpId: 'https://app.example',
+              chainTarget: { chain: 'tempo', chainId: 978 },
+              ecdsaThresholdKeyId: 'ehss-incomplete',
+            },
+          },
+        ];
+        for (const row of incompleteRows) {
+          await tx.store.put(row);
+        }
+        await tx.done;
+
+        const pruneResult = await db.pruneIncompleteActiveThresholdEcdsaSigners({
+          profileId,
+          now: now + 1,
+        });
+        const rows = await db.listAccountSignersByProfile({ profileId });
+        return {
+          pruneResult,
+          rows: rows
+            .map((row: any) => ({
+              signerId: row.signerId,
+              status: row.status,
+              ...(row.removedAt != null ? { removedAt: row.removedAt } : {}),
+              ...(row.revocationReason ? { revocationReason: row.revocationReason } : {}),
+            }))
+            .sort((a: any, b: any) => a.signerId.localeCompare(b.signerId)),
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.pruneResult).toEqual({
+      scanned: 3,
+      pruned: 2,
+      prunedSignerIds: [
+        'threshold-ecdsa:missing-direct-key-handle',
+        'threshold-ecdsa:missing-key-facts',
+      ],
+    });
+    expect(result.rows).toEqual([
+      {
+        signerId: 'threshold-ecdsa:complete',
+        status: 'active',
+      },
+      {
+        signerId: 'threshold-ecdsa:missing-direct-key-handle',
+        status: 'revoked',
+        removedAt: 1_800_000_000_001,
+        revocationReason: 'development_prune_incomplete_ecdsa_key_facts',
+      },
+      {
+        signerId: 'threshold-ecdsa:missing-key-facts',
+        status: 'revoked',
+        removedAt: 1_800_000_000_001,
+        revocationReason: 'development_prune_incomplete_ecdsa_key_facts',
+      },
+    ]);
+  });
+
   test('last-profile-state repository validates active signer slot before writing', async ({
     page,
   }) => {

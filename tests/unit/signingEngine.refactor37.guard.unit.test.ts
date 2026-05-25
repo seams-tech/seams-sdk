@@ -286,7 +286,7 @@ test.describe('signing engine refactor 37 guards', () => {
       '@ts-expect-error reconnect material requires a persisted ECDSA record',
     );
     expect(provisionPlanTypecheck).toContain(
-      '@ts-expect-error reconnect material requires an ECDSA key ref',
+      '@ts-expect-error reconnect material derives key refs from the session record',
     );
     expect(availabilityTypecheck).toContain(
       '@ts-expect-error passkey available lanes require a resolved EVM-family key',
@@ -316,8 +316,8 @@ test.describe('signing engine refactor 37 guards', () => {
 
   test('Refactor 39B keeps direct ECDSA key-ref literals at boundaries', () => {
     const allowedKeyRefLiteralFiles = new Set([
-      'client/src/core/SeamsPasskey/evm/linkDeviceThresholdEcdsa.ts',
       'client/src/core/signingEngine/interfaces/signing.ts',
+      'client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.ts',
       'client/src/core/signingEngine/session/identity/thresholdEcdsaSignerAdapter.ts',
       'client/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.typecheck.ts',
       'client/src/core/signingEngine/threshold/ecdsa/activation.ts',
@@ -409,25 +409,191 @@ test.describe('signing engine refactor 37 guards', () => {
     expect(offenders, offenders.join('\n')).toEqual([]);
   });
 
+  test('Phase 0 wallet registration uses relay-neutral Ed25519 HSS client mechanics', () => {
+    const registration = readRepoFile('client/src/core/SeamsPasskey/registration.ts');
+    const thresholdWarmSessionBootstrap = readRepoFile(
+      'client/src/core/SeamsPasskey/thresholdWarmSessionBootstrap.ts',
+    );
+    const walletRegistrationRpc = readRepoFile(
+      'client/src/core/rpcClients/relayer/walletRegistration.ts',
+    );
+    const helperNames = [
+      'prepareThresholdEd25519RegistrationHssClientMaterial',
+      'prepareThresholdEd25519RegistrationHssClientRequest',
+      'buildThresholdEd25519RegistrationHssClientOwnedArtifact',
+    ];
+
+    for (const helperName of helperNames) {
+      expect(thresholdWarmSessionBootstrap).toContain(`export async function ${helperName}`);
+      expect(registration).toContain(helperName);
+      const helperStart = thresholdWarmSessionBootstrap.indexOf(
+        `export async function ${helperName}`,
+      );
+      const helperBlock = findBalancedBlock(
+        thresholdWarmSessionBootstrap,
+        thresholdWarmSessionBootstrap.indexOf('{', helperStart),
+      );
+      expect(helperBlock).not.toBeNull();
+      expect(helperBlock).not.toContain('WithRelayRegistration');
+      expect(helperBlock).not.toContain('startWalletRegistration');
+      expect(helperBlock).not.toContain('respondWalletRegistrationHss');
+      expect(helperBlock).not.toContain('finalizeWalletRegistration');
+    }
+
+    expect(registration).not.toContain(
+      'context.signingEngine.prepareThresholdEd25519HssClientCeremonyFromCredential',
+    );
+    expect(registration).not.toContain(
+      'context.signingEngine.deriveThresholdEd25519HssClientOutputMask',
+    );
+    expect(registration).not.toContain(
+      'context.signingEngine.prepareThresholdEd25519HssClientRequest',
+    );
+    expect(registration).not.toContain(
+      'context.signingEngine.buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact',
+    );
+    expect(walletRegistrationRpc).toContain('/wallets/register/hss/respond');
+  });
+
+  test('Phase 8 blocks direct ECDSA key-ref imports in converted operation areas', () => {
+    const directKeyRefImportPattern =
+      /\bimport\s+type\s*\{[^}]*\bThresholdEcdsaSecp256k1KeyRef\b[^}]*\}\s+from\s+['"][^'"]*interfaces\/signing['"]/m;
+    const boundaryOrFixtureFiles = new Set([
+      'client/src/core/signingEngine/flows/signEvmFamily/ecdsaMaterialState.typecheck.ts',
+      'client/src/core/signingEngine/flows/signEvmFamily/signers/secp256k1.ts',
+      'client/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.typecheck.ts',
+      'client/src/core/signingEngine/session/warmCapabilities/types.typecheck.ts',
+    ]);
+    const protectedFiles = [
+      ...listTsFiles('client/src/core/signingEngine/flows/signEvmFamily'),
+      ...listTsFiles('client/src/core/signingEngine/session/warmCapabilities'),
+      ...listTsFiles('client/src/core/signingEngine/session/operationState'),
+      ...listTsFiles('client/src/core/SeamsPasskey'),
+    ].filter((relativePath) => !boundaryOrFixtureFiles.has(relativePath));
+    const offenders = protectedFiles.filter((relativePath) =>
+      directKeyRefImportPattern.test(readRepoFile(relativePath)),
+    );
+
+    expect(offenders, offenders.join('\n')).toEqual([]);
+  });
+
+  test('Phase 8 keeps production ECDSA key-ref imports at boundary adapters', () => {
+    const directKeyRefImportPattern =
+      /\bimport\s+type\s*\{[^}]*\bThresholdEcdsaSecp256k1KeyRef\b[^}]*\}\s+from\s+['"][^'"]*interfaces\/signing['"]/m;
+    const allowedProductionBoundaryFiles = new Set([
+      'client/src/core/signingEngine/SigningEngine.ts',
+      'client/src/core/signingEngine/flows/signEvmFamily/signers/secp256k1.ts',
+      'client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.ts',
+      'client/src/core/signingEngine/session/identity/thresholdEcdsaSignerAdapter.ts',
+      'client/src/core/signingEngine/session/passkey/ecdsaBootstrap.ts',
+      'client/src/core/signingEngine/session/passkey/ecdsaProvisioner.ts',
+      'client/src/core/signingEngine/session/persistence/records.ts',
+      'client/src/core/signingEngine/session/public.ts',
+      'client/src/core/signingEngine/threshold/ecdsa/activation.ts',
+    ]);
+    const offenders = listTsFiles('client/src/core')
+      .filter((relativePath) => !relativePath.endsWith('.typecheck.ts'))
+      .filter((relativePath) => directKeyRefImportPattern.test(readRepoFile(relativePath)))
+      .filter((relativePath) => !allowedProductionBoundaryFiles.has(relativePath));
+
+    expect(offenders, offenders.join('\n')).toEqual([]);
+  });
+
+  test('Phase 8 keeps operation dependencies off signing key-ref callbacks', () => {
+    const protectedFiles = [
+      'client/src/core/signingEngine/interfaces/operationDeps.ts',
+      'client/src/core/signingEngine/flows/signEvmFamily/preparedSigning.ts',
+      'client/src/core/signingEngine/assembly/ports/shared.ts',
+      'client/src/core/signingEngine/assembly/ports/evmFamily.ts',
+      'client/src/core/signingEngine/SigningEngine.ts',
+    ];
+    const forbiddenCallbacks = [
+      'getEmailOtpThresholdEcdsaKeyRefForSigning',
+      'getPasskeyThresholdEcdsaKeyRefForSigning',
+      'getThresholdEcdsaKeyRefByKey',
+    ];
+    const offenders = protectedFiles.flatMap((relativePath) => {
+      const source = readRepoFile(relativePath);
+      return forbiddenCallbacks
+        .filter((callbackName) => source.includes(callbackName))
+        .map((callbackName) => `${relativePath}:${callbackName}`);
+    });
+
+    expect(offenders, offenders.join('\n')).toEqual([]);
+
+    const ecdsaLanes = readRepoFile(
+      'client/src/core/signingEngine/flows/signEvmFamily/ecdsaLanes.ts',
+    );
+    const warmSessionServices = readRepoFile(
+      'client/src/core/signingEngine/flows/signEvmFamily/warmSessionServices.ts',
+    );
+    expect(ecdsaLanes).not.toContain('ThresholdEcdsaSecp256k1KeyRef');
+    expect(ecdsaLanes).not.toContain('getThresholdEcdsaKeyRefForLane');
+    expect(ecdsaLanes).not.toContain('readSelectedEcdsaKeyRefForLane');
+    expect(ecdsaLanes).not.toContain('findSharedEvmFamilyEcdsaKeyRefForLane');
+    expect(warmSessionServices).toContain('listThresholdEcdsaRecordsForWalletTarget');
+    expect(warmSessionServices).not.toContain('buildThresholdEcdsaSecp256k1KeyRefFromRecord');
+    expect(warmSessionServices).not.toContain('listThresholdEcdsaKeyRefsForWalletTarget');
+  });
+
+  test('Phase 8 keeps operation-state signing capabilities record-only', () => {
+    const lanes = readRepoFile('client/src/core/signingEngine/session/operationState/lanes.ts');
+    const lanesTypecheck = readRepoFile(
+      'client/src/core/signingEngine/session/operationState/lanes.typecheck.ts',
+    );
+
+    expect(lanes).not.toContain('ThresholdEcdsaSecp256k1KeyRef');
+    expect(lanes).not.toContain('readEmailOtpEcdsaKeyRef');
+    expect(lanes).not.toContain('readPasskeyEcdsaKeyRef');
+    expect(lanes).not.toContain('readEcdsaKeyRef');
+    expect(lanes).not.toContain('missing_key_ref');
+    expect(lanes).not.toContain('key_ref_mismatch');
+    expect(lanesTypecheck).toContain('@ts-expect-error ECDSA capability success rejects key refs');
+  });
+
+  test('Phase 8 keeps login presign prefill record-only', () => {
+    const ecdsaLoginPrefill = readRepoFile(
+      'client/src/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill.ts',
+    );
+    const warmCapabilitiesPublic = readRepoFile(
+      'client/src/core/signingEngine/session/warmCapabilities/public.ts',
+    );
+    const warmSigningPorts = readRepoFile(
+      'client/src/core/signingEngine/assembly/ports/warmSigning.ts',
+    );
+    const authSessions = readRepoFile('client/src/core/SeamsPasskey/authSessions.ts');
+
+    expect(ecdsaLoginPrefill).not.toContain('ThresholdEcdsaSecp256k1KeyRef');
+    expect(ecdsaLoginPrefill).not.toContain('thresholdEcdsaKeyRef');
+    expect(ecdsaLoginPrefill).toContain('thresholdEcdsaSessionRecord');
+    expect(ecdsaLoginPrefill).toContain('invalid_session_record');
+    expect(warmCapabilitiesPublic).not.toContain('ThresholdEcdsaSecp256k1KeyRef');
+    expect(warmCapabilitiesPublic).not.toContain('thresholdEcdsaKeyRef');
+    expect(warmCapabilitiesPublic).toContain('thresholdEcdsaSessionRecord');
+    expect(warmSigningPorts).toContain('resolveClientSigningShare32: async (record');
+    expect(warmSigningPorts).not.toContain('resolveEmailOtpWorkerShareSessionId');
+    expect(authSessions).toContain('listThresholdEcdsaSessionRecordsForWalletTarget({');
+    expect(authSessions).not.toContain('getThresholdEcdsaKeyRefForWalletTarget({');
+  });
+
   test('Phase 11 registration and login guards keep one owner for EVM-family targets', () => {
     const registration = readRepoFile('client/src/core/SeamsPasskey/registration.ts');
     const login = readRepoFile('client/src/core/SeamsPasskey/login.ts');
+    const unlockPlanner = readRepoFile(
+      'client/src/core/signingEngine/session/passkey/unlockEcdsaWarmupPlanner.ts',
+    );
     const syncAccount = readRepoFile('client/src/core/SeamsPasskey/syncAccount.ts');
     const hssBootstrapPolicy = readRepoFile(
       'tests/unit/thresholdEcdsa.hssBootstrapPolicy.unit.test.ts',
     );
     const identityUnit = readRepoFile('tests/unit/evmFamilyEcdsaIdentity.unit.test.ts');
 
-    expect(registration).toContain(
-      'let sharedKeyIdentity: EvmFamilyEcdsaKeyIdentity | null = null;',
-    );
-    expect(registration).toContain('key: sharedKeyIdentity,');
-    expect(registration).toContain(
-      "throw new Error('[Registration] threshold ECDSA bootstrap returned divergent shared key identity')",
-    );
-    expect(registration).toContain('thresholdOwnerAddress: String(args.key.thresholdOwnerAddress)');
+    expect(registration).toContain('const walletKeys = finalized.ecdsa?.walletKeys || [];');
+    expect(registration).toContain('storeWalletSubjectEcdsaRegistrationData({');
+    expect(registration).toContain('storeWalletSubjectEcdsaSignerRecords({');
+    expect(registration).toContain('thresholdEcdsaEthereumAddress: primaryKey.thresholdOwnerAddress');
     expect(login).toContain('collectConfiguredTargetThresholdEcdsaWarmKeys({');
-    expect(login).toContain('deriveEvmFamilyKeyFingerprint(existing.key)');
+    expect(unlockPlanner).toContain('deriveEvmFamilyKeyFingerprint(existing.key)');
     expect(login).not.toContain('sharedKey.thresholdOwnerAddress');
     expect(login).not.toContain('metadata.thresholdOwnerAddress ||');
     expect(syncAccount).not.toContain('rawRecord.signerId || metadata.ownerAddress');
@@ -443,8 +609,11 @@ test.describe('signing engine refactor 37 guards', () => {
     );
   });
 
-  test('Phase 14 base ECDSA warm-up uses threshold ECDSA key identity inventory', () => {
+  test('Phase 14 base ECDSA warm-up keeps key identity inventory out of login', () => {
     const login = readRepoFile('client/src/core/SeamsPasskey/login.ts');
+    const walletRegistrationRpc = readRepoFile(
+      'client/src/core/rpcClients/relayer/walletRegistration.ts',
+    );
     const thresholdEd25519Route = readRepoFile(
       'server/src/router/express/routes/thresholdEd25519.ts',
     );
@@ -464,7 +633,11 @@ test.describe('signing engine refactor 37 guards', () => {
     );
 
     expect(ecdsaChainTarget).toContain('export type BaseEcdsaWalletId = WalletId;');
-    expect(login).toContain('/threshold-ecdsa/key-identities');
+    expect(login).not.toContain('/threshold-ecdsa/key-identities');
+    expect(walletRegistrationRpc).toContain('/signers/ecdsa/key-facts/inventory');
+    expect(walletRegistrationRpc).toContain(
+      'repairWalletSubjectEcdsaKeyFactsInventoryWithAppSession',
+    );
     expect(thresholdEcdsaRoute).toContain('/threshold-ecdsa/key-identities');
     expect(thresholdEd25519Route).not.toContain('/threshold-ecdsa/key-identities');
     expect(authService).toContain('listThresholdEcdsaKeyIdentityTargetsForUser');
@@ -900,14 +1073,17 @@ test.describe('signing engine refactor 37 guards', () => {
   test('Phase 5 passkey registration and unlock warm-up use shared EVM-family keys', () => {
     const registration = readRepoFile('client/src/core/SeamsPasskey/registration.ts');
     const login = readRepoFile('client/src/core/SeamsPasskey/login.ts');
+    const unlockPlanner = readRepoFile(
+      'client/src/core/signingEngine/session/passkey/unlockEcdsaWarmupPlanner.ts',
+    );
 
-    expect(registration).toContain('const returnedKeyIdentity = buildEvmFamilyEcdsaKeyIdentity({');
-    expect(registration).toContain('sharedEvmFamilyKey');
-    expect(registration).toContain('targetMembership');
-    expect(registration).toContain('buildEvmFamilyEcdsaSessionLanePolicy({');
-    expect(login).toContain("kind: 'complete_shared_key_targets'");
-    expect(login).toContain("kind: 'ambiguous_shared_key_targets'");
-    expect(login).toContain("kind: 'missing_shared_key'");
+    expect(registration).toContain('const walletKeys = finalized.ecdsa?.walletKeys || [];');
+    expect(registration).toContain('expectedKeyHandles: [responded.ecdsa.bootstrap.keyHandle]');
+    expect(registration).toContain('storeWalletSubjectEcdsaRegistrationData({');
+    expect(registration).toContain('storeWalletSubjectEcdsaSignerRecords({');
+    expect(unlockPlanner).toContain("kind: 'complete_shared_key_targets'");
+    expect(unlockPlanner).toContain("kind: 'ambiguous_shared_key_targets'");
+    expect(unlockPlanner).toContain("kind: 'missing_shared_key'");
     expect(login).toContain('key: targetEcdsaKey.key');
     expect(login).toContain('lanePolicy,');
   });
@@ -991,11 +1167,34 @@ test.describe('signing engine refactor 37 guards', () => {
     expect(materialState).not.toContain('ecdsaThresholdKeyId?: string;');
     expect(materialState).not.toContain('signingRootId?: string;');
     expect(materialState).not.toContain('buildEcdsaSigningKeyContext({');
+    expect(materialState).not.toContain('buildThresholdEcdsaSecp256k1KeyRefFromRecord');
     expect(materialState).not.toContain("kind: 'record_only';");
     expect(materialState).not.toContain("kind: 'key_ref_only';");
     expect(materialState).not.toContain('matchesCandidateIdentity');
     expect(materialState).not.toContain("record ? 'record_only'");
     expect(materialState).not.toContain("'key_ref_only'");
+    expect(materialState).not.toContain('keyRef: ThresholdEcdsaSecp256k1KeyRef;');
+    expect(materialState).not.toContain('getEcdsaMaterialKeyRef');
+    expect(materialState).not.toContain('hasKeyRef:');
+    expect(materialState).toContain('keyRef?: never;');
+    expect(evmFamilyEcdsaIdentity).toContain('keyRef?: never;');
+    expect(evmFamilyEcdsaIdentity).toContain(
+      'cachedExportArtifact?: ThresholdEcdsaCanonicalExportArtifact | null;',
+    );
+    expect(evmFamilyEcdsaIdentity).not.toContain(
+      'keyRef: ThresholdEcdsaSecp256k1KeyRef | null;',
+    );
+    expect(evmFamilyEcdsaIdentity).not.toContain("kind: 'record_only';");
+    expect(evmFamilyEcdsaIdentity).not.toContain("kind: 'key_ref_only';");
+    expect(evmFamilyEcdsaIdentity).toContain(
+      'buildThresholdEcdsaSecp256k1KeyRefFromSessionRecord',
+    );
+    expect(evmFamilyEcdsaIdentity).not.toContain(
+      'keyRef: args.material.keyRef',
+    );
+    expect(evmFamilyEcdsaIdentity).toContain(
+      'return toVerifiedEcdsaPublicFactsFromRecord({ record: args.material.record });',
+    );
     expect(thresholdAdmission).toContain('readyMaterial: ReadyEvmFamilyEcdsaMaterial;');
     expect(thresholdAdmission).toContain('readyToSignMaterial: ReadyEcdsaMaterial;');
     expect(thresholdAdmission).not.toContain('keyRef: ThresholdEcdsaSecp256k1KeyRef;');
@@ -1011,6 +1210,9 @@ test.describe('signing engine refactor 37 guards', () => {
     expect(signingRuntime).toContain('return updated;');
     expect(signingRuntime).toContain('requireReadyEvmFamilyEcdsaMaterial({');
     expect(signingRuntime).toContain(
+      'passkey ECDSA reconnect requires exact session record material',
+    );
+    expect(signingRuntime).not.toContain(
       'passkey ECDSA reconnect requires exact record and keyRef material',
     );
     expect(signingRuntime).not.toContain('toVerifiedEcdsaPublicFactsFromKeyRef({ keyRef })');
@@ -1042,8 +1244,11 @@ test.describe('signing engine refactor 37 guards', () => {
     expect(ecdsaExportMaterial).toContain('readyMaterial?: never;');
     expect(ecdsaExportMaterial).not.toContain('ThresholdEcdsaSecp256k1KeyRef');
     expect(ecdsaExportMaterial).not.toContain('keyRef: ThresholdEcdsaSecp256k1KeyRef;');
+    expect(ecdsaExportMaterial).not.toContain('getThresholdEcdsaKeyRefByKey');
     expect(ecdsaExportMaterial).not.toContain('readEcdsaExportKeyRefForLane');
     expect(ecdsaExportMaterial).not.toContain('exact export keyRef not ready');
+    expect(ecdsaExportMaterial).toContain('deriveThresholdEcdsaRuntimeLaneKey(record)');
+    expect(ecdsaExportMaterial).toContain('args.deps.exportArtifactsByLane.get');
     expect(ecdsaExportMaterial).toContain('readReadyEvmFamilyEcdsaMaterialForExportLane');
     expect(ecdsaExportMaterial).not.toContain('args.readyMaterial.keyRef.ecdsaHssExportArtifact');
     expect(ecdsaExportMaterialTypecheck).toContain(
@@ -1096,6 +1301,9 @@ test.describe('signing engine refactor 37 guards', () => {
     expect(secp256k1Signer).toContain('export function buildReadySecp256k1SigningMaterial');
     expect(secp256k1Signer).toContain(
       'export async function buildReadySecp256k1SigningMaterialFromKeyRef',
+    );
+    expect(secp256k1Signer).toContain(
+      'export async function buildReadySecp256k1SigningMaterialFromRecord',
     );
     expect(secp256k1Signer).toContain('export type ReadySecp256k1Signer');
     expect(secp256k1Signer).toContain("readonly algorithm: 'secp256k1';");
@@ -1160,7 +1368,7 @@ test.describe('signing engine refactor 37 guards', () => {
     );
   });
 
-  test('Phase 13 reconnect plans use paired ECDSA record and keyRef material', () => {
+  test('Phase 13 reconnect plans use ECDSA session records and derive key refs at the boundary', () => {
     const provisionPlan = readRepoFile(
       'client/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.ts',
     );
@@ -1173,29 +1381,87 @@ test.describe('signing engine refactor 37 guards', () => {
     const ecdsaReadiness = readRepoFile(
       'client/src/core/signingEngine/flows/signEvmFamily/ecdsaReadiness.ts',
     );
+    const signingRuntime = readRepoFile(
+      'client/src/core/signingEngine/flows/signEvmFamily/signingFlowRuntime.ts',
+    );
+    const signEvmFamily = readRepoFile(
+      'client/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts',
+    );
+    const emailOtpRefresh = readRepoFile(
+      'client/src/core/signingEngine/flows/signEvmFamily/emailOtpRefresh.ts',
+    );
+    const warmCapabilityTypes = readRepoFile(
+      'client/src/core/signingEngine/session/warmCapabilities/types.ts',
+    );
+    const warmCapabilityTypesTypecheck = readRepoFile(
+      'client/src/core/signingEngine/session/warmCapabilities/types.typecheck.ts',
+    );
+    const ecdsaProvisioner = readRepoFile(
+      'client/src/core/signingEngine/session/passkey/ecdsaProvisioner.ts',
+    );
     const fixture = readRepoFile('tests/unit/helpers/warmSessionStore.fixtures.ts');
 
-    expect(provisionPlan).toContain("kind: 'record_and_key_ref';");
+    expect(provisionPlan).toContain("kind: 'ecdsa_session_record';");
     expect(provisionPlan).toContain('signingKeyContext?: never;');
-    expect(provisionPlan).toContain(
-      'const signingKeyContext = requireMatchingSigningKeyContext({ record, keyRef });',
-    );
     expect(provisionPlan).toContain('buildEcdsaSigningKeyContextFromRecord');
-    expect(provisionPlan).toContain('buildEcdsaSigningKeyContextFromKeyRef');
+    expect(provisionPlan).toContain('buildThresholdEcdsaSecp256k1KeyRefFromRecord({ record })');
+    expect(provisionPlan).not.toContain('requireMatchingSigningKeyContext');
+    expect(provisionPlan).not.toContain('buildEcdsaSigningKeyContextFromKeyRef');
+    expect(provisionPlan).not.toContain('buildEcdsaSigningKeyContextFromPairedMaterial');
     expect(provisionPlan).not.toContain('export function buildEcdsaSigningKeyContext(args');
     expect(provisionPlan).not.toContain('keyRef?: ThresholdEcdsaSecp256k1KeyRef | null');
     expect(provisionPlan).not.toContain('keyRef?.');
     expect(provisionPlan).not.toContain("kind: 'record_only';");
     expect(provisionPlan).not.toContain("kind: 'key_ref_only';");
-    expect(evmFamilyProvisionPlan).toContain('buildEcdsaSigningKeyContextFromPairedMaterial({');
+    expect(evmFamilyProvisionPlan).toContain('buildEcdsaSigningKeyContextFromRecord(');
+    expect(evmFamilyProvisionPlan).not.toContain('args.material.keyRef');
+    expect(evmFamilyProvisionPlan).not.toContain('buildEcdsaSigningKeyContextFromPairedMaterial');
     expect(evmFamilyProvisionPlan).not.toContain('keyRef?: ThresholdEcdsaSecp256k1KeyRef;');
     expect(evmFamilyProvisionPlan).not.toContain('record?: ThresholdEcdsaSessionRecord');
     expect(evmFamilyProvisionPlanTypecheck).toContain(
-      '@ts-expect-error passkey ECDSA provision requires paired key-ref material',
+      '@ts-expect-error passkey ECDSA provision requires exact ready material',
     );
-    expect(ecdsaReadiness).toContain('readyCapability.keyRef.thresholdSessionId');
-    expect(ecdsaReadiness).not.toContain('readyCapability.keyRef?.');
+    expect(warmCapabilityTypes).toContain('record: ThresholdEcdsaSessionRecord;');
+    expect(warmCapabilityTypes).toContain('keyRef?: never;');
+    expect(warmCapabilityTypes).not.toContain('ThresholdEcdsaSecp256k1KeyRef');
+    expect(warmCapabilityTypes).not.toContain(
+      'keyRef: ThresholdEcdsaSecp256k1KeyRef;',
+    );
+    expect(warmCapabilityTypes).not.toContain('keyRef?: ThresholdEcdsaSecp256k1KeyRef;');
+    expect(warmCapabilityTypesTypecheck).toContain(
+      '@ts-expect-error ECDSA provision readiness derives key refs from the selected record',
+    );
+    expect(ecdsaProvisioner).toContain('listThresholdEcdsaRecordsForWalletTarget: (args: {');
+    expect(ecdsaProvisioner).not.toContain('listThresholdEcdsaRecordsForWalletTarget?:');
+    expect(ecdsaProvisioner).toContain('resolveExactEcdsaRecordWithSourceFallback');
+    expect(ecdsaProvisioner).not.toContain(
+      'typeof deps.listThresholdEcdsaRecordsForWalletTarget',
+    );
+    expect(ecdsaReadiness).toContain('record: ThresholdEcdsaSessionRecord;');
+    expect(ecdsaReadiness).toContain('record: selectedRecord,');
+    expect(ecdsaReadiness).not.toContain('keyRef: ThresholdEcdsaSecp256k1KeyRef;');
+    expect(ecdsaReadiness).not.toContain('readSelectedEcdsaKeyRefForLane');
+    expect(ecdsaReadiness).not.toContain('selectedKeyRef');
+    expect(ecdsaReadiness).toContain('const refreshedRecord = readyCapability.capability.record;');
+    expect(ecdsaReadiness).toContain('return refreshedRecord;');
+    expect(ecdsaReadiness).not.toContain('Promise<ThresholdEcdsaSecp256k1KeyRef>');
+    expect(ecdsaReadiness).not.toContain('readyCapability.keyRef.thresholdSessionId');
+    expect(signingRuntime).toContain('ensureEvmFamilyThresholdEcdsaRecordReady');
+    expect(signingRuntime).toContain('getThresholdEcdsaRecord');
+    expect(signingRuntime).toContain('setThresholdEcdsaRecord');
+    expect(signingRuntime).toContain('buildReadySecp256k1SigningMaterialFromRecord');
+    expect(signingRuntime).not.toContain('buildReadySecp256k1SigningMaterialFromKeyRef');
+    expect(signingRuntime).not.toContain('buildThresholdEcdsaSecp256k1KeyRefFromRecord');
+    expect(signingRuntime).not.toContain('getThresholdEcdsaKeyRef');
+    expect(signingRuntime).not.toContain('setThresholdEcdsaKeyRef');
+    expect(signEvmFamily).not.toContain('readSelectedEcdsaKeyRefForLane');
+    expect(signEvmFamily).not.toContain('ThresholdEcdsaSecp256k1KeyRef');
+    expect(signEvmFamily).not.toContain('warmKeyRef');
+    expect(emailOtpRefresh).not.toContain('ThresholdEcdsaSecp256k1KeyRef');
+    expect(emailOtpRefresh).not.toContain('keyRef: ThresholdEcdsaSecp256k1KeyRef;');
     expect(fixture).toContain('buildEcdsaReconnectMaterial({');
+    expect(fixture).toContain('buildEcdsaSigningKeyContextFromRecord(record)');
+    expect(fixture).not.toContain('buildEcdsaSigningKeyContextFromPairedMaterial');
     expect(fixture).not.toContain("kind: 'record_only' as const");
     expect(fixture).not.toContain("kind: 'key_ref_only' as const");
   });
@@ -1311,17 +1577,20 @@ test.describe('signing engine refactor 37 guards', () => {
     }
   });
 
-  test('Postgres ECDSA key store bootstrap avoids request-time shared-identity unique index creation', () => {
+  test('Postgres ECDSA key store indexes shared identity on declared columns', () => {
     const keyStore = readRepoFile('server/src/core/ThresholdService/stores/KeyStore.ts');
 
-    expect(keyStore).not.toContain(
-      'CREATE UNIQUE INDEX IF NOT EXISTS threshold_ecdsa_keys_shared_identity_uidx',
-    );
     expect(keyStore).toContain('DROP INDEX IF EXISTS threshold_ecdsa_keys_shared_identity_uidx');
     expect(keyStore).toContain(
-      'CREATE INDEX IF NOT EXISTS threshold_ecdsa_keys_shared_identity_idx',
+      'CREATE UNIQUE INDEX IF NOT EXISTS threshold_ecdsa_keys_shared_identity_uidx',
     );
-    expect(keyStore).toContain("WHERE record_json->>'version' = 'threshold_ecdsa_hss_role_local'");
+    expect(keyStore).toContain('wallet_session_user_id');
+    expect(keyStore).toContain('subject_id');
+    expect(keyStore).toContain('rp_id');
+    expect(keyStore).toContain('wallet_session_user_id = $3');
+    expect(keyStore).not.toContain("record_json->>'walletSessionUserId'");
+    expect(keyStore).not.toContain("record_json->>'subjectId'");
+    expect(keyStore).not.toContain("record_json->>'rpId'");
     expect(keyStore).not.toContain("WHERE record_json->>'version' = 'threshold_ecdsa_hss_key_v1'");
     expect(keyStore).toContain('threshold_ecdsa_keys_key_handle_uidx');
     expect(keyStore).toContain('key_handle = EXCLUDED.key_handle');
@@ -1470,10 +1739,13 @@ test.describe('signing engine refactor 37 guards', () => {
   test('Batch 6 keeps legacy key-handle synthesis out of production and fixtures', () => {
     const allowedLegacyKeyHandleFiles = new Set([
       'client/src/core/SeamsPasskey/login.ts',
+      'client/src/core/signingEngine/session/passkey/ecdsaKeyFactsInventory.ts',
       'docs/refactor-39.md',
       'docs/rework-registration-flows.md',
       'tests/unit/signingEngine.refactor37.guard.unit.test.ts',
       'tests/unit/seamsPasskey.loginThresholdWarm.unit.test.ts',
+      'tests/unit/thresholdEcdsaKeyIdentityInventoryParser.unit.test.ts',
+      'tests/unit/unlockEcdsaWarmupPlanner.unit.test.ts',
     ]);
     const offenders = ['client', 'server', 'shared', 'tests', 'docs']
       .flatMap((dir) => listRepoFiles(dir))

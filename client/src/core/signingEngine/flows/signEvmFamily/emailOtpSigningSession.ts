@@ -38,11 +38,11 @@ import {
   type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
 import {
-  getEcdsaMaterialKeyRef,
   getEcdsaMaterialRecord,
   type EcdsaMaterialState,
 } from './ecdsaMaterialState';
 import { EMAIL_OTP_SIGNING_SESSION_AUTH_UNAVAILABLE } from '../../session/emailOtp/exportRecovery';
+import type { EmailOtpEcdsaBootstrapAuthorization } from '../../session/emailOtp/routePlan';
 
 type WalletSessionEmailOtpChallengeArgs = Extract<
   RequestEmailOtpChallengeArgs,
@@ -72,6 +72,7 @@ export type EmailOtpEcdsaSigningSessionDeps = {
       remainingUses?: number;
       runtimePolicyScope?: ThresholdRuntimePolicyScope;
       routeAuth?: AppOrThresholdSessionAuth;
+      ecdsaBootstrapAuthorization: EmailOtpEcdsaBootstrapAuthorization;
       ed25519ReconstructionMode: 'await' | 'skip';
     }) => Promise<{
       recovery: EmailOtpBootstrapRecovery;
@@ -125,12 +126,9 @@ export function createEmailOtpEcdsaTransactionSigningBridge(args: {
   }) => Promise<EmailOtpEcdsaSigningBootstrapResult>;
 }): EvmFamilyEmailOtpTransactionSigningBridge {
   const materialRecord = args.material ? getEcdsaMaterialRecord(args.material) : undefined;
-  const materialKeyRef = args.material ? getEcdsaMaterialKeyRef(args.material) : undefined;
-  const materialIsEmailOtp =
-    (materialRecord
-      ? isEmailOtpThresholdEcdsaSigningContext({ record: materialRecord })
-      : false) ||
-    (materialKeyRef ? isEmailOtpThresholdEcdsaSigningContext({ keyRef: materialKeyRef }) : false);
+  const materialIsEmailOtp = materialRecord
+    ? isEmailOtpThresholdEcdsaSigningContext({ record: materialRecord })
+    : false;
   const resolveEmailOtpRecord = () =>
     args.signingSessionRecord || (materialIsEmailOtp ? materialRecord : undefined);
   const resolveAuthLane = async () => {
@@ -321,6 +319,7 @@ export async function refreshEmailOtpSigningSession(
     routePlan,
     publicFacts,
     sessionKind: record.thresholdSessionKind,
+    ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
     ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
     ...(typeof args.remainingUses === 'number' ? { remainingUses: args.remainingUses } : {}),
     ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),

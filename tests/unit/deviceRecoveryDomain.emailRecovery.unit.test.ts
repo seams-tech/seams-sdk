@@ -80,6 +80,13 @@ function createLocalDomain(options?: {
   const context = {
     configs: {
       network: {
+        chains: [
+          {
+            network: 'ethereum-sepolia',
+            rpcUrl: 'https://ethereum-sepolia.example.test',
+            chainId: 11155111,
+          },
+        ],
         relayer: {
           url: 'https://relay.example.test',
           emailRecovery: {
@@ -92,6 +99,18 @@ function createLocalDomain(options?: {
       signing: {
         mode: { mode: 'threshold-signer' },
         sessionDefaults: { ttlMs: 300_000, remainingUses: 5 },
+        thresholdEcdsa: {
+          provisioningDefaults: {
+            evm: {
+              enabled: true,
+              signingSession: { kind: 'jwt', ttlMs: 300_000, remainingUses: 3 },
+            },
+            tempo: {
+              enabled: false,
+              signingSession: { kind: 'jwt', ttlMs: 300_000, remainingUses: 3 },
+            },
+          },
+        },
       },
     },
     signingEngine: {
@@ -107,7 +126,7 @@ function createLocalDomain(options?: {
             transports: ['internal'],
           },
           clientExtensionResults: {
-            prf: { results: { first: 'first', second: 'second' } },
+            prf: { results: { first: Buffer.alloc(32, 13).toString('base64url') } },
           },
         },
         intentDigest: 'threshold:email-recovery:7',
@@ -128,6 +147,13 @@ function createLocalDomain(options?: {
           xClientBaseB64u: 'x-client-base',
         },
       }),
+      prepareWalletRegistrationEcdsaClientBootstrap: async (input: any) => ({
+        ...input.prepare,
+        clientPublicKey33B64u: 'client-public-key',
+        clientShareRetryCounter: 0,
+        contextBinding32B64u: 'context-binding',
+      }),
+      storeWalletSubjectEcdsaSignerRecords: async () => undefined,
       hydrateSigningSession: async (input: any) => {
         warmSigningSession = {
           sessionId: String(input?.sessionId || ''),
@@ -202,7 +228,60 @@ test.describe('EmailRecoveryDomain', () => {
     try {
       globalThis.fetch = (async (input: unknown) => {
         const url = String((input as any)?.url || input);
-        if (!url.endsWith('/email-recovery/prepare')) {
+        if (url.endsWith('/email-recovery/prepare')) {
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              thresholdEd25519: {
+                keyVersion: 'threshold-ed25519-hss-v1',
+                recoveryExportCapable: true,
+                publicKey: 'ed25519:threshold-public-key',
+                relayerKeyId: 'relayer-key-1',
+                clientParticipantId: 1,
+                relayerParticipantId: 2,
+                participantIds: [1, 2],
+                session: {
+                  sessionKind: 'jwt',
+                  sessionId: 'sync-session-1',
+                  walletSigningSessionId: 'wallet-signing-session-1',
+                  expiresAtMs: Date.now() + 60_000,
+                  remainingUses: 5,
+                  participantIds: [1, 2],
+                  runtimePolicyScope: {
+                    orgId: 'org-email-recovery',
+                    projectId: 'proj-email-recovery',
+                    envId: 'env-email-recovery',
+                    signingRootVersion: 'root-email-recovery-v1',
+                  },
+                  jwt: 'sync-jwt',
+                },
+              },
+              ecdsa: {
+                kind: 'evm_family_ecdsa_keygen',
+                chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 11155111 }],
+                prepare: {
+                  formatVersion: 'ecdsa-hss-role-local',
+                  walletSessionUserId: 'alice.testnet',
+                  rpId: 'example.test',
+                  subjectId: 'alice.testnet',
+                  ecdsaThresholdKeyId: 'ecdsa-threshold-key',
+                  signingRootId: 'signing-root-id',
+                  signingRootVersion: 'root-email-recovery-v1',
+                  keyScope: 'evm-family',
+                  relayerKeyId: 'ecdsa-relayer-key',
+                  requestId: 'ABC123:ecdsa',
+                  sessionId: 'tehss_ABC123',
+                  walletSigningSessionId: 'wss_ABC123',
+                  ttlMs: 60_000,
+                  remainingUses: 1,
+                  participantIds: [1, 2],
+                },
+              },
+            }),
+            { status: 200 },
+          );
+        }
+        if (!url.endsWith('/email-recovery/ecdsa/respond')) {
           return new Response(JSON.stringify({ ok: false, error: 'unexpected_url' }), {
             status: 404,
           });
@@ -221,6 +300,7 @@ test.describe('EmailRecoveryDomain', () => {
               session: {
                 sessionKind: 'jwt',
                 sessionId: 'sync-session-1',
+                walletSigningSessionId: 'wallet-signing-session-1',
                 expiresAtMs: Date.now() + 60_000,
                 remainingUses: 5,
                 participantIds: [1, 2],
@@ -233,8 +313,28 @@ test.describe('EmailRecoveryDomain', () => {
                 jwt: 'sync-jwt',
               },
             },
-            thresholdEcdsa: {
-              ethereumAddress: `0x${'11'.repeat(20)}`,
+            ecdsa: {
+              bootstrap: {
+                ethereumAddress: `0x${'11'.repeat(20)}`,
+              },
+              walletKeys: [
+                {
+                  keyScope: 'evm-family',
+                  chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 11155111 },
+                  walletSessionUserId: 'alice.testnet',
+                  rpId: 'example.test',
+                  subjectId: 'alice.testnet',
+                  keyHandle: 'key-handle',
+                  ecdsaThresholdKeyId: 'ecdsa-threshold-key',
+                  signingRootId: 'signing-root-id',
+                  signingRootVersion: 'root-email-recovery-v1',
+                  thresholdEcdsaPublicKeyB64u: 'threshold-public-key',
+                  thresholdOwnerAddress: `0x${'11'.repeat(20)}`,
+                  relayerKeyId: 'ecdsa-relayer-key',
+                  relayerVerifyingShareB64u: 'relayer-share',
+                  participantIds: [1, 2],
+                },
+              ],
             },
             recoverySession: {
               sessionId: 'ABC123',

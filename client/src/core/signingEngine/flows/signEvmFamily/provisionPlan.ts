@@ -1,4 +1,4 @@
-import { getPrfFirstB64uFromCredential } from '../../webauthnAuth/credentials/credentialExtensions';
+import { derivePasskeyThresholdEcdsaClientRootShare32B64uFromCredential } from '../../session/passkey/ecdsaClientRoot';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   type ThresholdEcdsaSessionRecord,
@@ -6,7 +6,7 @@ import {
 import {
   buildEcdsaReconnectMaterial,
   buildEcdsaSessionIdentity,
-  buildEcdsaSigningKeyContextFromPairedMaterial,
+  buildEcdsaSigningKeyContextFromRecord,
   buildEmailOtpEcdsaSessionProvision,
   buildPasskeyEcdsaSessionProvision,
   buildThresholdSessionAuthEcdsaReconnect,
@@ -40,26 +40,25 @@ export function buildEvmFamilyWarmSessionReconnectPlan(args: {
     }),
     sessionBudgetUses: args.sessionBudgetUses,
     reconnectMaterial: buildEcdsaReconnectMaterial({
-      keyRef: args.material.keyRef,
       record: args.material.record,
     }),
   });
 }
 
-export function buildEvmFamilyPasskeyEcdsaProvisionPlan(args: {
+export async function buildEvmFamilyPasskeyEcdsaProvisionPlan(args: {
   authorization: EvmFamilyEcdsaPasskeyStepUpAuthorization;
   material: ReadyEvmFamilyEcdsaMaterial;
   sessionBudgetUses: number;
-}): PasskeyEcdsaSessionProvision {
+}): Promise<PasskeyEcdsaSessionProvision> {
   if (!args.authorization.plannedPasskeyReconnect) {
     throw new Error(
       '[SigningEngine][ecdsa] passkey ECDSA provision requires planned reconnect identity',
     );
   }
-  const clientRootShare32B64u = getPrfFirstB64uFromCredential(args.authorization.credential);
-  if (!clientRootShare32B64u) {
-    throw new Error('[SigningEngine][ecdsa] missing PRF.first for passkey ECDSA provision');
-  }
+  const clientRootShare32B64u =
+    await derivePasskeyThresholdEcdsaClientRootShare32B64uFromCredential(
+      args.authorization.credential,
+    );
   const baseArgs = {
     key: args.material.lane.key,
     chainTarget: args.material.lane.chainTarget,
@@ -69,12 +68,8 @@ export function buildEvmFamilyPasskeyEcdsaProvisionPlan(args: {
       walletSigningSessionId:
         args.authorization.plannedPasskeyReconnect.webauthnChallenge.walletSigningSessionId,
     }),
-    signingKeyContext: buildEcdsaSigningKeyContextFromPairedMaterial({
-      keyRef: args.material.keyRef,
-      record: args.material.record,
-    }),
-    sessionKind:
-      args.material.record.thresholdSessionKind || args.material.keyRef.thresholdSessionKind || 'jwt',
+    signingKeyContext: buildEcdsaSigningKeyContextFromRecord(args.material.record),
+    sessionKind: args.material.record.thresholdSessionKind || 'jwt',
     sessionBudgetUses: args.sessionBudgetUses,
     requestId: args.authorization.plannedPasskeyReconnect.webauthnChallenge.requestId,
     clientRootShare32B64u,
@@ -114,13 +109,10 @@ export function buildEvmFamilyEmailOtpEcdsaProvisionPlan(args: {
     key: args.material.lane.key,
     chainTarget: args.chainTarget,
     newSessionIdentity: buildEcdsaSessionIdentity({
-      thresholdSessionId: args.material.keyRef.thresholdSessionId,
-      walletSigningSessionId: args.material.keyRef.walletSigningSessionId,
+      thresholdSessionId: record.thresholdSessionId,
+      walletSigningSessionId: record.walletSigningSessionId,
     }),
-    signingKeyContext: buildEcdsaSigningKeyContextFromPairedMaterial({
-      keyRef: args.material.keyRef,
-      record,
-    }),
+    signingKeyContext: buildEcdsaSigningKeyContextFromRecord(record),
     sessionKind: record.thresholdSessionKind,
     sessionBudgetUses: args.sessionBudgetUses,
     emailOtpAuthContext: record.emailOtpAuthContext,

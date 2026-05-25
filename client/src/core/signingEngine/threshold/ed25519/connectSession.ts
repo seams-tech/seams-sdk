@@ -1,4 +1,3 @@
-import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import { collectAuthenticationCredentialForChallengeB64u } from '../../webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import {
@@ -12,7 +11,11 @@ import {
   type ThresholdRuntimePolicyScope,
   type ThresholdSessionKind,
 } from '../sessionPolicy';
-import { mintEd25519AuthSession } from '../ed25519/authSession';
+import {
+  localPrfFirstForThresholdEd25519SessionMintAuthorization,
+  mintEd25519AuthSession,
+  type ThresholdEd25519SessionMintAuthorization,
+} from '../ed25519/authSession';
 
 /**
  * Wallet-origin helper:
@@ -41,9 +44,7 @@ export async function connectEd25519Session(args: {
   walletSigningSessionId?: string;
   ttlMs?: number;
   remainingUses?: number;
-  appSessionJwt?: string;
-  useAppSessionCookie?: boolean;
-  localPrfCredential?: WebAuthnAuthenticationCredential;
+  auth?: ThresholdEd25519SessionMintAuthorization;
   workerCtx?: WorkerOperationContext;
 }): Promise<{
   ok: boolean;
@@ -62,8 +63,8 @@ export async function connectEd25519Session(args: {
   if (!rpId) {
     return { ok: false, code: 'invalid_args', message: 'Missing rpId for WebAuthn' };
   }
-  const appSessionJwt = String(args.appSessionJwt || '').trim();
-  const hasAppSessionAuth = Boolean(appSessionJwt || args.useAppSessionCookie === true);
+  const appSessionJwt =
+    args.auth?.kind === 'app_session_jwt' ? String(args.auth.appSessionJwt || '').trim() : '';
   const appSessionRuntimePolicyScope = parseThresholdRuntimePolicyScopeFromJwt(appSessionJwt);
   const runtimePolicyScope = args.runtimePolicyScope || appSessionRuntimePolicyScope;
 
@@ -79,28 +80,27 @@ export async function connectEd25519Session(args: {
     remainingUses: args.remainingUses,
   });
 
-  let credential: WebAuthnAuthenticationCredential | undefined = args.localPrfCredential;
-  if (!hasAppSessionAuth && !credential) {
+  let auth: ThresholdEd25519SessionMintAuthorization | undefined = args.auth;
+  if (!auth) {
     // Collect WebAuthn only when the caller did not already confirm the same session policy.
     // A regression here ignored `localPrfCredential`, so post-exhaustion transaction signing
     // showed one tx confirmation and then a second TouchID prompt for the session mint.
-    credential = await collectAuthenticationCredentialForChallengeB64u({
+    const credential = await collectAuthenticationCredentialForChallengeB64u({
       indexedDB: args.indexedDB,
       touchIdPrompt: args.touchIdPrompt,
       nearAccountId: args.nearAccountId,
       challengeB64u: sessionPolicyDigest32,
     });
-  }
-
-  if (!credential) {
-    return {
-      ok: false,
-      code: 'invalid_args',
-      message: 'Ed25519 session mint with app session requires local PRF credential material',
+    auth = {
+      kind: 'threshold_session_policy_webauthn',
+      webauthnAuthentication: credential,
     };
   }
 
-  const prfFirstB64u = getPrfFirstB64uFromCredential(credential);
+  const prfFirstB64u = localPrfFirstForThresholdEd25519SessionMintAuthorization({
+    auth,
+    prfFirstFromCredential: getPrfFirstB64uFromCredential,
+  });
   if (!prfFirstB64u) {
     return {
       ok: false,
@@ -109,22 +109,13 @@ export async function connectEd25519Session(args: {
     };
   }
 
-  // 3) Mint threshold auth session token/cookie with standard WebAuthn verification.
+  // 3) Mint threshold auth session token/cookie with app-session or WebAuthn authorization.
   const minted = await mintEd25519AuthSession({
     relayerUrl: args.relayerUrl,
     sessionKind,
     relayerKeyId: args.relayerKeyId,
     sessionPolicy: policy,
-    ...(appSessionJwt
-      ? {
-          appSessionJwt,
-        }
-      : args.useAppSessionCookie === true
-        ? {
-            useAppSessionCookie: true,
-            webauthnAuthentication: credential,
-          }
-      : { webauthnAuthentication: credential }),
+    auth,
     runtimeEnvironmentId: args.runtimeScopeBootstrap?.environmentId,
     publishableKey: args.runtimeScopeBootstrap?.publishableKey,
   });

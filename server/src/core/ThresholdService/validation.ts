@@ -12,13 +12,7 @@ import {
 } from '@shared/threshold/participants';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
-import { REGISTRATION_CONTINUATION_JWT_KIND } from '@shared/utils/sessionTokens';
 import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
-import {
-  thresholdEcdsaChainTargetKey,
-  thresholdEcdsaChainTargetFromValue,
-  type ThresholdEcdsaChainTarget,
-} from '../thresholdEcdsaChainTarget';
 import type {
   EcdsaHssClientBootstrapRequest,
   EcdsaHssPasskeyBootstrapAuthorization,
@@ -1271,87 +1265,6 @@ export function parseThresholdEcdsaSessionClaims(raw: unknown): ThresholdEcdsaSe
     rpId,
     thresholdExpiresAtMs,
     participantIds,
-  };
-  const runtimePolicyScopeRaw = (raw as { runtimePolicyScope?: unknown }).runtimePolicyScope;
-  if (runtimePolicyScopeRaw !== undefined) {
-    const runtimePolicyScope = parseRuntimePolicyScope(runtimePolicyScopeRaw);
-    if (!runtimePolicyScope) return null;
-    out.runtimePolicyScope = runtimePolicyScope;
-  }
-
-  const iat = (raw as { iat?: unknown }).iat;
-  if (iat !== undefined) {
-    const v = Number(iat);
-    if (!Number.isFinite(v)) return null;
-    out.iat = v;
-  }
-
-  const exp = (raw as { exp?: unknown }).exp;
-  if (exp !== undefined) {
-    const v = Number(exp);
-    if (!Number.isFinite(v)) return null;
-    out.exp = v;
-  }
-
-  const nbf = (raw as { nbf?: unknown }).nbf;
-  if (nbf !== undefined) {
-    const v = Number(nbf);
-    if (!Number.isFinite(v)) return null;
-    out.nbf = v;
-  }
-
-  return out;
-}
-
-export type RegistrationContinuationClaims = {
-  sub: string;
-  walletId: string;
-  kind: typeof REGISTRATION_CONTINUATION_JWT_KIND;
-  rpId: string;
-  subjectId: string;
-  thresholdEcdsaChainTargets: ThresholdEcdsaChainTarget[];
-  registrationExpiresAtMs: number;
-  runtimePolicyScope?: RuntimePolicyScope;
-  iat?: number;
-  exp?: number;
-  nbf?: number;
-};
-
-export function parseRegistrationContinuationClaims(
-  raw: unknown,
-): RegistrationContinuationClaims | null {
-  if (!isObject(raw)) return null;
-  const kind = toOptionalString(raw.kind);
-  if (kind !== REGISTRATION_CONTINUATION_JWT_KIND) return null;
-  const sub = toOptionalString(raw.sub);
-  const walletId = toOptionalString((raw as { walletId?: unknown }).walletId);
-  const rpId = toOptionalString(raw.rpId);
-  const subjectId = toOptionalString((raw as { subjectId?: unknown }).subjectId);
-  if (!sub || !walletId || walletId !== sub || !rpId || !subjectId) return null;
-  const registrationExpiresAtMs = Number(
-    (raw as { registrationExpiresAtMs?: unknown }).registrationExpiresAtMs,
-  );
-  if (!Number.isFinite(registrationExpiresAtMs) || registrationExpiresAtMs <= 0) return null;
-  const rawTargets = (raw as { thresholdEcdsaChainTargets?: unknown }).thresholdEcdsaChainTargets;
-  if (!Array.isArray(rawTargets) || rawTargets.length < 1) return null;
-  const thresholdEcdsaChainTargets: ThresholdEcdsaChainTarget[] = [];
-  const seen = new Set<string>();
-  for (const rawTarget of rawTargets) {
-    const target = thresholdEcdsaChainTargetFromValue(rawTarget);
-    if (!target) return null;
-    const key = thresholdEcdsaChainTargetKey(target);
-    if (seen.has(key)) return null;
-    seen.add(key);
-    thresholdEcdsaChainTargets.push(target);
-  }
-  const out: RegistrationContinuationClaims = {
-    sub,
-    walletId,
-    kind,
-    rpId,
-    subjectId,
-    thresholdEcdsaChainTargets,
-    registrationExpiresAtMs,
   };
   const runtimePolicyScopeRaw = (raw as { runtimePolicyScope?: unknown }).runtimePolicyScope;
   if (runtimePolicyScopeRaw !== undefined) {

@@ -121,17 +121,17 @@ test.describe('WarmSessionStore concurrency', () => {
           );
         },
       },
-      listThresholdEcdsaKeyRefsForWalletTarget: () => [
-        { source: 'manual-bootstrap', keyRef: staleBootstrap.thresholdEcdsaKeyRef },
+      listThresholdEcdsaRecordsForWalletTarget: () => [
+        { source: 'manual-bootstrap', record: staleRecord },
       ],
       provisionThresholdEcdsaSession: async (request) => {
         provisionCalls += 1;
-        if (!request.key || !request.lanePolicy) {
+        if (!('walletKey' in request) || !('lanePolicy' in request)) {
           throw new Error('expected exact ECDSA activation request');
         }
         const bootstrap = await provisionDeferred.promise;
         seedEcdsaWarmSessionRecord(ecdsaStore, {
-          nearAccountId: String(request.key.walletId),
+          nearAccountId: String(request.walletKey.walletId),
           chain: request.lanePolicy.chainTarget.kind,
           source: 'manual-bootstrap',
           bootstrap,
@@ -170,8 +170,8 @@ test.describe('WarmSessionStore concurrency', () => {
     expect(provisionCalls).toBe(1);
     expect(readyA.reconnected).toBe(true);
     expect(readyB.reconnected).toBe(true);
-    expect(readyA.keyRef.thresholdSessionId).toBe('fresh-concurrent-session');
-    expect(readyB.keyRef.thresholdSessionId).toBe('fresh-concurrent-session');
+    expect(readyA.record.thresholdSessionId).toBe('fresh-concurrent-session');
+    expect(readyB.record.thresholdSessionId).toBe('fresh-concurrent-session');
     expect(readyA.capability.prfClaim).toMatchObject({
       state: 'warm',
       remainingUses: 5,

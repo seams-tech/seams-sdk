@@ -17,7 +17,11 @@ import {
   redisGetJson,
   redisSetJson,
 } from './ThresholdService/kv';
-import { getPostgresPool, getPostgresUrlFromConfig } from '../storage/postgres';
+import {
+  getPostgresPool,
+  getPostgresUrlFromConfig,
+  type PgQueryExecutor,
+} from '../storage/postgres';
 
 export type WebAuthnCredentialBindingRecord = {
   version: 'webauthn_credential_binding_v1';
@@ -65,7 +69,9 @@ function toPrefixWithColon(prefix: unknown, defaultPrefix: string): string {
   return p.endsWith(':') ? p : `${p}:`;
 }
 
-function toWebAuthnCredentialBindingPrefix(config: Record<string, unknown>): string {
+export function resolveWebAuthnCredentialBindingStoreNamespace(
+  config: Record<string, unknown>,
+): string {
   const explicit = toOptionalTrimmedString(config.WEBAUTHN_CREDENTIAL_BINDING_PREFIX);
   if (explicit) return toPrefixWithColon(explicit, '');
 
@@ -152,6 +158,36 @@ function parseWebAuthnCredentialBindingRecord(
     createdAtMs: Math.floor(createdAtMs),
     updatedAtMs: Math.floor(updatedAtMs),
   };
+}
+
+export async function putWebAuthnCredentialBindingRecordWithExecutor(input: {
+  executor: PgQueryExecutor;
+  namespace: string;
+  record: WebAuthnCredentialBindingRecord;
+}): Promise<void> {
+  const parsed = parseWebAuthnCredentialBindingRecord(input.record);
+  if (!parsed) throw new Error('Invalid credential binding record');
+  await input.executor.query(
+    `
+      INSERT INTO webauthn_credential_bindings (
+        namespace, rp_id, credential_id_b64u, record_json, created_at_ms, updated_at_ms
+      )
+      VALUES ($1, $2, $3, $4, $5, $6)
+      ON CONFLICT (namespace, rp_id, credential_id_b64u)
+      DO UPDATE SET
+        record_json = EXCLUDED.record_json,
+        created_at_ms = LEAST(webauthn_credential_bindings.created_at_ms, EXCLUDED.created_at_ms),
+        updated_at_ms = GREATEST(webauthn_credential_bindings.updated_at_ms, EXCLUDED.updated_at_ms)
+    `,
+    [
+      input.namespace,
+      parsed.rpId,
+      parsed.credentialIdB64u,
+      parsed,
+      parsed.createdAtMs,
+      parsed.updatedAtMs,
+    ],
+  );
 }
 
 class InMemoryWebAuthnCredentialBindingStore implements WebAuthnCredentialBindingStore {
@@ -315,30 +351,12 @@ class PostgresWebAuthnCredentialBindingStore implements WebAuthnCredentialBindin
   }
 
   async put(record: WebAuthnCredentialBindingRecord): Promise<void> {
-    const parsed = parseWebAuthnCredentialBindingRecord(record);
-    if (!parsed) throw new Error('Invalid credential binding record');
     const pool = await this.poolPromise;
-    await pool.query(
-      `
-        INSERT INTO webauthn_credential_bindings (
-          namespace, rp_id, credential_id_b64u, record_json, created_at_ms, updated_at_ms
-        )
-        VALUES ($1, $2, $3, $4, $5, $6)
-        ON CONFLICT (namespace, rp_id, credential_id_b64u)
-        DO UPDATE SET
-          record_json = EXCLUDED.record_json,
-          created_at_ms = LEAST(webauthn_credential_bindings.created_at_ms, EXCLUDED.created_at_ms),
-          updated_at_ms = GREATEST(webauthn_credential_bindings.updated_at_ms, EXCLUDED.updated_at_ms)
-      `,
-      [
-        this.namespace,
-        parsed.rpId,
-        parsed.credentialIdB64u,
-        parsed,
-        parsed.createdAtMs,
-        parsed.updatedAtMs,
-      ],
-    );
+    await putWebAuthnCredentialBindingRecordWithExecutor({
+      executor: pool,
+      namespace: this.namespace,
+      record,
+    });
   }
 
   async del(rpId: string, credentialIdB64u: string): Promise<void> {
@@ -529,7 +547,7 @@ export function createWebAuthnCredentialBindingStore(input: {
   isNode: boolean;
 }): WebAuthnCredentialBindingStore {
   const config = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
-  const prefix = toWebAuthnCredentialBindingPrefix(config);
+  const prefix = resolveWebAuthnCredentialBindingStoreNamespace(config);
 
   const kind = toOptionalTrimmedString(config.kind);
   if (kind === 'cloudflare-do') {

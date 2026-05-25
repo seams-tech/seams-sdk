@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { walletSessionRefFromSession, walletSubjectIdFromWalletProfile } from '@seams/sdk';
+import { walletSessionRefFromSession } from '@seams/sdk';
 import { useSeams } from '@seams/sdk/react';
 import { toast } from 'sonner';
 
@@ -111,7 +111,6 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
             walletId: nearAccountId,
             userId: nearAccountId,
           }),
-          subjectId: walletSubjectIdFromWalletProfile({ walletId: nearAccountId }),
           request,
           chainTarget: resolveDemoThresholdEcdsaChainTarget('tempo', FRONTEND_CONFIG.chains),
           finalization: {

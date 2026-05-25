@@ -103,26 +103,27 @@ export function registerLinkDeviceRoutes(router: ExpressRouter, ctx: ExpressRela
         result.thresholdEd25519!.session!.jwt = signed.jwt;
       }
 
-      const thresholdEcdsaSession = result.thresholdEcdsa?.session;
-      if (thresholdEcdsaSession) {
-        const signed = await signThresholdSessionAuthToken({
-          session: ctx.opts.session,
-          kind: 'threshold_ecdsa_session_v1',
-          userId: result.accountId,
-          rpId: (req.body || {}).rp_id,
-          relayerKeyId: result.thresholdEcdsa?.relayerKeyId,
-          sessionInfo: thresholdEcdsaSession,
-          fallbackParticipantIds: result.thresholdEcdsa?.participantIds,
-          requireJwtErrorMessage: 'threshold_ecdsa.session_kind must be jwt',
-          invalidPayloadErrorMessage: 'invalid thresholdEcdsa session payload for jwt signing',
-        });
-        if (!signed.ok) {
-          res
-            .status(signed.status)
-            .json({ ok: false, code: signed.code, message: signed.message });
-          return;
-        }
-        result.thresholdEcdsa!.session!.jwt = signed.jwt;
+      res.status(200).json(result);
+    } catch (e: any) {
+      res
+        .status(500)
+        .json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
+    }
+  });
+
+  router.post('/link-device/ecdsa/respond', async (req: any, res: any) => {
+    try {
+      if (!req?.body) {
+        res
+          .status(400)
+          .json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
+        return;
+      }
+      const result = await ctx.service.respondLinkDeviceEcdsa({ ...(req.body || {}) });
+      if (!result.ok) {
+        const status = result.code === 'not_found' ? 404 : result.code === 'internal' ? 500 : 400;
+        res.status(status).json(result);
+        return;
       }
       res.status(200).json(result);
     } catch (e: any) {

@@ -77,7 +77,7 @@ export function useDemoThresholdAccountState(args: UseDemoThresholdAccountStateA
       resolvedThresholdOwnerAddress = await refreshThresholdOwnerAddress();
     }
     if (!resolvedThresholdOwnerAddress || !isEvmAddress(resolvedThresholdOwnerAddress)) {
-      throw new Error('Threshold EVM owner address is unavailable');
+      throw new Error('Threshold EVM owner address is unavailable. Unlock to provision threshold ECDSA, then retry.');
     }
     return resolvedThresholdOwnerAddress;
   }, [readWalletSessionThresholdOwnerAddress, refreshThresholdOwnerAddress, thresholdOwnerAddress]);

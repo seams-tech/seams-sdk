@@ -1822,8 +1822,8 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       nearAccountId: params.nearAccountId,
       signerSlot: params.signerSlot,
       confirmerText: params.confirmerText,
-      nearRpcUrl: params.nearRpcUrl,
       confirmationConfig: params.confirmationConfigOverride,
+      challengeB64u: params.challengeB64u,
     });
   }
 

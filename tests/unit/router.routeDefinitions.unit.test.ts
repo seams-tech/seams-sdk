@@ -36,7 +36,9 @@ const ALLOWLISTED_PUBLIC_RELAY_ROUTE_IDS = [
   'link_device_session_create',
   'link_device_session_claim',
   'link_device_prepare',
+  'link_device_ecdsa_respond',
   'email_recovery_prepare',
+  'email_recovery_ecdsa_respond',
   'threshold_ed25519_healthz',
   'threshold_ed25519_session',
   'threshold_ed25519_sign_init',
@@ -51,6 +53,12 @@ const ALLOWLISTED_PUBLIC_RELAY_ROUTE_IDS = [
   'session_exchange',
   'wallet_unlock_challenge',
   'wallet_unlock_verify',
+  'wallet_registration_start',
+  'wallet_registration_hss_respond',
+  'wallet_registration_finalize',
+  'wallet_add_signer_start',
+  'wallet_add_signer_hss_respond',
+  'wallet_add_signer_finalize',
   'wallet_email_otp_dev_cleanup_google_registration',
   'recover_email',
 ] as const;
@@ -63,6 +71,7 @@ const ALLOWLISTED_PROOFLESS_PUBLIC_RELAY_ROUTE_IDS = [
   'link_device_session_create',
   'link_device_session_claim',
   'link_device_prepare',
+  'link_device_ecdsa_respond',
   'threshold_ed25519_healthz',
   'threshold_ecdsa_healthz',
   'recover_email',
@@ -84,14 +93,27 @@ test.describe('route definition scaffolding', () => {
     const ids = routes.map((route) => route.id);
     expect(new Set(ids).size).toBe(ids.length);
 
-    const registrationBootstrap = routes.find((route) => route.id === 'registration_bootstrap');
-    expect(registrationBootstrap).toBeTruthy();
-    expect(registrationBootstrap?.auth).toMatchObject({
+    expect(routes.find((route) => route.id === 'registration_bootstrap')).toBeUndefined();
+    expect(
+      routes.find((route) => route.id === 'registration_threshold_ed25519_hss_prepare'),
+    ).toBeUndefined();
+    expect(
+      routes.find((route) => route.id === 'registration_threshold_ed25519_hss_respond'),
+    ).toBeUndefined();
+    expect(
+      routes.find((route) => route.id === 'registration_threshold_ed25519_hss_finalize'),
+    ).toBeUndefined();
+
+    const walletRegistrationIntent = routes.find(
+      (route) => route.id === 'wallet_registration_intent',
+    );
+    expect(walletRegistrationIntent).toBeTruthy();
+    expect(walletRegistrationIntent?.auth).toMatchObject({
       plane: 'api_credentials',
       credentials: ['secret_key', 'bootstrap_token'],
       scopes: ['accounts.create'],
     });
-    expect(registrationBootstrap?.metering).toEqual({ kind: 'event', action: 'wallet_created' });
+    expect(walletRegistrationIntent?.metering).toEqual({ kind: 'none' });
 
     const apiWalletList = routes.find((route) => route.id === 'api_wallets_list');
     expect(apiWalletList).toBeTruthy();

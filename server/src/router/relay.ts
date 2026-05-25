@@ -297,7 +297,7 @@ export interface RelayBootstrapGrantIssueRequest {
   publishableKey: string;
   origin: string;
   environmentId: string;
-  newAccountId: string;
+  newAccountId?: string;
   rpId: string;
   flow: 'registration_v1';
   clientContext?: RelayBootstrapGrantClientContext;

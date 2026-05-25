@@ -56,7 +56,7 @@ SDK API redesigns.
 - **Refactor 39C: ready material and key-ref isolation.** Replace core
   `ThresholdEcdsaSecp256k1KeyRef` usage with branch-specific ready material.
 - Budget and step-up invariants are intentionally out of scope for Refactor 39.
-  See `docs/refactor-40.md`.
+  See `docs/refactor-41.md`.
 
 ## Canonical Builders
 
@@ -67,7 +67,7 @@ call sites through them instead of introducing parallel identity shapes.
 - `toConsumableEmailOtpPostSignMaterial(selectedMaterial)`
 - `toVerifiedEcdsaPublicFacts(serverRecord | keyRef | durableRecord)`
 - `toReadyEcdsaSignerSession(record, boundaryPayload)`
-- `toSigningBudgetReservationIdentity(admission, operation)` in Refactor 40
+- `toSigningBudgetReservationIdentity(admission, operation)` in Refactor 41
 
 ## Phase 0: Inventory Current Escape Hatches
 
@@ -83,7 +83,7 @@ call sites through them instead of introducing parallel identity shapes.
       boundary files.
 - [x] Add guard coverage for broad key-ref object spreads.
 - [x] Produce a per-gate implementation checklist so 39A can land before 39B,
-      39C, or Refactor 40.
+      39C, or Refactor 41.
 
 Current object-spread inventory:
 
@@ -142,7 +142,7 @@ key versions belong to 39B.
 
 39A is limited to exact selected-lane Email OTP consumption. Do not implement
 budget freshness, step-up policy, projection, OTP refresh, or reservation
-identity changes in this gate; those belong to Refactor 40.
+identity changes in this gate; those belong to Refactor 41.
 
 ### Target Types
 
@@ -1488,12 +1488,12 @@ been cleaned.
   - [x] Build an exact unlock ECDSA warm-up plan before clearing volatile
         session material.
   - [x] Model the plan as explicit states:
-        `no_configured_ecdsa_targets`, `ready`, `needs_ed25519_inventory`, and
-        `blocked`.
-  - [x] Allow `needs_ed25519_inventory` only when every configured ECDSA target
-        has an exact `keyHandle` selector and unlock only needs
-        server-certified key/public facts from the Ed25519-authorized inventory
-        route.
+        `no_configured_ecdsa_targets`, `ready`,
+        `awaiting_authenticated_key_facts_inventory`, and `blocked`.
+  - [x] Allow `awaiting_authenticated_key_facts_inventory` only when every
+        configured ECDSA target has an exact `keyHandle` selector and unlock
+        only needs server-certified key/public facts from an authenticated
+        inventory route.
   - [x] Treat missing key handles, ambiguous key handles, missing chain targets,
         and synthetic legacy ids as `blocked`.
   - [x] Preflight the warm-up plan before
@@ -1823,5 +1823,5 @@ Implementation plan:
 
 Refactor 39 is complete. Remaining cleanup around
 `EvmFamilyEcdsaWalletKey`, profile-continuity parsing, Postgres
-shared-identity lookup shape, and stale `needs_ed25519_inventory` naming is
-tracked in `docs/rework-registration-flows.md` Phase 8.
+shared-identity lookup shape, and wallet-subject key-facts inventory is tracked
+in `docs/rework-registration-flows.md` Phase 8.

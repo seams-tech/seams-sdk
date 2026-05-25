@@ -2,7 +2,6 @@ import { useCallback, useState } from 'react';
 import {
   createIntentId,
   walletSessionRefFromSession,
-  walletSubjectIdFromWalletProfile,
 } from '@seams/sdk';
 import { useSeams } from '@seams/sdk/react';
 import { toast } from 'sonner';
@@ -354,7 +353,6 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
           walletId: nearAccountId,
           userId: nearAccountId,
         }),
-        subjectId: walletSubjectIdFromWalletProfile({ walletId: nearAccountId }),
         request,
         chainTarget: resolveDemoThresholdEcdsaChainTarget('tempo', frontendConfig.chains),
         finalization: {

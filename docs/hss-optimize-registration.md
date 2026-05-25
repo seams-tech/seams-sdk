@@ -1,6 +1,6 @@
 # HSS Optimize Registration
 
-Date updated: April 3, 2026
+Date updated: May 23, 2026
 
 ## Summary
 
@@ -15,6 +15,267 @@ The rule for this work is simple:
   revert it and move on
 
 This is a performance plan, not a speculative redesign doc.
+
+## May 2026 Active-Path Plan
+
+Recent full active-path test runs show the Ed25519 HSS ceremony at roughly
+`2.8s` to `3.3s` total. The main buckets are:
+
+- server `prepare`: about `380ms` to `480ms`
+- server `respond`: about `340ms` to `410ms`
+- client `evaluate`: about `1.16s` to `1.34s`
+- server `finalize`: about `540ms` to `650ms`
+- client `complete`: about `170ms` to `210ms`
+
+Native release profiling still points to the HSS hidden-eval core as the
+dominant protocol cost, with the browser active path adding worker, WASM
+boundary, serialization, and route overhead around it.
+
+The optimization work should proceed in this order.
+
+### Completed Phase 0: HSS Client Wasm Build Profile
+
+Change:
+
+- benchmarked `wasm/hss_client_signer` release `opt-level` values `"z"`, `"s"`,
+  `2`, and `3`
+
+Bundle-size impact:
+
+- `opt-level = "z"`: `482,464` raw bytes, `217,929` gzipped bytes
+- `opt-level = "s"`: `526,938` raw bytes, `232,814` gzipped bytes
+- `opt-level = 2`: `712,241` raw bytes, `284,066` gzipped bytes
+- `opt-level = 3`: `742,843` raw bytes, `289,496` gzipped bytes
+- `opt-level = "s"` saves `215,905` raw bytes and `56,682` gzipped bytes
+  versus `opt-level = 3`
+- `opt-level = 2` saves `30,602` raw bytes and `5,430` gzipped bytes versus
+  `opt-level = 3`
+
+Latency impact from `pnpm -C tests test:threshold-ed25519:active-path`:
+
+- `opt-level = "z"`: total mean `2,830.7ms`, client `evaluate` mean
+  `1,151.7ms`, client `complete` mean `171.3ms`
+- `opt-level = "s"`: total mean `2,485.8ms`, client `evaluate` mean
+  `872.8ms`, client `complete` mean `155.5ms`
+- `opt-level = 2`: total mean `2,296.8ms`, client `evaluate` mean `803.2ms`,
+  client `complete` mean `96.2ms`
+- `opt-level = 3`: total mean `2,227.5ms`, client `evaluate` mean `777.2ms`,
+  client `complete` mean `93.5ms`
+- `opt-level = "s"` is about `12.2%` faster than `"z"` by total ceremony mean
+- `opt-level = 2` is about `18.9%` faster than `"z"` by total ceremony mean
+- `opt-level = 3` is about `21.3%` faster than `"z"` by total ceremony mean
+- `opt-level = "s"` gives back about `258.3ms` total ceremony mean versus
+  `opt-level = 3`
+- `opt-level = 2` gives back about `69.3ms` total ceremony mean versus
+  `opt-level = 3`
+
+Decision:
+
+- use `opt-level = "s"` as the default balanced profile; it keeps most of the
+  bundle-size advantage of `"z"` while still cutting mean ceremony latency by
+  about `345ms`
+- use `opt-level = 3` only if registration latency becomes more important than
+  the extra `56.7KB` gzipped WASM delta
+
+### Phase A: Add Evaluate Substage Instrumentation
+
+Goal:
+
+- make the browser `evaluateMs` bucket explain itself before changing runtime
+  shape
+
+Work:
+
+- add worker-side timing fields around:
+  - worker queue wait
+  - WASM initialization
+  - request payload normalization
+  - base64 decode
+  - bincode/state decode
+  - evaluator runtime materialization
+  - OT-selected client input reconstruction
+  - server input delivery open
+  - hidden-eval trace execution
+  - staged artifact assembly and encode
+- thread these timings through the worker response in a diagnostics-only field
+  that cannot influence control flow
+- log total request and response byte counts for the worker message
+
+Keep rule:
+
+- always keep if the instrumentation stays boundary-local and does not alter
+  protocol semantics
+
+Validation:
+
+- `pnpm -C tests test:threshold-ed25519:active-path`
+
+### Phase B: Worker-Resident HSS Session Handles
+
+Goal:
+
+- avoid repeated state serialization, base64 decode, bincode decode, and runtime
+  materialization across the HSS client worker calls
+
+Target shape:
+
+```ts
+type HssClientWorkerSession =
+  | { kind: 'prepared'; handle: HssClientSessionHandle }
+  | { kind: 'client_request_prepared'; handle: HssClientSessionHandle }
+  | { kind: 'evaluated'; handle: HssClientSessionHandle };
+```
+
+Work:
+
+- change `threshold_ed25519_hss_prepare_session` worker handling so the worker
+  stores materialized runtime/session state behind a short-lived handle
+- make `prepare_client_request`, `build_client_owned_staged_evaluator_artifact`,
+  `open_client_output`, and seed export consume the handle where possible
+- keep durable and HTTP boundaries encoded as today; the worker-local path can
+  use handles because it is process-local and ephemeral
+- add TTL cleanup and explicit cleanup on success, failure, cancellation, and
+  worker reset
+- encode lifecycle with discriminated unions so call sites cannot evaluate with
+  an unprepared or completed handle
+
+Security constraints:
+
+- client-owned evaluator state stays only in the client worker
+- `clientOutputMaskB64u` remains required for client-owned staged artifact
+  construction and client output opening
+- diagnostics must never carry raw client input shares, raw mask material, or
+  opened `xClientBaseB64u`
+
+Expected effect:
+
+- lower `evaluateMs` and `completeMs`
+- lower worker message bytes
+- lower browser GC pressure during the ceremony
+
+Validation:
+
+- worker type fixtures for invalid handle lifecycle transitions
+- focused unit tests for cleanup on success, failure, and timeout
+- `pnpm -C tests test:threshold-ed25519:active-path`
+- `pnpm check:formal-verification` if boundary shapes change
+
+### Phase C: Binary Worker Payloads
+
+Goal:
+
+- remove base64 overhead from browser worker messages for process-local data
+
+Work:
+
+- replace worker-local HSS byte payload strings with `Uint8Array` where the data
+  does not cross HTTP, persistence, or public SDK boundaries
+- use transferables for large one-shot buffers
+- keep HTTP payloads and persistent records in canonical encoded form unless a
+  separate API migration changes those boundaries
+- make boundary parsers normalize raw `ArrayBuffer`, `Uint8Array`, and encoded
+  strings into narrow internal byte types at the worker edge
+
+Candidate payloads:
+
+- evaluator driver state
+- evaluator OT state
+- server input delivery after HTTP decode
+- staged evaluator artifact before HTTP encode
+- finalized client output packet after HTTP decode
+
+Expected effect:
+
+- lower worker transfer time
+- lower encode/decode time
+- lower allocation and GC pressure
+
+Validation:
+
+- static type fixtures rejecting raw string use inside core HSS worker logic
+- active-path timing comparison before and after
+- browser worker tests for transferable ownership behavior
+
+### Phase D: Wallet Registration Start Prepare Pipelining
+
+Goal:
+
+- remove one visible registration round trip by starting the HSS server prepare
+  work during `/wallets/register/start`
+
+Work:
+
+- return the Ed25519 HSS prepared-session branch from
+  `/wallets/register/start` after WebAuthn `create()` verification
+- move registration-time HSS prepare ownership into the wallet registration
+  ceremony service path
+- delete the registration-specific client call to
+  `/registration/threshold-ed25519/hss/prepare`
+- keep session HSS prepare routes for existing-key flows such as
+  reconstruction, repair, export, and warm-session work
+- bind the prepared session to `registrationCeremonyId`,
+  `walletSubjectId`, the canonical registration intent digest, the Ed25519
+  signer spec, runtime policy scope, participant ids, and expiry
+
+Expected effect:
+
+- lower visible registration ceremony latency by roughly one `prepare` request
+  when `/wallets/register/start` is already on the critical path
+
+Validation:
+
+- route tests proving wallet-registration prepared sessions cannot be reused
+  across wallet subject, account, signing-root, intent digest, or participant
+  changes
+- active-path timing comparison before and after
+- wallet registration ceremony grant tests
+
+### Phase E: Executor Core Cleanup
+
+Goal:
+
+- reduce the real hidden-eval cost after wrapper and route overhead are lower
+
+Work:
+
+- precompute stable labels and avoid per-round string formatting in the hot
+  message schedule and round-core loops
+- replace repeated `Vec` cloning in schedule and round continuations with
+  fixed-size or reusable buffers where the stage shape is statically known
+- keep round state in fixed arrays where possible
+- reduce arithmetic-to-bit conversion frequency only when the algebra proof is
+  clear and covered by tests or formal specs
+- revisit output-projector additions after the worker/transport changes land,
+  using the current `ClientMaskedProjection` algebra as the only production path
+
+Expected effect:
+
+- lower `round_core`, `message_schedule`, and `output_projector` timings
+- smaller top-line impact than worker-resident state until the browser wrapper
+  overhead is reduced
+
+Validation:
+
+- native release benchmark:
+  `cargo run --release --bin benchmark_ddh_hidden_eval -- --primitive-warmup 0 --primitive-iterations 1 --stage-warmup 0 --stage-iterations 1 --samples 6`
+- full active-path test:
+  `pnpm -C tests test:threshold-ed25519:active-path`
+- formal verification updates for any algebraic projector or carry conversion
+  change
+
+## Current Todo
+
+- [x] Capture a fresh active-path baseline with the size-optimized WASM profile.
+- [x] Trial speed-optimized HSS client WASM and record size/latency impact.
+- [ ] Implement Phase A instrumentation.
+- [ ] Implement Phase B worker-resident HSS handles.
+- [ ] Implement Phase C binary worker payloads.
+- [ ] Implement Phase D wallet registration start prepare pipelining.
+- [ ] Re-benchmark after each phase and keep only meaningful wins.
+- [ ] Implement Phase E executor cleanup only after wrapper/transport overhead is
+      quantified.
+- [ ] Update security and README language if any public timing or boundary claim
+      changes.
 
 ## Current Registration Shape
 

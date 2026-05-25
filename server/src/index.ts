@@ -89,6 +89,11 @@ export {
   DEFAULT_RECOVERY_SESSION_TTL_MS,
 } from './core/recoverySessionRecords';
 export {
+  createEmailRecoveryPreparationStore,
+  type EmailRecoveryPreparationRecord,
+  type EmailRecoveryPreparationStore,
+} from './core/EmailRecoveryPreparationStore';
+export {
   createRecoveryExecutionStore,
   type RecoveryExecutionStore,
   type RecoveryExecutionRecord,

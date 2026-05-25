@@ -22,7 +22,6 @@ import {
 } from '@server/router/express-adaptor';
 import { createFixtureSigningRootShareResolverForUnitTests } from '../helpers/thresholdEd25519TestUtils';
 import type { SigningSessionSealRoutesOptions } from '@server/threshold/session/signingSessionSeal';
-import { REGISTRATION_CONTINUATION_JWT_KIND } from '@shared/utils/sessionTokens';
 
 const SESSION_COOKIE_NAME =
   String(process.env.SESSION_COOKIE_NAME || 'seams-jwt').trim() || 'seams-jwt';
@@ -619,35 +618,6 @@ export async function installCreateAccountAndRegisterUserMock(
         ? ecdsaBootstrap.clientVerifyingShareB64u || ''
         : '',
     ).trim();
-    const registrationContinuationTargets = Array.isArray(
-      payload?.registration_continuation?.threshold_ecdsa_chain_targets,
-    )
-      ? payload.registration_continuation.threshold_ecdsa_chain_targets
-      : [];
-    const registrationContinuation =
-      registrationContinuationTargets.length > 0
-        ? await (async () => {
-            if (!input.session?.signJwt) return null;
-            const expiresAtMs = nowMs + 5 * 60_000;
-            const token = await input.session.signJwt(accountId, {
-              kind: REGISTRATION_CONTINUATION_JWT_KIND,
-              walletId: accountId,
-              rpId: String(payload?.rp_id || '').trim() || 'example.localhost',
-              subjectId: accountId,
-              thresholdEcdsaChainTargets: registrationContinuationTargets,
-              registrationExpiresAtMs: expiresAtMs,
-              ...(input.runtimePolicyScope ? { runtimePolicyScope: input.runtimePolicyScope } : {}),
-              iat: nowSec,
-              exp: Math.floor(expiresAtMs / 1000),
-            });
-            return {
-              token,
-              expiresAtMs,
-              thresholdEcdsaChainTargets: registrationContinuationTargets,
-            };
-          })()
-        : null;
-
     const ecdsaSession =
       thresholdEcdsaMode && ecdsaSessionPolicy
         ? await (async () => {
@@ -728,11 +698,6 @@ export async function installCreateAccountAndRegisterUserMock(
                 participantIds: [1, 2],
                 ...(ecdsaSession ? { session: ecdsaSession } : {}),
               },
-            }
-          : {}),
-        ...(registrationContinuation
-          ? {
-              registrationContinuation,
             }
           : {}),
       }),

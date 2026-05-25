@@ -165,8 +165,47 @@ type ParseErr = { ok: false; code: string; message: string };
 type ParseResult<T> = ParseOk<T> | ParseErr;
 type ThresholdEd25519HssSessionError = { ok: false; code?: string; message?: string };
 
+const ED25519_HSS_SERVER_VISIBLE_CLIENT_REQUEST_FORBIDDEN_FIELDS = [
+  'evaluatorOtStateB64u',
+  'yClientB64u',
+  'tauClientB64u',
+  'rClientB64u',
+  'clientOutputMaskB64u',
+  'prfFirstB64u',
+  'prfOutputB64u',
+  'clientSecretB64u',
+  'clientSecret32B64u',
+  'yRelayerB64u',
+  'tauRelayerB64u',
+] as const;
+
+const ED25519_HSS_CLIENT_OWNED_STAGED_ARTIFACT_FORBIDDEN_FIELDS = [
+  'stagedEvaluatorArtifactHandle',
+  'evaluatorOtStateB64u',
+  'xClientBaseB64u',
+  'xRelayerBaseB64u',
+  'yClientB64u',
+  'tauClientB64u',
+  'yRelayerB64u',
+  'tauRelayerB64u',
+  'rClientB64u',
+  'clientOutputMaskB64u',
+  'prfFirstB64u',
+  'prfOutputB64u',
+  'clientSecretB64u',
+  'clientSecret32B64u',
+  'seedOutputMessageB64u',
+] as const;
+
 function assertNever(value: never): never {
   throw new Error(`Unexpected threshold signing branch: ${String(value)}`);
+}
+
+function findOwnField(
+  raw: Record<string, unknown>,
+  fields: readonly string[],
+): string | undefined {
+  return fields.find((field) => Object.prototype.hasOwnProperty.call(raw, field));
 }
 
 type ThresholdEd25519HssCeremonyRecord =
@@ -931,11 +970,12 @@ function parseThresholdEd25519HssServerVisibleClientRequestEnvelope(
       message: 'clientRequest.clientRequestMessageB64u is required',
     };
   }
-  if (toOptionalTrimmedString(raw.evaluatorOtStateB64u)) {
+  const forbiddenField = findOwnField(raw, ED25519_HSS_SERVER_VISIBLE_CLIENT_REQUEST_FORBIDDEN_FIELDS);
+  if (forbiddenField) {
     return {
       ok: false,
       code: 'invalid_body',
-      message: 'clientRequest.evaluatorOtStateB64u must stay client-local',
+      message: `clientRequest.${forbiddenField} must stay outside the server-visible request`,
     };
   }
   return {
@@ -966,11 +1006,12 @@ function parseThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope(
       message: 'evaluationResult.stagedEvaluatorArtifactB64u is required',
     };
   }
-  if (toOptionalTrimmedString(raw.evaluatorOtStateB64u)) {
+  const forbiddenField = findOwnField(raw, ED25519_HSS_CLIENT_OWNED_STAGED_ARTIFACT_FORBIDDEN_FIELDS);
+  if (forbiddenField) {
     return {
       ok: false,
       code: 'invalid_body',
-      message: 'evaluationResult.evaluatorOtStateB64u must stay client-local',
+      message: `evaluationResult.${forbiddenField} must stay outside the client-owned staged artifact`,
     };
   }
   return {

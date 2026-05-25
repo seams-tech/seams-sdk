@@ -16,12 +16,6 @@ import {
   normalizeRuntimePolicyScope,
   normalizeRuntimePolicyScopeFields,
 } from '@shared/threshold/signingRootScope';
-import {
-  thresholdEcdsaChainTargetFromValue,
-  thresholdEcdsaChainTargetKey,
-  type ThresholdEcdsaChainTarget,
-} from '../core/thresholdEcdsaChainTarget';
-import { REGISTRATION_CONTINUATION_JWT_KIND } from '@shared/utils/sessionTokens';
 
 type PlainObject = Record<string, unknown>;
 type AuthorizeErr = { ok: false; code: 'sessions_disabled' | 'unauthorized'; message: string };
@@ -334,20 +328,6 @@ export async function signThresholdSessionAuthToken(args: {
   };
 }
 
-export type RegistrationContinuationJwtSigningResult =
-  | {
-      ok: true;
-      jwt: string;
-      expiresAtMs: number;
-      thresholdEcdsaChainTargets: ThresholdEcdsaChainTarget[];
-    }
-  | {
-      ok: false;
-      status: 400 | 500;
-      code: 'sessions_disabled' | 'invalid_body';
-      message: string;
-  };
-
 export function stripLegacyThresholdEcdsaIdentityFields<
   TThresholdEcdsa extends Record<string, unknown>,
 >(thresholdEcdsa: TThresholdEcdsa): Omit<
@@ -365,90 +345,6 @@ export function stripLegacyThresholdEcdsaIdentityFields<
     signingRootVersion?: unknown;
   };
   return sanitized;
-}
-
-export async function signRegistrationContinuationJwt(args: {
-  session: SessionAdapter | null | undefined;
-  walletId: unknown;
-  rpId: unknown;
-  subjectId: unknown;
-  thresholdEcdsaChainTargets: unknown;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  ttlMs?: number;
-}): Promise<RegistrationContinuationJwtSigningResult> {
-  const session = args.session;
-  if (!session) {
-    return {
-      ok: false,
-      status: 500,
-      code: 'sessions_disabled',
-      message: 'Session signing is not configured on this server',
-    };
-  }
-  const walletId = String(args.walletId || '').trim();
-  const rpId = String(args.rpId || '').trim();
-  const subjectId = String(args.subjectId || '').trim();
-  if (!walletId || !rpId || !subjectId || !Array.isArray(args.thresholdEcdsaChainTargets)) {
-    return {
-      ok: false,
-      status: 400,
-      code: 'invalid_body',
-      message: 'registration continuation requires walletId, rpId, subjectId, and ECDSA targets',
-    };
-  }
-  const thresholdEcdsaChainTargets: ThresholdEcdsaChainTarget[] = [];
-  const seenTargets = new Set<string>();
-  for (const rawTarget of args.thresholdEcdsaChainTargets) {
-    const target = thresholdEcdsaChainTargetFromValue(rawTarget);
-    if (!target) {
-      return {
-        ok: false,
-        status: 400,
-        code: 'invalid_body',
-        message: 'registration continuation includes an invalid ECDSA target',
-      };
-    }
-    const targetKey = thresholdEcdsaChainTargetKey(target);
-    if (seenTargets.has(targetKey)) {
-      return {
-        ok: false,
-        status: 400,
-        code: 'invalid_body',
-        message: `registration continuation includes duplicate ECDSA target "${targetKey}"`,
-      };
-    }
-    seenTargets.add(targetKey);
-    thresholdEcdsaChainTargets.push(target);
-  }
-  if (thresholdEcdsaChainTargets.length < 1) {
-    return {
-      ok: false,
-      status: 400,
-      code: 'invalid_body',
-      message: 'registration continuation requires at least one ECDSA target',
-    };
-  }
-  const ttlMs = Math.max(1, Math.floor(Number(args.ttlMs) || 5 * 60_000));
-  const expiresAtMs = Date.now() + ttlMs;
-  const nowSec = Math.floor(Date.now() / 1000);
-  const expSec = Math.floor(expiresAtMs / 1000);
-  const jwt = await session.signJwt(walletId, {
-    kind: REGISTRATION_CONTINUATION_JWT_KIND,
-    walletId,
-    rpId,
-    subjectId,
-    thresholdEcdsaChainTargets,
-    registrationExpiresAtMs: expiresAtMs,
-    ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
-    iat: nowSec,
-    exp: expSec,
-  });
-  return {
-    ok: true,
-    jwt,
-    expiresAtMs,
-    thresholdEcdsaChainTargets,
-  };
 }
 
 export type ThresholdRuntimePolicyScopeResolution =

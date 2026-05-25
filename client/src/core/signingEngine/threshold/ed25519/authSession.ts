@@ -7,14 +7,71 @@ import {
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import { redactCredentialExtensionOutputs } from '../crypto/webauthn';
 
+export type ThresholdEd25519SessionMintAuthorization =
+  | {
+      kind: 'app_session_jwt';
+      appSessionJwt: string;
+      localPrfCredential: WebAuthnAuthenticationCredential;
+      thresholdEcdsaSessionJwt?: never;
+      localPrfFirstB64u?: never;
+      useAppSessionCookie?: never;
+      webauthnAuthentication?: never;
+    }
+  | {
+      kind: 'app_session_cookie';
+      localPrfCredential: WebAuthnAuthenticationCredential;
+      appSessionJwt?: never;
+      thresholdEcdsaSessionJwt?: never;
+      localPrfFirstB64u?: never;
+      useAppSessionCookie?: never;
+      webauthnAuthentication?: never;
+    }
+  | {
+      kind: 'threshold_ecdsa_session_jwt';
+      thresholdEcdsaSessionJwt: string;
+      localPrfFirstB64u: string;
+      appSessionJwt?: never;
+      localPrfCredential?: never;
+      useAppSessionCookie?: never;
+      webauthnAuthentication?: never;
+    }
+  | {
+      kind: 'threshold_session_policy_webauthn';
+      webauthnAuthentication: WebAuthnAuthenticationCredential;
+      appSessionJwt?: never;
+      thresholdEcdsaSessionJwt?: never;
+      localPrfFirstB64u?: never;
+      useAppSessionCookie?: never;
+      localPrfCredential?: never;
+    };
+
+export function localPrfFirstForThresholdEd25519SessionMintAuthorization(args: {
+  auth: ThresholdEd25519SessionMintAuthorization;
+  prfFirstFromCredential: (credential: WebAuthnAuthenticationCredential) => string | null;
+}): string {
+  switch (args.auth.kind) {
+    case 'app_session_jwt':
+    case 'app_session_cookie':
+      return args.prfFirstFromCredential(args.auth.localPrfCredential) || '';
+    case 'threshold_ecdsa_session_jwt':
+      return args.auth.localPrfFirstB64u;
+    case 'threshold_session_policy_webauthn':
+      return args.prfFirstFromCredential(args.auth.webauthnAuthentication) || '';
+    default: {
+      const exhaustive: never = args.auth;
+      return exhaustive;
+    }
+  }
+}
+
 /**
- * WebAuthn-only threshold session mint.
+ * Threshold Ed25519 session mint.
  *
- * The server verifies the WebAuthn assertion directly and binds the session to the
- * `sessionPolicyDigest32` by using it as the WebAuthn challenge bytes (base64url string).
+ * `threshold_session_policy_webauthn` sends a WebAuthn assertion whose challenge
+ * is the `sessionPolicyDigest32`. App-session branches authorize the route with
+ * the app session; the local PRF credential stays in wallet origin.
  *
  * Notes:
- * - Callers must ensure the WebAuthn `challenge` equals `sessionPolicyDigest32`.
  * - PRF outputs must never be sent to the relay; they should be used only in wallet origin.
  */
 export async function mintEd25519AuthSession(args: {
@@ -22,9 +79,7 @@ export async function mintEd25519AuthSession(args: {
   sessionKind: ThresholdSessionKind;
   relayerKeyId: string;
   sessionPolicy: Ed25519SessionPolicy;
-  webauthnAuthentication?: WebAuthnAuthenticationCredential;
-  appSessionJwt?: string;
-  useAppSessionCookie?: boolean;
+  auth: ThresholdEd25519SessionMintAuthorization;
   runtimeEnvironmentId?: string;
   publishableKey?: string;
 }): Promise<{
@@ -55,10 +110,10 @@ export async function mintEd25519AuthSession(args: {
     };
   }
 
-  // Never send PRF outputs to the relay.
-  const webauthn_authentication = args.webauthnAuthentication
-    ? redactCredentialExtensionOutputs(args.webauthnAuthentication)
-    : undefined;
+  const webauthn_authentication =
+    args.auth.kind === 'threshold_session_policy_webauthn'
+      ? redactCredentialExtensionOutputs(args.auth.webauthnAuthentication)
+      : undefined;
 
   type ThresholdEd25519SessionMintResponseBody = Partial<{
     ok: boolean;
@@ -75,18 +130,22 @@ export async function mintEd25519AuthSession(args: {
   try {
     const url = `${relayerUrl}/threshold-ed25519/session`;
     const runtimeEnvironmentId = String(args.runtimeEnvironmentId || '').trim() || undefined;
-    const appSessionJwt = String(args.appSessionJwt || '').trim() || undefined;
-    const useAppSessionCookie = args.useAppSessionCookie === true;
+    const appSessionJwt =
+      args.auth.kind === 'app_session_jwt'
+        ? String(args.auth.appSessionJwt || '').trim() || undefined
+        : undefined;
+    const thresholdEcdsaSessionJwt =
+      args.auth.kind === 'threshold_ecdsa_session_jwt'
+        ? String(args.auth.thresholdEcdsaSessionJwt || '').trim() || undefined
+        : undefined;
+    const useAppSessionCookie = args.auth.kind === 'app_session_cookie';
     const publishableKey = String(args.publishableKey || '').trim() || undefined;
+    const bearerToken = appSessionJwt || thresholdEcdsaSessionJwt || publishableKey;
     const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(appSessionJwt
-          ? { Authorization: `Bearer ${appSessionJwt}` }
-          : publishableKey
-            ? { Authorization: `Bearer ${publishableKey}` }
-            : {}),
+        ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
       },
       credentials: useAppSessionCookie || args.sessionKind === 'cookie' ? 'include' : 'omit',
       body: JSON.stringify({

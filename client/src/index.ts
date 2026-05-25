@@ -18,6 +18,17 @@ export * from './config';
 export { base64UrlEncode, base64UrlDecode } from '@shared/utils/encoders';
 export { PASSKEY_MANAGER_DEFAULT_CONFIGS } from './core/config/defaultConfigs';
 export { buildConfigsFromEnv } from './core/config/defaultConfigs';
+export type {
+  AddSignerIntentV1,
+  AddSignerSelection,
+  RegisterWalletSubjectInput,
+  RegistrationIntentGrant,
+  RegistrationIntentV1,
+  RegistrationSignerSelection,
+  ThresholdEcdsaAddSignerSpec,
+  ThresholdEd25519AddSignerSpec,
+  WalletSubjectId as RegistrationWalletSubjectId,
+} from '@shared/utils/registrationIntent';
 
 export type {
   SeamsConfigsReadonly,

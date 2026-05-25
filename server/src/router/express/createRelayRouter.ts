@@ -7,12 +7,11 @@ import { coerceRouterLogger } from '../logger';
 import { installCors } from './cors';
 import { registerBootstrapGrantRoutes } from './routes/bootstrapGrants';
 import { registerApiWalletRoutes } from './routes/apiWallets';
-import { registerCreateAccountAndRegisterUser } from './routes/createAccountAndRegisterUser';
 import { registerEmailRecoveryRoutes } from './routes/emailRecovery';
 import { registerHealthRoutes } from './routes/health';
 import { registerLinkDeviceRoutes } from './routes/linkDevice';
 import { registerRecoverEmailRoute } from './routes/recoverEmail';
-import { registerRegistrationThresholdEd25519HssRoutes } from './routes/registrationThresholdEd25519Hss';
+import { registerWalletRegistrationRoutes } from './routes/walletRegistration';
 import { registerSessionRoutes } from './routes/sessions';
 import { registerSignedDelegateRoutes } from './routes/signedDelegate';
 import { registerSyncAccountRoutes } from './routes/syncAccount';
@@ -69,8 +68,7 @@ export function createRelayRouter(
   };
 
   registerBootstrapGrantRoutes(router, ctx);
-  registerRegistrationThresholdEd25519HssRoutes(router, ctx);
-  registerCreateAccountAndRegisterUser(router, ctx);
+  registerWalletRegistrationRoutes(router, ctx);
   registerApiWalletRoutes(router, ctx);
   registerSponsoredEvmCallRoutes(router, ctx);
   registerSignedDelegateRoutes(router, ctx);

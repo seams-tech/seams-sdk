@@ -12,7 +12,10 @@ import {
   redactCredentialExtensionOutputs,
 } from '../../webauthnAuth/credentials/credentialExtensions';
 
-export { getPrfFirstB64uFromCredential, redactCredentialExtensionOutputs };
+export {
+  getPrfFirstB64uFromCredential,
+  redactCredentialExtensionOutputs,
+};
 
 export type ThresholdAuthenticatorRecord = ProfileAuthenticatorRecord & WebAuthnAuthenticatorRecord;
 export type ThresholdIndexedDbClientPort =

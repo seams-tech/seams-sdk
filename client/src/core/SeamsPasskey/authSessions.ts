@@ -16,7 +16,10 @@ import type {
 import type {
   WalletSessionRef,
 } from '../signingEngine/interfaces/ecdsaChainTarget';
-import { toWalletId } from '../signingEngine/interfaces/ecdsaChainTarget';
+import {
+  thresholdEcdsaChainTargetKey,
+  toWalletId,
+} from '../signingEngine/interfaces/ecdsaChainTarget';
 import {
   getWalletSession as getWalletSessionCore,
   getRecentUnlocks as getRecentUnlocksCore,
@@ -184,15 +187,23 @@ export async function prefillThresholdEcdsaPresignPoolDomain(
     });
   }
 
-  const keyRef = deps.signingEngine.getThresholdEcdsaKeyRefForWalletTarget({
+  const ecdsaRecords = deps.signingEngine.listThresholdEcdsaSessionRecordsForWalletTarget({
     walletId: args.walletSession.walletId,
     chainTarget: args.chainTarget,
     source: 'login',
   });
+  if (ecdsaRecords.length !== 1) {
+    throw new Error(
+      ecdsaRecords.length > 1
+        ? `[SeamsPasskey] ambiguous threshold ECDSA session record for wallet ${String(args.walletSession.walletId)} ${thresholdEcdsaChainTargetKey(args.chainTarget)}`
+        : `[SeamsPasskey] missing threshold ECDSA session record for wallet ${String(args.walletSession.walletId)} ${thresholdEcdsaChainTargetKey(args.chainTarget)}`,
+    );
+  }
+  const record = ecdsaRecords[0]!;
   return await deps.signingEngine.scheduleThresholdEcdsaLoginPresignPrefill({
     walletId: toWalletId(args.walletSession.walletId),
-    chainTarget: keyRef.chainTarget,
-    thresholdEcdsaKeyRef: keyRef,
+    chainTarget: record.chainTarget,
+    thresholdEcdsaSessionRecord: record,
     ...(typeof args.waitForPoolReady === 'boolean'
       ? { waitForPoolReady: args.waitForPoolReady }
       : {}),

@@ -15,6 +15,7 @@ import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy'
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import type { WarmSessionEcdsaCapabilityState } from '../../session/warmCapabilities/types';
 import type { EmailOtpWorkerProgressEvent } from '../../workerManager/workerTypes';
+import type { EmailOtpEcdsaBootstrapAuthorization } from '../../session/emailOtp/routePlan';
 import {
   requestEmailOtpSigningSessionChallenge as requestEmailOtpSigningSessionChallengeValue,
   refreshEmailOtpSigningSession as refreshEmailOtpSigningSessionValue,
@@ -37,6 +38,7 @@ export type LoginWithEmailOtpEcdsaCapabilityInternalArgs = {
   ttlMs?: number;
   remainingUses?: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  ecdsaBootstrapAuthorization: EmailOtpEcdsaBootstrapAuthorization;
   ed25519ReconstructionMode: 'await' | 'skip';
   ed25519SessionReconstruction: EmailOtpEd25519SessionReconstructionPlan;
   onProgress?: (progress: EmailOtpWorkerProgressEvent) => void;
@@ -136,6 +138,7 @@ export async function requestEmailOtpSigningSessionChallenge(
             participantIds: publicFacts.participantIds.map((participantId) =>
               Number(participantId),
             ),
+            ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
             ed25519SessionReconstruction: {
               kind: 'defer',
               reason: 'not_needed_for_ecdsa',

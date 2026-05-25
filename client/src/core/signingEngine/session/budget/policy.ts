@@ -36,17 +36,9 @@ export type SingleOperationStepUpBudgetPolicy = {
   operationId: SigningOperationId;
 };
 
-export type WarmBudgetRefreshStepUpPolicy = {
-  kind: 'warm_budget_refresh_step_up_policy';
-  allowance: SigningBudgetAllowance;
-  scope: 'warm_budget_refresh';
-  operationId: SigningOperationId;
-};
-
 export type SigningBudgetPolicy =
   | WalletUnlockBudgetPolicy
-  | SingleOperationStepUpBudgetPolicy
-  | WarmBudgetRefreshStepUpPolicy;
+  | SingleOperationStepUpBudgetPolicy;
 
 export const DEV_DEFAULT_SIGNING_BUDGET_ALLOWANCE: DevDefaultBudgetAllowance = {
   kind: 'dev_default_budget_allowance',
@@ -121,30 +113,11 @@ export function buildSingleOperationStepUpBudgetPolicy(args: {
   };
 }
 
-export function buildWarmBudgetRefreshStepUpBudgetPolicy(args: {
-  operationId: SigningOperationId;
-  allowance: SigningBudgetAllowance;
-}): WarmBudgetRefreshStepUpPolicy {
-  return {
-    kind: 'warm_budget_refresh_step_up_policy',
-    allowance: args.allowance,
-    scope: 'warm_budget_refresh',
-    operationId: args.operationId,
-  };
-}
-
 export function resolvePostExhaustionStepUpBudgetPolicy(args: {
   operationId: SigningOperationId;
-  warmBudgetRefreshAllowance?: SigningBudgetAllowance;
-}): SingleOperationStepUpBudgetPolicy | WarmBudgetRefreshStepUpPolicy {
-  if (!args.warmBudgetRefreshAllowance) {
-    return buildSingleOperationStepUpBudgetPolicy({
-      operationId: args.operationId,
-    });
-  }
-  return buildWarmBudgetRefreshStepUpBudgetPolicy({
+}): SingleOperationStepUpBudgetPolicy {
+  return buildSingleOperationStepUpBudgetPolicy({
     operationId: args.operationId,
-    allowance: args.warmBudgetRefreshAllowance,
   });
 }
 
@@ -153,8 +126,6 @@ export function resolveSigningBudgetPolicyRemainingUses(policy: SigningBudgetPol
     case 'wallet_unlock_budget_policy':
       return policy.allowance.remainingUses;
     case 'single_operation_step_up_budget_policy':
-      return policy.allowance.remainingUses;
-    case 'warm_budget_refresh_step_up_policy':
       return policy.allowance.remainingUses;
   }
   policy satisfies never;

@@ -11,7 +11,7 @@ void buildEvmFamilyPasskeyEcdsaProvisionPlan({
   sessionBudgetUses: 1,
 });
 
-// @ts-expect-error passkey ECDSA provision requires paired key-ref material
+// @ts-expect-error passkey ECDSA provision requires exact ready material
 void buildEvmFamilyPasskeyEcdsaProvisionPlan({
   authorization,
   sessionBudgetUses: 1,

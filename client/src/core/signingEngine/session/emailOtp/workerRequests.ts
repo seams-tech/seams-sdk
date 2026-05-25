@@ -1,7 +1,6 @@
 import type {
   ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfaces/signing';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { SignerWorkerOperationResult } from '@/core/signingEngine/workerManager/workerTypes';
@@ -90,14 +89,6 @@ export async function requestClaimEmailOtpWarmSessionMaterial(args: {
       },
     },
   });
-}
-
-export function resolveEmailOtpWorkerShareSessionId(
-  keyRef: ThresholdEcdsaSecp256k1KeyRef,
-): string {
-  const handle = keyRef.backendBinding?.clientAdditiveShareHandle;
-  if (handle?.kind !== 'email_otp_worker_session') return '';
-  return String(handle.sessionId || '').trim();
 }
 
 export async function claimEmailOtpEcdsaSigningShare32(args: {

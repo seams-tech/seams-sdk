@@ -1,8 +1,5 @@
 import type { NormalizedLogger } from '../../logger';
-import type {
-  EcdsaHssRoleLocalKeyRecord,
-  ThresholdStoreConfigInput,
-} from '../../types';
+import type { EcdsaHssRoleLocalKeyRecord, ThresholdStoreConfigInput } from '../../types';
 import {
   RedisTcpClient,
   UpstashRedisRestClient,
@@ -112,34 +109,42 @@ async function parseStoredEcdsaHssRoleLocalKeyRecord(
 }
 
 type ThresholdEcdsaIndexedIdentityRow = {
+  relayer_key_id?: string | null;
   key_handle?: string | null;
   threshold_key_id?: string | null;
+  wallet_session_user_id?: string | null;
+  subject_id?: string | null;
+  rp_id?: string | null;
   signing_root_id?: string | null;
   signing_root_version?: string | null;
   owner_address?: string | null;
   public_key_b64u?: string | null;
 };
 
-function assertThresholdEcdsaIndexedIdentityMatchesRecord(args: {
+function thresholdEcdsaIndexedIdentityMatchesRecord(args: {
   row: ThresholdEcdsaIndexedIdentityRow;
   record: ThresholdEcdsaStoredKeyRecordWithHandle;
-}): void {
+}): boolean {
   const rowKeyHandle = toOptionalTrimmedString(args.row.key_handle);
   const rowThresholdKeyId = toOptionalTrimmedString(args.row.threshold_key_id);
+  const rowWalletSessionUserId = toOptionalTrimmedString(args.row.wallet_session_user_id);
+  const rowSubjectId = toOptionalTrimmedString(args.row.subject_id);
+  const rowRpId = toOptionalTrimmedString(args.row.rp_id);
   const rowSigningRootId = toOptionalTrimmedString(args.row.signing_root_id);
   const rowSigningRootVersion = toOptionalTrimmedString(args.row.signing_root_version) || 'default';
   const rowOwnerAddress = toOptionalTrimmedString(args.row.owner_address);
   const rowPublicKey = toOptionalTrimmedString(args.row.public_key_b64u);
-  if (
+  return !(
     rowKeyHandle !== args.record.keyHandle ||
     rowThresholdKeyId !== args.record.ecdsaThresholdKeyId ||
+    rowWalletSessionUserId !== args.record.walletSessionUserId ||
+    rowSubjectId !== args.record.subjectId ||
+    rowRpId !== args.record.rpId ||
     rowSigningRootId !== args.record.signingRootId ||
     rowSigningRootVersion !== ecdsaSigningRootVersion(args.record) ||
     rowOwnerAddress !== args.record.ethereumAddress ||
     rowPublicKey !== thresholdEcdsaRecordPublicKeyB64u(args.record)
-  ) {
-    throw new Error(ECDSA_PUBLIC_FACTS_INTEGRITY_MESSAGE);
-  }
+  );
 }
 
 function thresholdEcdsaRecordPublicKeyB64u(record: ThresholdEcdsaStoredKeyRecord): string {
@@ -694,6 +699,9 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
             relayer_key_id TEXT NOT NULL,
             key_handle TEXT,
             threshold_key_id TEXT,
+            wallet_session_user_id TEXT,
+            subject_id TEXT,
+            rp_id TEXT,
             signing_root_id TEXT,
             signing_root_version TEXT,
             owner_address TEXT,
@@ -709,6 +717,13 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
           'ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS threshold_key_id TEXT',
         );
         await pool.query(
+          'ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS wallet_session_user_id TEXT',
+        );
+        await pool.query(
+          'ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS subject_id TEXT',
+        );
+        await pool.query('ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS rp_id TEXT');
+        await pool.query(
           'ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS signing_root_id TEXT',
         );
         await pool.query(
@@ -720,40 +735,20 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
         await pool.query(
           'ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS public_key_b64u TEXT',
         );
-        const missingIndexedIdentityColumns = await pool.query(
-          `
-            SELECT COUNT(*)::INT AS missing_count
-            FROM threshold_ecdsa_keys
-            WHERE
-              key_handle IS NULL OR
-              threshold_key_id IS NULL OR
-              signing_root_id IS NULL OR
-              signing_root_version IS NULL OR
-              owner_address IS NULL OR
-              public_key_b64u IS NULL
-          `,
-        );
-        if (Number(missingIndexedIdentityColumns.rows[0]?.missing_count || 0) > 0) {
-          throw new Error(
-            '[threshold-ecdsa] Missing indexed ECDSA key identity columns',
-          );
-        }
-        await pool.query('ALTER TABLE threshold_ecdsa_keys ALTER COLUMN key_handle SET NOT NULL');
-        await pool.query('ALTER TABLE threshold_ecdsa_keys ALTER COLUMN threshold_key_id SET NOT NULL');
-        await pool.query('ALTER TABLE threshold_ecdsa_keys ALTER COLUMN signing_root_id SET NOT NULL');
-        await pool.query(
-          'ALTER TABLE threshold_ecdsa_keys ALTER COLUMN signing_root_version SET NOT NULL',
-        );
-        await pool.query('ALTER TABLE threshold_ecdsa_keys ALTER COLUMN owner_address SET NOT NULL');
-        await pool.query('ALTER TABLE threshold_ecdsa_keys ALTER COLUMN public_key_b64u SET NOT NULL');
         await pool.query('DROP INDEX IF EXISTS threshold_ecdsa_keys_shared_identity_uidx');
+        await pool.query('DROP INDEX IF EXISTS threshold_ecdsa_keys_shared_identity_idx');
         await pool.query(`
           CREATE UNIQUE INDEX IF NOT EXISTS threshold_ecdsa_keys_key_handle_uidx
           ON threshold_ecdsa_keys (namespace, key_handle)
+          WHERE key_handle IS NOT NULL
         `);
         await pool.query(`
           CREATE UNIQUE INDEX IF NOT EXISTS threshold_ecdsa_keys_threshold_identity_uidx
           ON threshold_ecdsa_keys (namespace, threshold_key_id, signing_root_id, signing_root_version)
+          WHERE
+            threshold_key_id IS NOT NULL AND
+            signing_root_id IS NOT NULL AND
+            signing_root_version IS NOT NULL
         `);
         await pool.query(`
           CREATE INDEX IF NOT EXISTS threshold_ecdsa_keys_owner_address_idx
@@ -761,16 +756,21 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
           WHERE owner_address IS NOT NULL
         `);
         await pool.query(`
-          CREATE INDEX IF NOT EXISTS threshold_ecdsa_keys_shared_identity_idx
+          CREATE UNIQUE INDEX IF NOT EXISTS threshold_ecdsa_keys_shared_identity_uidx
           ON threshold_ecdsa_keys (
             namespace,
-            (record_json->>'walletSessionUserId'),
-            (record_json->>'subjectId'),
-            (record_json->>'rpId'),
+            wallet_session_user_id,
+            subject_id,
+            rp_id,
             signing_root_id,
             signing_root_version
           )
-          WHERE record_json->>'version' = 'threshold_ecdsa_hss_role_local'
+          WHERE
+            wallet_session_user_id IS NOT NULL AND
+            subject_id IS NOT NULL AND
+            rp_id IS NOT NULL AND
+            signing_root_id IS NOT NULL AND
+            signing_root_version IS NOT NULL
         `);
       })().catch((error) => {
         this.ensureTablePromise = null;
@@ -778,6 +778,59 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
       });
     }
     await this.ensureTablePromise;
+  }
+
+  private async repairIndexedIdentity(args: {
+    row: ThresholdEcdsaIndexedIdentityRow;
+    record: ThresholdEcdsaStoredKeyRecordWithHandle;
+  }): Promise<void> {
+    const relayerKeyId = toOptionalTrimmedString(args.row.relayer_key_id);
+    if (!relayerKeyId) {
+      throw new Error(ECDSA_PUBLIC_FACTS_INTEGRITY_MESSAGE);
+    }
+    const pool = await this.poolPromise;
+    try {
+      await pool.query(
+        `
+          UPDATE threshold_ecdsa_keys
+          SET
+            key_handle = $3,
+            threshold_key_id = $4,
+            wallet_session_user_id = $5,
+            subject_id = $6,
+            rp_id = $7,
+            signing_root_id = $8,
+            signing_root_version = $9,
+            owner_address = $10,
+            public_key_b64u = $11
+          WHERE namespace = $1 AND relayer_key_id = $2
+        `,
+        [
+          this.namespace,
+          relayerKeyId,
+          args.record.keyHandle,
+          args.record.ecdsaThresholdKeyId,
+          args.record.walletSessionUserId,
+          args.record.subjectId,
+          args.record.rpId,
+          args.record.signingRootId,
+          ecdsaSigningRootVersion(args.record),
+          args.record.ethereumAddress,
+          thresholdEcdsaRecordPublicKeyB64u(args.record),
+        ],
+      );
+    } catch (error) {
+      if (String(error).includes('threshold_ecdsa_keys_key_handle_uidx')) {
+        throw new Error(ECDSA_KEY_HANDLE_CONFLICT_MESSAGE);
+      }
+      if (String(error).includes('threshold_ecdsa_keys_threshold_identity_uidx')) {
+        throw new Error(ECDSA_KEY_HANDLE_INTEGRITY_MESSAGE);
+      }
+      if (String(error).includes('threshold_ecdsa_keys_shared_identity_uidx')) {
+        throw new Error(ECDSA_SHARED_IDENTITY_CONFLICT_MESSAGE);
+      }
+      throw error;
+    }
   }
 
   async getRoleLocalByKeyHandle(keyHandle: string): Promise<EcdsaHssRoleLocalKeyRecord | null> {
@@ -788,8 +841,12 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
     const { rows } = await pool.query(
       `
         SELECT
+          relayer_key_id,
           key_handle,
           threshold_key_id,
+          wallet_session_user_id,
+          subject_id,
+          rp_id,
           signing_root_id,
           signing_root_version,
           owner_address,
@@ -813,10 +870,10 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
       throw new Error(ECDSA_KEY_HANDLE_INTEGRITY_MESSAGE);
     }
     if (parsed && rows[0]) {
-      assertThresholdEcdsaIndexedIdentityMatchesRecord({
-        row: rows[0] as ThresholdEcdsaIndexedIdentityRow,
-        record: parsed,
-      });
+      const row = rows[0] as ThresholdEcdsaIndexedIdentityRow;
+      if (!thresholdEcdsaIndexedIdentityMatchesRecord({ row, record: parsed })) {
+        await this.repairIndexedIdentity({ row, record: parsed });
+      }
     }
     return parsed;
   }
@@ -846,12 +903,11 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
         FROM threshold_ecdsa_keys
         WHERE namespace = $1
           AND relayer_key_id <> $2
-          AND record_json->>'version' = 'threshold_ecdsa_hss_role_local'
-          AND record_json->>'walletSessionUserId' = $3
-          AND record_json->>'subjectId' = $4
-          AND record_json->>'rpId' = $5
-          AND record_json->>'signingRootId' = $6
-          AND COALESCE(NULLIF(record_json->>'signingRootVersion', ''), 'default') = $7
+          AND wallet_session_user_id = $3
+          AND subject_id = $4
+          AND rp_id = $5
+          AND signing_root_id = $6
+          AND signing_root_version = $7
         LIMIT 1
       `,
       [
@@ -876,17 +932,23 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
             relayer_key_id,
             key_handle,
             threshold_key_id,
+            wallet_session_user_id,
+            subject_id,
+            rp_id,
             signing_root_id,
             signing_root_version,
             owner_address,
             public_key_b64u,
             record_json
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
           ON CONFLICT (namespace, relayer_key_id)
           DO UPDATE SET
             key_handle = EXCLUDED.key_handle,
             threshold_key_id = EXCLUDED.threshold_key_id,
+            wallet_session_user_id = EXCLUDED.wallet_session_user_id,
+            subject_id = EXCLUDED.subject_id,
+            rp_id = EXCLUDED.rp_id,
             signing_root_id = EXCLUDED.signing_root_id,
             signing_root_version = EXCLUDED.signing_root_version,
             owner_address = EXCLUDED.owner_address,
@@ -898,6 +960,9 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
           id,
           parsed.keyHandle,
           parsed.ecdsaThresholdKeyId,
+          parsed.walletSessionUserId,
+          parsed.subjectId,
+          parsed.rpId,
           parsed.signingRootId,
           ecdsaSigningRootVersion(parsed),
           parsed.ethereumAddress,

@@ -15,22 +15,18 @@ export async function requestRegistrationCredentialConfirmation({
   nearAccountId,
   signerSlot,
   confirmerText,
-  nearRpcUrl,
   confirmationConfig,
+  challengeB64u,
 }: {
   touchConfirm: Pick<UiConfirmSecureConfirmationPort, 'requestUserConfirmation'>;
   nearAccountId: string;
   signerSlot: number;
   confirmerText?: { title?: string; body?: string };
-  nearRpcUrl: string;
   confirmationConfig?: Partial<ConfirmationConfig>;
+  challengeB64u?: string;
 }): Promise<RegistrationCredentialConfirmationPayload> {
   if (typeof touchConfirm.requestUserConfirmation !== 'function') {
     throw new Error('UserConfirm manager request bridge is unavailable');
-  }
-
-  if (!nearRpcUrl) {
-    throw new Error('nearRpcUrl is required for registration confirmation');
   }
 
   const requestId =
@@ -44,7 +40,6 @@ export async function requestRegistrationCredentialConfirmation({
     {
       nearAccountId: string;
       signerSlot: number;
-      rpcCall: { nearRpcUrl: string; nearAccountId: string };
     },
     RegistrationSummary
   > = {
@@ -59,10 +54,14 @@ export async function requestRegistrationCredentialConfirmation({
     payload: {
       nearAccountId,
       signerSlot,
-      rpcCall: {
-        nearRpcUrl,
-        nearAccountId,
-      },
+      ...(challengeB64u
+        ? {
+            webauthnChallenge: {
+              kind: 'intent_digest',
+              challengeB64u,
+            },
+          }
+        : {}),
     },
     confirmationConfig,
     intentDigest: `register:${nearAccountId}:${signerSlot}`,
@@ -75,9 +74,6 @@ export async function requestRegistrationCredentialConfirmation({
   }
   if (!decision.credential) {
     throw new Error('Missing credential from registration confirmation');
-  }
-  if (!decision.transactionContext) {
-    throw new Error('Missing transactionContext from registration confirmation');
   }
 
   return parseAndValidateRegistrationCredentialConfirmationPayload({

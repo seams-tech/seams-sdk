@@ -8,7 +8,6 @@ import { resolveEvmFamilyEcdsaSigningSelection } from '@/core/signingEngine/flow
 import type { EcdsaLaneCandidate } from '@/core/signingEngine/session/identity/laneIdentity';
 import type { EvmFamilyEcdsaSigningSelectionDeps } from '@/core/signingEngine/flows/signEvmFamily/ecdsaSelection';
 import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfaces/signing';
 import {
   buildEvmFamilyEcdsaKeyIdentity,
   toEvmFamilyEcdsaKeyHandle,
@@ -98,14 +97,11 @@ function selectionDeps(): EvmFamilyEcdsaSigningSelectionDeps {
   };
   return {
     indexedDB: {} as EvmFamilyEcdsaSigningSelectionDeps['indexedDB'],
-    getEmailOtpThresholdEcdsaKeyRefForSigning: missing,
     getEmailOtpThresholdEcdsaSessionRecordForSigning: missing,
-    getPasskeyThresholdEcdsaKeyRefForSigning: missing,
     getPasskeyThresholdEcdsaSessionRecordForSigning: missing,
     listThresholdEcdsaSessionRecordsForSigning: () => [],
     listThresholdEcdsaKeyRefsForSigning: () => [],
     getThresholdEcdsaSessionRecordByKey: () => null,
-    getThresholdEcdsaKeyRefByKey: () => null,
   };
 }
 
@@ -125,6 +121,7 @@ function recordForChainTarget(
     signingRootVersion: input.key.signingRootVersion,
     relayerKeyId: 'rk-restorable',
     clientVerifyingShareB64u: 'client-verifying-share',
+    clientAdditiveShare32B64u: 'client-share',
     participantIds: [1, 2],
     ethereumAddress: `0x${'aa'.repeat(20)}`,
     thresholdSessionKind: 'jwt',
@@ -159,67 +156,6 @@ function emailOtpRecordForChainTarget(
   };
 }
 
-function keyRefForChainTarget(
-  input: EcdsaLaneCandidate,
-  materialChainTarget: typeof chainTarget | typeof tempoChainTarget,
-): ThresholdEcdsaSecp256k1KeyRef {
-  return {
-    type: 'threshold-ecdsa-secp256k1',
-    userId: String(input.walletId),
-    chainTarget: materialChainTarget,
-    relayerUrl: 'https://relay.example',
-    keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-restorable'),
-    ecdsaThresholdKeyId: input.key
-      .ecdsaThresholdKeyId as ThresholdEcdsaSecp256k1KeyRef['ecdsaThresholdKeyId'],
-    signingRootId: input.key.signingRootId,
-    signingRootVersion: input.key.signingRootVersion,
-    backendBinding: {
-      relayerKeyId: 'rk-restorable',
-      clientVerifyingShareB64u: 'client-verifying-share',
-      clientAdditiveShare32B64u: 'client-share',
-    },
-    participantIds: [1, 2],
-    thresholdEcdsaPublicKeyB64u: validThresholdEcdsaPublicKeyB64u,
-    ethereumAddress: `0x${'aa'.repeat(20)}`,
-    thresholdSessionKind: 'jwt',
-    thresholdSessionAuthToken: 'threshold-session-token',
-    thresholdSessionId: input.thresholdSessionId,
-    walletSigningSessionId: input.walletSigningSessionId,
-  };
-}
-
-function emailOtpKeyRefForChainTarget(
-  input: EcdsaLaneCandidate,
-  materialChainTarget: typeof chainTarget | typeof tempoChainTarget,
-): ThresholdEcdsaSecp256k1KeyRef {
-  const keyRef = keyRefForChainTarget(input, materialChainTarget);
-  return {
-    ...keyRef,
-    backendBinding: {
-      relayerKeyId: 'rk-restorable',
-      clientVerifyingShareB64u: 'client-verifying-share',
-      clientAdditiveShareHandle: {
-        kind: 'email_otp_worker_session',
-        sessionId: 'email-otp-worker-session',
-      },
-    },
-  };
-}
-
-function emailOtpKeyRefWithoutWorkerShareForChainTarget(
-  input: EcdsaLaneCandidate,
-  materialChainTarget: typeof chainTarget | typeof tempoChainTarget,
-): ThresholdEcdsaSecp256k1KeyRef {
-  const keyRef = keyRefForChainTarget(input, materialChainTarget);
-  return {
-    ...keyRef,
-    backendBinding: {
-      relayerKeyId: 'rk-restorable',
-      clientVerifyingShareB64u: 'client-verifying-share',
-    },
-  };
-}
-
 function selectionDepsWithExactMaterial(
   input: EcdsaLaneCandidate,
 ): EvmFamilyEcdsaSigningSelectionDeps {
@@ -227,10 +163,6 @@ function selectionDepsWithExactMaterial(
   return {
     ...deps,
     getThresholdEcdsaSessionRecordByKey: () => recordForChainTarget(input, input.chainTarget),
-    getThresholdEcdsaKeyRefByKey: () => ({
-      source: 'registration',
-      keyRef: keyRefForChainTarget(input, input.chainTarget),
-    }),
   };
 }
 
@@ -287,7 +219,6 @@ test.describe('ECDSA restorable lane selection', () => {
   test('uses source material for deferred shared EVM-family lanes without passkey reauth', async () => {
     const tempoCandidate = sharedTempoCandidate();
     const sourceRecord = recordForChainTarget(tempoCandidate, chainTarget);
-    const sourceKeyRef = keyRefForChainTarget(tempoCandidate, chainTarget);
     const deps: EvmFamilyEcdsaSigningSelectionDeps = {
       ...selectionDeps(),
       getPasskeyThresholdEcdsaSessionRecordForSigning: ({
@@ -302,16 +233,6 @@ test.describe('ECDSA restorable lane selection', () => {
           return sourceRecord;
         }
         throw new Error('missing source record');
-      },
-      getPasskeyThresholdEcdsaKeyRefForSigning: ({ chainTarget: requestedChainTarget, source }) => {
-        if (
-          source === 'registration' &&
-          requestedChainTarget.kind === chainTarget.kind &&
-          requestedChainTarget.chainId === chainTarget.chainId
-        ) {
-          return sourceKeyRef;
-        }
-        throw new Error('missing source key ref');
       },
     };
 
@@ -330,7 +251,6 @@ test.describe('ECDSA restorable lane selection', () => {
     expect(selection.lane.chainTarget).toEqual(tempoChainTarget);
     expect(selection.material.chainTarget).toEqual(tempoChainTarget);
     expect(selection.material.record.chainTarget).toEqual(chainTarget);
-    expect(selection.material.keyRef.chainTarget).toEqual(chainTarget);
     expect(selection.diagnostics.selectedLaneCandidate).toMatchObject({
       source: 'evm_family_shared_key',
       sourceChainTarget: chainTarget,
@@ -340,16 +260,10 @@ test.describe('ECDSA restorable lane selection', () => {
   test('keeps Email OTP exact material out of passkey diagnostics selection', async () => {
     const input = emailOtpCandidate('ready');
     const emailOtpRecord = emailOtpRecordForChainTarget(input, input.chainTarget);
-    const emailOtpKeyRef = emailOtpKeyRefForChainTarget(input, input.chainTarget);
     const deps: EvmFamilyEcdsaSigningSelectionDeps = {
       ...selectionDeps(),
       getThresholdEcdsaSessionRecordByKey: () => emailOtpRecord,
-      getThresholdEcdsaKeyRefByKey: () => ({
-        source: 'email_otp',
-        keyRef: emailOtpKeyRef,
-      }),
       getEmailOtpThresholdEcdsaSessionRecordForSigning: () => emailOtpRecord,
-      getEmailOtpThresholdEcdsaKeyRefForSigning: () => emailOtpKeyRef,
     };
 
     const selection = await resolveEvmFamilyEcdsaSigningSelection({
@@ -378,7 +292,6 @@ test.describe('ECDSA restorable lane selection', () => {
   test('uses Email OTP source material for shared Tempo ECDSA lanes', async () => {
     const input = emailOtpSharedTempoCandidate();
     const emailOtpRecord = emailOtpRecordForChainTarget(input, chainTarget);
-    const emailOtpKeyRef = emailOtpKeyRefForChainTarget(input, chainTarget);
     const deps: EvmFamilyEcdsaSigningSelectionDeps = {
       ...selectionDeps(),
       getEmailOtpThresholdEcdsaSessionRecordForSigning: ({ chainTarget: requestedChainTarget }) => {
@@ -389,15 +302,6 @@ test.describe('ECDSA restorable lane selection', () => {
           return emailOtpRecord;
         }
         throw new Error('missing Email OTP source record');
-      },
-      getEmailOtpThresholdEcdsaKeyRefForSigning: ({ chainTarget: requestedChainTarget }) => {
-        if (
-          requestedChainTarget.kind === chainTarget.kind &&
-          requestedChainTarget.chainId === chainTarget.chainId
-        ) {
-          return emailOtpKeyRef;
-        }
-        throw new Error('missing Email OTP source key ref');
       },
     };
 
@@ -417,7 +321,6 @@ test.describe('ECDSA restorable lane selection', () => {
     expect(selection.lane.chainTarget).toEqual(tempoChainTarget);
     expect(selection.material.chainTarget).toEqual(tempoChainTarget);
     expect(selection.material.record.chainTarget).toEqual(chainTarget);
-    expect(selection.material.keyRef.chainTarget).toEqual(chainTarget);
     expect(selection.diagnostics.selectedPasskeyMaterial).toEqual({ present: false });
   });
 
@@ -456,11 +359,14 @@ test.describe('ECDSA restorable lane selection', () => {
       state: 'exhausted',
       remainingUses: 0,
     };
-    const emailOtpRecord = {
+    const {
+      clientAdditiveShare32B64u: _clientAdditiveShare32B64u,
+      clientAdditiveShareHandle: _clientAdditiveShareHandle,
+      ...emailOtpRecord
+    } = {
       ...emailOtpRecordForChainTarget(input, chainTarget),
       remainingUses: 1,
     };
-    const emailOtpKeyRef = emailOtpKeyRefWithoutWorkerShareForChainTarget(input, chainTarget);
     const deps: EvmFamilyEcdsaSigningSelectionDeps = {
       ...selectionDeps(),
       getEmailOtpThresholdEcdsaSessionRecordForSigning: ({ chainTarget: requestedChainTarget }) => {
@@ -471,15 +377,6 @@ test.describe('ECDSA restorable lane selection', () => {
           return emailOtpRecord;
         }
         throw new Error('missing Email OTP source record');
-      },
-      getEmailOtpThresholdEcdsaKeyRefForSigning: ({ chainTarget: requestedChainTarget }) => {
-        if (
-          requestedChainTarget.kind === chainTarget.kind &&
-          requestedChainTarget.chainId === chainTarget.chainId
-        ) {
-          return emailOtpKeyRef;
-        }
-        throw new Error('missing Email OTP source key ref');
       },
     };
 
@@ -505,7 +402,6 @@ test.describe('ECDSA restorable lane selection', () => {
       present: true,
       kind: 'reauth_required',
       hasRecord: true,
-      hasKeyRef: true,
       publicIdentityPresent: true,
       signerMaterialPresent: false,
     });

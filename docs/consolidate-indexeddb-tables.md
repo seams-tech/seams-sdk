@@ -87,11 +87,23 @@ Current implementation snapshot:
    recovery-record normalization into `session/sealedRecovery/recoveryRecord.ts`.
    Treat `session/persistence/*` and the recovery-record normalizer as the
    raw sealed-record boundary during this plan.
-10. Several unit tests still create CamelCase test databases such as
+10. Refactor 39 has tightened ECDSA identity around exact lane identity,
+    `keyHandle`, and complete ECDSA public facts. IndexedDB records that store
+    active ECDSA signers or sealed ECDSA sessions must persist those exact
+    scalar identities instead of re-deriving them from broad profile metadata.
+11. `docs/rework-registration-flows.md` makes wallet-subject records the local
+    source of truth. NEAR profile/account state becomes a projection written
+    after wallet-subject persistence succeeds.
+12. Refactor 41 makes prompt policy, step-up freshness, reservation identity,
+    exhausted-session reauth anchors, and Email OTP refresh rejection explicit
+    domain state. IndexedDB repositories must not expose raw persistence records
+    into those session flows.
+13. Several unit tests still create CamelCase test databases such as
    `PasskeyClientDB-*` and `PasskeyAccountKeyMaterial-*`. Those tests should be
    renamed or moved onto unified schema fixtures when this plan is implemented.
 
-Post-refactor 33/35/36 paths to revisit during the consolidation:
+Post-refactor 33/35/36/39/40 and registration-rework paths to revisit during the
+consolidation:
 
 1. `client/src/core/signingEngine/session/persistence/sealedSessionStore.ts` still opens
    `seams_wallet_v1` directly for signing-session seals and restore leases.
@@ -100,24 +112,33 @@ Post-refactor 33/35/36 paths to revisit during the consolidation:
 3. `client/src/core/signingEngine/session/userPreferences.ts` still subscribes
    to `IndexedDBManager.clientDB` events and reads profile state through the old
    client DB surface.
-4. `client/src/core/accountData/near/*`,
+4. `client/src/core/SeamsPasskey/registration.ts`,
+   `client/src/core/SeamsPasskey/login.ts`,
+   `client/src/core/signingEngine/flows/registration/*`,
+   and `client/src/core/rpcClients/relayer/walletRegistration.ts` need
+   wallet-subject repository ports once the registration rework lands.
+5. `client/src/core/accountData/near/*`,
    `client/src/core/indexedDB/accountKeyMaterial.ts`,
    `client/src/core/indexedDB/profileAccountProjection.ts`, and
    `client/src/core/signingEngine/webauthnAuth/device/signerSlot.ts` still carry
    `PasskeyClientDBManager`-shaped ports or old client DB error text.
-5. `client/src/core/signingEngine/flows/registration/accountLifecycle.ts`,
+6. `client/src/core/signingEngine/flows/registration/accountLifecycle.ts`,
    `flows/signEvmFamily/*`, `flows/signNear/*`, `flows/recovery/*`,
    `session/persistence/*`, `session/sealedRecovery/*`, `session/passkey/*`,
    `session/emailOtp/*`, `session/availability/*`, `session/budget/*`,
    `session/identity/*`, `session/operationState/*`,
    `session/warmCapabilities/*`, `threshold/*`, and `walletAuth/webauthn/*`
    need port-shape review as the persistence assembly changes.
-6. `sdk/rolldown.config.ts` still exposes the old IndexedDB managers and the
+7. `sdk/rolldown.config.ts` still exposes the old IndexedDB managers and the
    Email OTP escrow store as stable deep-import entries for tests/tools.
 
 The storage ownership rule from Refactor 35/36 is: direct sealed-session storage
 changes belong in `session/persistence/*`; restore orchestration and method
 folders consume normalized recovery records.
+
+The registration ownership rule is: wallet-subject, authenticator, and signer
+records are the source of truth. NEAR profile/account state and display caches
+are projections that can be rebuilt from those records.
 
 ## Target Model
 
@@ -144,23 +165,23 @@ Do not encode schema version in object-store names. IndexedDB already has a
 numeric schema version. Record-level versions remain inside records where they
 are cryptographically or semantically meaningful.
 
-Canonical object stores:
+Canonical object stores after the registration rework:
 
-| Store | Replaces |
-| --- | --- |
-| `seams_app_state` | `appState` |
-| `seams_profiles` | `profiles` |
-| `seams_profile_authenticators` | `profileAuthenticators` |
-| `seams_chain_accounts` | `chainAccounts` |
-| `seams_account_signers` | `accountSigners` |
-| `seams_signer_ops_outbox` | `signerOpsOutbox` |
-| `seams_recovery_emails` | `recoveryEmailsV2` |
-| `seams_nonce_lane_leases` | `nonceLaneLeasesV1` |
-| `seams_nonce_lane_locks` | `nonceLaneLocksV1` |
-| `seams_key_material` | `keyMaterial` in `PasskeyAccountKeyMaterial` |
-| `seams_signing_session_seals` | `signing_session_seals_v1` |
-| `seams_signing_session_restore_leases` | `signing_session_restore_leases_v1` |
-| `seams_email_otp_device_enrollment_escrows` | `email_otp_device_enrollment_escrows_v1` |
+| Store | Role | Replaces or absorbs |
+| --- | --- | --- |
+| `seams_app_state` | local UI/session preferences such as the last selected wallet | `appState` |
+| `seams_wallet_subjects` | wallet-subject records keyed by `walletSubjectId` | new source of truth from registration rework |
+| `seams_wallet_authenticators` | WebAuthn authenticator bindings keyed by `rpId + credentialIdB64u` | `profileAuthenticators` and WebAuthn binding projections |
+| `seams_wallet_signers` | Ed25519 and ECDSA active signer records keyed by wallet subject | `chainAccounts`, `accountSigners`, and ECDSA profile metadata |
+| `seams_near_account_projections` | derived NEAR profile/account projection for Ed25519 wallets | `profiles` and `chainAccounts` read models |
+| `seams_signer_ops_outbox` | durable signer mutation outbox | `signerOpsOutbox` |
+| `seams_recovery_emails` | recovery email hints keyed by wallet subject | `recoveryEmailsV2` |
+| `seams_nonce_lane_leases` | durable nonce lane leases | `nonceLaneLeasesV1` |
+| `seams_nonce_lane_locks` | durable nonce lane locks | `nonceLaneLocksV1` |
+| `seams_key_material` | encrypted local key-material envelopes keyed by wallet signer identity | `keyMaterial` in `PasskeyAccountKeyMaterial` |
+| `seams_signing_session_seals` | durable sealed signing-session records | `signing_session_seals_v1` |
+| `seams_signing_session_restore_leases` | restore-attempt leases for sealed sessions | `signing_session_restore_leases_v1` |
+| `seams_email_otp_device_enrollment_escrows` | Email OTP device enrollment escrow records | `email_otp_device_enrollment_escrows_v1` |
 
 Index names should also be snake_case. They do not need the `seams_` prefix
 because they are scoped under a Seams-prefixed object store. The canonical index
@@ -169,13 +190,26 @@ inventory is:
 ```ts
 'profile_id'
 'credential_id'
+'credential_id_b64u'
 'profile_id_credential_id'
 'profile_id_signer_slot'
 'updated_at'
+'wallet_subject_id'
+'wallet_subject_id_rp_id'
+'wallet_subject_id_kind'
+'wallet_subject_kind_near_signer_slot'
+'wallet_subject_kind_chain_target_key_handle'
+'wallet_subject_kind_chain_target_key_facts'
+'rp_id'
+'rp_id_credential_id'
 'chain_id_key'
 'chain_id_key_account_address'
 'profile_id_chain_id_key'
 'chain_id_key_account_address_status'
+'chain_target_key'
+'key_handle'
+'threshold_owner_address'
+'ecdsa_threshold_key_id'
 'status'
 'next_attempt_at'
 'status_next_attempt_at'
@@ -193,14 +227,18 @@ inventory is:
 'user_id'
 'auth_method'
 'signing_root_id'
+'signing_root_version'
 'wallet_signing_root_auth_method'
 'ed25519_threshold_session_id'
 'ecdsa_threshold_session_id'
 'wallet_signing_session_id'
+'threshold_session_id'
+'exact_signing_lane_identity_key'
+'budget_reservation_key'
 'auth_subject_id'
 'enrollment_id'
-'wallet_auth_subject'
-'wallet_auth_subject_enrollment'
+'wallet_id_auth_subject_id'
+'wallet_id_auth_subject_id_enrollment_id'
 ```
 
 ## Non-Negotiable Rules
@@ -223,6 +261,17 @@ inventory is:
    `session/sealedRecovery/recoveryRecord.ts`. Restore, flow, budget,
    availability, identity, and operation-state code consumes normalized
    discriminated records.
+10. Wallet-subject signer records are the source of truth for active signers.
+    NEAR profile/account rows are projections and must be written only after the
+    wallet-subject records are committed.
+11. ECDSA active signer records must store the complete
+    `EvmFamilyEcdsaWalletKey`: direct `keyHandle`, required key facts, owner
+    address, participant ids, and concrete `chainTarget`.
+12. Store every indexed complex identity as a canonical scalar field on the
+    record. Examples: `chain_target_key`, `exact_signing_lane_identity_key`,
+    and `wallet_subject_kind_chain_target_key_handle`.
+13. Repository normalizers must validate that scalar index fields match the
+    nested domain object they summarize.
 
 ## Proposed Code Shape
 
@@ -234,10 +283,10 @@ export const SEAMS_WALLET_DB_NAME = 'seams_wallet' as const;
 
 export const SEAMS_WALLET_STORES = {
   appState: 'seams_app_state',
-  profiles: 'seams_profiles',
-  profileAuthenticators: 'seams_profile_authenticators',
-  chainAccounts: 'seams_chain_accounts',
-  accountSigners: 'seams_account_signers',
+  walletSubjects: 'seams_wallet_subjects',
+  walletAuthenticators: 'seams_wallet_authenticators',
+  walletSigners: 'seams_wallet_signers',
+  nearAccountProjections: 'seams_near_account_projections',
   signerOpsOutbox: 'seams_signer_ops_outbox',
   recoveryEmails: 'seams_recovery_emails',
   nonceLaneLeases: 'seams_nonce_lane_leases',
@@ -259,11 +308,10 @@ type SeamsWalletDbManager = {
 
 type SeamsWalletRepositories = {
   appState: AppStateRepository;
-  lastProfileState: LastProfileStateRepository;
-  profiles: ProfileRepository;
-  profileAuthenticators: ProfileAuthenticatorRepository;
-  chainAccounts: ChainAccountRepository;
-  accountSigners: AccountSignerRepository;
+  walletSubjects: WalletSubjectRepository;
+  walletAuthenticators: WalletAuthenticatorRepository;
+  walletSigners: WalletSignerRepository;
+  nearAccountProjections: NearAccountProjectionRepository;
   signerOpsOutbox: SignerOpsOutboxRepository;
   recoveryEmails: RecoveryEmailRepository;
   keyMaterial: KeyMaterialRepository;
@@ -284,7 +332,90 @@ read/write functions. Its IndexedDB access should go through the
 `session/emailOtp/*` should continue to receive `SealedRecoveryRecord` branches
 from `session/sealedRecovery/recoveryRecord.ts`.
 
+## Target Schema Manifest
+
+Add a typed schema manifest next to the schema-name constants before creating
+stores. The manifest is the implementation source of truth for key paths,
+indexes, uniqueness, record owners, and repository ownership.
+
+| Store | Key path | Required indexes | Repository owner |
+| --- | --- | --- | --- |
+| `seams_app_state` | `key` | none beyond key path | `AppStateRepository` |
+| `seams_wallet_subjects` | `wallet_subject_id` | `rp_id`, `status`, `updated_at` | `WalletSubjectRepository` |
+| `seams_wallet_authenticators` | `['rp_id', 'credential_id_b64u']` | `wallet_subject_id`, `wallet_subject_id_rp_id`, `updated_at`; unique key path is the authenticator uniqueness constraint | `WalletAuthenticatorRepository` |
+| `seams_wallet_signers` | `wallet_signer_id` | `wallet_subject_id`, `wallet_subject_id_kind`, `wallet_subject_kind_near_signer_slot`, `wallet_subject_kind_chain_target_key_handle`, `wallet_subject_kind_chain_target_key_facts`, `chain_target_key`, `key_handle`, `threshold_owner_address`, `status`, `updated_at` | `WalletSignerRepository` |
+| `seams_near_account_projections` | `['wallet_subject_id', 'near_account_id', 'signer_slot']` | `near_account_id`, `profile_id`, `public_key`, `updated_at` | `NearAccountProjectionRepository` |
+| `seams_signer_ops_outbox` | `op_id` | `status`, `next_attempt_at`, `status_next_attempt_at`, `idempotency_key`, `wallet_subject_id`, `chain_target_key` | `SignerOpsOutboxRepository` |
+| `seams_recovery_emails` | `['wallet_subject_id', 'hash_hex']` | `wallet_subject_id`, `updated_at` | `RecoveryEmailRepository` |
+| `seams_nonce_lane_leases` | `lease_id` | `lane_key`, `account_id`, `state`, `expires_at_ms`, `lane_state`, `account_expires_at` | `NonceLaneCoordinationRepository` |
+| `seams_nonce_lane_locks` | `lock_key` | `expires_at_ms`, `owner_id` | `NonceLaneCoordinationRepository` |
+| `seams_key_material` | `key_material_id` | `wallet_subject_id`, `wallet_signer_id`, `chain_target_key`, `key_handle`, `public_key`, `updated_at` | `KeyMaterialRepository` |
+| `seams_signing_session_seals` | `store_key` | `wallet_id`, `wallet_subject_id`, `auth_method`, `curve`, `wallet_signing_session_id`, `ed25519_threshold_session_id`, `ecdsa_threshold_session_id`, `threshold_session_id`, `key_handle`, `chain_target_key`, `exact_signing_lane_identity_key`, `expires_at_ms`, `updated_at` | `SigningSessionSealRepository` through `session/persistence/*` |
+| `seams_signing_session_restore_leases` | `lease_key` | `wallet_signing_session_id`, `threshold_session_id`, `owner_id`, `expires_at_ms` | `SigningSessionRestoreLeaseRepository` through `session/persistence/*` |
+| `seams_email_otp_device_enrollment_escrows` | `['wallet_id', 'auth_subject_id', 'enrollment_id']` | `wallet_id`, `auth_subject_id`, `enrollment_id`, `wallet_id_auth_subject_id`, `wallet_id_auth_subject_id_enrollment_id`, `signing_root_id` | `EmailOtpDeviceEnrollmentEscrowRepository` |
+
+Schema manifest rules:
+
+1. Every store row must define key path, index list, and unique-index list in
+   TypeScript data, then schema creation must iterate that manifest.
+2. For union records such as wallet signers, use a synthetic key path
+   (`wallet_signer_id`) plus scalar indexed fields. Repositories validate the
+   scalar fields against the discriminated record branch.
+3. Avoid indexing raw objects such as `ThresholdEcdsaChainTarget`. Persist
+   `chain_target_key` from the canonical chain-target encoder and validate it at
+   the repository boundary.
+4. Unique wallet-signer constraints:
+   - Ed25519: `wallet_subject_kind_near_signer_slot`.
+   - ECDSA selector: `wallet_subject_kind_chain_target_key_handle`.
+   - ECDSA key-facts lookup:
+     `wallet_subject_kind_chain_target_key_facts`.
+5. Unique Email OTP escrow constraint:
+   `wallet_id_auth_subject_id_enrollment_id`.
+6. Repository tests should snapshot the manifest so store names, key paths,
+   index names, and uniqueness cannot drift silently.
+
+## Atomic Write Boundaries
+
+Use one `seams_wallet` readwrite transaction for changes that must become
+visible together:
+
+1. Wallet registration finalize writes `seams_wallet_subjects`,
+   `seams_wallet_authenticators`, `seams_wallet_signers`, `seams_key_material`,
+   and then `seams_near_account_projections` when an Ed25519 result exists.
+2. ECDSA-only registration writes no NEAR projection rows and skips NEAR profile
+   continuity helpers.
+3. Add-signer finalize writes the wallet signer and key-material envelope in the
+   same transaction.
+4. Signer mutation outbox writes should include the wallet-subject identity and
+   idempotency key in the same transaction as any local projection update they
+   schedule.
+5. Signing-session seal and restore-lease updates should share a transaction
+   when a restore attempt reserves, consumes, deletes, or clears records.
+6. Projection writers never create source-of-truth wallet-subject, authenticator,
+   signer, or key-material records.
+
 ## Implementation Plan
+
+### Phase 0. Final Domain Rescan
+
+Run this phase after `docs/rework-registration-flows.md`,
+`docs/refactor-40.md`, and `docs/refactor-41.md` are complete enough that their
+public types and repository ports have stabilized.
+
+1. Rescan current wallet-subject, authenticator, signer, key-material,
+   signing-session, Email OTP escrow, nonce, and outbox persistence callers.
+2. Update `SEAMS_WALLET_SCHEMA_MANIFEST` to match the final wallet-subject,
+   Refactor 40 HSS v2, and Refactor 41 identity types.
+3. Confirm whether `seams_near_account_projections` needs one store or separate
+   NEAR profile/account projection stores. Keep projection stores derived from
+   wallet-subject source records.
+4. Confirm the canonical scalar encoders for:
+   - `chain_target_key`
+   - `exact_signing_lane_identity_key`
+   - `wallet_signer_id`
+   - `key_material_id`
+   - `budget_reservation_key`
+5. Freeze the repository ownership list before creating stores.
 
 ### Phase 1. Rescan, Constants, and Early Guards
 
@@ -294,6 +425,7 @@ from `session/sealedRecovery/recoveryRecord.ts`.
    - `SEAMS_WALLET_DB_VERSION`
    - `SEAMS_WALLET_STORES`
    - `SEAMS_WALLET_INDEXES`
+   - `SEAMS_WALLET_SCHEMA_MANIFEST`
    - `LEGACY_INDEXED_DB_NAMES`
    - `createSeamsTestWalletDbName(...)`
 3. Add an architecture guard with an explicit temporary allowlist for legacy
@@ -315,31 +447,47 @@ from `session/sealedRecovery/recoveryRecord.ts`.
 
 5. Update test helpers so unique DB names are generated as
    `seams_test_wallet_<safe_suffix>`.
-6. Record the current post-refactor 33/35/36 IndexedDB callsite inventory before
-   moving repositories. Use the canonical `flows/`, `session/`, `threshold/`,
-   `walletAuth/`, and worker-support paths from `docs/refactor-33.md` as the
-   starting inventory, accounting for any intermediate folder names still in the
-   working tree. Include the current `session/persistence/*`,
-   `session/sealedRecovery/*`, `session/passkey/*`, `session/emailOtp/*`,
-   `session/availability/*`, `session/budget/*`, `session/identity/*`,
-   `session/operationState/*`, `session/warmCapabilities/*`,
-   `accountData/near/*`, and `webauthnAuth/device/*` callers.
+6. Add a manifest guard that opens a fresh test DB and verifies every store,
+   keyPath, index name, and unique flag exactly matches
+   `SEAMS_WALLET_SCHEMA_MANIFEST`.
+7. Add an import-boundary guard that keeps `IDBDatabase`, `IDBTransaction`,
+   `IDBObjectStore`, and `IDBRequest` usage inside IndexedDB repository modules,
+   the wallet DB manager, and focused repository tests.
+8. Add a registration persistence guard proving source-of-truth wallet-subject
+   writes happen before NEAR projection writes in registration code.
+9. Record the current post-refactor 33/35/36/39/40 IndexedDB callsite inventory
+   before moving repositories. Use the canonical `flows/`, `session/`,
+   `threshold/`, `walletAuth/`, and worker-support paths from
+   `docs/refactor-33.md` as the starting inventory, accounting for any
+   intermediate folder names still in the working tree. Include the current
+   `session/persistence/*`, `session/sealedRecovery/*`, `session/passkey/*`,
+   `session/emailOtp/*`, `session/availability/*`, `session/budget/*`,
+   `session/identity/*`, `session/operationState/*`,
+   `session/warmCapabilities/*`, `accountData/near/*`, `webauthnAuth/device/*`,
+   `SeamsPasskey/registration.ts`, `SeamsPasskey/login.ts`, and
+   `rpcClients/relayer/walletRegistration.ts` callers.
 
 ### Phase 2. Create the Unified Schema
 
 1. Introduce `SeamsWalletDBManager` with `SEAMS_WALLET_DB_NAME`.
-2. Move the existing `PasskeyClientDB` object stores into the unified schema
-   under their `seams_*` store names.
-3. Move `PasskeyAccountKeyMaterial` into the unified schema as
-   `seams_key_material`.
-4. Move signing-session sealed records into the unified schema as:
+2. Create wallet-subject source-of-truth stores first:
+   - `seams_wallet_subjects`
+   - `seams_wallet_authenticators`
+   - `seams_wallet_signers`
+   - `seams_near_account_projections`
+3. Move the existing `PasskeyClientDB` responsibilities into the unified schema
+   through wallet-subject repositories and NEAR projection repositories.
+4. Move `PasskeyAccountKeyMaterial` into the unified schema as
+   `seams_key_material`, keyed by wallet signer identity instead of profile id
+   and signer slot.
+5. Move signing-session sealed records into the unified schema as:
    - `seams_signing_session_seals`
    - `seams_signing_session_restore_leases`
-5. Move Email OTP device enrollment escrow records into the unified schema as:
+6. Move Email OTP device enrollment escrow records into the unified schema as:
    - `seams_email_otp_device_enrollment_escrows`
-6. Keep all record schemas strict. Do not add compatibility reads for old object
+7. Keep all record schemas strict. Do not add compatibility reads for old object
    store names.
-7. Keep this phase focused on schema creation and repository construction. The
+8. Keep this phase focused on schema creation and repository construction. The
    runtime will still open legacy databases until Phase 3 replaces the manager
    assembly and direct stores.
 
@@ -366,7 +514,10 @@ from `session/sealedRecovery/recoveryRecord.ts`.
    for those escrow records.
 7. Replace `UnifiedIndexedDBManager` with a smaller assembly that exposes
    repositories as its persistence surface.
-8. Update post-refactor 33/35/36 callsites to use the new repositories:
+8. Update post-refactor 33/35/36/39/40 callsites to use the new repositories:
+   - `SeamsPasskey/registration.ts`
+   - `SeamsPasskey/login.ts`
+   - `rpcClients/relayer/walletRegistration.ts`
    - `session/userPreferences.ts`
    - `session/persistence/sealedSessionStore.ts`
    - `session/sealedRecovery/*`
@@ -387,8 +538,10 @@ from `session/sealedRecovery/recoveryRecord.ts`.
    - `webauthnAuth/device/*`
    - `walletAuth/webauthn/*`
    - `workerManager/workers/email-otp/*`
-9. Delete old manager files once no production import remains.
-10. Confirm `seams_wallet` is the only runtime database opened by the wallet
+9. Replace profile/account/signer source-of-truth calls with wallet-subject
+   repository calls. Keep NEAR profile access behind projection repositories.
+10. Delete old manager files once no production import remains.
+11. Confirm `seams_wallet` is the only runtime database opened by the wallet
    persistence path after this phase.
 
 ### Phase 4. Delete Legacy Local Databases
@@ -423,22 +576,35 @@ Add or update tests for:
 1. New installs create only `seams_wallet` for wallet-origin persistence.
 2. App-origin iframe mode creates no app-origin IndexedDB database.
 3. All object stores in `seams_wallet` are `seams_*` and snake_case.
-4. Legacy databases are deleted when present.
-5. Legacy databases are not read during:
+4. Store key paths, index names, and unique flags match
+   `SEAMS_WALLET_SCHEMA_MANIFEST`.
+5. Legacy databases are deleted when present.
+6. Legacy databases are not read during:
    - wallet-session status
    - transaction signing
    - key export
    - sealed-session restore
    - Email OTP device enrollment restore
-6. Test database names are generated as `seams_test_wallet_*`.
-7. Architecture guards reject new IndexedDB database names or stores that are not
+7. Test database names are generated as `seams_test_wallet_*`.
+8. Architecture guards reject new IndexedDB database names or stores that are not
    `seams_*` snake_case.
-8. Sealed recovery paths accept only normalized `SealedRecoveryRecord` branches
-   after persistence reads.
-9. Raw sealed-record fixtures remain scoped to `session/persistence/*` and
+9. Architecture guards reject direct `indexedDB.open(...)` and raw IndexedDB
+   object types outside the wallet DB manager, repositories, and focused tests.
+10. Wallet registration finalize writes wallet-subject records before NEAR
+    projection rows and leaves no projection rows for ECDSA-only registration.
+11. ECDSA wallet-signer writes reject records missing direct `keyHandle`,
+    required key facts, owner address, participant ids, or concrete
+    `chainTarget`.
+12. Repository normalizers reject records whose scalar index fields disagree
+    with nested domain fields.
+13. Sealed recovery paths accept only normalized `SealedRecoveryRecord` branches
+    after persistence reads.
+14. Raw sealed-record fixtures remain scoped to `session/persistence/*` and
    `session/sealedRecovery/recoveryRecord.*` tests.
-10. Method-specific passkey and Email OTP recovery type fixtures reject raw
+15. Method-specific passkey and Email OTP recovery type fixtures reject raw
     persisted records and broad optional bags.
+16. Refactor 41 step-up freshness, reservation identity, and Email OTP refresh
+    rejection tests keep raw storage rows out of flow/session code.
 
 Existing tests to revisit during implementation:
 
@@ -464,6 +630,10 @@ Existing tests to revisit during implementation:
    normalized recovery-record builders from Refactor 36.
 7. `accountData/near/*` and `webauthnAuth/device/*` tests should update
    `PasskeyClientDBManager`-shaped ports to the new repository-shaped ports.
+8. Registration tests should write through wallet-subject repositories and treat
+   NEAR profile rows as projections.
+9. Refactor 41 budget and freshness tests should use repository fixtures that
+   provide exact lane identity and canonical scalar identity keys.
 
 ### Phase 6. Manual Verification
 
@@ -491,13 +661,22 @@ Existing tests to revisit during implementation:
 - Every Seams object store is `seams_*` snake_case.
 - No production runtime code references old database names.
 - No production runtime code reads or migrates old IndexedDB databases.
-- Key material, profile/account state, nonce coordination, signing-session seals,
-  and Email OTP enrollment escrow records live under the unified wallet DB.
+- Wallet-subject records, authenticator bindings, signer records, key material,
+  NEAR projections, nonce coordination, signing-session seals, and Email OTP
+  enrollment escrow records live under the unified wallet DB.
+- Wallet-subject signer records are the active-signer source of truth; NEAR
+  profile/account rows are derived projections.
+- ECDSA active signer records contain direct `keyHandle`, required key facts,
+  owner address, participant ids, and concrete `chainTarget`.
+- The schema manifest test proves store names, key paths, indexes, and unique
+  flags match the declared manifest.
 - Raw sealed-session records are normalized inside `session/persistence/*` and
   `session/sealedRecovery/recoveryRecord.ts`; method recovery code consumes
   strict branch types only.
 - Status, transaction signing, restore, and export paths do not create extra
   IndexedDB databases.
-- Guard tests prevent reintroducing mixed-case or non-Seams storage names.
+- Guard tests prevent reintroducing mixed-case or non-Seams storage names, direct
+  IndexedDB opens, raw IndexedDB object usage outside repositories, and
+  profile-first registration persistence.
 - Fresh local manual testing works for both passkey and Email OTP accounts after
   clearing old site data.

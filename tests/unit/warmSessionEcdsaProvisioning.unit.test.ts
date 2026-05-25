@@ -174,19 +174,13 @@ function createEnvelope(): WarmSessionEnvelope {
 test.describe('warmSessionEcdsaProvisioning', () => {
   test('matches only the ready capability with the same session and threshold key id', () => {
     const envelope = createEnvelope();
-    const keyRef = createThresholdEcdsaBootstrapFixture({
-      nearAccountId: 'provisioning.testnet',
-      chain: 'evm',
-      ecdsaThresholdKeyId: 'ek-evm',
-      sessionId: 'evm-session',
-      sessionAuthToken: 'jwt:evm-session',
-    }).thresholdEcdsaKeyRef;
+    const record = envelope.capabilities.ecdsa.evm.record!;
 
     expect(
       getMatchingReadyEcdsaCapability({
         warmSession: envelope,
         chainTarget: EVM_CHAIN_TARGET,
-        keyRef,
+        record,
         usesNeeded: 2,
       }),
     ).toBe(envelope.capabilities.ecdsa.evm);
@@ -195,8 +189,8 @@ test.describe('warmSessionEcdsaProvisioning', () => {
       getMatchingReadyEcdsaCapability({
         warmSession: envelope,
         chainTarget: EVM_CHAIN_TARGET,
-        keyRef: {
-          ...keyRef,
+        record: {
+          ...record,
           thresholdSessionId: 'wrong-session',
         },
         usesNeeded: 1,
@@ -206,17 +200,11 @@ test.describe('warmSessionEcdsaProvisioning', () => {
 
   test('builds a reusable bootstrap result from a ready ECDSA capability', () => {
     const envelope = createEnvelope();
-    const keyRef = createThresholdEcdsaBootstrapFixture({
-      nearAccountId: 'provisioning.testnet',
-      chain: 'evm',
-      ecdsaThresholdKeyId: 'ek-evm',
-      sessionId: 'evm-session',
-      sessionAuthToken: 'jwt:evm-session',
-    }).thresholdEcdsaKeyRef;
+    const record = envelope.capabilities.ecdsa.evm.record!;
 
     expect(
       buildReusableEcdsaBootstrapResult({
-        keyRef,
+        record,
         capability: envelope.capabilities.ecdsa.evm,
         source: 'login',
       }),

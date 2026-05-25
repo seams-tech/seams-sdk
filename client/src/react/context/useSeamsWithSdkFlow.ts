@@ -40,6 +40,8 @@ export function useSeamsWithSdkFlow(args: {
      * still have `sdkFlow` update as events stream in.
      */
     type LoginFn = AuthCapability['unlock'];
+    type RegisterWalletFn = RegistrationCapability['registerWallet'];
+    type AddWalletSignerFn = RegistrationCapability['addWalletSigner'];
     type RegisterPasskeyFn = RegistrationCapability['registerPasskey'];
     type SyncAccountFn = RecoveryCapability['syncAccount'];
     type SetThemeFn = SeamsPasskey['setTheme'];
@@ -111,6 +113,84 @@ export function useSeamsWithSdkFlow(args: {
       return await seams.registration.registerPasskey(nearAccountId, wrappedOptions);
     };
 
+    const registerWalletWithSdkFlow: RegisterWalletFn = async (registerWalletArgs) => {
+      const nearAccountId =
+        registerWalletArgs.signerSelection.mode === 'ed25519_only' ||
+        registerWalletArgs.signerSelection.mode === 'ed25519_and_ecdsa'
+          ? registerWalletArgs.signerSelection.ed25519.nearAccountId
+          : undefined;
+      const seq = beginSdkFlow('register', nearAccountId);
+      const options = registerWalletArgs.options;
+      const wrappedOptions: RegistrationHooksOptions = {
+        ...options,
+        onEvent: (event: RegistrationFlowEvent) => {
+          appendSdkEventMessage(seq, event.message);
+          if (
+            event.phase === RegistrationEventPhase.STEP_11_COMPLETED &&
+            event.status === 'succeeded'
+          ) {
+            endSdkFlow('register', seq, 'success');
+          } else if (
+            event.phase === RegistrationEventPhase.FAILED ||
+            event.phase === RegistrationEventPhase.CANCELLED ||
+            event.status === 'failed' ||
+            event.status === 'cancelled'
+          ) {
+            const error = event.error?.message || event.message;
+            endSdkFlow('register', seq, 'error', error || event.message);
+          }
+          options?.onEvent?.(event);
+        },
+        onError: (error: Error) => {
+          appendSdkEventMessage(seq, error.message);
+          endSdkFlow('register', seq, 'error', error.message);
+          options?.onError?.(error);
+        },
+      };
+
+      return await seams.registration.registerWallet({
+        ...registerWalletArgs,
+        options: wrappedOptions,
+      });
+    };
+
+    const addWalletSignerWithSdkFlow: AddWalletSignerFn = async (addSignerArgs) => {
+      const walletSubjectId = String(addSignerArgs.walletSubjectId || '').trim();
+      const seq = beginSdkFlow('register', walletSubjectId || undefined);
+      const options = addSignerArgs.options;
+      const wrappedOptions: RegistrationHooksOptions = {
+        ...options,
+        onEvent: (event: RegistrationFlowEvent) => {
+          appendSdkEventMessage(seq, event.message);
+          if (
+            event.phase === RegistrationEventPhase.STEP_11_COMPLETED &&
+            event.status === 'succeeded'
+          ) {
+            endSdkFlow('register', seq, 'success');
+          } else if (
+            event.phase === RegistrationEventPhase.FAILED ||
+            event.phase === RegistrationEventPhase.CANCELLED ||
+            event.status === 'failed' ||
+            event.status === 'cancelled'
+          ) {
+            const error = event.error?.message || event.message;
+            endSdkFlow('register', seq, 'error', error || event.message);
+          }
+          options?.onEvent?.(event);
+        },
+        onError: (error: Error) => {
+          appendSdkEventMessage(seq, error.message);
+          endSdkFlow('register', seq, 'error', error.message);
+          options?.onError?.(error);
+        },
+      };
+
+      return await seams.registration.addWalletSigner({
+        ...addSignerArgs,
+        options: wrappedOptions,
+      });
+    };
+
     const syncAccountWithSdkFlow: SyncAccountFn = async (args) => {
       const accountId = String(args?.accountId || '').trim();
       const seq = beginSdkFlow('sync', accountId || undefined);
@@ -178,6 +258,8 @@ export function useSeamsWithSdkFlow(args: {
             receiver,
           ) as RegistrationCapability;
           return {
+            addWalletSigner: addWalletSignerWithSdkFlow,
+            registerWallet: registerWalletWithSdkFlow,
             registerPasskey: registerPasskeyWithSdkFlow,
             registerPasskeyInternal: (
               ...args: Parameters<RegistrationCapability['registerPasskeyInternal']>

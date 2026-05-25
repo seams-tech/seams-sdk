@@ -8,6 +8,7 @@ import type {
   SeamsConfigsInput,
   SignNEP413MessageParams,
   SignNEP413MessageResult,
+  RegistrationCapability,
 } from '../core/SeamsPasskey';
 import type { ThemeName, WalletAuthMethod } from '../core/types/seams';
 import { TransactionInput } from '../core/types/actions';
@@ -137,6 +138,8 @@ export interface SeamsContextType {
   ////////////////////////////
 
   // Registration and wallet unlock functions
+  addWalletSigner: RegistrationCapability['addWalletSigner'];
+  registerWallet: RegistrationCapability['registerWallet'];
   registerPasskey: (
     nearAccountId: string,
     options?: RegistrationHooksOptions,

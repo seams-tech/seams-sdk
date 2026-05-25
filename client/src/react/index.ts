@@ -35,6 +35,17 @@ export type {
   SeamsConfigsReadonly,
   SeamsConfigsInput,
 } from '../core/types/seams';
+export type {
+  AddSignerIntentV1,
+  AddSignerSelection,
+  RegisterWalletSubjectInput,
+  RegistrationIntentGrant,
+  RegistrationIntentV1,
+  RegistrationSignerSelection,
+  ThresholdEcdsaAddSignerSpec,
+  ThresholdEd25519AddSignerSpec,
+  WalletSubjectId as RegistrationWalletSubjectId,
+} from '@shared/utils/registrationIntent';
 export type { StoreUserDataInput } from '../core/accountData/near/types';
 
 // === RE-EXPORT ACTION TYPES ===

@@ -6,15 +6,14 @@ import {
   thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '../identity/laneIdentity';
 import {
-  resolveThresholdEcdsaKeyIdFromKeyRef,
   resolveThresholdEcdsaKeyIdFromRecord,
   resolveThresholdSigningRootBindingFromRecord,
   type EvmFamilyEcdsaKeyIdentity,
 } from '../identity/evmFamilyEcdsaIdentity';
+import { buildThresholdEcdsaSecp256k1KeyRefFromRecord } from '../identity/thresholdEcdsaSignerAdapter';
 import type {
   ThresholdRuntimePolicyScope,
   ThresholdSessionKind,
@@ -122,9 +121,9 @@ export type EcdsaSessionProvisionPlan =
   | EmailOtpEcdsaSessionProvision;
 
 export type EcdsaReconnectMaterial = {
-  kind: 'record_and_key_ref';
-  keyRef: ThresholdEcdsaSecp256k1KeyRef;
+  kind: 'ecdsa_session_record';
   record: ThresholdEcdsaSessionRecord;
+  keyRef?: never;
 };
 
 type BuildPasskeyEcdsaSessionProvisionPlanArgs = {
@@ -210,15 +209,7 @@ function requireParticipantIds(
   return normalized;
 }
 
-function participantIdsKey(value: readonly number[]): string {
-  return normalizeThresholdEd25519ParticipantIds([...value])?.join(',') || '';
-}
-
-function signingRootVersionKey(value: unknown): string {
-  return String(value ?? '').trim() || 'default';
-}
-
-function buildEcdsaSigningKeyContextFromRecord(
+export function buildEcdsaSigningKeyContextFromRecord(
   record: ThresholdEcdsaSessionRecord,
 ): EcdsaSigningKeyContext {
   const signingRootBinding = resolveThresholdSigningRootBindingFromRecord({
@@ -229,59 +220,6 @@ function buildEcdsaSigningKeyContextFromRecord(
     signingRootId: String(signingRootBinding.signingRootId),
     signingRootVersion: String(signingRootBinding.signingRootVersion),
     participantIds: requireParticipantIds(record.participantIds, 'participantIds'),
-  };
-}
-
-function buildEcdsaSigningKeyContextFromKeyRef(
-  keyRef: ThresholdEcdsaSecp256k1KeyRef,
-): EcdsaSigningKeyContext {
-  return {
-    ecdsaThresholdKeyId: String(resolveThresholdEcdsaKeyIdFromKeyRef({ keyRef })),
-    signingRootId: requireNonEmptyString(keyRef.signingRootId, 'signingRootId'),
-    signingRootVersion: requireNonEmptyString(keyRef.signingRootVersion, 'signingRootVersion'),
-    participantIds: requireParticipantIds(keyRef.participantIds, 'participantIds'),
-  };
-}
-
-function hasRecordSigningRootBinding(record: ThresholdEcdsaSessionRecord): boolean {
-  return Boolean(record.runtimePolicyScope);
-}
-
-function requireMatchingSigningKeyContext(args: {
-  record: ThresholdEcdsaSessionRecord;
-  keyRef: ThresholdEcdsaSecp256k1KeyRef;
-}): EcdsaSigningKeyContext {
-  const recordContext = buildEcdsaSigningKeyContextFromRecord(args.record);
-  const keyRefContext = buildEcdsaSigningKeyContextFromKeyRef(args.keyRef);
-  const recordKeyHandle = requireNonEmptyString(args.record.keyHandle, 'record.keyHandle');
-  const keyRefKeyHandle = requireNonEmptyString(args.keyRef.keyHandle, 'keyRef.keyHandle');
-  if (recordKeyHandle !== keyRefKeyHandle) {
-    throw new Error('[SigningEngine][ecdsa] reconnect material has mismatched key identity');
-  }
-  const recordHasSigningRootBinding = hasRecordSigningRootBinding(args.record);
-  const recordExplicitKeyId = String(args.record.ecdsaThresholdKeyId || '').trim();
-  if (
-    (recordExplicitKeyId && recordExplicitKeyId !== keyRefContext.ecdsaThresholdKeyId) ||
-    (recordHasSigningRootBinding &&
-      (recordContext.signingRootId !== keyRefContext.signingRootId ||
-        signingRootVersionKey(recordContext.signingRootVersion) !==
-          signingRootVersionKey(keyRefContext.signingRootVersion))) ||
-    participantIdsKey(recordContext.participantIds) !==
-      participantIdsKey(keyRefContext.participantIds)
-  ) {
-    throw new Error('[SigningEngine][ecdsa] reconnect material has mismatched key identity');
-  }
-  const participantIds = normalizeThresholdEd25519ParticipantIds([
-    ...keyRefContext.participantIds,
-  ]);
-  if (!participantIds?.length) {
-    throw new Error('[SigningEngine][ecdsa] reconnect material has invalid participant ids');
-  }
-  return {
-    ecdsaThresholdKeyId: keyRefContext.ecdsaThresholdKeyId,
-    signingRootId: keyRefContext.signingRootId,
-    signingRootVersion: signingRootVersionKey(keyRefContext.signingRootVersion),
-    participantIds,
   };
 }
 
@@ -337,35 +275,13 @@ function tryBuildEcdsaSessionIdentityFromClaims(
   });
 }
 
-export function buildEcdsaSigningKeyContextFromPairedMaterial(args: {
-  record: ThresholdEcdsaSessionRecord;
-  keyRef: ThresholdEcdsaSecp256k1KeyRef;
-}): EcdsaSigningKeyContext {
-  return requireMatchingSigningKeyContext(args);
-}
-
 export function buildEcdsaReconnectMaterial(args: {
-  keyRef: ThresholdEcdsaSecp256k1KeyRef;
   record: ThresholdEcdsaSessionRecord;
 }): EcdsaReconnectMaterial {
-  const recordIdentity = buildEcdsaSessionIdentity(args.record);
-  const keyRefIdentity = buildEcdsaSessionIdentity(args.keyRef);
-  if (!ecdsaSessionIdentitiesEqual(recordIdentity, keyRefIdentity)) {
-    throw new Error('[SigningEngine][ecdsa] reconnect material has mismatched session identity');
-  }
-  if (!thresholdEcdsaChainTargetsEqual(args.record.chainTarget, args.keyRef.chainTarget)) {
-    throw new Error(
-      [
-        '[SigningEngine][ecdsa] reconnect material has mismatched chain target',
-        `record=${thresholdEcdsaChainTargetKey(args.record.chainTarget)}`,
-        `keyRef=${thresholdEcdsaChainTargetKey(args.keyRef.chainTarget)}`,
-      ].join(' '),
-    );
-  }
-  requireMatchingSigningKeyContext({ record: args.record, keyRef: args.keyRef });
+  buildEcdsaSessionIdentity(args.record);
+  buildEcdsaSigningKeyContextFromRecord(args.record);
   return {
-    kind: 'record_and_key_ref',
-    keyRef: args.keyRef,
+    kind: 'ecdsa_session_record',
     record: args.record,
   };
 }
@@ -409,11 +325,9 @@ function verifyEcdsaThresholdSessionAuth(args: {
 
 function selectReconnectThresholdSessionAuthToken(args: {
   identity: EcdsaSessionIdentity;
-  keyRef: ThresholdEcdsaSecp256k1KeyRef;
   record: ThresholdEcdsaSessionRecord;
 }): string | null {
   const candidates = [
-    String(args.keyRef.thresholdSessionAuthToken || '').trim(),
     String(args.record.thresholdSessionAuthToken || '').trim(),
   ].filter(Boolean);
   for (const token of candidates) {
@@ -465,12 +379,23 @@ export function buildThresholdSessionAuthEcdsaReconnect(args: {
   sessionBudgetUses: number;
   reconnectMaterial: EcdsaReconnectMaterial;
 }): ThresholdSessionAuthEcdsaReconnect | CookieEcdsaReconnect {
-  const keyRef = args.reconnectMaterial.keyRef;
   const record = args.reconnectMaterial.record;
-  const signingKeyContext = requireMatchingSigningKeyContext({ record, keyRef });
-  const sessionKind = normalizeThresholdSessionKind(
-    keyRef.thresholdSessionKind || record.thresholdSessionKind,
-  );
+  const keyRef = buildThresholdEcdsaSecp256k1KeyRefFromRecord({ record });
+  const recordIdentity = buildEcdsaSessionIdentity(record);
+  if (!ecdsaSessionIdentitiesEqual(recordIdentity, args.existingSessionIdentity)) {
+    throw new Error('[SigningEngine][ecdsa] reconnect material has mismatched session identity');
+  }
+  if (!thresholdEcdsaChainTargetsEqual(record.chainTarget, args.chainTarget)) {
+    throw new Error(
+      [
+        '[SigningEngine][ecdsa] reconnect material has mismatched chain target',
+        `record=${thresholdEcdsaChainTargetKey(record.chainTarget)}`,
+        `plan=${thresholdEcdsaChainTargetKey(args.chainTarget)}`,
+      ].join(' '),
+    );
+  }
+  const signingKeyContext = buildEcdsaSigningKeyContextFromRecord(record);
+  const sessionKind = normalizeThresholdSessionKind(record.thresholdSessionKind);
   if (sessionKind === 'cookie') {
     return {
       kind: 'cookie_ecdsa_reconnect',
@@ -483,7 +408,6 @@ export function buildThresholdSessionAuthEcdsaReconnect(args: {
   }
   const thresholdSessionAuthToken = selectReconnectThresholdSessionAuthToken({
     identity: args.existingSessionIdentity,
-    keyRef,
     record,
   });
   const relayerKeyId = requireNonEmptyString(

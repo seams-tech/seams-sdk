@@ -1,6 +1,5 @@
 import type { AccountId } from '@/core/types/accountIds';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type { SigningCapabilityReaderDeps, SigningCapabilityResult } from './lanes';
 
 declare const deps: SigningCapabilityReaderDeps;
@@ -24,23 +23,6 @@ deps.readPasskeyEcdsaSessionRecord?.({
   walletSigningSessionId: 'wallet-signing-session-id',
 });
 
-deps.readEmailOtpEcdsaKeyRef?.({
-  walletId,
-  chainTarget,
-  keyHandle: 'key-handle-1',
-  thresholdSessionId: 'threshold-session-id',
-  walletSigningSessionId: 'wallet-signing-session-id',
-});
-
-deps.readPasskeyEcdsaKeyRef?.({
-  walletId,
-  chainTarget,
-  storageSource: 'registration',
-  keyHandle: 'key-handle-1',
-  thresholdSessionId: 'threshold-session-id',
-  walletSigningSessionId: 'wallet-signing-session-id',
-});
-
 // @ts-expect-error keyHandle is required for Email OTP ECDSA session reads.
 deps.readEmailOtpEcdsaSessionRecord?.({
   walletId,
@@ -49,8 +31,8 @@ deps.readEmailOtpEcdsaSessionRecord?.({
   walletSigningSessionId: 'wallet-signing-session-id',
 });
 
-// @ts-expect-error walletSigningSessionId is required for passkey ECDSA key-ref reads.
-deps.readPasskeyEcdsaKeyRef?.({
+// @ts-expect-error walletSigningSessionId is required for passkey ECDSA session reads.
+deps.readPasskeyEcdsaSessionRecord?.({
   walletId,
   chainTarget,
   storageSource: 'manual-bootstrap',
@@ -58,7 +40,6 @@ deps.readPasskeyEcdsaKeyRef?.({
   thresholdSessionId: 'threshold-session-id',
 });
 
-declare const ecdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef;
 type EcdsaCapabilitySuccessResult = Extract<
   SigningCapabilityResult,
   { ok: true; capability: { curve: 'ecdsa' } }
@@ -75,23 +56,20 @@ const validEcdsaCapabilityResult = {
     curve: 'ecdsa',
     record: {} as any,
   },
-  keyRef: ecdsaKeyRef,
 } satisfies EcdsaCapabilitySuccessResult;
 void validEcdsaCapabilityResult;
 
-const invalidEcdsaCapabilityResultWithoutKeyRef = {
+const invalidEcdsaCapabilityResultWithKeyRef = {
   ok: true,
   lane: {} as any,
   capability: {
     curve: 'ecdsa',
     record: {} as any,
   },
-} as const;
-// @ts-expect-error ECDSA capability success requires keyRef.
-const typedInvalidEcdsaCapabilityResultWithoutKeyRef: EcdsaCapabilitySuccessResult =
-  invalidEcdsaCapabilityResultWithoutKeyRef;
-void typedInvalidEcdsaCapabilityResultWithoutKeyRef;
-void invalidEcdsaCapabilityResultWithoutKeyRef;
+  // @ts-expect-error ECDSA capability success rejects key refs.
+  keyRef: {},
+} satisfies EcdsaCapabilitySuccessResult;
+void invalidEcdsaCapabilityResultWithKeyRef;
 
 const invalidEd25519CapabilityResultWithKeyRef = {
   ok: true,
@@ -101,6 +79,6 @@ const invalidEd25519CapabilityResultWithKeyRef = {
     record: {} as any,
   },
   // @ts-expect-error Ed25519 capability success rejects keyRef.
-  keyRef: ecdsaKeyRef,
+  keyRef: {},
 } satisfies Ed25519CapabilitySuccessResult;
 void invalidEd25519CapabilityResultWithKeyRef;

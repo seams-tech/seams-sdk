@@ -6,10 +6,7 @@ import {
   walletSessionRefFromSession,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import {
-  SENSITIVE_OPERATION_POLICIES,
-  SIGNER_AUTH_METHODS,
-} from '@shared/utils/signerDomain';
+import { SENSITIVE_OPERATION_POLICIES, SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import { requireThresholdSessionAuthToken } from '@shared/utils/sessionTokens';
 import {
   toAuthorizingWalletSigningSessionId,
@@ -18,6 +15,7 @@ import {
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
 import type { WarmSessionPostSignPolicyAdapterDeps } from '../../session/operationState/warmSessionPolicyAdapter';
 import { assertWarmSessionEcdsaOperationAllowed } from '../../session/operationState/warmSessionPolicyAdapter';
+import { derivePasskeyThresholdEcdsaClientRootShare32B64uFromPrfFirst } from '../../session/passkey/ecdsaClientRoot';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import {
   ecdsaExportBoundaryChain,
@@ -156,7 +154,10 @@ export async function exportThresholdEcdsaKeyWithFreshEmailOtpAuthorization(
     onEvent?: KeyExportEventCallback;
   },
 ): Promise<{ accountId: string; exportedSchemes: ExportedKeySchemes }> {
-  if (args.exportLane.session.authMethod !== 'email_otp' || args.material.kind !== 'fresh_email_otp') {
+  if (
+    args.exportLane.session.authMethod !== 'email_otp' ||
+    args.material.kind !== 'fresh_email_otp'
+  ) {
     throw new Error('[SigningEngine][ecdsa-export] fresh export requires Email OTP lane');
   }
   const exportChain = ecdsaExportBoundaryChain(args.exportLane);
@@ -192,7 +193,9 @@ export async function exportThresholdEcdsaKeyWithFreshEmailOtpAuthorization(
     otpCode: authorization.otpCode,
     publicFacts: args.material.publicFacts,
     ...(args.material.authSubjectId ? { authSubjectId: args.material.authSubjectId } : {}),
-    ...(args.material.runtimePolicyScope ? { runtimePolicyScope: args.material.runtimePolicyScope } : {}),
+    ...(args.material.runtimePolicyScope
+      ? { runtimePolicyScope: args.material.runtimePolicyScope }
+      : {}),
   });
   emitEcdsaMaterialSucceeded({
     flowId: args.flowId,
@@ -247,9 +250,8 @@ export async function exportThresholdEcdsaKeyWithAuthorization(
         'exportThresholdSessionAuthToken',
       ),
       thresholdSessionId: currentRecord.thresholdSessionId,
-      authorizingWalletSigningSessionId: toAuthorizingWalletSigningSessionId(
-        walletSigningSessionId,
-      ),
+      authorizingWalletSigningSessionId:
+        toAuthorizingWalletSigningSessionId(walletSigningSessionId),
       curve: 'ecdsa' as const,
       chainTarget: args.exportLane.session.chainTarget,
     };
@@ -336,10 +338,12 @@ export async function exportThresholdEcdsaKeyWithAuthorization(
       onEvent: args.onEvent,
     },
   );
-  const yClient32LeB64u = requirePrfFirstForPrivateKeyExport({
+  const prfFirstB64u = requirePrfFirstForPrivateKeyExport({
     credential: exportCredential.credential,
     errorContext: 'threshold-ecdsa explicit export',
   });
+  const clientRootShare32B64u =
+    await derivePasskeyThresholdEcdsaClientRootShare32B64uFromPrfFirst(prfFirstB64u);
 
   emitEcdsaMaterialStarted({
     flowId: args.flowId,
@@ -378,7 +382,7 @@ export async function exportThresholdEcdsaKeyWithAuthorization(
       rpId,
       signerSession: args.material.signerSession,
       record: args.material.record,
-      clientRootShare32B64u: yClient32LeB64u,
+      clientRootShare32B64u,
     },
   );
   emitEcdsaMaterialSucceeded({

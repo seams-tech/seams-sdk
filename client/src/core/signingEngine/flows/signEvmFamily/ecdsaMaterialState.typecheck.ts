@@ -33,7 +33,6 @@ void ({
   readyMaterial,
   signerSession,
   record,
-  keyRef,
 } satisfies ReadyEcdsaMaterial);
 
 void ({
@@ -44,7 +43,6 @@ void ({
   identity,
   publicFacts,
   record,
-  keyRef,
 } satisfies PublicIdentityAvailableEcdsaMaterial);
 
 const readyWithoutSignerSession = {
@@ -57,7 +55,6 @@ const readyWithoutSignerSession = {
   signingKeyContext,
   readyMaterial,
   record,
-  keyRef,
 };
 
 // @ts-expect-error ready-to-sign material requires hot signer-session material
@@ -71,11 +68,27 @@ const publicIdentityWithSignerSession = {
   identity,
   publicFacts,
   record,
-  keyRef,
   signerSession,
 };
 
 // @ts-expect-error public identity material must not carry signer-session material
 void (publicIdentityWithSignerSession satisfies PublicIdentityAvailableEcdsaMaterial);
+
+const readyWithKeyRef = {
+  kind: 'ready_to_sign',
+  authMethod: 'passkey',
+  source: 'login',
+  chainTarget: record.chainTarget,
+  identity,
+  publicFacts,
+  signingKeyContext,
+  readyMaterial,
+  signerSession,
+  record,
+  keyRef,
+};
+
+// @ts-expect-error ECDSA material state keeps transport key refs out of core material payloads
+void (readyWithKeyRef satisfies ReadyEcdsaMaterial);
 
 export {};

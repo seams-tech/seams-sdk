@@ -16,6 +16,7 @@ import { walletSessionRefFromSession } from '@/core/signingEngine/interfaces/ecd
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { EmailOtpEd25519SessionReconstructionPlan } from './provisioning';
+import type { EmailOtpEcdsaBootstrapAuthorization } from './routePlan';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 import {
   EMAIL_OTP_CHANNEL,
@@ -476,6 +477,7 @@ export async function exportEcdsaKeyWithFreshEmailOtpLane(
       remainingUses: 1;
       authSubjectId?: string;
       runtimePolicyScope?: ThresholdRuntimePolicyScope;
+      ecdsaBootstrapAuthorization: EmailOtpEcdsaBootstrapAuthorization;
       ed25519ReconstructionMode: 'await' | 'skip';
       ed25519SessionReconstruction: EmailOtpEd25519SessionReconstructionPlan;
       includeEcdsaExportArtifact: true;
@@ -512,6 +514,7 @@ export async function exportEcdsaKeyWithFreshEmailOtpLane(
     otpCode: args.otpCode,
     operation,
     routePlan,
+    ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
     keyHandle: String(args.publicFacts.keyHandle),
     participantIds: args.publicFacts.participantIds.map((participantId) => Number(participantId)),
     remainingUses: 1,

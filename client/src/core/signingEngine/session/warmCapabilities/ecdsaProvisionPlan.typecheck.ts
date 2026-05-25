@@ -146,7 +146,6 @@ void buildThresholdSessionAuthEcdsaReconnect({
   existingSessionIdentity: identity,
   sessionBudgetUses: 1,
   reconnectMaterial: buildEcdsaReconnectMaterial({
-    keyRef: reconnectKeyRef,
     record: reconnectRecord,
   }),
   // @ts-expect-error reconnect must not accept WebAuthn auth material
@@ -156,8 +155,13 @@ void buildThresholdSessionAuthEcdsaReconnect({
 // @ts-expect-error reconnect material requires a persisted ECDSA record
 void buildEcdsaReconnectMaterial({ keyRef: reconnectKeyRef });
 
-// @ts-expect-error reconnect material requires an ECDSA key ref
 void buildEcdsaReconnectMaterial({ record: reconnectRecord });
+
+void buildEcdsaReconnectMaterial({
+  record: reconnectRecord,
+  // @ts-expect-error reconnect material derives key refs from the session record
+  keyRef: reconnectKeyRef,
+});
 
 void buildEmailOtpEcdsaSessionProvision({
   key: exactKey,
@@ -190,7 +194,7 @@ void buildEcdsaSessionProvisionPlan({
   chainTarget,
   sessionIdentity: identity,
   sessionBudgetUses: 1,
-  // @ts-expect-error reconnect planning requires record or key-ref material
+  // @ts-expect-error reconnect planning requires record material
   reconnectMaterial: {},
 });
 
@@ -200,7 +204,6 @@ void buildEcdsaSessionProvisionPlan({
   sessionIdentity: identity,
   sessionBudgetUses: 1,
   reconnectMaterial: buildEcdsaReconnectMaterial({
-    keyRef: reconnectKeyRef,
     record: reconnectRecord,
   }),
 });
@@ -213,7 +216,6 @@ const invalidReconnectPlanWithSubjectId: EcdsaSessionProvisionPlan = buildEcdsaS
   sessionIdentity: identity,
   sessionBudgetUses: 1,
   reconnectMaterial: buildEcdsaReconnectMaterial({
-    keyRef: reconnectKeyRef,
     record: reconnectRecord,
   }),
 });
@@ -232,7 +234,6 @@ void buildEcdsaSessionProvisionPlan({
   clientRootShare32B64u: 'client-root',
   webauthnAuthentication,
   reconnectMaterial: buildEcdsaReconnectMaterial({
-    keyRef: reconnectKeyRef,
     record: reconnectRecord,
   }),
 });

@@ -21,6 +21,10 @@ const SIGNING_ENGINE_URL = new URL(
   '../../client/src/core/signingEngine/SigningEngine.ts',
   import.meta.url,
 );
+const SEAMS_PASSKEY_URL = new URL(
+  '../../client/src/core/SeamsPasskey/index.ts',
+  import.meta.url,
+);
 
 test.describe('Email OTP ECDSA role-local bootstrap guard', () => {
   test('bootstrap uses role-local paths and rejects missing role-local identity', () => {
@@ -145,9 +149,8 @@ test.describe('Email OTP ECDSA role-local bootstrap guard', () => {
     const registrationBlock = source.slice(registrationStart, reconstructionStart);
     const reconstructionBlock = source.slice(reconstructionStart, helperStart);
 
-    expect(registrationBlock).toContain("kind === 'registration_ed25519_companion_provisioning'");
-    expect(registrationBlock).toContain('/registration/threshold-ed25519/hss/prepare');
-    expect(registrationBlock).toContain('requestManagedRegistrationBootstrapGrant({');
+    expect(registrationBlock).toContain('must use a wallet-subject ceremony');
+    expect(registrationBlock).not.toContain('/registration/threshold-ed25519/hss/prepare');
     expect(reconstructionBlock).toContain('ReconstructEmailOtpEd25519SessionArgs');
     expect(reconstructionBlock).toContain('/threshold-ed25519/session');
     expect(reconstructionBlock).not.toContain('/registration/threshold-ed25519/hss/prepare');
@@ -164,10 +167,8 @@ test.describe('Email OTP ECDSA role-local bootstrap guard', () => {
     const registrationBlock = source.slice(registrationStart, reconstructionStart);
     const reconstructionBlock = source.slice(reconstructionStart, helperStart);
 
-    const registrationReadyMaterial = registrationBlock.indexOf(
-      'xClientBaseB64u: completed.clientOutput.xClientBaseB64u',
-    );
-    const registrationAttach = registrationBlock.indexOf(
+    expect(registrationBlock).toContain('must use a wallet-subject ceremony');
+    expect(registrationBlock).not.toContain(
       'attachEd25519SessionToEmailOtpSigningSessionSealBestEffort({',
     );
     const reconstructionReadyMaterial = reconstructionBlock.indexOf(
@@ -177,26 +178,45 @@ test.describe('Email OTP ECDSA role-local bootstrap guard', () => {
       'attachEd25519SessionToEmailOtpSigningSessionSealBestEffort({',
     );
 
-    expect(registrationReadyMaterial).toBeGreaterThan(-1);
-    expect(registrationAttach).toBeGreaterThan(registrationReadyMaterial);
     expect(reconstructionReadyMaterial).toBeGreaterThan(-1);
     expect(reconstructionAttach).toBeGreaterThan(reconstructionReadyMaterial);
   });
 
-  test('SDK Email OTP ECDSA login forwards stored Ed25519 key identity for reconstruction', () => {
-    const source = readFileSync(SIGNING_ENGINE_URL, 'utf8');
-    const functionStart = source.indexOf('async loginWithEmailOtpEcdsaCapabilityInternal');
-    expect(functionStart).toBeGreaterThan(-1);
-    const functionEnd = source.indexOf('async requestEmailOtpSigningSessionChallenge', functionStart);
-    expect(functionEnd).toBeGreaterThan(functionStart);
-    const loginBridge = source.slice(functionStart, functionEnd);
+  test('SDK boundary forwards stored Ed25519 key identity for Email OTP ECDSA reconstruction', () => {
+    const sdkSource = readFileSync(SEAMS_PASSKEY_URL, 'utf8');
+    const engineSource = readFileSync(SIGNING_ENGINE_URL, 'utf8');
+    const helperStart = sdkSource.indexOf('async function resolveEmailOtpEd25519SessionReconstruction');
+    expect(helperStart).toBeGreaterThan(-1);
+    const helperEnd = sdkSource.indexOf('/**', helperStart);
+    expect(helperEnd).toBeGreaterThan(helperStart);
+    const reconstructionHelper = sdkSource.slice(helperStart, helperEnd);
+    const loginStart = sdkSource.indexOf('async loginWithEmailOtpEcdsaCapability');
+    expect(loginStart).toBeGreaterThan(-1);
+    const loginEnd = sdkSource.indexOf('async enrollAndLoginWithEmailOtpEcdsaCapability', loginStart);
+    expect(loginEnd).toBeGreaterThan(loginStart);
+    const sdkLogin = sdkSource.slice(loginStart, loginEnd);
+    const engineFunctionStart = engineSource.indexOf('async loginWithEmailOtpEcdsaCapabilityInternal');
+    expect(engineFunctionStart).toBeGreaterThan(-1);
+    const engineFunctionEnd = engineSource.indexOf(
+      'async requestEmailOtpSigningSessionChallenge',
+      engineFunctionStart,
+    );
+    expect(engineFunctionEnd).toBeGreaterThan(engineFunctionStart);
+    const engineLoginBridge = engineSource.slice(engineFunctionStart, engineFunctionEnd);
 
-    expect(loginBridge).toContain('getLastLoggedInSignerSlot(walletId, IndexedDBManager.clientDB)');
-    expect(loginBridge).toContain('getNearThresholdKeyMaterial(');
-    expect(loginBridge).toContain('ed25519SessionReconstruction');
-    expect(loginBridge).toContain('relayerKeyId: thresholdKeyMaterial.relayerKeyId');
-    expect(loginBridge).toContain('keyVersion: thresholdKeyMaterial.keyVersion');
-    expect(loginBridge).toContain('participantIds');
-    expect(loginBridge).toContain("'missing_runtime_policy_scope'");
+    expect(reconstructionHelper).toContain(
+      'getLastLoggedInSignerSlot(walletId, IndexedDBManager.clientDB)',
+    );
+    expect(reconstructionHelper).toContain('getNearThresholdKeyMaterial(');
+    expect(reconstructionHelper).toContain('relayerKeyId: thresholdKeyMaterial.relayerKeyId');
+    expect(reconstructionHelper).toContain('keyVersion: thresholdKeyMaterial.keyVersion');
+    expect(reconstructionHelper).toContain('participantIds');
+    expect(reconstructionHelper).toContain("'missing_runtime_policy_scope'");
+    expect(sdkLogin).toContain('await resolveEmailOtpEd25519SessionReconstruction(args)');
+    expect(sdkLogin).toContain("ed25519ReconstructionMode: 'await'");
+    expect(sdkLogin).toContain('ed25519SessionReconstruction');
+    expect(engineLoginBridge).toContain(
+      'return await this.emailOtpPublic.loginWithEmailOtpEcdsaCapabilityInternal(args);',
+    );
   });
 });

@@ -10,16 +10,19 @@ import type {
   WarmSessionEcdsaCapabilityRef,
 } from './types';
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
+import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 
 declare const walletId: WalletId;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const plan: EcdsaSessionProvisionPlan;
 declare const selectedRecord: ThresholdEcdsaSessionRecord;
+declare const keyRef: ThresholdEcdsaSecp256k1KeyRef;
 
 const validEnsureWarmEcdsaProvisionPlanReadyArgs = {
   walletId,
   chainTarget,
   plan,
+  record: selectedRecord,
   source: 'login',
   sessionBudgetUses: 1,
 } satisfies EnsureWarmEcdsaProvisionPlanReadyArgs;
@@ -29,6 +32,7 @@ const invalidEnsureWarmEcdsaProvisionPlanReadyArgsWithSubjectId = {
   walletId,
   chainTarget,
   plan,
+  record: selectedRecord,
   source: 'login',
   sessionBudgetUses: 1,
   // @ts-expect-error base-ECDSA provision readiness derives subject from shared key identity.
@@ -41,10 +45,23 @@ const invalidEnsureWarmEcdsaProvisionPlanReadyArgsWithRawWalletId = {
   walletId: 'wallet.testnet',
   chainTarget,
   plan,
+  record: selectedRecord,
   source: 'login',
   sessionBudgetUses: 1,
 } satisfies EnsureWarmEcdsaProvisionPlanReadyArgs;
 void invalidEnsureWarmEcdsaProvisionPlanReadyArgsWithRawWalletId;
+
+const invalidEnsureWarmEcdsaProvisionPlanReadyArgsWithKeyRef = {
+  walletId,
+  chainTarget,
+  plan,
+  record: selectedRecord,
+  source: 'login',
+  sessionBudgetUses: 1,
+  // @ts-expect-error ECDSA provision readiness derives key refs from the selected record.
+  keyRef,
+} satisfies EnsureWarmEcdsaProvisionPlanReadyArgs;
+void invalidEnsureWarmEcdsaProvisionPlanReadyArgsWithKeyRef;
 
 const validWarmSessionEcdsaCapabilityRef = {
   walletId,

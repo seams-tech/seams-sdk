@@ -1,6 +1,5 @@
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { EmailOtpEcdsaSigningBootstrapResult } from '../../interfaces/operationDeps';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import {
   buildEcdsaSessionIdentity,
   ecdsaSessionIdentitiesEqual,
@@ -34,7 +33,6 @@ export type EvmFamilyEmailOtpSigningCompleter = {
 
 export type EvmFamilyEmailOtpSigningRefreshResult = {
   readyMaterial: ReadyEvmFamilyEcdsaMaterial;
-  keyRef: ThresholdEcdsaSecp256k1KeyRef;
   record: ThresholdEcdsaSessionRecord;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
   provisionPlan: EmailOtpEcdsaSessionProvision;
@@ -75,8 +73,8 @@ export async function completeEvmFamilyEmailOtpSigningRefresh(args: {
   }
   const materialResolution = resolveReadyEvmFamilyEcdsaMaterial({
     record,
-    keyRef,
     rpId: thresholdEcdsaRecordRpId(record),
+    cachedExportArtifact: keyRef.ecdsaHssExportArtifact || null,
     expected: {
       walletId: record.walletId,
       chainTarget: args.chainTarget,
@@ -111,7 +109,6 @@ export async function completeEvmFamilyEmailOtpSigningRefresh(args: {
   }
   return {
     readyMaterial: materialResolution.material,
-    keyRef,
     record,
     lane,
     provisionPlan,

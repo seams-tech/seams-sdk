@@ -74,6 +74,12 @@ import type {
   WalletEmailOtpChannel,
   WalletEmailOtpLoginOperation,
 } from '@shared/utils/emailOtpDomain';
+import type {
+  AddSignerSelection,
+  RegisterWalletSubjectInput,
+  RegistrationSignerSelection,
+  WalletSubjectId,
+} from '@shared/utils/registrationIntent';
 
 type PublicThresholdEcdsaSessionKeyRef = Omit<
   ThresholdEcdsaSessionBootstrapResult['thresholdEcdsaKeyRef'],
@@ -97,6 +103,17 @@ export type SignTempoArgs = {
     shouldAbort?: () => boolean;
     onEvent?: (event: SigningFlowEvent) => void;
   };
+};
+
+export type RegisterNearWalletArgs = {
+  nearAccountId: string;
+  options?: RegistrationHooksOptions;
+};
+
+export type RegisterEvmWalletArgs = {
+  chainTargets: readonly ThresholdEcdsaChainTarget[];
+  participantIds: readonly number[];
+  options?: RegistrationHooksOptions;
 };
 
 export type TempoNonceLifecycleEvent = SigningFlowEvent;
@@ -345,6 +362,18 @@ export interface AuthCapability {
 }
 
 export interface RegistrationCapability {
+  addWalletSigner(args: {
+    walletSubjectId: WalletSubjectId | string;
+    rpId: string;
+    signerSelection: AddSignerSelection;
+    options?: RegistrationHooksOptions;
+  }): Promise<RegistrationResult>;
+  registerWallet(args: {
+    walletSubject: RegisterWalletSubjectInput;
+    rpId: string;
+    signerSelection: RegistrationSignerSelection;
+    options?: RegistrationHooksOptions;
+  }): Promise<RegistrationResult>;
   registerPasskey(
     nearAccountId: string,
     options?: RegistrationHooksOptions,
@@ -357,6 +386,8 @@ export interface RegistrationCapability {
 }
 
 export interface NearSignerCapability {
+  registerNearWallet(args: RegisterNearWalletArgs): Promise<RegistrationResult>;
+
   executeAction(args: {
     nearAccount: NearAccountRef;
     receiverId: string;
@@ -433,6 +464,8 @@ export interface TempoSignerCapability {
 }
 
 export interface EvmSignerCapability {
+  registerEvmWallet(args: RegisterEvmWalletArgs): Promise<RegistrationResult>;
+
   bootstrapEcdsaSession(
     args: BootstrapThresholdEcdsaSessionArgs,
   ): Promise<PublicThresholdEcdsaSessionBootstrapResult>;

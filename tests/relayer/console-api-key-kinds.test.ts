@@ -354,7 +354,7 @@ test.describe('console API key kinds', () => {
     expect(String(getPath(deleted.json, 'apiKey', 'id') || '')).toBe(apiKeyId);
   });
 
-  test('relay bootstrap rejects publishable_key credentials', async () => {
+  test('wallet registration intent rejects publishable_key credentials', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
     const created = await apiKeys.createApiKey(
       {
@@ -374,10 +374,7 @@ test.describe('console API key kinds', () => {
 
     const router = createRelayRouter(
       makeFakeAuthService({
-        createAccountAndRegisterUser: async () => ({
-          success: true,
-          transactionHash: 'tx-123',
-        }),
+        createAccountAndRegisterUser: async () => ({ success: true, transactionHash: 'tx-123' }),
       }),
       {
         apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
@@ -385,20 +382,32 @@ test.describe('console API key kinds', () => {
     );
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/registration/bootstrap`, {
+      const res = await fetchJson(`${srv.baseUrl}/wallets/register/intent`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${created.secret}`,
+          Origin: 'https://example.com',
         },
         body: JSON.stringify({
-          new_account_id: 'alice.testnet',
-          rp_id: 'example.localhost',
-          webauthn_registration: { id: 'cred-1' },
+          walletSubject: { kind: 'provided', walletSubjectId: 'alice.testnet' },
+          rpId: 'example.com',
+          signerSelection: {
+            mode: 'ed25519_only',
+            ed25519: {
+              nearAccountId: 'alice.testnet',
+              signerSlot: 1,
+              createNearAccount: true,
+              keyPurpose: 'ed25519-hss/y_relayer',
+              keyVersion: 'threshold-ed25519-hss-v1',
+              participantIds: [1, 2],
+              derivationVersion: 1,
+            },
+          },
         }),
       });
       expect(res.status, res.text).toBe(401);
-      expect(res.json?.code).toBe('secret_key_invalid');
+      expect(String(res.json?.message || '')).toContain('secret_key_invalid');
     } finally {
       await srv.close();
     }

@@ -1,9 +1,8 @@
 import type { UiConfirmContext } from '../../types';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import { TransactionSummary, RegistrationUserConfirmRequest } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
-import type { UserConfirmSecurityContext, TransactionContext } from '@/core/types';
+import type { UserConfirmSecurityContext } from '@/core/types';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
-import { nonceLeaseToRef } from '@/core/signingEngine/nonce/NonceCoordinator';
 import { sha256Base64UrlUtf8 } from '@/utils/intentDigest';
 import { isUserCancelledUserConfirm, ERROR_MESSAGES } from '@/core/signingEngine/stepUpConfirmation/channel/confirmCommon';
 import { getNearAccountId, getIntentDigest, getRegisterAccountPayload } from './adapters/request';
@@ -38,27 +37,14 @@ export async function handleRegistrationFlow(
   const nearAccountId = getNearAccountId(request);
 
   try {
-    // 1) NEAR context
-    const nearRpc = await adapters.near.fetchNearContext({
-      nearAccountId,
-      txCount: 1,
-      reserveNonces: true,
-      allowFallback: true,
-      operationId: request.requestId,
-      operationFingerprint: getIntentDigest(request) || request.requestId,
-    });
-    if (nearRpc.error && !nearRpc.transactionContext) {
-      return session.confirmAndCloseModal({
-        requestId: request.requestId,
-        intentDigest: getIntentDigest(request),
-        confirmed: false,
-        error: `${ERROR_MESSAGES.nearRpcFailed}: ${nearRpc.details}`,
-      });
-    }
-    const transactionContext = nearRpc.transactionContext as TransactionContext;
-    session.setNonceLeases(nearRpc.nonceLeases);
+    const requestedChallenge = request.payload.webauthnChallenge;
+    const explicitChallengeB64u =
+      requestedChallenge?.kind === 'intent_digest'
+        ? String(requestedChallenge.challengeB64u || '').trim()
+        : '';
 
     const computeBoundIntentDigestB64u = async (): Promise<string> => {
+      if (explicitChallengeB64u) return explicitChallengeB64u;
       const uiIntentDigest = getIntentDigest(request);
       if (!uiIntentDigest) {
         throw new Error('Missing intentDigest for registration flow');
@@ -73,8 +59,6 @@ export async function handleRegistrationFlow(
     let challengeB64u = await computeBoundIntentDigestB64u();
     const securityContext: UserConfirmSecurityContext = {
       rpId,
-      blockHeight: transactionContext.txBlockHeight,
-      blockHash: transactionContext.txBlockHash,
     };
 
     // 3) UI confirm
@@ -110,6 +94,11 @@ export async function handleRegistrationFlow(
         name === 'InvalidStateError' || /excluded|already\s*registered/i.test(msg);
 
       if (isDuplicate) {
+        if (explicitChallengeB64u) {
+          throw new Error(
+            'Registration credential already exists for this wallet registration intent; create a fresh intent before retrying',
+          );
+        }
         const nextSignerSlot =
           signerSlot !== undefined && Number.isFinite(signerSlot) ? signerSlot + 1 : 2;
         // Keep request payload and intentDigest in sync with the signer-slot retry.
@@ -150,12 +139,6 @@ export async function handleRegistrationFlow(
       intentDigest: getIntentDigest(request),
       confirmed: true,
       credential: serialized,
-      transactionContext,
-      ...(nearRpc.nonceLeases?.length
-        ? {
-            nonceLeases: nearRpc.nonceLeases.map(nonceLeaseToRef),
-          }
-        : {}),
     });
   } catch (err: unknown) {
     const cancelled = isUserCancelledUserConfirm(err);

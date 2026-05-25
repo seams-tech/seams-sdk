@@ -11,7 +11,6 @@ import type {
   WebAuthnRegistrationCredential,
 } from '../types';
 import { toAccountId } from '../types/accountIds';
-import type { AuthenticatorOptions } from '../types/authenticatorOptions';
 import { IndexedDBManager } from '../indexedDB';
 import {
   getNearThresholdKeyMaterial,
@@ -33,18 +32,17 @@ import {
 } from '../signingEngine/threshold/sessionPolicy';
 import type { PasskeyManagerContext } from './index';
 import {
-  type CreateAccountAndRegisterThresholdEd25519Response,
-  createManagedRegistrationFlowGrant,
-  finalizeThresholdEd25519HssServerCeremonyWithRelayRegistration,
-  prepareThresholdEd25519HssServerCeremonyWithRelayRegistration,
-  respondThresholdEd25519HssServerCeremonyWithRelayRegistration,
-  type CreateAccountAndRegisterThresholdEd25519Input,
-  type ThresholdEd25519RegistrationHssFinalizeResult,
-} from './faucets/createAccountRelayServer';
-import {
   THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
   THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
 } from '../signingEngine/threshold/ed25519/hssClientBase';
+import type { WalletRegistrationFinalizeResponse } from '../rpcClients/relayer/walletRegistration';
+import type {
+  ThresholdEd25519HssCanonicalContext,
+  ThresholdEd25519HssClientRequestEnvelope,
+  ThresholdEd25519HssPreparedSessionEnvelope,
+  ThresholdEd25519HssServerInputDeliveryEnvelope,
+  ThresholdEd25519HssStagedEvaluatorArtifactEnvelope,
+} from '../signingEngine/threshold/crypto/hssClientSignerWasm';
 import { resolveThresholdWarmSessionDefaults } from './thresholdWarmSessionDefaults';
 
 export const THRESHOLD_ED25519_SINGLE_KEY_HSS_KEY_VERSION_V1 = 'threshold-ed25519-hss-v1';
@@ -73,13 +71,12 @@ export type ThresholdWarmSessionRequestEnvelope = {
   session_kind: 'jwt';
 };
 
-export type PreparedThresholdEd25519RegistrationWithHss = {
-  hssFinalize: ThresholdEd25519RegistrationHssFinalizeResult;
-  registrationInput: CreateAccountAndRegisterThresholdEd25519Input;
-};
+export type WalletRegistrationThresholdEd25519Response = NonNullable<
+  WalletRegistrationFinalizeResponse['ed25519']
+>;
 
 export type CompletedThresholdEd25519Registration = {
-  registered: CreateAccountAndRegisterThresholdEd25519Response;
+  registered: WalletRegistrationThresholdEd25519Response;
   operationalPublicKey: string;
 };
 
@@ -92,6 +89,18 @@ type ThresholdWarmSessionRelayResult = {
   remainingUses?: number;
   jwt?: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
+};
+
+export type ThresholdEd25519RegistrationHssContext = ThresholdEd25519HssCanonicalContext;
+
+export type ThresholdEd25519RegistrationHssClientMaterial = {
+  hssContext: ThresholdEd25519RegistrationHssContext;
+  prfFirstB64u: string;
+  clientInputs: {
+    contextBindingB64u: string;
+    yClientB64u: string;
+    tauClientB64u: string;
+  };
 };
 
 const thresholdEd25519ClientBasePrewarmBySessionId = new Map<string, Promise<void>>();
@@ -151,38 +160,26 @@ export function buildThresholdWarmSessionRequestEnvelope(args: {
   };
 }
 
-export async function prepareThresholdEd25519RegistrationWithHss(args: {
+export async function prepareThresholdEd25519RegistrationHssClientMaterial(args: {
   context: PasskeyManagerContext;
-  credential: WebAuthnRegistrationCredential;
+  credential: WebAuthnRegistrationCredential | WebAuthnAuthenticationCredential;
+  signingRootId: string;
   nearAccountId: AccountId;
-  rpId: string;
-  authenticatorOptions?: AuthenticatorOptions;
+  keyPurpose: string;
+  keyVersion: string;
+  participantIds: number[];
+  derivationVersion: number;
   onProgress?: (message: string) => void;
-}): Promise<PreparedThresholdEd25519RegistrationWithHss> {
-  args.onProgress?.('Resolving registration scope...');
-  const managedRegistrationFlow = await createManagedRegistrationFlowGrant({
-    context: args.context,
-    nearAccountId: String(args.nearAccountId),
-    rpId: args.rpId,
-  });
-  const runtimePolicyScope = managedRegistrationFlow.runtimePolicyScope;
-  const requestedPolicy = createThresholdWarmSessionPolicyDraft(args.context);
-  if (!requestedPolicy) {
-    throw new Error('Threshold warm-session defaults are disabled for registration');
-  }
-  args.onProgress?.('Preparing threshold Ed25519 signer from passkey...');
-  const signingRootId = signingRootScopeFromRuntimePolicyScope(runtimePolicyScope).signingRootId;
+}): Promise<ThresholdEd25519RegistrationHssClientMaterial> {
   const prepared =
     await args.context.signingEngine.prepareThresholdEd25519HssClientCeremonyFromCredential({
       credential: args.credential,
-      signingRootId,
-      nearAccountId: args.nearAccountId,
-      keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
-      keyVersion: THRESHOLD_ED25519_SINGLE_KEY_HSS_KEY_VERSION_V1,
-      participantIds: normalizeThresholdEd25519ParticipantIds(requestedPolicy.participantIds) || [
-        ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
-      ],
-      derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
+      signingRootId: args.signingRootId,
+      nearAccountId: String(args.nearAccountId),
+      keyPurpose: args.keyPurpose,
+      keyVersion: args.keyVersion,
+      participantIds: args.participantIds,
+      derivationVersion: args.derivationVersion,
       onProgress: args.onProgress,
     });
   if (!prepared.success) {
@@ -193,101 +190,67 @@ export async function prepareThresholdEd25519RegistrationWithHss(args: {
     throw new Error('Missing PRF.first output from credential for threshold Ed25519 HSS masking');
   }
 
-  args.onProgress?.('Preparing threshold Ed25519 relay ceremony...');
-  const preparedRelayCeremony = await prepareThresholdEd25519HssServerCeremonyWithRelayRegistration(
-    {
-      context: args.context,
-      nearAccountId: String(args.nearAccountId),
-      rpId: args.rpId,
-      hssContext: {
-        signingRootId,
-        nearAccountId: String(args.nearAccountId),
-        keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
-        keyVersion: THRESHOLD_ED25519_SINGLE_KEY_HSS_KEY_VERSION_V1,
-        participantIds: prepared.participantIds,
-        derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
-      },
+  return {
+    hssContext: {
+      signingRootId: args.signingRootId,
+      nearAccountId: args.nearAccountId,
+      keyPurpose: args.keyPurpose,
+      keyVersion: args.keyVersion,
+      participantIds: prepared.participantIds,
+      derivationVersion: args.derivationVersion,
     },
-  );
-  const hssContext = {
-    signingRootId,
-    nearAccountId: String(args.nearAccountId),
-    keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
-    keyVersion: THRESHOLD_ED25519_SINGLE_KEY_HSS_KEY_VERSION_V1,
-    participantIds: prepared.participantIds,
-    derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
-  };
-  const { clientOutputMaskB64u } =
-    await args.context.signingEngine.deriveThresholdEd25519HssClientOutputMask({
-      clientRecoverableSecretB64u: prfFirstB64u,
-      context: {
-        ...hssContext,
-        contextBindingB64u: preparedRelayCeremony.preparedSession.contextBindingB64u,
-        operation: 'registration',
-        relayerKeyId: `registration:${preparedRelayCeremony.ceremonyHandle}`,
-      },
-    });
-
-  const clientRequest = await args.context.signingEngine.prepareThresholdEd25519HssClientRequest({
-    evaluatorDriverStateB64u: preparedRelayCeremony.preparedSession.evaluatorDriverStateB64u,
-    clientOtOfferMessageB64u: preparedRelayCeremony.clientOtOfferMessageB64u,
+    prfFirstB64u,
     clientInputs: {
       contextBindingB64u: prepared.contextBindingB64u,
       yClientB64u: prepared.yClientB64u,
       tauClientB64u: prepared.tauClientB64u,
     },
-  });
+  };
+}
 
-  const responded = await respondThresholdEd25519HssServerCeremonyWithRelayRegistration({
-    context: args.context,
-    nearAccountId: String(args.nearAccountId),
-    rpId: args.rpId,
-    ceremonyHandle: preparedRelayCeremony.ceremonyHandle,
-    clientRequest,
-  });
-
-  const evaluationResult =
-    await args.context.signingEngine.buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact({
-      preparedSession: preparedRelayCeremony.preparedSession,
-      clientRequest,
-      serverInputDelivery: responded,
-      clientOutputMaskB64u,
+export async function prepareThresholdEd25519RegistrationHssClientRequest(args: {
+  context: PasskeyManagerContext;
+  material: ThresholdEd25519RegistrationHssClientMaterial;
+  preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+  clientOtOfferMessageB64u: string;
+  ceremonyHandle: string;
+}): Promise<{
+  clientRequest: ThresholdEd25519HssClientRequestEnvelope;
+  clientOutputMaskB64u: string;
+}> {
+  const { clientOutputMaskB64u } =
+    await args.context.signingEngine.deriveThresholdEd25519HssClientOutputMask({
+      clientRecoverableSecretB64u: args.material.prfFirstB64u,
+      context: {
+        ...args.material.hssContext,
+        contextBindingB64u: args.preparedSession.contextBindingB64u,
+        operation: 'registration',
+        relayerKeyId: `registration:${args.ceremonyHandle}`,
+      },
     });
 
-  args.onProgress?.('Finalizing threshold Ed25519 registration material...');
-  const hssFinalize = await finalizeThresholdEd25519HssServerCeremonyWithRelayRegistration({
-    context: args.context,
-    nearAccountId: String(args.nearAccountId),
-    rpId: args.rpId,
-    ceremonyHandle: preparedRelayCeremony.ceremonyHandle,
-    evaluationResult,
+  const clientRequest = await args.context.signingEngine.prepareThresholdEd25519HssClientRequest({
+    evaluatorDriverStateB64u: args.preparedSession.evaluatorDriverStateB64u,
+    clientOtOfferMessageB64u: args.clientOtOfferMessageB64u,
+    clientInputs: args.material.clientInputs,
   });
-  if (!hssFinalize.publicKey || !hssFinalize.relayerKeyId) {
-    throw new Error('Threshold Ed25519 registration HSS finalize returned incomplete key material');
-  }
 
-  return {
-    hssFinalize,
-    registrationInput: {
-      keyVersion: THRESHOLD_ED25519_SINGLE_KEY_HSS_KEY_VERSION_V1,
-      recoveryExportCapable: true,
-      publicKey: hssFinalize.publicKey,
-      relayerKeyId: hssFinalize.relayerKeyId,
-      sessionPolicy: {
-        version: THRESHOLD_SESSION_POLICY_VERSION,
-        nearAccountId: String(args.nearAccountId),
-        rpId: args.rpId,
-        relayerKeyId: hssFinalize.relayerKeyId,
-        sessionId: requestedPolicy.sessionId,
-        walletSigningSessionId: requestedPolicy.walletSigningSessionId || requestedPolicy.sessionId,
-        participantIds: prepared.participantIds,
-        ttlMs: requestedPolicy.ttlMs,
-        remainingUses: requestedPolicy.remainingUses,
-        runtimePolicyScope,
-      },
-      sessionKind: 'jwt',
-    },
-  };
+  return { clientRequest, clientOutputMaskB64u };
+}
+
+export async function buildThresholdEd25519RegistrationHssClientOwnedArtifact(args: {
+  context: PasskeyManagerContext;
+  preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+  clientRequest: ThresholdEd25519HssClientRequestEnvelope;
+  serverInputDelivery: ThresholdEd25519HssServerInputDeliveryEnvelope;
+  clientOutputMaskB64u: string;
+}): Promise<ThresholdEd25519HssStagedEvaluatorArtifactEnvelope> {
+  return await args.context.signingEngine.buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact({
+    preparedSession: args.preparedSession,
+    clientRequest: args.clientRequest,
+    serverInputDelivery: args.serverInputDelivery,
+    clientOutputMaskB64u: args.clientOutputMaskB64u,
+  });
 }
 
 export function requireThresholdEd25519WarmSessionKeyVersion(
@@ -312,7 +275,7 @@ export function requireThresholdEd25519WarmSessionKeyVersion(
 }
 
 export function completeRegisteredThresholdEd25519Registration(args: {
-  thresholdEd25519: CreateAccountAndRegisterThresholdEd25519Response | undefined;
+  thresholdEd25519: WalletRegistrationThresholdEd25519Response | undefined;
   expectedSessionPolicy: ThresholdWarmSessionRequestEnvelope['session_policy'];
 }): CompletedThresholdEd25519Registration {
   const thresholdEd25519 = args.thresholdEd25519;

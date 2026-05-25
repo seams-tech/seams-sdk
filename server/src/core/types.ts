@@ -8,6 +8,18 @@ import type { InitInput } from '../../../wasm/near_signer/pkg/wasm_signer_worker
 import type { Logger } from './logger';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type {
+  AddSignerIntentGrant,
+  AddSignerIntentV1,
+  AddSignerSelection,
+  RegisterWalletSubjectInput,
+  RegistrationIntentGrant,
+  RegistrationIntentV1,
+  RegistrationSignerSelection,
+  ThresholdEcdsaAddSignerSpec,
+  ThresholdEd25519AddSignerSpec,
+  WalletSubjectId,
+} from '@shared/utils/registrationIntent';
+import type {
   SigningRootSecretDecryptAdapter,
   SigningRootSecretResolverAdapters,
   SigningRootSecretShareSource,
@@ -113,6 +125,7 @@ export interface ThresholdEd25519HssServerVisibleClientRequestEnvelope {
   yClientB64u?: never;
   tauClientB64u?: never;
   rClientB64u?: never;
+  clientOutputMaskB64u?: never;
   prfFirstB64u?: never;
   prfOutputB64u?: never;
   clientSecretB64u?: never;
@@ -152,9 +165,15 @@ export interface ThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope {
   evaluatorOtStateB64u?: never;
   xClientBaseB64u?: never;
   xRelayerBaseB64u?: never;
+  yClientB64u?: never;
+  tauClientB64u?: never;
+  yRelayerB64u?: never;
+  tauRelayerB64u?: never;
   rClientB64u?: never;
+  clientOutputMaskB64u?: never;
   prfOutputB64u?: never;
   clientSecret32B64u?: never;
+  seedOutputMessageB64u?: never;
 }
 
 export interface ThresholdEd25519HssRoleSeparatedServerStageResponsesEnvelope {
@@ -261,6 +280,337 @@ export interface ThresholdEd25519HssOpenedSeedOutput {
 export interface ThresholdEd25519HssDerivedPublicKey {
   publicKeyB64u: string;
 }
+
+export type {
+  AddSignerIntentGrant,
+  AddSignerIntentV1,
+  AddSignerSelection,
+  RegisterWalletSubjectInput,
+  RegistrationIntentGrant,
+  RegistrationIntentV1,
+  RegistrationSignerSelection,
+  ThresholdEcdsaAddSignerSpec,
+  ThresholdEd25519AddSignerSpec,
+  WalletSubjectId,
+};
+
+export type CreateRegistrationIntentRequest = {
+  walletSubject: RegisterWalletSubjectInput;
+  rpId: string;
+  signerSelection: RegistrationSignerSelection;
+};
+
+export type CreateRegistrationIntentResponse =
+  | {
+      ok: true;
+      intent: RegistrationIntentV1;
+      registrationIntentDigestB64u: string;
+      registrationIntentGrant: RegistrationIntentGrant;
+      expiresAtMs: number;
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+    };
+
+export type CreateAddSignerIntentRequest = {
+  walletSubjectId: WalletSubjectId;
+  rpId: string;
+  signerSelection: AddSignerSelection;
+};
+
+export type CreateAddSignerIntentResponse =
+  | {
+      ok: true;
+      intent: AddSignerIntentV1;
+      addSignerIntentDigestB64u: string;
+      addSignerIntentGrant: AddSignerIntentGrant;
+      expiresAtMs: number;
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+    };
+
+export type AddSignerAppSessionPolicy = {
+  permission: 'wallet_signer_provision';
+  walletSubjectId: WalletSubjectId;
+  signerSelection: AddSignerSelection;
+  runtimePolicyScope?: RuntimePolicyScope;
+  expiresAtMs: number;
+};
+
+export type AddSignerAuth =
+  | {
+      kind: 'webauthn_assertion';
+      credential: WebAuthnAuthenticationCredential;
+      expectedChallengeDigestB64u: string;
+    }
+  | {
+      kind: 'app_session';
+      policy: AddSignerAppSessionPolicy;
+    };
+
+export type WalletAddSignerStartRequest = {
+  walletSubjectId: WalletSubjectId;
+  addSignerIntentGrant: AddSignerIntentGrant;
+  addSignerIntentDigestB64u: string;
+  intent: AddSignerIntentV1;
+  auth: AddSignerAuth;
+};
+
+export type WalletAddSignerStartResponse =
+  | {
+      ok: true;
+      addSignerCeremonyId: string;
+      intent: AddSignerIntentV1;
+      ed25519?: {
+        ceremonyHandle: string;
+        preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+        clientOtOfferMessageB64u: string;
+      };
+      ecdsa?: WalletRegistrationEcdsaPreparePayload;
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+    };
+
+export type WalletAddSignerHssRespondRequest = {
+  addSignerCeremonyId: string;
+  ed25519?: {
+    clientRequest: ThresholdEd25519HssServerVisibleClientRequestEnvelope;
+  };
+  ecdsa?: {
+    clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
+  };
+};
+
+export type WalletAddSignerHssRespondResponse =
+  | {
+      ok: true;
+      addSignerCeremonyId: string;
+      ed25519?: {
+        contextBindingB64u: string;
+        serverInputDeliveryB64u: string;
+      };
+      ecdsa?: {
+        bootstrap: EcdsaHssServerBootstrapResponse;
+      };
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+    };
+
+export type WalletAddSignerFinalizeRequest = {
+  addSignerCeremonyId: string;
+  ed25519?: {
+    evaluationResult: ThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope;
+    sessionPolicy?: Ed25519SessionPolicy;
+    sessionKind?: 'jwt' | 'cookie';
+  };
+  ecdsa?: {
+    expectedKeyHandles?: string[];
+  };
+};
+
+export type WalletAddSignerFinalizeResponse =
+  | {
+      ok: true;
+      walletSubjectId: WalletSubjectId;
+      rpId: string;
+      ed25519?: {
+        nearAccountId: string;
+        publicKey: string;
+        relayerKeyId: string;
+        keyVersion: string;
+        recoveryExportCapable: true;
+        clientParticipantId?: number;
+        relayerParticipantId?: number;
+        participantIds?: number[];
+        session?: ThresholdEd25519BootstrapSession;
+      };
+      ecdsa?: {
+        walletKeys: WalletRegistrationEcdsaWalletKey[];
+      };
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+    };
+
+export type WalletRegistrationStartRequest = {
+  registrationIntentGrant: RegistrationIntentGrant;
+  registrationIntentDigestB64u: string;
+  intent: RegistrationIntentV1;
+  webauthn_registration: unknown;
+};
+
+export type WalletRegistrationEcdsaPreparePayload = {
+  kind: 'evm_family_ecdsa_keygen';
+  chainTargets: ThresholdEcdsaChainTarget[];
+  prepare: {
+    formatVersion: EcdsaHssRoleLocalFormatVersion;
+    walletSessionUserId: string;
+    rpId: string;
+    subjectId: string;
+    ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+    signingRootId: string;
+    signingRootVersion: string;
+    keyScope: EcdsaHssKeyScope;
+    relayerKeyId: string;
+    requestId: string;
+    sessionId: string;
+    walletSigningSessionId: string;
+    ttlMs: number;
+    remainingUses: number;
+    participantIds: number[];
+    runtimePolicyScope?: RuntimePolicyScope;
+  };
+};
+
+export type WalletRegistrationEcdsaClientBootstrap = {
+  formatVersion: EcdsaHssRoleLocalFormatVersion;
+  walletSessionUserId: string;
+  rpId: string;
+  subjectId: string;
+  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  signingRootId: string;
+  signingRootVersion: string;
+  keyScope: EcdsaHssKeyScope;
+  relayerKeyId: string;
+  clientPublicKey33B64u: string;
+  clientShareRetryCounter: number;
+  contextBinding32B64u: string;
+  requestId: string;
+  sessionId: string;
+  walletSigningSessionId: string;
+  ttlMs: number;
+  remainingUses: number;
+  participantIds: number[];
+  runtimePolicyScope?: RuntimePolicyScope;
+  clientRootProof?: never;
+  passkeyBootstrapAuthorization?: never;
+};
+
+export type WalletRegistrationEcdsaWalletKey = {
+  keyScope: 'evm-family';
+  chainTarget: ThresholdEcdsaChainTarget;
+  walletSessionUserId: string;
+  rpId: string;
+  subjectId: string;
+  keyHandle: string;
+  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  signingRootId: string;
+  signingRootVersion: string;
+  thresholdEcdsaPublicKeyB64u: string;
+  thresholdOwnerAddress: string;
+  relayerKeyId: string;
+  relayerVerifyingShareB64u: string;
+  participantIds: number[];
+};
+
+export type WalletRegistrationStartResponse =
+  | {
+      ok: true;
+      registrationCeremonyId: string;
+      intent: RegistrationIntentV1;
+      ed25519?: {
+        ceremonyHandle: string;
+        preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+        clientOtOfferMessageB64u: string;
+      };
+      ecdsa?: WalletRegistrationEcdsaPreparePayload;
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+    };
+
+export type WalletRegistrationHssRespondRequest = {
+  registrationCeremonyId: string;
+  ed25519?: {
+    clientRequest: ThresholdEd25519HssServerVisibleClientRequestEnvelope;
+  };
+  ecdsa?: {
+    clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
+  };
+};
+
+export type WalletRegistrationHssRespondResponse =
+  | {
+      ok: true;
+      registrationCeremonyId: string;
+      ed25519?: {
+        contextBindingB64u: string;
+        serverInputDeliveryB64u: string;
+      };
+      ecdsa?: {
+        bootstrap: EcdsaHssServerBootstrapResponse;
+      };
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+    };
+
+export type WalletRegistrationFinalizeRequest = {
+  registrationCeremonyId: string;
+  ed25519?: {
+    evaluationResult: ThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope;
+    sessionPolicy?: Ed25519SessionPolicy;
+    sessionKind?: 'jwt' | 'cookie';
+  };
+  ecdsa?: {
+    expectedKeyHandles?: string[];
+  };
+};
+
+export type WalletRegistrationFinalizeResponse =
+  | {
+      ok: true;
+      walletSubjectId: WalletSubjectId;
+      rpId: string;
+      ed25519?: {
+        nearAccountId: string;
+        publicKey: string;
+        relayerKeyId: string;
+        keyVersion: string;
+        recoveryExportCapable: true;
+        clientParticipantId?: number;
+        relayerParticipantId?: number;
+        participantIds?: number[];
+        session?: ThresholdEd25519BootstrapSession;
+      };
+      ecdsa?: {
+        walletKeys: WalletRegistrationEcdsaWalletKey[];
+      };
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+    };
+
+export type ThresholdEd25519BootstrapSession = {
+  sessionKind: 'jwt' | 'cookie';
+  sessionId: string;
+  walletSigningSessionId: string;
+  expiresAtMs: number;
+  expiresAt?: string;
+  participantIds?: number[];
+  remainingUses?: number;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  jwt?: string;
+};
 
 export type ThresholdEd25519HssSessionOperation =
   | 'tx_signing'
@@ -719,16 +1069,6 @@ export interface CreateAccountAndRegisterRequest {
     };
     session_kind: 'jwt' | 'cookie';
   };
-  threshold_ecdsa?: {
-    client_root_share32_b64u: string;
-    session_policy: Omit<EcdsaSessionPolicy, 'relayerKeyId'> & {
-      relayerKeyId?: string;
-    };
-    session_kind: 'jwt' | 'cookie';
-  };
-  registration_continuation?: {
-    threshold_ecdsa_chain_targets: ThresholdEcdsaChainTarget[];
-  };
   /**
    * WebAuthn RP ID used for the registration ceremony (e.g. `wallet.example.com`).
    *
@@ -769,29 +1109,6 @@ export interface CreateAccountAndRegisterResult {
       runtimePolicyScope?: ThresholdRuntimePolicyScope;
       jwt?: string;
     };
-  };
-  thresholdEcdsa?: {
-    relayerKeyId: string;
-    thresholdEcdsaPublicKeyB64u: string;
-    ethereumAddress: string;
-    relayerVerifyingShareB64u: string;
-    participantIds?: number[];
-    session?: {
-      sessionKind: 'jwt' | 'cookie';
-      sessionId: string;
-      walletSigningSessionId: string;
-      expiresAtMs: number;
-      expiresAt?: string;
-      participantIds?: number[];
-      remainingUses?: number;
-      runtimePolicyScope?: ThresholdRuntimePolicyScope;
-      jwt?: string;
-    };
-  };
-  registrationContinuation?: {
-    token: string;
-    expiresAtMs: number;
-    thresholdEcdsaChainTargets: ThresholdEcdsaChainTarget[];
   };
   error?: string;
   message?: string;
@@ -1058,6 +1375,27 @@ export type ThresholdEcdsaPurpose = string;
 export type EcdsaThresholdKeyId = string;
 export type ThresholdEcdsaChainTarget =
   import('./thresholdEcdsaChainTarget').ThresholdEcdsaChainTarget;
+
+export interface EcdsaKeyFactsInventoryPolicy {
+  permission: 'ecdsa_key_facts_inventory';
+  walletSubjectId: WalletSubjectId;
+  chainTargets: ThresholdEcdsaChainTarget[];
+  runtimePolicyScope?: RuntimePolicyScope;
+  expiresAtMs: number;
+}
+
+export type WalletKeyFactsInventoryAuth =
+  | {
+      kind: 'webauthn_assertion';
+      credential: WebAuthnAuthenticationCredential;
+      expectedChallengeDigestB64u: string;
+      serverNonceB64u: string;
+      runtimePolicyScope?: RuntimePolicyScope;
+    }
+  | {
+      kind: 'app_session';
+      policy: EcdsaKeyFactsInventoryPolicy;
+    };
 
 export interface ThresholdEcdsaHssFinalizeResponse {
   ok: boolean;

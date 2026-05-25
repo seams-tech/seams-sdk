@@ -136,6 +136,7 @@ import type {
   EmailOtpEcdsaEnrollmentCapabilityResult,
   EmailOtpEnrollmentResult,
   GoogleEmailOtpSessionExchangeResult,
+  RegistrationCapability,
 } from '../../SeamsPasskey/interfaces';
 import { ActionArgs, TransactionInput, TxExecutionStatus } from '../../types';
 import type { DelegateActionInput } from '../../types/delegate';
@@ -875,6 +876,85 @@ export class WalletIframeRouter {
       return res?.result;
     } finally {
       // Step 5: Always release overlay lock and hide when done (success or error)
+      this.overlayState.forceFullscreen = false;
+      this.overlayState.controller.setSticky(false);
+      this.hideFrameForActivation();
+    }
+  }
+
+  async registerWallet(
+    payload: Parameters<RegistrationCapability['registerWallet']>[0],
+  ): Promise<RegistrationResult> {
+    this.overlayState.forceFullscreen = true;
+    this.overlayState.controller.setSticky(true);
+    this.overlayState.controller.showFullscreen();
+
+    try {
+      const confirmationConfig = payload.options?.confirmationConfig;
+      if (confirmationConfig) {
+        const base = await this.getConfirmationConfig();
+        await this.setConfirmationConfig({ ...base, ...confirmationConfig });
+      }
+      const safeOptions = removeFunctionsFromOptions(payload.options);
+      const res = await this.post<RegistrationResult>({
+        type: 'PM_REGISTER_WALLET',
+        payload: {
+          walletSubject: payload.walletSubject,
+          rpId: payload.rpId,
+          signerSelection: payload.signerSelection,
+          options: safeOptions,
+          ...(confirmationConfig ? { confirmationConfig } : {}),
+        },
+        options: {
+          onProgress: this.wrapOnEvent(payload.options?.onEvent, isRegistrationFlowEvent),
+        },
+      });
+      const nearAccountId =
+        payload.signerSelection.mode === 'ed25519_only' ||
+        payload.signerSelection.mode === 'ed25519_and_ecdsa'
+          ? payload.signerSelection.ed25519.nearAccountId
+          : '';
+      if (nearAccountId) {
+        const { login: st } = await this.getWalletSession(nearAccountId);
+        this.emitLoginStatusChanged({ isLoggedIn: !!st.isLoggedIn, walletId: st.nearAccountId });
+      }
+      return res.result;
+    } finally {
+      this.overlayState.forceFullscreen = false;
+      this.overlayState.controller.setSticky(false);
+      this.hideFrameForActivation();
+    }
+  }
+
+  async addWalletSigner(
+    payload: Parameters<RegistrationCapability['addWalletSigner']>[0],
+  ): Promise<RegistrationResult> {
+    this.overlayState.forceFullscreen = true;
+    this.overlayState.controller.setSticky(true);
+    this.overlayState.controller.showFullscreen();
+
+    try {
+      const confirmationConfig = payload.options?.confirmationConfig;
+      if (confirmationConfig) {
+        const base = await this.getConfirmationConfig();
+        await this.setConfirmationConfig({ ...base, ...confirmationConfig });
+      }
+      const safeOptions = removeFunctionsFromOptions(payload.options);
+      const res = await this.post<RegistrationResult>({
+        type: 'PM_ADD_WALLET_SIGNER',
+        payload: {
+          walletSubjectId: payload.walletSubjectId,
+          rpId: payload.rpId,
+          signerSelection: payload.signerSelection,
+          options: safeOptions,
+          ...(confirmationConfig ? { confirmationConfig } : {}),
+        },
+        options: {
+          onProgress: this.wrapOnEvent(payload.options?.onEvent, isRegistrationFlowEvent),
+        },
+      });
+      return res.result;
+    } finally {
       this.overlayState.forceFullscreen = false;
       this.overlayState.controller.setSticky(false);
       this.hideFrameForActivation();

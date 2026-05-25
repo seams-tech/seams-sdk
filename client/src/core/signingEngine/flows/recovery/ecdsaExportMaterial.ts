@@ -21,7 +21,7 @@ import type {
 } from '../../session/availability/availableSigningLanes';
 import { isConcreteAvailableSigningLane } from '../../session/availability/availableSigningLanes';
 import {
-  getThresholdEcdsaKeyRefByKey,
+  deriveThresholdEcdsaRuntimeLaneKey,
   getThresholdEcdsaSessionRecordByKey,
   type ThresholdEcdsaSessionRecord,
 } from '../../session/persistence/records';
@@ -159,14 +159,12 @@ function readReadyEvmFamilyEcdsaMaterialForExportLane(args: {
 }): ReadyEvmFamilyEcdsaMaterial | null {
   const record = readEcdsaExportRecordForLane(args.deps, args.exportLane);
   if (!record || !isUsableEcdsaExportSessionRecord(record)) return null;
-  const keyRef =
-    getThresholdEcdsaKeyRefByKey(args.deps, ecdsaExportSessionRecordKey(args.exportLane))?.keyRef ||
-    null;
-  if (!keyRef) return null;
+  const cachedExportArtifact =
+    args.deps.exportArtifactsByLane.get(deriveThresholdEcdsaRuntimeLaneKey(record)) || null;
   const materialResolution = resolveReadyEvmFamilyEcdsaMaterial({
     record,
-    keyRef,
     rpId: args.rpId,
+    cachedExportArtifact,
     expected: {
       walletId: args.exportLane.key.walletId,
       chainTarget: args.exportLane.session.chainTarget,

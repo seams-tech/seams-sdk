@@ -52,9 +52,12 @@ import {
   buildEmailOtpEcdsaMintingSession,
   buildEmailOtpSigningSessionRoutePlan,
   buildFreshEmailOtpRoutePlan,
+  emailOtpEcdsaBootstrapRouteAuthFromRoutePlan,
+  emailOtpEcdsaBootstrapRouteAuthToTransport,
   routeAuthFromEmailOtpRoutePlan,
   thresholdSessionAuthFromEcdsaBootstrap,
   thresholdSessionIdFromEcdsaBootstrap,
+  type EmailOtpEcdsaBootstrapAuthorization,
   walletSigningSessionIdFromEcdsaBootstrap,
 } from './routePlan';
 import type {
@@ -107,6 +110,7 @@ export type LoginEmailOtpEcdsaCapabilityArgs = {
   shamirPrimeB64u?: string;
   appSessionJwt?: string;
   routeAuth?: AppOrThresholdSessionAuth;
+  ecdsaBootstrapAuthorization: EmailOtpEcdsaBootstrapAuthorization;
   keyHandle?: string;
   participantIds?: number[];
   sessionKind?: 'jwt' | 'cookie';
@@ -197,6 +201,7 @@ export async function loginWithEmailOtpEcdsaCapabilityForSigning(
       otpCode: args.otpCode,
       operation,
       routePlan,
+      ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
       remainingUses,
       ed25519ReconstructionMode: 'skip',
       ed25519SessionReconstruction: {
@@ -237,6 +242,7 @@ export async function loginWithEmailOtpEcdsaCapabilityForSigning(
     sessionKind: record.thresholdSessionKind,
     routePlan,
     authSubjectId: record.emailOtpAuthContext?.authSubjectId,
+    ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
     remainingUses,
     ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
     ed25519ReconstructionMode: 'skip',
@@ -325,10 +331,18 @@ export async function loginWithEmailOtpEcdsaCapability(
   });
   const walletSigningSessionId = mintingSession.walletSigningSessionId;
   const routeAuth = routeAuthFromEmailOtpRoutePlan(routePlan);
+  const bootstrapRouteAuth =
+    args.ecdsaBootstrapAuthorization.kind === 'route_plan_auth'
+      ? emailOtpEcdsaBootstrapRouteAuthFromRoutePlan(routePlan)
+      : args.ecdsaBootstrapAuthorization.routeAuth;
+  const bootstrapTransportAuth = bootstrapRouteAuth
+    ? emailOtpEcdsaBootstrapRouteAuthToTransport(bootstrapRouteAuth)
+    : undefined;
   const runtimePolicyScope =
     args.runtimePolicyScope ||
     parseThresholdRuntimePolicyScopeFromJwt(args.appSessionJwt) ||
-    parseThresholdRuntimePolicyScopeFromJwt(routeAuth?.jwt);
+    parseThresholdRuntimePolicyScopeFromJwt(routeAuth?.jwt) ||
+    parseThresholdRuntimePolicyScopeFromJwt(bootstrapTransportAuth?.jwt);
 
   if (!workerCtx) {
     throw new Error('Email OTP login requires the dedicated emailOtp worker');
@@ -390,7 +404,7 @@ export async function loginWithEmailOtpEcdsaCapability(
           : {}),
         sessionKind,
         walletSigningSessionId,
-        ...(routeAuth ? { routeAuth } : {}),
+        ...(bootstrapTransportAuth ? { routeAuth: bootstrapTransportAuth } : {}),
         ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
         ...(typeof remainingUses === 'number' ? { remainingUses } : {}),
         ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
@@ -425,7 +439,7 @@ export async function loginWithEmailOtpEcdsaCapability(
   if (thresholdEd25519PrfFirstB64u) {
     const freshThresholdSessionAuth = thresholdSessionAuthFromEcdsaBootstrap(bootstrap);
     const shouldAwaitEd25519Reconstruction = args.ed25519ReconstructionMode === 'await';
-    const reconstructionAuth = freshThresholdSessionAuth || routeAuth;
+    const reconstructionAuth = freshThresholdSessionAuth || bootstrapTransportAuth;
     const ed25519ReconstructionPlan = args.ed25519SessionReconstruction;
     if (ed25519ReconstructionPlan.kind === 'reconstruct' && reconstructionAuth) {
       const ed25519ReconstructionArgs: ReconstructEmailOtpEd25519SessionArgs = {

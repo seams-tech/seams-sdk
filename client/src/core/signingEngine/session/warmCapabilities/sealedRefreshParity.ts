@@ -10,7 +10,7 @@ export type ThresholdEcdsaBootstrapParityArgs = {
   chainTarget: ThresholdEcdsaChainTarget;
 } & (
   | {
-      kind: 'registration_bootstrap_parity';
+      kind: 'key_enrollment_bootstrap_parity';
     }
   | {
       kind: 'transaction_bootstrap_parity';
@@ -55,9 +55,9 @@ export async function ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap
   try {
     await ensureParity();
   } catch (error: unknown) {
-    if (args.kind === 'registration_bootstrap_parity') {
+    if (args.kind === 'key_enrollment_bootstrap_parity') {
       console.warn(
-        '[threshold-ecdsa] registration bootstrap skipped sealed-refresh startup parity enforcement',
+        '[threshold-ecdsa] key enrollment bootstrap skipped sealed-refresh startup parity enforcement',
         {
           walletId: String(args.walletId || '').trim(),
           chainTarget: thresholdEcdsaChainTargetKey(args.chainTarget),

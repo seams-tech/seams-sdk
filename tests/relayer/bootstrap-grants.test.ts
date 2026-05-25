@@ -7,10 +7,7 @@ import {
   createRelayRouter,
 } from '@server/router/express-adaptor';
 import { createCloudflareRouter } from '@server/router/cloudflare-adaptor';
-import { AuthService } from '@server/core/AuthService';
-import { computeRegistrationBootstrapRequestHashSha256 } from '@shared/utils/registrationBootstrapHash';
 import { callCf, fetchJson, makeFakeAuthService, startExpressRouter } from './helpers';
-import { DEFAULT_TEST_CONFIG } from '../setup/config';
 
 const authOrgId = 'org-bootstrap-grants';
 const authUserId = 'user-bootstrap-grants';
@@ -62,14 +59,12 @@ async function createPublishableKey(input: {
 }
 
 async function makeGrantBody(overrides?: Partial<Record<string, unknown>>) {
-  const relayBody = makeRelayRegistrationBody(overrides);
-  const requestHashSha256 = await computeRegistrationBootstrapRequestHashSha256(relayBody);
+  const relayBody = makeWalletRegistrationIntentBody(overrides);
   return {
     environmentId,
     flow: 'registration_v1',
-    newAccountId: String(relayBody.new_account_id),
-    rpId: String(relayBody.rp_id),
-    requestHashSha256,
+    newAccountId: String(relayBody.signerSelection.ed25519.nearAccountId),
+    rpId: String(relayBody.rpId),
     clientContext: {
       sdk: 'web',
       sdkVersion: '0.0.0-test',
@@ -77,23 +72,42 @@ async function makeGrantBody(overrides?: Partial<Record<string, unknown>>) {
   };
 }
 
-function makeRelayRegistrationBody(overrides?: Partial<Record<string, unknown>>) {
+function makeWalletRegistrationIntentBody(overrides?: Partial<Record<string, unknown>>) {
   return {
-    new_account_id: 'alice.w3a-relayer.testnet',
-    signer_slot: 1,
-    rp_id: 'app.example.com',
-    webauthn_registration: { id: 'cred-1' },
+    walletSubject: { kind: 'provided', walletSubjectId: 'alice.w3a-relayer.testnet' },
+    rpId: 'app.example.com',
+    signerSelection: {
+      mode: 'ed25519_only',
+      ed25519: {
+        nearAccountId: 'alice.w3a-relayer.testnet',
+        signerSlot: 1,
+        createNearAccount: true,
+        keyPurpose: 'ed25519-hss/y_relayer',
+        keyVersion: 'threshold-ed25519-hss-v1',
+        participantIds: [1, 2],
+        derivationVersion: 1,
+      },
+    },
     ...(overrides || {}),
   };
 }
 
 function makeRelayService() {
-  return makeFakeAuthService({
-    createAccountAndRegisterUser: async () => ({
-      success: true,
-      transactionHash: 'tx-123',
-    }),
+  const service = makeFakeAuthService();
+  (service as any).createRegistrationIntent = async (input: Record<string, any>) => ({
+    ok: true,
+    intent: {
+      version: 'registration_intent_v1',
+      walletSubjectId: input.request.walletSubject.walletSubjectId,
+      rpId: input.request.rpId,
+      signerSelection: input.request.signerSelection,
+      nonceB64u: 'nonce-test',
+    },
+    registrationIntentDigestB64u: 'digest-test',
+    registrationIntentGrant: 'rig_test',
+    expiresAtMs: Date.now() + 60_000,
   });
+  return service;
 }
 
 test.describe('managed bootstrap grants', () => {
@@ -261,7 +275,7 @@ test.describe('managed bootstrap grants', () => {
     expect(second.json?.code).toBe('publishable_key_quota_exhausted');
   });
 
-  test('express redeems issued bootstrap token for the bounded registration flow', async () => {
+  test('express redeems issued bootstrap token for wallet registration intent once', async () => {
     const orgProjectEnv = await seedEnvironment();
     const { apiKeys, secret } = await createPublishableKey({});
     const bootstrapTokens = createInMemoryConsoleBootstrapTokenService();
@@ -289,22 +303,20 @@ test.describe('managed bootstrap grants', () => {
       const token = String((issued.json?.grant as Record<string, unknown>)?.token || '');
       expect(token).toContain('tbt_v1_');
 
-      const relayBody = makeRelayRegistrationBody();
-      for (let i = 0; i < 3; i += 1) {
-        const res = await fetchJson(`${srv.baseUrl}/registration/bootstrap`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-            Origin: allowedOrigin,
-          },
-          body: JSON.stringify(relayBody),
-        });
-        expect(res.status, res.text).toBe(200);
-        expect(res.json?.success).toBe(true);
-      }
+      const relayBody = makeWalletRegistrationIntentBody();
+      const res = await fetchJson(`${srv.baseUrl}/wallets/register/intent`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          Origin: allowedOrigin,
+        },
+        body: JSON.stringify(relayBody),
+      });
+      expect(res.status, res.text).toBe(200);
+      expect(res.json?.ok).toBe(true);
 
-      const exhausted = await fetchJson(`${srv.baseUrl}/registration/bootstrap`, {
+      const exhausted = await fetchJson(`${srv.baseUrl}/wallets/register/intent`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -314,308 +326,7 @@ test.describe('managed bootstrap grants', () => {
         body: JSON.stringify(relayBody),
       });
       expect(exhausted.status, exhausted.text).toBe(409);
-      expect(exhausted.json?.code).toBe('bootstrap_token_already_used');
-    } finally {
-      await srv.close();
-    }
-  });
-
-  test('express bootstrap token binds registration HSS prepare to signingRootId, not bare projectId', async () => {
-    const orgProjectEnv = await seedEnvironment();
-    const { apiKeys, secret } = await createPublishableKey({});
-    const bootstrapTokens = createInMemoryConsoleBootstrapTokenService();
-    let capturedPrepareInput: Record<string, unknown> | null = null;
-    const router = createRelayRouter(
-      makeFakeAuthService({
-        getThresholdSigningService: (() => ({
-          ed25519Hss: {
-            prepareForRegistration: async (input: Record<string, unknown>) => {
-              capturedPrepareInput = input;
-              return {
-                ok: true,
-                ceremonyHandle: 'ceremony-test',
-                preparedSession: {
-                  contextBindingB64u: 'ctx',
-                  evaluatorDriverStateB64u: 'state',
-                },
-                clientOtOfferMessageB64u: 'offer',
-              };
-            },
-          },
-        })) as never,
-      }),
-      {
-        bootstrapGrantBroker: createRelayBootstrapGrantBroker({
-          apiKeys,
-          tokenStore: bootstrapTokens,
-          orgProjectEnv,
-        }),
-        bootstrapTokenStore: bootstrapTokens,
-      },
-    );
-    const srv = await startExpressRouter(router);
-    try {
-      const grantBody = await makeGrantBody();
-      const issued = await fetchJson(`${srv.baseUrl}/v1/registration/bootstrap-grants`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${secret}`,
-          Origin: allowedOrigin,
-        },
-        body: JSON.stringify(grantBody),
-      });
-      expect(issued.status, issued.text).toBe(200);
-      const token = String((issued.json?.grant as Record<string, unknown>)?.token || '');
-
-      const relayBody = makeRelayRegistrationBody();
-      const signingRootId = `${projectId}:prod`;
-      const prepare = await fetchJson(
-        `${srv.baseUrl}/registration/threshold-ed25519/hss/prepare`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-            Origin: allowedOrigin,
-          },
-          body: JSON.stringify({
-            new_account_id: relayBody.new_account_id,
-            rp_id: relayBody.rp_id,
-            context: {
-              signingRootId,
-              nearAccountId: relayBody.new_account_id,
-              keyPurpose: 'ed25519-hss/y_relayer',
-              keyVersion: 'threshold-ed25519-hss-v1',
-              participantIds: [1, 2],
-              derivationVersion: 1,
-            },
-          }),
-        },
-      );
-      expect(prepare.status, prepare.text).toBe(200);
-      const prepareInput = capturedPrepareInput as Record<string, unknown> | null;
-      expect(prepareInput?.orgId).toBe(authOrgId);
-      expect(prepareInput?.signingRootId).toBe(signingRootId);
-      expect(prepareInput).not.toHaveProperty('projectId');
-    } finally {
-      await srv.close();
-    }
-  });
-
-  test('express Google Email OTP registration HSS finalize provisions and records the finalized threshold Ed25519 key', async () => {
-    const orgProjectEnv = await seedEnvironment();
-    const { apiKeys, secret } = await createPublishableKey({});
-    const bootstrapTokens = createInMemoryConsoleBootstrapTokenService();
-    const createdAccounts: Array<{ accountId: string; publicKey?: string }> = [];
-    const recordedGoogleAttemptPublicKeys: Array<Record<string, unknown>> = [];
-    let keyVisible = false;
-    const service = new AuthService({
-      relayerAccount: 'w3a-relayer.testnet',
-      relayerPrivateKey: 'ed25519:dummy',
-      nearRpcUrl: DEFAULT_TEST_CONFIG.nearRpcUrl,
-      networkId: DEFAULT_TEST_CONFIG.nearNetwork,
-      accountInitialBalance: '1',
-      createAccountAndRegisterGas: '1',
-      logger: null,
-      thresholdStore: {},
-    });
-    (service as any).getThresholdSigningService = () => ({
-      ed25519Hss: {
-        finalizeForRegistration: async () => ({
-          ok: true,
-          publicKey: 'ed25519:test-registration-public-key',
-          relayerKeyId: 'relayer-key-id',
-        }),
-      },
-    });
-    (service as any).checkAccountExists = async () => false;
-    (service as any).createAccount = async (request: { accountId?: unknown; publicKey?: unknown }) => {
-      createdAccounts.push({
-        accountId: String(request.accountId),
-        publicKey: request.publicKey ? String(request.publicKey) : undefined,
-      });
-      keyVisible = true;
-      return {
-        success: true,
-        accountId: String(request.accountId),
-        transactionHash: 'tx-hss-account-create',
-        message: 'created',
-      };
-    };
-    (service as any).viewAccessKeyList = async () => ({
-      block_hash: 'block-hash',
-      block_height: 1,
-      keys: keyVisible
-        ? [
-            {
-              public_key: 'ed25519:test-registration-public-key',
-              access_key: {
-                block_hash: 'block-hash',
-                block_height: 1,
-                nonce: 0n,
-                permission: 'FullAccess' as const,
-              },
-            },
-          ]
-        : [],
-    });
-    (service as any).recordGoogleEmailOtpRegistrationAttemptPublicKey = async (input: unknown) => {
-      recordedGoogleAttemptPublicKeys.push(input as Record<string, unknown>);
-      return { ok: true };
-    };
-    (service as any).completeGoogleEmailOtpRegistrationAttempt = async () => {
-      throw new Error('HSS finalize must not activate Google Email OTP identity mappings');
-    };
-    const router = createRelayRouter(
-      service,
-      {
-        bootstrapGrantBroker: createRelayBootstrapGrantBroker({
-          apiKeys,
-          tokenStore: bootstrapTokens,
-          orgProjectEnv,
-        }),
-        bootstrapTokenStore: bootstrapTokens,
-      },
-    );
-    const srv = await startExpressRouter(router);
-    try {
-      const grantBody = await makeGrantBody();
-      const issued = await fetchJson(`${srv.baseUrl}/v1/registration/bootstrap-grants`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${secret}`,
-          Origin: allowedOrigin,
-        },
-        body: JSON.stringify(grantBody),
-      });
-      expect(issued.status, issued.text).toBe(200);
-      const token = String((issued.json?.grant as Record<string, unknown>)?.token || '');
-
-      const relayBody = makeRelayRegistrationBody();
-      const finalized = await fetchJson(
-        `${srv.baseUrl}/registration/threshold-ed25519/hss/finalize`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-            Origin: allowedOrigin,
-          },
-          body: JSON.stringify({
-            new_account_id: relayBody.new_account_id,
-            rp_id: relayBody.rp_id,
-            ceremonyHandle: 'ceremony-test',
-            google_email_otp_registration_attempt_id: 'google-email-otp-attempt-test',
-            account_provisioning: { mode: 'create_if_missing' },
-            signer_slot: 7,
-          }),
-        },
-      );
-      expect(finalized.status, finalized.text).toBe(200);
-      expect(finalized.json?.ok).toBe(true);
-      expect((finalized.json?.accountProvisioning as Record<string, unknown>)?.status).toBe(
-        'created',
-      );
-      expect((finalized.json?.accountProvisioning as Record<string, unknown>)?.transactionHash).toBe(
-        'tx-hss-account-create',
-      );
-      expect(createdAccounts).toEqual([
-        {
-          accountId: relayBody.new_account_id,
-          publicKey: 'ed25519:test-registration-public-key',
-        },
-      ]);
-      expect(recordedGoogleAttemptPublicKeys).toEqual([
-        {
-          registrationAttemptId: 'google-email-otp-attempt-test',
-          walletId: relayBody.new_account_id,
-          finalizedPublicKey: 'ed25519:test-registration-public-key',
-        },
-      ]);
-      const listed = await service.listNearPublicKeysForUser({ userId: relayBody.new_account_id });
-      expect(listed.ok).toBe(true);
-      expect(listed.keys).toEqual([
-        {
-          publicKey: 'ed25519:test-registration-public-key',
-          kind: 'threshold',
-          signerSlot: 7,
-          createdAtMs: expect.any(Number),
-          updatedAtMs: expect.any(Number),
-          rpId: relayBody.rp_id,
-        },
-      ]);
-    } finally {
-      await srv.close();
-    }
-  });
-
-  test('express registration HSS finalize rejects duplicate existing accounts', async () => {
-    const orgProjectEnv = await seedEnvironment();
-    const { apiKeys, secret } = await createPublishableKey({});
-    const bootstrapTokens = createInMemoryConsoleBootstrapTokenService();
-    const router = createRelayRouter(
-      makeFakeAuthService({
-        getThresholdSigningService: (() => ({
-          ed25519Hss: {
-            finalizeForRegistration: async () => ({
-              ok: true,
-              publicKey: 'ed25519:test-registration-public-key',
-              relayerKeyId: 'relayer-key-id',
-            }),
-          },
-        })) as never,
-        checkAccountExists: async () => true,
-        viewAccessKeyList: async () => ({ block_hash: 'block-hash', block_height: 1, keys: [] }),
-        createAccount: async () => {
-          throw new Error('createAccount must not be called for existing accounts');
-        },
-      }),
-      {
-        bootstrapGrantBroker: createRelayBootstrapGrantBroker({
-          apiKeys,
-          tokenStore: bootstrapTokens,
-          orgProjectEnv,
-        }),
-        bootstrapTokenStore: bootstrapTokens,
-      },
-    );
-    const srv = await startExpressRouter(router);
-    try {
-      const grantBody = await makeGrantBody();
-      const issued = await fetchJson(`${srv.baseUrl}/v1/registration/bootstrap-grants`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${secret}`,
-          Origin: allowedOrigin,
-        },
-        body: JSON.stringify(grantBody),
-      });
-      expect(issued.status, issued.text).toBe(200);
-      const token = String((issued.json?.grant as Record<string, unknown>)?.token || '');
-
-      const relayBody = makeRelayRegistrationBody();
-      const finalized = await fetchJson(
-        `${srv.baseUrl}/registration/threshold-ed25519/hss/finalize`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-            Origin: allowedOrigin,
-          },
-          body: JSON.stringify({
-            new_account_id: relayBody.new_account_id,
-            rp_id: relayBody.rp_id,
-            ceremonyHandle: 'ceremony-test',
-            account_provisioning: { mode: 'create_if_missing' },
-          }),
-        },
-      );
-      expect(finalized.status, finalized.text).toBe(409);
-      expect(finalized.json?.code).toBe('wallet_id_collision');
+      expect(exhausted.json?.message).toContain('bootstrap_token_already_used');
     } finally {
       await srv.close();
     }
@@ -654,8 +365,8 @@ test.describe('managed bootstrap grants', () => {
       const token = String((issued.json?.grant as Record<string, unknown>)?.token || '');
 
       currentNow = new Date(currentNow.getTime() + 2_000);
-      const relayBody = makeRelayRegistrationBody();
-      const res = await fetchJson(`${srv.baseUrl}/registration/bootstrap`, {
+      const relayBody = makeWalletRegistrationIntentBody();
+      const res = await fetchJson(`${srv.baseUrl}/wallets/register/intent`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -665,7 +376,7 @@ test.describe('managed bootstrap grants', () => {
         body: JSON.stringify(relayBody),
       });
       expect(res.status, res.text).toBe(401);
-      expect(res.json?.code).toBe('bootstrap_token_expired');
+      expect(res.json?.message).toContain('bootstrap_token_expired');
     } finally {
       await srv.close();
     }
@@ -698,14 +409,28 @@ test.describe('managed bootstrap grants', () => {
 
     const res = await callCf(handler, {
       method: 'POST',
-      path: '/registration/bootstrap',
+      path: '/wallets/register/intent',
       origin: allowedOrigin,
       headers: {
         Authorization: `Bearer ${token}`,
       },
-      body: makeRelayRegistrationBody({ new_account_id: 'mallory.w3a-relayer.testnet' }),
+      body: makeWalletRegistrationIntentBody({
+        walletSubject: { kind: 'provided', walletSubjectId: 'mallory.w3a-relayer.testnet' },
+        signerSelection: {
+          mode: 'ed25519_only',
+          ed25519: {
+            nearAccountId: 'mallory.w3a-relayer.testnet',
+            signerSlot: 1,
+            createNearAccount: true,
+            keyPurpose: 'ed25519-hss/y_relayer',
+            keyVersion: 'threshold-ed25519-hss-v1',
+            participantIds: [1, 2],
+            derivationVersion: 1,
+          },
+        },
+      }),
     });
     expect(res.status, res.text).toBe(409);
-    expect(res.json?.code).toBe('bootstrap_token_request_mismatch');
+    expect(res.json?.message).toContain('bootstrap_token_request_mismatch');
   });
 });

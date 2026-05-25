@@ -92,6 +92,32 @@ export type SigningAuthPlan =
       emailOtpPrompt?: EmailOtpConfirmPrompt;
     };
 
+export type WebAuthnChallenge =
+  | {
+      kind: 'intent_digest';
+      challengeB64u: string;
+      digest32B64u?: never;
+      requestId?: never;
+      thresholdSessionId?: never;
+      walletSigningSessionId?: never;
+    }
+  | {
+      kind: 'threshold_session_policy';
+      digest32B64u: string;
+      challengeB64u?: never;
+      requestId?: never;
+      thresholdSessionId?: never;
+      walletSigningSessionId?: never;
+    }
+  | {
+      kind: 'ecdsa_role_local_bootstrap';
+      digest32B64u: string;
+      requestId: string;
+      thresholdSessionId: string;
+      walletSigningSessionId: string;
+      challengeB64u?: never;
+    };
+
 export function isWarmSessionSigningAuthPlan(
   plan: Pick<SigningAuthPlan, 'kind'> | null | undefined,
 ): plan is Extract<SigningAuthPlan, { kind: typeof SigningAuthPlanKind.WarmSession }> {

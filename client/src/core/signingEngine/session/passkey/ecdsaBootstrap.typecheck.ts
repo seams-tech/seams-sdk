@@ -2,7 +2,10 @@ import type { AccountId } from '@/core/types/accountIds';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { WalletSubjectId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { EcdsaBootstrapRequest } from './ecdsaBootstrap';
+import type {
+  EcdsaBootstrapRequest,
+  PasskeyCookieReconnectEcdsaBootstrapRequest,
+} from './ecdsaBootstrap';
 import { buildEcdsaSessionIdentity } from '../warmCapabilities/ecdsaProvisionPlan';
 import type {
   EvmFamilyEcdsaKeyHandle,
@@ -58,8 +61,8 @@ const validPasskeyFreshBootstrap = {
   sessionIdentity,
   clientRootShare32B64u: 'client-root-share',
   routeAuth: {
-    kind: 'registration_continuation',
-    token: 'registration-token',
+    kind: 'bootstrap_grant',
+    token: 'bootstrap-grant-token',
   },
 } satisfies EcdsaBootstrapRequest;
 
@@ -84,12 +87,43 @@ const validPasskeyFreshCookieBootstrap = {
   clientRootShare32B64u: 'client-root-share',
 } satisfies EcdsaBootstrapRequest;
 
+const invalidPasskeyFreshRegistrationWithExactSessionField: EcdsaBootstrapRequest = {
+  kind: 'passkey_fresh_ecdsa_bootstrap',
+  walletId,
+  chainTarget,
+  source: 'registration',
+  sessionKind: 'jwt',
+  sessionIdentity,
+  clientRootShare32B64u: 'client-root-share',
+  routeAuth: {
+    kind: 'bootstrap_grant',
+    token: 'bootstrap-grant-token',
+  },
+  // @ts-expect-error target enrollment rejects exact-session key handles.
+  keyHandle,
+};
+void invalidPasskeyFreshRegistrationWithExactSessionField;
+
 const validCookieReconnectBootstrap = {
   kind: 'passkey_cookie_reconnect_ecdsa_bootstrap',
   keyHandle,
   key,
   lanePolicy,
 } satisfies EcdsaBootstrapRequest;
+
+const invalidCookieReconnectBootstrapWithKeyIntent: PasskeyCookieReconnectEcdsaBootstrapRequest = {
+  kind: 'passkey_cookie_reconnect_ecdsa_bootstrap',
+  keyHandle,
+  key,
+  lanePolicy,
+  // @ts-expect-error exact activation rejects registration key intents.
+  keyIntent: {
+    kind: 'existing_ecdsa_key',
+    ecdsaThresholdKeyId: 'ecdsa-key-1',
+    participantIds: [1, 2],
+  },
+};
+void invalidCookieReconnectBootstrapWithKeyIntent;
 
 const validThresholdSessionReconnectBootstrap = {
   kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
@@ -183,8 +217,8 @@ const invalidPasskeyFreshWithMixedAuth: EcdsaBootstrapRequest = {
   clientRootShare32B64u: 'client-root-share',
   routeAuth: {
     // @ts-expect-error passkey fresh bootstrap accepts one auth branch
-    kind: 'registration_continuation',
-    token: 'registration-token',
+    kind: 'bootstrap_grant',
+    token: 'bootstrap-grant-token',
   },
   webauthnAuthentication,
 };
@@ -232,8 +266,8 @@ const invalidPasskeyFreshBootstrapWithSubjectId: EcdsaBootstrapRequest = {
   sessionIdentity,
   clientRootShare32B64u: 'client-root-share',
   routeAuth: {
-    kind: 'registration_continuation',
-    token: 'registration-token',
+    kind: 'bootstrap_grant',
+    token: 'bootstrap-grant-token',
   },
 };
 void invalidPasskeyFreshBootstrapWithSubjectId;

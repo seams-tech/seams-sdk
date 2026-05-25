@@ -3,6 +3,7 @@ import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   buildEvmFamilyEcdsaKeyIdentity,
+  buildEvmFamilyEcdsaWalletKey,
   buildEvmFamilyEcdsaSessionLane,
   buildEvmFamilyEcdsaSessionLanePolicy,
   buildEmailOtpEcdsaAuthBinding,
@@ -11,10 +12,13 @@ import {
   buildResolvedEvmFamilyEcdsaKey,
   buildThresholdEcdsaSessionTransportAuth,
   toThresholdOwnerAddress,
+  type EcdsaKeyFacts,
+  type EcdsaWalletSignerRecord,
   type EvmFamilyEcdsaKeyHandle,
   type EvmFamilyEcdsaKeyIdentity,
   type EvmFamilyEcdsaSessionLane,
   type EvmFamilyEcdsaSessionLanePolicy,
+  type EvmFamilyEcdsaWalletKey,
   type DurableEvmFamilyEcdsaPublicFactsRecord,
   type EmailOtpEcdsaAuthBinding,
   type PasskeyEcdsaAuthBinding,
@@ -150,6 +154,58 @@ const publicFacts: VerifiedEcdsaPublicFacts = {
   thresholdOwnerAddress: key.thresholdOwnerAddress,
 };
 void publicFacts;
+
+const walletKey = buildEvmFamilyEcdsaWalletKey({
+  walletId: key.walletId,
+  rpId: key.rpId,
+  keyHandle,
+  chainTarget: evmTarget,
+  ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
+  signingRootId: key.signingRootId,
+  signingRootVersion: key.signingRootVersion,
+  participantIds: key.participantIds,
+  thresholdOwnerAddress: key.thresholdOwnerAddress,
+  thresholdEcdsaPublicKeyB64u: publicKeyB64u,
+});
+void walletKey;
+
+const invalidWalletKeyWithIdentityProjection: EvmFamilyEcdsaWalletKey = {
+  ...walletKey,
+  // @ts-expect-error wallet keys carry keyFacts, not a separate key identity projection.
+  key,
+};
+void invalidWalletKeyWithIdentityProjection;
+
+const invalidWalletKeyWithPublicFactsProjection: EvmFamilyEcdsaWalletKey = {
+  ...walletKey,
+  // @ts-expect-error wallet keys carry keyFacts, not a separate public facts projection.
+  publicFacts,
+};
+void invalidWalletKeyWithPublicFactsProjection;
+
+const invalidWalletKeyWithDuplicateThresholdKeyId: EvmFamilyEcdsaWalletKey = {
+  ...walletKey,
+  // @ts-expect-error wallet keys require threshold key ids under keyFacts.
+  ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
+};
+void invalidWalletKeyWithDuplicateThresholdKeyId;
+
+const ecdsaKeyFacts: EcdsaKeyFacts = walletKey.keyFacts;
+void ecdsaKeyFacts;
+
+const ecdsaWalletSignerRecord: EcdsaWalletSignerRecord = {
+  kind: 'ecdsa_wallet_signer_record',
+  walletKey,
+  authBinding: buildPasskeyEcdsaAuthBinding({ rpId: key.rpId }),
+};
+void ecdsaWalletSignerRecord;
+
+const invalidEcdsaWalletSignerRecordWithLooseKeyHandle: EcdsaWalletSignerRecord = {
+  ...ecdsaWalletSignerRecord,
+  // @ts-expect-error signer records carry the complete wallet key, not loose key-handle fields.
+  keyHandle,
+};
+void invalidEcdsaWalletSignerRecordWithLooseKeyHandle;
 
 const invalidPublicFactsWithKeyId: VerifiedEcdsaPublicFacts = {
   ...publicFacts,
@@ -329,8 +385,7 @@ const invalidResolvedKeyWithSubjectId: ResolvedEvmFamilyEcdsaKey = {
 };
 void invalidResolvedKeyWithSubjectId;
 
-// @ts-expect-error ready material requires a keyRef.
-const readyMaterialMissingKeyRef: ReadyEvmFamilyEcdsaMaterial = {
+const readyMaterialRecordOnly: ReadyEvmFamilyEcdsaMaterial = {
   kind: 'ready_evm_family_ecdsa_material',
   key,
   lane,
@@ -343,14 +398,20 @@ const readyMaterialMissingKeyRef: ReadyEvmFamilyEcdsaMaterial = {
   },
   cachedExportArtifact: null,
 };
-void readyMaterialMissingKeyRef;
+void readyMaterialRecordOnly;
+
+const invalidReadyMaterialWithKeyRef = {
+  ...readyMaterialRecordOnly,
+  // @ts-expect-error ready material derives key refs at signer/export boundaries.
+  keyRef: {} as ThresholdEcdsaSecp256k1KeyRef,
+} satisfies ReadyEvmFamilyEcdsaMaterial;
+void invalidReadyMaterialWithKeyRef;
 
 // @ts-expect-error ready material requires a record.
 const readyMaterialMissingRecord: ReadyEvmFamilyEcdsaMaterial = {
   kind: 'ready_evm_family_ecdsa_material',
   key,
   lane,
-  keyRef: {} as ThresholdEcdsaSecp256k1KeyRef,
   signingKeyContext: {
     ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
     signingRootId: key.signingRootId,
@@ -367,7 +428,6 @@ const readyMaterialMissingCachedExportArtifact: ReadyEvmFamilyEcdsaMaterial = {
   key,
   lane,
   record: {} as ThresholdEcdsaSessionRecord,
-  keyRef: {} as ThresholdEcdsaSecp256k1KeyRef,
   signingKeyContext: {
     ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
     signingRootId: key.signingRootId,
@@ -383,7 +443,6 @@ const readyMaterialMissingSigningKeyContext: ReadyEvmFamilyEcdsaMaterial = {
   key,
   lane,
   record: {} as ThresholdEcdsaSessionRecord,
-  keyRef: {} as ThresholdEcdsaSecp256k1KeyRef,
   cachedExportArtifact: null,
 };
 void readyMaterialMissingSigningKeyContext;

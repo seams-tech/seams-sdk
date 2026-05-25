@@ -8,7 +8,7 @@ import { SigningOperationIntent } from '../operationState/types';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import {
   thresholdEcdsaSessionRecordReadModel,
-  listThresholdEcdsaKeyRefsForWalletTarget,
+  listThresholdEcdsaSessionRecordsForWalletTarget,
   type ThresholdEcdsaSessionStoreDeps,
 } from '../persistence/records';
 import {
@@ -167,7 +167,7 @@ function parityArgsFromBootstrapRequest(
   const chainTarget = ecdsaBootstrapChainTarget(request);
   if (request.source === 'registration') {
     return {
-      kind: 'registration_bootstrap_parity',
+      kind: 'key_enrollment_bootstrap_parity',
       walletId,
       chainTarget,
     };
@@ -357,12 +357,12 @@ export async function bootstrapReuseWarmEcdsaCapabilityNoPrompt(
     await tryReuseReadyWarmEcdsaBootstrap(
       {
         getWarmSession: (warmSessionWalletId) => deps.getWarmSession(warmSessionWalletId),
-        listThresholdEcdsaKeyRefsForWalletTarget: ({ walletId, chainTarget, source }) =>
-          listThresholdEcdsaKeyRefsForWalletTarget(deps.ecdsaSessions, {
+        listThresholdEcdsaRecordsForWalletTarget: ({ walletId, chainTarget, source }) =>
+          listThresholdEcdsaSessionRecordsForWalletTarget(deps.ecdsaSessions, {
             walletId,
             chainTarget,
             ...(source ? { source } : {}),
-          }),
+          }).map((record) => ({ source: record.source, record })),
       },
       {
         walletId: toWalletId(walletId),

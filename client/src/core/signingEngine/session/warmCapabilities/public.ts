@@ -5,7 +5,6 @@ import type {
   ThresholdEcdsaChainTarget,
   WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import {
   buildWalletBudgetStatusCheckForSession,
   getWalletSigningBudgetAvailableStatus as getWalletSigningBudgetAvailableStatusValue,
@@ -24,6 +23,7 @@ import {
   type ThresholdEcdsaLoginPrefillResult,
 } from './ecdsaLoginPrefill';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
+import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import type {
   WarmEcdsaRecordBackedSigningSessionStatus,
   WarmEcdsaSigningSessionStatus,
@@ -171,7 +171,7 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
   args: {
     walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
-    thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef;
+    thresholdEcdsaSessionRecord: ThresholdEcdsaSessionRecord;
     minRemainingUsesBeforePrefill?: number;
   },
 ): Promise<ThresholdEcdsaLoginPrefillResult> {
@@ -241,7 +241,7 @@ export function createWarmCapabilitiesPublicApi(deps: WarmCapabilitiesPublicDeps
     scheduleThresholdEcdsaLoginPresignPrefill: (args: {
       walletId: WalletId;
       chainTarget: ThresholdEcdsaChainTarget;
-      thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef;
+      thresholdEcdsaSessionRecord: ThresholdEcdsaSessionRecord;
       minRemainingUsesBeforePrefill?: number;
     }) => scheduleThresholdEcdsaLoginPresignPrefill(deps, args),
     hydrateSigningSession: (args: HydrateSigningSessionInput) => hydrateSigningSession(deps, args),

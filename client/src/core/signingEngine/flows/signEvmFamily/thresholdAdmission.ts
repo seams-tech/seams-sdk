@@ -4,8 +4,7 @@ import type {
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { SelectedEcdsaLane } from '../../session/identity/laneIdentity';
 import type { BudgetAdmittedTransactionOperation } from '../../session/operationState/transactionState';
-import type { SigningAuthPlan } from '../../stepUpConfirmation/types';
-import type { WebAuthnChallenge } from '../../stepUpConfirmation/channel/confirmTypes';
+import type { SigningAuthPlan, WebAuthnChallenge } from '../../stepUpConfirmation/types';
 import type { ReadyEcdsaMaterial } from './ecdsaMaterialState';
 import type {
   EvmFamilyEcdsaEmailOtpStepUpAuthorization,

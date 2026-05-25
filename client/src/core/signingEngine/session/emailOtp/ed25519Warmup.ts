@@ -33,6 +33,7 @@ import {
   assertEmailOtpSigningSessionAuthLane,
   buildEmailOtpSigningSessionRoutePlan,
   buildFreshEmailOtpRoutePlan,
+  type EmailOtpEcdsaBootstrapRouteAuth,
 } from './routePlan';
 import {
   selectEmailOtpEcdsaRecordForEd25519Signing,
@@ -49,6 +50,30 @@ import type {
   EmailOtpThresholdEcdsaLoginResult,
   LoginEmailOtpEcdsaCapabilityArgs,
 } from './ecdsaLogin';
+
+function emailOtpEcdsaBootstrapRouteAuthFromRecord(
+  record: ThresholdEcdsaSessionRecord,
+): EmailOtpEcdsaBootstrapRouteAuth {
+  const jwt = String(record.thresholdSessionAuthToken || '').trim();
+  const lane = resolveEmailOtpAuthLane({
+    routeAuth: jwt ? { kind: 'threshold_session', jwt } : undefined,
+    thresholdSessionId: record.thresholdSessionId,
+    authorizingWalletSigningSessionId: record.walletSigningSessionId,
+    curve: 'ecdsa',
+    chainTarget: record.chainTarget,
+  });
+  if (!lane || lane.kind !== 'signing_session' || lane.curve !== 'ecdsa') {
+    throw new Error('Email OTP Ed25519 signing requires companion ECDSA session auth');
+  }
+  return {
+    kind: 'threshold_ecdsa_session',
+    jwt: lane.jwt,
+    curve: 'ecdsa',
+    thresholdSessionId: lane.thresholdSessionId,
+    walletSigningSessionId: lane.authorizingWalletSigningSessionId,
+    chainTarget: lane.chainTarget,
+  };
+}
 
 export type EmailOtpEd25519WarmupPorts = {
   configs: SeamsConfigsReadonly;
@@ -244,6 +269,7 @@ export class EmailOtpEd25519Warmup {
         'Email OTP Ed25519 signing requires an exact concrete ECDSA bootstrap lane',
       );
     }
+    const ecdsaBootstrapRouteAuth = emailOtpEcdsaBootstrapRouteAuthFromRecord(ecdsaRecord);
     const ecdsaLogin = await this.ports.loginWithEcdsaCapabilityInternal({
       walletSession: walletSessionRefFromSession({
         walletId: nearAccountId,
@@ -256,9 +282,13 @@ export class EmailOtpEd25519Warmup {
       challengeId: args.challengeId,
       otpCode: args.otpCode,
       operation,
-      participantIds: ecdsaRecord?.participantIds || args.record.participantIds,
+      participantIds: ecdsaRecord.participantIds || args.record.participantIds,
       sessionKind: args.record.thresholdSessionKind,
       routePlan,
+      ecdsaBootstrapAuthorization: {
+        kind: 'explicit_route_auth',
+        routeAuth: ecdsaBootstrapRouteAuth,
+      },
       ...(args.record.runtimePolicyScope
         ? { runtimePolicyScope: args.record.runtimePolicyScope }
         : {}),

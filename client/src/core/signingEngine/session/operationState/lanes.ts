@@ -18,7 +18,6 @@ import {
   type ThresholdEcdsaSessionStoreSource,
   type ThresholdEd25519SessionStoreSource,
 } from '../identity/laneIdentity';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import { thresholdEcdsaChainTargetsEqual } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EvmFamilyEcdsaKeyIdentity } from '../identity/evmFamilyEcdsaIdentity';
@@ -251,20 +250,12 @@ export type SigningCapabilityReaderDeps = {
       storageSource: EcdsaPasskeyStorageSource;
     },
   ) => ThresholdEcdsaSessionRecord | null;
-  readEmailOtpEcdsaKeyRef?: (args: EcdsaCapabilityLookupArgs) => ThresholdEcdsaSecp256k1KeyRef | null;
-  readPasskeyEcdsaKeyRef?: (
-    args: EcdsaCapabilityLookupArgs & {
-      storageSource: EcdsaPasskeyStorageSource;
-    },
-  ) => ThresholdEcdsaSecp256k1KeyRef | null;
 };
 
 export type SigningCapabilityReadErrorCode =
   | 'missing_reader'
   | 'missing_record'
   | 'record_mismatch'
-  | 'missing_key_ref'
-  | 'key_ref_mismatch'
   | 'unsupported_curve';
 
 export type SigningCapabilityReadError = {
@@ -292,32 +283,22 @@ export type SigningCapabilityRecordResult =
     }
   | SigningCapabilityReadError;
 
-export type SigningCapabilityKeyRefResult =
-  | {
-      ok: true;
-      lane: SelectedSigningSessionPlanningLane;
-      keyRef: ThresholdEcdsaSecp256k1KeyRef;
-    }
-  | SigningCapabilityReadError;
-
 export type SigningCapabilityResult =
   | {
       ok: true;
       lane: SelectedSigningSessionPlanningLane;
       capability: Extract<SigningCapabilityRecord, { curve: 'ed25519' }>;
-      keyRef?: never;
     }
   | {
       ok: true;
       lane: SelectedSigningSessionPlanningLane;
       capability: Extract<SigningCapabilityRecord, { curve: 'ecdsa' }>;
-      keyRef: ThresholdEcdsaSecp256k1KeyRef;
+      keyRef?: never;
     }
   | SigningCapabilityReadError;
 
 export type SigningCapabilityReader = {
   readRecord(lane: SelectedSigningSessionPlanningLane): SigningCapabilityRecordResult;
-  readEcdsaKeyRef(lane: SelectedSigningSessionPlanningLane): SigningCapabilityKeyRefResult;
   readCapability(lane: SelectedSigningSessionPlanningLane): SigningCapabilityResult;
 };
 
@@ -327,9 +308,6 @@ export function createSigningCapabilityReader(
   return {
     readRecord(lane) {
       return readSigningCapabilityRecord(deps, lane);
-    },
-    readEcdsaKeyRef(lane) {
-      return readSigningCapabilityEcdsaKeyRef(deps, lane);
     },
     readCapability(lane) {
       return readSigningCapability(deps, lane);
@@ -358,13 +336,10 @@ export function readSigningCapability(
     );
   }
 
-  const keyRefResult = readSigningCapabilityEcdsaKeyRef(deps, lane);
-  if (!keyRefResult.ok) return keyRefResult;
   return {
     ok: true,
     lane: recordResult.lane,
     capability: recordResult.capability,
-    keyRef: keyRefResult.keyRef,
   };
 }
 
@@ -379,38 +354,6 @@ export function readSigningCapabilityRecord(
     return readEcdsaCapabilityRecord(deps, lane);
   }
   return readError(lane, 'unsupported_curve', 'Unsupported signing lane curve');
-}
-
-export function readSigningCapabilityEcdsaKeyRef(
-  deps: SigningCapabilityReaderDeps,
-  lane: SelectedSigningSessionPlanningLane,
-): SigningCapabilityKeyRefResult {
-  if (lane.curve !== 'ecdsa') {
-    return readError(lane, 'unsupported_curve', 'ECDSA key refs require an ECDSA signing lane');
-  }
-  const chainTarget = ecdsaChainTargetFromLane(lane);
-  if (!chainTarget) {
-    return readError(
-      lane,
-      'record_mismatch',
-      'ECDSA signing lane must carry a concrete chain target',
-    );
-  }
-
-  const keyRef =
-    lane.authMethod === 'email_otp'
-      ? deps.readEmailOtpEcdsaKeyRef?.({
-          walletId: lane.walletId,
-          chainTarget,
-          keyHandle: lane.keyHandle,
-          thresholdSessionId: lane.thresholdSessionId,
-          walletSigningSessionId: lane.walletSigningSessionId,
-        })
-      : readPasskeyEcdsaKeyRef(deps, lane, chainTarget);
-  if (!keyRef) {
-    return readError(lane, 'missing_key_ref', 'Missing selected-lane ECDSA key ref');
-  }
-  return validateEcdsaKeyRefForLane(lane, keyRef);
 }
 
 function readEd25519CapabilityRecord(
@@ -523,61 +466,6 @@ function readPasskeyEcdsaRecord(
     thresholdSessionId: lane.thresholdSessionId,
     walletSigningSessionId: lane.walletSigningSessionId,
   });
-}
-
-function readPasskeyEcdsaKeyRef(
-  deps: SigningCapabilityReaderDeps,
-  lane: SelectedEcdsaSigningSessionPlanningLane,
-  chainTarget: ThresholdEcdsaChainTarget,
-): ThresholdEcdsaSecp256k1KeyRef | null | undefined {
-  if (!isEcdsaPasskeyStorageSource(lane.storageSource)) return null;
-  return deps.readPasskeyEcdsaKeyRef?.({
-    walletId: lane.walletId,
-    chainTarget,
-    storageSource: lane.storageSource,
-    keyHandle: lane.keyHandle,
-    thresholdSessionId: lane.thresholdSessionId,
-    walletSigningSessionId: lane.walletSigningSessionId,
-  });
-}
-
-function validateEcdsaKeyRefForLane(
-  lane: SelectedEcdsaSigningSessionPlanningLane,
-  keyRef: ThresholdEcdsaSecp256k1KeyRef,
-): SigningCapabilityKeyRefResult {
-  if (String(keyRef.userId || '') !== String(lane.walletId)) {
-    return readError(
-      lane,
-      'key_ref_mismatch',
-      'ECDSA key ref account does not match selected lane',
-    );
-  }
-  if (String(keyRef.thresholdSessionId || '') !== String(lane.thresholdSessionId)) {
-    return readError(
-      lane,
-      'key_ref_mismatch',
-      'ECDSA key ref threshold session does not match selected lane',
-    );
-  }
-  if (String(keyRef.walletSigningSessionId || '') !== String(lane.walletSigningSessionId)) {
-    return readError(
-      lane,
-      'key_ref_mismatch',
-      'ECDSA key ref wallet signing session does not match selected lane',
-    );
-  }
-  if (String(keyRef.keyHandle || '').trim() !== String(lane.keyHandle || '').trim()) {
-    return readError(
-      lane,
-      'key_ref_mismatch',
-      'ECDSA key ref key handle does not match selected lane',
-    );
-  }
-  return {
-    ok: true,
-    lane,
-    keyRef,
-  };
 }
 
 function validateLaneCandidateForSigningLane(

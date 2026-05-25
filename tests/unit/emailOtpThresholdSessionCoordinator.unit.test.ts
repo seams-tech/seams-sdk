@@ -793,8 +793,39 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
   });
 
   test('logs in Ed25519 Email OTP capability with normalized auth context', async () => {
-    const { coordinator, ed25519ProvisionCalls } = createCoordinator();
-    const thresholdSessionAuthToken = 'threshold-jwt';
+    const ecdsaThresholdSessionAuthToken = thresholdEcdsaSessionJwt({
+      walletId: 'alice.testnet',
+      keyHandle: 'key-handle-ecdsa',
+      thresholdSessionId: 'ecdsa-session',
+      walletSigningSessionId: 'wallet-session-ecdsa',
+      chainTarget: TEMPO_CHAIN_TARGET,
+    });
+    const { coordinator, ed25519ProvisionCalls, workerCalls } = createCoordinator({
+      listThresholdEcdsaSessionRecordsForWallet: (walletId) => [
+        {
+          walletId,
+          subjectId: TEST_SUBJECT_ID,
+          chainTarget: TEMPO_CHAIN_TARGET,
+          source: 'email_otp',
+          relayerUrl: 'https://relay.example',
+          keyHandle: 'key-handle-ecdsa',
+          ecdsaThresholdKeyId: 'ecdsa-key',
+          signingRootId: 'signing-root',
+          signingRootVersion: 'root-v1',
+          relayerKeyId: 'relayer-key',
+          clientVerifyingShareB64u: 'verifying-share',
+          participantIds: [1, 3],
+          thresholdSessionKind: 'jwt',
+          thresholdSessionId: 'ecdsa-session',
+          walletSigningSessionId: 'wallet-session-ecdsa',
+          thresholdSessionAuthToken: ecdsaThresholdSessionAuthToken,
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 1,
+          updatedAtMs: Date.now(),
+        },
+      ],
+    });
+    const thresholdSessionAuthToken = 'threshold-ed25519-jwt';
     coordinator.reconstructEd25519Session = async (args) => {
       ed25519ProvisionCalls.push(args);
       return {
@@ -857,6 +888,20 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
         reason: 'sign',
         authMethod: 'email_otp',
       },
+    });
+    const loginCall = workerCalls.find((call) => call.request?.type === 'loginWithEmailOtpWallet');
+    expect(loginCall?.request?.payload?.routePlan?.authLane).toMatchObject({
+      kind: 'signing_session',
+      jwt: thresholdSessionAuthToken,
+      thresholdSessionId: 'old-session',
+      curve: 'ed25519',
+    });
+    const bootstrapCall = workerCalls.find(
+      (call) => call.request?.type === 'bootstrapEmailOtpEcdsaSessionsFromClientRootShare',
+    );
+    expect(bootstrapCall?.request?.payload?.routeAuth).toEqual({
+      kind: 'threshold_session',
+      jwt: ecdsaThresholdSessionAuthToken,
     });
   });
 
@@ -949,6 +994,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       keyHandle: 'ehss-key-handle-1',
       participantIds: [1, 3],
       sessionKind: 'jwt',
+      ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
       runtimePolicyScope: {
         orgId: 'org',
         projectId: 'proj',
@@ -1041,6 +1087,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       keyHandle: 'ehss-key-handle-1',
       participantIds: [1, 3],
       sessionKind: 'jwt',
+      ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
       ed25519ReconstructionMode: 'skip',
       ed25519SessionReconstruction: DEFER_ED25519_RECONSTRUCTION_FOR_ECDSA,
     });
@@ -1210,6 +1257,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       keyHandle: 'ehss-key-handle-1',
       participantIds: [1, 3],
       sessionKind: 'jwt',
+      ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
       ed25519ReconstructionMode: 'skip',
       ed25519SessionReconstruction: DEFER_ED25519_RECONSTRUCTION_FOR_ECDSA,
     });
@@ -1273,6 +1321,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
         keyHandle: 'ehss-key-handle-1',
         participantIds: [1, 3],
         sessionKind: 'jwt',
+        ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
         ed25519ReconstructionMode: 'skip',
         ed25519SessionReconstruction: DEFER_ED25519_RECONSTRUCTION_FOR_ECDSA,
       }),
@@ -1311,6 +1360,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       keyHandle: 'ehss-key-handle-1',
       participantIds: [1, 3],
       sessionKind: 'jwt',
+      ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
       ed25519ReconstructionMode: 'skip',
       ed25519SessionReconstruction: DEFER_ED25519_RECONSTRUCTION_FOR_ECDSA,
     });

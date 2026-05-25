@@ -35,7 +35,9 @@ import {
 } from './signingStateMachine';
 
 export type {
+  ConfirmIntentDigestSigningOperationRequest,
   ConfirmIntentDigestSigningOperationResult,
+  ConfirmTransactionSigningOperationRequest,
   ConfirmTransactionSigningOperationResult,
 } from '@/core/signingEngine/stepUpConfirmation/confirmOperation';
 

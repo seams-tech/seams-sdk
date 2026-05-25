@@ -216,6 +216,42 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       respondOkResult(req.requestId, result);
     },
 
+    PM_REGISTER_WALLET: async (req: Req<'PM_REGISTER_WALLET'>) => {
+      const pm = getSeamsPasskey();
+      const payload = req.payload!;
+      if (respondIfCancelled(req.requestId)) return;
+      const hooksOptions = withProgress(req.requestId, payload.options || {}) as RegistrationHooksOptions;
+      const result = await pm.registration.registerWallet({
+        walletSubject: payload.walletSubject,
+        rpId: payload.rpId,
+        signerSelection: payload.signerSelection,
+        options: {
+          ...hooksOptions,
+          ...(payload.confirmationConfig ? { confirmationConfig: payload.confirmationConfig } : {}),
+        },
+      });
+      if (respondIfCancelled(req.requestId)) return;
+      respondOkResult(req.requestId, result);
+    },
+
+    PM_ADD_WALLET_SIGNER: async (req: Req<'PM_ADD_WALLET_SIGNER'>) => {
+      const pm = getSeamsPasskey();
+      const payload = req.payload!;
+      if (respondIfCancelled(req.requestId)) return;
+      const hooksOptions = withProgress(req.requestId, payload.options || {}) as RegistrationHooksOptions;
+      const result = await pm.registration.addWalletSigner({
+        walletSubjectId: payload.walletSubjectId,
+        rpId: payload.rpId,
+        signerSelection: payload.signerSelection,
+        options: {
+          ...hooksOptions,
+          ...(payload.confirmationConfig ? { confirmationConfig: payload.confirmationConfig } : {}),
+        },
+      });
+      if (respondIfCancelled(req.requestId)) return;
+      respondOkResult(req.requestId, result);
+    },
+
     PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION: async (
       req: Req<'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION'>,
     ) => {

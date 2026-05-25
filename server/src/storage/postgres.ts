@@ -6,6 +6,10 @@ export type PgPoolClient = {
   release: () => void;
 };
 
+export type PgQueryExecutor = {
+  query: (text: string, values?: unknown[]) => Promise<{ rows: any[]; rowCount?: number }>;
+};
+
 type PgPool = {
   query: (text: string, values?: unknown[]) => Promise<{ rows: any[]; rowCount?: number }>;
   connect?: () => Promise<PgPoolClient>;
@@ -125,6 +129,87 @@ export async function ensurePostgresSchema(input: {
     await pool.query(`
       CREATE INDEX IF NOT EXISTS webauthn_challenges_expires_idx
       ON webauthn_challenges (expires_at_ms)
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS wallet_registration_intents (
+        namespace TEXT NOT NULL,
+        intent_grant TEXT NOT NULL,
+        record_json JSONB NOT NULL,
+        expires_at_ms BIGINT NOT NULL,
+        PRIMARY KEY (namespace, intent_grant)
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS wallet_registration_intents_expires_idx
+      ON wallet_registration_intents (expires_at_ms)
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS wallet_registration_ceremonies (
+        namespace TEXT NOT NULL,
+        registration_ceremony_id TEXT NOT NULL,
+        record_json JSONB NOT NULL,
+        expires_at_ms BIGINT NOT NULL,
+        PRIMARY KEY (namespace, registration_ceremony_id)
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS wallet_registration_ceremonies_expires_idx
+      ON wallet_registration_ceremonies (expires_at_ms)
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS wallet_subjects (
+        namespace TEXT NOT NULL,
+        wallet_subject_id TEXT NOT NULL,
+        rp_id TEXT NOT NULL,
+        record_json JSONB NOT NULL,
+        created_at_ms BIGINT NOT NULL,
+        updated_at_ms BIGINT NOT NULL,
+        PRIMARY KEY (namespace, wallet_subject_id)
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS wallet_subjects_rp_idx
+      ON wallet_subjects (namespace, rp_id, created_at_ms)
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS wallet_authenticators (
+        namespace TEXT NOT NULL,
+        wallet_subject_id TEXT NOT NULL,
+        rp_id TEXT NOT NULL,
+        credential_id_b64u TEXT NOT NULL,
+        record_json JSONB NOT NULL,
+        created_at_ms BIGINT NOT NULL,
+        updated_at_ms BIGINT NOT NULL,
+        PRIMARY KEY (namespace, wallet_subject_id, credential_id_b64u)
+      )
+    `);
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS wallet_authenticators_credential_uidx
+      ON wallet_authenticators (namespace, rp_id, credential_id_b64u)
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS wallet_signers (
+        namespace TEXT NOT NULL,
+        wallet_subject_id TEXT NOT NULL,
+        signer_family TEXT NOT NULL,
+        signer_id TEXT NOT NULL,
+        chain_target_key TEXT,
+        record_json JSONB NOT NULL,
+        created_at_ms BIGINT NOT NULL,
+        updated_at_ms BIGINT NOT NULL,
+        PRIMARY KEY (namespace, wallet_subject_id, signer_family, signer_id),
+        CHECK (signer_family IN ('ed25519', 'ecdsa'))
+      )
+    `);
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS wallet_signers_chain_target_uidx
+      ON wallet_signers (namespace, wallet_subject_id, signer_family, chain_target_key)
+      WHERE chain_target_key IS NOT NULL
     `);
 
     await pool.query(`
@@ -265,6 +350,9 @@ export async function ensurePostgresSchema(input: {
         relayer_key_id TEXT NOT NULL,
         key_handle TEXT,
         threshold_key_id TEXT,
+        wallet_session_user_id TEXT,
+        subject_id TEXT,
+        rp_id TEXT,
         signing_root_id TEXT,
         signing_root_version TEXT,
         owner_address TEXT,
@@ -278,6 +366,11 @@ export async function ensurePostgresSchema(input: {
     await pool.query(
       'ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS threshold_key_id TEXT',
     );
+    await pool.query(
+      'ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS wallet_session_user_id TEXT',
+    );
+    await pool.query('ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS subject_id TEXT');
+    await pool.query('ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS rp_id TEXT');
     await pool.query(
       'ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS signing_root_id TEXT',
     );
@@ -299,6 +392,25 @@ export async function ensurePostgresSchema(input: {
       CREATE INDEX IF NOT EXISTS threshold_ecdsa_keys_owner_address_idx
       ON threshold_ecdsa_keys (namespace, owner_address)
       WHERE owner_address IS NOT NULL
+    `);
+    await pool.query('DROP INDEX IF EXISTS threshold_ecdsa_keys_shared_identity_idx');
+    await pool.query('DROP INDEX IF EXISTS threshold_ecdsa_keys_shared_identity_uidx');
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS threshold_ecdsa_keys_shared_identity_uidx
+      ON threshold_ecdsa_keys (
+        namespace,
+        wallet_session_user_id,
+        subject_id,
+        rp_id,
+        signing_root_id,
+        signing_root_version
+      )
+      WHERE
+        wallet_session_user_id IS NOT NULL AND
+        subject_id IS NOT NULL AND
+        rp_id IS NOT NULL AND
+        signing_root_id IS NOT NULL AND
+        signing_root_version IS NOT NULL
     `);
 
     await pool.query(`
@@ -418,6 +530,20 @@ export async function ensurePostgresSchema(input: {
     await pool.query(`
       CREATE INDEX IF NOT EXISTS device_linking_sessions_expires_idx
       ON device_linking_sessions (expires_at_ms)
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS email_recovery_preparations (
+        namespace TEXT NOT NULL,
+        request_id TEXT NOT NULL,
+        record_json JSONB NOT NULL,
+        expires_at_ms BIGINT NOT NULL,
+        PRIMARY KEY (namespace, request_id)
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS email_recovery_preparations_expires_idx
+      ON email_recovery_preparations (expires_at_ms)
     `);
 
     await pool.query(`

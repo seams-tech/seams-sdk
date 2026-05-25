@@ -1,8 +1,5 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
-import {
-  thresholdEcdsaRecordRpId,
-  type ThresholdEcdsaSessionRecord,
-} from '../persistence/records';
+import { thresholdEcdsaRecordRpId, type ThresholdEcdsaSessionRecord } from '../persistence/records';
 import type {
   ThresholdEcdsaEmailOtpAuthContext,
   ThresholdEcdsaSessionStoreSource,
@@ -63,32 +60,31 @@ import { claimPasskeyEcdsaPrfFirst } from './ecdsaRecovery';
 import type { PasskeyWarmSessionRecoveryPorts } from './prfClaim';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
+  buildEvmFamilyEcdsaWalletKey,
   buildEvmFamilyEcdsaSessionLanePolicy,
-  resolveThresholdEcdsaKeyIdFromKeyRef,
   resolveThresholdEcdsaKeyIdFromRecord,
   resolveThresholdSigningRootBindingFromRecord,
-  toEvmFamilyEcdsaKeyHandle,
-  type EvmFamilyEcdsaKeyHandle,
-  type EvmFamilyEcdsaKeyIdentity,
+  type EvmFamilyEcdsaWalletKey,
   type EvmFamilyEcdsaSessionLanePolicy,
 } from '../identity/evmFamilyEcdsaIdentity';
+import { buildThresholdEcdsaSecp256k1KeyRefFromRecord } from '../identity/thresholdEcdsaSignerAdapter';
 
 export type WarmSessionEcdsaProvisionerDeps = {
   getWarmSession: (walletId: WalletId) => Promise<WarmSessionEnvelope>;
-  listThresholdEcdsaKeyRefsForWalletTarget?: (args: {
+  listThresholdEcdsaRecordsForWalletTarget: (args: {
     walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
     source?: ThresholdEcdsaSessionStoreSource;
-  }) => EcdsaKeyRefCandidate[];
+  }) => EcdsaRecordCandidate[];
 };
 
 export type WarmSessionEcdsaReconnectDeps = {
   getWarmSession: (walletId: WalletId) => Promise<WarmSessionEnvelope>;
-  listThresholdEcdsaKeyRefsForWalletTarget?: (args: {
+  listThresholdEcdsaRecordsForWalletTarget: (args: {
     walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
     source?: ThresholdEcdsaSessionStoreSource;
-  }) => EcdsaKeyRefCandidate[];
+  }) => EcdsaRecordCandidate[];
   canProvisionEcdsaCapability: boolean;
   provisionThresholdEcdsaSession: (
     args: ThresholdEcdsaActivationRequest,
@@ -111,8 +107,7 @@ type EcdsaProvisionActivationCommon = {
   walletId: AccountId;
   relayerUrl: string;
   source: ThresholdEcdsaSessionStoreSource;
-  keyHandle: EvmFamilyEcdsaKeyHandle;
-  key: EvmFamilyEcdsaKeyIdentity;
+  walletKey: EvmFamilyEcdsaWalletKey;
   lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
   sessionIdentity: EcdsaSessionIdentity;
   sessionKind: 'cookie' | 'jwt';
@@ -174,8 +169,7 @@ type EcdsaActivationOptions = Pick<
 >;
 
 type EcdsaActivationIdentityPair = {
-  keyHandle: EvmFamilyEcdsaKeyHandle;
-  key: EvmFamilyEcdsaKeyIdentity;
+  walletKey: EvmFamilyEcdsaWalletKey;
   lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
 };
 
@@ -195,32 +189,29 @@ function assertPersistedEcdsaWarmSessionRecord(args: {
   );
 }
 
-type EcdsaKeyRefCandidate = {
+type EcdsaRecordCandidate = {
   source: ThresholdEcdsaSessionStoreSource;
-  keyRef: ThresholdEcdsaSecp256k1KeyRef;
+  record: ThresholdEcdsaSessionRecord;
 };
 
-function hasEcdsaKeyRefSigningMaterial(keyRef: ThresholdEcdsaSecp256k1KeyRef): boolean {
-  const binding = keyRef.backendBinding;
-  if (!binding) return false;
-  if (String(binding.clientAdditiveShare32B64u || '').trim()) return true;
-  return binding.clientAdditiveShareHandle?.kind === 'email_otp_worker_session';
+function hasEcdsaRecordSigningMaterial(record: ThresholdEcdsaSessionRecord): boolean {
+  if (String(record.clientAdditiveShare32B64u || '').trim()) return true;
+  return record.clientAdditiveShareHandle?.kind === 'email_otp_worker_session';
 }
 
-function readEcdsaKeyRefCandidates(
-  deps: Pick<WarmSessionEcdsaProvisionerDeps, 'listThresholdEcdsaKeyRefsForWalletTarget'>,
+function readEcdsaRecordCandidates(
+  deps: Pick<WarmSessionEcdsaProvisionerDeps, 'listThresholdEcdsaRecordsForWalletTarget'>,
   args: {
     walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
     source?: ThresholdEcdsaSessionStoreSource;
   },
-): EcdsaKeyRefCandidate[] {
-  if (typeof deps.listThresholdEcdsaKeyRefsForWalletTarget !== 'function') return [];
-  const candidates: EcdsaKeyRefCandidate[] = [];
+): EcdsaRecordCandidate[] {
+  const candidates: EcdsaRecordCandidate[] = [];
   const seen = new Set<string>();
-  let listed: EcdsaKeyRefCandidate[] = [];
+  let listed: EcdsaRecordCandidate[] = [];
   try {
-    listed = deps.listThresholdEcdsaKeyRefsForWalletTarget({
+    listed = deps.listThresholdEcdsaRecordsForWalletTarget({
       walletId: args.walletId,
       chainTarget: args.chainTarget,
       ...(args.source ? { source: args.source } : {}),
@@ -230,29 +221,42 @@ function readEcdsaKeyRefCandidates(
   }
   for (const candidate of listed) {
     const source = candidate.source;
-    const keyRef = candidate.keyRef;
+    const record = candidate.record;
     if (args.source && source !== args.source) continue;
     try {
-      const identity = buildEcdsaSessionIdentity(keyRef);
+      const identity = buildEcdsaSessionIdentity(record);
       const key = [
         source,
         identity.thresholdSessionId,
-        String(keyRef.ecdsaThresholdKeyId || '').trim(),
+        resolveThresholdEcdsaKeyIdFromRecord({ record }),
       ].join(':');
       if (seen.has(key)) continue;
       seen.add(key);
-      candidates.push({ source, keyRef });
+      candidates.push({ source, record });
     } catch {}
   }
   return candidates;
 }
 
-function keyRefMatchesPlannedIdentity(args: {
-  keyRef: ThresholdEcdsaSecp256k1KeyRef;
+function recordMatchesPlannedIdentity(args: {
+  record: ThresholdEcdsaSessionRecord;
   plan: EcdsaSessionProvisionPlan;
 }): boolean {
   const identity = getEcdsaSessionProvisionIdentity(args.plan);
-  return ecdsaSessionIdentityMatches(identity, args.keyRef);
+  return ecdsaSessionIdentityMatches(identity, args.record);
+}
+
+function provisionPlanRequiresExistingRecordIdentity(plan: EcdsaSessionProvisionPlan): boolean {
+  switch (plan.kind) {
+    case 'threshold_session_auth_ecdsa_reconnect':
+    case 'cookie_ecdsa_reconnect':
+      return true;
+    case 'passkey_ecdsa_session_provision':
+    case 'email_otp_ecdsa_session_provision':
+      return false;
+  }
+  plan satisfies never;
+  return false;
 }
 
 function buildDefaultEcdsaActivationPolicy(): EcdsaActivationPolicy {
@@ -355,8 +359,7 @@ function buildActivationKeyAndLanePolicy(args: {
     });
     if (
       String(recordSigningRoot.signingRootId) !== planSigningRootId ||
-      normalizeSigningRootVersion(recordSigningRoot.signingRootVersion) !==
-        planSigningRootVersion
+      normalizeSigningRootVersion(recordSigningRoot.signingRootVersion) !== planSigningRootVersion
     ) {
       throw new Error(
         '[WarmSessionStore] ECDSA activation signing root does not match session record',
@@ -375,8 +378,18 @@ function buildActivationKeyAndLanePolicy(args: {
   const sessionIdentity = getEcdsaSessionProvisionIdentity(args.plan);
   const runtimePolicyScope = runtimePolicyScopeFromActivationPolicy(args.runtimePolicy);
   return {
-    keyHandle: toEvmFamilyEcdsaKeyHandle(args.record.keyHandle),
-    key,
+    walletKey: buildEvmFamilyEcdsaWalletKey({
+      walletId: key.walletId,
+      rpId: key.rpId,
+      keyHandle: args.record.keyHandle,
+      chainTarget: args.plan.chainTarget,
+      ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
+      signingRootId: key.signingRootId,
+      signingRootVersion: key.signingRootVersion,
+      participantIds: key.participantIds,
+      thresholdOwnerAddress: key.thresholdOwnerAddress,
+      thresholdEcdsaPublicKeyB64u: args.record.thresholdEcdsaPublicKeyB64u,
+    }),
     lanePolicy: buildEvmFamilyEcdsaSessionLanePolicy({
       chainTarget: args.plan.chainTarget,
       thresholdSessionId: sessionIdentity.thresholdSessionId,
@@ -403,8 +416,7 @@ function buildPasskeyEcdsaActivation(args: {
     walletId: args.walletId,
     relayerUrl: args.relayerUrl,
     source: args.source,
-    keyHandle: args.identityPair.keyHandle,
-    key: args.identityPair.key,
+    walletKey: args.identityPair.walletKey,
     lanePolicy: args.identityPair.lanePolicy,
     sessionIdentity: args.plan.newSessionIdentity,
     sessionKind: args.plan.sessionKind,
@@ -443,8 +455,7 @@ function buildEmailOtpEcdsaActivation(args: {
     walletId: args.walletId,
     relayerUrl: args.relayerUrl,
     source: args.source,
-    keyHandle: args.identityPair.keyHandle,
-    key: args.identityPair.key,
+    walletKey: args.identityPair.walletKey,
     lanePolicy: args.identityPair.lanePolicy,
     sessionIdentity: args.plan.newSessionIdentity,
     sessionKind: args.plan.sessionKind,
@@ -483,8 +494,7 @@ function buildThresholdSessionAuthEcdsaActivation(args: {
     walletId: args.walletId,
     relayerUrl: args.relayerUrl,
     source: args.source,
-    keyHandle: args.identityPair.keyHandle,
-    key: args.identityPair.key,
+    walletKey: args.identityPair.walletKey,
     lanePolicy: args.identityPair.lanePolicy,
     sessionIdentity: args.plan.existingSessionIdentity,
     sessionKind: 'jwt',
@@ -522,8 +532,7 @@ function buildCookieEcdsaActivation(args: {
     walletId: args.walletId,
     relayerUrl: args.relayerUrl,
     source: args.source,
-    keyHandle: args.identityPair.keyHandle,
-    key: args.identityPair.key,
+    walletKey: args.identityPair.walletKey,
     lanePolicy: args.identityPair.lanePolicy,
     sessionIdentity: args.plan.existingSessionIdentity,
     sessionKind: 'cookie',
@@ -601,8 +610,7 @@ async function provisionPasskeyEcdsaSession(
       ...(baseArgs.operationIntent ? { operationIntent: baseArgs.operationIntent } : {}),
       clientRootShare32B64u: baseArgs.clientRootShare32B64u,
       webauthnAuthentication: baseArgs.webauthnAuthentication,
-      keyHandle: activation.keyHandle,
-      key: activation.key,
+      walletKey: activation.walletKey,
       lanePolicy: activation.lanePolicy,
     }),
   );
@@ -650,8 +658,7 @@ async function reconnectThresholdSessionAuthEcdsaSession(
       ...(baseArgs.operationIntent ? { operationIntent: baseArgs.operationIntent } : {}),
       clientRootShare32B64u: baseArgs.clientRootShare32B64u,
       thresholdSessionAuth: baseArgs.thresholdSessionAuth,
-      keyHandle: activation.keyHandle,
-      key: activation.key,
+      walletKey: activation.walletKey,
       lanePolicy: activation.lanePolicy,
     }),
   );
@@ -686,8 +693,7 @@ async function reconnectCookieEcdsaSession(
         ? { runtimeScopeBootstrap: baseArgs.runtimeScopeBootstrap }
         : {}),
       ...(baseArgs.operationIntent ? { operationIntent: baseArgs.operationIntent } : {}),
-      keyHandle: activation.keyHandle,
-      key: activation.key,
+      walletKey: activation.walletKey,
       lanePolicy: activation.lanePolicy,
     }),
   );
@@ -739,8 +745,7 @@ async function provisionEmailOtpEcdsaSession(
           : {}),
         ...(baseArgs.operationIntent ? { operationIntent: baseArgs.operationIntent } : {}),
         clientRootShare32B64u: baseArgs.clientRootShare32B64u,
-        keyHandle: activation.keyHandle,
-        key: activation.key,
+        walletKey: activation.walletKey,
         lanePolicy: activation.lanePolicy,
         emailOtpAuthContext,
       }),
@@ -773,8 +778,7 @@ async function provisionEmailOtpEcdsaSession(
         : {}),
       ...(baseArgs.operationIntent ? { operationIntent: baseArgs.operationIntent } : {}),
       clientRootShare32B64u: baseArgs.clientRootShare32B64u,
-      keyHandle: activation.keyHandle,
-      key: activation.key,
+      walletKey: activation.walletKey,
       lanePolicy: activation.lanePolicy,
       emailOtpAuthContext,
     }),
@@ -791,26 +795,26 @@ export async function tryReuseReadyWarmEcdsaBootstrap(
 ): Promise<ThresholdEcdsaSessionBootstrapResult | null> {
   const exactWalletId = args.walletId;
   const walletId = toAccountId(exactWalletId);
-  const keyRefCandidates = readEcdsaKeyRefCandidates(deps, {
+  const recordCandidates = readEcdsaRecordCandidates(deps, {
     walletId: exactWalletId,
     chainTarget: args.chainTarget,
     ...(args.source ? { source: args.source } : {}),
   });
-  if (!keyRefCandidates.length) return null;
+  if (!recordCandidates.length) return null;
   const warmSession = await deps.getWarmSession(exactWalletId);
-  for (const candidate of keyRefCandidates) {
-    if (!hasEcdsaKeyRefSigningMaterial(candidate.keyRef)) {
+  for (const candidate of recordCandidates) {
+    if (!hasEcdsaRecordSigningMaterial(candidate.record)) {
       continue;
     }
     const capability = getMatchingReadyEcdsaCapability({
       warmSession,
       chainTarget: args.chainTarget,
-      keyRef: candidate.keyRef,
+      record: candidate.record,
       usesNeeded: 1,
     });
     if (!capability) continue;
     const reusableBootstrap = buildReusableEcdsaBootstrapResult({
-      keyRef: candidate.keyRef,
+      record: candidate.record,
       capability,
       source: candidate.source,
     });
@@ -820,15 +824,11 @@ export async function tryReuseReadyWarmEcdsaBootstrap(
 }
 
 function requireActivationRelayerUrl(args: {
-  keyRef: ThresholdEcdsaSecp256k1KeyRef | null;
   reconnectRecord: ThresholdEcdsaSessionRecord | null;
   secondaryRecord: ThresholdEcdsaSessionRecord | null;
 }): string {
   const relayerUrl = String(
-    args.reconnectRecord?.relayerUrl ||
-      (args.keyRef ? args.keyRef.relayerUrl : '') ||
-      args.secondaryRecord?.relayerUrl ||
-      '',
+    args.reconnectRecord?.relayerUrl || args.secondaryRecord?.relayerUrl || '',
   ).trim();
   if (!relayerUrl) {
     throw new Error('[WarmSessionStore] ECDSA activation requires relayerUrl');
@@ -841,12 +841,12 @@ function buildEcdsaCapabilityInflightKey(args: {
   chainTarget: ThresholdEcdsaChainTarget;
   usesNeeded?: number;
   sessionBudgetUses: number;
-  keyRef: ThresholdEcdsaSecp256k1KeyRef | null;
+  record: ThresholdEcdsaSessionRecord | null;
 }): string {
-  const keyId = args.keyRef
-    ? String(args.keyRef.ecdsaThresholdKeyId || '').trim() || 'auto'
+  const keyId = args.record
+    ? String(resolveThresholdEcdsaKeyIdFromRecord({ record: args.record }) || '').trim() || 'auto'
     : 'auto';
-  const sessionIdentity = args.keyRef ? tryBuildEcdsaSessionIdentity(args.keyRef) : null;
+  const sessionIdentity = args.record ? tryBuildEcdsaSessionIdentity(args.record) : null;
   const usesNeeded = Math.floor(Number(args.usesNeeded) || 0);
   const sessionBudgetUses = Math.floor(Number(args.sessionBudgetUses) || 0);
   return [
@@ -859,6 +859,31 @@ function buildEcdsaCapabilityInflightKey(args: {
   ].join('::');
 }
 
+function resolveExactEcdsaRecordWithSourceFallback(
+  deps: Pick<WarmSessionEcdsaReconnectDeps, 'resolveExactEcdsaRecord'>,
+  args: {
+    walletId: WalletId;
+    chainTarget: ThresholdEcdsaChainTarget;
+    thresholdSessionId: string;
+    source?: ThresholdEcdsaSessionStoreSource;
+  },
+): ThresholdEcdsaSessionRecord | null {
+  if (args.source) {
+    const sourcedRecord = deps.resolveExactEcdsaRecord({
+      walletId: args.walletId,
+      chainTarget: args.chainTarget,
+      thresholdSessionId: args.thresholdSessionId,
+      source: args.source,
+    });
+    if (sourcedRecord) return sourcedRecord;
+  }
+  return deps.resolveExactEcdsaRecord({
+    walletId: args.walletId,
+    chainTarget: args.chainTarget,
+    thresholdSessionId: args.thresholdSessionId,
+  });
+}
+
 export async function ensureWarmEcdsaCapabilityReady(
   deps: WarmSessionEcdsaReconnectDeps,
   args: EnsureWarmEcdsaProvisionPlanReadyArgs,
@@ -869,61 +894,94 @@ export async function ensureWarmEcdsaCapabilityReady(
   const chain = chainTarget.kind;
   const chainId = chainTarget.chainId;
   const warmSession = await deps.getWarmSession(exactWalletId);
-  const keyRefCandidates: EcdsaKeyRefCandidate[] = args.keyRef
-    ? [{ source: args.source || 'manual-bootstrap', keyRef: args.keyRef }]
-    : readEcdsaKeyRefCandidates(deps, {
-        walletId: exactWalletId,
-        chainTarget,
-        ...(args.source ? { source: args.source } : {}),
-      });
+  const plannedRecord = args.record;
+  if (!thresholdEcdsaChainTargetsEqual(plannedRecord.chainTarget, chainTarget)) {
+    throw new Error(
+      '[WarmSessionStore] ECDSA readiness record chain target does not match request',
+    );
+  }
+  const plannedIdentity = getEcdsaSessionProvisionIdentity(args.plan);
+  const plannedRecordIdentity = buildEcdsaSessionIdentity({
+    thresholdSessionId: plannedRecord.thresholdSessionId,
+    walletSigningSessionId: plannedRecord.walletSigningSessionId,
+  });
+  if (
+    provisionPlanRequiresExistingRecordIdentity(args.plan) &&
+    !ecdsaSessionIdentitiesEqual(plannedRecordIdentity, plannedIdentity)
+  ) {
+    throw new Error('[WarmSessionStore] ECDSA readiness record identity does not match plan');
+  }
+  const recordCandidates: EcdsaRecordCandidate[] = [];
+  const seenRecordCandidates = new Set<string>();
+  for (const candidate of [
+    { source: args.source, record: plannedRecord },
+    ...readEcdsaRecordCandidates(deps, {
+      walletId: exactWalletId,
+      chainTarget,
+      source: args.source,
+    }),
+  ]) {
+    const candidateIdentity = tryBuildEcdsaSessionIdentity(candidate.record);
+    const candidateKey = [
+      candidate.source,
+      candidateIdentity?.walletSigningSessionId || '',
+      candidateIdentity?.thresholdSessionId || '',
+      String(resolveThresholdEcdsaKeyIdFromRecord({ record: candidate.record }) || '').trim(),
+    ].join(':');
+    if (seenRecordCandidates.has(candidateKey)) continue;
+    seenRecordCandidates.add(candidateKey);
+    recordCandidates.push(candidate);
+  }
   const confirmedReconnectRequested =
     args.plan.kind === 'passkey_ecdsa_session_provision' ||
     args.plan.kind === 'email_otp_ecdsa_session_provision';
-  let keyRef: ThresholdEcdsaSecp256k1KeyRef | null = null;
-  let keyRefSource: ThresholdEcdsaSessionStoreSource | undefined;
-  for (const candidate of keyRefCandidates) {
+  let reconnectCandidateRecord: ThresholdEcdsaSessionRecord | null = null;
+  let reconnectCandidateSource: ThresholdEcdsaSessionStoreSource | undefined;
+  for (const candidate of recordCandidates) {
     const capability = getMatchingReadyEcdsaCapability({
       warmSession,
       chainTarget,
-      keyRef: candidate.keyRef,
+      record: candidate.record,
       usesNeeded: args.usesNeeded,
     });
-    if (!capability || !hasEcdsaKeyRefSigningMaterial(candidate.keyRef)) {
-      if (!keyRef) {
-        keyRef = candidate.keyRef;
-        keyRefSource = candidate.source;
+    if (!capability || !hasEcdsaRecordSigningMaterial(candidate.record)) {
+      if (!reconnectCandidateRecord) {
+        reconnectCandidateRecord = candidate.record;
+        reconnectCandidateSource = candidate.source;
       }
       continue;
     }
-    if (!keyRefMatchesPlannedIdentity({ keyRef: candidate.keyRef, plan: args.plan })) {
-      keyRef = candidate.keyRef;
-      keyRefSource = candidate.source;
+    if (!recordMatchesPlannedIdentity({ record: candidate.record, plan: args.plan })) {
+      reconnectCandidateRecord = candidate.record;
+      reconnectCandidateSource = candidate.source;
       continue;
     }
     // A confirmed step-up must mint/refresh server budget even if local worker
     // material still looks ready; otherwise stale exhausted wallet budget wins.
     if (confirmedReconnectRequested) {
-      keyRef = candidate.keyRef;
-      keyRefSource = candidate.source;
+      reconnectCandidateRecord = candidate.record;
+      reconnectCandidateSource = candidate.source;
       continue;
     }
+    const readyRecord = capability.record;
+    if (!readyRecord) continue;
     return {
-      keyRef: candidate.keyRef,
+      record: readyRecord,
       warmSession,
       capability,
       reconnected: false,
     };
   }
-  if (!keyRef && keyRefCandidates[0]) {
-    keyRef = keyRefCandidates[0].keyRef;
-    keyRefSource = keyRefCandidates[0].source;
+  if (!reconnectCandidateRecord && recordCandidates[0]) {
+    reconnectCandidateRecord = recordCandidates[0].record;
+    reconnectCandidateSource = recordCandidates[0].source;
   }
 
-  for (const candidate of keyRefCandidates) {
-    const keyRefIdentity = tryBuildEcdsaSessionIdentity(candidate.keyRef);
-    if (!keyRefIdentity) continue;
+  for (const candidate of recordCandidates) {
+    const candidateIdentity = tryBuildEcdsaSessionIdentity(candidate.record);
+    if (!candidateIdentity) continue;
     const directCapability = await deps.readEcdsaCapabilityByThresholdSessionId(
-      keyRefIdentity.thresholdSessionId,
+      candidateIdentity.thresholdSessionId,
     );
     if (
       directCapability?.record?.chainTarget &&
@@ -931,27 +989,29 @@ export async function ensureWarmEcdsaCapabilityReady(
       directCapability.state === 'ready' &&
       hasSufficientWarmClaim(directCapability.prfClaim, args.usesNeeded)
     ) {
-      if (hasEcdsaKeyRefSigningMaterial(candidate.keyRef)) {
-        if (!keyRefMatchesPlannedIdentity({ keyRef: candidate.keyRef, plan: args.plan })) {
-          keyRef = candidate.keyRef;
-          keyRefSource = candidate.source;
+      if (hasEcdsaRecordSigningMaterial(candidate.record)) {
+        if (!recordMatchesPlannedIdentity({ record: candidate.record, plan: args.plan })) {
+          reconnectCandidateRecord = candidate.record;
+          reconnectCandidateSource = candidate.source;
           continue;
         }
         if (confirmedReconnectRequested) {
-          keyRef = candidate.keyRef;
-          keyRefSource = candidate.source;
+          reconnectCandidateRecord = candidate.record;
+          reconnectCandidateSource = candidate.source;
           continue;
         }
+        const readyRecord = directCapability.record;
+        if (!readyRecord) continue;
         return {
-          keyRef: candidate.keyRef,
+          record: readyRecord,
           warmSession,
           capability: directCapability,
           reconnected: false,
         };
       }
-      if (!keyRef) {
-        keyRef = candidate.keyRef;
-        keyRefSource = candidate.source;
+      if (!reconnectCandidateRecord) {
+        reconnectCandidateRecord = candidate.record;
+        reconnectCandidateSource = candidate.source;
       }
     }
   }
@@ -961,49 +1021,19 @@ export async function ensureWarmEcdsaCapabilityReady(
       '[WarmSessionStore] provisionThresholdEcdsaSession is required to reconnect ECDSA capability',
     );
   }
-  if (typeof deps.listThresholdEcdsaKeyRefsForWalletTarget !== 'function') {
-    throw new Error(
-      '[WarmSessionStore] listThresholdEcdsaKeyRefsForWalletTarget is required to resolve ECDSA capability',
-    );
-  }
-
-  const plannedIdentity = getEcdsaSessionProvisionIdentity(args.plan);
   const reconnectRecord =
-    deps.resolveExactEcdsaRecord({
+    resolveExactEcdsaRecordWithSourceFallback(deps, {
       walletId: exactWalletId,
       chainTarget,
       thresholdSessionId: plannedIdentity.thresholdSessionId,
       ...(args.source ? { source: args.source } : {}),
-    }) ||
-    (args.source
-      ? deps.resolveExactEcdsaRecord({
-          walletId: exactWalletId,
-          chainTarget,
-          thresholdSessionId: plannedIdentity.thresholdSessionId,
-        })
-      : null);
+    }) || plannedRecord;
   const secondaryRecord = args.source
     ? null
     : getPrimaryAndSecondaryEcdsaCapabilities({
         warmSession,
         chainTarget,
       }).secondary.record;
-  const keyRefIdentity = keyRef ? tryBuildEcdsaSessionIdentity(keyRef) : null;
-  const keyRefRecord = keyRefIdentity
-    ? deps.resolveExactEcdsaRecord({
-        walletId: exactWalletId,
-        chainTarget,
-        thresholdSessionId: keyRefIdentity.thresholdSessionId,
-        ...(args.source ? { source: args.source } : {}),
-      }) ||
-      (args.source
-        ? deps.resolveExactEcdsaRecord({
-            walletId: exactWalletId,
-            chainTarget,
-            thresholdSessionId: keyRefIdentity.thresholdSessionId,
-          })
-        : null)
-    : null;
   const secondaryEmailOtpRecord = secondaryRecord?.source === 'email_otp' ? secondaryRecord : null;
   const reconnectPolicySession = reconnectRecord
     ? ecdsaPostSignPolicySessionFromRecord(reconnectRecord)
@@ -1038,13 +1068,14 @@ export async function ensureWarmEcdsaCapabilityReady(
     chainTarget,
     usesNeeded: args.usesNeeded,
     sessionBudgetUses: args.sessionBudgetUses,
-    keyRef,
+    record: reconnectCandidateRecord,
   });
   let reconnectPromise = deps.reconnectInFlightByCapability.get(inflightKey);
   if (!reconnectPromise) {
     reconnectPromise = (async (): Promise<EnsureWarmEcdsaCapabilityReadyResult> => {
       const effectivePlan =
-        args.plan.kind === 'email_otp_ecdsa_session_provision' && inheritedEmailOtpRecord?.emailOtpAuthContext
+        args.plan.kind === 'email_otp_ecdsa_session_provision' &&
+        inheritedEmailOtpRecord?.emailOtpAuthContext
           ? {
               kind: 'email_otp_ecdsa_session_provision' as const,
               key: args.plan.key,
@@ -1060,18 +1091,24 @@ export async function ensureWarmEcdsaCapabilityReady(
                 : {}),
             }
           : args.plan;
-      const activationSource = inheritedEmailOtpRecord ? 'email_otp' : keyRefSource || args.source || 'login';
+      const activationSource = inheritedEmailOtpRecord
+        ? 'email_otp'
+        : reconnectCandidateSource || args.source || 'login';
       const activationPolicy = buildEcdsaActivationPolicy(
         'runtimePolicyScope' in effectivePlan ? effectivePlan.runtimePolicyScope : undefined,
       );
       const activationOptions = buildActivationOptions(args);
       const relayerUrl = requireActivationRelayerUrl({
-        keyRef,
         reconnectRecord,
-        secondaryRecord: secondaryRecord || keyRefRecord,
+        secondaryRecord: secondaryRecord || reconnectCandidateRecord || plannedRecord,
       });
       const activationIdentityPair = buildActivationKeyAndLanePolicy({
-        record: reconnectRecord || inheritedEmailOtpRecord || secondaryRecord || keyRefRecord,
+        record:
+          reconnectRecord ||
+          inheritedEmailOtpRecord ||
+          secondaryRecord ||
+          reconnectCandidateRecord ||
+          plannedRecord,
         plan: effectivePlan,
         runtimePolicy: activationPolicy,
       });
@@ -1120,20 +1157,27 @@ export async function ensureWarmEcdsaCapabilityReady(
 
       const refreshedKeyRef = provisioned.thresholdEcdsaKeyRef;
       const refreshedWarmSession = await deps.getWarmSession(exactWalletId);
-      let refreshedCapability = getMatchingReadyEcdsaCapability({
-        warmSession: refreshedWarmSession,
-        chainTarget,
-        keyRef: refreshedKeyRef,
-        usesNeeded: args.usesNeeded,
-      });
       const refreshedIdentity = refreshedKeyRef
         ? tryBuildEcdsaSessionIdentity(refreshedKeyRef)
         : null;
+      const refreshedRecord = refreshedIdentity
+        ? resolveExactEcdsaRecordWithSourceFallback(deps, {
+            walletId: exactWalletId,
+            chainTarget,
+            thresholdSessionId: refreshedIdentity.thresholdSessionId,
+            ...(activationSource ? { source: activationSource } : {}),
+          })
+        : null;
+      let refreshedCapability = getMatchingReadyEcdsaCapability({
+        warmSession: refreshedWarmSession,
+        chainTarget,
+        record: refreshedRecord,
+        usesNeeded: args.usesNeeded,
+      });
       if (!refreshedCapability && refreshedIdentity) {
-        const directCapability =
-          await deps.readEcdsaCapabilityByThresholdSessionId(
-            refreshedIdentity.thresholdSessionId,
-          );
+        const directCapability = await deps.readEcdsaCapabilityByThresholdSessionId(
+          refreshedIdentity.thresholdSessionId,
+        );
         if (
           directCapability?.record?.chainTarget &&
           thresholdEcdsaChainTargetsEqual(directCapability.record.chainTarget, chainTarget) &&
@@ -1146,6 +1190,12 @@ export async function ensureWarmEcdsaCapabilityReady(
       if (!refreshedKeyRef || !refreshedIdentity || !refreshedCapability) {
         throw new Error(
           '[WarmSessionStore] threshold ECDSA warm capability is not ready after reconnect',
+        );
+      }
+      const readyRefreshedRecord = refreshedCapability.record;
+      if (!readyRefreshedRecord) {
+        throw new Error(
+          '[WarmSessionStore] threshold ECDSA warm capability record is missing after reconnect',
         );
       }
 
@@ -1162,7 +1212,7 @@ export async function ensureWarmEcdsaCapabilityReady(
       });
 
       return {
-        keyRef: refreshedKeyRef,
+        record: readyRefreshedRecord,
         warmSession: refreshedWarmSession,
         capability: refreshedCapability,
         reconnected: true,
@@ -1190,21 +1240,19 @@ export async function ensureWarmEcdsaCapabilityReady(
 export function getMatchingReadyEcdsaCapability(args: {
   warmSession: WarmSessionEnvelope;
   chainTarget: ThresholdEcdsaChainTarget;
-  keyRef: ThresholdEcdsaSecp256k1KeyRef | null;
+  record: ThresholdEcdsaSessionRecord | null;
   usesNeeded?: number;
 }): WarmSessionEcdsaCapabilityState | null {
   const chain = args.chainTarget.kind;
   const capability = args.warmSession.capabilities.ecdsa[chain];
-  if (!args.keyRef || capability.state !== 'ready') return null;
+  if (!args.record || capability.state !== 'ready') return null;
 
-  const recordIdentity = capability.record
-    ? tryBuildEcdsaSessionIdentity(capability.record)
-    : null;
-  const keyRefIdentity = tryBuildEcdsaSessionIdentity(args.keyRef);
+  const recordIdentity = capability.record ? tryBuildEcdsaSessionIdentity(capability.record) : null;
+  const candidateIdentity = tryBuildEcdsaSessionIdentity(args.record);
   if (
     !recordIdentity ||
-    !keyRefIdentity ||
-    !ecdsaSessionIdentitiesEqual(recordIdentity, keyRefIdentity)
+    !candidateIdentity ||
+    !ecdsaSessionIdentitiesEqual(recordIdentity, candidateIdentity)
   ) {
     return null;
   }
@@ -1216,14 +1264,12 @@ export function getMatchingReadyEcdsaCapability(args: {
         })
       : '',
   ).trim();
-  const keyRefThresholdKeyId = String(
-    resolveThresholdEcdsaKeyIdFromKeyRef({
-      keyRef: args.keyRef,
-    }),
+  const candidateThresholdKeyId = String(
+    resolveThresholdEcdsaKeyIdFromRecord({ record: args.record }),
   ).trim();
   if (
     !recordThresholdKeyId ||
-    (keyRefThresholdKeyId && recordThresholdKeyId !== keyRefThresholdKeyId)
+    (candidateThresholdKeyId && recordThresholdKeyId !== candidateThresholdKeyId)
   ) {
     return null;
   }
@@ -1279,7 +1325,7 @@ export function getPrimaryAndSecondaryEcdsaCapabilities(args: {
 }
 
 export function buildReusableEcdsaBootstrapResult(args: {
-  keyRef: ThresholdEcdsaSecp256k1KeyRef;
+  record: ThresholdEcdsaSessionRecord;
   capability: WarmSessionEcdsaCapabilityState;
   source: 'login' | 'registration' | 'manual-bootstrap' | 'email_otp';
 }): ThresholdEcdsaSessionBootstrapResult | null {
@@ -1292,32 +1338,30 @@ export function buildReusableEcdsaBootstrapResult(args: {
   const clientAdditiveShare32B64u = String(record.clientAdditiveShare32B64u || '').trim();
   const relayerKeyId = String(record.relayerKeyId || '').trim();
   const identity = tryBuildEcdsaSessionIdentity(record);
-  // A warm ECDSA capability is only directly reusable when the canonical
-  // keyRef already carries local signing material. Restored passkey lanes
-  // often have only the PRF/JWT until reconnect recreates the additive share.
+  // A warm ECDSA capability is only directly reusable when the persisted
+  // session record already carries local signing material. Restored passkey
+  // lanes often have only the PRF/JWT until reconnect recreates the additive
+  // share.
   if (!clientVerifyingShareB64u || !clientAdditiveShare32B64u || !relayerKeyId || !identity) {
     return null;
   }
-  const ecdsaThresholdKeyId = String(
-    resolveThresholdEcdsaKeyIdFromKeyRef({ keyRef: args.keyRef }) ||
-      resolveThresholdEcdsaKeyIdFromRecord({ record }) ||
-      '',
-  ).trim();
+  const ecdsaThresholdKeyId = String(resolveThresholdEcdsaKeyIdFromRecord({ record }) || '').trim();
   if (!ecdsaThresholdKeyId) {
     return null;
   }
+  const keyRef = buildThresholdEcdsaSecp256k1KeyRefFromRecord({ record });
 
   return {
     thresholdEcdsaKeyRef: {
-      ...args.keyRef,
-      relayerUrl: String(record.relayerUrl || args.keyRef.relayerUrl || '').trim(),
+      ...keyRef,
+      relayerUrl: String(record.relayerUrl || keyRef.relayerUrl || '').trim(),
       ecdsaThresholdKeyId,
       participantIds: record.participantIds,
       thresholdSessionKind: record.thresholdSessionKind,
       thresholdSessionId: identity.thresholdSessionId,
       walletSigningSessionId: identity.walletSigningSessionId,
       thresholdSessionAuthToken: String(
-        auth.thresholdSessionAuthToken || args.keyRef.thresholdSessionAuthToken || '',
+        auth.thresholdSessionAuthToken || keyRef.thresholdSessionAuthToken || '',
       ).trim(),
     },
     keygen: {

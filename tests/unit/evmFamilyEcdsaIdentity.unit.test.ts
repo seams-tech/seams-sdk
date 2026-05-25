@@ -77,6 +77,25 @@ function makeRecord(
     signingRootVersion: 'default',
     relayerKeyId: 'relayer-key',
     clientVerifyingShareB64u: 'client-verifying-share',
+    clientAdditiveShare32B64u: 'client-share',
+    ecdsaHssRoleLocalClientState: {
+      kind: 'role_local_ready',
+      artifactKind: 'ecdsa-hss-role-local-client-state',
+      contextBinding32B64u: 'context-binding',
+      clientShare32B64u: 'client-share',
+      clientPublicKey33B64u: 'client-public-key',
+      clientShareRetryCounter: 0,
+      relayerPublicKey33B64u: 'relayer-public-key',
+      groupPublicKey33B64u: VALID_PUBLIC_KEY_B64U,
+      ethereumAddress: OWNER_ADDRESS,
+      clientCaitSithInput: {
+        participantId: 1,
+        mappedPrivateShare32B64u: 'mapped-private-share',
+        verifyingShare33B64u: 'verifying-share',
+      },
+      createdAtMs: 1_800_000_000_000,
+      updatedAtMs: 1_800_000_000_000,
+    },
     participantIds: [2, 1],
     thresholdSessionKind: 'jwt',
     thresholdSessionId: 'threshold-session-1',
@@ -109,6 +128,7 @@ function makeKeyRef(
     backendBinding: {
       relayerKeyId: 'relayer-key',
       clientVerifyingShareB64u: 'client-verifying-share',
+      clientAdditiveShare32B64u: 'client-share',
     },
     participantIds: [1, 2],
     thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,
@@ -309,17 +329,8 @@ test.describe('EVM-family ECDSA identity', () => {
     const record = makeRecord({
       thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,
     });
-    const keyRef = makeKeyRef({
-      thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,
-      backendBinding: {
-        relayerKeyId: 'relayer-key',
-        clientVerifyingShareB64u: 'client-verifying-share',
-        clientAdditiveShare32B64u: 'client-share',
-      },
-    });
     const resolution = resolveReadyEvmFamilyEcdsaMaterial({
       record,
-      keyRef,
       rpId: RP_ID,
       expected: {
         walletId: WALLET_ID,
@@ -352,21 +363,12 @@ test.describe('EVM-family ECDSA identity', () => {
     expect(signerSession.clientShare.kind).toBe('inline_client_share');
   });
 
-  test('ready-material public facts require paired record and keyRef facts', async () => {
+  test('ready-material public facts come from the validated session record', async () => {
     const record = makeRecord({
       thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,
     });
-    const keyRef = makeKeyRef({
-      thresholdEcdsaPublicKeyB64u: undefined,
-      backendBinding: {
-        relayerKeyId: 'relayer-key',
-        clientVerifyingShareB64u: 'client-verifying-share',
-        clientAdditiveShare32B64u: 'client-share',
-      },
-    });
     const resolution = resolveReadyEvmFamilyEcdsaMaterial({
       record,
-      keyRef,
       rpId: RP_ID,
       expected: {
         walletId: WALLET_ID,
@@ -382,12 +384,15 @@ test.describe('EVM-family ECDSA identity', () => {
       throw new Error('expected ready material');
     }
 
-    await expect(
-      toVerifiedEcdsaPublicFactsFromReadyMaterial({ material: resolution.material }),
-    ).rejects.toThrow(/thresholdEcdsaPublicKeyB64u is required/);
-    await expect(
-      toReadyEcdsaSignerSessionFromReadyMaterial({ material: resolution.material }),
-    ).rejects.toThrow(/thresholdEcdsaPublicKeyB64u is required/);
+    const publicFacts = await toVerifiedEcdsaPublicFactsFromReadyMaterial({
+      material: resolution.material,
+    });
+    expect(publicFacts.publicKeyB64u).toBe(VALID_PUBLIC_KEY_B64U);
+    const signerSession = await toReadyEcdsaSignerSessionFromReadyMaterial({
+      material: resolution.material,
+    });
+    expect(signerSession.publicFacts.publicKeyB64u).toBe(VALID_PUBLIC_KEY_B64U);
+    expect('keyRef' in resolution.material).toBe(false);
   });
 
   test('builds Email OTP worker share handles with exact lane identity', async () => {
@@ -530,83 +535,11 @@ test.describe('EVM-family ECDSA identity', () => {
     }
   });
 
-  test('rejects ready material when record and keyRef owner addresses drift', () => {
-    const result = resolveReadyEvmFamilyEcdsaMaterial({
-      record: makeRecord(),
-      keyRef: makeKeyRef({ ethereumAddress: OTHER_OWNER_ADDRESS }),
-      rpId: RP_ID,
-      expected: {
-        walletId: WALLET_ID,
-        chainTarget: EVM_TARGET,
-        authMethod: 'passkey',
-        source: 'login',
-        thresholdSessionId: 'threshold-session-1',
-        walletSigningSessionId: 'wallet-signing-session-1',
-      },
-      nowMs: 1_800_000_000_000,
-    });
-
-    if (result.kind !== 'identity_mismatch') {
-      throw new Error(`expected identity_mismatch, got ${result.kind}`);
-    }
-    expect(result.reason.kind).toBe('owner_address_mismatch');
-  });
-
-  test('rejects ready material when record and keyRef public keys drift', () => {
-    const result = resolveReadyEvmFamilyEcdsaMaterial({
-      record: makeRecord({ thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U }),
-      keyRef: makeKeyRef({ thresholdEcdsaPublicKeyB64u: OTHER_VALID_PUBLIC_KEY_B64U }),
-      rpId: RP_ID,
-      expected: {
-        walletId: WALLET_ID,
-        chainTarget: EVM_TARGET,
-        authMethod: 'passkey',
-        source: 'login',
-        thresholdSessionId: 'threshold-session-1',
-        walletSigningSessionId: 'wallet-signing-session-1',
-      },
-      nowMs: 1_800_000_000_000,
-    });
-
-    if (result.kind !== 'identity_mismatch') {
-      throw new Error(`expected identity_mismatch, got ${result.kind}`);
-    }
-    expect(result.reason.kind).toBe('public_key_mismatch');
-  });
-
-  test('rejects ready material when record and keyRef wallet ids drift', () => {
-    const otherWallet = toAccountId('mallory.testnet');
-    const result = resolveReadyEvmFamilyEcdsaMaterial({
-      record: makeRecord(),
-      keyRef: makeKeyRef({
-        userId: otherWallet,
-      }),
-      rpId: RP_ID,
-      expected: {
-        walletId: WALLET_ID,
-        chainTarget: EVM_TARGET,
-        authMethod: 'passkey',
-        source: 'login',
-        thresholdSessionId: 'threshold-session-1',
-        walletSigningSessionId: 'wallet-signing-session-1',
-      },
-      nowMs: 1_800_000_000_000,
-    });
-
-    if (result.kind !== 'identity_mismatch') {
-      throw new Error(`expected identity_mismatch, got ${result.kind}`);
-    }
-    expect(result.reason.kind).toBe('wallet_mismatch');
-  });
-
-  test('rejects ready material when paired material belongs to another wallet', () => {
+  test('rejects ready material when the session record belongs to another wallet', () => {
     const otherWallet = toAccountId('mallory.testnet');
     const result = resolveReadyEvmFamilyEcdsaMaterial({
       record: makeRecord({
         walletId: otherWallet,
-      }),
-      keyRef: makeKeyRef({
-        userId: otherWallet,
       }),
       rpId: RP_ID,
       expected: {
@@ -651,7 +584,6 @@ test.describe('EVM-family ECDSA identity', () => {
   test('returns stale before ready material can reach signing', () => {
     const result = resolveReadyEvmFamilyEcdsaMaterial({
       record: makeRecord({ remainingUses: 0 }),
-      keyRef: makeKeyRef(),
       rpId: RP_ID,
       expected: {
         walletId: WALLET_ID,
@@ -673,7 +605,6 @@ test.describe('EVM-family ECDSA identity', () => {
   test('resolves ready material only for the exact concrete session lane', () => {
     const result = resolveReadyEvmFamilyEcdsaMaterial({
       record: makeRecord(),
-      keyRef: makeKeyRef(),
       rpId: RP_ID,
       expected: {
         walletId: WALLET_ID,
@@ -692,6 +623,7 @@ test.describe('EVM-family ECDSA identity', () => {
     expect(result.material.key.thresholdOwnerAddress).toBe(OWNER_ADDRESS);
     expect(result.material.lane.thresholdSessionId).toBe('threshold-session-1');
     expect(result.material.lane.chainTarget).toEqual(EVM_TARGET);
+    expect('keyRef' in result.material).toBe(false);
   });
 
   test('normalizes persisted ECDSA reads into shared key identity plus concrete lane', () => {

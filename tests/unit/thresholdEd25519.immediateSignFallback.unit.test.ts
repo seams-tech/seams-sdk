@@ -204,8 +204,7 @@ async function signTransactionsWithActions(args: any) {
           authMethod: 'passkey',
           walletSigningSessionId: SigningSessionIds.walletSigningSession(walletSigningSessionId),
           thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionId),
-          storageSource:
-            record?.source && record.source !== 'email_otp' ? record.source : 'login',
+          storageSource: record?.source && record.source !== 'email_otp' ? record.source : 'login',
         }));
   const requiresFreshAuth = args.emailOtpSigning || !String(record?.xClientBaseB64u || '').trim();
   const signingAuthPlan =
@@ -276,11 +275,13 @@ async function signTransactionsWithActions(args: any) {
         : {
             remainingUses: Math.max(1, Math.floor(Number(record?.remainingUses) || 1)),
             expiresAtMs: Math.floor(Number(record?.expiresAtMs) || Date.now() + 60_000),
-      }),
+          }),
     },
   };
   const makeBudgetAdmittedOperation = (lane: any = transactionLane) => {
-    const admittedWalletSigningSessionId = String(lane.walletSigningSessionId || walletSigningSessionId);
+    const admittedWalletSigningSessionId = String(
+      lane.walletSigningSessionId || walletSigningSessionId,
+    );
     const budgetStatus = activeBudgetStatus(
       admittedWalletSigningSessionId,
       Math.max(1, Math.floor(Number(record?.remainingUses) || 1)),
@@ -297,16 +298,14 @@ async function signTransactionsWithActions(args: any) {
       },
     };
   };
-  const ed25519SigningBoundary =
-    args.ed25519SigningBoundary ||
-    {
-      sessionId: thresholdSessionId,
-      signingSessionPlan,
-      signingAuthPlan,
-      signingLane,
-      initialBudgetAdmittedOperation:
-        signingAuthPlan.kind === 'warmSession' ? makeBudgetAdmittedOperation() : null,
-    };
+  const ed25519SigningBoundary = args.ed25519SigningBoundary || {
+    sessionId: thresholdSessionId,
+    signingSessionPlan,
+    signingAuthPlan,
+    signingLane,
+    initialBudgetAdmittedOperation:
+      signingAuthPlan.kind === 'warmSession' ? makeBudgetAdmittedOperation() : null,
+  };
 
   return await signPreparedTransactionsWithActions({
     ...args,
@@ -1593,7 +1592,10 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
           sessionId: plannedSessionId,
           walletSigningSessionId: plannedWalletSigningSessionId,
           remainingUses: 1,
-          localPrfCredential: credential as any,
+          auth: {
+            kind: 'threshold_session_policy_webauthn',
+            webauthnAuthentication: credential as any,
+          },
         });
 
         expect(result.ok).toBe(true);
@@ -1653,7 +1655,9 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
           throw new Error('unlock must not consume managed registration bootstrap grants');
         }
         if (url === `${relayerUrl}/threshold-ed25519/session`) {
-          mintAuthorization = String((init?.headers as Record<string, string>)?.Authorization || '');
+          mintAuthorization = String(
+            (init?.headers as Record<string, string>)?.Authorization || '',
+          );
           mintBody = JSON.parse(String(init?.body || '{}'));
           return new Response(
             JSON.stringify({
@@ -1690,12 +1694,15 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
           sessionId: plannedSessionId,
           walletSigningSessionId: plannedWalletSigningSessionId,
           remainingUses: 3,
-          appSessionJwt,
+          auth: {
+            kind: 'app_session_jwt',
+            appSessionJwt,
+            localPrfCredential: credential as any,
+          },
           runtimeScopeBootstrap: {
             environmentId: 'dev',
             publishableKey: 'pk_test_registration_quota',
           },
-          localPrfCredential: credential as any,
         });
 
         expect(result.ok).toBe(true);
@@ -1752,7 +1759,9 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
           throw new Error('unlock must not consume managed registration bootstrap grants');
         }
         if (url === `${relayerUrl}/threshold-ed25519/session`) {
-          mintAuthorization = String((init?.headers as Record<string, string>)?.Authorization || '');
+          mintAuthorization = String(
+            (init?.headers as Record<string, string>)?.Authorization || '',
+          );
           mintBody = JSON.parse(String(init?.body || '{}'));
           return new Response(
             JSON.stringify({
@@ -1789,12 +1798,15 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
           sessionId: plannedSessionId,
           walletSigningSessionId: plannedWalletSigningSessionId,
           remainingUses: 3,
-          appSessionJwt,
+          auth: {
+            kind: 'app_session_jwt',
+            appSessionJwt,
+            localPrfCredential: credential as any,
+          },
           runtimeScopeBootstrap: {
             environmentId: 'dev',
             publishableKey: 'pk_test_registration_quota',
           },
-          localPrfCredential: credential as any,
         });
 
         expect(result.ok).toBe(true);
@@ -1810,7 +1822,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
     });
   });
 
-  test('sends passkey assertion with cookie Ed25519 session mint', async () => {
+  test('sends passkey assertion when minting an Ed25519 session as a cookie', async () => {
     await withNearThresholdTestEnv(async () => {
       const originalFetch = globalThis.fetch;
       const nearAccountId = 'near-ed25519-cookie-unlock.testnet';
@@ -1875,8 +1887,10 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
           walletSigningSessionId: plannedWalletSigningSessionId,
           remainingUses: 2,
           sessionKind: 'cookie',
-          useAppSessionCookie: true,
-          localPrfCredential: credential as any,
+          auth: {
+            kind: 'threshold_session_policy_webauthn',
+            webauthnAuthentication: credential as any,
+          },
         });
 
         expect(result.ok).toBe(true);

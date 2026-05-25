@@ -288,8 +288,26 @@ export async function resolveRegistrationBootstrapApiCredentialAuth(
       input.body && typeof input.body === 'object' && !Array.isArray(input.body)
         ? (input.body as Record<string, unknown>)
         : {};
-    const requestedAccountId = String(bodyRecord.new_account_id || '').trim();
-    const requestedRpId = String(bodyRecord.rp_id || '').trim();
+    const signerSelection =
+      bodyRecord.signerSelection &&
+      typeof bodyRecord.signerSelection === 'object' &&
+      !Array.isArray(bodyRecord.signerSelection)
+        ? (bodyRecord.signerSelection as Record<string, unknown>)
+        : {};
+    const ed25519 =
+      signerSelection.ed25519 &&
+      typeof signerSelection.ed25519 === 'object' &&
+      !Array.isArray(signerSelection.ed25519)
+        ? (signerSelection.ed25519 as Record<string, unknown>)
+        : {};
+    const requestedAccountId = String(
+      bodyRecord.walletSubjectId ||
+        bodyRecord.new_account_id ||
+        bodyRecord.newAccountId ||
+        ed25519.nearAccountId ||
+        '',
+    ).trim();
+    const requestedRpId = String(bodyRecord.rp_id || bodyRecord.rpId || '').trim();
     if (
       (redeemResult.record.newAccountId &&
         redeemResult.record.newAccountId !== requestedAccountId) ||

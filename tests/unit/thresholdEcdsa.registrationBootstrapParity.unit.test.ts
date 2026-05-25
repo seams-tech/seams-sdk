@@ -18,7 +18,7 @@ const EVM_CHAIN_TARGET = {
   networkSlug: 'sepolia',
 };
 
-test.describe('threshold ECDSA registration bootstrap parity gate', () => {
+test.describe('threshold ECDSA key-enrollment bootstrap parity gate', () => {
   test('registration-source bootstrap soft-fails startup parity errors', async () => {
     const ensureParity = async () => {
       throw new Error('[sealed-refresh-parity] Well-known endpoint returned HTTP 502');
@@ -33,7 +33,7 @@ test.describe('threshold ECDSA registration bootstrap parity gate', () => {
     try {
       await expect(
         ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap(ensureParity, {
-          kind: 'registration_bootstrap_parity',
+          kind: 'key_enrollment_bootstrap_parity',
           walletId: 'alice.testnet',
           chainTarget: TEMPO_CHAIN_TARGET,
         }),
@@ -44,7 +44,7 @@ test.describe('threshold ECDSA registration bootstrap parity gate', () => {
 
     expect(warnings).toHaveLength(1);
     expect(String(warnings[0]?.[0] || '')).toContain(
-      'registration bootstrap skipped sealed-refresh startup parity enforcement',
+      'key enrollment bootstrap skipped sealed-refresh startup parity enforcement',
     );
     expect(warnings[0]?.[1]).toMatchObject({
       walletId: 'alice.testnet',

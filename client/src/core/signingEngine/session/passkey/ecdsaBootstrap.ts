@@ -98,8 +98,7 @@ type EcdsaBootstrapExactRequestBase = EcdsaBootstrapRequestCommon & EcdsaBootstr
 type PasskeyFreshBootstrapRouteAuth =
   | AppSessionJwtAuth
   | { kind: 'bootstrap_grant'; token: string }
-  | { kind: 'publishable_key'; token: string }
-  | { kind: 'registration_continuation'; token: string };
+  | { kind: 'publishable_key'; token: string };
 
 type EmailOtpBootstrapRouteAuth = Exclude<ThresholdEcdsaHssRouteAuth, { kind: 'cookie' }>;
 
@@ -124,27 +123,28 @@ export type ReuseWarmEcdsaBootstrapRequest = EcdsaBootstrapRequestCommon &
 type PasskeyFreshEcdsaBootstrapTargetRequestBase = EcdsaBootstrapTargetRequestBase & {
   kind: 'passkey_fresh_ecdsa_bootstrap';
   sessionIdentity: EcdsaBootstrapSessionIdentityInput;
-  clientRootShare32B64u: string;
   emailOtpAuthContext?: never;
 };
 
 type PasskeyFreshEcdsaBootstrapExactRequestBase = EcdsaBootstrapExactRequestBase & {
   kind: 'passkey_fresh_ecdsa_bootstrap';
-  clientRootShare32B64u: string;
   emailOtpAuthContext?: never;
 };
 
 type PasskeyFreshEcdsaBootstrapExactRequest =
   | (PasskeyFreshEcdsaBootstrapExactRequestBase & {
       routeAuth?: PasskeyFreshBootstrapRouteAuth;
+      clientRootShare32B64u: string;
       webauthnAuthentication: WebAuthnAuthenticationCredential;
     })
   | (PasskeyFreshEcdsaBootstrapExactRequestBase & {
       routeAuth: PasskeyFreshBootstrapRouteAuth;
-      webauthnAuthentication?: never;
+      clientRootShare32B64u?: string;
+      webauthnAuthentication?: WebAuthnAuthenticationCredential;
     })
   | (PasskeyFreshEcdsaBootstrapExactRequestBase & {
       routeAuth?: never;
+      clientRootShare32B64u?: string;
       webauthnAuthentication?: never;
     });
 
@@ -153,20 +153,24 @@ export type PasskeyFreshEcdsaBootstrapRequest =
   | (PasskeyFreshEcdsaBootstrapTargetRequestBase & {
       sessionKind: 'jwt';
       routeAuth: PasskeyFreshBootstrapRouteAuth;
+      clientRootShare32B64u?: string;
       webauthnAuthentication?: never;
     })
   | (PasskeyFreshEcdsaBootstrapTargetRequestBase & {
       sessionKind: 'jwt';
+      clientRootShare32B64u: string;
       webauthnAuthentication: WebAuthnAuthenticationCredential;
       routeAuth?: never;
     })
   | (PasskeyFreshEcdsaBootstrapTargetRequestBase & {
       sessionKind: Extract<ThresholdSessionKind, 'cookie'>;
+      clientRootShare32B64u?: string;
       routeAuth?: never;
       webauthnAuthentication?: never;
     })
   | (PasskeyFreshEcdsaBootstrapTargetRequestBase & {
       sessionKind: Extract<ThresholdSessionKind, 'cookie'>;
+      clientRootShare32B64u: string;
       webauthnAuthentication: WebAuthnAuthenticationCredential;
       routeAuth?: never;
     });
@@ -329,7 +333,7 @@ function toActivateEcdsaSessionRequest(
 ): ActivateEcdsaSessionRequest {
   const registrationBase = (
     targetRequest: Extract<EcdsaBootstrapRequest, { walletId: AccountId | string }>,
-  ): Extract<ActivateEcdsaSessionRequest, { kind: 'registration_bootstrap' }> => {
+  ): Extract<ActivateEcdsaSessionRequest, { kind: 'key_enrollment_bootstrap' }> => {
     const sessionPlan =
       'sessionIdentity' in targetRequest && targetRequest.sessionIdentity
         ? {
@@ -341,7 +345,7 @@ function toActivateEcdsaSessionRequest(
           }
         : undefined;
     return {
-      kind: 'registration_bootstrap',
+      kind: 'key_enrollment_bootstrap',
       walletId: targetRequest.walletId,
       subjectId: targetBootstrapSubjectId(targetRequest),
       chainTarget: targetRequest.chainTarget,
@@ -504,12 +508,11 @@ export async function bootstrapEcdsaSessionValue(
     expiresAtMs: Number(activation.session.expiresAtMs),
     remainingUses: Number(activation.session.remainingUses),
   });
-  const { clientRootShare32B64u: _clientRootShare32B64u, ...bootstrap } = activation;
   const thresholdEcdsaKeyRef = requireCanonicalThresholdEcdsaKeyRefIdentity(
-    bootstrap.thresholdEcdsaKeyRef,
+    activation.thresholdEcdsaKeyRef,
   );
   const canonicalBootstrap: ThresholdEcdsaSessionBootstrapResult = {
-    ...bootstrap,
+    ...activation,
     thresholdEcdsaKeyRef,
   };
 

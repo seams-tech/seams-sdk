@@ -14,7 +14,6 @@ import {
   createSigningSessionSealShamir3PassCipherAdapter,
 } from '@server/threshold/session/signingSessionSeal';
 import { walletSigningBudgetSessionId } from '@server/core/ThresholdService/walletSigningBudget';
-import { signRegistrationContinuationJwt } from '@server/router/commonRouterUtils';
 import type { SessionAdapter } from '@server/router/relay';
 import { startExpressRouter } from '../relayer/helpers';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
@@ -342,35 +341,6 @@ async function installThresholdRegistrationBootstrapMock(
       };
     }
 
-    const continuationTargetsRaw =
-      payload?.registration_continuation &&
-      typeof payload.registration_continuation === 'object' &&
-      Array.isArray(payload.registration_continuation.threshold_ecdsa_chain_targets)
-        ? payload.registration_continuation.threshold_ecdsa_chain_targets
-        : [];
-    const registrationContinuation =
-      continuationTargetsRaw.length > 0
-        ? await signRegistrationContinuationJwt({
-            session: input.session,
-            walletId: accountId,
-            rpId,
-            subjectId: accountId,
-            thresholdEcdsaChainTargets: continuationTargetsRaw,
-            runtimePolicyScope: input.runtimePolicyScope,
-          })
-        : null;
-    if (registrationContinuation && !registrationContinuation.ok) {
-      await route.fulfill({
-        status: registrationContinuation.status,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders },
-        body: JSON.stringify({
-          success: false,
-          error: registrationContinuation.message,
-        }),
-      });
-      return;
-    }
-
     await route.fulfill({
       status: 200,
       headers: { 'Content-Type': 'application/json', ...corsHeaders },
@@ -379,15 +349,6 @@ async function installThresholdRegistrationBootstrapMock(
         transactionHash: `mock_atomic_tx_${Date.now()}`,
         ...(thresholdEdResponse ? { thresholdEd25519: thresholdEdResponse } : {}),
         ...(thresholdEcdsaResponse ? { thresholdEcdsa: thresholdEcdsaResponse } : {}),
-        ...(registrationContinuation
-          ? {
-              registrationContinuation: {
-                token: registrationContinuation.jwt,
-                expiresAtMs: registrationContinuation.expiresAtMs,
-                thresholdEcdsaChainTargets: registrationContinuation.thresholdEcdsaChainTargets,
-              },
-            }
-          : {}),
       }),
     });
   });

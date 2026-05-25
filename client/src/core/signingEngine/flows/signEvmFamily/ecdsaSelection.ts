@@ -22,15 +22,12 @@ import {
   type ReadyEcdsaMaterial,
 } from './ecdsaMaterialState';
 import {
-  findExactEcdsaKeyRefForSelectedLane,
   findExactEcdsaSessionRecordForSelectedLane,
   isSingleUseEmailOtpEcdsaRecord,
   logEvmFamilyEcdsaLaneDiagnostic,
   requireResolvedEvmFamilyEcdsaSigningLane,
   summarizeEvmFamilyEcdsaLane,
-  tryGetEmailOtpThresholdEcdsaKeyRefForSigning,
   tryGetEmailOtpThresholdEcdsaSessionRecordForSigning,
-  tryGetPasskeyThresholdEcdsaKeyRefForSigning,
   tryGetPasskeyThresholdEcdsaSessionRecordForSigning,
   type EvmFamilyEcdsaAuthMethod,
   type ResolvedEvmFamilyEcdsaSigningLane,
@@ -45,7 +42,6 @@ import type {
   WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type { WalletBudgetUnknown } from '../../session/budget/budgetProjection';
 
 const PASSKEY_ECDSA_SIGNING_SOURCE_PRIORITY = [
@@ -275,7 +271,6 @@ function summarizeLaneCandidate(
 type PasskeyVisibleMaterial = {
   source: PasskeyEcdsaSessionStoreSource;
   record: ThresholdEcdsaSessionRecord;
-  keyRef: ThresholdEcdsaSecp256k1KeyRef;
 };
 
 type PasskeyMaterialSelectionResult =
@@ -326,17 +321,10 @@ function listPasskeyVisibleMaterials(args: {
       chainTarget: args.chainTarget,
       source,
     });
-    const keyRef = tryGetPasskeyThresholdEcdsaKeyRefForSigning({
-      deps: args.deps,
-      walletId: args.walletId,
-      chainTarget: args.chainTarget,
-      source,
-    });
-    if (!record || !keyRef) continue;
+    if (!record) continue;
     candidates.push({
       source,
       record,
-      keyRef,
     });
   }
   return candidates;
@@ -346,7 +334,6 @@ function buildEcdsaSelectionDiagnostics(args: {
   candidate: EcdsaLaneCandidate;
   exactCandidateMaterial: EcdsaMaterialState;
   emailOtpRecord?: ThresholdEcdsaSessionRecord;
-  emailOtpKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
   passkeyVisibleMaterials: readonly PasskeyVisibleMaterial[];
   passkeySelection: PasskeyMaterialDiagnosticsSelection;
   materialChainTarget: ThresholdEcdsaChainTarget;
@@ -359,7 +346,6 @@ function buildEcdsaSelectionDiagnostics(args: {
           chainTarget: args.candidate.chainTarget,
           materialChainTarget: args.materialChainTarget,
           record: args.passkeySelection.selected.record,
-          keyRef: args.passkeySelection.selected.keyRef,
         })
       : { present: false as const };
   return {
@@ -371,7 +357,6 @@ function buildEcdsaSelectionDiagnostics(args: {
       chainTarget: args.candidate.chainTarget,
       materialChainTarget: args.materialChainTarget,
       ...(args.emailOtpRecord ? { record: args.emailOtpRecord } : {}),
-      ...(args.emailOtpKeyRef ? { keyRef: args.emailOtpKeyRef } : {}),
     }),
     visiblePasskeyMaterials: args.passkeyVisibleMaterials.map((material) =>
       summarizeVisibleEcdsaMaterial({
@@ -380,7 +365,6 @@ function buildEcdsaSelectionDiagnostics(args: {
         chainTarget: args.candidate.chainTarget,
         materialChainTarget: args.materialChainTarget,
         record: material.record,
-        keyRef: material.keyRef,
       }),
     ),
     selectedPasskeyMaterial,
@@ -390,18 +374,16 @@ function buildEcdsaSelectionDiagnostics(args: {
 function selectPasskeyMaterialForCandidate(args: {
   candidate: EcdsaLaneCandidate;
   exactRecord?: ThresholdEcdsaSessionRecord;
-  exactKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
   exactSource?: ThresholdEcdsaSessionStoreSource;
   passkeyVisibleMaterials: readonly PasskeyVisibleMaterial[];
   chainTarget: ThresholdEcdsaChainTarget;
   materialChainTarget: ThresholdEcdsaChainTarget;
 }): PasskeyMaterialSelectionResult {
-  if (args.exactRecord || args.exactKeyRef) {
+  if (args.exactRecord) {
     const exactSource = passkeySessionStoreSourceFromExactSource(args.exactSource);
     const exactMaterial = buildEcdsaMaterialStateForCandidate({
       candidate: args.candidate,
       record: args.exactRecord,
-      keyRef: args.exactKeyRef,
       authMethod: SIGNER_AUTH_METHODS.passkey,
       source: exactSource,
       chainTarget: args.chainTarget,
@@ -414,7 +396,6 @@ function selectPasskeyMaterialForCandidate(args: {
         selected: {
           source: exactSource,
           record: exactMaterial.record,
-          keyRef: exactMaterial.keyRef,
         },
       };
     }
@@ -423,7 +404,6 @@ function selectPasskeyMaterialForCandidate(args: {
     const material = buildEcdsaMaterialStateForCandidate({
       candidate: args.candidate,
       record: candidateMaterial.record,
-      keyRef: candidateMaterial.keyRef,
       authMethod: SIGNER_AUTH_METHODS.passkey,
       source: candidateMaterial.source,
       chainTarget: args.chainTarget,
@@ -438,7 +418,6 @@ function selectPasskeyMaterialForCandidate(args: {
     material: buildEcdsaMaterialStateForCandidate({
       candidate: args.candidate,
       record: undefined,
-      keyRef: undefined,
       authMethod: SIGNER_AUTH_METHODS.passkey,
       source: 'manual-bootstrap',
       chainTarget: args.chainTarget,
@@ -449,10 +428,9 @@ function selectPasskeyMaterialForCandidate(args: {
 
 function selectSessionSourceForWalletAuth(args: {
   emailOtpRecord?: ThresholdEcdsaSessionRecord;
-  emailOtpKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
   passkeySelection: PasskeyMaterialDiagnosticsSelection;
 }): { sessionSource?: string; isEmailOtpThresholdContext?: boolean } {
-  const hasEmailOtpVisible = Boolean(args.emailOtpRecord || args.emailOtpKeyRef);
+  const hasEmailOtpVisible = Boolean(args.emailOtpRecord);
   const hasPasskeyVisible = args.passkeySelection.kind === 'selected';
   if (hasEmailOtpVisible === hasPasskeyVisible) return {};
   if (hasEmailOtpVisible) {
@@ -488,18 +466,8 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
     deps: args.deps,
     lane,
   });
-  const exactKeyRefMatchForCandidate = findExactEcdsaKeyRefForSelectedLane({
-    deps: args.deps,
-    lane,
-  });
-  const exactKeyRefForCandidate = exactKeyRefMatchForCandidate?.keyRef;
 
   const emailOtpRecord = tryGetEmailOtpThresholdEcdsaSessionRecordForSigning({
-    deps: args.deps,
-    walletId: args.walletId,
-    chainTarget: materialChainTarget,
-  });
-  const emailOtpKeyRef = tryGetEmailOtpThresholdEcdsaKeyRefForSigning({
     deps: args.deps,
     walletId: args.walletId,
     chainTarget: materialChainTarget,
@@ -514,7 +482,6 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
       ? buildEcdsaMaterialStateForCandidate({
           candidate: args.laneCandidate,
           record: exactRecordForCandidate || emailOtpRecord,
-          keyRef: exactKeyRefForCandidate || emailOtpKeyRef,
           authMethod: SIGNER_AUTH_METHODS.emailOtp,
           source: SIGNER_AUTH_METHODS.emailOtp,
           chainTarget: args.chainTarget,
@@ -523,9 +490,7 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
       : selectPasskeyMaterialForCandidate({
           candidate: args.laneCandidate,
           exactRecord: exactRecordForCandidate,
-          exactKeyRef: exactKeyRefForCandidate,
-          exactSource:
-            exactRecordForCandidate?.source || exactKeyRefMatchForCandidate?.source || undefined,
+          exactSource: exactRecordForCandidate?.source || undefined,
           passkeyVisibleMaterials,
           chainTarget: args.chainTarget,
           materialChainTarget,
@@ -537,9 +502,7 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
       : selectPasskeyMaterialForCandidate({
           candidate: args.laneCandidate,
           exactRecord: exactRecordForCandidate,
-          exactKeyRef: exactKeyRefForCandidate,
-          exactSource:
-            exactRecordForCandidate?.source || exactKeyRefMatchForCandidate?.source || undefined,
+          exactSource: exactRecordForCandidate?.source || undefined,
           passkeyVisibleMaterials,
           chainTarget: args.chainTarget,
           materialChainTarget,
@@ -547,7 +510,6 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
 
   const walletAuthInputs = selectSessionSourceForWalletAuth({
     ...(emailOtpRecord ? { emailOtpRecord } : {}),
-    ...(emailOtpKeyRef ? { emailOtpKeyRef } : {}),
     passkeySelection: selectedPasskeyMaterial,
   });
   const walletAuth = await resolveEvmFamilyTransactionWalletAuth({
@@ -568,7 +530,6 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
     candidate: args.laneCandidate,
     exactCandidateMaterial,
     ...(emailOtpRecord ? { emailOtpRecord } : {}),
-    ...(emailOtpKeyRef ? { emailOtpKeyRef } : {}),
     passkeyVisibleMaterials,
     materialChainTarget,
     passkeySelection: selectedPasskeyMaterial,

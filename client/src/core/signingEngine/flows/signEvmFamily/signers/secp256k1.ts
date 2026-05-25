@@ -28,6 +28,7 @@ import { createDeleteDurableSealedSessionCommand } from '../../../session/persis
 import {
   buildReadyEcdsaSignerSession,
   buildKnownReadyThresholdEcdsaSessionPolicy,
+  buildThresholdEcdsaSecp256k1KeyRefFromSessionRecord,
   buildUnavailableReadyThresholdEcdsaSessionPolicy,
   resolveThresholdEcdsaKeyIdFromKeyRef,
   resolveThresholdEcdsaKeyIdFromRecord,
@@ -35,6 +36,7 @@ import {
   type ReadyEcdsaSignerSession,
   type ReadyThresholdEcdsaSessionPolicy,
 } from '../../../session/identity/evmFamilyEcdsaIdentity';
+import type { ThresholdEcdsaSessionRecord } from '../../../session/persistence/records';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdSessionKind } from '../../../threshold/sessionPolicy';
 type EcdsaSessionChain = 'tempo' | 'evm';
@@ -288,6 +290,25 @@ export async function buildReadySecp256k1SigningMaterialFromKeyRef(args: {
   return await buildReadySecp256k1SigningMaterialFromKeyRefFallback({
     keyRef: args.keyRef,
     queueIdentity: buildSecp256k1KeyRefFallbackQueueIdentity(args.keyRef),
+    requestLabel: args.requestLabel,
+    rpId: args.rpId,
+  });
+}
+
+export async function buildReadySecp256k1SigningMaterialFromRecord(args: {
+  record: ThresholdEcdsaSessionRecord;
+  requestLabel: unknown;
+  rpId: unknown;
+}): Promise<ReadySecp256k1SigningMaterial> {
+  const keyRef = buildThresholdEcdsaSecp256k1KeyRefFromSessionRecord({
+    record: args.record,
+  });
+  return await buildReadySecp256k1SigningMaterialFromKeyRefFallback({
+    keyRef,
+    queueIdentity: {
+      walletId: String(args.record.walletId),
+      thresholdSessionId: String(args.record.thresholdSessionId),
+    },
     requestLabel: args.requestLabel,
     rpId: args.rpId,
   });

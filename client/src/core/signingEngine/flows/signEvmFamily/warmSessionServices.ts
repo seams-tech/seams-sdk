@@ -34,7 +34,6 @@ import {
   type ThresholdEcdsaSessionStoreSource,
 } from '../../session/identity/laneIdentity';
 import {
-  getThresholdEcdsaKeyRefForLane,
   getThresholdEcdsaSessionRecordForLane,
 } from './ecdsaLanes';
 import {
@@ -110,7 +109,7 @@ export function createEvmFamilyWarmSessionServices(
         .catch(() => undefined);
     }
   };
-  const listThresholdEcdsaKeyRefsForWalletTarget = ({
+  const listThresholdEcdsaRecordsForWalletTarget = ({
     walletId,
     chainTarget,
     source,
@@ -120,21 +119,22 @@ export function createEvmFamilyWarmSessionServices(
     source?: ThresholdEcdsaSessionStoreSource;
   }) => {
     const sources = source ? [source] : THRESHOLD_ECDSA_SESSION_STORE_SOURCES;
-    const keyRefs = [];
+    const records = [];
     for (const candidateSource of sources) {
       try {
-        keyRefs.push({
+        const record = getThresholdEcdsaSessionRecordForLane({
+          deps,
+          walletId,
+          chainTarget,
           source: candidateSource,
-          keyRef: getThresholdEcdsaKeyRefForLane({
-            deps,
-            walletId,
-            chainTarget,
-            source: candidateSource,
-          }),
+        });
+        records.push({
+          source: candidateSource,
+          record,
         });
       } catch {}
     }
-    return keyRefs;
+    return records;
   };
   const capabilityReader = createWarmSessionCapabilityReader({
     touchConfirm: deps.touchConfirm,
@@ -156,7 +156,7 @@ export function createEvmFamilyWarmSessionServices(
       ensureWarmEcdsaCapabilityReady(
         {
           getWarmSession: (walletId) => capabilityReader.getWarmSession(walletId),
-          listThresholdEcdsaKeyRefsForWalletTarget,
+          listThresholdEcdsaRecordsForWalletTarget,
           canProvisionEcdsaCapability: true,
           provisionThresholdEcdsaSession: (provisionRequest) =>
             deps.provisionThresholdEcdsaSession(provisionRequest),

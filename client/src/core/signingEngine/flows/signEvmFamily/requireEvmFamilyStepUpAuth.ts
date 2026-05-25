@@ -3,8 +3,8 @@ import type {
   EmailOtpConfirmPrompt,
   SigningAuthPlan,
   StepUpPolicy,
+  WebAuthnChallenge,
 } from '@/core/signingEngine/stepUpConfirmation/types';
-import type { WebAuthnChallenge } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import {
   isEmailOtpSigningAuthPlan,
   isPasskeySigningAuthPlan,

@@ -14,6 +14,7 @@ import {
   type EmailOtpAuthLane,
 } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import type { EmailOtpEcdsaSigningBootstrapResult } from '@/core/signingEngine/interfaces/operationDeps';
+import { createEvmFamilySigningDeps } from '@/core/signingEngine/assembly/ports/evmFamily';
 
 const sourceChainTarget = {
   kind: 'evm' as const,
@@ -180,6 +181,41 @@ test('Email OTP ECDSA selected-lane reauth requires signing-session authority', 
 
   await expect(bridge.challenge()).rejects.toThrow(EMAIL_OTP_SIGNING_SESSION_AUTH_UNAVAILABLE);
   expect(challengeCalls).toBe(0);
+});
+
+test('EVM-family signing deps preserve one-use Email OTP step-up budget', async () => {
+  const forwardedRemainingUses: unknown[] = [];
+  const deps = createEvmFamilySigningDeps({
+    createArgs: {
+      seamsPasskeyConfigs: { network: { chains: [] }, signing: {} },
+      nonceCoordinator: {},
+      ensureSealedRefreshStartupParity: async () => undefined,
+      signerWorkerManager: { getContext: () => ({}) },
+      loginWithEmailOtpEcdsaCapabilityForSigning: async ({
+        remainingUses,
+      }: {
+        remainingUses?: number;
+      }) => {
+        forwardedRemainingUses.push(remainingUses);
+        return { clientRootShare32B64u: 'client-root-share' };
+      },
+    } as never,
+    signingSessionCoordinator: {} as never,
+    getEmailOtpWarmSessionStatus: async () => ({ status: 'active' }) as never,
+  });
+
+  await deps.loginWithEmailOtpEcdsaCapabilityForSigning?.({
+    walletSession: {
+      walletId: toWalletId(toAccountId('otp-refresh.testnet')),
+      walletSessionUserId: toAccountId('otp-refresh.testnet'),
+    },
+    chainTarget: sourceChainTarget,
+    challengeId: 'challenge-1',
+    otpCode: '123456',
+    remainingUses: 1,
+  });
+
+  expect(forwardedRemainingUses).toEqual([1]);
 });
 
 test('sealed Email OTP ECDSA auth lane remains available after wallet signing budget exhaustion', () => {

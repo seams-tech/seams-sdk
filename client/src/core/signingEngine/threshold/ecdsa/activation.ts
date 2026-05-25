@@ -57,6 +57,8 @@ export type ThresholdEcdsaSessionBootstrapResult = {
     expiresAtMs: number;
     remainingUses: number;
   };
+  clientRootShare32B64u?: string;
+  passkeyPrfFirstB64u?: string;
 };
 
 export type ThresholdEcdsaSessionActivationResult = ThresholdEcdsaSessionBootstrapResult & {
@@ -93,7 +95,7 @@ type ActivateEcdsaRegistrationSessionPlan = {
 };
 
 type ActivateEcdsaRegistrationRequest = ActivateEcdsaSessionRequestCommon & {
-  kind: 'registration_bootstrap';
+  kind: 'key_enrollment_bootstrap';
   walletId: AccountId | string;
   subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -362,6 +364,7 @@ export async function activateEcdsaSession(
   if (!clientRootShare32B64u) {
     throw new Error('threshold-ecdsa bootstrap returned empty clientRootShare32B64u');
   }
+  const passkeyPrfFirstB64u = String(bootstrap.passkeyPrfFirstB64u || '').trim();
 
   const sessionId = String(bootstrap.sessionId || '').trim();
   if (!sessionId) {
@@ -474,6 +477,7 @@ export async function activateEcdsaSession(
 
   return {
     clientRootShare32B64u,
+    ...(passkeyPrfFirstB64u ? { passkeyPrfFirstB64u } : {}),
     thresholdEcdsaKeyRef,
     keygen: keygen as EcdsaKeygenSuccess,
     session,

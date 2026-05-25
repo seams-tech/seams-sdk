@@ -12,6 +12,7 @@ export async function requestRegistrationSessionCredentialConfirmation(
     signerSlot: number;
     confirmerText?: { title?: string; body?: string };
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
+    challengeB64u?: string;
   },
 ): Promise<RegistrationCredentialConfirmationPayload> {
   return await deps.touchConfirm.requestRegistrationCredentialConfirmation({
@@ -19,7 +20,7 @@ export async function requestRegistrationSessionCredentialConfirmation(
     signerSlot: params.signerSlot,
     confirmerText: params.confirmerText,
     confirmationConfigOverride: params.confirmationConfigOverride,
-    nearRpcUrl: deps.nearRpcUrl,
+    challengeB64u: params.challengeB64u,
   });
 }
 

@@ -10,12 +10,14 @@ import type {
   SigningAuthPlan,
   UserConfirmDecision,
   UserConfirmProgressEvent,
+  WebAuthnChallenge,
 } from '../types';
 
 export type {
   ForbiddenMainThreadSecrets,
   SerializableCredential,
   UserConfirmDecision,
+  WebAuthnChallenge,
 } from '../types';
 
 // === SECURE CONFIRM TYPES (V2) ===
@@ -121,32 +123,6 @@ export interface Nep413Summary {
   accountId: string;
 }
 
-export type WebAuthnChallenge =
-  | {
-      kind: 'intent_digest';
-      challengeB64u: string;
-      digest32B64u?: never;
-      requestId?: never;
-      thresholdSessionId?: never;
-      walletSigningSessionId?: never;
-    }
-  | {
-      kind: 'threshold_session_policy';
-      digest32B64u: string;
-      challengeB64u?: never;
-      requestId?: never;
-      thresholdSessionId?: never;
-      walletSigningSessionId?: never;
-    }
-  | {
-      kind: 'ecdsa_role_local_bootstrap';
-      digest32B64u: string;
-      requestId: string;
-      thresholdSessionId: string;
-      walletSigningSessionId: string;
-      challengeB64u?: never;
-    };
-
 // V2 request envelope
 export type UserConfirmPayloadByType = {
   [UserConfirmationType.SIGN_TRANSACTION]: SignTransactionPayload;
@@ -198,7 +174,7 @@ export interface SignTransactionPayload {
 export interface RegisterAccountPayload {
   nearAccountId: string;
   signerSlot?: number;
-  rpcCall: RpcCallPayload;
+  webauthnChallenge?: Extract<WebAuthnChallenge, { kind: 'intent_digest' }>;
 }
 
 export interface DecryptPrivateKeyWithPrfPayload {

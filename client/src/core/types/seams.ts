@@ -146,7 +146,7 @@ export interface SigningSessionSealConfig {
  * Notes:
  * - `relayer.url` is required after defaults are merged; missing values fail fast.
  * - Managed registration uses `${relayer.url}/v1/registration/bootstrap-grants`
- *   to obtain a one-time bootstrap token before calling `/registration/bootstrap`.
+ *   to obtain a one-time bootstrap token before creating a wallet-registration intent.
  * - `iframeWallet.walletOrigin` controls iframe-wallet mode:
  *   - provided non-empty: iframe mode
  *   - provided empty string: force direct mode
@@ -161,7 +161,7 @@ export interface SeamsConfigsInput {
    * NEAR account ID under which the relay server creates new subaccounts.
    *
    * This must match the relay server config `RELAYER_ACCOUNT_ID` when
-   * using atomic registration via `POST /registration/bootstrap`.
+   * using the wallet-registration ceremony.
    *
    * Defaults to the SDK relayer account default.
    */

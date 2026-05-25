@@ -86,6 +86,18 @@ export type AssertSignerWriteInvariantsInput = {
   existingStatus?: AccountSignerStatus;
 };
 
+export type PruneIncompleteActiveThresholdEcdsaSignersInput = {
+  profileId?: string;
+  now?: number;
+  revocationReason?: string;
+};
+
+export type PruneIncompleteActiveThresholdEcdsaSignersResult = {
+  scanned: number;
+  pruned: number;
+  prunedSignerIds: string[];
+};
+
 export type AccountSignerRepository = {
   buildAccountSignerRecord(args: BuildAccountSignerRecordInput): AccountSignerRecord;
   assertSignerWriteInvariants(store: any, args: AssertSignerWriteInvariantsInput): Promise<void>;
@@ -119,6 +131,9 @@ export type AccountSignerRepository = {
     removedAt?: number;
     revocationReason?: string;
   }): Promise<AccountSignerRecord | null>;
+  pruneIncompleteActiveThresholdEcdsaSignersDirect(
+    args?: PruneIncompleteActiveThresholdEcdsaSignersInput,
+  ): Promise<PruneIncompleteActiveThresholdEcdsaSignersResult>;
 };
 
 export function createAccountSignerRepository(args: {
@@ -184,12 +199,10 @@ export function createAccountSignerRepository(args: {
     if (String(input.next.signerKind || '') !== 'threshold-ecdsa') return;
     const metadata = input.next.metadata || {};
     const keyHandle = toTrimmedString(metadata.keyHandle);
-    const ecdsaThresholdKeyId = toTrimmedString(metadata.ecdsaThresholdKeyId);
-    const signingRootId = toTrimmedString(metadata.signingRootId);
-    if (!keyHandle && (!ecdsaThresholdKeyId || !signingRootId)) {
+    if (!keyHandle) {
       throw args.createConstraintError(
         'INVALID_SIGNER_METADATA',
-        'Active threshold ECDSA signer requires keyHandle or canonical signing-root identity metadata',
+        'Active threshold ECDSA signer requires metadata.keyHandle',
         {
           chainIdKey: input.next.chainIdKey,
           accountAddress: input.next.accountAddress,
@@ -210,6 +223,51 @@ export function createAccountSignerRepository(args: {
         },
       );
     }
+  }
+
+  function isObject(value: unknown): value is Record<string, unknown> {
+    return !!value && typeof value === 'object' && !Array.isArray(value);
+  }
+
+  function hasNonEmptyString(value: unknown): boolean {
+    return !!toTrimmedString(value);
+  }
+
+  function hasCompleteThresholdEcdsaKeyFacts(metadata: Record<string, unknown>): boolean {
+    const sharedKey = isObject(metadata.sharedEvmFamilyKey) ? metadata.sharedEvmFamilyKey : null;
+    const keyFacts = sharedKey || metadata;
+    const participantIds = Array.isArray(keyFacts.participantIds)
+      ? keyFacts.participantIds
+      : Array.isArray(metadata.participantIds)
+        ? metadata.participantIds
+        : [];
+    return (
+      hasNonEmptyString(keyFacts.ecdsaThresholdKeyId || metadata.ecdsaThresholdKeyId) &&
+      hasNonEmptyString(keyFacts.signingRootId || metadata.signingRootId) &&
+      hasNonEmptyString(keyFacts.signingRootVersion || metadata.signingRootVersion) &&
+      participantIds.some((participantId) => {
+        const numericParticipantId = Number(participantId);
+        return Number.isSafeInteger(numericParticipantId) && numericParticipantId > 0;
+      }) &&
+      hasNonEmptyString(
+        keyFacts.thresholdOwnerAddress ||
+          metadata.thresholdOwnerAddress ||
+          metadata.ownerAddress ||
+          metadata.ethereumAddress,
+      ) &&
+      hasNonEmptyString(
+        keyFacts.thresholdEcdsaPublicKeyB64u || metadata.thresholdEcdsaPublicKeyB64u,
+      )
+    );
+  }
+
+  function shouldPruneActiveThresholdEcdsaSigner(row: AccountSignerRecord): boolean {
+    if (row.status !== 'active') return false;
+    if (String(row.signerKind || '') !== 'threshold-ecdsa') return false;
+    const metadata = row.metadata || {};
+    if (!hasNonEmptyString(metadata.keyHandle)) return true;
+    if (!isObject(metadata.chainTarget)) return true;
+    return !hasCompleteThresholdEcdsaKeyFacts(metadata);
   }
 
   function ensureRevokedSignerHasRemovedAt(input: {
@@ -618,6 +676,42 @@ export function createAccountSignerRepository(args: {
       });
       await tx.done;
       return updated;
+    },
+
+    async pruneIncompleteActiveThresholdEcdsaSignersDirect(
+      input?: PruneIncompleteActiveThresholdEcdsaSignersInput,
+    ): Promise<PruneIncompleteActiveThresholdEcdsaSignersResult> {
+      const profileId = toTrimmedString(input?.profileId || '');
+      const now =
+        typeof input?.now === 'number' && Number.isFinite(input.now) ? input.now : Date.now();
+      const revocationReason =
+        toTrimmedString(input?.revocationReason || '') ||
+        'development_prune_incomplete_ecdsa_key_facts';
+      const db = await args.getDB();
+      const tx = db.transaction(args.accountSignersStore, 'readwrite');
+      const store = tx.store;
+      const rows = profileId
+        ? ((await store.index('profileId').getAll(profileId)) as AccountSignerRecord[])
+        : ((await store.getAll()) as AccountSignerRecord[]);
+      const activeThresholdEcdsaRows = (rows || []).filter(
+        (row) => row.status === 'active' && String(row.signerKind || '') === 'threshold-ecdsa',
+      );
+      const rowsToPrune = activeThresholdEcdsaRows.filter(shouldPruneActiveThresholdEcdsaSigner);
+      for (const row of rowsToPrune) {
+        await store.put({
+          ...row,
+          status: 'revoked',
+          updatedAt: now,
+          removedAt: now,
+          revocationReason,
+        } satisfies AccountSignerRecord);
+      }
+      await tx.done;
+      return {
+        scanned: activeThresholdEcdsaRows.length,
+        pruned: rowsToPrune.length,
+        prunedSignerIds: rowsToPrune.map((row) => row.signerId),
+      };
     },
   };
 }

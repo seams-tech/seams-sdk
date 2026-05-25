@@ -7,14 +7,12 @@ const CANONICAL_FIELD = 'thresholdEcdsaPublicKeyB64u';
 
 const SOURCE_FILES = [
   '../client/src/core/rpcClients/relayer/thresholdEcdsa.ts',
-  '../client/src/core/SeamsPasskey/evm/linkDeviceThresholdEcdsa.ts',
   '../client/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts',
   '../client/src/core/SeamsPasskey/login.ts',
 ];
 
 const DIST_FILES = [
   '../sdk/dist/esm/core/rpcClients/relayer/thresholdEcdsa.js',
-  '../sdk/dist/esm/core/SeamsPasskey/evm/linkDeviceThresholdEcdsa.js',
   '../sdk/dist/esm/core/signingEngine/threshold/ecdsa/bootstrapSession.js',
   '../sdk/dist/esm/sdk/wallet-iframe-host-runtime.js',
 ];

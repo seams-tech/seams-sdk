@@ -50,6 +50,8 @@ import {
 import {
   createAccountSignerRepository,
   type AccountSignerRepository,
+  type PruneIncompleteActiveThresholdEcdsaSignersInput,
+  type PruneIncompleteActiveThresholdEcdsaSignersResult,
 } from './accountSignerRepository';
 import {
   createChainAccountRepository,
@@ -986,6 +988,12 @@ export class PasskeyClientDBManager {
       status: args.mutation?.outboxStatus || 'queued',
     });
     return updated;
+  }
+
+  async pruneIncompleteActiveThresholdEcdsaSigners(
+    args?: PruneIncompleteActiveThresholdEcdsaSignersInput,
+  ): Promise<PruneIncompleteActiveThresholdEcdsaSignersResult> {
+    return this.accountSignerRepository.pruneIncompleteActiveThresholdEcdsaSignersDirect(args);
   }
 
   async enqueueSignerOperation(input: EnqueueSignerOperationInput): Promise<SignerOpOutboxRecord> {

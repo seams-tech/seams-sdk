@@ -117,15 +117,15 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
     });
     const store = createWarmSessionTestServices({
       touchConfirm: fixture.touchConfirm,
-      listThresholdEcdsaKeyRefsForWalletTarget: () => [
-        { source: 'login', keyRef: staleBootstrap.thresholdEcdsaKeyRef },
+      listThresholdEcdsaRecordsForWalletTarget: () => [
+        { source: 'login', record: staleRecord },
       ],
       provisionThresholdEcdsaSession: async (request) => {
-        if (!request.key || !request.lanePolicy) {
+        if (!('walletKey' in request) || !('lanePolicy' in request)) {
           throw new Error('expected exact ECDSA activation request');
         }
         return createThresholdEcdsaBootstrapFixture({
-          nearAccountId: String(request.key.walletId),
+          nearAccountId: String(request.walletKey.walletId),
           chain: request.lanePolicy.chainTarget.kind,
           ecdsaThresholdKeyId: 'ek-reconnect-error',
           sessionId: 'reconnect-error-fresh-session',

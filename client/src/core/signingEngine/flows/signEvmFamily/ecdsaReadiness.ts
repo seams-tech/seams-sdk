@@ -1,15 +1,11 @@
 import { SigningEventPhase } from '@/core/types/sdkSentEvents';
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import { SigningOperationIntent } from '../../session/operationState/types';
 import {
   createEvmFamilyWarmSessionServices,
   type EvmFamilyWarmSessionServicesDeps,
 } from './warmSessionServices';
 import {
-  readSelectedEcdsaKeyRefForLane,
-  readSelectedEcdsaRecordForLane,
-  summarizeEvmFamilyEcdsaKeyRef,
   summarizeEvmFamilyEcdsaLane,
   summarizeEvmFamilyEcdsaSessionRecord,
   type ResolvedEvmFamilyEcdsaSigningLane,
@@ -50,7 +46,8 @@ type EvmFamilyThresholdEcdsaReadinessBaseArgs = {
 };
 
 type PlannedEvmFamilyThresholdEcdsaReadinessArgs = EvmFamilyThresholdEcdsaReadinessBaseArgs & {
-  keyRef: ThresholdEcdsaSecp256k1KeyRef;
+  record: ThresholdEcdsaSessionRecord;
+  keyRef?: never;
   reconnectPlan: EcdsaSessionProvisionPlan;
 };
 
@@ -79,9 +76,9 @@ function requireEcdsaStoreSource(
   }
 }
 
-export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(
+export async function ensureEvmFamilyThresholdEcdsaRecordReady(
   args: PlannedEvmFamilyThresholdEcdsaReadinessArgs,
-): Promise<ThresholdEcdsaSecp256k1KeyRef> {
+): Promise<ThresholdEcdsaSessionRecord> {
   throwIfEvmFamilySigningCancelled(args.shouldAbort);
 
   const chain = args.lane.chainFamily;
@@ -105,16 +102,7 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(
     1,
     Math.floor(Number(args.sessionBudgetUses) || 1),
   );
-  const resolvedKeyRef = args.keyRef;
-  let selectedRecord: ThresholdEcdsaSessionRecord | undefined;
-  try {
-    selectedRecord = readSelectedEcdsaRecordForLane({
-      deps: args.deps,
-      lane: args.lane,
-    });
-  } catch {
-    selectedRecord = undefined;
-  }
+  const selectedRecord = args.record;
   const reconnectPlan = args.reconnectPlan;
   const reconnectPlanIdentity = getEcdsaSessionProvisionIdentity(reconnectPlan);
   if (
@@ -134,7 +122,6 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(
         thresholdSessionId,
         walletSigningSessionId,
       },
-      selectedKeyRef: summarizeEvmFamilyEcdsaKeyRef(resolvedKeyRef),
       selectedRecord: summarizeEvmFamilyEcdsaSessionRecord(selectedRecord),
       operationUsesNeeded,
       sessionBudgetUses,
@@ -145,7 +132,7 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(
     walletId,
     chainTarget,
     plan: reconnectPlan,
-    keyRef: resolvedKeyRef,
+    record: selectedRecord,
     source,
     runtimeScopeBootstrap: resolveManagedRuntimeScopeBootstrap(args.deps.seamsPasskeyConfigs),
     usesNeeded: operationUsesNeeded,
@@ -167,9 +154,13 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(
     },
   });
 
-  const refreshedThresholdSessionId = String(readyCapability.keyRef.thresholdSessionId).trim();
+  const refreshedRecord = readyCapability.capability.record;
+  if (!refreshedRecord) {
+    throw new Error('[SigningEngine] ECDSA reconnect did not return a ready session record');
+  }
+  const refreshedThresholdSessionId = String(refreshedRecord.thresholdSessionId).trim();
   const refreshedWalletSigningSessionId = String(
-    readyCapability.keyRef.walletSigningSessionId,
+    refreshedRecord.walletSigningSessionId,
   ).trim();
   if (
     refreshedThresholdSessionId !== thresholdSessionId ||
@@ -192,5 +183,5 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(
     data: { chain },
   });
 
-  return readyCapability.keyRef;
+  return refreshedRecord;
 }

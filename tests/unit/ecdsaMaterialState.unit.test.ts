@@ -8,7 +8,6 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EcdsaLaneCandidate } from '../../client/src/core/signingEngine/session/identity/laneIdentity';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../../client/src/core/signingEngine/interfaces/signing';
 import type { ThresholdEcdsaSessionRecord } from '../../client/src/core/signingEngine/session/persistence/records';
 import {
   buildEvmFamilyEcdsaKeyIdentity,
@@ -90,40 +89,12 @@ function makeRecord(
   };
 }
 
-function makeKeyRef(
-  overrides: Partial<ThresholdEcdsaSecp256k1KeyRef> = {},
-): ThresholdEcdsaSecp256k1KeyRef {
-  return {
-    type: 'threshold-ecdsa-secp256k1',
-    userId: toAccountId('alice.testnet'),
-    chainTarget: EVM_CHAIN_TARGET,
-    relayerUrl: 'https://relay.localhost',
-    keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-1'),
-    ecdsaThresholdKeyId: 'ecdsa-key-1',
-    signingRootId: 'root-1',
-    signingRootVersion: 'v1',
-    backendBinding: {
-      relayerKeyId: 'relayer-key-1',
-      clientVerifyingShareB64u: 'client-verifying-share',
-    },
-    participantIds: [1, 2],
-    thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,
-    ethereumAddress: OWNER_ADDRESS,
-    thresholdSessionKind: 'jwt',
-    thresholdSessionAuthToken: 'threshold-auth-token',
-    thresholdSessionId: 'threshold-session-1',
-    walletSigningSessionId: 'wallet-session-1',
-    ...overrides,
-  };
-}
-
 test.describe('ecdsa material state', () => {
   test('rejects an explicit chainTarget that does not match the candidate', () => {
     expect(() =>
       buildEcdsaMaterialStateForCandidate({
         candidate: makeCandidate(),
         record: undefined,
-        keyRef: undefined,
         authMethod: 'passkey',
         source: 'login',
         chainTarget: TEMPO_CHAIN_TARGET,
@@ -138,7 +109,6 @@ test.describe('ecdsa material state', () => {
     const state = buildEcdsaMaterialStateForCandidate({
       candidate: makeCandidate(),
       record: makeRecord(),
-      keyRef: makeKeyRef(),
       authMethod: 'passkey',
       source: 'login',
       chainTarget: EVM_CHAIN_TARGET,
@@ -154,13 +124,8 @@ test.describe('ecdsa material state', () => {
   test('ready material carries a signer session', () => {
     const state = buildEcdsaMaterialStateForCandidate({
       candidate: makeCandidate(),
-      record: makeRecord(),
-      keyRef: makeKeyRef({
-        backendBinding: {
-          relayerKeyId: 'relayer-key-1',
-          clientVerifyingShareB64u: 'client-verifying-share',
-          clientAdditiveShare32B64u: 'client-share',
-        },
+      record: makeRecord({
+        clientAdditiveShare32B64u: 'client-share',
       }),
       authMethod: 'passkey',
       source: 'login',

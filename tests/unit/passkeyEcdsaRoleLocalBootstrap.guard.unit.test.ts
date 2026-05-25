@@ -83,9 +83,9 @@ test.describe('Passkey ECDSA role-local first bootstrap guard', () => {
       expect(authorizeBlock).toContain('signingRootScopeFromRuntimePolicyScope');
       expect(authorizeBlock).toContain('verifyWebAuthnAuthenticationLite');
       expect(authorizeBlock).toContain('Invalid passkey bootstrap authorization');
-      expect(authorizeBlock).toContain('parseRegistrationContinuationClaims');
-      expect(authorizeBlock).toContain('validateRegistrationContinuationBootstrapScope');
-      expect(source).toContain('registration continuation signing root mismatch');
+      expect(authorizeBlock).not.toContain('parseRegistrationContinuationClaims');
+      expect(authorizeBlock).not.toContain('validateRegistrationContinuationBootstrapScope');
+      expect(source).not.toContain('registration continuation signing root mismatch');
     }
   });
 });

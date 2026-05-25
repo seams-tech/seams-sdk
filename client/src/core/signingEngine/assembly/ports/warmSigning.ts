@@ -34,7 +34,6 @@ import {
 } from '../../session/passkey/prfCache';
 import {
   claimEmailOtpEcdsaSigningShare32,
-  resolveEmailOtpWorkerShareSessionId,
 } from '../../session/emailOtp/workerRequests';
 import type { ThresholdSessionActivationDeps } from '../../session/passkey/ecdsaBootstrap';
 import type { SigningEnginePorts } from './shared';
@@ -198,17 +197,19 @@ export function createWarmCapabilitiesPublicDeps(args: {
       args.resolveCanonicalThresholdEcdsaSessionIdForWalletTarget(walletId, chainTarget),
     thresholdEcdsaPresignPoolPolicy: args.seamsPasskeyConfigs.signing.thresholdEcdsa.presignPool,
     getSignerWorkerContext: () => args.thresholdSessionActivationDeps.getSignerWorkerContext(),
-    resolveClientSigningShare32: async (keyRef) => {
-      const emailOtpWorkerShareSessionId = resolveEmailOtpWorkerShareSessionId(keyRef);
+    resolveClientSigningShare32: async (record: ThresholdEcdsaSessionRecord) => {
+      const additiveShareHandle = record.clientAdditiveShareHandle;
+      const emailOtpWorkerShareSessionId =
+        additiveShareHandle?.kind === 'email_otp_worker_session'
+          ? String(additiveShareHandle.sessionId || '').trim()
+          : '';
       if (emailOtpWorkerShareSessionId) {
         return await claimEmailOtpEcdsaSigningShare32({
           workerCtx: args.thresholdSessionActivationDeps.getSignerWorkerContext(),
           sessionId: emailOtpWorkerShareSessionId,
         });
       }
-      const clientAdditiveShare32B64u = String(
-        keyRef.backendBinding?.clientAdditiveShare32B64u || '',
-      ).trim();
+      const clientAdditiveShare32B64u = String(record.clientAdditiveShare32B64u || '').trim();
       if (!clientAdditiveShare32B64u) {
         throw new Error('missing ECDSA signing material');
       }

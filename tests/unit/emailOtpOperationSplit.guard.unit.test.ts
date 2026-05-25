@@ -170,7 +170,10 @@ test.describe('Email OTP operation split guard', () => {
     );
     expect(identitySource).toContain('THRESHOLD_ECDSA_PASSKEY_SESSION_STORE_SOURCES');
     expect(selectionModule).toContain('findExactEcdsaSessionRecordForSelectedLane');
-    expect(selectionModule).toContain('findExactEcdsaKeyRefForSelectedLane');
+    expect(selectionModule).not.toContain('findExactEcdsaKeyRefForSelectedLane');
+    expect(selectionModule).not.toContain('tryGetEmailOtpThresholdEcdsaKeyRefForSigning');
+    expect(selectionModule).not.toContain('tryGetPasskeyThresholdEcdsaKeyRefForSigning');
+    expect(selectionModule).toContain('buildEcdsaMaterialStateForCandidate');
     expect(selectionSource).not.toContain('genericRecord');
     expect(selectionSource).not.toContain('genericKeyRef');
     expect(profileLookup).toBeGreaterThan(authResolver);
@@ -216,9 +219,9 @@ test.describe('Email OTP operation split guard', () => {
     );
     expect(evmSigningDeps).not.toContain('getThresholdEcdsaKeyRefForLookup');
     expect(evmSigningDeps).not.toContain('getThresholdEcdsaSessionRecordForLookup');
-    expect(evmSigningDeps).toContain('getEmailOtpThresholdEcdsaKeyRefForSigning');
+    expect(evmSigningDeps).not.toContain('getEmailOtpThresholdEcdsaKeyRefForSigning');
     expect(evmSigningDeps).toContain('getEmailOtpThresholdEcdsaSessionRecordForSigning');
-    expect(evmSigningDeps).toContain('getPasskeyThresholdEcdsaKeyRefForSigning');
+    expect(evmSigningDeps).not.toContain('getPasskeyThresholdEcdsaKeyRefForSigning');
     expect(evmSigningDeps).toContain('getPasskeyThresholdEcdsaSessionRecordForSigning');
     expect(evmSigning).not.toContain('type EcdsaSigningLaneContext');
     expect(ecdsaSelection).toContain('export type EvmFamilyEcdsaSigningSelection');
@@ -234,7 +237,9 @@ test.describe('Email OTP operation split guard', () => {
     expect(preparedSigning).toContain('assertSelectionMatchesLaneCandidate');
     expect(preparedSigning).toContain('materialIdentityMatchesResolvedLane');
     expect(ecdsaSelection).toContain('findExactEcdsaSessionRecordForSelectedLane');
-    expect(ecdsaSelection).toContain('findExactEcdsaKeyRefForSelectedLane');
+    expect(ecdsaSelection).not.toContain('findExactEcdsaKeyRefForSelectedLane');
+    expect(ecdsaSelection).not.toContain('tryGetEmailOtpThresholdEcdsaKeyRefForSigning');
+    expect(ecdsaSelection).not.toContain('tryGetPasskeyThresholdEcdsaKeyRefForSigning');
     expect(ecdsaSelection).toContain('signingLaneFromExactLaneCandidate');
     expect(ecdsaSelection).toContain('source,');
     expect(ecdsaSelection).toContain("storageSource: 'manual-bootstrap'");
@@ -309,7 +314,7 @@ test.describe('Email OTP operation split guard', () => {
     const executorPreparation = evmSigning.slice(executorStart, executorEnd);
 
     expect(evmSigning).toContain('readSelectedEcdsaRecordForLane({');
-    expect(evmSigning).toContain('readSelectedEcdsaKeyRefForLane({');
+    expect(evmSigning).not.toContain('readSelectedEcdsaKeyRefForLane({');
     expect(executorPreparation).toContain(
       "preparedExecutorSession?.material.kind === 'ready_to_sign'",
     );
@@ -320,12 +325,16 @@ test.describe('Email OTP operation split guard', () => {
       "requireReadyEcdsaMaterial(\n        preparedExecutorSession.material,\n        'prepared executor signer session'",
     );
     expect(executorPreparation).not.toContain('prepared executor requires ready signer material');
-    expect(executorPreparation).toContain('toVerifiedEcdsaPublicFactsFromPairedRecordAndKeyRef({');
+    expect(executorPreparation).toContain('toVerifiedEcdsaPublicFactsFromRecord({');
+    expect(executorPreparation).not.toContain('toVerifiedEcdsaPublicFactsFromPairedRecordAndKeyRef({');
     expect(executorPreparation).not.toContain(
       'preparedExecutorSession.signingLane.key.thresholdOwnerAddress',
     );
-    expect(evmFamilyEcdsaIdentity).toContain('function hasReadyThresholdEcdsaClientShare');
-    expect(evmFamilyEcdsaIdentity).toContain('!hasReadyThresholdEcdsaClientShare(input.keyRef)');
+    expect(evmFamilyEcdsaIdentity).toContain('function hasReadyThresholdEcdsaRecordClientShare');
+    expect(evmFamilyEcdsaIdentity).toContain(
+      '!hasReadyThresholdEcdsaRecordClientShare(input.record)',
+    );
+    expect(evmFamilyEcdsaIdentity).not.toContain('!hasReadyThresholdEcdsaClientShare(input.keyRef)');
   });
 
   test('EVM-family missing ECDSA material remains reauth-planned under active wallet budget', () => {

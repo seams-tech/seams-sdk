@@ -54,42 +54,131 @@ function makePreparedLinkDeviceService() {
           remainingUses: 5,
         },
       },
-      thresholdEcdsa: {
-        ecdsaThresholdKeyId: 'ehss-link-device-prepare-1',
-        signingRootId: 'signing-root-link-device-prepare',
-        signingRootVersion: 'default',
-        clientAdditiveShare32B64u: 'client-additive-share-b64u',
-        relayerKeyId: 'rk-evm',
-        thresholdEcdsaPublicKeyB64u: 'group-public-key',
-        ethereumAddress: `0x${'11'.repeat(20)}`,
-        relayerVerifyingShareB64u: 'evm-share',
-        participantIds: [1, 2],
-        session: {
-          sessionKind: 'jwt',
-          sessionId: 'evm-session-1',
-          walletSigningSessionId: 'wallet-signing-session-1',
-          subjectId: 'alice.testnet',
-          keyHandle: 'ehss-key-link-device-1',
-          ecdsaThresholdKeyId: 'ehss-link-device-prepare-1',
-          signingRootId: 'signing-root-link-device-prepare',
-          signingRootVersion: 'default',
-          chainTarget: {
-            kind: 'evm' as const,
-            namespace: 'eip155' as const,
+      ecdsa: {
+        kind: 'evm_family_ecdsa_keygen',
+        chainTargets: [
+          {
+            kind: 'evm',
+            namespace: 'eip155',
             chainId: 11155111,
             networkSlug: 'sepolia',
           },
-          expiresAtMs: Date.now() + 60_000,
+        ],
+        prepare: {
+          formatVersion: 'ecdsa-hss-role-local',
+          walletSessionUserId: 'alice.testnet',
+          rpId: 'wallet.example.test',
+          subjectId: 'alice.testnet',
+          ecdsaThresholdKeyId: 'ehss-link-device-prepare-1',
+          signingRootId: 'project:env',
+          signingRootVersion: 'v1',
+          keyScope: 'evm-family',
+          relayerKeyId: 'rk-evm',
+          requestId: 'link-device-ecdsa-request-1',
+          sessionId: 'tehss-link-device-1',
+          walletSigningSessionId: 'wallet-signing-session-1',
+          ttlMs: 60_000,
+          remainingUses: 1,
           participantIds: [1, 2],
-          remainingUses: 5,
+          runtimePolicyScope: {
+            orgId: 'org',
+            projectId: 'project',
+            envId: 'env',
+            signingRootVersion: 'v1',
+          },
         },
+      } as any,
+    }),
+  });
+}
+
+function makeLinkDeviceEcdsaRespondService() {
+  return makeFakeAuthService({
+    respondLinkDeviceEcdsa: async () => ({
+      ok: true,
+      sessionId: 'link-device-session-1',
+      ecdsa: {
+        bootstrap: {
+          formatVersion: 'ecdsa-hss-role-local',
+          walletSessionUserId: 'alice.testnet',
+          rpId: 'wallet.example.test',
+          subjectId: 'alice.testnet',
+          ecdsaThresholdKeyId: 'ehss-link-device-prepare-1',
+          relayerKeyId: 'rk-evm',
+          contextBinding32B64u: 'context-binding',
+          publicIdentity: {
+            clientPublicKey33B64u: 'client-public',
+            relayerPublicKey33B64u: 'relayer-public',
+            groupPublicKey33B64u: 'group-public',
+            ethereumAddress: `0x${'11'.repeat(20)}`,
+          },
+          publicTranscriptDigest32B64u: 'transcript-digest',
+          keyHandle: 'key-handle-link-device',
+          signingRootId: 'project:env',
+          signingRootVersion: 'v1',
+          thresholdEcdsaPublicKeyB64u: 'group-public',
+          ethereumAddress: `0x${'11'.repeat(20)}`,
+          relayerVerifyingShareB64u: 'relayer-public',
+          participantIds: [1, 2],
+          sessionId: 'tehss-link-device-1',
+          walletSigningSessionId: 'wallet-signing-session-1',
+          expiresAtMs: Date.now() + 60_000,
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          remainingUses: 1,
+        },
+        walletKeys: [
+          {
+            keyScope: 'evm-family',
+            chainTarget: {
+              kind: 'evm',
+              namespace: 'eip155',
+              chainId: 11155111,
+              networkSlug: 'sepolia',
+            },
+            walletSessionUserId: 'alice.testnet',
+            rpId: 'wallet.example.test',
+            subjectId: 'alice.testnet',
+            keyHandle: 'key-handle-link-device',
+            ecdsaThresholdKeyId: 'ehss-link-device-prepare-1',
+            signingRootId: 'project:env',
+            signingRootVersion: 'v1',
+            thresholdEcdsaPublicKeyB64u: 'group-public',
+            thresholdOwnerAddress: `0x${'11'.repeat(20)}`,
+            relayerKeyId: 'rk-evm',
+            relayerVerifyingShareB64u: 'relayer-public',
+            participantIds: [1, 2],
+          },
+        ],
       },
     }),
   });
 }
 
+function makeEcdsaClientBootstrap() {
+  return {
+    formatVersion: 'ecdsa-hss-role-local',
+    walletSessionUserId: 'alice.testnet',
+    rpId: 'wallet.example.test',
+    subjectId: 'alice.testnet',
+    ecdsaThresholdKeyId: 'ehss-link-device-prepare-1',
+    signingRootId: 'project:env',
+    signingRootVersion: 'v1',
+    keyScope: 'evm-family',
+    relayerKeyId: 'rk-evm',
+    clientPublicKey33B64u: 'client-public',
+    clientShareRetryCounter: 0,
+    contextBinding32B64u: 'context-binding',
+    requestId: 'link-device-ecdsa-request-1',
+    sessionId: 'tehss-link-device-1',
+    walletSigningSessionId: 'wallet-signing-session-1',
+    ttlMs: 60_000,
+    remainingUses: 1,
+    participantIds: [1, 2],
+  };
+}
+
 test.describe('link-device prepare routing', () => {
-  test('express route signs and returns both threshold session auth tokens', async () => {
+  test('express route signs and returns threshold Ed25519 session auth token', async () => {
     const session = makeSessionAdapter({
       signJwt: async (sub, claims) => `jwt:${sub}:${String((claims as any)?.sessionId || '')}`,
     });
@@ -108,23 +197,20 @@ test.describe('link-device prepare routing', () => {
           rp_id: 'wallet.example.test',
           webauthn_registration: { id: 'cred-1' },
           threshold_ed25519: makeThresholdEd25519PrepareRequest(),
-          threshold_ecdsa: { client_root_share32_b64u: 'evm-root-share' },
         }),
       });
 
       expect(res.status).toBe(200);
       expect((res.json?.thresholdEd25519 as any)?.session?.jwt).toContain('near-session-1');
-      expect((res.json?.thresholdEcdsa as any)?.session?.jwt).toContain('evm-session-1');
-      expect((res.json?.thresholdEcdsa as any)?.ecdsaThresholdKeyId).toBe(
-        'ehss-link-device-prepare-1',
-      );
+      expect(res.json?.thresholdEcdsa).toBeUndefined();
+      expect((res.json?.ecdsa as any)?.prepare?.formatVersion).toBe('ecdsa-hss-role-local');
       expect(res.json).not.toHaveProperty('linkedAccounts');
     } finally {
       await srv.close();
     }
   });
 
-  test('cloudflare route signs and returns both threshold session auth tokens', async () => {
+  test('cloudflare route signs and returns threshold Ed25519 session auth token', async () => {
     const session = makeSessionAdapter({
       signJwt: async (sub, claims) => `jwt:${sub}:${String((claims as any)?.sessionId || '')}`,
     });
@@ -143,16 +229,64 @@ test.describe('link-device prepare routing', () => {
         rp_id: 'wallet.example.test',
         webauthn_registration: { id: 'cred-1' },
         threshold_ed25519: makeThresholdEd25519PrepareRequest(),
-        threshold_ecdsa: { client_root_share32_b64u: 'evm-root-share' },
       },
     });
 
     expect(res.status).toBe(200);
     expect((res.json?.thresholdEd25519 as any)?.session?.jwt).toContain('near-session-1');
-    expect((res.json?.thresholdEcdsa as any)?.session?.jwt).toContain('evm-session-1');
-    expect((res.json?.thresholdEcdsa as any)?.ecdsaThresholdKeyId).toBe(
-      'ehss-link-device-prepare-1',
-    );
+    expect(res.json?.thresholdEcdsa).toBeUndefined();
+    expect((res.json?.ecdsa as any)?.prepare?.formatVersion).toBe('ecdsa-hss-role-local');
     expect(res.json).not.toHaveProperty('linkedAccounts');
+  });
+
+  test('express route returns Link Device ECDSA bootstrap wallet keys', async () => {
+    const router = createRelayRouter(makeLinkDeviceEcdsaRespondService(), {
+      session: makeSessionAdapter(),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/link-device/ecdsa/respond`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: 'link-device-session-1',
+          client_bootstrap: makeEcdsaClientBootstrap(),
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.json?.thresholdEcdsa).toBeUndefined();
+      expect((res.json?.ecdsa as any)?.bootstrap?.keyHandle).toBe('key-handle-link-device');
+      expect((res.json?.ecdsa as any)?.walletKeys?.[0]?.keyHandle).toBe(
+        'key-handle-link-device',
+      );
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('cloudflare route returns Link Device ECDSA bootstrap wallet keys', async () => {
+    const handler = createCloudflareRouter(makeLinkDeviceEcdsaRespondService(), {
+      session: makeSessionAdapter(),
+    });
+    const { ctx } = makeCfCtx();
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/link-device/ecdsa/respond',
+      headers: { 'Content-Type': 'application/json' },
+      ctx,
+      body: {
+        session_id: 'link-device-session-1',
+        client_bootstrap: makeEcdsaClientBootstrap(),
+      },
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.json?.thresholdEcdsa).toBeUndefined();
+    expect((res.json?.ecdsa as any)?.bootstrap?.keyHandle).toBe('key-handle-link-device');
+    expect((res.json?.ecdsa as any)?.walletKeys?.[0]?.thresholdOwnerAddress).toBe(
+      `0x${'11'.repeat(20)}`,
+    );
   });
 });

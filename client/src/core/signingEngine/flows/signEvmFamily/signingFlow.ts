@@ -6,9 +6,6 @@ import type {
   WarmSessionStatusReader,
 } from '@/core/signingEngine/uiConfirm/types';
 import type {
-  ConfirmIntentDigestSigningOperationRequest,
-} from '@/core/signingEngine/stepUpConfirmation/confirmOperation';
-import type {
   KeyRef,
   SignRequest,
   Signer,
@@ -63,6 +60,7 @@ import {
   completeEvmFamilyThresholdEcdsaAdmissionAfterConfirmation,
 } from './thresholdAdmission';
 import {
+  type ConfirmIntentDigestSigningOperationRequest,
   type ConfirmIntentDigestSigningOperationResult,
   createSigningConfirmationCommandHandler,
   inferDigest32FromSignRequest,

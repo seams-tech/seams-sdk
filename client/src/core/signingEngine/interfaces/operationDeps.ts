@@ -8,7 +8,6 @@ import type {
 import type { SeamsConfigsReadonly, ThemeName } from '@/core/types/seams';
 import type { EmailOtpAuthLane } from '../stepUpConfirmation/otpPrompt/authLane';
 import type { TouchIdPrompt } from '../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
-import type { ThresholdEcdsaSecp256k1KeyRef } from './signing';
 import type { NonceCoordinator } from '../nonce/NonceCoordinator';
 import type {
   AvailableSigningLanes,
@@ -140,15 +139,9 @@ export type PasskeyEcdsaSigningLookupArgs = EcdsaSigningLookupArgs & {
 };
 
 export type EvmFamilyEcdsaSessionReaderDeps = {
-  getEmailOtpThresholdEcdsaKeyRefForSigning: (
-    args: EcdsaSigningLookupArgs,
-  ) => ThresholdEcdsaSecp256k1KeyRef;
   getEmailOtpThresholdEcdsaSessionRecordForSigning: (
     args: EcdsaSigningLookupArgs,
   ) => ThresholdEcdsaSessionRecord;
-  getPasskeyThresholdEcdsaKeyRefForSigning: (
-    args: PasskeyEcdsaSigningLookupArgs,
-  ) => ThresholdEcdsaSecp256k1KeyRef;
   getPasskeyThresholdEcdsaSessionRecordForSigning: (
     args: PasskeyEcdsaSigningLookupArgs,
   ) => ThresholdEcdsaSessionRecord;
@@ -161,9 +154,6 @@ export type EvmFamilyEcdsaSessionReaderDeps = {
   getThresholdEcdsaSessionRecordByKey: (
     identity: SelectedEcdsaLane,
   ) => ThresholdEcdsaSessionRecord | null;
-  getThresholdEcdsaKeyRefByKey: (
-    identity: SelectedEcdsaLane,
-  ) => ThresholdEcdsaKeyRefLookupResult | null;
 };
 
 export type EvmFamilySigningDeps = EvmFamilyEcdsaSessionReaderDeps & {
@@ -242,7 +232,6 @@ export type RegistrationAccountLifecycleDeps = {
 };
 
 export type RegistrationSessionDeps = {
-  nearRpcUrl: string;
   touchConfirm: UiConfirmRegistrationPort;
   touchIdPrompt: Pick<TouchIdPrompt, 'getAuthenticationCredentialsSerializedForChallengeB64u'>;
 };

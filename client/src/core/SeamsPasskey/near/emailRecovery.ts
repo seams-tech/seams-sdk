@@ -16,14 +16,19 @@ import { syncAccount as syncAccountCore, type SyncAccountResult } from '../syncA
 import type { PasskeyManagerContext } from '../index';
 import type { WalletIframeCoordinator } from '../walletIframeCoordinator';
 import { normalizeRegistrationCredential } from '../../signingEngine/webauthnAuth/credentials/helpers';
-import { redactCredentialExtensionOutputs } from '../../signingEngine/webauthnAuth/credentials/credentialExtensions';
-import { getPrfFirstB64uFromCredential } from '../../signingEngine/threshold/crypto/webauthn';
+import {
+  redactCredentialExtensionOutputs,
+} from '../../signingEngine/webauthnAuth/credentials/credentialExtensions';
+import { derivePasskeyThresholdEcdsaClientRootShare32B64uFromCredential } from '../../signingEngine/session/passkey/ecdsaClientRoot';
 import { EmailRecoveryPendingStore } from '../../../utils/emailRecovery';
 import { errorMessage } from '@shared/utils/errors';
 import { coerceSignerSlot } from '@shared/utils/signerSlot';
 import { isObject } from '@shared/utils/validation';
+import { joinNormalizedUrl } from '@shared/utils/normalize';
 import { prepareRecoveryEmails, getLocalRecoveryEmails } from '../../../utils/emailRecovery';
 import { restoreLocalLoginState } from '../restoreLocalLoginState';
+import { THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANTS_V1 } from '@shared/threshold/secp256k1Ecdsa2pShareMapping';
+import { walletSubjectIdFromString } from '@shared/utils/registrationIntent';
 import {
   buildThresholdWarmSessionRequestEnvelope,
   createThresholdWarmSessionPolicyDraft,
@@ -32,6 +37,17 @@ import {
   reconstructThresholdEd25519ClientBaseFromWarmSession,
   storeThresholdEd25519KeyMaterial,
 } from '../thresholdWarmSessionBootstrap';
+import { listThresholdEcdsaProvisionTargets } from '../thresholdEcdsaProvisioning';
+import { normalizeThresholdRuntimePolicyScope } from '../../signingEngine/threshold/sessionPolicy';
+import type {
+  WalletRegistrationEcdsaClientBootstrap,
+  WalletRegistrationEcdsaPrepareContext,
+  WalletRegistrationEcdsaWalletKey,
+} from '../../rpcClients/relayer/walletRegistration';
+import {
+  thresholdEcdsaChainTargetFromRequest,
+  type ThresholdEcdsaChainTarget,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 /**
  * SeamsPasskey email recovery call graph:
@@ -42,6 +58,101 @@ export type EmailRecoveryDomainDeps = {
   getContext: () => PasskeyManagerContext;
   walletIframe: Pick<WalletIframeCoordinator, 'shouldUseWalletIframe' | 'requireRouter'>;
 };
+
+function coercePositiveInt(value: unknown, fallback: number): number {
+  const n = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(n) || n <= 0) return Math.max(1, Math.floor(fallback));
+  return Math.floor(n);
+}
+
+function requireEmailRecoveryString(value: unknown, field: string): string {
+  const text = String(value || '').trim();
+  if (!text) throw new Error(`email-recovery ECDSA response missing ${field}`);
+  return text;
+}
+
+function parseEmailRecoveryEcdsaPrepare(value: unknown): WalletRegistrationEcdsaPrepareContext {
+  if (!isObject(value)) {
+    throw new Error('email-recovery/prepare returned invalid ECDSA prepare data');
+  }
+  const participantIds = Array.isArray(value.participantIds)
+    ? value.participantIds.map((participantId) => Number(participantId))
+    : [];
+  if (
+    participantIds.length === 0 ||
+    participantIds.some((participantId) => !Number.isSafeInteger(participantId) || participantId <= 0)
+  ) {
+    throw new Error('email-recovery/prepare returned invalid ECDSA participant ids');
+  }
+  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(value.runtimePolicyScope);
+  return {
+    formatVersion: 'ecdsa-hss-role-local',
+    walletSessionUserId: requireEmailRecoveryString(value.walletSessionUserId, 'walletSessionUserId'),
+    rpId: requireEmailRecoveryString(value.rpId, 'rpId'),
+    subjectId: requireEmailRecoveryString(value.subjectId, 'subjectId'),
+    ecdsaThresholdKeyId: requireEmailRecoveryString(value.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId'),
+    signingRootId: requireEmailRecoveryString(value.signingRootId, 'signingRootId'),
+    signingRootVersion: requireEmailRecoveryString(value.signingRootVersion, 'signingRootVersion'),
+    keyScope: 'evm-family',
+    relayerKeyId: requireEmailRecoveryString(value.relayerKeyId, 'relayerKeyId'),
+    requestId: requireEmailRecoveryString(value.requestId, 'requestId'),
+    sessionId: requireEmailRecoveryString(value.sessionId, 'sessionId'),
+    walletSigningSessionId: requireEmailRecoveryString(
+      value.walletSigningSessionId,
+      'walletSigningSessionId',
+    ),
+    ttlMs: coercePositiveInt(value.ttlMs, 1),
+    remainingUses: coercePositiveInt(value.remainingUses, 1),
+    participantIds,
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+  };
+}
+
+function parseEmailRecoveryEcdsaWalletKeys(value: unknown): WalletRegistrationEcdsaWalletKey[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error('email-recovery/ecdsa/respond returned no ECDSA wallet keys');
+  }
+  return value.map((raw) => {
+    if (!isObject(raw)) throw new Error('email-recovery/ecdsa/respond returned invalid wallet key');
+    const chainTargetRaw = isObject(raw.chainTarget) ? raw.chainTarget : null;
+    if (!chainTargetRaw) {
+      throw new Error('email-recovery/ecdsa/respond returned wallet key without chain target');
+    }
+    const chainTarget: ThresholdEcdsaChainTarget =
+      thresholdEcdsaChainTargetFromRequest(chainTargetRaw);
+    const participantIds = Array.isArray(raw.participantIds)
+      ? raw.participantIds.map((participantId) => Number(participantId))
+      : [];
+    if (
+      participantIds.length === 0 ||
+      participantIds.some((participantId) => !Number.isSafeInteger(participantId) || participantId <= 0)
+    ) {
+      throw new Error('email-recovery/ecdsa/respond returned invalid wallet key participant ids');
+    }
+    return {
+      keyScope: 'evm-family',
+      chainTarget,
+      walletSessionUserId: requireEmailRecoveryString(raw.walletSessionUserId, 'walletSessionUserId'),
+      rpId: requireEmailRecoveryString(raw.rpId, 'rpId'),
+      subjectId: requireEmailRecoveryString(raw.subjectId, 'subjectId'),
+      keyHandle: requireEmailRecoveryString(raw.keyHandle, 'keyHandle'),
+      ecdsaThresholdKeyId: requireEmailRecoveryString(raw.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId'),
+      signingRootId: requireEmailRecoveryString(raw.signingRootId, 'signingRootId'),
+      signingRootVersion: requireEmailRecoveryString(raw.signingRootVersion, 'signingRootVersion'),
+      thresholdEcdsaPublicKeyB64u: requireEmailRecoveryString(
+        raw.thresholdEcdsaPublicKeyB64u,
+        'thresholdEcdsaPublicKeyB64u',
+      ),
+      thresholdOwnerAddress: requireEmailRecoveryString(raw.thresholdOwnerAddress, 'thresholdOwnerAddress'),
+      relayerKeyId: requireEmailRecoveryString(raw.relayerKeyId, 'relayerKeyId'),
+      relayerVerifyingShareB64u: requireEmailRecoveryString(
+        raw.relayerVerifyingShareB64u,
+        'relayerVerifyingShareB64u',
+      ),
+      participantIds,
+    };
+  });
+}
 
 export class EmailRecoveryDomain {
   private readonly getContext: () => PasskeyManagerContext;
@@ -296,14 +407,19 @@ export class EmailRecoveryDomain {
         rpId,
         requestedPolicy: thresholdWarmPolicy,
       });
-      const clientRootShare32B64u = String(getPrfFirstB64uFromCredential(credential) || '').trim();
-      if (!clientRootShare32B64u) {
-        throw new Error('Failed to derive threshold secp256k1 client root share');
+      const ecdsaProvisionTargets = listThresholdEcdsaProvisionTargets({
+        signerOptions: context.configs.signing.thresholdEcdsa.provisioningDefaults,
+        chains: context.configs.network.chains,
+      });
+      if (ecdsaProvisionTargets.length === 0) {
+        throw new Error('Email recovery requires at least one configured ECDSA provision target');
       }
+      const clientRootShare32B64u =
+        await derivePasskeyThresholdEcdsaClientRootShare32B64uFromCredential(credential);
       const credentialForRelay = redactCredentialExtensionOutputs(
         normalizeRegistrationCredential(credential),
       );
-      const prepareResp = await fetch(`${relayerUrl}/email-recovery/prepare`, {
+      const prepareResp = await fetch(joinNormalizedUrl(relayerUrl, '/email-recovery/prepare'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -311,8 +427,9 @@ export class EmailRecoveryDomain {
           request_id: requestId,
           signer_slot: signerSlot,
           threshold_ed25519: thresholdWarmSessionRequest,
-          threshold_ecdsa: {
-            client_root_share32_b64u: clientRootShare32B64u,
+          threshold_ecdsa_prepare: {
+            chainTargets: ecdsaProvisionTargets.map((target) => target.chainTarget),
+            participantIds: [...THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANTS_V1.participantIds],
           },
           rp_id: rpId,
           webauthn_registration: credentialForRelay,
@@ -331,21 +448,50 @@ export class EmailRecoveryDomain {
         );
       }
 
-      const thresholdSection = isObject(prepareObj.thresholdEd25519)
-        ? prepareObj.thresholdEd25519
+      const prepareEcdsaSection = isObject(prepareObj.ecdsa) ? prepareObj.ecdsa : null;
+      const ecdsaPrepare = prepareEcdsaSection
+        ? parseEmailRecoveryEcdsaPrepare(prepareEcdsaSection.prepare)
+        : null;
+      if (!ecdsaPrepare) {
+        throw new Error('email-recovery/prepare did not return ECDSA prepare data');
+      }
+      const clientBootstrap: WalletRegistrationEcdsaClientBootstrap =
+        await context.signingEngine.prepareWalletRegistrationEcdsaClientBootstrap({
+          prepare: ecdsaPrepare,
+          clientRootShare32B64u,
+        });
+      const ecdsaResp = await fetch(joinNormalizedUrl(relayerUrl, '/email-recovery/ecdsa/respond'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          request_id: requestId,
+          client_bootstrap: clientBootstrap,
+        }),
+      });
+      const ecdsaJson: unknown = await ecdsaResp.json().catch(() => ({}));
+      const ecdsaObj = isObject(ecdsaJson) ? ecdsaJson : {};
+      if (!ecdsaResp.ok || ecdsaObj.ok !== true) {
+        throw new Error(
+          String(ecdsaObj.message || ecdsaObj.error || '') ||
+            `email-recovery/ecdsa/respond failed (HTTP ${ecdsaResp.status})`,
+        );
+      }
+
+      const thresholdSection = isObject(ecdsaObj.thresholdEd25519)
+        ? ecdsaObj.thresholdEd25519
         : {};
-      const thresholdEcdsaSection = isObject(prepareObj.thresholdEcdsa)
-        ? prepareObj.thresholdEcdsa
+      const ecdsaResult = isObject(ecdsaObj.ecdsa) ? ecdsaObj.ecdsa : {};
+      const ecdsaBootstrap = isObject(ecdsaResult.bootstrap) ? ecdsaResult.bootstrap : {};
+      const walletKeys = parseEmailRecoveryEcdsaWalletKeys(ecdsaResult.walletKeys);
+      const recoverySessionSection = isObject(ecdsaObj.recoverySession)
+        ? ecdsaObj.recoverySession
         : {};
-      const recoverySessionSection = isObject(prepareObj.recoverySession)
-        ? prepareObj.recoverySession
-        : {};
-      const recoveryEmailSection = isObject(prepareObj.recoveryEmail)
-        ? prepareObj.recoveryEmail
-        : {};
+      const recoveryEmailSection = isObject(ecdsaObj.recoveryEmail) ? ecdsaObj.recoveryEmail : {};
       const thresholdPublicKey = String(thresholdSection.publicKey || '').trim();
       const relayerKeyId = String(thresholdSection.relayerKeyId || '').trim();
-      const newEvmOwnerAddress = String(thresholdEcdsaSection.ethereumAddress || '').trim();
+      const newEvmOwnerAddress = String(
+        ecdsaBootstrap.ethereumAddress || walletKeys[0]?.thresholdOwnerAddress || '',
+      ).trim();
       const recoverySessionId = String(recoverySessionSection.sessionId || requestId).trim();
       const recoveryDeadlineEpochSeconds = Number(recoveryEmailSection.deadlineEpochSeconds);
       const recoveryEmailPayloadHash = String(recoveryEmailSection.payloadHash || '').trim();
@@ -363,11 +509,15 @@ export class EmailRecoveryDomain {
         !recoveryEmailSubject ||
         !recoveryEmailBody
       ) {
-        throw new Error('email-recovery/prepare returned incomplete canonical recovery email data');
+        throw new Error(
+          'email-recovery/ecdsa/respond returned incomplete canonical recovery email data',
+        );
       }
       const thresholdSession = isObject(thresholdSection.session) ? thresholdSection.session : null;
       if (!thresholdSession) {
-        throw new Error('email-recovery/prepare did not return threshold session bootstrap data');
+        throw new Error(
+          'email-recovery/ecdsa/respond did not return threshold session bootstrap data',
+        );
       }
 
       const credentialId = String(credential.rawId || '').trim();
@@ -446,6 +596,10 @@ export class EmailRecoveryDomain {
         participantIdsHint: Array.isArray(thresholdSection.participantIds)
           ? thresholdSection.participantIds
           : undefined,
+      });
+      await context.signingEngine.storeWalletSubjectEcdsaSignerRecords({
+        walletSubjectId: walletSubjectIdFromString(String(nearAccountId)),
+        walletKeys,
       });
 
       this.pendingEmailRecovery = {

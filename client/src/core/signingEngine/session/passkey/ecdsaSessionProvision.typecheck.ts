@@ -3,6 +3,7 @@ import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '../identity/laneIdentity';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
+  buildEvmFamilyEcdsaWalletKey,
   buildEvmFamilyEcdsaSessionLanePolicy,
   toEvmFamilyEcdsaKeyHandle,
 } from '../identity/evmFamilyEcdsaIdentity';
@@ -74,6 +75,18 @@ const key = buildBaseEvmFamilyEcdsaKeyIdentity({
   participantIds: [1, 2],
   thresholdOwnerAddress: '0x1111111111111111111111111111111111111111',
 });
+const walletKey = buildEvmFamilyEcdsaWalletKey({
+  walletId: key.walletId,
+  rpId: key.rpId,
+  keyHandle: toEvmFamilyEcdsaKeyHandle('ehss-key-1'),
+  chainTarget,
+  ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
+  signingRootId: key.signingRootId,
+  signingRootVersion: key.signingRootVersion,
+  participantIds: key.participantIds,
+  thresholdOwnerAddress: key.thresholdOwnerAddress,
+  thresholdEcdsaPublicKeyB64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+});
 
 const lanePolicy = buildEvmFamilyEcdsaSessionLanePolicy({
   chainTarget,
@@ -102,8 +115,7 @@ const exactActivationCommon = {
   sessionBudgetUses: 1,
   requestId: 'request-1',
   runtimePolicy,
-  keyHandle: toEvmFamilyEcdsaKeyHandle('ehss-key-1'),
-  key,
+  walletKey,
   lanePolicy,
 };
 
@@ -242,7 +254,7 @@ void buildPasskeyReconnectEcdsaActivation({
   sessionBudgetUses: 1,
   requestId: 'request-1',
   runtimePolicy,
-  key,
+  walletKey,
   sessionIdentity,
   sessionKind: 'jwt',
   clientRootShare32B64u: 'client-root',
@@ -261,6 +273,26 @@ void buildPasskeyReconnectEcdsaActivation({
   sessionKind: 'jwt',
   clientRootShare32B64u: 'client-root',
   webauthnAuthentication,
+});
+
+void buildPasskeyReconnectEcdsaActivation({
+  ...exactActivationCommon,
+  sessionIdentity,
+  sessionKind: 'jwt',
+  clientRootShare32B64u: 'client-root',
+  webauthnAuthentication,
+  // @ts-expect-error exact activation requires walletKey; separate key identity projection is rejected.
+  key,
+});
+
+void buildPasskeyReconnectEcdsaActivation({
+  ...exactActivationCommon,
+  sessionIdentity,
+  sessionKind: 'jwt',
+  clientRootShare32B64u: 'client-root',
+  webauthnAuthentication,
+  // @ts-expect-error exact activation requires walletKey; separate keyHandle projection is rejected.
+  keyHandle: toEvmFamilyEcdsaKeyHandle('ehss-key-1'),
 });
 
 const validPasskeyLifecycleCommand = {

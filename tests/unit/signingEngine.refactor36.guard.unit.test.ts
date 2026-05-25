@@ -400,6 +400,65 @@ test.describe('signing engine refactor 36 guards', () => {
     expect(offenders, offenders.join('\n')).toEqual([]);
   });
 
+  test('wallet unlock keeps raw ECDSA profile and inventory parsing at boundaries', () => {
+    const loginSource = readRepoFile('client/src/core/SeamsPasskey/login.ts');
+    const walletRegistrationRpc = readRepoFile(
+      'client/src/core/rpcClients/relayer/walletRegistration.ts',
+    );
+    const parserSource = readRepoFile(
+      'client/src/core/signingEngine/session/passkey/ecdsaKeyFactsInventory.ts',
+    );
+    const offenders: string[] = [];
+    for (const requiredExport of [
+      'export function parseProfileContinuityEcdsaWarmKey',
+      'export function parseThresholdEcdsaKeyIdentityTargets',
+    ]) {
+      if (!parserSource.includes(requiredExport)) {
+        offenders.push(`ECDSA key-facts parser is missing ${requiredExport}`);
+      }
+    }
+    for (const requiredBranch of [
+      "kind: 'active_wallet_key'",
+      "kind: 'repair_required'",
+      "kind: 'blocked'",
+    ]) {
+      if (!parserSource.includes(requiredBranch)) {
+        offenders.push(`ECDSA key-facts parser is missing profile branch ${requiredBranch}`);
+      }
+    }
+    if (!loginSource.includes('parseProfileContinuityEcdsaWarmKey({')) {
+      offenders.push('login unlock path does not call parseProfileContinuityEcdsaWarmKey({');
+    }
+    if (!walletRegistrationRpc.includes('parseThresholdEcdsaKeyIdentityTargets({')) {
+      offenders.push('wallet registration RPC does not parse ECDSA inventory at the boundary');
+    }
+    if (
+      !walletRegistrationRpc.includes(
+        '/signers/ecdsa/key-facts/inventory',
+      )
+    ) {
+      offenders.push('wallet registration RPC is missing the explicit ECDSA repair endpoint');
+    }
+    for (const forbidden of [
+      'metadata.sharedEvmFamilyKey',
+      'metadata.keyHandle',
+      'metadata.ecdsaThresholdKeyId',
+      'metadata.signingRootId',
+      'metadata.signingRootVersion',
+      'metadata.participantIds',
+      'metadata.thresholdOwnerAddress',
+      'metadata.ownerAddress',
+      'const records = inventory.records',
+      '/threshold-ecdsa/key-identities',
+    ]) {
+      if (loginSource.includes(forbidden)) {
+        offenders.push(`login unlock path contains raw boundary token ${forbidden}`);
+      }
+    }
+
+    expect(offenders, offenders.join('\n')).toEqual([]);
+  });
+
   test('near account to ECDSA subject derivations stay finite', () => {
     const guardedRoots = ['client/src/core/signingEngine', 'client/src/core/SeamsPasskey'];
     const accountToSubjectPattern =

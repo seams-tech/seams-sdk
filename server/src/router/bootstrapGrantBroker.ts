@@ -63,6 +63,11 @@ function readRequiredString(source: Record<string, unknown>, key: string): strin
   return value;
 }
 
+function readOptionalString(source: Record<string, unknown>, key: string): string | undefined {
+  const value = String(source[key] ?? '').trim();
+  return value || undefined;
+}
+
 function normalizeOrigin(input: string): string {
   return normalizeCorsOrigin(input) || '';
 }
@@ -85,10 +90,8 @@ function normalizeClientContext(input: unknown): RelayBootstrapGrantClientContex
 }
 
 const REGISTRATION_FLOW_GRANT_ALLOWED_PATHS = [
-  '/registration/bootstrap',
-  '/registration/threshold-ed25519/hss/prepare',
-  '/registration/threshold-ed25519/hss/respond',
-  '/registration/threshold-ed25519/hss/finalize',
+  '/wallets/register/intent',
+  '/wallets/:walletSubjectId/signers/intent',
 ] as const;
 
 function normalizeRegistrationBootstrapGrantFlow(raw: unknown): 'registration_v1' {
@@ -128,13 +131,13 @@ export function parseRelayBootstrapGrantIssueBody(
     });
   }
   const environmentId = readRequiredString(body, 'environmentId');
-  const newAccountId = readRequiredString(body, 'newAccountId');
+  const newAccountId = readOptionalString(body, 'newAccountId');
   const rpId = readRequiredString(body, 'rpId');
   const flow = normalizeRegistrationBootstrapGrantFlow(body.flow);
   const clientContext = normalizeClientContext(body.clientContext);
   return {
     environmentId,
-    newAccountId,
+    ...(newAccountId ? { newAccountId } : {}),
     rpId,
     flow,
     ...(clientContext ? { clientContext } : {}),
@@ -185,7 +188,7 @@ export function createRelayBootstrapGrantBroker(
     authenticatedApiKey: ConsoleApiKey;
     origin: string;
     environmentId: string;
-    newAccountId: string;
+    newAccountId?: string;
     rpId: string;
     flow: 'registration_v1';
     clientContext?: RelayBootstrapGrantClientContext;
@@ -303,14 +306,14 @@ export function createRelayBootstrapGrantBroker(
       publishableKeyId: authenticatedApiKey.id,
       projectId: environment.projectId,
       environmentId: environment.id,
-      newAccountId: input.newAccountId,
+      newAccountId: String(input.newAccountId || '').trim(),
       rpId: input.rpId,
       origin,
       method: 'POST',
-      path: '/registration/bootstrap',
+      path: '/wallets/register/intent',
       allowedPaths: [...REGISTRATION_FLOW_GRANT_ALLOWED_PATHS],
       requestHashSha256: null,
-      maxUses: 3,
+      maxUses: 1,
       ttlMs: tokenTtlMs,
       riskDecision: 'allow',
     });

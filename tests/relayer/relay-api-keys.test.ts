@@ -21,7 +21,6 @@ import {
   getPath,
   makeCfCtx,
   makeFakeAuthService,
-  makeSessionAdapter,
   startExpressRouter,
 } from './helpers';
 
@@ -33,34 +32,39 @@ const apiKeyCtx = {
 
 function makeRegistrationBody(): Record<string, unknown> {
   return {
-    new_account_id: 'alice.testnet',
-    rp_id: 'example.localhost',
-    webauthn_registration: { id: 'cred-1' },
+    walletSubject: { kind: 'provided', walletSubjectId: 'alice.testnet' },
+    rpId: 'example.localhost',
+    signerSelection: {
+      mode: 'ed25519_only',
+      ed25519: {
+        nearAccountId: 'alice.testnet',
+        signerSlot: 1,
+        createNearAccount: true,
+        keyPurpose: 'ed25519-hss/y_relayer',
+        keyVersion: 'threshold-ed25519-hss-v1',
+        participantIds: [1, 2],
+        derivationVersion: 1,
+      },
+    },
   };
 }
 
 function makeRelayService() {
-  return makeFakeAuthService({
-    createAccountAndRegisterUser: async () => ({
-      success: true,
-      transactionHash: 'tx-123',
-    }),
+  const service = makeFakeAuthService();
+  (service as any).createRegistrationIntent = async (input: Record<string, any>) => ({
+    ok: true,
+    intent: {
+      version: 'registration_intent_v1',
+      walletSubjectId: input.request.walletSubject.walletSubjectId,
+      rpId: input.request.rpId,
+      signerSelection: input.request.signerSelection,
+      nonceB64u: 'nonce-test',
+    },
+    registrationIntentDigestB64u: 'digest-test',
+    registrationIntentGrant: 'rig_test',
+    expiresAtMs: Date.now() + 60_000,
   });
-}
-
-function makeThresholdEcdsaRelayService() {
-  return makeFakeAuthService({
-    createAccountAndRegisterUser: async () => ({
-      success: true,
-      transactionHash: 'tx-123',
-      thresholdEcdsa: {
-        relayerKeyId: 'rk-registration-1',
-        thresholdEcdsaPublicKeyB64u: 'group-public-key',
-        ethereumAddress: `0x${'aa'.repeat(20)}`,
-        relayerVerifyingShareB64u: 'relayer-share',
-      },
-    }),
-  });
+  return service;
 }
 
 function makeWallet(overrides: Partial<ConsoleWallet> = {}): ConsoleWallet {
@@ -93,24 +97,6 @@ function makeWallet(overrides: Partial<ConsoleWallet> = {}): ConsoleWallet {
   };
 }
 
-function makeSerializedRegistrationCredential() {
-  return {
-    id: 'cred_registration_1',
-    rawId: 'raw_registration_1',
-    type: 'public-key',
-    response: {
-      clientDataJSON: 'Y2xpZW50RGF0YQ',
-      attestationObject: 'YXR0ZXN0YXRpb24',
-      transports: ['internal'],
-    },
-    clientExtensionResults: {
-      prf: {
-        results: {},
-      },
-    },
-  };
-}
-
 async function createActiveSecret(
   apiKeys: ConsoleApiKeyService,
   input: { scopes: ApiCredentialScope[]; ipAllowlist?: string[]; expiresAt?: string },
@@ -127,112 +113,6 @@ async function createActiveSecret(
 }
 
 test.describe('relay API key auth (express)', () => {
-  test('registration bootstrap signs threshold sessions with wallet signing-session id', async () => {
-    const apiKeys = createInMemoryConsoleApiKeyService();
-    const { secret } = await createActiveSecret(apiKeys, { scopes: ['accounts.create'] });
-    const signedClaims: Array<Record<string, unknown>> = [];
-    const router = createRelayRouter(
-      makeFakeAuthService({
-        createAccountAndRegisterUser: async () => ({
-          success: true,
-          transactionHash: 'tx-123',
-          thresholdEd25519: {
-            keyVersion: 'threshold-ed25519-hss-v1',
-            recoveryExportCapable: true,
-            relayerKeyId: 'rk-registration-1',
-            publicKey: 'ed25519:registration-key',
-            participantIds: [1, 2],
-            session: {
-              sessionKind: 'jwt',
-              sessionId: 'registration-session-1',
-              walletSigningSessionId: 'wallet-signing-session-1',
-              expiresAtMs: Date.now() + 60_000,
-              participantIds: [1, 2],
-              remainingUses: 5,
-            },
-          },
-          thresholdEcdsa: {
-            ecdsaThresholdKeyId: 'legacy-ecdsa-key-registration-1',
-            signingRootId: 'project-registration:env-registration',
-            signingRootVersion: 'default',
-            relayerKeyId: 'rk-registration-ecdsa-1',
-            thresholdEcdsaPublicKeyB64u: 'group-public-key',
-            ethereumAddress: `0x${'aa'.repeat(20)}`,
-            relayerVerifyingShareB64u: 'relayer-share',
-            participantIds: [1, 2],
-            session: {
-              sessionKind: 'jwt',
-              sessionId: 'registration-ecdsa-session-1',
-              walletSigningSessionId: 'wallet-signing-session-1',
-              subjectId: 'wallet:alice.testnet',
-              keyHandle: 'ehss-key-registration-1',
-              chainTarget: {
-                kind: 'evm' as const,
-                namespace: 'eip155' as const,
-                chainId: 11155111,
-                networkSlug: 'sepolia',
-              },
-              expiresAtMs: Date.now() + 60_000,
-              participantIds: [1, 2],
-              remainingUses: 5,
-            },
-          },
-        }),
-      }),
-      {
-        apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
-        session: makeSessionAdapter({
-          signJwt: async (sub, claims) => {
-            signedClaims.push({ sub, ...(claims as Record<string, unknown>) });
-            return `jwt:${sub}:${String((claims as any).sessionId)}:${String(
-              (claims as any).walletSigningSessionId,
-            )}`;
-          },
-        }),
-      },
-    );
-    const srv = await startExpressRouter(router);
-    try {
-      const res = await fetchJson(`${srv.baseUrl}/registration/bootstrap`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${secret}`,
-        },
-        body: JSON.stringify(makeRegistrationBody()),
-      });
-
-      expect(res.status).toBe(200);
-      expect(res.json?.success).toBe(true);
-      expect((res.json?.thresholdEd25519 as any)?.session?.jwt).toContain(
-        'wallet-signing-session-1',
-      );
-      expect((res.json?.thresholdEcdsa as any)?.session?.jwt).toContain('wallet-signing-session-1');
-      expect(
-        Object.prototype.hasOwnProperty.call(res.json?.thresholdEcdsa || {}, 'ecdsaThresholdKeyId'),
-      ).toBe(false);
-      expect(
-        Object.prototype.hasOwnProperty.call(res.json?.thresholdEcdsa || {}, 'signingRootId'),
-      ).toBe(false);
-      expect(
-        Object.prototype.hasOwnProperty.call(res.json?.thresholdEcdsa || {}, 'signingRootVersion'),
-      ).toBe(false);
-      expect(signedClaims[0]).toMatchObject({
-        kind: 'threshold_ed25519_session_v1',
-        walletId: 'alice.testnet',
-        sessionId: 'registration-session-1',
-        walletSigningSessionId: 'wallet-signing-session-1',
-      });
-      expect(signedClaims[1]).toMatchObject({
-        kind: 'threshold_ecdsa_session_v1',
-        walletId: 'alice.testnet',
-        sessionId: 'registration-ecdsa-session-1',
-        walletSigningSessionId: 'wallet-signing-session-1',
-      });
-    } finally {
-      await srv.close();
-    }
-  });
 
   test('rejects missing API key', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
@@ -241,13 +121,13 @@ test.describe('relay API key auth (express)', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/registration/bootstrap`, {
+      const res = await fetchJson(`${srv.baseUrl}/wallets/register/intent`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Origin: 'https://example.localhost' },
         body: JSON.stringify(makeRegistrationBody()),
       });
       expect(res.status).toBe(401);
-      expect(res.json?.code).toBe('secret_key_missing');
+      expect(String(res.json?.message || '')).toContain('secret_key_missing');
     } finally {
       await srv.close();
     }
@@ -260,16 +140,17 @@ test.describe('relay API key auth (express)', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/registration/bootstrap`, {
+      const res = await fetchJson(`${srv.baseUrl}/wallets/register/intent`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: 'Bearer sk_invalidsecret',
+          Origin: 'https://example.localhost',
         },
         body: JSON.stringify(makeRegistrationBody()),
       });
       expect(res.status).toBe(401);
-      expect(res.json?.code).toBe('secret_key_invalid');
+      expect(String(res.json?.message || '')).toContain('secret_key_invalid');
     } finally {
       await srv.close();
     }
@@ -286,16 +167,17 @@ test.describe('relay API key auth (express)', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/registration/bootstrap`, {
+      const res = await fetchJson(`${srv.baseUrl}/wallets/register/intent`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${secret}`,
+          Origin: 'https://example.localhost',
         },
         body: JSON.stringify(makeRegistrationBody()),
       });
       expect(res.status).toBe(403);
-      expect(res.json?.code).toBe('secret_key_revoked');
+      expect(String(res.json?.message || '')).toContain('secret_key_revoked');
     } finally {
       await srv.close();
     }
@@ -311,16 +193,17 @@ test.describe('relay API key auth (express)', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/registration/bootstrap`, {
+      const res = await fetchJson(`${srv.baseUrl}/wallets/register/intent`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${secret}`,
+          Origin: 'https://example.localhost',
         },
         body: JSON.stringify(makeRegistrationBody()),
       });
       expect(res.status).toBe(403);
-      expect(res.json?.code).toBe('secret_key_forbidden_scope');
+      expect(String(res.json?.message || '')).toContain('secret_key_forbidden_scope');
     } finally {
       await srv.close();
     }
@@ -336,17 +219,18 @@ test.describe('relay API key auth (express)', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/registration/bootstrap`, {
+      const res = await fetchJson(`${srv.baseUrl}/wallets/register/intent`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${secret}`,
+          Origin: 'https://example.localhost',
           'x-seams-environment-id': 'env-stage',
         },
         body: JSON.stringify(makeRegistrationBody()),
       });
       expect(res.status).toBe(403);
-      expect(res.json?.code).toBe('secret_key_environment_mismatch');
+      expect(String(res.json?.message || '')).toContain('secret_key_environment_mismatch');
     } finally {
       await srv.close();
     }
@@ -363,17 +247,18 @@ test.describe('relay API key auth (express)', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/registration/bootstrap`, {
+      const res = await fetchJson(`${srv.baseUrl}/wallets/register/intent`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${secret}`,
+          Origin: 'https://example.localhost',
           'x-forwarded-for': '198.51.100.2',
         },
         body: JSON.stringify(makeRegistrationBody()),
       });
       expect(res.status).toBe(403);
-      expect(res.json?.code).toBe('secret_key_ip_blocked');
+      expect(String(res.json?.message || '')).toContain('secret_key_ip_blocked');
     } finally {
       await srv.close();
     }
@@ -390,16 +275,17 @@ test.describe('relay API key auth (express)', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/registration/bootstrap`, {
+      const res = await fetchJson(`${srv.baseUrl}/wallets/register/intent`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${secret}`,
+          Origin: 'https://example.localhost',
         },
         body: JSON.stringify(makeRegistrationBody()),
       });
       expect(res.status).toBe(403);
-      expect(res.json?.code).toBe('secret_key_revoked');
+      expect(String(res.json?.message || '')).toContain('secret_key_revoked');
     } finally {
       await srv.close();
     }
@@ -422,30 +308,26 @@ test.describe('relay API key auth (express)', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/registration/bootstrap`, {
+      const res = await fetchJson(`${srv.baseUrl}/wallets/register/intent`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${secret}`,
+          Origin: 'https://example.localhost',
           'x-forwarded-for': '127.0.0.1',
           'x-seams-environment-id': 'env-prod',
         },
         body: JSON.stringify(makeRegistrationBody()),
       });
       expect(res.status).toBe(200);
-      expect(res.json?.success).toBe(true);
+      expect(res.json?.ok).toBe(true);
 
       const keys = await apiKeys.listApiKeys(apiKeyCtx);
       const key = keys.find((entry) => entry.id === apiKeyId);
       expect(key).toBeTruthy();
       expect(key?.lastUsedAt).toBeTruthy();
-      expect(Number(key?.endpointUsageCounts['POST /registration/bootstrap'] || 0)).toBe(1);
-      expect(meteredEvents.length).toBe(1);
-      expect(meteredEvents[0]?.action).toBe('wallet_created');
-      expect(meteredEvents[0]?.succeeded).toBe(true);
-      expect(meteredEvents[0]?.orgId).toBe('org-relay-api-keys');
-      expect(meteredEvents[0]?.environmentId).toBe('env-prod');
-      expect(meteredEvents[0]?.walletId).toBe('alice.testnet');
+      expect(Number(key?.endpointUsageCounts['POST /wallets/register/intent'] || 0)).toBe(1);
+      expect(meteredEvents.length).toBe(0);
     } finally {
       await srv.close();
     }
@@ -551,26 +433,22 @@ test.describe('relay API key auth (express)', () => {
       expect(apiKeyId.length).toBeGreaterThan(0);
       expect(apiKeySecret.length).toBeGreaterThan(0);
 
-      const res = await fetchJson(`${srv.baseUrl}/registration/bootstrap`, {
+      const res = await fetchJson(`${srv.baseUrl}/wallets/register/intent`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${apiKeySecret}`,
+          Origin: 'https://example.localhost',
         },
-        body: JSON.stringify({
-          new_account_id: 'alice.w3a-relayer.testnet',
-          rp_id: 'example.localhost',
-          webauthn_registration: makeSerializedRegistrationCredential(),
-        }),
+        body: JSON.stringify(makeRegistrationBody()),
       });
       expect(res.status).toBe(200);
-      expect(res.json?.success).toBe(true);
-      expect(res.json?.transactionHash).toBe('tx-123');
+      expect(res.json?.ok).toBe(true);
 
       const keys = await apiKeys.listApiKeys(apiKeyCtx);
       const key = keys.find((entry) => entry.id === apiKeyId);
       expect(key).toBeTruthy();
-      expect(Number(key?.endpointUsageCounts['POST /registration/bootstrap'] || 0)).toBe(1);
+      expect(Number(key?.endpointUsageCounts['POST /wallets/register/intent'] || 0)).toBe(1);
     } finally {
       await srv.close();
     }
@@ -678,12 +556,13 @@ test.describe('relay API key auth (cloudflare)', () => {
     const { ctx } = makeCfCtx();
     const res = await callCf(handler, {
       method: 'POST',
-      path: '/registration/bootstrap',
+      path: '/wallets/register/intent',
+      origin: 'https://example.localhost',
       body: makeRegistrationBody(),
       ctx,
     });
     expect(res.status).toBe(401);
-    expect(res.json?.code).toBe('secret_key_missing');
+    expect(String(res.json?.message || '')).toContain('secret_key_missing');
   });
 
   test('rejects invalid API key', async () => {
@@ -694,13 +573,14 @@ test.describe('relay API key auth (cloudflare)', () => {
     const { ctx } = makeCfCtx();
     const res = await callCf(handler, {
       method: 'POST',
-      path: '/registration/bootstrap',
+      path: '/wallets/register/intent',
+      origin: 'https://example.localhost',
       headers: { Authorization: 'Bearer sk_invalidsecret' },
       body: makeRegistrationBody(),
       ctx,
     });
     expect(res.status).toBe(401);
-    expect(res.json?.code).toBe('secret_key_invalid');
+    expect(String(res.json?.message || '')).toContain('secret_key_invalid');
   });
 
   test('rejects revoked API key', async () => {
@@ -715,13 +595,14 @@ test.describe('relay API key auth (cloudflare)', () => {
     const { ctx } = makeCfCtx();
     const res = await callCf(handler, {
       method: 'POST',
-      path: '/registration/bootstrap',
+      path: '/wallets/register/intent',
+      origin: 'https://example.localhost',
       headers: { Authorization: `Bearer ${secret}` },
       body: makeRegistrationBody(),
       ctx,
     });
     expect(res.status).toBe(403);
-    expect(res.json?.code).toBe('secret_key_revoked');
+    expect(String(res.json?.message || '')).toContain('secret_key_revoked');
   });
 
   test('rejects key missing required scope', async () => {
@@ -735,13 +616,14 @@ test.describe('relay API key auth (cloudflare)', () => {
     const { ctx } = makeCfCtx();
     const res = await callCf(handler, {
       method: 'POST',
-      path: '/registration/bootstrap',
+      path: '/wallets/register/intent',
+      origin: 'https://example.localhost',
       headers: { Authorization: `Bearer ${secret}` },
       body: makeRegistrationBody(),
       ctx,
     });
     expect(res.status).toBe(403);
-    expect(res.json?.code).toBe('secret_key_forbidden_scope');
+    expect(String(res.json?.message || '')).toContain('secret_key_forbidden_scope');
   });
 
   test('rejects key when environment header mismatches', async () => {
@@ -755,7 +637,8 @@ test.describe('relay API key auth (cloudflare)', () => {
     const { ctx } = makeCfCtx();
     const res = await callCf(handler, {
       method: 'POST',
-      path: '/registration/bootstrap',
+      path: '/wallets/register/intent',
+      origin: 'https://example.localhost',
       headers: {
         Authorization: `Bearer ${secret}`,
         'x-seams-environment-id': 'env-stage',
@@ -764,7 +647,7 @@ test.describe('relay API key auth (cloudflare)', () => {
       ctx,
     });
     expect(res.status).toBe(403);
-    expect(res.json?.code).toBe('secret_key_environment_mismatch');
+    expect(String(res.json?.message || '')).toContain('secret_key_environment_mismatch');
   });
 
   test('rejects key blocked by IP allowlist', async () => {
@@ -779,7 +662,8 @@ test.describe('relay API key auth (cloudflare)', () => {
     const { ctx } = makeCfCtx();
     const res = await callCf(handler, {
       method: 'POST',
-      path: '/registration/bootstrap',
+      path: '/wallets/register/intent',
+      origin: 'https://example.localhost',
       headers: {
         Authorization: `Bearer ${secret}`,
         'cf-connecting-ip': '198.51.100.55',
@@ -788,7 +672,7 @@ test.describe('relay API key auth (cloudflare)', () => {
       ctx,
     });
     expect(res.status).toBe(403);
-    expect(res.json?.code).toBe('secret_key_ip_blocked');
+    expect(String(res.json?.message || '')).toContain('secret_key_ip_blocked');
   });
 
   test('rejects expired API key', async () => {
@@ -803,13 +687,14 @@ test.describe('relay API key auth (cloudflare)', () => {
     const { ctx } = makeCfCtx();
     const res = await callCf(handler, {
       method: 'POST',
-      path: '/registration/bootstrap',
+      path: '/wallets/register/intent',
+      origin: 'https://example.localhost',
       headers: { Authorization: `Bearer ${secret}` },
       body: makeRegistrationBody(),
       ctx,
     });
     expect(res.status).toBe(403);
-    expect(res.json?.code).toBe('secret_key_revoked');
+    expect(String(res.json?.message || '')).toContain('secret_key_revoked');
   });
 
   test('accepts valid scoped key and records usage', async () => {
@@ -830,7 +715,8 @@ test.describe('relay API key auth (cloudflare)', () => {
     const { ctx } = makeCfCtx();
     const res = await callCf(handler, {
       method: 'POST',
-      path: '/registration/bootstrap',
+      path: '/wallets/register/intent',
+      origin: 'https://example.localhost',
       headers: {
         Authorization: `Bearer ${secret}`,
         'cf-connecting-ip': '203.0.113.20',
@@ -840,19 +726,14 @@ test.describe('relay API key auth (cloudflare)', () => {
       ctx,
     });
     expect(res.status).toBe(200);
-    expect(res.json?.success).toBe(true);
+    expect(res.json?.ok).toBe(true);
 
     const keys = await apiKeys.listApiKeys(apiKeyCtx);
     const key = keys.find((entry) => entry.id === apiKeyId);
     expect(key).toBeTruthy();
     expect(key?.lastUsedAt).toBeTruthy();
-    expect(Number(key?.endpointUsageCounts['POST /registration/bootstrap'] || 0)).toBe(1);
-    expect(meteredEvents.length).toBe(1);
-    expect(meteredEvents[0]?.action).toBe('wallet_created');
-    expect(meteredEvents[0]?.succeeded).toBe(true);
-    expect(meteredEvents[0]?.orgId).toBe('org-relay-api-keys');
-    expect(meteredEvents[0]?.environmentId).toBe('env-prod');
-    expect(meteredEvents[0]?.walletId).toBe('alice.testnet');
+    expect(Number(key?.endpointUsageCounts['POST /wallets/register/intent'] || 0)).toBe(1);
+    expect(meteredEvents.length).toBe(0);
   });
 
   test('API credential wallet routes require wallets.read scope and stay bound to the key environment', async () => {

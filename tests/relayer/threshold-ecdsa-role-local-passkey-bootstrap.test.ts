@@ -230,7 +230,45 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
     }
   });
 
-  test('allows Ed25519 threshold session auth to reconnect an existing role-local ECDSA key', async () => {
+  test('rejects object-shaped fake WebAuthn before bootstrapping relayer state', async () => {
+    const fakeObjectAuthentication = { fake: true, response: { signature: 'unsigned' } };
+    const body = await makeBootstrapBody({
+      passkeyBootstrapAuthorization: {
+        kind: 'passkey_bootstrap',
+        webauthn_authentication: fakeObjectAuthentication,
+        runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+      },
+    });
+    const harness = await startPasskeyBootstrapRoute({
+      verifyResult: {
+        success: false,
+        verified: false,
+        code: 'invalid_assertion',
+        message: 'Invalid passkey bootstrap authorization',
+      },
+    });
+    try {
+      const response = await fetchJson(`${harness.server.baseUrl}/threshold-ecdsa/hss/bootstrap`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      expect(response.json).toMatchObject({
+        ok: false,
+        code: 'invalid_assertion',
+      });
+      expect(harness.verifyCalls).toHaveLength(1);
+      expect(harness.verifyCalls[0]).toMatchObject({
+        webauthn_authentication: fakeObjectAuthentication,
+      });
+      expect(harness.bootstrapCalls).toHaveLength(0);
+    } finally {
+      await harness.server.close();
+    }
+  });
+
+  test('rejects Ed25519 threshold session auth for role-local ECDSA bootstrap', async () => {
     const body = await makeBootstrapBody({
       passkeyBootstrapAuthorization: undefined,
     });
@@ -262,15 +300,11 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
         body: JSON.stringify(body),
       });
 
-      expect(response.json?.ok).toBe(true);
+      expect(response.status).toBe(401);
+      expect(response.json?.ok).toBe(false);
+      expect(response.json?.message).toBe('First bootstrap requires client root proof');
       expect(harness.verifyCalls).toHaveLength(0);
-      expect(harness.bootstrapCalls).toHaveLength(1);
-      expect(harness.bootstrapCalls[0]).toMatchObject({
-        walletSessionUserId: WALLET_SESSION_USER_ID,
-        rpId: RP_ID,
-        relayerKeyId: body.relayerKeyId,
-        ecdsaThresholdKeyId: body.ecdsaThresholdKeyId,
-      });
+      expect(harness.bootstrapCalls).toHaveLength(0);
     } finally {
       await harness.server.close();
     }

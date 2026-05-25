@@ -23,11 +23,15 @@ import { restoreLocalLoginState } from '../restoreLocalLoginState';
 import { linkDeviceWithScannedQRData as linkDeviceWithScannedQRDataDevice1 } from '../scanDevice';
 import { DEVICE_LINKING_CONFIG } from '../../../config';
 import { normalizeRegistrationCredential } from '../../signingEngine/webauthnAuth/credentials/helpers';
-import { redactCredentialExtensionOutputs } from '../../signingEngine/webauthnAuth/credentials/credentialExtensions';
-import { getPrfFirstB64uFromCredential } from '../../signingEngine/threshold/crypto/webauthn';
+import {
+  redactCredentialExtensionOutputs,
+} from '../../signingEngine/webauthnAuth/credentials/credentialExtensions';
+import { derivePasskeyThresholdEcdsaClientRootShare32B64uFromCredential } from '../../signingEngine/session/passkey/ecdsaClientRoot';
 import { DEFAULT_WAIT_STATUS } from '../../types/rpc';
 import { ActionType, type ActionArgsWasm } from '../../types/actions';
 import type { WebAuthnRegistrationCredential } from '../../types/webauthn';
+import { THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANTS_V1 } from '@shared/threshold/secp256k1Ecdsa2pShareMapping';
+import { walletSubjectIdFromString } from '@shared/utils/registrationIntent';
 import {
   buildThresholdWarmSessionRequestEnvelope,
   createThresholdWarmSessionPolicyDraft,
@@ -36,23 +40,19 @@ import {
   reconstructThresholdEd25519ClientBaseFromWarmSession,
   storeThresholdEd25519KeyMaterial,
 } from '../thresholdWarmSessionBootstrap';
-import {
-  THRESHOLD_SESSION_POLICY_VERSION,
-  generateThresholdSessionId,
-  generateWalletSigningSessionId,
-} from '../../signingEngine/threshold/sessionPolicy';
+import { listThresholdEcdsaProvisionTargets } from '../thresholdEcdsaProvisioning';
+import { normalizeThresholdRuntimePolicyScope } from '../../signingEngine/threshold/sessionPolicy';
+import type {
+  WalletRegistrationEcdsaClientBootstrap,
+  WalletRegistrationEcdsaPrepareContext,
+  WalletRegistrationEcdsaWalletKey,
+} from '../../rpcClients/relayer/walletRegistration';
 import {
   nearAccountRefFromAccountId,
-  toWalletId,
-  toWalletSubjectId,
+  thresholdEcdsaChainTargetFromRequest,
   type NearAccountRef,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { listThresholdEcdsaProvisionTargets } from '../thresholdEcdsaProvisioning';
-import {
-  persistLinkDeviceThresholdEcdsaBootstrap,
-  type PreparedLinkDeviceThresholdEcdsa,
-} from '../evm/linkDeviceThresholdEcdsa';
 
 type DeterministicKeysResultLike = {
   nearPublicKey?: string;
@@ -84,6 +84,93 @@ function coercePositiveInt(value: unknown, fallback: number): number {
   const n = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(n) || n <= 0) return Math.max(1, Math.floor(fallback));
   return Math.floor(n);
+}
+
+function requireLinkDeviceString(value: unknown, field: string): string {
+  const text = String(value || '').trim();
+  if (!text) throw new Error(`link-device ECDSA response missing ${field}`);
+  return text;
+}
+
+function parseLinkDeviceEcdsaPrepare(value: unknown): WalletRegistrationEcdsaPrepareContext {
+  if (!isObject(value)) throw new Error('link-device/prepare returned invalid ECDSA prepare data');
+  const participantIds = Array.isArray(value.participantIds)
+    ? value.participantIds.map((participantId) => Number(participantId))
+    : [];
+  if (participantIds.some((participantId) => !Number.isSafeInteger(participantId) || participantId <= 0)) {
+    throw new Error('link-device/prepare returned invalid ECDSA participant ids');
+  }
+  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(value.runtimePolicyScope);
+  return {
+    formatVersion: 'ecdsa-hss-role-local',
+    walletSessionUserId: requireLinkDeviceString(value.walletSessionUserId, 'walletSessionUserId'),
+    rpId: requireLinkDeviceString(value.rpId, 'rpId'),
+    subjectId: requireLinkDeviceString(value.subjectId, 'subjectId'),
+    ecdsaThresholdKeyId: requireLinkDeviceString(value.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId'),
+    signingRootId: requireLinkDeviceString(value.signingRootId, 'signingRootId'),
+    signingRootVersion: requireLinkDeviceString(value.signingRootVersion, 'signingRootVersion'),
+    keyScope: 'evm-family',
+    relayerKeyId: requireLinkDeviceString(value.relayerKeyId, 'relayerKeyId'),
+    requestId: requireLinkDeviceString(value.requestId, 'requestId'),
+    sessionId: requireLinkDeviceString(value.sessionId, 'sessionId'),
+    walletSigningSessionId: requireLinkDeviceString(
+      value.walletSigningSessionId,
+      'walletSigningSessionId',
+    ),
+    ttlMs: coercePositiveInt(value.ttlMs, 1),
+    remainingUses: coercePositiveInt(value.remainingUses, 1),
+    participantIds,
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+  };
+}
+
+function parseLinkDeviceEcdsaWalletKeys(value: unknown): WalletRegistrationEcdsaWalletKey[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error('link-device/ecdsa/respond returned no ECDSA wallet keys');
+  }
+  return value.map((raw) => {
+    if (!isObject(raw)) throw new Error('link-device/ecdsa/respond returned invalid wallet key');
+    const chainTargetRaw = isObject(raw.chainTarget) ? raw.chainTarget : null;
+    if (!chainTargetRaw) {
+      throw new Error('link-device/ecdsa/respond returned wallet key without chain target');
+    }
+    const chainTarget: ThresholdEcdsaChainTarget =
+      thresholdEcdsaChainTargetFromRequest(chainTargetRaw);
+    const participantIds = Array.isArray(raw.participantIds)
+      ? raw.participantIds.map((participantId) => Number(participantId))
+      : [];
+    if (
+      participantIds.length === 0 ||
+      participantIds.some((participantId) => !Number.isSafeInteger(participantId) || participantId <= 0)
+    ) {
+      throw new Error('link-device/ecdsa/respond returned invalid wallet key participant ids');
+    }
+    return {
+      keyScope: 'evm-family',
+      chainTarget,
+      walletSessionUserId: requireLinkDeviceString(raw.walletSessionUserId, 'walletSessionUserId'),
+      rpId: requireLinkDeviceString(raw.rpId, 'rpId'),
+      subjectId: requireLinkDeviceString(raw.subjectId, 'subjectId'),
+      keyHandle: requireLinkDeviceString(raw.keyHandle, 'keyHandle'),
+      ecdsaThresholdKeyId: requireLinkDeviceString(raw.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId'),
+      signingRootId: requireLinkDeviceString(raw.signingRootId, 'signingRootId'),
+      signingRootVersion: requireLinkDeviceString(raw.signingRootVersion, 'signingRootVersion'),
+      thresholdEcdsaPublicKeyB64u: requireLinkDeviceString(
+        raw.thresholdEcdsaPublicKeyB64u,
+        'thresholdEcdsaPublicKeyB64u',
+      ),
+      thresholdOwnerAddress: requireLinkDeviceString(
+        raw.thresholdOwnerAddress,
+        'thresholdOwnerAddress',
+      ),
+      relayerKeyId: requireLinkDeviceString(raw.relayerKeyId, 'relayerKeyId'),
+      relayerVerifyingShareB64u: requireLinkDeviceString(
+        raw.relayerVerifyingShareB64u,
+        'relayerVerifyingShareB64u',
+      ),
+      participantIds,
+    };
+  });
 }
 
 // Lazy-load QRCode to keep it an optional peer and reduce baseline bundle size.
@@ -415,53 +502,17 @@ export class LinkDeviceFlow {
       rpId,
       requestedPolicy: thresholdWarmPolicy,
     });
-    const thresholdEcdsaProvisionTargets = listThresholdEcdsaProvisionTargets({
+    const ecdsaProvisionTargets = listThresholdEcdsaProvisionTargets({
       signerOptions: this.context.configs.signing.thresholdEcdsa.provisioningDefaults,
       chains: this.context.configs.network.chains,
     });
-    const thresholdEcdsaPrimaryProvisionTarget = thresholdEcdsaProvisionTargets[0] || null;
-    let thresholdEcdsaClientRootShare32B64u: string | null = null;
-    let thresholdEcdsaSessionPolicy: {
-      version: 'threshold_session_v1';
-      walletSessionUserId: string;
-      subjectId: string;
-      chainTarget: ThresholdEcdsaChainTarget;
-      rpId: string;
-      sessionId: string;
-      walletSigningSessionId: string;
-      participantIds?: number[];
-      ttlMs: number;
-      remainingUses: number;
-    } | null = null;
-    if (thresholdEcdsaPrimaryProvisionTarget) {
-      thresholdEcdsaClientRootShare32B64u = String(
-        getPrfFirstB64uFromCredential(credential) || '',
-      ).trim();
-      if (!thresholdEcdsaClientRootShare32B64u) {
-        throw new Error('Failed to derive threshold secp256k1 client root share');
-      }
-      if (thresholdEcdsaPrimaryProvisionTarget.options.signingSession.kind !== 'jwt') {
-        throw new Error('Threshold ECDSA link-device bootstrap requires sessionKind=jwt');
-      }
-      thresholdEcdsaSessionPolicy = {
-        version: THRESHOLD_SESSION_POLICY_VERSION,
-        walletSessionUserId: String(nearAccountId),
-        subjectId: toWalletSubjectId(String(nearAccountId)),
-        chainTarget: thresholdEcdsaPrimaryProvisionTarget.chainTarget,
-        rpId,
-        sessionId: generateThresholdSessionId(),
-        walletSigningSessionId: generateWalletSigningSessionId(),
-        ttlMs: coercePositiveInt(
-          thresholdEcdsaPrimaryProvisionTarget.options.signingSession.ttlMs,
-          24 * 60 * 60 * 1000,
-        ),
-        remainingUses: coercePositiveInt(
-          thresholdEcdsaPrimaryProvisionTarget.options.signingSession.remainingUses,
-          10_000,
-        ),
-      };
+    const shouldPrepareEcdsa = Boolean(this.session?.sessionId && ecdsaProvisionTargets.length > 0);
+    const clientRootShare32B64u = shouldPrepareEcdsa
+      ? await derivePasskeyThresholdEcdsaClientRootShare32B64uFromCredential(credential)
+      : '';
+    if (shouldPrepareEcdsa && !clientRootShare32B64u) {
+      throw new Error('Failed to derive Link Device ECDSA client root share from passkey');
     }
-
     const credentialForRelay = redactCredentialExtensionOutputs(
       normalizeRegistrationCredential(credential),
     );
@@ -473,12 +524,11 @@ export class LinkDeviceFlow {
         ...(this.session?.sessionId ? { session_id: this.session.sessionId } : {}),
         signer_slot: resolvedSignerSlot,
         threshold_ed25519: thresholdWarmSessionRequest,
-        ...(thresholdEcdsaClientRootShare32B64u && thresholdEcdsaSessionPolicy
+        ...(shouldPrepareEcdsa
           ? {
-              threshold_ecdsa: {
-                client_root_share32_b64u: thresholdEcdsaClientRootShare32B64u,
-                session_policy: thresholdEcdsaSessionPolicy,
-                session_kind: 'jwt',
+              threshold_ecdsa_prepare: {
+                chainTargets: ecdsaProvisionTargets.map((target) => target.chainTarget),
+                participantIds: [...THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANTS_V1.participantIds],
               },
             }
           : {}),
@@ -509,68 +559,12 @@ export class LinkDeviceFlow {
     if (!thresholdSession) {
       throw new Error('link-device/prepare did not return threshold session bootstrap data');
     }
-    const thresholdEcdsaSection: PreparedLinkDeviceThresholdEcdsa | null = isObject(
-      prepareObj.thresholdEcdsa,
-    )
-      ? {
-          ...(String(prepareObj.thresholdEcdsa.keyHandle || '').trim()
-            ? { keyHandle: String(prepareObj.thresholdEcdsa.keyHandle || '').trim() }
-            : {}),
-          ecdsaThresholdKeyId: String(
-            prepareObj.thresholdEcdsa.ecdsaThresholdKeyId ||
-              (isObject(prepareObj.thresholdEcdsa.session)
-                ? prepareObj.thresholdEcdsa.session.ecdsaThresholdKeyId
-                : '') ||
-              '',
-          ).trim(),
-          signingRootId: String(
-            prepareObj.thresholdEcdsa.signingRootId ||
-              (isObject(prepareObj.thresholdEcdsa.session)
-                ? prepareObj.thresholdEcdsa.session.signingRootId
-                : '') ||
-              '',
-          ).trim(),
-          ...(String(
-            prepareObj.thresholdEcdsa.signingRootVersion ||
-              (isObject(prepareObj.thresholdEcdsa.session)
-                ? prepareObj.thresholdEcdsa.session.signingRootVersion
-                : '') ||
-              '',
-          ).trim()
-            ? {
-                signingRootVersion: String(
-                  prepareObj.thresholdEcdsa.signingRootVersion ||
-                    (isObject(prepareObj.thresholdEcdsa.session)
-                      ? prepareObj.thresholdEcdsa.session.signingRootVersion
-                      : '') ||
-                    '',
-                ).trim(),
-              }
-            : {}),
-          clientVerifyingShareB64u: String(
-            prepareObj.thresholdEcdsa.clientVerifyingShareB64u || '',
-          ).trim(),
-          clientAdditiveShare32B64u: String(
-            prepareObj.thresholdEcdsa.clientAdditiveShare32B64u || '',
-          ).trim(),
-          relayerKeyId: String(prepareObj.thresholdEcdsa.relayerKeyId || '').trim(),
-          thresholdEcdsaPublicKeyB64u: String(prepareObj.thresholdEcdsa.thresholdEcdsaPublicKeyB64u || '').trim(),
-          ethereumAddress: String(prepareObj.thresholdEcdsa.ethereumAddress || '').trim(),
-          relayerVerifyingShareB64u: String(
-            prepareObj.thresholdEcdsa.relayerVerifyingShareB64u || '',
-          ).trim(),
-          ...(Array.isArray(prepareObj.thresholdEcdsa.participantIds)
-            ? { participantIds: prepareObj.thresholdEcdsa.participantIds as number[] }
-            : {}),
-          ...(isObject(prepareObj.thresholdEcdsa.session)
-            ? {
-                session: prepareObj.thresholdEcdsa
-                  .session as PreparedLinkDeviceThresholdEcdsa['session'],
-              }
-            : {}),
-        }
-      : null;
-
+    const ecdsaSection = isObject(prepareObj.ecdsa) ? prepareObj.ecdsa : null;
+    const ecdsaPrepare =
+      shouldPrepareEcdsa && ecdsaSection ? parseLinkDeviceEcdsaPrepare(ecdsaSection.prepare) : null;
+    if (shouldPrepareEcdsa && !ecdsaPrepare) {
+      throw new Error('link-device/prepare did not return ECDSA prepare data');
+    }
     this.safeOnEvent({
       phase: LinkDeviceEventPhase.STEP_04_LINK_REQUEST_SUBMITTED,
       status: 'running',
@@ -683,16 +677,35 @@ export class LinkDeviceFlow {
         ? thresholdSection.participantIds
         : undefined,
     });
-    if (thresholdEcdsaSection && thresholdEcdsaSessionPolicy) {
-      await persistLinkDeviceThresholdEcdsaBootstrap({
-        signingEngine: this.context.signingEngine,
-        walletId: toWalletId(nearAccountId),
-        relayerUrl,
-        chainTarget: thresholdEcdsaSessionPolicy.chainTarget,
-        thresholdEcdsa: thresholdEcdsaSection,
+    if (ecdsaPrepare && this.session?.sessionId) {
+      const clientBootstrap: WalletRegistrationEcdsaClientBootstrap =
+        await this.context.signingEngine.prepareWalletRegistrationEcdsaClientBootstrap({
+          prepare: ecdsaPrepare,
+          clientRootShare32B64u,
+        });
+      const ecdsaResp = await fetch(joinNormalizedUrl(relayerUrl, '/link-device/ecdsa/respond'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: this.session.sessionId,
+          client_bootstrap: clientBootstrap,
+        }),
+      });
+      const ecdsaJson: unknown = await ecdsaResp.json().catch(() => ({}));
+      const ecdsaObj = isObject(ecdsaJson) ? ecdsaJson : {};
+      if (!ecdsaResp.ok || ecdsaObj.ok !== true) {
+        throw new Error(
+          String(ecdsaObj.message || ecdsaObj.error || '') ||
+            `link-device/ecdsa/respond failed (HTTP ${ecdsaResp.status})`,
+        );
+      }
+      const ecdsaResult = isObject(ecdsaObj.ecdsa) ? ecdsaObj.ecdsa : {};
+      const walletKeys = parseLinkDeviceEcdsaWalletKeys(ecdsaResult.walletKeys);
+      await this.context.signingEngine.storeWalletSubjectEcdsaSignerRecords({
+        walletSubjectId: walletSubjectIdFromString(String(nearAccountId)),
+        walletKeys,
       });
     }
-
     // Auto-login: set last-user + warm login state so the device is immediately usable.
     await this.attemptAutoLogin({ nearAccount, signerSlot: resolvedSignerSlot });
 

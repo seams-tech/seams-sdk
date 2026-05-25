@@ -14,3 +14,5 @@ export * from './recoveryEmail';
 export * from './paillier';
 export * from './signingSessionSeal';
 export * from './emailOtpRecoveryKey';
+export * from './registrationIntent';
+export * from './ecdsaKeyFactsInventory';

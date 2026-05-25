@@ -16,7 +16,11 @@ import {
   redisGetJson,
   redisSetJson,
 } from './ThresholdService/kv';
-import { getPostgresPool, getPostgresUrlFromConfig } from '../storage/postgres';
+import {
+  getPostgresPool,
+  getPostgresUrlFromConfig,
+  type PgQueryExecutor,
+} from '../storage/postgres';
 
 export type WebAuthnAuthenticatorRecord = {
   version: 'webauthn_authenticator_v1';
@@ -49,7 +53,9 @@ function toPrefixWithColon(prefix: unknown, defaultPrefix: string): string {
   return p.endsWith(':') ? p : `${p}:`;
 }
 
-function toWebAuthnAuthenticatorPrefix(config: Record<string, unknown>): string {
+export function resolveWebAuthnAuthenticatorStoreNamespace(
+  config: Record<string, unknown>,
+): string {
   const explicit = toOptionalTrimmedString(config.WEBAUTHN_AUTHENTICATOR_PREFIX);
   if (explicit) return toPrefixWithColon(explicit, '');
 
@@ -81,6 +87,41 @@ function parseWebAuthnAuthenticatorRecord(raw: unknown): WebAuthnAuthenticatorRe
     createdAtMs: Math.floor(createdAtMs),
     updatedAtMs: Math.floor(updatedAtMs),
   };
+}
+
+export async function putWebAuthnAuthenticatorRecordWithExecutor(input: {
+  executor: PgQueryExecutor;
+  namespace: string;
+  userId: string;
+  record: WebAuthnAuthenticatorRecord;
+}): Promise<void> {
+  const uid = toOptionalTrimmedString(input.userId);
+  if (!uid) throw new Error('Missing userId');
+  const parsed = parseWebAuthnAuthenticatorRecord(input.record);
+  if (!parsed) throw new Error('Invalid authenticator record');
+  await input.executor.query(
+    `
+      INSERT INTO webauthn_authenticators (
+        namespace, user_id, credential_id_b64u, credential_public_key_b64u, counter, created_at_ms, updated_at_ms
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      ON CONFLICT (namespace, user_id, credential_id_b64u)
+      DO UPDATE SET
+        credential_public_key_b64u = EXCLUDED.credential_public_key_b64u,
+        counter = GREATEST(webauthn_authenticators.counter, EXCLUDED.counter),
+        created_at_ms = LEAST(webauthn_authenticators.created_at_ms, EXCLUDED.created_at_ms),
+        updated_at_ms = GREATEST(webauthn_authenticators.updated_at_ms, EXCLUDED.updated_at_ms)
+    `,
+    [
+      input.namespace,
+      uid,
+      parsed.credentialIdB64u,
+      parsed.credentialPublicKeyB64u,
+      parsed.counter,
+      parsed.createdAtMs,
+      parsed.updatedAtMs,
+    ],
+  );
 }
 
 class InMemoryWebAuthnAuthenticatorStore implements WebAuthnAuthenticatorStore {
@@ -364,34 +405,13 @@ class PostgresWebAuthnAuthenticatorStore implements WebAuthnAuthenticatorStore {
   }
 
   async put(userId: string, record: WebAuthnAuthenticatorRecord): Promise<void> {
-    const uid = toOptionalTrimmedString(userId);
-    if (!uid) throw new Error('Missing userId');
-    const parsed = parseWebAuthnAuthenticatorRecord(record);
-    if (!parsed) throw new Error('Invalid authenticator record');
     const pool = await this.poolPromise;
-    await pool.query(
-      `
-        INSERT INTO webauthn_authenticators (
-          namespace, user_id, credential_id_b64u, credential_public_key_b64u, counter, created_at_ms, updated_at_ms
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        ON CONFLICT (namespace, user_id, credential_id_b64u)
-        DO UPDATE SET
-          credential_public_key_b64u = EXCLUDED.credential_public_key_b64u,
-          counter = GREATEST(webauthn_authenticators.counter, EXCLUDED.counter),
-          created_at_ms = LEAST(webauthn_authenticators.created_at_ms, EXCLUDED.created_at_ms),
-          updated_at_ms = GREATEST(webauthn_authenticators.updated_at_ms, EXCLUDED.updated_at_ms)
-      `,
-      [
-        this.namespace,
-        uid,
-        parsed.credentialIdB64u,
-        parsed.credentialPublicKeyB64u,
-        parsed.counter,
-        parsed.createdAtMs,
-        parsed.updatedAtMs,
-      ],
-    );
+    await putWebAuthnAuthenticatorRecordWithExecutor({
+      executor: pool,
+      namespace: this.namespace,
+      userId,
+      record,
+    });
   }
 
   async del(userId: string, credentialIdB64u: string): Promise<void> {
@@ -442,7 +462,7 @@ export function createWebAuthnAuthenticatorStore(input: {
   isNode: boolean;
 }): WebAuthnAuthenticatorStore {
   const config = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
-  const prefix = toWebAuthnAuthenticatorPrefix(config);
+  const prefix = resolveWebAuthnAuthenticatorStoreNamespace(config);
 
   const kind = toOptionalTrimmedString(config.kind);
   if (kind === 'cloudflare-do') {

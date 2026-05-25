@@ -688,9 +688,7 @@ export function createAccountSyncFlowEvent(
   });
 }
 
-export function createKeyExportFlowEvent(
-  input: CreateKeyExportFlowEventInput,
-): KeyExportFlowEvent {
+export function createKeyExportFlowEvent(input: CreateKeyExportFlowEventInput): KeyExportFlowEvent {
   return createWalletFlowEvent({
     ...input,
     flow: 'key_export',
@@ -746,6 +744,31 @@ export interface LoginHooksOptions {
   onEvent?: EventCallback<UnlockFlowEvent>;
   onError?: (error: Error) => void;
   afterCall?: AfterCall<LoginAndCreateSessionResult>;
+  unlockSelection?:
+    | {
+        mode: 'ed25519_only';
+        ed25519: true;
+        ecdsa?: never;
+      }
+    | {
+        mode: 'ecdsa_only';
+        ecdsa: true;
+        ed25519?: never;
+      }
+    | {
+        mode: 'ed25519_and_ecdsa';
+        ed25519: true;
+        ecdsa: true;
+      };
+  ecdsaKeyFactsRepair?:
+    | {
+        mode: 'app_session';
+        appSessionJwt?: string;
+        policyTtlMs?: number;
+      }
+    | {
+        mode: 'webauthn';
+      };
   /**
    * Optional signer-slot hint.
    *

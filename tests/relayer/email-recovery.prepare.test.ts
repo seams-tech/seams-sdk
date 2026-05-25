@@ -55,28 +55,73 @@ function makePreparedRecoveryService() {
           remainingUses: 5,
         },
       },
-      thresholdEcdsa: {
-        relayerKeyId: 'rk-evm',
-        thresholdEcdsaPublicKeyB64u: 'group-public-key',
-        ethereumAddress: `0x${'11'.repeat(20)}`,
-        relayerVerifyingShareB64u: 'evm-share',
+      ecdsa: {
+        kind: 'evm_family_ecdsa_keygen' as const,
+        chainTargets: [{ kind: 'evm' as const, namespace: 'eip155' as const, chainId: 1 }],
+        prepare: {
+          formatVersion: 'ecdsa-hss-role-local' as const,
+          walletSessionUserId: 'alice.testnet',
+          rpId: 'wallet.example.test',
+          subjectId: 'alice.testnet',
+          ecdsaThresholdKeyId: 'ecdsa-threshold-key',
+          signingRootId: 'root-id',
+          signingRootVersion: 'root-v1',
+          keyScope: 'evm-family' as const,
+          relayerKeyId: 'ecdsa-relayer-key',
+          requestId: 'ABC123:ecdsa',
+          sessionId: 'tehss_ABC123',
+          walletSigningSessionId: 'wss_ABC123',
+          ttlMs: 60_000,
+          remainingUses: 1,
+          participantIds: [1, 2],
+        },
+      },
+    }),
+    respondEmailRecoveryEcdsa: async () => ({
+      ok: true,
+      accountId: 'alice.testnet',
+      requestId: 'ABC123',
+      signerSlot: 7,
+      credentialIdB64u: 'cred-b64u',
+      thresholdEd25519: {
+        relayerKeyId: 'rk-near',
+        publicKey: 'ed25519:recovery-key',
+        keyVersion: THRESHOLD_ED25519_TEST_KEY_VERSION,
+        recoveryExportCapable: true as const,
         participantIds: [1, 2],
         session: {
-          sessionKind: 'jwt',
-          sessionId: 'evm-session-1',
+          sessionKind: 'jwt' as const,
+          sessionId: 'near-session-1',
           walletSigningSessionId: 'wallet-signing-session-1',
-          subjectId: 'wallet:alice.testnet',
-          keyHandle: 'ehss-key-email-recovery-1',
-          chainTarget: {
-            kind: 'evm' as const,
-            namespace: 'eip155' as const,
-            chainId: 11155111,
-            networkSlug: 'sepolia',
-          },
           expiresAtMs: Date.now() + 60_000,
           participantIds: [1, 2],
           remainingUses: 5,
         },
+      },
+      ecdsa: {
+        bootstrap: {
+          formatVersion: 'ecdsa-hss-role-local',
+          walletSessionUserId: 'alice.testnet',
+          rpId: 'wallet.example.test',
+          subjectId: 'alice.testnet',
+          ecdsaThresholdKeyId: 'ecdsa-threshold-key',
+          signingRootId: 'root-id',
+          signingRootVersion: 'root-v1',
+          keyScope: 'evm-family',
+          relayerKeyId: 'ecdsa-relayer-key',
+          requestId: 'ABC123:ecdsa',
+          sessionId: 'tehss_ABC123',
+          walletSigningSessionId: 'wss_ABC123',
+          ttlMs: 60_000,
+          remainingUses: 1,
+          participantIds: [1, 2],
+          clientPublicKey33B64u: 'client-pub',
+          relayerVerifyingShareB64u: 'relayer-share',
+          thresholdEcdsaPublicKeyB64u: 'threshold-pub',
+          keyHandle: 'key-handle',
+          ethereumAddress: '0xabc',
+        } as any,
+        walletKeys: [],
       },
       recoverySession: {
         sessionId: 'ABC123',
@@ -97,7 +142,7 @@ function makePreparedRecoveryService() {
 }
 
 test.describe('email-recovery prepare routing', () => {
-  test('express route signs and returns both threshold session auth tokens', async () => {
+  test('express route signs and returns threshold Ed25519 session auth token', async () => {
     const session = makeSessionAdapter({
       signJwt: async (sub, claims) => `jwt:${sub}:${String((claims as any)?.sessionId || '')}`,
     });
@@ -116,25 +161,20 @@ test.describe('email-recovery prepare routing', () => {
           rp_id: 'wallet.example.test',
           webauthn_registration: { id: 'cred-1' },
           threshold_ed25519: makeThresholdEd25519PrepareRequest(),
-          threshold_ecdsa: { client_root_share32_b64u: 'evm-root-share' },
         }),
       });
 
       expect(res.status).toBe(200);
       expect(res.json?.thresholdEd25519).toBeTruthy();
-      expect(res.json?.thresholdEcdsa).toBeTruthy();
       expect((res.json?.thresholdEd25519 as any)?.session?.jwt).toContain('near-session-1');
-      expect((res.json?.thresholdEcdsa as any)?.session?.jwt).toContain('evm-session-1');
-      expect(
-        Object.prototype.hasOwnProperty.call(res.json?.thresholdEcdsa || {}, 'ecdsaThresholdKeyId'),
-      ).toBe(false);
-      expect((res.json?.recoverySession as any)?.sessionId).toBe('ABC123');
+      expect((res.json?.ecdsa as any)?.prepare?.sessionId).toBe('tehss_ABC123');
+      expect(res.json?.recoverySession).toBeUndefined();
     } finally {
       await srv.close();
     }
   });
 
-  test('cloudflare route signs and returns both threshold session auth tokens', async () => {
+  test('cloudflare route signs and returns threshold Ed25519 session auth token', async () => {
     const session = makeSessionAdapter({
       signJwt: async (sub, claims) => `jwt:${sub}:${String((claims as any)?.sessionId || '')}`,
     });
@@ -153,16 +193,37 @@ test.describe('email-recovery prepare routing', () => {
         rp_id: 'wallet.example.test',
         webauthn_registration: { id: 'cred-1' },
         threshold_ed25519: makeThresholdEd25519PrepareRequest(),
-        threshold_ecdsa: { client_root_share32_b64u: 'evm-root-share' },
       },
     });
 
     expect(res.status).toBe(200);
     expect((res.json?.thresholdEd25519 as any)?.session?.jwt).toContain('near-session-1');
-    expect((res.json?.thresholdEcdsa as any)?.session?.jwt).toContain('evm-session-1');
-    expect(
-      Object.prototype.hasOwnProperty.call(res.json?.thresholdEcdsa || {}, 'ecdsaThresholdKeyId'),
-    ).toBe(false);
-    expect((res.json?.recoverySession as any)?.status).toBe('prepared');
+    expect((res.json?.ecdsa as any)?.prepare?.sessionId).toBe('tehss_ABC123');
+    expect(res.json?.recoverySession).toBeUndefined();
+  });
+
+  test('express ECDSA respond signs session and returns canonical recovery email', async () => {
+    const session = makeSessionAdapter({
+      signJwt: async (sub, claims) => `jwt:${sub}:${String((claims as any)?.sessionId || '')}`,
+    });
+    const router = createRelayRouter(makePreparedRecoveryService(), { session });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/email-recovery/ecdsa/respond`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          request_id: 'ABC123',
+          client_bootstrap: { requestId: 'ABC123:ecdsa' },
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      expect((res.json?.thresholdEd25519 as any)?.session?.jwt).toContain('near-session-1');
+      expect((res.json?.recoverySession as any)?.sessionId).toBe('ABC123');
+      expect((res.json?.recoveryEmail as any)?.subject).toContain('alice.testnet');
+    } finally {
+      await srv.close();
+    }
   });
 });

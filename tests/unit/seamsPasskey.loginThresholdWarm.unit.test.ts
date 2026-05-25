@@ -17,7 +17,9 @@ const TEMPO_ECDSA_THRESHOLD_KEY_ID = 'ehss-login-tempo';
 const EVM_ECDSA_THRESHOLD_KEY_ID = TEMPO_ECDSA_THRESHOLD_KEY_ID;
 const ECDSA_THRESHOLD_KEY_ID = TEMPO_ECDSA_THRESHOLD_KEY_ID;
 const ECDSA_KEY_HANDLE = 'ehss-key-login-tempo';
-const ECDSA_CLIENT_ROOT_SHARE32_B64U = Buffer.alloc(32, 7).toString('base64url');
+const ECDSA_PRF_FIRST_B64U = Buffer.alloc(32, 7).toString('base64url');
+const ECDSA_CLIENT_ROOT_SHARE32_B64U = 'oSWxVelT4exizVyl5Q9RgldZH2hte7-Kf3h2qkA4mlY';
+const ECDSA_PUBLIC_KEY33_B64U = Buffer.alloc(33, 9).toString('base64url');
 const WALLET_SIGNING_SESSION_ID = 'wsess-login-1';
 const SUBJECT_ID = walletSubjectIdFromWalletProfile({ walletId: ACCOUNT_ID });
 const TEMPO_CHAIN_TARGET = {
@@ -120,6 +122,32 @@ function partialEcdsaProfileSigners(): Array<Record<string, unknown>> {
   }));
 }
 
+function completeEcdsaProfileSigners(): Array<Record<string, unknown>> {
+  return [TEMPO_CHAIN_TARGET, EVM_CHAIN_TARGET].map((chainTarget) => ({
+    status: 'active',
+    signerKind: 'threshold-ecdsa',
+    signerAuthMethod: 'passkey',
+    metadata: {
+      keyHandle: ECDSA_KEY_HANDLE,
+      chainTarget,
+      thresholdEcdsaPublicKeyB64u: ECDSA_PUBLIC_KEY33_B64U,
+      sharedEvmFamilyKey: {
+        walletId: String(ACCOUNT_ID),
+        subjectId: String(SUBJECT_ID),
+        rpId: 'example.localhost',
+        keyScope: 'evm-family',
+        keyHandle: ECDSA_KEY_HANDLE,
+        ecdsaThresholdKeyId: ecdsaKeyIdForChainTarget(chainTarget),
+        signingRootId: 'proj_local:dev',
+        signingRootVersion: 'default',
+        participantIds: [1, 2],
+        thresholdOwnerAddress: THRESHOLD_OWNER_ADDRESS,
+        thresholdEcdsaPublicKeyB64u: ECDSA_PUBLIC_KEY33_B64U,
+      },
+    },
+  }));
+}
+
 function ecdsaKeyIdentityTargetRecord(
   chainTarget: ThresholdEcdsaChainTarget,
 ): Record<string, unknown> {
@@ -132,7 +160,7 @@ function ecdsaKeyIdentityTargetRecord(
     accountAddress: THRESHOLD_OWNER_ADDRESS,
     ownerAddress: THRESHOLD_OWNER_ADDRESS,
     relayerKeyId: 'rk-1',
-    thresholdEcdsaPublicKeyB64u: 'threshold-ecdsa-public-key',
+    thresholdEcdsaPublicKeyB64u: ECDSA_PUBLIC_KEY33_B64U,
     key: {
       walletId: String(ACCOUNT_ID),
       subjectId: String(SUBJECT_ID),
@@ -144,30 +172,6 @@ function ecdsaKeyIdentityTargetRecord(
       participantIds: [1, 2],
       thresholdOwnerAddress: THRESHOLD_OWNER_ADDRESS,
     },
-  };
-}
-
-function topLevelEcdsaKeyIdentityTargetRecord(
-  chainTarget: ThresholdEcdsaChainTarget,
-): Record<string, unknown> {
-  const ecdsaThresholdKeyId = ecdsaKeyIdForChainTarget(chainTarget);
-  return {
-    keyHandle: ECDSA_KEY_HANDLE,
-    ecdsaThresholdKeyId,
-    chainTarget,
-    targetKey: thresholdEcdsaChainTargetKey(chainTarget),
-    accountAddress: THRESHOLD_OWNER_ADDRESS,
-    ownerAddress: THRESHOLD_OWNER_ADDRESS,
-    relayerKeyId: 'rk-1',
-    thresholdEcdsaPublicKeyB64u: 'threshold-ecdsa-public-key',
-    walletId: String(ACCOUNT_ID),
-    subjectId: String(SUBJECT_ID),
-    rpId: 'example.localhost',
-    keyScope: 'evm-family',
-    signingRootId: 'proj_local:dev',
-    signingRootVersion: 'default',
-    participantIds: [1, 2],
-    thresholdOwnerAddress: THRESHOLD_OWNER_ADDRESS,
   };
 }
 
@@ -206,7 +210,7 @@ function createBaseContext(args?: {
         clientExtensionResults: {
           prf: {
             results: {
-              first: ECDSA_CLIENT_ROOT_SHARE32_B64U,
+              first: ECDSA_PRF_FIRST_B64U,
             },
           },
         },
@@ -218,7 +222,7 @@ function createBaseContext(args?: {
         jwt: 'jwt-ed25519',
         remainingUses: 3,
         expiresAtMs: now + 60_000,
-        ecdsaHssClientRootShare32B64u: ECDSA_CLIENT_ROOT_SHARE32_B64U,
+        ecdsaHssClientRootShare32B64u: ECDSA_PRF_FIRST_B64U,
       }),
       listThresholdEcdsaSessionRecordsForWalletTarget: (args: Record<string, unknown>) => [
         canonicalEcdsaRecord({
@@ -416,7 +420,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             clientExtensionResults: {
               prf: {
                 results: {
-                  first: ECDSA_CLIENT_ROOT_SHARE32_B64U,
+                  first: ECDSA_PRF_FIRST_B64U,
                 },
               },
             },
@@ -431,7 +435,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             jwt: 'jwt-ed25519',
             remainingUses: 3,
             expiresAtMs: Date.now() + 60_000,
-            ecdsaHssClientRootShare32B64u: ECDSA_CLIENT_ROOT_SHARE32_B64U,
+            ecdsaHssClientRootShare32B64u: ECDSA_PRF_FIRST_B64U,
           };
         },
       },
@@ -445,7 +449,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     expect(result.success).toBe(true);
     expect(credentialPrompts).toBe(0);
     expect(connectCalls).toHaveLength(1);
-    expect(connectCalls[0]?.localPrfCredential).toBeUndefined();
+    expect(connectCalls[0]?.auth).toBeUndefined();
   });
 
   test('returns active signingSession in threshold-signer warm mode', async () => {
@@ -558,7 +562,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             jwt: 'jwt-ed25519',
             remainingUses: 3,
             expiresAtMs: Date.now() + 60_000,
-            ecdsaHssClientRootShare32B64u: ECDSA_CLIENT_ROOT_SHARE32_B64U,
+            ecdsaHssClientRootShare32B64u: ECDSA_PRF_FIRST_B64U,
           };
         },
         clearVolatileWarmSigningMaterial: async () => {
@@ -578,47 +582,18 @@ test.describe('unlock threshold warm-session requirements', () => {
     expect(clearCalls).toBe(1);
   });
 
-  test('wallet unlock fetches relay ECDSA identity after fresh Ed25519 warm-up', async () => {
-    const now = Date.now();
+  test('wallet unlock requires explicit ECDSA key-facts repair before incomplete local warm-up', async () => {
     const originalFetch = globalThis.fetch;
     let connectCalls = 0;
     let fetchCalls = 0;
-    const bootstrapArgs: Array<Record<string, unknown>> = [];
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    let clearCalls = 0;
+    let bootstrapCalls = 0;
+    globalThis.fetch = (async () => {
       fetchCalls += 1;
-      expect(connectCalls).toBe(1);
-      expect(String(input)).toBe('https://relay.example/threshold-ecdsa/key-identities');
-      expect(init?.method).toBe('POST');
-      expect((init?.headers as Record<string, string>)?.Authorization).toBe(
-        'Bearer jwt-ed25519-fresh',
-      );
-      const body = JSON.parse(String(init?.body || '{}')) as {
-        keyTargets: Array<{
-          keyHandle?: string;
-          ecdsaThresholdKeyId?: string;
-          chainTarget: ThresholdEcdsaChainTarget;
-        }>;
-      };
-      expect(body.keyTargets.map((target) => target.keyHandle || '')).toEqual([
-        ECDSA_KEY_HANDLE,
-        ECDSA_KEY_HANDLE,
-      ]);
-      expect(
-        body.keyTargets.map((target) => thresholdEcdsaChainTargetKey(target.chainTarget)),
-      ).toEqual([
-        thresholdEcdsaChainTargetKey(TEMPO_CHAIN_TARGET),
-        thresholdEcdsaChainTargetKey(EVM_CHAIN_TARGET),
-      ]);
-      return new Response(
-        JSON.stringify({
-          ok: true,
-          ecdsaKeyIdentityTargets: [
-            ecdsaKeyIdentityTargetRecord(TEMPO_CHAIN_TARGET),
-            ecdsaKeyIdentityTargetRecord(EVM_CHAIN_TARGET),
-          ],
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      );
+      return new Response(JSON.stringify({ ok: false, message: 'unexpected inventory fetch' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }) as typeof fetch;
     const context = createBaseContext({
       signingEngine: {
@@ -631,63 +606,16 @@ test.describe('unlock threshold warm-session requirements', () => {
             walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
             jwt: 'jwt-ed25519-fresh',
             remainingUses: 3,
-            expiresAtMs: now + 60_000,
-            ecdsaHssClientRootShare32B64u: ECDSA_CLIENT_ROOT_SHARE32_B64U,
+            expiresAtMs: Date.now() + 60_000,
+            ecdsaHssClientRootShare32B64u: ECDSA_PRF_FIRST_B64U,
           };
         },
-        getWarmThresholdEd25519SessionStatus: async () => ({
-          sessionId: 'fresh-ed25519-session',
-          status: 'active',
-          authMethod: 'passkey',
-          remainingUses: 3,
-          expiresAtMs: now + 60_000,
-          createdAtMs: now,
-        }),
-        bootstrapEcdsaSession: async (args: Record<string, unknown>) => {
-          bootstrapArgs.push(args);
-          const key = args.key as Record<string, unknown>;
-          expect(key.keyScope).toBe('evm-family');
-          expect(key.ecdsaThresholdKeyId).toBe(ECDSA_THRESHOLD_KEY_ID);
-          expect(args.routeAuth).toEqual({
-            kind: 'threshold_session',
-            jwt: 'jwt-ed25519-fresh',
-          });
-          expect(args.clientRootShare32B64u).toBe(ECDSA_CLIENT_ROOT_SHARE32_B64U);
-          return {
-            thresholdEcdsaKeyRef: {
-              type: 'threshold-ecdsa-secp256k1',
-              userId: 'alice.testnet',
-              relayerUrl: 'https://relay.example',
-              keyHandle: bootstrapKeyHandle(args),
-              ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
-              signingRootId: 'proj_local:dev',
-              backendBinding: {
-                relayerKeyId: 'rk-1',
-                clientVerifyingShareB64u: 'AQ',
-              },
-              participantIds: [1, 2],
-              thresholdSessionKind: 'jwt',
-              thresholdSessionId: 'session-1',
-              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
-              thresholdSessionAuthToken: 'jwt-ecdsa',
-            },
-            keygen: {
-              ok: true,
-              ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
-              relayerKeyId: 'rk-1',
-              clientVerifyingShareB64u: 'AQ',
-              participantIds: [1, 2],
-            },
-            session: {
-              ok: true,
-              sessionId: 'session-1',
-              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
-              jwt: 'jwt-ecdsa',
-              remainingUses: 3,
-              expiresAtMs: now + 60_000,
-              clientVerifyingShareB64u: 'AQ',
-            },
-          };
+        clearVolatileWarmSigningMaterial: async () => {
+          clearCalls += 1;
+        },
+        bootstrapEcdsaSession: async () => {
+          bootstrapCalls += 1;
+          throw new Error('bootstrap should not run before repair');
         },
       },
     });
@@ -703,67 +631,92 @@ test.describe('unlock threshold warm-session requirements', () => {
         },
       );
 
-      expect(result.success).toBe(true);
-      expect(connectCalls).toBe(1);
-      expect(fetchCalls).toBe(1);
-      expect(bootstrapArgs).toHaveLength(2);
+      expect(result.success).toBe(false);
+      expect(String(result.error || '')).toContain('requires complete local key facts');
+      expect(String(result.error || '')).toContain('explicit ECDSA key-facts repair');
+      expect(connectCalls).toBe(0);
+      expect(fetchCalls).toBe(0);
+      expect(clearCalls).toBe(0);
+      expect(bootstrapCalls).toBe(0);
     } finally {
       globalThis.fetch = originalFetch;
     }
   });
 
-  test('wallet unlock accepts role-local inventory records and completes shared EVM-family targets', async () => {
+  test('wallet unlock resolves explicit app-session ECDSA key-facts repair before warm-up', async () => {
     const originalFetch = globalThis.fetch;
+    const inventoryBodies: unknown[] = [];
     const bootstrapTargets: string[] = [];
-    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
-      const body = JSON.parse(String(init?.body || '{}')) as {
-        keyTargets?: Array<{ chainTarget: ThresholdEcdsaChainTarget }>;
-      };
-      expect(
-        body.keyTargets?.map((target) => thresholdEcdsaChainTargetKey(target.chainTarget)),
-      ).toEqual([
-        thresholdEcdsaChainTargetKey(TEMPO_CHAIN_TARGET),
-        thresholdEcdsaChainTargetKey(EVM_CHAIN_TARGET),
-      ]);
-      return new Response(
-        JSON.stringify({
-          ok: true,
-          ecdsaKeyIdentityTargets: [topLevelEcdsaKeyIdentityTargetRecord(TEMPO_CHAIN_TARGET)],
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      );
+    let clearCalls = 0;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/wallets/alice.testnet/signers/ecdsa/key-facts/inventory')) {
+        expect(init?.headers).toMatchObject({
+          Authorization: 'Bearer app-session-repair-jwt',
+        });
+        const body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+        inventoryBodies.push(body);
+        expect(body).toMatchObject({
+          rpId: 'example.localhost',
+          auth: {
+            kind: 'app_session',
+            policy: {
+              permission: 'ecdsa_key_facts_inventory',
+              walletSubjectId: 'alice.testnet',
+            },
+          },
+        });
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            ecdsaKeyIdentityTargets: [
+              ecdsaKeyIdentityTargetRecord(TEMPO_CHAIN_TARGET),
+              ecdsaKeyIdentityTargetRecord(EVM_CHAIN_TARGET),
+            ],
+            diagnostics: {},
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      }
+      return new Response(JSON.stringify({ ok: false, message: 'unexpected route' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }) as typeof fetch;
     const context = createBaseContext({
       signingEngine: {
         listThresholdEcdsaSessionRecordsForWalletTarget: () => [],
+        clearVolatileWarmSigningMaterial: async () => {
+          clearCalls += 1;
+        },
         bootstrapEcdsaSession: async (args: Record<string, unknown>) => {
-          bootstrapTargets.push(thresholdEcdsaChainTargetKey(bootstrapChainTarget(args)));
-          const key = args.key as Record<string, unknown>;
-          expect(key.keyScope).toBe('evm-family');
-          expect(key.ecdsaThresholdKeyId).toBe(ECDSA_THRESHOLD_KEY_ID);
-          expect(key.thresholdOwnerAddress).toBe(THRESHOLD_OWNER_ADDRESS);
+          const chainTarget = bootstrapChainTarget(args);
+          bootstrapTargets.push(thresholdEcdsaChainTargetKey(chainTarget));
+          expect(bootstrapKey(args).thresholdOwnerAddress).toBe(THRESHOLD_OWNER_ADDRESS);
           return {
             thresholdEcdsaKeyRef: {
               type: 'threshold-ecdsa-secp256k1',
               userId: 'alice.testnet',
               relayerUrl: 'https://relay.example',
-              keyHandle: bootstrapKeyHandle(args),
-              ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+              keyHandle: ECDSA_KEY_HANDLE,
+              ecdsaThresholdKeyId: bootstrapEcdsaThresholdKeyId(args),
               signingRootId: 'proj_local:dev',
-              signingRootVersion: 'default',
               backendBinding: {
                 relayerKeyId: 'rk-1',
                 clientVerifyingShareB64u: 'AQ',
               },
               participantIds: [1, 2],
               thresholdSessionKind: 'jwt',
-              thresholdSessionId: 'session-1',
+              thresholdSessionId: `session-repair-${bootstrapTargets.length}`,
               walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
               thresholdSessionAuthToken: 'jwt-ecdsa',
             },
             keygen: {
               ok: true,
-              ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+              ecdsaThresholdKeyId: bootstrapEcdsaThresholdKeyId(args),
               relayerKeyId: 'rk-1',
               clientVerifyingShareB64u: 'AQ',
               participantIds: [1, 2],
@@ -771,7 +724,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             },
             session: {
               ok: true,
-              sessionId: 'session-1',
+              sessionId: `session-repair-${bootstrapTargets.length}`,
               walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
               jwt: 'jwt-ecdsa',
               remainingUses: 3,
@@ -785,7 +738,15 @@ test.describe('unlock threshold warm-session requirements', () => {
 
     try {
       const result = await withMockedMostRecentProjection(
-        async () => await unlock(context, ACCOUNT_ID),
+        async () =>
+          await unlock(context, ACCOUNT_ID, {
+            unlockSelection: { mode: 'ecdsa_only', ecdsa: true },
+            ecdsaKeyFactsRepair: {
+              mode: 'app_session',
+              appSessionJwt: 'app-session-repair-jwt',
+              policyTtlMs: 60_000,
+            },
+          }),
         {
           profileContinuitySnapshot: {
             chainAccounts: [],
@@ -795,7 +756,177 @@ test.describe('unlock threshold warm-session requirements', () => {
       );
 
       expect(result.success).toBe(true);
-      expect(bootstrapTargets).toEqual(['tempo:42431', 'evm:eip155:5042002']);
+      expect(inventoryBodies).toHaveLength(1);
+      expect(bootstrapTargets.sort()).toEqual(['evm:eip155:5042002', 'tempo:42431']);
+      expect(clearCalls).toBe(1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('wallet unlock acquires WebAuthn ECDSA key-facts repair only when planner needs inventory', async () => {
+    const originalFetch = globalThis.fetch;
+    const inventoryBodies: unknown[] = [];
+    const credentialChallenges: string[] = [];
+    const bootstrapTargets: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/wallets/alice.testnet/signers/ecdsa/key-facts/inventory')) {
+        const body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+        inventoryBodies.push(body);
+        const auth = body.auth as Record<string, unknown>;
+        expect(auth.kind).toBe('webauthn_assertion');
+        expect(String(auth.expectedChallengeDigestB64u || '')).toBe(credentialChallenges[0]);
+        expect(String(auth.serverNonceB64u || '')).toBeTruthy();
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            ecdsaKeyIdentityTargets: [
+              ecdsaKeyIdentityTargetRecord(TEMPO_CHAIN_TARGET),
+              ecdsaKeyIdentityTargetRecord(EVM_CHAIN_TARGET),
+            ],
+            diagnostics: {},
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      }
+      return new Response(JSON.stringify({ ok: false, message: 'unexpected route' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }) as typeof fetch;
+    const context = createBaseContext({
+      signingEngine: {
+        listThresholdEcdsaSessionRecordsForWalletTarget: () => [],
+        getAuthenticationCredentialsSerialized: async (args: Record<string, unknown>) => {
+          credentialChallenges.push(String(args.challengeB64u || ''));
+          return {
+            id: 'cred-1',
+            rawId: 'cred-1',
+            type: 'public-key',
+            authenticatorAttachment: undefined,
+            response: {
+              clientDataJSON: 'client-data-json',
+              authenticatorData: 'authenticator-data',
+              signature: 'signature',
+              userHandle: undefined,
+              clientExtensionResults: {},
+            },
+            clientExtensionResults: {
+              prf: {
+                results: {
+                  first: ECDSA_PRF_FIRST_B64U,
+                },
+              },
+            },
+          };
+        },
+        bootstrapEcdsaSession: async (args: Record<string, unknown>) => {
+          const chainTarget = bootstrapChainTarget(args);
+          bootstrapTargets.push(thresholdEcdsaChainTargetKey(chainTarget));
+          return {
+            thresholdEcdsaKeyRef: {
+              type: 'threshold-ecdsa-secp256k1',
+              userId: 'alice.testnet',
+              relayerUrl: 'https://relay.example',
+              keyHandle: ECDSA_KEY_HANDLE,
+              ecdsaThresholdKeyId: bootstrapEcdsaThresholdKeyId(args),
+              signingRootId: 'proj_local:dev',
+              backendBinding: {
+                relayerKeyId: 'rk-1',
+                clientVerifyingShareB64u: 'AQ',
+              },
+              participantIds: [1, 2],
+              thresholdSessionKind: 'jwt',
+              thresholdSessionId: `session-webauthn-repair-${bootstrapTargets.length}`,
+              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              thresholdSessionAuthToken: 'jwt-ecdsa',
+            },
+            keygen: {
+              ok: true,
+              ecdsaThresholdKeyId: bootstrapEcdsaThresholdKeyId(args),
+              relayerKeyId: 'rk-1',
+              clientVerifyingShareB64u: 'AQ',
+              participantIds: [1, 2],
+              ethereumAddress: THRESHOLD_OWNER_ADDRESS,
+            },
+            session: {
+              ok: true,
+              sessionId: `session-webauthn-repair-${bootstrapTargets.length}`,
+              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              jwt: 'jwt-ecdsa',
+              remainingUses: 3,
+              expiresAtMs: Date.now() + 60_000,
+              clientVerifyingShareB64u: 'AQ',
+            },
+          };
+        },
+      },
+    });
+
+    try {
+      const result = await withMockedMostRecentProjection(
+        async () =>
+          await unlock(context, ACCOUNT_ID, {
+            unlockSelection: { mode: 'ecdsa_only', ecdsa: true },
+            ecdsaKeyFactsRepair: { mode: 'webauthn' },
+          }),
+        {
+          profileContinuitySnapshot: {
+            chainAccounts: [],
+            accountSigners: partialEcdsaProfileSigners(),
+          },
+        },
+      );
+
+      expect(result.success).toBe(true);
+      expect(credentialChallenges).toHaveLength(1);
+      expect(inventoryBodies).toHaveLength(1);
+      expect(bootstrapTargets.sort()).toEqual(['evm:eip155:5042002', 'tempo:42431']);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('wallet unlock skips role-local inventory fallback during normal unlock', async () => {
+    const originalFetch = globalThis.fetch;
+    let fetchCalls = 0;
+    let bootstrapCalls = 0;
+    globalThis.fetch = (async () => {
+      fetchCalls += 1;
+      return new Response(JSON.stringify({ ok: false, message: 'unexpected inventory fetch' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }) as typeof fetch;
+    const context = createBaseContext({
+      signingEngine: {
+        listThresholdEcdsaSessionRecordsForWalletTarget: () => [],
+        bootstrapEcdsaSession: async () => {
+          bootstrapCalls += 1;
+          throw new Error('bootstrap should not run before repair');
+        },
+      },
+    });
+
+    try {
+      const result = await withMockedMostRecentProjection(
+        async () => await unlock(context, ACCOUNT_ID),
+        {
+          profileContinuitySnapshot: {
+            chainAccounts: [],
+            accountSigners: partialEcdsaProfileSigners(),
+          },
+        },
+      );
+
+      expect(result.success).toBe(false);
+      expect(String(result.error || '')).toContain('explicit ECDSA key-facts repair');
+      expect(fetchCalls).toBe(0);
+      expect(bootstrapCalls).toBe(0);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -821,7 +952,7 @@ test.describe('unlock threshold warm-session requirements', () => {
       clientExtensionResults: {
         prf: {
           results: {
-            first: 'prf-first-bootstrap',
+            first: ECDSA_PRF_FIRST_B64U,
           },
         },
       },
@@ -875,7 +1006,12 @@ test.describe('unlock threshold warm-session requirements', () => {
           const kind = String(args.kind || '');
           bootstrapKinds.push(kind);
           if (kind === 'passkey_fresh_ecdsa_bootstrap') {
-            expect(args.webauthnAuthentication).toBe(loginCredential);
+            expect(args.webauthnAuthentication).toBeUndefined();
+            expect(args.routeAuth).toEqual({
+              kind: 'app_session',
+              jwt: 'app-jwt-first-bootstrap',
+            });
+            expect(args.clientRootShare32B64u).toBe(ECDSA_CLIENT_ROOT_SHARE32_B64U);
             expect(args.runtimeScopeBootstrap).toEqual({
               environmentId: 'proj_local:dev',
               publishableKey: 'pk_test_local',
@@ -920,6 +1056,8 @@ test.describe('unlock threshold warm-session requirements', () => {
               expiresAtMs: Date.now() + 60_000,
               clientVerifyingShareB64u: 'AQ',
             },
+            clientRootShare32B64u: ECDSA_CLIENT_ROOT_SHARE32_B64U,
+            passkeyPrfFirstB64u: ECDSA_PRF_FIRST_B64U,
           };
         },
       },
@@ -942,6 +1080,242 @@ test.describe('unlock threshold warm-session requirements', () => {
       expect(inventoryRequests).toHaveLength(0);
       expect(bootstrapKinds).toEqual([
         'passkey_fresh_ecdsa_bootstrap',
+        'threshold_session_auth_reconnect_ecdsa_bootstrap',
+      ]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('passkey unlock without server session uses first ECDSA bootstrap to authorize Ed25519 mint', async () => {
+    const bootstrapKinds: string[] = [];
+    const bootstrapWalletSigningSessionIds: string[] = [];
+    let connectArgs: Record<string, unknown> | null = null;
+    let credentialPrompts = 0;
+    const loginCredential = {
+      id: 'cred-local-first-bootstrap',
+      rawId: 'cred-local-first-bootstrap',
+      type: 'public-key',
+      authenticatorAttachment: undefined,
+      response: {
+        clientDataJSON: 'client-data-json',
+        authenticatorData: 'authenticator-data',
+        signature: 'signature',
+        userHandle: undefined,
+      },
+      clientExtensionResults: {
+        prf: {
+          results: {
+            first: 'prf-local-first-bootstrap',
+          },
+        },
+      },
+    };
+    const context = createBaseContext({
+      configs: {
+        registration: {
+          mode: 'managed',
+          environmentId: 'proj_local:dev',
+          publishableKey: 'pk_test_local',
+        },
+      },
+      signingEngine: {
+        getAuthenticationCredentialsSerialized: async (args: Record<string, unknown>) => {
+          credentialPrompts += 1;
+          expect(args.nearAccountId).toBe(ACCOUNT_ID);
+          expect(String(args.challengeB64u || '')).toMatch(/^[A-Za-z0-9_-]{43}$/);
+          return loginCredential;
+        },
+        listThresholdEcdsaSessionRecordsForWalletTarget: () => [],
+        connectEd25519Session: async (args: Record<string, unknown>) => {
+          connectArgs = args;
+          return {
+            ok: true,
+            sessionId: 'session-local-first-bootstrap',
+            walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+            jwt: 'jwt-ed25519-local-first-bootstrap',
+            remainingUses: 3,
+            expiresAtMs: Date.now() + 60_000,
+            ecdsaHssClientRootShare32B64u: ECDSA_PRF_FIRST_B64U,
+          };
+        },
+        bootstrapEcdsaSession: async (args: Record<string, unknown>) => {
+          const kind = String(args.kind || '');
+          bootstrapKinds.push(kind);
+          const lanePolicy = args.lanePolicy as Record<string, unknown> | undefined;
+          const sessionIdentity = args.sessionIdentity as Record<string, unknown> | undefined;
+          const walletSigningSessionId = String(
+            lanePolicy?.walletSigningSessionId || sessionIdentity?.walletSigningSessionId || '',
+          );
+          const thresholdSessionId = String(
+            lanePolicy?.thresholdSessionId ||
+              sessionIdentity?.thresholdSessionId ||
+              'session-ecdsa-local-first-bootstrap',
+          );
+          bootstrapWalletSigningSessionIds.push(walletSigningSessionId);
+          if (kind === 'passkey_fresh_ecdsa_bootstrap') {
+            expect(args.webauthnAuthentication).toBeUndefined();
+            expect(args.routeAuth).toEqual({
+              kind: 'publishable_key',
+              token: 'pk_test_local',
+            });
+            expect(args.runtimeScopeBootstrap).toEqual({
+              environmentId: 'proj_local:dev',
+              publishableKey: 'pk_test_local',
+            });
+          } else {
+            expect(kind).toBe('threshold_session_auth_reconnect_ecdsa_bootstrap');
+            expect(bootstrapKey(args).ecdsaThresholdKeyId).toBe(ECDSA_THRESHOLD_KEY_ID);
+          }
+          return {
+            thresholdEcdsaKeyRef: {
+              type: 'threshold-ecdsa-secp256k1',
+              userId: 'alice.testnet',
+              relayerUrl: 'https://relay.example',
+              keyHandle: ECDSA_KEY_HANDLE,
+              ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+              signingRootId: 'proj_local:dev',
+              signingRootVersion: 'default',
+              backendBinding: {
+                relayerKeyId: 'rk-1',
+                clientVerifyingShareB64u: 'AQ',
+              },
+              participantIds: [1, 2],
+              thresholdSessionKind: 'jwt',
+              thresholdSessionId,
+              walletSigningSessionId,
+              thresholdSessionAuthToken: 'jwt-ecdsa',
+            },
+            keygen: {
+              ok: true,
+              ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+              relayerKeyId: 'rk-1',
+              clientVerifyingShareB64u: 'AQ',
+              participantIds: [1, 2],
+              ethereumAddress: THRESHOLD_OWNER_ADDRESS,
+            },
+            session: {
+              ok: true,
+              sessionId: thresholdSessionId,
+              walletSigningSessionId,
+              jwt: 'jwt-ecdsa',
+              remainingUses: 3,
+              expiresAtMs: Date.now() + 60_000,
+              clientVerifyingShareB64u: 'AQ',
+            },
+            clientRootShare32B64u: ECDSA_CLIENT_ROOT_SHARE32_B64U,
+            passkeyPrfFirstB64u: ECDSA_PRF_FIRST_B64U,
+          };
+        },
+      },
+    });
+
+    const result = await withMockedMostRecentProjection(
+      async () => await unlock(context, ACCOUNT_ID),
+      { profileContinuitySnapshot: { chainAccounts: [], accountSigners: [] } },
+    );
+
+    expect(result.success).toBe(true);
+    expect(credentialPrompts).toBe(0);
+    expect(connectArgs).not.toBeNull();
+    const capturedConnectArgs = connectArgs as unknown as Record<string, unknown>;
+    expect(capturedConnectArgs.auth).toEqual({
+      kind: 'threshold_ecdsa_session_jwt',
+      thresholdEcdsaSessionJwt: 'jwt-ecdsa',
+      localPrfFirstB64u: ECDSA_PRF_FIRST_B64U,
+    });
+    expect(capturedConnectArgs.kind).toBe('exact_ed25519_provisioning');
+    expect(String(capturedConnectArgs.sessionId || '')).toMatch(/^threshold-login-/);
+    expect(capturedConnectArgs.walletSigningSessionId).toBe(bootstrapWalletSigningSessionIds[0]);
+    expect(
+      bootstrapWalletSigningSessionIds.every(
+        (walletSigningSessionId) =>
+          walletSigningSessionId === capturedConnectArgs.walletSigningSessionId,
+      ),
+    ).toBe(true);
+    expect(bootstrapKinds).toEqual([
+      'passkey_fresh_ecdsa_bootstrap',
+      'threshold_session_auth_reconnect_ecdsa_bootstrap',
+    ]);
+  });
+
+  test('passkey unlock uses complete active ECDSA profile key facts without inventory fetch', async () => {
+    const originalFetch = globalThis.fetch;
+    const inventoryRequests: unknown[] = [];
+    const bootstrapKinds: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === 'https://relay.example/threshold-ecdsa/key-identities') {
+        inventoryRequests.push(url);
+      }
+      return new Response(JSON.stringify({ ok: false, message: 'unexpected route' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }) as typeof fetch;
+    const context = createBaseContext({
+      signingEngine: {
+        listThresholdEcdsaSessionRecordsForWalletTarget: () => [],
+        bootstrapEcdsaSession: async (args: Record<string, unknown>) => {
+          bootstrapKinds.push(String(args.kind || ''));
+          expect(args.keyHandle).toBe(ECDSA_KEY_HANDLE);
+          expect(bootstrapKey(args).ecdsaThresholdKeyId).toBe(ECDSA_THRESHOLD_KEY_ID);
+          expect(bootstrapKey(args).thresholdOwnerAddress).toBe(THRESHOLD_OWNER_ADDRESS);
+          return {
+            thresholdEcdsaKeyRef: {
+              type: 'threshold-ecdsa-secp256k1',
+              userId: 'alice.testnet',
+              relayerUrl: 'https://relay.example',
+              keyHandle: ECDSA_KEY_HANDLE,
+              ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+              signingRootId: 'proj_local:dev',
+              backendBinding: {
+                relayerKeyId: 'rk-1',
+                clientVerifyingShareB64u: 'AQ',
+              },
+              participantIds: [1, 2],
+              thresholdSessionKind: 'jwt',
+              thresholdSessionId: 'session-profile-complete',
+              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              thresholdSessionAuthToken: 'jwt-ecdsa',
+            },
+            keygen: {
+              ok: true,
+              ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+              relayerKeyId: 'rk-1',
+              clientVerifyingShareB64u: 'AQ',
+              participantIds: [1, 2],
+              ethereumAddress: THRESHOLD_OWNER_ADDRESS,
+            },
+            session: {
+              ok: true,
+              sessionId: 'session-profile-complete',
+              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              jwt: 'jwt-ecdsa',
+              remainingUses: 3,
+              expiresAtMs: Date.now() + 60_000,
+              clientVerifyingShareB64u: 'AQ',
+            },
+          };
+        },
+      },
+    });
+
+    try {
+      const result = await withMockedMostRecentProjection(
+        async () => await unlock(context, ACCOUNT_ID),
+        {
+          profileContinuitySnapshot: {
+            chainAccounts: [],
+            accountSigners: completeEcdsaProfileSigners(),
+          },
+        },
+      );
+
+      expect(result.success).toBe(true);
+      expect(inventoryRequests).toHaveLength(0);
+      expect(bootstrapKinds).toEqual([
+        'threshold_session_auth_reconnect_ecdsa_bootstrap',
         'threshold_session_auth_reconnect_ecdsa_bootstrap',
       ]);
     } finally {
@@ -1145,7 +1519,7 @@ test.describe('unlock threshold warm-session requirements', () => {
       );
 
       expect(result.success).toBe(false);
-      expect(String(result.error || '')).toContain('requires keyHandle selectors');
+      expect(String(result.error || '')).toContain('requires complete local key facts');
       expect(bootstrapArgs).toHaveLength(0);
       expect(clearVolatileCalls).toBe(0);
     } finally {
@@ -1239,7 +1613,7 @@ test.describe('unlock threshold warm-session requirements', () => {
       );
 
       expect(result.success).toBe(false);
-      expect(String(result.error || '')).toContain('requires keyHandle selectors');
+      expect(String(result.error || '')).toContain('requires complete local key facts');
       expect(bootstrapArgs).toHaveLength(0);
       expect(clearVolatileCalls).toBe(0);
     } finally {
@@ -1247,28 +1621,189 @@ test.describe('unlock threshold warm-session requirements', () => {
     }
   });
 
-  test('wallet unlock completes configured shared ECDSA targets when one stale profile signer lacks keyHandle', async () => {
+  test('mutation ledger keeps volatile clear after ECDSA preflight resolution', async () => {
+    const now = Date.now();
+    const originalFetch = globalThis.fetch;
+    const blockedLedger: string[] = [];
+    globalThis.fetch = (async () => {
+      blockedLedger.push('inventory');
+      throw new Error('blocked profile metadata should not fetch inventory');
+    }) as typeof fetch;
+    const blockedContext = createBaseContext({
+      signingEngine: {
+        listThresholdEcdsaSessionRecordsForWalletTarget: () => [],
+        connectEd25519Session: async () => {
+          blockedLedger.push('connect-ed25519');
+          throw new Error('blocked profile metadata should not provision Ed25519');
+        },
+        clearVolatileWarmSigningMaterial: async () => {
+          blockedLedger.push('clear');
+        },
+        bootstrapEcdsaSession: async () => {
+          blockedLedger.push('bootstrap-ecdsa');
+          throw new Error('blocked profile metadata should not bootstrap ECDSA');
+        },
+      },
+    });
+
+    try {
+      const blockedResult = await withMockedMostRecentProjection(
+        async () => await unlock(blockedContext, ACCOUNT_ID),
+        {
+          profileContinuitySnapshot: {
+            chainAccounts: [],
+            accountSigners: [TEMPO_CHAIN_TARGET, EVM_CHAIN_TARGET].map((chainTarget) => ({
+              chainIdKey: thresholdEcdsaChainTargetKey(chainTarget),
+              accountAddress: THRESHOLD_OWNER_ADDRESS,
+              signerId: THRESHOLD_OWNER_ADDRESS,
+              signerKind: 'threshold-ecdsa',
+              signerAuthMethod: 'passkey',
+              status: 'active',
+              metadata: {
+                ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+                chainTarget,
+                subjectId: ACCOUNT_ID,
+                rpId: 'example.localhost',
+                signingRootId: 'proj_local:dev',
+                signingRootVersion: 'default',
+                participantIds: [1, 2],
+                thresholdOwnerAddress: THRESHOLD_OWNER_ADDRESS,
+              },
+            })),
+          },
+        },
+      );
+
+      expect(blockedResult.success).toBe(false);
+      expect(String(blockedResult.error || '')).toContain('requires complete local key facts');
+      expect(blockedLedger).toEqual([]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    const inventoryLedger: string[] = [];
+    clearAllStoredThresholdEd25519SessionRecords();
+    upsertStoredThresholdEd25519SessionRecord({
+      nearAccountId: ACCOUNT_ID,
+      rpId: 'example.localhost',
+      relayerUrl: 'https://relay.example',
+      relayerKeyId: 'rk-1',
+      participantIds: [1, 2],
+      thresholdSessionKind: 'jwt',
+      thresholdSessionId: 'stored-ed25519-inventory-session',
+      thresholdSessionAuthToken: 'jwt-ed25519-restored',
+      expiresAtMs: now + 60_000,
+      remainingUses: 1,
+      source: 'manual-connect',
+    });
+    globalThis.fetch = (async () => {
+      inventoryLedger.push('inventory');
+      return new Response(JSON.stringify({ ok: false, message: 'unexpected inventory fetch' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }) as typeof fetch;
+    const inventoryContext = createBaseContext({
+      signingEngine: {
+        listThresholdEcdsaSessionRecordsForWalletTarget: () => [],
+        clearVolatileWarmSigningMaterial: async () => {
+          inventoryLedger.push('clear');
+        },
+        connectEd25519Session: async () => {
+          inventoryLedger.push('connect-ed25519');
+          return {
+            ok: true,
+            sessionId: 'fresh-ed25519-after-inventory',
+            walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+            jwt: 'jwt-ed25519-fresh',
+            remainingUses: 3,
+            expiresAtMs: now + 60_000,
+            ecdsaHssClientRootShare32B64u: ECDSA_PRF_FIRST_B64U,
+          };
+        },
+        getWarmThresholdEd25519SessionStatus: async () => ({
+          sessionId: 'fresh-ed25519-after-inventory',
+          status: 'active',
+          authMethod: 'passkey',
+          remainingUses: 3,
+          expiresAtMs: now + 60_000,
+          createdAtMs: now,
+        }),
+        bootstrapEcdsaSession: async (args: Record<string, unknown>) => {
+          inventoryLedger.push(
+            `bootstrap:${thresholdEcdsaChainTargetKey(bootstrapChainTarget(args))}`,
+          );
+          const ecdsaThresholdKeyId = bootstrapEcdsaThresholdKeyId(args);
+          return {
+            thresholdEcdsaKeyRef: {
+              type: 'threshold-ecdsa-secp256k1',
+              userId: 'alice.testnet',
+              relayerUrl: 'https://relay.example',
+              keyHandle: bootstrapKeyHandle(args),
+              ecdsaThresholdKeyId,
+              signingRootId: 'proj_local:dev',
+              signingRootVersion: 'default',
+              backendBinding: {
+                relayerKeyId: 'rk-1',
+                clientVerifyingShareB64u: 'AQ',
+              },
+              participantIds: [1, 2],
+              thresholdSessionKind: 'jwt',
+              thresholdSessionId: 'session-ecdsa-after-inventory',
+              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              thresholdSessionAuthToken: 'jwt-ecdsa',
+            },
+            keygen: {
+              ok: true,
+              ecdsaThresholdKeyId,
+              relayerKeyId: 'rk-1',
+              clientVerifyingShareB64u: 'AQ',
+              participantIds: [1, 2],
+              ethereumAddress: THRESHOLD_OWNER_ADDRESS,
+            },
+            session: {
+              ok: true,
+              sessionId: 'session-ecdsa-after-inventory',
+              walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+              jwt: 'jwt-ecdsa',
+              remainingUses: 3,
+              expiresAtMs: now + 60_000,
+            },
+          };
+        },
+      },
+    });
+
+    try {
+      const inventoryResult = await withMockedMostRecentProjection(
+        async () => await unlock(inventoryContext, ACCOUNT_ID),
+        {
+          profileContinuitySnapshot: {
+            chainAccounts: [],
+            accountSigners: partialEcdsaProfileSigners(),
+          },
+        },
+      );
+
+      expect(inventoryResult.success).toBe(false);
+      expect(String(inventoryResult.error || '')).toContain('explicit ECDSA key-facts repair');
+      expect(inventoryLedger).toEqual([]);
+    } finally {
+      clearAllStoredThresholdEd25519SessionRecords();
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('wallet unlock blocks stale configured ECDSA profile signers before inventory repair', async () => {
     const originalFetch = globalThis.fetch;
     const bootstrapChains: string[] = [];
     const inventoryRequests: unknown[] = [];
-    globalThis.fetch = (async (_url: RequestInfo | URL, init?: RequestInit) => {
-      const body = JSON.parse(String(init?.body || '{}')) as { keyTargets?: unknown[] };
-      inventoryRequests.push(body);
-      const keyTargets = Array.isArray(body.keyTargets) ? body.keyTargets : [];
-      return new Response(
-        JSON.stringify({
-          ok: true,
-          ecdsaKeyIdentityTargets: keyTargets.map((target) =>
-            ecdsaKeyIdentityTargetRecord(
-              (target as { chainTarget: ThresholdEcdsaChainTarget }).chainTarget,
-            ),
-          ),
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        },
-      );
+    globalThis.fetch = (async () => {
+      inventoryRequests.push('unexpected');
+      return new Response(JSON.stringify({ ok: false, message: 'unexpected inventory fetch' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }) as typeof fetch;
     const context = createBaseContext({
       configs: {
@@ -1390,13 +1925,10 @@ test.describe('unlock threshold warm-session requirements', () => {
         },
       );
 
-      expect(result.success).toBe(true);
-      expect(inventoryRequests).toHaveLength(1);
-      expect(bootstrapChains).toEqual([
-        'tempo:42431',
-        'evm:eip155:5042002',
-        'evm:eip155:11155111',
-      ]);
+      expect(result.success).toBe(false);
+      expect(String(result.error || '')).toContain('explicit ECDSA key-facts repair');
+      expect(inventoryRequests).toHaveLength(0);
+      expect(bootstrapChains).toEqual([]);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -1423,7 +1955,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             jwt: 'jwt-ed25519',
             remainingUses: Number(args.remainingUses),
             expiresAtMs: Date.now() + 60_000,
-            ecdsaHssClientRootShare32B64u: ECDSA_CLIENT_ROOT_SHARE32_B64U,
+            ecdsaHssClientRootShare32B64u: ECDSA_PRF_FIRST_B64U,
           };
         },
         bootstrapEcdsaSession: async (args: Record<string, unknown>) => {
@@ -1500,7 +2032,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             jwt: 'jwt-ed25519',
             remainingUses: Number(args.remainingUses),
             expiresAtMs: Date.now() + 60_000,
-            ecdsaHssClientRootShare32B64u: ECDSA_CLIENT_ROOT_SHARE32_B64U,
+            ecdsaHssClientRootShare32B64u: ECDSA_PRF_FIRST_B64U,
           };
         },
         bootstrapEcdsaSession: async (args: Record<string, unknown>) => {
@@ -1723,7 +2255,7 @@ test.describe('unlock threshold warm-session requirements', () => {
       );
 
       expect(result.success).toBe(false);
-      expect(String(result.error || '')).toContain('requires keyHandle selectors');
+      expect(String(result.error || '')).toContain('requires complete local key facts');
       expect(bootstrapCalls).toBe(0);
       expect(bootstrapArgs).toEqual([]);
     } finally {
@@ -1809,7 +2341,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             jwt: 'jwt-ed25519',
             remainingUses: 3,
             expiresAtMs: Date.now() + 60_000,
-            ecdsaHssClientRootShare32B64u: ECDSA_CLIENT_ROOT_SHARE32_B64U,
+            ecdsaHssClientRootShare32B64u: ECDSA_PRF_FIRST_B64U,
           };
         },
       },
@@ -1855,6 +2387,185 @@ test.describe('unlock threshold warm-session requirements', () => {
     expect(bootstrapCalls).toBe(0);
   });
 
+  test('Ed25519-only unlock selection skips ECDSA warm-up on configured chains', async () => {
+    let connectCalls = 0;
+    let bootstrapCalls = 0;
+    const context = createBaseContext({
+      signingEngine: {
+        connectEd25519Session: async () => {
+          connectCalls += 1;
+          return {
+            ok: true,
+            sessionId: 'ed25519-only-session-1',
+            walletSigningSessionId: 'wallet-session-ed25519-only-1',
+            jwt: 'jwt-ed25519-only',
+            remainingUses: 3,
+            expiresAtMs: Date.now() + 60_000,
+          };
+        },
+        bootstrapEcdsaSession: async () => {
+          bootstrapCalls += 1;
+          throw new Error('ECDSA bootstrap should not run for Ed25519-only unlock');
+        },
+      },
+    });
+
+    const result = await withMockedMostRecentProjection(
+      async () =>
+        await unlock(context, ACCOUNT_ID, {
+          unlockSelection: { mode: 'ed25519_only', ed25519: true },
+        }),
+      { includeThresholdEcdsaProfiles: true },
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.signingSession?.status).toBe('active');
+    expect(connectCalls).toBe(1);
+    expect(bootstrapCalls).toBe(0);
+  });
+
+  test('ECDSA-only unlock selection warms ECDSA without connecting Ed25519', async () => {
+    let credentialPrompts = 0;
+    let connectCalls = 0;
+    const bootstrapArgs: Record<string, unknown>[] = [];
+    const walletOnlyUserData = {
+      nearAccountId: 'alice.testnet',
+      signerSlot: 1,
+    };
+    const loginCredential = {
+      id: 'cred-ecdsa-only',
+      rawId: 'cred-ecdsa-only',
+      type: 'public-key',
+      authenticatorAttachment: undefined,
+      response: {
+        clientDataJSON: 'client-data-json',
+        authenticatorData: 'authenticator-data',
+        signature: 'signature',
+        userHandle: undefined,
+        clientExtensionResults: {},
+      },
+      clientExtensionResults: {
+        prf: {
+          results: {
+            first: ECDSA_PRF_FIRST_B64U,
+          },
+        },
+      },
+    };
+    const context = createBaseContext({
+      signingEngine: {
+        getUserBySignerSlot: async () => walletOnlyUserData,
+        getLastUser: async () => walletOnlyUserData,
+        getAuthenticationCredentialsSerialized: async () => {
+          credentialPrompts += 1;
+          return loginCredential;
+        },
+        connectEd25519Session: async () => {
+          connectCalls += 1;
+          throw new Error('Ed25519 connect should not run for ECDSA-only unlock');
+        },
+        bootstrapEcdsaSession: async (args: Record<string, unknown>) => {
+          bootstrapArgs.push(args);
+          const lanePolicy = bootstrapLanePolicy(args);
+          const ecdsaThresholdKeyId = bootstrapEcdsaThresholdKeyId(args);
+          return {
+            thresholdEcdsaKeyRef: {
+              type: 'threshold-ecdsa-secp256k1',
+              userId: 'alice.testnet',
+              relayerUrl: 'https://relay.example',
+              keyHandle: bootstrapKeyHandle(args),
+              ecdsaThresholdKeyId,
+              backendBinding: {
+                relayerKeyId: 'rk-1',
+                clientVerifyingShareB64u: 'AQ',
+              },
+              participantIds: [1, 2],
+              thresholdSessionKind: 'jwt',
+              thresholdSessionId: String(lanePolicy.thresholdSessionId || 'session-ecdsa-only'),
+              walletSigningSessionId: String(lanePolicy.walletSigningSessionId || ''),
+              thresholdSessionAuthToken: 'jwt-ecdsa-only',
+            },
+            keygen: {
+              ok: true,
+              ecdsaThresholdKeyId,
+              relayerKeyId: 'rk-1',
+              clientVerifyingShareB64u: 'AQ',
+              participantIds: [1, 2],
+            },
+            session: {
+              ok: true,
+              sessionId: String(lanePolicy.thresholdSessionId || 'session-ecdsa-only'),
+              walletSigningSessionId: String(lanePolicy.walletSigningSessionId || ''),
+              jwt: 'jwt-ecdsa-only',
+              remainingUses: Number(lanePolicy.remainingUses || 0),
+              expiresAtMs: Date.now() + 60_000,
+              clientVerifyingShareB64u: 'AQ',
+            },
+            clientRootShare32B64u: ECDSA_CLIENT_ROOT_SHARE32_B64U,
+          };
+        },
+      },
+    });
+
+    const result = await withMockedMostRecentProjection(
+      async () =>
+        await unlock(context, ACCOUNT_ID, {
+          unlockSelection: { mode: 'ecdsa_only', ecdsa: true },
+        }),
+      { includeThresholdEcdsaProfiles: true },
+    );
+
+    expect(result.error || '').toBe('');
+    expect(result.success).toBe(true);
+    expect(result.operationalPublicKey).toBe(null);
+    expect(result.signingSession?.status).toBe('active');
+    expect(credentialPrompts).toBe(0);
+    expect(connectCalls).toBe(0);
+    expect(bootstrapArgs).toHaveLength(2);
+    expect(bootstrapArgs.every((args) => args.kind === 'passkey_fresh_ecdsa_bootstrap')).toBe(true);
+    const walletSigningSessionIds = bootstrapArgs.map((args) =>
+      String(bootstrapLanePolicy(args).walletSigningSessionId || ''),
+    );
+    expect(new Set(walletSigningSessionIds).size).toBe(1);
+    expect(
+      walletSigningSessionIds.every((walletSigningSessionId) =>
+        walletSigningSessionId.startsWith('wallet-ecdsa-login-'),
+      ),
+    ).toBe(true);
+    expect(bootstrapArgs.every((args) => args.clientRootShare32B64u === undefined)).toBe(true);
+    expect(bootstrapArgs.every((args) => args.webauthnAuthentication === undefined)).toBe(true);
+  });
+
+  test('Ed25519 unlock selection requires a NEAR operational key', async () => {
+    let connectCalls = 0;
+    const walletOnlyUserData = {
+      nearAccountId: 'alice.testnet',
+      signerSlot: 1,
+    };
+    const context = createBaseContext({
+      signingEngine: {
+        getUserBySignerSlot: async () => walletOnlyUserData,
+        getLastUser: async () => walletOnlyUserData,
+        connectEd25519Session: async () => {
+          connectCalls += 1;
+          throw new Error('Ed25519 connect should not run without an operational key');
+        },
+      },
+    });
+
+    const result = await withMockedMostRecentProjection(
+      async () =>
+        await unlock(context, ACCOUNT_ID, {
+          unlockSelection: { mode: 'ed25519_only', ed25519: true },
+        }),
+      { includeThresholdEcdsaProfiles: false },
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error || '').toContain('No NEAR operational key found');
+    expect(connectCalls).toBe(0);
+  });
+
   test('NEAR-only warm-up does not reuse a stored Ed25519 threshold session id', async () => {
     let capturedConnectArgs: Record<string, unknown> | null = null;
     const context = createBaseContext({
@@ -1868,7 +2579,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             jwt: 'jwt-ed25519',
             remainingUses: 3,
             expiresAtMs: Date.now() + 60_000,
-            ecdsaHssClientRootShare32B64u: ECDSA_CLIENT_ROOT_SHARE32_B64U,
+            ecdsaHssClientRootShare32B64u: ECDSA_PRF_FIRST_B64U,
           };
         },
       },
@@ -2119,7 +2830,7 @@ test.describe('unlock threshold warm-session requirements', () => {
               jwt: 'jwt-ed25519',
               remainingUses: 3,
               expiresAtMs: Date.now() + 60_000,
-              ecdsaHssClientRootShare32B64u: ECDSA_CLIENT_ROOT_SHARE32_B64U,
+              ecdsaHssClientRootShare32B64u: ECDSA_PRF_FIRST_B64U,
             };
           },
         },
@@ -2139,8 +2850,11 @@ test.describe('unlock threshold warm-session requirements', () => {
       expect(credentialPrompts).toBe(1);
       expect(capturedConnectArgs).not.toBeNull();
       const connectArgs = capturedConnectArgs as Record<string, any> | null;
-      expect(String(connectArgs?.appSessionJwt || '')).toBe('app-jwt-passkey-warm');
-      expect(connectArgs?.localPrfCredential).toBe(loginCredential);
+      expect(connectArgs?.auth).toEqual({
+        kind: 'app_session_jwt',
+        appSessionJwt: 'app-jwt-passkey-warm',
+        localPrfCredential: loginCredential,
+      });
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -2506,7 +3220,7 @@ test.describe('unlock threshold warm-session requirements', () => {
               walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
               remainingUses: 3,
               expiresAtMs: Date.now() + 60_000,
-              ecdsaHssClientRootShare32B64u: ECDSA_CLIENT_ROOT_SHARE32_B64U,
+              ecdsaHssClientRootShare32B64u: ECDSA_PRF_FIRST_B64U,
             };
           },
           bootstrapEcdsaSession: async (args: Record<string, unknown>) => {
@@ -2564,9 +3278,10 @@ test.describe('unlock threshold warm-session requirements', () => {
       expect(result.success).toBe(true);
       expect(capturedConnectArgs).not.toBeNull();
       const connectArgs = capturedConnectArgs as Record<string, any> | null;
-      expect(String(connectArgs?.appSessionJwt || '')).toBe('');
-      expect(connectArgs?.useAppSessionCookie).toBe(true);
-      expect(connectArgs?.localPrfCredential).toBe(loginCredential);
+      expect(connectArgs?.auth).toEqual({
+        kind: 'app_session_cookie',
+        localPrfCredential: loginCredential,
+      });
       expect(capturedBootstrapArgs).toHaveLength(2);
       expect(
         capturedBootstrapArgs.every(

@@ -1,5 +1,4 @@
 import { SigningEventPhase } from '@/core/types/sdkSentEvents';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import { assertThresholdSigningSessionReady } from '../../session/warmCapabilities/thresholdSigningSessionReadiness';
 import { SigningSessionIds } from '../../session/operationState/types';
 import type {
@@ -25,15 +24,16 @@ import type { EvmFamilyLifecycleEventCallback, EvmFamilySenderSignatureAlgorithm
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { loadSecp256k1EngineCtor, loadWebAuthnP256EngineCtor } from './signerLoader';
 import { createEvmFamilyWarmSessionServices } from './warmSessionServices';
-import { ensureEvmFamilyThresholdEcdsaKeyRefReady } from './ecdsaReadiness';
+import { ensureEvmFamilyThresholdEcdsaRecordReady } from './ecdsaReadiness';
 import {
-  findSharedEvmFamilyEcdsaKeyRefForLane,
   findSharedEvmFamilyEcdsaSessionRecordForLane,
-  readSelectedEcdsaKeyRefForLane,
   readSelectedEcdsaRecordForLane,
   type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
-import { thresholdEcdsaRecordRpId } from '../../session/persistence/records';
+import {
+  thresholdEcdsaRecordRpId,
+  type ThresholdEcdsaSessionRecord,
+} from '../../session/persistence/records';
 import type { EvmSigningRequest } from '../../chains/evm/types';
 import type { TempoSigningRequest } from '../../chains/tempo/types';
 import { buildEcdsaSessionPolicy } from '../../threshold/sessionPolicy';
@@ -41,7 +41,7 @@ import { buildEcdsaSessionIdentity } from '../../session/warmCapabilities/ecdsaP
 import type { EvmFamilyThresholdEcdsaReauthResult } from './thresholdAdmission';
 import type { EvmFamilyThresholdEcdsaStepUpRuntime } from './requireEvmFamilyStepUpAuth';
 import type { EvmFamilySigningAuthSideEffect } from './freshAuthRetryPolicy';
-import { buildReadySecp256k1SigningMaterialFromKeyRef } from './signers/secp256k1';
+import { buildReadySecp256k1SigningMaterialFromRecord } from './signers/secp256k1';
 import type {
   ThresholdEcdsaChainTarget,
   WalletSessionRef,
@@ -63,7 +63,6 @@ import {
   normalizeStepUpOperationId,
   resolvePostExhaustionStepUpBudgetPolicy,
   resolveSigningBudgetPolicyRemainingUses,
-  type SigningBudgetAllowance,
 } from '../../session/budget/policy';
 import {
   computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u,
@@ -95,15 +94,11 @@ type ThresholdEcdsaCommitQueueArgs = {
   task: () => Promise<unknown>;
 };
 
-type EvmFamilyThresholdEcdsaKeyRefUpdate = {
-  keyRef: ThresholdEcdsaSecp256k1KeyRef;
-  signingSessionIdentity: {
-    thresholdSessionId: string;
-    walletSigningSessionId: string;
-  };
+type EvmFamilyThresholdEcdsaRecordUpdate = {
+  record: ThresholdEcdsaSessionRecord;
 };
 
-type EvmFamilyThresholdEcdsaKeyRefUpdateResult = EvmFamilyThresholdEcdsaReauthResult;
+type EvmFamilyThresholdEcdsaRecordUpdateResult = EvmFamilyThresholdEcdsaReauthResult;
 
 function requirePlannedReconnectSessionIdentity(args: {
   sessionId: string;
@@ -121,12 +116,10 @@ function requirePlannedReconnectSessionIdentity(args: {
 function requireReadyEvmFamilyEcdsaMaterial(args: {
   lane: ResolvedEvmFamilyEcdsaSigningLane;
   record: ReadyEvmFamilyEcdsaMaterial['record'];
-  keyRef: ReadyEvmFamilyEcdsaMaterial['keyRef'];
   context: string;
 }): ReadyEvmFamilyEcdsaMaterial {
   const resolution = resolveReadyEvmFamilyEcdsaMaterial({
     record: args.record,
-    keyRef: args.keyRef,
     rpId: thresholdEcdsaRecordRpId(args.record),
     expected: {
       walletId: args.record.walletId,
@@ -161,19 +154,18 @@ export async function createEvmFamilySigningFlowRuntime(args: {
   senderSignatureAlgorithm: EvmFamilySenderSignatureAlgorithm;
   signingSessionPlan?: SigningSessionPlan;
   emailOtpSigningForFlow?: EvmFamilyThresholdEcdsaStepUpRuntime['emailOtpSigning'];
-  warmBudgetRefreshAllowance?: SigningBudgetAllowance;
   confirmationConfigOverride?: unknown;
   shouldAbort?: () => boolean;
   onEvent?: EvmFamilyLifecycleEventCallback;
   onAuthSideEffectStarted?: (sideEffect: EvmFamilySigningAuthSideEffect) => void;
   signingOperation?: SigningOperationContext;
   onSigningOperationTransition?: SigningOperationTransitionObserver;
-  getThresholdEcdsaKeyRef: () => ThresholdEcdsaSecp256k1KeyRef | undefined;
-  setThresholdEcdsaKeyRef: (
-    update: EvmFamilyThresholdEcdsaKeyRefUpdate,
+  getThresholdEcdsaRecord: () => ThresholdEcdsaSessionRecord | undefined;
+  setThresholdEcdsaRecord: (
+    update: EvmFamilyThresholdEcdsaRecordUpdate,
   ) =>
-    | Promise<EvmFamilyThresholdEcdsaKeyRefUpdateResult>
-    | EvmFamilyThresholdEcdsaKeyRefUpdateResult;
+    | Promise<EvmFamilyThresholdEcdsaRecordUpdateResult>
+    | EvmFamilyThresholdEcdsaRecordUpdateResult;
   getResolvedEcdsaSigningLane: () => ResolvedEvmFamilyEcdsaSigningLane;
 }) {
   const [Secp256k1Engine, WebAuthnP256Engine] = await Promise.all([
@@ -191,9 +183,6 @@ export async function createEvmFamilySigningFlowRuntime(args: {
   );
   const postExhaustionStepUpBudgetPolicy = resolvePostExhaustionStepUpBudgetPolicy({
     operationId: resolveEvmFamilyStepUpOperationId(args.signingOperation),
-    ...(args.warmBudgetRefreshAllowance
-      ? { warmBudgetRefreshAllowance: args.warmBudgetRefreshAllowance }
-      : {}),
   });
   const postExhaustionStepUpSessionBudgetUses = resolveSigningBudgetPolicyRemainingUses(
     postExhaustionStepUpBudgetPolicy,
@@ -244,33 +233,21 @@ export async function createEvmFamilySigningFlowRuntime(args: {
             lane,
             chainTargets: configuredEcdsaChainTargets,
           });
-        const keyRef =
-          args.getThresholdEcdsaKeyRef() ||
-          readSelectedEcdsaKeyRefForLane({ deps: args.deps, lane }) ||
-          findSharedEvmFamilyEcdsaKeyRefForLane({
-            deps: args.deps,
-            lane,
-            chainTargets: configuredEcdsaChainTargets,
-            ...(record ? { record } : {}),
-          });
-        if (!record || !keyRef) {
+        if (!record) {
           throw new Error(
-            '[SigningEngine][ecdsa] passkey ECDSA reconnect requires exact record and keyRef material',
+            '[SigningEngine][ecdsa] passkey ECDSA reconnect requires exact session record material',
           );
         }
         const material = requireReadyEvmFamilyEcdsaMaterial({
           lane,
           record,
-          keyRef,
           context: 'passkey reconnect preparation',
         });
         const rpId = String(ctx.touchIdPrompt.getRpId() || '').trim();
         if (!rpId) {
           throw new Error('[SigningEngine] missing rpId for passkey ECDSA reconnect');
         }
-        const materialRelayerKeyId = String(
-          material.record.relayerKeyId || material.keyRef.backendBinding?.relayerKeyId || '',
-        ).trim();
+        const materialRelayerKeyId = String(material.record.relayerKeyId || '').trim();
         if (!materialRelayerKeyId) {
           throw new Error('[SigningEngine] missing relayerKeyId for passkey ECDSA reconnect');
         }
@@ -350,27 +327,17 @@ export async function createEvmFamilySigningFlowRuntime(args: {
             lane,
             chainTargets: configuredEcdsaChainTargets,
           });
-        const keyRef =
-          args.getThresholdEcdsaKeyRef() ||
-          readSelectedEcdsaKeyRefForLane({ deps: args.deps, lane }) ||
-          findSharedEvmFamilyEcdsaKeyRefForLane({
-            deps: args.deps,
-            lane,
-            chainTargets: configuredEcdsaChainTargets,
-            ...(record ? { record } : {}),
-          });
-        if (!record || !keyRef) {
+        if (!record) {
           throw new Error(
-            '[SigningEngine][ecdsa] passkey ECDSA reconnect requires exact record and keyRef material',
+            '[SigningEngine][ecdsa] passkey ECDSA reconnect requires exact session record material',
           );
         }
         const material = requireReadyEvmFamilyEcdsaMaterial({
           lane,
           record,
-          keyRef,
           context: 'passkey reconnect',
         });
-        const reconnectPlan = buildEvmFamilyPasskeyEcdsaProvisionPlan({
+        const reconnectPlan = await buildEvmFamilyPasskeyEcdsaProvisionPlan({
           authorization,
           material,
           sessionBudgetUses: postExhaustionStepUpSessionBudgetUses,
@@ -392,14 +359,14 @@ export async function createEvmFamilySigningFlowRuntime(args: {
           reconnectSessionIdentity,
           usesNeeded,
         });
-        const readyKeyRef = await runRuntimeCommand(
+        const readyRecord = await runRuntimeCommand(
           SigningOperationCommandKind.ConnectThreshold,
           async () =>
-            await ensureEvmFamilyThresholdEcdsaKeyRefReady({
+            await ensureEvmFamilyThresholdEcdsaRecordReady({
               deps: args.deps,
               lane,
               chainId: requestChainId,
-              keyRef: material.keyRef,
+              record,
               reconnectSessionIdentity,
               reconnectPlan,
               operationUsesNeeded: Math.max(1, Math.floor(Number(usesNeeded) || 1)),
@@ -408,19 +375,18 @@ export async function createEvmFamilySigningFlowRuntime(args: {
               onEvent: args.onEvent,
             }),
         );
-        const updated = await args.setThresholdEcdsaKeyRef({
-          keyRef: readyKeyRef,
-          signingSessionIdentity: reconnectSessionIdentity,
+        const updated = await args.setThresholdEcdsaRecord({
+          record: readyRecord,
         });
         emitSigningSessionFlowTrace('evm-family', {
           stage: 'ecdsa_runtime.passkey_reconnect_admitted',
           accountId: walletId,
           chain: args.request.chain,
           chainId: requestChainId,
-          keyRef: {
-            walletSigningSessionId: readyKeyRef.walletSigningSessionId,
-            thresholdSessionId: readyKeyRef.thresholdSessionId,
-            hasThresholdSessionAuthToken: Boolean(readyKeyRef.thresholdSessionAuthToken),
+          record: {
+            walletSigningSessionId: readyRecord.walletSigningSessionId,
+            thresholdSessionId: readyRecord.thresholdSessionId,
+            hasThresholdSessionAuthToken: Boolean(readyRecord.thresholdSessionAuthToken),
           },
           budgetKind: updated.operation.budgetAdmission ? 'admitted' : 'missing',
         });
@@ -455,19 +421,15 @@ export async function createEvmFamilySigningFlowRuntime(args: {
           thresholdReconnect: {
             ensureThresholdEcdsaReadyMaterial: async ({ authorization, usesNeeded }) => {
               const lane = args.getResolvedEcdsaSigningLane();
-              const keyRef =
-                args.getThresholdEcdsaKeyRef() ||
-                readSelectedEcdsaKeyRefForLane({ deps: args.deps, lane });
               const record = readSelectedEcdsaRecordForLane({ deps: args.deps, lane });
-              if (!keyRef || !record) {
+              if (!record) {
                 throw new Error(
-                  '[SigningEngine][ecdsa] warm-session reconnect requires exact record and keyRef material',
+                  '[SigningEngine][ecdsa] warm-session reconnect requires exact session record material',
                 );
               }
               const material = requireReadyEvmFamilyEcdsaMaterial({
                 lane,
                 record,
-                keyRef,
                 context: 'warm-session reconnect',
               });
               const reconnectPlan = buildEvmFamilyWarmSessionReconnectPlan({
@@ -475,14 +437,14 @@ export async function createEvmFamilySigningFlowRuntime(args: {
                 material,
                 sessionBudgetUses: postExhaustionStepUpSessionBudgetUses,
               });
-              const readyKeyRef = await runRuntimeCommand(
+              const readyRecord = await runRuntimeCommand(
                 SigningOperationCommandKind.ConnectThreshold,
                 async () =>
-                  await ensureEvmFamilyThresholdEcdsaKeyRefReady({
+                  await ensureEvmFamilyThresholdEcdsaRecordReady({
                     deps: args.deps,
                     lane,
                     chainId: requestChainId,
-                    keyRef: material.keyRef,
+                    record,
                     reconnectSessionIdentity: buildEcdsaSessionIdentity({
                       thresholdSessionId: lane.thresholdSessionId,
                       walletSigningSessionId: lane.walletSigningSessionId,
@@ -494,12 +456,8 @@ export async function createEvmFamilySigningFlowRuntime(args: {
                     onEvent: args.onEvent,
                   }),
               );
-              const updated = await args.setThresholdEcdsaKeyRef({
-                keyRef: readyKeyRef,
-                signingSessionIdentity: {
-                  thresholdSessionId: String(lane.thresholdSessionId),
-                  walletSigningSessionId: String(lane.walletSigningSessionId),
-                },
+              const updated = await args.setThresholdEcdsaRecord({
+                record: readyRecord,
               });
               return updated;
             },
@@ -507,7 +465,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
           onAuthSideEffectStarted: emitConfirmedAuthSideEffectStarted,
         }
       : undefined;
-  const fallbackThresholdEcdsaKeyRef = args.getThresholdEcdsaKeyRef();
+  const fallbackThresholdEcdsaRecord = args.getThresholdEcdsaRecord();
   const flowArgs = {
     ctx,
     touchConfirm: args.deps.touchConfirm,
@@ -584,15 +542,15 @@ export async function createEvmFamilySigningFlowRuntime(args: {
       }),
       webauthnP256: new WebAuthnP256Engine(signerWorkerCtx),
     },
-    ...(fallbackThresholdEcdsaKeyRef
+    ...(fallbackThresholdEcdsaRecord
       ? {
           buildFallbackReadySecp256k1SigningMaterial: async ({
             requestLabel,
           }: {
             requestLabel: unknown;
           }) =>
-            await buildReadySecp256k1SigningMaterialFromKeyRef({
-              keyRef: fallbackThresholdEcdsaKeyRef,
+            await buildReadySecp256k1SigningMaterialFromRecord({
+              record: fallbackThresholdEcdsaRecord,
               requestLabel,
               rpId: ctx.touchIdPrompt.getRpId?.(),
             }),

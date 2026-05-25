@@ -19,10 +19,10 @@ import type {
   ThresholdEcdsaSessionStoreSource,
 } from '../identity/laneIdentity';
 import type {
-  EvmFamilyEcdsaKeyHandle,
-  EvmFamilyEcdsaKeyIdentity,
+  EvmFamilyEcdsaWalletKey,
   EvmFamilyEcdsaSessionLanePolicy,
 } from '../identity/evmFamilyEcdsaIdentity';
+import { evmFamilyEcdsaWalletKeyToIdentity } from '../identity/evmFamilyEcdsaIdentity';
 import type { SigningOperationIntent } from '../operationState/types';
 import type {
   EcdsaSessionIdentity,
@@ -63,9 +63,10 @@ type ThresholdEcdsaActivationRequestSharedFields = {
 };
 
 type ThresholdEcdsaActivationRequestIdentityFields = {
-  keyHandle: EvmFamilyEcdsaKeyHandle;
-  key: EvmFamilyEcdsaKeyIdentity;
+  walletKey: EvmFamilyEcdsaWalletKey;
   lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
+  keyHandle?: never;
+  key?: never;
   walletId?: never;
   subjectId?: never;
   chainTarget?: never;
@@ -196,8 +197,7 @@ function buildPasskeyEcdsaActivationRequest(
 ): ThresholdEcdsaPasskeyActivationRequest {
   const request: ThresholdEcdsaPasskeyActivationRequest = {
     kind: 'passkey_ecdsa_activation',
-    keyHandle: args.keyHandle,
-    key: args.key,
+    walletKey: args.walletKey,
     lanePolicy: args.lanePolicy,
     source: args.source,
     relayerUrl: args.relayerUrl,
@@ -231,8 +231,7 @@ function buildEmailOtpEcdsaActivationRequest(
 ): ThresholdEcdsaEmailOtpActivationRequest {
   const request: ThresholdEcdsaEmailOtpActivationRequest = {
     kind: 'email_otp_ecdsa_activation',
-    keyHandle: args.keyHandle,
-    key: args.key,
+    walletKey: args.walletKey,
     lanePolicy: args.lanePolicy,
     source: args.source,
     relayerUrl: args.relayerUrl,
@@ -263,8 +262,7 @@ export function buildThresholdSessionReconnectEcdsaActivation(
 ): ThresholdEcdsaThresholdSessionAuthReconnectRequest {
   const request: ThresholdEcdsaThresholdSessionAuthReconnectRequest = {
     kind: 'threshold_session_auth_reconnect',
-    keyHandle: args.keyHandle,
-    key: args.key,
+    walletKey: args.walletKey,
     lanePolicy: args.lanePolicy,
     source: args.source,
     relayerUrl: args.relayerUrl,
@@ -283,8 +281,7 @@ export function buildCookieReconnectEcdsaActivation(
 ): ThresholdEcdsaCookieReconnectRequest {
   const request: ThresholdEcdsaCookieReconnectRequest = {
     kind: 'cookie_reconnect',
-    keyHandle: args.keyHandle,
-    key: args.key,
+    walletKey: args.walletKey,
     lanePolicy: args.lanePolicy,
     source: args.source,
     relayerUrl: args.relayerUrl,
@@ -381,8 +378,8 @@ function toBootstrapEcdsaSessionRequest(
       return applyCommonActivationRequestFields(
         {
           kind: 'passkey_fresh_ecdsa_bootstrap',
-          keyHandle: command.request.keyHandle,
-          key: command.request.key,
+          keyHandle: command.request.walletKey.keyHandle,
+          key: evmFamilyEcdsaWalletKeyToIdentity(command.request.walletKey),
           lanePolicy: command.request.lanePolicy,
           source: command.request.source,
           relayerUrl: command.request.relayerUrl,
@@ -396,8 +393,8 @@ function toBootstrapEcdsaSessionRequest(
       return applyCommonActivationRequestFields(
         {
           kind: 'email_otp_ecdsa_bootstrap',
-          keyHandle: command.request.keyHandle,
-          key: command.request.key,
+          keyHandle: command.request.walletKey.keyHandle,
+          key: evmFamilyEcdsaWalletKeyToIdentity(command.request.walletKey),
           lanePolicy: command.request.lanePolicy,
           source: 'email_otp',
           relayerUrl: command.request.relayerUrl,
@@ -412,8 +409,8 @@ function toBootstrapEcdsaSessionRequest(
           kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
           source: command.request.source,
           relayerUrl: command.request.relayerUrl,
-          keyHandle: command.request.keyHandle,
-          key: command.request.key,
+          keyHandle: command.request.walletKey.keyHandle,
+          key: evmFamilyEcdsaWalletKeyToIdentity(command.request.walletKey),
           lanePolicy: command.request.lanePolicy,
           clientRootShare32B64u: command.request.clientRootShare32B64u,
           routeAuth: {
@@ -427,8 +424,8 @@ function toBootstrapEcdsaSessionRequest(
       return applyCommonActivationRequestFields(
         {
           kind: 'passkey_cookie_reconnect_ecdsa_bootstrap',
-          keyHandle: command.request.keyHandle,
-          key: command.request.key,
+          keyHandle: command.request.walletKey.keyHandle,
+          key: evmFamilyEcdsaWalletKeyToIdentity(command.request.walletKey),
           lanePolicy: command.request.lanePolicy,
           source: command.request.source,
           relayerUrl: command.request.relayerUrl,

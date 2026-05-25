@@ -31,10 +31,8 @@ export function createRegistrationAccountLifecycleDeps(
 
 export function createRegistrationSessionDeps(args: {
   createArgs: CreateSigningEnginePortsArgs;
-  nearRpcUrl: string;
 }): RegistrationSessionDeps {
   return {
-    nearRpcUrl: args.nearRpcUrl,
     touchConfirm: args.createArgs.touchConfirm,
     touchIdPrompt: args.createArgs.touchIdPrompt,
   };

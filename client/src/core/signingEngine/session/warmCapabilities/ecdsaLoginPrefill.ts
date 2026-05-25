@@ -5,7 +5,6 @@ import type {
   ThresholdEcdsaPresignPoolPolicy,
   ThresholdEcdsaPresignPoolPolicyInput,
 } from '@/core/types/seams';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import {
   getThresholdEcdsaClientPresignaturePoolDepth,
   resolveThresholdEcdsaPresignPoolPolicy,
@@ -23,13 +22,14 @@ import {
   LOGIN_PREFILL_TRIGGER_DEPTH,
 } from '@/core/config/defaultConfigs';
 import { tryBuildEcdsaSessionIdentity } from './ecdsaProvisionPlan';
+import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 
 export type ThresholdEcdsaLoginPrefillSkippedReason =
   | 'pool_disabled'
   | 'pool_already_warm'
   | 'missing_threshold_session_id'
   | 'missing_threshold_session_auth_token'
-  | 'invalid_key_ref'
+  | 'invalid_session_record'
   | 'warm_session_not_active'
   | 'threshold_session_mismatch'
   | 'low_remaining_uses'
@@ -46,7 +46,7 @@ export type ThresholdEcdsaLoginPrefillResult =
     }
   | {
       status: 'skipped';
-      reason: 'invalid_key_ref' | 'missing_threshold_session_id';
+      reason: 'invalid_session_record' | 'missing_threshold_session_id';
       thresholdSessionId: null;
       details: string | null;
     }
@@ -93,7 +93,7 @@ export type ThresholdEcdsaLoginPrefillDeps = {
     chainTarget: ThresholdEcdsaChainTarget,
   ) => Promise<SigningSessionStatus | null>;
   getSignerWorkerContext: () => SignerWorkerManagerContext;
-  resolveClientSigningShare32: (keyRef: ThresholdEcdsaSecp256k1KeyRef) => Promise<Uint8Array>;
+  resolveClientSigningShare32: (record: ThresholdEcdsaSessionRecord) => Promise<Uint8Array>;
   thresholdEcdsaPresignPoolPolicy?:
     | ThresholdEcdsaPresignPoolPolicyInput
     | ThresholdEcdsaPresignPoolPolicy;
@@ -111,7 +111,7 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
   deps: ThresholdEcdsaLoginPrefillDeps,
   args: {
     walletId: WalletId;
-    thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef;
+    thresholdEcdsaSessionRecord: ThresholdEcdsaSessionRecord;
     chainTarget: ThresholdEcdsaChainTarget;
     minRemainingUsesBeforePrefill?: number;
   },
@@ -119,34 +119,24 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
   let thresholdSessionId: string | undefined;
   try {
     const walletId = args.walletId;
-    const keyRef = args.thresholdEcdsaKeyRef;
-    if (!keyRef || keyRef.type !== 'threshold-ecdsa-secp256k1') {
-      return {
-        status: 'skipped',
-        reason: 'invalid_key_ref',
-        thresholdSessionId: null,
-        details: null,
-      };
-    }
+    const record = args.thresholdEcdsaSessionRecord;
 
-    const relayerUrl = String(keyRef.relayerUrl || '')
+    const relayerUrl = String(record.relayerUrl || '')
       .trim()
       .replace(/\/+$/g, '');
-    const relayerKeyId = String(keyRef.backendBinding?.relayerKeyId || '').trim();
-    const clientVerifyingShareB64u = String(
-      keyRef.backendBinding?.clientVerifyingShareB64u || '',
-    ).trim();
-    const participantIds = normalizeThresholdEd25519ParticipantIds(keyRef.participantIds);
+    const relayerKeyId = String(record.relayerKeyId || '').trim();
+    const clientVerifyingShareB64u = String(record.clientVerifyingShareB64u || '').trim();
+    const participantIds = normalizeThresholdEd25519ParticipantIds(record.participantIds);
     if (!relayerUrl || !relayerKeyId || !clientVerifyingShareB64u || !participantIds) {
       return {
         status: 'skipped',
-        reason: 'invalid_key_ref',
+        reason: 'invalid_session_record',
         thresholdSessionId: null,
         details: null,
       };
     }
 
-    const identity = tryBuildEcdsaSessionIdentity(keyRef);
+    const identity = tryBuildEcdsaSessionIdentity(record);
     thresholdSessionId = identity?.thresholdSessionId;
     if (!thresholdSessionId || !identity) {
       return {
@@ -157,8 +147,8 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
       };
     }
 
-    const sessionKind = normalizeThresholdSessionKind(keyRef.thresholdSessionKind);
-    const thresholdSessionAuthToken = String(keyRef.thresholdSessionAuthToken || '').trim();
+    const sessionKind = normalizeThresholdSessionKind(record.thresholdSessionKind);
+    const thresholdSessionAuthToken = String(record.thresholdSessionAuthToken || '').trim();
     if (sessionKind === 'jwt' && !thresholdSessionAuthToken) {
       return {
         status: 'skipped',
@@ -178,7 +168,7 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
 
     const existingDepth = getThresholdEcdsaClientPresignaturePoolDepth({
       relayerUrl,
-      ecdsaThresholdKeyId: String(keyRef.ecdsaThresholdKeyId || '').trim(),
+      ecdsaThresholdKeyId: String(record.ecdsaThresholdKeyId || '').trim(),
       participantIds,
     });
     if (existingDepth >= LOGIN_PREFILL_TARGET_DEPTH) {
@@ -227,12 +217,12 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
     let clientSigningShare32: Uint8Array | null = null;
     const remainingUsesAfterDispense = remainingUsesBefore;
     try {
-      clientSigningShare32 = await deps.resolveClientSigningShare32(keyRef);
+      clientSigningShare32 = await deps.resolveClientSigningShare32(record);
     } catch (error: unknown) {
       const message = String((error as { message?: unknown })?.message || error || '').trim();
       return {
         status: 'skipped',
-        reason: 'invalid_key_ref',
+        reason: 'invalid_session_record',
         thresholdSessionId: null,
         details: message || 'missing ECDSA signing material',
       };
@@ -241,13 +231,13 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
     try {
       const schedule = scheduleThresholdEcdsaClientPresignaturePoolRefill({
         relayerUrl,
-        ecdsaThresholdKeyId: String(keyRef.ecdsaThresholdKeyId || '').trim(),
+        ecdsaThresholdKeyId: String(record.ecdsaThresholdKeyId || '').trim(),
         relayerKeyId,
         clientVerifyingShareB64u,
         participantIds,
         clientSigningShare32: clientSigningShare32.slice(),
-        thresholdEcdsaPublicKeyB64u: keyRef.thresholdEcdsaPublicKeyB64u,
-        relayerVerifyingShareB64u: keyRef.relayerVerifyingShareB64u,
+        thresholdEcdsaPublicKeyB64u: record.thresholdEcdsaPublicKeyB64u,
+        relayerVerifyingShareB64u: record.relayerVerifyingShareB64u,
         sessionKind,
         ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
         workerCtx: deps.getSignerWorkerContext(),

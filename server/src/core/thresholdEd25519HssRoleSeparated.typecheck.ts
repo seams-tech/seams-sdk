@@ -3,6 +3,8 @@ import type {
   ThresholdEd25519HssRoleSeparatedRespondResponse,
   ThresholdEd25519HssRoleSeparatedRespondWithSessionRequest,
   ThresholdEd25519HssServerVisibleClientRequestEnvelope,
+  WalletRegistrationFinalizeRequest,
+  WalletRegistrationHssRespondRequest,
 } from './types';
 
 const serverVisibleClientRequest = {
@@ -32,6 +34,12 @@ void ({
   clientRequestMessageB64u: 'client-request-message',
   // @ts-expect-error role-separated HSS server routes must not receive client output mask
   rClientB64u: 'client-mask',
+} satisfies ThresholdEd25519HssServerVisibleClientRequestEnvelope);
+
+void ({
+  clientRequestMessageB64u: 'client-request-message',
+  // @ts-expect-error role-separated HSS server routes must not receive client output mask
+  clientOutputMaskB64u: 'client-output-mask',
 } satisfies ThresholdEd25519HssServerVisibleClientRequestEnvelope);
 
 void ({
@@ -152,5 +160,79 @@ void ({
   // @ts-expect-error role-separated respond must not return client mask material
   rClientB64u: 'client-mask',
 } satisfies ThresholdEd25519HssRoleSeparatedRespondResponse);
+
+void ({
+  registrationCeremonyId: 'wallet-registration-ceremony',
+  ed25519: {
+    clientRequest: serverVisibleClientRequest,
+  },
+} satisfies WalletRegistrationHssRespondRequest);
+
+void ({
+  registrationCeremonyId: 'wallet-registration-ceremony',
+  ed25519: {
+    clientRequest: {
+      clientRequestMessageB64u: 'client-request-message',
+      // @ts-expect-error wallet registration respond rejects client-retained evaluator state
+      evaluatorOtStateB64u: 'evaluator-ot-state',
+    },
+  },
+} satisfies WalletRegistrationHssRespondRequest);
+
+void ({
+  registrationCeremonyId: 'wallet-registration-ceremony',
+  ed25519: {
+    clientRequest: {
+      clientRequestMessageB64u: 'client-request-message',
+      // @ts-expect-error wallet registration respond rejects PRF material
+      prfOutputB64u: 'prf-output',
+    },
+  },
+} satisfies WalletRegistrationHssRespondRequest);
+
+void ({
+  registrationCeremonyId: 'wallet-registration-ceremony',
+  ed25519: {
+    clientRequest: {
+      clientRequestMessageB64u: 'client-request-message',
+      // @ts-expect-error wallet registration respond rejects client output masks
+      clientOutputMaskB64u: 'client-output-mask',
+    },
+  },
+} satisfies WalletRegistrationHssRespondRequest);
+
+void ({
+  registrationCeremonyId: 'wallet-registration-ceremony',
+  ed25519: {
+    evaluationResult: {
+      contextBindingB64u: 'context-binding',
+      stagedEvaluatorArtifactB64u: 'staged-artifact',
+    },
+  },
+} satisfies WalletRegistrationFinalizeRequest);
+
+void ({
+  registrationCeremonyId: 'wallet-registration-ceremony',
+  ed25519: {
+    evaluationResult: {
+      contextBindingB64u: 'context-binding',
+      stagedEvaluatorArtifactB64u: 'staged-artifact',
+      // @ts-expect-error wallet registration finalize rejects raw opened client output
+      xClientBaseB64u: 'client-output',
+    },
+  },
+} satisfies WalletRegistrationFinalizeRequest);
+
+void ({
+  registrationCeremonyId: 'wallet-registration-ceremony',
+  ed25519: {
+    evaluationResult: {
+      contextBindingB64u: 'context-binding',
+      stagedEvaluatorArtifactB64u: 'staged-artifact',
+      // @ts-expect-error wallet registration finalize rejects seed output
+      seedOutputMessageB64u: 'seed-output',
+    },
+  },
+} satisfies WalletRegistrationFinalizeRequest);
 
 export {};

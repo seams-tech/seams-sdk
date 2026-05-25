@@ -380,7 +380,6 @@ dependencies = [
  "sha2",
  "sha3",
  "signer-platform-web",
- "threshold-signatures",
  "wasm-bindgen",
  "zeroize",
 ]

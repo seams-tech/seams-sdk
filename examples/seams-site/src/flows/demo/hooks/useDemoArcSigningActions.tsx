@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { walletSessionRefFromSession, walletSubjectIdFromWalletProfile } from '@seams/sdk';
+import { walletSessionRefFromSession } from '@seams/sdk';
 import { useSeams } from '@seams/sdk/react';
 import { toast } from 'sonner';
 
@@ -117,7 +117,6 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
           walletId: nearAccountId,
           userId: nearAccountId,
         }),
-        subjectId: walletSubjectIdFromWalletProfile({ walletId: nearAccountId }),
         request,
         chainTarget: resolveDemoThresholdEcdsaChainTarget('evm', FRONTEND_CONFIG.chains),
         finalization: {

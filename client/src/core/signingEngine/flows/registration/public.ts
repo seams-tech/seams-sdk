@@ -24,10 +24,19 @@ import {
   initializeCurrentUser as initializeCurrentUserValue,
   rollbackUserRegistration as rollbackUserRegistrationValue,
   setLastUser as setLastUserValue,
+  storeWalletSubjectEd25519SignerRecord as storeWalletSubjectEd25519SignerRecordValue,
+  storeWalletSubjectEd25519RegistrationData as storeWalletSubjectEd25519RegistrationDataValue,
+  storeWalletSubjectEcdsaRegistrationData as storeWalletSubjectEcdsaRegistrationDataValue,
+  storeWalletSubjectEcdsaSignerRecords as storeWalletSubjectEcdsaSignerRecordsValue,
   storeAuthenticator as storeAuthenticatorValue,
   storeUserData as storeUserDataValue,
   updateLastLogin as updateLastLoginValue,
   type StoredRegistrationData,
+  type StoreWalletSubjectEcdsaSignerRecordsInput,
+  type StoreWalletSubjectEcdsaRegistrationInput,
+  type StoreWalletSubjectEcdsaSignerRecordsResult,
+  type StoreWalletSubjectEd25519RegistrationInput,
+  type StoreWalletSubjectEd25519SignerRecordInput,
   type StoreAuthenticatorInput,
 } from './accountLifecycle';
 import {
@@ -37,6 +46,11 @@ import {
 
 export type { StoreAuthenticatorInput };
 export type { StoredRegistrationData };
+export type {
+  StoreWalletSubjectEcdsaSignerRecordsInput,
+  StoreWalletSubjectEcdsaRegistrationInput,
+  StoreWalletSubjectEcdsaSignerRecordsResult,
+};
 
 export type RegistrationPublicDeps = {
   accountLifecycle: RegistrationAccountLifecycleDeps;
@@ -131,6 +145,34 @@ export function atomicStoreRegistrationData(
   return atomicStoreRegistrationDataValue(deps.accountLifecycle, args);
 }
 
+export function storeWalletSubjectEd25519RegistrationData(
+  deps: RegistrationPublicDeps,
+  args: StoreWalletSubjectEd25519RegistrationInput,
+): Promise<StoredRegistrationData> {
+  return storeWalletSubjectEd25519RegistrationDataValue(deps.accountLifecycle, args);
+}
+
+export function storeWalletSubjectEd25519SignerRecord(
+  deps: RegistrationPublicDeps,
+  args: StoreWalletSubjectEd25519SignerRecordInput,
+): Promise<StoredRegistrationData> {
+  return storeWalletSubjectEd25519SignerRecordValue(deps.accountLifecycle, args);
+}
+
+export function storeWalletSubjectEcdsaSignerRecords(
+  deps: RegistrationPublicDeps,
+  args: StoreWalletSubjectEcdsaSignerRecordsInput,
+): Promise<StoreWalletSubjectEcdsaSignerRecordsResult> {
+  return storeWalletSubjectEcdsaSignerRecordsValue(deps.accountLifecycle, args);
+}
+
+export function storeWalletSubjectEcdsaRegistrationData(
+  deps: RegistrationPublicDeps,
+  args: StoreWalletSubjectEcdsaRegistrationInput,
+): Promise<StoreWalletSubjectEcdsaSignerRecordsResult> {
+  return storeWalletSubjectEcdsaRegistrationDataValue(deps.accountLifecycle, args);
+}
+
 export function requestRegistrationCredentialConfirmation(
   deps: RegistrationPublicDeps,
   params: {
@@ -138,6 +180,7 @@ export function requestRegistrationCredentialConfirmation(
     signerSlot: number;
     confirmerText?: { title?: string; body?: string };
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
+    challengeB64u?: string;
   },
 ): Promise<RegistrationCredentialConfirmationPayload> {
   return requestRegistrationCredentialConfirmationValue(deps.session, params);
@@ -186,12 +229,25 @@ export function createRegistrationPublicApi(deps: RegistrationPublicDeps) {
       credential: WebAuthnRegistrationCredential;
       operationalPublicKey: string;
     }) => atomicStoreRegistrationData(deps, args),
+    storeWalletSubjectEd25519RegistrationData: (
+      args: StoreWalletSubjectEd25519RegistrationInput,
+    ) => storeWalletSubjectEd25519RegistrationData(deps, args),
+    storeWalletSubjectEd25519SignerRecord: (
+      args: StoreWalletSubjectEd25519SignerRecordInput,
+    ) => storeWalletSubjectEd25519SignerRecord(deps, args),
+    storeWalletSubjectEcdsaSignerRecords: (
+      args: StoreWalletSubjectEcdsaSignerRecordsInput,
+    ) => storeWalletSubjectEcdsaSignerRecords(deps, args),
+    storeWalletSubjectEcdsaRegistrationData: (
+      args: StoreWalletSubjectEcdsaRegistrationInput,
+    ) => storeWalletSubjectEcdsaRegistrationData(deps, args),
     requestRegistrationCredentialConfirmation: (params: {
-      nearAccountId: string;
-      signerSlot: number;
-      confirmerText?: { title?: string; body?: string };
-      confirmationConfigOverride?: Partial<ConfirmationConfig>;
-    }) => requestRegistrationCredentialConfirmation(deps, params),
+    nearAccountId: string;
+    signerSlot: number;
+    confirmerText?: { title?: string; body?: string };
+    confirmationConfigOverride?: Partial<ConfirmationConfig>;
+    challengeB64u?: string;
+  }) => requestRegistrationCredentialConfirmation(deps, params),
     getAuthenticationCredentialsSerialized: (args: {
       nearAccountId: AccountId;
       challengeB64u: string;

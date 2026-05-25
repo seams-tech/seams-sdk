@@ -34,7 +34,6 @@ const missingHotMaterialSelection: ReauthRequiredEvmFamilyEcdsaSigningSelection 
       walletSigningSessionId: 'wallet-signing-session-1',
     }),
     hasRecord: false,
-    hasKeyRef: false,
   },
   reason: 'missing_hot_material',
   reauthAuthority: {

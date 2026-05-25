@@ -11,7 +11,7 @@ test.describe('buildConfigsFromEnv registration transport defaults', () => {
     if (cfg.registration.mode !== 'backend_proxy') {
       throw new Error('Expected backend_proxy registration mode');
     }
-    expect(cfg.registration.bootstrapUrl).toBe('https://relay.example/registration/bootstrap');
+    expect(cfg.registration.bootstrapUrl).toBe('https://relay.example/wallets/register/intent');
   });
 
   test('uses explicit backend proxy registration bootstrap URL', async () => {

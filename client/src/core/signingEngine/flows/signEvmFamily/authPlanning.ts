@@ -32,17 +32,12 @@ import {
   isEmailOtpThresholdEcdsaSigningContext,
   type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
-import {
-  resolveReadyEvmFamilyEcdsaMaterial,
-  toReadyEcdsaSignerSessionFromReadyMaterial,
-} from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { EvmFamilyEcdsaSessionReaderDeps } from '../../interfaces/operationDeps';
 import {
   createEmailOtpEcdsaTransactionSigningBridge,
   type EvmFamilyEmailOtpTransactionSigningBridge,
 } from './emailOtpSigningSession';
 import {
-  getEcdsaMaterialKeyRef,
   getEcdsaMaterialRecord,
   type EcdsaMaterialState,
 } from './ecdsaMaterialState';
@@ -152,10 +147,7 @@ export async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
     remainingUses: Math.floor(Number(input.remainingUses) || 0),
   });
 
-  const keyRef = getEcdsaMaterialKeyRef(args.material);
-  const materialIsEmailOtp =
-    isEmailOtpThresholdEcdsaSigningContext({ record }) ||
-    (keyRef ? isEmailOtpThresholdEcdsaSigningContext({ keyRef }) : false);
+  const materialIsEmailOtp = isEmailOtpThresholdEcdsaSigningContext({ record });
   if (materialIsEmailOtp) {
     const emailOtpWorkerSessionId = resolveEmailOtpEcdsaWorkerSessionId(record);
     const readEmailOtpStatus = async () => {
@@ -199,25 +191,14 @@ async function resolvePasskeyEcdsaTrustedBudgetReadiness(args: {
   remainingUses: number;
 } | null> {
   const record = getEcdsaMaterialRecord(args.material);
-  const keyRef = getEcdsaMaterialKeyRef(args.material);
-  if (!record || !keyRef || args.lane.authMethod !== SIGNER_AUTH_METHODS.passkey) return null;
-  const readyMaterial = resolveReadyEvmFamilyEcdsaMaterial({
-    record,
-    keyRef,
-    rpId: record.rpId,
-    expected: {
-      walletId: record.walletId,
-      chainTarget: args.lane.chainTarget,
-      authMethod: args.lane.authMethod,
-      source: record.source,
-      thresholdSessionId: args.lane.thresholdSessionId,
-      walletSigningSessionId: args.lane.walletSigningSessionId,
-    },
-  });
-  if (readyMaterial.kind !== 'ready') return null;
-  const signerSession = await toReadyEcdsaSignerSessionFromReadyMaterial({
-    material: readyMaterial.material,
-  });
+  if (
+    !record ||
+    args.material.kind !== 'ready_to_sign' ||
+    args.lane.authMethod !== SIGNER_AUTH_METHODS.passkey
+  ) {
+    return null;
+  }
+  const signerSession = args.material.signerSession;
   const trustedStatusAuth: SigningSessionBudgetStatusAuth = {
     relayerUrl: signerSession.transport.relayerUrl,
     thresholdSessionId: String(signerSession.session.thresholdSessionId),
@@ -285,7 +266,6 @@ export async function resolveEvmFamilyTransactionStepUp(
     laneWarmRecord?.runtimePolicyScope
       ? signingRootScopeFromRuntimePolicyScope(laneWarmRecord.runtimePolicyScope).signingRootId
       : undefined;
-  const laneWarmKeyRef = preparedMaterial ? getEcdsaMaterialKeyRef(preparedMaterial) : undefined;
   const confirmedEmailOtpDeps = args.confirmedDeps;
   const emailOtpReauthRecord =
     args.senderSignatureAlgorithm === 'secp256k1' &&

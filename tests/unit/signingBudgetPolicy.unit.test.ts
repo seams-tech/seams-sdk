@@ -42,19 +42,6 @@ test.describe('signing budget policy', () => {
     expect(resolveSigningBudgetPolicyRemainingUses(policy)).toBe(1);
   });
 
-  test('requires explicit warm-budget-refresh opt-in', () => {
-    const allowance = parseServerEnvironmentBudgetAllowance({
-      remainingUses: 2,
-      policyVersion: 'server-policy-v2',
-    });
-    const policy = resolvePostExhaustionStepUpBudgetPolicy({
-      operationId: SigningSessionIds.signingOperation('tx-step-up-2'),
-      warmBudgetRefreshAllowance: allowance,
-    });
-    expect(policy.kind).toBe('warm_budget_refresh_step_up_policy');
-    expect(resolveSigningBudgetPolicyRemainingUses(policy)).toBe(2);
-  });
-
   test('normalizes unlock overrides through wallet-unlock policy parsing', () => {
     const policy = resolveWalletUnlockBudgetPolicyFromRequestedUses({
       requestedRemainingUses: 7,

@@ -1,5 +1,6 @@
 import type { NormalizedLogger } from './logger';
 import type { ThresholdStoreConfigInput } from './types';
+import type { WalletRegistrationEcdsaPreparePayload } from './types';
 import { THRESHOLD_PREFIX_DEFAULT } from './defaultConfigsServer';
 import { isObject as isObjectLoose, toOptionalTrimmedString } from '@shared/utils/validation';
 import {
@@ -21,16 +22,13 @@ export type DeviceLinkingSessionRecord = {
   accountId?: string;
   signerSlot?: number;
   addKeyTxHash?: string;
-  preparedThresholdEcdsa?: DeviceLinkingPreparedThresholdEcdsaRecord;
+  preparedEcdsa?: DeviceLinkingPreparedEcdsaRecord;
 };
 
-export type DeviceLinkingPreparedThresholdEcdsaRecord = {
-  clientVerifyingShareB64u: string;
-  clientAdditiveShare32B64u: string;
-  relayerKeyId: string;
-  thresholdEcdsaPublicKeyB64u: string;
-  ethereumAddress: string;
-  participantIds?: number[];
+export type DeviceLinkingPreparedEcdsaRecord = {
+  kind: 'evm_family_ecdsa_keygen';
+  chainTargets: WalletRegistrationEcdsaPreparePayload['chainTargets'];
+  prepare: WalletRegistrationEcdsaPreparePayload['prepare'];
 };
 
 export interface DeviceLinkingSessionStore {
@@ -58,42 +56,80 @@ function toDeviceLinkingSessionPrefix(config: Record<string, unknown>): string {
   return `${baseWithColon}device_linking_session:`;
 }
 
-function normalizeParticipantIds(value: unknown): number[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const out = value
-    .map((item) => Math.floor(Number(item)))
-    .filter((item) => Number.isFinite(item) && item > 0);
-  return out.length > 0 ? out : undefined;
-}
-
-function parsePreparedThresholdEcdsaRecord(
-  raw: unknown,
-): DeviceLinkingPreparedThresholdEcdsaRecord | undefined {
+function parsePreparedEcdsaRecord(raw: unknown): DeviceLinkingPreparedEcdsaRecord | undefined {
   if (!isObject(raw)) return undefined;
-  const clientVerifyingShareB64u = toOptionalTrimmedString(raw.clientVerifyingShareB64u);
-  const clientAdditiveShare32B64u = toOptionalTrimmedString(raw.clientAdditiveShare32B64u);
-  const relayerKeyId = toOptionalTrimmedString(raw.relayerKeyId);
-  const thresholdEcdsaPublicKeyB64u = toOptionalTrimmedString(raw.thresholdEcdsaPublicKeyB64u);
-  const ethereumAddress = toOptionalTrimmedString(raw.ethereumAddress);
+  const kind = toOptionalTrimmedString(raw.kind);
+  const chainTargets = Array.isArray(raw.chainTargets) ? raw.chainTargets : [];
+  const prepare = isObject(raw.prepare) ? raw.prepare : null;
+  const formatVersion = toOptionalTrimmedString(prepare?.formatVersion);
+  const walletSessionUserId = toOptionalTrimmedString(prepare?.walletSessionUserId);
+  const rpId = toOptionalTrimmedString(prepare?.rpId);
+  const subjectId = toOptionalTrimmedString(prepare?.subjectId);
+  const ecdsaThresholdKeyId = toOptionalTrimmedString(prepare?.ecdsaThresholdKeyId);
+  const signingRootId = toOptionalTrimmedString(prepare?.signingRootId);
+  const signingRootVersion = toOptionalTrimmedString(prepare?.signingRootVersion);
+  const keyScope = toOptionalTrimmedString(prepare?.keyScope);
+  const relayerKeyId = toOptionalTrimmedString(prepare?.relayerKeyId);
+  const requestId = toOptionalTrimmedString(prepare?.requestId);
+  const sessionId = toOptionalTrimmedString(prepare?.sessionId);
+  const walletSigningSessionId = toOptionalTrimmedString(prepare?.walletSigningSessionId);
+  const ttlMs = typeof prepare?.ttlMs === 'number' ? prepare.ttlMs : Number(prepare?.ttlMs);
+  const remainingUses =
+    typeof prepare?.remainingUses === 'number'
+      ? prepare.remainingUses
+      : Number(prepare?.remainingUses);
+  const participantIds = Array.isArray(prepare?.participantIds)
+    ? prepare.participantIds
+        .map((participantId) => Math.floor(Number(participantId)))
+        .filter((participantId) => Number.isSafeInteger(participantId) && participantId > 0)
+    : [];
   if (
-    !clientVerifyingShareB64u ||
-    !clientAdditiveShare32B64u ||
+    kind !== 'evm_family_ecdsa_keygen' ||
+    chainTargets.length === 0 ||
+    formatVersion !== 'ecdsa-hss-role-local' ||
+    !walletSessionUserId ||
+    !rpId ||
+    !subjectId ||
+    !ecdsaThresholdKeyId ||
+    !signingRootId ||
+    !signingRootVersion ||
+    keyScope !== 'evm-family' ||
     !relayerKeyId ||
-    !thresholdEcdsaPublicKeyB64u ||
-    !ethereumAddress
+    !requestId ||
+    !sessionId ||
+    !walletSigningSessionId ||
+    !Number.isFinite(ttlMs) ||
+    ttlMs < 0 ||
+    !Number.isFinite(remainingUses) ||
+    remainingUses < 0 ||
+    participantIds.length === 0
   ) {
     return undefined;
   }
 
   return {
-    clientVerifyingShareB64u,
-    clientAdditiveShare32B64u,
-    relayerKeyId,
-    thresholdEcdsaPublicKeyB64u,
-    ethereumAddress,
-    ...(normalizeParticipantIds(raw.participantIds)
-      ? { participantIds: normalizeParticipantIds(raw.participantIds) }
-      : {}),
+    kind: 'evm_family_ecdsa_keygen',
+    chainTargets: chainTargets as WalletRegistrationEcdsaPreparePayload['chainTargets'],
+    prepare: {
+      formatVersion: 'ecdsa-hss-role-local',
+      walletSessionUserId,
+      rpId,
+      subjectId,
+      ecdsaThresholdKeyId,
+      signingRootId,
+      signingRootVersion,
+      keyScope: 'evm-family',
+      relayerKeyId,
+      requestId,
+      sessionId,
+      walletSigningSessionId,
+      ttlMs: Math.floor(ttlMs),
+      remainingUses: Math.floor(remainingUses),
+      participantIds,
+      ...(isObject(prepare?.runtimePolicyScope)
+        ? { runtimePolicyScope: prepare.runtimePolicyScope as WalletRegistrationEcdsaPreparePayload['prepare']['runtimePolicyScope'] }
+        : {}),
+    },
   };
 }
 
@@ -130,7 +166,7 @@ function parseDeviceLinkingSessionRecord(raw: unknown): DeviceLinkingSessionReco
       ? Math.floor(signerSlotRaw as number)
       : undefined;
   const addKeyTxHash = toOptionalTrimmedString(raw.addKeyTxHash);
-  const preparedThresholdEcdsa = parsePreparedThresholdEcdsaRecord(raw.preparedThresholdEcdsa);
+  const preparedEcdsa = parsePreparedEcdsaRecord(raw.preparedEcdsa);
 
   const out: DeviceLinkingSessionRecord = {
     version: 'device_linking_session_v1',
@@ -144,7 +180,7 @@ function parseDeviceLinkingSessionRecord(raw: unknown): DeviceLinkingSessionReco
     ...(accountId ? { accountId } : {}),
     ...(signerSlot ? { signerSlot } : {}),
     ...(addKeyTxHash ? { addKeyTxHash } : {}),
-    ...(preparedThresholdEcdsa ? { preparedThresholdEcdsa } : {}),
+    ...(preparedEcdsa ? { preparedEcdsa } : {}),
   };
 
   return out;

@@ -1,5 +1,4 @@
 import type { AccountAuthMetadata } from '@/core/signingEngine/interfaces/accountAuthMetadata';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type {
   EcdsaLaneCandidate,
   SelectedEcdsaLane,
@@ -355,15 +354,9 @@ export type PrepareEvmFamilyEcdsaSigningDeps = EvmFamilyEcdsaSigningSelectionDep
     readAvailableSigningLanesForSigning: (
       args: Extract<ReadAvailableSigningLanesForSigningInput, { curve: 'ecdsa' }>,
     ) => Promise<AvailableSigningLanes>;
-    getEmailOtpThresholdEcdsaKeyRefForSigning: (
-      args: EcdsaSigningLookupArgs,
-    ) => ThresholdEcdsaSecp256k1KeyRef;
     getEmailOtpThresholdEcdsaSessionRecordForSigning: (
       args: EcdsaSigningLookupArgs,
     ) => ThresholdEcdsaSessionRecord;
-    getPasskeyThresholdEcdsaKeyRefForSigning: (
-      args: PasskeyEcdsaSigningLookupArgs,
-    ) => ThresholdEcdsaSecp256k1KeyRef;
     getPasskeyThresholdEcdsaSessionRecordForSigning: (
       args: PasskeyEcdsaSigningLookupArgs,
     ) => ThresholdEcdsaSessionRecord;
@@ -523,8 +516,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
         }
         const authMethod = transactionLane.authMethod;
         const hasExactHotMaterial = Boolean(
-          args.deps.getThresholdEcdsaSessionRecordByKey(transactionLane) ||
-            args.deps.getThresholdEcdsaKeyRefByKey(transactionLane),
+          args.deps.getThresholdEcdsaSessionRecordByKey(transactionLane),
         );
         // Transaction prepare first reads side-effect-free available signing
         // lanes, then restores only the selected exact auth-method lane.

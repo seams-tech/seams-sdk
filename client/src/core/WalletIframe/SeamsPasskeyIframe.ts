@@ -87,6 +87,7 @@ import type {
   EvmSignerCapability,
   KeyExportCapability,
   NearSignerCapability,
+  RegistrationCapability,
   ReconcileTempoNonceLaneArgs,
   ReportTempoBroadcastAcceptedArgs,
   ReportTempoBroadcastRejectedArgs,
@@ -97,6 +98,9 @@ import type {
   TempoSignerCapability,
 } from '../SeamsPasskey';
 import { executeEvmFamilyTransactionLifecycle } from '../SeamsPasskey/tempo/executeEvmFamilyTransaction';
+import { toAccountId } from '../types/accountIds';
+import { walletSubjectIdFromString } from '@shared/utils/registrationIntent';
+import { buildPasskeyNearWalletRegistrationSignerSelection } from '../SeamsPasskey/registrationSignerSelection';
 
 export class SeamsPasskeyIframe {
   readonly configs: SeamsConfigsReadonly;
@@ -186,6 +190,23 @@ export class SeamsPasskeyIframe {
     });
 
     this.near = {
+      registerNearWallet: async (args) => {
+        const accountId = toAccountId(args.nearAccountId);
+        const rpId = this.resolveRegistrationRpId('near.registerNearWallet');
+        return await this.registerWallet({
+          walletSubject: {
+            kind: 'provided',
+            walletSubjectId: walletSubjectIdFromString(String(accountId)),
+          },
+          rpId,
+          signerSelection: buildPasskeyNearWalletRegistrationSignerSelection({
+            configs: this.configs,
+            nearAccountId: String(accountId),
+            options: args.options || {},
+          }),
+          options: args.options,
+        });
+      },
       executeAction: async (args) => await this.executeActionDomain(args),
       signAndSendTransactions: async (args) => await this.signAndSendTransactionsDomain(args),
       signAndSendTransaction: async (args) => {
@@ -223,6 +244,26 @@ export class SeamsPasskeyIframe {
         await this.bootstrapEcdsaSessionDomain(args),
     };
     this.evm = {
+      registerEvmWallet: async (args) => {
+        if (!args.chainTargets.length) {
+          throw new Error('[SeamsPasskey][evm] registerEvmWallet requires at least one chain target');
+        }
+        if (!args.participantIds.length) {
+          throw new Error('[SeamsPasskey][evm] registerEvmWallet requires participant ids');
+        }
+        return await this.registerWallet({
+          walletSubject: { kind: 'server_generated' },
+          rpId: this.resolveRegistrationRpId('evm.registerEvmWallet'),
+          signerSelection: {
+            mode: 'ecdsa_only',
+            ecdsa: {
+              chainTargets: [...args.chainTargets],
+              participantIds: [...args.participantIds],
+            },
+          },
+          options: args.options,
+        });
+      },
       bootstrapEcdsaSession: async (args) =>
         await this.bootstrapEcdsaSessionDomain(args),
     };
@@ -300,6 +341,16 @@ export class SeamsPasskeyIframe {
       exportThresholdEd25519SeedFromHssReport: async (args) =>
         await this.exportThresholdEd25519SeedFromHssReportDomain(args),
     };
+  }
+
+  private resolveRegistrationRpId(operation: string): string {
+    const configured = String(this.configs.wallet.iframe?.rpIdOverride || '').trim();
+    if (configured) return configured;
+    try {
+      const hostname = String(globalThis.location?.hostname || '').trim();
+      if (hostname) return hostname;
+    } catch {}
+    throw new Error(`[SeamsPasskey][iframe] ${operation} requires rpId`);
   }
 
   async initWalletIframe(): Promise<void> {
@@ -384,6 +435,38 @@ export class SeamsPasskeyIframe {
       const e = toError(err);
       await options?.onError?.(e);
       await options?.afterCall?.(false, undefined, e);
+      throw e;
+    }
+  }
+
+  async registerWallet(
+    args: Parameters<RegistrationCapability['registerWallet']>[0],
+  ): Promise<RegistrationResult> {
+    try {
+      await this.requireRouterReady();
+      const res = await this.router.registerWallet(args);
+      await args.options?.afterCall?.(true, res);
+      return res;
+    } catch (err: unknown) {
+      const e = toError(err);
+      await args.options?.onError?.(e);
+      await args.options?.afterCall?.(false, undefined, e);
+      throw e;
+    }
+  }
+
+  async addWalletSigner(
+    args: Parameters<RegistrationCapability['addWalletSigner']>[0],
+  ): Promise<RegistrationResult> {
+    try {
+      await this.requireRouterReady();
+      const res = await this.router.addWalletSigner(args);
+      await args.options?.afterCall?.(true, res);
+      return res;
+    } catch (err: unknown) {
+      const e = toError(err);
+      await args.options?.onError?.(e);
+      await args.options?.afterCall?.(false, undefined, e);
       throw e;
     }
   }

@@ -133,6 +133,39 @@ export function useSeamsContextValue(args: {
     [lock, refreshAccountData, refreshLoginState, seamsWithSdkFlow],
   );
 
+  const registerWallet: SeamsContextType['registerWallet'] = useCallback(
+    async (args) => {
+      const result = await seamsWithSdkFlow.registration.registerWallet({
+        ...args,
+        options: {
+          ...args.options,
+          onError: (error) => {
+            lock();
+            return args.options?.onError?.(error);
+          },
+        },
+      });
+      const nearAccountId =
+        args.signerSelection.mode === 'ed25519_only' ||
+        args.signerSelection.mode === 'ed25519_and_ecdsa'
+          ? args.signerSelection.ed25519.nearAccountId
+          : '';
+      if (result?.success && nearAccountId) {
+        await refreshLoginState(nearAccountId);
+        await refreshAccountData();
+      }
+      return result;
+    },
+    [lock, refreshAccountData, refreshLoginState, seamsWithSdkFlow],
+  );
+
+  const addWalletSigner: SeamsContextType['addWalletSigner'] = useCallback(
+    async (args) => {
+      return await seamsWithSdkFlow.registration.addWalletSigner(args);
+    },
+    [seamsWithSdkFlow],
+  );
+
   const executeAction: SeamsContextType['executeAction'] = useCallback(
     (args) => {
       return seams.near.executeAction({ ...args, options: { ...(args.options || {}) } });
@@ -190,6 +223,8 @@ export function useSeamsContextValue(args: {
     () => ({
       seams: seamsWithSdkFlow,
       sdkFlow,
+      addWalletSigner,
+      registerWallet,
       registerPasskey,
       unlock,
       lock,
@@ -216,6 +251,8 @@ export function useSeamsContextValue(args: {
     [
       seamsWithSdkFlow,
       sdkFlow,
+      addWalletSigner,
+      registerWallet,
       registerPasskey,
       unlock,
       lock,

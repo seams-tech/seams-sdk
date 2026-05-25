@@ -82,7 +82,7 @@ function parseAllowedPathsJson(input: unknown, fallbackPath: string): string[] {
 }
 
 function parseRow(row: PgRow): ConsoleBootstrapTokenRecord {
-  const path = String(row.path || '/registration/bootstrap');
+  const path = String(row.path || '/wallets/register/intent');
   return {
     id: String(row.id || ''),
     orgId: String(row.org_id || ''),

@@ -114,7 +114,7 @@ function resolveRegistrationConfig(args: {
   const bootstrapUrl =
     toTrimmedString(backendProxyOverrides?.registrationBootstrapUrl) ||
     toTrimmedString(backendProxyDefaults?.bootstrapUrl) ||
-    joinUrlPath(args.relayerUrl, '/registration/bootstrap');
+    joinUrlPath(args.relayerUrl, '/wallets/register/intent');
   if (!bootstrapUrl) {
     throw new Error(
       '[configPresets] Missing required config: registration.registrationBootstrapUrl',
