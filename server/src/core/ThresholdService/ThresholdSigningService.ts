@@ -4426,6 +4426,7 @@ export class ThresholdSigningService {
         const responsePayload = {
           publicKey: registrationMaterial.publicKey,
           relayerKeyId: registrationMaterial.relayerKeyId,
+          finalizedReport: result.finalizedReport,
         };
         this.logger?.info?.('[threshold-ed25519][registration] hss finalize timings', {
           nearAccountId: newAccountId,
@@ -4447,6 +4448,7 @@ export class ThresholdSigningService {
           ok: true,
           publicKey: registrationMaterial.publicKey,
           relayerKeyId: registrationMaterial.relayerKeyId,
+          finalizedReport: result.finalizedReport,
         };
       } finally {
         this.releaseThresholdEd25519HssCeremonyResources(takenCeremony.value);

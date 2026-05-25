@@ -20,7 +20,11 @@ import {
   deriveThresholdEd25519HssClientInputsWasm,
   prepareThresholdEd25519HssClientRequestWasm,
 } from '@/core/signingEngine/threshold/crypto/hssClientSignerWasm';
-import { runThresholdEd25519HssCeremonyWithSession as runThresholdEd25519HssCeremonyWithSessionValue } from '@/core/signingEngine/threshold/ed25519/hssLifecycle';
+import type { ThresholdEd25519HssFinalizedReportEnvelope } from '@/core/signingEngine/threshold/crypto/hssClientSignerWasm';
+import {
+  completeThresholdEd25519HssClientCeremony,
+  runThresholdEd25519HssCeremonyWithSession as runThresholdEd25519HssCeremonyWithSessionValue,
+} from '@/core/signingEngine/threshold/ed25519/hssLifecycle';
 import {
   THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
   THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
@@ -431,6 +435,7 @@ export async function registerEmailOtpEd25519Capability(args: {
   });
   const publicKey = String(finalized.publicKey || '').trim();
   const relayerKeyId = String(finalized.relayerKeyId || '').trim();
+  const finalizedReport = parseThresholdEd25519HssFinalizedReport(finalized.finalizedReport);
   const session =
     finalized.session && typeof finalized.session === 'object'
       ? (finalized.session as Record<string, unknown>)
@@ -453,6 +458,7 @@ export async function registerEmailOtpEd25519Capability(args: {
   if (
     !publicKey ||
     !relayerKeyId ||
+    !finalizedReport ||
     !sessionId ||
     !jwt ||
     !walletSigningSessionId ||
@@ -461,6 +467,18 @@ export async function registerEmailOtpEd25519Capability(args: {
   ) {
     throw new Error('Email OTP threshold-ed25519 registration finalize returned incomplete data');
   }
+  const completed = await completeThresholdEd25519HssClientCeremony({
+    preparedSession: preparedSessionEnvelope,
+    finalizedReport,
+    clientOutputMaskB64u,
+    workerCtx,
+  });
+  if (!completed.success || !completed.clientOutput?.xClientBaseB64u) {
+    throw new Error(
+      completed.error || 'Email OTP threshold-ed25519 registration client output failed',
+    );
+  }
+  const xClientBaseB64u = completed.clientOutput.xClientBaseB64u;
   await args.persistEmailOtpThresholdEd25519LocalMetadata({
     nearAccountId,
     rpId,
@@ -484,6 +502,7 @@ export async function registerEmailOtpEd25519Capability(args: {
     expiresAtMs,
     remainingUses,
     jwt,
+    xClientBaseB64u,
     emailOtpAuthContext: input.emailOtpAuthContext,
     source: 'email_otp',
   });
@@ -494,7 +513,9 @@ export async function registerEmailOtpEd25519Capability(args: {
     remainingUses,
     transport: {
       curve: 'ed25519',
+      walletId: String(nearAccountId),
       relayerUrl,
+      walletSigningSessionId,
       thresholdSessionAuthToken: jwt,
     },
   });
@@ -520,6 +541,7 @@ export async function registerEmailOtpEd25519Capability(args: {
     remainingUses,
     participantIds: sessionParticipantIds,
     jwt,
+    xClientBaseB64u,
   };
 }
 
@@ -672,7 +694,9 @@ export async function reconstructEmailOtpEd25519Session(args: {
     remainingUses,
     transport: {
       curve: 'ed25519',
+      walletId: String(nearAccountId),
       relayerUrl,
+      walletSigningSessionId,
       thresholdSessionAuthToken: jwt,
     },
   });
@@ -789,6 +813,22 @@ async function readJsonObjectResponse(response: Response): Promise<Record<string
   return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
     ? (parsed as Record<string, unknown>)
     : {};
+}
+
+function parseThresholdEd25519HssFinalizedReport(
+  input: unknown,
+): ThresholdEd25519HssFinalizedReportEnvelope | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+  const obj = input as Record<string, unknown>;
+  const contextBindingB64u = String(obj.contextBindingB64u || '').trim();
+  const clientOutputMessageB64u = String(obj.clientOutputMessageB64u || '').trim();
+  const seedOutputMessageB64u = String(obj.seedOutputMessageB64u || '').trim();
+  if (!contextBindingB64u || !clientOutputMessageB64u) return null;
+  return {
+    contextBindingB64u,
+    clientOutputMessageB64u,
+    ...(seedOutputMessageB64u ? { seedOutputMessageB64u } : {}),
+  };
 }
 
 async function postJsonExpectOk(args: {

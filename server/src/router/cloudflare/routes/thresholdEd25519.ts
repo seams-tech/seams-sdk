@@ -538,6 +538,7 @@ export async function handleThresholdEd25519(
           ok: true,
           publicKey,
           relayerKeyId: finalized.relayerKeyId,
+          finalizedReport: finalized.finalizedReport,
           keyVersion,
           recoveryExportCapable: true,
           ...(sessionResult ? { session: sessionResult } : {}),

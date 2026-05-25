@@ -556,6 +556,7 @@ export function registerThresholdEd25519Routes(
             ok: true,
             publicKey,
             relayerKeyId: finalized.relayerKeyId,
+            finalizedReport: finalized.finalizedReport,
             keyVersion,
             recoveryExportCapable: true,
             ...(sessionResult ? { session: sessionResult } : {}),

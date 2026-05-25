@@ -721,6 +721,7 @@ export type ThresholdEd25519HssFinalizeForRegistrationResponse =
       ok: true;
       publicKey: string;
       relayerKeyId: string;
+      finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
       accountProvisioning?: {
         mode: 'create_if_missing';
         status: 'created' | 'already_ready';
