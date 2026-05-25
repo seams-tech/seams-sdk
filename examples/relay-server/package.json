@@ -17,6 +17,7 @@
     "postgres:migrate:split-from-monolith": "node ./scripts/postgres-migrate-monolith-to-split.mjs",
     "postgres:verify:split": "node ./scripts/postgres-verify-split-domains.mjs",
     "postgres:verify:observability-cleanup": "node ./scripts/postgres-verify-observability-cleanup.mjs",
+    "postgres:wipe:legacy-accounts": "node ./scripts/postgres-wipe-legacy-accounts.mjs",
     "postgres:migrate:all": "pnpm run postgres:migrate:signer && pnpm run postgres:migrate:console",
     "postgres:setup:split": "pnpm run postgres:up && pnpm run postgres:bootstrap:split && pnpm run postgres:migrate:all && pnpm run postgres:verify:split"
   },
