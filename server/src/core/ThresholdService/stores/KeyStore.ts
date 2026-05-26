@@ -35,7 +35,7 @@ type ThresholdEcdsaStoredKeyRecordWithHandle = ThresholdEcdsaStoredKeyRecord & {
 };
 
 const ECDSA_SHARED_IDENTITY_CONFLICT_MESSAGE =
-  '[threshold-ecdsa] EVM-family key identity already exists for wallet/subject/rp/signing root';
+  '[threshold-ecdsa] EVM-family key identity already exists for wallet/rp/signing root';
 const ECDSA_KEY_HANDLE_CONFLICT_MESSAGE =
   '[threshold-ecdsa] ECDSA key handle already exists in this namespace';
 const ECDSA_KEY_HANDLE_INTEGRITY_MESSAGE =

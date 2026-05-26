@@ -41,8 +41,6 @@ export type ThresholdEcdsaHssRoleLocalBootstrapRequest = {
   formatVersion: 'ecdsa-hss-role-local';
   walletId: WalletId;
   rpId: string;
-  subjectId?: never;
-  walletSessionUserId?: never;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   signingRootId: string;
   signingRootVersion: string;
@@ -134,8 +132,6 @@ export type ThresholdEcdsaHssRoleLocalBootstrapValue = {
   formatVersion: 'ecdsa-hss-role-local';
   walletId: WalletId;
   rpId: string;
-  subjectId?: never;
-  walletSessionUserId?: never;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   relayerKeyId: string;
   contextBinding32B64u: string;
@@ -160,8 +156,6 @@ export type ThresholdEcdsaHssRoleLocalExportShareRequest = {
   formatVersion: 'ecdsa-hss-role-local-export';
   walletId: WalletId;
   rpId: string;
-  subjectId?: never;
-  walletSessionUserId?: never;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   relayerKeyId: string;
   contextBinding32B64u: string;
@@ -198,8 +192,6 @@ export type ThresholdEcdsaHssRoleLocalExportShareValue = {
   formatVersion: 'ecdsa-hss-role-local-export';
   walletId: WalletId;
   rpId: string;
-  subjectId?: never;
-  walletSessionUserId?: never;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   relayerKeyId: string;
   contextBinding32B64u: string;
@@ -265,8 +257,6 @@ function requireRecord(value: unknown, field: string): Record<string, unknown> {
 }
 
 const NON_EXPORT_BOOTSTRAP_RESPONSE_FORBIDDEN_FIELDS = [
-  'subjectId',
-  'walletSessionUserId',
   'clientShare32B64u',
   'relayerShare32B64u',
   'serverExportShare32B64u',
@@ -360,7 +350,6 @@ function parseThresholdEcdsaHssRoleLocalExportShareValue(
   value: unknown,
 ): ThresholdEcdsaHssRoleLocalExportShareValue {
   const record = requireRecord(value, 'value');
-  rejectForbiddenFields(record, ['subjectId', 'walletSessionUserId'], 'value');
   return {
     formatVersion: 'ecdsa-hss-role-local-export',
     walletId: toWalletId(record.walletId),

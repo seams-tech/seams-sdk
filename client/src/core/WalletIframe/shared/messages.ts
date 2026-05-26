@@ -340,7 +340,6 @@ export interface PMEnrollEmailOtpPayload {
 
 export interface PMEmailOtpEcdsaCapabilityPayload {
   walletSession: WalletSessionRef;
-  subjectId?: never;
   chainTarget: ThresholdEcdsaChainTarget;
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   relayUrl?: string;

@@ -313,6 +313,7 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
     ensureHssClientSignerWasm();
     const clientBootstrap = threshold_ecdsa_hss_role_local_client_bootstrap({
       walletId,
+      rpId,
       ecdsaThresholdKeyId: first.ecdsaThresholdKeyId,
       signingRootId: first.signingRootId,
       signingRootVersion: first.signingRootVersion,
@@ -366,6 +367,7 @@ test.describe('threshold-ecdsa role-local HSS bootstrap policy', () => {
     ensureHssClientSignerWasm();
     const changedClientBootstrap = threshold_ecdsa_hss_role_local_client_bootstrap({
       walletId,
+      rpId,
       ecdsaThresholdKeyId: first.ecdsaThresholdKeyId,
       signingRootId: first.signingRootId,
       signingRootVersion: first.signingRootVersion,

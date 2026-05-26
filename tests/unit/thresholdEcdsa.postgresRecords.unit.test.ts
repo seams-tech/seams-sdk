@@ -183,7 +183,7 @@ test.describe('threshold ecdsa postgres records', () => {
         ecdsaThresholdKeyId: 'threshold-key',
         thresholdEcdsaPublicKeyB64u: 'public-key',
         signingDigestB64u: 'digest',
-        walletId: 'alice.testnet',
+        walletSessionUserId: 'alice.testnet',
         rpId: 'example.localhost',
         clientVerifyingShareB64u: 'client-share',
         participantIds: [1, 2],
@@ -269,7 +269,7 @@ test.describe('threshold ecdsa postgres records', () => {
     ).toEqual({
       record: {
         expiresAtMs: 999_999,
-        walletId: 'alice.testnet',
+        walletSessionUserId: 'alice.testnet',
         rpId: 'example.localhost',
         relayerKeyId: 'relayer-key',
         presignPoolKey: 'keyHandle:threshold-key',

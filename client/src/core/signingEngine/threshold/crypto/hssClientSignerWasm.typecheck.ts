@@ -60,12 +60,6 @@ void ({
 
 void ({
   ...locallyConstructedStableContext,
-  // @ts-expect-error stable ECDSA HSS key context rejects legacy subject ids.
-  subjectId: 'wallet-subject',
-} satisfies ThresholdEcdsaHssStableKeyContext);
-
-void ({
-  ...locallyConstructedStableContext,
   // @ts-expect-error stable ECDSA HSS key context requires branded ECDSA key ids.
   ecdsaThresholdKeyId: 'ehss-stable',
 } satisfies ThresholdEcdsaHssStableKeyContext);

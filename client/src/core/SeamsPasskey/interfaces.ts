@@ -202,7 +202,6 @@ export type BootstrapThresholdEcdsaSessionArgs = {
   remainingUses?: number;
   kind: 'reuse_warm_ecdsa_bootstrap';
   source?: 'login' | 'registration' | 'manual-bootstrap' | 'email_otp';
-  subjectId?: never;
   ecdsaThresholdKeyId?: never;
   participantIds?: never;
   sessionKind?: never;
@@ -265,7 +264,6 @@ export type GoogleEmailOtpSessionExchangeResult = {
 
 export type EmailOtpEcdsaCapabilityArgs = {
   walletSession: WalletSessionRef;
-  subjectId?: never;
   chainTarget: ThresholdEcdsaChainTarget;
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   relayUrl?: string;

@@ -55,18 +55,6 @@ void ({
 
 void ({
   ...bootstrapBase,
-  // @ts-expect-error role-local bootstrap request rejects legacy wallet session aliases.
-  walletSessionUserId: 'wallet-user',
-} satisfies ThresholdEcdsaHssRoleLocalBootstrapRequest);
-
-void ({
-  ...bootstrapBase,
-  // @ts-expect-error role-local bootstrap request rejects legacy subject ids.
-  subjectId: 'wallet-subject',
-} satisfies ThresholdEcdsaHssRoleLocalBootstrapRequest);
-
-void ({
-  ...bootstrapBase,
   // @ts-expect-error role-local bootstrap request rejects client root share material
   clientRootShare32B64u: 'client-root-share',
 } satisfies ThresholdEcdsaHssRoleLocalBootstrapRequest);

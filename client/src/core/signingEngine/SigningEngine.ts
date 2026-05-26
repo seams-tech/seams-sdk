@@ -204,7 +204,6 @@ export type WalletRegistrationEcdsaPreparedClientBootstrap = {
 
 export type BootstrapLoginEcdsaSessionFromRestoredEd25519Args = {
   walletId: WalletId;
-  subjectId?: never;
   chainTarget: ThresholdEcdsaChainTarget;
   relayerUrl: string;
   keyHandle: EvmFamilyEcdsaKeyHandle;

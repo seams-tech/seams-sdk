@@ -4,8 +4,7 @@ use crate::js::{
     set_u32,
 };
 use ecdsa_hss::{
-    derive_client_share_v2, reconstruct_export_key_v2, EcdsaHssStableKeyContextV2,
-    PublicIdentityV2,
+    derive_client_share_v2, reconstruct_export_key_v2, EcdsaHssStableKeyContextV2, PublicIdentityV2,
 };
 use ed25519_hss::{
     client::{
@@ -355,8 +354,6 @@ fn get_required_client_root_share32(args: &JsValue) -> Result<[u8; 32], JsValue>
 }
 
 fn ecdsa_canonical_context_from_js(args: &JsValue) -> Result<EcdsaHssStableKeyContextV2, JsValue> {
-    reject_present(args, "subjectId")?;
-    reject_present(args, "walletSessionUserId")?;
     Ok(EcdsaHssStableKeyContextV2::new(
         get_required_string(args, "walletId")?,
         get_required_string(args, "rpId")?,
@@ -366,17 +363,6 @@ fn ecdsa_canonical_context_from_js(args: &JsValue) -> Result<EcdsaHssStableKeyCo
         get_required_string(args, "keyPurpose")?,
         get_required_string(args, "keyVersion")?,
     ))
-}
-
-fn reject_present(args: &JsValue, field_name: &str) -> Result<(), JsValue> {
-    let value = Reflect::get(args, &JsValue::from_str(field_name))
-        .map_err(|_| JsValue::from_str(&format!("Invalid args: invalid {field_name}")))?;
-    if value.is_undefined() || value.is_null() {
-        return Ok(());
-    }
-    Err(JsValue::from_str(&format!(
-        "Invalid args: {field_name} is not accepted for ECDSA HSS v2"
-    )))
 }
 
 fn decode_state_blob<T: for<'de> Deserialize<'de>>(

@@ -162,47 +162,6 @@ test.describe('threshold ECDSA HSS WASM surface', () => {
     );
   });
 
-  test('v2 bootstrap FFI rejects v1 subject context fields', () => {
-    ensureEthSignerWasm();
-    ensureHssClientSignerWasm();
-    const fixture = readRoleLocalFixture();
-    const context = contextPayload(fixture);
-    const clientRootShare32B64u = bytesB64u(hexToBytes(fixture.inputs.y_client32_le_hex));
-    const clientBootstrap = HssClientSignerWasm.threshold_ecdsa_hss_role_local_client_bootstrap({
-      ...context,
-      clientRootShare32B64u,
-    }) as { clientPublicKey33B64u: string; clientShareRetryCounter: number };
-    const relayerPayload = {
-      ...context,
-      relayerKeyId: fixture.inputs.relayer_key_id,
-      yRelayer32Le: Array.from(hexToBytes(fixture.inputs.y_relayer32_le_hex)),
-      clientPublicKey33: Array.from(
-        Buffer.from(clientBootstrap.clientPublicKey33B64u, 'base64url'),
-      ),
-      clientShareRetryCounter: clientBootstrap.clientShareRetryCounter,
-    };
-
-    for (const forbiddenField of ['subjectId', 'walletSessionUserId'] as const) {
-      const forbiddenValue =
-        forbiddenField === 'subjectId'
-          ? fixture.context.subject_id
-          : fixture.context.wallet_session_user_id;
-      expect(() =>
-        HssClientSignerWasm.threshold_ecdsa_hss_role_local_client_bootstrap({
-          ...context,
-          [forbiddenField]: forbiddenValue,
-          clientRootShare32B64u,
-        }),
-      ).toThrow(new RegExp(`${forbiddenField} is not accepted`));
-      expect(() =>
-        EthSignerWasm.threshold_ecdsa_hss_role_local_relayer_bootstrap({
-          ...relayerPayload,
-          [forbiddenField]: forbiddenValue,
-        }),
-      ).toThrow(new RegExp(`unknown field.*${forbiddenField}|${forbiddenField}`));
-    }
-  });
-
   test('relayer bootstrap FFI rejects wrong scalar and public-key widths', () => {
     ensureEthSignerWasm();
     const fixture = readRoleLocalFixture();

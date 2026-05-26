@@ -114,9 +114,6 @@ test.describe('threshold session auth token claims', () => {
     expect(parseThresholdEcdsaSessionClaims(claims)?.walletId).toBe('alice.testnet');
     expect(parseThresholdEcdsaSessionClaims(claims)?.keyHandle).toBe('ehss-key-test');
     expect(parseThresholdEcdsaSessionClaims(claims)?.keyScope).toBe('evm-family');
-    expect(
-      parseThresholdEcdsaSessionClaims({ ...claims, subjectId: 'wallet-subject-alice' }),
-    ).toBeNull();
     expect(parseThresholdEcdsaSessionClaims({ ...claims, keyScope: undefined })).toBeNull();
     expect(parseThresholdEcdsaSessionClaims({ ...claims, keyHandle: undefined })).toBeNull();
     expect(

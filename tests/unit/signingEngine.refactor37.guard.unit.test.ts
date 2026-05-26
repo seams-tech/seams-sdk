@@ -171,7 +171,7 @@ test.describe('signing engine refactor 37 guards', () => {
       expect(block).not.toContain('walletSessionUserId: string');
       expect(block).not.toContain('nearAccountId: string');
     }
-    expect(bootstrapArgs).toContain('subjectId?: never;');
+    expect(bootstrapArgs).not.toContain('subjectId');
 
     expect(bootstrapArgs).toContain("kind: 'reuse_warm_ecdsa_bootstrap';");
     expect(bootstrapArgs).toContain('ecdsaThresholdKeyId?: never;');
@@ -186,7 +186,7 @@ test.describe('signing engine refactor 37 guards', () => {
     expect(exportInput).not.toContain('walletSessionUserId');
     for (const block of [emailOtpCapabilityArgs, emailOtpCapabilityPayload]) {
       expect(block).toContain('walletSession: WalletSessionRef;');
-      expect(block).toContain('subjectId?: never;');
+      expect(block).not.toContain('subjectId');
       expect(block).toContain('chainTarget: ThresholdEcdsaChainTarget;');
       expect(block).not.toContain('routeAuth');
       expect(block).not.toContain('ecdsaThresholdKeyId');
@@ -195,7 +195,6 @@ test.describe('signing engine refactor 37 guards', () => {
       expect(block).not.toContain('sessionId');
       expect(block).not.toContain('ttlMs');
       expect(block).not.toContain('remainingUses');
-      expect(block).not.toContain('runtimePolicyScope');
     }
 
     expect(messages).toContain(
@@ -320,6 +319,7 @@ test.describe('signing engine refactor 37 guards', () => {
       'client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.ts',
       'client/src/core/signingEngine/session/identity/thresholdEcdsaSignerAdapter.ts',
       'client/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.typecheck.ts',
+      'client/src/core/signingEngine/SigningEngine.ts',
       'client/src/core/signingEngine/threshold/ecdsa/activation.ts',
       'client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
     ]);
@@ -1584,10 +1584,11 @@ test.describe('signing engine refactor 37 guards', () => {
     expect(keyStore).toContain(
       'CREATE UNIQUE INDEX IF NOT EXISTS threshold_ecdsa_keys_shared_identity_uidx',
     );
-    expect(keyStore).toContain('wallet_session_user_id');
-    expect(keyStore).toContain('subject_id');
+    expect(keyStore).toContain('wallet_id');
     expect(keyStore).toContain('rp_id');
-    expect(keyStore).toContain('wallet_session_user_id = $3');
+    expect(keyStore).toContain('wallet_id = $5');
+    expect(keyStore).not.toContain('wallet_session_user_id');
+    expect(keyStore).not.toContain('subject_id');
     expect(keyStore).not.toContain("record_json->>'walletSessionUserId'");
     expect(keyStore).not.toContain("record_json->>'subjectId'");
     expect(keyStore).not.toContain("record_json->>'rpId'");

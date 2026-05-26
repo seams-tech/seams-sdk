@@ -257,8 +257,6 @@ export function parseThresholdEd25519KeyRecord(
 }
 
 const ECDSA_HSS_BOOTSTRAP_FORBIDDEN_FIELDS = [
-  'subjectId',
-  'walletSessionUserId',
   'chainTarget',
   'yClient32Le',
   'yClient32LeB64u',
@@ -277,8 +275,6 @@ const ECDSA_HSS_BOOTSTRAP_FORBIDDEN_FIELDS = [
 ] as const;
 
 const ECDSA_HSS_EXPORT_REQUEST_FORBIDDEN_FIELDS = [
-  'subjectId',
-  'walletSessionUserId',
   'chainTarget',
   'yClient32Le',
   'yClient32LeB64u',
@@ -1236,7 +1232,6 @@ export function parseThresholdEcdsaSessionClaims(raw: unknown): ThresholdEcdsaSe
   if (!isObject(raw)) return null;
   const kind = toOptionalString(raw.kind);
   if (kind !== 'threshold_ecdsa_session_v2') return null;
-  if ((raw as { subjectId?: unknown }).subjectId !== undefined) return null;
   const sub = toOptionalString(raw.sub);
   const walletId = toOptionalString((raw as { walletId?: unknown }).walletId);
   const sessionId = toOptionalString(raw.sessionId);

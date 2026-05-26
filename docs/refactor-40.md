@@ -27,7 +27,8 @@ ECDSA HSS v1 carries both `walletSessionUserId` and `subjectId`. Current callers
 derive `subjectId` from wallet id, then validate that it matches. That duplicate
 identity adds several failure modes:
 
-- Public and internal ECDSA APIs need `subjectId?: never` tripwires.
+- Public and internal ECDSA APIs needed temporary legacy-field tripwires during
+  cutover.
 - Key identity builders accept a raw subject string only to reject mismatches.
 - HSS digests, key ids, JWT claims, and server records all include an identity
   field that duplicates wallet identity.
@@ -144,8 +145,6 @@ type EcdsaHssStableKeyContextV2 = {
   keyPurpose: string;
   keyVersion: string;
   participantIds: readonly [1, 2];
-  subjectId?: never;
-  walletSessionUserId?: never;
 };
 
 type EcdsaHssSessionPolicyV2 = {
@@ -162,7 +161,6 @@ type EcdsaHssSessionPolicyV2 = {
   participantIds: readonly [1, 2];
   ttlMs: number;
   remainingUses: PositiveRemainingUses;
-  subjectId?: never;
 };
 ```
 
@@ -287,8 +285,6 @@ type EcdsaHssRoleLocalKeyRecordV2 = {
   groupPublicKey33B64u: string;
   ethereumAddress: string;
   publicTranscriptDigest32B64u: string;
-  subjectId?: never;
-  walletSessionUserId?: never;
 };
 ```
 
@@ -307,7 +303,6 @@ type ThresholdEcdsaSessionClaimsV2 = {
   rpId: string;
   thresholdExpiresAtMs: number;
   participantIds: readonly [1, 2];
-  subjectId?: never;
 };
 ```
 
@@ -390,7 +385,7 @@ Manual flows:
 
 - [x] New passkey ECDSA registration provisions v2 key material and returns a
   v2 owner address.
-- [ ] New Email OTP ECDSA enrollment/login provisions v2 key material and
+- [x] New Email OTP ECDSA enrollment/login provisions v2 key material and
   returns a v2 owner address.
 - [x] Page refresh rehydrates only v2 ECDSA sealed sessions.
 - [x] Existing v1 ECDSA records are pruned and trigger fresh ECDSA provisioning.
@@ -414,7 +409,7 @@ Manual flows:
 
 - [x] Wipe local IndexedDB legacy keys and accounts.
 - [x] Wipe local Postgres legacy account and threshold signing state.
-- [ ] Test new account provisioning, rehydration, signing, and export on clean
+- [x] Test new account provisioning, rehydration, signing, and export on clean
   local state.
-- [ ] Remove the ECDSA v2 Rust/WASM/client/server boundary guards that reject
+- [x] Remove the ECDSA v2 Rust/WASM/client/server boundary guards that reject
   `subjectId` and `walletSessionUserId`.

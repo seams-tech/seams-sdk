@@ -2,7 +2,6 @@ use ecdsa_hss::{
     derive_relayer_share_for_client_public_v2, public_transcript_digest_v2,
     EcdsaHssStableKeyContextV2, ServerEvalOperationV1,
 };
-use js_sys::Reflect;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::JsValue;
 
@@ -41,8 +40,6 @@ pub struct EcdsaHssRoleLocalRelayerBootstrapResultJs {
 pub fn threshold_ecdsa_hss_role_local_relayer_bootstrap(
     payload: JsValue,
 ) -> Result<JsValue, JsValue> {
-    reject_present(&payload, "subjectId")?;
-    reject_present(&payload, "walletSessionUserId")?;
     let parsed: EcdsaHssRoleLocalRelayerBootstrapInputJs =
         serde_wasm_bindgen::from_value(payload).map_err(|err| js_invalid_input_err(err))?;
     let context = EcdsaHssStableKeyContextV2::new(
@@ -116,15 +113,4 @@ fn validate_ascii_nonempty(field_name: &str, value: &str) -> Result<(), JsValue>
         )));
     }
     Ok(())
-}
-
-fn reject_present(args: &JsValue, field_name: &str) -> Result<(), JsValue> {
-    let value = Reflect::get(args, &JsValue::from_str(field_name))
-        .map_err(|_| js_invalid_input_err(format!("invalid {field_name}")))?;
-    if value.is_undefined() || value.is_null() {
-        return Ok(());
-    }
-    Err(js_invalid_input_err(format!(
-        "{field_name} is not accepted for ECDSA HSS v2"
-    )))
 }
