@@ -2691,6 +2691,13 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       prfFirstB64u: 'prf-first-ecdsa-enroll',
       registrationAttemptId: 'registration-attempt-1',
       ecdsaThresholdSessionId: 'ecdsa-session',
+      emailOtpAuthContext: {
+        policy: 'session',
+        retention: 'session',
+        reason: 'login',
+        authMethod: 'email_otp',
+      },
     });
+    expect(ed25519ProvisionCalls[0]).not.toHaveProperty('remainingUses');
   });
 });

@@ -235,6 +235,17 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
     ...emailOtpAuthContext,
     ...(emailOtpContextAuthSubjectId ? { authSubjectId: emailOtpContextAuthSubjectId } : {}),
   };
+  const ed25519RegistrationAuthContext: ThresholdEcdsaEmailOtpAuthContext = {
+    policy: 'session',
+    retention: 'session',
+    reason: 'login',
+    authMethod: SIGNER_AUTH_METHODS.emailOtp,
+    ...(resolvedEmailOtpAuthContext.authSubjectId
+      ? { authSubjectId: resolvedEmailOtpAuthContext.authSubjectId }
+      : {}),
+  };
+  const ed25519RegistrationRemainingUses =
+    typeof args.remainingUses === 'number' ? args.remainingUses : undefined;
   const { bootstrap, warmCapability } = await commitEmailOtpEcdsaPublicationBootstraps(
     {
       walletId: args.walletSession.walletId,
@@ -265,7 +276,7 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
           relayUrl,
           rpId,
           prfFirstB64u: thresholdEd25519PrfFirstB64u,
-          emailOtpAuthContext,
+          emailOtpAuthContext: ed25519RegistrationAuthContext,
           ...(appSessionJwt ? { appSessionJwt } : {}),
           ...(freshThresholdSessionAuth || routeAuth
             ? { routeAuth: freshThresholdSessionAuth || routeAuth }
@@ -275,7 +286,9 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
             ? { participantIds: args.ed25519ParticipantIds }
             : {}),
           ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
-          ...(typeof remainingUses === 'number' ? { remainingUses } : {}),
+          ...(typeof ed25519RegistrationRemainingUses === 'number'
+            ? { remainingUses: ed25519RegistrationRemainingUses }
+            : {}),
           walletSigningSessionId: walletSigningSessionIdFromEcdsaBootstrap(
             bootstrap,
             walletSigningSessionId,

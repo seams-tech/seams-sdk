@@ -92,6 +92,25 @@ test.describe('Email OTP ECDSA role-local bootstrap guard', () => {
     expect(provisioningBlock).not.toContain('args.participantIds');
   });
 
+  test('enrollment provisions registration Ed25519 as a session-retained lane', () => {
+    const source = readFileSync(EMAIL_OTP_ECDSA_ENROLLMENT_URL, 'utf8');
+    const contextStart = source.indexOf(
+      'const ed25519RegistrationAuthContext: ThresholdEcdsaEmailOtpAuthContext',
+    );
+    const provisioningStart = source.indexOf('await ports.provisionEd25519Capability({');
+    expect(contextStart).toBeGreaterThan(-1);
+    expect(provisioningStart).toBeGreaterThan(contextStart);
+    const setupBlock = source.slice(contextStart, provisioningStart);
+    const provisioningEnd = source.indexOf('});', provisioningStart);
+    const provisioningBlock = source.slice(provisioningStart, provisioningEnd);
+
+    expect(setupBlock).toContain("policy: 'session'");
+    expect(setupBlock).toContain("retention: 'session'");
+    expect(setupBlock).toContain("reason: 'login'");
+    expect(provisioningBlock).toContain('emailOtpAuthContext: ed25519RegistrationAuthContext');
+    expect(provisioningBlock).toContain('ed25519RegistrationRemainingUses');
+  });
+
   test('login derives runtime policy scope from route auth before worker bootstrap', () => {
     const source = readFileSync(EMAIL_OTP_ECDSA_LOGIN_URL, 'utf8');
     const functionStart = source.indexOf(
