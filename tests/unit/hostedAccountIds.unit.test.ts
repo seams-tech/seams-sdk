@@ -38,6 +38,25 @@ test.describe('hosted account ID derivation', () => {
     );
   });
 
+  test('uses a derivation nonce to randomize readable account slugs per registration attempt', async () => {
+    const base = await deriveHostedNearAccountId(BASE_INPUT);
+    const nonceA = await deriveHostedNearAccountId({
+      ...BASE_INPUT,
+      walletIdDerivationNonce: 'nonceA0123456789',
+    });
+    const sameNonceA = await deriveHostedNearAccountId({
+      ...BASE_INPUT,
+      walletIdDerivationNonce: 'nonceA0123456789',
+    });
+    const nonceB = await deriveHostedNearAccountId({
+      ...BASE_INPUT,
+      walletIdDerivationNonce: 'nonceB0123456789',
+    });
+
+    expect(nonceA).toBe(sameNonceA);
+    expect(new Set([base, nonceA, nonceB]).size).toBe(3);
+  });
+
   test('requires a derivation secret and provider identity', async () => {
     await expect(
       deriveHostedNearAccountId({

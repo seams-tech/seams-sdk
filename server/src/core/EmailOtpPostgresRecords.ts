@@ -295,6 +295,7 @@ export function parseCurrentGoogleEmailOtpRegistrationAttemptRecord(
   const walletId = toOptionalTrimmedString(obj.walletId);
   const authProvider = toOptionalTrimmedString(obj.authProvider);
   const accountIdSlugVersion = toOptionalTrimmedString(obj.accountIdSlugVersion);
+  const walletIdDerivationNonce = toOptionalTrimmedString(obj.walletIdDerivationNonce);
   const collisionCounter = toNonNegativeSafeInt(obj.collisionCounter);
   const state = toOptionalTrimmedString(obj.state);
   const createdAtMs = toPositiveSafeInt(obj.createdAtMs);
@@ -311,6 +312,8 @@ export function parseCurrentGoogleEmailOtpRegistrationAttemptRecord(
     !walletId ||
     !authProvider ||
     accountIdSlugVersion !== 'hmac_readable_v1' ||
+    !walletIdDerivationNonce ||
+    !isB64uString(walletIdDerivationNonce) ||
     collisionCounter == null ||
     !state ||
     !createdAtMs ||
@@ -337,6 +340,7 @@ export function parseCurrentGoogleEmailOtpRegistrationAttemptRecord(
     walletId,
     authProvider,
     accountIdSlugVersion: 'hmac_readable_v1',
+    walletIdDerivationNonce,
     collisionCounter,
     state,
     createdAtMs,

@@ -253,6 +253,7 @@ export type GoogleEmailOtpRegistrationAttemptRecord = {
   walletId: string;
   authProvider: string;
   accountIdSlugVersion: 'hmac_readable_v1';
+  walletIdDerivationNonce: string;
   collisionCounter: number;
   state: GoogleEmailOtpRegistrationAttemptState;
   createdAtMs: number;
@@ -796,6 +797,7 @@ function parseRegistrationAttemptRecord(
   const authProvider = toOptionalTrimmedString(obj.authProvider) || 'google_oidc';
   const accountIdSlugVersion =
     toOptionalTrimmedString(obj.accountIdSlugVersion) || 'hmac_readable_v1';
+  const walletIdDerivationNonce = toOptionalTrimmedString(obj.walletIdDerivationNonce);
   const collisionCounter = Math.max(0, Math.floor(Number(obj.collisionCounter) || 0));
   const state = toOptionalTrimmedString(obj.state);
   const createdAtMs = Number(obj.createdAtMs);
@@ -807,6 +809,7 @@ function parseRegistrationAttemptRecord(
   if (version !== 'google_email_otp_registration_attempt_v1') return null;
   if (!attemptId || !providerSubject || !email || !walletId) return null;
   if (accountIdSlugVersion !== 'hmac_readable_v1') return null;
+  if (!walletIdDerivationNonce) return null;
   if (
     state !== 'started' &&
     state !== 'key_finalized' &&
@@ -827,6 +830,7 @@ function parseRegistrationAttemptRecord(
     walletId,
     authProvider,
     accountIdSlugVersion,
+    walletIdDerivationNonce,
     collisionCounter,
     state,
     createdAtMs: Math.floor(createdAtMs),

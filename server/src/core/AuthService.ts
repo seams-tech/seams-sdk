@@ -1495,10 +1495,12 @@ export class AuthService {
     email?: string;
     authProvider: string;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
+    walletIdDerivationNonce?: string;
     collisionCounter?: number;
   }): Promise<string> {
     const subject = toOptionalTrimmedString(input.providerSubject ?? input.sub);
     const email = toOptionalTrimmedString(input.email);
+    const walletIdDerivationNonce = toOptionalTrimmedString(input.walletIdDerivationNonce);
     if (!subject && !email) {
       throw new Error('Cannot derive hosted wallet id without provider subject or verified email');
     }
@@ -1511,6 +1513,7 @@ export class AuthService {
       authProvider: input.authProvider,
       ...(subject ? { providerSubject: subject } : {}),
       ...(email ? { verifiedEmail: email } : {}),
+      ...(walletIdDerivationNonce ? { walletIdDerivationNonce } : {}),
       ...(input.collisionCounter ? { collisionCounter: input.collisionCounter } : {}),
     });
   }
@@ -1558,6 +1561,7 @@ export class AuthService {
     email: string;
     walletId: string;
     authProvider: string;
+    walletIdDerivationNonce: string;
     collisionCounter: number;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
   }): Promise<GoogleEmailOtpRegistrationAttemptRecord> {
@@ -1571,6 +1575,7 @@ export class AuthService {
       walletId: input.walletId,
       authProvider: input.authProvider,
       accountIdSlugVersion: 'hmac_readable_v1',
+      walletIdDerivationNonce: input.walletIdDerivationNonce,
       collisionCounter: input.collisionCounter,
       state: 'started',
       createdAtMs: now,
@@ -1824,14 +1829,12 @@ export class AuthService {
       });
     }
 
-    let minCollisionCounter = 0;
     const resumableAttempt = await this.findResumableGoogleEmailOtpRegistrationAttempt({
       providerSubject,
       email,
     });
     if (resumableAttempt) {
       if (rerollRegistrationAttempt) {
-        minCollisionCounter = Math.max(0, resumableAttempt.collisionCounter + 1);
         resumableAttempt.state = 'failed';
         resumableAttempt.failureCode = 'rerolled_by_user';
         resumableAttempt.updatedAtMs = Date.now();
@@ -1851,13 +1854,15 @@ export class AuthService {
 
     const nowMs = Date.now();
     const authProvider = 'google_oidc';
+    const walletIdDerivationNonce = this.generateOpaqueId(18);
     let walletId = '';
     let collisionCounter = 0;
-    for (let attempt = minCollisionCounter; attempt < minCollisionCounter + 10; attempt++) {
+    for (let attempt = 0; attempt < 10; attempt++) {
       const candidate = await this.deriveHostedOidcWalletId({
         providerSubject,
         email,
         authProvider,
+        walletIdDerivationNonce,
         ...(input.runtimePolicyScope ? { runtimePolicyScope: input.runtimePolicyScope } : {}),
         ...(attempt ? { collisionCounter: attempt } : {}),
       });
@@ -1905,6 +1910,7 @@ export class AuthService {
       email,
       walletId,
       authProvider,
+      walletIdDerivationNonce,
       collisionCounter,
       ...(input.runtimePolicyScope ? { runtimePolicyScope: input.runtimePolicyScope } : {}),
     });

@@ -114,6 +114,7 @@ test.describe('hosted Google Email OTP account privacy', () => {
       walletId: 'alice-example-com-1776502017920.relayer.testnet',
       authProvider: 'google_oidc',
       accountIdSlugVersion: 'hmac_readable_v1',
+      walletIdDerivationNonce: 'seededNonceA0123456789',
       collisionCounter: 0,
       state: 'started',
       createdAtMs: Date.now(),
@@ -172,10 +173,21 @@ test.describe('hosted Google Email OTP account privacy', () => {
     expect(second.walletId).not.toBe(first.walletId);
     expect(second.registrationAttemptId).not.toBe(first.registrationAttemptId);
 
-    await expect(attemptStore.get(first.registrationAttemptId)).resolves.toMatchObject({
+    const failedFirstAttempt = await attemptStore.get(first.registrationAttemptId);
+    const secondAttempt = await attemptStore.get(second.registrationAttemptId);
+    expect(failedFirstAttempt).toMatchObject({
       state: 'failed',
       failureCode: 'rerolled_by_user',
     });
+    expect(secondAttempt).toMatchObject({
+      walletId: second.walletId,
+      walletIdDerivationNonce: expect.any(String),
+      collisionCounter: 0,
+    });
+    if (!failedFirstAttempt || !secondAttempt) return;
+    expect(secondAttempt.walletIdDerivationNonce).not.toBe(
+      failedFirstAttempt.walletIdDerivationNonce,
+    );
   });
 
   test('registration reroll can allocate a new wallet when the Google account already has an Email OTP wallet', async () => {
@@ -240,5 +252,12 @@ test.describe('hosted Google Email OTP account privacy', () => {
     if (rerolled.mode !== 'register_started') return;
     expect(rerolled.walletId).not.toBe(first.walletId);
     expect(rerolled.walletId).toMatch(/^[a-z]+-[a-z]+-[a-z0-9]{10}\.relayer\.testnet$/);
+    await expect(
+      (service as any).getEmailOtpRegistrationAttemptStore().get(rerolled.registrationAttemptId),
+    ).resolves.toMatchObject({
+      walletId: rerolled.walletId,
+      walletIdDerivationNonce: expect.any(String),
+      collisionCounter: 0,
+    });
   });
 });
