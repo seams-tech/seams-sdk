@@ -1106,6 +1106,8 @@ export type AppSessionClaims = {
   kind: 'app_session_v1';
   appSessionVersion: string;
   walletId?: string;
+  googleEmailOtpRegistrationAttemptId?: string;
+  googleEmailOtpResolutionMode?: 'existing_wallet' | 'register_started';
   runtimePolicyScope?: RuntimePolicyScope;
   iat?: number;
   exp?: number;
@@ -1126,6 +1128,24 @@ export function parseAppSessionClaims(raw: unknown): AppSessionClaims | null {
   };
   const walletId = toOptionalString((raw as { walletId?: unknown }).walletId);
   if (walletId) out.walletId = walletId;
+  const googleEmailOtpRegistrationAttemptId = toOptionalString(
+    (raw as { googleEmailOtpRegistrationAttemptId?: unknown }).googleEmailOtpRegistrationAttemptId,
+  );
+  if (googleEmailOtpRegistrationAttemptId) {
+    out.googleEmailOtpRegistrationAttemptId = googleEmailOtpRegistrationAttemptId;
+  }
+  const googleEmailOtpResolutionMode = toOptionalString(
+    (raw as { googleEmailOtpResolutionMode?: unknown }).googleEmailOtpResolutionMode,
+  );
+  if (googleEmailOtpResolutionMode !== undefined) {
+    if (
+      googleEmailOtpResolutionMode !== 'existing_wallet' &&
+      googleEmailOtpResolutionMode !== 'register_started'
+    ) {
+      return null;
+    }
+    out.googleEmailOtpResolutionMode = googleEmailOtpResolutionMode;
+  }
   const runtimePolicyScopeRaw = (raw as { runtimePolicyScope?: unknown }).runtimePolicyScope;
   if (runtimePolicyScopeRaw !== undefined) {
     const runtimePolicyScope = parseRuntimePolicyScope(runtimePolicyScopeRaw);

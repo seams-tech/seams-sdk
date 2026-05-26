@@ -18,6 +18,7 @@ import type {
   ThresholdEcdsaChainTarget,
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { ThresholdRuntimePolicyScope } from '../../signingEngine/threshold/sessionPolicy';
 import type { EmailOtpAuthPolicy, SeamsConfigsInput } from '../../types/seams';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
 import type { WalletFlowEvent } from '../../types/sdkSentEvents';
@@ -347,6 +348,8 @@ export interface PMEmailOtpEcdsaCapabilityPayload {
   otpCode: string;
   shamirPrimeB64u?: string;
   appSessionJwt?: string;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  registrationAttemptId?: string;
 }
 
 export interface PMRefreshEmailOtpSigningSessionPayload {

@@ -73,10 +73,8 @@ async function resolveEmailOtpRegistrationHssAuth(args: {
     return { ok: false, code: 'unauthorized', message: 'Email OTP registration wallet mismatch' };
   }
   if (
-    String(
-      (appSessionClaims as { googleEmailOtpRegistrationAttemptId?: unknown })
-        .googleEmailOtpRegistrationAttemptId || '',
-    ).trim() !== registrationAttemptId
+    String(appSessionClaims.googleEmailOtpRegistrationAttemptId || '').trim() !==
+    registrationAttemptId
   ) {
     return {
       ok: false,

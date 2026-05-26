@@ -273,6 +273,7 @@ export type EmailOtpEcdsaCapabilityArgs = {
   otpCode: string;
   shamirPrimeB64u?: string;
   appSessionJwt?: string;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   registrationAttemptId?: string;
   onEvent?: (event: UnlockFlowEvent) => void;
 };

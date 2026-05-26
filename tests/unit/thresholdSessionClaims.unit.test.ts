@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import {
+  parseAppSessionClaims,
   parseThresholdEcdsaSessionClaims,
   parseThresholdEd25519SessionClaims,
 } from '@server/core/ThresholdService/validation';
@@ -32,6 +33,42 @@ test.describe('threshold session auth token claims', () => {
 
     expect(parseThresholdEd25519SessionClaims(claims)?.walletId).toBe('alice.testnet');
     expect(parseThresholdEd25519SessionClaims({ ...claims, walletId: undefined })).toBeNull();
+  });
+
+  test('preserves Google Email OTP registration attempt claims on app sessions', () => {
+    const claims = {
+      kind: 'app_session_v1',
+      sub: 'google:117142622123955425762',
+      appSessionVersion: 'app-v1',
+      walletId: 'brisk-shore.testnet',
+      googleEmailOtpRegistrationAttemptId: 'attempt-google-register',
+      googleEmailOtpResolutionMode: 'register_started',
+      runtimePolicyScope: {
+        orgId: 'org',
+        projectId: 'proj',
+        envId: 'dev',
+        signingRootVersion: 'default',
+      },
+    };
+
+    expect(parseAppSessionClaims(claims)).toMatchObject({
+      sub: 'google:117142622123955425762',
+      walletId: 'brisk-shore.testnet',
+      googleEmailOtpRegistrationAttemptId: 'attempt-google-register',
+      googleEmailOtpResolutionMode: 'register_started',
+      runtimePolicyScope: {
+        orgId: 'org',
+        projectId: 'proj',
+        envId: 'dev',
+        signingRootVersion: 'default',
+      },
+    });
+    expect(
+      parseAppSessionClaims({
+        ...claims,
+        googleEmailOtpResolutionMode: 'invalid',
+      }),
+    ).toBeNull();
   });
 
   test('requires explicit walletId on threshold-ecdsa session tokens', () => {
@@ -74,10 +111,12 @@ test.describe('threshold session auth token claims', () => {
   test('threshold-ecdsa session tokens require EVM-family key identity claims', () => {
     const claims = baseClaims('threshold_ecdsa_session_v2');
 
-    expect(parseThresholdEcdsaSessionClaims(claims)?.walletId).toBe('wallet-subject-alice');
+    expect(parseThresholdEcdsaSessionClaims(claims)?.walletId).toBe('alice.testnet');
     expect(parseThresholdEcdsaSessionClaims(claims)?.keyHandle).toBe('ehss-key-test');
     expect(parseThresholdEcdsaSessionClaims(claims)?.keyScope).toBe('evm-family');
-    expect(parseThresholdEcdsaSessionClaims({ ...claims, subjectId: undefined })).toBeNull();
+    expect(
+      parseThresholdEcdsaSessionClaims({ ...claims, subjectId: 'wallet-subject-alice' }),
+    ).toBeNull();
     expect(parseThresholdEcdsaSessionClaims({ ...claims, keyScope: undefined })).toBeNull();
     expect(parseThresholdEcdsaSessionClaims({ ...claims, keyHandle: undefined })).toBeNull();
     expect(

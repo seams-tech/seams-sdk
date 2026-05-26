@@ -140,7 +140,8 @@ async function resolveEmailOtpEd25519SessionReconstruction(
   const participantIds = thresholdKeyMaterial?.participants
     .map((participant) => Number(participant.id))
     .filter((participantId) => Number.isSafeInteger(participantId) && participantId > 0);
-  const runtimePolicyScope = parseThresholdRuntimePolicyScopeFromJwt(args.appSessionJwt);
+  const runtimePolicyScope =
+    args.runtimePolicyScope || parseThresholdRuntimePolicyScopeFromJwt(args.appSessionJwt);
 
   if (
     thresholdKeyMaterial?.relayerKeyId &&

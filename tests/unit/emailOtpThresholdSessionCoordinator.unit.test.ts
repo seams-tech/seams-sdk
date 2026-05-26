@@ -2783,6 +2783,74 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
     expect(String(reconstructionCalls[0].walletSigningSessionId || '')).toBeTruthy();
   });
 
+  test('login reconstructs Ed25519 when runtime scope is supplied out-of-band', async () => {
+    const { coordinator } = createCoordinator({
+      configs: {
+        signing: {
+          emailOtp: { authPolicy: 'session' },
+        },
+      },
+    });
+    const runtimePolicyScope = {
+      orgId: 'org',
+      projectId: 'proj',
+      envId: 'dev',
+      signingRootVersion: 'v1',
+    };
+    const reconstructionCalls: any[] = [];
+    coordinator.reconstructEd25519Session = async (args) => {
+      reconstructionCalls.push(args);
+      return {
+        relayerKeyId: args.ed25519Key.relayerKeyId,
+        keyVersion: args.ed25519Key.keyVersion,
+        sessionId: 'ed25519-reconstructed-session',
+        expiresAtMs: Date.now() + 60_000,
+        remainingUses: 3,
+        participantIds: args.ed25519Key.participantIds,
+        jwt: 'ed25519-reconstructed-jwt',
+        xClientBaseB64u: 'ed25519-reconstructed-client-base',
+      };
+    };
+
+    const result = await coordinator.loginWithEcdsaCapabilityInternal({
+      walletSession: TEST_WALLET_SESSION,
+      chainTarget: TEMPO_CHAIN_TARGET,
+      challengeId: 'challenge-1',
+      otpCode: '123456',
+      routeAuth: { kind: 'app_session', jwt: appSessionJwt() },
+      participantIds: [1, 3],
+      sessionKind: 'jwt',
+      ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
+      runtimePolicyScope,
+      ed25519ReconstructionMode: 'await',
+      ed25519SessionReconstruction: {
+        kind: 'defer',
+        reason: 'missing_runtime_policy_scope',
+        ed25519Key: {
+          relayerKeyId: 'ed25519-relayer-key',
+          keyVersion: 'threshold-ed25519-hss-v1',
+          participantIds: [1, 2],
+        },
+      },
+    });
+
+    expect(result.ed25519Reconstruction.kind).toBe('completed');
+    expect(reconstructionCalls).toHaveLength(1);
+    expect(reconstructionCalls[0]).toMatchObject({
+      kind: 'session_ed25519_reconstruction',
+      routeAuth: {
+        kind: 'threshold_session',
+        jwt: expect.any(String),
+      },
+      runtimePolicyScope,
+      ed25519Key: {
+        relayerKeyId: 'ed25519-relayer-key',
+        keyVersion: 'threshold-ed25519-hss-v1',
+        participantIds: [1, 2],
+      },
+    });
+  });
+
   test('enrolls ECDSA Email OTP capability and awaits Ed25519 provisioning', async () => {
     const { coordinator, ecdsaCommitCalls, ed25519ProvisionCalls } = createCoordinator();
     const jwt = appSessionJwt();

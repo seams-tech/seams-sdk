@@ -455,6 +455,9 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
               otpCode,
               relayUrl: relayerBaseUrl,
               appSessionJwt,
+              ...(exchange.session.runtimePolicyScope
+                ? { runtimePolicyScope: exchange.session.runtimePolicyScope }
+                : {}),
               emailOtpAuthPolicy: args.emailOtpAuthPolicy,
               onEvent: handleGoogleEmailOtpEvent,
               ...(googleResolution?.registrationAttemptId
@@ -473,6 +476,9 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
               otpCode,
               relayUrl: relayerBaseUrl,
               appSessionJwt,
+              ...(exchange.session.runtimePolicyScope
+                ? { runtimePolicyScope: exchange.session.runtimePolicyScope }
+                : {}),
               emailOtpAuthPolicy: args.emailOtpAuthPolicy,
               onEvent: handleGoogleEmailOtpUnlockEvent,
             });

@@ -21,8 +21,17 @@ const SIGNING_ENGINE_URL = new URL(
   '../../client/src/core/signingEngine/SigningEngine.ts',
   import.meta.url,
 );
-const SEAMS_PASSKEY_URL = new URL(
-  '../../client/src/core/SeamsPasskey/index.ts',
+const SEAMS_PASSKEY_URL = new URL('../../client/src/core/SeamsPasskey/index.ts', import.meta.url);
+const SEAMS_PASSKEY_INTERFACES_URL = new URL(
+  '../../client/src/core/SeamsPasskey/interfaces.ts',
+  import.meta.url,
+);
+const WALLET_IFRAME_MESSAGES_URL = new URL(
+  '../../client/src/core/WalletIframe/shared/messages.ts',
+  import.meta.url,
+);
+const DEMO_PASSKEY_LOGIN_MENU_URL = new URL(
+  '../../examples/seams-site/src/flows/demo/PasskeyLoginMenu.tsx',
   import.meta.url,
 );
 
@@ -73,7 +82,9 @@ test.describe('Email OTP ECDSA role-local bootstrap guard', () => {
     expect(functionEnd).toBeGreaterThan(functionStart);
     const enrollmentSetup = source.slice(functionStart, functionEnd);
 
-    expect(enrollmentSetup).toContain('parseThresholdRuntimePolicyScopeFromJwt(args.appSessionJwt)');
+    expect(enrollmentSetup).toContain(
+      'parseThresholdRuntimePolicyScopeFromJwt(args.appSessionJwt)',
+    );
     expect(enrollmentSetup).toContain('parseThresholdRuntimePolicyScopeFromJwt(routeAuth?.jwt)');
     expect(source).toContain('resolveEmailOtpEcdsaRoleLocalKeyIdentityForHandle({');
     expect(source).toContain('...(runtimePolicyScope ? { runtimePolicyScope } : {})');
@@ -113,9 +124,7 @@ test.describe('Email OTP ECDSA role-local bootstrap guard', () => {
 
   test('login derives runtime policy scope from route auth before worker bootstrap', () => {
     const source = readFileSync(EMAIL_OTP_ECDSA_LOGIN_URL, 'utf8');
-    const functionStart = source.indexOf(
-      'export async function loginWithEmailOtpEcdsaCapability',
-    );
+    const functionStart = source.indexOf('export async function loginWithEmailOtpEcdsaCapability');
     expect(functionStart).toBeGreaterThan(-1);
     const functionEnd = source.indexOf('if (!workerCtx)', functionStart);
     expect(functionEnd).toBeGreaterThan(functionStart);
@@ -140,9 +149,7 @@ test.describe('Email OTP ECDSA role-local bootstrap guard', () => {
     expect(reconstructionArgs).toContain(
       'runtimePolicyScope: resolvedEd25519Reconstruction.runtimePolicyScope',
     );
-    expect(reconstructionArgs).toContain(
-      'ed25519Key: resolvedEd25519Reconstruction.ed25519Key',
-    );
+    expect(reconstructionArgs).toContain('ed25519Key: resolvedEd25519Reconstruction.ed25519Key');
     expect(source).toContain("ed25519ReconstructionPlan.reason === 'missing_runtime_policy_scope'");
     expect(source).toContain(
       'ed25519SessionReconstruction: EmailOtpEd25519SessionReconstructionPlan',
@@ -161,7 +168,9 @@ test.describe('Email OTP ECDSA role-local bootstrap guard', () => {
 
   test('Ed25519 registration and reconstruction paths run distinct HSS ceremonies', () => {
     const source = readFileSync(EMAIL_OTP_PROVISIONING_URL, 'utf8');
-    const registrationStart = source.indexOf('export async function registerEmailOtpEd25519Capability');
+    const registrationStart = source.indexOf(
+      'export async function registerEmailOtpEd25519Capability',
+    );
     const reconstructionStart = source.indexOf(
       'export async function reconstructEmailOtpEd25519Session',
     );
@@ -185,7 +194,9 @@ test.describe('Email OTP ECDSA role-local bootstrap guard', () => {
 
   test('Ed25519 sealed companion links are attached after signer material is persisted', () => {
     const source = readFileSync(EMAIL_OTP_PROVISIONING_URL, 'utf8');
-    const registrationStart = source.indexOf('export async function registerEmailOtpEd25519Capability');
+    const registrationStart = source.indexOf(
+      'export async function registerEmailOtpEd25519Capability',
+    );
     const reconstructionStart = source.indexOf(
       'export async function reconstructEmailOtpEd25519Session',
     );
@@ -217,17 +228,24 @@ test.describe('Email OTP ECDSA role-local bootstrap guard', () => {
   test('SDK boundary forwards stored Ed25519 key identity for Email OTP ECDSA reconstruction', () => {
     const sdkSource = readFileSync(SEAMS_PASSKEY_URL, 'utf8');
     const engineSource = readFileSync(SIGNING_ENGINE_URL, 'utf8');
-    const helperStart = sdkSource.indexOf('async function resolveEmailOtpEd25519SessionReconstruction');
+    const helperStart = sdkSource.indexOf(
+      'async function resolveEmailOtpEd25519SessionReconstruction',
+    );
     expect(helperStart).toBeGreaterThan(-1);
     const helperEnd = sdkSource.indexOf('/**', helperStart);
     expect(helperEnd).toBeGreaterThan(helperStart);
     const reconstructionHelper = sdkSource.slice(helperStart, helperEnd);
     const loginStart = sdkSource.indexOf('async loginWithEmailOtpEcdsaCapability');
     expect(loginStart).toBeGreaterThan(-1);
-    const loginEnd = sdkSource.indexOf('async enrollAndLoginWithEmailOtpEcdsaCapability', loginStart);
+    const loginEnd = sdkSource.indexOf(
+      'async enrollAndLoginWithEmailOtpEcdsaCapability',
+      loginStart,
+    );
     expect(loginEnd).toBeGreaterThan(loginStart);
     const sdkLogin = sdkSource.slice(loginStart, loginEnd);
-    const engineFunctionStart = engineSource.indexOf('async loginWithEmailOtpEcdsaCapabilityInternal');
+    const engineFunctionStart = engineSource.indexOf(
+      'async loginWithEmailOtpEcdsaCapabilityInternal',
+    );
     expect(engineFunctionStart).toBeGreaterThan(-1);
     const engineFunctionEnd = engineSource.indexOf(
       'async requestEmailOtpSigningSessionChallenge',
@@ -251,5 +269,28 @@ test.describe('Email OTP ECDSA role-local bootstrap guard', () => {
     expect(engineLoginBridge).toContain(
       'return await this.emailOtpPublic.loginWithEmailOtpEcdsaCapabilityInternal(args);',
     );
+  });
+
+  test('SDK boundary preserves Google exchange runtime scope for Email OTP Ed25519 reconstruction', () => {
+    const sdkSource = readFileSync(SEAMS_PASSKEY_URL, 'utf8');
+    const interfacesSource = readFileSync(SEAMS_PASSKEY_INTERFACES_URL, 'utf8');
+    const iframeMessagesSource = readFileSync(WALLET_IFRAME_MESSAGES_URL, 'utf8');
+    const demoSource = readFileSync(DEMO_PASSKEY_LOGIN_MENU_URL, 'utf8');
+
+    const helperStart = sdkSource.indexOf(
+      'async function resolveEmailOtpEd25519SessionReconstruction',
+    );
+    expect(helperStart).toBeGreaterThan(-1);
+    const helperEnd = sdkSource.indexOf('/**', helperStart);
+    expect(helperEnd).toBeGreaterThan(helperStart);
+    const reconstructionHelper = sdkSource.slice(helperStart, helperEnd);
+
+    expect(interfacesSource).toContain('runtimePolicyScope?: ThresholdRuntimePolicyScope');
+    expect(iframeMessagesSource).toContain('runtimePolicyScope?: ThresholdRuntimePolicyScope');
+    expect(reconstructionHelper).toContain(
+      'args.runtimePolicyScope || parseThresholdRuntimePolicyScopeFromJwt(args.appSessionJwt)',
+    );
+    expect(demoSource).toContain('exchange.session.runtimePolicyScope');
+    expect(demoSource).toContain('runtimePolicyScope: exchange.session.runtimePolicyScope');
   });
 });
