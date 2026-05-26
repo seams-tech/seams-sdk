@@ -145,26 +145,30 @@ async function resolveEmailOtpEd25519SessionReconstruction(
   if (
     thresholdKeyMaterial?.relayerKeyId &&
     thresholdKeyMaterial.keyVersion &&
-    participantIds?.length &&
-    runtimePolicyScope
+    participantIds?.length
   ) {
+    const ed25519Key = {
+      relayerKeyId: thresholdKeyMaterial.relayerKeyId,
+      keyVersion: thresholdKeyMaterial.keyVersion,
+      participantIds,
+    };
+    if (!runtimePolicyScope) {
+      return {
+        kind: 'defer',
+        reason: 'missing_runtime_policy_scope',
+        ed25519Key,
+      };
+    }
     return {
       kind: 'reconstruct',
-      ed25519Key: {
-        relayerKeyId: thresholdKeyMaterial.relayerKeyId,
-        keyVersion: thresholdKeyMaterial.keyVersion,
-        participantIds,
-      },
+      ed25519Key,
       runtimePolicyScope,
     };
   }
 
   return {
     kind: 'defer',
-    reason:
-      thresholdKeyMaterial?.relayerKeyId && thresholdKeyMaterial.keyVersion && participantIds?.length
-        ? 'missing_runtime_policy_scope'
-        : 'missing_ed25519_key_identity',
+    reason: 'missing_ed25519_key_identity',
   };
 }
 

@@ -104,10 +104,15 @@ export type EmailOtpEd25519SessionReconstructionPlan =
     }
   | {
       kind: 'defer';
-      reason:
-        | 'missing_ed25519_key_identity'
-        | 'missing_runtime_policy_scope'
-        | 'not_needed_for_ecdsa';
+      reason: 'missing_runtime_policy_scope';
+      ed25519Key: EmailOtpEd25519SessionReconstructionKey;
+      runtimePolicyScope?: never;
+    }
+  | {
+      kind: 'defer';
+      reason: 'missing_ed25519_key_identity' | 'not_needed_for_ecdsa';
+      ed25519Key?: never;
+      runtimePolicyScope?: never;
     };
 
 type EmailOtpEd25519CommonArgs = {

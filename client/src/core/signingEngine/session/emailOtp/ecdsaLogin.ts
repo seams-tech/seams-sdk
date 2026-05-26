@@ -440,7 +440,20 @@ export async function loginWithEmailOtpEcdsaCapability(
     const shouldAwaitEd25519Reconstruction = args.ed25519ReconstructionMode === 'await';
     const reconstructionAuth = freshThresholdSessionAuth || bootstrapTransportAuth;
     const ed25519ReconstructionPlan = args.ed25519SessionReconstruction;
-    if (ed25519ReconstructionPlan.kind === 'reconstruct' && reconstructionAuth) {
+    const resolvedEd25519Reconstruction =
+      ed25519ReconstructionPlan.kind === 'reconstruct'
+        ? {
+            ed25519Key: ed25519ReconstructionPlan.ed25519Key,
+            runtimePolicyScope: ed25519ReconstructionPlan.runtimePolicyScope,
+          }
+        : ed25519ReconstructionPlan.reason === 'missing_runtime_policy_scope' &&
+          runtimePolicyScope
+        ? {
+            ed25519Key: ed25519ReconstructionPlan.ed25519Key,
+            runtimePolicyScope,
+          }
+        : null;
+    if (resolvedEd25519Reconstruction && reconstructionAuth) {
       const ed25519ReconstructionArgs: ReconstructEmailOtpEd25519SessionArgs = {
         kind: 'session_ed25519_reconstruction',
         nearAccountId,
@@ -449,8 +462,8 @@ export async function loginWithEmailOtpEcdsaCapability(
         prfFirstB64u: thresholdEd25519PrfFirstB64u,
         emailOtpAuthContext,
         routeAuth: reconstructionAuth,
-        runtimePolicyScope: ed25519ReconstructionPlan.runtimePolicyScope,
-        ed25519Key: ed25519ReconstructionPlan.ed25519Key,
+        runtimePolicyScope: resolvedEd25519Reconstruction.runtimePolicyScope,
+        ed25519Key: resolvedEd25519Reconstruction.ed25519Key,
         ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
         ...(typeof remainingUses === 'number' ? { remainingUses } : {}),
         walletSigningSessionId: walletSigningSessionIdFromEcdsaBootstrap(
@@ -477,7 +490,7 @@ export async function loginWithEmailOtpEcdsaCapability(
       ed25519Reconstruction = {
         kind: 'deferred',
         reason:
-          ed25519ReconstructionPlan.kind === 'reconstruct' && !reconstructionAuth
+          resolvedEd25519Reconstruction && !reconstructionAuth
             ? 'missing_route_auth'
             : ed25519ReconstructionPlan.kind === 'defer'
             ? ed25519ReconstructionPlan.reason

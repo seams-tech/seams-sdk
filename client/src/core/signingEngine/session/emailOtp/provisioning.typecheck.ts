@@ -105,12 +105,20 @@ const validReconstructionPlan = {
 const validDeferredReconstructionPlan = {
   kind: 'defer',
   reason: 'missing_runtime_policy_scope',
+  ed25519Key: validReconstruction.ed25519Key,
 } satisfies EmailOtpEd25519SessionReconstructionPlan;
 
+// @ts-expect-error missing-runtime-scope deferrals retain exact Ed25519 key identity
+const invalidMissingScopeReconstructionPlanWithoutKey: EmailOtpEd25519SessionReconstructionPlan = {
+  kind: 'defer',
+  reason: 'missing_runtime_policy_scope',
+  ed25519Key: undefined,
+};
+
+// @ts-expect-error reconstruction plans require runtime policy scope
 const invalidReconstructionPlanWithoutRuntimeScope: EmailOtpEd25519SessionReconstructionPlan = {
   kind: 'reconstruct',
   ed25519Key: validReconstruction.ed25519Key,
-  // @ts-expect-error reconstruction plans require runtime policy scope
   runtimePolicyScope: undefined,
 };
 

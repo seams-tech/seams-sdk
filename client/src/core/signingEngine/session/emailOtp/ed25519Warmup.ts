@@ -307,6 +307,11 @@ export class EmailOtpEd25519Warmup {
         : {
             kind: 'defer',
             reason: 'missing_runtime_policy_scope',
+            ed25519Key: {
+              relayerKeyId: args.record.relayerKeyId,
+              keyVersion: EMAIL_OTP_THRESHOLD_ED25519_HSS_KEY_VERSION,
+              participantIds: args.record.participantIds,
+            },
           },
     });
     if (ecdsaLogin.ed25519Reconstruction.kind !== 'completed') {

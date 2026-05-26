@@ -138,8 +138,12 @@ test.describe('Email OTP ECDSA role-local bootstrap guard', () => {
     expect(reconstructionArgs).toContain("kind: 'session_ed25519_reconstruction'");
     expect(reconstructionArgs).toContain('routeAuth: reconstructionAuth');
     expect(reconstructionArgs).toContain(
-      'runtimePolicyScope: ed25519ReconstructionPlan.runtimePolicyScope',
+      'runtimePolicyScope: resolvedEd25519Reconstruction.runtimePolicyScope',
     );
+    expect(reconstructionArgs).toContain(
+      'ed25519Key: resolvedEd25519Reconstruction.ed25519Key',
+    );
+    expect(source).toContain("ed25519ReconstructionPlan.reason === 'missing_runtime_policy_scope'");
     expect(source).toContain(
       'ed25519SessionReconstruction: EmailOtpEd25519SessionReconstructionPlan',
     );
@@ -240,6 +244,7 @@ test.describe('Email OTP ECDSA role-local bootstrap guard', () => {
     expect(reconstructionHelper).toContain('keyVersion: thresholdKeyMaterial.keyVersion');
     expect(reconstructionHelper).toContain('participantIds');
     expect(reconstructionHelper).toContain("'missing_runtime_policy_scope'");
+    expect(reconstructionHelper).toContain('ed25519Key');
     expect(sdkLogin).toContain('await resolveEmailOtpEd25519SessionReconstruction(args)');
     expect(sdkLogin).toContain("ed25519ReconstructionMode: 'await'");
     expect(sdkLogin).toContain('ed25519SessionReconstruction');
