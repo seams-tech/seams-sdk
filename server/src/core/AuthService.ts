@@ -7837,13 +7837,31 @@ export class AuthService {
         };
       }
 
+      const registrationChallengeCanFollowReroll =
+        expectedAction === WALLET_EMAIL_OTP_ACTIONS.registration &&
+        record.operation === WALLET_EMAIL_OTP_REGISTRATION_OPERATION &&
+        record.userId.startsWith('google:') &&
+        userId.startsWith('google:');
+      // Registration name rerolls mint a new app session with a new walletId.
+      // The first OTP remains bound to the Google subject, org, and app-session version.
+      const walletMismatch = registrationChallengeCanFollowReroll
+        ? false
+        : record.walletId !== walletId;
+      const operationMismatch = expectedOperation
+        ? record.operation !== expectedOperation
+        : expectedAction === WALLET_EMAIL_OTP_ACTIONS.registration
+          ? record.operation !== WALLET_EMAIL_OTP_REGISTRATION_OPERATION
+          : false;
+      const sessionHashMismatch = registrationChallengeCanFollowReroll
+        ? false
+        : record.sessionHash !== sessionHash;
       const bindingMismatch =
         record.userId !== userId ||
-        record.walletId !== walletId ||
+        walletMismatch ||
         record.otpChannel !== EMAIL_OTP_CHANNEL ||
         record.action !== expectedAction ||
-        (expectedOperation ? record.operation !== expectedOperation : false) ||
-        record.sessionHash !== sessionHash ||
+        operationMismatch ||
+        sessionHashMismatch ||
         record.appSessionVersion !== appSessionVersion ||
         String(record.orgId || '') !== String(orgId || '');
       if (bindingMismatch) {

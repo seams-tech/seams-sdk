@@ -1,8 +1,8 @@
 # Email OTP Architecture
 
 Status: active source of truth for Email OTP identity, privacy, secret
-ownership, worker runtime, resend behavior, sealed restore, signing, and key
-export.
+ownership, worker runtime, registration reroll behavior, resend behavior,
+sealed restore, signing, and key export.
 
 This document consolidates the previous split Email OTP docs and
 Email OTP-specific signing-session notes. Future refactors should edit this
@@ -135,6 +135,14 @@ Rules:
 6. Rotation is versioned with a new slug context, for example
    `near_account_slug_v2`.
 7. Verified email remains private account metadata.
+
+### Registration Rerolls
+
+Google Email OTP registration account-name rerolls reuse the active registration
+OTP challenge for the same provider subject, org, and app-session version. A
+reroll only selects a new candidate wallet id and registration attempt. The
+first code remains valid until it expires, and explicit resend remains the
+operation that delivers a new code.
 
 The durable identity mapping stores the relationship between verified identity
 and public account:

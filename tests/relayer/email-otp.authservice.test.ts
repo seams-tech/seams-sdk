@@ -536,6 +536,84 @@ test.describe('AuthService Email OTP policy', () => {
     });
   });
 
+  test('Google Email OTP registration challenge verifies after account-name reroll', async () => {
+    process.env.ACCOUNT_ID_DERIVATION_SECRET ||= 'test-account-id-derivation-secret';
+    const service = makeService();
+    const providerSubject = 'google:subject-registration-reroll-challenge';
+    const email = 'registration-reroll@example.com';
+    const first = await service.resolveGoogleEmailOtpSession({
+      providerSubject,
+      email,
+      accountMode: 'register',
+      runtimePolicyScope: {
+        orgId: ORG_ID,
+        projectId: 'project_email_otp_authservice',
+        envId: 'env_email_otp_authservice',
+        signingRootVersion: 'default',
+      },
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok || first.mode !== 'register_started') return;
+
+    const challenge = await service.createEmailOtpEnrollmentChallenge({
+      userId: providerSubject,
+      walletId: first.walletId,
+      orgId: ORG_ID,
+      email,
+      otpChannel: 'email_otp',
+      sessionHash: 'email-otp-registration-session-before-reroll',
+      appSessionVersion: APP_SESSION_VERSION,
+    });
+    expect(challenge.ok).toBe(true);
+    if (!challenge.ok) return;
+    const outbox = await service.readEmailOtpOutboxEntry({
+      challengeId: challenge.challenge.challengeId,
+      userId: providerSubject,
+      walletId: first.walletId,
+    });
+    expect(outbox.ok).toBe(true);
+    if (!outbox.ok) return;
+
+    const second = await service.resolveGoogleEmailOtpSession({
+      providerSubject,
+      email,
+      accountMode: 'register',
+      rerollRegistrationAttempt: true,
+      runtimePolicyScope: {
+        orgId: ORG_ID,
+        projectId: 'project_email_otp_authservice',
+        envId: 'env_email_otp_authservice',
+        signingRootVersion: 'default',
+      },
+    });
+    expect(second.ok).toBe(true);
+    if (!second.ok || second.mode !== 'register_started') return;
+    expect(second.walletId).not.toBe(first.walletId);
+
+    const verified = await service.verifyEmailOtpEnrollment({
+      userId: providerSubject,
+      walletId: second.walletId,
+      orgId: ORG_ID,
+      challengeId: challenge.challenge.challengeId,
+      otpCode: outbox.otpCode,
+      otpChannel: 'email_otp',
+      sessionHash: 'email-otp-registration-session-after-reroll',
+      appSessionVersion: APP_SESSION_VERSION,
+      recoveryWrappedEnrollmentEscrows: makeRecoveryWrappedEnrollmentEscrows(Date.now(), {
+        walletId: second.walletId,
+        userId: providerSubject,
+      }),
+      enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+      clientUnlockPublicKeyB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
+      unlockKeyVersion: 'email-otp-unlock-v1',
+      thresholdEcdsaClientVerifyingShareB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
+      googleEmailOtpRegistrationAttemptId: second.registrationAttemptId,
+    });
+    expect(verified.ok).toBe(true);
+    if (!verified.ok) return;
+    expect(verified.walletId).toBe(second.walletId);
+  });
+
   test('Email OTP enrollment rejects duplicate recovery key ids', async () => {
     const service = makeService();
     const escrows = makeRecoveryWrappedEnrollmentEscrows();

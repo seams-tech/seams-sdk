@@ -410,10 +410,17 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
                 walletId = nextWalletId;
                 appSessionJwt = nextAppSessionJwt;
                 googleResolution = nextExchange.session.googleEmailOtpResolution;
-                otpFlow =
-                  googleResolution?.mode === 'register_started' ? 'enroll' : 'login';
-                challenge = await requestCurrentOtpChallenge();
-                toast.success('New wallet name selected. Email code sent.', { id: 'google-sso' });
+                otpFlow = googleResolution?.mode === 'register_started' ? 'enroll' : 'login';
+                if (otpFlow === 'login') {
+                  challenge = await requestCurrentOtpChallenge();
+                  toast.success('Existing wallet selected. Email code sent.', {
+                    id: 'google-sso',
+                  });
+                } else {
+                  toast.success('New wallet name selected. Use the email code already sent.', {
+                    id: 'google-sso',
+                  });
+                }
                 const nextPromptCopy = buildOtpPromptCopy();
                 return {
                   username: walletId,
