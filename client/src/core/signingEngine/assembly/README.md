@@ -25,6 +25,5 @@ as a convenience layer.
 - `createPorts.ts`
 - `ports/*`
 - `ports/stepUpRuntime.ts`
-- `ports/session.ts`
 - `createSigningEngineRuntime.ts`
 - `warmup.ts`

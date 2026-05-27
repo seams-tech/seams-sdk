@@ -172,7 +172,6 @@ import {
 } from './assembly/ports/warmSigning';
 import { createStepUpRuntime } from './assembly/ports/stepUpRuntime';
 import { createRecoveryPublicDeps } from './assembly/ports/recovery';
-import { createSessionPublicDeps } from './assembly/ports/session';
 import * as warmCapabilitiesPublic from './session/warmCapabilities/public';
 import type { WarmCapabilitiesPublicDeps } from './session/warmCapabilities/public';
 import * as passkeyPublic from './session/passkey/public';
@@ -305,19 +304,32 @@ export class SigningEngine {
       recordsByLane: this.thresholdEcdsaSessionByLane,
       exportArtifactsByLane: this.thresholdEcdsaExportArtifactByLane,
     });
-    this.sessionPublicDeps = createSessionPublicDeps({
-      seamsPasskeyConfigs: this.seamsPasskeyConfigs,
+    const sessionRestore: SessionPublicDeps['restore'] = {
+      emailOtp: (restoreArgs) =>
+        this.emailOtpSessions.restorePersistedSessionsForWallet(restoreArgs),
+    };
+    if (this.touchConfirm.restorePersistedSessionsForWallet) {
+      sessionRestore.passkey = (restoreArgs) =>
+        this.touchConfirm.restorePersistedSessionsForWallet!(restoreArgs);
+    }
+    this.sessionPublicDeps = {
+      availableLanes: {
+        ecdsaSessions: this.warmSigning.ecdsaSessions,
+        statusReader: this.touchConfirm,
+        getWalletSigningBudgetStatus: (statusArgs) =>
+          readTrustedWalletSigningBudgetStatusOperation(
+            {
+              ecdsaSessions: this.warmSigning.ecdsaSessions,
+            },
+            statusArgs,
+          ),
+      },
       ecdsaSessions: this.warmSigning.ecdsaSessions,
-      touchConfirm: this.touchConfirm,
-      emailOtpSessions: this.emailOtpSessions,
-      getWalletSigningBudgetStatus: (statusArgs) =>
-        readTrustedWalletSigningBudgetStatusOperation(
-          {
-            ecdsaSessions: this.warmSigning.ecdsaSessions,
-          },
-          statusArgs,
-        ),
-    });
+      signingSessionSeal: this.seamsPasskeyConfigs.signing.sessionSeal,
+      getConfiguredEcdsaChainTargets: () =>
+        configuredThresholdEcdsaChainTargets(this.seamsPasskeyConfigs.network.chains),
+      restore: sessionRestore,
+    };
     this.emailOtpPublicDeps = {
       ecdsaSessions: this.warmSigning.ecdsaSessions,
       relayerUrl: this.seamsPasskeyConfigs.network.relayer?.url || '',
@@ -1263,77 +1275,81 @@ export class SigningEngine {
 
 /**
  * Boundary-facing API spec for SigningEngine consumers.
- * Keep this narrow and intentional; prefer adding methods here explicitly.
+ * Keep the tuple narrow and intentional; the exported type derives from it.
  */
+const signingEnginePublicMembers = [
+  'seamsPasskeyConfigs',
+  'setTheme',
+  'getUserPreferences',
+  'getRpId',
+  'getNonceCoordinator',
+  'warmCriticalResources',
+  'assertSealedRefreshStartupParity',
+  'restorePersistedSessionsForWallet',
+  'readPersistedAvailableSigningLanes',
+  'signNear',
+  'signTempo',
+  'reportTempoBroadcastAccepted',
+  'reportTempoBroadcastRejected',
+  'reportTempoFinalized',
+  'reportTempoDroppedOrReplaced',
+  'reconcileTempoNonceLane',
+  'storeUserData',
+  'getAllUsers',
+  'getUserBySignerSlot',
+  'getLastUser',
+  'getAuthenticatorsByUser',
+  'updateLastLogin',
+  'setLastUser',
+  'initializeCurrentUser',
+  'storeAuthenticator',
+  'rollbackUserRegistration',
+  'hasPasskeyCredential',
+  'atomicStoreRegistrationData',
+  'storeWalletSubjectEd25519RegistrationData',
+  'storeWalletSubjectEd25519SignerRecord',
+  'storeWalletSubjectEcdsaSignerRecords',
+  'storeWalletSubjectEcdsaRegistrationData',
+  'requestRegistrationCredentialConfirmation',
+  'getAuthenticationCredentialsSerialized',
+  'prepareWalletRegistrationEcdsaPreparedClientBootstrap',
+  'prepareWalletRegistrationEcdsaClientBootstrap',
+  'persistWalletRegistrationEcdsaBootstrapForWalletKeys',
+  'extractCosePublicKey',
+  'exportKeypairWithUI',
+  'exportNearEd25519SeedArtifactWithUI',
+  'exportThresholdEd25519SeedFromHssReport',
+  'signTransactionWithKeyPair',
+  'generateEphemeralNearKeypair',
+  'connectEd25519Session',
+  'bootstrapEcdsaSession',
+  'bootstrapLoginEcdsaSessionFromRestoredEd25519',
+  'upsertThresholdEcdsaSessionFromBootstrap',
+  'getThresholdEcdsaKeyRefForWalletTarget',
+  'listThresholdEcdsaSessionRecordsForWalletTarget',
+  'clearThresholdEcdsaSessionRecordForWallet',
+  'clearAllThresholdEcdsaSessionRecords',
+  'persistThresholdEcdsaBootstrapForWalletTarget',
+  'getWarmThresholdEd25519SessionStatus',
+  'getWarmThresholdEcdsaSessionStatus',
+  'listWarmThresholdEcdsaSessionStatuses',
+  'scheduleThresholdEcdsaLoginPresignPrefill',
+  'hydrateSigningSession',
+  'clearVolatileWarmSigningMaterial',
+  'clearThresholdEcdsaCommitQueue',
+  'deriveThresholdEd25519ClientVerifyingShareFromCredential',
+  'deriveThresholdEd25519HssClientInputsFromCredential',
+  'prepareThresholdEd25519HssClientCeremonyFromCredential',
+  'prepareThresholdEd25519HssClientRequest',
+  'deriveThresholdEd25519HssClientOutputMask',
+  'buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact',
+  'completeThresholdEd25519HssClientCeremony',
+  'runThresholdEd25519HssCeremonyWithSession',
+  'openThresholdEd25519HssSeedOutput',
+  'buildThresholdEd25519SeedExportArtifactFromHssReport',
+] as const satisfies readonly (keyof SigningEngine)[];
+
 export type SigningEnginePublic = Pick<
   SigningEngine,
-  | 'seamsPasskeyConfigs'
-  | 'setTheme'
-  | 'getUserPreferences'
-  | 'getRpId'
-  | 'getNonceCoordinator'
-  | 'warmCriticalResources'
-  | 'assertSealedRefreshStartupParity'
-  | 'restorePersistedSessionsForWallet'
-  | 'readPersistedAvailableSigningLanes'
-  | 'signNear'
-  | 'signTempo'
-  | 'reportTempoBroadcastAccepted'
-  | 'reportTempoBroadcastRejected'
-  | 'reportTempoFinalized'
-  | 'reportTempoDroppedOrReplaced'
-  | 'reconcileTempoNonceLane'
-  | 'storeUserData'
-  | 'getAllUsers'
-  | 'getUserBySignerSlot'
-  | 'getLastUser'
-  | 'getAuthenticatorsByUser'
-  | 'updateLastLogin'
-  | 'setLastUser'
-  | 'initializeCurrentUser'
-  | 'storeAuthenticator'
-  | 'rollbackUserRegistration'
-  | 'hasPasskeyCredential'
-  | 'atomicStoreRegistrationData'
-  | 'storeWalletSubjectEd25519RegistrationData'
-  | 'storeWalletSubjectEd25519SignerRecord'
-  | 'storeWalletSubjectEcdsaSignerRecords'
-  | 'storeWalletSubjectEcdsaRegistrationData'
-  | 'requestRegistrationCredentialConfirmation'
-  | 'getAuthenticationCredentialsSerialized'
-  | 'prepareWalletRegistrationEcdsaPreparedClientBootstrap'
-  | 'prepareWalletRegistrationEcdsaClientBootstrap'
-  | 'persistWalletRegistrationEcdsaBootstrapForWalletKeys'
-  | 'extractCosePublicKey'
-  | 'exportKeypairWithUI'
-  | 'exportNearEd25519SeedArtifactWithUI'
-  | 'exportThresholdEd25519SeedFromHssReport'
-  | 'signTransactionWithKeyPair'
-  | 'generateEphemeralNearKeypair'
-  | 'connectEd25519Session'
-  | 'bootstrapEcdsaSession'
-  | 'bootstrapLoginEcdsaSessionFromRestoredEd25519'
-  | 'upsertThresholdEcdsaSessionFromBootstrap'
-  | 'getThresholdEcdsaKeyRefForWalletTarget'
-  | 'listThresholdEcdsaSessionRecordsForWalletTarget'
-  | 'clearThresholdEcdsaSessionRecordForWallet'
-  | 'clearAllThresholdEcdsaSessionRecords'
-  | 'persistThresholdEcdsaBootstrapForWalletTarget'
-  | 'getWarmThresholdEd25519SessionStatus'
-  | 'getWarmThresholdEcdsaSessionStatus'
-  | 'listWarmThresholdEcdsaSessionStatuses'
-  | 'scheduleThresholdEcdsaLoginPresignPrefill'
-  | 'hydrateSigningSession'
-  | 'clearVolatileWarmSigningMaterial'
-  | 'clearThresholdEcdsaCommitQueue'
-  | 'deriveThresholdEd25519ClientVerifyingShareFromCredential'
-  | 'deriveThresholdEd25519HssClientInputsFromCredential'
-  | 'prepareThresholdEd25519HssClientCeremonyFromCredential'
-  | 'prepareThresholdEd25519HssClientRequest'
-  | 'deriveThresholdEd25519HssClientOutputMask'
-  | 'buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact'
-  | 'completeThresholdEd25519HssClientCeremony'
-  | 'runThresholdEd25519HssCeremonyWithSession'
-  | 'openThresholdEd25519HssSeedOutput'
-  | 'buildThresholdEd25519SeedExportArtifactFromHssReport'
+  (typeof signingEnginePublicMembers)[number]
 >;

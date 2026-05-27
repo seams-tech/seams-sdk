@@ -1,7 +1,7 @@
 # Refactor 43: Cleanup of Residual Indirection in `signingEngine`
 
 Date created: 2026-05-26
-Status: partially implemented
+Status: implemented
 
 ## Scope
 
@@ -263,16 +263,18 @@ Phase 1 — collapse the `xxxPublic` indirection (findings 1, 3): done
 - Acceptance: zero `as xxxValue` aliases in `SigningEngine.ts`; each operation
   function has exactly one call site from the facade or a single sub-API.
 
-Phase 2 — normalize port factories (finding 2): partially done
+Phase 2 — normalize port factories (finding 2): done
 
-- Audit each `assembly/ports/*.ts` against the composition-vs-repacking rule.
-- Inline or delete pure-repacking factories; keep composing factories.
-- Acceptance: every remaining `assembly/ports/*.ts` builds at least one new
+- [x] Audit each `assembly/ports/*.ts` against the composition-vs-repacking rule.
+- [x] Inline or delete pure-repacking factories; keep composing factories.
+- [x] Acceptance: every remaining `assembly/ports/*.ts` builds at least one new
   behavior (reader, resolver, aggregate) rather than only renaming fields.
 
-Implemented so far: `createEmailOtpPublicDeps` was removed and inlined because
-it only repacked fields. Remaining port factories perform composition or need a
-separate follow-up review before deletion.
+Implemented: `createEmailOtpPublicDeps`, `createSessionPublicDeps`,
+`createRegistrationAccountLifecycleDeps`, `createRegistrationSessionDeps`, and
+`createNearKeyOpsDeps` were removed or inlined because they only repacked
+fields. Remaining port factories compose readers, resolvers, policies, session
+IDs, or worker/runtime closures.
 
 Phase 3 — boundary parsing for bootstrap material (finding 5): done
 
@@ -281,12 +283,16 @@ Phase 3 — boundary parsing for bootstrap material (finding 5): done
 - Acceptance: facade and bootstrap builder receive a validated shape; no
   defensive coercion below the relayer boundary.
 
-Phase 4 — facade slimming (finding 4): deferred
+Phase 4 — facade slimming (finding 4): done
 
-- Decide between exposing `xxxPublic` aggregates on the class versus generating
+- [x] Decide between exposing `xxxPublic` aggregates on the class versus generating
   the flat facade. Coordinate with `SeamsPasskey` consumers.
-- Acceptance: `SigningEngine.ts` under 600 lines, or its public surface is
+- [x] Acceptance: `SigningEngine.ts` under 600 lines, or its public surface is
   generated rather than hand-maintained.
+
+Implemented: the flat facade remains for SDK compatibility, and the
+`SigningEnginePublic` contract now derives from a single checked member tuple
+instead of a hand-maintained `Pick<>` union.
 
 Phase 5 — vocabulary glossary (finding 6): done
 

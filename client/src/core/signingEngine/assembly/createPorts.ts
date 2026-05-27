@@ -7,9 +7,6 @@ import {
 import { createEvmFamilySigningDeps } from './ports/evmFamily';
 import { createNearSigningDeps } from './ports/near';
 import {
-  createNearKeyOpsDeps,
-  createRegistrationAccountLifecycleDeps,
-  createRegistrationSessionDeps,
   createThresholdEd25519LifecycleDeps,
   createThresholdSessionActivationDeps,
 } from './ports/registration';
@@ -68,16 +65,24 @@ export function createSigningEnginePorts(
       getEmailOtpWarmSessionStatus,
     }),
     privateKeyExportRecoveryDeps: createPrivateKeyExportRecoveryDeps(args, runtimeDeps),
-    registrationAccountLifecycleDeps: createRegistrationAccountLifecycleDeps(args, runtimeDeps),
-    registrationSessionDeps: createRegistrationSessionDeps({
-      createArgs: args,
-    }),
+    registrationAccountLifecycleDeps: {
+      indexedDB,
+      userPreferencesManager: args.userPreferencesManager,
+      nonceCoordinator: args.nonceCoordinator,
+      extractCosePublicKey: args.extractCosePublicKey,
+    },
+    registrationSessionDeps: {
+      touchConfirm: args.touchConfirm,
+      touchIdPrompt: args.touchIdPrompt,
+    },
     thresholdSessionActivationDeps: createThresholdSessionActivationDeps({
       createArgs: args,
       indexedDB,
       getOrCreateActiveThresholdEcdsaSessionId,
     }),
-    nearKeyOpsDeps: createNearKeyOpsDeps(args),
+    nearKeyOpsDeps: {
+      signingKeyOps: args.signerWorkerManager.nearKeyOps,
+    },
     resolveCanonicalThresholdEcdsaSessionIdForWalletTarget:
       createResolveCanonicalThresholdEcdsaSessionIdForWalletTarget(args),
     signingSessionCoordinator,
