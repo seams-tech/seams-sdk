@@ -45,13 +45,3 @@ export async function bootstrapEcdsaSession(
 ): Promise<ThresholdEcdsaSessionBootstrapResult> {
   return await deps.bootstrapEcdsaSession(args);
 }
-
-export function createPasskeyPublicApi(deps: PasskeyPublicDeps) {
-  return {
-    connectEd25519Session: (args: ConnectEd25519SessionArgs) =>
-      connectEd25519Session(deps, args),
-    bootstrapEcdsaSession: (args: EcdsaBootstrapRequest) => bootstrapEcdsaSession(deps, args),
-  };
-}
-
-export type PasskeyPublicApi = ReturnType<typeof createPasskeyPublicApi>;

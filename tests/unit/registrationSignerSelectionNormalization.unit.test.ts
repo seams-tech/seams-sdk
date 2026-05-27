@@ -38,6 +38,7 @@ test.describe('registration signer-selection normalization', () => {
         walletSubjectId: ' wallet_subject_alice ',
       },
       rpId: ' wallet.example.test ',
+      authMethod: { kind: 'passkey' },
       signerSelection: {
         mode: ' ed25519_only ',
         ed25519: {
@@ -80,6 +81,7 @@ test.describe('registration signer-selection normalization', () => {
         walletSubjectId: 'wallet_subject_combined',
       },
       rpId: 'wallet.example.test',
+      authMethod: { kind: 'passkey' },
       signerSelection: {
         mode: 'ed25519_and_ecdsa',
         ed25519: {
@@ -123,6 +125,7 @@ test.describe('registration signer-selection normalization', () => {
       createIntentFromBoundary(makeService(), {
         walletSubject: { kind: 'server_generated' },
         rpId: 'wallet.example.test',
+        authMethod: { kind: 'passkey' },
         signerSelection: {
           mode: 'unknown',
         },
@@ -137,6 +140,7 @@ test.describe('registration signer-selection normalization', () => {
       createIntentFromBoundary(makeService(), {
         walletSubject: { kind: 'server_generated' },
         rpId: 'wallet.example.test',
+        authMethod: { kind: 'passkey' },
         signerSelection: {
           mode: 'ed25519_only',
           ed25519: {
@@ -160,6 +164,7 @@ test.describe('registration signer-selection normalization', () => {
       createIntentFromBoundary(makeService(), {
         walletSubject: { kind: 'server_generated' },
         rpId: 'wallet.example.test',
+        authMethod: { kind: 'passkey' },
         signerSelection: {
           mode: 'ed25519_and_ecdsa',
           ed25519: {

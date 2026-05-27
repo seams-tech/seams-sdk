@@ -107,6 +107,7 @@ async function allocateIntent(
         walletSubjectId: walletSubjectIdFromString('wallet_subject_alice'),
       },
       rpId: 'wallet.example.test',
+      authMethod: { kind: 'passkey' },
       signerSelection,
     },
     orgId: ORG_ID,

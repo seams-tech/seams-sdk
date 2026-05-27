@@ -76,6 +76,7 @@ const INTENT = {
   version: 'registration_intent_v1',
   walletSubjectId: walletSubjectIdFromString('wallet_subject_registration_store'),
   rpId: 'wallet.example.test',
+  authMethod: { kind: 'passkey' },
   signerSelection: SIGNER_SELECTION,
   nonceB64u: 'nonce',
 } satisfies RegistrationIntentV1;

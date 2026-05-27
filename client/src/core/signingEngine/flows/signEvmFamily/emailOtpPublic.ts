@@ -2,7 +2,10 @@ import { enrollEmailOtpWallet } from '@/core/SeamsPasskey/emailOtp';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { EmailOtpAuthPolicy } from '@/core/types/seams';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
-import type { WalletEmailOtpChannel, WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
+import type {
+  WalletEmailOtpChannel,
+  WalletEmailOtpLoginOperation,
+} from '@shared/utils/emailOtpDomain';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 import type { EmailOtpBootstrapRecovery } from '../../stepUpConfirmation/otpPrompt/bootstrapRecovery';
 import type { ThresholdEcdsaSessionStoreDeps } from '../../session/persistence/records';
@@ -226,29 +229,3 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapabilityInternal(
 ): Promise<EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalResult> {
   return await deps.emailOtpSessions.enrollAndLoginWithEcdsaCapabilityInternal(args);
 }
-
-export function createEmailOtpPublicApi(deps: EmailOtpPublicDeps) {
-  return {
-    loginWithEmailOtpEcdsaCapabilityInternal: (
-      args: LoginWithEmailOtpEcdsaCapabilityInternalArgs,
-    ) => loginWithEmailOtpEcdsaCapabilityInternal(deps, args),
-    requestEmailOtpSigningSessionChallenge: (args: {
-      walletSession: WalletSessionRef;
-      chainTarget: ThresholdEcdsaChainTarget;
-    }) => requestEmailOtpSigningSessionChallenge(deps, args),
-    refreshEmailOtpSigningSession: (args: {
-      walletSession: WalletSessionRef;
-      chainTarget: ThresholdEcdsaChainTarget;
-      challengeId: string;
-      otpCode: string;
-      ttlMs?: number;
-      remainingUses?: number;
-    }) => refreshEmailOtpSigningSession(deps, args),
-    enrollEmailOtpInternal: (args: EnrollEmailOtpInternalArgs) => enrollEmailOtpInternal(deps, args),
-    enrollAndLoginWithEmailOtpEcdsaCapabilityInternal: (
-      args: EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs,
-    ) => enrollAndLoginWithEmailOtpEcdsaCapabilityInternal(deps, args),
-  };
-}
-
-export type EmailOtpPublicApi = ReturnType<typeof createEmailOtpPublicApi>;

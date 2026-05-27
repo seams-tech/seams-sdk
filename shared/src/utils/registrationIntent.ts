@@ -16,10 +16,85 @@ export type AddSignerIntentGrant = string & {
 export type RegisterWalletSubjectInput =
   | {
       kind: 'server_generated';
+      walletSubjectId?: never;
     }
   | {
       kind: 'provided';
       walletSubjectId: WalletSubjectId;
+    };
+
+export type PasskeyRegistrationAuthMethodInput = {
+  kind: 'passkey';
+  authenticatorOptions?: unknown;
+  email?: never;
+  otpCode?: never;
+  challengeId?: never;
+};
+
+export type EmailOtpRegistrationAuthMethodInput = {
+  kind: 'email_otp';
+  email: string;
+  otpCode?: string;
+  challengeId?: string;
+  authenticatorOptions?: never;
+};
+
+export type RegistrationAuthMethodInput =
+  | PasskeyRegistrationAuthMethodInput
+  | EmailOtpRegistrationAuthMethodInput;
+
+export type RegistrationAuthority =
+  | {
+      kind: 'passkey';
+      walletSubjectId: WalletSubjectId;
+      rpId: string;
+      credentialIdB64u: string;
+      credentialPublicKeyB64u: string;
+      counter: number;
+      registrationIntentDigestB64u: string;
+      emailHashHex?: never;
+      challengeId?: never;
+    }
+  | {
+      kind: 'email_otp';
+      walletSubjectId: WalletSubjectId;
+      rpId: string;
+      emailHashHex: string;
+      challengeId: string;
+      registrationIntentDigestB64u: string;
+      credentialIdB64u?: never;
+      credentialPublicKeyB64u?: never;
+      counter?: never;
+    };
+
+export type WalletAuthMethodBinding =
+  | {
+      version: 'wallet_auth_method_binding_v1';
+      kind: 'passkey';
+      status: 'active' | 'revoked';
+      walletSubjectId: WalletSubjectId;
+      rpId: string;
+      credentialIdB64u: string;
+      credentialPublicKeyB64u: string;
+      counter: number;
+      createdAtMs: number;
+      updatedAtMs: number;
+      emailHashHex?: never;
+      challengeId?: never;
+    }
+  | {
+      version: 'wallet_auth_method_binding_v1';
+      kind: 'email_otp';
+      status: 'active' | 'revoked';
+      walletSubjectId: WalletSubjectId;
+      rpId: string;
+      emailHashHex: string;
+      challengeId: string;
+      createdAtMs: number;
+      updatedAtMs: number;
+      credentialIdB64u?: never;
+      credentialPublicKeyB64u?: never;
+      counter?: never;
     };
 
 export type ThresholdEd25519RegistrationSpec = {
@@ -121,6 +196,7 @@ export type RegistrationIntentV1 = {
   version: 'registration_intent_v1';
   walletSubjectId: WalletSubjectId;
   rpId: string;
+  authMethod: RegistrationAuthMethodInput;
   signerSelection: RegistrationSignerSelection;
   runtimePolicyScope?: RuntimePolicyScopeLike;
   nonceB64u: string;
@@ -187,6 +263,41 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function trimString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+export function normalizeRegistrationAuthMethodInput(
+  raw: unknown,
+): RegistrationAuthMethodInput | null {
+  if (!isRecord(raw)) return null;
+  const kind = trimString(raw.kind);
+  if (kind === 'passkey') {
+    if (
+      Object.prototype.hasOwnProperty.call(raw, 'email') ||
+      Object.prototype.hasOwnProperty.call(raw, 'otpCode') ||
+      Object.prototype.hasOwnProperty.call(raw, 'challengeId')
+    ) {
+      return null;
+    }
+    return {
+      kind: 'passkey',
+      ...(raw.authenticatorOptions !== undefined
+        ? { authenticatorOptions: raw.authenticatorOptions }
+        : {}),
+    };
+  }
+  if (kind === 'email_otp') {
+    const email = trimString(raw.email);
+    const otpCode = trimString(raw.otpCode);
+    const challengeId = trimString(raw.challengeId);
+    if (!email || Object.prototype.hasOwnProperty.call(raw, 'authenticatorOptions')) return null;
+    return {
+      kind: 'email_otp',
+      email,
+      ...(otpCode ? { otpCode } : {}),
+      ...(challengeId ? { challengeId } : {}),
+    };
+  }
+  return null;
 }
 
 function normalizeTimestampMs(value: unknown): number | null {

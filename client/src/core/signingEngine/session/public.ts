@@ -35,14 +35,15 @@ import type {
 } from './identity/laneIdentity';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
 
-const EMPTY_RESTORE_PERSISTED_SESSIONS_FOR_WALLET_RESULT: RestorePersistedSessionsForWalletResult = {
-  listed: 0,
-  attempted: 0,
-  restored: 0,
-  deferred: 0,
-  skipped: 0,
-  truncated: 0,
-};
+const EMPTY_RESTORE_PERSISTED_SESSIONS_FOR_WALLET_RESULT: RestorePersistedSessionsForWalletResult =
+  {
+    listed: 0,
+    attempted: 0,
+    restored: 0,
+    deferred: 0,
+    skipped: 0,
+    truncated: 0,
+  };
 
 export type SessionPublicDeps = {
   availableLanes: PersistedAvailableSigningLanesDeps;
@@ -219,35 +220,6 @@ export function clearAllThresholdEcdsaSessionRecords(deps: SessionPublicDeps): v
   clearAllThresholdEcdsaSessionRecordsValue(deps.ecdsaSessions);
 }
 
-export function createSessionPublicApi(deps: SessionPublicDeps) {
-  return {
-    restorePersistedSessionsForWallet: (args: RestorePersistedSessionsForWalletInput) =>
-      restorePersistedSessionsForWallet(deps, args),
-    readPersistedAvailableSigningLanes: (
-      args: Omit<ReadAvailableSigningLanesInput, 'ecdsaChainTargets'>,
-    ) => readPersistedAvailableSigningLanes(deps, args),
-    upsertThresholdEcdsaSessionFromBootstrap: (
-      args: UpsertThresholdEcdsaSessionFromBootstrapInput,
-    ) => upsertThresholdEcdsaSessionFromBootstrap(deps, args),
-    getThresholdEcdsaKeyRefForWalletTarget: (
-      args: GetThresholdEcdsaKeyRefForWalletTargetInput,
-    ) => getThresholdEcdsaKeyRefForWalletTarget(deps, args),
-    listThresholdEcdsaSessionRecordsForWalletTarget: (
-      args: ListThresholdEcdsaSessionRecordsForWalletTargetInput,
-    ) => listThresholdEcdsaSessionRecordsForWalletTarget(deps, args),
-    clearThresholdEcdsaSessionRecordForWalletTarget: (args: {
-      walletId: WalletId;
-      chainTarget: ThresholdEcdsaChainTarget;
-      source?: ThresholdEcdsaSessionStoreSource;
-    }) => clearThresholdEcdsaSessionRecordForWalletTarget(deps, args),
-    clearThresholdEcdsaSessionRecordForWallet: (walletId: WalletId) =>
-      clearThresholdEcdsaSessionRecordForWallet(deps, walletId),
-    clearAllThresholdEcdsaSessionRecords: () => clearAllThresholdEcdsaSessionRecords(deps),
-  };
-}
-
-export type SessionPublicApi = ReturnType<typeof createSessionPublicApi>;
-
 export type {
   RestorePersistedSessionsForWalletInput,
   RestorePersistedSessionsForWalletResult,
@@ -261,5 +233,8 @@ export type {
   SealedRecoveryRecord,
   SealedRecoveryRejectionReason,
 } from './sealedRecovery/recoveryRecord';
-export type { ReadAvailableSigningLanesInput, AvailableSigningLanes } from './availability/availableSigningLanes';
+export type {
+  ReadAvailableSigningLanesInput,
+  AvailableSigningLanes,
+} from './availability/availableSigningLanes';
 export type { ThresholdEcdsaSessionRecord } from './persistence/records';

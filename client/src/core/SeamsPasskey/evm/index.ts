@@ -54,6 +54,7 @@ export class EvmSigner implements EvmSignerCapability {
     const registerWalletArgs = {
       walletSubject: { kind: 'server_generated' },
       rpId,
+      authMethod: { kind: 'passkey' },
       signerSelection: {
         mode: 'ecdsa_only',
         ecdsa: {

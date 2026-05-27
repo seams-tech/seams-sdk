@@ -897,6 +897,7 @@ export class WalletIframeRouter {
       const res = await this.post<RegistrationResult>({
         type: 'PM_REGISTER_WALLET',
         payload: {
+          authMethod: payload.authMethod,
           walletSubject: payload.walletSubject,
           rpId: payload.rpId,
           signerSelection: payload.signerSelection,

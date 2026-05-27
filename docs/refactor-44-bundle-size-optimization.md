@@ -1,6 +1,6 @@
 # Bundle Size Optimization Plan
 
-Status: draft implementation plan.
+Status: Phase 1 measurement gates implemented; Phase 2+ pending.
 
 This plan targets the wallet iframe and embedded SDK asset graph first. The
 current bundle-size problem is concentrated in the wallet iframe host runtime:
@@ -130,16 +130,16 @@ Add a deterministic bundle-size report before refactoring behavior.
 
 Implementation tasks:
 
-1. Add `sdk/scripts/checks/report-wallet-iframe-bundle-size.mjs`.
-2. Report raw and gzip sizes for:
+1. [x] Add `sdk/scripts/checks/report-wallet-iframe-bundle-size.mjs`.
+2. [x] Report raw and gzip sizes for:
    - `sdk/dist/esm/sdk/wallet-iframe-host-runtime.js`
    - all static chunks imported by the wallet host entry
    - wallet workers and WASM files
-3. Add optional budget enforcement:
+3. [x] Add optional budget enforcement:
    - `--budget walletHostGzip=100000`
    - `--budget ecdsaWasmGzip=1500000`
-4. Add `pnpm -C sdk check:bundle-size` and a root alias.
-5. Keep the first gate report-only until the boot shell split lands.
+4. [x] Add `pnpm -C sdk check:bundle-size` and a root alias.
+5. [x] Keep the first gate report-only until the boot shell split lands.
 
 Acceptance criteria:
 
@@ -177,6 +177,9 @@ type WalletHostRoute =
 Use exhaustive `switch` statements with `assertNever`. Raw message validation
 stays at the MessagePort boundary, and internal runtime loaders should receive
 narrow request variants.
+
+Status: implemented as a boot entry plus lazy `host/runtime.ts`; domain handler
+splitting remains incremental.
 
 Acceptance criteria:
 
@@ -264,6 +267,9 @@ Implementation tasks:
 4. Ensure `wallet-service` can serve hashed runtime chunks with long-lived cache
    headers.
 5. Keep CSS and WASM copied next to the chunks that reference them.
+
+Status: build scripts now preserve the Rolldown dynamic-split wallet host entry
+instead of overwriting it with Bun's single-file embedded bundle.
 
 Acceptance criteria:
 

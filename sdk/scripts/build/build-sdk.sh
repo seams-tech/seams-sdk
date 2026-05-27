@@ -79,7 +79,6 @@ mkdir -p "$BUILD_ESM/sdk"
 # These bundles are loaded directly by browsers from /sdk/* (no bundler/import maps),
 # so they must not contain bare module specifiers like `import "idb"`.
 if "$BUN_BIN" build "$SDK_ROOT/../client/src/core/signingEngine/uiConfirm/ui/confirm-ui.ts" --outfile "$BUILD_ESM/sdk/tx-confirm-ui.js" --format esm --target browser --root "$REPO_ROOT" \
-  && "$BUN_BIN" build "$SDK_ROOT/../client/src/core/WalletIframe/host/index.ts" --outfile "$BUILD_ESM/sdk/wallet-iframe-host-runtime.js" --format esm --target browser --root "$REPO_ROOT" \
   && "$BUN_BIN" build "$SDK_ROOT/../client/src/core/signingEngine/uiConfirm/ui/lit-components/IframeTxConfirmer/tx-confirmer-wrapper.ts" --outfile "$BUILD_ESM/sdk/w3a-tx-confirmer.js" --format esm --target browser --root "$REPO_ROOT" \
   && "$BUN_BIN" build "$SDK_ROOT/../client/src/core/signingEngine/uiConfirm/ui/lit-components/ExportPrivateKey/iframe-export-bootstrap-script.ts" --outfile "$BUILD_ESM/sdk/iframe-export-bootstrap.js" --format esm --target browser --root "$REPO_ROOT" \
   && "$BUN_BIN" build "$SDK_ROOT/../client/src/core/signingEngine/uiConfirm/ui/lit-components/ExportPrivateKey/viewer.ts" --outfile "$BUILD_ESM/sdk/export-private-key-viewer.js" --format esm --target browser --root "$REPO_ROOT" \

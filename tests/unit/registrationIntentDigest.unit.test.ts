@@ -37,6 +37,7 @@ const baseIntent: RegistrationIntentV1 = {
   walletSubjectId: walletSubjectIdFromString('wallet_alice'),
   rpId: 'wallet.example.test',
   runtimePolicyScope,
+  authMethod: { kind: 'passkey' },
   signerSelection: {
     mode: 'ed25519_only',
     ed25519: ed25519Spec,
@@ -87,6 +88,7 @@ test.describe('registration intent digest canonicalization', () => {
         orgId: runtimePolicyScope.orgId,
       },
       rpId: baseIntent.rpId,
+      authMethod: baseIntent.authMethod,
       walletSubjectId: baseIntent.walletSubjectId,
       version: baseIntent.version,
     } satisfies RegistrationIntentV1;

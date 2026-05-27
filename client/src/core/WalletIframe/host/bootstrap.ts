@@ -1,5 +1,4 @@
 import { getEmbeddedBase, setEmbeddedBase } from '../../walletRuntimePaths';
-import { ensureKnownW3aElement } from '../../signingEngine/uiConfirm/ui/registry';
 import { isDevHost } from '../shared/is-dev-host';
 
 interface GlobalThis {
@@ -93,8 +92,7 @@ export function ensureTransparentSurface(): void {
 
 /**
  * Development-only observer that warns if any <w3a-*> element remains
- * un-upgraded for >250ms after insertion. Also attempts to auto-ensure
- * definitions for known elements via ensureKnownW3aElement().
+ * un-upgraded for >250ms after insertion.
  */
 function setupDevUnupgradedObserver(): void {
   const isDev = isDevHost();
@@ -109,7 +107,6 @@ function setupDevUnupgradedObserver(): void {
     const id = window.setTimeout(async () => {
       pending.delete(el);
       if (customElements.get(tag)) return; // defined in the meantime
-      await ensureKnownW3aElement(tag);
       if (!customElements.get(tag)) {
         // eslint-disable-next-line no-console
         console.warn(

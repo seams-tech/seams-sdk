@@ -222,6 +222,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       if (respondIfCancelled(req.requestId)) return;
       const hooksOptions = withProgress(req.requestId, payload.options || {}) as RegistrationHooksOptions;
       const result = await pm.registration.registerWallet({
+        authMethod: payload.authMethod,
         walletSubject: payload.walletSubject,
         rpId: payload.rpId,
         signerSelection: payload.signerSelection,

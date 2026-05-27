@@ -76,6 +76,7 @@ import type {
 } from '@shared/utils/emailOtpDomain';
 import type {
   AddSignerSelection,
+  RegistrationAuthMethodInput,
   RegisterWalletSubjectInput,
   RegistrationSignerSelection,
   WalletSubjectId,
@@ -368,6 +369,7 @@ export interface RegistrationCapability {
     options?: RegistrationHooksOptions;
   }): Promise<RegistrationResult>;
   registerWallet(args: {
+    authMethod: RegistrationAuthMethodInput;
     walletSubject: RegisterWalletSubjectInput;
     rpId: string;
     signerSelection: RegistrationSignerSelection;

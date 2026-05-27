@@ -1,7 +1,7 @@
 # Refactor 43: Cleanup of Residual Indirection in `signingEngine`
 
 Date created: 2026-05-26
-Status: planned
+Status: partially implemented
 
 ## Scope
 
@@ -193,16 +193,16 @@ mostly-optional bag that exists today.
 
 The following terms refer to distinct concepts but share the `session` word:
 
-| Term                   | Refers to                                                        |
-| ---------------------- | ---------------------------------------------------------------- |
-| `warmSession`          | Pre-authorized PRF material held in the secure-confirm worker    |
-| `warmSigning`          | The aggregate of warm-session readers and capability state       |
-| `warmCapabilities`     | Capability metadata derived from a warm session                  |
-| `signingSession`       | Lane + budget + identity scope for one or more signing ops       |
-| `walletSigningSession` | Server-issued wallet-scoped session ID for budget enforcement    |
-| `thresholdSession`     | Cryptographic threshold-protocol session (JWT or cookie auth)    |
-| `emailOtpSession`      | Email OTP step-up sub-session                                    |
-| `appSession`           | Outer application session (JWT)                                  |
+| Term                   | Refers to                                                     |
+| ---------------------- | ------------------------------------------------------------- |
+| `warmSession`          | Pre-authorized PRF material held in the secure-confirm worker |
+| `warmSigning`          | The aggregate of warm-session readers and capability state    |
+| `warmCapabilities`     | Capability metadata derived from a warm session               |
+| `signingSession`       | Lane + budget + identity scope for one or more signing ops    |
+| `walletSigningSession` | Server-issued wallet-scoped session ID for budget enforcement |
+| `thresholdSession`     | Cryptographic threshold-protocol session (JWT or cookie auth) |
+| `emailOtpSession`      | Email OTP step-up sub-session                                 |
+| `appSession`           | Outer application session (JWT)                               |
 
 A new contributor cannot reliably guess which axis a given `*Session*` type
 varies on. Two concrete steps would help:
@@ -256,35 +256,39 @@ The following are working and should not be touched in this refactor:
 
 ## Suggested Phasing
 
-Phase 1 — collapse the `xxxPublic` indirection (findings 1, 3):
+Phase 1 — collapse the `xxxPublic` indirection (findings 1, 3): done
 
 - Pick one shape per `xxxPublic` module (factory or standalone, not both).
 - Remove the `xxxValue` import aliases once the collisions disappear.
 - Acceptance: zero `as xxxValue` aliases in `SigningEngine.ts`; each operation
   function has exactly one call site from the facade or a single sub-API.
 
-Phase 2 — normalize port factories (finding 2):
+Phase 2 — normalize port factories (finding 2): partially done
 
 - Audit each `assembly/ports/*.ts` against the composition-vs-repacking rule.
 - Inline or delete pure-repacking factories; keep composing factories.
 - Acceptance: every remaining `assembly/ports/*.ts` builds at least one new
   behavior (reader, resolver, aggregate) rather than only renaming fields.
 
-Phase 3 — boundary parsing for bootstrap material (finding 5):
+Implemented so far: `createEmailOtpPublicDeps` was removed and inlined because
+it only repacked fields. Remaining port factories perform composition or need a
+separate follow-up review before deletion.
+
+Phase 3 — boundary parsing for bootstrap material (finding 5): done
 
 - Move the `String(...).trim()` block out of
   `buildWalletRegistrationEcdsaSessionBootstrap` into a relayer-client parser.
 - Acceptance: facade and bootstrap builder receive a validated shape; no
   defensive coercion below the relayer boundary.
 
-Phase 4 — facade slimming (finding 4):
+Phase 4 — facade slimming (finding 4): deferred
 
 - Decide between exposing `xxxPublic` aggregates on the class versus generating
   the flat facade. Coordinate with `SeamsPasskey` consumers.
 - Acceptance: `SigningEngine.ts` under 600 lines, or its public surface is
   generated rather than hand-maintained.
 
-Phase 5 — vocabulary glossary (finding 6):
+Phase 5 — vocabulary glossary (finding 6): done
 
 - Add the glossary to the top-level README.
 - Defer renames until the glossary is in place and reviewed.

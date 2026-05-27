@@ -27,6 +27,7 @@ const intent = {
   version: 'registration_intent_v1',
   walletSubjectId: walletSubjectIdFromString('wallet_alice'),
   rpId: 'wallet.example.test',
+  authMethod: { kind: 'passkey' },
   signerSelection: {
     mode: 'ed25519_only',
     ed25519: {

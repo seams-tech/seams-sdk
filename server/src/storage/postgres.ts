@@ -193,6 +193,39 @@ export async function ensurePostgresSchema(input: {
     `);
 
     await pool.query(`
+      CREATE TABLE IF NOT EXISTS wallet_auth_method_bindings (
+        namespace TEXT NOT NULL,
+        wallet_subject_id TEXT NOT NULL,
+        rp_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        status TEXT NOT NULL,
+        binding_key TEXT NOT NULL,
+        credential_id_b64u TEXT,
+        email_hash_hex TEXT,
+        record_json JSONB NOT NULL,
+        created_at_ms BIGINT NOT NULL,
+        updated_at_ms BIGINT NOT NULL,
+        PRIMARY KEY (namespace, binding_key),
+        CHECK (kind IN ('passkey', 'email_otp')),
+        CHECK (status IN ('active', 'revoked'))
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS wallet_auth_method_bindings_wallet_idx
+      ON wallet_auth_method_bindings (namespace, wallet_subject_id, rp_id, status)
+    `);
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS wallet_auth_method_bindings_passkey_uidx
+      ON wallet_auth_method_bindings (namespace, rp_id, credential_id_b64u)
+      WHERE kind = 'passkey' AND credential_id_b64u IS NOT NULL
+    `);
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS wallet_auth_method_bindings_email_uidx
+      ON wallet_auth_method_bindings (namespace, wallet_subject_id, rp_id, email_hash_hex)
+      WHERE kind = 'email_otp' AND email_hash_hex IS NOT NULL
+    `);
+
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS wallet_signers (
         namespace TEXT NOT NULL,
         wallet_subject_id TEXT NOT NULL,

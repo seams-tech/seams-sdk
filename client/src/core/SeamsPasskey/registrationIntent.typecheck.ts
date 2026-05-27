@@ -86,6 +86,7 @@ void ({
   version: 'registration_intent_v1',
   walletSubjectId: walletSubjectIdFromString('wallet_alice'),
   rpId: 'wallet.example.test',
+  authMethod: { kind: 'passkey' },
   signerSelection: {
     mode: 'ed25519_only',
     ed25519: ed25519Spec,
@@ -175,6 +176,7 @@ void ({
   // @ts-expect-error registration intent requires a branded wallet subject id
   walletSubjectId: 'wallet_alice',
   rpId: 'wallet.example.test',
+  authMethod: { kind: 'passkey' },
   signerSelection: {
     mode: 'ed25519_only',
     ed25519: ed25519Spec,
@@ -186,6 +188,7 @@ void ({
   version: 'registration_intent_v1',
   walletSubjectId: walletSubjectIdFromString('wallet_alice'),
   rpId: 'wallet.example.test',
+  authMethod: { kind: 'passkey' },
   signerSelection: {
     mode: 'ed25519_only',
     ed25519: ed25519Spec,

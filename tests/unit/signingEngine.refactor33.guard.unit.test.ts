@@ -37,6 +37,7 @@ const signingEngineAllowedImportPrefixes = [
   './threshold/ed25519/public',
   './threshold/ecdsa/activation',
   './threshold/ecdsa/commitQueue',
+  './threshold/crypto/hssClientSignerWasm',
   './threshold/ed25519/commitQueue',
   './threshold/sessionPolicy',
   './session/public',
@@ -44,6 +45,7 @@ const signingEngineAllowedImportPrefixes = [
   './session/budget/budgetStatusReader',
   './session/availability/persistedAvailableSigningLanes',
   './session/persistence/records',
+  './session/identity/emailOtpHssIdentity',
   './session/identity/laneIdentity',
   './session/identity/evmFamilyEcdsaIdentity',
   './session/passkey/',
@@ -85,14 +87,7 @@ const currentTopLevelImportContract: Record<string, readonly string[]> = {
     'webauthnAuth',
     'workerManager',
   ],
-  interfaces: [
-    'stepUpConfirmation',
-    'nonce',
-    'session',
-    'threshold',
-    'uiConfirm',
-    'workerManager',
-  ],
+  interfaces: ['stepUpConfirmation', 'nonce', 'session', 'threshold', 'uiConfirm', 'workerManager'],
   nonce: ['interfaces', 'session'],
   flows: [
     'chains',
@@ -110,6 +105,7 @@ const currentTopLevelImportContract: Record<string, readonly string[]> = {
     'interfaces',
     'threshold',
     'uiConfirm',
+    'webauthnAuth',
     'workerManager',
   ],
   threshold: ['chains', 'interfaces', 'session', 'webauthnAuth', 'workerManager'],
@@ -366,7 +362,9 @@ function readRepoSource(relativePath: string): string {
 
 function extractMethodBlock(source: string, signatureFragment: string): string {
   const signatureIndex = source.indexOf(signatureFragment);
-  expect(signatureIndex, `expected method signature: ${signatureFragment}`).toBeGreaterThanOrEqual(0);
+  expect(signatureIndex, `expected method signature: ${signatureFragment}`).toBeGreaterThanOrEqual(
+    0,
+  );
 
   const bodyStart = source.indexOf('{', signatureIndex);
   expect(bodyStart, `expected method body start: ${signatureFragment}`).toBeGreaterThanOrEqual(0);
@@ -401,6 +399,10 @@ function listProductionTypeScriptFiles(dir: string): string[] {
     }
   }
   return files;
+}
+
+function isTypeFixture(relativePath: string): boolean {
+  return relativePath.endsWith('.typecheck.ts');
 }
 
 function extractImportSpecifiers(source: string): string[] {
@@ -442,12 +444,25 @@ function sliceTypeAlias(source: string, name: string): string {
   return source.slice(start, next < 0 ? source.length : next);
 }
 
+function stripNeverOptionalGuards(source: string): string {
+  return source.replace(/\b\w+\?:\s*never;?/g, '');
+}
+
 function sliceClassMethod(source: string, name: string): string {
   const match = new RegExp(`\\n  async ${name}(?:<[^>]+>)?\\(`).exec(source);
   const start = match?.index;
   if (start === undefined) throw new Error(`missing method ${name}`);
   const next = source.indexOf('\n  async ', start + 1);
   return source.slice(start, next < 0 ? source.length : next);
+}
+
+function compactSource(source: string): string {
+  return source
+    .replace(/\s+/g, ' ')
+    .replace(/\s+([(),;])/g, '$1')
+    .replace(/\(\s+/g, '(')
+    .replace(/\s+\)/g, ')')
+    .replace(/,\)/g, ')');
 }
 
 test.describe('Refactor 33 signing-engine guardrails', () => {
@@ -467,8 +482,12 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     const signNear = sliceClassMethod(source, 'signNear');
     const signTempo = sliceClassMethod(source, 'signTempo');
 
-    expect(signNear).toContain('return await signNearValue(this.enginePorts.nearSigningDeps, request);');
-    expect(signTempo).toContain('return await signTempoValue(this.enginePorts.tempoSigningDeps, args);');
+    expect(signNear).toContain(
+      'return await signNearOperation(this.enginePorts.nearSigningDeps, request);',
+    );
+    expect(signTempo).toContain(
+      'return await signTempoOperation(this.enginePorts.tempoSigningDeps, args);',
+    );
     for (const method of [signNear, signTempo]) {
       expect(method).not.toContain('ensureSealedRefreshStartupParityForTransactionSigning');
       expect(method).not.toContain('evmFamilySigningTargetFromExplicitTarget');
@@ -477,18 +496,21 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
 
   test('registration facade methods delegate through flows registration public entrypoints', () => {
     const source = readRepoSource('client/src/core/signingEngine/SigningEngine.ts');
+    const compact = compactSource(source);
 
     expect(source).toContain("from './flows/registration/public';");
-    expect(source).toContain('this.registrationPublic = createRegistrationPublicApi({');
-    expect(source).toContain('return this.registrationPublic.storeUserData(userData);');
-    expect(source).toContain(
-      'return this.registrationPublic.requestRegistrationCredentialConfirmation(params);',
+    expect(source).toContain('this.registrationPublicDeps = {');
+    expect(compact).toContain(
+      'return registrationPublic.storeUserData(this.registrationPublicDeps, userData);',
     );
-    expect(source).toContain(
-      'return this.registrationPublic.getAuthenticationCredentialsSerialized(args);',
+    expect(compact).toContain(
+      'return registrationPublic.requestRegistrationCredentialConfirmation(this.registrationPublicDeps, params);',
     );
-    expect(source).toContain(
-      'return this.registrationPublic.extractCosePublicKey(attestationObjectBase64url);',
+    expect(compact).toContain(
+      'return registrationPublic.getAuthenticationCredentialsSerialized(this.registrationPublicDeps, args);',
+    );
+    expect(compact).toContain(
+      'return registrationPublic.extractCosePublicKey(this.registrationPublicDeps, attestationObjectBase64url);',
     );
     expect(source).not.toContain('storeUserDataValue(');
     expect(source).not.toContain('requestRegistrationCredentialConfirmationPublicValue(');
@@ -497,14 +519,17 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
 
   test('recovery facade methods delegate through flows recovery public entrypoints', () => {
     const source = readRepoSource('client/src/core/signingEngine/SigningEngine.ts');
+    const compact = compactSource(source);
 
-    expect(source).toContain('this.recoveryPublic = createRecoveryPublicApi(recoveryPublicDeps);');
-    expect(source).toContain('return await this.recoveryPublic.exportKeypairWithUI(input);');
-    expect(source).toContain(
-      'return this.recoveryPublic.exportNearEd25519SeedArtifactWithUI(args);',
+    expect(source).toContain('this.recoveryPublicDeps = createRecoveryPublicDeps({');
+    expect(compact).toContain(
+      'return await recoveryPublic.exportKeypairWithUI(this.recoveryPublicDeps, input);',
     );
-    expect(source).toContain(
-      'return await this.recoveryPublic.exportThresholdEd25519SeedFromHssReport(args);',
+    expect(compact).toContain(
+      'return recoveryPublic.exportNearEd25519SeedArtifactWithUI(this.recoveryPublicDeps, args);',
+    );
+    expect(compact).toContain(
+      'return await recoveryPublic.exportThresholdEd25519SeedFromHssReport(this.recoveryPublicDeps, args);',
     );
     expect(source).not.toContain('const laneSelection: ExportLaneSelectionDeps');
     expect(source).not.toContain('const deps: ExportKeypairWithUIDeps');
@@ -516,18 +541,16 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
       'client/src/core/signingEngine/assembly/ports/warmSigning.ts',
     );
 
-    expect(source).toContain("type WarmSigningPorts,");
+    expect(source).toContain('type WarmSigningPorts,');
     expect(source).toContain("from './assembly/ports/warmSigning';");
     expect(source).toContain('this.warmSigning = createWarmSigningPorts({');
-    expect(source).toContain('const passkeyPublicDeps = createPasskeyPublicDeps({');
+    expect(source).toContain('this.passkeyPublicDeps = createPasskeyPublicDeps({');
+    expect(source).toContain('private readonly passkeyPublicDeps: PasskeyPublicDeps;');
     expect(source).toContain(
-      'this.passkeyPublic = createPasskeyPublicApi(passkeyPublicDeps);',
+      'this.warmCapabilitiesPublicDeps = createWarmCapabilitiesPublicDeps({',
     );
     expect(source).toContain(
-      'const warmCapabilitiesPublicDeps = createWarmCapabilitiesPublicDeps({',
-    );
-    expect(source).toContain(
-      'this.warmCapabilitiesPublic = createWarmCapabilitiesPublicApi(warmCapabilitiesPublicDeps);',
+      'private readonly warmCapabilitiesPublicDeps: WarmCapabilitiesPublicDeps;',
     );
     expect(source).not.toContain('createWarmSessionStatusOnlyUiConfirm(');
     expect(source).not.toContain('createWarmSessionCapabilityReader(');
@@ -542,41 +565,38 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
 
   test('warm-session public methods delegate through session warm-signing public entrypoints', () => {
     const source = readRepoSource('client/src/core/signingEngine/SigningEngine.ts');
+    const compact = compactSource(source);
     const warmSigningPublic = readRepoSource(
       'client/src/core/signingEngine/session/warmCapabilities/public.ts',
     );
-    const passkeyPublic = readRepoSource(
-      'client/src/core/signingEngine/session/passkey/public.ts',
-    );
+    const passkeyPublic = readRepoSource('client/src/core/signingEngine/session/passkey/public.ts');
 
     expect(source).toContain("from './session/warmCapabilities/public';");
     expect(source).toContain("from './session/passkey/public';");
-    expect(source).toContain(
-      'return await this.passkeyPublic.connectEd25519Session(args);',
+    expect(compact).toContain(
+      'return await passkeyPublic.connectEd25519Session(this.passkeyPublicDeps, args);',
     );
-    expect(source).toContain(
-      'return await this.passkeyPublic.bootstrapEcdsaSession(args);',
+    expect(compact).toContain(
+      'return await passkeyPublic.bootstrapEcdsaSession(this.passkeyPublicDeps, args);',
     );
-    expect(source).toContain(
-      'return this.warmCapabilitiesPublic.persistThresholdEcdsaBootstrapForWalletTarget(args);',
+    expect(compact).toContain(
+      'return warmCapabilitiesPublic.persistThresholdEcdsaBootstrapForWalletTarget(this.warmCapabilitiesPublicDeps, args);',
     );
-    expect(source).toContain(
-      'return this.warmCapabilitiesPublic.getWarmThresholdEd25519SessionStatus(nearAccountId);',
+    expect(compact).toContain(
+      'return warmCapabilitiesPublic.getWarmThresholdEd25519SessionStatus(this.warmCapabilitiesPublicDeps, toAccountId(nearAccountId));',
     );
+    expect(source).toContain('return warmCapabilitiesPublic.getWarmThresholdEcdsaSessionStatus(');
     expect(source).toContain(
-      'return this.warmCapabilitiesPublic.getWarmThresholdEcdsaSessionStatus(',
+      'return warmCapabilitiesPublic.listWarmThresholdEcdsaSessionStatuses(',
     );
-    expect(source).toContain(
-      'return this.warmCapabilitiesPublic.listWarmThresholdEcdsaSessionStatuses(',
+    expect(compact).toContain(
+      'return await warmCapabilitiesPublic.scheduleThresholdEcdsaLoginPresignPrefill(this.warmCapabilitiesPublicDeps, args);',
     );
-    expect(source).toContain(
-      'return await this.warmCapabilitiesPublic.scheduleThresholdEcdsaLoginPresignPrefill(args);',
+    expect(compact).toContain(
+      'await warmCapabilitiesPublic.hydrateSigningSession(this.warmCapabilitiesPublicDeps, args);',
     );
-    expect(source).toContain(
-      'await this.warmCapabilitiesPublic.hydrateSigningSession(args);',
-    );
-    expect(source).toContain(
-      'await this.warmCapabilitiesPublic.clearVolatileWarmSigningMaterial(walletId);',
+    expect(compact).toContain(
+      'await warmCapabilitiesPublic.clearVolatileWarmSigningMaterial(this.warmCapabilitiesPublicDeps, walletId);',
     );
     expect(source).not.toContain('return await provisionWarmEd25519Capability(');
     expect(source).not.toContain('return await bootstrapWarmEcdsaCapability(');
@@ -611,14 +631,19 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
 
   test('recovery facade assembly is bound through recovery ports', () => {
     const source = readRepoSource('client/src/core/signingEngine/SigningEngine.ts');
+    const compact = compactSource(source);
     const recoveryAssembly = readRepoSource(
       'client/src/core/signingEngine/assembly/ports/recovery.ts',
     );
 
     expect(source).toContain("from './flows/recovery/public';");
-    expect(source).toContain("import { createRecoveryPublicDeps } from './assembly/ports/recovery';");
-    expect(source).toContain('const recoveryPublicDeps = createRecoveryPublicDeps({');
-    expect(source).toContain('this.recoveryPublic = createRecoveryPublicApi(recoveryPublicDeps);');
+    expect(source).toContain(
+      "import { createRecoveryPublicDeps } from './assembly/ports/recovery';",
+    );
+    expect(source).toContain('this.recoveryPublicDeps = createRecoveryPublicDeps({');
+    expect(compact).toContain(
+      'return await recoveryPublic.exportKeypairWithUI(this.recoveryPublicDeps, input);',
+    );
     expect(recoveryAssembly).toContain('export function createRecoveryPublicDeps');
     expect(recoveryAssembly).toContain('readPersistedAvailableSigningLanes');
     expect(recoveryAssembly).toContain('readPersistedAvailableSigningLanesForTargets');
@@ -626,20 +651,21 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
 
   test('session facade methods delegate through session public entrypoints', () => {
     const source = readRepoSource('client/src/core/signingEngine/SigningEngine.ts');
+    const compact = compactSource(source);
     const sessionAssembly = readRepoSource(
       'client/src/core/signingEngine/assembly/ports/session.ts',
     );
 
-    expect(source).toContain('SessionPublicApi,');
+    expect(source).toContain('SessionPublicDeps,');
     expect(source).toContain("from './session/public';");
     expect(source).toContain("import { createSessionPublicDeps } from './assembly/ports/session';");
-    expect(source).toContain('const sessionPublicDeps = createSessionPublicDeps({');
-    expect(source).toContain('this.sessionPublic = createSessionPublicApi(sessionPublicDeps);');
-    expect(source).toContain(
-      'return await this.sessionPublic.restorePersistedSessionsForWallet(args);',
+    expect(source).toContain('this.sessionPublicDeps = createSessionPublicDeps({');
+    expect(source).toContain('private readonly sessionPublicDeps: SessionPublicDeps;');
+    expect(compact).toContain(
+      'return await sessionPublic.restorePersistedSessionsForWallet(this.sessionPublicDeps, args);',
     );
-    expect(source).toContain(
-      'return await this.sessionPublic.readPersistedAvailableSigningLanes(args);',
+    expect(compact).toContain(
+      'return await sessionPublic.readPersistedAvailableSigningLanes(this.sessionPublicDeps, args);',
     );
     expect(source).not.toContain('this.emailOtpSessions.restorePersistedSessionsForWallet({');
     expect(source).not.toContain('this.touchConfirm.restorePersistedSessionsForWallet?.({');
@@ -651,26 +677,35 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
 
   test('session ECDSA record admin facade methods delegate through session public entrypoints', () => {
     const source = readRepoSource('client/src/core/signingEngine/SigningEngine.ts');
+    const compact = compactSource(source);
     const sessionPublic = readRepoSource('client/src/core/signingEngine/session/public.ts');
     const upsertMethod = extractMethodBlock(source, 'upsertThresholdEcdsaSessionFromBootstrap(');
     const keyRefMethod = extractMethodBlock(source, 'getThresholdEcdsaKeyRefForWalletTarget(');
-    const listMethod = extractMethodBlock(source, 'listThresholdEcdsaSessionRecordsForWalletTarget(');
+    const listMethod = extractMethodBlock(
+      source,
+      'listThresholdEcdsaSessionRecordsForWalletTarget(',
+    );
     const clearOneMethod = extractMethodBlock(source, 'clearThresholdEcdsaSessionRecordForWallet(');
-    const clearAllMethod = extractMethodBlock(source, 'clearAllThresholdEcdsaSessionRecords(): void');
+    const clearAllMethod = extractMethodBlock(
+      source,
+      'clearAllThresholdEcdsaSessionRecords(): void',
+    );
 
-    expect(source).toContain(
-      'this.sessionPublic.upsertThresholdEcdsaSessionFromBootstrap(args);',
+    expect(compact).toContain(
+      'sessionPublic.upsertThresholdEcdsaSessionFromBootstrap(this.sessionPublicDeps, args);',
+    );
+    expect(compact).toContain(
+      'return sessionPublic.getThresholdEcdsaKeyRefForWalletTarget(this.sessionPublicDeps, args);',
+    );
+    expect(compact).toContain(
+      'return sessionPublic.listThresholdEcdsaSessionRecordsForWalletTarget(this.sessionPublicDeps, args);',
+    );
+    expect(compact).toContain(
+      'sessionPublic.clearThresholdEcdsaSessionRecordForWallet(this.sessionPublicDeps, walletId);',
     );
     expect(source).toContain(
-      'return this.sessionPublic.getThresholdEcdsaKeyRefForWalletTarget(args);',
+      'sessionPublic.clearAllThresholdEcdsaSessionRecords(this.sessionPublicDeps);',
     );
-    expect(source).toContain(
-      'return this.sessionPublic.listThresholdEcdsaSessionRecordsForWalletTarget(args);',
-    );
-    expect(source).toContain(
-      'this.sessionPublic.clearThresholdEcdsaSessionRecordForWallet(walletId);',
-    );
-    expect(source).toContain('this.sessionPublic.clearAllThresholdEcdsaSessionRecords();');
     expect(upsertMethod).not.toContain('upsertThresholdEcdsaSessionFromBootstrapValue(');
     expect(keyRefMethod).not.toContain('getThresholdEcdsaKeyRefByIdentityValue(');
     expect(listMethod).not.toContain('getThresholdEcdsaSessionRecordForTargetValue(');
@@ -693,19 +728,18 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
 
     expect(source).toContain("from './threshold/ed25519/public';");
     expect(source).toContain(
-      'return this.thresholdEd25519Public.deriveThresholdEd25519ClientVerifyingShareFromCredential(args);',
+      'return thresholdEd25519Public.deriveThresholdEd25519ClientVerifyingShareFromCredential(',
     );
     expect(source).toContain(
-      'return this.thresholdEd25519Public.prepareThresholdEd25519HssClientRequest(args);',
+      'return thresholdEd25519Public.prepareThresholdEd25519HssClientRequest(',
     );
     expect(source).toContain(
-      'return this.thresholdEd25519Public.buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact(',
+      'return thresholdEd25519Public.buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact(',
     );
     expect(source).toContain(
-      'return this.thresholdEd25519Public.buildThresholdEd25519SeedExportArtifactFromHssReport(args);',
+      'return thresholdEd25519Public.buildThresholdEd25519SeedExportArtifactFromHssReport(',
     );
     expect(source).not.toContain("from './threshold/ed25519/hssLifecycle';");
-    expect(source).not.toContain("from './threshold/crypto/hssClientSignerWasm';");
 
     expect(thresholdPublic).toContain('export type ThresholdEd25519PublicDeps');
     expect(thresholdPublic).toContain('prepareThresholdEd25519HssClientRequestWasm');
@@ -717,6 +751,7 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
 
   test('Email OTP ECDSA facade helpers delegate through flow public entrypoints', () => {
     const source = readRepoSource('client/src/core/signingEngine/SigningEngine.ts');
+    const compact = compactSource(source);
     const emailOtpPublic = readRepoSource(
       'client/src/core/signingEngine/flows/signEvmFamily/emailOtpPublic.ts',
     );
@@ -725,23 +760,25 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     );
 
     expect(source).toContain("from './flows/signEvmFamily/emailOtpPublic';");
-    expect(source).toContain("import { createEmailOtpPublicDeps } from './assembly/ports/emailOtp';");
-    expect(source).toContain('const emailOtpPublicDeps = createEmailOtpPublicDeps({');
-    expect(source).toContain('this.emailOtpPublic = createEmailOtpPublicApi(emailOtpPublicDeps);');
-    expect(source).toContain(
-      'return await this.emailOtpPublic.loginWithEmailOtpEcdsaCapabilityInternal(args);',
+    expect(source).not.toContain(
+      "import { createEmailOtpPublicDeps } from './assembly/ports/emailOtp';",
     );
-    expect(source).toContain(
-      'return await this.emailOtpPublic.requestEmailOtpSigningSessionChallenge(args);',
+    expect(source).toContain('this.emailOtpPublicDeps = {');
+    expect(source).toContain('private readonly emailOtpPublicDeps: EmailOtpPublicDeps;');
+    expect(compact).toContain(
+      'return await emailOtpPublic.loginWithEmailOtpEcdsaCapabilityInternal(this.emailOtpPublicDeps, args);',
     );
-    expect(source).toContain(
-      'return await this.emailOtpPublic.refreshEmailOtpSigningSession(args);',
+    expect(compact).toContain(
+      'return await emailOtpPublic.requestEmailOtpSigningSessionChallenge(this.emailOtpPublicDeps, args);',
     );
-    expect(source).toContain(
-      'return await this.emailOtpPublic.enrollEmailOtpInternal(args);',
+    expect(compact).toContain(
+      'return await emailOtpPublic.refreshEmailOtpSigningSession(this.emailOtpPublicDeps, args);',
     );
-    expect(source).toContain(
-      'return await this.emailOtpPublic.enrollAndLoginWithEmailOtpEcdsaCapabilityInternal(args);',
+    expect(compact).toContain(
+      'return await emailOtpPublic.enrollEmailOtpInternal(this.emailOtpPublicDeps, args);',
+    );
+    expect(compact).toContain(
+      'return await emailOtpPublic.enrollAndLoginWithEmailOtpEcdsaCapabilityInternal(this.emailOtpPublicDeps, args);',
     );
     expect(source).not.toContain("from './flows/signEvmFamily/emailOtpSigningSession';");
     expect(source).not.toContain("from '../SeamsPasskey/emailOtp';");
@@ -750,7 +787,7 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     expect(emailOtpPublic).toContain('requestEmailOtpSigningSessionChallengeValue');
     expect(emailOtpPublic).toContain('refreshEmailOtpSigningSessionValue');
     expect(emailOtpPublic).toContain('enrollEmailOtpWallet');
-    expect(emailOtpAssembly).toContain('export function createEmailOtpPublicDeps');
+    expect(emailOtpAssembly).not.toContain('export function createEmailOtpPublicDeps');
   });
 
   test('folder ownership README template exists', () => {
@@ -865,7 +902,9 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
         const targetTopLevel = signingEngineTopLevel(resolved);
         if (!targetTopLevel || targetTopLevel === sourceTopLevel) continue;
         if (!allowed.includes(targetTopLevel)) {
-          offenders.push(`${relativePath} -> ${specifier} (${sourceTopLevel} -> ${targetTopLevel})`);
+          offenders.push(
+            `${relativePath} -> ${specifier} (${sourceTopLevel} -> ${targetTopLevel})`,
+          );
         }
       }
     }
@@ -946,10 +985,7 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
   });
 
   test('sealedRecovery stays free of method folders, flows, assembly, and SigningEngine.ts', () => {
-    const domainRoot = path.join(
-      repoRoot,
-      'client/src/core/signingEngine/session/sealedRecovery',
-    );
+    const domainRoot = path.join(repoRoot, 'client/src/core/signingEngine/session/sealedRecovery');
     const offenders: string[] = [];
 
     for (const relativePath of listProductionTypeScriptFiles(domainRoot)) {
@@ -977,6 +1013,7 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
       identity: ['availability', 'operationState', 'persistence'],
       availability: [
         'identity',
+        'operationState',
         'persistence',
         'warmCapabilities',
         'budget',
@@ -987,13 +1024,14 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
       budget: ['persistence', 'operationState', 'identity'],
       persistence: ['identity', 'sealedRecovery', 'operationState'],
       sealedRecovery: ['persistence'],
-      operationState: ['identity', 'persistence', 'budget', 'planning'],
+      operationState: ['identity', 'persistence', 'budget', 'planning', 'emailOtp'],
       warmCapabilities: ['availability', 'identity', 'persistence', 'operationState', 'budget'],
       passkey: ['identity', 'persistence', 'operationState', 'sealedRecovery', 'warmCapabilities'],
       emailOtp: [
         'availability',
         'budget',
         'identity',
+        'operationState',
         'persistence',
         'sealedRecovery',
         'warmCapabilities',
@@ -1008,6 +1046,7 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
       );
 
       for (const relativePath of listProductionTypeScriptFiles(domainRoot)) {
+        if (isTypeFixture(relativePath)) continue;
         const source = readRepoSource(relativePath);
         for (const specifier of extractImportSpecifiers(source)) {
           const resolved = resolveSigningEngineImport(relativePath, specifier);
@@ -1040,8 +1079,7 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
       'passkey',
       'emailOtp',
     ] as const;
-    const coordinatorPath =
-      'client/src/core/signingEngine/session/SigningSessionCoordinator.ts';
+    const coordinatorPath = 'client/src/core/signingEngine/session/SigningSessionCoordinator.ts';
     const offenders: string[] = [];
 
     for (const domain of childDomains) {
@@ -1116,13 +1154,18 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     const allowedCoordinatorPrefix =
       'client/src/core/signingEngine/session/SigningSessionCoordinator';
 
-    for (const relativePath of listProductionTypeScriptFiles(path.join(signingEngineRoot, 'flows'))) {
+    for (const relativePath of listProductionTypeScriptFiles(
+      path.join(signingEngineRoot, 'flows'),
+    )) {
       const source = readRepoSource(relativePath);
       for (const specifier of extractImportSpecifiers(source)) {
         const resolved = resolveSigningEngineImport(relativePath, specifier);
         if (!resolved?.startsWith('client/src/core/signingEngine/session/')) continue;
         if (!resolved.includes('Coordinator')) continue;
-        if (resolved !== allowedCoordinatorPrefix && resolved !== `${allowedCoordinatorPrefix}.ts`) {
+        if (
+          resolved !== allowedCoordinatorPrefix &&
+          resolved !== `${allowedCoordinatorPrefix}.ts`
+        ) {
           offenders.push(`${relativePath} -> ${specifier} -> ${resolved}`);
         }
       }
@@ -1135,9 +1178,7 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     const source = readRepoSource(
       'client/src/core/signingEngine/flows/shared/signingStateMachine.ts',
     );
-    const ports = readRepoSource(
-      'client/src/core/signingEngine/flows/shared/operationPorts.ts',
-    );
+    const ports = readRepoSource('client/src/core/signingEngine/flows/shared/operationPorts.ts');
 
     expect(source).toContain('export async function runSigningOperationSteps');
     expect(source).toContain('export async function runUnplannedSigningOperationCommandSequence');
@@ -1214,21 +1255,15 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     const delegateFlow = readRepoSource(
       'client/src/core/signingEngine/flows/signNear/signDelegate.ts',
     );
-    const nep413Flow = readRepoSource(
-      'client/src/core/signingEngine/flows/signNear/signNep413.ts',
-    );
+    const nep413Flow = readRepoSource('client/src/core/signingEngine/flows/signNear/signNep413.ts');
     const commandRunner = readRepoSource(
       'client/src/core/signingEngine/flows/shared/signingStateMachine.ts',
     );
     const sharedConfirmation = readRepoSource(
       'client/src/core/signingEngine/flows/shared/signingConfirmation.ts',
     );
-    const nearPayloads = readRepoSource(
-      'client/src/core/signingEngine/chains/near/payloads.ts',
-    );
-    const nearDisplay = readRepoSource(
-      'client/src/core/signingEngine/chains/near/display.ts',
-    );
+    const nearPayloads = readRepoSource('client/src/core/signingEngine/chains/near/payloads.ts');
+    const nearDisplay = readRepoSource('client/src/core/signingEngine/chains/near/display.ts');
 
     expect(commandRunner).toContain('createSigningOperationPlan');
     expect(commandRunner).toContain('buildSigningOperationCommandSteps');
@@ -1327,9 +1362,7 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     const exportAuthorization = readRepoSource(
       'client/src/core/signingEngine/stepUpConfirmation/otpPrompt/exportAuthorization.ts',
     );
-    const displayModel = readRepoSource(
-      'client/src/core/signingEngine/interfaces/display.ts',
-    );
+    const displayModel = readRepoSource('client/src/core/signingEngine/interfaces/display.ts');
     const intentDigestPreparation = readRepoSource(
       'client/src/core/signingEngine/stepUpConfirmation/intentDigestPreparation.ts',
     );
@@ -1355,7 +1388,9 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     expect(confirmationChannelTypes).toContain("from '../types'");
     expect(confirmationChannelTypes).not.toContain('export const SigningAuthPlanKind');
     expect(confirmationChannelTypes).not.toContain('export type SigningAuthPlan');
-    expect(signingConfirmation).toContain('export function createSigningConfirmationCommandHandler');
+    expect(signingConfirmation).toContain(
+      'export function createSigningConfirmationCommandHandler',
+    );
     expect(signingConfirmation).toContain('export async function runSigningConfirmationCommand');
     expect(signingConfirmation).not.toContain('formatEmailOtpSentText');
     expect(signingConfirmation).not.toContain('touchConfirm/shared/emailOtpPromptCopy');
@@ -1367,9 +1402,7 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
       path.join(signingEngineRoot, 'flows'),
     )) {
       const source = readRepoSource(relativePath);
-      const isSharedConfirmation = relativePath.endsWith(
-        'flows/shared/signingConfirmation.ts',
-      );
+      const isSharedConfirmation = relativePath.endsWith('flows/shared/signingConfirmation.ts');
       expect(source, relativePath).not.toContain('stepUpConfirmation/channel/confirmTypes');
       expect(source, relativePath).not.toContain('touchConfirm/shared/displayModel');
       expect(source, relativePath).not.toContain('touchConfirm/handlers/flowOrchestrator');
@@ -1394,9 +1427,7 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     );
 
     expect(transactionExecutor).toContain("from './postSignFinalization'");
-    expect(transactionExecutor).toContain(
-      'export type EvmFamilyExecutorThresholdEcdsaState',
-    );
+    expect(transactionExecutor).toContain('export type EvmFamilyExecutorThresholdEcdsaState');
     expect(transactionExecutor).toContain("kind: 'prepared'");
     expect(transactionExecutor).toContain('lane: SelectedEcdsaLane');
     expect(transactionExecutor).toContain('thresholdOwnerAddress: `0x${string}`;');
@@ -1425,9 +1456,7 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
       'client/src/core/signingEngine/flows/signEvmFamily/thresholdAdmission.ts',
     );
 
-    expect(admission).toContain(
-      'export type EvmFamilyThresholdEcdsaAdmissionMode',
-    );
+    expect(admission).toContain('export type EvmFamilyThresholdEcdsaAdmissionMode');
     expect(admission).toContain(
       'export async function completeEvmFamilyThresholdEcdsaAdmissionAfterConfirmation',
     );
@@ -1531,10 +1560,7 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
         'workerManager',
       ],
       chains: ['workers', 'workerManager', 'session', 'signers', 'interfaces'],
-      stepUpConfirmation: [
-        'interfaces',
-        'webauthnAuth',
-      ],
+      stepUpConfirmation: ['interfaces', 'webauthnAuth'],
       uiConfirm: [
         'chains',
         'stepUpConfirmation',
@@ -1598,7 +1624,9 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     const offenders: string[] = [];
 
     for (const [root, forbiddenTargets] of Object.entries(forbiddenByRoot)) {
-      for (const relativePath of listProductionTypeScriptFiles(path.join(signingEngineRoot, root))) {
+      for (const relativePath of listProductionTypeScriptFiles(
+        path.join(signingEngineRoot, root),
+      )) {
         const source = readRepoSource(relativePath);
         for (const specifier of extractImportSpecifiers(source)) {
           const resolved = resolveSigningEngineImport(relativePath, specifier);
@@ -1621,7 +1649,9 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     ] as const;
     const offenders: string[] = [];
 
-    for (const relativePath of listProductionTypeScriptFiles(path.join(signingEngineRoot, 'flows'))) {
+    for (const relativePath of listProductionTypeScriptFiles(
+      path.join(signingEngineRoot, 'flows'),
+    )) {
       const source = readRepoSource(relativePath);
       for (const specifier of extractImportSpecifiers(source)) {
         const resolved = resolveSigningEngineImport(relativePath, specifier);
@@ -1646,7 +1676,9 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     const offenders: string[] = [];
 
     for (const root of roots) {
-      for (const relativePath of listProductionTypeScriptFiles(path.join(signingEngineRoot, root))) {
+      for (const relativePath of listProductionTypeScriptFiles(
+        path.join(signingEngineRoot, root),
+      )) {
         const source = readRepoSource(relativePath);
         for (const marker of forbiddenPromptOwnerMarkers) {
           if (source.includes(marker)) offenders.push(`${relativePath} contains ${marker}`);
@@ -1685,22 +1717,20 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
   });
 
   test('canonical selected lanes and operation states do not use optional lifecycle fields', () => {
-    const identity = readRepoSource('client/src/core/signingEngine/session/identity/laneIdentity.ts');
+    const identity = readRepoSource(
+      'client/src/core/signingEngine/session/identity/laneIdentity.ts',
+    );
     const signingLanes = readRepoSource(
       'client/src/core/signingEngine/session/operationState/lanes.ts',
     );
     const signingTypes = readRepoSource(
       'client/src/core/signingEngine/session/operationState/types.ts',
     );
-    const signingBudget = readRepoSource(
-      'client/src/core/signingEngine/session/budget/budget.ts',
-    );
+    const signingBudget = readRepoSource('client/src/core/signingEngine/session/budget/budget.ts');
     const operationState = readRepoSource(
       'client/src/core/signingEngine/flows/shared/operationState.ts',
     );
-    const planner = readRepoSource(
-      'client/src/core/signingEngine/session/planning/planner.ts',
-    );
+    const planner = readRepoSource('client/src/core/signingEngine/session/planning/planner.ts');
     const restoreTypes = readRepoSource(
       'client/src/core/signingEngine/session/sealedRecovery/types.ts',
     );
@@ -1722,7 +1752,7 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
         '',
       );
       const normalizedAlias = alias.replace(/\bsourceChainTarget\?:\s*never;?/g, '');
-      expect(normalizedAlias, typeName).not.toMatch(/\w+\?:/);
+      expect(stripNeverOptionalGuards(normalizedAlias), typeName).not.toMatch(/\w+\?:/);
     }
 
     for (const typeName of [
@@ -1731,7 +1761,10 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
       'ReauthRequired',
       'PreparedOperation',
     ]) {
-      expect(sliceTypeAlias(operationState, typeName), typeName).not.toMatch(/\w+\?:/);
+      expect(
+        stripNeverOptionalGuards(sliceTypeAlias(operationState, typeName)),
+        typeName,
+      ).not.toMatch(/\w+\?:/);
     }
     expect(operationState).not.toContain('BudgetAdmission');
     expect(operationState).not.toContain('BudgetAdmittedOperation');
@@ -1750,17 +1783,23 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     expect(signingLanes).not.toContain('chain: input.chainTarget.kind');
     expect(signingLanes).not.toContain('): SigningSessionPlanningLane');
     expect(
-      sliceTypeAlias(restoreTypes, 'RestorePersistedSessionForSigningInput'),
+      stripNeverOptionalGuards(
+        sliceTypeAlias(restoreTypes, 'RestorePersistedSessionForSigningInput'),
+      ),
     ).not.toMatch(/\w+\?:/);
-    expect(
-      sliceTypeAlias(restoreTypes, 'RestorePersistedSessionForSigningInput'),
-    ).not.toContain("reason: 'session_status'");
+    expect(sliceTypeAlias(restoreTypes, 'RestorePersistedSessionForSigningInput')).not.toContain(
+      "reason: 'session_status'",
+    );
     expect(restoreCoordinator).not.toContain('RestorePersistedSessionForSigningMaintenanceInput');
-    expect(sliceTypeAlias(planner, 'SigningSessionReadiness')).not.toMatch(/\w+\?:/);
+    expect(
+      stripNeverOptionalGuards(sliceTypeAlias(planner, 'SigningSessionReadiness')),
+    ).not.toMatch(/\w+\?:/);
     expect(sliceTypeAlias(planner, 'SigningSessionReadiness')).not.toContain(
       'backingMaterialSessionId',
     );
-    expect(sliceTypeAlias(signingTypes, 'PasskeyReconnectPlan')).not.toMatch(/\w+\?:/);
+    expect(
+      stripNeverOptionalGuards(sliceTypeAlias(signingTypes, 'PasskeyReconnectPlan')),
+    ).not.toMatch(/\w+\?:/);
     expect(signingBudget).not.toContain('refs: {');
     expect(signingBudget).not.toContain('refs.thresholdSessionId');
     expect(signingBudget).not.toContain('refs.backingMaterialSessionId');
@@ -1777,7 +1816,9 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     const offenders: string[] = [];
 
     for (const relativePath of listProductionTypeScriptFiles(signingEngineRoot)) {
-      if (relativePath === 'client/src/core/signingEngine/session/identity/laneIdentity.ts') continue;
+      if (isTypeFixture(relativePath)) continue;
+      if (relativePath === 'client/src/core/signingEngine/session/identity/laneIdentity.ts')
+        continue;
       const source = readRepoSource(relativePath);
       if (source.includes("kind: 'selected_lane'")) offenders.push(relativePath);
     }
@@ -1878,9 +1919,9 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     }
 
     expect(offenders).toEqual([]);
-    expect(
-      readRepoSource('client/src/core/signingEngine/threshold/sessionPolicy.ts'),
-    ).toContain("export type ThresholdSessionKind = 'jwt' | 'cookie';");
+    expect(readRepoSource('client/src/core/signingEngine/threshold/sessionPolicy.ts')).toContain(
+      "export type ThresholdSessionKind = 'jwt' | 'cookie';",
+    );
   });
 
   test('threshold protocol entrypoints take protocol material instead of broad session shapes', () => {
@@ -1932,7 +1973,9 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
   });
 
   test('threshold session identity types live outside persistence records', () => {
-    const identity = readRepoSource('client/src/core/signingEngine/session/identity/laneIdentity.ts');
+    const identity = readRepoSource(
+      'client/src/core/signingEngine/session/identity/laneIdentity.ts',
+    );
     const records = readRepoSource('client/src/core/signingEngine/session/persistence/records.ts');
     const activation = readRepoSource(
       'client/src/core/signingEngine/session/passkey/ecdsaBootstrap.ts',
@@ -1948,9 +1991,7 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
   });
 
   test('Ed25519 auth session mint helper has no session lifecycle cache', () => {
-    const source = readRepoSource(
-      'client/src/core/signingEngine/threshold/ed25519/authSession.ts',
-    );
+    const source = readRepoSource('client/src/core/signingEngine/threshold/ed25519/authSession.ts');
 
     expect(source).not.toContain('session/records');
     expect(source).not.toContain('persistWarmSessionEd25519Capability');
@@ -1980,6 +2021,7 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     for (const relativePath of listProductionTypeScriptFiles(
       path.join(signingEngineRoot, 'threshold'),
     )) {
+      if (isTypeFixture(relativePath)) continue;
       const source = readRepoSource(relativePath);
       for (const marker of forbiddenMarkers) {
         if (source.includes(marker)) {
@@ -2014,5 +2056,4 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
 
     expect(offenders).toEqual([]);
   });
-
 });

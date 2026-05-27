@@ -1,6 +1,7 @@
 import type {
   AddSignerIntentV1,
   AddSignerIntentGrant,
+  RegistrationAuthMethodInput,
   RegisterWalletSubjectInput,
   RegistrationIntentGrant,
   RegistrationIntentV1,
@@ -13,11 +14,17 @@ import {
   parseThresholdEcdsaKeyIdentityTargets,
   type ThresholdEcdsaKeyIdentityInventoryEntry,
 } from '@/core/signingEngine/session/passkey/ecdsaKeyFactsInventory';
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  thresholdEcdsaChainTargetKey,
+  type ThresholdEcdsaChainTarget,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
+import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfaces/signing';
 import type {
   ThresholdEd25519HssPreparedSessionEnvelope,
   ThresholdEd25519HssServerVisibleClientRequestEnvelope,
   ThresholdEd25519HssStagedEvaluatorArtifactEnvelope,
+  ThresholdEcdsaHssRoleLocalClientBootstrap,
 } from '@/core/signingEngine/threshold/crypto/hssClientSignerWasm';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type {
@@ -58,6 +65,7 @@ async function postJson<TResponse>(args: {
 export type CreateRegistrationIntentRequest = {
   walletSubject: RegisterWalletSubjectInput;
   rpId: string;
+  authMethod: RegistrationAuthMethodInput;
   signerSelection: RegistrationSignerSelection;
 };
 
@@ -230,6 +238,296 @@ export type WalletRegistrationEcdsaCompletedBootstrap = {
   bootstrap: ThresholdEcdsaHssRoleLocalBootstrapValue;
   publicIdentity: EcdsaHssRoleLocalPublicIdentity;
 };
+
+export type WalletRegistrationEcdsaLocalClientBootstrap = ThresholdEcdsaHssRoleLocalClientBootstrap;
+
+export type WalletRegistrationEcdsaHssRespondBootstrap = {
+  walletId: string;
+  rpId: string;
+  ecdsaThresholdKeyId: string;
+  relayerKeyId: string;
+  contextBinding32B64u: string;
+  publicIdentity: EcdsaHssRoleLocalPublicIdentity;
+  keyHandle: string;
+  signingRootId: string;
+  signingRootVersion: string;
+  thresholdEcdsaPublicKeyB64u: string;
+  ethereumAddress: string;
+  relayerVerifyingShareB64u: string;
+  participantIds: number[];
+  thresholdSessionId: string;
+  walletSigningSessionId: string;
+  expiresAtMs: number;
+  remainingUses: number;
+  thresholdSessionAuthToken: string;
+};
+
+function requireMatchingString(args: {
+  field: string;
+  expected: unknown;
+  actual: unknown;
+}): string {
+  const expected = String(args.expected || '').trim();
+  const actual = String(args.actual || '').trim();
+  if (!expected || !actual) {
+    throw new Error(`ECDSA registration bootstrap returned incomplete ${args.field}`);
+  }
+  if (expected !== actual) {
+    throw new Error(`ECDSA registration bootstrap ${args.field} mismatch`);
+  }
+  return actual;
+}
+
+function requireMatchingParticipantIds(args: {
+  expected: readonly unknown[];
+  actual: readonly unknown[];
+}): number[] {
+  const expected = args.expected.map((participantId) => Math.floor(Number(participantId)));
+  const actual = args.actual.map((participantId) => Math.floor(Number(participantId)));
+  const invalid =
+    expected.length === 0 ||
+    actual.length === 0 ||
+    expected.some((participantId) => !Number.isSafeInteger(participantId) || participantId <= 0) ||
+    actual.some((participantId) => !Number.isSafeInteger(participantId) || participantId <= 0);
+  if (invalid) {
+    throw new Error('ECDSA registration bootstrap returned incomplete participantIds');
+  }
+  if (expected.length !== actual.length || expected.some((id, index) => id !== actual[index])) {
+    throw new Error('ECDSA registration bootstrap participantIds mismatch');
+  }
+  return actual;
+}
+
+export function parseWalletRegistrationEcdsaHssRespond(args: {
+  localBootstrap: WalletRegistrationEcdsaLocalClientBootstrap;
+  serverBootstrap: ThresholdEcdsaHssRoleLocalBootstrapValue;
+}): WalletRegistrationEcdsaHssRespondBootstrap {
+  const localBootstrap = args.localBootstrap;
+  const serverBootstrap = args.serverBootstrap;
+  requireMatchingString({
+    field: 'clientPublicKey33B64u',
+    expected: localBootstrap.clientPublicKey33B64u,
+    actual: serverBootstrap.publicIdentity.clientPublicKey33B64u,
+  });
+  const contextBinding32B64u = requireMatchingString({
+    field: 'contextBinding32B64u',
+    expected: localBootstrap.contextBinding32B64u,
+    actual: serverBootstrap.contextBinding32B64u,
+  });
+
+  const thresholdSessionAuthToken = String(serverBootstrap.jwt || '').trim();
+  const walletId = String(serverBootstrap.walletId || '').trim();
+  const rpId = String(serverBootstrap.rpId || '').trim();
+  const ecdsaThresholdKeyId = String(serverBootstrap.ecdsaThresholdKeyId || '').trim();
+  const keyHandle = String(serverBootstrap.keyHandle || '').trim();
+  const signingRootId = String(serverBootstrap.signingRootId || '').trim();
+  const signingRootVersion = String(serverBootstrap.signingRootVersion || '').trim();
+  const thresholdEcdsaPublicKeyB64u = String(serverBootstrap.thresholdEcdsaPublicKeyB64u || '').trim();
+  const ethereumAddress = String(serverBootstrap.ethereumAddress || '').trim();
+  const relayerKeyId = String(serverBootstrap.relayerKeyId || '').trim();
+  const relayerVerifyingShareB64u = String(serverBootstrap.relayerVerifyingShareB64u || '').trim();
+  const thresholdSessionId = String(serverBootstrap.sessionId || '').trim();
+  const walletSigningSessionId = String(serverBootstrap.walletSigningSessionId || '').trim();
+  const remainingUses = Math.max(0, Math.floor(Number(serverBootstrap.remainingUses)));
+  const expiresAtMs = Math.max(0, Math.floor(Number(serverBootstrap.expiresAtMs)));
+  const participantIds = serverBootstrap.participantIds.map((participantId) =>
+    Math.floor(Number(participantId)),
+  );
+  if (
+    !walletId ||
+    !rpId ||
+    !keyHandle ||
+    !ecdsaThresholdKeyId ||
+    !signingRootId ||
+    !signingRootVersion ||
+    !thresholdEcdsaPublicKeyB64u ||
+    !ethereumAddress ||
+    !relayerKeyId ||
+    !relayerVerifyingShareB64u ||
+    !thresholdSessionId ||
+    !walletSigningSessionId ||
+    !thresholdSessionAuthToken ||
+    !participantIds.length ||
+    participantIds.some(
+      (participantId) => !Number.isSafeInteger(participantId) || participantId <= 0,
+    ) ||
+    !Number.isFinite(remainingUses) ||
+    !Number.isFinite(expiresAtMs)
+  ) {
+    throw new Error('ECDSA registration bootstrap returned incomplete session material');
+  }
+  return {
+    walletId,
+    rpId,
+    ecdsaThresholdKeyId,
+    relayerKeyId,
+    contextBinding32B64u,
+    publicIdentity: serverBootstrap.publicIdentity,
+    keyHandle,
+    signingRootId,
+    signingRootVersion,
+    thresholdEcdsaPublicKeyB64u,
+    ethereumAddress,
+    relayerVerifyingShareB64u,
+    participantIds,
+    thresholdSessionId,
+    walletSigningSessionId,
+    expiresAtMs,
+    remainingUses,
+    thresholdSessionAuthToken,
+  };
+}
+
+export function buildWalletRegistrationEcdsaSessionBootstrap(args: {
+  walletId: string;
+  relayerUrl: string;
+  chainTarget: ThresholdEcdsaChainTarget;
+  keygenSessionId: string;
+  localBootstrap: WalletRegistrationEcdsaLocalClientBootstrap;
+  serverBootstrap: WalletRegistrationEcdsaHssRespondBootstrap;
+  walletKey: WalletRegistrationEcdsaWalletKey;
+  nowMs?: number;
+}): ThresholdEcdsaSessionBootstrapResult {
+  const localBootstrap = args.localBootstrap;
+  const serverBootstrap = args.serverBootstrap;
+  requireMatchingString({
+    field: 'walletId',
+    expected: args.walletId,
+    actual: serverBootstrap.walletId,
+  });
+  requireMatchingString({
+    field: 'walletKey.walletId',
+    expected: args.walletId,
+    actual: args.walletKey.walletId,
+  });
+  const rpId = requireMatchingString({
+    field: 'rpId',
+    expected: args.walletKey.rpId,
+    actual: serverBootstrap.rpId,
+  });
+  const keyHandle = requireMatchingString({
+    field: 'keyHandle',
+    expected: args.walletKey.keyHandle,
+    actual: serverBootstrap.keyHandle,
+  });
+  const ecdsaThresholdKeyId = requireMatchingString({
+    field: 'ecdsaThresholdKeyId',
+    expected: args.walletKey.ecdsaThresholdKeyId,
+    actual: serverBootstrap.ecdsaThresholdKeyId,
+  });
+  const signingRootId = requireMatchingString({
+    field: 'signingRootId',
+    expected: args.walletKey.signingRootId,
+    actual: serverBootstrap.signingRootId,
+  });
+  const signingRootVersion = requireMatchingString({
+    field: 'signingRootVersion',
+    expected: args.walletKey.signingRootVersion,
+    actual: serverBootstrap.signingRootVersion,
+  });
+  const thresholdEcdsaPublicKeyB64u = requireMatchingString({
+    field: 'thresholdEcdsaPublicKeyB64u',
+    expected: args.walletKey.thresholdEcdsaPublicKeyB64u,
+    actual: serverBootstrap.thresholdEcdsaPublicKeyB64u,
+  });
+  const ethereumAddress = requireMatchingString({
+    field: 'ethereumAddress',
+    expected: args.walletKey.thresholdOwnerAddress,
+    actual: serverBootstrap.ethereumAddress,
+  });
+  const relayerKeyId = requireMatchingString({
+    field: 'relayerKeyId',
+    expected: args.walletKey.relayerKeyId,
+    actual: serverBootstrap.relayerKeyId,
+  });
+  const relayerVerifyingShareB64u = requireMatchingString({
+    field: 'relayerVerifyingShareB64u',
+    expected: args.walletKey.relayerVerifyingShareB64u,
+    actual: serverBootstrap.relayerVerifyingShareB64u,
+  });
+  requireMatchingString({
+    field: 'chainTarget',
+    expected: thresholdEcdsaChainTargetKey(args.chainTarget),
+    actual: thresholdEcdsaChainTargetKey(args.walletKey.chainTarget),
+  });
+
+  const participantIds = requireMatchingParticipantIds({
+    expected: args.walletKey.participantIds,
+    actual: serverBootstrap.participantIds,
+  });
+  const nowMs = Number.isSafeInteger(args.nowMs) ? args.nowMs! : Date.now();
+  const thresholdSessionAuthToken = serverBootstrap.thresholdSessionAuthToken;
+  const thresholdSessionId = serverBootstrap.thresholdSessionId;
+  const walletSigningSessionId = serverBootstrap.walletSigningSessionId;
+  const remainingUses = serverBootstrap.remainingUses;
+  const expiresAtMs = serverBootstrap.expiresAtMs;
+
+  const keyRef: ThresholdEcdsaSecp256k1KeyRef = {
+    type: 'threshold-ecdsa-secp256k1',
+    userId: args.walletId,
+    chainTarget: args.chainTarget,
+    relayerUrl: args.relayerUrl,
+    keyHandle,
+    ecdsaThresholdKeyId,
+    signingRootId,
+    ...(signingRootVersion ? { signingRootVersion } : {}),
+    backendBinding: {
+      relayerKeyId,
+      clientVerifyingShareB64u: localBootstrap.clientPublicKey33B64u,
+      clientAdditiveShare32B64u: localBootstrap.clientShare32B64u,
+      ecdsaHssRoleLocalClientState: {
+        kind: 'role_local_ready',
+        artifactKind: 'ecdsa-hss-role-local-client-state',
+        contextBinding32B64u: localBootstrap.contextBinding32B64u,
+        clientShare32B64u: localBootstrap.clientShare32B64u,
+        clientPublicKey33B64u: localBootstrap.clientPublicKey33B64u,
+        clientShareRetryCounter: localBootstrap.clientShareRetryCounter,
+        relayerPublicKey33B64u: serverBootstrap.publicIdentity.relayerPublicKey33B64u,
+        groupPublicKey33B64u: serverBootstrap.publicIdentity.groupPublicKey33B64u,
+        ethereumAddress,
+        clientCaitSithInput: localBootstrap.clientCaitSithInput,
+        createdAtMs: nowMs,
+        updatedAtMs: nowMs,
+      },
+    },
+    participantIds,
+    thresholdEcdsaPublicKeyB64u,
+    ethereumAddress,
+    relayerVerifyingShareB64u,
+    thresholdSessionKind: 'jwt',
+    thresholdSessionAuthToken,
+    thresholdSessionId,
+    walletSigningSessionId,
+  };
+  return {
+    thresholdEcdsaKeyRef: keyRef,
+    keygen: {
+      ok: true,
+      keygenSessionId: args.keygenSessionId,
+      rpId,
+      keyHandle,
+      ecdsaThresholdKeyId,
+      clientVerifyingShareB64u: localBootstrap.clientPublicKey33B64u,
+      clientAdditiveShare32B64u: localBootstrap.clientShare32B64u,
+      thresholdEcdsaPublicKeyB64u,
+      ethereumAddress,
+      relayerKeyId,
+      relayerVerifyingShareB64u,
+      participantIds,
+      ...(typeof args.chainTarget.chainId === 'number'
+        ? { chainId: args.chainTarget.chainId }
+        : {}),
+    },
+    session: {
+      ok: true,
+      sessionId: thresholdSessionId,
+      walletSigningSessionId,
+      expiresAtMs,
+      remainingUses,
+      jwt: thresholdSessionAuthToken,
+    },
+  };
+}
 
 export type WalletSubjectEcdsaKeyFactsInventoryTarget = {
   keyHandle: string;

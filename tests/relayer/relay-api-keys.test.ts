@@ -57,6 +57,7 @@ function makeRelayService() {
       version: 'registration_intent_v1',
       walletSubjectId: input.request.walletSubject.walletSubjectId,
       rpId: input.request.rpId,
+      authMethod: input.request.authMethod,
       signerSelection: input.request.signerSelection,
       nonceB64u: 'nonce-test',
     },

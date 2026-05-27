@@ -495,6 +495,7 @@ export class SeamsPasskey {
     }
     return await registerWalletWithUnifiedCeremony({
       context: this.getContext(),
+      authMethod: args.authMethod,
       walletSubject: args.walletSubject,
       rpId: args.rpId,
       signerSelection: args.signerSelection,
@@ -576,6 +577,7 @@ export class SeamsPasskey {
         walletSubjectId: walletSubjectIdFromString(String(accountId)),
       },
       rpId,
+      authMethod: { kind: 'passkey' },
       signerSelection: buildPasskeyNearWalletRegistrationSignerSelection({
         configs: this.configs,
         nearAccountId: String(accountId),

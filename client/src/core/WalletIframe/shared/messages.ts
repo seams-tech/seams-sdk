@@ -24,6 +24,7 @@ import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain'
 import type { WalletFlowEvent } from '../../types/sdkSentEvents';
 import type {
   AddSignerSelection,
+  RegistrationAuthMethodInput,
   RegisterWalletSubjectInput,
   RegistrationSignerSelection,
   WalletSubjectId,
@@ -135,6 +136,7 @@ export interface PMRegisterPayload {
 }
 
 export interface PMRegisterWalletPayload {
+  authMethod: RegistrationAuthMethodInput;
   walletSubject: RegisterWalletSubjectInput;
   rpId: string;
   signerSelection: RegistrationSignerSelection;

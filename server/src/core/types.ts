@@ -11,6 +11,7 @@ import type {
   AddSignerIntentGrant,
   AddSignerIntentV1,
   AddSignerSelection,
+  RegistrationAuthMethodInput,
   RegisterWalletSubjectInput,
   RegistrationIntentGrant,
   RegistrationIntentV1,
@@ -297,6 +298,7 @@ export type {
 export type CreateRegistrationIntentRequest = {
   walletSubject: RegisterWalletSubjectInput;
   rpId: string;
+  authMethod: RegistrationAuthMethodInput;
   signerSelection: RegistrationSignerSelection;
 };
 

@@ -351,26 +351,26 @@ unions. Authority verification should happen before HSS state is prepared.
 
 ### Phase 1: Type And API Foundation
 
-- [ ] Add shared `RegistrationAuthMethodInput` public types.
-- [ ] Add internal `RegistrationAuthority` verified types.
-- [ ] Add `WalletAuthMethodBinding` union types for passkey and Email OTP.
-- [ ] Update `RegisterWalletArgs` to require explicit `authMethod`.
-- [ ] Keep existing convenience wrappers by making them pass
+- [x] Add shared `RegistrationAuthMethodInput` public types.
+- [x] Add internal `RegistrationAuthority` verified types.
+- [x] Add `WalletAuthMethodBinding` union types for passkey and Email OTP.
+- [x] Update `RegisterWalletArgs` to require explicit `authMethod`.
+- [x] Keep existing convenience wrappers by making them pass
       `{ kind: 'passkey' }` explicitly.
-- [ ] Add type fixtures proving auth method and signer selection are
+- [x] Add type fixtures proving auth method and signer selection are
       orthogonal.
-- [ ] Add type fixtures rejecting broad optional auth bags and exact-session
+- [x] Add type fixtures rejecting broad optional auth bags and exact-session
       identity fields in registration inputs.
 
 ### Phase 2: Persistence And Store Boundaries
 
-- [ ] Add server wallet-auth-method store/repository interfaces.
-- [ ] Add Postgres schema for wallet auth-method bindings.
-- [ ] Add Cloudflare Durable Object storage support for auth-method bindings.
-- [ ] Add local/client persistence shapes for wallet auth-method bindings.
-- [ ] Keep old passkey authenticator reads behind a persistence-boundary
+- [x] Add server wallet-auth-method store/repository interfaces.
+- [x] Add Postgres schema for wallet auth-method bindings.
+- [x] Add Cloudflare Durable Object storage support for auth-method bindings.
+- [x] Add local/client persistence shapes for wallet auth-method bindings.
+- [x] Keep old passkey authenticator reads behind a persistence-boundary
       parser only if needed for existing development data.
-- [ ] Add tests for passkey and Email OTP binding normalization.
+- [x] Add tests for passkey and Email OTP binding normalization.
 
 ### Phase 3: Recast Passkey Registration As Authority Branch
 

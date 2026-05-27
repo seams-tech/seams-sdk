@@ -199,6 +199,7 @@ export class SeamsPasskeyIframe {
             walletSubjectId: walletSubjectIdFromString(String(accountId)),
           },
           rpId,
+          authMethod: { kind: 'passkey' },
           signerSelection: buildPasskeyNearWalletRegistrationSignerSelection({
             configs: this.configs,
             nearAccountId: String(accountId),
@@ -254,6 +255,7 @@ export class SeamsPasskeyIframe {
         return await this.registerWallet({
           walletSubject: { kind: 'server_generated' },
           rpId: this.resolveRegistrationRpId('evm.registerEvmWallet'),
+          authMethod: { kind: 'passkey' },
           signerSelection: {
             mode: 'ecdsa_only',
             ecdsa: {

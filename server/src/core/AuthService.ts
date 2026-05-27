@@ -141,6 +141,7 @@ import {
   computeAddSignerIntentDigestB64u,
   computeRegistrationIntentDigestB64u,
   normalizeNearAccountOwnershipProofV1,
+  normalizeRegistrationAuthMethodInput,
   registrationIntentGrantFromString,
   serializeNearAccountOwnershipProofMessageV1,
   walletSubjectIdFromString,
@@ -3888,6 +3889,10 @@ export class AuthService {
 
       const signerSelection = normalizeRegistrationSignerSelection(input.request?.signerSelection);
       if (!signerSelection.ok) return signerSelection;
+      const authMethod = normalizeRegistrationAuthMethodInput(input.request?.authMethod);
+      if (!authMethod) {
+        return { ok: false, code: 'invalid_body', message: 'authMethod is required' };
+      }
 
       const walletSubject = input.request?.walletSubject;
       const walletSubjectId =
@@ -3904,6 +3909,7 @@ export class AuthService {
         version: 'registration_intent_v1',
         walletSubjectId,
         rpId,
+        authMethod,
         signerSelection: signerSelection.value,
         ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
         nonceB64u: randomBase64Url(32),
@@ -4060,6 +4066,13 @@ export class AuthService {
       const requestDigest = await computeRegistrationIntentDigestB64u(request.intent);
       if (requestDigest !== intentPreview.digestB64u) {
         return { ok: false, code: 'invalid_body', message: 'registration intent mismatch' };
+      }
+      if (intentPreview.intent.authMethod.kind !== 'passkey') {
+        return {
+          ok: false,
+          code: 'unsupported_auth_method',
+          message: 'wallet registration start currently supports passkey authority only',
+        };
       }
 
       const selection = intentPreview.intent.signerSelection;

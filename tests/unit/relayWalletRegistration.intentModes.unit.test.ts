@@ -139,6 +139,7 @@ test.describe('wallet registration intent relayer modes', () => {
       body: {
         walletSubject: { kind: 'server_generated' },
         rpId: 'wallet.example.test',
+        authMethod: { kind: 'passkey' },
         signerSelection: modeCases[0].signerSelection,
       },
       headers: {
@@ -184,6 +185,7 @@ test.describe('wallet registration intent relayer modes', () => {
       body: {
         walletSubject: { kind: 'server_generated' },
         rpId: 'wallet.example.test',
+        authMethod: { kind: 'passkey' },
         signerSelection: modeCases[0].signerSelection,
       },
       headers: {
@@ -208,6 +210,7 @@ test.describe('wallet registration intent relayer modes', () => {
                 version: 'registration_intent_v1',
                 walletSubjectId: 'wallet_subject_route_context',
                 rpId: 'wallet.example.test',
+                authMethod: { kind: 'passkey' },
                 signerSelection: modeCases[0].signerSelection,
                 runtimePolicyScope: {
                   orgId: ORG_ID,
@@ -250,6 +253,7 @@ test.describe('wallet registration intent relayer modes', () => {
         body: {
           walletSubject: { kind: 'server_generated' },
           rpId: 'wallet.example.test',
+          authMethod: { kind: 'passkey' },
           signerSelection: entry.signerSelection,
         },
         headers: {

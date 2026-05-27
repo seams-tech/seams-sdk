@@ -142,6 +142,19 @@ sequenceDiagram
   (`flows/shared/operationState.ts`): monotonic operation state-machine
   states.
 
+## Session Vocabulary
+
+| Term                   | Axis                                                                                | Canonical owner                                 |
+| ---------------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `warmSession`          | Secure-confirm worker PRF cache and volatile capability material.                   | `session/warmCapabilities/*`                    |
+| `warmSigning`          | Runtime aggregate of warm-session readers, status readers, and ECDSA record access. | `assembly/ports/warmSigning.ts`                 |
+| `warmCapabilities`     | Public capability/status surface derived from warm material and budget state.       | `session/warmCapabilities/public.ts`            |
+| `signingSession`       | Operation lane, budget, and identity scope used while signing.                      | `session/planning/*`, `session/budget/*`        |
+| `walletSigningSession` | Server-issued wallet-scoped budget session identifier.                              | `session/budget/*`                              |
+| `thresholdSession`     | Cryptographic threshold-protocol authorization session.                             | `threshold/*`, `session/persistence/records.ts` |
+| `emailOtpSession`      | Email OTP step-up session and warm-session coordination.                            | `session/emailOtp/*`                            |
+| `appSession`           | Outer application JWT/policy used to authorize wallet operations.                   | `stepUpConfirmation/*`, relayer clients         |
+
 ## EVM/Tempo Signing
 
 ```mermaid

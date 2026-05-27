@@ -4,7 +4,10 @@ import type {
   StoreUserDataInput,
 } from '@/core/accountData/near/types';
 import type { AccountId } from '@/core/types/accountIds';
-import type { WebAuthnAuthenticationCredential, WebAuthnRegistrationCredential } from '@/core/types';
+import type {
+  WebAuthnAuthenticationCredential,
+  WebAuthnRegistrationCredential,
+} from '@/core/types';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { RegistrationCredentialConfirmationPayload } from '../../workerManager/validation';
 import type { WebAuthnAllowCredential } from '../../webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
@@ -50,6 +53,8 @@ export type {
   StoreWalletSubjectEcdsaSignerRecordsInput,
   StoreWalletSubjectEcdsaRegistrationInput,
   StoreWalletSubjectEcdsaSignerRecordsResult,
+  StoreWalletSubjectEd25519RegistrationInput,
+  StoreWalletSubjectEd25519SignerRecordInput,
 };
 
 export type RegistrationPublicDeps = {
@@ -204,59 +209,3 @@ export function extractCosePublicKey(
 ): Promise<Uint8Array> {
   return deps.signingKeyOps.extractCosePublicKey(attestationObjectBase64url);
 }
-
-export function createRegistrationPublicApi(deps: RegistrationPublicDeps) {
-  return {
-    storeUserData: (userData: StoreUserDataInput) => storeUserData(deps, userData),
-    getAllUsers: () => getAllUsers(deps),
-    getUserBySignerSlot: (nearAccountId: AccountId, signerSlot: number) =>
-      getUserBySignerSlot(deps, nearAccountId, signerSlot),
-    getLastUser: () => getLastUser(deps),
-    getAuthenticatorsByUser: (nearAccountId: AccountId) =>
-      getAuthenticatorsByUser(deps, nearAccountId),
-    updateLastLogin: (nearAccountId: AccountId) => updateLastLogin(deps, nearAccountId),
-    setLastUser: (nearAccountId: AccountId, signerSlot: number = 1) =>
-      setLastUser(deps, nearAccountId, signerSlot),
-    initializeCurrentUser: (args: { nearAccountId: AccountId; nearClient?: NearClient }) =>
-      initializeCurrentUser(deps, args),
-    storeAuthenticator: (authenticatorData: StoreAuthenticatorInput) =>
-      storeAuthenticator(deps, authenticatorData),
-    rollbackUserRegistration: (nearAccountId: AccountId) =>
-      rollbackUserRegistration(deps, nearAccountId),
-    hasPasskeyCredential: (nearAccountId: AccountId) => hasPasskeyCredential(deps, nearAccountId),
-    atomicStoreRegistrationData: (args: {
-      nearAccountId: AccountId;
-      credential: WebAuthnRegistrationCredential;
-      operationalPublicKey: string;
-    }) => atomicStoreRegistrationData(deps, args),
-    storeWalletSubjectEd25519RegistrationData: (
-      args: StoreWalletSubjectEd25519RegistrationInput,
-    ) => storeWalletSubjectEd25519RegistrationData(deps, args),
-    storeWalletSubjectEd25519SignerRecord: (
-      args: StoreWalletSubjectEd25519SignerRecordInput,
-    ) => storeWalletSubjectEd25519SignerRecord(deps, args),
-    storeWalletSubjectEcdsaSignerRecords: (
-      args: StoreWalletSubjectEcdsaSignerRecordsInput,
-    ) => storeWalletSubjectEcdsaSignerRecords(deps, args),
-    storeWalletSubjectEcdsaRegistrationData: (
-      args: StoreWalletSubjectEcdsaRegistrationInput,
-    ) => storeWalletSubjectEcdsaRegistrationData(deps, args),
-    requestRegistrationCredentialConfirmation: (params: {
-    nearAccountId: string;
-    signerSlot: number;
-    confirmerText?: { title?: string; body?: string };
-    confirmationConfigOverride?: Partial<ConfirmationConfig>;
-    challengeB64u?: string;
-  }) => requestRegistrationCredentialConfirmation(deps, params),
-    getAuthenticationCredentialsSerialized: (args: {
-      nearAccountId: AccountId;
-      challengeB64u: string;
-      allowCredentials: WebAuthnAllowCredential[];
-      includeSecondPrfOutput?: boolean;
-    }) => getAuthenticationCredentialsSerialized(deps, args),
-    extractCosePublicKey: (attestationObjectBase64url: string) =>
-      extractCosePublicKey(deps, attestationObjectBase64url),
-  };
-}
-
-export type RegistrationPublicApi = ReturnType<typeof createRegistrationPublicApi>;

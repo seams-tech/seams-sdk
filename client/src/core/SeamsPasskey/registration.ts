@@ -36,6 +36,7 @@ import type { ThresholdRuntimePolicyScope } from '../signingEngine/threshold/ses
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type {
   AddSignerSelection,
+  RegistrationAuthMethodInput,
   RegisterWalletSubjectInput,
   RegistrationSignerSelection,
   WalletSubjectId,
@@ -49,6 +50,7 @@ import {
   createWalletRegistrationIntent,
   finalizeWalletAddSigner,
   finalizeWalletRegistration,
+  parseWalletRegistrationEcdsaHssRespond,
   respondWalletAddSignerHss,
   respondWalletRegistrationHss,
   startWalletAddSigner,
@@ -107,6 +109,7 @@ export async function registerPasskeyInternal(
       walletSubjectId: walletSubjectIdFromString(String(accountId)),
     },
     rpId,
+    authMethod: { kind: 'passkey' },
     signerSelection: buildPasskeyNearWalletRegistrationSignerSelection({
       configs: context.configs,
       nearAccountId: String(accountId),
@@ -130,6 +133,7 @@ export async function registerPasskey(
 
 async function registerEcdsaWalletOnly(args: {
   context: PasskeyManagerContext;
+  authMethod: Extract<RegistrationAuthMethodInput, { kind: 'passkey' }>;
   walletSubject: RegisterWalletSubjectInput;
   rpId: string;
   signerSelection: Extract<RegistrationSignerSelection, { mode: 'ecdsa_only' }>;
@@ -172,6 +176,7 @@ async function registerEcdsaWalletOnly(args: {
       request: {
         walletSubject,
         rpId,
+        authMethod: args.authMethod,
         signerSelection,
       },
       headers: {
@@ -257,11 +262,15 @@ async function registerEcdsaWalletOnly(args: {
     if (!responded.ecdsa?.bootstrap) {
       throw new Error('Wallet registration HSS respond did not return ECDSA bootstrap material');
     }
+    const ecdsaBootstrap = parseWalletRegistrationEcdsaHssRespond({
+      localBootstrap: preparedClientBootstrap.localClientBootstrap,
+      serverBootstrap: responded.ecdsa.bootstrap,
+    });
     const finalized = await finalizeWalletRegistration({
       relayerUrl,
       registrationCeremonyId: startedCeremony.registrationCeremonyId,
       ecdsa: {
-        expectedKeyHandles: [responded.ecdsa.bootstrap.keyHandle],
+        expectedKeyHandles: [ecdsaBootstrap.keyHandle],
       },
     });
     const walletKeys = finalized.ecdsa?.walletKeys || [];
@@ -277,16 +286,16 @@ async function registerEcdsaWalletOnly(args: {
       phase: RegistrationEventPhase.STEP_08_STORAGE_PERSIST_STARTED,
       status: 'running',
     });
-    await context.signingEngine.storeWalletSubjectEcdsaRegistrationData({
-      walletSubjectId: finalized.walletSubjectId,
-      credential,
-      walletKeys,
-    });
     await context.signingEngine.persistWalletRegistrationEcdsaBootstrapForWalletKeys({
       walletId: toWalletId(finalized.walletSubjectId),
       relayerUrl,
       preparedClientBootstrap,
-      bootstrap: responded.ecdsa.bootstrap,
+      bootstrap: ecdsaBootstrap,
+      walletKeys,
+    });
+    await context.signingEngine.storeWalletSubjectEcdsaRegistrationData({
+      walletSubjectId: finalized.walletSubjectId,
+      credential,
       walletKeys,
     });
     emitRegistrationEvent(onEvent, eventAccountId, {
@@ -352,6 +361,7 @@ async function registerEcdsaWalletOnly(args: {
 
 export async function registerWallet(args: {
   context: PasskeyManagerContext;
+  authMethod: RegistrationAuthMethodInput;
   walletSubject: RegisterWalletSubjectInput;
   rpId: string;
   signerSelection: RegistrationSignerSelection;
@@ -371,9 +381,14 @@ export async function registerWallet(args: {
     contractTransactionId: null as string | null,
   };
 
+  if (args.authMethod.kind !== 'passkey') {
+    throw new Error('registerWallet currently supports passkey registration authority only');
+  }
+
   if (signerSelection.mode === 'ecdsa_only') {
     return await registerEcdsaWalletOnly({
       context,
+      authMethod: args.authMethod,
       walletSubject,
       rpId: args.rpId,
       signerSelection,
@@ -421,6 +436,7 @@ export async function registerWallet(args: {
       request: {
         walletSubject,
         rpId,
+        authMethod: args.authMethod,
         signerSelection,
       },
       headers: {
@@ -557,6 +573,13 @@ export async function registerWallet(args: {
     if (ecdsaSelection && !responded.ecdsa?.bootstrap) {
       throw new Error('Wallet registration HSS respond did not return ECDSA bootstrap material');
     }
+    const ecdsaBootstrap =
+      ecdsaPreparedClientBootstrap && responded.ecdsa?.bootstrap
+        ? parseWalletRegistrationEcdsaHssRespond({
+            localBootstrap: ecdsaPreparedClientBootstrap.localClientBootstrap,
+            serverBootstrap: responded.ecdsa.bootstrap,
+          })
+        : null;
     const evaluationResult = await buildThresholdEd25519RegistrationHssClientOwnedArtifact({
       context,
       preparedSession: startedCeremony.ed25519.preparedSession,
@@ -583,10 +606,10 @@ export async function registerWallet(args: {
         }).session_policy,
         sessionKind: 'jwt',
       },
-      ...(responded.ecdsa?.bootstrap
+      ...(ecdsaBootstrap
         ? {
             ecdsa: {
-              expectedKeyHandles: [responded.ecdsa.bootstrap.keyHandle],
+              expectedKeyHandles: [ecdsaBootstrap.keyHandle],
             },
           }
         : {}),
@@ -676,18 +699,18 @@ export async function registerWallet(args: {
       completedRegistration: completedThresholdEd25519Registration,
     });
     if (ecdsaWalletKeys.length > 0) {
-      await context.signingEngine.storeWalletSubjectEcdsaSignerRecords({
-        walletSubjectId: finalized.walletSubjectId,
-        walletKeys: ecdsaWalletKeys,
-      });
-      if (!ecdsaPreparedClientBootstrap || !responded.ecdsa?.bootstrap) {
+      if (!ecdsaPreparedClientBootstrap || !ecdsaBootstrap) {
         throw new Error('Wallet registration ECDSA session material was not prepared');
       }
       await context.signingEngine.persistWalletRegistrationEcdsaBootstrapForWalletKeys({
         walletId: toWalletId(finalized.walletSubjectId),
         relayerUrl,
         preparedClientBootstrap: ecdsaPreparedClientBootstrap,
-        bootstrap: responded.ecdsa.bootstrap,
+        bootstrap: ecdsaBootstrap,
+        walletKeys: ecdsaWalletKeys,
+      });
+      await context.signingEngine.storeWalletSubjectEcdsaSignerRecords({
+        walletSubjectId: finalized.walletSubjectId,
         walletKeys: ecdsaWalletKeys,
       });
     }
@@ -1066,12 +1089,16 @@ export async function addWalletSigner(args: {
     if (!responded.ecdsa?.bootstrap) {
       throw new Error('Wallet add-signer HSS respond did not return ECDSA bootstrap material');
     }
+    const ecdsaBootstrap = parseWalletRegistrationEcdsaHssRespond({
+      localBootstrap: preparedClientBootstrap.localClientBootstrap,
+      serverBootstrap: responded.ecdsa.bootstrap,
+    });
     const finalized = await finalizeWalletAddSigner({
       relayerUrl,
       walletSubjectId,
       addSignerCeremonyId: startedCeremony.addSignerCeremonyId,
       ecdsa: {
-        expectedKeyHandles: [responded.ecdsa.bootstrap.keyHandle],
+        expectedKeyHandles: [ecdsaBootstrap.keyHandle],
       },
     });
     const walletKeys = finalized.ecdsa?.walletKeys || [];
@@ -1083,15 +1110,15 @@ export async function addWalletSigner(args: {
       phase: RegistrationEventPhase.STEP_08_STORAGE_PERSIST_STARTED,
       status: 'running',
     });
-    await context.signingEngine.storeWalletSubjectEcdsaSignerRecords({
-      walletSubjectId,
-      walletKeys,
-    });
     await context.signingEngine.persistWalletRegistrationEcdsaBootstrapForWalletKeys({
       walletId: toWalletId(walletSubjectId),
       relayerUrl,
       preparedClientBootstrap,
-      bootstrap: responded.ecdsa.bootstrap,
+      bootstrap: ecdsaBootstrap,
+      walletKeys,
+    });
+    await context.signingEngine.storeWalletSubjectEcdsaSignerRecords({
+      walletSubjectId,
       walletKeys,
     });
     emitRegistrationEvent(onEvent, eventAccountId, {

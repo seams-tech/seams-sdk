@@ -86,8 +86,8 @@ test.describe('Email OTP ECDSA role-local bootstrap guard', () => {
       'parseThresholdRuntimePolicyScopeFromJwt(args.appSessionJwt)',
     );
     expect(enrollmentSetup).toContain('parseThresholdRuntimePolicyScopeFromJwt(routeAuth?.jwt)');
-    expect(source).toContain('resolveEmailOtpEcdsaRoleLocalKeyIdentityForHandle({');
-    expect(source).toContain('...(runtimePolicyScope ? { runtimePolicyScope } : {})');
+    expect(source).toContain('resolveRequiredEmailOtpEcdsaRoleLocalKeyIdentity({');
+    expect(source).toContain('runtimePolicyScope,');
   });
 
   test('enrollment keeps ECDSA and Ed25519 participant sets separate', () => {
@@ -132,8 +132,8 @@ test.describe('Email OTP ECDSA role-local bootstrap guard', () => {
 
     expect(loginSetup).toContain('parseThresholdRuntimePolicyScopeFromJwt(args.appSessionJwt)');
     expect(loginSetup).toContain('parseThresholdRuntimePolicyScopeFromJwt(routeAuth?.jwt)');
-    expect(source).toContain('resolveEmailOtpEcdsaRoleLocalKeyIdentityForHandle({');
-    expect(source).toContain('...(runtimePolicyScope ? { runtimePolicyScope } : {})');
+    expect(source).toContain('resolveRequiredEmailOtpEcdsaRoleLocalKeyIdentity({');
+    expect(source).toContain('runtimePolicyScope,');
   });
 
   test('login reconstructs existing Ed25519 sessions through session-auth path', () => {
@@ -253,6 +253,12 @@ test.describe('Email OTP ECDSA role-local bootstrap guard', () => {
     );
     expect(engineFunctionEnd).toBeGreaterThan(engineFunctionStart);
     const engineLoginBridge = engineSource.slice(engineFunctionStart, engineFunctionEnd);
+    const compactEngineLoginBridge = engineLoginBridge
+      .replace(/\s+/g, ' ')
+      .replace(/\s+([(),;])/g, '$1')
+      .replace(/\(\s+/g, '(')
+      .replace(/\s+\)/g, ')')
+      .replace(/,\)/g, ')');
 
     expect(reconstructionHelper).toContain(
       'getLastLoggedInSignerSlot(walletId, IndexedDBManager.clientDB)',
@@ -266,8 +272,8 @@ test.describe('Email OTP ECDSA role-local bootstrap guard', () => {
     expect(sdkLogin).toContain('await resolveEmailOtpEd25519SessionReconstruction(args)');
     expect(sdkLogin).toContain("ed25519ReconstructionMode: 'await'");
     expect(sdkLogin).toContain('ed25519SessionReconstruction');
-    expect(engineLoginBridge).toContain(
-      'return await this.emailOtpPublic.loginWithEmailOtpEcdsaCapabilityInternal(args);',
+    expect(compactEngineLoginBridge).toContain(
+      'return await emailOtpPublic.loginWithEmailOtpEcdsaCapabilityInternal(this.emailOtpPublicDeps, args);',
     );
   });
 

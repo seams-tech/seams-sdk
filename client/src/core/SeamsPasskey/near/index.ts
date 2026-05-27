@@ -78,6 +78,7 @@ export class NearSigner implements NearSignerCapability {
         walletSubjectId: walletSubjectIdFromString(String(accountId)),
       },
       rpId,
+      authMethod: { kind: 'passkey' },
       signerSelection: buildPasskeyNearWalletRegistrationSignerSelection({
         configs: context.configs,
         nearAccountId: String(accountId),
