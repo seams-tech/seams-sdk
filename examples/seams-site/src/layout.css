@@ -308,29 +308,33 @@ body {
   justify-self: start;
 }
 
-.touch-icon-pattern-position {
+.hero-title-brand-mark {
   position: absolute;
-  top: -1.6rem;
-  right: clamp(-0.85rem, -0.25vw, 0.65rem);
-  transform: rotate(12deg);
-  color: color-mix(in srgb, var(--site-text-primary) 10%, transparent);
-  vertical-align: middle;
+  top: -2.2rem;
+  right: clamp(-1.15rem, -0.35vw, 0.4rem);
+  opacity: 0.1;
+  transform: rotate(8deg);
   pointer-events: none;
   z-index: 0;
 }
 
+html[data-w3a-theme='dark'] .hero-title-brand-mark {
+  filter: invert(1);
+  opacity: 0.08;
+}
+
 @media (max-width: 1024px) {
-  .touch-icon-pattern-position {
-    top: -1.2rem;
-    right: clamp(-0.55rem, 1.5vw, 0.5rem);
+  .hero-title-brand-mark {
+    top: -1.7rem;
+    right: clamp(-0.75rem, 1.2vw, 0.4rem);
   }
 }
 
 @media (max-width: 768px) {
-  .touch-icon-pattern-position {
-    top: -0.65rem;
-    right: -0.3rem;
-    transform: rotate(10deg) scale(0.7);
+  .hero-title-brand-mark {
+    top: -1rem;
+    right: -0.45rem;
+    transform: rotate(8deg) scale(0.7);
     transform-origin: top right;
   }
 }

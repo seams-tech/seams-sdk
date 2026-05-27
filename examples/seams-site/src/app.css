@@ -112,6 +112,17 @@ body,
   font-family: var(--fe-font-sans);
 }
 
+.seams-logo-icon {
+  display: block;
+  flex: 0 0 auto;
+  object-fit: contain;
+  user-select: none;
+}
+
+.seams-logo-icon--transparent-mark {
+  background: transparent;
+}
+
 button,
 input,
 select,

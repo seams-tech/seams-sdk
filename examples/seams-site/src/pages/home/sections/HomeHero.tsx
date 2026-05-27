@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { TouchIcon } from '@seams/sdk/react';
 import CopyButton from '@/components/CopyButton';
 import { ArrowRightAnim } from '@/components/ArrowRightAnim';
+import SeamsLogo from '@/components/icons/SeamsLogo';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
 import { mobilePressHandlers } from '@/shared/utils/press';
 
@@ -42,8 +42,8 @@ export function HomeHero(): React.JSX.Element {
       <section className="hero" aria-labelledby="hero-title">
         <h1 id="hero-title" className="hero-title">
           <span className="hero-title-text">Simple Embedded Wallets, Secured by Passkeys + MPC</span>
-          <span className="touch-icon-pattern-position" aria-hidden="true">
-            <TouchIcon style={{ color: 'currentColor' }} strokeWidth={12} width={120} height={120} />
+          <span className="hero-title-brand-mark" aria-hidden="true">
+            <SeamsLogo variant="transparent-mark" size={148} />
           </span>
         </h1>
         <h2 className="hero-subtitle">

@@ -891,6 +891,12 @@ export function NavbarStatic(): React.JSX.Element {
   );
 
   const dropdownAriaConfig = dropdownPanes.find((config) => config.id === openDropdown) ?? null;
+  const accessCardClassName = [
+    'navbar-static__access-card',
+    openDropdown ? `navbar-static__access-card--${openDropdown}` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   function renderDropdownTrigger(config: DropdownTriggerConfig): React.JSX.Element {
     const isOpen = openDropdown === config.id;
@@ -1170,7 +1176,11 @@ export function NavbarStatic(): React.JSX.Element {
             onClick={homeProps.onClick}
             aria-label="Seams home"
           >
-            <SeamsLogo size={24} strokeWidth={1.2} />
+            <SeamsLogo
+              className="navbar-static__brand-logo"
+              variant="transparent-mark"
+              size={28}
+            />
             <span>Seams</span>
           </a>
         </div>
@@ -1208,11 +1218,13 @@ export function NavbarStatic(): React.JSX.Element {
               aria-label="Toggle dark mode"
               title="Toggle dark mode"
             >
-              {resolvedTheme === 'dark' ? (
-                <SunIcon size={18} strokeWidth={2} aria-hidden />
-              ) : (
-                <MoonIcon size={18} strokeWidth={2} aria-hidden />
-              )}
+              <span className="navbar-static__context-icon" key={resolvedTheme}>
+                {resolvedTheme === 'dark' ? (
+                  <SunIcon size={18} strokeWidth={2} aria-hidden />
+                ) : (
+                  <MoonIcon size={18} strokeWidth={2} aria-hidden />
+                )}
+              </span>
             </button>
             <button
               type="button"
@@ -1220,7 +1232,12 @@ export function NavbarStatic(): React.JSX.Element {
               aria-label={isMobileMenuOpen ? 'Close menu' : 'Open menu'}
               onClick={() => setIsMobileMenuOpen((open) => !open)}
             >
-              {isMobileMenuOpen ? <X size={20} aria-hidden /> : <Menu size={20} aria-hidden />}
+              <span
+                className="navbar-static__context-icon"
+                key={isMobileMenuOpen ? 'close' : 'menu'}
+              >
+                {isMobileMenuOpen ? <X size={20} aria-hidden /> : <Menu size={20} aria-hidden />}
+              </span>
             </button>
           </div>
         </div>
@@ -1238,7 +1255,7 @@ export function NavbarStatic(): React.JSX.Element {
         >
           <div
             ref={dropdownPanelRef}
-            className="navbar-static__access-card"
+            className={accessCardClassName}
             role="menu"
             aria-label={dropdownAriaConfig ? dropdownAriaConfig.label : undefined}
             aria-orientation="vertical"

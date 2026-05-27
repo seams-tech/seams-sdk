@@ -10,7 +10,7 @@ import {
   type RegistrationFlowEvent,
   type UnlockFlowEvent,
 } from '@seams/sdk/react';
-import { toWalletSubjectId, walletSessionRefFromSession } from '@seams/sdk';
+import { walletSessionRefFromSession } from '@seams/sdk';
 import React from 'react';
 import { toast } from 'sonner';
 
@@ -456,7 +456,6 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
                 walletId,
                 userId: exchange.session.userId,
               }),
-              subjectId: toWalletSubjectId(walletId),
               chainTarget: resolveDemoThresholdEcdsaChainTarget('tempo'),
               challengeId: challenge.challengeId,
               otpCode,
@@ -477,7 +476,6 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
                 walletId,
                 userId: exchange.session.userId,
               }),
-              subjectId: toWalletSubjectId(walletId),
               chainTarget: resolveDemoThresholdEcdsaChainTarget('tempo'),
               challengeId: challenge.challengeId,
               otpCode,

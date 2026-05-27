@@ -23,6 +23,8 @@
   --navbar-access-divider: color-mix(in srgb, var(--navbar-border) 56%, transparent);
   --navbar-access-muted: color-mix(in srgb, var(--site-text-secondary) 88%, var(--navbar-text) 12%);
   --navbar-access-visual: color-mix(in srgb, var(--navbar-border) 78%, var(--navbar-text) 22%);
+  --navbar-menu-art-opacity: 0.64;
+  --navbar-menu-art-opacity-hover: 0.72;
   --navbar-access-card-shadow:
     0 1px 1px 0 color-mix(in srgb, var(--navbar-shadow-color) 68%, transparent),
     0 3px 8px -4px color-mix(in srgb, var(--navbar-shadow-color) 78%, transparent),
@@ -183,6 +185,14 @@ html[data-w3a-theme='light'] .navbar-static__shell.is-scrolled {
   background: transparent;
 }
 
+.navbar-static__brand-logo {
+  opacity: 0.92;
+}
+
+html[data-w3a-theme='dark'] .navbar-static__brand-logo.seams-logo-icon--transparent-mark {
+  filter: invert(1);
+}
+
 .navbar-static__links {
   display: flex;
   align-items: center;
@@ -243,12 +253,14 @@ html[data-w3a-theme='light'] .navbar-static__shell.is-scrolled {
   opacity: 0.62;
   transition:
     transform 240ms cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 240ms ease;
+    opacity 240ms ease,
+    filter 240ms ease;
 }
 
 .navbar-static__chevron.is-open {
-  transform: rotate(180deg);
+  transform: rotate(180deg) scale(1.08);
   opacity: 1;
+  filter: blur(0);
 }
 
 .navbar-static__access-popup {
@@ -275,12 +287,24 @@ html[data-w3a-theme='light'] .navbar-static__shell.is-scrolled {
 }
 
 .navbar-static__access-card {
+  --navbar-access-grid-height: min(500px, calc(100vh - 156px));
+  --navbar-access-grid-min-height: 440px;
   position: relative;
   overflow: hidden;
   border-radius: 16px;
   background: var(--navbar-access-card-surface);
   backdrop-filter: blur(12px);
   box-shadow: var(--navbar-access-card-shadow);
+}
+
+.navbar-static__access-card--about {
+  --navbar-access-grid-height: min(430px, calc(100vh - 156px));
+  --navbar-access-grid-min-height: 390px;
+}
+
+.navbar-static__access-card--pricing {
+  --navbar-access-grid-height: min(470px, calc(100vh - 156px));
+  --navbar-access-grid-min-height: 430px;
 }
 
 .navbar-static__access-card::before {
@@ -299,13 +323,16 @@ html[data-w3a-theme='light'] .navbar-static__shell.is-scrolled {
   position: relative;
   display: grid;
   grid-template: minmax(0, 1fr) / minmax(0, 1fr);
-  height: min(576px, calc(100vh - 156px));
-  min-height: 500px;
+  height: var(--navbar-access-grid-height);
+  min-height: var(--navbar-access-grid-min-height);
   margin: 4px;
   overflow: hidden;
   border-radius: 12px;
   background: var(--navbar-access-panel-surface);
   box-shadow: var(--navbar-access-grid-shadow);
+  transition:
+    height 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    min-height 280ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .navbar-static__access-pane {
@@ -313,13 +340,20 @@ html[data-w3a-theme='light'] .navbar-static__shell.is-scrolled {
   min-width: 0;
   min-height: 0;
   height: 100%;
+  opacity: 0;
+  filter: blur(3px);
   visibility: hidden;
   pointer-events: none;
   will-change: opacity, transform;
-  transition: transform 250ms cubic-bezier(0.5, 1, 0.89, 1);
+  transition:
+    transform 250ms cubic-bezier(0.5, 1, 0.89, 1),
+    opacity 180ms ease,
+    filter 180ms ease;
 }
 
 .navbar-static__access-pane.is-active {
+  opacity: 1;
+  filter: blur(0);
   visibility: visible;
   transform: translateX(0);
   pointer-events: auto;
@@ -430,21 +464,49 @@ html[data-w3a-theme='light'] .navbar-static__shell.is-scrolled {
   display: block;
   align-self: stretch;
   min-height: 0;
-  opacity: 0.82;
+  opacity: var(--navbar-menu-art-opacity);
   pointer-events: none;
 }
 
+.navbar-static__access-product-tile:hover .navbar-static__access-product-visual,
+.navbar-static__access-product-tile:focus-visible .navbar-static__access-product-visual {
+  opacity: var(--navbar-menu-art-opacity-hover);
+}
+
 .navbar-static__access-product-tile--guides .navbar-static__access-product-visual {
-  min-height: 250px;
+  position: absolute;
+  left: 28px;
+  right: -38px;
+  top: 128px;
+  bottom: -22px;
+  min-height: 0;
 }
 
 .navbar-static__access-product-tile--tools .navbar-static__access-product-visual,
 .navbar-static__access-product-tile--use-cases .navbar-static__access-product-visual {
   position: absolute;
-  left: 38%;
-  right: 28px;
-  top: 116px;
-  bottom: 20px;
+  left: 24%;
+  right: -56px;
+  top: 88px;
+  bottom: -24px;
+}
+
+.navbar-static__access-product-tile--guides .navbar-static__access-product-visual img {
+  object-position: right bottom;
+  transform: scale(1.1);
+  transform-origin: right bottom;
+}
+
+.navbar-static__access-product-tile--tools .navbar-static__access-product-visual img {
+  object-position: right bottom;
+  transform: rotate(-6deg);
+  transform-origin: right bottom;
+}
+
+.navbar-static__access-product-tile--use-cases .navbar-static__access-product-visual img {
+  object-position: right bottom;
+  transform: scale(1.2);
+  transform-origin: right bottom;
 }
 
 .navbar-static__access-product-visual img,
@@ -515,15 +577,28 @@ html[data-w3a-theme='dark'] .navbar-static__themed-image-dark {
 .navbar-static__access-pricing-tile--embedded-wallets .navbar-static__access-pricing-visual,
 .navbar-static__access-pricing-tile--access-passes .navbar-static__access-pricing-visual {
   position: absolute;
-  left: 21%;
-  right: 12%;
-  top: 16px;
-  height: 96px;
+  left: auto;
+  right: -18px;
+  top: 50%;
+  bottom: auto;
+  width: min(52%, 240px);
+  height: 132px;
+  transform: translateY(-50%);
 }
 
 .navbar-static__access-pricing-tile--biometric-auth {
   grid-column: 2;
   grid-row: 1 / span 2;
+}
+
+.navbar-static__access-pricing-tile--biometric-auth .navbar-static__access-pricing-visual {
+  position: absolute;
+  left: 50%;
+  right: auto;
+  top: -40px;
+  bottom: 118px;
+  width: min(78%, 560px);
+  transform: translateX(-50%);
 }
 
 .navbar-static__access-cta-tile--products,
@@ -552,6 +627,14 @@ html[data-w3a-theme='dark'] .navbar-static__themed-image-dark {
   gap: 12px;
 }
 
+.navbar-static__access-pricing-tile--embedded-wallets .navbar-static__access-pricing-copy,
+.navbar-static__access-pricing-tile--access-passes .navbar-static__access-pricing-copy {
+  grid-row: 1 / -1;
+  align-self: center;
+  max-width: 78%;
+  transform: translateY(-8px);
+}
+
 .navbar-static__access-pricing-title {
   color: var(--navbar-text);
   font-size: 21px;
@@ -569,12 +652,21 @@ html[data-w3a-theme='dark'] .navbar-static__themed-image-dark {
 }
 
 .navbar-static__access-pricing-visual {
-  position: relative;
+  position: absolute;
   z-index: 1;
   display: block;
   min-height: 0;
-  opacity: 0.82;
+  opacity: var(--navbar-menu-art-opacity);
   pointer-events: none;
+}
+
+.navbar-static__access-pricing-visual img {
+  object-position: right bottom;
+}
+
+.navbar-static__access-pricing-tile:hover .navbar-static__access-pricing-visual,
+.navbar-static__access-pricing-tile:focus-visible .navbar-static__access-pricing-visual {
+  opacity: var(--navbar-menu-art-opacity-hover);
 }
 
 .navbar-static__access-section {
@@ -657,6 +749,19 @@ html[data-w3a-theme='dark'] .navbar-static__themed-image-dark {
 .navbar-static__access-panel--pricing .navbar-static__access-visual {
   width: 100%;
   height: 178px;
+}
+
+.navbar-static__access-panel--about .navbar-static__access-visual {
+  width: calc(100% + 0.75rem);
+  height: 194px;
+  margin-right: -0.75rem;
+  margin-bottom: -0.5rem;
+}
+
+.navbar-static__access-panel--about .navbar-static__access-visual img {
+  object-position: right bottom;
+  transform: scale(0.98);
+  transform-origin: right bottom;
 }
 
 .navbar-static__access-visual {
@@ -995,6 +1100,26 @@ html[data-w3a-theme='light'] .navbar-static__link--button.is-active {
   background: color-mix(in srgb, var(--navbar-surface3) 70%, transparent);
 }
 
+.navbar-static__context-icon {
+  display: inline-grid;
+  place-items: center;
+  animation: navbar-context-icon-in 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes navbar-context-icon-in {
+  from {
+    opacity: 0;
+    transform: scale(0.82);
+    filter: blur(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0);
+  }
+}
+
 .navbar-static__mobile-toggle {
   display: none;
   appearance: none;
@@ -1005,6 +1130,14 @@ html[data-w3a-theme='light'] .navbar-static__link--button.is-active {
   background: color-mix(in srgb, var(--navbar-surface2) 65%, transparent);
   color: var(--navbar-text);
   cursor: pointer;
+  transition:
+    background 180ms ease,
+    border-color 180ms ease;
+}
+
+.navbar-static__mobile-toggle:hover {
+  border-color: var(--navbar-border-hover);
+  background: color-mix(in srgb, var(--navbar-surface3) 70%, transparent);
 }
 
 .navbar-static__mobile-menu {
@@ -1251,6 +1384,7 @@ html[data-w3a-theme='light'] .navbar-static__link--button.is-active {
   .navbar-static__link,
   .navbar-static__brand,
   .navbar-static__access-popup,
+  .navbar-static__access-grid-shell,
   .navbar-static__access-pane,
   .navbar-static__access-product-tile,
   .navbar-static__access-pricing-tile,
@@ -1262,6 +1396,10 @@ html[data-w3a-theme='light'] .navbar-static__link--button.is-active {
   .navbar-static__mobile-menu,
   .navbar-static__chevron {
     transition: none !important;
+  }
+
+  .navbar-static__context-icon {
+    animation: none !important;
   }
 }
 

@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 import { FRONTEND_CONFIG } from '@/config';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
 import { DashboardGoogleAuthCard } from '@/shared/auth/DashboardGoogleAuthCard';
+import SeamsLogo from '@/components/icons/SeamsLogo';
 import {
   ensureGoogleIdentityScriptLoaded,
   fetchGoogleAuthOptions,
@@ -142,6 +143,15 @@ export function DashboardLoginPage(): React.JSX.Element {
 
   return (
     <main className="dashboard-login" aria-label="Dashboard login page">
+      <a
+        className="dashboard-login__brand"
+        href={homeProps.href}
+        onClick={homeProps.onClick}
+        aria-label="Seams home"
+      >
+        <SeamsLogo size={44} />
+        <span>Seams Console</span>
+      </a>
       <DashboardGoogleAuthCard
         classNames={{
           root: 'navbar-static__auth-modal',
