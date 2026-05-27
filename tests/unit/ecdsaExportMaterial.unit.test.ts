@@ -131,7 +131,7 @@ test.describe('ECDSA export material', () => {
   test('ready export material uses cached artifact from ready material provenance', async () => {
     const record = makeRecord();
     const cachedExportArtifact: ThresholdEcdsaCanonicalExportArtifact = {
-      artifactKind: 'ecdsa-hss-secp256k1-key-v1',
+      artifactKind: 'ecdsa-hss-secp256k1-export',
       chainTarget: EVM_TARGET,
       signingRootId: String(record.signingRootId || 'project:dev'),
       signingRootVersion: String(record.signingRootVersion || 'default'),

@@ -187,8 +187,7 @@ test.describe('threshold-ecdsa postgres key store schema validation', () => {
             )
           ) {
             createdPartialSharedIdentityIndex = true;
-            expect(normalized).toContain('wallet_session_user_id IS NOT NULL');
-            expect(normalized).toContain('subject_id IS NOT NULL');
+            expect(normalized).toContain('wallet_id IS NOT NULL');
             expect(normalized).toContain('rp_id IS NOT NULL');
             expect(normalized).toContain('signing_root_id IS NOT NULL');
             expect(normalized).toContain('signing_root_version IS NOT NULL');
@@ -221,15 +220,13 @@ test.describe('threshold-ecdsa postgres key store schema validation', () => {
             normalized.startsWith('SELECT relayer_key_id, record_json FROM threshold_ecdsa_keys')
           ) {
             checkedSharedIdentityColumns = true;
-            expect(normalized).toContain('wallet_session_user_id = $3');
-            expect(normalized).toContain('subject_id = $4');
-            expect(normalized).toContain('rp_id = $5');
-            expect(normalized).toContain('signing_root_id = $6');
-            expect(normalized).toContain('signing_root_version = $7');
+            expect(normalized).toContain('wallet_id = $3');
+            expect(normalized).toContain('rp_id = $4');
+            expect(normalized).toContain('signing_root_id = $5');
+            expect(normalized).toContain('signing_root_version = $6');
             expect(values).toEqual([
               namespace,
               record.ecdsaThresholdKeyId,
-              record.walletId,
               record.walletId,
               record.rpId,
               record.signingRootId,
@@ -239,10 +236,9 @@ test.describe('threshold-ecdsa postgres key store schema validation', () => {
           }
           if (
             normalized.startsWith('INSERT INTO threshold_ecdsa_keys') &&
-            normalized.includes('wallet_session_user_id') &&
-            normalized.includes('subject_id') &&
+            normalized.includes('wallet_id') &&
             normalized.includes('rp_id') &&
-            normalized.includes('VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)')
+            normalized.includes('VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)')
           ) {
             insertedDeclaredIdentityColumns = true;
             expect(values).toEqual([
@@ -250,7 +246,6 @@ test.describe('threshold-ecdsa postgres key store schema validation', () => {
               record.ecdsaThresholdKeyId,
               record.keyHandle,
               record.ecdsaThresholdKeyId,
-              record.walletId,
               record.walletId,
               record.rpId,
               record.signingRootId,
@@ -263,7 +258,7 @@ test.describe('threshold-ecdsa postgres key store schema validation', () => {
           }
           if (
             normalized.startsWith('UPDATE threshold_ecdsa_keys SET') &&
-            normalized.includes('public_key_b64u = $11') &&
+            normalized.includes('public_key_b64u = $10') &&
             normalized.includes('WHERE namespace = $1 AND relayer_key_id = $2')
           ) {
             repairedIndexedIdentity = true;
@@ -272,7 +267,6 @@ test.describe('threshold-ecdsa postgres key store schema validation', () => {
               repairRecord.ecdsaThresholdKeyId,
               repairRecord.keyHandle,
               repairRecord.ecdsaThresholdKeyId,
-              repairRecord.walletId,
               repairRecord.walletId,
               repairRecord.rpId,
               repairRecord.signingRootId,
@@ -284,7 +278,7 @@ test.describe('threshold-ecdsa postgres key store schema validation', () => {
           }
           if (
             normalized.startsWith('UPDATE threshold_ecdsa_keys SET') &&
-            normalized.includes('record_json = $12') &&
+            normalized.includes('record_json = $11') &&
             normalized.includes('WHERE namespace = $1 AND relayer_key_id = $2')
           ) {
             throw new Error('legacy key-handle derivation update should not run');

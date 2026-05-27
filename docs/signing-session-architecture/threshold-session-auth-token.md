@@ -28,7 +28,6 @@ type RegistrationContinuationClaims = {
   kind: 'registration_continuation_v1';
   walletId: string;
   rpId: string;
-  subjectId: WalletSubjectId;
   thresholdEcdsaChainTargets: ThresholdEcdsaChainTarget[];
   registrationExpiresAtMs: number;
   runtimePolicyScope: RuntimePolicyScope;
@@ -41,7 +40,7 @@ Rules:
 - Scope to wallet subject, RP ID, runtime policy scope, and explicit ECDSA targets.
 - Allow only registration/post-registration ECDSA provisioning.
 - Reject for transaction signing, key export, restore, budget admission, presign, and maintenance restore.
-- Server HSS prepare compares continuation claims to `sessionPolicy.subjectId` and `sessionPolicy.chainTarget`.
+- Server HSS prepare compares continuation claims to `sessionPolicy.walletId` and `sessionPolicy.chainTarget`.
 
 This is separate future work. Do not implement registration continuation token semantics in this rename pass.
 

@@ -1,3 +1,4 @@
+import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 import { ConsoleBillingPrepaidReservationError } from './errors';
 import {
   buildEmptySummary,
@@ -68,7 +69,7 @@ const DEFAULT_RESERVATION_TTL_MS = 5 * 60_000;
 
 function makeId(prefix: string, now: Date): string {
   const ts = now.getTime().toString(36);
-  const rand = Math.random().toString(36).slice(2, 10);
+  const rand = secureRandomBase36(8, 'console IDs');
   return `${prefix}_${ts}_${rand}`;
 }
 
@@ -114,7 +115,10 @@ function expireReservationInStore(
   updatedAtIso: string,
 ): void {
   if (reservation.status !== 'RESERVED') return;
-  store.summary.reservedMinor = Math.max(0, store.summary.reservedMinor - reservation.requestedMinor);
+  store.summary.reservedMinor = Math.max(
+    0,
+    store.summary.reservedMinor - reservation.requestedMinor,
+  );
   store.summary.activeReservationCount = Math.max(0, store.summary.activeReservationCount - 1);
   store.summary.updatedAt = updatedAtIso;
   reservation.status = 'EXPIRED';
@@ -135,7 +139,9 @@ export function createInMemoryConsoleBillingPrepaidReservationService(
   return {
     async getReservationBySourceEventId(ctx, sourceEventId) {
       const store = requireOrgStore(stores, ctx.orgId, now());
-      const reservationId = store.reservationIdsBySourceEventId.get(String(sourceEventId || '').trim());
+      const reservationId = store.reservationIdsBySourceEventId.get(
+        String(sourceEventId || '').trim(),
+      );
       if (!reservationId) return null;
       const reservation = store.reservationsById.get(reservationId);
       return reservation ? cloneReservation(reservation) : null;
@@ -152,7 +158,9 @@ export function createInMemoryConsoleBillingPrepaidReservationService(
       const normalized = normalizeReserveRequest(request, createdAt, defaultReservationTtlMs);
       const store = requireOrgStore(stores, ctx.orgId, createdAt);
 
-      const existingReservationId = store.reservationIdsBySourceEventId.get(normalized.sourceEventId);
+      const existingReservationId = store.reservationIdsBySourceEventId.get(
+        normalized.sourceEventId,
+      );
       if (existingReservationId) {
         const existing = store.reservationsById.get(existingReservationId);
         if (existing) {
@@ -166,7 +174,10 @@ export function createInMemoryConsoleBillingPrepaidReservationService(
         expireReservationInStore(store, reservation, createdAtIso);
       }
 
-      if (store.summary.reservedMinor + normalized.estimatedSpendMinor > normalized.postedBalanceMinor) {
+      if (
+        store.summary.reservedMinor + normalized.estimatedSpendMinor >
+        normalized.postedBalanceMinor
+      ) {
         throw createInsufficientAvailableBalanceError({
           postedBalanceMinor: normalized.postedBalanceMinor,
           reservedMinor: store.summary.reservedMinor,
@@ -226,12 +237,18 @@ export function createInMemoryConsoleBillingPrepaidReservationService(
         );
       }
 
-      store.summary.reservedMinor = Math.max(0, store.summary.reservedMinor - reservation.requestedMinor);
+      store.summary.reservedMinor = Math.max(
+        0,
+        store.summary.reservedMinor - reservation.requestedMinor,
+      );
       store.summary.activeReservationCount = Math.max(0, store.summary.activeReservationCount - 1);
       store.summary.updatedAt = updatedAtIso;
       reservation.status = 'SETTLED';
       reservation.settledMinor = normalized.settledSpendMinor;
-      reservation.releasedMinor = Math.max(reservation.requestedMinor - normalized.settledSpendMinor, 0);
+      reservation.releasedMinor = Math.max(
+        reservation.requestedMinor - normalized.settledSpendMinor,
+        0,
+      );
       reservation.txOrExecutionRef = normalized.txOrExecutionRef;
       reservation.pricingVersion = normalized.pricingVersion;
       reservation.updatedAt = updatedAtIso;
@@ -258,7 +275,10 @@ export function createInMemoryConsoleBillingPrepaidReservationService(
         );
       }
 
-      store.summary.reservedMinor = Math.max(0, store.summary.reservedMinor - reservation.requestedMinor);
+      store.summary.reservedMinor = Math.max(
+        0,
+        store.summary.reservedMinor - reservation.requestedMinor,
+      );
       store.summary.activeReservationCount = Math.max(0, store.summary.activeReservationCount - 1);
       store.summary.updatedAt = updatedAtIso;
       reservation.status = 'RELEASED';

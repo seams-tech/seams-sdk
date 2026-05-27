@@ -178,6 +178,9 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
   const rpId = String(args.bootstrap.keygen.rpId || '').trim();
   const ecdsaThresholdKeyId = String(keyRef.ecdsaThresholdKeyId || '').trim();
   const ethereumAddress = normalizeEthereumAddress(keyRef.ethereumAddress);
+  const clientVerifyingShareB64u = String(
+    keyRef.backendBinding?.clientVerifyingShareB64u || '',
+  ).trim();
   const thresholdEcdsaPublicKeyB64u = String(keyRef.thresholdEcdsaPublicKeyB64u || '').trim();
   const relayerKeyId = String(keyRef.backendBinding?.relayerKeyId || '').trim();
   const participantIds = Array.isArray(keyRef.participantIds)
@@ -189,6 +192,7 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
     !ecdsaThresholdKeyId ||
     !rpId ||
     !ethereumAddress ||
+    !clientVerifyingShareB64u ||
     !relayerKeyId ||
     !participantIds.length ||
     (sessionKind === 'jwt' && !thresholdSessionAuthToken)
@@ -267,8 +271,10 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
       sessionKind,
       ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
       keyHandle,
+      ecdsaThresholdKeyId,
       ethereumAddress,
       relayerKeyId,
+      clientVerifyingShareB64u,
       ...(thresholdEcdsaPublicKeyB64u ? { thresholdEcdsaPublicKeyB64u } : {}),
       participantIds,
     },

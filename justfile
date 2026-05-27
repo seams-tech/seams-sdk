@@ -37,9 +37,9 @@ ed25519-hss-fv-verus:
   cargo hss-fv parity
   cargo hss-fv verus-check
 
-# Run the committed fixture parity test for `ecdsa-hss`.
+# Run the active V2 crate parity tests for `ecdsa-hss`.
 ecdsa-hss-fv-parity:
-  cargo test -q --manifest-path crates/ecdsa-hss/formal-verification/verus/Cargo.toml --tests
+  cargo test -q --manifest-path crates/ecdsa-hss/Cargo.toml --test role_local_mvp
 
 # Run the current Verus verifier for `ecdsa-hss`.
 ecdsa-hss-fv-verus:

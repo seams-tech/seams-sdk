@@ -3,7 +3,6 @@ import { toAccountId } from '@/core/types/accountIds';
 import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
 import type { ThresholdEd25519SessionRecord } from '@/core/signingEngine/session/persistence/records';
 import {
-  deriveBaseEcdsaSubjectIdFromWalletId,
   toEvmFamilyEcdsaKeyHandle,
   type VerifiedEcdsaPublicFacts,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
@@ -432,7 +431,6 @@ export async function exportEcdsaKeyWithAuthorization(
         rpId: args.rpId,
         thresholdSessionAuthToken,
         sessionKind,
-        subjectId: deriveBaseEcdsaSubjectIdFromWalletId(args.walletSession.walletId),
         ecdsaThresholdKeyId: args.record.ecdsaThresholdKeyId,
         signingRootId: args.record.signingRootId,
         signingRootVersion: args.record.signingRootVersion,

@@ -13,21 +13,13 @@ use signer_core::secp256k1::{
 };
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-use crate::shared::context::{
-    encode_context_v1, encode_context_v2, EcdsaHssStableKeyContextV1, EcdsaHssStableKeyContextV2,
-};
-use crate::wire::{ExplicitExportAuthorizationV1, ServerEvalOperationV1};
+use crate::shared::context::{encode_context, EcdsaHssStableKeyContext};
+use crate::wire::ServerEvalOperation;
 
-const CONTEXT_BINDING_DOMAIN: &[u8] = b"ecdsa-hss:role-local:v1:context-binding";
-const CLIENT_SHARE_DOMAIN: &[u8] = b"ecdsa-hss:role-local:v1:client-share";
-const RELAYER_SHARE_DOMAIN: &[u8] = b"ecdsa-hss:role-local:v1:relayer-share";
-const PUBLIC_TRANSCRIPT_DOMAIN: &[u8] = b"ecdsa-hss:role-local:v1:public-transcript";
-const EXPORT_AUTHORIZATION_DOMAIN: &[u8] = b"ecdsa-hss:role-local:v1:export-authorization";
-const CONTEXT_BINDING_DOMAIN_V2: &[u8] = b"ecdsa-hss:role-local:v2:context-binding";
-const CLIENT_SHARE_DOMAIN_V2: &[u8] = b"ecdsa-hss:role-local:v2:client-share";
-const RELAYER_SHARE_DOMAIN_V2: &[u8] = b"ecdsa-hss:role-local:v2:relayer-share";
-const PUBLIC_TRANSCRIPT_DOMAIN_V2: &[u8] = b"ecdsa-hss:role-local:v2:public-transcript";
-const EXPORT_AUTHORIZATION_DOMAIN_V2: &[u8] = b"ecdsa-hss:role-local:v2:export-authorization";
+const CONTEXT_BINDING_DOMAIN: &[u8] = b"ecdsa-hss:role-local:v2:context-binding";
+const CLIENT_SHARE_DOMAIN: &[u8] = b"ecdsa-hss:role-local:v2:client-share";
+const RELAYER_SHARE_DOMAIN: &[u8] = b"ecdsa-hss:role-local:v2:relayer-share";
+const PUBLIC_TRANSCRIPT_DOMAIN: &[u8] = b"ecdsa-hss:role-local:v2:public-transcript";
 
 const FIELD_CONTEXT_BYTES: u8 = 0x01;
 const FIELD_CONTEXT_BINDING: u8 = 0x01;
@@ -41,19 +33,9 @@ const FIELD_THRESHOLD_PUBLIC_KEY: u8 = 0x05;
 const FIELD_THRESHOLD_ETHEREUM_ADDRESS: u8 = 0x06;
 const FIELD_CLIENT_SHARE_RETRY_COUNTER: u8 = 0x07;
 const FIELD_RELAYER_SHARE_RETRY_COUNTER: u8 = 0x08;
-const FIELD_EXPORT_PUBLIC_TRANSCRIPT_DIGEST: u8 = 0x01;
-const FIELD_EXPORT_WALLET_SESSION_USER_ID: u8 = 0x07;
-const FIELD_EXPORT_ECDSA_THRESHOLD_KEY_ID: u8 = 0x08;
-const FIELD_EXPORT_CLIENT_DEVICE_ID: u8 = 0x09;
-const FIELD_EXPORT_CLIENT_SESSION_ID: u8 = 0x0a;
-const FIELD_EXPORT_RELAYER_KEY_ID: u8 = 0x0b;
-const FIELD_EXPORT_REQUEST_NONCE: u8 = 0x0c;
-const FIELD_EXPORT_CONFIRMATION_DIGEST: u8 = 0x0d;
-const FIELD_EXPORT_ISSUED_AT_UNIX_MS: u8 = 0x0e;
-const FIELD_EXPORT_EXPIRES_AT_UNIX_MS: u8 = 0x0f;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PublicIdentityV1 {
+pub struct PublicIdentity {
     pub context_bytes: Vec<u8>,
     pub context_binding32: [u8; 32],
     pub client_public_key33: [u8; 33],
@@ -64,10 +46,8 @@ pub struct PublicIdentityV1 {
     pub relayer_share_retry_counter: u32,
 }
 
-pub type PublicIdentityV2 = PublicIdentityV1;
-
 #[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
-pub struct ClientRoleShareV1 {
+pub struct ClientRoleShare {
     #[zeroize(skip)]
     pub context_bytes: Vec<u8>,
     pub context_binding32: [u8; 32],
@@ -77,11 +57,9 @@ pub struct ClientRoleShareV1 {
     pub mapped_client_share32: [u8; 32],
 }
 
-pub type ClientRoleShareV2 = ClientRoleShareV1;
-
-impl fmt::Debug for ClientRoleShareV1 {
+impl fmt::Debug for ClientRoleShare {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ClientRoleShareV1")
+        f.debug_struct("ClientRoleShare")
             .field("context_bytes_len", &self.context_bytes.len())
             .field("context_binding32", &self.context_binding32)
             .field("retry_counter", &self.retry_counter)
@@ -93,7 +71,7 @@ impl fmt::Debug for ClientRoleShareV1 {
 }
 
 #[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
-pub struct RelayerRoleShareV1 {
+pub struct RelayerRoleShare {
     #[zeroize(skip)]
     pub context_bytes: Vec<u8>,
     pub context_binding32: [u8; 32],
@@ -103,11 +81,9 @@ pub struct RelayerRoleShareV1 {
     pub mapped_relayer_share32: [u8; 32],
 }
 
-pub type RelayerRoleShareV2 = RelayerRoleShareV1;
-
-impl fmt::Debug for RelayerRoleShareV1 {
+impl fmt::Debug for RelayerRoleShare {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("RelayerRoleShareV1")
+        f.debug_struct("RelayerRoleShare")
             .field("context_bytes_len", &self.context_bytes.len())
             .field("context_binding32", &self.context_binding32)
             .field("retry_counter", &self.retry_counter)
@@ -118,92 +94,45 @@ impl fmt::Debug for RelayerRoleShareV1 {
     }
 }
 
-pub fn context_binding_v1(context: &EcdsaHssStableKeyContextV1) -> CoreResult<[u8; 32]> {
-    let context_bytes = encode_context_v1(context)?;
-    context_binding_from_bytes_v1(&context_bytes)
+pub fn context_binding(context: &EcdsaHssStableKeyContext) -> CoreResult<[u8; 32]> {
+    let context_bytes = encode_context(context)?;
+    context_binding_from_bytes(&context_bytes)
 }
 
-pub fn context_binding_v2(context: &EcdsaHssStableKeyContextV2) -> CoreResult<[u8; 32]> {
-    let context_bytes = encode_context_v2(context)?;
-    context_binding_from_bytes_v2(&context_bytes)
-}
-
-pub fn derive_client_share_v1(
-    context: &EcdsaHssStableKeyContextV1,
+pub fn derive_client_share(
+    context: &EcdsaHssStableKeyContext,
     y_client32_le: [u8; 32],
-) -> CoreResult<ClientRoleShareV1> {
-    let context_bytes = encode_context_v1(context)?;
-    let context_binding32 = context_binding_from_bytes_v1(&context_bytes)?;
-    let (x_client32, retry_counter) = derive_role_share32(
-        CLIENT_SHARE_DOMAIN,
-        &context_bytes,
-        &context_binding32,
-        y_client32_le,
-        0,
-    )?;
-    let client_public_key33 = private_key_to_public_key33(&x_client32, "client role public key")?;
-    let mapped_client_share32 = vec_to_fixed_32(
-        map_additive_share_to_threshold_signatures_share_2p(
-            &x_client32,
-            THRESHOLD_SECP256K1_2P_CLIENT_PARTICIPANT_ID,
-        )?,
-        "mapped client share",
-    )?;
-
-    Ok(ClientRoleShareV1 {
-        context_bytes,
-        context_binding32,
-        retry_counter,
-        x_client32,
-        client_public_key33,
-        mapped_client_share32,
-    })
-}
-
-pub fn derive_client_share_v2(
-    context: &EcdsaHssStableKeyContextV2,
-    y_client32_le: [u8; 32],
-) -> CoreResult<ClientRoleShareV2> {
-    let context_bytes = encode_context_v2(context)?;
-    let context_binding32 = context_binding_from_bytes_v2(&context_bytes)?;
+) -> CoreResult<ClientRoleShare> {
+    let context_bytes = encode_context(context)?;
+    let context_binding32 = context_binding_from_bytes(&context_bytes)?;
     derive_client_share_from_context_bytes(
-        CLIENT_SHARE_DOMAIN_V2,
+        CLIENT_SHARE_DOMAIN,
         context_bytes,
         context_binding32,
         y_client32_le,
     )
 }
 
-pub fn derive_relayer_share_v1(
-    context: &EcdsaHssStableKeyContextV1,
+pub fn derive_relayer_share(
+    context: &EcdsaHssStableKeyContext,
     y_relayer32_le: [u8; 32],
-) -> CoreResult<RelayerRoleShareV1> {
-    derive_relayer_share_with_retry_v1(context, y_relayer32_le, 0)
+) -> CoreResult<RelayerRoleShare> {
+    derive_relayer_share_with_retry(context, y_relayer32_le, 0)
 }
 
-pub fn derive_relayer_share_v2(
-    context: &EcdsaHssStableKeyContextV2,
-    y_relayer32_le: [u8; 32],
-) -> CoreResult<RelayerRoleShareV2> {
-    derive_relayer_share_with_retry_v2(context, y_relayer32_le, 0)
-}
-
-pub fn derive_relayer_share_for_client_public_v1(
-    context: &EcdsaHssStableKeyContextV1,
+pub fn derive_relayer_share_for_client_public(
+    context: &EcdsaHssStableKeyContext,
     y_relayer32_le: [u8; 32],
     client_public_key33: &[u8; 33],
     client_share_retry_counter: u32,
-) -> CoreResult<(RelayerRoleShareV1, PublicIdentityV1)> {
+) -> CoreResult<(RelayerRoleShare, PublicIdentity)> {
     let client_public_key33 = validate_public_key33(client_public_key33, "client public key")?;
     let mut relayer_share_retry_counter = 0u32;
 
     loop {
-        let relayer_share = derive_relayer_share_with_retry_v1(
-            context,
-            y_relayer32_le,
-            relayer_share_retry_counter,
-        )?;
-        let identity = match compose_public_identity_v1(
+        let relayer_share =
+            derive_relayer_share_with_retry(context, y_relayer32_le, relayer_share_retry_counter)?;
+        let identity = match compose_public_identity(
             context,
             &client_public_key33,
             client_share_retry_counter,
@@ -222,87 +151,14 @@ pub fn derive_relayer_share_for_client_public_v1(
     }
 }
 
-pub fn derive_relayer_share_for_client_public_v2(
-    context: &EcdsaHssStableKeyContextV2,
-    y_relayer32_le: [u8; 32],
+pub fn compose_public_identity(
+    context: &EcdsaHssStableKeyContext,
     client_public_key33: &[u8; 33],
     client_share_retry_counter: u32,
-) -> CoreResult<(RelayerRoleShareV2, PublicIdentityV2)> {
-    let client_public_key33 = validate_public_key33(client_public_key33, "client public key")?;
-    let mut relayer_share_retry_counter = 0u32;
-
-    loop {
-        let relayer_share = derive_relayer_share_with_retry_v2(
-            context,
-            y_relayer32_le,
-            relayer_share_retry_counter,
-        )?;
-        let identity = match compose_public_identity_v2(
-            context,
-            &client_public_key33,
-            client_share_retry_counter,
-            &relayer_share,
-        ) {
-            Ok(identity) => identity,
-            Err(err) if is_identity_public_key_sum_error(&err) => {
-                relayer_share_retry_counter = relayer_share_retry_counter
-                    .checked_add(1)
-                    .ok_or_else(|| SignerCoreError::internal("relayer retry counter overflow"))?;
-                continue;
-            }
-            Err(err) => return Err(err),
-        };
-        return Ok((relayer_share, identity));
-    }
-}
-
-pub fn compose_public_identity_v1(
-    context: &EcdsaHssStableKeyContextV1,
-    client_public_key33: &[u8; 33],
-    client_share_retry_counter: u32,
-    relayer_share: &RelayerRoleShareV1,
-) -> CoreResult<PublicIdentityV1> {
-    let context_bytes = encode_context_v1(context)?;
-    let context_binding32 = context_binding_from_bytes_v1(&context_bytes)?;
-    if context_binding32 != relayer_share.context_binding32 {
-        return Err(SignerCoreError::invalid_input(
-            "relayer share context binding does not match context",
-        ));
-    }
-
-    let client_public_key33 = validate_public_key33(client_public_key33, "client public key")?;
-    let relayer_public_key33 =
-        validate_public_key33(&relayer_share.relayer_public_key33, "relayer public key")?;
-    let threshold_public_key33 = add_public_keys_non_identity_33(
-        &client_public_key33,
-        &relayer_public_key33,
-        "threshold public key",
-    )?;
-    let threshold_ethereum_address20 = vec_to_fixed_20(
-        secp256k1_public_key_33_to_ethereum_address_20(&threshold_public_key33)?,
-        "threshold ethereum address",
-    )?;
-
-    Ok(PublicIdentityV1 {
-        context_bytes,
-        context_binding32,
-        client_public_key33,
-        relayer_public_key33,
-        threshold_public_key33,
-        threshold_ethereum_address20,
-        client_share_retry_counter,
-        relayer_share_retry_counter: relayer_share.retry_counter,
-    })
-}
-
-pub fn compose_public_identity_v2(
-    context: &EcdsaHssStableKeyContextV2,
-    client_public_key33: &[u8; 33],
-    client_share_retry_counter: u32,
-    relayer_share: &RelayerRoleShareV2,
-) -> CoreResult<PublicIdentityV2> {
-    let context_bytes = encode_context_v2(context)?;
-    let context_binding32 = context_binding_from_bytes_v2(&context_bytes)?;
+    relayer_share: &RelayerRoleShare,
+) -> CoreResult<PublicIdentity> {
+    let context_bytes = encode_context(context)?;
+    let context_binding32 = context_binding_from_bytes(&context_bytes)?;
     compose_public_identity_from_parts(
         context_bytes,
         context_binding32,
@@ -312,10 +168,10 @@ pub fn compose_public_identity_v2(
     )
 }
 
-pub fn reconstruct_export_key_v1(
-    client_share: &ClientRoleShareV1,
+pub fn reconstruct_export_key(
+    client_share: &ClientRoleShare,
     relayer_export_share32: &[u8; 32],
-    identity: &PublicIdentityV1,
+    identity: &PublicIdentity,
 ) -> CoreResult<[u8; 32]> {
     if client_share.context_binding32 != identity.context_binding32 {
         return Err(SignerCoreError::invalid_input(
@@ -359,19 +215,11 @@ pub fn reconstruct_export_key_v1(
     Ok(x_export32)
 }
 
-pub fn reconstruct_export_key_v2(
-    client_share: &ClientRoleShareV2,
-    relayer_export_share32: &[u8; 32],
-    identity: &PublicIdentityV2,
+pub fn public_transcript_digest(
+    operation: ServerEvalOperation,
+    identity: &PublicIdentity,
 ) -> CoreResult<[u8; 32]> {
-    reconstruct_export_key_v1(client_share, relayer_export_share32, identity)
-}
-
-pub fn public_transcript_digest_v1(
-    operation: ServerEvalOperationV1,
-    identity: &PublicIdentityV1,
-) -> CoreResult<[u8; 32]> {
-    let operation_kind = [operation_kind_byte_v1(operation)];
+    let operation_kind = [operation_kind_byte(operation)];
     let client_share_retry_counter = identity.client_share_retry_counter.to_be_bytes();
     let relayer_share_retry_counter = identity.relayer_share_retry_counter.to_be_bytes();
     let frame = frame_digest_input(
@@ -410,142 +258,15 @@ pub fn public_transcript_digest_v1(
     Ok(hasher.finalize().into())
 }
 
-pub fn public_transcript_digest_v2(
-    operation: ServerEvalOperationV1,
-    identity: &PublicIdentityV2,
-) -> CoreResult<[u8; 32]> {
-    public_transcript_digest_with_domain(PUBLIC_TRANSCRIPT_DOMAIN_V2, operation, identity)
-}
-
-pub fn export_authorization_digest_v1(
-    operation: ServerEvalOperationV1,
-    identity: &PublicIdentityV1,
-    authorization: &ExplicitExportAuthorizationV1,
-) -> CoreResult<[u8; 32]> {
-    let public_transcript_digest32 = public_transcript_digest_v1(operation, identity)?;
-    let issued_at_unix_ms = authorization.issued_at_unix_ms.to_be_bytes();
-    let expires_at_unix_ms = authorization.expires_at_unix_ms.to_be_bytes();
-    let frame = frame_digest_input(
-        EXPORT_AUTHORIZATION_DOMAIN,
-        &[
-            (
-                FIELD_EXPORT_PUBLIC_TRANSCRIPT_DIGEST,
-                public_transcript_digest32.as_slice(),
-            ),
-            (FIELD_CONTEXT_BINDING, identity.context_binding32.as_slice()),
-            (
-                FIELD_CLIENT_PUBLIC_KEY,
-                identity.client_public_key33.as_slice(),
-            ),
-            (
-                FIELD_RELAYER_PUBLIC_KEY,
-                identity.relayer_public_key33.as_slice(),
-            ),
-            (
-                FIELD_THRESHOLD_PUBLIC_KEY,
-                identity.threshold_public_key33.as_slice(),
-            ),
-            (
-                FIELD_THRESHOLD_ETHEREUM_ADDRESS,
-                identity.threshold_ethereum_address20.as_slice(),
-            ),
-            (
-                FIELD_EXPORT_WALLET_SESSION_USER_ID,
-                authorization.wallet_session_user_id.as_bytes(),
-            ),
-            (
-                FIELD_EXPORT_ECDSA_THRESHOLD_KEY_ID,
-                authorization.ecdsa_threshold_key_id.as_bytes(),
-            ),
-            (
-                FIELD_EXPORT_CLIENT_DEVICE_ID,
-                authorization.client_device_id.as_bytes(),
-            ),
-            (
-                FIELD_EXPORT_CLIENT_SESSION_ID,
-                authorization.client_session_id.as_bytes(),
-            ),
-            (
-                FIELD_EXPORT_RELAYER_KEY_ID,
-                authorization.relayer_key_id.as_bytes(),
-            ),
-            (
-                FIELD_EXPORT_REQUEST_NONCE,
-                authorization.export_request_nonce32.as_slice(),
-            ),
-            (
-                FIELD_EXPORT_CONFIRMATION_DIGEST,
-                authorization.confirmation_digest32.as_slice(),
-            ),
-            (FIELD_EXPORT_ISSUED_AT_UNIX_MS, issued_at_unix_ms.as_slice()),
-            (
-                FIELD_EXPORT_EXPIRES_AT_UNIX_MS,
-                expires_at_unix_ms.as_slice(),
-            ),
-        ],
-    )?;
-    let mut hasher = Sha256::new();
-    hasher.update(frame);
-    Ok(hasher.finalize().into())
-}
-
-pub fn export_authorization_digest_v2(
-    operation: ServerEvalOperationV1,
-    identity: &PublicIdentityV2,
-    authorization: &ExplicitExportAuthorizationV1,
-) -> CoreResult<[u8; 32]> {
-    export_authorization_digest_with_domains(
-        PUBLIC_TRANSCRIPT_DOMAIN_V2,
-        EXPORT_AUTHORIZATION_DOMAIN_V2,
-        operation,
-        identity,
-        authorization,
-    )
-}
-
-fn derive_relayer_share_with_retry_v1(
-    context: &EcdsaHssStableKeyContextV1,
+fn derive_relayer_share_with_retry(
+    context: &EcdsaHssStableKeyContext,
     y_relayer32_le: [u8; 32],
     retry_counter: u32,
-) -> CoreResult<RelayerRoleShareV1> {
-    let context_bytes = encode_context_v1(context)?;
-    let context_binding32 = context_binding_from_bytes_v1(&context_bytes)?;
-    let (x_relayer32, retry_counter) = derive_role_share32(
-        RELAYER_SHARE_DOMAIN,
-        &context_bytes,
-        &context_binding32,
-        y_relayer32_le,
-        retry_counter,
-    )?;
-    let relayer_public_key33 =
-        private_key_to_public_key33(&x_relayer32, "relayer role public key")?;
-    let mapped_relayer_share32 = vec_to_fixed_32(
-        map_additive_share_to_threshold_signatures_share_2p(
-            &x_relayer32,
-            THRESHOLD_SECP256K1_2P_RELAYER_PARTICIPANT_ID,
-        )?,
-        "mapped relayer share",
-    )?;
-
-    Ok(RelayerRoleShareV1 {
-        context_bytes,
-        context_binding32,
-        retry_counter,
-        x_relayer32,
-        relayer_public_key33,
-        mapped_relayer_share32,
-    })
-}
-
-fn derive_relayer_share_with_retry_v2(
-    context: &EcdsaHssStableKeyContextV2,
-    y_relayer32_le: [u8; 32],
-    retry_counter: u32,
-) -> CoreResult<RelayerRoleShareV2> {
-    let context_bytes = encode_context_v2(context)?;
-    let context_binding32 = context_binding_from_bytes_v2(&context_bytes)?;
+) -> CoreResult<RelayerRoleShare> {
+    let context_bytes = encode_context(context)?;
+    let context_binding32 = context_binding_from_bytes(&context_bytes)?;
     derive_relayer_share_from_context_bytes(
-        RELAYER_SHARE_DOMAIN_V2,
+        RELAYER_SHARE_DOMAIN,
         context_bytes,
         context_binding32,
         y_relayer32_le,
@@ -558,7 +279,7 @@ fn derive_client_share_from_context_bytes(
     context_bytes: Vec<u8>,
     context_binding32: [u8; 32],
     y_client32_le: [u8; 32],
-) -> CoreResult<ClientRoleShareV1> {
+) -> CoreResult<ClientRoleShare> {
     let (x_client32, retry_counter) = derive_role_share32(
         role_domain,
         &context_bytes,
@@ -575,7 +296,7 @@ fn derive_client_share_from_context_bytes(
         "mapped client share",
     )?;
 
-    Ok(ClientRoleShareV1 {
+    Ok(ClientRoleShare {
         context_bytes,
         context_binding32,
         retry_counter,
@@ -591,7 +312,7 @@ fn derive_relayer_share_from_context_bytes(
     context_binding32: [u8; 32],
     y_relayer32_le: [u8; 32],
     retry_counter: u32,
-) -> CoreResult<RelayerRoleShareV1> {
+) -> CoreResult<RelayerRoleShare> {
     let (x_relayer32, retry_counter) = derive_role_share32(
         role_domain,
         &context_bytes,
@@ -609,7 +330,7 @@ fn derive_relayer_share_from_context_bytes(
         "mapped relayer share",
     )?;
 
-    Ok(RelayerRoleShareV1 {
+    Ok(RelayerRoleShare {
         context_bytes,
         context_binding32,
         retry_counter,
@@ -624,8 +345,8 @@ fn compose_public_identity_from_parts(
     context_binding32: [u8; 32],
     client_public_key33: &[u8; 33],
     client_share_retry_counter: u32,
-    relayer_share: &RelayerRoleShareV1,
-) -> CoreResult<PublicIdentityV1> {
+    relayer_share: &RelayerRoleShare,
+) -> CoreResult<PublicIdentity> {
     if context_binding32 != relayer_share.context_binding32 {
         return Err(SignerCoreError::invalid_input(
             "relayer share context binding does not match context",
@@ -645,7 +366,7 @@ fn compose_public_identity_from_parts(
         "threshold ethereum address",
     )?;
 
-    Ok(PublicIdentityV1 {
+    Ok(PublicIdentity {
         context_bytes,
         context_binding32,
         client_public_key33,
@@ -655,125 +376,6 @@ fn compose_public_identity_from_parts(
         client_share_retry_counter,
         relayer_share_retry_counter: relayer_share.retry_counter,
     })
-}
-
-fn public_transcript_digest_with_domain(
-    domain: &[u8],
-    operation: ServerEvalOperationV1,
-    identity: &PublicIdentityV1,
-) -> CoreResult<[u8; 32]> {
-    let operation_kind = [operation_kind_byte_v1(operation)];
-    let client_share_retry_counter = identity.client_share_retry_counter.to_be_bytes();
-    let relayer_share_retry_counter = identity.relayer_share_retry_counter.to_be_bytes();
-    let frame = frame_digest_input(
-        domain,
-        &[
-            (FIELD_CONTEXT_BINDING, identity.context_binding32.as_slice()),
-            (FIELD_TRANSCRIPT_OPERATION, operation_kind.as_slice()),
-            (
-                FIELD_CLIENT_PUBLIC_KEY,
-                identity.client_public_key33.as_slice(),
-            ),
-            (
-                FIELD_RELAYER_PUBLIC_KEY,
-                identity.relayer_public_key33.as_slice(),
-            ),
-            (
-                FIELD_THRESHOLD_PUBLIC_KEY,
-                identity.threshold_public_key33.as_slice(),
-            ),
-            (
-                FIELD_THRESHOLD_ETHEREUM_ADDRESS,
-                identity.threshold_ethereum_address20.as_slice(),
-            ),
-            (
-                FIELD_CLIENT_SHARE_RETRY_COUNTER,
-                client_share_retry_counter.as_slice(),
-            ),
-            (
-                FIELD_RELAYER_SHARE_RETRY_COUNTER,
-                relayer_share_retry_counter.as_slice(),
-            ),
-        ],
-    )?;
-    let mut hasher = Sha256::new();
-    hasher.update(frame);
-    Ok(hasher.finalize().into())
-}
-
-fn export_authorization_digest_with_domains(
-    public_transcript_domain: &[u8],
-    export_authorization_domain: &[u8],
-    operation: ServerEvalOperationV1,
-    identity: &PublicIdentityV1,
-    authorization: &ExplicitExportAuthorizationV1,
-) -> CoreResult<[u8; 32]> {
-    let public_transcript_digest32 =
-        public_transcript_digest_with_domain(public_transcript_domain, operation, identity)?;
-    let issued_at_unix_ms = authorization.issued_at_unix_ms.to_be_bytes();
-    let expires_at_unix_ms = authorization.expires_at_unix_ms.to_be_bytes();
-    let frame = frame_digest_input(
-        export_authorization_domain,
-        &[
-            (
-                FIELD_EXPORT_PUBLIC_TRANSCRIPT_DIGEST,
-                public_transcript_digest32.as_slice(),
-            ),
-            (FIELD_CONTEXT_BINDING, identity.context_binding32.as_slice()),
-            (
-                FIELD_CLIENT_PUBLIC_KEY,
-                identity.client_public_key33.as_slice(),
-            ),
-            (
-                FIELD_RELAYER_PUBLIC_KEY,
-                identity.relayer_public_key33.as_slice(),
-            ),
-            (
-                FIELD_THRESHOLD_PUBLIC_KEY,
-                identity.threshold_public_key33.as_slice(),
-            ),
-            (
-                FIELD_THRESHOLD_ETHEREUM_ADDRESS,
-                identity.threshold_ethereum_address20.as_slice(),
-            ),
-            (
-                FIELD_EXPORT_WALLET_SESSION_USER_ID,
-                authorization.wallet_session_user_id.as_bytes(),
-            ),
-            (
-                FIELD_EXPORT_ECDSA_THRESHOLD_KEY_ID,
-                authorization.ecdsa_threshold_key_id.as_bytes(),
-            ),
-            (
-                FIELD_EXPORT_CLIENT_DEVICE_ID,
-                authorization.client_device_id.as_bytes(),
-            ),
-            (
-                FIELD_EXPORT_CLIENT_SESSION_ID,
-                authorization.client_session_id.as_bytes(),
-            ),
-            (
-                FIELD_EXPORT_RELAYER_KEY_ID,
-                authorization.relayer_key_id.as_bytes(),
-            ),
-            (
-                FIELD_EXPORT_REQUEST_NONCE,
-                authorization.export_request_nonce32.as_slice(),
-            ),
-            (
-                FIELD_EXPORT_CONFIRMATION_DIGEST,
-                authorization.confirmation_digest32.as_slice(),
-            ),
-            (FIELD_EXPORT_ISSUED_AT_UNIX_MS, issued_at_unix_ms.as_slice()),
-            (
-                FIELD_EXPORT_EXPIRES_AT_UNIX_MS,
-                expires_at_unix_ms.as_slice(),
-            ),
-        ],
-    )?;
-    let mut hasher = Sha256::new();
-    hasher.update(frame);
-    Ok(hasher.finalize().into())
 }
 
 fn derive_role_share32(
@@ -802,7 +404,7 @@ fn derive_role_share32(
     Ok((nonzero_scalar_to_32_be(&scalar), retry_counter))
 }
 
-fn context_binding_from_bytes_v1(context_bytes: &[u8]) -> CoreResult<[u8; 32]> {
+fn context_binding_from_bytes(context_bytes: &[u8]) -> CoreResult<[u8; 32]> {
     let frame = frame_digest_input(
         CONTEXT_BINDING_DOMAIN,
         &[(FIELD_CONTEXT_BYTES, context_bytes)],
@@ -812,22 +414,12 @@ fn context_binding_from_bytes_v1(context_bytes: &[u8]) -> CoreResult<[u8; 32]> {
     Ok(hasher.finalize().into())
 }
 
-fn context_binding_from_bytes_v2(context_bytes: &[u8]) -> CoreResult<[u8; 32]> {
-    let frame = frame_digest_input(
-        CONTEXT_BINDING_DOMAIN_V2,
-        &[(FIELD_CONTEXT_BYTES, context_bytes)],
-    )?;
-    let mut hasher = Sha256::new();
-    hasher.update(frame);
-    Ok(hasher.finalize().into())
-}
-
-fn operation_kind_byte_v1(operation: ServerEvalOperationV1) -> u8 {
+fn operation_kind_byte(operation: ServerEvalOperation) -> u8 {
     match operation {
-        ServerEvalOperationV1::RegistrationBootstrap => 0x01,
-        ServerEvalOperationV1::SessionBootstrap => 0x02,
-        ServerEvalOperationV1::NonExportSign => 0x03,
-        ServerEvalOperationV1::ExplicitKeyExport => 0x04,
+        ServerEvalOperation::RegistrationBootstrap => 0x01,
+        ServerEvalOperation::SessionBootstrap => 0x02,
+        ServerEvalOperation::NonExportSign => 0x03,
+        ServerEvalOperation::ExplicitKeyExport => 0x04,
     }
 }
 

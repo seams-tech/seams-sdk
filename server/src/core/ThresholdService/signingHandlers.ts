@@ -35,6 +35,7 @@ import {
   signThresholdEd25519CosignerGrantV1,
   verifyThresholdEd25519CosignerGrantV1,
 } from './coordinatorGrant';
+import { secureRandomIdFragment } from './secureRandomId';
 import {
   addEd25519ScalarsB64u,
   deriveRelayerCosignerSharesFromRelayerSigningShare,
@@ -394,11 +395,7 @@ export class ThresholdEd25519SigningHandlers {
   }
 
   private createThresholdEd25519SigningSessionId(): string {
-    const id =
-      typeof globalThis.crypto?.randomUUID === 'function'
-        ? globalThis.crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    return `sign-${id}`;
+    return `sign-${secureRandomIdFragment()}`;
   }
 
   private async signCosignerGrant(

@@ -45,12 +45,11 @@ const invalidEcdsaWriteInput: BuildCurrentEcdsaSealedSessionRecordInput = {
 };
 void invalidEcdsaWriteInput;
 
-const invalidCurrentEcdsaRestoreKeyId: BuildCurrentEcdsaSealedSessionRecordInput = {
+const validCurrentEcdsaRestoreKeyId: BuildCurrentEcdsaSealedSessionRecordInput = {
   ...invalidEcdsaWriteInput,
   ecdsaRestore: {
     ...invalidEcdsaWriteInput.ecdsaRestore,
-    // @ts-expect-error current ECDSA sealed restore metadata no longer persists key ids.
     ecdsaThresholdKeyId: 'legacy-key-id',
   },
 };
-void invalidCurrentEcdsaRestoreKeyId;
+void validCurrentEcdsaRestoreKeyId;

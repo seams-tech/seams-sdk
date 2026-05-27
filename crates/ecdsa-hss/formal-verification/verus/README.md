@@ -3,9 +3,9 @@
 This directory is the Verus implementation-proof track for the narrow stable
 slice of [crates/ecdsa-hss](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss).
 
-Current bootstrap scope:
+Current bootstrap scope after old-context removal:
 
-- `encode_context_v1`
+- `encode_context_v2`
 - canonical `x` derivation shape
 - additive-share derivation with explicit retry/share-construction logic
 - fixed participant-ID mapping with the actual `{1,2}` 2P mapping formula
@@ -42,14 +42,11 @@ pretending the full protocol is already implemented.
   - `src/integration/share_mapping.rs`
   - `src/server/policy.rs`
   - `src/server/state.rs`
-- fixture parity test exists at:
-  [tests/fixture_parity.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/verus/tests/fixture_parity.rs)
-- hidden-eval/runtime-seam anti-drift tests now exist at:
-  [tests/anti_drift.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/verus/tests/anti_drift.rs)
 - proof inventory exists at:
   [../docs/proof-inventory.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/docs/proof-inventory.md)
-- role-local fixture output is emitted by:
-  [../../src/bin/emit_fixture_json.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/bin/emit_fixture_json.rs)
+- the old executable fixture parity and hidden-eval anti-drift tests were
+  removed with the old context version; new parity checks should target the
+  active v2 crate API.
 
 ## Current Command Path
 
@@ -60,8 +57,8 @@ Current bootstrap commands:
 - `just ecdsa-hss-fv`
 
 `just ecdsa-hss-fv-verus` runs `cargo verus verify` for the narrow `ecdsa-hss`
-Verus crate. `just ecdsa-hss-fv` runs the executable FV test suite first
-(fixture parity plus hidden-eval anti-drift) and then runs the Verus verifier.
+Verus crate. `just ecdsa-hss-fv-parity` now runs the active V2 crate parity
+test instead of the removed old executable parity tests.
 
 ## Current Proof Boundary
 

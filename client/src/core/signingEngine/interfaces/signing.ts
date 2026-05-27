@@ -11,7 +11,7 @@ export type SignatureAlgorithm = 'ed25519' | 'secp256k1' | 'webauthnP256';
 export type SignatureBytes = Uint8Array;
 
 export type ThresholdEcdsaCanonicalExportArtifact = {
-  artifactKind: 'ecdsa-hss-secp256k1-key-v1';
+  artifactKind: 'ecdsa-hss-secp256k1-export';
   chainTarget: ThresholdEcdsaChainTarget;
   signingRootId: string;
   signingRootVersion?: string;

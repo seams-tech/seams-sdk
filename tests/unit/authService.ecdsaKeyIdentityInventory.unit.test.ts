@@ -47,13 +47,12 @@ test('threshold ECDSA key identity inventory resolves keyHandle targets', async 
   service.setThresholdSigningService({
     getEcdsaKeyIdentityMetadata: async (input: Record<string, unknown>) => {
       expect(input).toEqual({
-        walletSessionUserId: 'alice.testnet',
+        walletId: 'alice.testnet',
         rpId: 'wallet.example.test',
         keySelector: { kind: 'key_handle', keyHandle: 'ehss-key-alice' },
       });
       return {
         walletId: 'alice.testnet',
-        subjectId: 'alice.testnet',
         rpId: 'wallet.example.test',
         keyScope: 'evm-family' as const,
         keyHandle: 'ehss-key-alice',

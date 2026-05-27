@@ -18,7 +18,6 @@ import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
   toWalletId,
-  toWalletSubjectId,
   walletSubjectIdFromWalletProfile,
   type ThresholdEcdsaChainTarget,
   type WalletId,
@@ -55,6 +54,9 @@ export type EmailOtpAuthSubjectId = string & {
 };
 export type EmailOtpProviderId = string & {
   readonly __brand: 'EmailOtpProviderId';
+};
+export type BaseEcdsaSubjectId = WalletSubjectId & {
+  readonly __baseEcdsaSubjectIdBrand: 'BaseEcdsaSubjectId';
 };
 export type VerifiedThresholdSessionAuth = string & {
   readonly __brand: 'VerifiedThresholdSessionAuth';
@@ -401,7 +403,6 @@ export type EvmFamilyEcdsaMaterialResolution =
 
 export type BuildEvmFamilyEcdsaKeyIdentityInput = {
   walletId: unknown;
-  subjectId: unknown;
   rpId: unknown;
   ecdsaThresholdKeyId: unknown;
   signingRootId: unknown;
@@ -410,10 +411,7 @@ export type BuildEvmFamilyEcdsaKeyIdentityInput = {
   thresholdOwnerAddress: unknown;
 };
 
-export type BuildBaseEvmFamilyEcdsaKeyIdentityInput = Omit<
-  BuildEvmFamilyEcdsaKeyIdentityInput,
-  'subjectId'
->;
+export type BuildBaseEvmFamilyEcdsaKeyIdentityInput = BuildEvmFamilyEcdsaKeyIdentityInput;
 
 export type BuildEvmFamilyEcdsaKeyHandleInput = ThresholdEcdsaKeyHandleInput;
 
@@ -454,13 +452,15 @@ export type BuildResolvedEvmFamilyEcdsaKeyInput<
   authBinding: TAuthBinding;
 };
 
-export type BuildThresholdEcdsaSessionTransportAuthInput = {
-  thresholdSessionKind: 'jwt';
-  thresholdSessionAuthToken: unknown;
-} | {
-  thresholdSessionKind: 'cookie';
-  thresholdSessionAuthToken?: never;
-};
+export type BuildThresholdEcdsaSessionTransportAuthInput =
+  | {
+      thresholdSessionKind: 'jwt';
+      thresholdSessionAuthToken: unknown;
+    }
+  | {
+      thresholdSessionKind: 'cookie';
+      thresholdSessionAuthToken?: never;
+    };
 
 export type BuildReadyEcdsaSignerSessionInput = {
   keyRef: ThresholdEcdsaSecp256k1KeyRef;
@@ -757,13 +757,6 @@ export function buildEvmFamilyEcdsaKeyIdentity(
   input: BuildEvmFamilyEcdsaKeyIdentityInput,
 ): EvmFamilyEcdsaKeyIdentity {
   const walletId = toWalletId(input.walletId);
-  const subjectId = toWalletSubjectId(input.subjectId);
-  const expectedSubjectId = walletSubjectIdFromWalletProfile({ walletId });
-  if (subjectId !== expectedSubjectId) {
-    throw new Error(
-      '[evm-family-ecdsa] subjectId must match the wallet-derived base ECDSA subject',
-    );
-  }
   return buildNormalizedEvmFamilyEcdsaKeyIdentity({
     walletId,
     rpId: input.rpId,
@@ -822,14 +815,12 @@ export function buildSessionBootstrapKeyContext(input: {
   };
 }
 
-export function deriveBaseEcdsaSubjectIdFromWalletId(walletId: WalletId | string): WalletSubjectId {
-  return walletSubjectIdFromWalletProfile({ walletId: toWalletId(walletId) });
-}
-
-export function deriveBaseEcdsaSubjectIdFromKey(
-  key: Pick<EvmFamilyEcdsaKeyIdentity, 'walletId'>,
-): WalletSubjectId {
-  return deriveBaseEcdsaSubjectIdFromWalletId(key.walletId);
+export function deriveBaseEcdsaSubjectIdFromWalletId(
+  walletId: WalletId | string,
+): BaseEcdsaSubjectId {
+  return walletSubjectIdFromWalletProfile({
+    walletId: toWalletId(walletId),
+  }) as BaseEcdsaSubjectId;
 }
 
 export async function deriveEvmFamilyEcdsaKeyHandle(
@@ -1404,9 +1395,9 @@ export function deriveEvmFamilyKeyFingerprint(
   key: EvmFamilyEcdsaKeyIdentity,
 ): EvmFamilyKeyFingerprint {
   const canonical = alphabetizeStringify({
-    version: 'evm_family_ecdsa_key_fingerprint_v1',
+    version: 'evm_family_ecdsa_key_fingerprint_v2',
     walletId: String(key.walletId),
-    subjectId: String(deriveBaseEcdsaSubjectIdFromKey(key)),
+    baseEcdsaSubjectId: String(deriveBaseEcdsaSubjectIdFromWalletId(key.walletId)),
     rpId: String(key.rpId),
     keyScope: key.keyScope,
     ecdsaThresholdKeyId: String(key.ecdsaThresholdKeyId),

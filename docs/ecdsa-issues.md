@@ -22,7 +22,7 @@ Formal verification work should focus on our implementation boundary: Rust/WASM 
 
 ### Problem
 
-`ThresholdSigningService` creates ECDSA `mpcSessionId` and `signingSessionId` values with `globalThis.crypto.randomUUID()` when available, then falls back to `Date.now()` plus `Math.random()`.
+`ThresholdSigningService` previously created ECDSA `mpcSessionId` and `signingSessionId` values with `globalThis.crypto.randomUUID()` when available, then fell back to `Date.now()` plus `Math.random()`.
 
 Those IDs are bearer capabilities for:
 
@@ -47,9 +47,8 @@ Weak fallback randomness makes those capabilities guessable in runtimes where We
    - `byteLength: number`
 
 2. Generate opaque bytes with secure randomness only:
-   - Prefer `globalThis.crypto.getRandomValues` when present.
-   - Use Node `randomBytes` in Node runtimes.
-   - Throw a typed `unsupported` error when no secure RNG exists.
+   - Require `globalThis.crypto.getRandomValues`.
+   - Throw when no supported secure RNG exists.
 
 3. Encode IDs as `prefix + base64url(randomBytes)`.
 
@@ -74,8 +73,7 @@ Add focused unit tests:
 
 - secure helper returns the requested prefix and expected entropy length.
 - helper uses `globalThis.crypto.getRandomValues` in Web Crypto runtimes.
-- helper uses Node `randomBytes` when Web Crypto is unavailable in Node.
-- helper throws when both secure RNG sources are unavailable.
+- helper throws when Web Crypto is unavailable.
 - ECDSA authorize and sign-init paths still return valid `mpcSessionId` and `signingSessionId` prefixes.
 
 ## P1-B: Preserve MPC Authorization On `pool_empty`
@@ -277,7 +275,7 @@ This makes upstream linearization recover the original additive shares. The math
 ### Code To Change
 
 - `crates/signer-core/src/secp256k1.rs`
-- `shared/src/threshold/secp256k1Ecdsa2pShareMapping.ts`
+- WASM wrappers that expose `map_additive_share_to_threshold_signatures_share_2p`
 - `crates/signer-core/formal-verification/verus/src/secp256k1/mapping.rs`
 - `formal-verification/docs/proof-inventory.md`
 - `crates/signer-core/Cargo.toml`
@@ -467,39 +465,45 @@ Keep executable anti-drift tests under `crates/signer-core/formal-verification/v
    - retries after `pool_empty` preserve the same authorization scope
 
 10. Add a user/key scope model:
-   - model wallet session, RP ID, signing root, `ecdsaThresholdKeyId`, participant IDs, and `relayerKeyId`
-   - prove a session can reach `ThresholdEcdsaPresignSession::message` only when all scope fields match the persisted integrated key
-   - prove user A cannot run MPC against user B's relayer share in the model
-   - prove a signing session can only finalize for the same persisted public key selected at sign init
+
+- model wallet session, RP ID, signing root, `ecdsaThresholdKeyId`, participant IDs, and `relayerKeyId`
+- prove a session can reach `ThresholdEcdsaPresignSession::message` only when all scope fields match the persisted integrated key
+- prove user A cannot run MPC against user B's relayer share in the model
+- prove a signing session can only finalize for the same persisted public key selected at sign init
 
 11. Add implementation-facing bridge tests:
-   - signer-core mapping vectors match Verus expected values
-   - HSS-derived additive shares map to backend shares with the same vectors
-   - local two-party presign/sign roundtrip verifies against the canonical public key
-   - malformed protocol message test burns the session at the server boundary
-   - cross-user `ecdsaThresholdKeyId` misuse does not reach the WASM presign message handler
+
+- signer-core mapping vectors match Verus expected values
+- HSS-derived additive shares map to backend shares with the same vectors
+- local two-party presign/sign roundtrip verifies against the canonical public key
+- malformed protocol message test burns the session at the server boundary
+- cross-user `ecdsaThresholdKeyId` misuse does not reach the WASM presign message handler
 
 12. Add theorem inventory entries:
-   - `FV-SIGNER-CORE-006`: Cait-Sith participant-coordinate anti-drift
-   - `FV-SIGNER-CORE-007`: threshold ECDSA signing-share algebra
-   - `FV-SIGNER-CORE-008`: threshold ECDSA finalization algebra
-   - `FV-SIGNER-CORE-009`: presign lifecycle burn/single-use model
-   - `FV-SIGNER-CORE-010`: per-user relayer-share blast-radius model
+
+- `FV-SIGNER-CORE-006`: Cait-Sith participant-coordinate anti-drift
+- `FV-SIGNER-CORE-007`: threshold ECDSA signing-share algebra
+- `FV-SIGNER-CORE-008`: threshold ECDSA finalization algebra
+- `FV-SIGNER-CORE-009`: presign lifecycle burn/single-use model
+- `FV-SIGNER-CORE-010`: per-user relayer-share blast-radius model
 
 13. Add proof commands:
-   - `just signer-core-fv-threshold-ecdsa`
-   - include it in `just signer-core-fv`
-   - keep vector cleanliness checks in the same command path
+
+- `just signer-core-fv-threshold-ecdsa`
+- include it in `just signer-core-fv`
+- keep vector cleanliness checks in the same command path
 
 14. Add a Lean track after the Verus model stabilizes:
-   - extract the narrow Rust facade with Charon/Aeneas
-   - mirror the HSS Lean boundary pattern
-   - prove algebraic lemmas for the share mapping and signing equation
-   - keep upstream Cait-Sith properties as named assumptions
+
+- extract the narrow Rust facade with Charon/Aeneas
+- mirror the HSS Lean boundary pattern
+- prove algebraic lemmas for the share mapping and signing equation
+- keep upstream Cait-Sith properties as named assumptions
 
 15. Update proof inventory:
-   - add theorem IDs for share mapping, signing algebra, lifecycle burn behavior, single-use presignatures, and per-user blast radius
-   - mark dependency on the pinned `near/threshold-signatures` participant-coordinate convention
+
+- add theorem IDs for share mapping, signing algebra, lifecycle burn behavior, single-use presignatures, and per-user blast radius
+- mark dependency on the pinned `near/threshold-signatures` participant-coordinate convention
 
 ### Acceptance Criteria
 

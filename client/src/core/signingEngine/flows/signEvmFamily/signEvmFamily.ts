@@ -29,6 +29,7 @@ import type { SignerWorkerManagerContext } from '../../workerManager/SignerWorke
 import {
   assertSameSigningLaneIdentity,
   SigningOperationIntent,
+  SigningSessionPlanKind,
   type SigningOperationFingerprint,
   type SigningOperationId,
 } from '../../session/operationState/types';
@@ -40,7 +41,8 @@ import { computeSigningOperationFingerprint } from '../../session/planning/opera
 import {
   type SigningSessionBudgetStatusAuth,
   type SigningSessionPreparedBudgetIdentity,
-  type SigningSessionBudgetReservation,
+  isSigningSessionBudgetReservation,
+  type SigningSessionBudgetReserveResult,
 } from '../../session/budget/budget';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
@@ -423,6 +425,7 @@ async function signEvmFamilyAttempt(
       deps,
       walletSession: args.walletSession,
       signingTarget,
+      signingOperation: createTransactionSigningOperation(),
       diagnostics: ecdsaAttemptDiagnostics,
       signingSessionCoordinator,
       forceFreshAuth: attempt.forceFreshAuth === true,
@@ -1217,7 +1220,7 @@ async function signEvmFamilyAttempt(
   let walletSigningSessionBudgetReserved = false;
   const reserveWalletSigningSessionBudget = async (
     operation: BudgetAdmittedOperation<SelectedEcdsaLane>,
-  ): Promise<SigningSessionBudgetReservation | null> => {
+  ): Promise<SigningSessionBudgetReserveResult> => {
     if (args.request.senderSignatureAlgorithm !== 'secp256k1') return null;
     const prepared = requireBudgetAdmittedPreparedEcdsaSession(
       undefined,
@@ -1242,7 +1245,7 @@ async function signEvmFamilyAttempt(
       key: requirePreparedEcdsaBudgetKey(prepared, 'wallet signing-session reservation'),
       ...(prepared.budgetStatusAuth ? { trustedStatusAuth: prepared.budgetStatusAuth } : {}),
     });
-    walletSigningSessionBudgetReserved = Boolean(reservation);
+    walletSigningSessionBudgetReserved = isSigningSessionBudgetReservation(reservation);
     return reservation;
   };
   const recordFailedWalletSigningSessionSpend = (
@@ -1386,6 +1389,11 @@ async function signEvmFamilyAttempt(
       publicFacts?.thresholdOwnerAddress,
     );
     if (!thresholdOwnerAddress) {
+      if (signingSessionPlan.kind === SigningSessionPlanKind.EmailOtpReauth) {
+        return {
+          kind: 'not_required',
+        };
+      }
       throw new Error(
         '[SigningEngine][ecdsa] prepared EVM-family signing requires threshold owner address',
       );

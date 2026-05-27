@@ -7,7 +7,7 @@ namespace EcdsaHssPrivacy
 open EcdsaHssBoundary
 
 def handwrittenStateOfGeneratedBoundary
-    (boundary : GeneratedVisibleRespondBoundaryV1)
+    (boundary : GeneratedVisibleRespondBoundary)
     (canonicalX32 : Bytes32)
     (clientSecrets : ClientSecretState)
     (serverSecrets : ServerSecretState) : ProtocolExecutionState :=
@@ -19,11 +19,11 @@ def handwrittenStateOfGeneratedBoundary
   }
 
 def clientVisibleBoundaryOfGeneratedBoundary
-    (boundary : GeneratedVisibleRespondBoundaryV1) : ClientVisibleBoundary :=
+    (boundary : GeneratedVisibleRespondBoundary) : ClientVisibleBoundary :=
   clientVisibleBoundaryOfRespondBoundary (toHandwrittenRespondBoundary boundary)
 
 def clientObservableProfileOfGeneratedBoundary
-    (boundary : GeneratedVisibleRespondBoundaryV1)
+    (boundary : GeneratedVisibleRespondBoundary)
     (canonicalX32 : Bytes32)
     (clientSecrets : ClientSecretState)
     (serverSecrets : ServerSecretState) : ClientObservableProfile :=
@@ -31,11 +31,11 @@ def clientObservableProfileOfGeneratedBoundary
     (handwrittenStateOfGeneratedBoundary boundary canonicalX32 clientSecrets serverSecrets)
 
 def serverVisibleBoundaryOfGeneratedBoundary
-    (boundary : GeneratedVisibleRespondBoundaryV1) : ServerVisibleBoundary :=
+    (boundary : GeneratedVisibleRespondBoundary) : ServerVisibleBoundary :=
   serverVisibleBoundaryOfRespondBoundary (toHandwrittenRespondBoundary boundary)
 
 def serverObservableProfileOfGeneratedBoundary
-    (boundary : GeneratedVisibleRespondBoundaryV1)
+    (boundary : GeneratedVisibleRespondBoundary)
     (canonicalX32 : Bytes32)
     (clientSecrets : ClientSecretState)
     (serverSecrets : ServerSecretState) : ServerObservableProfile :=
@@ -43,7 +43,7 @@ def serverObservableProfileOfGeneratedBoundary
     (handwrittenStateOfGeneratedBoundary boundary canonicalX32 clientSecrets serverSecrets)
 
 def nonExportClientViewOfGeneratedBoundary?
-    (boundary : GeneratedVisibleRespondBoundaryV1)
+    (boundary : GeneratedVisibleRespondBoundary)
     (canonicalX32 : Bytes32)
     (clientSecrets : ClientSecretState)
     (serverSecrets : ServerSecretState) : Option ClientObservableProfile :=
@@ -51,7 +51,7 @@ def nonExportClientViewOfGeneratedBoundary?
     (handwrittenStateOfGeneratedBoundary boundary canonicalX32 clientSecrets serverSecrets)
 
 def explicitExportClientViewOfGeneratedBoundary?
-    (boundary : GeneratedVisibleRespondBoundaryV1)
+    (boundary : GeneratedVisibleRespondBoundary)
     (canonicalX32 : Bytes32)
     (clientSecrets : ClientSecretState)
     (serverSecrets : ServerSecretState) : Option ClientObservableProfile :=
@@ -59,7 +59,7 @@ def explicitExportClientViewOfGeneratedBoundary?
     (handwrittenStateOfGeneratedBoundary boundary canonicalX32 clientSecrets serverSecrets)
 
 def nonExportServerViewOfGeneratedBoundary?
-    (boundary : GeneratedVisibleRespondBoundaryV1)
+    (boundary : GeneratedVisibleRespondBoundary)
     (canonicalX32 : Bytes32)
     (clientSecrets : ClientSecretState)
     (serverSecrets : ServerSecretState) : Option ServerObservableProfile :=
@@ -67,7 +67,7 @@ def nonExportServerViewOfGeneratedBoundary?
     (handwrittenStateOfGeneratedBoundary boundary canonicalX32 clientSecrets serverSecrets)
 
 def explicitExportServerViewOfGeneratedBoundary?
-    (boundary : GeneratedVisibleRespondBoundaryV1)
+    (boundary : GeneratedVisibleRespondBoundary)
     (canonicalX32 : Bytes32)
     (clientSecrets : ClientSecretState)
     (serverSecrets : ServerSecretState) : Option ServerObservableProfile :=
@@ -75,19 +75,19 @@ def explicitExportServerViewOfGeneratedBoundary?
     (handwrittenStateOfGeneratedBoundary boundary canonicalX32 clientSecrets serverSecrets)
 
 theorem clientVisibleBoundaryOfGeneratedBoundary_matches_handwritten_model
-    (boundary : GeneratedVisibleRespondBoundaryV1) :
+    (boundary : GeneratedVisibleRespondBoundary) :
     clientVisibleBoundaryOfGeneratedBoundary boundary =
       clientVisibleBoundaryOfRespondBoundary (toHandwrittenRespondBoundary boundary) := by
   rfl
 
 theorem serverVisibleBoundaryOfGeneratedBoundary_matches_handwritten_model
-    (boundary : GeneratedVisibleRespondBoundaryV1) :
+    (boundary : GeneratedVisibleRespondBoundary) :
     serverVisibleBoundaryOfGeneratedBoundary boundary =
       serverVisibleBoundaryOfRespondBoundary (toHandwrittenRespondBoundary boundary) := by
   rfl
 
 theorem nonExportClientViewOfGeneratedBoundary_matches_handwritten_projection
-    (boundary : GeneratedVisibleRespondBoundaryV1)
+    (boundary : GeneratedVisibleRespondBoundary)
     (canonicalX32 : Bytes32)
     (clientSecrets : ClientSecretState)
     (serverSecrets : ServerSecretState) :
@@ -97,7 +97,7 @@ theorem nonExportClientViewOfGeneratedBoundary_matches_handwritten_projection
   rfl
 
 theorem explicitExportClientViewOfGeneratedBoundary_matches_handwritten_projection
-    (boundary : GeneratedVisibleRespondBoundaryV1)
+    (boundary : GeneratedVisibleRespondBoundary)
     (canonicalX32 : Bytes32)
     (clientSecrets : ClientSecretState)
     (serverSecrets : ServerSecretState) :
@@ -107,7 +107,7 @@ theorem explicitExportClientViewOfGeneratedBoundary_matches_handwritten_projecti
   rfl
 
 theorem nonExportServerViewOfGeneratedBoundary_matches_handwritten_projection
-    (boundary : GeneratedVisibleRespondBoundaryV1)
+    (boundary : GeneratedVisibleRespondBoundary)
     (canonicalX32 : Bytes32)
     (clientSecrets : ClientSecretState)
     (serverSecrets : ServerSecretState) :
@@ -117,7 +117,7 @@ theorem nonExportServerViewOfGeneratedBoundary_matches_handwritten_projection
   rfl
 
 theorem explicitExportServerViewOfGeneratedBoundary_matches_handwritten_projection
-    (boundary : GeneratedVisibleRespondBoundaryV1)
+    (boundary : GeneratedVisibleRespondBoundary)
     (canonicalX32 : Bytes32)
     (clientSecrets : ClientSecretState)
     (serverSecrets : ServerSecretState) :
@@ -128,7 +128,7 @@ theorem explicitExportServerViewOfGeneratedBoundary_matches_handwritten_projecti
 
 theorem generatedBoundary_clientCannotDeriveServerSecrets :
     ∀
-      (boundary : GeneratedVisibleRespondBoundaryV1)
+      (boundary : GeneratedVisibleRespondBoundary)
       (canonicalX32₁ canonicalX32₂ : Bytes32)
       (clientSecrets₁ clientSecrets₂ : ClientSecretState)
       (serverSecrets₁ serverSecrets₂ : ServerSecretState),
@@ -151,7 +151,7 @@ theorem generatedBoundary_clientCannotDeriveServerSecrets :
 
 theorem generatedBoundary_serverCannotDeriveClientSecrets :
     ∀
-      (boundary : GeneratedVisibleRespondBoundaryV1)
+      (boundary : GeneratedVisibleRespondBoundary)
       (canonicalX32₁ canonicalX32₂ : Bytes32)
       (clientSecrets₁ clientSecrets₂ : ClientSecretState)
       (serverSecrets₁ serverSecrets₂ : ServerSecretState),
@@ -173,7 +173,7 @@ theorem generatedBoundary_serverCannotDeriveClientSecrets :
       hVariation)
 
 theorem generatedBoundary_serverCannotSeeClientOutputPayloads
-    (leftBoundary rightBoundary : GeneratedVisibleRespondBoundaryV1)
+    (leftBoundary rightBoundary : GeneratedVisibleRespondBoundary)
     (canonicalX32₁ canonicalX32₂ : Bytes32)
     (clientSecrets₁ clientSecrets₂ : ClientSecretState)
     (serverSecrets₁ serverSecrets₂ : ServerSecretState)
@@ -188,7 +188,7 @@ theorem generatedBoundary_serverCannotSeeClientOutputPayloads
     hBoundary
 
 theorem generatedBoundary_explicitExportIsOnlyCanonicalSecretDisclosureException
-    (boundary : GeneratedVisibleRespondBoundaryV1) :
+    (boundary : GeneratedVisibleRespondBoundary) :
     BoundaryRespectsFrozenDisclosurePolicy (toHandwrittenRespondBoundary boundary) →
     ¬ clientBoundaryRevealsCanonicalX
         (toHandwrittenRespondBoundary boundary).clientOutput := by
@@ -197,7 +197,7 @@ theorem generatedBoundary_explicitExportIsOnlyCanonicalSecretDisclosureException
     (toHandwrittenRespondBoundary boundary) hPolicy
 
 def hiddenEvalExecutionStateOfGeneratedBoundary
-    (boundary : GeneratedHiddenEvalBoundaryV1)
+    (boundary : GeneratedHiddenEvalBoundary)
     (canonicalX32 : Bytes32)
     (clientSecrets : ClientSecretState)
     (serverSecrets : ServerSecretState) : HiddenEvalExecutionState :=
@@ -209,31 +209,31 @@ def hiddenEvalExecutionStateOfGeneratedBoundary
   }
 
 def hiddenEvalBoundaryOfGeneratedBoundary
-    (boundary : GeneratedHiddenEvalBoundaryV1) : HiddenEvalBoundaryModel :=
+    (boundary : GeneratedHiddenEvalBoundary) : HiddenEvalBoundaryModel :=
   toHandwrittenHiddenEvalBoundary boundary
 
 def hiddenEvalTransportBoundaryOfGeneratedBoundary
-    (boundary : GeneratedHiddenEvalBoundaryV1) : HiddenEvalTransportBoundaryModel :=
+    (boundary : GeneratedHiddenEvalBoundary) : HiddenEvalTransportBoundaryModel :=
   (toHandwrittenHiddenEvalBoundary boundary).transport
 
 def hiddenEvalPersistedStateBoundaryOfGeneratedBoundary
-    (boundary : GeneratedHiddenEvalBoundaryV1) :
+    (boundary : GeneratedHiddenEvalBoundary) :
     HiddenEvalPersistedStateBoundaryModel :=
   (toHandwrittenHiddenEvalBoundary boundary).persisted
 
 theorem hiddenEvalBoundaryOfGeneratedBoundary_matches_handwritten_model
-    (boundary : GeneratedHiddenEvalBoundaryV1) :
+    (boundary : GeneratedHiddenEvalBoundary) :
     hiddenEvalBoundaryOfGeneratedBoundary boundary =
       toHandwrittenHiddenEvalBoundary boundary := by
   rfl
 
 theorem generatedHiddenEvalBoundary_matches_privacy_model
-    (boundary : GeneratedHiddenEvalBoundaryV1) :
+    (boundary : GeneratedHiddenEvalBoundary) :
     hiddenEvalBoundaryOfGeneratedBoundary boundary = toHandwrittenHiddenEvalBoundary boundary := by
   exact hiddenEvalBoundaryOfGeneratedBoundary_matches_handwritten_model boundary
 
 theorem generatedHiddenEvalBoundary_indistinguishable_under_client_secret_variation
-    (left right : GeneratedHiddenEvalBoundaryV1)
+    (left right : GeneratedHiddenEvalBoundary)
     (canonicalX32₁ canonicalX32₂ : Bytes32)
     (clientSecrets₁ clientSecrets₂ : ClientSecretState)
     (serverSecrets₁ serverSecrets₂ : ServerSecretState)
@@ -247,24 +247,24 @@ theorem generatedHiddenEvalBoundary_indistinguishable_under_client_secret_variat
   rfl
 
 theorem generatedHiddenEvalNonExportTransportExcludesCanonicalSecret
-    (boundary : GeneratedHiddenEvalBoundaryV1)
+    (boundary : GeneratedHiddenEvalBoundary)
     (hAllowed :
       (toHandwrittenHiddenEvalBoundary boundary).transport.operation.allowedOutputKind =
-        ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialOnly) :
+        ecdsa_hss.wire.AllowedOutputKind.ThresholdMaterialOnly) :
     transportBoundaryRevealsCanonicalX?
         (hiddenEvalTransportBoundaryOfGeneratedBoundary boundary) = none := by
   exact hiddenEvalNonExportTransportExcludesCanonicalSecret_proved
     (hiddenEvalTransportBoundaryOfGeneratedBoundary boundary) hAllowed
 
 theorem generatedPersistedStateNeverRevealsCanonicalSecret
-    (boundary : GeneratedHiddenEvalBoundaryV1) :
+    (boundary : GeneratedHiddenEvalBoundary) :
     ¬ persistedStateRevealsCanonicalX
         (hiddenEvalPersistedStateBoundaryOfGeneratedBoundary boundary) := by
   exact persistedStateNeverRevealsCanonicalSecret_proved
     (hiddenEvalPersistedStateBoundaryOfGeneratedBoundary boundary)
 
 theorem generatedAcceptedPersistedStateExcludesForbiddenRootMaterial
-    (boundary : GeneratedHiddenEvalBoundaryV1)
+    (boundary : GeneratedHiddenEvalBoundary)
     (hDropped :
       (hiddenEvalPersistedStateBoundaryOfGeneratedBoundary boundary).rawRootMaterialDropped = true) :
     ¬ persistedStateCarriesForbiddenRootMaterial
@@ -273,7 +273,7 @@ theorem generatedAcceptedPersistedStateExcludesForbiddenRootMaterial
     (hiddenEvalPersistedStateBoundaryOfGeneratedBoundary boundary) hDropped
 
 theorem generatedHiddenEvalTransportExplicitExportIsOnlyCanonicalSecretDisclosureException
-    (boundary : GeneratedHiddenEvalBoundaryV1) :
+    (boundary : GeneratedHiddenEvalBoundary) :
     BoundaryRespectsFrozenDisclosurePolicy
         (respondBoundaryOfHiddenEvalBoundary (toHandwrittenHiddenEvalBoundary boundary)) →
     ¬ transportBoundaryRevealsCanonicalX

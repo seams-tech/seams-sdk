@@ -8,6 +8,7 @@ import init, {
 } from '../../../../../../wasm/shamir3pass_runtime/pkg/shamir3pass_runtime.js';
 import { initializeWasm, resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import { errorMessage } from '@shared/utils/errors';
+import { secureRandomId } from '@shared/utils/secureRandomId';
 import { WorkerControlMessage } from '../workerTypes';
 
 type Shamir3PassWorkerRequest =
@@ -97,8 +98,7 @@ function asBytes(value: unknown, label: string): Uint8Array {
 
 function nextKeyHandle(): string {
   keyHandleCounter += 1;
-  const random = typeof crypto?.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now()}`;
-  return `shamir3pass-key-${random}-${keyHandleCounter}`;
+  return `${secureRandomId('shamir3pass-key', 32, 'Shamir 3-pass key handles')}-${keyHandleCounter}`;
 }
 
 function requireKeyHandle(value: unknown): string {

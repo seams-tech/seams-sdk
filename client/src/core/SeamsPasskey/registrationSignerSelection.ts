@@ -1,4 +1,4 @@
-import { THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANTS_V1 } from '@shared/threshold/secp256k1Ecdsa2pShareMapping';
+import { THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANTS_V1 } from '@shared/threshold/secp256k1';
 import { THRESHOLD_ED25519_2P_PARTICIPANT_IDS } from '@shared/threshold/participants';
 import type { RegistrationSignerSelection } from '@shared/utils/registrationIntent';
 import type { SeamsConfigsReadonly } from '../types/seams';

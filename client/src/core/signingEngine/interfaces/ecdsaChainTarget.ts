@@ -91,27 +91,8 @@ export function toWalletId(value: unknown): WalletId {
   return requireNonEmptyString(value, 'wallet id') as WalletId;
 }
 
-export function walletSubjectIdFromAccountContext(args: {
-  subjectId?: unknown;
-  walletId?: unknown;
-  profileId?: unknown;
-}): WalletSubjectId {
-  const subjectId =
-    nonEmptyString(args.subjectId) ||
-    nonEmptyString(args.walletId) ||
-    nonEmptyString(args.profileId);
-  if (!subjectId) {
-    throw new Error('[threshold-ecdsa] missing protocol-neutral wallet subject id');
-  }
-  return subjectId as WalletSubjectId;
-}
-
-export function walletSubjectIdFromWalletProfile(args: {
-  subjectId?: unknown;
-  walletId?: unknown;
-  profileId?: unknown;
-}): WalletSubjectId {
-  return walletSubjectIdFromAccountContext(args);
+export function walletSubjectIdFromWalletProfile(args: { walletId: unknown }): WalletSubjectId {
+  return toWalletSubjectId(toWalletId(args.walletId));
 }
 
 export function walletIdFromSessionValue(value: unknown): WalletId {

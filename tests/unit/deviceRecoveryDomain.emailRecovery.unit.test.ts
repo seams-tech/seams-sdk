@@ -261,9 +261,8 @@ test.describe('EmailRecoveryDomain', () => {
                 chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 11155111 }],
                 prepare: {
                   formatVersion: 'ecdsa-hss-role-local',
-                  walletSessionUserId: 'alice.testnet',
+                  walletId: 'alice.testnet',
                   rpId: 'example.test',
-                  subjectId: 'alice.testnet',
                   ecdsaThresholdKeyId: 'ecdsa-threshold-key',
                   signingRootId: 'signing-root-id',
                   signingRootVersion: 'root-email-recovery-v1',
@@ -321,9 +320,8 @@ test.describe('EmailRecoveryDomain', () => {
                 {
                   keyScope: 'evm-family',
                   chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 11155111 },
-                  walletSessionUserId: 'alice.testnet',
+                  walletId: 'alice.testnet',
                   rpId: 'example.test',
-                  subjectId: 'alice.testnet',
                   keyHandle: 'key-handle',
                   ecdsaThresholdKeyId: 'ecdsa-threshold-key',
                   signingRootId: 'signing-root-id',

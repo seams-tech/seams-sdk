@@ -49,9 +49,9 @@ structure HiddenThresholdPrivateMaterial where
 
 /-- Server-visible boundary after dropping client-only payloads. -/
 structure ServerVisibleBoundary where
-  operation : wire.ServerEvalOperationV1
-  allowedOutputKind : wire.AllowedOutputKindV1
-  finalizeOperation : wire.ServerEvalOperationV1
+  operation : wire.ServerEvalOperation
+  allowedOutputKind : wire.AllowedOutputKind
+  finalizeOperation : wire.ServerEvalOperation
   rawRootMaterialDropped : Bool
   relayerKeyId : String
   clientPublicKey33 : Bytes33

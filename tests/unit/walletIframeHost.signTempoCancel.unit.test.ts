@@ -294,6 +294,35 @@ test.describe('wallet iframe host canonical signer error mapping', () => {
     expect(
       resolveWalletBoundaryErrorCode({
         requestType: 'PM_SIGN_TEMPO',
+        rawCode: 'threshold_ecdsa_session_not_ready',
+        message: 'Fresh Email OTP verification required',
+      }),
+    ).toBe('fresh_email_otp_required');
+    expect(
+      resolveWalletBoundaryErrorCode({
+        requestType: 'PM_SIGN_TXS_WITH_ACTIONS',
+        rawCode: 'threshold_ed25519_session_not_ready',
+        message: 'Fresh Email OTP verification required',
+      }),
+    ).toBe('fresh_email_otp_required');
+    expect(
+      resolveWalletBoundaryErrorCode({
+        requestType: 'PM_SIGN_TEMPO',
+        rawCode: 'threshold_ecdsa_session_not_ready',
+        message: 'Email OTP /session/refresh HTTP 401 unauthorized',
+      }),
+    ).toBe('fresh_email_otp_required');
+    expect(
+      resolveWalletBoundaryErrorCode({
+        requestType: 'PM_SIGN_TXS_WITH_ACTIONS',
+        rawCode: 'threshold_ed25519_session_not_ready',
+        message: 'Email OTP /session/refresh HTTP 403 forbidden',
+      }),
+    ).toBe('fresh_email_otp_required');
+
+    expect(
+      resolveWalletBoundaryErrorCode({
+        requestType: 'PM_SIGN_TEMPO',
         message:
           '[SigningEngine] threshold-ecdsa key export requires fresh passkey authentication after Email OTP login',
       }),

@@ -14,7 +14,7 @@ The wider formal-verification strategy still lives at:
 The current Verus crate covers only the stable slice that is already frozen in
 the specs:
 
-1. `encode_context_v1`
+1. `encode_context_v2`
 2. canonical `x` derivation shape
 3. additive-share derivation shape
 4. fixed participant-ID mapping shape into the current backend seam
@@ -33,7 +33,7 @@ the specs:
 
 - [x] add `src/shared/context.rs`
 - [x] add `src/shared/derivation.rs`
-- [x] prove deterministic `encode_context_v1`
+- [x] prove deterministic `encode_context_v2`
 - [x] prove canonical `x` determinism and valid scalar range
 - [x] prove additive-share reconstruction and non-zero outputs
 - [x] connect proofs to the fixture corpus

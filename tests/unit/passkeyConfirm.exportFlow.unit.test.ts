@@ -752,7 +752,7 @@ test.describe('passkey-confirm export flow worker', () => {
                   chainId: 5042002,
                   networkSlug: 'arc-testnet',
                 },
-                artifactKind: 'ecdsa-hss-secp256k1-key-v1',
+                artifactKind: 'ecdsa-hss-secp256k1-export',
                 publicKeyHex,
                 privateKeyHex,
                 ethereumAddress,
@@ -817,6 +817,84 @@ test.describe('passkey-confirm export flow worker', () => {
         accountId: 'alice.testnet',
         exportedSchemes: ['secp256k1'],
       },
+    });
+  });
+
+  test('rejects retired ecdsa-hss secp256k1 key artifact kind without prompting', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ workerPath }) => {
+        await import(workerPath);
+
+        const originalPostMessage = (self as any).postMessage;
+        const prompts: any[] = [];
+        const responses: any[] = [];
+
+        (self as any).postMessage = (message: any) => {
+          if (message?.type === 'PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD') {
+            prompts.push(message);
+            return;
+          }
+          responses.push(message);
+        };
+
+        try {
+          (self as any).onmessage?.({
+            data: {
+              id: 'export-op-retired-ecdsa-hss-kind',
+              type: 'EXPORT_PRIVATE_KEYS_WITH_UI',
+              payload: {
+                nearAccountId: 'alice.testnet',
+                signerSlot: 1,
+                chainTarget: {
+                  kind: 'evm',
+                  namespace: 'eip155',
+                  chainId: 5042002,
+                  networkSlug: 'arc-testnet',
+                },
+                artifactKind: 'ecdsa-hss-secp256k1-key-v1',
+                publicKeyHex: `0x${'02'}${'11'.repeat(32)}`,
+                privateKeyHex: `0x${'22'.repeat(32)}`,
+                ethereumAddress: `0x${'33'.repeat(20)}`,
+                theme: 'dark',
+              },
+            },
+          });
+
+          const workerResponse = await new Promise<any>((resolve, reject) => {
+            const deadline = Date.now() + 3_000;
+            const poll = () => {
+              const found = responses.find(
+                (entry) => entry?.id === 'export-op-retired-ecdsa-hss-kind',
+              );
+              if (found) {
+                resolve(found);
+                return;
+              }
+              if (Date.now() >= deadline) {
+                reject(new Error('Timed out waiting for export worker response'));
+                return;
+              }
+              setTimeout(poll, 0);
+            };
+            poll();
+          });
+
+          return {
+            promptCount: prompts.length,
+            response: workerResponse,
+          };
+        } finally {
+          (self as any).postMessage = originalPostMessage;
+        }
+      },
+      { workerPath: WORKER_PATH },
+    );
+
+    expect(result.promptCount).toBe(0);
+    expect(result.response).toMatchObject({
+      id: 'export-op-retired-ecdsa-hss-kind',
+      success: false,
+      error: 'Invalid EXPORT_PRIVATE_KEYS_WITH_UI payload',
     });
   });
 });

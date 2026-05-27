@@ -133,7 +133,6 @@ export type {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export type { SignNEP413MessageParams, SignNEP413MessageResult } from './core/SeamsPasskey/near';
-export { clearAllSealedSessions } from './core/signingEngine/session/persistence/sealedSessionStore';
 
 // === Action Types ===
 export { ActionType } from './core/types/actions';

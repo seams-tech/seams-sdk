@@ -2,6 +2,10 @@
 
 Date created: April 8, 2026
 
+Removal note: this implementation plan predates the v2 invalidation. The active
+crate removed the old ECDSA HSS context version and now retains only the v2
+`wallet_id`/`rp_id` role-local derivation path.
+
 ## Summary
 
 `ecdsa-hss` is a proposed sibling crate to

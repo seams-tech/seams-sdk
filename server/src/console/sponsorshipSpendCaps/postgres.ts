@@ -1,3 +1,4 @@
+import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 import type { NormalizedLogger } from '../../core/logger';
 import { getPostgresPool } from '../../storage/postgres';
 import {
@@ -42,7 +43,7 @@ function nowMs(now: Date): number {
 
 function makeId(prefix: string, now: Date): string {
   const ts = now.getTime().toString(36);
-  const rand = Math.random().toString(36).slice(2, 10);
+  const rand = secureRandomBase36(8, 'console IDs');
   return `${prefix}_${ts}_${rand}`;
 }
 
@@ -482,7 +483,11 @@ export async function createPostgresConsoleSponsorshipSpendCapService(
             throw new Error('Spend-cap reservation conflict without an existing row');
           }
           const reservation = parseReservation(existingRow);
-          const usage = await loadUsageForReservation(tx, { namespace, orgId: ctx.orgId, reservation });
+          const usage = await loadUsageForReservation(tx, {
+            namespace,
+            orgId: ctx.orgId,
+            reservation,
+          });
           return { reservation, usage };
         }
 
@@ -590,7 +595,11 @@ export async function createPostgresConsoleSponsorshipSpendCapService(
               'Spend cap reservation is already settled with a different amount',
             );
           }
-          const usage = await loadUsageForReservation(tx, { namespace, orgId: ctx.orgId, reservation });
+          const usage = await loadUsageForReservation(tx, {
+            namespace,
+            orgId: ctx.orgId,
+            reservation,
+          });
           return { reservation, usage };
         }
         if (reservation.status === 'RELEASED') {
@@ -637,7 +646,11 @@ export async function createPostgresConsoleSponsorshipSpendCapService(
           ],
         );
         if (!usageRow) {
-          const currentUsage = await loadUsageForReservation(tx, { namespace, orgId: ctx.orgId, reservation });
+          const currentUsage = await loadUsageForReservation(tx, {
+            namespace,
+            orgId: ctx.orgId,
+            reservation,
+          });
           throw createSpendCapExceededError({
             capMinor: currentUsage.capMinor,
             reservedMinor: currentUsage.reservedMinor - reservation.requestedMinor,
@@ -697,7 +710,11 @@ export async function createPostgresConsoleSponsorshipSpendCapService(
         if (!reservationRow) return null;
         const reservation = parseReservation(reservationRow);
         if (reservation.status !== 'RESERVED') {
-          const usage = await loadUsageForReservation(tx, { namespace, orgId: ctx.orgId, reservation });
+          const usage = await loadUsageForReservation(tx, {
+            namespace,
+            orgId: ctx.orgId,
+            reservation,
+          });
           return { reservation, usage };
         }
 

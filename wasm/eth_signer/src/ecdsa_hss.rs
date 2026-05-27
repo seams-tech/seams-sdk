@@ -1,6 +1,6 @@
 use ecdsa_hss::{
-    derive_relayer_share_for_client_public_v2, public_transcript_digest_v2,
-    EcdsaHssStableKeyContextV2, ServerEvalOperationV1,
+    derive_relayer_share_for_client_public, public_transcript_digest,
+    EcdsaHssStableKeyContext, ServerEvalOperation,
 };
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::JsValue;
@@ -42,7 +42,7 @@ pub fn threshold_ecdsa_hss_role_local_relayer_bootstrap(
 ) -> Result<JsValue, JsValue> {
     let parsed: EcdsaHssRoleLocalRelayerBootstrapInputJs =
         serde_wasm_bindgen::from_value(payload).map_err(|err| js_invalid_input_err(err))?;
-    let context = EcdsaHssStableKeyContextV2::new(
+    let context = EcdsaHssStableKeyContext::new(
         parsed.wallet_id,
         parsed.rp_id,
         parsed.ecdsa_threshold_key_id,
@@ -54,7 +54,7 @@ pub fn threshold_ecdsa_hss_role_local_relayer_bootstrap(
     let y_relayer32_le = vec_to_fixed_32(parsed.y_relayer32_le, "yRelayer32Le")?;
     let client_public_key33 = vec_to_fixed_33(parsed.client_public_key33, "clientPublicKey33")?;
     validate_ascii_nonempty("relayerKeyId", &parsed.relayer_key_id)?;
-    let (relayer_share, identity) = derive_relayer_share_for_client_public_v2(
+    let (relayer_share, identity) = derive_relayer_share_for_client_public(
         &context,
         y_relayer32_le,
         &client_public_key33,
@@ -62,7 +62,7 @@ pub fn threshold_ecdsa_hss_role_local_relayer_bootstrap(
     )
     .map_err(js_core_err)?;
     let public_transcript_digest32 =
-        public_transcript_digest_v2(ServerEvalOperationV1::SessionBootstrap, &identity)
+        public_transcript_digest(ServerEvalOperation::SessionBootstrap, &identity)
             .map_err(js_core_err)?;
     serde_wasm_bindgen::to_value(&EcdsaHssRoleLocalRelayerBootstrapResultJs {
         context_binding32: identity.context_binding32.to_vec(),

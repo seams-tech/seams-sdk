@@ -1,5 +1,4 @@
 import type { Page } from '@playwright/test';
-import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   createSigningSessionSealPolicyFromThresholdAuthSessionStores,
   createSigningSessionSealRoutesOptions,
@@ -356,7 +355,7 @@ export async function runEmailOtpEcdsaTempoFlow(
     const shamirPrimeB64u = String(input.shamirPrimeB64u || '').trim();
     const enrollAppSessionJwt = String(input.enrollAppSessionJwt || '').trim();
     const loginAppSessionJwt = String(input.loginAppSessionJwt || '').trim();
-    const requestedEcdsaThresholdKeyId = String(input.ecdsaThresholdKeyId || '').trim();
+    const requestedKeyHandle = String(input.ecdsaThresholdKeyId || '').trim();
     const participantIds = Array.isArray(input.participantIds)
       ? input.participantIds.map((value) => Number(value)).filter(Number.isFinite)
       : [1, 2];
@@ -551,9 +550,7 @@ export async function runEmailOtpEcdsaTempoFlow(
           appSessionJwt: enrollAppSessionJwt,
           routeAuth: { kind: 'app_session', jwt: enrollAppSessionJwt },
           sessionKind: 'jwt',
-          ...(requestedEcdsaThresholdKeyId
-            ? { ecdsaThresholdKeyId: requestedEcdsaThresholdKeyId }
-            : {}),
+          ...(requestedKeyHandle ? { keyHandle: requestedKeyHandle } : {}),
           participantIds,
           ...(clientSecretB64u ? { clientSecret32: decodeBase64UrlToBytes(clientSecretB64u) } : {}),
           ...(typeof input.signingSessionTtlMs === 'number'
@@ -567,6 +564,9 @@ export async function runEmailOtpEcdsaTempoFlow(
       const enrolled = enrollmentLogin?.enrollment || {};
       const ecdsaThresholdKeyId = String(
         enrollmentLogin?.bootstrap?.thresholdEcdsaKeyRef?.ecdsaThresholdKeyId || '',
+      ).trim();
+      const keyHandle = String(
+        enrollmentLogin?.bootstrap?.thresholdEcdsaKeyRef?.keyHandle || '',
       ).trim();
       const resolvedParticipantIds = Array.isArray(
         enrollmentLogin?.bootstrap?.thresholdEcdsaKeyRef?.participantIds,
@@ -588,9 +588,7 @@ export async function runEmailOtpEcdsaTempoFlow(
         };
       }
 
-      await signingEngine
-        .clearVolatileWarmSigningMaterial(toWalletId(accountId))
-        .catch(() => undefined);
+      await signingEngine.clearVolatileWarmSigningMaterial(accountId).catch(() => undefined);
 
       const firstLoginOtp = await requestLoginOtp();
       const loginOtp =
@@ -606,9 +604,15 @@ export async function runEmailOtpEcdsaTempoFlow(
         otpCode: loginOtp.otpCode,
         appSessionJwt: loginAppSessionJwt,
         routeAuth: { kind: 'app_session', jwt: loginAppSessionJwt },
-        ecdsaThresholdKeyId,
+        keyHandle: keyHandle || ecdsaThresholdKeyId,
         participantIds: resolvedParticipantIds,
         sessionKind: 'jwt',
+        ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
+        ed25519ReconstructionMode: 'await',
+        ed25519SessionReconstruction: {
+          kind: 'defer',
+          reason: 'missing_ed25519_key_identity',
+        },
         ...(typeof input.signingSessionTtlMs === 'number'
           ? { ttlMs: input.signingSessionTtlMs }
           : {}),

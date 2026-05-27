@@ -10,7 +10,6 @@ import type {
   ThresholdEcdsaChainTarget,
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { walletSubjectIdFromWalletProfile } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   generateWalletSigningSessionId,
   parseThresholdRuntimePolicyScopeFromJwt,
@@ -110,9 +109,6 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
   ports: EmailOtpEcdsaEnrollmentPorts,
 ): Promise<EmailOtpThresholdEcdsaEnrollmentResult> {
   const nearAccountId = toAccountId(args.walletSession.walletId);
-  const subjectId = walletSubjectIdFromWalletProfile({
-    walletId: args.walletSession.walletId,
-  });
   const chainTarget = args.chainTarget;
   const emailOtpAuthPolicy: EmailOtpAuthPolicy =
     args.emailOtpAuthPolicy || ports.configs.signing.emailOtp.authPolicy;
@@ -209,7 +205,6 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
       payload: {
         relayUrl,
         walletId: String(args.walletSession.walletId),
-        subjectId,
         walletSessionUserId,
         userId: emailOtpAuthSubjectId,
         rpId,

@@ -5,37 +5,37 @@ namespace EcdsaHssBoundary
 
 open ecdsa_hss
 
-abbrev GeneratedClientOutputV2 := client.ClientOutputV2
-abbrev GeneratedServerEvalOperationV2 := wire.ServerEvalOperationV2
-abbrev GeneratedAllowedOutputKindV2 := wire.AllowedOutputKindV2
-abbrev GeneratedFinalizeEnvelopeV2 := wire.FinalizeEnvelopeV2
-abbrev GeneratedRetainedServerStateV2 := server.RetainedServerStateV2
-abbrev GeneratedFinalizedServerSessionV2 := server.FinalizedServerSessionV2
-abbrev GeneratedRespondResponseV2 := server.RespondResponseV2
-abbrev GeneratedVisibleOperationBoundaryV2 :=
-  server.boundary.VisibleOperationBoundaryV2
-abbrev GeneratedVisibleNonExportBoundaryV2 :=
-  server.boundary.VisibleNonExportBoundaryV2
-abbrev GeneratedVisibleExplicitExportBoundaryV2 :=
-  server.boundary.VisibleExplicitExportBoundaryV2
-abbrev GeneratedVisibleClientBoundaryV2 :=
-  server.boundary.VisibleClientBoundaryV2
-abbrev GeneratedVisibleFinalizeBoundaryV2 :=
-  server.boundary.VisibleFinalizeBoundaryV2
-abbrev GeneratedVisibleRetainedServerStateBoundaryV2 :=
-  server.boundary.VisibleRetainedServerStateBoundaryV2
-abbrev GeneratedVisibleRespondBoundaryV2 :=
-  server.boundary.VisibleRespondBoundaryV2
+abbrev GeneratedClientOutput := client.ClientOutput
+abbrev GeneratedServerEvalOperation := wire.ServerEvalOperation
+abbrev GeneratedAllowedOutputKind := wire.AllowedOutputKind
+abbrev GeneratedFinalizeEnvelope := wire.FinalizeEnvelope
+abbrev GeneratedRetainedServerState := server.RetainedServerState
+abbrev GeneratedFinalizedServerSession := server.FinalizedServerSession
+abbrev GeneratedRespondResponse := server.RespondResponse
+abbrev GeneratedVisibleOperationBoundary :=
+  server.boundary.VisibleOperationBoundary
+abbrev GeneratedVisibleNonExportBoundary :=
+  server.boundary.VisibleNonExportBoundary
+abbrev GeneratedVisibleExplicitExportBoundary :=
+  server.boundary.VisibleExplicitExportBoundary
+abbrev GeneratedVisibleClientBoundary :=
+  server.boundary.VisibleClientBoundary
+abbrev GeneratedVisibleFinalizeBoundary :=
+  server.boundary.VisibleFinalizeBoundary
+abbrev GeneratedVisibleRetainedServerStateBoundary :=
+  server.boundary.VisibleRetainedServerStateBoundary
+abbrev GeneratedVisibleRespondBoundary :=
+  server.boundary.VisibleRespondBoundary
 
 def toHandwrittenOperationBoundary
-    (boundary : GeneratedVisibleOperationBoundaryV2) : OperationBoundaryModel :=
+    (boundary : GeneratedVisibleOperationBoundary) : OperationBoundaryModel :=
   {
     operation := boundary.operation
     allowedOutputKind := boundary.allowed_output_kind
   }
 
 def toHandwrittenNonExportBoundary
-    (boundary : GeneratedVisibleNonExportBoundaryV2) : NonExportBoundaryModel :=
+    (boundary : GeneratedVisibleNonExportBoundary) : NonExportBoundaryModel :=
   {
     clientPublicKey33 := boundary.client_public_key33
     relayerPublicKey33 := boundary.relayer_public_key33
@@ -46,7 +46,7 @@ def toHandwrittenNonExportBoundary
   }
 
 def toHandwrittenExplicitExportBoundary
-    (boundary : GeneratedVisibleExplicitExportBoundaryV2) :
+    (boundary : GeneratedVisibleExplicitExportBoundary) :
     ExplicitExportBoundaryModel :=
   {
     relayerExportShare32 := boundary.relayer_export_share32
@@ -59,16 +59,16 @@ def toHandwrittenExplicitExportBoundary
   }
 
 def toHandwrittenClientBoundary
-    (boundary : GeneratedVisibleClientBoundaryV2) : ClientBoundaryModel :=
+    (boundary : GeneratedVisibleClientBoundary) : ClientBoundaryModel :=
   match boundary with
-  | server.boundary.VisibleClientBoundaryV2.NonExport nonExport =>
+  | server.boundary.VisibleClientBoundary.NonExport nonExport =>
     ClientBoundaryModel.nonExport (toHandwrittenNonExportBoundary nonExport)
-  | server.boundary.VisibleClientBoundaryV2.ExplicitExport explicitExport =>
+  | server.boundary.VisibleClientBoundary.ExplicitExport explicitExport =>
     ClientBoundaryModel.explicitExport
       (toHandwrittenExplicitExportBoundary explicitExport)
 
 def toHandwrittenFinalizeBoundary
-    (boundary : GeneratedVisibleFinalizeBoundaryV2) : FinalizeBoundaryModel :=
+    (boundary : GeneratedVisibleFinalizeBoundary) : FinalizeBoundaryModel :=
   {
     operation := boundary.operation
     rawRootMaterialDropped := boundary.raw_root_material_dropped
@@ -82,7 +82,7 @@ def toHandwrittenFinalizeBoundary
   }
 
 def toHandwrittenRetainedStateBoundary
-    (boundary : GeneratedVisibleRetainedServerStateBoundaryV2) :
+    (boundary : GeneratedVisibleRetainedServerStateBoundary) :
     RetainedStateBoundaryModel :=
   {
     rawRootMaterialDropped := boundary.raw_root_material_dropped
@@ -97,7 +97,7 @@ def toHandwrittenRetainedStateBoundary
   }
 
 def toHandwrittenRespondBoundary
-    (boundary : GeneratedVisibleRespondBoundaryV2) : RespondBoundaryModel :=
+    (boundary : GeneratedVisibleRespondBoundary) : RespondBoundaryModel :=
   {
     operation := toHandwrittenOperationBoundary boundary.operation
     clientOutput := toHandwrittenClientBoundary boundary.client_output
@@ -106,7 +106,7 @@ def toHandwrittenRespondBoundary
   }
 
 theorem operationBoundary_matchesHandwrittenModel
-    (boundary : GeneratedVisibleOperationBoundaryV2) :
+    (boundary : GeneratedVisibleOperationBoundary) :
     toHandwrittenOperationBoundary boundary =
       {
         operation := boundary.operation
@@ -115,7 +115,7 @@ theorem operationBoundary_matchesHandwrittenModel
   rfl
 
 theorem nonExportBoundary_matchesHandwrittenModel
-    (boundary : GeneratedVisibleNonExportBoundaryV2) :
+    (boundary : GeneratedVisibleNonExportBoundary) :
     toHandwrittenNonExportBoundary boundary =
       {
         clientPublicKey33 := boundary.client_public_key33
@@ -128,7 +128,7 @@ theorem nonExportBoundary_matchesHandwrittenModel
   rfl
 
 theorem explicitExportBoundary_matchesHandwrittenModel
-    (boundary : GeneratedVisibleExplicitExportBoundaryV2) :
+    (boundary : GeneratedVisibleExplicitExportBoundary) :
     toHandwrittenExplicitExportBoundary boundary =
       {
         relayerExportShare32 := boundary.relayer_export_share32
@@ -142,7 +142,7 @@ theorem explicitExportBoundary_matchesHandwrittenModel
   rfl
 
 theorem retainedStateBoundary_matchesHandwrittenModel
-    (boundary : GeneratedVisibleRetainedServerStateBoundaryV2) :
+    (boundary : GeneratedVisibleRetainedServerStateBoundary) :
     toHandwrittenRetainedStateBoundary boundary =
       {
         rawRootMaterialDropped := boundary.raw_root_material_dropped
@@ -158,7 +158,7 @@ theorem retainedStateBoundary_matchesHandwrittenModel
   rfl
 
 theorem respondBoundary_matchesHandwrittenModel
-    (boundary : GeneratedVisibleRespondBoundaryV2) :
+    (boundary : GeneratedVisibleRespondBoundary) :
     toHandwrittenRespondBoundary boundary =
       {
         operation := toHandwrittenOperationBoundary boundary.operation

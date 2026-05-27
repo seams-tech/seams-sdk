@@ -2,6 +2,7 @@ import { initializeWasm, resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-l
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { errorMessage } from '@shared/utils/errors';
+import { secureRandomId } from '@shared/utils/secureRandomId';
 import { requireTrimmedString, toOptionalTrimmedNonEmptyString } from '@shared/utils/validation';
 import {
   joinNormalizedUrl,
@@ -46,9 +47,7 @@ import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
   toWalletId,
-  toWalletSubjectId,
   type ThresholdEcdsaChainTarget,
-  type WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildEcdsaHssSessionPolicy,
@@ -58,9 +57,7 @@ import {
   parseThresholdRuntimePolicyScopeFromJwt,
   type ThresholdRuntimePolicyScope,
 } from '@/core/signingEngine/threshold/sessionPolicy';
-import {
-  type ThresholdEcdsaHssRoleLocalClientState,
-} from '@/core/signingEngine/interfaces/signing';
+import { type ThresholdEcdsaHssRoleLocalClientState } from '@/core/signingEngine/interfaces/signing';
 import {
   type EcdsaThresholdKeyId,
   type EmailOtpExistingKeyBootstrap,
@@ -73,7 +70,6 @@ import {
 import {
   buildSessionBootstrapKeyContext,
   buildEvmFamilyEcdsaSessionLanePolicy,
-  deriveBaseEcdsaSubjectIdFromWalletId,
   type EvmFamilyEcdsaSessionLanePolicy,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import initEthSigner, {
@@ -286,7 +282,6 @@ type EmailOtpWorkerRequest =
       payload: {
         relayUrl: string;
         walletId: string;
-        subjectId: WalletSubjectId;
         walletSessionUserId: string;
         userId?: string;
         rpId: string;
@@ -425,7 +420,6 @@ type EmailOtpWorkerRequest =
         rpId: string;
         thresholdSessionAuthToken?: string;
         sessionKind?: 'jwt' | 'cookie';
-        subjectId: WalletSubjectId;
         ecdsaThresholdKeyId: string;
         signingRootId: string;
         signingRootVersion?: string;
@@ -616,7 +610,11 @@ function parseEmailOtpEcdsaWarmSessionRehydrateArgs(args: {
   if (!participantIds) {
     return {
       kind: 'error',
-      error: { ok: false, code: 'invalid_args', message: 'Missing participantIds for ECDSA restore' },
+      error: {
+        ok: false,
+        code: 'invalid_args',
+        message: 'Missing participantIds for ECDSA restore',
+      },
     };
   }
   const walletId = readString(args.restore.walletId, 'walletId');
@@ -1403,8 +1401,7 @@ async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
         serverExpiresAtMs,
       });
       if (!policy.ok) return policy;
-      const routeAuth: AppOrThresholdSessionAuth | undefined = transport
-        .thresholdSessionAuthToken
+      const routeAuth: AppOrThresholdSessionAuth | undefined = transport.thresholdSessionAuthToken
         ? { kind: 'threshold_session', jwt: transport.thresholdSessionAuthToken }
         : undefined;
       if (!routeAuth && restore.sessionKind !== 'cookie') {
@@ -2027,11 +2024,7 @@ async function deriveEmailOtpUnlockAuthSeedInWorker(args: {
 }
 
 function generateKeygenSessionId(): string {
-  const id =
-    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  return `tecdsa-keygen-${id}`;
+  return secureRandomId('tecdsa-keygen', 32, 'Email OTP worker keygen session IDs');
 }
 
 async function removeClientSealToBytes(args: {
@@ -2531,7 +2524,6 @@ type ThresholdEcdsaEmailOtpBootstrapFromClientRootShareArgs = {
 } & (
   | (EmailOtpRegistrationBootstrap & {
       walletSessionUserId: WalletSessionUserId;
-      subjectId: WalletSubjectId;
       rpId: string;
       participantIds?: number[];
       sessionKind?: 'jwt' | 'cookie';
@@ -2544,7 +2536,6 @@ type ThresholdEcdsaEmailOtpBootstrapFromClientRootShareArgs = {
     })
   | (EmailOtpExistingKeyBootstrap & {
       walletSessionUserId: WalletSessionUserId;
-      subjectId: WalletSubjectId;
       rpId: string;
       roleLocalKeyIdentity?: {
         ecdsaThresholdKeyId: EcdsaThresholdKeyId;
@@ -2915,15 +2906,12 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
     });
   }
 
-  throw new Error(
-    'Threshold ECDSA Email OTP bootstrap requires concrete role-local key identity',
-  );
+  throw new Error('Threshold ECDSA Email OTP bootstrap requires concrete role-local key identity');
 }
 
 async function runEmailOtpEcdsaPublicationBootstrapsFromClientRootShare(args: {
   relayUrl: string;
   walletSessionUserId: string;
-  subjectId: WalletSubjectId;
   rpId: string;
   clientRootShare32: Uint8Array;
   publicationChainTargets: ThresholdEcdsaChainTarget[];
@@ -2954,14 +2942,12 @@ async function runEmailOtpEcdsaPublicationBootstrapsFromClientRootShare(args: {
   const walletSigningSessionId =
     String(args.walletSigningSessionId || '').trim() || generateWalletSigningSessionId();
   let canonicalKeyHandle = String(args.keyHandle || '').trim();
-  let canonicalRoleLocalKeyIdentity:
-    | {
-        ecdsaThresholdKeyId: EcdsaThresholdKeyId;
-        signingRootId: string;
-        signingRootVersion: string;
-        relayerKeyId: string;
-      }
-    | null = args.roleLocalKeyIdentity
+  let canonicalRoleLocalKeyIdentity: {
+    ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+    signingRootId: string;
+    signingRootVersion: string;
+    relayerKeyId: string;
+  } | null = args.roleLocalKeyIdentity
     ? {
         ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId(
           args.roleLocalKeyIdentity.ecdsaThresholdKeyId,
@@ -2982,7 +2968,6 @@ async function runEmailOtpEcdsaPublicationBootstrapsFromClientRootShare(args: {
       ? await runThresholdEcdsaAuthorizationBootstrapFromClientRootShare({
           relayUrl: args.relayUrl,
           walletSessionUserId,
-          subjectId: args.subjectId,
           rpId: args.rpId,
           clientRootShare32: args.clientRootShare32,
           operation: 'email_otp_bootstrap',
@@ -3006,7 +2991,6 @@ async function runEmailOtpEcdsaPublicationBootstrapsFromClientRootShare(args: {
       : await runThresholdEcdsaAuthorizationBootstrapFromClientRootShare({
           relayUrl: args.relayUrl,
           walletSessionUserId,
-          subjectId: args.subjectId,
           rpId: args.rpId,
           clientRootShare32: args.clientRootShare32,
           operation: 'email_otp_bootstrap',
@@ -3067,7 +3051,6 @@ async function runEmailOtpEcdsaPublicationBootstrapsFromClientRootShare(args: {
 async function runThresholdEcdsaRoleLocalExportFromClientRootShare(args: {
   relayUrl: string;
   userId: string;
-  subjectId?: WalletSubjectId;
   rpId: string;
   clientRootShare32: Uint8Array;
   keyHandle: string;
@@ -3091,7 +3074,6 @@ async function runThresholdEcdsaRoleLocalExportFromClientRootShare(args: {
   const relayerUrl = readString(args.relayUrl, 'relayUrl');
   const userId = readString(args.userId, 'userId');
   const walletSessionUserId = toWalletSessionUserId(userId);
-  const subjectId = toWalletSubjectId(args.subjectId || userId);
   const rpId = readString(args.rpId, 'rpId');
   const keyHandle = requireThresholdEcdsaHssKeyHandle(args.keyHandle, 'explicit export');
   const ecdsaThresholdKeyId = toEcdsaHssThresholdKeyId(args.ecdsaThresholdKeyId);
@@ -3101,10 +3083,7 @@ async function runThresholdEcdsaRoleLocalExportFromClientRootShare(args: {
     'signingRootVersion',
   );
   const thresholdSessionId = readString(args.thresholdSessionId, 'thresholdSessionId');
-  const walletSigningSessionId = readString(
-    args.walletSigningSessionId,
-    'walletSigningSessionId',
-  );
+  const walletSigningSessionId = readString(args.walletSigningSessionId, 'walletSigningSessionId');
   const participantIds = normalizeThresholdEd25519ParticipantIds(args.participantIds);
   if (!participantIds) {
     throw new Error('threshold export requires participantIds');
@@ -3195,7 +3174,10 @@ async function runThresholdEcdsaRoleLocalExportFromClientRootShare(args: {
   });
   if (!exportShare.ok) {
     throw new Error(
-      exportShare.error || exportShare.message || exportShare.code || 'Threshold export share failed',
+      exportShare.error ||
+        exportShare.message ||
+        exportShare.code ||
+        'Threshold export share failed',
     );
   }
   const artifact = threshold_ecdsa_hss_role_local_export_artifact({
@@ -3232,7 +3214,7 @@ async function attachOptionalEcdsaExportArtifactToPrimaryBootstrap(args: {
   sessionKind?: 'jwt' | 'cookie';
 }): Promise<
   | {
-      artifactKind: 'ecdsa-hss-secp256k1-key-v1';
+      artifactKind: 'ecdsa-hss-secp256k1-export';
       chainTarget: ThresholdEcdsaChainTarget;
       signingRootId: string;
       signingRootVersion?: string;
@@ -3249,7 +3231,7 @@ async function attachOptionalEcdsaExportArtifactToPrimaryBootstrap(args: {
     throw new Error('Email OTP ECDSA export requires role-local HSS client state');
   }
   const artifact = {
-    artifactKind: 'ecdsa-hss-secp256k1-key-v1' as const,
+    artifactKind: 'ecdsa-hss-secp256k1-export' as const,
     chainTarget: args.primaryBootstrap.thresholdEcdsaKeyRef.chainTarget,
     signingRootId: readString(
       args.primaryBootstrap.thresholdEcdsaKeyRef.signingRootId,
@@ -3263,7 +3245,6 @@ async function attachOptionalEcdsaExportArtifactToPrimaryBootstrap(args: {
     ...(await runThresholdEcdsaRoleLocalExportFromClientRootShare({
       relayUrl: args.relayerUrl,
       userId: args.userId,
-      subjectId: toWalletSubjectId(args.userId),
       rpId: args.rpId,
       clientRootShare32: args.clientRootShare32,
       keyHandle: readString(args.primaryBootstrap.thresholdEcdsaKeyRef.keyHandle, 'keyHandle'),
@@ -3584,7 +3565,6 @@ self.addEventListener('message', async (event: MessageEvent) => {
           const bootstraps = await runEmailOtpEcdsaPublicationBootstrapsFromClientRootShare({
             relayUrl: relayerUrl,
             walletSessionUserId,
-            subjectId: toWalletSubjectId(msg.payload.subjectId),
             rpId,
             clientRootShare32,
             publicationChainTargets,
@@ -3772,15 +3752,11 @@ self.addEventListener('message', async (event: MessageEvent) => {
           const artifact = await runThresholdEcdsaRoleLocalExportFromClientRootShare({
             relayUrl: readString(msg.payload.relayUrl, 'relayUrl'),
             userId: walletId,
-            subjectId: toWalletSubjectId(msg.payload.subjectId),
             rpId: readString(msg.payload.rpId, 'rpId'),
             clientRootShare32: recovered.clientRootShare32,
             keyHandle: readString(msg.payload.keyHandle, 'keyHandle'),
             relayerKeyId: readString(msg.payload.relayerKeyId, 'relayerKeyId'),
-            ecdsaThresholdKeyId: readString(
-              msg.payload.ecdsaThresholdKeyId,
-              'ecdsaThresholdKeyId',
-            ),
+            ecdsaThresholdKeyId: readString(msg.payload.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId'),
             signingRootId: readString(msg.payload.signingRootId, 'signingRootId'),
             signingRootVersion: msg.payload.signingRootVersion,
             roleLocalState: msg.payload.roleLocalState,

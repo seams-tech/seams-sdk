@@ -1,5 +1,9 @@
 # True Server-Blindness Plan
 
+Removal note: the old ECDSA HSS context version described in early sections was
+removed after v2 invalidation. The active crate retains no old-version context,
+wire, server, client, integration, fixture, or benchmark path.
+
 This plan updates
 [crates/ecdsa-hss](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss)
 so ECDSA HSS enforces true server blindness for non-export flows and explicit

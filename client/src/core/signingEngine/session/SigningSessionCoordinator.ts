@@ -9,7 +9,6 @@ import {
   type SigningSessionReadiness,
 } from './planning/planner';
 import {
-  assertPreparedBudgetProjectionVersion,
   buildAuthenticatedEcdsaLaneBudgetStatusCheck,
   buildAuthenticatedThresholdBudgetStatusCheck,
   buildBackingMaterialBudgetStatusCheck,

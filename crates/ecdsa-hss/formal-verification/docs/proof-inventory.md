@@ -16,7 +16,7 @@ The current verification posture is:
 - Verus bootstrap crate exists under:
   [verus/](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/verus)
 - current scope is intentionally limited to:
-  - `encode_context_v1`
+  - `encode_context_v2`
   - role-local client and relayer derivation shape
   - public identity composition
   - fixed participant-ID mapping shape for the current backend seam
@@ -36,11 +36,11 @@ The current verification posture is:
 
 Target:
 
-- `encode_context_v1`
+- `encode_context_v2`
 
 Property:
 
-- v1 context encoding is deterministic
+- v2 context encoding is deterministic
 - field order is frozen
 - participant layout is fixed to `{client=1, relayer=2}`
 
@@ -93,7 +93,7 @@ Property:
 - `x = x_client + x_relayer mod n`
 - `x_client != 0`
 - `x_relayer != 0`
-- retry counter is deterministic under the frozen v1 rule
+- retry counter is deterministic under the frozen active rule
 
 Planned Verus module:
 
@@ -270,8 +270,8 @@ Status:
   input, transport-visible response, and persisted accepted state
 - the generated hidden-eval boundary now matches the handwritten seam model
 - transport/persisted-state exclusion theorems now exist in `lean-privacy/`
-- executable anti-drift checks now exist in
-  [verus/tests/anti_drift.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/verus/tests/anti_drift.rs)
+- the removed old executable anti-drift checks are replaced by the active V2
+  crate parity test in `just ecdsa-hss-fv-parity`
 
 ## FV-ECDSA-HSS-010
 

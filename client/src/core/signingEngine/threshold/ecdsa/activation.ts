@@ -41,6 +41,19 @@ export const TEMPO_ECDSA_CHAIN_TARGET: ThresholdEcdsaTempoChainTarget = {
   networkSlug: 'tempo-moderato',
 };
 
+function buildWalletBudgetProjectionVersion(args: {
+  walletSigningSessionId: string;
+  expiresAtMs: number;
+  remainingUses: number;
+}): string {
+  return [
+    'wallet-budget',
+    args.walletSigningSessionId,
+    args.expiresAtMs,
+    Math.max(0, Math.floor(Number(args.remainingUses) || 0)),
+  ].join(':');
+}
+
 export type EcdsaKeygenResult = Awaited<ReturnType<typeof keygenEcdsa>>;
 export type EcdsaSessionResult = Awaited<ReturnType<typeof connectEcdsaSession>>;
 export type EcdsaKeygenSuccess = EcdsaKeygenResult & { ok: true };
@@ -54,6 +67,7 @@ export type ThresholdEcdsaSessionBootstrapResult = {
     walletSigningSessionId: string;
     expiresAtMs: number;
     remainingUses: number;
+    projectionVersion?: string;
   };
   clientRootShare32B64u?: string;
   passkeyPrfFirstB64u?: string;
@@ -426,6 +440,11 @@ export async function activateEcdsaSession(
     walletSigningSessionId,
     expiresAtMs,
     remainingUses,
+    projectionVersion: buildWalletBudgetProjectionVersion({
+      walletSigningSessionId,
+      expiresAtMs,
+      remainingUses,
+    }),
     jwt: bootstrap.jwt,
     clientVerifyingShareB64u,
     ...(bootstrap.code ? { code: bootstrap.code } : {}),

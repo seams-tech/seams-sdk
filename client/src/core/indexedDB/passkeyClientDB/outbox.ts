@@ -1,4 +1,5 @@
 import type { IDBPDatabase } from 'idb';
+import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { toTrimmedString } from '@shared/utils/validation';
 import type {
   EnqueueSignerOperationInput,
@@ -12,9 +13,7 @@ import {
 import { SIGNER_OPS_OUTBOX_STATUS_NEXT_ATTEMPT_INDEX } from './schema';
 
 export function createSignerOperationId(prefix: string): string {
-  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-    ? `${prefix}:${crypto.randomUUID()}`
-    : `${prefix}:${Date.now()}:${Math.random().toString(16).slice(2)}`;
+  return `${prefix}:${secureRandomBase64Url(32, 'signer operation IDs')}`;
 }
 
 export async function enqueueSignerOperationRecord(

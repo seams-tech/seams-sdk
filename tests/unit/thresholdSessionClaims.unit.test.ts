@@ -69,6 +69,23 @@ test.describe('threshold session auth token claims', () => {
         googleEmailOtpResolutionMode: 'invalid',
       }),
     ).toBeNull();
+    expect(
+      parseAppSessionClaims({
+        ...claims,
+        googleEmailOtpResolutionMode: undefined,
+        googleEmailOtpRegistrationAttemptId: undefined,
+      }),
+    ).toMatchObject({
+      sub: 'google:117142622123955425762',
+      walletId: 'brisk-shore.testnet',
+      runtimePolicyScope: {
+        orgId: 'org',
+        projectId: 'proj',
+        envId: 'dev',
+        signingRootVersion: 'default',
+      },
+    });
+    expect(parseAppSessionClaims({ ...claims, googleEmailOtpResolutionMode: '' })).toBeNull();
   });
 
   test('requires explicit walletId on threshold-ecdsa session tokens', () => {

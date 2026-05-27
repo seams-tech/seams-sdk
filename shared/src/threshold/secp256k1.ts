@@ -14,3 +14,9 @@
 export const SECP256K1_ORDER = BigInt(
   '0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141',
 );
+
+export const THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANTS_V1 = Object.freeze({
+  clientId: 1,
+  relayerId: 2,
+  participantIds: [1, 2] as const,
+});

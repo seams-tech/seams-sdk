@@ -292,6 +292,12 @@ function inferCanonicalCodeFromMessage(args: {
     message.includes('fresh email otp') ||
     message.includes('verify email otp again') ||
     message.includes('requires fresh email otp verification') ||
+    (message.includes('email otp') &&
+      message.includes('/session/refresh') &&
+      (message.includes('401') ||
+        message.includes('403') ||
+        message.includes('unauthorized') ||
+        message.includes('forbidden'))) ||
     (message.includes('email otp') && message.includes('per_operation'))
   ) {
     return 'fresh_email_otp_required';
@@ -415,17 +421,27 @@ export function resolveCanonicalWalletSignerErrorCode(args: {
   rawCode?: unknown;
   message?: unknown;
 }): CanonicalWalletSignerErrorCode | null {
+  const fromMessage = isWalletSignerBoundaryRequestType(args.requestType)
+    ? inferCanonicalCodeFromMessage({
+        message: normalizeMessage(args.message),
+        requestType: args.requestType,
+      })
+    : null;
+  if (
+    fromMessage === 'fresh_email_otp_required' ||
+    fromMessage === 'passkey_step_up_required' ||
+    fromMessage === 'operation_blocked_by_policy'
+  ) {
+    return fromMessage;
+  }
+
   const fromCode = inferCanonicalCodeFromRawCode({
     rawCode: normalizeCodeToken(args.rawCode),
     requestType: args.requestType,
   });
   if (fromCode) return fromCode;
 
-  if (!isWalletSignerBoundaryRequestType(args.requestType)) return null;
-  return inferCanonicalCodeFromMessage({
-    message: normalizeMessage(args.message),
-    requestType: args.requestType,
-  });
+  return fromMessage;
 }
 
 export function resolveWalletBoundaryErrorCode(args: {
@@ -462,6 +478,10 @@ export function resolveWalletBoundaryErrorMessage(args: {
   });
   if (canonical) {
     return CANONICAL_SIGNER_ERROR_MESSAGES[canonical];
+  }
+
+  if (normalizeCodeToken(args.rawCode ?? args.code) === 'deployment_failed') {
+    return 'Wallet deployment failed. Retry the request.';
   }
 
   if (isWalletSignerBoundaryRequestType(args.requestType)) {

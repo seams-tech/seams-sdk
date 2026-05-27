@@ -135,6 +135,14 @@ test.describe('threshold ecdsa postgres records', () => {
       },
     });
     expect(parseEcdsaHssRoleLocalKeyRecord(roleLocalRecord)).toEqual(roleLocalRecord);
+    for (const field of [
+      'subjectId',
+      'walletSessionUserId',
+      'subject_id',
+      'wallet_session_user_id',
+    ] as const) {
+      expect(parseEcdsaHssRoleLocalKeyRecord({ ...roleLocalRecord, [field]: 'stale' })).toBeNull();
+    }
     expect(
       parseEcdsaHssRoleLocalKeyRecord({
         ...roleLocalRecord,

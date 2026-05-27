@@ -151,6 +151,7 @@ import {
 } from '@shared/utils/validation';
 import type { WalletUIRegistry } from '../host/lit-ui/iframe-lit-element-registry';
 import { toError } from '@shared/utils/errors';
+import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 import type { AuthenticatorOptions } from '../../types/authenticatorOptions';
 import { type ConfirmationConfig } from '../../types/signer-worker';
 import type { AccessKeyList } from '../../rpcClients/near/NearClient';
@@ -443,7 +444,7 @@ export class WalletIframeRouter {
       }
     }
 
-    const defaultRouterId = `w3a-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const defaultRouterId = `w3a-${Date.now()}-${secureRandomBase36(6, 'wallet iframe router IDs')}`;
     const testOptions = {
       routerId: defaultRouterId,
       ownerTag: undefined as string | undefined,
@@ -717,10 +718,7 @@ export class WalletIframeRouter {
     };
   }
 
-  private emitLoginStatusChanged(status: {
-    isLoggedIn: boolean;
-    walletId: string | null;
-  }): void {
+  private emitLoginStatusChanged(status: { isLoggedIn: boolean; walletId: string | null }): void {
     for (const cb of Array.from(this.listeners.loginStatus)) {
       try {
         cb(status);
@@ -1191,9 +1189,7 @@ export class WalletIframeRouter {
     return sanitizeEmailOtpIframeResult(res.result);
   }
 
-  async checkLoginStatus(): Promise<
-    PostResult<{ isLoggedIn: boolean; walletId: string | null }>
-  > {
+  async checkLoginStatus(): Promise<PostResult<{ isLoggedIn: boolean; walletId: string | null }>> {
     const { login: st } = await this.getWalletSession();
     return {
       ok: true,
@@ -2081,7 +2077,7 @@ export class WalletIframeRouter {
     if (!port) return;
     const cancelEnvelope: ParentToChildEnvelope = {
       type: 'PM_CANCEL',
-      requestId: `cancel-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      requestId: `cancel-${Date.now()}-${secureRandomBase36(12, 'wallet iframe cancel request IDs')}`,
       payload: targetRequestId ? { requestId: targetRequestId } : {},
     };
     port.postMessage(cancelEnvelope);

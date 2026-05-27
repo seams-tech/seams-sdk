@@ -13,7 +13,7 @@ The integration target is the current threshold ECDSA stack built around:
 
 Relevant local references:
 
-- [shared/src/threshold/secp256k1Ecdsa2pShareMapping.ts](/Users/pta/Dev/rust/simple-threshold-signer/shared/src/threshold/secp256k1Ecdsa2pShareMapping.ts)
+- [server/src/core/ThresholdService/ethSignerWasm.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/core/ThresholdService/ethSignerWasm.ts)
 - [crates/signer-core/src/secp256k1.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/signer-core/src/secp256k1.rs)
 - [crates/signer-core/src/threshold_ecdsa.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/signer-core/src/threshold_ecdsa.rs)
 - [docs/ecdsa_threshold_signing.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/ecdsa_threshold_signing.md)
@@ -31,12 +31,12 @@ That means:
 - export should return that same threshold signing key
 - the current separate `prfSecond` export lane should go away after cutover
 
-## Fixed v1 Backend Scope
+## Fixed Backend Scope
 
 The preferred reuse path is only defined for the current fixed 2-party
 integration seam.
 
-v1 integration scope is:
+Active integration scope is:
 
 - fixed 2-of-2 signer set only
 - fixed participant IDs:
@@ -48,9 +48,9 @@ This matters because the current mapper is not generic. A broader signer set or
 different participant-ID layout would require a new mapping spec, new proofs,
 and likely new runtime assumptions.
 
-## Preferred v1 Path
+## Preferred Path
 
-The preferred v1 integration path is:
+The preferred integration path is:
 
 1. the client derives `x_client` locally from client-owned material and stable
    key context
@@ -70,7 +70,7 @@ This is the intended design because it:
 - keeps the current sign-time backend and performance profile
 - avoids writing a new threshold ECDSA library
 
-## Exact v1 Bootstrap Seam
+## Exact Bootstrap Seam
 
 The current backend seam we are targeting is now explicit.
 
@@ -117,16 +117,10 @@ Its job is to:
 - produce the shared threshold identity
 - produce client and relayer presign inputs in the current backend format
 
-The crate-side sign bridge for that same material is:
-
-- `init_client_presign_session_v1(...)`
-- `init_relayer_presign_session_v1(...)`
-- `compute_client_signature_share_v1(...)`
-- `finalize_signature_v1(...)`
-
-Those functions keep the current sign-time backend intact while proving that
-`ecdsa-hss` bootstrap output is sufficient to drive the existing presign/sign
-flow end-to-end.
+The old crate-side sign bridge helpers were removed with the old context
+version. Active product signing consumes v2 role-local output through the
+runtime threshold ECDSA integration instead of retaining crate-level old-version
+server/client APIs.
 
 ## Fallback Path
 
@@ -190,6 +184,15 @@ Steady-state identity checks should prefer the persisted group public key.
 
 Export verification must compare returned `x` against that persisted threshold
 identity before delivery.
+
+The active explicit export artifact kind exposed to product and UI boundaries is:
+
+```text
+ecdsa-hss-secp256k1-export
+```
+
+The retired `ecdsa-hss-secp256k1-key-v1` artifact kind is invalid for active
+`ecdsa-hss` export paths.
 
 ## Performance Expectations
 

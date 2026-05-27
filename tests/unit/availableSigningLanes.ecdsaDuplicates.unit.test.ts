@@ -22,7 +22,10 @@ import {
   deriveEvmFamilyEcdsaKeyHandle,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import type { EvmFamilyEcdsaKeyHandle } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import type { SigningSessionSealedStoreRecord } from '@/core/signingEngine/session/persistence/sealedSessionStore';
+import {
+  buildCurrentSealedSessionRecord,
+  type SigningSessionSealedStoreRecord,
+} from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import { THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND } from '@shared/utils/sessionTokens';
 
 const WALLET_ID = 'alice.testnet';
@@ -203,6 +206,68 @@ async function readAvailableLanes(args: {
 }
 
 test.describe('ECDSA available signing lane duplicate normalization', () => {
+  test('restores Email OTP ECDSA durable lanes written through the sealed record builder', async () => {
+    const thresholdSessionId = 'tsess-email-otp-durable-builder';
+    const walletSigningSessionId = 'wsess-email-otp-durable-builder';
+    const keyHandle = 'ehss-key-email-otp-durable-builder';
+    const sealedRecord = buildCurrentSealedSessionRecord({
+      thresholdSessionId,
+      thresholdSessionIds: { ecdsa: thresholdSessionId },
+      sealedSecretB64u: 'sealed',
+      authMethod: 'email_otp',
+      walletSigningSessionId,
+      curve: 'ecdsa',
+      walletId: WALLET_ID,
+      relayerUrl: 'https://relay.example.test',
+      keyVersion: 'seal-key-v1',
+      shamirPrimeB64u: 'shamir-prime',
+      ecdsaRestore: {
+        chainTarget: TEMPO_TARGET,
+        rpId: RP_ID,
+        thresholdSessionAuthToken: thresholdEcdsaSessionJwt({
+          thresholdSessionId,
+          walletSigningSessionId,
+          keyHandle,
+        }),
+        sessionKind: 'jwt',
+        keyHandle,
+        ecdsaThresholdKeyId: 'ek-email-otp-durable-builder',
+        ethereumAddress: `0x${'AB'.repeat(20)}`,
+        relayerKeyId: 'relayer-key',
+        clientVerifyingShareB64u: 'client-verifying-share',
+        thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
+        participantIds: [1, 2],
+        runtimePolicyScope: {
+          orgId: 'org-test',
+          projectId: 'sr-test',
+          envId: 'dev',
+          signingRootVersion: 'default',
+        },
+      },
+      issuedAtMs: Date.now() - 1_000,
+      expiresAtMs: Date.now() + 60_000,
+      remainingUses: 0,
+      updatedAtMs: Date.now(),
+    });
+    if (!sealedRecord) throw new Error('failed to build Email OTP ECDSA sealed record');
+
+    const availableLanes = await readAvailableLanes({
+      sealedRecords: [sealedRecord],
+      ecdsaChainTargets: [TEMPO_TARGET],
+    });
+
+    const targetKey = thresholdEcdsaChainTargetKey(TEMPO_TARGET);
+    expect(availableLanes.ecdsa.candidatesByTarget[targetKey]).toHaveLength(1);
+    expect(availableLanes.ecdsa.candidatesByTarget[targetKey][0]).toMatchObject({
+      authMethod: 'email_otp',
+      source: 'durable_sealed_record',
+      state: 'exhausted',
+      remainingUses: 0,
+      thresholdSessionId,
+      walletSigningSessionId,
+    });
+  });
+
   test('collapses duplicate exhausted Email OTP runtime lanes by shared key identity', async () => {
     const availableLanes = await readAvailableLanes({
       runtimeEcdsaRecords: [

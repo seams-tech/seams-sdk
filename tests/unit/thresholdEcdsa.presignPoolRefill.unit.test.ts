@@ -23,6 +23,7 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 const RELAYER_URL = 'https://relay.example';
+const ECDSA_KEY_HANDLE = 'ehss-key-presign-test';
 const ECDSA_THRESHOLD_KEY_ID = 'ecdsa-hss-test-key-1';
 const BACKEND_RELAYER_KEY_ID = 'rk-1';
 const USER_ID = 'alice.testnet';
@@ -91,6 +92,7 @@ function makeThresholdEcdsaKeyRef(
     userId: USER_ID,
     chainTarget: EVM_CHAIN_TARGET,
     relayerUrl: RELAYER_URL,
+    keyHandle: ECDSA_KEY_HANDLE,
     ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
     signingRootId: 'proj_local:dev',
     backendBinding: {
@@ -392,7 +394,8 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
       const refillInput = {
         relayerUrl: RELAYER_URL,
         ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
-      relayerKeyId: BACKEND_RELAYER_KEY_ID,
+        keyHandle: ECDSA_KEY_HANDLE,
+        relayerKeyId: BACKEND_RELAYER_KEY_ID,
         clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
         participantIds: PARTICIPANT_IDS,
         clientSigningShare32: CLIENT_SIGNING_SHARE_32.slice(),
@@ -419,8 +422,9 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
       const signArgsBase = {
         relayerUrl: RELAYER_URL,
         ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
-      relayerKeyId: BACKEND_RELAYER_KEY_ID,
-      clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
+        keyHandle: ECDSA_KEY_HANDLE,
+        relayerKeyId: BACKEND_RELAYER_KEY_ID,
+        clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
         signingDigest32: DIGEST_32,
         participantIds: PARTICIPANT_IDS,
         thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
@@ -467,6 +471,7 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
       const refill = await refillThresholdEcdsaClientPresignaturePool({
         relayerUrl: RELAYER_URL,
         ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+        keyHandle: ECDSA_KEY_HANDLE,
         relayerKeyId: BACKEND_RELAYER_KEY_ID,
         clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
         participantIds: PARTICIPANT_IDS,
@@ -520,6 +525,7 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
       const scheduled = scheduleThresholdEcdsaClientPresignaturePoolRefill({
         relayerUrl: RELAYER_URL,
         ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+        keyHandle: ECDSA_KEY_HANDLE,
         relayerKeyId: BACKEND_RELAYER_KEY_ID,
         clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
         participantIds: PARTICIPANT_IDS,
@@ -577,6 +583,7 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
       const refill = await refillThresholdEcdsaClientPresignaturePool({
         relayerUrl: RELAYER_URL,
         ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+        keyHandle: ECDSA_KEY_HANDLE,
         relayerKeyId: BACKEND_RELAYER_KEY_ID,
         clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
         participantIds: PARTICIPANT_IDS,
@@ -611,6 +618,7 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
       const scheduled = scheduleThresholdEcdsaClientPresignaturePoolRefill({
         relayerUrl: RELAYER_URL,
         ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+        keyHandle: ECDSA_KEY_HANDLE,
         relayerKeyId: BACKEND_RELAYER_KEY_ID,
         clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
         participantIds: PARTICIPANT_IDS,
@@ -663,6 +671,7 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
       const signed = await signThresholdEcdsaDigestWithPool({
         relayerUrl: RELAYER_URL,
         ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+        keyHandle: ECDSA_KEY_HANDLE,
         relayerKeyId: BACKEND_RELAYER_KEY_ID,
         clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
         mpcSessionId: 'mpc-owned-share-zeroize',
@@ -699,6 +708,7 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
       const first = await signThresholdEcdsaDigestWithPool({
         relayerUrl: RELAYER_URL,
         ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+        keyHandle: ECDSA_KEY_HANDLE,
         relayerKeyId: BACKEND_RELAYER_KEY_ID,
         clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
         mpcSessionId: 'mpc-stale-share-first',
@@ -715,6 +725,7 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
       const second = await signThresholdEcdsaDigestWithPool({
         relayerUrl: RELAYER_URL,
         ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+        keyHandle: ECDSA_KEY_HANDLE,
         relayerKeyId: BACKEND_RELAYER_KEY_ID,
         clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
         mpcSessionId: 'mpc-stale-share-second',
@@ -818,6 +829,7 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
       const warmed = await refillThresholdEcdsaClientPresignaturePool({
         relayerUrl: RELAYER_URL,
         ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+        keyHandle: ECDSA_KEY_HANDLE,
         relayerKeyId: BACKEND_RELAYER_KEY_ID,
         clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
         participantIds: PARTICIPANT_IDS,
@@ -894,6 +906,7 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
       const scheduled = scheduleThresholdEcdsaClientPresignaturePoolRefill({
         relayerUrl: RELAYER_URL,
         ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+        keyHandle: ECDSA_KEY_HANDLE,
         relayerKeyId: BACKEND_RELAYER_KEY_ID,
         clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
         participantIds: PARTICIPANT_IDS,
@@ -914,6 +927,7 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
       const signed = await signThresholdEcdsaDigestWithPool({
         relayerUrl: RELAYER_URL,
         ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+        keyHandle: ECDSA_KEY_HANDLE,
         relayerKeyId: BACKEND_RELAYER_KEY_ID,
         clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
         mpcSessionId: 'mpc-foreground-reuse',

@@ -208,7 +208,7 @@ const invalidPasskeyFreshWithoutJwtAuth: EcdsaBootstrapRequest = {
   clientRootShare32B64u: 'client-root-share',
 };
 
-const invalidPasskeyFreshWithMixedAuth: EcdsaBootstrapRequest = {
+const validPasskeyFreshWithRouteAndWebauthn: EcdsaBootstrapRequest = {
   kind: 'passkey_fresh_ecdsa_bootstrap',
   walletId,
   chainTarget,
@@ -216,7 +216,21 @@ const invalidPasskeyFreshWithMixedAuth: EcdsaBootstrapRequest = {
   sessionIdentity,
   clientRootShare32B64u: 'client-root-share',
   routeAuth: {
-    // @ts-expect-error passkey fresh bootstrap accepts one auth branch
+    kind: 'bootstrap_grant',
+    token: 'bootstrap-grant-token',
+  },
+  webauthnAuthentication,
+};
+void validPasskeyFreshWithRouteAndWebauthn;
+
+// @ts-expect-error WebAuthn bootstrap proof requires the matching client root share.
+const invalidPasskeyFreshWithWebauthnMissingClientRoot: EcdsaBootstrapRequest = {
+  kind: 'passkey_fresh_ecdsa_bootstrap',
+  walletId,
+  chainTarget,
+  sessionKind: 'jwt',
+  sessionIdentity,
+  routeAuth: {
     kind: 'bootstrap_grant',
     token: 'bootstrap-grant-token',
   },

@@ -275,7 +275,7 @@ export class EmailOtpThresholdSessionRuntime {
     walletSession: WalletSessionRef;
     relayUrl: string;
   }): Promise<string> {
-    return await this.appSessionJwtCache.resolve(args);
+    return await this.appSessionJwtCache.resolveJwt(args);
   }
 
   isEd25519WarmupPending(args: { nearAccountId: AccountId }): boolean {

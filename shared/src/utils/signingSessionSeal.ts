@@ -49,6 +49,7 @@ export type SealedSigningSessionEcdsaRestoreMetadata = {
   thresholdSessionAuthToken?: string;
   sessionKind: 'jwt' | 'cookie';
   keyHandle: string;
+  ecdsaThresholdKeyId?: string;
   ethereumAddress: string;
   relayerKeyId: string;
   clientVerifyingShareB64u?: string;

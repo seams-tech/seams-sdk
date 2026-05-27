@@ -1,3 +1,4 @@
+import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 import { ConsoleTeamRbacError } from './errors';
 import {
   CONSOLE_ORG_SCOPED_TEAM_ROLES,
@@ -63,7 +64,7 @@ function toIso(now: Date): string {
 }
 
 function makeId(prefix: string, now: Date): string {
-  return `${prefix}_${now.getTime().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  return `${prefix}_${now.getTime().toString(36)}_${secureRandomBase36(8, 'console IDs')}`;
 }
 
 function normalizeRole(raw: unknown): ConsoleTeamRole | null {
@@ -259,7 +260,10 @@ export function createInMemoryConsoleTeamRbacService(
       existing.status = 'ACTIVE';
       existing.lastStatusChangedAt = toIso(currentNow);
     }
-    if (actorEmail && (isConsoleLocalEmail(existing.email) || !String(existing.email || '').trim())) {
+    if (
+      actorEmail &&
+      (isConsoleLocalEmail(existing.email) || !String(existing.email || '').trim())
+    ) {
       existing.email = actorEmail;
     }
     if (
@@ -555,7 +559,10 @@ export function createInMemoryConsoleTeamRbacService(
       if (String(member.userId || '').trim() === String(ctx.actorUserId || '').trim()) {
         const actorEmail = resolveActorEmail(ctx);
         const actorDisplayName = resolveActorDisplayName(ctx);
-        if (actorEmail && (isConsoleLocalEmail(member.email) || !String(member.email || '').trim())) {
+        if (
+          actorEmail &&
+          (isConsoleLocalEmail(member.email) || !String(member.email || '').trim())
+        ) {
           member.email = actorEmail;
         }
         if (

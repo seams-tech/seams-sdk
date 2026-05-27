@@ -20,6 +20,7 @@ import type {
   ThresholdBudgetStatusCheck,
   WalletBudgetStatusCheck,
   WalletBudgetOwner,
+  ZeroBudgetFinalizationSpend,
   ZeroWalletBudgetSpend,
 } from './budget';
 
@@ -156,20 +157,43 @@ void invalidExternallyConsumedSpend;
 const zeroSpend: ZeroWalletBudgetSpend = {
   kind: 'zero_spend',
   operationId: 'operation-1' as ZeroWalletBudgetSpend['operationId'],
+  operationFingerprint: 'fingerprint-1' as ZeroWalletBudgetSpend['operationFingerprint'],
   lane: {} as ZeroWalletBudgetSpend['lane'],
   reason: 'signing_failed',
+  finalizationCommand: {} as ZeroWalletBudgetSpend['finalizationCommand'],
 };
 void zeroSpend;
 
 const invalidZeroSpend: ZeroWalletBudgetSpend = {
   kind: 'zero_spend',
   operationId: 'operation-1' as ZeroWalletBudgetSpend['operationId'],
+  operationFingerprint: 'fingerprint-1' as ZeroWalletBudgetSpend['operationFingerprint'],
   lane: {} as ZeroWalletBudgetSpend['lane'],
   reason: 'signing_failed',
+  finalizationCommand: {} as ZeroWalletBudgetSpend['finalizationCommand'],
   // @ts-expect-error zero-spend branches cannot carry full wallet spend identity
   spend: externallyConsumedSpend.spend,
 };
 void invalidZeroSpend;
+
+const zeroSpendFinalization: ZeroBudgetFinalizationSpend = {
+  kind: 'zero_spend',
+  operationId: 'operation-1' as ZeroBudgetFinalizationSpend['operationId'],
+  operationFingerprint: 'fingerprint-1' as ZeroBudgetFinalizationSpend['operationFingerprint'],
+  lane: {} as ZeroBudgetFinalizationSpend['lane'],
+  reason: 'signing_failed',
+};
+void zeroSpendFinalization;
+
+// @ts-expect-error wallet-budget zero spend requires a typed finalization command.
+const invalidZeroWalletSpendWithoutCommand: ZeroWalletBudgetSpend = {
+  kind: 'zero_spend',
+  operationId: 'operation-1' as ZeroWalletBudgetSpend['operationId'],
+  operationFingerprint: 'fingerprint-1' as ZeroWalletBudgetSpend['operationFingerprint'],
+  lane: {} as ZeroWalletBudgetSpend['lane'],
+  reason: 'signing_failed',
+};
+void invalidZeroWalletSpendWithoutCommand;
 
 // @ts-expect-error budget finalization spend requires selected lane identity
 const walletOnlyBudgetFinalizationSpend: ReservedBudgetFinalizationSpend['spend'] = {

@@ -138,11 +138,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 function createRandomToken(prefix: string): string {
-  const cryptoObj = (globalThis as { crypto?: Crypto }).crypto;
-  if (cryptoObj && typeof cryptoObj.randomUUID === 'function') {
-    return `${prefix}-${cryptoObj.randomUUID()}`;
-  }
-  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return secureRandomId(prefix, 32, 'IndexedDB passkey client tokens');
 }
 
 export class DBConstraintError extends Error {
@@ -1106,10 +1102,7 @@ export class PasskeyClientDBManager {
     if (!lockKey || !ownerId) {
       throw new Error('[PasskeyClientDB] nonce lane lock requires lockKey and ownerId');
     }
-    const ttlMs = Math.max(
-      1,
-      Math.floor(Number(input.ttlMs) || DEFAULT_NONCE_LANE_LOCK_TTL_MS),
-    );
+    const ttlMs = Math.max(1, Math.floor(Number(input.ttlMs) || DEFAULT_NONCE_LANE_LOCK_TTL_MS));
     const waitTimeoutMs = Math.max(
       1,
       Math.floor(Number(input.waitTimeoutMs) || DEFAULT_NONCE_LANE_LOCK_WAIT_TIMEOUT_MS),
@@ -1226,3 +1219,4 @@ export class PasskeyClientDBManager {
     }
   }
 }
+import { secureRandomId } from '@shared/utils/secureRandomId';

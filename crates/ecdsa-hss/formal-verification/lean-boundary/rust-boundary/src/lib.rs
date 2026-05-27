@@ -1,7 +1,7 @@
 pub mod shared {
     pub mod context {
         #[derive(Debug, Clone, PartialEq, Eq)]
-        pub struct EcdsaHssStableKeyContextV2 {
+        pub struct EcdsaHssStableKeyContext {
             pub wallet_id: String,
             pub rp_id: String,
             pub ecdsa_threshold_key_id: String,
@@ -14,10 +14,10 @@ pub mod shared {
 }
 
 pub mod wire {
-    use crate::shared::context::EcdsaHssStableKeyContextV2;
+    use crate::shared::context::EcdsaHssStableKeyContext;
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub enum ServerEvalOperationV2 {
+    pub enum ServerEvalOperation {
         RegistrationBootstrap,
         SessionBootstrap,
         NonExportSign,
@@ -25,43 +25,41 @@ pub mod wire {
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub enum AllowedOutputKindV2 {
+    pub enum AllowedOutputKind {
         ThresholdMaterialOnly,
         ThresholdMaterialAndRelayerExportShare,
     }
 
-    impl ServerEvalOperationV2 {
-        pub fn allowed_output_kind(self) -> AllowedOutputKindV2 {
+    impl ServerEvalOperation {
+        pub fn allowed_output_kind(self) -> AllowedOutputKind {
             match self {
-                ServerEvalOperationV2::ExplicitKeyExport => {
-                    AllowedOutputKindV2::ThresholdMaterialAndRelayerExportShare
+                ServerEvalOperation::ExplicitKeyExport => {
+                    AllowedOutputKind::ThresholdMaterialAndRelayerExportShare
                 }
-                ServerEvalOperationV2::RegistrationBootstrap
-                | ServerEvalOperationV2::SessionBootstrap
-                | ServerEvalOperationV2::NonExportSign => {
-                    AllowedOutputKindV2::ThresholdMaterialOnly
-                }
+                ServerEvalOperation::RegistrationBootstrap
+                | ServerEvalOperation::SessionBootstrap
+                | ServerEvalOperation::NonExportSign => AllowedOutputKind::ThresholdMaterialOnly,
             }
         }
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct PrepareEnvelopeV2 {
-        pub operation: ServerEvalOperationV2,
-        pub context: EcdsaHssStableKeyContextV2,
+    pub struct PrepareEnvelope {
+        pub operation: ServerEvalOperation,
+        pub context: EcdsaHssStableKeyContext,
         pub relayer_key_id: String,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct ThresholdRespondRequestV2 {
+    pub struct ThresholdRespondRequest {
         pub client_public_key33: [u8; 33],
         pub client_share_retry_counter: u32,
         pub expected_relayer_key_id: String,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct FinalizeEnvelopeV2 {
-        pub operation: ServerEvalOperationV2,
+    pub struct FinalizeEnvelope {
+        pub operation: ServerEvalOperation,
         pub raw_root_material_dropped: bool,
         pub relayer_key_id: String,
         pub context_binding32: [u8; 32],
@@ -75,10 +73,10 @@ pub mod wire {
 }
 
 pub mod client {
-    use crate::wire::AllowedOutputKindV2;
+    use crate::wire::AllowedOutputKind;
 
     #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct NonExportClientOutputV2 {
+    pub struct NonExportClientOutput {
         pub client_public_key33: [u8; 33],
         pub relayer_public_key33: [u8; 33],
         pub threshold_public_key33: [u8; 33],
@@ -88,7 +86,7 @@ pub mod client {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct ExplicitExportClientOutputV2 {
+    pub struct ExplicitExportClientOutput {
         pub relayer_export_share32: [u8; 32],
         pub client_public_key33: [u8; 33],
         pub relayer_public_key33: [u8; 33],
@@ -99,17 +97,17 @@ pub mod client {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
-    pub enum ClientOutputV2 {
-        NonExport(NonExportClientOutputV2),
-        ExplicitExport(ExplicitExportClientOutputV2),
+    pub enum ClientOutput {
+        NonExport(NonExportClientOutput),
+        ExplicitExport(ExplicitExportClientOutput),
     }
 
-    impl ClientOutputV2 {
-        pub fn allowed_output_kind(&self) -> AllowedOutputKindV2 {
+    impl ClientOutput {
+        pub fn allowed_output_kind(&self) -> AllowedOutputKind {
             match self {
-                ClientOutputV2::NonExport(_) => AllowedOutputKindV2::ThresholdMaterialOnly,
-                ClientOutputV2::ExplicitExport(_) => {
-                    AllowedOutputKindV2::ThresholdMaterialAndRelayerExportShare
+                ClientOutput::NonExport(_) => AllowedOutputKind::ThresholdMaterialOnly,
+                ClientOutput::ExplicitExport(_) => {
+                    AllowedOutputKind::ThresholdMaterialAndRelayerExportShare
                 }
             }
         }
@@ -117,15 +115,15 @@ pub mod client {
 }
 
 pub mod server {
-    use crate::client::{ClientOutputV2, ExplicitExportClientOutputV2, NonExportClientOutputV2};
-    use crate::shared::context::EcdsaHssStableKeyContextV2;
+    use crate::client::{ClientOutput, ExplicitExportClientOutput, NonExportClientOutput};
+    use crate::shared::context::EcdsaHssStableKeyContext;
     use crate::wire::{
-        AllowedOutputKindV2, FinalizeEnvelopeV2, PrepareEnvelopeV2, ServerEvalOperationV2,
-        ThresholdRespondRequestV2,
+        AllowedOutputKind, FinalizeEnvelope, PrepareEnvelope, ServerEvalOperation,
+        ThresholdRespondRequest,
     };
 
     #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct RetainedServerStateV2 {
+    pub struct RetainedServerState {
         pub raw_root_material_dropped: bool,
         pub relayer_key_id: String,
         pub relayer_share32: [u8; 32],
@@ -138,41 +136,41 @@ pub mod server {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct FinalizedServerSessionV2 {
-        pub operation: ServerEvalOperationV2,
-        pub context: EcdsaHssStableKeyContextV2,
-        pub retained: RetainedServerStateV2,
+    pub struct FinalizedServerSession {
+        pub operation: ServerEvalOperation,
+        pub context: EcdsaHssStableKeyContext,
+        pub retained: RetainedServerState,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct StagedServerSessionV2 {
-        pub prepare: PrepareEnvelopeV2,
+    pub struct StagedServerSession {
+        pub prepare: PrepareEnvelope,
         pub y_relayer32_le: [u8; 32],
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct RespondResponseV2 {
-        pub client_output: ClientOutputV2,
-        pub finalize: FinalizeEnvelopeV2,
+    pub struct RespondResponse {
+        pub client_output: ClientOutput,
+        pub finalize: FinalizeEnvelope,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct ServerRespondResultV2 {
-        pub client_response: RespondResponseV2,
-        pub finalized_server_session: FinalizedServerSessionV2,
+    pub struct ServerRespondResult {
+        pub client_response: RespondResponse,
+        pub finalized_server_session: FinalizedServerSession,
     }
 
     pub mod boundary {
         use super::*;
 
         #[derive(Debug, Clone, PartialEq, Eq)]
-        pub struct VisibleOperationBoundaryV2 {
-            pub operation: ServerEvalOperationV2,
-            pub allowed_output_kind: AllowedOutputKindV2,
+        pub struct VisibleOperationBoundary {
+            pub operation: ServerEvalOperation,
+            pub allowed_output_kind: AllowedOutputKind,
         }
 
         #[derive(Debug, Clone, PartialEq, Eq)]
-        pub struct VisibleNonExportBoundaryV2 {
+        pub struct VisibleNonExportBoundary {
             pub client_public_key33: [u8; 33],
             pub relayer_public_key33: [u8; 33],
             pub threshold_public_key33: [u8; 33],
@@ -182,7 +180,7 @@ pub mod server {
         }
 
         #[derive(Debug, Clone, PartialEq, Eq)]
-        pub struct VisibleExplicitExportBoundaryV2 {
+        pub struct VisibleExplicitExportBoundary {
             pub relayer_export_share32: [u8; 32],
             pub client_public_key33: [u8; 33],
             pub relayer_public_key33: [u8; 33],
@@ -193,14 +191,14 @@ pub mod server {
         }
 
         #[derive(Debug, Clone, PartialEq, Eq)]
-        pub enum VisibleClientBoundaryV2 {
-            NonExport(VisibleNonExportBoundaryV2),
-            ExplicitExport(VisibleExplicitExportBoundaryV2),
+        pub enum VisibleClientBoundary {
+            NonExport(VisibleNonExportBoundary),
+            ExplicitExport(VisibleExplicitExportBoundary),
         }
 
         #[derive(Debug, Clone, PartialEq, Eq)]
-        pub struct VisibleFinalizeBoundaryV2 {
-            pub operation: ServerEvalOperationV2,
+        pub struct VisibleFinalizeBoundary {
+            pub operation: ServerEvalOperation,
             pub raw_root_material_dropped: bool,
             pub relayer_key_id: String,
             pub context_binding32: [u8; 32],
@@ -213,7 +211,7 @@ pub mod server {
         }
 
         #[derive(Debug, Clone, PartialEq, Eq)]
-        pub struct VisibleRetainedServerStateBoundaryV2 {
+        pub struct VisibleRetainedServerStateBoundary {
             pub raw_root_material_dropped: bool,
             pub relayer_key_id: String,
             pub relayer_share32: [u8; 32],
@@ -226,17 +224,17 @@ pub mod server {
         }
 
         #[derive(Debug, Clone, PartialEq, Eq)]
-        pub struct VisibleRespondBoundaryV2 {
-            pub operation: VisibleOperationBoundaryV2,
-            pub client_output: VisibleClientBoundaryV2,
-            pub finalize: VisibleFinalizeBoundaryV2,
+        pub struct VisibleRespondBoundary {
+            pub operation: VisibleOperationBoundary,
+            pub client_output: VisibleClientBoundary,
+            pub finalize: VisibleFinalizeBoundary,
         }
 
         #[derive(Debug, Clone, PartialEq, Eq)]
-        pub struct HiddenEvalInputBoundaryV2 {
-            pub operation: ServerEvalOperationV2,
-            pub allowed_output_kind: AllowedOutputKindV2,
-            pub context: EcdsaHssStableKeyContextV2,
+        pub struct HiddenEvalInputBoundary {
+            pub operation: ServerEvalOperation,
+            pub allowed_output_kind: AllowedOutputKind,
+            pub context: EcdsaHssStableKeyContext,
             pub relayer_key_id: String,
             pub client_public_key33: [u8; 33],
             pub client_share_retry_counter: u32,
@@ -245,15 +243,15 @@ pub mod server {
         }
 
         #[derive(Debug, Clone, PartialEq, Eq)]
-        pub struct HiddenEvalTransportBoundaryV2 {
-            pub operation: VisibleOperationBoundaryV2,
-            pub client_output: VisibleClientBoundaryV2,
-            pub finalize: VisibleFinalizeBoundaryV2,
+        pub struct HiddenEvalTransportBoundary {
+            pub operation: VisibleOperationBoundary,
+            pub client_output: VisibleClientBoundary,
+            pub finalize: VisibleFinalizeBoundary,
         }
 
         #[derive(Debug, Clone, PartialEq, Eq)]
-        pub struct HiddenEvalPersistedStateBoundaryV2 {
-            pub operation: ServerEvalOperationV2,
+        pub struct HiddenEvalPersistedStateBoundary {
+            pub operation: ServerEvalOperation,
             pub raw_root_material_dropped: bool,
             pub relayer_key_id: String,
             pub relayer_share32: [u8; 32],
@@ -266,25 +264,25 @@ pub mod server {
         }
 
         #[derive(Debug, Clone, PartialEq, Eq)]
-        pub struct HiddenEvalBoundaryV2 {
-            pub input: HiddenEvalInputBoundaryV2,
-            pub transport: HiddenEvalTransportBoundaryV2,
-            pub persisted: HiddenEvalPersistedStateBoundaryV2,
+        pub struct HiddenEvalBoundary {
+            pub input: HiddenEvalInputBoundary,
+            pub transport: HiddenEvalTransportBoundary,
+            pub persisted: HiddenEvalPersistedStateBoundary,
         }
 
-        pub fn operation_boundary_from_operation_v2(
-            operation: ServerEvalOperationV2,
-        ) -> VisibleOperationBoundaryV2 {
-            VisibleOperationBoundaryV2 {
+        pub fn operation_boundary_from_operation(
+            operation: ServerEvalOperation,
+        ) -> VisibleOperationBoundary {
+            VisibleOperationBoundary {
                 operation,
                 allowed_output_kind: operation.allowed_output_kind(),
             }
         }
 
-        pub fn non_export_boundary_from_output_v2(
-            output: NonExportClientOutputV2,
-        ) -> VisibleNonExportBoundaryV2 {
-            VisibleNonExportBoundaryV2 {
+        pub fn non_export_boundary_from_output(
+            output: NonExportClientOutput,
+        ) -> VisibleNonExportBoundary {
+            VisibleNonExportBoundary {
                 client_public_key33: output.client_public_key33,
                 relayer_public_key33: output.relayer_public_key33,
                 threshold_public_key33: output.threshold_public_key33,
@@ -294,10 +292,10 @@ pub mod server {
             }
         }
 
-        pub fn explicit_export_boundary_from_output_v2(
-            output: ExplicitExportClientOutputV2,
-        ) -> VisibleExplicitExportBoundaryV2 {
-            VisibleExplicitExportBoundaryV2 {
+        pub fn explicit_export_boundary_from_output(
+            output: ExplicitExportClientOutput,
+        ) -> VisibleExplicitExportBoundary {
+            VisibleExplicitExportBoundary {
                 relayer_export_share32: output.relayer_export_share32,
                 client_public_key33: output.client_public_key33,
                 relayer_public_key33: output.relayer_public_key33,
@@ -308,23 +306,21 @@ pub mod server {
             }
         }
 
-        pub fn visible_client_boundary_from_output_v2(
-            output: ClientOutputV2,
-        ) -> VisibleClientBoundaryV2 {
+        pub fn visible_client_boundary_from_output(output: ClientOutput) -> VisibleClientBoundary {
             match output {
-                ClientOutputV2::NonExport(output) => {
-                    VisibleClientBoundaryV2::NonExport(non_export_boundary_from_output_v2(output))
+                ClientOutput::NonExport(output) => {
+                    VisibleClientBoundary::NonExport(non_export_boundary_from_output(output))
                 }
-                ClientOutputV2::ExplicitExport(output) => VisibleClientBoundaryV2::ExplicitExport(
-                    explicit_export_boundary_from_output_v2(output),
+                ClientOutput::ExplicitExport(output) => VisibleClientBoundary::ExplicitExport(
+                    explicit_export_boundary_from_output(output),
                 ),
             }
         }
 
-        pub fn visible_finalize_boundary_from_envelope_v2(
-            finalize: FinalizeEnvelopeV2,
-        ) -> VisibleFinalizeBoundaryV2 {
-            VisibleFinalizeBoundaryV2 {
+        pub fn visible_finalize_boundary_from_envelope(
+            finalize: FinalizeEnvelope,
+        ) -> VisibleFinalizeBoundary {
+            VisibleFinalizeBoundary {
                 operation: finalize.operation,
                 raw_root_material_dropped: finalize.raw_root_material_dropped,
                 relayer_key_id: finalize.relayer_key_id,
@@ -338,10 +334,10 @@ pub mod server {
             }
         }
 
-        pub fn retained_state_boundary_from_retained_v2(
-            retained: RetainedServerStateV2,
-        ) -> VisibleRetainedServerStateBoundaryV2 {
-            VisibleRetainedServerStateBoundaryV2 {
+        pub fn retained_state_boundary_from_retained(
+            retained: RetainedServerState,
+        ) -> VisibleRetainedServerStateBoundary {
+            VisibleRetainedServerStateBoundary {
                 raw_root_material_dropped: retained.raw_root_material_dropped,
                 relayer_key_id: retained.relayer_key_id,
                 relayer_share32: retained.relayer_share32,
@@ -354,21 +350,21 @@ pub mod server {
             }
         }
 
-        pub fn visible_boundary_from_respond_response_v2(
-            response: RespondResponseV2,
-        ) -> VisibleRespondBoundaryV2 {
-            VisibleRespondBoundaryV2 {
-                operation: operation_boundary_from_operation_v2(response.finalize.operation),
-                client_output: visible_client_boundary_from_output_v2(response.client_output),
-                finalize: visible_finalize_boundary_from_envelope_v2(response.finalize),
+        pub fn visible_boundary_from_respond_response(
+            response: RespondResponse,
+        ) -> VisibleRespondBoundary {
+            VisibleRespondBoundary {
+                operation: operation_boundary_from_operation(response.finalize.operation),
+                client_output: visible_client_boundary_from_output(response.client_output),
+                finalize: visible_finalize_boundary_from_envelope(response.finalize),
             }
         }
 
-        pub fn hidden_eval_input_boundary_from_staged_request_v2(
-            staged: StagedServerSessionV2,
-            request: ThresholdRespondRequestV2,
-        ) -> HiddenEvalInputBoundaryV2 {
-            HiddenEvalInputBoundaryV2 {
+        pub fn hidden_eval_input_boundary_from_staged_request(
+            staged: StagedServerSession,
+            request: ThresholdRespondRequest,
+        ) -> HiddenEvalInputBoundary {
+            HiddenEvalInputBoundary {
                 operation: staged.prepare.operation,
                 allowed_output_kind: staged.prepare.operation.allowed_output_kind(),
                 context: staged.prepare.context,
@@ -380,21 +376,21 @@ pub mod server {
             }
         }
 
-        pub fn hidden_eval_transport_boundary_from_respond_response_v2(
-            response: RespondResponseV2,
-        ) -> HiddenEvalTransportBoundaryV2 {
-            let visible = visible_boundary_from_respond_response_v2(response);
-            HiddenEvalTransportBoundaryV2 {
+        pub fn hidden_eval_transport_boundary_from_respond_response(
+            response: RespondResponse,
+        ) -> HiddenEvalTransportBoundary {
+            let visible = visible_boundary_from_respond_response(response);
+            HiddenEvalTransportBoundary {
                 operation: visible.operation,
                 client_output: visible.client_output,
                 finalize: visible.finalize,
             }
         }
 
-        pub fn hidden_eval_persisted_state_boundary_from_finalized_session_v2(
-            session: FinalizedServerSessionV2,
-        ) -> HiddenEvalPersistedStateBoundaryV2 {
-            HiddenEvalPersistedStateBoundaryV2 {
+        pub fn hidden_eval_persisted_state_boundary_from_finalized_session(
+            session: FinalizedServerSession,
+        ) -> HiddenEvalPersistedStateBoundary {
+            HiddenEvalPersistedStateBoundary {
                 operation: session.operation,
                 raw_root_material_dropped: session.retained.raw_root_material_dropped,
                 relayer_key_id: session.retained.relayer_key_id,
@@ -408,12 +404,12 @@ pub mod server {
             }
         }
 
-        pub fn hidden_eval_boundary_from_parts_v2(
-            input: HiddenEvalInputBoundaryV2,
-            transport: HiddenEvalTransportBoundaryV2,
-            persisted: HiddenEvalPersistedStateBoundaryV2,
-        ) -> HiddenEvalBoundaryV2 {
-            HiddenEvalBoundaryV2 {
+        pub fn hidden_eval_boundary_from_parts(
+            input: HiddenEvalInputBoundary,
+            transport: HiddenEvalTransportBoundary,
+            persisted: HiddenEvalPersistedStateBoundary,
+        ) -> HiddenEvalBoundary {
+            HiddenEvalBoundary {
                 input,
                 transport,
                 persisted,

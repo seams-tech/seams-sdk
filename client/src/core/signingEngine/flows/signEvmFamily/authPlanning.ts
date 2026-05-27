@@ -286,8 +286,9 @@ export async function resolveEvmFamilyTransactionStepUp(
           signingSessionRecord: emailOtpReauthRecord || null,
           reauthSource:
             preparedSelection?.kind === 'reauth_required' &&
-            preparedSelection.authMethod === SIGNER_AUTH_METHODS.emailOtp
-              ? { kind: 'selection', authority: preparedSelection.reauthAuthority }
+            'reauthAnchor' in preparedSelection &&
+            preparedSelection.reauthAnchor
+              ? { kind: 'reauth_anchor', anchor: preparedSelection.reauthAnchor }
               : { kind: 'material' },
           onEvent: args.onEvent,
           requestEmailOtpTransactionSigningChallenge:

@@ -16,7 +16,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../..');
 const OUT_ROOT = path.join(REPO_ROOT, 'benchmarks', 'ecdsa-hss-wasm', 'out');
-const FIXTURE_PATH = path.join(REPO_ROOT, 'crates', 'ecdsa-hss', 'fixtures', 'role_local_v1.json');
+const FIXTURE_PATH = path.join(REPO_ROOT, 'crates', 'ecdsa-hss', 'fixtures', 'role_local_v2.json');
 const ETH_SIGNER_WASM_PATH = path.join(
   REPO_ROOT,
   'wasm',
@@ -65,13 +65,13 @@ function readRepresentativeFixture() {
   const fixture = JSON.parse(readFileSync(FIXTURE_PATH, 'utf8'));
   const context = fixture.context;
   return {
-    walletSessionUserId: context.wallet_session_user_id,
-    subjectId: context.subject_id,
-    ecdsaThresholdKeyId: context.ecdsa_threshold_key_id,
-    signingRootId: context.signing_root_id,
-    signingRootVersion: context.signing_root_version,
-    keyPurpose: context.key_purpose,
-    keyVersion: context.key_version,
+    walletId: context.walletId,
+    rpId: context.rpId,
+    ecdsaThresholdKeyId: context.ecdsaThresholdKeyId,
+    signingRootId: context.signingRootId,
+    signingRootVersion: context.signingRootVersion,
+    keyPurpose: context.keyPurpose,
+    keyVersion: context.keyVersion,
     relayerKeyId: fixture.inputs.relayer_key_id,
     yClient32Le: hexToBytes(fixture.inputs.y_client32_le_hex),
     yRelayer32Le: hexToBytes(fixture.inputs.y_relayer32_le_hex),
@@ -82,15 +82,14 @@ function readRepresentativeFixture() {
       groupPublicKey33: hexToBytes(fixture.identity.threshold_public_key33_hex),
       ethereumAddress20: hexToBytes(fixture.identity.threshold_ethereum_address20_hex),
       clientShareRetryCounter: fixture.identity.client_share_retry_counter,
-      relayerShare32: hexToBytes(fixture.derived.x_relayer32_hex),
     },
   };
 }
 
 function contextPayload(fixture) {
   return {
-    walletSessionUserId: fixture.walletSessionUserId,
-    subjectId: fixture.subjectId,
+    walletId: fixture.walletId,
+    rpId: fixture.rpId,
     ecdsaThresholdKeyId: fixture.ecdsaThresholdKeyId,
     signingRootId: fixture.signingRootId,
     signingRootVersion: fixture.signingRootVersion,
@@ -120,7 +119,7 @@ function exportArtifactPayload(fixture, clientBootstrap, relayerBootstrap) {
   return {
     ...contextPayload(fixture),
     clientRootShare32: fixture.yClient32Le,
-    serverExportShare32B64u: bytesToB64u(fixture.expected.relayerShare32),
+    serverExportShare32B64u: bytesToB64u(relayerBootstrap.relayerShare32),
     contextBinding32B64u: clientBootstrap.contextBinding32B64u,
     clientPublicKey33B64u: clientBootstrap.clientPublicKey33B64u,
     relayerPublicKey33B64u: bytesToB64u(relayerBootstrap.relayerPublicKey33),
@@ -428,7 +427,7 @@ async function main() {
   const summary = {
     runId,
     runtime: 'node-hosted-wasm-web-target',
-    fixture: 'role_local_v1',
+    fixture: 'role_local_v2',
     benchmarks,
     serializedSizes,
   };

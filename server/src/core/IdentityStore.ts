@@ -1,13 +1,7 @@
 import type { NormalizedLogger } from './logger';
-import type {
-  CloudflareDurableObjectNamespaceLike,
-  ThresholdStoreConfigInput,
-} from './types';
-import {
-  THRESHOLD_DO_OBJECT_NAME_DEFAULT,
-  THRESHOLD_PREFIX_DEFAULT,
-} from './defaultConfigsServer';
-import { base64UrlEncode } from '@shared/utils/encoders';
+import type { CloudflareDurableObjectNamespaceLike, ThresholdStoreConfigInput } from './types';
+import { THRESHOLD_DO_OBJECT_NAME_DEFAULT, THRESHOLD_PREFIX_DEFAULT } from './defaultConfigsServer';
+import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { isObject as isObjectLoose, toOptionalTrimmedString } from '@shared/utils/validation';
 import {
   RedisTcpClient,
@@ -103,13 +97,7 @@ function toIdentityPrefix(config: Record<string, unknown>): string {
 }
 
 function generateAppSessionVersion(): string {
-  const bytes = new Uint8Array(16);
-  try {
-    globalThis.crypto.getRandomValues(bytes);
-  } catch {
-    for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
-  }
-  return base64UrlEncode(bytes);
+  return secureRandomBase64Url(32, 'app session versions');
 }
 
 function parseIdentitySubjectRecord(raw: unknown): IdentitySubjectRecord | null {
@@ -449,8 +437,7 @@ function resolveDoNamespaceFromConfig(
   const alt = (config as { durableObjectNamespace?: unknown }).durableObjectNamespace;
   if (isDurableObjectNamespaceLike(alt)) return alt;
 
-  const envStyle = (config as { THRESHOLD_DO_NAMESPACE?: unknown })
-    .THRESHOLD_DO_NAMESPACE;
+  const envStyle = (config as { THRESHOLD_DO_NAMESPACE?: unknown }).THRESHOLD_DO_NAMESPACE;
   if (isDurableObjectNamespaceLike(envStyle)) return envStyle;
 
   return null;

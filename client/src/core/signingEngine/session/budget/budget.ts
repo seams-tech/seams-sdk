@@ -1,9 +1,11 @@
 import type { StrictAccountId } from '@/core/types/accountIds';
 import { toAccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
+import { alphabetizeStringify } from '@shared/utils/digests';
 import {
   normalizeWalletSigningSpendPlan,
   SigningOperationIntent,
+  SigningSessionIds,
   summarizeSigningLane,
   type BackingMaterialSessionId,
   type EcdsaWalletSigningSpendPlan,
@@ -11,12 +13,21 @@ import {
   type SelectedSigningSessionPlanningLane,
   type SigningLaneSummary,
   type SigningOperationContext,
+  type SigningOperationFingerprint,
   type SigningOperationId,
   type ThresholdEcdsaSessionId,
   type ThresholdSessionId,
   type WalletSigningSessionId,
   type WalletSigningSpendPlan,
 } from '../operationState/types';
+import {
+  exactSigningLaneIdentity,
+  exactSigningLaneIdentityKey,
+  thresholdSessionIdsFromExactSigningLaneIdentity,
+  type ExactSigningLaneIdentity,
+  type ExactSigningLaneIdentityKey,
+  type NonEmptyThresholdSessionIds,
+} from '../identity/exactSigningLaneIdentity';
 import {
   toWalletId,
   type ThresholdEcdsaChainTarget,
@@ -35,6 +46,14 @@ export type SigningSessionBudgetZeroSpendReason =
   | 'nonce_preparation_failed'
   | 'signing_failed';
 
+export type SigningSessionBudgetFinalizationTraceResult =
+  | 'finalized'
+  | 'already_finalized'
+  | 'projection_mismatch'
+  | 'missing_reservation'
+  | 'reservation_identity_mismatch'
+  | 'budget_status_unavailable';
+
 export type SigningSessionBudgetTraceEvent = {
   event:
     | 'wallet_signing_budget_reservation_started'
@@ -46,6 +65,12 @@ export type SigningSessionBudgetTraceEvent = {
     | 'wallet_signing_budget_spend_deduped'
     | 'wallet_signing_budget_spend_succeeded'
     | 'wallet_signing_budget_spend_failed'
+    | 'wallet_signing_budget_finalization_finalized'
+    | 'wallet_signing_budget_finalization_already_finalized'
+    | 'wallet_signing_budget_finalization_projection_mismatch'
+    | 'wallet_signing_budget_finalization_missing_reservation'
+    | 'wallet_signing_budget_finalization_identity_mismatch'
+    | 'wallet_signing_budget_finalization_status_unavailable'
     | 'wallet_signing_budget_zero_spend_recorded';
   operationId: SigningOperationId;
   owner: WalletBudgetOwner;
@@ -56,6 +81,7 @@ export type SigningSessionBudgetTraceEvent = {
   backingMaterialSessionCount: number;
   status?: Pick<SigningSessionStatus, 'status' | 'remainingUses' | 'expiresAtMs'>;
   error?: string;
+  finalizationResult?: SigningSessionBudgetFinalizationTraceResult;
   zeroSpendReason?: SigningSessionBudgetZeroSpendReason;
 };
 
@@ -97,9 +123,10 @@ export type ExternallyConsumedWalletBudgetSpend =
   | ExternallyConsumedBackingMaterialWalletBudgetSpend
   | ExternallyConsumedThresholdWalletBudgetSpend;
 
-export type ZeroWalletBudgetSpend = {
+export type ZeroBudgetFinalizationSpend = {
   kind: 'zero_spend';
   operationId: SigningOperationId;
+  operationFingerprint: SigningOperationFingerprint;
   lane: SelectedSigningSessionPlanningLane;
   reason: SigningSessionBudgetZeroSpendReason;
   error?: unknown;
@@ -114,12 +141,20 @@ export type BudgetFinalizationSpend =
 export type ReservedBudgetFinalizationSpend = ReservedWalletBudgetSpend;
 export type UnreservedBudgetFinalizationSpend = UnreservedWalletBudgetSpend;
 export type ExternallyConsumedBudgetFinalizationSpend = ExternallyConsumedWalletBudgetSpend;
-export type ZeroBudgetFinalizationSpend = ZeroWalletBudgetSpend;
+export type ZeroWalletBudgetSpend = ZeroBudgetFinalizationSpend & {
+  finalizationCommand: BudgetReservationFinalizationCommand;
+};
+
+export type SigningSessionBudgetSuccessFinalizationInput<
+  TSpend extends ReservedWalletBudgetSpend | UnreservedWalletBudgetSpend | ExternallyConsumedWalletBudgetSpend,
+> = TSpend & {
+  finalizationCommand: BudgetReservationFinalizationCommand;
+};
 
 export type SigningSessionBudgetSuccessInput =
-  | ReservedWalletBudgetSpend
-  | UnreservedWalletBudgetSpend
-  | ExternallyConsumedWalletBudgetSpend;
+  | SigningSessionBudgetSuccessFinalizationInput<ReservedWalletBudgetSpend>
+  | SigningSessionBudgetSuccessFinalizationInput<UnreservedWalletBudgetSpend>
+  | SigningSessionBudgetSuccessFinalizationInput<ExternallyConsumedWalletBudgetSpend>;
 
 export type SigningSessionBudgetReserveInput = {
   spend: WalletSigningSpendPlan;
@@ -130,15 +165,100 @@ export type SigningSessionBudgetReserveInput = {
 export type SigningSessionBudgetReservationRecord = SigningSessionBudgetReserveInput & {
   operationFingerprint: string;
   walletSigningSessionId: string;
+  reservationIdentity: SigningBudgetReservationIdentity;
+  reservationIdentityKey: SigningBudgetReservationKey;
   reservedAgainstProjectionVersion: string;
   reservedAgainstRemainingUses: number;
   createdAtMs: number;
 };
 
+export type KnownBudgetReservationProjectionState = {
+  kind: 'known';
+  version: string;
+};
+
+export type SigningBudgetReservationIdentity = {
+  kind: 'signing_budget_reservation_identity';
+  operationId: SigningOperationId;
+  operationFingerprint: SigningOperationFingerprint;
+  walletId: StrictAccountId | WalletId;
+  walletSigningSessionId: WalletSigningSessionId;
+  laneIdentity: ExactSigningLaneIdentity;
+  laneIdentityKey: ExactSigningLaneIdentityKey;
+  thresholdSessionIds: NonEmptyThresholdSessionIds;
+  backingMaterialSessionIds: readonly BackingMaterialSessionId[];
+  admittedProjection: KnownBudgetReservationProjectionState;
+  reservedUses: 1;
+};
+
+export type SigningBudgetReservationKey = string & {
+  readonly __brand: 'SigningBudgetReservationKey';
+};
+
+export type BudgetReservationFinalizationCommand = {
+  kind: 'budget_reservation_finalization_command';
+  reservation: SigningBudgetReservationIdentity;
+  outcome: 'signed' | 'failed_before_sign' | 'broadcast_failed';
+};
+
+export type SigningBudgetFinalizationResult =
+  | {
+      kind: 'finalized';
+      reservation: SigningBudgetReservationIdentity;
+      remainingUses: number;
+      projectionVersion: string;
+    }
+  | {
+      kind: 'already_finalized';
+      reservation: SigningBudgetReservationIdentity;
+      remainingUses: number;
+      projectionVersion: string;
+    }
+  | {
+      kind: 'projection_mismatch';
+      reservation: SigningBudgetReservationIdentity;
+      expectedProjectionVersion: string;
+      actualProjectionVersion: string;
+    }
+  | {
+      kind: 'missing_reservation';
+      reservation: SigningBudgetReservationIdentity;
+    }
+  | {
+      kind: 'reservation_identity_mismatch';
+      expected: SigningBudgetReservationIdentity;
+      actual: SigningBudgetReservationIdentity;
+    }
+  | {
+      kind: 'budget_status_unavailable';
+      reservation: SigningBudgetReservationIdentity;
+      status: 'not_found' | 'budget_unknown' | 'missing_status';
+    };
+
 export type SigningSessionBudgetReservation = {
+  kind: 'reserved';
   operationId: SigningOperationId;
   release(reason?: SigningSessionBudgetZeroSpendReason): void;
 };
+
+export type SigningSessionBudgetReservationConflict = {
+  kind: 'reservation_identity_mismatch';
+  expected: SigningBudgetReservationIdentity;
+  actual: SigningBudgetReservationIdentity;
+  operationId?: never;
+  release?: never;
+};
+
+export type SigningSessionBudgetReserveResult =
+  | SigningSessionBudgetReservation
+  | SigningSessionBudgetReservationConflict
+  | null;
+
+export function isSigningSessionBudgetReservation(
+  result: SigningSessionBudgetReserveResult,
+): result is SigningSessionBudgetReservation {
+  return result?.kind === 'reserved';
+}
 
 export type Ed25519WalletBudgetOwner = {
   curve: 'ed25519';
@@ -182,7 +302,10 @@ export type ThresholdBudgetStatusCheck = {
   owner: WalletBudgetOwner;
   walletId?: never;
   walletSigningSessionId: WalletSigningSessionId | string;
-  targetThresholdSessionIds: readonly [ThresholdSessionId | string, ...(ThresholdSessionId | string)[]];
+  targetThresholdSessionIds: readonly [
+    ThresholdSessionId | string,
+    ...(ThresholdSessionId | string)[],
+  ];
   targetBackingMaterialSessionIds?: never;
   trustedStatusAuth?: never;
 };
@@ -192,7 +315,10 @@ export type AuthenticatedThresholdBudgetStatusCheck = {
   owner: WalletBudgetOwner;
   walletId?: never;
   walletSigningSessionId: WalletSigningSessionId | string;
-  targetThresholdSessionIds: readonly [ThresholdSessionId | string, ...(ThresholdSessionId | string)[]];
+  targetThresholdSessionIds: readonly [
+    ThresholdSessionId | string,
+    ...(ThresholdSessionId | string)[],
+  ];
   trustedStatusAuth: SigningSessionBudgetStatusAuth;
   targetBackingMaterialSessionIds?: never;
 };
@@ -265,9 +391,9 @@ export type SigningSessionPreparedBudgetIdentity = {
 };
 
 export type SigningSessionBudget = {
-  reserve(input: SigningSessionBudgetReserveInput): Promise<SigningSessionBudgetReservation | null>;
+  reserve(input: SigningSessionBudgetReserveInput): Promise<SigningSessionBudgetReserveResult>;
   getAvailableStatus(input: SigningSessionBudgetStatusCheck): Promise<SigningSessionStatus | null>;
-  recordSuccess(input: SigningSessionBudgetSuccessInput): Promise<SigningSessionStatus | null>;
+  recordSuccess(input: SigningSessionBudgetSuccessInput): Promise<SigningBudgetFinalizationResult>;
   recordZeroSpend(input: ZeroWalletBudgetSpend): void;
   hasRecorded(operationId: SigningOperationId): boolean;
 };
@@ -425,9 +551,9 @@ function formatSpendIdentityForError(spend: WalletSigningSpendPlan): string {
   ].join(' ');
 }
 
-export function normalizeWalletBudgetSuccessInput<
-  TInput extends SigningSessionBudgetSuccessInput,
->(input: TInput): TInput {
+export function normalizeWalletBudgetSuccessInput<TInput extends SigningSessionBudgetSuccessInput>(
+  input: TInput,
+): TInput {
   const normalized = {
     ...input,
     spend: normalizeWalletSigningSpendPlan(input.spend),
@@ -468,15 +594,71 @@ export function resolveWalletSigningOperationFingerprint(spend: WalletSigningSpe
   return String(spend.operationFingerprint || `operation-id:${spend.operationId}`).trim();
 }
 
-export function assertWalletSigningOperationFingerprintMatches(args: {
-  operationId: string;
-  existingFingerprint: string;
-  nextFingerprint: string;
-}): void {
-  if (args.existingFingerprint === args.nextFingerprint) return;
-  throw new Error(
-    `[SigningSessionBudget] signing operation id reused for a different operation: ${args.operationId}`,
-  );
+export function buildSigningBudgetReservationIdentity(args: {
+  spend: WalletSigningSpendPlan;
+  projectionVersion: string;
+}): SigningBudgetReservationIdentity {
+  const spend = normalizeWalletSigningSpendPlan(args.spend);
+  const projectionVersion = normalizeRequired(args.projectionVersion, 'projectionVersion');
+  const laneIdentity = exactSigningLaneIdentity(spend.lane);
+  const laneIdentityKey = exactSigningLaneIdentityKey(laneIdentity);
+  const thresholdSessionIds = resolveNonEmptyThresholdSessionIds({
+    spend,
+    laneIdentity,
+  });
+  return {
+    kind: 'signing_budget_reservation_identity',
+    operationId: spend.operationId,
+    operationFingerprint: SigningSessionIds.signingOperationFingerprint(
+      resolveWalletSigningOperationFingerprint(spend),
+    ),
+    walletId: walletBudgetOwnerId(walletBudgetOwnerForLane(spend.lane)),
+    walletSigningSessionId: spend.walletSigningSessionId,
+    laneIdentity,
+    laneIdentityKey,
+    thresholdSessionIds,
+    backingMaterialSessionIds: normalizeBackingMaterialSessionIds(spend.backingMaterialSessionIds),
+    admittedProjection: {
+      kind: 'known',
+      version: projectionVersion,
+    },
+    reservedUses: 1,
+  };
+}
+
+export function signingBudgetReservationKey(
+  identity: SigningBudgetReservationIdentity,
+): SigningBudgetReservationKey {
+  return alphabetizeStringify({
+    kind: identity.kind,
+    operationId: String(identity.operationId),
+    operationFingerprint: String(identity.operationFingerprint),
+    walletId: String(identity.walletId),
+    walletSigningSessionId: String(identity.walletSigningSessionId),
+    laneIdentityKey: String(identity.laneIdentityKey),
+    thresholdSessionIds: identity.thresholdSessionIds.map(String),
+    backingMaterialSessionIds: identity.backingMaterialSessionIds.map(String),
+    admittedProjection: identity.admittedProjection,
+    reservedUses: identity.reservedUses,
+  }) as SigningBudgetReservationKey;
+}
+
+function resolveNonEmptyThresholdSessionIds(args: {
+  spend: WalletSigningSpendPlan;
+  laneIdentity: ExactSigningLaneIdentity;
+}): NonEmptyThresholdSessionIds {
+  const normalized = normalizeStringList(args.spend.thresholdSessionIds) as
+    | ThresholdSessionId[]
+    | undefined;
+  if (normalized?.length) return [normalized[0], ...normalized.slice(1)];
+  return thresholdSessionIdsFromExactSigningLaneIdentity(args.laneIdentity);
+}
+
+function normalizeBackingMaterialSessionIds(
+  values: readonly BackingMaterialSessionId[],
+): readonly BackingMaterialSessionId[] {
+  const normalized = normalizeStringList(values) as BackingMaterialSessionId[] | undefined;
+  return normalized || [];
 }
 
 export function summarizeWalletSigningSessionStatus(
@@ -489,27 +671,13 @@ export function summarizeWalletSigningSessionStatus(
   };
 }
 
-export function assertPreparedBudgetProjectionVersion(args: {
-  status: SigningSessionStatus;
-  expectedBudgetProjectionVersion?: string;
-}): void {
-  const expected = String(args.expectedBudgetProjectionVersion || '').trim();
-  if (!expected) {
-    throw new Error('[SigningSessionBudget] prepared budget projection version is required');
-  }
-  const actual = String(args.status.projectionVersion || '').trim();
-  if (!actual) {
-    throw new Error('[SigningSessionBudget] trusted budget status is missing projection version');
-  }
-  if (actual !== expected) {
-    throw new Error('[SigningSessionBudget] prepared budget projection is stale');
-  }
-}
-
 export function createSigningSessionBudgetTraceEvent(
   input: { spend: WalletBudgetSpend },
   event: SigningSessionBudgetTraceEvent['event'],
-  extra: Pick<SigningSessionBudgetTraceEvent, 'status' | 'error' | 'zeroSpendReason'> = {},
+  extra: Pick<
+    SigningSessionBudgetTraceEvent,
+    'status' | 'error' | 'finalizationResult' | 'zeroSpendReason'
+  > = {},
 ): SigningSessionBudgetTraceEvent {
   const spend = input.spend;
   return {
@@ -531,7 +699,10 @@ export function createZeroSpendTraceEvent(
     SigningSessionBudgetTraceEvent['event'],
     'wallet_signing_budget_reservation_released' | 'wallet_signing_budget_zero_spend_recorded'
   >,
-  extra: Pick<SigningSessionBudgetTraceEvent, 'status' | 'error' | 'zeroSpendReason'> = {},
+  extra: Pick<
+    SigningSessionBudgetTraceEvent,
+    'status' | 'error' | 'finalizationResult' | 'zeroSpendReason'
+  > = {},
 ): SigningSessionBudgetTraceEvent {
   return {
     event,
@@ -631,9 +802,9 @@ export function buildThresholdBudgetStatusCheck(args: {
   walletSigningSessionId: WalletSigningSessionId | string;
   targetThresholdSessionIds: readonly (ThresholdSessionId | string)[];
 }): ThresholdBudgetStatusCheck {
-  const targetThresholdSessionIds = normalizeStringList(
-    args.targetThresholdSessionIds,
-  ) as ThresholdSessionId[] | undefined;
+  const targetThresholdSessionIds = normalizeStringList(args.targetThresholdSessionIds) as
+    | ThresholdSessionId[]
+    | undefined;
   if (!targetThresholdSessionIds?.length) {
     throw new Error('[SigningSessionBudget] targetThresholdSessionIds are required');
   }
@@ -644,7 +815,10 @@ export function buildThresholdBudgetStatusCheck(args: {
       args.walletSigningSessionId,
       'walletSigningSessionId',
     ) as WalletSigningSessionId,
-    targetThresholdSessionIds: [targetThresholdSessionIds[0], ...targetThresholdSessionIds.slice(1)],
+    targetThresholdSessionIds: [
+      targetThresholdSessionIds[0],
+      ...targetThresholdSessionIds.slice(1),
+    ],
   };
 }
 
@@ -728,7 +902,9 @@ export function thresholdSessionIdsForBudgetStatusCheck(
   }
   return args.kind === 'threshold_budget_status_check' ||
     args.kind === 'authenticated_threshold_budget_status_check'
-    ? [...args.targetThresholdSessionIds].map((value) => normalizeRequired(value, 'thresholdSessionId'))
+    ? [...args.targetThresholdSessionIds].map((value) =>
+        normalizeRequired(value, 'thresholdSessionId'),
+      )
     : [];
 }
 
@@ -771,7 +947,9 @@ export function buildAuthenticatedEcdsaLaneBudgetStatusCheck(args: {
 }
 
 function buildEcdsaLaneBudgetStatusCheckInternal<
-  TKind extends EcdsaLaneBudgetStatusCheck['kind'] | AuthenticatedEcdsaLaneBudgetStatusCheck['kind'],
+  TKind extends
+    | EcdsaLaneBudgetStatusCheck['kind']
+    | AuthenticatedEcdsaLaneBudgetStatusCheck['kind'],
 >(args: {
   kind: TKind;
   key: EvmFamilyEcdsaKeyIdentity;

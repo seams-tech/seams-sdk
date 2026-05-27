@@ -4,8 +4,8 @@ Last updated: 2026-05-16
 
 ## Funds-Safety Rule
 
-All EVM-class threshold ECDSA signers for the same wallet, subject, RP, signing
-root, and key version MUST share the same Ethereum address.
+All EVM-class threshold ECDSA signers for the same wallet, RP, signing root,
+and key version MUST share the same Ethereum address.
 
 This includes Tempo, Arc, Ethereum, and every future EVM-family chain target.
 Users and integrators may fund one displayed EVM signer address and expect that
@@ -19,8 +19,8 @@ Raw EIP-1559 signing must resolve sender, nonce, balance preflight, and funding
 UI from the threshold owner address. Consumer code must name which address role
 it is using.
 
-Public ECDSA operations identify the signer with `walletSession`, `subjectId`,
-and a concrete `chainTarget`. Callers never provide `ecdsaThresholdKeyId`,
+Public ECDSA operations identify the signer with `walletSession` and a concrete
+`chainTarget`. Callers never provide `ecdsaThresholdKeyId`,
 `participantIds`, threshold session IDs, or client root shares on the public
 bootstrap/sign/export request surface.
 
@@ -30,7 +30,6 @@ Persistent key identity is EVM-family scoped:
 
 ```text
 walletSessionUserId
-+ subjectId
 + rpId
 + signingRootId
 + signingRootVersion
@@ -57,7 +56,7 @@ material, `ecdsaThresholdKeyId`, or the displayed signer address.
 ## Failure Policy
 
 Any path that observes different owner addresses for EVM-family targets under
-the same wallet, subject, RP, signing root, and key version must fail closed
+the same wallet, RP, signing root, and key version must fail closed
 before displaying a funding address or signing a transaction.
 
 Any code that reintroduces concrete chain target into ECDSA HSS stable-key

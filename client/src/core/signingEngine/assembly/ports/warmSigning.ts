@@ -20,7 +20,10 @@ import type {
   WarmCapabilitiesPublicDeps,
 } from '../../session/warmCapabilities/public';
 import type { PasskeyPublicDeps } from '../../session/passkey/public';
-import { createWarmSessionStatusOnlyUiConfirm } from '../../uiConfirm/warmSessionUiConfirm';
+import {
+  createWarmSessionStatusOnlyUiConfirm,
+  type WarmSessionStatusOnlyReaderPort,
+} from '../../uiConfirm/warmSessionUiConfirm';
 import type { UiConfirmRuntimeBridgePort, WarmSessionStatusResult } from '../../uiConfirm/types';
 import { persistThresholdEcdsaBootstrapForWalletTarget } from '../../session/warmCapabilities/ecdsaBootstrapPersistence';
 import {
@@ -51,7 +54,7 @@ export type WarmSigningPorts = {
   ecdsaSessions: ThresholdEcdsaSessionStoreDeps & {
     exportArtifactsByLane: Map<string, ThresholdEcdsaCanonicalExportArtifact>;
   };
-  statusUiConfirm: UiConfirmRuntimeBridgePort;
+  statusUiConfirm: WarmSessionStatusOnlyReaderPort;
   capabilityReader: WarmSessionCapabilityReader;
   statusReader: WarmSigningStatusReader;
   getThresholdEcdsaSessionRecordByThresholdSessionId: (

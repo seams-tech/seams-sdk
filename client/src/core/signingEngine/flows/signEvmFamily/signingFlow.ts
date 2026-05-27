@@ -34,7 +34,11 @@ import {
   PENDING_INTENT_DIGEST,
   registerIntentDigestPreparation,
 } from '@/core/signingEngine/stepUpConfirmation/intentDigestPreparation';
-import type { SigningSessionBudgetReservation } from '../../session/budget/budget';
+import {
+  isSigningSessionBudgetReservation,
+  type SigningSessionBudgetReservation,
+  type SigningSessionBudgetReserveResult,
+} from '../../session/budget/budget';
 import type { SelectedEcdsaLane } from '../../session/identity/laneIdentity';
 import type { BudgetAdmittedOperation } from '../../session/operationState/transactionState';
 import type { SigningOperationContext, SigningSessionPlan } from '../../session/operationState/types';
@@ -161,7 +165,7 @@ export type SignEvmFamilyWithUiConfirmArgs<TRequest> = {
   thresholdEcdsaStepUp: EvmFamilyThresholdEcdsaStepUp;
   reserveWalletSigningSessionBudget?: (
     operation: BudgetAdmittedOperation<SelectedEcdsaLane>,
-  ) => Promise<SigningSessionBudgetReservation | null>;
+  ) => Promise<SigningSessionBudgetReserveResult>;
 };
 
 export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends object>(args: {
@@ -287,8 +291,14 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
     walletBudgetReservationAttempted = true;
     const thresholdEcdsaOperation = await getBudgetAdmittedThresholdEcdsaOperation();
     if (!input.reserveWalletSigningSessionBudget) return;
-    walletBudgetReservation =
-      (await input.reserveWalletSigningSessionBudget(thresholdEcdsaOperation)) || null;
+    const reservationResult =
+      await input.reserveWalletSigningSessionBudget(thresholdEcdsaOperation);
+    if (reservationResult?.kind === 'reservation_identity_mismatch') {
+      throw new Error('[SigningSessionBudget] wallet signing-session reservation identity mismatch');
+    }
+    walletBudgetReservation = isSigningSessionBudgetReservation(reservationResult)
+      ? reservationResult
+      : null;
   };
   const releaseWalletBudgetReservation = (): void => {
     if (!walletBudgetReservation) return;
@@ -460,7 +470,9 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
     preparedStepUpAuth = stepUp;
     const confirmationAuthPayload = stepUp.confirmationAuthPayload;
     if (isWarmSessionSigningAuthPlan(confirmationAuthPayload.signingAuthPlan)) {
-      await reserveWalletSigningBudgetOnce();
+      if (activeThresholdEcdsaOperation) {
+        await reserveWalletSigningBudgetOnce();
+      }
       emitProgress({
         phase: SigningEventPhase.STEP_06_AUTH_WARM_SESSION_CLAIMED,
         status: 'succeeded',

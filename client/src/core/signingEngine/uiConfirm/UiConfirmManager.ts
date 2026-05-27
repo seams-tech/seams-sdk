@@ -838,6 +838,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
               : {}),
             sessionKind: ecdsaRecord.thresholdSessionKind,
             keyHandle: ecdsaRecord.keyHandle,
+            ecdsaThresholdKeyId: ecdsaRecord.ecdsaThresholdKeyId,
             ethereumAddress,
             relayerKeyId: ecdsaRecord.relayerKeyId,
             clientVerifyingShareB64u: ecdsaRecord.clientVerifyingShareB64u,

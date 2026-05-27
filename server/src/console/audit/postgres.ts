@@ -1,3 +1,4 @@
+import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 import type { NormalizedLogger } from '../../core/logger';
 import { getPostgresPool } from '../../storage/postgres';
 import {
@@ -67,7 +68,7 @@ function nowMs(now: Date): number {
 }
 
 function makeId(prefix: string, now: Date): string {
-  return `${prefix}_${now.getTime().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  return `${prefix}_${now.getTime().toString(36)}_${secureRandomBase36(8, 'console IDs')}`;
 }
 
 function normalizeString(raw: unknown): string {
@@ -252,7 +253,11 @@ function ensureSummary(field: string, raw: unknown): string {
     throw new ConsoleAuditError('invalid_body', 400, `Field ${field} is required`);
   }
   if (value.length > 1024) {
-    throw new ConsoleAuditError('invalid_body', 400, `Field ${field} must be 1024 characters or less`);
+    throw new ConsoleAuditError(
+      'invalid_body',
+      400,
+      `Field ${field} must be 1024 characters or less`,
+    );
   }
   return value;
 }
@@ -262,9 +267,7 @@ function ensureMetadataObject(raw: unknown): Record<string, unknown> {
   return { ...(raw as Record<string, unknown>) };
 }
 
-function ensureReferences(
-  raw: unknown,
-): ConsoleAuditEvidenceReference[] {
+function ensureReferences(raw: unknown): ConsoleAuditEvidenceReference[] {
   if (!Array.isArray(raw)) return [];
   const out: ConsoleAuditEvidenceReference[] = [];
   const seen = new Set<string>();
@@ -425,8 +428,7 @@ export async function createPostgresConsoleAuditService(
   const withTenantTx = <T>(
     ctx: ConsoleAuditContext,
     fn: (q: Queryable) => Promise<T>,
-  ): Promise<T> =>
-    withConsoleTenantContextTx(pool, { namespace, orgId: ctx.orgId }, fn);
+  ): Promise<T> => withConsoleTenantContextTx(pool, { namespace, orgId: ctx.orgId }, fn);
 
   async function listEvents(
     ctx: ConsoleAuditContext,
@@ -582,7 +584,11 @@ export async function createPostgresConsoleAuditService(
         return parseEventRow((out.rows[0] as PgRow) || {});
       } catch (error: unknown) {
         if (isUniqueViolation(error)) {
-          throw new ConsoleAuditError('event_already_exists', 409, `Audit event ${id} already exists`);
+          throw new ConsoleAuditError(
+            'event_already_exists',
+            409,
+            `Audit event ${id} already exists`,
+          );
         }
         throw error;
       }

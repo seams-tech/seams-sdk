@@ -5,7 +5,7 @@ import type { EvmSigningRequest } from '../../chains/evm/types';
 import type { TempoSignedResult } from '../../chains/tempo/tempoAdapter';
 import type { TempoSigningRequest } from '../../chains/tempo/types';
 import type { SelectedEcdsaLane } from '../../session/identity/laneIdentity';
-import type { SigningSessionBudgetReservation } from '../../session/budget/budget';
+import type { SigningSessionBudgetReserveResult } from '../../session/budget/budget';
 import type { BudgetAdmittedOperation } from '../../session/operationState/transactionState';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EvmFamilyThresholdEcdsaStepUp } from './requireEvmFamilyStepUpAuth';
@@ -69,7 +69,7 @@ type EvmFamilyTransactionSigningExecutorArgs<TRequest extends EvmFamilyTransacti
     thresholdEcdsaStepUp: EvmFamilyThresholdEcdsaStepUp;
     reserveWalletSigningSessionBudget: (
       operation: BudgetAdmittedOperation<SelectedEcdsaLane>,
-    ) => Promise<SigningSessionBudgetReservation | null>;
+    ) => Promise<SigningSessionBudgetReserveResult>;
     recordSuccessfulWalletSigningSessionSpend: () => Promise<void>;
     recordFailedWalletSigningSessionSpend: (error: unknown) => void;
     applySuccessfulEcdsaPostSignPolicy: () => Promise<void>;
@@ -211,7 +211,7 @@ export async function executeEvmFamilyTransactionSigning(args: {
   thresholdEcdsaStepUp: EvmFamilyThresholdEcdsaStepUp;
   reserveWalletSigningSessionBudget: (
     operation: BudgetAdmittedOperation<SelectedEcdsaLane>,
-  ) => Promise<SigningSessionBudgetReservation | null>;
+  ) => Promise<SigningSessionBudgetReserveResult>;
   recordSuccessfulWalletSigningSessionSpend: () => Promise<void>;
   recordFailedWalletSigningSessionSpend: (error: unknown) => void;
   applySuccessfulEcdsaPostSignPolicy: () => Promise<void>;

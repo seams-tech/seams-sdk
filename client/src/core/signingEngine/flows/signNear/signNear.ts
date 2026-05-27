@@ -1,4 +1,5 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
+import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import type { DelegateActionInput } from '@/core/types/delegate';
 import {
   createSigningFlowEvent,
@@ -60,9 +61,7 @@ import {
   buildNearTransactionSigningLane,
   type NearTransactionSigningLane,
 } from '../../session/operationState/lanes';
-import {
-  type NearAccountRef,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { type NearAccountRef } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   isSigningSessionBudgetExhaustedError,
   SigningSessionCoordinator,
@@ -310,11 +309,7 @@ type NearEd25519TransactionOperationPrepareResult = {
 };
 
 function createNearTransactionSigningOperationId(): SigningOperationId {
-  const cryptoObj = globalThis as { crypto?: { randomUUID?: () => string } };
-  const randomId =
-    typeof cryptoObj.crypto?.randomUUID === 'function'
-      ? cryptoObj.crypto.randomUUID()
-      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  const randomId = secureRandomBase64Url(32, 'NEAR transaction signing operation IDs');
   return SigningSessionIds.signingOperation(`near-transaction-sign:${randomId}`);
 }
 
@@ -714,7 +709,9 @@ function resolveAdHocSigningRequestSessionId(args: {
 }): string {
   const nearAccountId = args.nearAccount.accountId;
   if (typeof args.deps.resolveThresholdEd25519SessionId === 'function') {
-    const canonical = String(args.deps.resolveThresholdEd25519SessionId(nearAccountId) || '').trim();
+    const canonical = String(
+      args.deps.resolveThresholdEd25519SessionId(nearAccountId) || '',
+    ).trim();
     if (canonical) return canonical;
   }
   return args.deps.createSigningSessionId('threshold-ed25519');
@@ -883,7 +880,8 @@ function hasSharedEmailOtpAndPasskeyEd25519LaneIdentity(
     const thresholdSessionId = String(lane.thresholdSessionId || '').trim();
     if (!walletSigningSessionId || !thresholdSessionId) continue;
     const identityKey = `${walletSigningSessionId}:${thresholdSessionId}`;
-    const authMethods = authMethodsByIdentity.get(identityKey) || new Set<'email_otp' | 'passkey'>();
+    const authMethods =
+      authMethodsByIdentity.get(identityKey) || new Set<'email_otp' | 'passkey'>();
     authMethods.add(lane.authMethod);
     authMethodsByIdentity.set(identityKey, authMethods);
   }
@@ -1053,7 +1051,9 @@ async function readNearEd25519AvailableSigningLanes(args: {
 }): Promise<AvailableSigningLanes | null> {
   const nearAccountId = args.nearAccount.accountId;
   if (typeof args.deps.readAvailableSigningLanesForSigning !== 'function') {
-    throw new Error('[SigningEngine][near] transaction signing requires available signing lanes reader');
+    throw new Error(
+      '[SigningEngine][near] transaction signing requires available signing lanes reader',
+    );
   }
   return await args.deps
     .readAvailableSigningLanesForSigning({
@@ -1080,18 +1080,16 @@ async function restoreNearEd25519SelectedSigningSession(args: {
   if (typeof args.deps.restorePersistedSessionForSigning !== 'function') return;
   const selectedLane = args.selectedLane;
   if (!selectedLane) {
-    console.debug(
-      '[SigningEngine][near] Ed25519 restore skipped without selected available lane',
-      {
-        nearAccountId,
-      },
-    );
+    console.debug('[SigningEngine][near] Ed25519 restore skipped without selected available lane', {
+      nearAccountId,
+    });
     return;
   }
   if (args.candidate?.source === 'runtime_session_record' && args.candidate.state === 'ready') {
     const thresholdSessionId = String(selectedLane.thresholdSessionId || '').trim();
     const liveStatus =
-      thresholdSessionId && typeof args.deps.getWarmThresholdEd25519SessionStatusForSession === 'function'
+      thresholdSessionId &&
+      typeof args.deps.getWarmThresholdEd25519SessionStatusForSession === 'function'
         ? await args.deps
             .getWarmThresholdEd25519SessionStatusForSession({
               nearAccountId,

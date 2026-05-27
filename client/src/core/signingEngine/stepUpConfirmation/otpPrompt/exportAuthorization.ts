@@ -1,4 +1,5 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
+import { secureRandomId } from '@shared/utils/secureRandomId';
 import type { WalletAuthCurve } from '@/core/types/seams';
 import { SigningAuthPlanKind, type EmailOtpConfirmPrompt } from '../types';
 import {
@@ -29,11 +30,7 @@ export type EmailOtpExportAuthorizationConfirmer = {
 };
 
 function createEmailOtpExportUiRequestId(prefix: string): string {
-  const randomPart =
-    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  return `${prefix}-${randomPart}`;
+  return secureRandomId(prefix, 32, 'Email OTP export UI request IDs');
 }
 
 function buildEmailOtpExportPrompt(args: {

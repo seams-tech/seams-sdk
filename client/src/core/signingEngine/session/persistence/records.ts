@@ -29,11 +29,9 @@ import {
   thresholdEcdsaChainTargetsEqual,
   thresholdEcdsaChainTargetFromRequest,
   thresholdEcdsaLaneKey,
-  toWalletSubjectId,
   type ThresholdEcdsaSessionRecordKey,
   type ThresholdEcdsaChainTarget,
   type WalletId,
-  type WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildPasskeyEcdsaAuthBinding,
@@ -42,7 +40,6 @@ import {
   buildResolvedEvmFamilyEcdsaKey,
   buildVerifiedEcdsaPublicFacts,
   deriveBaseEcdsaSubjectIdFromWalletId,
-  deriveBaseEcdsaSubjectIdFromKey,
   resolveThresholdEcdsaKeyIdFromRecord,
   resolveThresholdSigningRootBindingFromRecord,
   toEvmFamilyEcdsaKeyHandle,
@@ -361,7 +358,7 @@ export function thresholdEcdsaSessionRecordReadModel(
 function evmFamilyEcdsaSharedContextKey(key: EvmFamilyEcdsaKeyIdentity): string {
   return ecdsaIndexKey([
     key.walletId,
-    deriveBaseEcdsaSubjectIdFromKey(key),
+    deriveBaseEcdsaSubjectIdFromWalletId(key.walletId),
     key.rpId,
     key.keyScope,
     key.signingRootId,
@@ -484,11 +481,6 @@ export function thresholdEcdsaLaneCandidateFromSessionRecord(args: {
     updatedAtMs: nullableRecordInteger(args.record.updatedAtMs),
     source: 'runtime_session_record',
   };
-}
-
-function normalizeOptionalRuntimeSubjectId(value: unknown): WalletSubjectId | null {
-  const subjectId = normalizeOptionalNonEmptyString(value);
-  return subjectId ? toWalletSubjectId(subjectId) : null;
 }
 
 function normalizeOptionalRuntimeChainTarget(value: unknown): ThresholdEcdsaChainTarget | null {
@@ -758,7 +750,7 @@ function normalizeThresholdEcdsaCanonicalExportArtifact(
   const privateKeyHex = String(obj.privateKeyHex || '').trim();
   const ethereumAddress = String(obj.ethereumAddress || '').trim();
   if (
-    artifactKind !== 'ecdsa-hss-secp256k1-key-v1' ||
+    artifactKind !== 'ecdsa-hss-secp256k1-export' ||
     !chainTarget ||
     !signingRootId ||
     !publicKeyHex ||
@@ -768,7 +760,7 @@ function normalizeThresholdEcdsaCanonicalExportArtifact(
     return null;
   }
   return {
-    artifactKind: 'ecdsa-hss-secp256k1-key-v1',
+    artifactKind: 'ecdsa-hss-secp256k1-export',
     chainTarget,
     signingRootId,
     ...(signingRootVersion ? { signingRootVersion } : {}),
@@ -924,8 +916,6 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
     sourceRaw === 'email_otp'
       ? sourceRaw
       : 'manual-bootstrap';
-  const providedSubjectId = normalizeOptionalRuntimeSubjectId(obj.subjectId);
-  const expectedSubjectId = deriveBaseEcdsaSubjectIdFromWalletId(walletId);
   const chainTarget = normalizeOptionalRuntimeChainTarget(obj.chainTarget);
   const updatedAtMs = normalizeInteger(obj.updatedAtMs) || Date.now();
   const expiresAtMs = normalizeInteger(obj.expiresAtMs);
@@ -946,7 +936,6 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
     !keyHandle ||
     !relayerKeyId ||
     !clientVerifyingShareB64u ||
-    !ecdsaHssRoleLocalClientState ||
     !participantIds ||
     !thresholdSessionId ||
     !walletSigningSessionId ||
@@ -955,8 +944,8 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
   ) {
     throw new Error('Invalid threshold ECDSA canonical session record');
   }
-  if (providedSubjectId && providedSubjectId !== expectedSubjectId) {
-    throw new Error('Invalid threshold ECDSA canonical session record: subjectId mismatch');
+  if (normalizeOptionalNonEmptyString(obj.subjectId)) {
+    throw new Error('Invalid threshold ECDSA canonical session record: unexpected subjectId');
   }
   if (thresholdSessionKind === 'jwt' && !thresholdSessionAuthToken) {
     throw new Error(

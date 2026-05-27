@@ -1,5 +1,6 @@
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
+import { secureRandomId } from '@shared/utils/secureRandomId';
 import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import {
@@ -149,19 +150,11 @@ export function clampThresholdSessionPolicy(input: { ttlMs: number; remainingUse
 }
 
 export function generateThresholdSessionId(): string {
-  const id =
-    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : `tsess-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  return `tsess-${id}`;
+  return secureRandomId('tsess', 32, 'threshold session IDs');
 }
 
 export function generateWalletSigningSessionId(): string {
-  const id =
-    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : `wsess-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  return `wsess-${id}`;
+  return secureRandomId('wsess', 32, 'wallet signing session IDs');
 }
 
 export async function computeEd25519SessionPolicyDigest32(

@@ -34,7 +34,13 @@ export type EvmFamilyWarmSessionReconnectPlan =
 
 export function buildEvmFamilyWarmSessionReconnectPlan(args: {
   authorization: EvmFamilyEcdsaWarmSessionStepUpAuthorization;
-  material: ReadyEvmFamilyEcdsaMaterial;
+  material: {
+    lane: Pick<
+      ResolvedEvmFamilyEcdsaSigningLane,
+      'chainTarget' | 'thresholdSessionId' | 'walletSigningSessionId'
+    >;
+    record: ThresholdEcdsaSessionRecord;
+  };
   sessionBudgetUses: number;
 }): EvmFamilyWarmSessionReconnectPlan {
   return buildThresholdSessionAuthEcdsaReconnect({

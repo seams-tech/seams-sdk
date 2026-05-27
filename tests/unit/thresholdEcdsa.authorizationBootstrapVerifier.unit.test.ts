@@ -1,17 +1,13 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { bootstrapEcdsaSession } from '@/core/signingEngine/threshold/ecdsa/bootstrapSession';
-import {
-  thresholdEcdsaChainTargetFromChainFamily,
-  toWalletSubjectId,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { thresholdEcdsaChainTargetFromChainFamily } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildEvmFamilyEcdsaKeyIdentity,
   buildEvmFamilyEcdsaSessionLanePolicy,
   toEvmFamilyEcdsaKeyHandle,
 } from '../../client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 
-const TEST_SUBJECT_ID = toWalletSubjectId('alice.testnet');
 const TEST_CHAIN_TARGET = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'evm',
   chainId: 11155111,
@@ -19,7 +15,6 @@ const TEST_CHAIN_TARGET = thresholdEcdsaChainTargetFromChainFamily({
 });
 const TEST_KEY_IDENTITY = buildEvmFamilyEcdsaKeyIdentity({
   walletId: 'alice.testnet',
-  subjectId: TEST_SUBJECT_ID,
   rpId: 'wallet.example.test',
   ecdsaThresholdKeyId: 'ecdsa-key-1',
   signingRootId: 'project:dev',

@@ -1416,7 +1416,7 @@ test.describe('PasskeyClientDB device selection', () => {
             signerId: `threshold-ed25519:slot-${signerSlot}`,
             signerSlot,
             signerType: 'threshold',
-            signerKind: 'threshold-ecdsa',
+            signerKind: 'threshold-ed25519',
             signerAuthMethod: 'passkey',
             signerSource: 'passkey_registration',
             metadata: { credentialId },

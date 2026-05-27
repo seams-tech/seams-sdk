@@ -96,7 +96,7 @@ test.describe('privateKeyExportRecovery method binding', () => {
       {
         nearAccountId: 'alice.testnet' as any,
         artifact: {
-          artifactKind: 'ecdsa-hss-secp256k1-key-v1',
+          artifactKind: 'ecdsa-hss-secp256k1-export',
           chainTarget: {
             kind: 'evm',
             namespace: 'eip155',
@@ -119,7 +119,7 @@ test.describe('privateKeyExportRecovery method binding', () => {
     expect(requestExportState.lastPayload).toMatchObject({
       nearAccountId: 'alice.testnet',
       signerSlot: 4,
-      artifactKind: 'ecdsa-hss-secp256k1-key-v1',
+      artifactKind: 'ecdsa-hss-secp256k1-export',
       chainTarget: {
         kind: 'evm',
         namespace: 'eip155',
@@ -132,5 +132,48 @@ test.describe('privateKeyExportRecovery method binding', () => {
       variant: 'modal',
       theme: 'light',
     });
+  });
+
+  test('rejects retired ecdsa-hss secp256k1 key artifact kind before worker dispatch', async () => {
+    let requestExportCallCount = 0;
+    await expect(
+      exportEcdsaHssThresholdKeyArtifactWithUI(
+        {
+          indexedDB: {
+            clientDB: {
+              resolveProfileAccountContext: async () => ({
+                profileId: 'profile-1',
+                accountRef: { chainIdKey: 'near:testnet', accountAddress: 'alice.testnet' },
+              }),
+              getLastProfileState: async () => ({ profileId: 'profile-1', activeSignerSlot: 4 }),
+            },
+          } as any,
+          requestExportPrivateKeysWithUi: (async () => {
+            requestExportCallCount += 1;
+            return { ok: true, accountId: 'alice.testnet', exportedSchemes: ['secp256k1'] };
+          }) as any,
+          getTheme: () => 'light',
+          relayerUrl: 'https://relay.example.test',
+          getRpId: () => 'wallet.example.test',
+        },
+        {
+          nearAccountId: 'alice.testnet' as any,
+          artifact: {
+            artifactKind: 'ecdsa-hss-secp256k1-key-v1',
+            chainTarget: {
+              kind: 'evm',
+              namespace: 'eip155',
+              chainId: 5042002,
+              networkSlug: 'arc-testnet',
+            },
+            publicKeyHex: `0x${'02'}${'11'.repeat(32)}`,
+            privateKeyHex: `0x${'22'.repeat(32)}`,
+            ethereumAddress: `0x${'33'.repeat(20)}`,
+          } as any,
+          options: { variant: 'modal' },
+        },
+      ),
+    ).rejects.toThrow('Missing or invalid ecdsa-hss export artifactKind');
+    expect(requestExportCallCount).toBe(0);
   });
 });

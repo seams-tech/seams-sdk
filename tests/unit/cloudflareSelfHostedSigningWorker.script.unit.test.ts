@@ -460,7 +460,7 @@ test('self-host signing-root verify-wallet route delegates to threshold signing-
       signingRootId: SIGNING_ROOT_ID,
       signingRootVersion: 'root-v1',
       walletSessionUserId: 'wallet-user-alpha',
-      subjectId: 'subject-alpha',
+      walletId: 'subject-alpha',
       chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 11155111 },
       ecdsaThresholdKeyId: 'ecdsa-alpha',
       walletSigningSessionId: 'wallet-signing-alpha',

@@ -256,7 +256,15 @@ export function parseThresholdEd25519KeyRecord(
   };
 }
 
+const ECDSA_HSS_V1_CONTEXT_FORBIDDEN_FIELDS = [
+  'subjectId',
+  'walletSessionUserId',
+  'subject_id',
+  'wallet_session_user_id',
+] as const;
+
 const ECDSA_HSS_BOOTSTRAP_FORBIDDEN_FIELDS = [
+  ...ECDSA_HSS_V1_CONTEXT_FORBIDDEN_FIELDS,
   'chainTarget',
   'yClient32Le',
   'yClient32LeB64u',
@@ -275,6 +283,7 @@ const ECDSA_HSS_BOOTSTRAP_FORBIDDEN_FIELDS = [
 ] as const;
 
 const ECDSA_HSS_EXPORT_REQUEST_FORBIDDEN_FIELDS = [
+  ...ECDSA_HSS_V1_CONTEXT_FORBIDDEN_FIELDS,
   'chainTarget',
   'yClient32Le',
   'yClient32LeB64u',
@@ -451,6 +460,7 @@ export function parseEcdsaHssRoleLocalKeyRecord(
   raw: unknown,
 ): EcdsaHssRoleLocalKeyRecord | null {
   if (!isObject(raw)) return null;
+  if (hasForbiddenFields(raw, ECDSA_HSS_V1_CONTEXT_FORBIDDEN_FIELDS)) return null;
   if (toOptionalString(raw.version) !== 'threshold_ecdsa_hss_role_local_v2') return null;
   if (toOptionalString(raw.keyScope) !== 'evm-family') return null;
   const ecdsaThresholdKeyId = toOptionalString(raw.ecdsaThresholdKeyId);
@@ -1069,7 +1079,10 @@ export function parseThresholdEd25519SessionClaims(
   const runtimePolicyScopeRaw = (raw as { runtimePolicyScope?: unknown }).runtimePolicyScope;
   if (runtimePolicyScopeRaw !== undefined) {
     const runtimePolicyScope = parseRuntimePolicyScope(runtimePolicyScopeRaw);
-    if (!runtimePolicyScope) return null;
+    if (!runtimePolicyScope) {
+      console.warn('[threshold-ecdsa-e2e] app session runtimePolicyScope parse failed', runtimePolicyScopeRaw);
+      return null;
+    }
     out.runtimePolicyScope = runtimePolicyScope;
   }
 
@@ -1130,10 +1143,13 @@ export function parseAppSessionClaims(raw: unknown): AppSessionClaims | null {
   if (googleEmailOtpRegistrationAttemptId) {
     out.googleEmailOtpRegistrationAttemptId = googleEmailOtpRegistrationAttemptId;
   }
-  const googleEmailOtpResolutionMode = toOptionalString(
-    (raw as { googleEmailOtpResolutionMode?: unknown }).googleEmailOtpResolutionMode,
-  );
-  if (googleEmailOtpResolutionMode !== undefined) {
+  const googleEmailOtpResolutionModeRaw = (raw as { googleEmailOtpResolutionMode?: unknown })
+    .googleEmailOtpResolutionMode;
+  const googleEmailOtpResolutionMode =
+    googleEmailOtpResolutionModeRaw === undefined
+      ? ''
+      : toOptionalString(googleEmailOtpResolutionModeRaw);
+  if (googleEmailOtpResolutionMode) {
     if (
       googleEmailOtpResolutionMode !== 'existing_wallet' &&
       googleEmailOtpResolutionMode !== 'register_started'
@@ -1141,6 +1157,8 @@ export function parseAppSessionClaims(raw: unknown): AppSessionClaims | null {
       return null;
     }
     out.googleEmailOtpResolutionMode = googleEmailOtpResolutionMode;
+  } else if (googleEmailOtpResolutionModeRaw !== undefined) {
+    return null;
   }
   const runtimePolicyScopeRaw = (raw as { runtimePolicyScope?: unknown }).runtimePolicyScope;
   if (runtimePolicyScopeRaw !== undefined) {

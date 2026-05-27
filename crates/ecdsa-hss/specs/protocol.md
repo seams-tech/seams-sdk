@@ -62,12 +62,12 @@ The role-local input domain is:
 the server role. A production request path must not accept both values in one
 process.
 
-The fixed context binding tuple is:
+The active product context binding tuple is v2:
 
-- `scheme_id = "ecdsa-hss-v1"`
+- `scheme_id = "ecdsa-hss-v2"`
 - `curve = "secp256k1"`
-- `wallet_session_user_id`
-- `subject_id`
+- `wallet_id`
+- `rp_id`
 - `key_scope = "evm-family"`
 - `ecdsa_threshold_key_id`
 - `signing_root_id`
@@ -79,11 +79,11 @@ The fixed context binding tuple is:
 This context is part of deterministic role-local derivation. Changing any field
 except the concrete EVM chain target changes the derived key.
 
-Funds-safety invariant: every EVM-class target for the same wallet, subject,
-RP, signing root, and key version must derive the same threshold ECDSA public
-key and Ethereum address. The fixed `key_scope = "evm-family"` field is the
-stable EVM-family key scope. Concrete chain targets stay out of the stable key
-context. Cross-chain replay protection belongs to EVM transaction chain IDs and
+Funds-safety invariant: every EVM-class target for the same wallet, RP, signing
+root, and key version must derive the same threshold ECDSA public key and
+Ethereum address. The fixed `key_scope = "evm-family"` field is the stable
+EVM-family key scope. Concrete chain targets stay out of the stable key context.
+Cross-chain replay protection belongs to EVM transaction chain IDs and
 typed-data domain separation.
 
 ### `chain_target` Cleanup
@@ -107,18 +107,29 @@ Implementation rule:
 - tests: changing only concrete `chainTarget` must preserve the HSS public key
   and Ethereum address
 
-## `encode_context_v1` Byte Contract
+### Removed Context-Version Boundary
 
-`encode_context_v1` is frozen for the current context format.
+The historical context used `wallet_session_user_id` and `subject_id`.
+After v2 invalidation, those records require wipe/recreate before active
+signing or export. Production request, persistence, signing, export, and Rust
+crate boundaries must reject those fields for active ECDSA HSS records.
+
+The Rust crate no longer retains the old context version, byte encoder, wire
+types, server/client APIs, fixtures, benchmarks, or formal-verification tests.
+The only active context format is `encode_context_v2`.
+
+## `encode_context_v2` Byte Contract
+
+`encode_context_v2` is the active product context format.
 
 The byte encoding is:
 
-- ASCII domain tag: `b"ecdsa-hss:context:v1"`
+- ASCII domain tag: `b"ecdsa-hss:context:v2"`
 - followed by the fixed tuple fields in this exact order:
   1. `scheme_id`
   2. `curve`
-  3. `wallet_session_user_id`
-  4. `subject_id`
+  3. `wallet_id`
+  4. `rp_id`
   5. `key_scope`
   6. `ecdsa_threshold_key_id`
   7. `signing_root_id`
@@ -127,14 +138,12 @@ The byte encoding is:
   10. `key_version`
   11. `participant_ids`
 
-### String Encoding
-
-The string fields are:
+The v2 string fields are:
 
 - `scheme_id`
 - `curve`
-- `wallet_session_user_id`
-- `subject_id`
+- `wallet_id`
+- `rp_id`
 - `key_scope`
 - `ecdsa_threshold_key_id`
 - `signing_root_id`
@@ -142,57 +151,8 @@ The string fields are:
 - `key_purpose`
 - `key_version`
 
-Each string field is encoded as:
-
-- `u16be(length_in_bytes)`
-- raw ASCII bytes
-
-Validation rules:
-
-- all string fields must be non-empty
-- all string fields must be ASCII-only
-- Unicode normalization is forbidden
-- non-ASCII input is invalid
-
-This is intentionally strict so Rust, TypeScript, and native runtimes generate
-exactly the same vectors.
-
-### Participant ID Encoding
-
-The participant IDs are fixed to `[1, 2]`.
-
-They are encoded as:
-
-- `u8(count)`
-- `count` participant IDs as `u16be`
-
-The participant-id bytes are always:
-
-- `0x02 || 0x0001 || 0x0002`
-
-### Full Layout
-
-The full `encode_context_v1(...)` byte layout is:
-
-- `b"ecdsa-hss:context:v1"`
-- `u16be(len("ecdsa-hss-v1")) || b"ecdsa-hss-v1"`
-- `u16be(len("secp256k1")) || b"secp256k1"`
-- `u16be(len(wallet_session_user_id)) || wallet_session_user_id_ascii_bytes`
-- `u16be(len(subject_id)) || subject_id_ascii_bytes`
-- `u16be(len(key_scope)) || key_scope_ascii_bytes`
-- `u16be(len(ecdsa_threshold_key_id)) || ecdsa_threshold_key_id_ascii_bytes`
-- `u16be(len(signing_root_id)) || signing_root_id_ascii_bytes`
-- `u16be(len(signing_root_version)) || signing_root_version_ascii_bytes`
-- `u16be(len(key_purpose)) || key_purpose_ascii_bytes`
-- `u16be(len(key_version)) || key_version_ascii_bytes`
-- `0x02 || 0x0001 || 0x0002`
-
-There is:
-
-- no JSON layer
-- no key sorting
-- no locale dependence
-- no platform-specific text normalization
+The string length and ASCII validation rules are the same for every string
+field. The active participant-id bytes are `0x02 || 0x0001 || 0x0002`.
 
 ## Role-Local Share Derivation
 
@@ -212,23 +172,23 @@ H_scalar(domain, context_binding32, context_bytes, input_le32, retry_counter) =
   )))
 ```
 
-The production share derivation is:
+The active product share derivation is:
 
 ```text
-context = encode_context_v1(...)
+context = encode_context_v2(...)
 context_binding32 = SHA-256(frame(
-  "ecdsa-hss:role-local:v1:context-binding",
+  "ecdsa-hss:role-local:v2:context-binding",
   field(0x01, context)
 ))
 x_client = H_scalar(
-  "ecdsa-hss:role-local:v1:client-share",
+  "ecdsa-hss:role-local:v2:client-share",
   context_binding32,
   context,
   y_client,
   client_retry_counter
 )
 x_relayer = H_scalar(
-  "ecdsa-hss:role-local:v1:relayer-share",
+  "ecdsa-hss:role-local:v2:relayer-share",
   context_binding32,
   context,
   y_relayer,
@@ -519,7 +479,7 @@ The next committed role-local fixture corpus should cover:
 - `y_client`
 - `y_relayer`
 - `context`
-- `encode_context_v1(context)` bytes
+- `encode_context_v2(context)` bytes
 - `x_client`
 - `x_relayer`
 - `X_client`
@@ -549,8 +509,8 @@ Allowed log/audit fields:
 - event kind
 - operation kind
 - result and failure code
-- `wallet_session_user_id`
-- `subject_id`
+- `wallet_id`
+- `rp_id`
 - `ecdsa_threshold_key_id`
 - `relayer_key_id`
 - client device/session identifiers

@@ -1,4 +1,5 @@
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
+import { secureRandomId } from '@shared/utils/secureRandomId';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import type {
   ThresholdEcdsaPresignPoolPolicy,
@@ -171,9 +172,7 @@ export function resolveThresholdEcdsaPresignPoolPolicy(
 }
 
 function createClientPresignSessionId(): string {
-  const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
-  if (typeof c?.randomUUID === 'function') return `c-presign-${c.randomUUID()}`;
-  return `c-presign-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return secureRandomId('c-presign', 32, 'client presign session IDs');
 }
 
 function normalizeParticipantIds(participantIds: number[] | undefined): number[] {

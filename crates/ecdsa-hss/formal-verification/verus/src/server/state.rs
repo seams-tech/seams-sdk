@@ -12,7 +12,7 @@ use crate::server::policy::SessionOperation;
 verus! {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum RetainedMaterialKindV1 {
+pub enum RetainedMaterialKind {
     RawClientRootShare,
     RawRelayerRootShare,
     CanonicalScalar,
@@ -24,7 +24,7 @@ pub enum RetainedMaterialKindV1 {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct FinalizedRetainedStateV1 {
+pub struct FinalizedRetainedState {
     pub operation: SessionOperation,
     pub raw_root_material_dropped: bool,
     pub keeps_relayer_threshold_share: bool,
@@ -37,32 +37,32 @@ pub struct FinalizedRetainedStateV1 {
     pub keeps_raw_relayer_root_share: bool,
 }
 
-pub open spec fn retains_material_v1_spec(
-    state: FinalizedRetainedStateV1,
-    kind: RetainedMaterialKindV1,
+pub open spec fn retains_material_spec(
+    state: FinalizedRetainedState,
+    kind: RetainedMaterialKind,
 ) -> bool {
     match kind {
-        RetainedMaterialKindV1::RawClientRootShare => state.keeps_raw_client_root_share,
-        RetainedMaterialKindV1::RawRelayerRootShare => state.keeps_raw_relayer_root_share,
-        RetainedMaterialKindV1::CanonicalScalar => state.keeps_canonical_scalar,
-        RetainedMaterialKindV1::RelayerThresholdShare => state.keeps_relayer_threshold_share,
-        RetainedMaterialKindV1::RelayerPublicKey => state.keeps_relayer_public_key,
-        RetainedMaterialKindV1::ThresholdPublicKey => state.keeps_threshold_public_key,
-        RetainedMaterialKindV1::ThresholdAddress => state.keeps_threshold_address,
-        RetainedMaterialKindV1::RetryCounter => state.keeps_retry_counter,
+        RetainedMaterialKind::RawClientRootShare => state.keeps_raw_client_root_share,
+        RetainedMaterialKind::RawRelayerRootShare => state.keeps_raw_relayer_root_share,
+        RetainedMaterialKind::CanonicalScalar => state.keeps_canonical_scalar,
+        RetainedMaterialKind::RelayerThresholdShare => state.keeps_relayer_threshold_share,
+        RetainedMaterialKind::RelayerPublicKey => state.keeps_relayer_public_key,
+        RetainedMaterialKind::ThresholdPublicKey => state.keeps_threshold_public_key,
+        RetainedMaterialKind::ThresholdAddress => state.keeps_threshold_address,
+        RetainedMaterialKind::RetryCounter => state.keeps_retry_counter,
     }
 }
 
-pub open spec fn is_forbidden_root_material_v1_spec(
-    kind: RetainedMaterialKindV1,
+pub open spec fn is_forbidden_root_material_spec(
+    kind: RetainedMaterialKind,
 ) -> bool {
-    ||| kind == RetainedMaterialKindV1::RawClientRootShare
-    ||| kind == RetainedMaterialKindV1::RawRelayerRootShare
-    ||| kind == RetainedMaterialKindV1::CanonicalScalar
+    ||| kind == RetainedMaterialKind::RawClientRootShare
+    ||| kind == RetainedMaterialKind::RawRelayerRootShare
+    ||| kind == RetainedMaterialKind::CanonicalScalar
 }
 
-pub open spec fn accepted_finalized_retained_state_v1_spec(
-    state: FinalizedRetainedStateV1,
+pub open spec fn accepted_finalized_retained_state_spec(
+    state: FinalizedRetainedState,
 ) -> bool {
     &&& state.raw_root_material_dropped
     &&& state.keeps_relayer_threshold_share
@@ -75,37 +75,37 @@ pub open spec fn accepted_finalized_retained_state_v1_spec(
     &&& !state.keeps_raw_relayer_root_share
 }
 
-pub proof fn accepted_finalized_state_excludes_forbidden_root_material_v1(
-    state: FinalizedRetainedStateV1,
-    kind: RetainedMaterialKindV1,
+pub proof fn accepted_finalized_state_excludes_forbidden_root_material(
+    state: FinalizedRetainedState,
+    kind: RetainedMaterialKind,
 )
     requires
-        accepted_finalized_retained_state_v1_spec(state),
-        is_forbidden_root_material_v1_spec(kind),
+        accepted_finalized_retained_state_spec(state),
+        is_forbidden_root_material_spec(kind),
     ensures
-        !retains_material_v1_spec(state, kind),
+        !retains_material_spec(state, kind),
 {
 }
 
-pub proof fn accepted_finalized_state_keeps_only_allowed_server_material_v1(
-    state: FinalizedRetainedStateV1,
+pub proof fn accepted_finalized_state_keeps_only_allowed_server_material(
+    state: FinalizedRetainedState,
 )
     requires
-        accepted_finalized_retained_state_v1_spec(state),
+        accepted_finalized_retained_state_spec(state),
     ensures
-        retains_material_v1_spec(state, RetainedMaterialKindV1::RelayerThresholdShare),
-        retains_material_v1_spec(state, RetainedMaterialKindV1::RelayerPublicKey),
-        retains_material_v1_spec(state, RetainedMaterialKindV1::ThresholdPublicKey),
-        retains_material_v1_spec(state, RetainedMaterialKindV1::ThresholdAddress),
-        retains_material_v1_spec(state, RetainedMaterialKindV1::RetryCounter),
+        retains_material_spec(state, RetainedMaterialKind::RelayerThresholdShare),
+        retains_material_spec(state, RetainedMaterialKind::RelayerPublicKey),
+        retains_material_spec(state, RetainedMaterialKind::ThresholdPublicKey),
+        retains_material_spec(state, RetainedMaterialKind::ThresholdAddress),
+        retains_material_spec(state, RetainedMaterialKind::RetryCounter),
 {
 }
 
-pub proof fn accepted_finalized_state_requires_raw_root_material_dropped_v1(
-    state: FinalizedRetainedStateV1,
+pub proof fn accepted_finalized_state_requires_raw_root_material_dropped(
+    state: FinalizedRetainedState,
 )
     requires
-        accepted_finalized_retained_state_v1_spec(state),
+        accepted_finalized_retained_state_spec(state),
     ensures
         state.raw_root_material_dropped,
 {

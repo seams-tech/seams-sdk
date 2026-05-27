@@ -12,37 +12,37 @@ set_option maxHeartbeats 1000000
 
 namespace ecdsa_hss
 
-/-- [ecdsa_hss::wire::{ecdsa_hss::wire::ServerEvalOperationV2}::allowed_output_kind]:
-    Source: 'src/lib.rs', lines 34:8-45:9
+/-- [ecdsa_hss::wire::{ecdsa_hss::wire::ServerEvalOperation}::allowed_output_kind]:
+    Source: 'src/lib.rs', lines 34:8-43:9
     Visibility: public -/
-def wire.ServerEvalOperationV2.allowed_output_kind
-  (self : wire.ServerEvalOperationV2) : Result wire.AllowedOutputKindV2 := do
+def wire.ServerEvalOperation.allowed_output_kind
+  (self : wire.ServerEvalOperation) : Result wire.AllowedOutputKind := do
   match self with
-  | wire.ServerEvalOperationV2.RegistrationBootstrap =>
-    ok wire.AllowedOutputKindV2.ThresholdMaterialOnly
-  | wire.ServerEvalOperationV2.SessionBootstrap =>
-    ok wire.AllowedOutputKindV2.ThresholdMaterialOnly
-  | wire.ServerEvalOperationV2.NonExportSign =>
-    ok wire.AllowedOutputKindV2.ThresholdMaterialOnly
-  | wire.ServerEvalOperationV2.ExplicitKeyExport =>
-    ok wire.AllowedOutputKindV2.ThresholdMaterialAndRelayerExportShare
+  | wire.ServerEvalOperation.RegistrationBootstrap =>
+    ok wire.AllowedOutputKind.ThresholdMaterialOnly
+  | wire.ServerEvalOperation.SessionBootstrap =>
+    ok wire.AllowedOutputKind.ThresholdMaterialOnly
+  | wire.ServerEvalOperation.NonExportSign =>
+    ok wire.AllowedOutputKind.ThresholdMaterialOnly
+  | wire.ServerEvalOperation.ExplicitKeyExport =>
+    ok wire.AllowedOutputKind.ThresholdMaterialAndRelayerExportShare
 
-/-- [ecdsa_hss::server::boundary::operation_boundary_from_operation_v2]:
-    Source: 'src/lib.rs', lines 275:8-282:9
+/-- [ecdsa_hss::server::boundary::operation_boundary_from_operation]:
+    Source: 'src/lib.rs', lines 273:8-280:9
     Visibility: public -/
-def server.boundary.operation_boundary_from_operation_v2
-  (operation : wire.ServerEvalOperationV2) :
-  Result server.boundary.VisibleOperationBoundaryV2
+def server.boundary.operation_boundary_from_operation
+  (operation : wire.ServerEvalOperation) :
+  Result server.boundary.VisibleOperationBoundary
   := do
-  let aokv ← wire.ServerEvalOperationV2.allowed_output_kind operation
-  ok { operation, allowed_output_kind := aokv }
+  let aok ← wire.ServerEvalOperation.allowed_output_kind operation
+  ok { operation, allowed_output_kind := aok }
 
-/-- [ecdsa_hss::server::boundary::non_export_boundary_from_output_v2]:
-    Source: 'src/lib.rs', lines 284:8-295:9
+/-- [ecdsa_hss::server::boundary::non_export_boundary_from_output]:
+    Source: 'src/lib.rs', lines 282:8-293:9
     Visibility: public -/
-def server.boundary.non_export_boundary_from_output_v2
-  (output : client.NonExportClientOutputV2) :
-  Result server.boundary.VisibleNonExportBoundaryV2
+def server.boundary.non_export_boundary_from_output
+  (output : client.NonExportClientOutput) :
+  Result server.boundary.VisibleNonExportBoundary
   := do
   ok
     {
@@ -54,12 +54,12 @@ def server.boundary.non_export_boundary_from_output_v2
       relayer_share_retry_counter := output.relayer_share_retry_counter
     }
 
-/-- [ecdsa_hss::server::boundary::explicit_export_boundary_from_output_v2]:
-    Source: 'src/lib.rs', lines 297:8-309:9
+/-- [ecdsa_hss::server::boundary::explicit_export_boundary_from_output]:
+    Source: 'src/lib.rs', lines 295:8-307:9
     Visibility: public -/
-def server.boundary.explicit_export_boundary_from_output_v2
-  (output : client.ExplicitExportClientOutputV2) :
-  Result server.boundary.VisibleExplicitExportBoundaryV2
+def server.boundary.explicit_export_boundary_from_output
+  (output : client.ExplicitExportClientOutput) :
+  Result server.boundary.VisibleExplicitExportBoundary
   := do
   ok
     {
@@ -72,28 +72,27 @@ def server.boundary.explicit_export_boundary_from_output_v2
       relayer_share_retry_counter := output.relayer_share_retry_counter
     }
 
-/-- [ecdsa_hss::server::boundary::visible_client_boundary_from_output_v2]:
-    Source: 'src/lib.rs', lines 311:8-322:9
+/-- [ecdsa_hss::server::boundary::visible_client_boundary_from_output]:
+    Source: 'src/lib.rs', lines 309:8-318:9
     Visibility: public -/
-def server.boundary.visible_client_boundary_from_output_v2
-  (output : client.ClientOutputV2) :
-  Result server.boundary.VisibleClientBoundaryV2
+def server.boundary.visible_client_boundary_from_output
+  (output : client.ClientOutput) :
+  Result server.boundary.VisibleClientBoundary
   := do
   match output with
-  | client.ClientOutputV2.NonExport output1 =>
-    let vnebv ← server.boundary.non_export_boundary_from_output_v2 output1
-    ok (server.boundary.VisibleClientBoundaryV2.NonExport vnebv)
-  | client.ClientOutputV2.ExplicitExport output1 =>
-    let veebv ←
-      server.boundary.explicit_export_boundary_from_output_v2 output1
-    ok (server.boundary.VisibleClientBoundaryV2.ExplicitExport veebv)
+  | client.ClientOutput.NonExport output1 =>
+    let vneb ← server.boundary.non_export_boundary_from_output output1
+    ok (server.boundary.VisibleClientBoundary.NonExport vneb)
+  | client.ClientOutput.ExplicitExport output1 =>
+    let veeb ← server.boundary.explicit_export_boundary_from_output output1
+    ok (server.boundary.VisibleClientBoundary.ExplicitExport veeb)
 
-/-- [ecdsa_hss::server::boundary::visible_finalize_boundary_from_envelope_v2]:
-    Source: 'src/lib.rs', lines 324:8-339:9
+/-- [ecdsa_hss::server::boundary::visible_finalize_boundary_from_envelope]:
+    Source: 'src/lib.rs', lines 320:8-335:9
     Visibility: public -/
-def server.boundary.visible_finalize_boundary_from_envelope_v2
-  (finalize : wire.FinalizeEnvelopeV2) :
-  Result server.boundary.VisibleFinalizeBoundaryV2
+def server.boundary.visible_finalize_boundary_from_envelope
+  (finalize : wire.FinalizeEnvelope) :
+  Result server.boundary.VisibleFinalizeBoundary
   := do
   ok
     {
@@ -109,38 +108,36 @@ def server.boundary.visible_finalize_boundary_from_envelope_v2
       relayer_share_retry_counter := finalize.relayer_share_retry_counter
     }
 
-/-- [ecdsa_hss::server::boundary::visible_boundary_from_respond_response_v2]:
-    Source: 'src/lib.rs', lines 357:8-365:9
+/-- [ecdsa_hss::server::boundary::visible_boundary_from_respond_response]:
+    Source: 'src/lib.rs', lines 353:8-361:9
     Visibility: public -/
-def server.boundary.visible_boundary_from_respond_response_v2
-  (response : server.RespondResponseV2) :
-  Result server.boundary.VisibleRespondBoundaryV2
+def server.boundary.visible_boundary_from_respond_response
+  (response : server.RespondResponse) :
+  Result server.boundary.VisibleRespondBoundary
   := do
-  let vobv ←
-    server.boundary.operation_boundary_from_operation_v2
+  let vob ←
+    server.boundary.operation_boundary_from_operation
       response.finalize.operation
-  let vcbv ←
-    server.boundary.visible_client_boundary_from_output_v2
-      response.client_output
-  let vfbv ←
-    server.boundary.visible_finalize_boundary_from_envelope_v2
-      response.finalize
-  ok { operation := vobv, client_output := vcbv, finalize := vfbv }
+  let vcb ←
+    server.boundary.visible_client_boundary_from_output response.client_output
+  let vfb ←
+    server.boundary.visible_finalize_boundary_from_envelope response.finalize
+  ok { operation := vob, client_output := vcb, finalize := vfb }
 
-/-- [ecdsa_hss::server::boundary::hidden_eval_input_boundary_from_staged_request_v2]:
-    Source: 'src/lib.rs', lines 367:8-381:9
+/-- [ecdsa_hss::server::boundary::hidden_eval_input_boundary_from_staged_request]:
+    Source: 'src/lib.rs', lines 363:8-377:9
     Visibility: public -/
-def server.boundary.hidden_eval_input_boundary_from_staged_request_v2
-  (staged : server.StagedServerSessionV2)
-  (request : wire.ThresholdRespondRequestV2) :
-  Result server.boundary.HiddenEvalInputBoundaryV2
+def server.boundary.hidden_eval_input_boundary_from_staged_request
+  (staged : server.StagedServerSession)
+  (request : wire.ThresholdRespondRequest) :
+  Result server.boundary.HiddenEvalInputBoundary
   := do
-  let aokv ←
-    wire.ServerEvalOperationV2.allowed_output_kind staged.prepare.operation
+  let aok ←
+    wire.ServerEvalOperation.allowed_output_kind staged.prepare.operation
   ok
     {
       operation := staged.prepare.operation,
-      allowed_output_kind := aokv,
+      allowed_output_kind := aok,
       context := staged.prepare.context,
       relayer_key_id := staged.prepare.relayer_key_id,
       client_public_key33 := request.client_public_key33,
@@ -149,15 +146,15 @@ def server.boundary.hidden_eval_input_boundary_from_staged_request_v2
       y_relayer32_le := staged.y_relayer32_le
     }
 
-/-- [ecdsa_hss::server::boundary::hidden_eval_transport_boundary_from_respond_response_v2]:
-    Source: 'src/lib.rs', lines 383:8-392:9
+/-- [ecdsa_hss::server::boundary::hidden_eval_transport_boundary_from_respond_response]:
+    Source: 'src/lib.rs', lines 379:8-388:9
     Visibility: public -/
-def server.boundary.hidden_eval_transport_boundary_from_respond_response_v2
-  (response : server.RespondResponseV2) :
-  Result server.boundary.HiddenEvalTransportBoundaryV2
+def server.boundary.hidden_eval_transport_boundary_from_respond_response
+  (response : server.RespondResponse) :
+  Result server.boundary.HiddenEvalTransportBoundary
   := do
   let visible ←
-    server.boundary.visible_boundary_from_respond_response_v2 response
+    server.boundary.visible_boundary_from_respond_response response
   ok
     {
       operation := visible.operation,
@@ -165,13 +162,12 @@ def server.boundary.hidden_eval_transport_boundary_from_respond_response_v2
       finalize := visible.finalize
     }
 
-/-- [ecdsa_hss::server::boundary::hidden_eval_persisted_state_boundary_from_finalized_session_v2]:
-    Source: 'src/lib.rs', lines 394:8-409:9
+/-- [ecdsa_hss::server::boundary::hidden_eval_persisted_state_boundary_from_finalized_session]:
+    Source: 'src/lib.rs', lines 390:8-405:9
     Visibility: public -/
-def
-  server.boundary.hidden_eval_persisted_state_boundary_from_finalized_session_v2
-  (session : server.FinalizedServerSessionV2) :
-  Result server.boundary.HiddenEvalPersistedStateBoundaryV2
+def server.boundary.hidden_eval_persisted_state_boundary_from_finalized_session
+  (session : server.FinalizedServerSession) :
+  Result server.boundary.HiddenEvalPersistedStateBoundary
   := do
   ok
     {
@@ -189,14 +185,14 @@ def
         session.retained.relayer_share_retry_counter
     }
 
-/-- [ecdsa_hss::server::boundary::hidden_eval_boundary_from_parts_v2]:
-    Source: 'src/lib.rs', lines 411:8-421:9
+/-- [ecdsa_hss::server::boundary::hidden_eval_boundary_from_parts]:
+    Source: 'src/lib.rs', lines 407:8-417:9
     Visibility: public -/
-def server.boundary.hidden_eval_boundary_from_parts_v2
-  (input : server.boundary.HiddenEvalInputBoundaryV2)
-  (transport : server.boundary.HiddenEvalTransportBoundaryV2)
-  (persisted : server.boundary.HiddenEvalPersistedStateBoundaryV2) :
-  Result server.boundary.HiddenEvalBoundaryV2
+def server.boundary.hidden_eval_boundary_from_parts
+  (input : server.boundary.HiddenEvalInputBoundary)
+  (transport : server.boundary.HiddenEvalTransportBoundary)
+  (persisted : server.boundary.HiddenEvalPersistedStateBoundary) :
+  Result server.boundary.HiddenEvalBoundary
   := do
   ok { input, transport, persisted }
 

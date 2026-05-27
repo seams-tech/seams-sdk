@@ -155,6 +155,12 @@ export type PasskeyFreshEcdsaBootstrapRequest =
     })
   | (PasskeyFreshEcdsaBootstrapTargetRequestBase & {
       sessionKind: 'jwt';
+      routeAuth: PasskeyFreshBootstrapRouteAuth;
+      clientRootShare32B64u: string;
+      webauthnAuthentication: WebAuthnAuthenticationCredential;
+    })
+  | (PasskeyFreshEcdsaBootstrapTargetRequestBase & {
+      sessionKind: 'jwt';
       clientRootShare32B64u: string;
       webauthnAuthentication: WebAuthnAuthenticationCredential;
       routeAuth?: never;

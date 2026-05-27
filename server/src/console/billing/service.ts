@@ -1,3 +1,4 @@
+import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 import { ConsoleBillingError } from './errors';
 import { resolveCreditPackAmountMinorOrThrow } from './creditPacks';
 import { resolveBillingProviderAdapters, type BillingProviderAdapters } from './providers';
@@ -164,7 +165,7 @@ function monthUtcFromEpochMs(ms: number): string {
 
 function makeId(prefix: string, now: Date): string {
   const ts = now.getTime().toString(36);
-  const rand = Math.random().toString(36).slice(2, 10);
+  const rand = secureRandomBase36(8, 'console IDs');
   return `${prefix}_${ts}_${rand}`;
 }
 
@@ -620,7 +621,8 @@ export function createInMemoryConsoleBillingService(
     const key = String(sourceEventId || '').trim();
     if (!key) return null;
     return (
-      store.ledgerEntries.find((entry) => entry.type === type && entry.sourceEventId === key) || null
+      store.ledgerEntries.find((entry) => entry.type === type && entry.sourceEventId === key) ||
+      null
     );
   }
 
@@ -765,7 +767,9 @@ export function createInMemoryConsoleBillingService(
     }
 
     const { orgId, store } = resolved;
-    const checkoutSessionRef = String(request.checkoutSessionId || request.providerRef || '').trim();
+    const checkoutSessionRef = String(
+      request.checkoutSessionId || request.providerRef || '',
+    ).trim();
     const providerCustomerRef = String(request.providerCustomerRef || '').trim();
     const matchedPurchase =
       resolved.purchase ||
@@ -1361,11 +1365,7 @@ export function createInMemoryConsoleBillingService(
     ): Promise<StripeCheckoutSessionReconcileResult> {
       const checkoutSessionId = String(request.checkoutSessionId || '').trim();
       if (!checkoutSessionId) {
-        throw new ConsoleBillingError(
-          'invalid_body',
-          400,
-          'Field checkoutSessionId is required',
-        );
+        throw new ConsoleBillingError('invalid_body', 400, 'Field checkoutSessionId is required');
       }
       const store = ensureOrgStore(ctx.orgId);
       const purchase =
@@ -1389,8 +1389,12 @@ export function createInMemoryConsoleBillingService(
           'Stripe checkout session does not belong to the current organization',
         );
       }
-      const paymentStatus = String(checkoutSession.paymentStatus || '').trim().toLowerCase();
-      const checkoutStatus = String(checkoutSession.checkoutStatus || '').trim().toLowerCase();
+      const paymentStatus = String(checkoutSession.paymentStatus || '')
+        .trim()
+        .toLowerCase();
+      const checkoutStatus = String(checkoutSession.checkoutStatus || '')
+        .trim()
+        .toLowerCase();
       if (paymentStatus !== 'paid') {
         const projectedInvoice =
           purchase.relatedInvoiceId == null

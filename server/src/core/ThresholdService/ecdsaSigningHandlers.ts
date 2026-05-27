@@ -61,6 +61,7 @@ type ParseResult<T> = ParseOk<T> | ParseErr;
 
 const PRESIGN_FORWARD_HOP_HEADER = 'x-threshold-ecdsa-presign-forward-hop';
 const PRESIGN_FORWARDED_BY_HEADER = 'x-threshold-ecdsa-presign-forwarded-by';
+const ECDSA_PRESIGN_POOL_KEY_VERSION = 'v2';
 
 function signingRootMetadataFromRoleLocalKey(
   record: EcdsaHssRoleLocalKeyRecord,
@@ -73,8 +74,45 @@ function signingRootMetadataFromRoleLocalKey(
   };
 }
 
-function ecdsaPresignPoolKey(keyHandle: string): string {
-  return `keyHandle:${keyHandle}`;
+function presignPoolKeyPart(value: unknown, fieldName: string): string {
+  const normalized =
+    typeof value === 'number' && Number.isFinite(value)
+      ? String(value)
+      : toOptionalTrimmedString(value);
+  if (!normalized) throw new Error(`${fieldName} is required for threshold-ecdsa presign pool key`);
+  return encodeURIComponent(normalized);
+}
+
+function ecdsaPresignPoolKey(input: {
+  ecdsaThresholdKeyId: string;
+  keyHandle: string;
+  relayerKeyId: string;
+  thresholdEcdsaPublicKeyB64u: string;
+  signingRootMetadata: ThresholdEcdsaSigningRootMetadata;
+}): string {
+  return [
+    ECDSA_PRESIGN_POOL_KEY_VERSION,
+    `keyHandle=${presignPoolKeyPart(input.keyHandle, 'keyHandle')}`,
+    `ecdsaThresholdKeyId=${presignPoolKeyPart(input.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId')}`,
+    `relayerKeyId=${presignPoolKeyPart(input.relayerKeyId, 'relayerKeyId')}`,
+    `signingRootId=${presignPoolKeyPart(input.signingRootMetadata.signingRootId, 'signingRootId')}`,
+    `signingRootVersion=${presignPoolKeyPart(
+      input.signingRootMetadata.signingRootVersion || 'default',
+      'signingRootVersion',
+    )}`,
+    `walletKeyVersion=${presignPoolKeyPart(
+      input.signingRootMetadata.walletKeyVersion,
+      'walletKeyVersion',
+    )}`,
+    `derivationVersion=${presignPoolKeyPart(
+      input.signingRootMetadata.derivationVersion,
+      'derivationVersion',
+    )}`,
+    `groupPublicKey=${presignPoolKeyPart(
+      input.thresholdEcdsaPublicKeyB64u,
+      'thresholdEcdsaPublicKeyB64u',
+    )}`,
+  ].join('|');
 }
 
 function signingRootMetadataFromRuntimePolicyScope(
@@ -517,7 +555,13 @@ export class ThresholdEcdsaSigningHandlers {
           kind: 'cait_sith_mapped',
           share32B64u: roleLocalKey.relayerCaitSithInput.mappedPrivateShare32B64u,
         },
-        presignPoolKey: ecdsaPresignPoolKey(keyHandle),
+        presignPoolKey: ecdsaPresignPoolKey({
+          ecdsaThresholdKeyId,
+          keyHandle,
+          relayerKeyId: roleLocalKey.relayerKeyId,
+          thresholdEcdsaPublicKeyB64u: roleLocalKey.groupPublicKey33B64u,
+          signingRootMetadata,
+        }),
       },
     };
   }

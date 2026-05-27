@@ -1,3 +1,4 @@
+import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 import type { BillingCreditPackId } from './types';
 
 export interface StripeCheckoutSessionProviderInput {
@@ -43,7 +44,7 @@ export interface BillingProviderAdapters {
 
 function makeProviderId(prefix: string, now: Date): string {
   const ts = now.getTime().toString(36);
-  const rand = Math.random().toString(36).slice(2, 10);
+  const rand = secureRandomBase36(8, 'console IDs');
   return `${prefix}_${ts}_${rand}`;
 }
 
@@ -84,7 +85,9 @@ export function createDefaultBillingProviderAdapters(): BillingProviderAdapters 
         const checkoutSessionId = String(input.checkoutSessionId || '').trim();
         const session = sessions.get(checkoutSessionId);
         if (!session) {
-          throw new Error(`Stripe checkout session ${checkoutSessionId || '(missing)'} was not found`);
+          throw new Error(
+            `Stripe checkout session ${checkoutSessionId || '(missing)'} was not found`,
+          );
         }
         return session;
       },

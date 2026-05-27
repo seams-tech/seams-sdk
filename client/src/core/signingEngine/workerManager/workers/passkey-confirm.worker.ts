@@ -18,6 +18,7 @@ import { parseClearVolatileWarmMaterialCommand } from '@/core/signingEngine/sess
 import { bytesToHex } from '../../chains/evm/bytes';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import { base64UrlDecode } from '@shared/utils/base64';
+import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import {
   joinNormalizedUrl,
   normalizeNonNegativeInteger,
@@ -89,7 +90,7 @@ type NearSeedExportWorkerPayload = Extract<
 >;
 type EcdsaHssThresholdExportWorkerPayload = Extract<
   ExportPrivateKeysWithUiWorkerPayload,
-  { artifactKind: 'ecdsa-hss-secp256k1-key-v1' }
+  { artifactKind: 'ecdsa-hss-secp256k1-export' }
 >;
 
 type ExportWorkerTarget =
@@ -125,7 +126,7 @@ function overwriteBytes(bytes: Uint8Array | null | undefined): void {
 
 function toSessionId(prefix: string): string {
   const value = String(prefix || '').trim() || 'session';
-  return `${value}:${Date.now()}:${Math.floor(Math.random() * 1_000_000)}`;
+  return `${value}:${secureRandomBase64Url(32, 'passkey confirm worker session IDs')}`;
 }
 
 function isCancellationLikeError(error: unknown): boolean {
@@ -199,7 +200,7 @@ function parseExportRequestPayload(value: unknown): ExportPrivateKeysWithUiWorke
     }
     return null;
   }
-  if (artifactKind === 'ecdsa-hss-secp256k1-key-v1') {
+  if (artifactKind === 'ecdsa-hss-secp256k1-export') {
     const publicKeyHex = normalizeOptionalNonEmptyString(payload.publicKeyHex);
     const privateKeyHex = normalizeOptionalNonEmptyString(payload.privateKeyHex);
     const ethereumAddress = normalizeOptionalNonEmptyString(payload.ethereumAddress);
@@ -217,6 +218,9 @@ function parseExportRequestPayload(value: unknown): ExportPrivateKeysWithUiWorke
       variant,
       theme,
     };
+  }
+  if (artifactKind) {
+    return null;
   }
   return {
     nearAccountId,
@@ -244,10 +248,7 @@ function requireEcdsaHssThresholdExportPayload(
   payload: ExportPrivateKeysWithUiWorkerPayload,
 ): EcdsaHssThresholdExportWorkerPayload {
   const artifactKind = 'artifactKind' in payload ? payload.artifactKind : undefined;
-  if (
-    !('chainTarget' in payload) ||
-    artifactKind !== 'ecdsa-hss-secp256k1-key-v1'
-  ) {
+  if (!('chainTarget' in payload) || artifactKind !== 'ecdsa-hss-secp256k1-export') {
     throw new Error('ecdsa-hss secp256k1 export artifact metadata missing or invalid');
   }
   return payload as EcdsaHssThresholdExportWorkerPayload;
@@ -257,7 +258,9 @@ function parseSigningSessionSealTransport(value: unknown): SigningSessionSealTra
   const transport = asRecord(value);
   if (!transport) return null;
   const relayerUrl = normalizeOptionalNonEmptyString(transport.relayerUrl);
-  const thresholdSessionAuthToken = normalizeOptionalNonEmptyString(transport.thresholdSessionAuthToken);
+  const thresholdSessionAuthToken = normalizeOptionalNonEmptyString(
+    transport.thresholdSessionAuthToken,
+  );
   const keyVersion = normalizeOptionalNonEmptyString(transport.keyVersion);
   const shamirPrimeB64u = normalizeOptionalNonEmptyString(transport.shamirPrimeB64u);
   if (!relayerUrl) return null;
@@ -272,16 +275,18 @@ function parseSigningSessionSealTransport(value: unknown): SigningSessionSealTra
 function parseSigningSessionSealRouteResult(value: unknown): SigningSessionSealRouteResult {
   const result = asRecord(value);
   if (!result || typeof result.ok !== 'boolean') {
-    return { ok: false, code: 'invalid_response', message: 'Invalid signing-session seal response' };
+    return {
+      ok: false,
+      code: 'invalid_response',
+      message: 'Invalid signing-session seal response',
+    };
   }
   if (!result.ok) {
     return {
       ok: false,
       code: typeof result.code === 'string' ? result.code : 'request_failed',
       message:
-        typeof result.message === 'string'
-          ? result.message
-          : 'Signing-session seal request failed',
+        typeof result.message === 'string' ? result.message : 'Signing-session seal request failed',
     };
   }
   const ciphertext = normalizeOptionalTrimmedString(result.ciphertext);
@@ -340,7 +345,9 @@ async function callSigningSessionSealRoute(args: {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
-    const thresholdSessionAuthToken = normalizeOptionalNonEmptyString(args.transport.thresholdSessionAuthToken);
+    const thresholdSessionAuthToken = normalizeOptionalNonEmptyString(
+      args.transport.thresholdSessionAuthToken,
+    );
     const keyVersion = normalizeOptionalNonEmptyString(args.keyVersion);
     if (thresholdSessionAuthToken) {
       headers.Authorization = `Bearer ${thresholdSessionAuthToken}`;
@@ -532,7 +539,7 @@ async function runExportPrivateKeysWithUi(
     exportScheme === 'secp256k1' &&
     'chainTarget' in payload &&
     'artifactKind' in payload &&
-    payload.artifactKind === 'ecdsa-hss-secp256k1-key-v1'
+    payload.artifactKind === 'ecdsa-hss-secp256k1-export'
       ? requireEcdsaHssThresholdExportPayload(payload)
       : null;
   const exportOperation = 'Export Private Key';
@@ -691,10 +698,18 @@ function readWarmSessionClaimEntry(sessionId: string): OkResult | ErrResult {
     return { ok: false, code: 'invalid_args', message: 'Missing threshold sessionId' };
   const entry = prfFirstSessionCache.get(sessionId);
   if (!entry)
-    return { ok: false, code: 'not_found', message: 'Warm-session material is not available for threshold session' };
+    return {
+      ok: false,
+      code: 'not_found',
+      message: 'Warm-session material is not available for threshold session',
+    };
   if (nowMs() >= entry.expiresAtMs) {
     prfFirstSessionCache.delete(sessionId);
-    return { ok: false, code: 'expired', message: 'Warm-session material expired for threshold session' };
+    return {
+      ok: false,
+      code: 'expired',
+      message: 'Warm-session material expired for threshold session',
+    };
   }
   if (entry.remainingUses <= 0) {
     prfFirstSessionCache.delete(sessionId);
@@ -798,7 +813,11 @@ async function runSigningSessionSealAndPersist(args: {
   if (!statusRead.ok) return statusRead;
   const entry = prfFirstSessionCache.get(sessionId);
   if (!entry) {
-    return { ok: false, code: 'not_found', message: 'Warm-session material is not available for threshold session' };
+    return {
+      ok: false,
+      code: 'not_found',
+      message: 'Warm-session material is not available for threshold session',
+    };
   }
   const singleFlightKey = makeSigningSessionSealSingleFlightKey({
     operation: 'apply-server-seal',
@@ -858,9 +877,9 @@ async function runSigningSessionSealAndPersist(args: {
           expiresAtMs: policy.expiresAtMs,
         };
       } finally {
-        await runtime.destroyClientKeyHandle({ keyHandle: clientKeyHandle.keyHandle }).catch(
-          () => undefined,
-        );
+        await runtime
+          .destroyClientKeyHandle({ keyHandle: clientKeyHandle.keyHandle })
+          .catch(() => undefined);
       }
     } catch (error: unknown) {
       return {
@@ -904,7 +923,11 @@ async function runSigningSessionRehydrate(args: {
     };
   }
   if (localExpiresAtMs <= nowMs()) {
-    return { ok: false, code: 'expired', message: 'Warm-session material expired for threshold session' };
+    return {
+      ok: false,
+      code: 'expired',
+      message: 'Warm-session material expired for threshold session',
+    };
   }
   const shamirPrimeB64u = normalizeOptionalNonEmptyString(args.transport.shamirPrimeB64u);
   if (!shamirPrimeB64u) {
@@ -963,9 +986,9 @@ async function runSigningSessionRehydrate(args: {
         });
         return policy;
       } finally {
-        await runtime.destroyClientKeyHandle({ keyHandle: clientKeyHandle.keyHandle }).catch(
-          () => undefined,
-        );
+        await runtime
+          .destroyClientKeyHandle({ keyHandle: clientKeyHandle.keyHandle })
+          .catch(() => undefined);
       }
     } catch (error: unknown) {
       return {
@@ -1118,7 +1141,10 @@ self.onmessage = (event: MessageEvent) => {
   if (eventType === 'WARM_SESSION_STATUS_READ') {
     const payload = asRecord(incoming.payload);
     const sessionId = normalizeOptionalTrimmedString(payload?.sessionId);
-    postUserConfirmWorkerResponse(id, { success: true, data: readWarmSessionClaimEntry(sessionId) });
+    postUserConfirmWorkerResponse(id, {
+      success: true,
+      data: readWarmSessionClaimEntry(sessionId),
+    });
     return;
   }
 
@@ -1214,13 +1240,7 @@ self.onmessage = (event: MessageEvent) => {
       const remainingUses = Math.floor(Number(payload?.remainingUses) || 0);
       const keyVersion = normalizeOptionalNonEmptyString(payload?.keyVersion);
       const transport = parseSigningSessionSealTransport(payload?.transport);
-      if (
-        !sessionId ||
-        !sealedSecretB64u ||
-        !transport ||
-        expiresAtMs <= 0 ||
-        remainingUses <= 0
-      ) {
+      if (!sessionId || !sealedSecretB64u || !transport || expiresAtMs <= 0 || remainingUses <= 0) {
         postUserConfirmWorkerResponse(id, {
           success: true,
           data: {

@@ -6,10 +6,7 @@ import {
 } from '@/core/types/signer-worker';
 import type { MultichainWorkerKind } from '@/core/walletRuntimePaths/multichainWorkers';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
-import type {
-  ThresholdEcdsaChainTarget,
-  WalletSubjectId,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaHssRoleLocalClientState } from '../interfaces/signing';
 import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import type { WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
@@ -297,7 +294,6 @@ export interface EmailOtpWorkerOperationMap {
     payload: {
       relayUrl: string;
       walletId: string;
-      subjectId: WalletSubjectId;
       walletSessionUserId: string;
       userId?: string;
       rpId: string;
@@ -324,7 +320,7 @@ export interface EmailOtpWorkerOperationMap {
     result: {
       bootstraps: ThresholdEcdsaSessionBootstrapResult[];
       ecdsaHssExportArtifact?: {
-        artifactKind: 'ecdsa-hss-secp256k1-key-v1';
+        artifactKind: 'ecdsa-hss-secp256k1-export';
         chainTarget: ThresholdEcdsaChainTarget;
         signingRootId: string;
         signingRootVersion?: string;
@@ -468,7 +464,6 @@ export interface EmailOtpWorkerOperationMap {
       rpId: string;
       thresholdSessionAuthToken?: string;
       sessionKind?: 'jwt' | 'cookie';
-      subjectId: WalletSubjectId;
       ecdsaThresholdKeyId: string;
       signingRootId: string;
       signingRootVersion?: string;

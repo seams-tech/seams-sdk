@@ -1579,6 +1579,16 @@ test.describe('signing engine refactor 37 guards', () => {
 
   test('Postgres ECDSA key store indexes shared identity on declared columns', () => {
     const keyStore = readRepoFile('server/src/core/ThresholdService/stores/KeyStore.ts');
+    const postgresSchema = readRepoFile('server/src/storage/postgres.ts');
+    const thresholdSchemaStart = postgresSchema.indexOf(
+      'CREATE TABLE IF NOT EXISTS threshold_ecdsa_keys',
+    );
+    const thresholdSchemaEnd = postgresSchema.indexOf(
+      'CREATE TABLE IF NOT EXISTS signing_root_secret_shares',
+    );
+    expect(thresholdSchemaStart).toBeGreaterThanOrEqual(0);
+    expect(thresholdSchemaEnd).toBeGreaterThan(thresholdSchemaStart);
+    const thresholdEcdsaSchema = postgresSchema.slice(thresholdSchemaStart, thresholdSchemaEnd);
 
     expect(keyStore).toContain('DROP INDEX IF EXISTS threshold_ecdsa_keys_shared_identity_uidx');
     expect(keyStore).toContain(
@@ -1602,6 +1612,20 @@ test.describe('signing engine refactor 37 guards', () => {
     expect(keyStore).toContain('putRoleLocalByKeyHandle(record: EcdsaHssRoleLocalKeyRecord)');
     expect(keyStore).toContain('deleteByKeyHandle(keyHandle: string)');
     expect(keyStore).toContain('WHERE namespace = $1 AND key_handle = $2');
+
+    expect(postgresSchema).toContain('wallet_id TEXT');
+    expect(postgresSchema).toContain(
+      'ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS wallet_id TEXT',
+    );
+    expect(postgresSchema).toContain(
+      'CREATE UNIQUE INDEX IF NOT EXISTS threshold_ecdsa_keys_threshold_identity_uidx',
+    );
+    expect(postgresSchema).toContain(
+      'CREATE UNIQUE INDEX IF NOT EXISTS threshold_ecdsa_keys_shared_identity_uidx',
+    );
+    expect(postgresSchema).toContain('wallet_id IS NOT NULL');
+    expect(thresholdEcdsaSchema).not.toContain('wallet_session_user_id');
+    expect(thresholdEcdsaSchema).not.toMatch(/\n\s*subject_id\b/);
   });
 
   test('Cloudflare Durable Object ECDSA key store guards key handles atomically', () => {
@@ -1689,7 +1713,6 @@ test.describe('signing engine refactor 37 guards', () => {
   test('one evmFamilyKeyFingerprint threads through the Phase 0 diagnostic fixture', () => {
     const key = buildEvmFamilyEcdsaKeyIdentity({
       walletId: 'alice.refactor37.testnet',
-      subjectId: 'alice.refactor37.testnet',
       rpId: 'wallet.example.test',
       ecdsaThresholdKeyId: 'ehss-refactor37-shared-key',
       signingRootId: 'project:refactor37',

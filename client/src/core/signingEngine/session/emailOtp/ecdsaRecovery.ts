@@ -74,6 +74,29 @@ type EmailOtpCompanionEd25519Session = {
   emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
 };
 
+function restoreBootstrapWithDurableEcdsaFacts(args: {
+  bootstrap: ThresholdEcdsaSessionBootstrapResult;
+  sealedRecord: EmailOtpEcdsaSealedRecoveryRecord;
+}): ThresholdEcdsaSessionBootstrapResult {
+  const ethereumAddress = String(args.sealedRecord.ethereumAddress || '').trim();
+  const thresholdEcdsaPublicKeyB64u = String(
+    args.sealedRecord.thresholdEcdsaPublicKeyB64u || '',
+  ).trim();
+  return {
+    keygen: {
+      ...args.bootstrap.keygen,
+      ...(ethereumAddress ? { ethereumAddress } : {}),
+      ...(thresholdEcdsaPublicKeyB64u ? { thresholdEcdsaPublicKeyB64u } : {}),
+    },
+    session: args.bootstrap.session,
+    thresholdEcdsaKeyRef: {
+      ...args.bootstrap.thresholdEcdsaKeyRef,
+      ...(ethereumAddress ? { ethereumAddress } : {}),
+      ...(thresholdEcdsaPublicKeyB64u ? { thresholdEcdsaPublicKeyB64u } : {}),
+    },
+  };
+}
+
 function defaultEmailOtpSessionAuthContext(): ThresholdEcdsaEmailOtpAuthContext {
   return {
     policy: 'session',
@@ -293,10 +316,14 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
     throw new Error(restored.message || restored.code || 'Email OTP sealed refresh failed');
   }
 
+  const restoredBootstrap = restoreBootstrapWithDurableEcdsaFacts({
+    bootstrap: restored.bootstrap,
+    sealedRecord,
+  });
   const { bootstrap, warmCapability } = await args.commitEvmFamilyThresholdEcdsaSessions({
     walletId: toWalletId(ecdsaRecord?.walletId || sealedRecord.walletId),
     primaryChain: restoreChainTarget,
-    bootstrap: restored.bootstrap,
+    bootstrap: restoredBootstrap,
     source: 'email_otp',
     emailOtpAuthContext,
   });

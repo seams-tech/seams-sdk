@@ -350,8 +350,7 @@ export async function ensurePostgresSchema(input: {
         relayer_key_id TEXT NOT NULL,
         key_handle TEXT,
         threshold_key_id TEXT,
-        wallet_session_user_id TEXT,
-        subject_id TEXT,
+        wallet_id TEXT,
         rp_id TEXT,
         signing_root_id TEXT,
         signing_root_version TEXT,
@@ -367,9 +366,8 @@ export async function ensurePostgresSchema(input: {
       'ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS threshold_key_id TEXT',
     );
     await pool.query(
-      'ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS wallet_session_user_id TEXT',
+      'ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS wallet_id TEXT',
     );
-    await pool.query('ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS subject_id TEXT');
     await pool.query('ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS rp_id TEXT');
     await pool.query(
       'ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS signing_root_id TEXT',
@@ -396,18 +394,24 @@ export async function ensurePostgresSchema(input: {
     await pool.query('DROP INDEX IF EXISTS threshold_ecdsa_keys_shared_identity_idx');
     await pool.query('DROP INDEX IF EXISTS threshold_ecdsa_keys_shared_identity_uidx');
     await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS threshold_ecdsa_keys_threshold_identity_uidx
+      ON threshold_ecdsa_keys (namespace, threshold_key_id, signing_root_id, signing_root_version)
+      WHERE
+        threshold_key_id IS NOT NULL AND
+        signing_root_id IS NOT NULL AND
+        signing_root_version IS NOT NULL
+    `);
+    await pool.query(`
       CREATE UNIQUE INDEX IF NOT EXISTS threshold_ecdsa_keys_shared_identity_uidx
       ON threshold_ecdsa_keys (
         namespace,
-        wallet_session_user_id,
-        subject_id,
+        wallet_id,
         rp_id,
         signing_root_id,
         signing_root_version
       )
       WHERE
-        wallet_session_user_id IS NOT NULL AND
-        subject_id IS NOT NULL AND
+        wallet_id IS NOT NULL AND
         rp_id IS NOT NULL AND
         signing_root_id IS NOT NULL AND
         signing_root_version IS NOT NULL

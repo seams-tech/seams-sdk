@@ -1,3 +1,4 @@
+import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 import type { NormalizedLogger } from '../../core/logger';
 import { getPostgresPool } from '../../storage/postgres';
 import {
@@ -374,7 +375,7 @@ function parseMonthUtcOrThrow(input: string): string {
 
 function makeId(prefix: string, now: Date): string {
   const ts = now.getTime().toString(36);
-  const rand = Math.random().toString(36).slice(2, 10);
+  const rand = secureRandomBase36(8, 'console IDs');
   return `${prefix}_${ts}_${rand}`;
 }
 
@@ -1143,7 +1144,9 @@ async function getUsageStatementProjectionTotals(
   const sponsoredExecutionDebitMinor = toNumber(row?.sponsored_amount_due_minor);
   return {
     monthlyActiveWallets:
-      mawAmountDueMinor > 0 ? Math.max(0, Math.round(mawAmountDueMinor / MAW_USAGE_DEBIT_MINOR)) : 0,
+      mawAmountDueMinor > 0
+        ? Math.max(0, Math.round(mawAmountDueMinor / MAW_USAGE_DEBIT_MINOR))
+        : 0,
     amountDueMinor: mawAmountDueMinor + sponsoredExecutionDebitMinor,
     sponsoredExecutionDebitMinor,
   };
@@ -2184,7 +2187,9 @@ export async function createPostgresConsoleBillingService(
     let currentOrgId: string | null = String(request.orgId || '').trim() || null;
     let matchedPurchaseId: string | null = null;
     let eventProviderRef = String(request.providerRef || '').trim();
-    const checkoutSessionRef = String(request.checkoutSessionId || request.providerRef || '').trim();
+    const checkoutSessionRef = String(
+      request.checkoutSessionId || request.providerRef || '',
+    ).trim();
     const providerCustomerRef = String(request.providerCustomerRef || '').trim();
     if (!currentOrgId && (checkoutSessionRef || providerCustomerRef)) {
       const purchaseMatch = await queryOne(
@@ -2442,7 +2447,9 @@ export async function createPostgresConsoleBillingService(
             ORDER BY created_at_ms DESC, id DESC`,
           [namespace, ctx.orgId, ids],
         );
-        return rows.rows.map((row) => parseLedgerEntryRow(row as PgRow) as BillingSponsoredExecutionDebitEntry);
+        return rows.rows.map(
+          (row) => parseLedgerEntryRow(row as PgRow) as BillingSponsoredExecutionDebitEntry,
+        );
       });
     },
 
@@ -2665,15 +2672,17 @@ export async function createPostgresConsoleBillingService(
       ctx: ConsoleBillingContext,
       request: BillingSponsoredExecutionDebitRequest,
     ): Promise<BillingSponsoredExecutionDebitResult> {
-      return withOrgTx(ctx, async (q, currentNow) =>
-        (
-          await recordSponsoredExecutionDebitTx(q, {
-            namespace,
-            ctx,
-            now: currentNow,
-            request,
-          })
-        ).result,
+      return withOrgTx(
+        ctx,
+        async (q, currentNow) =>
+          (
+            await recordSponsoredExecutionDebitTx(q, {
+              namespace,
+              ctx,
+              now: currentNow,
+              request,
+            })
+          ).result,
       );
     },
 
@@ -3159,11 +3168,7 @@ export async function createPostgresConsoleBillingService(
     ): Promise<StripeCheckoutSessionReconcileResult> {
       const checkoutSessionId = String(request.checkoutSessionId || '').trim();
       if (!checkoutSessionId) {
-        throw new ConsoleBillingError(
-          'invalid_body',
-          400,
-          'Field checkoutSessionId is required',
-        );
+        throw new ConsoleBillingError('invalid_body', 400, 'Field checkoutSessionId is required');
       }
       const existingPurchaseRow = await withConsoleTenantContextTx(
         pool,
@@ -3198,8 +3203,12 @@ export async function createPostgresConsoleBillingService(
           'Stripe checkout session does not belong to the current organization',
         );
       }
-      const paymentStatus = String(checkoutSession.paymentStatus || '').trim().toLowerCase();
-      const checkoutStatus = String(checkoutSession.checkoutStatus || '').trim().toLowerCase();
+      const paymentStatus = String(checkoutSession.paymentStatus || '')
+        .trim()
+        .toLowerCase();
+      const checkoutStatus = String(checkoutSession.checkoutStatus || '')
+        .trim()
+        .toLowerCase();
       if (paymentStatus !== 'paid') {
         const invoiceRow =
           existingPurchase.relatedInvoiceId == null
@@ -3236,8 +3245,7 @@ export async function createPostgresConsoleBillingService(
       });
       return {
         settled: result.purchase?.status === 'SETTLED',
-        settledNow:
-          existingPurchase.status !== 'SETTLED' && result.purchase?.status === 'SETTLED',
+        settledNow: existingPurchase.status !== 'SETTLED' && result.purchase?.status === 'SETTLED',
         purchase: result.purchase,
         invoice: result.invoice,
         orgId: result.orgId,
@@ -3284,7 +3292,9 @@ export async function recordSponsoredExecutionDebitTx(
       'amountMinor must be a positive integer',
     );
   }
-  const occurredAtMs = input.request.occurredAt ? Date.parse(input.request.occurredAt) : nowMs(input.now);
+  const occurredAtMs = input.request.occurredAt
+    ? Date.parse(input.request.occurredAt)
+    : nowMs(input.now);
   if (!Number.isFinite(occurredAtMs)) {
     throw new ConsoleBillingError(
       'invalid_sponsored_execution_debit',
@@ -3303,7 +3313,9 @@ export async function recordSponsoredExecutionDebitTx(
         AND source_event_id = $3`,
     [input.namespace, input.ctx.orgId, sourceEventId],
   );
-  let ledgerEntry: BillingLedgerEntry | null = existingDebit ? parseLedgerEntryRow(existingDebit) : null;
+  let ledgerEntry: BillingLedgerEntry | null = existingDebit
+    ? parseLedgerEntryRow(existingDebit)
+    : null;
   if (!ledgerEntry) {
     ledgerEntry = await appendLedgerEntry(q, {
       namespace: input.namespace,

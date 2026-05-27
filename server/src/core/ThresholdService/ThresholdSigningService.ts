@@ -159,6 +159,7 @@ import {
 import { createThresholdEd25519Frost2pSchemeModule } from './schemes/ed25519Frost2p';
 import { createThresholdSecp256k1Ecdsa2pSchemeModule } from './schemes/secp256k1Ecdsa2p';
 import { walletSigningBudgetSessionId } from './walletSigningBudget';
+import { secureRandomIdFragment } from './secureRandomId';
 
 type ParseOk<T> = { ok: true; value: T };
 type ParseErr = { ok: false; code: string; message: string };
@@ -1937,43 +1938,23 @@ export class ThresholdSigningService {
   }
 
   private createThresholdEd25519MpcSessionId(): string {
-    const id =
-      typeof globalThis.crypto?.randomUUID === 'function'
-        ? globalThis.crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    return `mpc-${id}`;
+    return `mpc-${secureRandomIdFragment()}`;
   }
 
   private createThresholdEcdsaMpcSessionId(): string {
-    const id =
-      typeof globalThis.crypto?.randomUUID === 'function'
-        ? globalThis.crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    return `ecdsa-mpc-${id}`;
+    return `ecdsa-mpc-${secureRandomIdFragment()}`;
   }
 
   private createThresholdEcdsaSigningSessionId(): string {
-    const id =
-      typeof globalThis.crypto?.randomUUID === 'function'
-        ? globalThis.crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    return `ecdsa-sign-${id}`;
+    return `ecdsa-sign-${secureRandomIdFragment()}`;
   }
 
   private createThresholdEcdsaPresignSessionId(): string {
-    const id =
-      typeof globalThis.crypto?.randomUUID === 'function'
-        ? globalThis.crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    return `ecdsa-presign-${id}`;
+    return `ecdsa-presign-${secureRandomIdFragment()}`;
   }
 
   private createThresholdEd25519SigningSessionId(): string {
-    const id =
-      typeof globalThis.crypto?.randomUUID === 'function'
-        ? globalThis.crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    return `sign-${id}`;
+    return `sign-${secureRandomIdFragment()}`;
   }
 
   private async resolveEd25519KeygenMaterial(input: {
@@ -3010,6 +2991,32 @@ export class ThresholdSigningService {
     try {
       const { request } = input;
       const nowMs = Date.now();
+      const keyHandle = toOptionalTrimmedString(input.keyHandle);
+      if (!keyHandle) {
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: 'Missing ECDSA HSS key handle',
+        };
+      }
+      const { claims } = input;
+      const replayGuard = await this.ecdsaAuthSessionStore.reserveReplayGuard(
+        this.ecdsaHssExportReplayScope({ request, keyHandle, claims }),
+        this.ecdsaHssExportReplayKey(request),
+        request.expiresAtUnixMs,
+      );
+      if (!replayGuard.ok) {
+        return {
+          ok: false,
+          code:
+            replayGuard.code === 'export_nonce_replay'
+              ? 'export_nonce_replay'
+              : replayGuard.code === 'export_authorization_expired'
+                ? 'export_authorization_expired'
+                : 'export_authorization_invalid',
+          message: replayGuard.message,
+        };
+      }
       if (request.expiresAtUnixMs <= nowMs) {
         return {
           ok: false,
@@ -3024,14 +3031,6 @@ export class ThresholdSigningService {
           message: 'ECDSA HSS export authorization issue time is invalid',
         };
       }
-      const keyHandle = toOptionalTrimmedString(input.keyHandle);
-      if (!keyHandle) {
-        return {
-          ok: false,
-          code: 'unauthorized',
-          message: 'Missing ECDSA HSS key handle',
-        };
-      }
       const record = await this.ecdsaKeyStore.getRoleLocalByKeyHandle(keyHandle);
       if (!record) {
         return {
@@ -3040,7 +3039,6 @@ export class ThresholdSigningService {
           message: 'ECDSA HSS role-local key not found',
         };
       }
-      const { claims } = input;
       if (
         record.walletId !== request.walletId ||
         record.rpId !== request.rpId ||
@@ -3075,23 +3073,6 @@ export class ThresholdSigningService {
           ok: false,
           code: 'public_key_invalid',
           message: 'ECDSA HSS export request public identity does not match persisted key',
-        };
-      }
-      const replayGuard = await this.ecdsaAuthSessionStore.reserveReplayGuard(
-        this.ecdsaHssExportReplayScope({ request, keyHandle, claims }),
-        this.ecdsaHssExportReplayKey(request),
-        request.expiresAtUnixMs,
-      );
-      if (!replayGuard.ok) {
-        return {
-          ok: false,
-          code:
-            replayGuard.code === 'export_nonce_replay'
-              ? 'export_nonce_replay'
-              : replayGuard.code === 'export_authorization_expired'
-                ? 'export_authorization_expired'
-                : 'export_authorization_invalid',
-          message: replayGuard.message,
         };
       }
       const expectedConfirmationDigest32 =

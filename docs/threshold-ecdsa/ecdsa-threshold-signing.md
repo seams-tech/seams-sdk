@@ -4,13 +4,13 @@ Last updated: 2026-05-16
 
 ## 1. Non-Negotiable Invariants
 
-- EVM SIGNERS MUST ALL SHARE THE SAME ADDRESS for the same wallet, subject, RP,
+- EVM SIGNERS MUST ALL SHARE THE SAME ADDRESS for the same wallet, RP,
   signing root, and key version. Tempo, Arc, Ethereum, and future EVM-family
   targets reuse one `ecdsaThresholdKeyId`, threshold public key, and Ethereum
   owner address. Chain targets partition sessions, budgets, nonce lanes, sealed
   records, and signing requests only.
-- Public threshold ECDSA operations carry `walletSession`, `subjectId`, and a
-  concrete `chainTarget`. Public callers do not supply internal ECDSA key IDs,
+- Public threshold ECDSA operations carry `walletSession` and a concrete
+  `chainTarget`. Public callers do not supply internal ECDSA key IDs,
   participant IDs, threshold session IDs, or client root shares.
 - Threshold ECDSA signing reads key identity and session state from one canonical store only.
 - `signTempo` does not trigger hidden bootstrap.
@@ -25,12 +25,10 @@ Last updated: 2026-05-16
 ### 2.1 Canonical Session Record
 
 The SDK owns threshold ECDSA session records keyed by wallet/session context,
-subject, concrete chain target, signing root, and key identity. The canonical
+concrete chain target, signing root, and key identity. The canonical
 record includes:
 
 - `walletId`
-- `walletSessionUserId`
-- `subjectId`
 - concrete `chainTarget` (`tempo` or `evm` with `chainId` and network slug)
 - `relayerUrl`
 - `ecdsaThresholdKeyId`
@@ -49,7 +47,7 @@ checks.
 For EVM-family targets, these fields are family-scoped. Records for Tempo, Arc,
 Ethereum, or another EVM-class target may carry different `chainTarget`,
 `thresholdSessionId`, `walletSigningSessionId`, and budget state, while the
-displayed signer address must remain identical for the same wallet/subject/RP
+displayed signer address must remain identical for the same wallet/RP
 and signing root.
 
 Backend bridge inputs still exist behind `keyRef.backendBinding` where the
@@ -84,7 +82,6 @@ use the same command subject shape:
     walletId: string;
     walletSessionUserId: string;
   };
-  subjectId: string;
   chainTarget:
     | { kind: 'tempo'; chainId: number; networkSlug: string }
     | { kind: 'evm'; namespace: 'eip155'; chainId: number; networkSlug: string };
@@ -97,7 +94,6 @@ use the same command subject shape:
 {
   kind: 'reuse_warm_ecdsa_bootstrap';
   walletSession: WalletSessionRef;
-  subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
 }
 ```
@@ -108,7 +104,7 @@ has normalized raw session, auth, and persistence data.
 
 ### 2.5 Per-Account Commit Queue (Tempo + EVM)
 
-- Queue scope is the wallet/session subject for the EVM-family signer.
+- Queue scope is the wallet/session for the EVM-family signer.
 - Queue domain is threshold ECDSA commit stage (`senderSignatureAlgorithm=secp256k1`) across both chains.
 - Ordering is FIFO.
 - A second sign click is queued (not rejected) and begins after the prior request completes, fails, or is cancelled.

@@ -6,6 +6,7 @@ import {
   type KeyExportFlowEvent,
 } from '@/core/types/sdkSentEvents';
 import { errorMessage, isUserCancellationError } from '@shared/utils/errors';
+import { secureRandomId } from '@shared/utils/secureRandomId';
 import {
   thresholdEcdsaChainTargetKey,
   type NearAccountRef,
@@ -49,11 +50,7 @@ export function emitKeyExportEvent(
 }
 
 export function createExportUiRequestId(prefix: string): string {
-  const randomPart =
-    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  return `${prefix}-${randomPart}`;
+  return secureRandomId(prefix, 32, 'key export UI request IDs');
 }
 
 export function createKeyExportFlowId(nearAccountId: AccountId | string, chain: string): string {

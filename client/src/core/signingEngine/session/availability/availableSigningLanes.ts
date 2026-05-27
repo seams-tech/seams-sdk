@@ -40,6 +40,25 @@ import {
   type ThresholdEcdsaChainTarget,
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  selectedEcdsaLane,
+  selectedEd25519Lane,
+  type SelectedLane,
+} from '../identity/laneIdentity';
+import { exactSigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
+import {
+  buildStepUpFreshnessFromRestoredSealedRecord,
+  type FreshStepUpRequired,
+} from '../operationState/stepUpFreshness';
+import {
+  buildReauthAnchorIdentity,
+  type ReauthAnchorIdentity,
+  type ReauthAnchorSourceState,
+} from '../operationState/transactionState';
+import type {
+  SigningOperationFingerprint,
+  SigningOperationId,
+} from '../operationState/types';
 
 export type AvailableSigningLaneState =
   | 'ready'
@@ -509,11 +528,93 @@ export function ecdsaAvailableLaneCandidatesForTarget(
   return availableLanes.ecdsa.candidatesByTarget[targetKey] || [];
 }
 
+export function buildReauthAnchorIdentityFromAvailableLane(args: {
+  walletId: AccountId | string;
+  operationId: SigningOperationId;
+  operationFingerprint: SigningOperationFingerprint;
+  lane: AvailableEcdsaSigningLane | AvailableEd25519SigningLane;
+  nowMs?: number;
+}): ReauthAnchorIdentity | null {
+  if (!isConcreteAvailableSigningLane(args.lane)) return null;
+  if (args.lane.state !== 'expired' && args.lane.state !== 'exhausted') return null;
+  const selectedLane = selectedLaneFromConcreteAvailableLane({
+    walletId: args.walletId,
+    lane: args.lane,
+  });
+  const freshness = buildStepUpFreshnessFromRestoredSealedRecord({
+    walletId: toAccountId(args.walletId),
+    operationId: args.operationId,
+    operationFingerprint: args.operationFingerprint,
+    laneIdentity: exactSigningLaneIdentity(selectedLane),
+    recordVersion: availableLaneRecordVersion(args.lane),
+    updatedAtMs: availableLaneUpdatedAtMs(args.lane),
+    remainingUses: args.lane.remainingUses ?? null,
+    expiresAtMs: args.lane.expiresAtMs ?? null,
+    ...(args.nowMs ? { nowMs: args.nowMs } : {}),
+  });
+  if (freshness.kind !== 'fresh_step_up_required') return null;
+  return buildReauthAnchorIdentity({
+    freshness,
+    sourceState: sourceStateFromAvailableLane(args.lane, freshness),
+  });
+}
+
 function emptyEd25519Lane(): AvailableEd25519SigningLane {
   return {
     curve: 'ed25519',
     chain: 'near',
     state: 'missing',
+  };
+}
+
+function selectedLaneFromConcreteAvailableLane(args: {
+  walletId: AccountId | string;
+  lane: ConcreteAvailableSigningLane;
+}): SelectedLane {
+  if (args.lane.curve === 'ed25519') {
+    return selectedEd25519Lane({
+      accountId: toAccountId(args.walletId),
+      authMethod: args.lane.authMethod,
+      walletSigningSessionId: args.lane.walletSigningSessionId,
+      thresholdSessionId: args.lane.thresholdSessionId,
+    });
+  }
+  return selectedEcdsaLane({
+    key: args.lane.key,
+    keyHandle: args.lane.publicFacts.keyHandle,
+    walletId: toAccountId(String(args.lane.key.walletId)),
+    authMethod: args.lane.authMethod,
+    walletSigningSessionId: args.lane.walletSigningSessionId,
+    thresholdSessionId: args.lane.thresholdSessionId,
+    chainTarget: args.lane.chainTarget,
+  });
+}
+
+function availableLaneRecordVersion(lane: ConcreteAvailableSigningLane): string {
+  return [
+    lane.curve,
+    'source' in lane ? lane.source || 'unknown' : 'unknown',
+    String(lane.walletSigningSessionId),
+    String(lane.thresholdSessionId),
+    String(availableLaneUpdatedAtMs(lane)),
+  ].join(':');
+}
+
+function sourceStateFromAvailableLane(
+  lane: ConcreteAvailableSigningLane,
+  freshness: FreshStepUpRequired,
+): ReauthAnchorSourceState {
+  return {
+    kind: 'reauth_anchor_source_state',
+    availabilitySource:
+      'source' in lane && lane.source
+        ? lane.source
+        : 'runtime_session_record',
+    storeSource: lane.authMethod === 'email_otp' ? 'email_otp' : 'login',
+    retention: lane.authMethod === 'email_otp' ? 'single_use' : 'session',
+    remainingUses: nullableNonNegativeInteger(lane.remainingUses),
+    expiry: freshness.expiry,
+    projection: freshness.projection,
   };
 }
 

@@ -23,10 +23,7 @@ import {
   toVerifiedEcdsaPublicFactsFromReadyMaterial,
   toVerifiedEcdsaPublicFactsFromRecord,
 } from '../../client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import {
-  toWalletSubjectId,
-  type ThresholdEcdsaChainTarget,
-} from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { ThresholdEcdsaChainTarget } from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   clearStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget,
   clearStoredThresholdEcdsaSessionRecordsForWalletKeyHandle,
@@ -45,7 +42,6 @@ import {
 import { selectedEcdsaLane } from '../../client/src/core/signingEngine/session/identity/laneIdentity';
 
 const WALLET_ID = toAccountId('alice.testnet');
-const SUBJECT_ID = toWalletSubjectId(WALLET_ID);
 const OWNER_ADDRESS = '0x1111111111111111111111111111111111111111';
 const OTHER_OWNER_ADDRESS = '0x2222222222222222222222222222222222222222';
 const RP_ID = 'localhost';
@@ -830,18 +826,18 @@ test.describe('EVM-family ECDSA identity', () => {
     expect('subjectId' in stored).toBe(false);
   });
 
-  test('rejects persisted ECDSA records with subjectId that mismatches walletId', () => {
+  test('rejects persisted ECDSA records with any subjectId', () => {
     const deps: ThresholdEcdsaSessionStoreDeps = {
       recordsByLane: new Map(),
       now: () => 1_800_000_000_000,
     };
     const rawRecord = {
       ...makeRecord(),
-      subjectId: toWalletSubjectId('bob.testnet'),
+      subjectId: 'alice.testnet',
     } as Record<string, unknown>;
 
     expect(() => upsertStoredThresholdEcdsaSessionRecord(deps, rawRecord)).toThrow(
-      /subjectId mismatch/,
+      /unexpected subjectId/,
     );
   });
 

@@ -47,6 +47,10 @@ const TEST_WALLET_SESSION = walletSessionRefFromSession({
   walletId: 'alice.testnet',
   walletSessionUserId: 'alice.testnet',
 });
+const TEST_ECDSA_BACKEND_BINDING = {
+  relayerKeyId: 'relayer-key',
+  clientVerifyingShareB64u: 'verifying-share',
+};
 const DEFER_ED25519_RECONSTRUCTION_FOR_ECDSA = {
   kind: 'defer',
   reason: 'not_needed_for_ecdsa',
@@ -85,6 +89,7 @@ function thresholdEcdsaSessionJwt(args: {
     kind: THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND,
     sub: args.walletId,
     walletId: args.walletId,
+    keyScope: 'evm-family',
     keyHandle: args.keyHandle,
     sessionId: args.thresholdSessionId,
     walletSigningSessionId: args.walletSigningSessionId,
@@ -159,6 +164,7 @@ function buildEcdsaSealedRecordFixture(
       }),
     sessionKind: args.ecdsaRestore?.sessionKind || 'jwt',
     keyHandle,
+    ecdsaThresholdKeyId: args.ecdsaRestore?.ecdsaThresholdKeyId || 'ecdsa-key',
     ethereumAddress: args.ecdsaRestore?.ethereumAddress || `0x${'33'.repeat(20)}`,
     relayerKeyId: args.ecdsaRestore?.relayerKeyId || 'relayer-key',
     clientVerifyingShareB64u: args.ecdsaRestore?.clientVerifyingShareB64u || 'verifying-share',
@@ -264,7 +270,7 @@ function createCoordinator(overrides?: {
         thresholdSessionKind: 'jwt',
         thresholdSessionAuthToken,
         participantIds: [1, 3],
-        backendBinding: { relayerKeyId: 'relayer-key' },
+        backendBinding: TEST_ECDSA_BACKEND_BINDING,
       },
       keygen: { ok: true, rpId: 'example.com' },
       session: {
@@ -1275,7 +1281,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
                   chainTarget,
                 }),
                 participantIds: [1, 3],
-                backendBinding: { relayerKeyId: 'relayer-key' },
+                backendBinding: TEST_ECDSA_BACKEND_BINDING,
               },
               keygen: { ok: true, rpId: 'example.com' },
               session: {

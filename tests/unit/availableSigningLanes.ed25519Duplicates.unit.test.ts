@@ -45,6 +45,7 @@ function thresholdEcdsaSessionJwt(args: {
     kind: THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND,
     sub: WALLET_ID,
     walletId: WALLET_ID,
+    keyScope: 'evm-family',
     keyHandle: args.keyHandle,
     chainTarget: args.chainTarget,
     sessionId: args.thresholdSessionId,
@@ -114,9 +115,6 @@ function sealedEcdsaRecord(args: {
     thresholdSessionId: args.thresholdSessionId,
     thresholdSessionIds: { ecdsa: args.thresholdSessionId },
     sealedSecretB64u: 'sealed',
-    subjectId: WALLET_ID,
-    signingRootId: 'sr-test:dev',
-    signingRootVersion: 'default',
     relayerUrl: 'https://relay.example.test',
     keyVersion: 'seal-key-v1',
     shamirPrimeB64u: 'shamir-prime',
@@ -136,13 +134,13 @@ function sealedEcdsaRecord(args: {
             ...(sessionKind === 'jwt'
               ? {
                   thresholdSessionAuthToken: thresholdEcdsaSessionJwt({
-                  thresholdSessionId: args.thresholdSessionId,
-                  walletSigningSessionId: args.walletSigningSessionId,
-                  chainTarget,
-                  keyHandle: 'ehss-key-available-lane-ed25519-test',
-                }),
-              }
-            : {}),
+                    thresholdSessionId: args.thresholdSessionId,
+                    walletSigningSessionId: args.walletSigningSessionId,
+                    chainTarget,
+                    keyHandle: 'ehss-key-available-lane-ed25519-test',
+                  }),
+                }
+              : {}),
             ecdsaThresholdKeyId: 'ek-passkey',
             keyHandle: 'ehss-key-available-lane-ed25519-test',
             thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
@@ -150,7 +148,13 @@ function sealedEcdsaRecord(args: {
             relayerKeyId: 'relayer-key',
             clientVerifyingShareB64u: 'client-verifying-share',
             participantIds: args.participantIds || [1, 2],
-    },
+            runtimePolicyScope: {
+              orgId: 'org-test',
+              projectId: 'sr-test',
+              envId: 'dev',
+              signingRootVersion: 'default',
+            },
+          },
     issuedAtMs,
     expiresAtMs: issuedAtMs + 60_000,
     remainingUses: args.remainingUses ?? 1,

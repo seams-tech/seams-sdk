@@ -22,6 +22,7 @@ import type {
 } from '@near-js/types';
 import { base64Encode, base64Decode } from '@shared/utils/base64';
 import { errorMessage } from '@shared/utils/errors';
+import { secureRandomId } from '@shared/utils/secureRandomId';
 import { NearRpcError } from './NearRpcError';
 import { DEFAULT_WAIT_STATUS, RpcResponse } from '../../types/rpc';
 import { isFunction } from '@shared/utils/validation';
@@ -270,7 +271,7 @@ export class MinimalNearClient implements NearClient {
   private buildRequestBody<P>(method: string, params: P): string {
     return JSON.stringify({
       jsonrpc: '2.0',
-      id: crypto.randomUUID(),
+      id: secureRandomId('near-rpc', 32, 'NEAR JSON-RPC request IDs'),
       method,
       params,
     });

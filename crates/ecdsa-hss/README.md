@@ -29,9 +29,9 @@ The crate provides:
 - mapped private-share inputs for the `threshold-signatures` ECDSA backend
 - explicit client-side export reconstruction of the same logical `x`
 
-## V1 Scope
+## Active Scope
 
-The v1 implementation is fixed to:
+The active implementation is fixed to:
 
 - signer set `{client=1, relayer=2}`
 - 2-of-2 threshold ECDSA
@@ -52,7 +52,7 @@ exported_private_key = x
 
 ## Architecture
 
-The v1 lifecycle is:
+The active lifecycle is:
 
 1. The client derives `x_client` locally from client-owned root-share material
    and stable key context.
@@ -105,15 +105,17 @@ returned only through server-owned result types for persistence.
 
 ## Status
 
-The crate-local reference implementation includes:
+The old ECDSA HSS context and server/client crate APIs were removed after the
+v2 `wallet_id`/`rp_id` invalidation. No crate module retains the old
+`wallet_session_user_id`/`subject_id` context, wire, server, integration,
+fixture, or benchmark path.
+
+The crate-local implementation includes:
 
 - staged derivation
-- EVM-threshold bootstrap
-- EVM-threshold sign bridge
 - explicit export
-- bootstrap -> sign -> export regression coverage
-- Verus coverage for the frozen implementation-facing scope
-- Lean boundary and privacy checks for the frozen server-visible staged boundary
+- bootstrap -> export regression coverage
+- Lean boundary and privacy checks for the active server-visible staged boundary
 - native performance baselines
 
 The crate is ready for crate-level review. Product rollout, QA, and integration
@@ -156,5 +158,3 @@ Current performance notes:
   [docs/plans/true-server-blindness.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/docs/plans/true-server-blindness.md)
 - Refactor 1:
   [docs/plans/refactor-1.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/docs/plans/refactor-1.md)
-- Optimization V1 summary:
-  [docs/plans/optimization-v1.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/docs/plans/optimization-v1.md)

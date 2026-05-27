@@ -345,7 +345,7 @@ test.describe('confirmTxFlow – success paths', () => {
     expect(result.finalBehavior).toBe('skipClick');
   });
 
-  test('Registration: collects registration credential and returns tx context', async ({
+  test('Registration: collects registration credential without access-key nonce reservation', async ({
     page,
   }) => {
     const result = await page.evaluate(
@@ -472,8 +472,8 @@ test.describe('confirmTxFlow – success paths', () => {
       .digest()
       .toString('base64url');
     expect(result.capturedChallengeB64u).toBe(expectedChallengeB64u);
-    expect(result.tx?.nextNonce).toBe('101');
-    expect(result.reserved).toEqual(['101']);
+    expect(result.tx).toBeUndefined();
+    expect(result.reserved).toEqual([]);
     // Registration responses should not contain PRF output in UserConfirm-driven design.
     expect(result.prf).toBeUndefined();
   });

@@ -57,8 +57,10 @@ test.describe('signing session PRF cache utilities', () => {
     ]);
   });
 
-  test('generateSessionId falls back when crypto.randomUUID is unavailable', async ({ page }) => {
-    const sessionId = await page.evaluate(
+  test('generateSessionId fails closed when WebCrypto randomness is unavailable', async ({
+    page,
+  }) => {
+    const message = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.signingSessionState);
         const originalCrypto = globalThis.crypto;
@@ -67,7 +69,10 @@ test.describe('signing session PRF cache utilities', () => {
           value: {},
         });
         try {
-          return mod.generateSessionId('threshold-ed25519');
+          mod.generateSessionId('threshold-ed25519');
+          return null;
+        } catch (error) {
+          return error instanceof Error ? error.message : String(error);
         } finally {
           Object.defineProperty(globalThis, 'crypto', {
             configurable: true,
@@ -78,7 +83,7 @@ test.describe('signing session PRF cache utilities', () => {
       { paths: IMPORT_PATHS },
     );
 
-    expect(sessionId).toContain('threshold-ed25519-');
+    expect(message).toBe('WebCrypto getRandomValues is required for passkey PRF cache session IDs');
   });
 
   test('threshold warm-session bootstrap uses hydrate seam without active-pointer flags', () => {

@@ -2,6 +2,9 @@
 
 Date created: April 8, 2026
 
+Removal note: this memo predates the v2 invalidation. The active crate removed
+the old ECDSA HSS context version and retains only v2 role-local derivation.
+
 ## Scope
 
 This memo compares only the two serious `ecdsa-hss` design options for
@@ -39,8 +42,6 @@ seam:
   [threshold_ecdsa.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/signer-core/src/threshold_ecdsa.rs)
 - the codebase already maps additive 2-party secp256k1 shares into the
   `near/threshold-signatures` share encoding in
-  [secp256k1Ecdsa2pShareMapping.ts](/Users/pta/Dev/rust/simple-threshold-signer/shared/src/threshold/secp256k1Ecdsa2pShareMapping.ts)
-  and
   [secp256k1.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/signer-core/src/secp256k1.rs)
 - current ECDSA presign/sign performance is already acceptable enough that we
   should avoid replacing the backend unless reuse fails
@@ -345,7 +346,7 @@ That gives:
 - [On the Security of ECDSA with Additive Key Derivation and Presignatures](https://eprint.iacr.org/2021/1330.pdf)
 - [Non-interactive Distributed Key Generation and Key Resharing](https://eprint.iacr.org/2021/339)
 - local backend references:
-  - [secp256k1Ecdsa2pShareMapping.ts](/Users/pta/Dev/rust/simple-threshold-signer/shared/src/threshold/secp256k1Ecdsa2pShareMapping.ts)
+  - [ethSignerWasm.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/core/ThresholdService/ethSignerWasm.ts)
   - [threshold_ecdsa.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/signer-core/src/threshold_ecdsa.rs)
   - [ecdsa_threshold_signing.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/ecdsa_threshold_signing.md)
   - [proof-inventory.md](/Users/pta/Dev/rust/simple-threshold-signer/formal-verification/docs/proof-inventory.md)

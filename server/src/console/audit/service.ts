@@ -1,3 +1,4 @@
+import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 import { ConsoleAuditError } from './errors';
 import type {
   AppendConsoleAuditEvidenceRequest,
@@ -47,7 +48,7 @@ interface OrgStore {
 }
 
 function makeId(prefix: string, now: Date): string {
-  return `${prefix}_${now.getTime().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  return `${prefix}_${now.getTime().toString(36)}_${secureRandomBase36(8, 'console IDs')}`;
 }
 
 function toIso(date: Date): string {

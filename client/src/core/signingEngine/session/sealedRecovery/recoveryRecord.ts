@@ -1,11 +1,5 @@
-import type {
-  ThresholdEcdsaChainTarget,
-  WalletSubjectId,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import {
-  thresholdEcdsaChainTargetFromRequest,
-  walletSubjectIdFromWalletProfile,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { thresholdEcdsaChainTargetFromRequest } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   normalizeThresholdRuntimePolicyScope,
   parseThresholdRuntimePolicyScopeFromJwt,
@@ -70,6 +64,7 @@ export type RawSigningSessionSealedStoreRecord = RawSealedSessionRecordV1 & {
 
 export type SealedRecoveryRejectionReason =
   | 'missing_identity'
+  | 'invalid_identity'
   | 'missing_restore_metadata'
   | 'wrong_curve'
   | 'wrong_chain_target'
@@ -108,7 +103,7 @@ type EcdsaSealedRecoveryRecordBase = SealedRecoveryRecordBase & {
   signingRootId: string;
   signingRootVersion: string;
   keyHandle: string;
-  ecdsaThresholdKeyId?: string;
+  ecdsaThresholdKeyId: string;
   ethereumAddress: `0x${string}`;
   thresholdEcdsaPublicKeyB64u?: string;
   participantIds: readonly number[];
@@ -219,18 +214,6 @@ function normalizeEthereumAddress(value: unknown): `0x${string}` | null {
     .trim()
     .toLowerCase();
   return /^0x[0-9a-f]{40}$/.test(normalized) ? (normalized as `0x${string}`) : null;
-}
-
-function normalizeBaseEcdsaSubjectId(args: {
-  walletId: string;
-  rawSubjectId: unknown;
-}): WalletSubjectId | null {
-  const derivedSubjectId = walletSubjectIdFromWalletProfile({ walletId: args.walletId });
-  const rawSubjectId = normalizeNonEmptyString(args.rawSubjectId);
-  if (rawSubjectId && rawSubjectId !== derivedSubjectId) {
-    return null;
-  }
-  return derivedSubjectId;
 }
 
 function normalizeThresholdSessionAuthOrReject(args: {
@@ -356,10 +339,6 @@ export function normalizeSealedRecoveryRecord(
   if (raw.curve === 'ecdsa') {
     const thresholdSessionId = normalizeNonEmptyString(thresholdSessionIds.ecdsa);
     const restore = ecdsaRestore;
-    const validatedSubjectId = normalizeBaseEcdsaSubjectId({
-      walletId,
-      rawSubjectId: raw.subjectId,
-    });
     const runtimePolicyScope = resolveRuntimePolicyScope({
       rawRuntimePolicyScope: restore?.runtimePolicyScope,
       rawThresholdSessionAuthToken: restore?.thresholdSessionAuthToken,
@@ -384,7 +363,10 @@ export function normalizeSealedRecoveryRecord(
     const passkeyClientVerifyingShareB64u =
       raw.authMethod === 'passkey' ? clientVerifyingShareB64u : null;
     const sessionKind = normalizeSessionKind(restore?.sessionKind);
-    if (!thresholdSessionId || !validatedSubjectId || !signingRootBinding) {
+    if (normalizeNonEmptyString(raw.subjectId)) {
+      return reject(raw, 'invalid_identity');
+    }
+    if (!thresholdSessionId || !signingRootBinding) {
       return reject(raw, 'missing_identity');
     }
     if (!restore?.chainTarget) return reject(raw, 'wrong_chain_target');
@@ -399,6 +381,7 @@ export function normalizeSealedRecoveryRecord(
     if (
       !relayerUrl ||
       !rpId ||
+      !ecdsaThresholdKeyId ||
       !relayerKeyId ||
       !keyHandle ||
       !ethereumAddress ||
@@ -506,7 +489,7 @@ export function normalizeSealedRecoveryRecord(
             signingRootId: signingRootBinding.signingRootId,
             signingRootVersion: signingRootBinding.signingRootVersion,
             keyHandle,
-            ...(ecdsaThresholdKeyId ? { ecdsaThresholdKeyId } : {}),
+            ecdsaThresholdKeyId,
             ethereumAddress,
             ...(thresholdEcdsaPublicKeyB64u ? { thresholdEcdsaPublicKeyB64u } : {}),
             participantIds,
@@ -539,7 +522,7 @@ export function normalizeSealedRecoveryRecord(
             signingRootId: signingRootBinding.signingRootId,
             signingRootVersion: signingRootBinding.signingRootVersion,
             keyHandle,
-            ...(ecdsaThresholdKeyId ? { ecdsaThresholdKeyId } : {}),
+            ecdsaThresholdKeyId,
             ethereumAddress,
             ...(thresholdEcdsaPublicKeyB64u ? { thresholdEcdsaPublicKeyB64u } : {}),
             participantIds,
@@ -608,6 +591,7 @@ export function normalizeSealedRecoveryRecord(
       !ecdsaRestore ||
       !ecdsaRestore.chainTarget ||
       !companionSigningRootBinding ||
+      !companionEcdsaThresholdKeyId ||
       !normalizeNonEmptyString(raw.relayerUrl) ||
       !normalizeNonEmptyString(ecdsaRestore.rpId) ||
       !normalizeNonEmptyString(ecdsaRestore.relayerKeyId) ||
@@ -634,13 +618,6 @@ export function normalizeSealedRecoveryRecord(
     if ('kind' in companionThresholdSessionAuth) {
       return companionThresholdSessionAuth;
     }
-    const validatedCompanionSubjectId = normalizeBaseEcdsaSubjectId({
-      walletId,
-      rawSubjectId: raw.subjectId,
-    });
-    if (!validatedCompanionSubjectId) {
-      return reject(raw, 'missing_identity');
-    }
     companionEcdsaRecovery = {
       storeKey,
       walletId,
@@ -664,9 +641,7 @@ export function normalizeSealedRecoveryRecord(
       signingRootId: companionSigningRootBinding.signingRootId,
       signingRootVersion: companionSigningRootBinding.signingRootVersion,
       keyHandle: normalizeNonEmptyString(ecdsaRestore.keyHandle)!,
-      ...(companionEcdsaThresholdKeyId
-        ? { ecdsaThresholdKeyId: companionEcdsaThresholdKeyId }
-        : {}),
+      ecdsaThresholdKeyId: companionEcdsaThresholdKeyId,
       ethereumAddress: normalizeEthereumAddress(ecdsaRestore.ethereumAddress)!,
       ...(normalizeNonEmptyString(ecdsaRestore.thresholdEcdsaPublicKeyB64u)
         ? {

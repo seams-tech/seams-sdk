@@ -4,7 +4,7 @@ use crate::js::{
     set_u32,
 };
 use ecdsa_hss::{
-    derive_client_share_v2, reconstruct_export_key_v2, EcdsaHssStableKeyContextV2, PublicIdentityV2,
+    derive_client_share, reconstruct_export_key, EcdsaHssStableKeyContext, PublicIdentity,
 };
 use ed25519_hss::{
     client::{
@@ -225,7 +225,7 @@ pub fn threshold_ed25519_hss_open_seed_output(args: JsValue) -> Result<JsValue, 
 pub fn threshold_ecdsa_hss_role_local_client_bootstrap(args: JsValue) -> Result<JsValue, JsValue> {
     let context = ecdsa_canonical_context_from_js(&args)?;
     let y_client32_le = get_required_client_root_share32(&args)?;
-    let client_share = derive_client_share_v2(&context, y_client32_le)
+    let client_share = derive_client_share(&context, y_client32_le)
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
     let out = object();
@@ -269,13 +269,13 @@ pub fn threshold_ecdsa_hss_role_local_client_bootstrap(args: JsValue) -> Result<
 pub fn threshold_ecdsa_hss_role_local_export_artifact(args: JsValue) -> Result<JsValue, JsValue> {
     let context = ecdsa_canonical_context_from_js(&args)?;
     let y_client32_le = get_required_client_root_share32(&args)?;
-    let client_share = derive_client_share_v2(&context, y_client32_le)
+    let client_share = derive_client_share(&context, y_client32_le)
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
     let server_export_share32 = decode_fixed_32(
         &get_required_string(&args, "serverExportShare32B64u")?,
         "serverExportShare32B64u",
     )?;
-    let identity = PublicIdentityV2 {
+    let identity = PublicIdentity {
         context_bytes: client_share.context_bytes.clone(),
         context_binding32: decode_fixed_32(
             &get_required_string(&args, "contextBinding32B64u")?,
@@ -300,7 +300,7 @@ pub fn threshold_ecdsa_hss_role_local_export_artifact(args: JsValue) -> Result<J
         client_share_retry_counter: get_required_u32(&args, "clientShareRetryCounter")?,
         relayer_share_retry_counter: 0,
     };
-    let private_key32 = reconstruct_export_key_v2(&client_share, &server_export_share32, &identity)
+    let private_key32 = reconstruct_export_key(&client_share, &server_export_share32, &identity)
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
     let out = object();
@@ -353,8 +353,8 @@ fn get_required_client_root_share32(args: &JsValue) -> Result<[u8; 32], JsValue>
     decode_fixed_32(&client_root_share32_b64u, "clientRootShare32B64u")
 }
 
-fn ecdsa_canonical_context_from_js(args: &JsValue) -> Result<EcdsaHssStableKeyContextV2, JsValue> {
-    Ok(EcdsaHssStableKeyContextV2::new(
+fn ecdsa_canonical_context_from_js(args: &JsValue) -> Result<EcdsaHssStableKeyContext, JsValue> {
+    Ok(EcdsaHssStableKeyContext::new(
         get_required_string(args, "walletId")?,
         get_required_string(args, "rpId")?,
         get_required_string(args, "ecdsaThresholdKeyId")?,

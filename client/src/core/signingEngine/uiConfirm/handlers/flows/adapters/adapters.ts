@@ -3,6 +3,7 @@ import type { ConfirmationConfig, ConfirmationUIMode } from '@/core/types/signer
 import { TransactionContext } from '@/core/types';
 import type { BlockReference, AccessKeyView } from '@near-js/types';
 import { errorMessage } from '@shared/utils/errors';
+import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import type {
   SerializableCredential,
   UserConfirmRequest,
@@ -219,10 +220,7 @@ function createNearNonceOperationContext(args: {
   operationId?: string;
   operationFingerprint?: string;
 }): NonceOperationContext {
-  const randomId =
-    typeof globalThis.crypto?.randomUUID === 'function'
-      ? globalThis.crypto.randomUUID()
-      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  const randomId = secureRandomBase64Url(32, 'NEAR touch confirmation nonce operation IDs');
   const operationId = SigningSessionIds.signingOperation(
     args.operationId || `near-touch-confirm:${randomId}`,
   );
@@ -353,21 +351,22 @@ async function renderConfirmUI({
       return { confirmed: true, confirmHandle: handle } as const;
     }
 
-    const { confirmed, handle, error, otpCode, emailOtpChallengeId } =
-      await awaitConfirmUIDecision({
-      ctx,
-      summary: transactionSummary,
-      txSigningRequests,
-      model,
-      securityContext,
-      loading,
-      theme,
-      uiMode: mode,
-      nearAccountIdOverride: nearAccountIdForUi,
-      onMounted,
-      signingAuthMode,
-      emailOtpPrompt,
-    });
+    const { confirmed, handle, error, otpCode, emailOtpChallengeId } = await awaitConfirmUIDecision(
+      {
+        ctx,
+        summary: transactionSummary,
+        txSigningRequests,
+        model,
+        securityContext,
+        loading,
+        theme,
+        uiMode: mode,
+        nearAccountIdOverride: nearAccountIdForUi,
+        onMounted,
+        signingAuthMode,
+        emailOtpPrompt,
+      },
+    );
     return { confirmed, confirmHandle: handle, error, otpCode, emailOtpChallengeId } as const;
   };
 

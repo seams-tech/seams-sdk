@@ -17,6 +17,7 @@ import {
   type WorkerSuccessResponse,
 } from '@/core/types/signer-worker';
 import { AccountId, toAccountId } from '@/core/types/accountIds';
+import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import type { SigningRuntimeDeps } from '../../interfaces/runtime';
 import type {
   NearEd25519TransactionSigningBoundary,
@@ -145,11 +146,7 @@ function readinessFromPreparedBudgetIdentity(
 }
 
 function createNearTransactionSigningOperationId(): SigningOperationId {
-  const cryptoObj = globalThis as { crypto?: { randomUUID?: () => string } };
-  const randomId =
-    typeof cryptoObj.crypto?.randomUUID === 'function'
-      ? cryptoObj.crypto.randomUUID()
-      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  const randomId = secureRandomBase64Url(32, 'NEAR transaction signing operation IDs');
   return SigningSessionIds.signingOperation(`near-transaction-sign:${randomId}`);
 }
 
@@ -333,10 +330,9 @@ export async function runNearTransactionsWithActionsSigning({
     );
   }
   const thresholdAuthPlan = {
-    sessionId:
-      isWarmSessionSigningAuthPlan(providedSigningAuthPlan)
-        ? providedSigningAuthPlan.sessionId
-        : providedSessionId,
+    sessionId: isWarmSessionSigningAuthPlan(providedSigningAuthPlan)
+      ? providedSigningAuthPlan.sessionId
+      : providedSessionId,
     lane: signingLane,
     signingAuthPlan: providedSigningAuthPlan,
     confirmationAuthPayload: { signingAuthPlan: providedSigningAuthPlan },
@@ -445,8 +441,7 @@ export async function runNearTransactionsWithActionsSigning({
   const nonceLeaseRefs = confirmation.nonceLeases || [];
   let thresholdSignatureCreated = false;
   let walletSpendRecorded = false;
-  let signedTransactionOperation: SignedTransactionOperation<SelectedEd25519Lane> | null =
-    null;
+  let signedTransactionOperation: SignedTransactionOperation<SelectedEd25519Lane> | null = null;
 
   const credentialWithPrf: WebAuthnAuthenticationCredential | undefined =
     stepUpAuthorization.kind === 'passkey' ? stepUpAuthorization.credential : undefined;
@@ -477,7 +472,9 @@ export async function runNearTransactionsWithActionsSigning({
         });
         const refreshedSessionId = String(refreshed.sessionId || '').trim();
         if (!refreshedSessionId) {
-          throw new Error('[SigningEngine] Email OTP signing did not return a threshold session id');
+          throw new Error(
+            '[SigningEngine] Email OTP signing did not return a threshold session id',
+          );
         }
         canonicalThresholdSessionId = refreshedSessionId;
         refreshedThresholdSessionState = refreshed.sessionState || null;
@@ -503,9 +500,7 @@ export async function runNearTransactionsWithActionsSigning({
         if (!refreshedSessionId) {
           throw new Error('[SigningEngine] passkey signing did not return a threshold session id');
         }
-        if (
-          refreshedSessionId !== stepUpAuthorization.plannedPasskeyReconnect.sessionId
-        ) {
+        if (refreshedSessionId !== stepUpAuthorization.plannedPasskeyReconnect.sessionId) {
           throw new Error(
             '[SigningEngine] passkey signing returned a different threshold session id than the confirmed session policy',
           );
@@ -649,7 +644,9 @@ export async function runNearTransactionsWithActionsSigning({
   let activeBudgetAdmittedOperation = ed25519SigningBoundary.initialBudgetAdmittedOperation;
   const buildBudgetSigningLane = (): NearTransactionSigningLane => {
     if (String(thresholdSessionState.thresholdSessionId) !== canonicalThresholdSessionId) {
-      throw new Error('[SigningEngine][near] budget signing lane session does not match worker session');
+      throw new Error(
+        '[SigningEngine][near] budget signing lane session does not match worker session',
+      );
     }
     return thresholdSessionState.signingLane;
   };
@@ -727,7 +724,9 @@ export async function runNearTransactionsWithActionsSigning({
       await finalizePreparedSigningSession({
         status: 'success',
         hooks: {
-          recordSuccess: async () => await finalizer.recordSuccess(),
+          recordSuccess: async () => {
+            await finalizer.recordSuccess();
+          },
           recordZeroSpend: (error) => finalizer.recordZeroSpend(error),
         },
       });
@@ -744,6 +743,7 @@ export async function runNearTransactionsWithActionsSigning({
       {
         kind: 'zero_spend',
         operationId: confirmationOperationId,
+        operationFingerprint,
         lane: buildBudgetSigningLane(),
         reason: 'signing_failed',
         error,
@@ -756,7 +756,9 @@ export async function runNearTransactionsWithActionsSigning({
         status: 'zero_spend',
         error,
         hooks: {
-          recordSuccess: async () => await finalizer.recordSuccess(),
+          recordSuccess: async () => {
+            await finalizer.recordSuccess();
+          },
           recordZeroSpend: (zeroSpendError) => finalizer.recordZeroSpend(zeroSpendError),
         },
       });
@@ -811,17 +813,15 @@ export async function runNearTransactionsWithActionsSigning({
     commandKind: SigningOperationCommandKind.ReserveBudget,
     execute: async () => {
       if (refreshedBudgetIdentityRequired) {
-        activeBudgetAdmittedOperation = await admitSelectedNearTransactionLaneBudget(
-          buildBudgetSigningLane(),
-        );
+        activeBudgetAdmittedOperation =
+          await admitSelectedNearTransactionLaneBudget(buildBudgetSigningLane());
         refreshedBudgetIdentityRequired = false;
       }
       if (!activeBudgetAdmittedOperation) {
         // Confirmed-auth lanes can only become budget-admitted after confirmation
         // has produced fresh auth material.
-        activeBudgetAdmittedOperation = await admitSelectedNearTransactionLaneBudget(
-          buildBudgetSigningLane(),
-        );
+        activeBudgetAdmittedOperation =
+          await admitSelectedNearTransactionLaneBudget(buildBudgetSigningLane());
       }
       if (
         String(activeBudgetAdmittedOperation.lane.thresholdSessionId) !==

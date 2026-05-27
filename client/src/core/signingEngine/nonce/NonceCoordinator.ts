@@ -9,6 +9,7 @@ import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { TransactionContext } from '@/core/types/rpc';
 import type { AccessKeyView, BlockResult } from '@near-js/types';
 import { errorMessage } from '@shared/utils/errors';
+import { secureRandomId } from '@shared/utils/secureRandomId';
 import { isObject, isString } from '@shared/utils/validation';
 import type {
   SigningOperationContext,
@@ -112,8 +113,7 @@ export const NearNonceOutcomeKind = {
   Unknown: 'unknown',
 } as const;
 
-export type NearNonceOutcomeKind =
-  (typeof NearNonceOutcomeKind)[keyof typeof NearNonceOutcomeKind];
+export type NearNonceOutcomeKind = (typeof NearNonceOutcomeKind)[keyof typeof NearNonceOutcomeKind];
 
 export const NearNonceReconcileReason = {
   NonceAdvancedHashMissing: 'near_nonce_advanced_hash_missing',
@@ -321,10 +321,7 @@ export type NonceCoordinatorDiagnostics = {
 };
 
 export type NonceCoordinator = {
-  reserve(input: {
-    lane: NonceLane;
-    operation: NonceOperationContext;
-  }): Promise<NonceLease>;
+  reserve(input: { lane: NonceLane; operation: NonceOperationContext }): Promise<NonceLease>;
   reserveBatch(input: {
     lane: NearNonceLane;
     operation: NonceOperationContext;
@@ -887,8 +884,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
       }
       state.inFlight = prunedInFlight;
 
-      const hasOutstandingLocalNonce =
-        activeLeaseNonces.size > 0 || prunedInFlight.size > 0;
+      const hasOutstandingLocalNonce = activeLeaseNonces.size > 0 || prunedInFlight.size > 0;
       const nextFromCurrent = hasOutstandingLocalNonce ? state.nextCandidate || 0n : 0n;
       const nextFromActiveLease = highestActiveLease > 0n ? highestActiveLease + 1n : 0n;
       const nextFromInFlight = highestInFlight > 0n ? highestInFlight + 1n : 0n;
@@ -1047,9 +1043,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     );
   };
 
-  const markEvmFinalized = async (
-    lease: NonceLease & { lane: EvmNonceLane },
-  ): Promise<void> => {
+  const markEvmFinalized = async (lease: NonceLease & { lane: EvmNonceLane }): Promise<void> => {
     const laneKey = nonceLaneKey(lease.lane);
     const state = getOrCreateEvmState(laneKey);
     const nonce = normalizeBigint(lease.nonce, 'nonce');
@@ -1208,10 +1202,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     return resolved;
   };
 
-  const initializeNearAccessKey = (input: {
-    accountId: string;
-    publicKey: string;
-  }): void => {
+  const initializeNearAccessKey = (input: { accountId: string; publicKey: string }): void => {
     const accountId = normalizeRequiredString(input.accountId, 'accountId');
     const publicKey = normalizeRequiredString(input.publicKey, 'publicKey');
     // Idempotence here is load-bearing: repeated setup for the same NEAR
@@ -1227,9 +1218,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
 
   const reserveNearNonces = async (lane: NearNonceLane, countInput: number): Promise<string[]> => {
     if (!nearState.transactionContext) {
-      throw new Error(
-        'NEAR transaction context not available - call fetchNearContext() first',
-      );
+      throw new Error('NEAR transaction context not available - call fetchNearContext() first');
     }
     const count = Math.max(0, Math.floor(Number(countInput || 0)));
     if (count <= 0) return [];
@@ -1507,10 +1496,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     emit({ event: NonceCoordinatorTraceEventName.LaneReconciled, lane: lease.lane });
   };
 
-  const withLocalLaneLock = async <T>(
-    laneKey: string,
-    fn: () => Promise<T>,
-  ): Promise<T> => {
+  const withLocalLaneLock = async <T>(laneKey: string, fn: () => Promise<T>): Promise<T> => {
     const previous = laneLocks.get(laneKey) ?? Promise.resolve();
     let releaseCurrent!: () => void;
     const current = new Promise<void>((resolve) => {
@@ -1586,9 +1572,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
         transition: 'expire',
         event: NonceCoordinatorTraceEventName.LeaseExpired,
         reason:
-          lease.state === NonceLeaseState.Signed
-            ? 'signed_lease_ttl_elapsed'
-            : 'lease_ttl_elapsed',
+          lease.state === NonceLeaseState.Signed ? 'signed_lease_ttl_elapsed' : 'lease_ttl_elapsed',
       });
       expired.push({ ...lease });
     }
@@ -1694,22 +1678,24 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
       firstNonce: nonces[0],
       count,
     });
-    const batchLeases = nonces.map((nonce, txIndex): NonceLease => ({
-      leaseId: createNonceLeaseId({
+    const batchLeases = nonces.map(
+      (nonce, txIndex): NonceLease => ({
+        leaseId: createNonceLeaseId({
+          operationId: input.operation.operationId,
+          chain: 'near',
+          nonce,
+        }),
+        lane: input.lane,
         operationId: input.operation.operationId,
-        chain: 'near',
+        operationFingerprint: input.operation.operationFingerprint,
         nonce,
+        state: NonceLeaseState.Reserved,
+        reservedAtMs,
+        expiresAtMs: reservedAtMs + leaseTtlMs,
+        batchId,
+        txIndex,
       }),
-      lane: input.lane,
-      operationId: input.operation.operationId,
-      operationFingerprint: input.operation.operationFingerprint,
-      nonce,
-      state: NonceLeaseState.Reserved,
-      reservedAtMs,
-      expiresAtMs: reservedAtMs + leaseTtlMs,
-      batchId,
-      txIndex,
-    }));
+    );
     for (const lease of batchLeases) {
       leases.set(lease.leaseId, lease);
       await persistCoordinationLease(lease, NonceDurableLeaseState.Reserved);
@@ -1755,8 +1741,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
       }
       if (event.kind === 'reconciled') {
         metrics.reconciledCount += 1;
-        metrics.reconcileReasons[event.reason] =
-          (metrics.reconcileReasons[event.reason] || 0) + 1;
+        metrics.reconcileReasons[event.reason] = (metrics.reconcileReasons[event.reason] || 0) + 1;
         continue;
       }
       if (event.kind === 'released') {
@@ -1773,7 +1758,9 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     return metrics;
   };
 
-  const readDiagnostics = (input?: NonceCoordinatorDiagnosticsOptions): NonceCoordinatorDiagnostics => {
+  const readDiagnostics = (
+    input?: NonceCoordinatorDiagnosticsOptions,
+  ): NonceCoordinatorDiagnostics => {
     const accountId = input?.accountId ? String(input.accountId).trim() : '';
     const atMs = now();
     const leasesByState = createEmptyLeaseStateCounts();
@@ -1846,7 +1833,8 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
       laneCount: lanes.size,
       metrics,
       coordinationWarnings: Array.from(observedCoordinationDegradations.values()).filter(
-        (degradation) => !accountId || !degradation.accountId || degradation.accountId === accountId,
+        (degradation) =>
+          !accountId || !degradation.accountId || degradation.accountId === accountId,
       ),
       lanes: Array.from(lanes.values()).map((entry) => ({
         family: entry.lane.family,
@@ -1883,11 +1871,13 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
       if (input.lane.family === 'near') {
         const nearLane = input.lane;
         return await withLaneLock(nearLane, async () => {
-          return (await reserveNearNonceBatchUnlocked({
-            lane: nearLane,
-            operation: input.operation,
-            count: 1,
-          }))[0];
+          return (
+            await reserveNearNonceBatchUnlocked({
+              lane: nearLane,
+              operation: input.operation,
+              count: 1,
+            })
+          )[0];
         });
       }
       const evmLane = input.lane;
@@ -1949,9 +1939,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     async prefetchNearContext(input) {
       if (input?.accountId || input?.publicKey) {
         if (!input.accountId || !input.publicKey) {
-          throw new Error(
-            '[NonceCoordinator] NEAR prefetch requires both accountId and publicKey',
-          );
+          throw new Error('[NonceCoordinator] NEAR prefetch requires both accountId and publicKey');
         }
         initializeNearAccessKey({
           accountId: input.accountId,
@@ -2244,10 +2232,7 @@ function assertEvmLease(lease: NonceLease): asserts lease is NonceLease & { lane
   }
 }
 
-function assertOperationMatches(
-  lease: NonceLease,
-  operationId: SigningOperationId | string,
-): void {
+function assertOperationMatches(lease: NonceLease, operationId: SigningOperationId | string): void {
   if (String(lease.operationId) !== String(operationId || '')) {
     throw new Error('[NonceCoordinator] nonce lease operation mismatch');
   }
@@ -2258,10 +2243,7 @@ function createNonceLeaseId(args: {
   chain: EvmNonceChain | 'near';
   nonce: bigint | string;
 }): string {
-  const randomId =
-    typeof globalThis.crypto?.randomUUID === 'function'
-      ? globalThis.crypto.randomUUID()
-      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  const randomId = secureRandomId('nonce-lease', 32, 'nonce lease IDs');
   return `nonce-lease-v1:${args.chain}:${args.operationId}:${String(args.nonce)}:${randomId}`;
 }
 
@@ -2271,10 +2253,7 @@ function createNonceBatchId(args: {
   firstNonce: bigint | string;
   count: number;
 }): string {
-  const randomId =
-    typeof globalThis.crypto?.randomUUID === 'function'
-      ? globalThis.crypto.randomUUID()
-      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  const randomId = secureRandomId('nonce-batch', 32, 'nonce batch IDs');
   return `nonce-batch-v1:${args.chain}:${args.operationId}:${String(args.firstNonce)}:${args.count}:${randomId}`;
 }
 
@@ -2470,11 +2449,7 @@ function nonceLaneFromCoordinationRecord(record: NonceLaneCoordinationRecord): N
 }
 
 function createRuntimeId(): string {
-  const cryptoObj = (globalThis as { crypto?: Crypto }).crypto;
-  if (cryptoObj && typeof cryptoObj.randomUUID === 'function') {
-    return `nonce-runtime-${cryptoObj.randomUUID()}`;
-  }
-  return `nonce-runtime-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return secureRandomId('nonce-runtime', 32, 'nonce runtime IDs');
 }
 
 function createEvmNonceLaneBlockedError(args: {
@@ -2526,10 +2501,7 @@ function isMissingNearAccessKeyError(message: string): boolean {
   );
 }
 
-function createIllegalNonceTransitionError(
-  current: NonceLeaseState,
-  transition: string,
-): Error {
+function createIllegalNonceTransitionError(current: NonceLeaseState, transition: string): Error {
   return new Error(
     `[NonceCoordinator] illegal nonce lease transition: ${current} -> ${transition}`,
   );

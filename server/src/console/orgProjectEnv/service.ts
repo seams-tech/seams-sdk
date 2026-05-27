@@ -1,3 +1,4 @@
+import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 import { ConsoleOrgProjectEnvError } from './errors';
 import { DEFAULT_CONSOLE_SIGNING_ROOT_VERSION } from './types';
 import type {
@@ -125,7 +126,7 @@ function defaultEnvironmentId(projectId: string, key: ConsoleEnvironment['key'])
 }
 
 function makeResourceId(prefix: string, now: Date): string {
-  return `${prefix}_${now.getTime().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  return `${prefix}_${now.getTime().toString(36)}_${secureRandomBase36(6, 'console IDs')}`;
 }
 
 function sortProjects(items: ConsoleProject[]): ConsoleProject[] {

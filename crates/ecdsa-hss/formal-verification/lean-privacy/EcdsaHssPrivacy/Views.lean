@@ -5,8 +5,8 @@ namespace EcdsaHssPrivacy
 open EcdsaHssBoundary
 
 structure ClientVisibleBoundary where
-  operation : ecdsa_hss.wire.ServerEvalOperationV1
-  allowedOutputKind : ecdsa_hss.wire.AllowedOutputKindV1
+  operation : ecdsa_hss.wire.ServerEvalOperation
+  allowedOutputKind : ecdsa_hss.wire.AllowedOutputKind
   clientOutput : ClientBoundaryModel
   deriving DecidableEq, Repr
 
@@ -122,17 +122,17 @@ def explicitExportClientView?
 def nonExportServerView?
     (state : ProtocolExecutionState) : Option ServerObservableProfile :=
   match state.boundary.operation.allowedOutputKind with
-  | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialOnly =>
+  | ecdsa_hss.wire.AllowedOutputKind.ThresholdMaterialOnly =>
     some (serverObservableProfile state)
-  | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialAndRelayerExportShare =>
+  | ecdsa_hss.wire.AllowedOutputKind.ThresholdMaterialAndRelayerExportShare =>
     none
 
 def explicitExportServerView?
     (state : ProtocolExecutionState) : Option ServerObservableProfile :=
   match state.boundary.operation.allowedOutputKind with
-  | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialOnly =>
+  | ecdsa_hss.wire.AllowedOutputKind.ThresholdMaterialOnly =>
     none
-  | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialAndRelayerExportShare =>
+  | ecdsa_hss.wire.AllowedOutputKind.ThresholdMaterialAndRelayerExportShare =>
     some (serverObservableProfile state)
 
 def statesShareClientVisibleBoundary
@@ -193,8 +193,8 @@ theorem nonExportServerView_exists_exactly_for_threshold_only_output
     (state : ProtocolExecutionState) :
     (nonExportServerView? state).isSome =
       match state.boundary.operation.allowedOutputKind with
-      | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialOnly => true
-      | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialAndRelayerExportShare => false := by
+      | ecdsa_hss.wire.AllowedOutputKind.ThresholdMaterialOnly => true
+      | ecdsa_hss.wire.AllowedOutputKind.ThresholdMaterialAndRelayerExportShare => false := by
   cases state with
   | mk boundary canonicalX32 clientSecrets serverSecrets =>
     cases boundary with
@@ -207,8 +207,8 @@ theorem explicitExportServerView_exists_exactly_for_export_output
     (state : ProtocolExecutionState) :
     (explicitExportServerView? state).isSome =
       match state.boundary.operation.allowedOutputKind with
-      | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialOnly => false
-      | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialAndRelayerExportShare => true := by
+      | ecdsa_hss.wire.AllowedOutputKind.ThresholdMaterialOnly => false
+      | ecdsa_hss.wire.AllowedOutputKind.ThresholdMaterialAndRelayerExportShare => true := by
   cases state with
   | mk boundary canonicalX32 clientSecrets serverSecrets =>
     cases boundary with

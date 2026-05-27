@@ -98,9 +98,12 @@ Every explicit export request carries `export_request_nonce32` and an expiry.
 The relayer stores used export nonces by:
 
 ```text
-wallet_session_user_id
+wallet_id
+rp_id
 ecdsa_threshold_key_id
 relayer_key_id
+key_handle
+threshold_session_id
 export_request_nonce32
 ```
 

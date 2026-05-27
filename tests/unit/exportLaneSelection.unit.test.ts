@@ -7,7 +7,6 @@ import {
 } from '../../client/src/core/signingEngine/flows/recovery/exportLaneSelection';
 import {
   thresholdEcdsaChainTargetKey,
-  toWalletSubjectId,
   type ThresholdEcdsaChainTarget,
 } from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
@@ -24,7 +23,6 @@ import {
 } from '../../client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 
 const WALLET_ID = 'alice.testnet';
-const SUBJECT_ID = toWalletSubjectId(WALLET_ID);
 const RP_ID = 'localhost';
 const THRESHOLD_OWNER_ADDRESS = '0x1111111111111111111111111111111111111111';
 const OTHER_THRESHOLD_OWNER_ADDRESS = '0x2222222222222222222222222222222222222222';
@@ -77,7 +75,6 @@ function ecdsaLane(overrides: EcdsaLaneOverrides): ConcreteAvailableEcdsaSigning
     keyOverride ||
     buildEvmFamilyEcdsaKeyIdentity({
       walletId: WALLET_ID,
-      subjectId: SUBJECT_ID,
       rpId: keyRpId || RP_ID,
       ecdsaThresholdKeyId: ecdsaThresholdKeyId || 'ecdsa-key-1',
       signingRootId: 'root-1',
@@ -88,10 +85,9 @@ function ecdsaLane(overrides: EcdsaLaneOverrides): ConcreteAvailableEcdsaSigning
   const publicFacts =
     publicFactsOverride ||
     buildVerifiedEcdsaPublicFacts({
-      keyHandle:
-        `${TEST_ECDSA_KEY_HANDLE}-${String(key.ecdsaThresholdKeyId)}-${String(
-          key.signingRootId,
-        )}-${String(key.signingRootVersion)}` as EvmFamilyEcdsaKeyHandle,
+      keyHandle: `${TEST_ECDSA_KEY_HANDLE}-${String(key.ecdsaThresholdKeyId)}-${String(
+        key.signingRootId,
+      )}-${String(key.signingRootVersion)}` as EvmFamilyEcdsaKeyHandle,
       publicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
       participantIds: key.participantIds,
       thresholdOwnerAddress: key.thresholdOwnerAddress,
@@ -241,9 +237,7 @@ function depsForTargets(
   };
 }
 
-function ed25519Lane(
-  overrides: Partial<AvailableEd25519SigningLane>,
-): AvailableEd25519SigningLane {
+function ed25519Lane(overrides: Partial<AvailableEd25519SigningLane>): AvailableEd25519SigningLane {
   return {
     authMethod: 'passkey',
     curve: 'ed25519',

@@ -1,12 +1,10 @@
 import type { SigningSessionStatus } from '@/core/types/seams';
-import { deriveBaseEcdsaSubjectIdFromKey } from '../identity/evmFamilyEcdsaIdentity';
 import { normalizeWalletSigningSpendPlan } from '../operationState/types';
 import {
   applySigningSessionBudgetReservationsToStatus,
   assertBudgetStatusCheckHasConcreteLaneIdentity,
-  assertPreparedBudgetProjectionVersion,
   assertSigningSessionBudgetReservationAvailable,
-  assertWalletSigningOperationFingerprintMatches,
+  buildSigningBudgetReservationIdentity,
   buildSigningSessionBudgetStatusCheckForSpend,
   createZeroSpendTraceEvent,
   createSigningSessionBudgetTraceEvent,
@@ -14,11 +12,15 @@ import {
   normalizeWalletBudgetSuccessInput,
   normalizeStringList,
   resolveWalletSigningOperationFingerprint,
-  SIGNING_SESSION_BUDGET_UNKNOWN_ERROR,
+  signingBudgetReservationKey,
   walletBudgetOwnerForLane,
+  type SigningBudgetReservationIdentity,
+  type SigningBudgetReservationKey,
+  type SigningBudgetFinalizationResult,
   type SigningSessionBudget,
   type SigningSessionBudgetConsumer,
   type SigningSessionBudgetReservation,
+  type SigningSessionBudgetReservationConflict,
   type SigningSessionBudgetReservationRecord,
   type SigningSessionBudgetReserveInput,
   type SigningSessionBudgetSuccessInput,
@@ -30,11 +32,15 @@ import {
 
 type SuccessfulSpendRecord = {
   operationFingerprint: string;
-  promise: Promise<SigningSessionStatus | null>;
+  reservationIdentity: SigningBudgetReservationIdentity;
+  reservationIdentityKey: SigningBudgetReservationKey;
+  promise: Promise<SigningBudgetFinalizationResult>;
 };
 
 export type BudgetCoordinatorDeps = {
-  readStatus: (args: Parameters<SigningSessionBudget['getAvailableStatus']>[0]) => Promise<SigningSessionStatus>;
+  readStatus: (
+    args: Parameters<SigningSessionBudget['getAvailableStatus']>[0],
+  ) => Promise<SigningSessionStatus>;
   consumeUse?: SigningSessionBudgetConsumer;
   onTrace?: (event: SigningSessionBudgetTraceEvent) => void;
 };
@@ -45,6 +51,7 @@ export class BudgetCoordinator implements SigningSessionBudget {
     string,
     SigningSessionBudgetReservationRecord
   >();
+  private readonly zeroSpendFinalizationsByReservationKey = new Set<string>();
   private readonly walletReservationQueues = new Map<string, Promise<unknown>>();
 
   constructor(private readonly deps: BudgetCoordinatorDeps) {}
@@ -64,21 +71,22 @@ export class BudgetCoordinator implements SigningSessionBudget {
     );
     const existingSpend = this.successfulSpendsByOperationId.get(operationId);
     if (existingSpend) {
-      assertWalletSigningOperationFingerprintMatches({
-        operationId,
-        existingFingerprint: existingSpend.operationFingerprint,
-        nextFingerprint: resolveWalletSigningOperationFingerprint(spend),
+      const conflict = reserveConflictForRecordedSuccess({
+        recorded: existingSpend,
+        spend,
+        projectionVersion: existingSpend.reservationIdentity.admittedProjection.version,
       });
+      if (conflict) return conflict;
       this.emitTrace(normalizedInput, 'wallet_signing_budget_reservation_deduped');
       return null;
     }
     const existingReservation = this.reservationsByOperationId.get(operationId);
     if (existingReservation) {
-      assertWalletSigningOperationFingerprintMatches({
-        operationId,
-        existingFingerprint: resolveWalletSigningOperationFingerprint(existingReservation.spend),
-        nextFingerprint: resolveWalletSigningOperationFingerprint(spend),
+      const conflict = reserveConflictForReservation({
+        reservation: existingReservation,
+        spend,
       });
+      if (conflict) return conflict;
       this.emitTrace(normalizedInput, 'wallet_signing_budget_reservation_deduped');
       return null;
     }
@@ -86,17 +94,19 @@ export class BudgetCoordinator implements SigningSessionBudget {
     return await this.enqueueWalletReservation(walletSigningSessionId, async () => {
       const admittedReservation = this.reservationsByOperationId.get(operationId);
       if (admittedReservation) {
-        assertWalletSigningOperationFingerprintMatches({
-          operationId,
-          existingFingerprint: resolveWalletSigningOperationFingerprint(admittedReservation.spend),
-          nextFingerprint: resolveWalletSigningOperationFingerprint(spend),
+        const conflict = reserveConflictForReservation({
+          reservation: admittedReservation,
+          spend,
         });
+        if (conflict) return conflict;
         this.emitTrace(normalizedInput, 'wallet_signing_budget_reservation_deduped');
         return null;
       }
 
       this.emitTrace(normalizedInput, 'wallet_signing_budget_reservation_started');
-      let admittedStatus: Awaited<ReturnType<typeof assertSigningSessionBudgetReservationAvailable>>;
+      let admittedStatus: Awaited<
+        ReturnType<typeof assertSigningSessionBudgetReservationAvailable>
+      >;
       try {
         admittedStatus = await assertSigningSessionBudgetReservationAvailable({
           getStatus: (statusArgs) => this.deps.readStatus(statusArgs),
@@ -110,11 +120,17 @@ export class BudgetCoordinator implements SigningSessionBudget {
         throw error;
       }
 
+      const reservationIdentity = buildSigningBudgetReservationIdentity({
+        spend,
+        projectionVersion: admittedStatus.projectionVersion,
+      });
       this.reservationsByOperationId.set(operationId, {
         ...normalizedInput,
         expectedBudgetProjectionVersion: admittedStatus.projectionVersion,
         operationFingerprint: resolveWalletSigningOperationFingerprint(spend),
         walletSigningSessionId,
+        reservationIdentity,
+        reservationIdentityKey: signingBudgetReservationKey(reservationIdentity),
         reservedAgainstProjectionVersion: admittedStatus.projectionVersion,
         reservedAgainstRemainingUses: Math.max(
           0,
@@ -133,7 +149,10 @@ export class BudgetCoordinator implements SigningSessionBudget {
     input: Parameters<SigningSessionBudget['getAvailableStatus']>[0],
   ): ReturnType<SigningSessionBudget['getAvailableStatus']> {
     assertBudgetStatusCheckHasConcreteLaneIdentity(input);
-    const walletSigningSessionId = normalizeRequired(input.walletSigningSessionId, 'walletSigningSessionId');
+    const walletSigningSessionId = normalizeRequired(
+      input.walletSigningSessionId,
+      'walletSigningSessionId',
+    );
     const status = await this.deps.readStatus({
       ...input,
       walletSigningSessionId,
@@ -152,36 +171,76 @@ export class BudgetCoordinator implements SigningSessionBudget {
     const operationId = normalizeRequired(normalizedInput.spend.operationId, 'operationId');
     const existing = this.successfulSpendsByOperationId.get(operationId);
     if (existing) {
-      assertWalletSigningOperationFingerprintMatches({
-        operationId,
-        existingFingerprint: existing.operationFingerprint,
-        nextFingerprint: resolveWalletSigningOperationFingerprint(normalizedInput.spend),
+      const actualRecordedIdentity = buildSigningBudgetReservationIdentity({
+        spend: normalizedInput.spend,
+        projectionVersion: existing.reservationIdentity.admittedProjection.version,
       });
+      const commandMismatch = finalizationCommandIdentityMismatch({
+        expected: normalizedInput.finalizationCommand.reservation,
+        actual: actualRecordedIdentity,
+      });
+      if (commandMismatch) {
+        this.emitFinalizationTrace(normalizedInput, commandMismatch);
+        return commandMismatch;
+      }
+      if (existing.reservationIdentityKey !== signingBudgetReservationKey(actualRecordedIdentity)) {
+        return {
+          kind: 'reservation_identity_mismatch',
+          expected: existing.reservationIdentity,
+          actual: actualRecordedIdentity,
+        };
+      }
       this.emitTrace(normalizedInput, 'wallet_signing_budget_spend_deduped');
-      return await existing.promise;
+      const result = await existing.promise;
+      const dedupedResult: SigningBudgetFinalizationResult =
+        result.kind === 'finalized' ? { ...result, kind: 'already_finalized' } : result;
+      this.emitFinalizationTrace(normalizedInput, dedupedResult);
+      return dedupedResult;
     }
     const reservation = this.reservationsByOperationId.get(operationId);
     if (reservation) {
-      assertWalletSigningOperationFingerprintMatches({
-        operationId,
-        existingFingerprint: resolveWalletSigningOperationFingerprint(reservation.spend),
-        nextFingerprint: resolveWalletSigningOperationFingerprint(normalizedInput.spend),
-      });
-      assertReservedSpendMatchesReservation({
-        operationId,
-        reservation,
+      const actualReservationIdentity = buildSigningBudgetReservationIdentity({
         spend: normalizedInput.spend,
+        projectionVersion: reservation.reservedAgainstProjectionVersion,
       });
+      const commandMismatch = finalizationCommandIdentityMismatch({
+        expected: normalizedInput.finalizationCommand.reservation,
+        actual: actualReservationIdentity,
+      });
+      if (commandMismatch) {
+        this.emitFinalizationTrace(normalizedInput, commandMismatch);
+        return commandMismatch;
+      }
+      if (
+        reservation.reservationIdentityKey !==
+        signingBudgetReservationKey(actualReservationIdentity)
+      ) {
+        const result: SigningBudgetFinalizationResult = {
+          kind: 'reservation_identity_mismatch',
+          expected: reservation.reservationIdentity,
+          actual: actualReservationIdentity,
+        };
+        this.emitFinalizationTrace(normalizedInput, result);
+        return result;
+      }
       if (normalizedInput.kind === 'unreserved_success') {
-        throw new Error(
-          '[SigningSessionBudget] reserved operations must finalize with reserved_success',
-        );
+        const result: SigningBudgetFinalizationResult = {
+          kind: 'reservation_identity_mismatch',
+          expected: reservation.reservationIdentity,
+          actual: actualReservationIdentity,
+        };
+        this.emitFinalizationTrace(normalizedInput, result);
+        return result;
       }
     } else if (normalizedInput.kind === 'reserved_success') {
-      throw new Error(
-        '[SigningSessionBudget] reserved_success requires an existing reservation',
-      );
+      const result: SigningBudgetFinalizationResult = {
+        kind: 'missing_reservation',
+        reservation: normalizedInput.finalizationCommand.reservation,
+      };
+      this.emitFinalizationTrace(normalizedInput, result);
+      return result;
     }
+    let successIdentity = reservation?.reservationIdentity || null;
     if (!reservation) {
       const status = await this.deps.readStatus(
         buildSigningSessionBudgetStatusCheckForSpend({
@@ -189,18 +248,75 @@ export class BudgetCoordinator implements SigningSessionBudget {
           trustedStatusAuth: normalizedInput.trustedStatusAuth,
         }),
       );
-      if (status.status === 'budget_unknown') {
-        throw new Error(SIGNING_SESSION_BUDGET_UNKNOWN_ERROR);
+      if (status.status === 'budget_unknown' || status.status === 'not_found') {
+        const result: SigningBudgetFinalizationResult = {
+          kind: 'budget_status_unavailable',
+          reservation: buildSigningBudgetReservationIdentity({
+            spend: normalizedInput.spend,
+            projectionVersion:
+              normalizedInput.kind === 'externally_consumed_success'
+                ? 'budget-status-unavailable'
+                : normalizedInput.expectedBudgetProjectionVersion,
+          }),
+          status: status.status,
+        };
+        this.emitFinalizationTrace(normalizedInput, result);
+        return result;
+      }
+      if (status.status !== 'active') {
+        throw new Error(`[SigningSessionBudget] wallet signing-session budget is ${status.status}`);
       }
       if (normalizedInput.kind !== 'externally_consumed_success') {
-        assertPreparedBudgetProjectionVersion({
-          status,
-          expectedBudgetProjectionVersion: normalizedInput.expectedBudgetProjectionVersion,
-        });
+        const expected = normalizeRequired(
+          normalizedInput.expectedBudgetProjectionVersion,
+          'expectedBudgetProjectionVersion',
+        );
+        const actual = normalizeRequired(status.projectionVersion, 'projectionVersion');
+        if (actual !== expected) {
+          const result: SigningBudgetFinalizationResult = {
+            kind: 'projection_mismatch',
+            reservation: buildSigningBudgetReservationIdentity({
+              spend: normalizedInput.spend,
+              projectionVersion: expected,
+            }),
+            expectedProjectionVersion: expected,
+            actualProjectionVersion: actual,
+          };
+          this.emitFinalizationTrace(normalizedInput, result);
+          return result;
+        }
+      }
+      const successProjectionVersion =
+        normalizedInput.kind === 'externally_consumed_success'
+          ? normalizeRequired(status.projectionVersion, 'projectionVersion')
+          : normalizeRequired(
+              normalizedInput.expectedBudgetProjectionVersion,
+              'expectedBudgetProjectionVersion',
+            );
+      successIdentity = buildSigningBudgetReservationIdentity({
+        spend: normalizedInput.spend,
+        projectionVersion: successProjectionVersion,
+      });
+      const commandMismatch = finalizationCommandIdentityMismatch({
+        expected: normalizedInput.finalizationCommand.reservation,
+        actual: successIdentity,
+      });
+      if (commandMismatch) {
+        this.emitFinalizationTrace(normalizedInput, commandMismatch);
+        return commandMismatch;
       }
     }
+    if (!successIdentity) {
+      throw new Error('[SigningSessionBudget] successful spend identity is required');
+    }
+    const successIdentityKey = signingBudgetReservationKey(successIdentity);
 
     const spendPromise = this.recordSpend(normalizedInput)
+      .then((status) => {
+        const result = finalizationResultFromStatus(successIdentity, status);
+        this.emitFinalizationTrace(normalizedInput, result);
+        return result;
+      })
       .catch((error) => {
         this.successfulSpendsByOperationId.delete(operationId);
         this.emitTrace(normalizedInput, 'wallet_signing_budget_spend_failed', {
@@ -213,13 +329,18 @@ export class BudgetCoordinator implements SigningSessionBudget {
       });
     this.successfulSpendsByOperationId.set(operationId, {
       operationFingerprint: resolveWalletSigningOperationFingerprint(normalizedInput.spend),
+      reservationIdentity: successIdentity,
+      reservationIdentityKey: successIdentityKey,
       promise: spendPromise,
     });
     return await spendPromise;
   }
 
   recordZeroSpend(input: ZeroWalletBudgetSpend): void {
-    this.releaseZeroSpendReservation(input);
+    const finalizationKey = signingBudgetReservationKey(input.finalizationCommand.reservation);
+    if (this.zeroSpendFinalizationsByReservationKey.has(finalizationKey)) return;
+    this.releaseZeroSpendReservation(input, finalizationKey);
+    this.zeroSpendFinalizationsByReservationKey.add(finalizationKey);
     this.deps.onTrace?.(
       createZeroSpendTraceEvent(input, 'wallet_signing_budget_zero_spend_recorded', {
         zeroSpendReason: input.reason,
@@ -257,6 +378,7 @@ export class BudgetCoordinator implements SigningSessionBudget {
   ): SigningSessionBudgetReservation {
     let released = false;
     return {
+      kind: 'reserved',
       operationId,
       release(reason) {
         if (released) return;
@@ -281,9 +403,17 @@ export class BudgetCoordinator implements SigningSessionBudget {
     );
   }
 
-  private releaseZeroSpendReservation(input: ZeroWalletBudgetSpend): void {
+  private releaseZeroSpendReservation(
+    input: ZeroWalletBudgetSpend,
+    finalizationKey: SigningBudgetReservationKey,
+  ): void {
     const reservation = this.reservationsByOperationId.get(input.operationId);
     if (!reservation) return;
+    if (reservation.reservationIdentityKey !== finalizationKey) {
+      throw new Error(
+        `[SigningSessionBudget] zero_spend reservation identity does not match reservation: ${input.operationId}`,
+      );
+    }
     this.reservationsByOperationId.delete(input.operationId);
     this.deps.onTrace?.(
       createZeroSpendTraceEvent(input, 'wallet_signing_budget_reservation_released', {
@@ -294,7 +424,7 @@ export class BudgetCoordinator implements SigningSessionBudget {
 
   private async recordSpend(
     input: SigningSessionBudgetSuccessInput,
-  ): Promise<SigningSessionStatus | null> {
+  ): Promise<SigningSessionStatus> {
     if (!this.deps.consumeUse) {
       throw new Error(
         '[SigningSessionBudget] consumeUse is required to record wallet signing-session spend',
@@ -328,15 +458,13 @@ export class BudgetCoordinator implements SigningSessionBudget {
         : {}),
     });
     if (!status) {
-      throw new Error('[SigningSessionBudget] wallet signing-session spend returned no status');
+      return budgetStatusUnavailable('missing_status', spend.walletSigningSessionId);
     }
     if (status.status === 'not_found') {
-      throw new Error('[SigningSessionBudget] wallet signing-session spend returned not_found');
+      return status;
     }
     if (status.status === 'budget_unknown') {
-      throw new Error(
-        '[SigningSessionBudget] wallet signing-session spend returned budget_unknown',
-      );
+      return status;
     }
     this.emitTrace(input, 'wallet_signing_budget_spend_succeeded', {
       status: {
@@ -345,53 +473,142 @@ export class BudgetCoordinator implements SigningSessionBudget {
         expiresAtMs: status.expiresAtMs,
       },
     });
-    return status || null;
+    return status;
   }
 
   private emitTrace(
     input: { spend: WalletBudgetSpend },
     event: SigningSessionBudgetTraceEvent['event'],
-    extra: Pick<SigningSessionBudgetTraceEvent, 'status' | 'error' | 'zeroSpendReason'> = {},
+    extra: Pick<
+      SigningSessionBudgetTraceEvent,
+      'status' | 'error' | 'finalizationResult' | 'zeroSpendReason'
+    > = {},
   ): void {
     this.deps.onTrace?.(createSigningSessionBudgetTraceEvent(input, event, extra));
   }
+
+  private emitFinalizationTrace(
+    input: { spend: WalletBudgetSpend },
+    result: SigningBudgetFinalizationResult,
+  ): void {
+    this.emitTrace(input, finalizationTraceEvent(result), {
+      finalizationResult: result.kind,
+      ...(result.kind === 'finalized' || result.kind === 'already_finalized'
+        ? {
+            status: {
+              status: 'active',
+              remainingUses: result.remainingUses,
+            },
+          }
+        : {}),
+      ...(result.kind === 'projection_mismatch'
+        ? {
+            error: `expected ${result.expectedProjectionVersion}, got ${result.actualProjectionVersion}`,
+          }
+        : {}),
+      ...(result.kind === 'budget_status_unavailable' ? { error: result.status } : {}),
+    });
+  }
 }
 
-function assertReservedSpendMatchesReservation(args: {
-  operationId: string;
+function reserveConflictForReservation(args: {
   reservation: SigningSessionBudgetReservationRecord;
   spend: WalletBudgetSpend;
-}): void {
-  const reservationIdentity = walletBudgetSpendReservationIdentity(args.reservation.spend);
-  const finalizationIdentity = walletBudgetSpendReservationIdentity(args.spend);
-  if (reservationIdentity === finalizationIdentity) return;
-  throw new Error(
-    `[SigningSessionBudget] reserved_success spend does not match reservation: ${args.operationId}`,
-  );
+}): SigningSessionBudgetReservationConflict | null {
+  const nextIdentity = buildSigningBudgetReservationIdentity({
+    spend: args.spend,
+    projectionVersion: args.reservation.reservedAgainstProjectionVersion,
+  });
+  if (args.reservation.reservationIdentityKey === signingBudgetReservationKey(nextIdentity)) {
+    return null;
+  }
+  return {
+    kind: 'reservation_identity_mismatch',
+    expected: args.reservation.reservationIdentity,
+    actual: nextIdentity,
+  };
 }
 
-function walletBudgetSpendReservationIdentity(spend: WalletBudgetSpend): string {
-  const normalized = normalizeWalletSigningSpendPlan(spend);
-  const ecdsaKey =
-    'ecdsaKey' in normalized
-      ? {
-          ecdsaThresholdKeyId: normalized.ecdsaKey.ecdsaThresholdKeyId,
-          signingRootId: normalized.ecdsaKey.signingRootId,
-          signingRootVersion: normalized.ecdsaKey.signingRootVersion,
-          walletOwnerId: normalized.ecdsaKey.walletId,
-          subjectId: deriveBaseEcdsaSubjectIdFromKey(normalized.ecdsaKey),
-        }
-      : null;
-  return JSON.stringify({
-    ownerId: String(normalized.walletId),
-    walletSigningSessionId: String(normalized.walletSigningSessionId),
-    laneCurve: normalized.lane.curve,
-    laneAuthMethod: normalized.lane.authMethod,
-    laneThresholdSessionId: String(normalized.lane.thresholdSessionId),
-    thresholdSessionIds: normalizeStringList(normalized.thresholdSessionIds) || [],
-    backingMaterialSessionIds: normalizeStringList(normalized.backingMaterialSessionIds) || [],
-    reason: normalized.reason,
-    uses: normalized.uses,
-    ecdsaKey,
+function reserveConflictForRecordedSuccess(args: {
+  recorded: SuccessfulSpendRecord;
+  spend: WalletBudgetSpend;
+  projectionVersion: string;
+}): SigningSessionBudgetReservationConflict | null {
+  const nextIdentity = buildSigningBudgetReservationIdentity({
+    spend: args.spend,
+    projectionVersion: args.projectionVersion,
   });
+  if (args.recorded.reservationIdentityKey === signingBudgetReservationKey(nextIdentity)) {
+    return null;
+  }
+  return {
+    kind: 'reservation_identity_mismatch',
+    expected: args.recorded.reservationIdentity,
+    actual: nextIdentity,
+  };
+}
+
+function finalizationCommandIdentityMismatch(args: {
+  expected: SigningBudgetReservationIdentity;
+  actual: SigningBudgetReservationIdentity;
+}): SigningBudgetFinalizationResult | null {
+  if (signingBudgetReservationKey(args.expected) === signingBudgetReservationKey(args.actual)) {
+    return null;
+  }
+  return {
+    kind: 'reservation_identity_mismatch',
+    expected: args.expected,
+    actual: args.actual,
+  };
+}
+
+function finalizationResultFromStatus(
+  reservation: SigningBudgetReservationIdentity,
+  status: SigningSessionStatus,
+): SigningBudgetFinalizationResult {
+  if (status.status === 'not_found' || status.status === 'budget_unknown') {
+    return {
+      kind: 'budget_status_unavailable',
+      reservation,
+      status: status.status,
+    };
+  }
+  const projectionVersion =
+    String(status.projectionVersion || '').trim() || reservation.admittedProjection.version;
+  return {
+    kind: 'finalized',
+    reservation,
+    remainingUses: Math.max(0, Math.floor(Number(status.remainingUses) || 0)),
+    projectionVersion: normalizeRequired(projectionVersion, 'projectionVersion'),
+  };
+}
+
+function finalizationTraceEvent(
+  result: SigningBudgetFinalizationResult,
+): SigningSessionBudgetTraceEvent['event'] {
+  switch (result.kind) {
+    case 'finalized':
+      return 'wallet_signing_budget_finalization_finalized';
+    case 'already_finalized':
+      return 'wallet_signing_budget_finalization_already_finalized';
+    case 'projection_mismatch':
+      return 'wallet_signing_budget_finalization_projection_mismatch';
+    case 'missing_reservation':
+      return 'wallet_signing_budget_finalization_missing_reservation';
+    case 'reservation_identity_mismatch':
+      return 'wallet_signing_budget_finalization_identity_mismatch';
+    case 'budget_status_unavailable':
+      return 'wallet_signing_budget_finalization_status_unavailable';
+  }
+}
+
+function budgetStatusUnavailable(
+  status: Extract<SigningBudgetFinalizationResult, { kind: 'budget_status_unavailable' }>['status'],
+  sessionId: string,
+): SigningSessionStatus {
+  return {
+    sessionId,
+    status: 'budget_unknown',
+    statusCode: status,
+  };
 }

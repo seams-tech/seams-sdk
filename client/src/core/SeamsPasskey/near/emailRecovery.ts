@@ -27,7 +27,7 @@ import { isObject } from '@shared/utils/validation';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
 import { prepareRecoveryEmails, getLocalRecoveryEmails } from '../../../utils/emailRecovery';
 import { restoreLocalLoginState } from '../restoreLocalLoginState';
-import { THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANTS_V1 } from '@shared/threshold/secp256k1Ecdsa2pShareMapping';
+import { THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANTS_V1 } from '@shared/threshold/secp256k1';
 import { walletSubjectIdFromString } from '@shared/utils/registrationIntent';
 import {
   buildThresholdWarmSessionRequestEnvelope,

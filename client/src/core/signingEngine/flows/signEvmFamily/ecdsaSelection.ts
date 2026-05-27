@@ -43,6 +43,7 @@ import type {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
 import type { WalletBudgetUnknown } from '../../session/budget/budgetProjection';
+import type { ReauthAnchorIdentity } from '../../session/operationState/transactionState';
 
 const PASSKEY_ECDSA_SIGNING_SOURCE_PRIORITY = [
   'login',
@@ -108,12 +109,34 @@ type ReauthRequiredEvmFamilyEcdsaSigningSelectionBase = {
   diagnostics: EcdsaSelectionDiagnostics;
 };
 
+type ReauthAnchorBackedEvmFamilyEcdsaSigningSelection = {
+  reason: 'expired' | 'exhausted';
+  reauthAnchor: ReauthAnchorIdentity;
+};
+
+type MaterialBackedEvmFamilyEcdsaSigningSelection = {
+  reason: 'single_use_email_otp' | 'missing_hot_material';
+  reauthAnchor?: never;
+};
+
 export type ReauthRequiredEvmFamilyEcdsaSigningSelection =
-  | (ReauthRequiredEvmFamilyEcdsaSigningSelectionBase & {
+  | (ReauthRequiredEvmFamilyEcdsaSigningSelectionBase &
+      ReauthAnchorBackedEvmFamilyEcdsaSigningSelection & {
+        authMethod: 'email_otp';
+        reauthAuthority: EmailOtpEcdsaReauthAuthority;
+      })
+  | (ReauthRequiredEvmFamilyEcdsaSigningSelectionBase &
+      ReauthAnchorBackedEvmFamilyEcdsaSigningSelection & {
+        authMethod: 'passkey';
+        reauthAuthority?: never;
+      })
+  | (ReauthRequiredEvmFamilyEcdsaSigningSelectionBase &
+      MaterialBackedEvmFamilyEcdsaSigningSelection & {
       authMethod: 'email_otp';
       reauthAuthority: EmailOtpEcdsaReauthAuthority;
     })
-  | (ReauthRequiredEvmFamilyEcdsaSigningSelectionBase & {
+  | (ReauthRequiredEvmFamilyEcdsaSigningSelectionBase &
+      MaterialBackedEvmFamilyEcdsaSigningSelection & {
       authMethod: 'passkey';
       reauthAuthority?: never;
     });
@@ -165,15 +188,44 @@ function reauthRequiredSelection(args: {
   material: EcdsaMaterialState;
   materialChainTarget: ThresholdEcdsaChainTarget;
   reason: ReauthRequiredEvmFamilyEcdsaSigningSelection['reason'];
+  reauthAnchor?: ReauthAnchorIdentity;
   diagnostics: EcdsaSelectionDiagnostics;
 }): ReauthRequiredEvmFamilyEcdsaSigningSelection {
-  const base = {
+  const common = {
     kind: 'reauth_required' as const,
     accountAuth: args.accountAuth,
     lane: args.lane,
     material: args.material,
-    reason: args.reason,
     diagnostics: args.diagnostics,
+  };
+  if (args.reason === 'expired' || args.reason === 'exhausted') {
+    if (!args.reauthAnchor) {
+      throw new Error('[SigningEngine][ecdsa] exhausted/expired reauth requires a reauth anchor');
+    }
+    const base = {
+      ...common,
+      reason: args.reason,
+      reauthAnchor: args.reauthAnchor,
+    };
+    if (args.candidate.authMethod === SIGNER_AUTH_METHODS.emailOtp) {
+      return {
+        ...base,
+        authMethod: SIGNER_AUTH_METHODS.emailOtp,
+        reauthAuthority: {
+          kind: 'email_otp_signing_session',
+          thresholdSessionId: args.candidate.thresholdSessionId,
+          chainTarget: args.materialChainTarget,
+        },
+      };
+    }
+    return {
+      ...base,
+      authMethod: SIGNER_AUTH_METHODS.passkey,
+    };
+  }
+  const base = {
+    ...common,
+    reason: args.reason,
   };
   if (args.candidate.authMethod === SIGNER_AUTH_METHODS.emailOtp) {
     return {
@@ -399,6 +451,16 @@ function selectPasskeyMaterialForCandidate(args: {
         },
       };
     }
+    if (exactMaterial.kind === 'reauth_required') {
+      return {
+        kind: 'selected',
+        material: exactMaterial,
+        selected: {
+          source: exactSource,
+          record: exactMaterial.record,
+        },
+      };
+    }
   }
   for (const candidateMaterial of args.passkeyVisibleMaterials) {
     const material = buildEcdsaMaterialStateForCandidate({
@@ -410,6 +472,9 @@ function selectPasskeyMaterialForCandidate(args: {
       materialChainTarget: args.materialChainTarget,
     });
     if (material.kind === 'ready_to_sign') {
+      return { kind: 'selected', material, selected: candidateMaterial };
+    }
+    if (material.kind === 'reauth_required') {
       return { kind: 'selected', material, selected: candidateMaterial };
     }
   }
@@ -455,6 +520,7 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
   senderSignatureAlgorithm: EvmFamilySenderSignatureAlgorithm;
   authMethod: EvmFamilyEcdsaAuthMethod;
   laneCandidate: EcdsaLaneCandidate;
+  reauthAnchor?: ReauthAnchorIdentity;
   allowMissingHotMaterial?: boolean;
 }): Promise<EvmFamilyEcdsaSigningSelectionResult> {
   const lane = signingLaneFromExactLaneCandidate(args.laneCandidate);
@@ -534,15 +600,6 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
     materialChainTarget,
     passkeySelection: selectedPasskeyMaterial,
   });
-  try {
-    console.info('[SigningEngine][ecdsa][selection]', {
-      walletId: args.walletId,
-      chain: args.chain,
-      requestedAuthMethod: args.authMethod,
-      selectedAuthMethod: args.laneCandidate.authMethod,
-      selectionDiagnostics: diagnostics,
-    });
-  } catch {}
 
   if (
     !args.allowMissingHotMaterial &&
@@ -567,6 +624,7 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
       material: exactCandidateMaterial,
       materialChainTarget,
       reason: 'expired',
+      ...(args.reauthAnchor ? { reauthAnchor: args.reauthAnchor } : {}),
       diagnostics,
     });
   }
@@ -579,6 +637,7 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
       material: exactCandidateMaterial,
       materialChainTarget,
       reason: 'exhausted',
+      ...(args.reauthAnchor ? { reauthAnchor: args.reauthAnchor } : {}),
       diagnostics,
     });
   }

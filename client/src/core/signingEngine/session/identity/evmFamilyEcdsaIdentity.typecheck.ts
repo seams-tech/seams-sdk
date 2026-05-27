@@ -11,7 +11,9 @@ import {
   buildKnownReadyThresholdEcdsaSessionPolicy,
   buildResolvedEvmFamilyEcdsaKey,
   buildThresholdEcdsaSessionTransportAuth,
+  deriveBaseEcdsaSubjectIdFromWalletId,
   toThresholdOwnerAddress,
+  type BaseEcdsaSubjectId,
   type EcdsaKeyFacts,
   type EcdsaWalletSignerRecord,
   type EvmFamilyEcdsaKeyHandle,
@@ -31,6 +33,7 @@ import {
   type ThresholdEcdsaSessionTransportAuth,
   type VerifiedEcdsaPublicFacts,
 } from './evmFamilyEcdsaIdentity';
+import { walletSubjectIdFromWalletProfile } from '../../interfaces/ecdsaChainTarget';
 
 const evmTarget = {
   kind: 'evm',
@@ -91,6 +94,15 @@ const invalidKeyWithSubjectId: EvmFamilyEcdsaKeyIdentity = {
   subjectId: 'wallet-subject-alice',
 };
 void invalidKeyWithSubjectId;
+
+const baseEcdsaSubjectId = deriveBaseEcdsaSubjectIdFromWalletId(key.walletId);
+const validBaseEcdsaSubjectId: BaseEcdsaSubjectId = baseEcdsaSubjectId;
+void validBaseEcdsaSubjectId;
+
+const registrationWalletSubjectId = walletSubjectIdFromWalletProfile({ walletId: key.walletId });
+// @ts-expect-error protocol-local ECDSA HSS subject identity requires its narrow builder.
+const invalidBaseEcdsaSubjectId: BaseEcdsaSubjectId = registrationWalletSubjectId;
+void invalidBaseEcdsaSubjectId;
 
 const invalidLaneWithDuplicateKeyId: EvmFamilyEcdsaSessionLane = {
   ...lane,

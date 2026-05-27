@@ -1,9 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { toAccountId } from '@/core/types/accountIds';
-import {
-  toWalletId,
-  toWalletSubjectId,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { resolveEvmFamilyEcdsaSigningSelection } from '@/core/signingEngine/flows/signEvmFamily/ecdsaSelection';
 import type { EcdsaLaneCandidate } from '@/core/signingEngine/session/identity/laneIdentity';
 import type { EvmFamilyEcdsaSigningSelectionDeps } from '@/core/signingEngine/flows/signEvmFamily/ecdsaSelection';
@@ -12,6 +9,14 @@ import {
   buildEvmFamilyEcdsaKeyIdentity,
   toEvmFamilyEcdsaKeyHandle,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { buildReauthAnchorIdentity } from '@/core/signingEngine/session/operationState/transactionState';
+import {
+  buildEvmTransactionSigningLane,
+  buildTempoTransactionSigningLane,
+} from '@/core/signingEngine/session/operationState/lanes';
+import { exactSigningLaneIdentity } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
+import { buildFreshStepUpRequired } from '@/core/signingEngine/session/operationState/stepUpFreshness';
+import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 
 type DirectEcdsaLaneCandidate = Extract<
   EcdsaLaneCandidate,
@@ -45,7 +50,6 @@ function candidate(state: EcdsaLaneCandidate['state']): DirectEcdsaLaneCandidate
     walletId: toAccountId('restorable.testnet'),
     key: buildEvmFamilyEcdsaKeyIdentity({
       walletId: toAccountId('restorable.testnet'),
-      subjectId: toWalletSubjectId('restorable.testnet'),
       rpId: 'example.localhost',
       ecdsaThresholdKeyId: 'ek-restorable',
       signingRootId: 'proj_local:dev',
@@ -89,6 +93,71 @@ function emailOtpSharedTempoCandidate(): EcdsaLaneCandidate {
     ...sharedTempoCandidate(),
     authMethod: 'email_otp',
   };
+}
+
+function reauthAnchorForCandidate(input: EcdsaLaneCandidate) {
+  const buildLane =
+    input.chainTarget.kind === 'tempo'
+      ? buildTempoTransactionSigningLane
+      : buildEvmTransactionSigningLane;
+  const lane = buildLane(
+    input.authMethod === 'email_otp'
+      ? {
+          key: input.key,
+          keyHandle: input.keyHandle,
+          walletId: input.walletId,
+          authMethod: 'email_otp',
+          chainTarget: input.chainTarget,
+          walletSigningSessionId: SigningSessionIds.walletSigningSession(
+            input.walletSigningSessionId,
+          ),
+          thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(input.thresholdSessionId),
+          retention: 'session',
+          sessionOrigin: 'per_operation',
+        }
+      : {
+          key: input.key,
+          keyHandle: input.keyHandle,
+          walletId: input.walletId,
+          authMethod: 'passkey',
+          chainTarget: input.chainTarget,
+          walletSigningSessionId: SigningSessionIds.walletSigningSession(
+            input.walletSigningSessionId,
+          ),
+          thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(input.thresholdSessionId),
+          storageSource: 'login',
+        },
+  );
+  const laneIdentity = exactSigningLaneIdentity(lane);
+  const freshness = buildFreshStepUpRequired({
+    walletId: input.walletId,
+    operationId: SigningSessionIds.signingOperation(`operation-${input.thresholdSessionId}`),
+    operationFingerprint: SigningSessionIds.signingOperationFingerprint(
+      `fingerprint-${input.thresholdSessionId}`,
+    ),
+    laneIdentity,
+    projection: { kind: 'unavailable', reason: 'restored_record_has_no_projection' },
+    expiry: { kind: 'unavailable', reason: 'restored_record_has_no_expiry' },
+    provenance: {
+      kind: 'restored_sealed_record_status',
+      recordVersion: 'test-record',
+      updatedAtMs: input.updatedAtMs || 1,
+    },
+    reason: 'threshold_session_exhausted',
+  });
+  return buildReauthAnchorIdentity({
+    freshness,
+    sourceState: {
+      kind: 'reauth_anchor_source_state',
+      availabilitySource:
+        input.source === 'unknown' ? 'durable_sealed_record' : input.source,
+      storeSource: input.authMethod === 'email_otp' ? 'email_otp' : 'login',
+      retention: input.authMethod === 'email_otp' ? 'single_use' : 'session',
+      remainingUses: input.remainingUses,
+      expiry: freshness.expiry,
+      projection: freshness.projection,
+    },
+  });
 }
 
 function selectionDeps(): EvmFamilyEcdsaSigningSelectionDeps {
@@ -208,12 +277,16 @@ test.describe('ECDSA restorable lane selection', () => {
       senderSignatureAlgorithm: 'webauthnP256',
       authMethod: 'passkey',
       laneCandidate: exhaustedCandidate,
+      reauthAnchor: reauthAnchorForCandidate(exhaustedCandidate),
     });
 
     expect(selection.kind).toBe('reauth_required');
     if (selection.kind !== 'reauth_required') return;
     expect(selection.reason).toBe('exhausted');
-    expect(selection.material.kind).toBe('public_identity_unavailable');
+    expect(selection.material).toMatchObject({
+      kind: 'reauth_required',
+      reason: 'exhausted',
+    });
   });
 
   test('uses source material for deferred shared EVM-family lanes without passkey reauth', async () => {
@@ -274,6 +347,7 @@ test.describe('ECDSA restorable lane selection', () => {
       senderSignatureAlgorithm: 'secp256k1',
       authMethod: 'email_otp',
       laneCandidate: input,
+      reauthAnchor: reauthAnchorForCandidate(input),
     });
 
     expect(selection.kind).toBe('ready');
@@ -313,6 +387,7 @@ test.describe('ECDSA restorable lane selection', () => {
       senderSignatureAlgorithm: 'secp256k1',
       authMethod: 'email_otp',
       laneCandidate: input,
+      reauthAnchor: reauthAnchorForCandidate(input),
     });
 
     expect(selection.kind).toBe('ready');
@@ -339,6 +414,7 @@ test.describe('ECDSA restorable lane selection', () => {
       senderSignatureAlgorithm: 'secp256k1',
       authMethod: 'email_otp',
       laneCandidate: input,
+      reauthAnchor: reauthAnchorForCandidate(input),
     });
 
     expect(selection.kind).toBe('reauth_required');
@@ -388,6 +464,7 @@ test.describe('ECDSA restorable lane selection', () => {
       senderSignatureAlgorithm: 'secp256k1',
       authMethod: 'email_otp',
       laneCandidate: input,
+      reauthAnchor: reauthAnchorForCandidate(input),
     });
 
     expect(selection.kind).toBe('reauth_required');

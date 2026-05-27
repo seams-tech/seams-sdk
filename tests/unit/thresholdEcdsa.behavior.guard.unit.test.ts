@@ -85,4 +85,31 @@ test.describe('threshold ECDSA behavior guard', () => {
 
     expect(offenders).toEqual([]);
   });
+
+  test('ECDSA HSS crate source has no retained old context-version API', () => {
+    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+    const crateSourceRoot = path.join(repoRoot, 'crates/ecdsa-hss/src');
+    const forbiddenTokens = [
+      'reference_v1',
+      'ClientOutputV1',
+      'EcdsaHssStableKeyContextV1',
+      'PrepareEnvelopeV1',
+      'derive_client_share_v1',
+      'wallet_session_user_id',
+      'subject_id',
+      'ecdsa-hss-v1',
+    ];
+    const offenders: string[] = [];
+
+    for (const filePath of listFiles(crateSourceRoot, ['.rs'])) {
+      const source = fs.readFileSync(filePath, 'utf8');
+      for (const token of forbiddenTokens) {
+        if (source.includes(token)) {
+          offenders.push(`${path.relative(repoRoot, filePath)} contains ${token}`);
+        }
+      }
+    }
+
+    expect(offenders).toEqual([]);
+  });
 });

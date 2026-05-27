@@ -1,3 +1,4 @@
+import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 import type {
   ConsoleObservabilityApprovalFailureInput,
   ConsoleObservabilityBillingBalanceTransitionInput,
@@ -32,7 +33,7 @@ function normalizeNumber(raw: unknown, fallback: number): number {
 }
 
 function makeEventId(prefix: string, now: Date): string {
-  return `${prefix}_${now.getTime().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  return `${prefix}_${now.getTime().toString(36)}_${secureRandomBase36(8, 'console IDs')}`;
 }
 
 function hashEventIdPart(input: string, seed: number): string {
@@ -225,10 +226,7 @@ export function buildWebhookEndpointDegradedObservabilityEvent(
         0,
         Math.floor(normalizeNumber(input.unresolvedDeadLetterCount, 0)),
       ),
-      degradationThreshold: Math.max(
-        1,
-        Math.floor(normalizeNumber(input.degradationThreshold, 1)),
-      ),
+      degradationThreshold: Math.max(1, Math.floor(normalizeNumber(input.degradationThreshold, 1))),
       ...(normalizeString(input.latestDeliveryId)
         ? { latestDeliveryId: normalizeString(input.latestDeliveryId) }
         : {}),
@@ -277,7 +275,9 @@ export function buildBillingFailureObservabilityEvent(
       operation: normalizeString(input.operation),
       failureCode: normalizeString(input.failureCode),
       ...(invoiceId ? { invoiceId } : {}),
-      ...(normalizeString(input.providerRef) ? { providerRef: normalizeString(input.providerRef) } : {}),
+      ...(normalizeString(input.providerRef)
+        ? { providerRef: normalizeString(input.providerRef) }
+        : {}),
     },
   });
 }
@@ -314,7 +314,9 @@ export function buildBillingStripeWebhookFailureObservabilityEvent(
       ...(normalizeString(input.checkoutSessionId)
         ? { checkoutSessionId: normalizeString(input.checkoutSessionId) }
         : {}),
-      ...(normalizeString(input.providerRef) ? { providerRef: normalizeString(input.providerRef) } : {}),
+      ...(normalizeString(input.providerRef)
+        ? { providerRef: normalizeString(input.providerRef) }
+        : {}),
       ...(normalizeString(input.providerCustomerRef)
         ? { providerCustomerRef: normalizeString(input.providerCustomerRef) }
         : {}),
@@ -401,8 +403,12 @@ export function buildApprovalFailureObservabilityEvent(
       operationType: normalizeString(input.operationType),
       failureCode: normalizeString(input.failureCode),
       ...(approvalId ? { approvalId } : {}),
-      ...(normalizeString(input.resourceType) ? { resourceType: normalizeString(input.resourceType) } : {}),
-      ...(normalizeString(input.resourceId) ? { resourceId: normalizeString(input.resourceId) } : {}),
+      ...(normalizeString(input.resourceType)
+        ? { resourceType: normalizeString(input.resourceType) }
+        : {}),
+      ...(normalizeString(input.resourceId)
+        ? { resourceId: normalizeString(input.resourceId) }
+        : {}),
     },
   });
 }
@@ -434,12 +440,16 @@ export function buildBillingSponsorshipBlockedObservabilityEvent(
       ...(normalizeString(input.chainFamily)
         ? { chainFamily: normalizeString(input.chainFamily) }
         : {}),
-      ...(normalizeString(input.intentKind) ? { intentKind: normalizeString(input.intentKind) } : {}),
+      ...(normalizeString(input.intentKind)
+        ? { intentKind: normalizeString(input.intentKind) }
+        : {}),
       ...(normalizeString(input.executorKind)
         ? { executorKind: normalizeString(input.executorKind) }
         : {}),
       ...(Number.isFinite(Number(input.chainId)) ? { chainId: Number(input.chainId) } : {}),
-      ...(normalizeString(input.accountRef) ? { accountRef: normalizeString(input.accountRef) } : {}),
+      ...(normalizeString(input.accountRef)
+        ? { accountRef: normalizeString(input.accountRef) }
+        : {}),
       ...(normalizeString(input.targetRef) ? { targetRef: normalizeString(input.targetRef) } : {}),
       ...(normalizeString(input.idempotencyKey)
         ? { idempotencyKey: normalizeString(input.idempotencyKey) }
@@ -447,7 +457,9 @@ export function buildBillingSponsorshipBlockedObservabilityEvent(
       ...(normalizeString(input.sourceEventId)
         ? { sourceEventId: normalizeString(input.sourceEventId) }
         : {}),
-      ...(normalizeString(input.balanceState) ? { balanceState: normalizeString(input.balanceState) } : {}),
+      ...(normalizeString(input.balanceState)
+        ? { balanceState: normalizeString(input.balanceState) }
+        : {}),
       ...(Number.isFinite(Number(input.creditBalanceMinor))
         ? { creditBalanceMinor: Number(input.creditBalanceMinor) }
         : {}),

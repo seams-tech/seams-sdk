@@ -2,6 +2,10 @@
 
 Date created: April 9, 2026
 
+Removal note: this memo is historical where it describes the old ECDSA HSS
+context version. The active crate removed that path after v2 invalidation and
+retains only v2 role-local derivation.
+
 ## Scope
 
 This memo freezes the integration seam between `ecdsa-hss` and the repo's

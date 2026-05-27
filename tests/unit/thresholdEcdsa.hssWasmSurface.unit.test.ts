@@ -11,7 +11,7 @@ const HSS_CLIENT_SIGNER_WASM_URL = new URL(
   '../../wasm/hss_client_signer/pkg/hss_client_signer_bg.wasm',
   import.meta.url,
 );
-const FIXTURE_URL = new URL('../../crates/ecdsa-hss/fixtures/role_local_v1.json', import.meta.url);
+const FIXTURE_URL = new URL('../../crates/ecdsa-hss/fixtures/role_local_v2.json', import.meta.url);
 
 let ethSignerWasmInitialized = false;
 let hssClientSignerWasmInitialized = false;
@@ -43,13 +43,13 @@ function bytesHex(bytes: Uint8Array | number[]): string {
 function readRoleLocalFixture() {
   return JSON.parse(readFileSync(FIXTURE_URL, 'utf8')) as {
     context: {
-      wallet_session_user_id: string;
-      subject_id: string;
-      ecdsa_threshold_key_id: string;
-      signing_root_id: string;
-      signing_root_version: string;
-      key_purpose: string;
-      key_version: string;
+      walletId: string;
+      rpId: string;
+      ecdsaThresholdKeyId: string;
+      signingRootId: string;
+      signingRootVersion: string;
+      keyPurpose: string;
+      keyVersion: string;
     };
     inputs: {
       relayer_key_id: string;
@@ -68,13 +68,13 @@ function readRoleLocalFixture() {
 
 function contextPayload(fixture: ReturnType<typeof readRoleLocalFixture>) {
   return {
-    walletId: fixture.context.wallet_session_user_id,
-    rpId: 'fixture-rp.localhost',
-    ecdsaThresholdKeyId: fixture.context.ecdsa_threshold_key_id,
-    signingRootId: fixture.context.signing_root_id,
-    signingRootVersion: fixture.context.signing_root_version,
-    keyPurpose: fixture.context.key_purpose,
-    keyVersion: fixture.context.key_version,
+    walletId: fixture.context.walletId,
+    rpId: fixture.context.rpId,
+    ecdsaThresholdKeyId: fixture.context.ecdsaThresholdKeyId,
+    signingRootId: fixture.context.signingRootId,
+    signingRootVersion: fixture.context.signingRootVersion,
+    keyPurpose: fixture.context.keyPurpose,
+    keyVersion: fixture.context.keyVersion,
   };
 }
 
@@ -148,16 +148,16 @@ test.describe('threshold ECDSA HSS WASM surface', () => {
     expect(relayerBootstrap.relayerPublicKey33).toHaveLength(33);
     expect(relayerBootstrap.groupPublicKey33).toHaveLength(33);
     expect(relayerBootstrap.ethereumAddress20).toHaveLength(20);
-    expect(bytesHex(Buffer.from(clientBootstrap.clientPublicKey33B64u, 'base64url'))).not.toBe(
+    expect(bytesHex(Buffer.from(clientBootstrap.clientPublicKey33B64u, 'base64url'))).toBe(
       fixture.identity.client_public_key33_hex,
     );
-    expect(bytesHex(relayerBootstrap.relayerPublicKey33)).not.toBe(
+    expect(bytesHex(relayerBootstrap.relayerPublicKey33)).toBe(
       fixture.identity.relayer_public_key33_hex,
     );
-    expect(bytesHex(relayerBootstrap.groupPublicKey33)).not.toBe(
+    expect(bytesHex(relayerBootstrap.groupPublicKey33)).toBe(
       fixture.identity.threshold_public_key33_hex,
     );
-    expect(bytesHex(relayerBootstrap.ethereumAddress20)).not.toBe(
+    expect(bytesHex(relayerBootstrap.ethereumAddress20)).toBe(
       fixture.identity.threshold_ethereum_address20_hex,
     );
   });

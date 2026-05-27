@@ -1,4 +1,5 @@
 import { normalizeInteger, normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
+import { secureRandomId } from '@shared/utils/secureRandomId';
 import {
   decodeJwtPayloadRecord,
   THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND,
@@ -293,11 +294,7 @@ const resolvedIdentitiesByPurposeKey = new Map<string, SealedStoreResolvedSignin
 const resolvedIdentityKeysByListKey = new Map<string, Set<string>>();
 
 function createRandomId(prefix: string): string {
-  const cryptoObj = (globalThis as { crypto?: Crypto }).crypto;
-  const randomUuid =
-    cryptoObj && typeof cryptoObj.randomUUID === 'function' ? cryptoObj.randomUUID() : '';
-  if (randomUuid) return `${prefix}-${randomUuid}`;
-  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return secureRandomId(prefix, 32, 'sealed signing session restore IDs');
 }
 
 function getIndexedDbSafe(): IDBFactory | null {
@@ -458,6 +455,7 @@ function normalizeEcdsaRestoreMetadata(
     sessionKindRaw === 'cookie' || sessionKindRaw === 'jwt' ? sessionKindRaw : undefined;
   const rpId = normalizeOptionalNonEmptyString(obj.rpId);
   const keyHandle = normalizeOptionalNonEmptyString(obj.keyHandle);
+  const ecdsaThresholdKeyId = normalizeOptionalNonEmptyString(obj.ecdsaThresholdKeyId);
   const ethereumAddress = normalizeEthereumAddress(obj.ethereumAddress);
   const relayerKeyId = normalizeOptionalNonEmptyString(obj.relayerKeyId);
   const thresholdEcdsaPublicKeyB64u = normalizeOptionalNonEmptyString(
@@ -487,6 +485,7 @@ function normalizeEcdsaRestoreMetadata(
     ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
     sessionKind,
     keyHandle,
+    ...(ecdsaThresholdKeyId ? { ecdsaThresholdKeyId } : {}),
     ethereumAddress,
     relayerKeyId,
     ...(clientVerifyingShareB64u ? { clientVerifyingShareB64u } : {}),
@@ -1856,11 +1855,7 @@ export async function deleteDurableSealedSessionRecord(
   const options: DeleteExactSealedSessionOptions = command.preserveResolvedIdentity
     ? { deleteResolvedIdentity: false }
     : { deleteResolvedIdentity: true, resolvedIdentityDeleteReason: 'durable_record_deleted' };
-  await deleteExactSealedSession(
-    command.durableRecord.thresholdSessionId,
-    filter,
-    options,
-  );
+  await deleteExactSealedSession(command.durableRecord.thresholdSessionId, filter, options);
   if (command.durableRecord.curve !== 'ecdsa') return;
 
   clearStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget({

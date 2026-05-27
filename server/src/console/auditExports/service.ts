@@ -1,3 +1,4 @@
+import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 import { ConsoleAuditExportsError } from './errors';
 import type {
   ConsoleAuditExportRecord,
@@ -18,7 +19,10 @@ export interface ConsoleAuditExportsService {
     ctx: ConsoleAuditExportsContext,
     request?: ListConsoleAuditExportsRequest,
   ): Promise<ConsoleAuditExportRecord[]>;
-  getExport(ctx: ConsoleAuditExportsContext, exportId: string): Promise<ConsoleAuditExportRecord | null>;
+  getExport(
+    ctx: ConsoleAuditExportsContext,
+    exportId: string,
+  ): Promise<ConsoleAuditExportRecord | null>;
   createExport(
     ctx: ConsoleAuditExportsContext,
     request: CreateConsoleAuditExportRequest,
@@ -34,7 +38,7 @@ function toIso(date: Date): string {
 }
 
 function makeId(prefix: string, now: Date): string {
-  return `${prefix}_${now.getTime().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  return `${prefix}_${now.getTime().toString(36)}_${secureRandomBase36(8, 'console IDs')}`;
 }
 
 function normalizeString(value: unknown): string | null {
@@ -140,7 +144,9 @@ export function createInMemoryConsoleAuditExportsService(
         status: 'QUEUED',
         format: request.format,
         filters: {
-          ...(normalizeString(request.projectId) ? { projectId: normalizeString(request.projectId) || undefined } : {}),
+          ...(normalizeString(request.projectId)
+            ? { projectId: normalizeString(request.projectId) || undefined }
+            : {}),
           ...(normalizeString(request.environmentId)
             ? { environmentId: normalizeString(request.environmentId) || undefined }
             : {}),

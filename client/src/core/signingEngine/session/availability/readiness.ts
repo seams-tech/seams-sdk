@@ -11,7 +11,6 @@ import {
   type ThresholdEcdsaSessionRecord,
   type ThresholdEd25519SessionRecord,
 } from '../persistence/records';
-import { deriveBaseEcdsaSubjectIdFromWalletId } from '../identity/evmFamilyEcdsaIdentity';
 import type { ThresholdEcdsaSessionStoreSource } from '../identity/laneIdentity';
 import type {
   SigningSessionSealedRecordFilter,
@@ -47,7 +46,6 @@ import {
   toWalletId,
   type ThresholdEcdsaChainTarget,
   type WalletId,
-  type WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export type SigningSessionLane = {
@@ -311,7 +309,7 @@ export function discoverLanesForWallet(
     const thresholdSessionId = normalizeNonEmpty(record.thresholdSessionId);
     const chainTarget = record.chainTarget;
     const key = [
-      String(deriveBaseEcdsaSubjectIdFromWalletId(record.walletId)),
+      String(record.walletId),
       thresholdEcdsaChainTargetKey(chainTarget),
       record.source,
       record.keyHandle,
@@ -774,13 +772,29 @@ export function resolveStatusAfterConsume(args: {
   if (args.status.status === 'not_found' && args.skippedAlreadyConsumedBacking) {
     return statusFromConsumedLanes(args);
   }
-  if (args.consumedStatus?.status === 'active') {
-    if (args.status.status !== 'active') return args.consumedStatus;
-    const statusRemainingUses = Math.floor(Number(args.status.remainingUses) || 0);
-    const consumedRemainingUses = Math.floor(Number(args.consumedStatus.remainingUses) || 0);
-    if (consumedRemainingUses < statusRemainingUses) return args.consumedStatus;
+  const consumedStatus = args.consumedStatus;
+  const trustedStatus = args.status;
+  if (consumedStatus?.status === 'active') {
+    if (trustedStatus.status !== 'active') return consumedStatus;
+    const projectedConsumedStatus = statusWithTrustedBudgetProjection({
+      consumedStatus,
+      trustedStatus,
+    });
+    const trustedRemainingUses = Math.floor(Number(trustedStatus.remainingUses) || 0);
+    const consumedRemainingUses = Math.floor(Number(projectedConsumedStatus.remainingUses) || 0);
+    if (consumedRemainingUses < trustedRemainingUses) return projectedConsumedStatus;
   }
-  return args.status;
+  return trustedStatus;
+}
+
+function statusWithTrustedBudgetProjection(args: {
+  consumedStatus: SigningSessionStatus;
+  trustedStatus: SigningSessionStatus;
+}): SigningSessionStatus {
+  const projectionVersion = String(args.trustedStatus.projectionVersion || '').trim();
+  return projectionVersion
+    ? { ...args.consumedStatus, projectionVersion }
+    : args.consumedStatus;
 }
 
 export async function consumeWalletSigningSessionUse(args: {

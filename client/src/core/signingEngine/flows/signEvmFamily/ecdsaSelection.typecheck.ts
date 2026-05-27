@@ -5,8 +5,10 @@ import type {
 } from './ecdsaSelection';
 import type { ReadyEcdsaMaterial } from './ecdsaMaterialState';
 import { buildEcdsaSessionIdentity } from '../../session/warmCapabilities/ecdsaProvisionPlan';
+import type { ReauthAnchorIdentity } from '../../session/operationState/transactionState';
 
 declare const readyMaterial: ReadyEcdsaMaterial;
+declare const reauthAnchor: ReauthAnchorIdentity;
 
 const readySelection: ReadyEvmFamilyEcdsaSigningSelection = {
   kind: 'ready',
@@ -44,6 +46,30 @@ const missingHotMaterialSelection: ReauthRequiredEvmFamilyEcdsaSigningSelection 
   diagnostics: {} as ReauthRequiredEvmFamilyEcdsaSigningSelection['diagnostics'],
 };
 void missingHotMaterialSelection;
+
+const expiredSelection: ReauthRequiredEvmFamilyEcdsaSigningSelection = {
+  kind: 'reauth_required',
+  accountAuth: readySelection.accountAuth,
+  authMethod: 'passkey',
+  lane: {} as ReauthRequiredEvmFamilyEcdsaSigningSelection['lane'],
+  material: missingHotMaterialSelection.material,
+  reason: 'expired',
+  reauthAnchor,
+  diagnostics: readySelection.diagnostics,
+};
+void expiredSelection;
+
+// @ts-expect-error exhausted/expired reauth selections require a ReauthAnchorIdentity.
+const invalidExpiredSelection: ReauthRequiredEvmFamilyEcdsaSigningSelection = {
+  kind: 'reauth_required',
+  accountAuth: readySelection.accountAuth,
+  authMethod: 'passkey',
+  lane: {} as ReauthRequiredEvmFamilyEcdsaSigningSelection['lane'],
+  material: missingHotMaterialSelection.material,
+  reason: 'expired',
+  diagnostics: readySelection.diagnostics,
+};
+void invalidExpiredSelection;
 
 const invalidReadySelection: ReadyEvmFamilyEcdsaSigningSelection = {
   kind: 'ready',
