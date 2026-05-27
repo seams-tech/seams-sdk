@@ -348,19 +348,19 @@ usage.
 
 Tasks:
 
-- [ ] Inventory direct `IndexedDBManager`, `IDB*`, and `idb` imports outside
+- [x] Inventory direct `IndexedDBManager`, `IDB*`, and `idb` imports outside
       storage adapters.
-- [ ] Inventory direct `navigator.credentials`, `window`, `document`,
+- [x] Inventory direct `navigator.credentials`, `window`, `document`,
       `MessageChannel`, `Worker`, `localStorage`, and `crypto.subtle` use in
       signing paths.
-- [ ] Inventory signer operation calls that are conceptually portable:
+- [x] Inventory signer operation calls that are conceptually portable:
       hashing, tx encoding, key derivation, signature verification, HSS
       ceremony commands, and presignature commands.
-- [ ] Inventory TypeScript modules that still assemble crypto-internal
+- [x] Inventory TypeScript modules that still assemble crypto-internal
       parameter sets or relayer payloads from helper-level crypto outputs.
-- [ ] Inventory persistence record types that combine raw storage records,
+- [x] Inventory persistence record types that combine raw storage records,
       normalized domain records, public identity, and hot signer material.
-- [ ] Inventory current Rust core coverage in `crates/signer-core`,
+- [x] Inventory current Rust core coverage in `crates/signer-core`,
       `crates/signer-platform-web`, `crates/signer-platform-ios`, and
       `wasm/*`, with emphasis on which high-level workflows already have Rust
       coverage.
@@ -381,13 +381,13 @@ Add platform contracts without changing runtime behavior.
 
 Tasks:
 
-- [ ] Add `client/src/core/platform/types.ts`.
-- [ ] Define `PlatformRuntime` and the first port interfaces.
-- [ ] Use discriminated unions for platform kind, secret source kind, auth
+- [x] Add `client/src/core/platform/types.ts`.
+- [x] Define `PlatformRuntime` and the first port interfaces.
+- [x] Use discriminated unions for platform kind, secret source kind, auth
       operation kind, storage result, and signer compute result.
-- [ ] Add `assertNever` exhaustiveness checks for platform-kind dispatch.
-- [ ] Add type fixtures for invalid port and secret-source combinations.
-- [ ] Keep all existing browser managers as implementation details.
+- [x] Add `assertNever` exhaustiveness checks for platform-kind dispatch.
+- [x] Add type fixtures for invalid port and secret-source combinations.
+- [x] Keep all existing browser managers as implementation details.
 
 Acceptance criteria:
 
@@ -405,15 +405,15 @@ Build the browser platform runtime as a pass-through adapter over existing code.
 
 Tasks:
 
-- [ ] Add `client/src/core/platform/browser/createBrowserPlatformRuntime.ts`.
-- [ ] Wrap `IndexedDBManager` behind `DurableRecordStore`.
+- [x] Add `client/src/core/platform/browser/createBrowserPlatformRuntime.ts`.
+- [x] Wrap `IndexedDBManager` behind `DurableRecordStore`.
 - [ ] Wrap WebAuthn credential collection behind `AuthenticatorPort`.
 - [ ] Wrap existing worker/WASM operation dispatch behind `SignerComputePort`.
-- [ ] Wrap `fetch`, timers, and WebCrypto randomness behind `HttpTransport`,
+- [x] Wrap `fetch`, timers, and WebCrypto randomness behind `HttpTransport`,
       `ClockPort`, and `RandomSource`.
-- [ ] Update `createSigningEnginePorts(...)` to receive a platform runtime
+- [x] Update `createSigningEnginePorts(...)` to receive a platform runtime
       instead of importing `IndexedDBManager` directly.
-- [ ] Keep browser adapter construction in the existing assembly layer.
+- [x] Keep browser adapter construction in the existing assembly layer.
 
 Acceptance criteria:
 
@@ -675,31 +675,31 @@ to a single PR where practical.
 
 ### Inventory And Contracts
 
-- [ ] Add a checked boundary inventory for direct `IndexedDBManager`,
+- [x] Add a checked boundary inventory for direct `IndexedDBManager`,
       `UnifiedIndexedDBManager`, WebAuthn, Worker, `crypto.subtle`, and
       browser-global usage in signing/session paths.
-- [ ] Add `client/src/core/platform/types.ts` with `PlatformRuntime`,
+- [x] Add `client/src/core/platform/types.ts` with `PlatformRuntime`,
       `PlatformKind`, `DurableRecordStore`, `AuthenticatorPort`,
       `SignerComputePort`, `HttpTransport`, `ClockPort`, and `RandomSource`.
-- [ ] Add discriminated-union type fixtures for `PlatformKind`,
+- [x] Add discriminated-union type fixtures for `PlatformKind`,
       `ClientSecretSource`, and `SignerComputePort` result branches.
-- [ ] Add an `assertNever` helper or reuse the existing project helper for
+- [x] Add an `assertNever` helper or reuse the existing project helper for
       platform dispatch exhaustiveness.
 
 ### Browser Platform Adapter
 
-- [ ] Add
+- [x] Add
       `client/src/core/platform/browser/createBrowserPlatformRuntime.ts`.
-- [ ] Wrap the existing `IndexedDBManager` as the browser `DurableRecordStore`
+- [x] Wrap the existing `IndexedDBManager` as the browser `DurableRecordStore`
       implementation.
 - [ ] Wrap existing WebAuthn credential collection as the browser
       `AuthenticatorPort`.
 - [ ] Wrap existing worker dispatch as the browser `SignerComputePort`.
-- [ ] Wrap `fetch`, `Date.now`, timers, and WebCrypto randomness behind the
+- [x] Wrap `fetch`, `Date.now`, timers, and WebCrypto randomness behind the
       browser runtime ports where current signing flows need them.
-- [ ] Update `createSigningEnginePorts(...)` so it receives a browser
+- [x] Update `createSigningEnginePorts(...)` so it receives a browser
       `PlatformRuntime`.
-- [ ] Remove direct `IndexedDBManager` imports from signing-engine assembly
+- [x] Remove direct `IndexedDBManager` imports from signing-engine assembly
       files after the platform runtime is wired.
 - [ ] Update `SignerWorkerManager` so storage, authenticator, and worker
       transport dependencies are injected through runtime construction.
@@ -767,7 +767,7 @@ to a single PR where practical.
       `ClientSecretSource` branches or incomplete platform runtimes.
 - [ ] Add persistence tests for the opaque role-local state record shape.
 - [ ] Add export tests that use opaque state and reject missing public identity.
-- [ ] Run `npx tsc --noEmit -p sdk/tsconfig.build.json`.
+- [x] Run `npx tsc --noEmit -p sdk/tsconfig.build.json`.
 - [ ] Run targeted ECDSA HSS unit tests.
 - [ ] Run relevant `cargo test` commands for the Rust crate/WASM package touched
       by the coarse command.

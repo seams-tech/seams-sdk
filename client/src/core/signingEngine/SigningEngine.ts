@@ -1,4 +1,5 @@
 import { IndexedDBManager } from '@/core/indexedDB';
+import { createBrowserPlatformRuntime, type BrowserPlatformRuntime } from '@/core/platform';
 import type {
   ClientAuthenticatorData,
   ClientUserData,
@@ -249,6 +250,7 @@ export class SigningEngine {
   private readonly thresholdEd25519PublicDeps: thresholdEd25519Public.ThresholdEd25519PublicDeps;
   private readonly sealedRefreshStartupParityPromise: Promise<void>;
   private sealedRefreshStartupParityError: Error | null = null;
+  private readonly platformRuntime: BrowserPlatformRuntime;
   private readonly enginePorts: ReturnType<typeof createSigningEnginePorts>;
 
   readonly seamsPasskeyConfigs: SeamsConfigsReadonly;
@@ -256,6 +258,7 @@ export class SigningEngine {
   constructor(seamsPasskeyConfigs: SeamsConfigsReadonly, nearClient: NearClient) {
     this.seamsPasskeyConfigs = seamsPasskeyConfigs;
     this.nearClient = nearClient;
+    this.platformRuntime = createBrowserPlatformRuntime({ indexedDB: IndexedDBManager });
     this.sealedRefreshStartupParityPromise = verifySealedRefreshStartupParity({
       configs: this.seamsPasskeyConfigs,
     }).catch((error: unknown) => {
@@ -266,6 +269,7 @@ export class SigningEngine {
     });
 
     const assembly = createManagerAssembly({
+      platformRuntime: this.platformRuntime,
       seamsPasskeyConfigs: this.seamsPasskeyConfigs,
       nearClient: this.nearClient,
       getTheme: () => this.theme,
@@ -337,6 +341,7 @@ export class SigningEngine {
       ecdsaSessions: this.warmSigning.ecdsaSessions,
       touchConfirm: this.touchConfirm,
       emailOtpSessions: this.emailOtpSessions,
+      indexedDB: IndexedDBManager,
       warmSessionPolicy: {
         getWarmSession: (nearAccountId) =>
           this.warmSigning.capabilityReader.getWarmSession(nearAccountId),
@@ -353,6 +358,7 @@ export class SigningEngine {
     });
 
     this.enginePorts = createSigningEnginePorts({
+      platformRuntime: this.platformRuntime,
       seamsPasskeyConfigs: this.seamsPasskeyConfigs,
       nearClient: this.nearClient,
       touchIdPrompt: this.touchIdPrompt,

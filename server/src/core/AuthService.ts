@@ -148,6 +148,7 @@ import {
   type AddSignerIntentV1,
   type AddSignerSelection,
   type NearAccountOwnershipProofV1,
+  type RegistrationAuthority,
   type RegistrationIntentV1,
   type RegistrationSignerSelection,
   type WalletSubjectId,
@@ -358,6 +359,13 @@ function incrementCount(bucket: Record<string, number>, reason: string): void {
 
 function assertNever(value: never): never {
   throw new Error(`Unexpected variant: ${JSON.stringify(value)}`);
+}
+
+function requirePasskeyRegistrationAuthority(
+  authority: RegistrationAuthority,
+): Extract<RegistrationAuthority, { kind: 'passkey' }> {
+  if (authority.kind === 'passkey') return authority;
+  throw new Error(`Unsupported registration authority for passkey persistence: ${authority.kind}`);
 }
 
 function thresholdEcdsaKeyInventorySelectorFromRaw(
@@ -3875,6 +3883,50 @@ export class AuthService {
     };
   }
 
+  private async verifyRegistrationAuthorityForIntent(input: {
+    intent: RegistrationIntentV1;
+    registrationIntentDigestB64u: string;
+    expectedOrigin?: string;
+    webauthnRegistration: unknown;
+  }): Promise<
+    | {
+        ok: true;
+        authority: RegistrationAuthority;
+      }
+    | { ok: false; code: string; message: string }
+  > {
+    switch (input.intent.authMethod.kind) {
+      case 'passkey': {
+        const verified = await this.verifyRegistrationCredentialForIntent({
+          webauthnRegistration: input.webauthnRegistration,
+          expectedChallenge: input.registrationIntentDigestB64u,
+          expectedOrigin: input.expectedOrigin,
+          rpId: input.intent.rpId,
+        });
+        if (!verified.ok) return verified;
+        return {
+          ok: true,
+          authority: {
+            kind: 'passkey',
+            walletSubjectId: input.intent.walletSubjectId,
+            rpId: input.intent.rpId,
+            credentialIdB64u: verified.credential.credentialIdB64u,
+            credentialPublicKeyB64u: verified.credential.credentialPublicKeyB64u,
+            counter: verified.credential.counter,
+            registrationIntentDigestB64u: input.registrationIntentDigestB64u,
+          },
+        };
+      }
+      case 'email_otp':
+        return {
+          ok: false,
+          code: 'unsupported_auth_method',
+          message: 'wallet registration start currently supports passkey authority only',
+        };
+    }
+    return assertNever(input.intent.authMethod);
+  }
+
   async createRegistrationIntent(input: {
     request: CreateRegistrationIntentRequest;
     orgId: string;
@@ -4067,14 +4119,6 @@ export class AuthService {
       if (requestDigest !== intentPreview.digestB64u) {
         return { ok: false, code: 'invalid_body', message: 'registration intent mismatch' };
       }
-      if (intentPreview.intent.authMethod.kind !== 'passkey') {
-        return {
-          ok: false,
-          code: 'unsupported_auth_method',
-          message: 'wallet registration start currently supports passkey authority only',
-        };
-      }
-
       const selection = intentPreview.intent.signerSelection;
       const normalizedEcdsaChainTargets =
         selection.mode === 'ecdsa_only' || selection.mode === 'ed25519_and_ecdsa'
@@ -4115,13 +4159,21 @@ export class AuthService {
         return { ok: false, code: 'invalid_grant', message: 'registration intent grant expired' };
       }
 
-      const verified = await this.verifyRegistrationCredentialForIntent({
-        webauthnRegistration: request.webauthn_registration,
-        expectedChallenge: storedIntent.digestB64u,
+      const verifiedAuthority = await this.verifyRegistrationAuthorityForIntent({
+        intent: storedIntent.intent,
+        registrationIntentDigestB64u: storedIntent.digestB64u,
         expectedOrigin: storedIntent.expectedOrigin,
-        rpId: storedIntent.intent.rpId,
+        webauthnRegistration: request.webauthn_registration,
       });
-      if (!verified.ok) return verified;
+      if (!verifiedAuthority.ok) return verifiedAuthority;
+      const authority = verifiedAuthority.authority;
+      if (authority.kind !== 'passkey') {
+        return {
+          ok: false,
+          code: 'unsupported_auth_method',
+          message: 'wallet registration start currently supports passkey authority only',
+        };
+      }
 
       const registrationCeremonyId = `wrc_${randomBase64Url(24)}`;
       if (selection.mode === 'ecdsa_only') {
@@ -4157,7 +4209,7 @@ export class AuthService {
             : {}),
           ...(storedIntent.expectedOrigin ? { expectedOrigin: storedIntent.expectedOrigin } : {}),
           expiresAtMs: Date.now() + 10 * 60_000,
-          webauthn: verified.credential,
+          authority,
           signerState: {
             kind: 'ecdsa_prepared',
             hssKind: responseEcdsa.kind,
@@ -4255,7 +4307,7 @@ export class AuthService {
             : {}),
           ...(storedIntent.expectedOrigin ? { expectedOrigin: storedIntent.expectedOrigin } : {}),
           expiresAtMs: Date.now() + 10 * 60_000,
-          webauthn: verified.credential,
+          authority,
           signerState: {
             kind: 'combined_registration',
             ed25519: {
@@ -4293,7 +4345,7 @@ export class AuthService {
           : {}),
         ...(storedIntent.expectedOrigin ? { expectedOrigin: storedIntent.expectedOrigin } : {}),
         expiresAtMs: Date.now() + 10 * 60_000,
-        webauthn: verified.credential,
+        authority,
         signerState,
       });
       return {
@@ -4953,18 +5005,19 @@ export class AuthService {
         thresholdEd25519Session = normalizedSession;
       }
 
+      const passkeyAuthority = requirePasskeyRegistrationAuthority(ceremony.authority);
       const webAuthnAuthenticatorRecord: WebAuthnAuthenticatorRecord = {
         version: 'webauthn_authenticator_v1',
-        credentialIdB64u: ceremony.webauthn.credentialIdB64u,
-        credentialPublicKeyB64u: ceremony.webauthn.credentialPublicKeyB64u,
-        counter: ceremony.webauthn.counter,
+        credentialIdB64u: passkeyAuthority.credentialIdB64u,
+        credentialPublicKeyB64u: passkeyAuthority.credentialPublicKeyB64u,
+        counter: passkeyAuthority.counter,
         createdAtMs: now,
         updatedAtMs: now,
       };
       const credentialBindingRecord: WebAuthnCredentialBindingRecord = {
         version: 'webauthn_credential_binding_v1',
         rpId: ceremony.intent.rpId,
-        credentialIdB64u: ceremony.webauthn.credentialIdB64u,
+        credentialIdB64u: passkeyAuthority.credentialIdB64u,
         userId: ceremony.intent.walletSubjectId,
         signerSlot: ed25519.signerSlot,
         publicKey: keygen.publicKey,
@@ -4986,9 +5039,9 @@ export class AuthService {
       const walletAuthenticator = this.buildWalletSubjectAuthenticatorRecord({
         walletSubjectId: ceremony.intent.walletSubjectId,
         rpId: ceremony.intent.rpId,
-        credentialIdB64u: ceremony.webauthn.credentialIdB64u,
-        credentialPublicKeyB64u: ceremony.webauthn.credentialPublicKeyB64u,
-        counter: ceremony.webauthn.counter,
+        credentialIdB64u: passkeyAuthority.credentialIdB64u,
+        credentialPublicKeyB64u: passkeyAuthority.credentialPublicKeyB64u,
+        counter: passkeyAuthority.counter,
         now,
       });
       const walletSigners = [
@@ -5070,11 +5123,12 @@ export class AuthService {
       if (!walletKeyResult.ok) return walletKeyResult;
       const walletKeys = walletKeyResult.walletKeys;
       const now = Date.now();
+      const passkeyAuthority = requirePasskeyRegistrationAuthority(ceremony.authority);
       const webAuthnAuthenticatorRecord: WebAuthnAuthenticatorRecord = {
         version: 'webauthn_authenticator_v1',
-        credentialIdB64u: ceremony.webauthn.credentialIdB64u,
-        credentialPublicKeyB64u: ceremony.webauthn.credentialPublicKeyB64u,
-        counter: ceremony.webauthn.counter,
+        credentialIdB64u: passkeyAuthority.credentialIdB64u,
+        credentialPublicKeyB64u: passkeyAuthority.credentialPublicKeyB64u,
+        counter: passkeyAuthority.counter,
         createdAtMs: now,
         updatedAtMs: now,
       };
@@ -5086,9 +5140,9 @@ export class AuthService {
       const walletAuthenticator = this.buildWalletSubjectAuthenticatorRecord({
         walletSubjectId: ceremony.intent.walletSubjectId,
         rpId: ceremony.intent.rpId,
-        credentialIdB64u: ceremony.webauthn.credentialIdB64u,
-        credentialPublicKeyB64u: ceremony.webauthn.credentialPublicKeyB64u,
-        counter: ceremony.webauthn.counter,
+        credentialIdB64u: passkeyAuthority.credentialIdB64u,
+        credentialPublicKeyB64u: passkeyAuthority.credentialPublicKeyB64u,
+        counter: passkeyAuthority.counter,
         now,
       });
       const walletSigners = this.buildWalletSubjectEcdsaSignerRecords({
@@ -5254,18 +5308,19 @@ export class AuthService {
       thresholdEd25519Session = normalizedSession;
     }
 
+    const passkeyAuthority = requirePasskeyRegistrationAuthority(ceremony.authority);
     const webAuthnAuthenticatorRecord: WebAuthnAuthenticatorRecord = {
       version: 'webauthn_authenticator_v1',
-      credentialIdB64u: ceremony.webauthn.credentialIdB64u,
-      credentialPublicKeyB64u: ceremony.webauthn.credentialPublicKeyB64u,
-      counter: ceremony.webauthn.counter,
+      credentialIdB64u: passkeyAuthority.credentialIdB64u,
+      credentialPublicKeyB64u: passkeyAuthority.credentialPublicKeyB64u,
+      counter: passkeyAuthority.counter,
       createdAtMs: now,
       updatedAtMs: now,
     };
     const credentialBindingRecord: WebAuthnCredentialBindingRecord = {
       version: 'webauthn_credential_binding_v1',
       rpId: ceremony.intent.rpId,
-      credentialIdB64u: ceremony.webauthn.credentialIdB64u,
+      credentialIdB64u: passkeyAuthority.credentialIdB64u,
       userId: ceremony.intent.walletSubjectId,
       signerSlot: ed25519.signerSlot,
       publicKey: keygen.publicKey,
@@ -5287,9 +5342,9 @@ export class AuthService {
     const walletAuthenticator = this.buildWalletSubjectAuthenticatorRecord({
       walletSubjectId: ceremony.intent.walletSubjectId,
       rpId: ceremony.intent.rpId,
-      credentialIdB64u: ceremony.webauthn.credentialIdB64u,
-      credentialPublicKeyB64u: ceremony.webauthn.credentialPublicKeyB64u,
-      counter: ceremony.webauthn.counter,
+      credentialIdB64u: passkeyAuthority.credentialIdB64u,
+      credentialPublicKeyB64u: passkeyAuthority.credentialPublicKeyB64u,
+      counter: passkeyAuthority.counter,
       now,
     });
     const walletSigners = [

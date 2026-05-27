@@ -1,4 +1,4 @@
-import { IndexedDBManager } from '@/core/indexedDB';
+import { getBrowserPlatformIndexedDB } from '@/core/platform';
 import {
   createEmailOtpWarmSessionStatusReader,
   createSigningSessionCoordinatorPort,
@@ -35,6 +35,8 @@ export type {
 export function createSigningEnginePorts(
   args: CreateSigningEnginePortsArgs,
 ): SigningEnginePorts {
+  const indexedDB = getBrowserPlatformIndexedDB(args.platformRuntime);
+  const runtimeDeps = { indexedDB };
   const nearRpcUrl = resolveNearRpcUrl(args);
   const getEmailOtpWarmSessionStatus = createEmailOtpWarmSessionStatusReader(args);
   const signingSessionCoordinator = createSigningSessionCoordinatorPort({
@@ -43,33 +45,36 @@ export function createSigningEnginePorts(
   });
   const getOrCreateActiveThresholdEcdsaSessionId =
     createGetOrCreateActiveThresholdEcdsaSessionId();
-  const getWorkerResourceWarmupDeps = createWorkerResourceWarmupDepsFactory(args);
+  const getWorkerResourceWarmupDeps = createWorkerResourceWarmupDepsFactory(args, runtimeDeps);
   const getWarmThresholdEd25519SessionStatus = createWarmThresholdEd25519SessionStatusReader({
     createArgs: args,
     getEmailOtpWarmSessionStatus,
   });
 
   return {
-    indexedDB: IndexedDBManager,
+    indexedDB,
     thresholdEd25519LifecycleDeps: createThresholdEd25519LifecycleDeps(args),
     nearSigningDeps: createNearSigningDeps({
       createArgs: args,
+      indexedDB,
       nearRpcUrl,
       signingSessionCoordinator,
       getEmailOtpWarmSessionStatus,
     }),
     tempoSigningDeps: createEvmFamilySigningDeps({
       createArgs: args,
+      indexedDB,
       signingSessionCoordinator,
       getEmailOtpWarmSessionStatus,
     }),
-    privateKeyExportRecoveryDeps: createPrivateKeyExportRecoveryDeps(args),
-    registrationAccountLifecycleDeps: createRegistrationAccountLifecycleDeps(args),
+    privateKeyExportRecoveryDeps: createPrivateKeyExportRecoveryDeps(args, runtimeDeps),
+    registrationAccountLifecycleDeps: createRegistrationAccountLifecycleDeps(args, runtimeDeps),
     registrationSessionDeps: createRegistrationSessionDeps({
       createArgs: args,
     }),
     thresholdSessionActivationDeps: createThresholdSessionActivationDeps({
       createArgs: args,
+      indexedDB,
       getOrCreateActiveThresholdEcdsaSessionId,
     }),
     nearKeyOpsDeps: createNearKeyOpsDeps(args),

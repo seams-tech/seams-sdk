@@ -862,7 +862,7 @@ test('registerWallet orchestrates combined Ed25519 and ECDSA wallet registration
       '/wallets/register/finalize',
     ]);
     expect(captures.registrationCredentialArgs).toMatchObject({
-      nearAccountId: 'combined.testnet',
+      nearAccountId: WALLET_SUBJECT_ID,
       challengeB64u: captures.digest,
     });
     expect(captures.respondBody).toMatchObject({

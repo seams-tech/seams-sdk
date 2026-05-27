@@ -1,4 +1,4 @@
-import { IndexedDBManager } from '@/core/indexedDB';
+import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
 import type { ThresholdEd25519LifecycleDeps } from '../../threshold/ed25519/hssLifecycle';
 import type {
   RegistrationAccountLifecycleDeps,
@@ -20,9 +20,10 @@ export function createThresholdEd25519LifecycleDeps(
 
 export function createRegistrationAccountLifecycleDeps(
   args: CreateSigningEnginePortsArgs,
+  runtimeDeps: { indexedDB: UnifiedIndexedDBManager },
 ): RegistrationAccountLifecycleDeps {
   return {
-    indexedDB: IndexedDBManager,
+    indexedDB: runtimeDeps.indexedDB,
     userPreferencesManager: args.userPreferencesManager,
     nonceCoordinator: args.nonceCoordinator,
     extractCosePublicKey: args.extractCosePublicKey,
@@ -40,10 +41,11 @@ export function createRegistrationSessionDeps(args: {
 
 export function createThresholdSessionActivationDeps(args: {
   createArgs: CreateSigningEnginePortsArgs;
+  indexedDB: UnifiedIndexedDBManager;
   getOrCreateActiveThresholdEcdsaSessionId: ThresholdSessionActivationDeps['getOrCreateActiveThresholdEcdsaSessionId'];
 }): ThresholdSessionActivationDeps {
   return {
-    indexedDB: IndexedDBManager,
+    indexedDB: args.indexedDB,
     touchIdPrompt: args.createArgs.touchIdPrompt,
     touchConfirm: args.createArgs.touchConfirm,
     getSignerWorkerContext: () => args.createArgs.signerWorkerManager.getContext(),

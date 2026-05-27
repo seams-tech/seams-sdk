@@ -5,6 +5,8 @@ import {
   THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND,
 } from '@shared/utils/sessionTokens';
 import { isIndexedDBPersistenceDisabled } from '../../../indexedDB';
+import { SEAMS_WALLET_INDEXES } from '../../../indexedDB/schemaNames';
+import { upgradeSeamsWalletDBSchema } from '../../../indexedDB/seamsWalletDB/schema';
 import {
   SIGNING_SESSION_RESTORE_LEASE_STORE_NAME,
   SIGNING_SESSION_SEALED_RECORD_VERSION,
@@ -289,7 +291,13 @@ const DB_VERSION = SIGNING_SESSION_SEAL_DB_VERSION;
 const STORE_NAME = SIGNING_SESSION_SEAL_STORE_NAME;
 const LEASE_STORE_NAME = SIGNING_SESSION_RESTORE_LEASE_STORE_NAME;
 const DEFAULT_RESTORE_LEASE_TTL_MS = 15_000;
-const SEALED_RECORD_STORE_KEY_PATH = 'storeKey';
+const SEALED_RECORD_STORE_KEY_PATH = 'store_key';
+const SEALED_RECORD_PAYLOAD_FIELD = 'sealed_record';
+const RESTORE_LEASE_STORE_KEY_PATH = 'lease_key';
+const SEALED_RECORD_THRESHOLD_SESSION_INDEXES = [
+  SEAMS_WALLET_INDEXES.ed25519ThresholdSessionId,
+  SEAMS_WALLET_INDEXES.ecdsaThresholdSessionId,
+] as const;
 const resolvedIdentitiesByPurposeKey = new Map<string, SealedStoreResolvedSigningSessionIdentity>();
 const resolvedIdentityKeysByListKey = new Map<string, Set<string>>();
 
@@ -320,13 +328,22 @@ function transactionDone(tx: IDBTransaction): Promise<void> {
 
 function createStoreIndexes(store: IDBObjectStore): void {
   const indexes: Array<[string, string | string[]]> = [
-    ['walletId', 'walletId'],
-    ['authMethod', 'authMethod'],
-    ['signingRootId', 'signingRootId'],
-    ['expiresAtMs', 'expiresAtMs'],
-    ['wallet_signingRoot_authMethod', ['walletId', 'signingRootId', 'authMethod']],
-    ['ed25519ThresholdSessionId', 'thresholdSessionIds.ed25519'],
-    ['ecdsaThresholdSessionId', 'thresholdSessionIds.ecdsa'],
+    [SEAMS_WALLET_INDEXES.walletId, 'wallet_id'],
+    [SEAMS_WALLET_INDEXES.authMethod, 'auth_method'],
+    [SEAMS_WALLET_INDEXES.curve, 'curve'],
+    [SEAMS_WALLET_INDEXES.signingRootId, 'signing_root_id'],
+    [SEAMS_WALLET_INDEXES.expiresAtMs, 'expires_at_ms'],
+    [SEAMS_WALLET_INDEXES.updatedAt, 'updated_at'],
+    [
+      SEAMS_WALLET_INDEXES.walletSigningRootAuthMethod,
+      ['wallet_id', 'signing_root_id', 'auth_method'],
+    ],
+    [SEAMS_WALLET_INDEXES.walletSigningSessionId, 'wallet_signing_session_id'],
+    [SEAMS_WALLET_INDEXES.ed25519ThresholdSessionId, 'ed25519_threshold_session_id'],
+    [SEAMS_WALLET_INDEXES.ecdsaThresholdSessionId, 'ecdsa_threshold_session_id'],
+    [SEAMS_WALLET_INDEXES.thresholdSessionId, 'threshold_session_id'],
+    [SEAMS_WALLET_INDEXES.keyHandle, 'key_handle'],
+    [SEAMS_WALLET_INDEXES.chainTargetKey, 'chain_target_key'],
   ];
   for (const [name, keyPath] of indexes) {
     try {
@@ -364,7 +381,7 @@ function ensureSigningSessionSealStores(
   }
   if (sealStore) createStoreIndexes(sealStore);
   if (!db.objectStoreNames.contains(LEASE_STORE_NAME)) {
-    db.createObjectStore(LEASE_STORE_NAME, { keyPath: 'leaseKey' });
+    db.createObjectStore(LEASE_STORE_NAME, { keyPath: RESTORE_LEASE_STORE_KEY_PATH });
   }
 }
 
@@ -384,6 +401,7 @@ function openSigningSessionSealsDb(): Promise<IDBDatabase | null> {
       // seals are discarded at this persistence boundary; restore/auth rebuilds
       // current lane records explicitly.
       const oldVersion = Math.floor(Number(event.oldVersion) || 0);
+      upgradeSeamsWalletDBSchema(request.result, request.transaction);
       ensureSigningSessionSealStores(request.result, request.transaction, {
         resetStores: oldVersion > 0 && oldVersion < 5,
       });
@@ -413,6 +431,55 @@ function normalizeThresholdSessionIds(value: unknown): {
 function normalizeCurve(value: unknown): 'ed25519' | 'ecdsa' | undefined {
   const curve = String(value || '').trim();
   return curve === 'ed25519' || curve === 'ecdsa' ? curve : undefined;
+}
+
+function storagePayloadFromSealedStoreRow(value: unknown): unknown {
+  const obj =
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  return obj && SEALED_RECORD_PAYLOAD_FIELD in obj ? obj[SEALED_RECORD_PAYLOAD_FIELD] : value;
+}
+
+function optionalStringForIndex(value: unknown): string | undefined {
+  return normalizeOptionalNonEmptyString(value);
+}
+
+function sealedRecordStorageRow(record: CurrentSealedSessionRecord): Record<string, unknown> {
+  const ecdsaChainTarget = record.ecdsaRestore?.chainTarget;
+  const ecdsaThresholdSessionId = optionalStringForIndex(record.thresholdSessionIds.ecdsa);
+  const ed25519ThresholdSessionId = optionalStringForIndex(record.thresholdSessionIds.ed25519);
+  return {
+    store_key: record.storeKey,
+    wallet_id: record.walletId,
+    wallet_subject_id: record.walletId,
+    user_id: optionalStringForIndex(record.userId),
+    auth_method: record.authMethod,
+    curve: record.curve,
+    signing_root_id: optionalStringForIndex(record.signingRootId),
+    signing_root_version: optionalStringForIndex(record.signingRootVersion),
+    wallet_signing_session_id: record.walletSigningSessionId,
+    ed25519_threshold_session_id: ed25519ThresholdSessionId,
+    ecdsa_threshold_session_id: ecdsaThresholdSessionId,
+    threshold_session_id: ecdsaThresholdSessionId || ed25519ThresholdSessionId,
+    key_handle: optionalStringForIndex(record.ecdsaRestore?.keyHandle),
+    chain_target_key: ecdsaChainTarget ? thresholdEcdsaChainTargetKey(ecdsaChainTarget) : undefined,
+    expires_at_ms: record.expiresAtMs,
+    updated_at: record.updatedAtMs,
+    [SEALED_RECORD_PAYLOAD_FIELD]: record,
+  };
+}
+
+function restoreLeaseStorageRow(lease: SigningSessionRestoreLease): Record<string, unknown> {
+  return {
+    lease_key: lease.leaseKey,
+    wallet_signing_session_id: lease.walletSigningSessionId,
+    owner_id: lease.ownerId,
+    attempt_id: lease.attemptId,
+    started_at_ms: lease.startedAtMs,
+    expires_at_ms: lease.expiresAtMs,
+    lease,
+  };
 }
 
 function normalizeEthereumAddress(value: unknown): `0x${string}` | undefined {
@@ -985,6 +1052,7 @@ function classifyNonCurrentRecord(
 }
 
 export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecordClassification {
+  raw = storagePayloadFromSealedStoreRow(raw);
   const obj = asRawSealedSessionRecordV1(raw);
   if (!obj) return classifyNonCurrentRecord('malformed', null, 'invalid_payload');
   if (Number(obj.v) !== SIGNING_SESSION_SEALED_RECORD_VERSION) {
@@ -1183,8 +1251,20 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
 function normalizeSigningSessionSealedStoreRecord(
   value: unknown,
 ): CurrentSealedSessionRecord | null {
-  const classification = classifyRawSealedSessionRecord(value);
+  const classification = classifyRawSealedSessionRecord(storagePayloadFromSealedStoreRow(value));
   return classification.kind === 'current' ? classification.record : null;
+}
+
+function rawThresholdSessionIdsFromSealedStoreRow(value: unknown): {
+  ed25519?: string;
+  ecdsa?: string;
+} {
+  const payload = storagePayloadFromSealedStoreRow(value);
+  const obj =
+    payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>)
+      : null;
+  return normalizeThresholdSessionIds(obj?.thresholdSessionIds);
 }
 
 function sealedSessionCurrentSummary(record: CurrentSealedSessionRecord): Record<string, unknown> {
@@ -1337,6 +1417,9 @@ function normalizeSigningSessionRestoreLease(value: unknown): SigningSessionRest
       ? (value as Record<string, unknown>)
       : null;
   if (!obj) return null;
+  if (obj.lease && typeof obj.lease === 'object' && !Array.isArray(obj.lease)) {
+    return normalizeSigningSessionRestoreLease(obj.lease);
+  }
   if (Number(obj.v) !== 1) return null;
   const leaseKey = normalizeOptionalNonEmptyString(obj.leaseKey);
   const walletSigningSessionId = normalizeOptionalNonEmptyString(obj.walletSigningSessionId);
@@ -1431,7 +1514,7 @@ async function readRecordsByThresholdSessionId(
   db: IDBDatabase,
   thresholdSessionId: string,
 ): Promise<CurrentSealedSessionRecord[]> {
-  const indexes = ['ed25519ThresholdSessionId', 'ecdsaThresholdSessionId'];
+  const indexes = SEALED_RECORD_THRESHOLD_SESSION_INDEXES;
   const recordsByPurpose = new Map<string, CurrentSealedSessionRecord>();
   for (const indexName of indexes) {
     try {
@@ -1499,16 +1582,12 @@ function collectAllRawSealedRecordEntries(
   });
 }
 
-async function readRecordByThresholdSessionId(
-  db: IDBDatabase,
+async function collectRawSealedRecordEntriesByThresholdSessionId(
+  store: IDBObjectStore,
   thresholdSessionId: string,
-  filter: SigningSessionSealedRecordFilter,
-  operation: string,
-): Promise<CurrentSealedSessionRecord | null> {
-  const tx = db.transaction(STORE_NAME, 'readwrite');
-  const store = tx.objectStore(STORE_NAME);
+): Promise<StoredRawSealedRecordEntry[]> {
   const entriesByPrimaryKey = new Map<string, StoredRawSealedRecordEntry>();
-  for (const indexName of ['ed25519ThresholdSessionId', 'ecdsaThresholdSessionId']) {
+  for (const indexName of SEALED_RECORD_THRESHOLD_SESSION_INDEXES) {
     try {
       const entries = await collectIndexedRawSealedRecordEntries(
         store.index(indexName),
@@ -1519,9 +1598,33 @@ async function readRecordByThresholdSessionId(
       }
     } catch {}
   }
+  if (entriesByPrimaryKey.size) return [...entriesByPrimaryKey.values()];
+
+  const allEntries = await collectAllRawSealedRecordEntries(store).catch(() => []);
+  return allEntries.filter((entry) => {
+    const record = normalizeSigningSessionSealedStoreRecord(entry.value);
+    const rawThresholdSessionIds = rawThresholdSessionIdsFromSealedStoreRow(entry.value);
+    return (
+      record?.thresholdSessionIds.ed25519 === thresholdSessionId ||
+      record?.thresholdSessionIds.ecdsa === thresholdSessionId ||
+      rawThresholdSessionIds.ed25519 === thresholdSessionId ||
+      rawThresholdSessionIds.ecdsa === thresholdSessionId
+    );
+  });
+}
+
+async function readRecordByThresholdSessionId(
+  db: IDBDatabase,
+  thresholdSessionId: string,
+  filter: SigningSessionSealedRecordFilter,
+  operation: string,
+): Promise<CurrentSealedSessionRecord | null> {
+  const tx = db.transaction(STORE_NAME, 'readwrite');
+  const store = tx.objectStore(STORE_NAME);
+  const entries = await collectRawSealedRecordEntriesByThresholdSessionId(store, thresholdSessionId);
 
   let selected: CurrentSealedSessionRecord | null = null;
-  for (const entry of entriesByPrimaryKey.values()) {
+  for (const entry of entries) {
     const classification = classifyRawSealedSessionRecord(entry.value);
     if (classification.kind === 'current') {
       if (recordMatchesFilter(classification.record, thresholdSessionId, filter)) {
@@ -1554,30 +1657,28 @@ async function deleteRecordByThresholdSessionId(
   thresholdSessionId: string,
   filter: SigningSessionSealedRecordFilter,
 ): Promise<void> {
-  const indexes = ['ed25519ThresholdSessionId', 'ecdsaThresholdSessionId'];
-  for (const indexName of indexes) {
-    try {
-      const tx = db.transaction(STORE_NAME, 'readwrite');
-      const store = tx.objectStore(STORE_NAME);
-      const values = await requestToPromise<unknown[]>(
-        store.index(indexName).getAll(thresholdSessionId),
-      );
-      for (const value of values) {
-        const record = normalizeSigningSessionSealedStoreRecord(value);
-        if (record?.storeKey && recordMatchesFilter(record, thresholdSessionId, filter)) {
-          store.delete(record.storeKey);
-          logSealedSessionDeletedRecord({
-            operation: 'delete',
-            storeKey: record.storeKey,
-            walletId: record.walletId || null,
-            reason: 'explicit_delete',
-            safeSummary: sealedSessionCurrentSummary(record),
-          });
-        }
+  try {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    const entries = await collectRawSealedRecordEntriesByThresholdSessionId(
+      store,
+      thresholdSessionId,
+    );
+    for (const entry of entries) {
+      const record = normalizeSigningSessionSealedStoreRecord(entry.value);
+      if (record?.storeKey && recordMatchesFilter(record, thresholdSessionId, filter)) {
+        store.delete(entry.primaryKey);
+        logSealedSessionDeletedRecord({
+          operation: 'delete',
+          storeKey: record.storeKey,
+          walletId: record.walletId || null,
+          reason: 'explicit_delete',
+          safeSummary: sealedSessionCurrentSummary(record),
+        });
       }
-      await transactionDone(tx).catch(() => undefined);
-    } catch {}
-  }
+    }
+    await transactionDone(tx).catch(() => undefined);
+  } catch {}
 }
 
 async function listSameScopeRecords(
@@ -1780,7 +1881,7 @@ export async function writeExactSealedSession(record: CurrentSealedSessionRecord
         safeSummary: sealedSessionCurrentSummary(staleRecord),
       });
     }
-    store.put(currentRecord);
+    store.put(sealedRecordStorageRow(currentRecord));
     await transactionDone(tx).catch(() => undefined);
     publishResolvedIdentityForSealedRecord(currentRecord);
   } finally {
@@ -1903,21 +2004,18 @@ export async function acquireSigningSessionRestoreLease(
     const tx = db.transaction([STORE_NAME, LEASE_STORE_NAME], 'readwrite');
     const sealStore = tx.objectStore(STORE_NAME);
     const records: SigningSessionSealedStoreRecord[] = [];
-    for (const indexName of ['ed25519ThresholdSessionId', 'ecdsaThresholdSessionId']) {
-      try {
-        const values = await requestToPromise<unknown[]>(
-          sealStore.index(indexName).getAll(thresholdSessionId),
-        );
-        for (const value of values) {
-          const normalized = normalizeSigningSessionSealedStoreRecord(value);
-          if (
-            normalized?.storeKey &&
-            !records.some((record) => record.storeKey === normalized.storeKey)
-          ) {
-            records.push(normalized);
-          }
-        }
-      } catch {}
+    const entries = await collectRawSealedRecordEntriesByThresholdSessionId(
+      sealStore,
+      thresholdSessionId,
+    );
+    for (const entry of entries) {
+      const normalized = normalizeSigningSessionSealedStoreRecord(entry.value);
+      if (
+        normalized?.storeKey &&
+        !records.some((record) => record.storeKey === normalized.storeKey)
+      ) {
+        records.push(normalized);
+      }
     }
     const record =
       records.find((candidate) => recordMatchesFilter(candidate, thresholdSessionId, purpose)) ||
@@ -1943,7 +2041,7 @@ export async function acquireSigningSessionRestoreLease(
       nowMs,
       ttlMs,
     });
-    leaseStore.put(lease);
+    leaseStore.put(restoreLeaseStorageRow(lease));
     await transactionDone(tx);
     return {
       ...lease,

@@ -164,9 +164,8 @@ function b64u(bytes: number[]): string {
 function validEcdsaClientBootstrap() {
   return {
     formatVersion: 'ecdsa-hss-role-local',
-    walletSessionUserId: 'wallet_subject_alice',
+    walletId: 'wallet_subject_alice',
     rpId: 'wallet.example.test',
-    subjectId: 'wallet_subject_alice',
     ecdsaThresholdKeyId: 'ehss-alice',
     signingRootId: 'project:dev',
     signingRootVersion: 'default',
@@ -193,9 +192,8 @@ function validEcdsaClientBootstrap() {
 function validEcdsaServerBootstrap() {
   return {
     formatVersion: 'ecdsa-hss-role-local',
-    walletSessionUserId: 'wallet_subject_alice',
+    walletId: 'wallet_subject_alice',
     rpId: 'wallet.example.test',
-    subjectId: 'wallet_subject_alice',
     ecdsaThresholdKeyId: 'ehss-alice',
     relayerKeyId: 'ehss-relayer-alice',
     contextBinding32B64u: b64u(Array(32).fill(2)),
@@ -444,7 +442,7 @@ test.describe('wallet registration route boundaries', () => {
       },
     });
     expect((response.body as any).ecdsa.bootstrap.jwt).toBe(
-      'signed:wallet_subject_alice:threshold_ecdsa_session_v1:session-1',
+      'signed:wallet_subject_alice:threshold_ecdsa_session_v2:session-1',
     );
   });
 

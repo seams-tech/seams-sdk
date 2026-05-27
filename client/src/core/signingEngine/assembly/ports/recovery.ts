@@ -1,4 +1,4 @@
-import { IndexedDBManager } from '@/core/indexedDB';
+import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
 import type { PrivateKeyExportRecoveryDeps } from '../../interfaces/operationDeps';
 import { configuredThresholdEcdsaChainTargets } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -22,9 +22,10 @@ import type { CreateSigningEnginePortsArgs } from './shared';
 
 export function createPrivateKeyExportRecoveryDeps(
   args: CreateSigningEnginePortsArgs,
+  runtimeDeps: { indexedDB: UnifiedIndexedDBManager },
 ): PrivateKeyExportRecoveryDeps {
   return {
-    indexedDB: IndexedDBManager,
+    indexedDB: runtimeDeps.indexedDB,
     relayerUrl: args.seamsPasskeyConfigs.network.relayer.url,
     getRpId: () => args.touchIdPrompt.getRpId(),
     requestExportPrivateKeysWithUi: (payload) =>
@@ -49,6 +50,7 @@ export function createRecoveryPublicDeps(args: {
     exportEcdsaKeyWithAuthorization: RecoveryPublicDeps['ecdsa']['emailOtp']['exportEcdsaKeyWithAuthorization'];
     recoverEd25519ExportPrfFirst: RecoveryPublicDeps['nearSingleKeyHss']['emailOtpSessions']['recoverEd25519ExportPrfFirst'];
   };
+  indexedDB: UnifiedIndexedDBManager;
   warmSessionPolicy: {
     getWarmSession: WarmSessionCapabilityReader['getWarmSession'];
     resolveExactEcdsaRecord: WarmSigningStatusReader['resolveExactEcdsaRecord'];
@@ -103,8 +105,8 @@ export function createRecoveryPublicDeps(args: {
     },
     nearSingleKeyHss: {
       indexedDB: {
-        clientDB: IndexedDBManager.clientDB,
-        accountKeyMaterialDB: IndexedDBManager.accountKeyMaterialDB,
+        clientDB: args.indexedDB.clientDB,
+        accountKeyMaterialDB: args.indexedDB.accountKeyMaterialDB,
       },
       touchConfirm: args.touchConfirm,
       emailOtpSessions: {

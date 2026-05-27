@@ -18,6 +18,7 @@ import {
 } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import type { EmailOtpEcdsaSigningBootstrapResult } from '@/core/signingEngine/interfaces/operationDeps';
 import { createEvmFamilySigningDeps } from '@/core/signingEngine/assembly/ports/evmFamily';
+import { createBrowserPlatformRuntime } from '@/core/platform';
 import {
   exactSigningLaneIdentity,
   exactSigningLaneIdentityKey,
@@ -248,6 +249,7 @@ test('EVM-family signing deps preserve one-use Email OTP step-up budget', async 
   const deps = createEvmFamilySigningDeps({
     createArgs: {
       seamsPasskeyConfigs: { network: { chains: [] }, signing: {} },
+      platformRuntime: createBrowserPlatformRuntime(),
       nonceCoordinator: {},
       ensureSealedRefreshStartupParity: async () => undefined,
       signerWorkerManager: { getContext: () => ({}) },

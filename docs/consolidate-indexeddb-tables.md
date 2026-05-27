@@ -2,10 +2,10 @@
 
 Date created: 2026-05-03
 
-Status: active cleanup plan, implementation pending. Runtime storage still uses four
-IndexedDB databases: `PasskeyClientDB`, `PasskeyAccountKeyMaterial`,
-`seams_wallet_v1`, and `seams_email_otp_device_enrollment_escrows_v1`. Keep this
-document as the active IndexedDB cleanup plan until the completion criteria pass.
+Status: active cleanup plan. Phase 1 guards and the first unified-schema stores
+are implemented; the old `PasskeyClientDB` and `PasskeyAccountKeyMaterial`
+manager surfaces still need replacement. Keep this document as the active
+IndexedDB cleanup plan until the completion criteria pass.
 Start implementation after `docs/rework-registration-flows-2.md` stabilizes the
 registration auth-method and wallet-subject repository shape. The collapsed
 `docs/rework-registration-flows.md` is a completed historical note.
@@ -485,8 +485,8 @@ stabilized.
 
 ### Phase 1. Rescan, Constants, and Early Guards
 
-1. Add `client/src/core/indexedDB/schemaNames.ts`.
-2. Add schema constants for:
+1. [x] Add `client/src/core/indexedDB/schemaNames.ts`.
+2. [x] Add schema constants for:
    - `SEAMS_WALLET_DB_NAME`
    - `SEAMS_WALLET_DB_VERSION`
    - `SEAMS_WALLET_STORES`
@@ -494,7 +494,7 @@ stabilized.
    - `SEAMS_WALLET_SCHEMA_MANIFEST`
    - `LEGACY_INDEXED_DB_NAMES`
    - `createSeamsTestWalletDbName(...)`
-3. Add an architecture guard with an explicit temporary allowlist for legacy
+3. [x] Add an architecture guard with an explicit temporary allowlist for legacy
    modules that have not moved yet. The final guard must fail if runtime code
    contains:
    - `PasskeyClientDB`
@@ -505,23 +505,23 @@ stabilized.
    - `signing_session_restore_leases_v1`
    - `email_otp_device_enrollment_escrows_v1`
    - inline `indexedDB.open('<literal>')` outside the one DB manager
-4. Add a guard that all configured database, object-store, and index names match:
+4. [x] Add a guard that all configured database, object-store, and index names match:
 
 ```ts
 /^seams_[a-z0-9]+(?:_[a-z0-9]+)*$/
 ```
 
-5. Update test helpers so unique DB names are generated as
+5. [ ] Update all test helpers so unique DB names are generated as
    `seams_test_wallet_<safe_suffix>`.
-6. Add a manifest guard that opens a fresh test DB and verifies every store,
+6. [x] Add a manifest guard that opens a fresh test DB and verifies every store,
    keyPath, index name, and unique flag exactly matches
    `SEAMS_WALLET_SCHEMA_MANIFEST`.
-7. Add an import-boundary guard that keeps `IDBDatabase`, `IDBTransaction`,
+7. [ ] Add an import-boundary guard that keeps `IDBDatabase`, `IDBTransaction`,
    `IDBObjectStore`, and `IDBRequest` usage inside IndexedDB repository modules,
    the wallet DB manager, and focused repository tests.
-8. Add a registration persistence guard proving source-of-truth wallet-subject
+8. [ ] Add a registration persistence guard proving source-of-truth wallet-subject
    writes happen before NEAR projection writes in registration code.
-9. Record the current post-refactor 33/35/36/39/40 IndexedDB callsite inventory
+9. [x] Record the current post-refactor 33/35/36/39/40 IndexedDB callsite inventory
    before moving repositories. Use the canonical `flows/`, `session/`,
    `threshold/`, `walletAuth/`, and worker-support paths from
    `docs/refactor-33.md` as the starting inventory, accounting for any
@@ -535,27 +535,27 @@ stabilized.
 
 ### Phase 2. Create the Unified Schema
 
-1. Introduce `SeamsWalletDBManager` with `SEAMS_WALLET_DB_NAME`.
-2. Create wallet-subject source-of-truth stores first:
+1. [x] Introduce `SeamsWalletDBManager` with `SEAMS_WALLET_DB_NAME`.
+2. [x] Create wallet-subject source-of-truth stores first:
    - `seams_wallet_subjects`
    - `seams_wallet_authenticators`
    - `seams_wallet_signers`
    - `seams_near_account_projections`
-3. Replace the existing `PasskeyClientDB` responsibilities with unified-schema
+3. [ ] Replace the existing `PasskeyClientDB` responsibilities with unified-schema
    wallet-subject repositories and NEAR projection repositories.
-4. Replace `PasskeyAccountKeyMaterial` with the unified schema as
+4. [ ] Replace `PasskeyAccountKeyMaterial` with the unified schema as
    `seams_key_material`, keyed by wallet signer identity instead of profile id
    and signer slot.
-5. Replace signing-session sealed records with unified-schema stores:
+5. [x] Replace signing-session sealed records with unified-schema stores:
    - `seams_signing_session_seals`
    - `seams_signing_session_restore_leases`
-6. Replace Email OTP device enrollment escrow records with a unified-schema store:
+6. [x] Replace Email OTP device enrollment escrow records with a unified-schema store:
    - `seams_email_otp_device_enrollment_escrows`
-7. This is a code responsibility move only. Existing browser data in old
+7. [x] This is a code responsibility move only. Existing browser data in old
    databases is discarded; do not read legacy databases to seed `seams_wallet`.
-8. Keep all record schemas strict. Do not add compatibility reads for old object
+8. [x] Keep all record schemas strict. Do not add compatibility reads for old object
    store names.
-9. Keep this phase focused on schema creation and repository construction. The
+9. [ ] Keep this phase focused on schema creation and repository construction. The
    runtime will still open legacy databases until Phase 3 replaces the manager
    assembly and direct stores.
 

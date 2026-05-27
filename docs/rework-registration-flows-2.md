@@ -368,21 +368,23 @@ unions. Authority verification should happen before HSS state is prepared.
 - [x] Add Postgres schema for wallet auth-method bindings.
 - [x] Add Cloudflare Durable Object storage support for auth-method bindings.
 - [x] Add local/client persistence shapes for wallet auth-method bindings.
+- [x] Persist and reload normalized registration ceremony authority branches at
+      the ceremony-store boundary.
 - [x] Keep old passkey authenticator reads behind a persistence-boundary
       parser only if needed for existing development data.
 - [x] Add tests for passkey and Email OTP binding normalization.
 
 ### Phase 3: Recast Passkey Registration As Authority Branch
 
-- [ ] Move current passkey WebAuthn `create()` collection into a passkey
+- [x] Move current passkey WebAuthn `create()` collection into a passkey
       authority adapter.
-- [ ] Move passkey PRF client-secret derivation behind the passkey adapter.
-- [ ] Update `registerWallet()` to consume `authMethod.kind === 'passkey'`.
-- [ ] Keep current `registerPasskey`, `registerNearWallet`, and
+- [x] Move passkey PRF client-secret derivation behind the passkey adapter.
+- [x] Update `registerWallet()` to consume `authMethod.kind === 'passkey'`.
+- [x] Keep current `registerPasskey`, `registerNearWallet`, and
       `registerEvmWallet` wrappers by forwarding explicit passkey auth method.
-- [ ] Update server start route to verify passkey authority through the shared
+- [x] Update server start route to verify passkey authority through the shared
       authority verifier.
-- [ ] Preserve passkey registration semantics across Ed25519-only, ECDSA-only,
+- [x] Preserve passkey registration semantics across Ed25519-only, ECDSA-only,
       and combined modes. Passkey and NEAR convenience wrappers must derive
       their default signer selection from configured provisioning defaults;
       explicit Ed25519-only remains available only through disabled ECDSA

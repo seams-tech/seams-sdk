@@ -10,6 +10,7 @@ import type {
   WalletRegistrationStartResponse,
   WalletSubjectId,
 } from './types';
+import type { RegistrationAuthority } from '@shared/utils/registrationIntent';
 import { getPostgresPool, getPostgresUrlFromConfig } from '../storage/postgres';
 import type { NormalizedLogger } from './logger';
 import { THRESHOLD_DO_OBJECT_NAME_DEFAULT } from './defaultConfigsServer';
@@ -69,6 +70,8 @@ export type StoredRegistrationWebAuthnCredential = {
   credentialPublicKeyB64u: string;
   counter: number;
 };
+
+export type StoredRegistrationAuthority = RegistrationAuthority;
 
 type WalletRegistrationEd25519StartPayload = NonNullable<
   Extract<WalletRegistrationStartResponse, { ok: true }>['ed25519']
@@ -180,7 +183,7 @@ type StoredWalletRegistrationCeremonyBase = {
   signingRootVersion?: string;
   expectedOrigin?: string;
   expiresAtMs: number;
-  webauthn: StoredRegistrationWebAuthnCredential;
+  authority: StoredRegistrationAuthority;
 };
 
 export type StoredWalletRegistrationCeremony = StoredWalletRegistrationCeremonyBase & {
@@ -439,6 +442,82 @@ function parseStoredAddSignerIntent(value: unknown): StoredAddSignerIntent | nul
   return value as StoredAddSignerIntent;
 }
 
+function hasDefinedField(obj: Record<string, unknown>, field: string): boolean {
+  return field in obj && obj[field] !== undefined;
+}
+
+function parseStoredRegistrationAuthority(value: unknown): StoredRegistrationAuthority | null {
+  value = parseJsonValue(value);
+  if (!isRecord(value)) return null;
+  const walletSubjectId =
+    typeof value.walletSubjectId === 'string' && value.walletSubjectId.trim()
+      ? (value.walletSubjectId as WalletSubjectId)
+      : null;
+  const rpId = typeof value.rpId === 'string' && value.rpId.trim() ? value.rpId : null;
+  const registrationIntentDigestB64u =
+    typeof value.registrationIntentDigestB64u === 'string' &&
+    value.registrationIntentDigestB64u.trim()
+      ? value.registrationIntentDigestB64u
+      : null;
+  if (!walletSubjectId || !rpId || !registrationIntentDigestB64u) return null;
+
+  switch (value.kind) {
+    case 'passkey': {
+      if (hasDefinedField(value, 'emailHashHex') || hasDefinedField(value, 'challengeId')) {
+        return null;
+      }
+      const credentialIdB64u =
+        typeof value.credentialIdB64u === 'string' && value.credentialIdB64u.trim()
+          ? value.credentialIdB64u
+          : null;
+      const credentialPublicKeyB64u =
+        typeof value.credentialPublicKeyB64u === 'string' && value.credentialPublicKeyB64u.trim()
+          ? value.credentialPublicKeyB64u
+          : null;
+      const counter = Number(value.counter);
+      if (!credentialIdB64u || !credentialPublicKeyB64u || !Number.isSafeInteger(counter)) {
+        return null;
+      }
+      return {
+        kind: 'passkey',
+        walletSubjectId,
+        rpId,
+        credentialIdB64u,
+        credentialPublicKeyB64u,
+        counter,
+        registrationIntentDigestB64u,
+      };
+    }
+    case 'email_otp': {
+      if (
+        hasDefinedField(value, 'credentialIdB64u') ||
+        hasDefinedField(value, 'credentialPublicKeyB64u') ||
+        hasDefinedField(value, 'counter')
+      ) {
+        return null;
+      }
+      const emailHashHex =
+        typeof value.emailHashHex === 'string' && value.emailHashHex.trim()
+          ? value.emailHashHex
+          : null;
+      const challengeId =
+        typeof value.challengeId === 'string' && value.challengeId.trim()
+          ? value.challengeId
+          : null;
+      if (!emailHashHex || !challengeId) return null;
+      return {
+        kind: 'email_otp',
+        walletSubjectId,
+        rpId,
+        emailHashHex,
+        challengeId,
+        registrationIntentDigestB64u,
+      };
+    }
+  }
+  return null;
+}
+
 function parseStoredWalletRegistrationCeremony(
   value: unknown,
 ): StoredWalletRegistrationCeremony | null {
@@ -451,8 +530,12 @@ function parseStoredWalletRegistrationCeremony(
   if (typeof value.digestB64u !== 'string' || !value.digestB64u.trim()) return null;
   if (typeof value.orgId !== 'string') return null;
   if (!Number.isFinite(Number(value.expiresAtMs))) return null;
-  if (!isRecord(value.webauthn) || !isRecord(value.signerState)) return null;
-  return value as StoredWalletRegistrationCeremony;
+  const authority = parseStoredRegistrationAuthority(value.authority);
+  if (!authority || !isRecord(value.signerState)) return null;
+  return {
+    ...(value as Omit<StoredWalletRegistrationCeremony, 'authority'>),
+    authority,
+  };
 }
 
 function parseStoredWalletAddSignerCeremony(value: unknown): StoredWalletAddSignerCeremony | null {

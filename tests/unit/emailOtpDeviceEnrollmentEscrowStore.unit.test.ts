@@ -43,12 +43,12 @@ test.describe('Email OTP device enrollment escrow store', () => {
         });
 
         const rawRecord = await new Promise<unknown>((resolve, reject) => {
-          const openReq = indexedDB.open('seams_email_otp_device_enrollment_escrows_v1');
+          const openReq = indexedDB.open('seams_wallet');
           openReq.onsuccess = () => {
             const db = openReq.result;
-            const tx = db.transaction('email_otp_device_enrollment_escrows_v1', 'readonly');
+            const tx = db.transaction('seams_email_otp_device_enrollment_escrows', 'readonly');
             const getReq = tx
-              .objectStore('email_otp_device_enrollment_escrows_v1')
+              .objectStore('seams_email_otp_device_enrollment_escrows')
               .get(['alice.testnet', 'google-sub-1', 'enrollment-1']);
             getReq.onsuccess = () => {
               const value = getReq.result;
@@ -104,36 +104,41 @@ test.describe('Email OTP device enrollment escrow store', () => {
         const mod = await import(paths.store);
         await mod.clearAllEmailOtpDeviceEnrollmentEscrowRecords();
         const db = await new Promise<IDBDatabase>((resolve, reject) => {
-          const req = indexedDB.open('seams_email_otp_device_enrollment_escrows_v1', 1);
+          const req = indexedDB.open('seams_wallet', 1);
           req.onupgradeneeded = () => {
-            if (!req.result.objectStoreNames.contains('email_otp_device_enrollment_escrows_v1')) {
-              req.result.createObjectStore('email_otp_device_enrollment_escrows_v1', {
-                keyPath: ['walletId', 'authSubjectId', 'enrollmentId'],
+            if (!req.result.objectStoreNames.contains('seams_email_otp_device_enrollment_escrows')) {
+              req.result.createObjectStore('seams_email_otp_device_enrollment_escrows', {
+                keyPath: ['wallet_id', 'auth_subject_id', 'enrollment_id'],
               });
             }
           };
           req.onsuccess = () => resolve(req.result);
           req.onerror = () => reject(req.error);
         });
-        const tx = db.transaction('email_otp_device_enrollment_escrows_v1', 'readwrite');
-        const store = tx.objectStore('email_otp_device_enrollment_escrows_v1');
+        const tx = db.transaction('seams_email_otp_device_enrollment_escrows', 'readwrite');
+        const store = tx.objectStore('seams_email_otp_device_enrollment_escrows');
         store.put({
-          v: 1,
-          alg: 'shamir3pass-v1',
-          storageScope: 'iframe_origin_indexeddb',
-          secretKind: 'email_otp_device_enrollment_escrow_enc_s',
-          walletId: 'alice.testnet',
-          authSubjectId: 'google-sub-1',
-          authMethod: 'google_sso_email_otp',
-          enrollmentId: 'bad-enrollment',
-          enrollmentVersion: '1',
-          enrollmentSealKeyVersion: 'seal-v1',
-          signingRootId: 'root-1',
-          signingRootVersion: 'root-v1',
-          encSB64u: 'ZW5jX3Nfcy1ieXRlcw',
-          issuedAtMs: Date.now(),
-          updatedAtMs: Date.now(),
-          clientSecretB64u: 'plaintext-s',
+          wallet_id: 'alice.testnet',
+          auth_subject_id: 'google-sub-1',
+          enrollment_id: 'bad-enrollment',
+          escrow_record: {
+            v: 1,
+            alg: 'shamir3pass-v1',
+            storageScope: 'iframe_origin_indexeddb',
+            secretKind: 'email_otp_device_enrollment_escrow_enc_s',
+            walletId: 'alice.testnet',
+            authSubjectId: 'google-sub-1',
+            authMethod: 'google_sso_email_otp',
+            enrollmentId: 'bad-enrollment',
+            enrollmentVersion: '1',
+            enrollmentSealKeyVersion: 'seal-v1',
+            signingRootId: 'root-1',
+            signingRootVersion: 'root-v1',
+            encSB64u: 'ZW5jX3Nfcy1ieXRlcw',
+            issuedAtMs: Date.now(),
+            updatedAtMs: Date.now(),
+            clientSecretB64u: 'plaintext-s',
+          },
         });
         await new Promise<void>((resolve, reject) => {
           tx.oncomplete = () => resolve();

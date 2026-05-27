@@ -187,6 +187,7 @@ function ecdsaServerBootstrapValue(input: {
   const expiresAtMs = Date.now() + 60_000;
   return {
     formatVersion: 'ecdsa-hss-role-local',
+    walletId: input.request.walletId,
     walletSessionUserId: input.request.walletSessionUserId,
     rpId: input.request.rpId,
     subjectId: input.request.subjectId,

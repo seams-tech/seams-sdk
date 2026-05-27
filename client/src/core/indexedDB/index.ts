@@ -2,7 +2,19 @@ export { PasskeyClientDBManager, DBConstraintError } from './passkeyClientDB/man
 export { AccountKeyMaterialDBManager } from './accountKeyMaterialDB/manager';
 export { UnifiedIndexedDBManager } from './unifiedIndexedDBManager';
 export { createIndexedDBNonceLaneCoordinationStore } from './nonceLaneCoordinationStore';
-export { passkeyClientDB, accountKeyMaterialDB } from './singletons';
+export { passkeyClientDB, accountKeyMaterialDB, seamsWalletDB } from './singletons';
+export {
+  LEGACY_INDEXED_DB_NAMES,
+  SEAMS_WALLET_DB_NAME,
+  SEAMS_WALLET_DB_VERSION,
+  SEAMS_WALLET_INDEXES,
+  SEAMS_WALLET_SCHEMA_MANIFEST,
+  SEAMS_WALLET_STORES,
+  assertCanonicalIndexedDBName,
+  createSeamsTestWalletDbName,
+} from './schemaNames';
+export { upgradeSeamsWalletDBSchema } from './seamsWalletDB/schema';
+export { SeamsWalletDBManager } from './seamsWalletDB/manager';
 
 export type {
   ActivateAccountSignerInput,
@@ -64,7 +76,7 @@ export type {
 } from './accountKeyMaterialDB.types';
 
 import { UnifiedIndexedDBManager } from './unifiedIndexedDBManager';
-import { passkeyClientDB, accountKeyMaterialDB } from './singletons';
+import { passkeyClientDB, accountKeyMaterialDB, seamsWalletDB } from './singletons';
 
 export type IndexedDBMode = 'app' | 'wallet' | 'disabled';
 
@@ -149,8 +161,10 @@ export function configureIndexedDB(args: { mode: IndexedDBMode }): {
   configured = { mode, ...next };
   passkeyClientDB.setDbName(next.clientDbName);
   accountKeyMaterialDB.setDbName(next.accountKeyMaterialDbName);
+  seamsWalletDB.setDbName('seams_wallet');
   passkeyClientDB.setDisabled(next.clientDisabled);
   accountKeyMaterialDB.setDisabled(next.accountKeyMaterialDisabled);
+  seamsWalletDB.setDisabled(next.clientDisabled && next.accountKeyMaterialDisabled);
   return {
     clientDbName: configured.clientDbName,
     accountKeyMaterialDbName: configured.accountKeyMaterialDbName,

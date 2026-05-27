@@ -1,6 +1,7 @@
 # Bundle Size Optimization Plan
 
-Status: Phase 1 measurement gates implemented; Phase 2+ pending.
+Status: Phase 1 measurement gates implemented; Phase 2 boot shell implemented;
+Phase 3+ pending.
 
 This plan targets the wallet iframe and embedded SDK asset graph first. The
 current bundle-size problem is concentrated in the wallet iframe host runtime:
@@ -152,6 +153,17 @@ Acceptance criteria:
 Split `client/src/core/WalletIframe/host/index.ts` into a lightweight host shell
 and lazy runtime modules.
 
+Implementation tasks:
+
+1. [x] Keep `host/index.ts` as the boot shell and listener registration entry.
+2. [x] Add `host/requestRouter.ts` with discriminated request dispatch.
+3. [x] Add `host/runtimeLoader.ts` with cached lazy runtime imports.
+4. [x] Keep `PING`, `PM_SET_CONFIG`, and `PM_CANCEL` on the boot path.
+5. [x] Move route parsing inside the wallet host error boundary.
+6. [x] Lazy-load signer error canonicalization on runtime errors.
+7. [ ] Split `host/runtimeContext.ts` out of the current runtime context code.
+8. [ ] Split the current heavy runtime into domain-specific runtime modules.
+
 Proposed files:
 
 | File | Responsibility |
@@ -183,10 +195,10 @@ splitting remains incremental.
 
 Acceptance criteria:
 
-1. `wallet-iframe-host-runtime.js` can send `READY` without loading `SeamsPasskey`.
-2. `PING` and `PM_SET_CONFIG` complete before the heavy runtime chunk loads.
-3. The first signing/auth/export request lazy-loads the required runtime.
-4. No app-origin persistence fallback is introduced.
+1. [x] `wallet-iframe-host-runtime.js` can send `READY` without loading `SeamsPasskey`.
+2. [x] `PING` and `PM_SET_CONFIG` complete before the heavy runtime chunk loads.
+3. [x] The first signing/auth/export request lazy-loads the required runtime.
+4. [x] No app-origin persistence fallback is introduced.
 
 ## Phase 3: Split Domain Handlers
 

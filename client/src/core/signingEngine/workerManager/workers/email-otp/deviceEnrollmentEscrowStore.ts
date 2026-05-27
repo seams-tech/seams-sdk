@@ -1,16 +1,24 @@
 import { base64UrlDecode } from '@shared/utils/base64';
 import { normalizeInteger, normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
+import {
+  SEAMS_WALLET_DB_NAME,
+  SEAMS_WALLET_DB_VERSION,
+  SEAMS_WALLET_INDEXES,
+  SEAMS_WALLET_STORES,
+} from '../../../../indexedDB/schemaNames';
+import { upgradeSeamsWalletDBSchema } from '../../../../indexedDB/seamsWalletDB/schema';
 
 export const EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_RECORD_VERSION = 1 as const;
 export const EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_DB_NAME =
-  'seams_email_otp_device_enrollment_escrows_v1' as const;
-export const EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_DB_VERSION = 1 as const;
+  SEAMS_WALLET_DB_NAME;
+export const EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_DB_VERSION = SEAMS_WALLET_DB_VERSION;
 export const EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_STORE_NAME =
-  'email_otp_device_enrollment_escrows_v1' as const;
+  SEAMS_WALLET_STORES.emailOtpDeviceEnrollmentEscrows;
 export const EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_STORAGE_SCOPE = 'iframe_origin_indexeddb' as const;
 export const EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_ALG = 'shamir3pass-v1' as const;
 export const EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_SECRET_KIND =
   'email_otp_device_enrollment_escrow_enc_s' as const;
+const EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_PAYLOAD_FIELD = 'escrow_record';
 
 export type EmailOtpDeviceEnrollmentEscrowRecord = {
   v: typeof EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_RECORD_VERSION;
@@ -71,16 +79,21 @@ function transactionDone(tx: IDBTransaction): Promise<void> {
 
 function createStoreIndexes(store: IDBObjectStore): void {
   const indexes: Array<[string, string | string[]]> = [
-    ['walletId', 'walletId'],
-    ['authSubjectId', 'authSubjectId'],
-    ['enrollmentId', 'enrollmentId'],
-    ['wallet_authSubject', ['walletId', 'authSubjectId']],
-    ['wallet_authSubject_enrollment', ['walletId', 'authSubjectId', 'enrollmentId']],
-    ['signingRootId', 'signingRootId'],
+    [SEAMS_WALLET_INDEXES.walletId, 'wallet_id'],
+    [SEAMS_WALLET_INDEXES.authSubjectId, 'auth_subject_id'],
+    [SEAMS_WALLET_INDEXES.enrollmentId, 'enrollment_id'],
+    [SEAMS_WALLET_INDEXES.walletIdAuthSubjectId, ['wallet_id', 'auth_subject_id']],
+    [
+      SEAMS_WALLET_INDEXES.walletIdAuthSubjectIdEnrollmentId,
+      ['wallet_id', 'auth_subject_id', 'enrollment_id'],
+    ],
+    [SEAMS_WALLET_INDEXES.signingRootId, 'signing_root_id'],
   ];
   for (const [name, keyPath] of indexes) {
     try {
-      store.createIndex(name, keyPath, { unique: name === 'wallet_authSubject_enrollment' });
+      store.createIndex(name, keyPath, {
+        unique: name === SEAMS_WALLET_INDEXES.walletIdAuthSubjectIdEnrollmentId,
+      });
     } catch {}
   }
 }
@@ -88,7 +101,7 @@ function createStoreIndexes(store: IDBObjectStore): void {
 function ensureEmailOtpDeviceEnrollmentEscrowStore(db: IDBDatabase): void {
   const store = !db.objectStoreNames.contains(EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_STORE_NAME)
     ? db.createObjectStore(EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_STORE_NAME, {
-        keyPath: ['walletId', 'authSubjectId', 'enrollmentId'],
+        keyPath: ['wallet_id', 'auth_subject_id', 'enrollment_id'],
       })
     : null;
   if (store) createStoreIndexes(store);
@@ -109,6 +122,7 @@ function openEmailOtpDeviceEnrollmentEscrowDb(): Promise<IDBDatabase | null> {
       return;
     }
     request.onupgradeneeded = () => {
+      upgradeSeamsWalletDBSchema(request.result, request.transaction);
       ensureEmailOtpDeviceEnrollmentEscrowStore(request.result);
     };
     request.onsuccess = () => resolve(request.result);
@@ -128,6 +142,17 @@ function isValidBase64UrlBytes(value: string): boolean {
 export function normalizeEmailOtpDeviceEnrollmentEscrowRecord(
   value: unknown,
 ): EmailOtpDeviceEnrollmentEscrowRecord | null {
+  const row =
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  if (
+    row &&
+    EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_PAYLOAD_FIELD in row &&
+    row[EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_PAYLOAD_FIELD]
+  ) {
+    value = row[EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_PAYLOAD_FIELD];
+  }
   const obj =
     value && typeof value === 'object' && !Array.isArray(value)
       ? (value as Record<string, unknown>)
@@ -197,6 +222,21 @@ export function normalizeEmailOtpDeviceEnrollmentEscrowRecord(
   };
 }
 
+function emailOtpDeviceEnrollmentEscrowStorageRow(
+  record: EmailOtpDeviceEnrollmentEscrowRecord,
+): Record<string, unknown> {
+  return {
+    wallet_id: record.walletId,
+    user_id: record.userId,
+    auth_subject_id: record.authSubjectId,
+    enrollment_id: record.enrollmentId,
+    signing_root_id: record.signingRootId,
+    signing_root_version: record.signingRootVersion,
+    updated_at: record.updatedAtMs,
+    [EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_PAYLOAD_FIELD]: record,
+  };
+}
+
 export async function readEmailOtpDeviceEnrollmentEscrowRecord(args: {
   walletId: string;
   authSubjectId: string;
@@ -230,7 +270,9 @@ export async function readSingleEmailOtpDeviceEnrollmentEscrowRecordForWallet(ar
   if (!db) return null;
   try {
     const tx = db.transaction(EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_STORE_NAME, 'readonly');
-    const index = tx.objectStore(EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_STORE_NAME).index('walletId');
+    const index = tx
+      .objectStore(EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_STORE_NAME)
+      .index(SEAMS_WALLET_INDEXES.walletId);
     const values = await requestToPromise(index.getAll(walletId));
     const records = values
       .map((value) => normalizeEmailOtpDeviceEnrollmentEscrowRecord(value))
@@ -282,7 +324,9 @@ export async function writeEmailOtpDeviceEnrollmentEscrowRecord(
     const tx = db.transaction(EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_STORE_NAME, 'readwrite');
     const done = transactionDone(tx);
     await requestToPromise(
-      tx.objectStore(EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_STORE_NAME).put(record),
+      tx
+        .objectStore(EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_STORE_NAME)
+        .put(emailOtpDeviceEnrollmentEscrowStorageRow(record)),
     );
     await done;
   } finally {

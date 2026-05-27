@@ -113,10 +113,14 @@ function makeCeremony(expiresAtMs = Date.now() + 60_000): StoredWalletRegistrati
     digestB64u: 'digest',
     orgId: 'org_registration_store',
     expiresAtMs,
-    webauthn: {
+    authority: {
+      kind: 'passkey',
+      walletSubjectId: INTENT.walletSubjectId,
+      rpId: INTENT.rpId,
       credentialIdB64u: 'credential',
       credentialPublicKeyB64u: 'public-key',
       counter: 0,
+      registrationIntentDigestB64u: 'digest',
     },
     signerState: {
       kind: 'ed25519_prepared',
@@ -212,4 +216,39 @@ test('Cloudflare Durable Object registration ceremony store consumes grants and 
   await expect(
     store.takeAddSignerCeremony(addSignerCeremony.addSignerCeremonyId),
   ).resolves.toBeNull();
+});
+
+test('registration ceremony store rejects mixed raw authority branches', async () => {
+  const namespace = new FakeDurableObjectNamespace();
+  const store = createRegistrationCeremonyStore({
+    config: {
+      kind: 'cloudflare-do',
+      namespace,
+      name: 'registration-store-test',
+      keyPrefix: 'test-prefix',
+    },
+    logger: undefined,
+    isNode: false,
+  });
+
+  const ceremony = makeCeremony();
+  const mixedAuthorityCeremony = {
+    ...ceremony,
+    authority: {
+      ...ceremony.authority,
+      emailHashHex: 'abcd',
+      challengeId: 'challenge',
+    },
+  };
+  await namespace.stub.fetch('https://durable-object.test', {
+    method: 'POST',
+    body: JSON.stringify({
+      op: 'set',
+      key: `test-prefix:wallet-registration:ceremony:${ceremony.registrationCeremonyId}`,
+      value: mixedAuthorityCeremony,
+      ttlMs: 60_000,
+    }),
+  });
+
+  await expect(store.getCeremony(ceremony.registrationCeremonyId)).resolves.toBeNull();
 });

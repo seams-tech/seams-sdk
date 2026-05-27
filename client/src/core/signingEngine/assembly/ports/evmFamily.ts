@@ -1,4 +1,5 @@
-import { IndexedDBManager } from '@/core/indexedDB';
+import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
+import { getBrowserPlatformIndexedDB } from '@/core/platform';
 import type { EvmFamilySigningDeps } from '../../interfaces/operationDeps';
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import {
@@ -14,12 +15,14 @@ import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export function createEvmFamilySigningDeps(args: {
   createArgs: CreateSigningEnginePortsArgs;
+  indexedDB?: UnifiedIndexedDBManager;
   signingSessionCoordinator: SigningSessionCoordinator;
   getEmailOtpWarmSessionStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
 }): EvmFamilySigningDeps {
   const { createArgs, signingSessionCoordinator, getEmailOtpWarmSessionStatus } = args;
+  const indexedDB = args.indexedDB || getBrowserPlatformIndexedDB(createArgs.platformRuntime);
   return {
-    indexedDB: IndexedDBManager,
+    indexedDB,
     seamsPasskeyConfigs: createArgs.seamsPasskeyConfigs,
     nonceCoordinator: createArgs.nonceCoordinator,
     ensureSealedRefreshStartupParity: createArgs.ensureSealedRefreshStartupParity,

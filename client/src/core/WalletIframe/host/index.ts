@@ -9,14 +9,9 @@ import type { SeamsConfigsInput } from '../../types/seams';
 import { WalletIframeDomEvents } from '../events';
 import { isObject } from '@shared/utils/validation';
 import { errorMessage } from '@shared/utils/errors';
-import {
-  isWalletSignerBoundaryRequestType,
-  isCanonicalSignerSessionBoundaryCode,
-  resolveWalletBoundarySignerKind,
-  resolveWalletBoundaryErrorCode,
-  resolveWalletBoundaryErrorMessage,
-} from './canonicalSignerErrorCode';
 import type { WalletHostRuntimeState } from './runtime';
+import { loadWalletHostRuntime } from './runtimeLoader';
+import { routeRequiresRuntime, routeWalletHostRequest } from './requestRouter';
 
 const PROTOCOL: ReadyPayload['protocolVersion'] = '1.0.0';
 let initialized = false;
@@ -27,13 +22,6 @@ const CONFIRM_UI_SELECTORS = [
   'w3a-tx-confirmer',
   'w3a-export-key-viewer',
 ] as const;
-
-let runtimePromise: Promise<typeof import('./runtime')> | null = null;
-
-function loadRuntime(): Promise<typeof import('./runtime')> {
-  runtimePromise ??= import('./runtime');
-  return runtimePromise;
-}
 
 export function initWalletIFrame(): void {
   if (initialized) return;
@@ -106,40 +94,43 @@ export function initWalletIFrame(): void {
     if (!req || !isObject(req)) return;
     const requestId = req.requestId;
 
-    if (req.type === 'PING') {
-      post({ type: 'PONG', requestId });
-      return;
-    }
-
-    if (req.type === 'PM_SET_CONFIG') {
-      state.walletConfigs = {
-        ...(state.walletConfigs || ({} as SeamsConfigsInput)),
-        ...(req.payload as PMSetConfigPayload),
-      } as SeamsConfigsInput;
-      post({ type: 'PONG', requestId });
-      return;
-    }
-
-    if (req.type === 'PM_CANCEL') {
-      const rid = req.payload?.requestId;
-      markCancelled(rid);
-      cancelOpenConfirmers();
-      if (rid) emitCancellationPayload(rid);
-      post({ type: 'PONG', requestId });
-      return;
-    }
-
     try {
-      const runtime = await loadRuntime();
+      const route = routeWalletHostRequest(req);
+
+      if (!routeRequiresRuntime(route)) {
+        switch (route.type) {
+          case 'PING':
+            post({ type: 'PONG', requestId });
+            return;
+          case 'PM_SET_CONFIG':
+            state.walletConfigs = {
+              ...(state.walletConfigs || ({} as SeamsConfigsInput)),
+              ...(route.request.payload as PMSetConfigPayload),
+            } as SeamsConfigsInput;
+            post({ type: 'PONG', requestId });
+            return;
+          case 'PM_CANCEL': {
+            const rid = (route.request.payload as { requestId?: string } | undefined)?.requestId;
+            markCancelled(rid);
+            cancelOpenConfirmers();
+            if (rid) emitCancellationPayload(rid);
+            post({ type: 'PONG', requestId });
+            return;
+          }
+        }
+      }
+
+      const runtime = await loadWalletHostRuntime(route);
       await runtime.handleWalletHostRuntimeRequest({
         state,
-        req,
+        req: route.request,
         post,
         postToParent,
         isCancelled,
         respondIfCancelled,
       });
     } catch (err: unknown) {
+      const canonicalSignerErrors = await import('./canonicalSignerErrorCode');
       const codeRaw =
         err && typeof err === 'object' && 'code' in err
           ? (err as { code?: unknown }).code
@@ -149,13 +140,13 @@ export function initWalletIFrame(): void {
           ? (err as { details?: unknown }).details
           : undefined;
       const message = errorMessage(err);
-      const code = resolveWalletBoundaryErrorCode({
+      const code = canonicalSignerErrors.resolveWalletBoundaryErrorCode({
         requestType: req.type,
         rawCode: codeRaw,
         message,
         defaultCode: 'HOST_ERROR',
       });
-      const canonicalMessage = resolveWalletBoundaryErrorMessage({
+      const canonicalMessage = canonicalSignerErrors.resolveWalletBoundaryErrorMessage({
         requestType: req.type,
         rawCode: codeRaw,
         code,
@@ -165,7 +156,7 @@ export function initWalletIFrame(): void {
         detailsRaw && typeof detailsRaw === 'object'
           ? (detailsRaw as Record<string, unknown>)
           : undefined;
-      const signerKind = resolveWalletBoundarySignerKind({
+      const signerKind = canonicalSignerErrors.resolveWalletBoundarySignerKind({
         requestType: req.type,
         details,
       });
@@ -175,8 +166,8 @@ export function initWalletIFrame(): void {
         payload: {
           code,
           message: canonicalMessage,
-          ...(isWalletSignerBoundaryRequestType(req.type) &&
-          isCanonicalSignerSessionBoundaryCode(code) &&
+          ...(canonicalSignerErrors.isWalletSignerBoundaryRequestType(req.type) &&
+          canonicalSignerErrors.isCanonicalSignerSessionBoundaryCode(code) &&
           signerKind
             ? { signerKind }
             : {}),

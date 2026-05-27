@@ -3,11 +3,11 @@ export const SIGNING_SESSION_SEAL_ALG = 'shamir3pass-v1' as const;
 export const SIGNING_SESSION_SEAL_STORAGE_SCOPE = 'iframe_origin_indexeddb' as const;
 export const SIGNING_SESSION_SECRET_KIND = 'signing_session_secret32' as const;
 
-export const SIGNING_SESSION_SEAL_DB_NAME = 'seams_wallet_v1' as const;
-export const SIGNING_SESSION_SEAL_DB_VERSION = 5 as const;
-export const SIGNING_SESSION_SEAL_STORE_NAME = 'signing_session_seals_v1' as const;
+export const SIGNING_SESSION_SEAL_DB_NAME = 'seams_wallet' as const;
+export const SIGNING_SESSION_SEAL_DB_VERSION = 1 as const;
+export const SIGNING_SESSION_SEAL_STORE_NAME = 'seams_signing_session_seals' as const;
 export const SIGNING_SESSION_RESTORE_LEASE_STORE_NAME =
-  'signing_session_restore_leases_v1' as const;
+  'seams_signing_session_restore_leases' as const;
 
 export const PASSKEY_PRF_FIRST_SALT_V1 = new Uint8Array([
   0x40, 0x0c, 0x31, 0x8b, 0x66, 0x95, 0x97, 0x36, 0x59, 0xa1, 0x69, 0x8a, 0xe5, 0x80, 0xdf, 0xd8,

@@ -43,6 +43,16 @@ const intent = {
   nonceB64u: 'nonce',
 } satisfies RegistrationIntentV1;
 
+const passkeyAuthority = {
+  kind: 'passkey',
+  walletSubjectId: intent.walletSubjectId,
+  rpId: intent.rpId,
+  credentialIdB64u: 'credential',
+  credentialPublicKeyB64u: 'public-key',
+  counter: 0,
+  registrationIntentDigestB64u: 'digest',
+} as const;
+
 const preparedSession = {
   contextBindingB64u: 'context',
   evaluatorDriverStateB64u: 'driver',
@@ -218,11 +228,7 @@ void ({
   digestB64u: 'digest',
   orgId: 'org',
   expiresAtMs: 1,
-  webauthn: {
-    credentialIdB64u: 'credential',
-    credentialPublicKeyB64u: 'public-key',
-    counter: 0,
-  },
+  authority: passkeyAuthority,
   signerState: preparedEd25519,
 } satisfies StoredWalletRegistrationCeremony);
 
@@ -232,11 +238,7 @@ void ({
   digestB64u: 'digest',
   orgId: 'org',
   expiresAtMs: 1,
-  webauthn: {
-    credentialIdB64u: 'credential',
-    credentialPublicKeyB64u: 'public-key',
-    counter: 0,
-  },
+  authority: passkeyAuthority,
   signerState: respondedEd25519,
 } satisfies StoredWalletRegistrationCeremony);
 
@@ -247,11 +249,7 @@ for (const signerState of [finalizingEd25519, completedEd25519, failedRegistrati
     digestB64u: 'digest',
     orgId: 'org',
     expiresAtMs: 1,
-    webauthn: {
-      credentialIdB64u: 'credential',
-      credentialPublicKeyB64u: 'public-key',
-      counter: 0,
-    },
+    authority: passkeyAuthority,
     signerState,
   } satisfies StoredWalletRegistrationCeremony);
 }
@@ -263,11 +261,7 @@ for (const signerState of [preparedEcdsa, respondedEcdsa, completedEcdsa]) {
     digestB64u: 'digest',
     orgId: 'org',
     expiresAtMs: 1,
-    webauthn: {
-      credentialIdB64u: 'credential',
-      credentialPublicKeyB64u: 'public-key',
-      counter: 0,
-    },
+    authority: passkeyAuthority,
     signerState,
   } satisfies StoredWalletRegistrationCeremony);
 }
@@ -346,11 +340,7 @@ void ({
   digestB64u: 'digest',
   orgId: 'org',
   expiresAtMs: 1,
-  webauthn: {
-    credentialIdB64u: 'credential',
-    credentialPublicKeyB64u: 'public-key',
-    counter: 0,
-  },
+  authority: passkeyAuthority,
   signerState: {
     kind: 'ed25519_prepared',
     ceremonyHandle: 'hss-handle',

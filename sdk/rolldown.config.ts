@@ -421,6 +421,8 @@ const configs = [
       '../client/src/core/indexedDB/accountKeyMaterialDB/manager.ts',
       // Keep Email OTP device-local escrow store as a stable deep import for worker wiring/tests.
       '../client/src/core/signingEngine/workerManager/workers/email-otp/deviceEnrollmentEscrowStore.ts',
+      // Keep sealed signing-session persistence stable for worker wiring/tests.
+      '../client/src/core/signingEngine/session/persistence/sealedSessionStore.ts',
       // Keep worker-facing WASM wrapper exports stable for deep imports used by tests/tools.
       '../client/src/core/signingEngine/chains/evm/ethSignerWasm.ts',
     ],

@@ -22,16 +22,13 @@ import {
 import type { SigningEnginePublic } from '../signingEngine/SigningEngine';
 import { type ConfirmationConfig } from '../types/signer-worker';
 import { toAccountId, type AccountId } from '../types/accountIds';
-import type { WebAuthnRegistrationCredential } from '../types/webauthn';
 import { getUserFriendlyErrorMessage } from '@shared/utils/errors';
 import { checkNearAccountExistsBestEffort } from '../rpcClients/near/rpcCalls';
 import { redactCredentialExtensionOutputs } from '../signingEngine/webauthnAuth/credentials/credentialExtensions';
-import {
-  derivePasskeyThresholdEcdsaClientRootShare32B64uFromCredential,
-  derivePasskeyThresholdEcdsaClientRootShare32B64uFromPrfFirst,
-} from '../signingEngine/session/passkey/ecdsaClientRoot';
+import { derivePasskeyThresholdEcdsaClientRootShare32B64uFromCredential } from '../signingEngine/session/passkey/ecdsaClientRoot';
 import { normalizeRegistrationCredential } from '../signingEngine/webauthnAuth/credentials/helpers';
 import { IndexedDBManager } from '../indexedDB';
+import type { WebAuthnRegistrationCredential } from '../types/webauthn';
 import type { ThresholdRuntimePolicyScope } from '../signingEngine/threshold/sessionPolicy';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type {
@@ -57,6 +54,7 @@ import {
   startWalletRegistration,
 } from '../rpcClients/relayer/walletRegistration';
 import { buildPasskeyNearWalletRegistrationSignerSelection } from './registrationSignerSelection';
+import { collectPasskeyRegistrationAuthority } from './passkeyRegistrationAuthority';
 
 // Registration forces a visible, clickable confirmation for cross-origin safety.
 
@@ -203,15 +201,14 @@ async function registerEcdsaWalletOnly(args: {
       behavior: 'requireClick',
       ...(args.confirmationConfigOverride ?? options?.confirmationConfig ?? {}),
     };
-    const registrationSession =
-      await context.signingEngine.requestRegistrationCredentialConfirmation({
-        nearAccountId: String(walletSubjectId),
-        signerSlot: 1,
-        confirmerText: options?.confirmerText,
-        confirmationConfigOverride: confirmationConfig,
-        challengeB64u: intentResponse.registrationIntentDigestB64u,
-      });
-    const credential = registrationSession.credential;
+    const passkeyAuthority = await collectPasskeyRegistrationAuthority({
+      context,
+      walletSubjectId: String(walletSubjectId),
+      signerSlot: 1,
+      registrationIntentDigestB64u: intentResponse.registrationIntentDigestB64u,
+      options,
+      confirmationConfigOverride: confirmationConfig,
+    });
     emitRegistrationEvent(onEvent, eventAccountId, {
       phase: RegistrationEventPhase.STEP_04_PASSKEY_CREATE_SUCCEEDED,
       status: 'succeeded',
@@ -220,20 +217,6 @@ async function registerEcdsaWalletOnly(args: {
         overlay: 'hide',
       },
     });
-
-    const clientRootShare32B64u =
-      await derivePasskeyThresholdEcdsaClientRootShare32B64uFromCredential(credential);
-    if (!clientRootShare32B64u) {
-      throw new Error(
-        'Failed to derive threshold ECDSA client root share from passkey registration',
-      );
-    }
-    const serializedCredential = redactCredentialExtensionOutputs<WebAuthnRegistrationCredential>(
-      normalizeRegistrationCredential(credential),
-    );
-    if (!Array.isArray(serializedCredential.response.transports)) {
-      serializedCredential.response.transports = [];
-    }
 
     emitRegistrationEvent(onEvent, eventAccountId, {
       phase: RegistrationEventPhase.STEP_05_ED25519_SIGNER_PREPARE_STARTED,
@@ -244,7 +227,7 @@ async function registerEcdsaWalletOnly(args: {
       registrationIntentGrant: intentResponse.registrationIntentGrant,
       registrationIntentDigestB64u: intentResponse.registrationIntentDigestB64u,
       intent: intentResponse.intent,
-      webauthnRegistration: serializedCredential,
+      webauthnRegistration: passkeyAuthority.webauthnRegistration,
     });
     if (!startedCeremony.ecdsa) {
       throw new Error('Wallet registration start did not return ECDSA HSS material');
@@ -252,7 +235,7 @@ async function registerEcdsaWalletOnly(args: {
     const preparedClientBootstrap =
       await context.signingEngine.prepareWalletRegistrationEcdsaPreparedClientBootstrap({
         prepare: startedCeremony.ecdsa.prepare,
-        clientRootShare32B64u,
+        clientRootShare32B64u: passkeyAuthority.ecdsaClientRootShare32B64u,
       });
     const responded = await respondWalletRegistrationHss({
       relayerUrl,
@@ -295,7 +278,7 @@ async function registerEcdsaWalletOnly(args: {
     });
     await context.signingEngine.storeWalletSubjectEcdsaRegistrationData({
       walletSubjectId: finalized.walletSubjectId,
-      credential,
+      credential: passkeyAuthority.credential,
       walletKeys,
     });
     emitRegistrationEvent(onEvent, eventAccountId, {
@@ -480,15 +463,14 @@ export async function registerWallet(args: {
       behavior: 'requireClick',
       ...(args.confirmationConfigOverride ?? options?.confirmationConfig ?? {}),
     };
-    const registrationSession =
-      await context.signingEngine.requestRegistrationCredentialConfirmation({
-        nearAccountId: String(nearAccountId),
-        signerSlot: ed25519Selection.signerSlot,
-        confirmerText: options?.confirmerText,
-        confirmationConfigOverride: confirmationConfig,
-        challengeB64u: intentResponse.registrationIntentDigestB64u,
-      });
-    const credential = registrationSession.credential;
+    const passkeyAuthority = await collectPasskeyRegistrationAuthority({
+      context,
+      walletSubjectId: String(intentResponse.intent.walletSubjectId),
+      signerSlot: ed25519Selection.signerSlot,
+      registrationIntentDigestB64u: intentResponse.registrationIntentDigestB64u,
+      options,
+      confirmationConfigOverride: confirmationConfig,
+    });
     emitRegistrationEvent(onEvent, nearAccountId, {
       phase: RegistrationEventPhase.STEP_04_PASSKEY_CREATE_SUCCEEDED,
       status: 'succeeded',
@@ -504,7 +486,7 @@ export async function registerWallet(args: {
     });
     const hssClientMaterial = await prepareThresholdEd25519RegistrationHssClientMaterial({
       context,
-      credential,
+      credential: passkeyAuthority.credential,
       signingRootId,
       nearAccountId,
       keyPurpose: ed25519Selection.keyPurpose,
@@ -512,20 +494,12 @@ export async function registerWallet(args: {
       participantIds: ed25519Selection.participantIds,
       derivationVersion: ed25519Selection.derivationVersion,
     });
-    const thresholdPrfFirstB64u = hssClientMaterial.prfFirstB64u;
-
-    const serializedCredential = redactCredentialExtensionOutputs<WebAuthnRegistrationCredential>(
-      normalizeRegistrationCredential(credential),
-    );
-    if (!Array.isArray(serializedCredential.response.transports)) {
-      serializedCredential.response.transports = [];
-    }
     const startedCeremony = await startWalletRegistration({
       relayerUrl,
       registrationIntentGrant: intentResponse.registrationIntentGrant,
       registrationIntentDigestB64u: intentResponse.registrationIntentDigestB64u,
       intent: intentResponse.intent,
-      webauthnRegistration: serializedCredential,
+      webauthnRegistration: passkeyAuthority.webauthnRegistration,
     });
     if (!startedCeremony.ed25519) {
       throw new Error('Wallet registration start did not return Ed25519 HSS material');
@@ -539,10 +513,7 @@ export async function registerWallet(args: {
         ? (async () =>
             await context.signingEngine.prepareWalletRegistrationEcdsaPreparedClientBootstrap({
               prepare: ecdsaPrepare,
-              clientRootShare32B64u:
-                await derivePasskeyThresholdEcdsaClientRootShare32B64uFromPrfFirst(
-                  thresholdPrfFirstB64u,
-                ),
+              clientRootShare32B64u: passkeyAuthority.ecdsaClientRootShare32B64u,
             }))()
         : Promise.resolve(null);
 
@@ -662,7 +633,7 @@ export async function registerWallet(args: {
       await context.signingEngine.storeWalletSubjectEd25519RegistrationData({
         walletSubjectId: finalized.walletSubjectId,
         nearAccountId,
-        credential,
+        credential: passkeyAuthority.credential,
         operationalPublicKey: completedThresholdEd25519Registration.operationalPublicKey,
         signerSlot: ed25519Selection.signerSlot,
         relayerKeyId: finalized.ed25519.relayerKeyId,
@@ -689,7 +660,7 @@ export async function registerWallet(args: {
       signerSlot,
       rpId,
       relayerUrl,
-      prfFirstB64u: thresholdPrfFirstB64u,
+      prfFirstB64u: passkeyAuthority.prfFirstB64u,
       registrationSessionPolicy: buildThresholdWarmSessionRequestEnvelope({
         rpId,
         requestedPolicy,
@@ -730,7 +701,7 @@ export async function registerWallet(args: {
 
     void prewarmThresholdEd25519ClientBaseFromCredential({
       context,
-      credential,
+      credential: passkeyAuthority.credential,
       nearAccountId,
       signerSlot,
     }).catch(() => undefined);
