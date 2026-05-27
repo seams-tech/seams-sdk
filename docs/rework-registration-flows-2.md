@@ -1,5 +1,7 @@
 # Registration Auth Method Refactor
 
+Status: active follow-up plan for refactor-43 style registration work.
+
 ## Goal
 
 Registration should treat authentication method and signer-family selection as

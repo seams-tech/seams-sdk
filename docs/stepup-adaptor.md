@@ -1,10 +1,38 @@
 # Step-Up Adaptor Refactor Plan
 
 Date created: 2026-05-07
-Status: in progress
+Status: partially implemented; transaction signing slices are wired, recovery/export is still open
 
 Current path note: earlier `sessionEmailOtp/` references now map to
 `session/emailOtp/`.
+
+## Current Status
+
+As of 2026-05-27, this plan is partly implemented and should be read as a
+cleanup/status tracker:
+
+- `walletAuth/` has been deleted. Low-level WebAuthn primitives live under
+  `webauthnAuth/`, and guard coverage blocks the deleted folder from returning.
+- The shared step-up primitives exist:
+  `stepUpConfirmation/requireStepUpAuth.ts`,
+  `stepUpConfirmation/methodSelection.ts`, and
+  `stepUpConfirmation/methodRunners.ts`.
+- EVM-family transaction signing calls the operation-local
+  `flows/signEvmFamily/requireEvmFamilyStepUpAuth.ts` helper, which delegates to
+  `prepareStepUpAuth`.
+- NEAR transaction, delegate, and NEP-413 signing call
+  `flows/signNear/requireNearStepUpAuth.ts`, which delegates to
+  `prepareStepUpAuth`.
+- Recovery/export has not been moved to a `requireExportStepUpAuth` wrapper.
+  Export flows still use recovery-local authorization helpers and direct
+  `otpPrompt/*` imports.
+- Future auth methods are placeholder-only in the shared types and runner
+  interfaces. There are no runtime folders for authenticator OTP, magic link, or
+  password.
+
+The remaining work is primarily cleanup: remove direct operation-flow imports of
+`otpPrompt/*`, remove flow-level `SigningAuthPlanKind` switching, and add the
+recovery/export adaptor slice.
 
 ## Purpose
 
@@ -316,18 +344,34 @@ sequenceDiagram
 
 ### Phase 0: Inventory Current Direct Auth Routing
 
-- [ ] List every flow importing `stepUpConfirmation/otpPrompt/*`.
-- [ ] List every flow importing `stepUpConfirmation/passkeyPrompt/*`.
-- [ ] List every flow switching on `SigningAuthPlanKind`.
-- [ ] List every flow that builds Email OTP challenge, resend, or completion
+- [x] List every flow importing `stepUpConfirmation/otpPrompt/*`.
+- [x] List every flow importing `stepUpConfirmation/passkeyPrompt/*`.
+- [x] List every flow switching on `SigningAuthPlanKind`.
+- [x] List every flow that builds Email OTP challenge, resend, or completion
       closures.
-- [ ] Identify EVM-family, Tempo, NEAR, recovery, and export call sites that
+- [x] Identify EVM-family, Tempo, NEAR, recovery, and export call sites that
       should call `requireStepUpAuth`.
+
+Current production-flow inventory:
+
+- EVM-family uses `requireEvmFamilyStepUpAuth`, while
+  `flows/signEvmFamily/authPlanning.ts`, `ecdsaLanes.ts`,
+  `emailOtpSigningSession.ts`, and `signEvmFamily.ts` still reference
+  `otpPrompt/*` or `SigningAuthPlanKind`.
+- NEAR transaction, delegate, and NEP-413 flows use `requireNearStepUpAuth`,
+  while `flows/signNear/signNear.ts` and
+  `flows/signNear/shared/thresholdAuthMode.ts` still reference
+  `otpPrompt/*` or `SigningAuthPlanKind`.
+- Recovery/export still uses `flows/recovery/keyExportConfirmation.ts`,
+  `flows/recovery/stepUpAuthorization.ts`, and export material helpers instead
+  of a shared export step-up wrapper.
+- UI confirmation handlers still consume `SigningAuthPlan`; this is expected
+  until the confirmation runtime input is narrowed.
 
 Exit criteria:
 
-- [ ] Inventory names exact files, imported symbols, and replacement owner.
-- [ ] No implementation changes in this phase.
+- [x] Inventory names exact files, imported symbols, and replacement owner.
+- [x] No implementation changes in this phase.
 
 ### Phase 1: Split `walletAuth/` Into `webauthnAuth/`
 
@@ -442,7 +486,11 @@ Exit criteria:
 
 ### Phase 5: Recovery And Export Flows
 
-- [x] Use a narrower `requireExportStepUpAuth` wrapper over the shared
+Current status: open. No production `requireExportStepUpAuth` symbol exists.
+Recovery/export confirmation still uses recovery-local helpers and direct
+`otpPrompt/*` import paths.
+
+- [ ] Use a narrower `requireExportStepUpAuth` wrapper over the shared
       `requireStepUpAuth` engine.
 - [ ] Define export-specific request and result types for
       `requireExportStepUpAuth`:
@@ -470,7 +518,7 @@ Exit criteria:
 
 ### Phase 6: Future Auth Method Slots
 
-- [ ] Add compile-time placeholders only as types or tests. Avoid empty runtime
+- [x] Add compile-time placeholders only as types or tests. Avoid empty runtime
       folders for methods without implementation.
 - [ ] Document how to add a method:
       `StepUpMethod` branch, prompt module, runner interface, method-selection
@@ -486,7 +534,7 @@ Exit criteria:
 
 ### Phase 7: Delete Old Routing Paths And Guards
 
-- [ ] Delete `flows/emailOtp/` after its files move.
+- [x] Delete `flows/emailOtp/` after its files move.
 - [ ] Delete direct operation imports of:
       `stepUpConfirmation/otpPrompt/*`,
       `stepUpConfirmation/passkeyPrompt/*`,
@@ -511,8 +559,8 @@ Add or extend `tests/unit/signingEngine.refactor33.guard.unit.test.ts`:
 - [ ] `flows/*` cannot import `stepUpConfirmation/otpPrompt/*`.
 - [ ] `flows/*` cannot import `stepUpConfirmation/passkeyPrompt/*`.
 - [ ] `flows/*` cannot switch on `SigningAuthPlanKind`.
-- [ ] `flows/emailOtp/` is a deleted path.
-- [ ] `flows/passkey/` is a blocked path.
+- [x] `flows/emailOtp/` is a deleted path.
+- [x] `flows/passkey/` is a blocked path.
 - [x] `walletAuth/` is a deleted path.
 - [ ] `stepUpConfirmation/*` may import low-level `webauthnAuth/*` primitives,
       but `webauthnAuth/*` cannot import `stepUpConfirmation/*`.
