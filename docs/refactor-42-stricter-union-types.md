@@ -1,6 +1,6 @@
 # Stricter Union Types Audit for `signingEngine`
 
-Date created: 2026-05-27
+Date created: 2026-05-25
 Status:
 
 ## Scope

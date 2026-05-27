@@ -122,8 +122,8 @@ type NormalizedThresholdEcdsaSessionRecordShared = Omit<
 export type ReadyPasskeyEcdsaSessionRecord = NormalizedThresholdEcdsaSessionRecordShared & {
   source: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
   clientAdditiveShare32B64u?: string;
-  clientAdditiveShareHandle?: never;
-  emailOtpAuthContext?: never;
+  clientAdditiveShareHandle?: ThresholdEcdsaClientAdditiveShareHandle;
+  emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
 };
 
 export type ReadyEmailOtpEcdsaSessionRecord = NormalizedThresholdEcdsaSessionRecordShared & {
@@ -137,7 +137,7 @@ export type NormalizedThresholdEcdsaSessionRecord =
   | ReadyPasskeyEcdsaSessionRecord
   | ReadyEmailOtpEcdsaSessionRecord;
 
-export type ThresholdEcdsaSessionRecord = ThresholdEcdsaSessionRecordCore;
+export type ThresholdEcdsaSessionRecord = NormalizedThresholdEcdsaSessionRecord;
 
 export type ThresholdEcdsaRuntimeLaneKey = string & {
   readonly __brand: 'ThresholdEcdsaRuntimeLaneKey';

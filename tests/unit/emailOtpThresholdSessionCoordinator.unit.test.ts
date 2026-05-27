@@ -1013,7 +1013,6 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
   test('logs in ECDSA Email OTP capability with normalized worker payload and persistence callback', async () => {
     const { coordinator, workerCalls, ecdsaCommitCalls, ed25519ProvisionCalls } =
       createCoordinator();
-    const jwt = appSessionJwt();
     coordinator.provisionEd25519Capability = async (args) => {
       ed25519ProvisionCalls.push(args);
       return {
@@ -1034,6 +1033,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       envId: 'dev',
       signingRootVersion: 'v1',
     };
+    const jwt = appSessionJwtWithRuntimePolicyScope(runtimePolicyScope);
     const keyHandle = await roleLocalEcdsaKeyHandle({
       walletId: 'alice.testnet',
       rpId: 'localhost',
@@ -1113,7 +1113,20 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
 
   test('normal ECDSA Email OTP login derives app-session route auth from appSessionJwt', async () => {
     const { coordinator, workerCalls } = createCoordinator();
-    const jwt = appSessionJwt();
+    const runtimePolicyScope = {
+      orgId: 'org',
+      projectId: 'proj',
+      envId: 'dev',
+      signingRootVersion: 'v1',
+    };
+    const jwt = appSessionJwtWithRuntimePolicyScope(runtimePolicyScope);
+    const keyHandle = await roleLocalEcdsaKeyHandle({
+      walletId: 'alice.testnet',
+      rpId: 'localhost',
+      projectId: runtimePolicyScope.projectId,
+      envId: runtimePolicyScope.envId,
+      signingRootVersion: runtimePolicyScope.signingRootVersion,
+    });
     coordinator.provisionEd25519Capability = async () => ({
       publicKey: 'ed25519-public',
       relayerKeyId: 'relayer-key',
@@ -1131,7 +1144,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       challengeId: 'challenge-1',
       otpCode: '123456',
       appSessionJwt: jwt,
-      keyHandle: 'ehss-key-handle-1',
+      keyHandle,
       participantIds: [1, 3],
       sessionKind: 'jwt',
       ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
@@ -1148,6 +1161,37 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
         },
       },
     });
+  });
+
+  test('ECDSA Email OTP login rejects missing runtime scope before worker unlock', async () => {
+    const { coordinator, workerCalls } = createCoordinator();
+    const jwt = appSessionJwt();
+
+    await expect(
+      coordinator.loginWithEcdsaCapabilityInternal({
+        walletSession: TEST_WALLET_SESSION,
+        chainTarget: TEMPO_CHAIN_TARGET,
+        challengeId: 'challenge-1',
+        otpCode: '123456',
+        appSessionJwt: jwt,
+        routeAuth: { kind: 'app_session', jwt },
+        keyHandle: 'ehss-key-handle-1',
+        participantIds: [1, 3],
+        sessionKind: 'jwt',
+        ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
+        ed25519ReconstructionMode: 'skip',
+        ed25519SessionReconstruction: DEFER_ED25519_RECONSTRUCTION_FOR_ECDSA,
+      }),
+    ).rejects.toThrow('Email OTP ECDSA login requires runtimePolicyScope');
+
+    expect(
+      workerCalls.some((call) => call.request?.type === 'loginWithEmailOtpWallet'),
+    ).toBe(false);
+    expect(
+      workerCalls.some(
+        (call) => call.request?.type === 'bootstrapEmailOtpEcdsaSessionsFromClientRootShare',
+      ),
+    ).toBe(false);
   });
 
   test('Email OTP registration bootstrap derives app-session route auth from appSessionJwt', async () => {
@@ -1333,7 +1377,20 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       participantIds: [1, 2],
       jwt: 'threshold-jwt',
     });
-    const jwt = appSessionJwt();
+    const runtimePolicyScope = {
+      orgId: 'org',
+      projectId: 'proj',
+      envId: 'dev',
+      signingRootVersion: 'v1',
+    };
+    const jwt = appSessionJwtWithRuntimePolicyScope(runtimePolicyScope);
+    const keyHandle = await roleLocalEcdsaKeyHandle({
+      walletId: 'alice.testnet',
+      rpId: 'localhost',
+      projectId: runtimePolicyScope.projectId,
+      envId: runtimePolicyScope.envId,
+      signingRootVersion: runtimePolicyScope.signingRootVersion,
+    });
 
     await coordinator.loginWithEcdsaCapabilityInternal({
       walletSession: TEST_WALLET_SESSION,
@@ -1342,7 +1399,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       otpCode: '123456',
       appSessionJwt: jwt,
       routeAuth: { kind: 'app_session', jwt },
-      keyHandle: 'ehss-key-handle-1',
+      keyHandle,
       participantIds: [1, 3],
       sessionKind: 'jwt',
       ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
@@ -1399,14 +1456,29 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       readExactSealedSession: async () => null,
     });
 
+    const runtimePolicyScope = {
+      orgId: 'org',
+      projectId: 'proj',
+      envId: 'dev',
+      signingRootVersion: 'v1',
+    };
+    const jwt = appSessionJwtWithRuntimePolicyScope(runtimePolicyScope);
+    const keyHandle = await roleLocalEcdsaKeyHandle({
+      walletId: 'alice.testnet',
+      rpId: 'localhost',
+      projectId: runtimePolicyScope.projectId,
+      envId: runtimePolicyScope.envId,
+      signingRootVersion: runtimePolicyScope.signingRootVersion,
+    });
+
     await expect(
       coordinator.loginWithEcdsaCapabilityInternal({
         walletSession: TEST_WALLET_SESSION,
         chainTarget: TEMPO_CHAIN_TARGET,
         challengeId: 'challenge-1',
         otpCode: '123456',
-        routeAuth: { kind: 'app_session', jwt: appSessionJwt() },
-        keyHandle: 'ehss-key-handle-1',
+        routeAuth: { kind: 'app_session', jwt },
+        keyHandle,
         participantIds: [1, 3],
         sessionKind: 'jwt',
         ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
@@ -1436,7 +1508,20 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       participantIds: [1, 2],
       jwt: 'threshold-jwt',
     });
-    const jwt = appSessionJwt();
+    const runtimePolicyScope = {
+      orgId: 'org',
+      projectId: 'proj',
+      envId: 'dev',
+      signingRootVersion: 'v1',
+    };
+    const jwt = appSessionJwtWithRuntimePolicyScope(runtimePolicyScope);
+    const keyHandle = await roleLocalEcdsaKeyHandle({
+      walletId: 'alice.testnet',
+      rpId: 'localhost',
+      projectId: runtimePolicyScope.projectId,
+      envId: runtimePolicyScope.envId,
+      signingRootVersion: runtimePolicyScope.signingRootVersion,
+    });
 
     await coordinator.loginWithEcdsaCapabilityInternal({
       walletSession: TEST_WALLET_SESSION,
@@ -1445,7 +1530,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       otpCode: '123456',
       appSessionJwt: jwt,
       routeAuth: { kind: 'app_session', jwt },
-      keyHandle: 'ehss-key-handle-1',
+      keyHandle,
       participantIds: [1, 3],
       sessionKind: 'jwt',
       ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
@@ -1482,6 +1567,19 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
     });
     const thresholdSessionAuthToken = 'exhausted-threshold-session-jwt';
     const authorizingWalletSigningSessionId = 'exhausted-wallet-signing-session';
+    const runtimePolicyScope = {
+      orgId: 'org',
+      projectId: 'proj',
+      envId: 'dev',
+      signingRootVersion: 'v1',
+    };
+    const keyHandle = await roleLocalEcdsaKeyHandle({
+      walletId: 'alice.testnet',
+      rpId: 'localhost',
+      projectId: runtimePolicyScope.projectId,
+      envId: runtimePolicyScope.envId,
+      signingRootVersion: runtimePolicyScope.signingRootVersion,
+    });
 
     const result = await coordinator.loginWithEcdsaCapabilityForSigning({
       walletSession: TEST_WALLET_SESSION,
@@ -1494,7 +1592,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
         authMetadata: { rpId: 'localhost' },
         chainTarget: TEMPO_CHAIN_TARGET,
         relayerUrl: 'https://relay.example',
-        keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-exhausted'),
+        keyHandle: toEvmFamilyEcdsaKeyHandle(keyHandle),
         ecdsaThresholdKeyId: 'ecdsa-key' as any,
         signingRootId: 'signing-root',
         signingRootVersion: 'root-v1',
@@ -1510,6 +1608,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
         thresholdSessionId: 'exhausted-threshold-session',
         walletSigningSessionId: authorizingWalletSigningSessionId,
         thresholdSessionAuthToken,
+        runtimePolicyScope,
         expiresAtMs: Date.now() - 1_000,
         remainingUses: 0,
         emailOtpAuthContext: {

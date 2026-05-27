@@ -78,6 +78,29 @@ const bootstrapWithoutRoleLocalIdentity: EmailOtpEcdsaBootstrapStrictPayload = {
 };
 void bootstrapWithoutRoleLocalIdentity;
 
+// @ts-expect-error ECDSA bootstrap requires runtimePolicyScope.
+const bootstrapWithoutRuntimePolicyScope: EmailOtpEcdsaBootstrapStrictPayload = {
+  relayUrl: 'https://relay.example',
+  walletId: 'wallet.testnet',
+  walletSessionUserId: 'wallet.testnet',
+  userId: 'wallet.testnet',
+  rpId: 'localhost',
+  clientRootShare32B64u: 'client-root-share',
+  chainTarget,
+  publicationChainTargets,
+  roleLocalKeyIdentity,
+  sessionKind: 'jwt',
+  routeAuth,
+};
+void bootstrapWithoutRuntimePolicyScope;
+
+// @ts-expect-error cookie ECDSA bootstrap rejects route auth.
+const cookieBootstrapWithRouteAuth: EmailOtpEcdsaBootstrapStrictPayload = {
+  ...cookieBootstrap,
+  routeAuth,
+};
+void cookieBootstrapWithRouteAuth;
+
 type PresignStepPayload = EthSignerWorkerOperationMap['thresholdEcdsaPresignSessionStep']['payload'];
 
 const presignStep: PresignStepPayload = {

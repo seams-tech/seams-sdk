@@ -42,7 +42,10 @@ import {
   type AppOrThresholdSessionAuth,
 } from '@shared/utils/sessionTokens';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
-import type { EmailOtpWorkerOperationRequestEnvelope } from '@/core/signingEngine/workerManager/workerTypes';
+import type {
+  EmailOtpEcdsaBootstrapRoleLocalKeyIdentity,
+  EmailOtpWorkerOperationRequestEnvelope,
+} from '@/core/signingEngine/workerManager/workerTypes';
 import {
   thresholdEcdsaChainTargetFromRequest,
   thresholdEcdsaChainTargetKey,
@@ -469,6 +472,14 @@ function asWorkerErrorPayload(err: unknown): WorkerErrorPayload {
 
 function readString(value: unknown, label: string): string {
   return requireTrimmedString(value, label);
+}
+
+function readNumber(value: unknown, label: string): number {
+  const normalized = Number(value);
+  if (!Number.isFinite(normalized)) {
+    throw new Error(`${label} must be a finite number`);
+  }
+  return normalized;
 }
 
 function readOptionalString(value: unknown): string | undefined {
@@ -3053,45 +3064,469 @@ function postEmailOtpWorkerProgress(id: string, code: EmailOtpWorkerProgressCode
   postToMainThread({ id, progress: true, payload: { code } });
 }
 
-const EMAIL_OTP_WORKER_OPERATION_TYPES = new Set<EmailOtpWorkerRequest['type']>([
-  'requestEmailOtpChallenge',
-  'requestEmailOtpEnrollmentChallenge',
-  'enrollEmailOtpWallet',
-  'verifyEmailOtpCode',
-  'restoreEmailOtpDeviceEnrollmentEscrow',
-  'removeEmailOtpDeviceEnrollmentEscrowFromDevice',
-  'loginWithEmailOtpWallet',
-  'bootstrapEmailOtpEcdsaSessionsFromClientRootShare',
-  'recoverEmailOtpEd25519ExportPrfFirst',
-  'getEmailOtpWarmSessionStatus',
-  'claimEmailOtpWarmSessionMaterial',
-  'consumeEmailOtpWarmSessionUses',
-  'sealEmailOtpWarmSessionMaterial',
-  'rehydrateEmailOtpEcdsaWarmSessionMaterial',
-  'claimEmailOtpEcdsaSigningShare',
-  'clearEmailOtpWarmSessionMaterial',
-  'exportThresholdEcdsaHssKeyWithEmailOtpAuthorization',
-]);
+function workerPayloadObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function optionalWorkerString(value: unknown): string | undefined {
+  return normalizeOptionalTrimmedString(value) || undefined;
+}
+
+function optionalWorkerPositiveInteger(value: unknown): number | undefined {
+  const normalized = normalizePositiveInteger(value);
+  return normalized == null ? undefined : normalized;
+}
+
+function optionalWorkerNonNegativeInteger(value: unknown): number | undefined {
+  const normalized = normalizeNonNegativeInteger(value);
+  return normalized == null ? undefined : normalized;
+}
+
+function optionalWorkerBooleanTrue(value: unknown): true | undefined {
+  return value === true ? true : undefined;
+}
+
+function parseWorkerRouteAuth(value: unknown, label: string): AppOrThresholdSessionAuth {
+  const obj = workerPayloadObject(value);
+  const kind = normalizeOptionalTrimmedString(obj?.kind);
+  const jwt = normalizeOptionalTrimmedString(obj?.jwt);
+  if ((kind !== 'app_session' && kind !== 'threshold_session') || !jwt) {
+    throw new Error(`${label} requires routeAuth`);
+  }
+  return { kind, jwt } as AppOrThresholdSessionAuth;
+}
+
+function parseOptionalWorkerRouteAuth(value: unknown): AppOrThresholdSessionAuth | undefined {
+  if (value == null) return undefined;
+  return parseWorkerRouteAuth(value, 'Email OTP worker request');
+}
+
+function parseWorkerRuntimePolicyScope(
+  value: unknown,
+  label: string,
+): ThresholdRuntimePolicyScope {
+  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(value);
+  if (!runtimePolicyScope) {
+    throw new Error(`${label} requires runtimePolicyScope`);
+  }
+  return runtimePolicyScope;
+}
+
+function parseOptionalWorkerRuntimePolicyScope(
+  value: unknown,
+): ThresholdRuntimePolicyScope | undefined {
+  return normalizeThresholdRuntimePolicyScope(value) || undefined;
+}
+
+function parseWorkerPublicationChainTargets(args: {
+  chainTarget: ThresholdEcdsaChainTarget;
+  publicationChainTargets: unknown;
+}): ThresholdEcdsaChainTarget[] {
+  return readEcdsaPublicationChainTargets({
+    primaryChainTarget: args.chainTarget,
+    publicationChainTargets: args.publicationChainTargets,
+  });
+}
+
+function parseWorkerChainTarget(value: unknown): ThresholdEcdsaChainTarget {
+  const obj = workerPayloadObject(value);
+  if (!obj) throw new Error('Email OTP worker request requires chainTarget');
+  return thresholdEcdsaChainTargetFromRequest(obj);
+}
+
+function parseWorkerParticipantIds(value: unknown): number[] | undefined {
+  const participantIds = normalizeThresholdEd25519ParticipantIds(value);
+  return participantIds || undefined;
+}
+
+function parseWorkerRoleLocalKeyIdentity(
+  value: unknown,
+): EmailOtpEcdsaBootstrapRoleLocalKeyIdentity {
+  const obj = workerPayloadObject(value);
+  if (!obj) {
+    throw new Error('Email OTP ECDSA bootstrap requires roleLocalKeyIdentity');
+  }
+  return {
+    ecdsaThresholdKeyId: readString(obj.ecdsaThresholdKeyId, 'roleLocalKeyIdentity.ecdsaThresholdKeyId'),
+    signingRootId: readString(obj.signingRootId, 'roleLocalKeyIdentity.signingRootId'),
+    signingRootVersion: readString(
+      obj.signingRootVersion,
+      'roleLocalKeyIdentity.signingRootVersion',
+    ),
+    relayerKeyId: readString(obj.relayerKeyId, 'roleLocalKeyIdentity.relayerKeyId'),
+  };
+}
+
+function parseThresholdEcdsaHssRoleLocalClientStateForWorker(
+  value: unknown,
+): ThresholdEcdsaHssRoleLocalClientState {
+  const obj = workerPayloadObject(value);
+  if (!obj) {
+    throw new Error('Email OTP ECDSA export requires roleLocalState');
+  }
+  if (
+    normalizeOptionalTrimmedString(obj.kind) !== 'role_local_ready' ||
+    normalizeOptionalTrimmedString(obj.artifactKind) !== 'ecdsa-hss-role-local-client-state'
+  ) {
+    throw new Error('Email OTP ECDSA export requires ready roleLocalState');
+  }
+  return obj as ThresholdEcdsaHssRoleLocalClientState;
+}
+
+function parseWorkerSealTransport(value: unknown): {
+  relayerUrl: string;
+  thresholdSessionAuthToken?: string;
+  keyVersion?: string;
+  shamirPrimeB64u?: string;
+} {
+  const obj = workerPayloadObject(value);
+  if (!obj) throw new Error('Email OTP worker request requires transport');
+  return {
+    relayerUrl: readString(obj.relayerUrl, 'transport.relayerUrl'),
+    ...(optionalWorkerString(obj.thresholdSessionAuthToken)
+      ? { thresholdSessionAuthToken: optionalWorkerString(obj.thresholdSessionAuthToken)! }
+      : {}),
+    ...(optionalWorkerString(obj.keyVersion)
+      ? { keyVersion: optionalWorkerString(obj.keyVersion)! }
+      : {}),
+    ...(optionalWorkerString(obj.shamirPrimeB64u)
+      ? { shamirPrimeB64u: optionalWorkerString(obj.shamirPrimeB64u)! }
+      : {}),
+  };
+}
 
 function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null {
   const obj = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null;
   if (!obj) return null;
   const id = normalizeOptionalTrimmedString(obj.id);
   const type = normalizeOptionalTrimmedString(obj.type);
-  const payload = obj.payload && typeof obj.payload === 'object' ? obj.payload : null;
-  if (
-    !id ||
-    !type ||
-    !payload ||
-    !EMAIL_OTP_WORKER_OPERATION_TYPES.has(type as EmailOtpWorkerRequest['type'])
-  ) {
-    return null;
+  const payload = workerPayloadObject(obj.payload);
+  if (!id || !type || !payload) return null;
+
+  switch (type) {
+    case 'requestEmailOtpChallenge':
+    case 'requestEmailOtpEnrollmentChallenge':
+      return {
+        id,
+        type,
+        payload: {
+          relayUrl: readString(payload.relayUrl, 'relayUrl'),
+          walletId: readString(payload.walletId, 'walletId'),
+          routePlan: readRoutePlan(payload.routePlan, type),
+          ...(optionalWorkerString(payload.otpChannel)
+            ? { otpChannel: optionalWorkerString(payload.otpChannel)! as WalletEmailOtpChannel }
+            : {}),
+        },
+      };
+    case 'enrollEmailOtpWallet':
+      return {
+        id,
+        type,
+        payload: {
+          relayUrl: readString(payload.relayUrl, 'relayUrl'),
+          walletId: readString(payload.walletId, 'walletId'),
+          ...(optionalWorkerString(payload.userId) ? { userId: optionalWorkerString(payload.userId)! } : {}),
+          ...(optionalWorkerString(payload.challengeId)
+            ? { challengeId: optionalWorkerString(payload.challengeId)! }
+            : {}),
+          otpCode: readString(payload.otpCode, 'otpCode'),
+          shamirPrimeB64u: readString(payload.shamirPrimeB64u, 'shamirPrimeB64u'),
+          routePlan: readRoutePlan(payload.routePlan, type),
+          ...(optionalWorkerString(payload.otpChannel)
+            ? { otpChannel: optionalWorkerString(payload.otpChannel)! as WalletEmailOtpChannel }
+            : {}),
+          ...(payload.clientSecret32 instanceof ArrayBuffer
+            ? { clientSecret32: payload.clientSecret32 }
+            : {}),
+        },
+      };
+    case 'verifyEmailOtpCode':
+      return {
+        id,
+        type,
+        payload: {
+          relayUrl: readString(payload.relayUrl, 'relayUrl'),
+          walletId: readString(payload.walletId, 'walletId'),
+          challengeId: readString(payload.challengeId, 'challengeId'),
+          otpCode: readString(payload.otpCode, 'otpCode'),
+          routePlan: readRoutePlan(payload.routePlan, type),
+          ...(optionalWorkerString(payload.otpChannel)
+            ? { otpChannel: optionalWorkerString(payload.otpChannel)! as WalletEmailOtpChannel }
+            : {}),
+        },
+      };
+    case 'restoreEmailOtpDeviceEnrollmentEscrow':
+      return {
+        id,
+        type,
+        payload: {
+          relayUrl: readString(payload.relayUrl, 'relayUrl'),
+          walletId: readString(payload.walletId, 'walletId'),
+          ...(optionalWorkerString(payload.userId) ? { userId: optionalWorkerString(payload.userId)! } : {}),
+          challengeId: readString(payload.challengeId, 'challengeId'),
+          otpCode: readString(payload.otpCode, 'otpCode'),
+          recoveryKey: readString(payload.recoveryKey, 'recoveryKey'),
+          shamirPrimeB64u: readString(payload.shamirPrimeB64u, 'shamirPrimeB64u'),
+          routePlan: readRoutePlan(payload.routePlan, type),
+          ...(optionalWorkerString(payload.otpChannel)
+            ? { otpChannel: optionalWorkerString(payload.otpChannel)! as WalletEmailOtpChannel }
+            : {}),
+        },
+      };
+    case 'removeEmailOtpDeviceEnrollmentEscrowFromDevice':
+      return {
+        id,
+        type,
+        payload: {
+          walletId: readString(payload.walletId, 'walletId'),
+          ...(optionalWorkerString(payload.userId) ? { userId: optionalWorkerString(payload.userId)! } : {}),
+          ...(optionalWorkerString(payload.enrollmentId)
+            ? { enrollmentId: optionalWorkerString(payload.enrollmentId)! }
+            : {}),
+        },
+      };
+    case 'loginWithEmailOtpWallet':
+      return {
+        id,
+        type,
+        payload: {
+          relayUrl: readString(payload.relayUrl, 'relayUrl'),
+          walletId: readString(payload.walletId, 'walletId'),
+          ...(optionalWorkerString(payload.userId) ? { userId: optionalWorkerString(payload.userId)! } : {}),
+          ...(optionalWorkerString(payload.challengeId)
+            ? { challengeId: optionalWorkerString(payload.challengeId)! }
+            : {}),
+          otpCode: readString(payload.otpCode, 'otpCode'),
+          shamirPrimeB64u: readString(payload.shamirPrimeB64u, 'shamirPrimeB64u'),
+          routePlan: readRoutePlan(payload.routePlan, type),
+          ...(optionalWorkerString(payload.otpChannel)
+            ? { otpChannel: optionalWorkerString(payload.otpChannel)! as WalletEmailOtpChannel }
+            : {}),
+          ...(parseOptionalWorkerRuntimePolicyScope(payload.runtimePolicyScope)
+            ? { runtimePolicyScope: parseOptionalWorkerRuntimePolicyScope(payload.runtimePolicyScope)! }
+            : {}),
+        },
+      };
+    case 'recoverEmailOtpEd25519ExportPrfFirst':
+      return {
+        id,
+        type,
+        payload: {
+          relayUrl: readString(payload.relayUrl, 'relayUrl'),
+          walletId: readString(payload.walletId, 'walletId'),
+          ...(optionalWorkerString(payload.userId) ? { userId: optionalWorkerString(payload.userId)! } : {}),
+          challengeId: readString(payload.challengeId, 'challengeId'),
+          otpCode: readString(payload.otpCode, 'otpCode'),
+          shamirPrimeB64u: readString(payload.shamirPrimeB64u, 'shamirPrimeB64u'),
+          routePlan: readRoutePlan(payload.routePlan, type),
+          ...(optionalWorkerString(payload.otpChannel)
+            ? { otpChannel: optionalWorkerString(payload.otpChannel)! as WalletEmailOtpChannel }
+            : {}),
+          ...(parseOptionalWorkerRuntimePolicyScope(payload.runtimePolicyScope)
+            ? { runtimePolicyScope: parseOptionalWorkerRuntimePolicyScope(payload.runtimePolicyScope)! }
+            : {}),
+        },
+      };
+    case 'bootstrapEmailOtpEcdsaSessionsFromClientRootShare': {
+      const chainTarget = parseWorkerChainTarget(payload.chainTarget);
+      const sessionKind = payload.sessionKind === 'cookie' ? 'cookie' : 'jwt';
+      if (sessionKind === 'cookie' && payload.routeAuth != null) {
+        throw new Error('Email OTP ECDSA cookie bootstrap rejects routeAuth');
+      }
+      const basePayload = {
+          relayUrl: readString(payload.relayUrl, 'relayUrl'),
+          walletId: readString(payload.walletId, 'walletId'),
+          walletSessionUserId: readString(payload.walletSessionUserId, 'walletSessionUserId'),
+          userId: readString(payload.userId, 'userId'),
+          rpId: readString(payload.rpId, 'rpId'),
+          clientRootShare32B64u: readString(payload.clientRootShare32B64u, 'clientRootShare32B64u'),
+          chainTarget,
+          publicationChainTargets: parseWorkerPublicationChainTargets({
+            chainTarget,
+            publicationChainTargets: payload.publicationChainTargets,
+          }),
+          roleLocalKeyIdentity: parseWorkerRoleLocalKeyIdentity(payload.roleLocalKeyIdentity),
+          runtimePolicyScope: parseWorkerRuntimePolicyScope(
+            payload.runtimePolicyScope,
+            'Email OTP ECDSA bootstrap',
+          ),
+          ...(optionalWorkerString(payload.keyHandle) ? { keyHandle: optionalWorkerString(payload.keyHandle)! } : {}),
+          ...(parseWorkerParticipantIds(payload.participantIds)
+            ? { participantIds: parseWorkerParticipantIds(payload.participantIds)! }
+            : {}),
+          ...(optionalWorkerString(payload.sessionId) ? { sessionId: optionalWorkerString(payload.sessionId)! } : {}),
+          ...(optionalWorkerString(payload.walletSigningSessionId)
+            ? { walletSigningSessionId: optionalWorkerString(payload.walletSigningSessionId)! }
+            : {}),
+          ...(optionalWorkerPositiveInteger(payload.ttlMs) ? { ttlMs: optionalWorkerPositiveInteger(payload.ttlMs)! } : {}),
+          ...(optionalWorkerNonNegativeInteger(payload.remainingUses) != null
+            ? { remainingUses: optionalWorkerNonNegativeInteger(payload.remainingUses)! }
+            : {}),
+          ...(optionalWorkerBooleanTrue(payload.includeEcdsaExportArtifact)
+            ? { includeEcdsaExportArtifact: true }
+            : {}),
+      };
+      return {
+        id,
+        type,
+        payload:
+          sessionKind === 'jwt'
+            ? {
+                ...basePayload,
+                sessionKind: 'jwt',
+                routeAuth: parseWorkerRouteAuth(payload.routeAuth, 'Email OTP ECDSA bootstrap'),
+              }
+            : { ...basePayload, sessionKind: 'cookie' },
+      };
+    }
+    case 'getEmailOtpWarmSessionStatus':
+    case 'claimEmailOtpEcdsaSigningShare':
+    case 'clearEmailOtpWarmSessionMaterial':
+      return {
+        id,
+        type,
+        payload: { sessionId: readString(payload.sessionId, 'sessionId') },
+      };
+    case 'claimEmailOtpWarmSessionMaterial':
+      return {
+        id,
+        type,
+        payload: {
+          sessionId: readString(payload.sessionId, 'sessionId'),
+          ...(optionalWorkerPositiveInteger(payload.uses) ? { uses: optionalWorkerPositiveInteger(payload.uses)! } : {}),
+          ...(typeof payload.consume === 'boolean' ? { consume: payload.consume } : {}),
+        },
+      };
+    case 'consumeEmailOtpWarmSessionUses':
+      return {
+        id,
+        type,
+        payload: {
+          sessionId: readString(payload.sessionId, 'sessionId'),
+          ...(optionalWorkerPositiveInteger(payload.uses) ? { uses: optionalWorkerPositiveInteger(payload.uses)! } : {}),
+        },
+      };
+    case 'sealEmailOtpWarmSessionMaterial':
+      return {
+        id,
+        type,
+        payload: {
+          sessionId: readString(payload.sessionId, 'sessionId'),
+          transport: parseWorkerSealTransport(payload.transport),
+        },
+      };
+    case 'rehydrateEmailOtpEcdsaWarmSessionMaterial': {
+      const restore = workerPayloadObject(payload.restore);
+      if (!restore) throw new Error('Email OTP ECDSA rehydrate requires restore payload');
+      const ed25519 = workerPayloadObject(restore.ed25519);
+      return {
+        id,
+        type,
+        payload: {
+          sealedSecretB64u: readString(payload.sealedSecretB64u, 'sealedSecretB64u'),
+          remainingUses: normalizeNonNegativeInteger(payload.remainingUses) ?? 0,
+          expiresAtMs: readNumber(payload.expiresAtMs, 'expiresAtMs'),
+          transport: parseWorkerSealTransport(payload.transport),
+          restore: {
+            sessionId: readString(restore.sessionId, 'restore.sessionId'),
+            walletId: readString(restore.walletId, 'restore.walletId'),
+            rpId: readString(restore.rpId, 'restore.rpId'),
+            chainTarget: parseWorkerChainTarget(restore.chainTarget),
+            walletSigningSessionId: readString(
+              restore.walletSigningSessionId,
+              'restore.walletSigningSessionId',
+            ),
+            keyHandle: readString(restore.keyHandle, 'restore.keyHandle'),
+            relayerKeyId: readString(restore.relayerKeyId, 'restore.relayerKeyId'),
+            participantIds:
+              parseWorkerParticipantIds(restore.participantIds) ||
+              (() => {
+                throw new Error('Email OTP ECDSA rehydrate requires participantIds');
+              })(),
+            ...(restore.sessionKind === 'cookie' || restore.sessionKind === 'jwt'
+              ? { sessionKind: restore.sessionKind }
+              : {}),
+            ...(parseOptionalWorkerRuntimePolicyScope(restore.runtimePolicyScope)
+              ? { runtimePolicyScope: parseOptionalWorkerRuntimePolicyScope(restore.runtimePolicyScope)! }
+              : {}),
+            ...(ed25519
+              ? {
+                  ed25519: {
+                    sessionId: readString(ed25519.sessionId, 'restore.ed25519.sessionId'),
+                    signingRootId: readString(
+                      ed25519.signingRootId,
+                      'restore.ed25519.signingRootId',
+                    ),
+                    ...(optionalWorkerString(ed25519.signingRootVersion)
+                      ? { signingRootVersion: optionalWorkerString(ed25519.signingRootVersion)! }
+                      : {}),
+                    relayerKeyId: readString(
+                      ed25519.relayerKeyId,
+                      'restore.ed25519.relayerKeyId',
+                    ),
+                    participantIds:
+                      parseWorkerParticipantIds(ed25519.participantIds) ||
+                      (() => {
+                        throw new Error('Email OTP ECDSA rehydrate requires Ed25519 participantIds');
+                      })(),
+                  },
+                }
+              : {}),
+          },
+        },
+      };
+    }
+    case 'exportThresholdEcdsaHssKeyWithEmailOtpAuthorization':
+      return {
+        id,
+        type,
+        payload: {
+          relayUrl: readString(payload.relayUrl, 'relayUrl'),
+          walletId: readString(payload.walletId, 'walletId'),
+          userId: readString(payload.userId, 'userId'),
+          challengeId: readString(payload.challengeId, 'challengeId'),
+          otpCode: readString(payload.otpCode, 'otpCode'),
+          shamirPrimeB64u: readString(payload.shamirPrimeB64u, 'shamirPrimeB64u'),
+          routePlan: readRoutePlan(payload.routePlan, type),
+          rpId: readString(payload.rpId, 'rpId'),
+          ...(optionalWorkerString(payload.thresholdSessionAuthToken)
+            ? { thresholdSessionAuthToken: optionalWorkerString(payload.thresholdSessionAuthToken)! }
+            : {}),
+          ...(payload.sessionKind === 'cookie' || payload.sessionKind === 'jwt'
+            ? { sessionKind: payload.sessionKind }
+            : {}),
+          ecdsaThresholdKeyId: readString(payload.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId'),
+          signingRootId: readString(payload.signingRootId, 'signingRootId'),
+          ...(optionalWorkerString(payload.signingRootVersion)
+            ? { signingRootVersion: optionalWorkerString(payload.signingRootVersion)! }
+            : {}),
+          relayerKeyId: readString(payload.relayerKeyId, 'relayerKeyId'),
+          roleLocalState: parseThresholdEcdsaHssRoleLocalClientStateForWorker(
+            payload.roleLocalState,
+          ),
+          thresholdSessionId: readString(payload.thresholdSessionId, 'thresholdSessionId'),
+          walletSigningSessionId: readString(
+            payload.walletSigningSessionId,
+            'walletSigningSessionId',
+          ),
+          thresholdExpiresAtMs: readNumber(payload.thresholdExpiresAtMs, 'thresholdExpiresAtMs'),
+          participantIds:
+            parseWorkerParticipantIds(payload.participantIds) ||
+            (() => {
+              throw new Error('Email OTP ECDSA export requires participantIds');
+            })(),
+          keyHandle: readString(payload.keyHandle, 'keyHandle'),
+          runtimePolicyScope: parseWorkerRuntimePolicyScope(
+            payload.runtimePolicyScope,
+            'Email OTP ECDSA export',
+          ),
+        },
+      };
+    default:
+      return null;
   }
-  return {
-    id,
-    type,
-    payload,
-  } as EmailOtpWorkerRequest;
 }
 
 setTimeout(() => {
