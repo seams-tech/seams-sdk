@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import {
+  isConcreteAvailableSigningLane,
   readAvailableSigningLanes,
   type AvailableSigningLanesRuntimeClaim,
   type AvailableSigningLanesRuntimeEcdsaRecord,
@@ -226,11 +227,10 @@ function runtimeEcdsaRecord(args: {
     participantIds: [1, 2],
     thresholdOwnerAddress: args.thresholdOwnerAddress,
   });
-  return {
+  const base = {
     key,
     keyHandle: args.keyHandle || (`ehss-key-${keyId}` as EvmFamilyEcdsaKeyHandle),
     thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
-    authMethod: args.authMethod || 'passkey',
     curve: 'ecdsa',
     chainTarget: args.chainTarget,
     thresholdSessionId: args.thresholdSessionId,
@@ -238,10 +238,35 @@ function runtimeEcdsaRecord(args: {
     remainingUses: args.remainingUses ?? 3,
     expiresAtMs: EXPIRES_AT_MS,
     updatedAtMs: args.updatedAtMs ?? 700,
-  };
+  } as const;
+  return (args.authMethod || 'passkey') === 'email_otp'
+    ? { ...base, authMethod: 'email_otp' }
+    : { ...base, authMethod: 'passkey' };
 }
 
 test.describe('Ed25519 available signing lanes duplicate normalization', () => {
+  test('rejects branch-mixed missing lanes at the root concrete-lane guard', () => {
+    const missingEd25519WithIdentity = {
+      authMethod: 'passkey',
+      curve: 'ed25519',
+      chain: 'near',
+      state: 'missing',
+      walletSigningSessionId: 'wallet-session-mixed',
+      thresholdSessionId: 'threshold-session-mixed',
+    } as never;
+    const missingEcdsaWithIdentity = {
+      authMethod: 'email_otp',
+      curve: 'ecdsa',
+      chainTarget: ECDSA_TARGET,
+      state: 'missing',
+      walletSigningSessionId: 'wallet-session-mixed',
+      thresholdSessionId: 'threshold-session-mixed',
+    } as never;
+
+    expect(isConcreteAvailableSigningLane(missingEd25519WithIdentity)).toBe(false);
+    expect(isConcreteAvailableSigningLane(missingEcdsaWithIdentity)).toBe(false);
+  });
+
   test('collapses duplicate durable entries with the same exact lane identity', async () => {
     const availableLanes = await readAvailableLanes({
       sealedRecords: [

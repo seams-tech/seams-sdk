@@ -261,6 +261,7 @@ export type ReadAvailableSigningLanesPorts = {
 export function isConcreteAvailableSigningLane(
   lane: AvailableEcdsaSigningLane | AvailableEd25519SigningLane,
 ): lane is ConcreteAvailableSigningLane {
+  if (lane.state === 'missing') return false;
   if (!('authMethod' in lane)) return false;
   const thresholdSessionId = String(lane.thresholdSessionId || '').trim();
   const walletSigningSessionId = String(lane.walletSigningSessionId || '').trim();
