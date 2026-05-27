@@ -4,13 +4,21 @@ import type {
   VerifiedEcdsaPublicFacts,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
-import type { ReadyThresholdEcdsaExportMaterial } from './ecdsaExportMaterial';
+import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
+import type {
+  FreshEmailOtpEcdsaExportMaterialNeedsChallenge,
+  FreshEmailOtpEcdsaExportMaterialRouteAuthReady,
+  ReadyThresholdEcdsaExportMaterial,
+} from './ecdsaExportMaterial';
+import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 
 declare const signerSession: ReadyEcdsaSignerSession;
 declare const publicFacts: VerifiedEcdsaPublicFacts;
 declare const record: ThresholdEcdsaSessionRecord;
 declare const keyRef: unknown;
 declare const evmFamilyKeyFingerprint: EvmFamilyKeyFingerprint;
+declare const runtimePolicyScope: ThresholdRuntimePolicyScope;
+declare const authLane: EmailOtpAuthLane;
 
 const exportMaterial: ReadyThresholdEcdsaExportMaterial = {
   kind: 'ready_threshold_ecdsa_export_material',
@@ -62,5 +70,55 @@ const exportMaterialWithBroadKeyRef: ReadyThresholdEcdsaExportMaterial = {
   keyRef,
 };
 void exportMaterialWithBroadKeyRef;
+
+const freshNeedsChallengeMaterial: FreshEmailOtpEcdsaExportMaterialNeedsChallenge = {
+  kind: 'fresh_email_otp_needs_challenge',
+  authSubjectMode: 'explicit_auth_subject',
+  authSubjectId: 'google:alice',
+  chainTarget: record.chainTarget,
+  publicFacts,
+  runtimePolicyScope,
+};
+void freshNeedsChallengeMaterial;
+
+// @ts-expect-error fresh Email OTP export material requires runtimePolicyScope.
+const freshNeedsChallengeMissingRuntimeScope: FreshEmailOtpEcdsaExportMaterialNeedsChallenge = {
+  kind: 'fresh_email_otp_needs_challenge',
+  authSubjectMode: 'wallet_session_subject',
+  chainTarget: record.chainTarget,
+  publicFacts,
+};
+void freshNeedsChallengeMissingRuntimeScope;
+
+// @ts-expect-error wallet-session subject branch rejects explicit auth subjects.
+const freshNeedsChallengeWalletSubjectWithAuthSubject: FreshEmailOtpEcdsaExportMaterialNeedsChallenge = {
+  kind: 'fresh_email_otp_needs_challenge',
+  authSubjectMode: 'wallet_session_subject',
+  chainTarget: record.chainTarget,
+  publicFacts,
+  runtimePolicyScope,
+  authSubjectId: 'google:alice',
+};
+void freshNeedsChallengeWalletSubjectWithAuthSubject;
+
+const freshRouteAuthReadyMaterial: FreshEmailOtpEcdsaExportMaterialRouteAuthReady = {
+  kind: 'fresh_email_otp_route_auth_ready',
+  chainTarget: record.chainTarget,
+  publicFacts,
+  runtimePolicyScope,
+  record,
+  authLane,
+};
+void freshRouteAuthReadyMaterial;
+
+// @ts-expect-error route-auth-ready fresh material requires the route auth lane.
+const freshRouteAuthReadyWithoutAuthLane: FreshEmailOtpEcdsaExportMaterialRouteAuthReady = {
+  kind: 'fresh_email_otp_route_auth_ready',
+  chainTarget: record.chainTarget,
+  publicFacts,
+  runtimePolicyScope,
+  record,
+};
+void freshRouteAuthReadyWithoutAuthLane;
 
 export {};

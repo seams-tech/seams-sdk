@@ -1,5 +1,6 @@
 import type {
   BudgetBlockedEvmFamilyEcdsaSigningSelection,
+  EcdsaSelectionDiagnostics,
   ReadyEvmFamilyEcdsaSigningSelection,
   ReauthRequiredEvmFamilyEcdsaSigningSelection,
 } from './ecdsaSelection';
@@ -9,6 +10,7 @@ import type { ReauthAnchorIdentity } from '../../session/operationState/transact
 
 declare const readyMaterial: ReadyEcdsaMaterial;
 declare const reauthAnchor: ReauthAnchorIdentity;
+declare const diagnostics: EcdsaSelectionDiagnostics;
 
 const readySelection: ReadyEvmFamilyEcdsaSigningSelection = {
   kind: 'ready',
@@ -82,6 +84,18 @@ const invalidReadySelection: ReadyEvmFamilyEcdsaSigningSelection = {
   diagnostics: readySelection.diagnostics,
 };
 void invalidReadySelection;
+
+const diagnosticsAsReadySelectionMaterial: ReadyEvmFamilyEcdsaSigningSelection = {
+  kind: 'ready',
+  accountAuth: readySelection.accountAuth,
+  authMethod: 'passkey',
+  source: 'manual-bootstrap',
+  lane: readySelection.lane,
+  // @ts-expect-error diagnostics are observational and cannot satisfy ready material.
+  material: diagnostics,
+  diagnostics,
+};
+void diagnosticsAsReadySelectionMaterial;
 
 const invalidBudgetBlockedSelection: BudgetBlockedEvmFamilyEcdsaSigningSelection = {
   kind: 'budget_blocked',

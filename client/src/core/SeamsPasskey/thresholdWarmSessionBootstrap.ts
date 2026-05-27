@@ -182,8 +182,8 @@ export async function prepareThresholdEd25519RegistrationHssClientMaterial(args:
       derivationVersion: args.derivationVersion,
       onProgress: args.onProgress,
     });
-  if (!prepared.success) {
-    throw new Error(prepared.error || 'Failed to prepare threshold Ed25519 HSS registration');
+  if (!prepared.ok) {
+    throw new Error(prepared.message || 'Failed to prepare threshold Ed25519 HSS registration');
   }
   const prfFirstB64u = String(getPrfFirstB64uFromCredential(args.credential) || '').trim();
   if (!prfFirstB64u) {
@@ -519,9 +519,9 @@ export async function reconstructThresholdEd25519ClientBaseFromWarmSession(args:
       participantIds,
       derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
     });
-  if (!prepared.success) {
+  if (!prepared.ok) {
     throw new Error(
-      prepared.error || 'Failed to prepare threshold Ed25519 HSS reconstruction ceremony',
+      prepared.message || 'Failed to prepare threshold Ed25519 HSS reconstruction ceremony',
     );
   }
   const completed = await args.context.signingEngine.runThresholdEd25519HssCeremonyWithSession({
@@ -547,9 +547,9 @@ export async function reconstructThresholdEd25519ClientBaseFromWarmSession(args:
       clientRecoverableSecretB64u: prfFirstB64u,
     },
   });
-  if (!completed.success || !completed.clientOutput?.xClientBaseB64u) {
+  if (!completed.ok || !completed.clientOutput.xClientBaseB64u) {
     throw new Error(
-      completed.error || 'Failed to reconstruct threshold Ed25519 single-key HSS client base',
+      completed.message || 'Failed to reconstruct threshold Ed25519 single-key HSS client base',
     );
   }
   const xClientBaseB64u = String(completed.clientOutput.xClientBaseB64u || '').trim();

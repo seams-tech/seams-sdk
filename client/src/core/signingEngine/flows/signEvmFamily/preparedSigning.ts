@@ -38,6 +38,7 @@ import {
 } from '../../session/operationState/transactionState';
 import { SigningSessionIds, type SigningOperationContext } from '../../session/operationState/types';
 import { computeSigningOperationFingerprint } from '../../session/planning/operationFingerprint';
+import type { SigningSessionReadiness } from '../../session/planning/planner';
 import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
@@ -276,28 +277,28 @@ function assertSelectionMatchesLaneCandidate(args: {
 }
 
 function readinessFromSelection(selection: EvmFamilyEcdsaSigningSelectionResult): {
-  readiness: {
-    status:
-      | 'ready'
-      | 'missing_session'
-      | 'expired'
-      | 'exhausted'
-      | 'budget_unknown';
-    thresholdSessionId: ResolvedEvmFamilyEcdsaSigningLane['thresholdSessionId'];
-  };
+  readiness: SigningSessionReadiness;
   expiresAtMs: number;
   remainingUses: number;
 } {
   switch (selection.kind) {
-    case 'ready':
+    case 'ready': {
+      const expiresAtMs = Math.floor(Number(selection.material.record.expiresAtMs) || 0);
+      const remainingUses = Math.max(
+        0,
+        Math.floor(Number(selection.material.record.remainingUses) || 0),
+      );
       return {
         readiness: {
           status: 'ready',
           thresholdSessionId: selection.lane.thresholdSessionId,
+          expiresAtMs,
+          remainingUses,
         },
-        expiresAtMs: Math.floor(Number(selection.material.record.expiresAtMs) || 0),
-        remainingUses: Math.max(0, Math.floor(Number(selection.material.record.remainingUses) || 0)),
+        expiresAtMs,
+        remainingUses,
       };
+    }
     case 'reauth_required': {
       if (
         selection.authMethod === 'passkey' &&
@@ -305,16 +306,23 @@ function readinessFromSelection(selection: EvmFamilyEcdsaSigningSelectionResult)
         selection.material.kind === 'reauth_required' &&
         selection.material.reason === 'missing_inline_share'
       ) {
+        const expiresAtMs = Math.max(
+          0,
+          Math.floor(Number(selection.material.record.expiresAtMs) || 0),
+        );
+        const remainingUses = Math.max(
+          0,
+          Math.floor(Number(selection.material.record.remainingUses) || 0),
+        );
         return {
           readiness: {
             status: 'ready',
             thresholdSessionId: selection.lane.thresholdSessionId,
+            expiresAtMs,
+            remainingUses,
           },
-          expiresAtMs: Math.max(0, Math.floor(Number(selection.material.record.expiresAtMs) || 0)),
-          remainingUses: Math.max(
-            0,
-            Math.floor(Number(selection.material.record.remainingUses) || 0),
-          ),
+          expiresAtMs,
+          remainingUses,
         };
       }
       const status =
@@ -325,11 +333,19 @@ function readinessFromSelection(selection: EvmFamilyEcdsaSigningSelectionResult)
             : selection.reason === 'exhausted'
               ? 'exhausted'
               : 'missing_session';
+      const readiness: SigningSessionReadiness =
+        status === 'expired'
+          ? { status, thresholdSessionId: selection.lane.thresholdSessionId, expiresAtMs: 0 }
+          : status === 'exhausted'
+            ? {
+                status,
+                thresholdSessionId: selection.lane.thresholdSessionId,
+                expiresAtMs: 0,
+                remainingUses: 0,
+              }
+            : { status, thresholdSessionId: selection.lane.thresholdSessionId };
       return {
-        readiness: {
-          status,
-          thresholdSessionId: selection.lane.thresholdSessionId,
-        },
+        readiness,
         expiresAtMs: 0,
         remainingUses: 0,
       };

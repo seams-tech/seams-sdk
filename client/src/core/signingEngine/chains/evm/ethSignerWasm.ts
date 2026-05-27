@@ -477,10 +477,10 @@ export async function thresholdEcdsaPresignSessionStepWasm(args: {
   sessionId: string;
   relayerParticipantId: number;
   stage: 'triples' | 'presign';
-  incomingMessages?: Uint8Array[];
+  incomingMessages: Uint8Array[];
   workerCtx: WorkerOperationContext;
 }): Promise<ThresholdEcdsaPresignProgressWasm> {
-  const incomingMessages = (args.incomingMessages || []).map((entry) => entry.slice());
+  const incomingMessages = args.incomingMessages.map((entry) => entry.slice());
   const transfer = incomingMessages.map((entry) => entry.buffer);
 
   const raw = await executeWorkerOperation({

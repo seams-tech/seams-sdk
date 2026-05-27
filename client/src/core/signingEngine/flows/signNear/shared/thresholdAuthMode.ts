@@ -90,7 +90,8 @@ export function createNearSigningSessionCoordinator(
   };
   return {
     ...createWarmSessionCapabilityReader({
-      touchConfirm,
+      touchConfirm: touchConfirm ?? null,
+      signingSessionSeal: null,
       getEmailOtpWarmSessionStatus,
     }),
     ...createWarmSessionStatusReader({
@@ -322,14 +323,35 @@ async function resolvePlannerReadinessForEd25519(args: {
     status: SigningSessionReadiness['status'];
     expiresAtMs?: number;
     remainingUses?: number;
-  }) => {
+  }): {
+    readiness: SigningSessionReadiness;
+    expiresAtMs: number;
+    remainingUses: number;
+  } => {
+    const expiresAtMs = input.expiresAtMs ?? resolveExpiresAtMs();
+    const remainingUses = input.remainingUses ?? resolveRemainingUses();
+    const readiness: SigningSessionReadiness =
+      input.status === 'ready' || input.status === 'exhausted'
+        ? {
+            status: input.status,
+            thresholdSessionId,
+            remainingUses,
+            expiresAtMs,
+          }
+        : input.status === 'expired'
+          ? {
+              status: input.status,
+              thresholdSessionId,
+              expiresAtMs,
+            }
+          : {
+              status: input.status,
+              thresholdSessionId,
+            };
     return {
-      readiness: {
-        status: input.status,
-        thresholdSessionId,
-      },
-      expiresAtMs: input.expiresAtMs ?? resolveExpiresAtMs(),
-      remainingUses: input.remainingUses ?? resolveRemainingUses(),
+      readiness,
+      expiresAtMs,
+      remainingUses,
     };
   };
 

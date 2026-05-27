@@ -735,25 +735,31 @@ async function signEvmFamilyAttempt(
       missingWhenExpiresAtMissing: true,
       prepareBudgetIdentity: true,
       lifecycleAdapter: {
-        prepare: async () => ({
-          lane: resolvedLane,
-          transactionLane,
-          readiness: {
+        prepare: async () => {
+          const expiresAtMs = Math.floor(
+            Number(argsForRefresh.record.expiresAtMs) || Date.now() + 120_000,
+          );
+          const remainingUses = Math.max(
+            1,
+            Math.floor(Number(argsForRefresh.record.remainingUses) || 1),
+          );
+          return {
+            lane: resolvedLane,
+            transactionLane,
             readiness: {
-              status: 'ready',
-              thresholdSessionId: resolvedLane.thresholdSessionId,
+              readiness: {
+                status: 'ready',
+                thresholdSessionId: resolvedLane.thresholdSessionId,
+                expiresAtMs,
+                remainingUses,
+              },
+              expiresAtMs,
+              remainingUses,
             },
-            expiresAtMs: Math.floor(
-              Number(argsForRefresh.record.expiresAtMs) || Date.now() + 120_000,
-            ),
-            remainingUses: Math.max(
-              1,
-              Math.floor(Number(argsForRefresh.record.remainingUses) || 1),
-            ),
-          },
-          availableLanesGeneration: Date.now(),
-          metadata: {},
-        }),
+            availableLanesGeneration: Date.now(),
+            metadata: {},
+          };
+        },
       },
     });
     const preparedOperation = preparedTransaction.thresholdOperation;

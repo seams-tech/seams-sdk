@@ -478,9 +478,9 @@ export async function registerEmailOtpEd25519Capability(args: {
     clientOutputMaskB64u,
     workerCtx,
   });
-  if (!completed.success || !completed.clientOutput?.xClientBaseB64u) {
+  if (!completed.ok || !completed.clientOutput.xClientBaseB64u) {
     throw new Error(
-      completed.error || 'Email OTP threshold-ed25519 registration client output failed',
+      completed.message || 'Email OTP threshold-ed25519 registration client output failed',
     );
   }
   const xClientBaseB64u = completed.clientOutput.xClientBaseB64u;
@@ -721,9 +721,9 @@ export async function reconstructEmailOtpEd25519Session(args: {
     },
     workerCtx,
   });
-  if (!completed.success || !completed.clientOutput?.xClientBaseB64u) {
+  if (!completed.ok || !completed.clientOutput.xClientBaseB64u) {
     throw new Error(
-      completed.error || 'Email OTP threshold-ed25519 session reconstruction failed',
+      completed.message || 'Email OTP threshold-ed25519 session reconstruction failed',
     );
   }
   await args.persistWarmSessionEd25519Capability({

@@ -670,6 +670,7 @@ export async function runNearTransactionsWithActionsSigning({
   ): SigningSessionBudgetFinalizer | undefined => {
     if (!signingContext.threshold || !sessionCoordinator) return;
     return createSigningSessionBudgetFinalizer({
+      budgetMode: 'with_budget',
       signingSessionBudget: sessionCoordinator,
       budgetIdentity: operationState.budgetAdmission.budgetIdentity,
       finalization,

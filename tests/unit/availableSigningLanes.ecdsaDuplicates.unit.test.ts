@@ -148,11 +148,10 @@ function runtimeEcdsaRecord(args: {
     participantIds: [1, 2],
     thresholdOwnerAddress: args.thresholdOwnerAddress,
   });
-  return {
+  const base = {
     key,
     keyHandle: args.keyHandle || TEST_ECDSA_KEY_HANDLE,
     thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
-    authMethod: args.authMethod || 'passkey',
     curve: 'ecdsa',
     chainTarget: args.chainTarget,
     thresholdSessionId: args.thresholdSessionId,
@@ -160,7 +159,10 @@ function runtimeEcdsaRecord(args: {
     remainingUses: args.remainingUses ?? 3,
     expiresAtMs: args.expiresAtMs ?? EXPIRES_AT_MS,
     updatedAtMs: args.updatedAtMs ?? 700,
-  };
+  } as const;
+  return (args.authMethod || 'passkey') === 'email_otp'
+    ? { ...base, authMethod: 'email_otp' }
+    : { ...base, authMethod: 'passkey' };
 }
 
 async function readAvailableLanes(args: {

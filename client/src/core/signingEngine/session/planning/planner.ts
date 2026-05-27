@@ -28,10 +28,26 @@ export type SigningSessionReadiness =
   | {
       status: 'ready';
       thresholdSessionId: ThresholdSessionId;
+      remainingUses: number;
+      expiresAtMs: number;
     }
   | {
-      status: ReauthableNotReadyReason | TerminalNotReadyReason;
+      status: 'exhausted';
       thresholdSessionId: ThresholdSessionId;
+      remainingUses: number;
+      expiresAtMs: number;
+    }
+  | {
+      status: 'expired';
+      thresholdSessionId: ThresholdSessionId;
+      expiresAtMs: number;
+      remainingUses?: never;
+    }
+  | {
+      status: Exclude<ReauthableNotReadyReason, 'expired' | 'exhausted'> | TerminalNotReadyReason;
+      thresholdSessionId: ThresholdSessionId;
+      remainingUses?: never;
+      expiresAtMs?: never;
     };
 
 export type SigningSessionPlannerInput = {

@@ -25,9 +25,12 @@ import { createClearVolatileWarmSessionMaterialCommand } from '../warmCapabiliti
 import { parseVolatileWarmSessionId } from '../warmCapabilities/volatileWarmSessionId';
 import type { WarmSessionPrfClaim } from '../warmCapabilities/types';
 import {
+  normalizeWarmSessionReadPorts,
+  readWarmSessionClaim,
   readWarmSessionClaims,
   toSigningSessionStatus,
   toWarmSessionClaimFromStatusResult,
+  type WarmSessionReadPortsInput,
 } from '../warmCapabilities/readModel';
 import {
   ecdsaWalletBudgetOwner,
@@ -101,10 +104,10 @@ export type WalletSigningSessionReadinessDeps = {
   }) => void;
 };
 
-export type WalletSigningSessionClaimReaderDeps = Pick<
-  WalletSigningSessionReadinessDeps,
-  'touchConfirm' | 'getEmailOtpWarmSessionStatus'
->;
+export type WalletSigningSessionClaimReaderDeps = {
+  touchConfirm?: WarmSessionReadPortsInput;
+  getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
+};
 
 export type ConsumeResultEntry = {
   lane: DiscoveredSigningSessionLane;
@@ -189,9 +192,11 @@ export function applyWalletBudgetStatusToSigningSessionReadiness(args: {
   }
   if (status === 'ready' && expiresAtMs <= (args.nowMs ?? Date.now())) status = 'expired';
   const readiness: SigningSessionReadiness =
-    status === 'ready'
-      ? { status: 'ready', thresholdSessionId: args.thresholdSessionId }
-      : { status, thresholdSessionId: args.thresholdSessionId };
+    status === 'ready' || status === 'exhausted'
+      ? { status, thresholdSessionId: args.thresholdSessionId, remainingUses, expiresAtMs }
+      : status === 'expired'
+        ? { status, thresholdSessionId: args.thresholdSessionId, expiresAtMs }
+        : { status, thresholdSessionId: args.thresholdSessionId };
   return {
     readiness,
     expiresAtMs,
@@ -546,9 +551,10 @@ export async function readClaimsForLanes(args: {
   lanes: DiscoveredSigningSessionLane[];
 }): Promise<Map<string, WarmSessionPrfClaim | null>> {
   const claims = new Map<string, WarmSessionPrfClaim | null>();
+  const touchConfirm = normalizeWarmSessionReadPorts(args.deps.touchConfirm);
   const touchConfirmLanes = args.lanes.filter((lane) => lane.backing === 'touch_confirm');
   const touchConfirmClaims = await readWarmSessionClaims({
-    touchConfirm: args.deps.touchConfirm,
+    touchConfirm,
     sessionIds: touchConfirmLanes.map((lane) => lane.backingMaterialSessionId),
   });
   for (const lane of touchConfirmLanes) {
@@ -651,15 +657,9 @@ export async function readDirectSigningSessionStatusForTargets(args: {
   );
   if (!targetSessionIds.length) return null;
 
+  const touchConfirm = normalizeWarmSessionReadPorts(args.deps.touchConfirm);
   const claims = await Promise.all(
-    targetSessionIds.map(async (sessionId) => {
-      const status = await args.deps.touchConfirm
-        ?.getWarmSessionStatus?.({ sessionId })
-        .catch(() => null);
-      return status
-        ? toWarmSessionClaimFromStatusResult({ sessionId, status })
-        : null;
-    }),
+    targetSessionIds.map((sessionId) => readWarmSessionClaim(touchConfirm, sessionId)),
   );
   const claim =
     claims.find((candidate) => candidate?.state === 'expired') ||

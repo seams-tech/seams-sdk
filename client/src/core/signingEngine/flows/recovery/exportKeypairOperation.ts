@@ -8,6 +8,7 @@ import {
 import {
   exportThresholdEcdsaKeyWithAuthorization,
   exportThresholdEcdsaKeyWithFreshEmailOtpAuthorization,
+  exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth,
   type EcdsaExportFlowDeps,
 } from './ecdsaExportFlow';
 import {
@@ -114,8 +115,21 @@ async function exportKeypairWithFlowId(
       exportLane,
       rpId,
     );
-    if (exportMaterial.kind === 'fresh_email_otp') {
+    if (exportMaterial.kind === 'fresh_email_otp_needs_challenge') {
       return await exportThresholdEcdsaKeyWithFreshEmailOtpAuthorization(deps.ecdsa, {
+        walletSessionUserId,
+        exportLane,
+        material: exportMaterial,
+        options: {
+          variant: args.options.variant,
+          theme: args.options.theme,
+        },
+        flowId: args.flowId,
+        onEvent: args.options.onEvent,
+      });
+    }
+    if (exportMaterial.kind === 'fresh_email_otp_route_auth_ready') {
+      return await exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth(deps.ecdsa, {
         walletSessionUserId,
         exportLane,
         material: exportMaterial,

@@ -65,8 +65,7 @@ export type AvailableSigningLaneState =
   | 'restorable'
   | 'deferred'
   | 'expired'
-  | 'exhausted'
-  | 'missing';
+  | 'exhausted';
 
 export type AvailableSigningLanePolicyHint = {
   remainingUses?: number;
@@ -77,6 +76,18 @@ export type MissingAvailableEcdsaSigningLane = {
   curve: 'ecdsa';
   chainTarget: ThresholdEcdsaChainTarget;
   state: 'missing';
+  key?: never;
+  publicFacts?: never;
+  authMethod?: never;
+  resolvedKey?: never;
+  walletSigningSessionId?: never;
+  thresholdSessionId?: never;
+  remainingUses?: never;
+  expiresAtMs?: never;
+  policyHint?: never;
+  updatedAtMs?: never;
+  source?: never;
+  sourceChainTarget?: never;
 };
 
 export type ResolvedPasskeyAvailableEcdsaKey = ResolvedEvmFamilyEcdsaKey<PasskeyEcdsaAuthBinding>;
@@ -126,13 +137,27 @@ export type AvailableEcdsaSigningLane =
   | MissingAvailableEcdsaSigningLane
   | ConcreteAvailableEcdsaSigningLane;
 
-export type AvailableEd25519SigningLane = {
-  authMethod?: 'email_otp' | 'passkey';
+export type MissingAvailableEd25519SigningLane = {
+  curve: 'ed25519';
+  chain: 'near';
+  state: 'missing';
+  authMethod?: never;
+  walletSigningSessionId?: never;
+  thresholdSessionId?: never;
+  remainingUses?: never;
+  expiresAtMs?: never;
+  policyHint?: never;
+  updatedAtMs?: never;
+  source?: never;
+};
+
+export type ConcreteAvailableEd25519SigningLane = {
+  authMethod: 'email_otp' | 'passkey';
   curve: 'ed25519';
   chain: 'near';
   state: AvailableSigningLaneState;
-  walletSigningSessionId?: string;
-  thresholdSessionId?: string;
+  walletSigningSessionId: string;
+  thresholdSessionId: string;
   remainingUses?: number;
   expiresAtMs?: number;
   policyHint?: AvailableSigningLanePolicyHint;
@@ -140,21 +165,70 @@ export type AvailableEd25519SigningLane = {
   source?: 'durable_sealed_record' | 'runtime_session_record' | 'runtime_and_durable';
 };
 
-export type AvailableSigningLanesRuntimeClaim = {
-  state: 'warm' | 'missing' | 'expired' | 'exhausted' | 'unavailable';
-  sessionId: string;
-  remainingUses?: number;
-  expiresAtMs?: number;
-  code?: string;
-};
+export type AvailableEd25519SigningLane =
+  | MissingAvailableEd25519SigningLane
+  | ConcreteAvailableEd25519SigningLane;
+
+export type AvailableSigningLanesRuntimeClaim =
+  | {
+      state: 'warm';
+      sessionId: string;
+      remainingUses: number;
+      expiresAtMs: number;
+      code?: never;
+    }
+  | {
+      state: 'exhausted';
+      sessionId: string;
+      remainingUses: 0;
+      expiresAtMs?: never;
+      code?: never;
+    }
+  | {
+      state: 'expired';
+      sessionId: string;
+      remainingUses?: never;
+      expiresAtMs?: never;
+      code?: never;
+    }
+  | {
+      state: 'missing';
+      sessionId: string;
+      remainingUses?: never;
+      expiresAtMs?: never;
+      code?: string;
+    }
+  | {
+      state: 'unavailable';
+      sessionId: string;
+      remainingUses?: never;
+      expiresAtMs?: never;
+      code: string;
+    };
+
+type AvailableSigningLanesRuntimeEcdsaAuthRecord =
+  | {
+      authMethod: 'passkey';
+      resolvedKey?: ResolvedEvmFamilyEcdsaKey;
+    }
+  | {
+      authMethod: 'email_otp';
+      resolvedKey?: never;
+    };
+
+type AvailableSigningLanesRuntimeEcdsaPublicFactsRecord =
+  | {
+      verifiedPublicFacts: VerifiedEcdsaPublicFacts;
+      keyHandle?: EvmFamilyEcdsaKeyHandle;
+    }
+  | {
+      verifiedPublicFacts?: never;
+      keyHandle: EvmFamilyEcdsaKeyHandle;
+    };
 
 export type AvailableSigningLanesRuntimeEcdsaRecord = {
   key: EvmFamilyEcdsaKeyIdentity;
-  resolvedKey?: ResolvedEvmFamilyEcdsaKey;
-  keyHandle?: EvmFamilyEcdsaKeyHandle;
-  verifiedPublicFacts?: VerifiedEcdsaPublicFacts;
   thresholdEcdsaPublicKeyB64u: string;
-  authMethod: 'email_otp' | 'passkey';
   curve: 'ecdsa';
   chainTarget: ThresholdEcdsaChainTarget;
   thresholdSessionId: string;
@@ -162,14 +236,15 @@ export type AvailableSigningLanesRuntimeEcdsaRecord = {
   remainingUses?: number;
   expiresAtMs?: number;
   updatedAtMs?: number;
-};
+} & AvailableSigningLanesRuntimeEcdsaAuthRecord &
+  AvailableSigningLanesRuntimeEcdsaPublicFactsRecord;
 
 export type AvailableSigningLanesRuntimeEd25519Record = {
   authMethod: 'email_otp' | 'passkey';
   curve: 'ed25519';
   chain: 'near';
   thresholdSessionId: string;
-  walletSigningSessionId?: string;
+  walletSigningSessionId: string;
   remainingUses?: number;
   expiresAtMs?: number;
   updatedAtMs?: number;
@@ -197,11 +272,7 @@ export type AvailableSigningLanes = {
 
 export type ConcreteAvailableSigningLane =
   | ConcreteAvailableEcdsaSigningLane
-  | (AvailableEd25519SigningLane & {
-      authMethod: 'email_otp' | 'passkey';
-      thresholdSessionId: string;
-      walletSigningSessionId: string;
-    });
+  | ConcreteAvailableEd25519SigningLane;
 
 export type ReadAvailableSigningLanesInput = {
   walletId: AccountId | string;
@@ -305,7 +376,7 @@ export function isConcreteAvailableSigningLane(
 }
 
 function laneCandidateStateFromAvailableLaneState(
-  state: AvailableSigningLaneState,
+  state: AvailableSigningLaneState | 'missing',
 ): LaneCandidateState | null {
   return state === 'missing' ? null : state;
 }
@@ -959,12 +1030,14 @@ function runtimeClaimToLaneState(
   durableLane?: AvailableEcdsaSigningLane | AvailableEd25519SigningLane,
   recordPolicyState?: 'expired' | 'exhausted' | null,
 ): AvailableSigningLaneState {
-  if (!claim) return recordPolicyState || durableLane?.state || 'deferred';
+  const durableConcreteState =
+    durableLane && durableLane.state !== 'missing' ? durableLane.state : undefined;
+  if (!claim) return recordPolicyState || durableConcreteState || 'deferred';
   if (claim.state === 'warm') return 'ready';
   if (claim.state === 'expired') return 'expired';
   if (claim.state === 'exhausted') return 'exhausted';
-  if (claim.state === 'missing') return recordPolicyState || durableLane?.state || 'missing';
-  return recordPolicyState || durableLane?.state || 'deferred';
+  if (claim.state === 'missing') return recordPolicyState || durableConcreteState || 'deferred';
+  return recordPolicyState || durableConcreteState || 'deferred';
 }
 
 function runtimeRecordPolicyState(args: {
@@ -1033,9 +1106,10 @@ function runtimeRecordToEd25519Lane(args: {
   record: AvailableSigningLanesRuntimeEd25519Record;
   claim: AvailableSigningLanesRuntimeClaim | null;
   durableLane: AvailableEd25519SigningLane;
-}): AvailableEd25519SigningLane {
+}): ConcreteAvailableEd25519SigningLane | null {
   const thresholdSessionId = String(args.record.thresholdSessionId || '').trim();
   const walletSigningSessionId = String(args.record.walletSigningSessionId || '').trim();
+  if (!thresholdSessionId || !walletSigningSessionId) return null;
   const durableWalletSigningSessionId = String(
     args.durableLane.walletSigningSessionId || '',
   ).trim();
@@ -1066,8 +1140,8 @@ function runtimeRecordToEd25519Lane(args: {
       recordPolicyState,
     ),
     source: hasMatchingDurableLane ? 'runtime_and_durable' : 'runtime_session_record',
-    ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
-    ...(thresholdSessionId ? { thresholdSessionId } : {}),
+    walletSigningSessionId,
+    thresholdSessionId,
     ...(remainingUses == null ? {} : { remainingUses }),
     ...(expiresAtMs == null ? {} : { expiresAtMs }),
     ...(updatedAtMs > 0 ? { updatedAtMs } : {}),
@@ -1682,6 +1756,7 @@ export async function readAvailableSigningLanes(
       claim: claimsBySessionId.get(thresholdSessionId) || null,
       durableLane,
     });
+    if (!runtimeLane) continue;
     const candidateIndex = runtimeLaneKey
       ? ed25519Candidates.findIndex(
           (lane) => ed25519AvailableLaneIdentityKey(lane) === runtimeLaneKey,

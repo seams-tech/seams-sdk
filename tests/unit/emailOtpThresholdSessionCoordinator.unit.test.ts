@@ -1152,7 +1152,13 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
 
   test('Email OTP registration bootstrap derives app-session route auth from appSessionJwt', async () => {
     const { coordinator, workerCalls } = createCoordinator();
-    const jwt = appSessionJwt();
+    const runtimePolicyScope = {
+      orgId: 'org',
+      projectId: 'proj',
+      envId: 'dev',
+      signingRootVersion: 'v1',
+    };
+    const jwt = appSessionJwtWithRuntimePolicyScope(runtimePolicyScope);
     coordinator.provisionEd25519Capability = async () => ({
       publicKey: 'ed25519-public',
       relayerKeyId: 'relayer-key',
@@ -1170,7 +1176,6 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       challengeId: 'challenge-1',
       otpCode: '123456',
       appSessionJwt: jwt,
-      keyHandle: 'ehss-key-handle-1',
       participantIds: [1, 3],
       sessionKind: 'jwt',
       registrationAttemptId: 'registration-attempt-1',
@@ -1202,7 +1207,13 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
 
   test('Email OTP ECDSA registration defers Ed25519 companion ceremony placeholder', async () => {
     const { coordinator, ed25519ProvisionCalls } = createCoordinator();
-    const jwt = appSessionJwt();
+    const runtimePolicyScope = {
+      orgId: 'org',
+      projectId: 'proj',
+      envId: 'dev',
+      signingRootVersion: 'v1',
+    };
+    const jwt = appSessionJwtWithRuntimePolicyScope(runtimePolicyScope);
     coordinator.provisionEd25519Capability = async (args) => {
       ed25519ProvisionCalls.push(args);
       throw new Error(
@@ -1216,7 +1227,6 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       challengeId: 'challenge-1',
       otpCode: '123456',
       appSessionJwt: jwt,
-      keyHandle: 'ehss-key-handle-1',
       participantIds: [1, 3],
       sessionKind: 'jwt',
       registrationAttemptId: 'registration-attempt-1',
@@ -2859,7 +2869,13 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
 
   test('enrolls ECDSA Email OTP capability and awaits Ed25519 provisioning', async () => {
     const { coordinator, ecdsaCommitCalls, ed25519ProvisionCalls } = createCoordinator();
-    const jwt = appSessionJwt();
+    const runtimePolicyScope = {
+      orgId: 'org',
+      projectId: 'proj',
+      envId: 'dev',
+      signingRootVersion: 'v1',
+    };
+    const jwt = appSessionJwtWithRuntimePolicyScope(runtimePolicyScope);
     coordinator.provisionEd25519Capability = async (args) => {
       ed25519ProvisionCalls.push(args);
       return {

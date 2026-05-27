@@ -42,6 +42,7 @@ import {
   type AppOrThresholdSessionAuth,
 } from '@shared/utils/sessionTokens';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
+import type { EmailOtpWorkerOperationRequestEnvelope } from '@/core/signingEngine/workerManager/workerTypes';
 import {
   thresholdEcdsaChainTargetFromRequest,
   thresholdEcdsaChainTargetKey,
@@ -189,250 +190,7 @@ type EmailOtpRecoveryWrappedEnrollmentEscrowPayload = {
   updatedAtMs: number;
 };
 
-type EmailOtpWorkerRequest =
-  | {
-      id: string;
-      type: 'requestEmailOtpChallenge';
-      payload: {
-        relayUrl: string;
-        walletId: string;
-        routePlan: EmailOtpRoutePlan;
-        otpChannel?: WalletEmailOtpChannel;
-      };
-    }
-  | {
-      id: string;
-      type: 'requestEmailOtpEnrollmentChallenge';
-      payload: {
-        relayUrl: string;
-        walletId: string;
-        routePlan: EmailOtpRoutePlan;
-        otpChannel?: WalletEmailOtpChannel;
-      };
-    }
-  | {
-      id: string;
-      type: 'enrollEmailOtpWallet';
-      payload: {
-        relayUrl: string;
-        walletId: string;
-        userId?: string;
-        challengeId?: string;
-        otpCode: string;
-        shamirPrimeB64u: string;
-        routePlan: EmailOtpRoutePlan;
-        otpChannel?: WalletEmailOtpChannel;
-        clientSecret32?: ArrayBuffer;
-      };
-    }
-  | {
-      id: string;
-      type: 'verifyEmailOtpCode';
-      payload: {
-        relayUrl: string;
-        walletId: string;
-        challengeId: string;
-        otpCode: string;
-        routePlan: EmailOtpRoutePlan;
-        otpChannel?: WalletEmailOtpChannel;
-      };
-    }
-  | {
-      id: string;
-      type: 'restoreEmailOtpDeviceEnrollmentEscrow';
-      payload: {
-        relayUrl: string;
-        walletId: string;
-        userId?: string;
-        challengeId: string;
-        otpCode: string;
-        recoveryKey: string;
-        shamirPrimeB64u: string;
-        routePlan: EmailOtpRoutePlan;
-        otpChannel?: WalletEmailOtpChannel;
-      };
-    }
-  | {
-      id: string;
-      type: 'removeEmailOtpDeviceEnrollmentEscrowFromDevice';
-      payload: {
-        walletId: string;
-        userId?: string;
-        enrollmentId?: string;
-      };
-    }
-  | {
-      id: string;
-      type: 'loginWithEmailOtpWallet';
-      payload: {
-        relayUrl: string;
-        walletId: string;
-        userId?: string;
-        challengeId?: string;
-        otpCode: string;
-        shamirPrimeB64u: string;
-        routePlan: EmailOtpRoutePlan;
-        otpChannel?: WalletEmailOtpChannel;
-        runtimePolicyScope?: ThresholdRuntimePolicyScope;
-      };
-    }
-  | {
-      id: string;
-      type: 'bootstrapEmailOtpEcdsaSessionsFromClientRootShare';
-      payload: {
-        relayUrl: string;
-        walletId: string;
-        walletSessionUserId: string;
-        userId?: string;
-        rpId: string;
-        clientRootShare32B64u: string;
-        chainTarget: ThresholdEcdsaChainTarget;
-        publicationChainTargets: ThresholdEcdsaChainTarget[];
-        keyHandle?: string;
-        roleLocalKeyIdentity?: {
-          ecdsaThresholdKeyId: string;
-          signingRootId: string;
-          signingRootVersion: string;
-          relayerKeyId: string;
-        };
-        participantIds?: number[];
-        sessionKind?: 'jwt' | 'cookie';
-        sessionId?: string;
-        walletSigningSessionId?: string;
-        routeAuth?: AppOrThresholdSessionAuth;
-        ttlMs?: number;
-        remainingUses?: number;
-        runtimePolicyScope?: ThresholdRuntimePolicyScope;
-        includeEcdsaExportArtifact?: boolean;
-      };
-    }
-  | {
-      id: string;
-      type: 'recoverEmailOtpEd25519ExportPrfFirst';
-      payload: {
-        relayUrl: string;
-        walletId: string;
-        userId?: string;
-        challengeId: string;
-        otpCode: string;
-        shamirPrimeB64u: string;
-        routePlan: EmailOtpRoutePlan;
-        otpChannel?: WalletEmailOtpChannel;
-        runtimePolicyScope?: ThresholdRuntimePolicyScope;
-      };
-    }
-  | {
-      id: string;
-      type: 'getEmailOtpWarmSessionStatus';
-      payload: {
-        sessionId: string;
-      };
-    }
-  | {
-      id: string;
-      type: 'claimEmailOtpWarmSessionMaterial';
-      payload: {
-        sessionId: string;
-        uses?: number;
-        consume?: boolean;
-      };
-    }
-  | {
-      id: string;
-      type: 'consumeEmailOtpWarmSessionUses';
-      payload: {
-        sessionId: string;
-        uses?: number;
-      };
-    }
-  | {
-      id: string;
-      type: 'sealEmailOtpWarmSessionMaterial';
-      payload: {
-        sessionId: string;
-        transport: {
-          relayerUrl: string;
-          thresholdSessionAuthToken?: string;
-          keyVersion?: string;
-          shamirPrimeB64u?: string;
-        };
-      };
-    }
-  | {
-      id: string;
-      type: 'rehydrateEmailOtpEcdsaWarmSessionMaterial';
-      payload: {
-        sealedSecretB64u: string;
-        remainingUses: number;
-        expiresAtMs: number;
-        transport: {
-          relayerUrl: string;
-          thresholdSessionAuthToken?: string;
-          keyVersion?: string;
-          shamirPrimeB64u?: string;
-        };
-        restore: {
-          sessionId: string;
-          walletId: string;
-          rpId: string;
-          chainTarget: ThresholdEcdsaChainTarget;
-          walletSigningSessionId: string;
-          keyHandle: string;
-          relayerKeyId: string;
-          participantIds: number[];
-          sessionKind?: 'jwt' | 'cookie';
-          runtimePolicyScope?: ThresholdRuntimePolicyScope;
-          ed25519?: {
-            sessionId: string;
-            signingRootId: string;
-            signingRootVersion?: string;
-            relayerKeyId: string;
-            participantIds: number[];
-          };
-        };
-      };
-    }
-  | {
-      id: string;
-      type: 'claimEmailOtpEcdsaSigningShare';
-      payload: {
-        sessionId: string;
-      };
-    }
-  | {
-      id: string;
-      type: 'clearEmailOtpWarmSessionMaterial';
-      payload: {
-        sessionId: string;
-      };
-    }
-  | {
-      id: string;
-      type: 'exportThresholdEcdsaHssKeyWithEmailOtpAuthorization';
-      payload: {
-        relayUrl: string;
-        walletId: string;
-        userId: string;
-        challengeId: string;
-        otpCode: string;
-        shamirPrimeB64u: string;
-        routePlan: EmailOtpRoutePlan;
-        rpId: string;
-        thresholdSessionAuthToken?: string;
-        sessionKind?: 'jwt' | 'cookie';
-        ecdsaThresholdKeyId: string;
-        signingRootId: string;
-        signingRootVersion?: string;
-        relayerKeyId: string;
-        roleLocalState: ThresholdEcdsaHssRoleLocalClientState;
-        thresholdSessionId: string;
-        walletSigningSessionId: string;
-        thresholdExpiresAtMs: number;
-        participantIds: number[];
-        keyHandle: string;
-        runtimePolicyScope?: ThresholdRuntimePolicyScope;
-      };
-    };
+type EmailOtpWorkerRequest = EmailOtpWorkerOperationRequestEnvelope;
 
 type WorkerErrorPayload = {
   message: string;
@@ -2525,6 +2283,12 @@ type ThresholdEcdsaEmailOtpBootstrapFromClientRootShareArgs = {
   | (EmailOtpRegistrationBootstrap & {
       walletSessionUserId: WalletSessionUserId;
       rpId: string;
+      roleLocalKeyIdentity?: {
+        ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+        signingRootId: string;
+        signingRootVersion: string;
+        relayerKeyId: string;
+      };
       participantIds?: number[];
       sessionKind?: 'jwt' | 'cookie';
       chainTarget: ThresholdEcdsaChainTarget;
@@ -2855,7 +2619,6 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
   const existingKeyRoleLocalIdentity =
     !exactSessionBootstrap &&
     operation === 'email_otp_bootstrap' &&
-    keyHandle &&
     'roleLocalKeyIdentity' in args
       ? args.roleLocalKeyIdentity
       : undefined;
@@ -2994,6 +2757,9 @@ async function runEmailOtpEcdsaPublicationBootstrapsFromClientRootShare(args: {
           rpId: args.rpId,
           clientRootShare32: args.clientRootShare32,
           operation: 'email_otp_bootstrap',
+          ...(canonicalRoleLocalKeyIdentity
+            ? { roleLocalKeyIdentity: canonicalRoleLocalKeyIdentity }
+            : {}),
           participantIds: args.participantIds,
           sessionKind: args.sessionKind,
           ...(publicationChainTargets.length === 1 && args.sessionId
@@ -3287,13 +3053,54 @@ function postEmailOtpWorkerProgress(id: string, code: EmailOtpWorkerProgressCode
   postToMainThread({ id, progress: true, payload: { code } });
 }
 
+const EMAIL_OTP_WORKER_OPERATION_TYPES = new Set<EmailOtpWorkerRequest['type']>([
+  'requestEmailOtpChallenge',
+  'requestEmailOtpEnrollmentChallenge',
+  'enrollEmailOtpWallet',
+  'verifyEmailOtpCode',
+  'restoreEmailOtpDeviceEnrollmentEscrow',
+  'removeEmailOtpDeviceEnrollmentEscrowFromDevice',
+  'loginWithEmailOtpWallet',
+  'bootstrapEmailOtpEcdsaSessionsFromClientRootShare',
+  'recoverEmailOtpEd25519ExportPrfFirst',
+  'getEmailOtpWarmSessionStatus',
+  'claimEmailOtpWarmSessionMaterial',
+  'consumeEmailOtpWarmSessionUses',
+  'sealEmailOtpWarmSessionMaterial',
+  'rehydrateEmailOtpEcdsaWarmSessionMaterial',
+  'claimEmailOtpEcdsaSigningShare',
+  'clearEmailOtpWarmSessionMaterial',
+  'exportThresholdEcdsaHssKeyWithEmailOtpAuthorization',
+]);
+
+function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null {
+  const obj = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null;
+  if (!obj) return null;
+  const id = normalizeOptionalTrimmedString(obj.id);
+  const type = normalizeOptionalTrimmedString(obj.type);
+  const payload = obj.payload && typeof obj.payload === 'object' ? obj.payload : null;
+  if (
+    !id ||
+    !type ||
+    !payload ||
+    !EMAIL_OTP_WORKER_OPERATION_TYPES.has(type as EmailOtpWorkerRequest['type'])
+  ) {
+    return null;
+  }
+  return {
+    id,
+    type,
+    payload,
+  } as EmailOtpWorkerRequest;
+}
+
 setTimeout(() => {
   postToMainThread({ type: WorkerControlMessage.WORKER_READY, ready: true });
 }, 0);
 
 self.addEventListener('message', async (event: MessageEvent) => {
-  const msg = event.data as EmailOtpWorkerRequest;
-  if (!msg?.id || !msg?.type) return;
+  const msg = parseEmailOtpWorkerRequest(event.data);
+  if (!msg) return;
 
   try {
     switch (msg.type) {

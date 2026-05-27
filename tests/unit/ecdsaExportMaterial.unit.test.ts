@@ -64,6 +64,12 @@ function makeRecord(
       authMethod: 'email_otp',
       authSubjectId: 'google:alice',
     },
+    runtimePolicyScope: {
+      orgId: 'org-export',
+      projectId: 'project-export',
+      envId: 'env-export',
+      signingRootVersion: 'default',
+    },
     updatedAtMs: 1_800_000_000_000,
     source: 'email_otp',
     ...overrides,
@@ -152,21 +158,47 @@ test.describe('ECDSA export material', () => {
     expect(material.cachedExportArtifact).toEqual(cachedExportArtifact);
   });
 
-  test('fresh Email OTP export material carries verified public facts', async () => {
+  test('fresh Email OTP export material uses route auth when runtime auth is available', async () => {
     const record = makeRecord();
     const material = await resolveFreshEmailOtpEcdsaExportMaterialForLane(
       depsForRecord(record),
       await exactExportLane(record),
     );
 
-    expect(material.kind).toBe('fresh_email_otp');
+    expect(material.kind).toBe('fresh_email_otp_route_auth_ready');
+    if (material.kind !== 'fresh_email_otp_route_auth_ready') {
+      throw new Error(`expected route-auth-ready fresh material, got ${material.kind}`);
+    }
     expect(material.publicFacts.kind).toBe('verified_ecdsa_public_facts');
     expect(material.publicFacts.publicKeyB64u).toBe(PUBLIC_KEY_B64U);
     expect(material.publicFacts.participantIds.map(Number)).toEqual([1, 2]);
     expect(material.publicFacts.thresholdOwnerAddress).toBe(OWNER_ADDRESS);
-    expect(material.authSubjectId).toBe('google:alice');
+    expect(material.authLane.kind).toBe('signing_session');
+    if (material.authLane.kind !== 'signing_session') {
+      throw new Error(`expected signing-session auth lane, got ${material.authLane.kind}`);
+    }
+    expect(material.authLane.thresholdSessionId).toBe(record.thresholdSessionId);
+    expect(material.runtimePolicyScope.orgId).toBe('org-export');
     expect('publicKey' in material).toBe(false);
     expect('participantIds' in material).toBe(false);
+  });
+
+  test('fresh Email OTP export material needs challenge when route auth is absent', async () => {
+    const record = makeRecord({
+      thresholdSessionAuthToken: undefined,
+      thresholdSessionKind: 'cookie',
+    });
+    const material = await resolveFreshEmailOtpEcdsaExportMaterialForLane(
+      depsForRecord(record),
+      await exactExportLane(record),
+    );
+
+    expect(material.kind).toBe('fresh_email_otp_needs_challenge');
+    if (material.kind !== 'fresh_email_otp_needs_challenge') {
+      throw new Error(`expected needs-challenge fresh material, got ${material.kind}`);
+    }
+    expect(material.authSubjectMode).toBe('explicit_auth_subject');
+    expect(material.authSubjectId).toBe('google:alice');
   });
 
   test('fresh Email OTP export material rejects missing verified public key facts', async () => {

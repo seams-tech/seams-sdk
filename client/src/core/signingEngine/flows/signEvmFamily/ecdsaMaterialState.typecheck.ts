@@ -74,6 +74,19 @@ const publicIdentityWithSignerSession = {
 // @ts-expect-error public identity material must not carry signer-session material
 void (publicIdentityWithSignerSession satisfies PublicIdentityAvailableEcdsaMaterial);
 
+const publicIdentityAsReadyMaterial = {
+  kind: 'public_identity_available',
+  authMethod: 'passkey',
+  source: 'login',
+  chainTarget: record.chainTarget,
+  identity,
+  publicFacts,
+  record,
+};
+
+// @ts-expect-error public ECDSA identity is not ready signer material
+void (publicIdentityAsReadyMaterial satisfies ReadyEcdsaMaterial);
+
 const readyWithKeyRef = {
   kind: 'ready_to_sign',
   authMethod: 'passkey',

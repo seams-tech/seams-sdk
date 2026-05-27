@@ -12,6 +12,7 @@ import {
   normalizeWalletBudgetSuccessInput,
   normalizeStringList,
   resolveWalletSigningOperationFingerprint,
+  summarizeWalletSigningSessionStatus,
   signingBudgetReservationKey,
   walletBudgetOwnerForLane,
   type SigningBudgetReservationIdentity,
@@ -24,6 +25,7 @@ import {
   type SigningSessionBudgetReservationRecord,
   type SigningSessionBudgetReserveInput,
   type SigningSessionBudgetSuccessInput,
+  type SigningSessionBudgetTraceExtraForEvent,
   type SigningSessionBudgetTraceEvent,
   type SigningSessionBudgetZeroSpendReason,
   type WalletBudgetSpend,
@@ -77,7 +79,7 @@ export class BudgetCoordinator implements SigningSessionBudget {
         projectionVersion: existingSpend.reservationIdentity.admittedProjection.version,
       });
       if (conflict) return conflict;
-      this.emitTrace(normalizedInput, 'wallet_signing_budget_reservation_deduped');
+      this.emitTrace(normalizedInput, 'wallet_signing_budget_reservation_deduped', {});
       return null;
     }
     const existingReservation = this.reservationsByOperationId.get(operationId);
@@ -87,7 +89,7 @@ export class BudgetCoordinator implements SigningSessionBudget {
         spend,
       });
       if (conflict) return conflict;
-      this.emitTrace(normalizedInput, 'wallet_signing_budget_reservation_deduped');
+      this.emitTrace(normalizedInput, 'wallet_signing_budget_reservation_deduped', {});
       return null;
     }
 
@@ -99,11 +101,11 @@ export class BudgetCoordinator implements SigningSessionBudget {
           spend,
         });
         if (conflict) return conflict;
-        this.emitTrace(normalizedInput, 'wallet_signing_budget_reservation_deduped');
+        this.emitTrace(normalizedInput, 'wallet_signing_budget_reservation_deduped', {});
         return null;
       }
 
-      this.emitTrace(normalizedInput, 'wallet_signing_budget_reservation_started');
+      this.emitTrace(normalizedInput, 'wallet_signing_budget_reservation_started', {});
       let admittedStatus: Awaited<
         ReturnType<typeof assertSigningSessionBudgetReservationAvailable>
       >;
@@ -138,7 +140,9 @@ export class BudgetCoordinator implements SigningSessionBudget {
         ),
         createdAtMs: Date.now(),
       });
-      this.emitTrace(normalizedInput, 'wallet_signing_budget_reservation_succeeded');
+      this.emitTrace(normalizedInput, 'wallet_signing_budget_reservation_succeeded', {
+        status: summarizeWalletSigningSessionStatus(admittedStatus),
+      });
       return this.createReservation(spend.operationId, (reason) => {
         this.releaseReservation(normalizedInput, reason);
       });
@@ -190,7 +194,7 @@ export class BudgetCoordinator implements SigningSessionBudget {
           actual: actualRecordedIdentity,
         };
       }
-      this.emitTrace(normalizedInput, 'wallet_signing_budget_spend_deduped');
+      this.emitTrace(normalizedInput, 'wallet_signing_budget_spend_deduped', {});
       const result = await existing.promise;
       const dedupedResult: SigningBudgetFinalizationResult =
         result.kind === 'finalized' ? { ...result, kind: 'already_finalized' } : result;
@@ -435,7 +439,7 @@ export class BudgetCoordinator implements SigningSessionBudget {
       spend.walletSigningSessionId,
       'walletSigningSessionId',
     );
-    this.emitTrace(input, 'wallet_signing_budget_spend_started');
+    this.emitTrace(input, 'wallet_signing_budget_spend_started', {});
     const budgetStatusCheck = buildSigningSessionBudgetStatusCheckForSpend({
       spend,
       trustedStatusAuth: input.trustedStatusAuth,
@@ -476,13 +480,10 @@ export class BudgetCoordinator implements SigningSessionBudget {
     return status;
   }
 
-  private emitTrace(
+  private emitTrace<TEvent extends SigningSessionBudgetTraceEvent['event']>(
     input: { spend: WalletBudgetSpend },
-    event: SigningSessionBudgetTraceEvent['event'],
-    extra: Pick<
-      SigningSessionBudgetTraceEvent,
-      'status' | 'error' | 'finalizationResult' | 'zeroSpendReason'
-    > = {},
+    event: TEvent,
+    extra: SigningSessionBudgetTraceExtraForEvent<TEvent>,
   ): void {
     this.deps.onTrace?.(createSigningSessionBudgetTraceEvent(input, event, extra));
   }
@@ -491,23 +492,50 @@ export class BudgetCoordinator implements SigningSessionBudget {
     input: { spend: WalletBudgetSpend },
     result: SigningBudgetFinalizationResult,
   ): void {
-    this.emitTrace(input, finalizationTraceEvent(result), {
-      finalizationResult: result.kind,
-      ...(result.kind === 'finalized' || result.kind === 'already_finalized'
-        ? {
-            status: {
-              status: 'active',
-              remainingUses: result.remainingUses,
-            },
-          }
-        : {}),
-      ...(result.kind === 'projection_mismatch'
-        ? {
-            error: `expected ${result.expectedProjectionVersion}, got ${result.actualProjectionVersion}`,
-          }
-        : {}),
-      ...(result.kind === 'budget_status_unavailable' ? { error: result.status } : {}),
-    });
+    switch (result.kind) {
+      case 'finalized':
+        this.emitTrace(input, 'wallet_signing_budget_finalization_finalized', {
+          finalizationResult: result.kind,
+          status: {
+            status: 'active',
+            remainingUses: result.remainingUses,
+          },
+        });
+        return;
+      case 'already_finalized':
+        this.emitTrace(input, 'wallet_signing_budget_finalization_already_finalized', {
+          finalizationResult: result.kind,
+          status: {
+            status: 'active',
+            remainingUses: result.remainingUses,
+          },
+        });
+        return;
+      case 'projection_mismatch':
+        this.emitTrace(input, 'wallet_signing_budget_finalization_projection_mismatch', {
+          finalizationResult: result.kind,
+          error: `expected ${result.expectedProjectionVersion}, got ${result.actualProjectionVersion}`,
+        });
+        return;
+      case 'missing_reservation':
+        this.emitTrace(input, 'wallet_signing_budget_finalization_missing_reservation', {
+          finalizationResult: result.kind,
+          error: 'missing reservation',
+        });
+        return;
+      case 'reservation_identity_mismatch':
+        this.emitTrace(input, 'wallet_signing_budget_finalization_identity_mismatch', {
+          finalizationResult: result.kind,
+          error: 'reservation identity mismatch',
+        });
+        return;
+      case 'budget_status_unavailable':
+        this.emitTrace(input, 'wallet_signing_budget_finalization_status_unavailable', {
+          finalizationResult: result.kind,
+          error: result.status,
+        });
+        return;
+    }
   }
 }
 
@@ -581,25 +609,6 @@ function finalizationResultFromStatus(
     remainingUses: Math.max(0, Math.floor(Number(status.remainingUses) || 0)),
     projectionVersion: normalizeRequired(projectionVersion, 'projectionVersion'),
   };
-}
-
-function finalizationTraceEvent(
-  result: SigningBudgetFinalizationResult,
-): SigningSessionBudgetTraceEvent['event'] {
-  switch (result.kind) {
-    case 'finalized':
-      return 'wallet_signing_budget_finalization_finalized';
-    case 'already_finalized':
-      return 'wallet_signing_budget_finalization_already_finalized';
-    case 'projection_mismatch':
-      return 'wallet_signing_budget_finalization_projection_mismatch';
-    case 'missing_reservation':
-      return 'wallet_signing_budget_finalization_missing_reservation';
-    case 'reservation_identity_mismatch':
-      return 'wallet_signing_budget_finalization_identity_mismatch';
-    case 'budget_status_unavailable':
-      return 'wallet_signing_budget_finalization_status_unavailable';
-  }
 }
 
 function budgetStatusUnavailable(

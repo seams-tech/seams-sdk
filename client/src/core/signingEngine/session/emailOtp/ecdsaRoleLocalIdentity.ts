@@ -28,6 +28,21 @@ export async function resolveEmailOtpEcdsaRoleLocalKeyIdentityForHandle(args: {
   const keyHandle = String(args.keyHandle || '').trim();
   if (!keyHandle) return undefined;
   if (!args.runtimePolicyScope) return undefined;
+  return await resolveRequiredEmailOtpEcdsaRoleLocalKeyIdentity({
+    keyHandle,
+    walletId: args.walletId,
+    rpId: args.rpId,
+    runtimePolicyScope: args.runtimePolicyScope,
+  });
+}
+
+export async function resolveRequiredEmailOtpEcdsaRoleLocalKeyIdentity(args: {
+  keyHandle?: string;
+  walletId: string;
+  rpId: string;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+}): Promise<EmailOtpEcdsaRoleLocalKeyIdentity> {
+  const keyHandle = String(args.keyHandle || '').trim();
   const signingRootScope = signingRootScopeFromRuntimePolicyScope(args.runtimePolicyScope);
   const signingRootId = nonEmptyString(signingRootScope.signingRootId, 'signingRootId');
   const signingRootVersion = nonEmptyString(
@@ -47,7 +62,7 @@ export async function resolveEmailOtpEcdsaRoleLocalKeyIdentityForHandle(args: {
     signingRootId,
     signingRootVersion,
   });
-  if (String(expectedKeyHandle) !== keyHandle) {
+  if (keyHandle && String(expectedKeyHandle) !== keyHandle) {
     throw new Error('Email OTP ECDSA keyHandle does not match runtime policy key identity');
   }
   return {

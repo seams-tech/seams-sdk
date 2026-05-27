@@ -48,6 +48,7 @@ export function createNearSigningDeps(args: {
     resolveEmailOtpSigningSessionAuthLane: ({ thresholdSessionId, curve }) =>
       createWarmSessionCapabilityReader({
         touchConfirm: createArgs.touchConfirm,
+        signingSessionSeal: null,
         getEmailOtpWarmSessionStatus,
       }).resolveEmailOtpSigningSessionAuthLane({ thresholdSessionId, curve }),
     isEmailOtpEd25519WarmupPending: ({ nearAccountId }) =>

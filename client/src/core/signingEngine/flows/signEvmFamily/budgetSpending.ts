@@ -97,6 +97,7 @@ function createEvmFamilyTransactionBudgetFinalizer(args: EvmFamilyWalletSigningS
   const resolvedIdentity = buildEcdsaSessionIdentity(selectedTransactionLane);
   return {
     finalizer: createSigningSessionBudgetFinalizer({
+      budgetMode: 'with_budget',
       signingSessionBudget: args.signingSessionCoordinator,
       budgetIdentity: args.admittedTransaction.budgetAdmission.budgetIdentity,
       finalization: buildEvmFamilyBudgetFinalization(args),

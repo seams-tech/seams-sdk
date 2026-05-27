@@ -59,15 +59,48 @@ export type WalletBudgetReservationProjection = {
   createdAtMs?: number;
 };
 
+type ActiveTrustedWalletBudgetStatus = Extract<TrustedWalletBudgetStatus, { status: 'active' }>;
+type InactiveTrustedWalletBudgetStatus = Exclude<
+  TrustedWalletBudgetStatus,
+  ActiveTrustedWalletBudgetStatus
+>;
+
+export type WalletBudgetProjectionState =
+  | {
+      kind: 'missing';
+      trustedStatus?: never;
+      unknown?: never;
+      effectiveRemainingUses?: never;
+      projectionVersion?: never;
+    }
+  | {
+      kind: 'unknown';
+      unknown: WalletBudgetUnknown;
+      trustedStatus?: never;
+      effectiveRemainingUses?: never;
+      projectionVersion?: never;
+    }
+  | {
+      kind: 'known';
+      trustedStatus: ActiveTrustedWalletBudgetStatus;
+      effectiveRemainingUses: number;
+      projectionVersion: string;
+      unknown?: never;
+    }
+  | {
+      kind: 'expired';
+      trustedStatus: InactiveTrustedWalletBudgetStatus;
+      unknown?: never;
+      effectiveRemainingUses?: never;
+      projectionVersion?: string;
+    };
+
 export type WalletBudgetProjection = {
   walletId: AccountId;
   walletSigningSessionId: WalletSigningSessionId | string;
-  trustedStatus: TrustedWalletBudgetStatus | null;
-  unknown: WalletBudgetUnknown | null;
+  state: WalletBudgetProjectionState;
   reservationsByOperationId: Map<string, WalletBudgetReservationProjection>;
   localReservedUses: number;
-  effectiveRemainingUses?: number;
-  projectionVersion?: string;
 };
 
 export type WalletBudgetProjectionEvent =
@@ -104,8 +137,7 @@ export function createWalletBudgetProjection(args: {
   return {
     walletId: args.walletId,
     walletSigningSessionId: args.walletSigningSessionId,
-    trustedStatus: null,
-    unknown: null,
+    state: { kind: 'missing' },
     reservationsByOperationId: new Map(),
     localReservedUses: 0,
   };
@@ -123,9 +155,7 @@ export function reduceWalletBudgetProjection(
       reservationsByOperationId.delete(String(event.operationId));
       return recalculate({
         ...projection,
-        trustedStatus: event.status,
-        unknown: null,
-        projectionVersion: event.status.projectionVersion,
+        state: trustedStatusProjectionState(event.status),
         reservationsByOperationId,
       });
     }
@@ -143,9 +173,7 @@ export function reduceWalletBudgetProjection(
     case 'budget_unknown_observed':
       return recalculate({
         ...projection,
-        trustedStatus: null,
-        unknown: event.unknown,
-        projectionVersion: undefined,
+        state: { kind: 'unknown', unknown: event.unknown },
       });
   }
 }
@@ -200,38 +228,44 @@ export function budgetUnknownSigningSessionStatus(args: {
 export function projectionToSigningSessionStatus(
   projection: WalletBudgetProjection,
 ): SigningSessionStatus {
-  if (projection.unknown) {
-    return budgetUnknownSigningSessionStatus({
-      walletSigningSessionId: projection.walletSigningSessionId,
-      reason: projection.unknown.reason,
-    });
+  switch (projection.state.kind) {
+    case 'missing':
+      return budgetUnknownSigningSessionStatus({
+        walletSigningSessionId: projection.walletSigningSessionId,
+        reason: 'missing_trusted_status',
+      });
+    case 'unknown':
+      return budgetUnknownSigningSessionStatus({
+        walletSigningSessionId: projection.walletSigningSessionId,
+        reason: projection.state.unknown.reason,
+      });
+    case 'expired': {
+      const trustedStatus = projection.state.trustedStatus;
+      return {
+        sessionId: String(trustedStatus.sessionId),
+        status: trustedStatus.status,
+        ...(trustedStatus.remainingUses !== undefined
+          ? { remainingUses: trustedStatus.remainingUses }
+          : {}),
+        ...(trustedStatus.expiresAtMs ? { expiresAtMs: trustedStatus.expiresAtMs } : {}),
+      };
+    }
+    case 'known': {
+      const trustedStatus = projection.state.trustedStatus;
+      return {
+        sessionId: String(trustedStatus.sessionId),
+        status: 'active',
+        remainingUses: Math.max(0, Math.floor(Number(trustedStatus.remainingUses) || 0)),
+        inFlightReservedUses: projection.localReservedUses,
+        availableUses: Math.max(
+          0,
+          Math.floor(Number(projection.state.effectiveRemainingUses) || 0),
+        ),
+        projectionVersion: projection.state.projectionVersion,
+        ...(trustedStatus.expiresAtMs ? { expiresAtMs: trustedStatus.expiresAtMs } : {}),
+      };
+    }
   }
-  const trustedStatus = projection.trustedStatus;
-  if (!trustedStatus) {
-    return budgetUnknownSigningSessionStatus({
-      walletSigningSessionId: projection.walletSigningSessionId,
-      reason: 'missing_trusted_status',
-    });
-  }
-  if (trustedStatus.status !== 'active') {
-    return {
-      sessionId: String(trustedStatus.sessionId),
-      status: trustedStatus.status,
-      ...(trustedStatus.remainingUses !== undefined
-        ? { remainingUses: trustedStatus.remainingUses }
-        : {}),
-      ...(trustedStatus.expiresAtMs ? { expiresAtMs: trustedStatus.expiresAtMs } : {}),
-    };
-  }
-  return {
-    sessionId: String(trustedStatus.sessionId),
-    status: 'active',
-    remainingUses: Math.max(0, Math.floor(Number(trustedStatus.remainingUses) || 0)),
-    inFlightReservedUses: projection.localReservedUses,
-    availableUses: Math.max(0, Math.floor(Number(projection.effectiveRemainingUses) || 0)),
-    ...(trustedStatus.projectionVersion ? { projectionVersion: trustedStatus.projectionVersion } : {}),
-    ...(trustedStatus.expiresAtMs ? { expiresAtMs: trustedStatus.expiresAtMs } : {}),
-  };
 }
 
 function withTrustedStatus(
@@ -240,15 +274,13 @@ function withTrustedStatus(
 ): WalletBudgetProjection {
   return recalculate({
     ...projection,
-    trustedStatus: status,
-    unknown: null,
-    projectionVersion: status.projectionVersion,
+    state: trustedStatusProjectionState(status),
   });
 }
 
 function recalculate(projection: WalletBudgetProjection): WalletBudgetProjection {
-  const trustedStatus = projection.trustedStatus;
-  const projectionVersion = String(trustedStatus?.projectionVersion || '').trim();
+  const state = projection.state;
+  const projectionVersion = state.kind === 'known' ? state.projectionVersion : '';
   const localReservedUses = projectionVersion
     ? Array.from(projection.reservationsByOperationId.values()).reduce((sum, reservation) => {
         if (String(reservation.reservedAgainstProjectionVersion || '').trim() !== projectionVersion) {
@@ -257,13 +289,52 @@ function recalculate(projection: WalletBudgetProjection): WalletBudgetProjection
         return sum + Math.max(0, Math.floor(Number(reservation.uses) || 0));
       }, 0)
     : 0;
-  const effectiveRemainingUses =
-    trustedStatus?.status === 'active'
-      ? Math.max(0, Math.floor(Number(trustedStatus.remainingUses) || 0) - localReservedUses)
-      : undefined;
+  if (state.kind !== 'known') {
+    return {
+      ...projection,
+      localReservedUses,
+    };
+  }
+  const effectiveRemainingUses = Math.max(
+    0,
+    Math.floor(Number(state.trustedStatus.remainingUses) || 0) - localReservedUses,
+  );
   return {
     ...projection,
     localReservedUses,
-    ...(effectiveRemainingUses !== undefined ? { effectiveRemainingUses } : {}),
+    state: {
+      ...state,
+      effectiveRemainingUses,
+    },
+  };
+}
+
+function trustedStatusProjectionState(
+  status: TrustedWalletBudgetStatus,
+): WalletBudgetProjectionState {
+  if (status.status === 'active') {
+    const projectionVersion = String(status.projectionVersion || '').trim();
+    if (!projectionVersion) {
+      return {
+        kind: 'unknown',
+        unknown: {
+          source: 'budget_unknown',
+          sessionId: status.sessionId,
+          status: 'budget_unknown',
+          reason: 'status_unavailable',
+        },
+      };
+    }
+    return {
+      kind: 'known',
+      trustedStatus: status,
+      effectiveRemainingUses: Math.max(0, Math.floor(Number(status.remainingUses) || 0)),
+      projectionVersion,
+    };
+  }
+  return {
+    kind: 'expired',
+    trustedStatus: status,
+    ...(status.projectionVersion ? { projectionVersion: status.projectionVersion } : {}),
   };
 }

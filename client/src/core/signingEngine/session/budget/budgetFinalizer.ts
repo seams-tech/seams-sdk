@@ -38,15 +38,34 @@ type BudgetFinalizationSpendWithSpend =
   | UnreservedBudgetFinalizationSpend
   | ExternallyConsumedBudgetFinalizationSpend;
 
-export function createSigningSessionBudgetFinalizer(args: {
-  signingSessionBudget?: SigningSessionBudget;
+type SigningSessionBudgetFinalizerBaseArgs = {
   budgetIdentity: SigningSessionPreparedBudgetIdentity;
   finalization: BudgetFinalizationSpend;
   onRecordSuccessError?: (error: unknown, spend: WalletSigningSpendPlan) => void;
   onRecordZeroSpendError?: (error: unknown) => void;
-}): SigningSessionBudgetFinalizer {
+};
+
+export type SigningSessionBudgetFinalizerWithBudgetArgs =
+  SigningSessionBudgetFinalizerBaseArgs & {
+    budgetMode: 'with_budget';
+    signingSessionBudget: SigningSessionBudget;
+  };
+
+export type SigningSessionBudgetFinalizerNoBudgetArgs =
+  SigningSessionBudgetFinalizerBaseArgs & {
+    budgetMode: 'no_budget';
+    signingSessionBudget?: never;
+  };
+
+export type CreateSigningSessionBudgetFinalizerArgs =
+  | SigningSessionBudgetFinalizerWithBudgetArgs
+  | SigningSessionBudgetFinalizerNoBudgetArgs;
+
+export function createSigningSessionBudgetFinalizer(
+  args: CreateSigningSessionBudgetFinalizerArgs,
+): SigningSessionBudgetFinalizer {
   const spend = getFinalizationSpend(args.finalization);
-  const budget = args.signingSessionBudget;
+  const budget = args.budgetMode === 'with_budget' ? args.signingSessionBudget : null;
   if (
     spend &&
     args.budgetIdentity.walletSigningSessionId !== String(spend.walletSigningSessionId)

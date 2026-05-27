@@ -39,15 +39,24 @@ export type ThresholdEd25519LifecycleDeps = {
   getSignerWorkerContext: () => WorkerOperationContext;
 };
 
-export type DeriveThresholdEd25519ClientVerifyingShareResult = {
-  success: boolean;
-  nearAccountId: string;
-  clientVerifyingShareB64u: string;
-  error?: string;
-};
+export type DeriveThresholdEd25519ClientVerifyingShareResult =
+  | {
+      ok: true;
+      nearAccountId: string;
+      clientVerifyingShareB64u: string;
+      code?: never;
+      message?: never;
+    }
+  | {
+      ok: false;
+      nearAccountId: string;
+      code: 'derive_client_verifying_share_failed';
+      message: string;
+      clientVerifyingShareB64u?: never;
+    };
 
-export type DeriveThresholdEd25519HssClientInputsResult = {
-  success: boolean;
+type ThresholdEd25519HssClientInputsSuccess = {
+  ok: true;
   signingRootId: string;
   nearAccountId: string;
   keyPurpose: string;
@@ -57,40 +66,74 @@ export type DeriveThresholdEd25519HssClientInputsResult = {
   contextBindingB64u: string;
   yClientB64u: string;
   tauClientB64u: string;
-  error?: string;
+  code?: never;
+  message?: never;
 };
 
-export type PrepareThresholdEd25519HssClientCeremonyResult = {
-  success: boolean;
+type ThresholdEd25519HssClientInputsFailure<
+  Code extends 'derive_client_inputs_failed' | 'prepare_client_ceremony_failed',
+> = {
+  ok: false;
   signingRootId: string;
   nearAccountId: string;
   keyPurpose: string;
   keyVersion: string;
   participantIds: number[];
   derivationVersion: number;
-  contextBindingB64u: string;
-  yClientB64u: string;
-  tauClientB64u: string;
-  error?: string;
+  code: Code;
+  message: string;
+  contextBindingB64u?: never;
+  yClientB64u?: never;
+  tauClientB64u?: never;
 };
 
-export type CompleteThresholdEd25519HssClientCeremonyResult = {
-  success: boolean;
-  contextBindingB64u: string;
-  preparedSession?: ThresholdEd25519HssPreparedSessionEnvelope;
-  finalizedReport?: ThresholdEd25519HssFinalizedReportEnvelope;
-  clientOutput?: ThresholdEd25519HssOpenedClientOutput;
-  error?: string;
-};
+export type DeriveThresholdEd25519HssClientInputsResult =
+  | ThresholdEd25519HssClientInputsSuccess
+  | ThresholdEd25519HssClientInputsFailure<'derive_client_inputs_failed'>;
 
-export type PrepareThresholdEd25519HssServerCeremonyWithSessionResult = {
-  success: boolean;
-  contextBindingB64u: string;
-  ceremonyHandle?: string;
-  preparedSession?: ThresholdEd25519HssPreparedSessionEnvelope;
-  clientOtOfferMessageB64u?: string;
-  error?: string;
-};
+export type PrepareThresholdEd25519HssClientCeremonyResult =
+  | ThresholdEd25519HssClientInputsSuccess
+  | ThresholdEd25519HssClientInputsFailure<'derive_client_inputs_failed' | 'prepare_client_ceremony_failed'>;
+
+export type CompleteThresholdEd25519HssClientCeremonyResult =
+  | {
+      ok: true;
+      contextBindingB64u: string;
+      preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+      finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
+      clientOutput: ThresholdEd25519HssOpenedClientOutput;
+      code?: never;
+      message?: never;
+    }
+  | {
+      ok: false;
+      contextBindingB64u: string;
+      code: 'complete_client_ceremony_failed';
+      message: string;
+      preparedSession?: never;
+      finalizedReport?: never;
+      clientOutput?: never;
+    };
+
+export type PrepareThresholdEd25519HssServerCeremonyWithSessionResult =
+  | {
+      ok: true;
+      contextBindingB64u: string;
+      ceremonyHandle: string;
+      preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+      clientOtOfferMessageB64u: string;
+      code?: never;
+      message?: never;
+    }
+  | {
+      ok: false;
+      contextBindingB64u: string;
+      code: 'server_prepare_failed';
+      message: string;
+      ceremonyHandle?: never;
+      preparedSession?: never;
+      clientOtOfferMessageB64u?: never;
+    };
 
 export type ThresholdEd25519HssSessionOperation =
   | 'tx_signing'
@@ -99,34 +142,71 @@ export type ThresholdEd25519HssSessionOperation =
   | 'warm_session_reconstruction'
   | 'explicit_key_export';
 
-export type RespondThresholdEd25519HssServerCeremonyWithSessionResult = {
-  success: boolean;
-  contextBindingB64u: string;
-  serverInputDelivery?: ThresholdEd25519HssServerInputDeliveryEnvelope;
-  error?: string;
-};
+export type RespondThresholdEd25519HssServerCeremonyWithSessionResult =
+  | {
+      ok: true;
+      contextBindingB64u: string;
+      serverInputDelivery: ThresholdEd25519HssServerInputDeliveryEnvelope;
+      code?: never;
+      message?: never;
+    }
+  | {
+      ok: false;
+      contextBindingB64u: string;
+      code: 'server_respond_failed';
+      message: string;
+      serverInputDelivery?: never;
+    };
 
-export type FinalizeThresholdEd25519HssServerCeremonyWithSessionResult = {
-  success: boolean;
-  contextBindingB64u: string;
-  finalizedReport?: ThresholdEd25519HssFinalizedReportEnvelope;
-  error?: string;
-};
+export type FinalizeThresholdEd25519HssServerCeremonyWithSessionResult =
+  | {
+      ok: true;
+      contextBindingB64u: string;
+      finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
+      code?: never;
+      message?: never;
+    }
+  | {
+      ok: false;
+      contextBindingB64u: string;
+      code: 'server_finalize_failed';
+      message: string;
+      finalizedReport?: never;
+    };
 
-export type OpenThresholdEd25519HssSeedOutputResult = {
-  success: boolean;
-  contextBindingB64u: string;
-  seedOutput?: ThresholdEd25519HssOpenedSeedOutput;
-  error?: string;
-};
+export type OpenThresholdEd25519HssSeedOutputResult =
+  | {
+      ok: true;
+      contextBindingB64u: string;
+      seedOutput: ThresholdEd25519HssOpenedSeedOutput;
+      code?: never;
+      message?: never;
+    }
+  | {
+      ok: false;
+      contextBindingB64u: string;
+      code: 'open_seed_output_failed';
+      message: string;
+      seedOutput?: never;
+    };
 
-export type BuildThresholdEd25519SeedExportArtifactResult = {
-  success: boolean;
-  contextBindingB64u: string;
-  seedOutput?: ThresholdEd25519HssOpenedSeedOutput;
-  artifact?: ThresholdEd25519SeedExportArtifact;
-  error?: string;
-};
+export type BuildThresholdEd25519SeedExportArtifactResult =
+  | {
+      ok: true;
+      contextBindingB64u: string;
+      seedOutput: ThresholdEd25519HssOpenedSeedOutput;
+      artifact: ThresholdEd25519SeedExportArtifact;
+      code?: never;
+      message?: never;
+    }
+  | {
+      ok: false;
+      contextBindingB64u: string;
+      code: 'open_seed_output_failed' | 'build_seed_export_artifact_failed';
+      message: string;
+      seedOutput?: never;
+      artifact?: never;
+    };
 
 function stripTrailingSlashes(value: string): string {
   return value.replace(/\/+$/, '');
@@ -195,19 +275,32 @@ export async function deriveThresholdEd25519ClientVerifyingShareFromCredential(
   try {
     const prfFirstB64u = requirePrfFirstB64uFromCredential(args.credential);
     const sessionId = deps.createSessionId('threshold-client-share');
-    return await deps.signingKeyOps.deriveThresholdEd25519ClientVerifyingShare({
+    const derived = await deps.signingKeyOps.deriveThresholdEd25519ClientVerifyingShare({
       sessionId,
       nearAccountId,
       prfFirstB64u,
       wrapKeySalt: THRESHOLD_ED25519_WRAP_KEY_SALT_B64U,
     });
+    if (!derived.success) {
+      return {
+        ok: false,
+        nearAccountId,
+        code: 'derive_client_verifying_share_failed',
+        message: String(derived.error || 'Failed to derive threshold Ed25519 client share'),
+      };
+    }
+    return {
+      ok: true,
+      nearAccountId: derived.nearAccountId,
+      clientVerifyingShareB64u: derived.clientVerifyingShareB64u,
+    };
   } catch (error: unknown) {
     const message = String((error as { message?: unknown })?.message ?? error);
     return {
-      success: false,
+      ok: false,
       nearAccountId,
-      clientVerifyingShareB64u: '',
-      error: message,
+      code: 'derive_client_verifying_share_failed',
+      message,
     };
   }
 }
@@ -236,7 +329,7 @@ export async function deriveThresholdEd25519HssClientInputsFromCredential(
   try {
     const prfFirstB64u = requirePrfFirstB64uFromCredential(args.credential);
     const sessionId = deps.createSessionId('threshold-ed25519-hss-client-inputs');
-    return await deps.signingKeyOps.deriveThresholdEd25519HssClientInputs({
+    const derived = await deps.signingKeyOps.deriveThresholdEd25519HssClientInputs({
       sessionId,
       signingRootId,
       nearAccountId,
@@ -246,20 +339,43 @@ export async function deriveThresholdEd25519HssClientInputsFromCredential(
       derivationVersion,
       prfFirstB64u,
     });
+    if (!derived.success) {
+      return {
+        ok: false,
+        signingRootId,
+        nearAccountId,
+        keyPurpose,
+        keyVersion,
+        participantIds,
+        derivationVersion,
+        code: 'derive_client_inputs_failed',
+        message: String(derived.error || 'Failed to derive threshold Ed25519 HSS client inputs'),
+      };
+    }
+    return {
+      ok: true,
+      signingRootId: derived.signingRootId,
+      nearAccountId: derived.nearAccountId,
+      keyPurpose: derived.keyPurpose,
+      keyVersion: derived.keyVersion,
+      participantIds: derived.participantIds,
+      derivationVersion: derived.derivationVersion,
+      contextBindingB64u: derived.contextBindingB64u,
+      yClientB64u: derived.yClientB64u,
+      tauClientB64u: derived.tauClientB64u,
+    };
   } catch (error: unknown) {
     const message = String((error as { message?: unknown })?.message ?? error);
     return {
-      success: false,
+      ok: false,
       signingRootId,
       nearAccountId,
       keyPurpose,
       keyVersion,
       participantIds,
       derivationVersion,
-      contextBindingB64u: '',
-      yClientB64u: '',
-      tauClientB64u: '',
-      error: message,
+      code: 'derive_client_inputs_failed',
+      message,
     };
   }
 }
@@ -279,25 +395,23 @@ export async function prepareThresholdEd25519HssClientCeremonyFromCredential(
 ): Promise<PrepareThresholdEd25519HssClientCeremonyResult> {
   args.onProgress?.('Deriving threshold Ed25519 client inputs from passkey...');
   const derived = await deriveThresholdEd25519HssClientInputsFromCredential(deps, args);
-  if (!derived.success) {
+  if (!derived.ok) {
     return {
-      success: false,
+      ok: false,
       signingRootId: derived.signingRootId,
       nearAccountId: derived.nearAccountId,
       keyPurpose: derived.keyPurpose,
       keyVersion: derived.keyVersion,
       participantIds: derived.participantIds,
       derivationVersion: derived.derivationVersion,
-      contextBindingB64u: derived.contextBindingB64u,
-      yClientB64u: derived.yClientB64u,
-      tauClientB64u: derived.tauClientB64u,
-      error: derived.error,
+      code: derived.code,
+      message: derived.message,
     };
   }
 
   try {
     return {
-      success: true,
+      ok: true,
       signingRootId: derived.signingRootId,
       nearAccountId: derived.nearAccountId,
       keyPurpose: derived.keyPurpose,
@@ -311,17 +425,15 @@ export async function prepareThresholdEd25519HssClientCeremonyFromCredential(
   } catch (error: unknown) {
     const message = String((error as { message?: unknown })?.message ?? error);
     return {
-      success: false,
+      ok: false,
       signingRootId: derived.signingRootId,
       nearAccountId: derived.nearAccountId,
       keyPurpose: derived.keyPurpose,
       keyVersion: derived.keyVersion,
       participantIds: derived.participantIds,
       derivationVersion: derived.derivationVersion,
-      contextBindingB64u: derived.contextBindingB64u,
-      yClientB64u: derived.yClientB64u,
-      tauClientB64u: derived.tauClientB64u,
-      error: message,
+      code: 'prepare_client_ceremony_failed',
+      message,
     };
   }
 }
@@ -350,7 +462,7 @@ export async function completeThresholdEd25519HssClientCeremony(args: {
     }
 
     return {
-      success: true,
+      ok: true,
       contextBindingB64u,
       preparedSession: args.preparedSession,
       finalizedReport: args.finalizedReport,
@@ -359,9 +471,10 @@ export async function completeThresholdEd25519HssClientCeremony(args: {
   } catch (error: unknown) {
     const message = String((error as { message?: unknown })?.message ?? error);
     return {
-      success: false,
+      ok: false,
       contextBindingB64u,
-      error: message,
+      code: 'complete_client_ceremony_failed',
+      message,
     };
   }
 }
@@ -464,7 +577,7 @@ export async function prepareThresholdEd25519HssServerCeremonyWithSession(args: 
       totalMs: Date.now() - startedAt,
     });
     return {
-      success: true,
+      ok: true,
       contextBindingB64u: String(preparedSession.contextBindingB64u || '').trim(),
       ceremonyHandle,
       preparedSession,
@@ -473,9 +586,10 @@ export async function prepareThresholdEd25519HssServerCeremonyWithSession(args: 
   } catch (error: unknown) {
     const message = String((error as { message?: unknown })?.message ?? error);
     return {
-      success: false,
+      ok: false,
       contextBindingB64u,
-      error: message,
+      code: 'server_prepare_failed',
+      message,
     };
   }
 }
@@ -564,7 +678,7 @@ export async function respondThresholdEd25519HssServerCeremonyWithSession(args: 
       totalMs: Date.now() - startedAt,
     });
     return {
-      success: true,
+      ok: true,
       contextBindingB64u,
       serverInputDelivery: {
         contextBindingB64u: deliveryContextBindingB64u,
@@ -574,9 +688,10 @@ export async function respondThresholdEd25519HssServerCeremonyWithSession(args: 
   } catch (error: unknown) {
     const message = String((error as { message?: unknown })?.message ?? error);
     return {
-      success: false,
+      ok: false,
       contextBindingB64u,
-      error: message,
+      code: 'server_respond_failed',
+      message,
     };
   }
 }
@@ -662,16 +777,17 @@ export async function finalizeThresholdEd25519HssServerCeremonyWithSession(args:
       totalMs: Date.now() - startedAt,
     });
     return {
-      success: true,
+      ok: true,
       contextBindingB64u,
       finalizedReport: data.finalizedReport,
     };
   } catch (error: unknown) {
     const message = String((error as { message?: unknown })?.message ?? error);
     return {
-      success: false,
+      ok: false,
       contextBindingB64u,
-      error: message,
+      code: 'server_finalize_failed',
+      message,
     };
   }
 }
@@ -695,16 +811,12 @@ export async function runThresholdEd25519HssCeremonyWithSession(args: {
     operation: args.operation,
     context: args.context,
   });
-  if (
-    !prepared.success ||
-    !prepared.ceremonyHandle ||
-    !prepared.clientOtOfferMessageB64u ||
-    !prepared.preparedSession
-  ) {
+  if (!prepared.ok) {
     return {
-      success: false,
+      ok: false,
       contextBindingB64u: prepared.contextBindingB64u,
-      error: prepared.error,
+      code: 'complete_client_ceremony_failed',
+      message: prepared.message,
     };
   }
 
@@ -733,18 +845,12 @@ export async function runThresholdEd25519HssCeremonyWithSession(args: {
     contextBindingB64u: prepared.preparedSession.contextBindingB64u,
     clientRequest,
   });
-  if (!responded.success) {
+  if (!responded.ok) {
     return {
-      success: false,
+      ok: false,
       contextBindingB64u: responded.contextBindingB64u,
-      error: responded.error,
-    };
-  }
-  if (!responded.serverInputDelivery) {
-    return {
-      success: false,
-      contextBindingB64u: responded.contextBindingB64u,
-      error: 'HSS respond did not return server-input delivery',
+      code: 'complete_client_ceremony_failed',
+      message: responded.message,
     };
   }
 
@@ -759,9 +865,10 @@ export async function runThresholdEd25519HssCeremonyWithSession(args: {
     });
   if (evaluationResult.contextBindingB64u !== prepared.preparedSession.contextBindingB64u) {
     return {
-      success: false,
+      ok: false,
       contextBindingB64u: evaluationResult.contextBindingB64u,
-      error: 'HSS client-owned staged artifact context binding mismatch',
+      code: 'complete_client_ceremony_failed',
+      message: 'HSS client-owned staged artifact context binding mismatch',
     };
   }
   const evaluateMs = Date.now() - evaluateStartedAt;
@@ -773,11 +880,12 @@ export async function runThresholdEd25519HssCeremonyWithSession(args: {
     contextBindingB64u: prepared.preparedSession.contextBindingB64u,
     evaluationResult,
   });
-  if (!finalized.success || !finalized.finalizedReport) {
+  if (!finalized.ok) {
     return {
-      success: false,
+      ok: false,
       contextBindingB64u: finalized.contextBindingB64u,
-      error: finalized.error,
+      code: 'complete_client_ceremony_failed',
+      message: finalized.message,
     };
   }
 
@@ -795,10 +903,11 @@ export async function runThresholdEd25519HssCeremonyWithSession(args: {
     completeMs,
     totalMs: Date.now() - startedAt,
   });
+  if (!completed.ok) return completed;
   return {
     ...completed,
     preparedSession: prepared.preparedSession,
-    ...(finalized.finalizedReport ? { finalizedReport: finalized.finalizedReport } : {}),
+    finalizedReport: finalized.finalizedReport,
   };
 }
 
@@ -829,16 +938,17 @@ export async function openThresholdEd25519HssSeedOutput(args: {
     }
 
     return {
-      success: true,
+      ok: true,
       contextBindingB64u,
       seedOutput,
     };
   } catch (error: unknown) {
     const message = String((error as { message?: unknown })?.message ?? error);
     return {
-      success: false,
+      ok: false,
       contextBindingB64u,
-      error: message,
+      code: 'open_seed_output_failed',
+      message,
     };
   }
 }
@@ -854,11 +964,12 @@ export async function buildThresholdEd25519SeedExportArtifactFromHssReport(args:
     finalizedReport: args.finalizedReport,
     workerCtx: args.workerCtx,
   });
-  if (!seedResult.success || !seedResult.seedOutput) {
+  if (!seedResult.ok) {
     return {
-      success: false,
+      ok: false,
       contextBindingB64u: seedResult.contextBindingB64u,
-      error: seedResult.error,
+      code: seedResult.code,
+      message: seedResult.message,
     };
   }
 
@@ -869,7 +980,7 @@ export async function buildThresholdEd25519SeedExportArtifactFromHssReport(args:
       workerCtx: args.workerCtx,
     });
     return {
-      success: true,
+      ok: true,
       contextBindingB64u: seedResult.contextBindingB64u,
       seedOutput: seedResult.seedOutput,
       artifact,
@@ -877,10 +988,10 @@ export async function buildThresholdEd25519SeedExportArtifactFromHssReport(args:
   } catch (error: unknown) {
     const message = String((error as { message?: unknown })?.message ?? error);
     return {
-      success: false,
+      ok: false,
       contextBindingB64u: seedResult.contextBindingB64u,
-      seedOutput: seedResult.seedOutput,
-      error: message,
+      code: 'build_seed_export_artifact_failed',
+      message,
     };
   }
 }

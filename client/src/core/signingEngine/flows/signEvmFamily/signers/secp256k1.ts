@@ -154,9 +154,10 @@ async function buildReadySecp256k1SigningMaterialFromKeyRefFallback(args: {
   const keyRef = args.keyRef;
   const publicFacts = await toVerifiedEcdsaPublicFactsFromKeyRef({ keyRef });
 
-  const resolvedAuthMaterial = createWarmSessionCapabilityReader(
-    {},
-  ).resolveEcdsaAuthByThresholdSessionId(args.queueIdentity.thresholdSessionId);
+  const resolvedAuthMaterial =
+    createWarmSessionCapabilityReader().resolveEcdsaAuthByThresholdSessionId(
+      args.queueIdentity.thresholdSessionId,
+    );
   const canonicalRecord = resolvedAuthMaterial?.record || null;
   const canonicalRecordThresholdKeyId = canonicalRecord
     ? String(

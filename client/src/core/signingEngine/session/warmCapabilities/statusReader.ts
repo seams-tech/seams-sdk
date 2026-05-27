@@ -30,9 +30,11 @@ import {
   listWarmSessionEcdsaRecordsForWalletTarget,
 } from './store';
 import {
+  normalizeWarmSessionReadPorts,
   readWarmSessionClaim,
   toSigningSessionStatus,
   toWarmSessionClaimFromStatusResult,
+  type WarmSessionReadPortsInput,
 } from './readModel';
 import {
   buildEcdsaSessionIdentity,
@@ -85,7 +87,7 @@ export function normalizeUsesNeeded(usesNeededRaw: unknown): number {
 }
 
 export type WarmSessionStatusReaderDeps = {
-  touchConfirm?: Parameters<typeof readWarmSessionClaim>[0];
+  touchConfirm?: WarmSessionReadPortsInput;
   readWalletScopedLaneClaimsForWallet?: typeof readWalletScopedLaneClaimsForWalletCore;
   readWalletScopedLaneClaimsForLanes?: typeof readWalletScopedLaneClaimsForLanes;
   getEmailOtpWarmSessionStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
@@ -116,10 +118,15 @@ export type WarmSigningStatusReader = ThresholdWarmSessionStatusReader & {
 export function createWarmSessionStatusReader(
   deps: WarmSessionStatusReaderDeps,
 ): WarmSigningStatusReader {
+  const touchConfirm = normalizeWarmSessionReadPorts(deps.touchConfirm);
   const readWalletScopedLaneClaimsForWallet =
     deps.readWalletScopedLaneClaimsForWallet || readWalletScopedLaneClaimsForWalletCore;
   const readWalletScopedLaneClaimsForExactLanes =
     deps.readWalletScopedLaneClaimsForLanes || readWalletScopedLaneClaimsForLanes;
+  const claimReaderDeps = {
+    touchConfirm,
+    getEmailOtpWarmSessionStatus: deps.getEmailOtpWarmSessionStatus,
+  };
 
   function buildLanesForRecords(records: Array<ThresholdEcdsaSessionRecord | null>): DiscoveredSigningSessionLane[] {
     return records
@@ -140,7 +147,7 @@ export function createWarmSessionStatusReader(
         ? toWarmSessionClaimFromStatusResult({ sessionId: identity.thresholdSessionId, status })
         : null;
     }
-    return await readWarmSessionClaim(deps.touchConfirm, identity.thresholdSessionId);
+    return await readWarmSessionClaim(touchConfirm, identity.thresholdSessionId);
   }
 
   async function readWalletScopedClaimsForRecords(
@@ -156,7 +163,7 @@ export function createWarmSessionStatusReader(
       records.ecdsa.tempo ? buildDiscoveredLaneForRecord(records.ecdsa.tempo) : null,
     ].filter((lane): lane is DiscoveredSigningSessionLane => lane !== null);
     const walletScopedClaims = exactLanes.length
-      ? await readWalletScopedLaneClaimsForExactLanes({ deps, lanes: exactLanes })
+      ? await readWalletScopedLaneClaimsForExactLanes({ deps: claimReaderDeps, lanes: exactLanes })
       : new Map<string, WarmSessionPrfClaim | null>();
     return {
       ed25519Claim:
@@ -408,7 +415,7 @@ export function createWarmSessionStatusReader(
     });
     if (!records.length) return [];
     const claimsByThresholdSessionId = await readWalletScopedLaneClaimsForExactLanes({
-      deps,
+      deps: claimReaderDeps,
       lanes: buildLanesForRecords(records),
     });
     return records.map((record) =>
@@ -443,7 +450,7 @@ export function createWarmSessionStatusReader(
       };
     }
     const claimsByThresholdSessionId = await readWalletScopedLaneClaimsForExactLanes({
-      deps,
+      deps: claimReaderDeps,
       lanes: buildLanesForRecords([record]),
     });
     return toEcdsaSigningSessionStatus({

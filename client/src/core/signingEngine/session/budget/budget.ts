@@ -54,24 +54,30 @@ export type SigningSessionBudgetFinalizationTraceResult =
   | 'reservation_identity_mismatch'
   | 'budget_status_unavailable';
 
-export type SigningSessionBudgetTraceEvent = {
-  event:
-    | 'wallet_signing_budget_reservation_started'
-    | 'wallet_signing_budget_reservation_succeeded'
-    | 'wallet_signing_budget_reservation_deduped'
-    | 'wallet_signing_budget_reservation_released'
-    | 'wallet_signing_budget_reservation_failed'
-    | 'wallet_signing_budget_spend_started'
-    | 'wallet_signing_budget_spend_deduped'
-    | 'wallet_signing_budget_spend_succeeded'
-    | 'wallet_signing_budget_spend_failed'
-    | 'wallet_signing_budget_finalization_finalized'
-    | 'wallet_signing_budget_finalization_already_finalized'
-    | 'wallet_signing_budget_finalization_projection_mismatch'
-    | 'wallet_signing_budget_finalization_missing_reservation'
-    | 'wallet_signing_budget_finalization_identity_mismatch'
-    | 'wallet_signing_budget_finalization_status_unavailable'
-    | 'wallet_signing_budget_zero_spend_recorded';
+export type SigningSessionBudgetTraceStatus = Pick<
+  SigningSessionStatus,
+  'status' | 'remainingUses' | 'expiresAtMs'
+>;
+
+export type SigningSessionBudgetTraceEventKind =
+  | 'wallet_signing_budget_reservation_started'
+  | 'wallet_signing_budget_reservation_succeeded'
+  | 'wallet_signing_budget_reservation_deduped'
+  | 'wallet_signing_budget_reservation_released'
+  | 'wallet_signing_budget_reservation_failed'
+  | 'wallet_signing_budget_spend_started'
+  | 'wallet_signing_budget_spend_deduped'
+  | 'wallet_signing_budget_spend_succeeded'
+  | 'wallet_signing_budget_spend_failed'
+  | 'wallet_signing_budget_finalization_finalized'
+  | 'wallet_signing_budget_finalization_already_finalized'
+  | 'wallet_signing_budget_finalization_projection_mismatch'
+  | 'wallet_signing_budget_finalization_missing_reservation'
+  | 'wallet_signing_budget_finalization_identity_mismatch'
+  | 'wallet_signing_budget_finalization_status_unavailable'
+  | 'wallet_signing_budget_zero_spend_recorded';
+
+type SigningSessionBudgetTraceBase = {
   operationId: SigningOperationId;
   owner: WalletBudgetOwner;
   lane: SigningLaneSummary;
@@ -79,11 +85,125 @@ export type SigningSessionBudgetTraceEvent = {
   uses: WalletSigningSpendPlan['uses'];
   thresholdSessionCount: number;
   backingMaterialSessionCount: number;
-  status?: Pick<SigningSessionStatus, 'status' | 'remainingUses' | 'expiresAtMs'>;
-  error?: string;
-  finalizationResult?: SigningSessionBudgetFinalizationTraceResult;
-  zeroSpendReason?: SigningSessionBudgetZeroSpendReason;
 };
+
+type SigningSessionBudgetTracePlainEvent = SigningSessionBudgetTraceBase & {
+  event:
+    | 'wallet_signing_budget_reservation_started'
+    | 'wallet_signing_budget_reservation_deduped'
+    | 'wallet_signing_budget_spend_started'
+    | 'wallet_signing_budget_spend_deduped';
+  status?: never;
+  error?: never;
+  finalizationResult?: never;
+  zeroSpendReason?: never;
+};
+
+type SigningSessionBudgetTraceReservationReleasedEvent =
+  | (SigningSessionBudgetTraceBase & {
+      event: 'wallet_signing_budget_reservation_released';
+      zeroSpendReason?: never;
+      status?: never;
+      error?: never;
+      finalizationResult?: never;
+    })
+  | (SigningSessionBudgetTraceBase & {
+      event: 'wallet_signing_budget_reservation_released';
+      zeroSpendReason: SigningSessionBudgetZeroSpendReason;
+      status?: never;
+      error?: never;
+      finalizationResult?: never;
+    });
+
+type SigningSessionBudgetTraceStatusEvent = SigningSessionBudgetTraceBase & {
+  event:
+    | 'wallet_signing_budget_reservation_succeeded'
+    | 'wallet_signing_budget_spend_succeeded';
+  status: SigningSessionBudgetTraceStatus;
+  error?: never;
+  finalizationResult?: never;
+  zeroSpendReason?: never;
+};
+
+type SigningSessionBudgetTraceErrorEvent = SigningSessionBudgetTraceBase & {
+  event:
+    | 'wallet_signing_budget_reservation_failed'
+    | 'wallet_signing_budget_spend_failed';
+  error: string;
+  status?: never;
+  finalizationResult?: never;
+  zeroSpendReason?: never;
+};
+
+type SigningSessionBudgetTraceFinalizationSuccessEvent = SigningSessionBudgetTraceBase & {
+  event:
+    | 'wallet_signing_budget_finalization_finalized'
+    | 'wallet_signing_budget_finalization_already_finalized';
+  finalizationResult: Extract<
+    SigningSessionBudgetFinalizationTraceResult,
+    'finalized' | 'already_finalized'
+  >;
+  status: SigningSessionBudgetTraceStatus;
+  error?: never;
+  zeroSpendReason?: never;
+};
+
+type SigningSessionBudgetTraceFinalizationFailureEvent = SigningSessionBudgetTraceBase & {
+  event:
+    | 'wallet_signing_budget_finalization_projection_mismatch'
+    | 'wallet_signing_budget_finalization_missing_reservation'
+    | 'wallet_signing_budget_finalization_identity_mismatch'
+    | 'wallet_signing_budget_finalization_status_unavailable';
+  finalizationResult: Exclude<
+    SigningSessionBudgetFinalizationTraceResult,
+    'finalized' | 'already_finalized'
+  >;
+  error: string;
+  status?: never;
+  zeroSpendReason?: never;
+};
+
+type SigningSessionBudgetTraceZeroSpendRecordedEvent =
+  | (SigningSessionBudgetTraceBase & {
+      event: 'wallet_signing_budget_zero_spend_recorded';
+      zeroSpendReason: SigningSessionBudgetZeroSpendReason;
+      error?: never;
+      status?: never;
+      finalizationResult?: never;
+    })
+  | (SigningSessionBudgetTraceBase & {
+      event: 'wallet_signing_budget_zero_spend_recorded';
+      zeroSpendReason: SigningSessionBudgetZeroSpendReason;
+      error: string;
+      status?: never;
+      finalizationResult?: never;
+    });
+
+export type SigningSessionBudgetTraceEvent =
+  | SigningSessionBudgetTracePlainEvent
+  | SigningSessionBudgetTraceReservationReleasedEvent
+  | SigningSessionBudgetTraceStatusEvent
+  | SigningSessionBudgetTraceErrorEvent
+  | SigningSessionBudgetTraceFinalizationSuccessEvent
+  | SigningSessionBudgetTraceFinalizationFailureEvent
+  | SigningSessionBudgetTraceZeroSpendRecordedEvent;
+
+export type SigningSessionBudgetTraceEventForKind<
+  TEvent extends SigningSessionBudgetTraceEventKind,
+> = SigningSessionBudgetTraceEvent extends infer TTrace
+  ? TTrace extends { event: infer TTraceEvent }
+    ? TEvent extends TTraceEvent
+      ? Omit<TTrace, 'event'> & { event: TEvent }
+      : never
+    : never
+  : never;
+
+export type SigningSessionBudgetTraceExtraForEvent<
+  TEvent extends SigningSessionBudgetTraceEventKind,
+> = Omit<
+  SigningSessionBudgetTraceEventForKind<TEvent>,
+  keyof SigningSessionBudgetTraceBase | 'event'
+>;
 
 export type WalletBudgetSpend = WalletSigningSpendPlan;
 
@@ -663,7 +783,7 @@ function normalizeBackingMaterialSessionIds(
 
 export function summarizeWalletSigningSessionStatus(
   status: SigningSessionStatus,
-): SigningSessionBudgetTraceEvent['status'] {
+): SigningSessionBudgetTraceStatus {
   return {
     status: status.status,
     remainingUses: status.remainingUses,
@@ -671,14 +791,13 @@ export function summarizeWalletSigningSessionStatus(
   };
 }
 
-export function createSigningSessionBudgetTraceEvent(
+export function createSigningSessionBudgetTraceEvent<
+  TEvent extends SigningSessionBudgetTraceEventKind,
+>(
   input: { spend: WalletBudgetSpend },
-  event: SigningSessionBudgetTraceEvent['event'],
-  extra: Pick<
-    SigningSessionBudgetTraceEvent,
-    'status' | 'error' | 'finalizationResult' | 'zeroSpendReason'
-  > = {},
-): SigningSessionBudgetTraceEvent {
+  event: TEvent,
+  extra: SigningSessionBudgetTraceExtraForEvent<TEvent>,
+): SigningSessionBudgetTraceEventForKind<TEvent> {
   const spend = input.spend;
   return {
     event,
@@ -690,20 +809,19 @@ export function createSigningSessionBudgetTraceEvent(
     thresholdSessionCount: spend.thresholdSessionIds.length,
     backingMaterialSessionCount: spend.backingMaterialSessionIds.length,
     ...extra,
-  };
+  } as SigningSessionBudgetTraceEventForKind<TEvent>;
 }
 
-export function createZeroSpendTraceEvent(
-  input: ZeroWalletBudgetSpend,
-  event: Extract<
-    SigningSessionBudgetTraceEvent['event'],
+export function createZeroSpendTraceEvent<
+  TEvent extends Extract<
+    SigningSessionBudgetTraceEventKind,
     'wallet_signing_budget_reservation_released' | 'wallet_signing_budget_zero_spend_recorded'
   >,
-  extra: Pick<
-    SigningSessionBudgetTraceEvent,
-    'status' | 'error' | 'finalizationResult' | 'zeroSpendReason'
-  > = {},
-): SigningSessionBudgetTraceEvent {
+>(
+  input: ZeroWalletBudgetSpend,
+  event: TEvent,
+  extra: SigningSessionBudgetTraceExtraForEvent<TEvent>,
+): SigningSessionBudgetTraceEventForKind<TEvent> {
   return {
     event,
     operationId: input.operationId,
@@ -714,7 +832,7 @@ export function createZeroSpendTraceEvent(
     thresholdSessionCount: input.lane.thresholdSessionId ? 1 : 0,
     backingMaterialSessionCount: input.lane.backingMaterialSessionId ? 1 : 0,
     ...extra,
-  };
+  } as SigningSessionBudgetTraceEventForKind<TEvent>;
 }
 
 export function normalizeRequired(value: unknown, label: string): string {

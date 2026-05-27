@@ -142,6 +142,8 @@ export async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
     readiness: {
       status: 'ready' as const,
       thresholdSessionId,
+      expiresAtMs: Math.floor(Number(input.expiresAtMs) || 0),
+      remainingUses: Math.floor(Number(input.remainingUses) || 0),
     },
     expiresAtMs: Math.floor(Number(input.expiresAtMs) || 0),
     remainingUses: Math.floor(Number(input.remainingUses) || 0),
@@ -216,6 +218,8 @@ async function resolvePasskeyEcdsaTrustedBudgetReadiness(args: {
       readiness: {
         status: 'ready',
         thresholdSessionId: args.lane.thresholdSessionId,
+        expiresAtMs: Math.floor(Number(budgetIdentity.status.expiresAtMs) || 0),
+        remainingUses: Math.floor(Number(budgetIdentity.status.remainingUses) || 0),
       },
       expiresAtMs: Math.floor(Number(budgetIdentity.status.expiresAtMs) || 0),
       remainingUses: Math.floor(Number(budgetIdentity.status.remainingUses) || 0),
@@ -226,6 +230,8 @@ async function resolvePasskeyEcdsaTrustedBudgetReadiness(args: {
       readiness: {
         status: 'exhausted',
         thresholdSessionId: args.lane.thresholdSessionId,
+        expiresAtMs: 0,
+        remainingUses: 0,
       },
       expiresAtMs: 0,
       remainingUses: 0,

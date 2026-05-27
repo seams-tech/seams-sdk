@@ -155,6 +155,11 @@ export type SignTransactionsWithActionsInput = {
   sensitivePolicy?: SensitiveOperationPolicy;
 };
 
+type NearTransactionPublicSigningOptions = Pick<
+  SignTransactionsWithActionsInput,
+  'confirmationConfigOverride' | 'title' | 'body' | 'onEvent' | 'signerSlot'
+>;
+
 export type SignDelegateActionInput = {
   nearAccount: NearAccountRef;
   delegate: DelegateActionInput;
@@ -283,6 +288,20 @@ type PreparedNearEd25519TransactionSigningSession = {
   emailOtpSigning?: NearEd25519EmailOtpSigning;
 };
 
+type PreparedNearTransactionExecutionState = {
+  kind: 'prepared_near_transaction_execution';
+  sessionId: string;
+  signingSessionPlan: PreparedNearEd25519Operation['signingSessionPlan'];
+  signingAuthPlan: SigningAuthPlan;
+  signingLane: NearTransactionSigningLane;
+  initialBudgetAdmittedOperation: BudgetAdmittedOperation<SelectedEd25519Lane> | null;
+  signingSessionCoordinator: SigningSessionCoordinator;
+  transactionOperation: PreparedTransactionOperation<SelectedEd25519Lane>;
+  emailOtpSigning: NearEd25519EmailOtpSigning | null;
+  ed25519Warmup: NearEd25519Warmup | null;
+  passkeyEd25519Reconnect: NearEd25519PasskeyReconnect | null;
+};
+
 type NearEd25519LifecycleMetadata = {
   thresholdSessionRecord: ThresholdEd25519SessionRecord;
   transactionLane: SelectedEd25519Lane;
@@ -398,8 +417,11 @@ function transactionReadinessFromPlannerInput(
   if (status === 'ready') {
     return {
       status: 'ready',
-      remainingUses: Math.max(0, Math.floor(Number(readiness.remainingUses) || 0)),
-      expiresAtMs: Math.max(0, Math.floor(Number(readiness.expiresAtMs) || 0)),
+      remainingUses: Math.max(
+        0,
+        Math.floor(Number(readiness.readiness.remainingUses) || 0),
+      ),
+      expiresAtMs: Math.max(0, Math.floor(Number(readiness.readiness.expiresAtMs) || 0)),
     };
   }
   if (status === 'expired' || status === 'exhausted' || status === 'budget_unknown') {
@@ -464,14 +486,30 @@ async function resolveNearTransactionPlannerReadiness(args: {
     status: SigningSessionReadiness['status'],
     remainingUses = resolveRemainingUses(),
     expiresAtMs = resolveExpiresAtMs(),
-  ) => ({
-    readiness: {
-      status,
-      thresholdSessionId,
-    },
-    expiresAtMs,
-    remainingUses,
-  });
+  ): {
+    readiness: SigningSessionReadiness;
+    expiresAtMs: number;
+    remainingUses: number;
+  } => {
+    const normalizedRemainingUses = Math.max(0, Math.floor(Number(remainingUses) || 0));
+    const normalizedExpiresAtMs = Math.max(0, Math.floor(Number(expiresAtMs) || 0));
+    const readiness: SigningSessionReadiness =
+      status === 'ready' || status === 'exhausted'
+        ? {
+            status,
+            thresholdSessionId,
+            remainingUses: normalizedRemainingUses,
+            expiresAtMs: normalizedExpiresAtMs,
+          }
+        : status === 'expired'
+          ? { status, thresholdSessionId, expiresAtMs: normalizedExpiresAtMs }
+          : { status, thresholdSessionId };
+    return {
+      readiness,
+      expiresAtMs: normalizedExpiresAtMs,
+      remainingUses: normalizedRemainingUses,
+    };
+  };
 
   const isSingleUseEmailOtpRecord =
     args.record.source === 'email_otp' &&
@@ -715,6 +753,28 @@ function resolveAdHocSigningRequestSessionId(args: {
     if (canonical) return canonical;
   }
   return args.deps.createSigningSessionId('threshold-ed25519');
+}
+
+function buildPreparedNearTransactionExecutionState(args: {
+  preparedSigningSession: PreparedNearEd25519TransactionSigningSession;
+  resolvedSessionId: string;
+  signingSessionCoordinator: SigningSessionCoordinator;
+  passkeyEd25519Reconnect: NearEd25519PasskeyReconnect | null;
+}): PreparedNearTransactionExecutionState {
+  const budget = args.preparedSigningSession.budget;
+  return {
+    kind: 'prepared_near_transaction_execution',
+    sessionId: args.resolvedSessionId,
+    signingSessionPlan: args.preparedSigningSession.preparedOperation.signingSessionPlan,
+    signingAuthPlan: args.preparedSigningSession.signingAuthPlan,
+    signingLane: args.preparedSigningSession.signingLane,
+    initialBudgetAdmittedOperation: budget.kind === 'BudgetAdmitted' ? budget.operation : null,
+    signingSessionCoordinator: args.signingSessionCoordinator,
+    transactionOperation: args.preparedSigningSession.transactionOperation,
+    emailOtpSigning: args.preparedSigningSession.emailOtpSigning || null,
+    ed25519Warmup: args.preparedSigningSession.ed25519Warmup || null,
+    passkeyEd25519Reconnect: args.passkeyEd25519Reconnect,
+  };
 }
 
 function buildNearPasskeyEd25519Reconnect(args: {
@@ -1353,7 +1413,13 @@ export async function signTransactionsWithActions(
   } = {},
 ): Promise<SignTransactionResult[]> {
   const nearAccountId = toAccountId(args.nearAccount.accountId);
-  const inputWithConfirmationTracking: SignTransactionsWithActionsInput = args;
+  const publicOptions: NearTransactionPublicSigningOptions = {
+    signerSlot: args.signerSlot,
+    confirmationConfigOverride: args.confirmationConfigOverride,
+    title: args.title,
+    body: args.body,
+    onEvent: args.onEvent,
+  };
   let operationId = attempt.operationId;
   const ensureOperationId = (): SigningOperationId => {
     operationId = operationId || createNearTransactionSigningOperationId();
@@ -1364,7 +1430,7 @@ export async function signTransactionsWithActions(
     attempt.signingSessionCoordinator || deps.signingSessionCoordinator;
   const preparedSigningSession = await prepareNearEd25519TransactionSigningSession({
     deps,
-    input: inputWithConfirmationTracking,
+    input: args,
     nearAccount: args.nearAccount,
     signingSessionCoordinator,
     operationId: confirmationOperationId,
@@ -1374,10 +1440,7 @@ export async function signTransactionsWithActions(
   const signingAuthPlan = preparedSigningSession.signingAuthPlan;
   const signingLane = preparedSigningSession.signingLane;
   const transactionLane = preparedSigningSession.transactionLane;
-  const emailOtpSigning = preparedSigningSession.emailOtpSigning;
-  const ed25519Warmup = preparedSigningSession.ed25519Warmup;
   const resolvedSessionId = preparedSigningSession.resolvedSessionId;
-  const budget = preparedSigningSession.budget;
   assertSigningLaneMatchesSelectedTransactionLane({
     signingLane,
     transactionLane,
@@ -1396,31 +1459,42 @@ export async function signTransactionsWithActions(
           thresholdSessionRecord,
           operationId: confirmationOperationId,
         });
+        const executionState = buildPreparedNearTransactionExecutionState({
+          preparedSigningSession,
+          resolvedSessionId,
+          signingSessionCoordinator,
+          passkeyEd25519Reconnect: passkeyEd25519Reconnect || null,
+        });
         const ed25519SigningBoundary = {
-          sessionId: resolvedSessionId,
-          signingSessionPlan: preparedSigningSession.preparedOperation.signingSessionPlan,
-          signingAuthPlan,
-          signingLane,
-          initialBudgetAdmittedOperation:
-            budget.kind === 'BudgetAdmitted' ? budget.operation : null,
+          sessionId: executionState.sessionId,
+          signingSessionPlan: executionState.signingSessionPlan,
+          signingAuthPlan: executionState.signingAuthPlan,
+          signingLane: executionState.signingLane,
+          initialBudgetAdmittedOperation: executionState.initialBudgetAdmittedOperation,
         };
         const payload: NearTransactionsWithActionsPayload = {
           ctx,
           nearAccount: args.nearAccount,
-          transactions: inputWithConfirmationTracking.transactions,
-          rpcCall: inputWithConfirmationTracking.rpcCall,
-          signerSlot: inputWithConfirmationTracking.signerSlot,
-          confirmationConfigOverride: inputWithConfirmationTracking.confirmationConfigOverride,
-          title: inputWithConfirmationTracking.title,
-          body: inputWithConfirmationTracking.body,
-          onEvent: inputWithConfirmationTracking.onEvent,
-          ...(emailOtpSigning ? { emailOtpSigning } : {}),
+          transactions: args.transactions,
+          rpcCall: args.rpcCall,
+          signerSlot: publicOptions.signerSlot,
+          confirmationConfigOverride: publicOptions.confirmationConfigOverride,
+          title: publicOptions.title,
+          body: publicOptions.body,
+          onEvent: publicOptions.onEvent,
+          ...(executionState.emailOtpSigning
+            ? { emailOtpSigning: executionState.emailOtpSigning }
+            : {}),
           signingOperationId: confirmationOperationId,
-          signingSessionCoordinator,
-          transactionOperation: preparedSigningSession.transactionOperation,
+          signingSessionCoordinator: executionState.signingSessionCoordinator,
+          transactionOperation: executionState.transactionOperation,
           ed25519SigningBoundary,
-          ...(ed25519Warmup ? { ed25519Warmup } : {}),
-          ...(passkeyEd25519Reconnect ? { passkeyEd25519Reconnect } : {}),
+          ...(executionState.ed25519Warmup
+            ? { ed25519Warmup: executionState.ed25519Warmup }
+            : {}),
+          ...(executionState.passkeyEd25519Reconnect
+            ? { passkeyEd25519Reconnect: executionState.passkeyEd25519Reconnect }
+            : {}),
         };
         const result = (await signNearWithUiConfirm({
           chain: 'near',
@@ -1434,7 +1508,7 @@ export async function signTransactionsWithActions(
     const alreadyAttemptedFreshAuth =
       signingAuthPlan.kind === SigningAuthPlanKind.PasskeyReauth ||
       signingAuthPlan.kind === SigningAuthPlanKind.EmailOtpReauth ||
-      Boolean(emailOtpSigning);
+      Boolean(preparedSigningSession.emailOtpSigning);
     if (
       !attempt.retryingFreshAuth &&
       !alreadyAttemptedFreshAuth &&
@@ -1442,7 +1516,7 @@ export async function signTransactionsWithActions(
       (isThresholdSessionAuthUnavailableError(error) || isSigningSessionBudgetExhaustedError(error))
     ) {
       const isEmailOtpSession = thresholdSessionRecord.source === 'email_otp';
-      emitNearSigningEvent(inputWithConfirmationTracking.onEvent, nearAccountId, {
+      emitNearSigningEvent(publicOptions.onEvent, nearAccountId, {
         phase: isEmailOtpSession
           ? SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_CHALLENGE_STARTED
           : SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_STARTED,

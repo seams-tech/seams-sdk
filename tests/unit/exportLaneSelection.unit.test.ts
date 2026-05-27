@@ -12,6 +12,7 @@ import {
 import type {
   AvailableSigningLanes,
   AvailableEd25519SigningLane,
+  ConcreteAvailableEd25519SigningLane,
   ConcreteAvailableEcdsaSigningLane,
 } from '../../client/src/core/signingEngine/session/availability/availableSigningLanes';
 import {
@@ -237,7 +238,9 @@ function depsForTargets(
   };
 }
 
-function ed25519Lane(overrides: Partial<AvailableEd25519SigningLane>): AvailableEd25519SigningLane {
+function ed25519Lane(
+  overrides: Partial<ConcreteAvailableEd25519SigningLane>,
+): ConcreteAvailableEd25519SigningLane {
   return {
     authMethod: 'passkey',
     curve: 'ed25519',

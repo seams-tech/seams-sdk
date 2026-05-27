@@ -1413,7 +1413,7 @@ test.describe('near signing session selection', () => {
                       authMethod: 'passkey' as const,
                       curve: 'ed25519' as const,
                       chain: 'near' as const,
-                      state: 'missing' as const,
+                      state: 'expired' as const,
                       source: 'runtime_session_record' as const,
                       walletSigningSessionId: staleWalletSigningSessionId,
                       thresholdSessionId: staleSessionId,

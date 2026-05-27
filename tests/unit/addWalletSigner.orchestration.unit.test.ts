@@ -195,8 +195,13 @@ function createContext(captures: Record<string, unknown>): any {
       ) => {
         captures.ed25519MaterialArgs = input;
         return {
-          success: true,
+          ok: true,
+          signingRootId: 'root',
+          nearAccountId: 'alice.testnet',
+          keyPurpose: 'near-ed25519-signing',
+          keyVersion: 'v1',
           participantIds: [1, 2],
+          derivationVersion: 1,
           contextBindingB64u: 'client-context-binding',
           yClientB64u: 'y-client',
           tauClientB64u: 'tau-client',

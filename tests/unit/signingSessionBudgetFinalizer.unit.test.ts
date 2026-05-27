@@ -280,6 +280,7 @@ test.describe('signing session budget finalizer', () => {
     const { budget, recordedSuccesses } = makeBudgetRecorder();
     const finalization = makeReservedSuccess();
     const finalizer = createSigningSessionBudgetFinalizer({
+      budgetMode: 'with_budget',
       signingSessionBudget: budget,
       budgetIdentity: makeBudgetIdentity(finalization.spend),
       finalization,
@@ -294,6 +295,7 @@ test.describe('signing session budget finalizer', () => {
     const { budget, recordedSuccesses } = makeBudgetRecorder();
     const finalization = makeUnreservedSuccess();
     const finalizer = createSigningSessionBudgetFinalizer({
+      budgetMode: 'with_budget',
       signingSessionBudget: budget,
       budgetIdentity: makeBudgetIdentity(finalization.spend),
       finalization,
@@ -308,6 +310,7 @@ test.describe('signing session budget finalizer', () => {
     const { budget, recordedSuccesses } = makeBudgetRecorder();
     const finalization = makeExternallyConsumedSuccess();
     const finalizer = createSigningSessionBudgetFinalizer({
+      budgetMode: 'with_budget',
       signingSessionBudget: budget,
       budgetIdentity: makeBudgetIdentity(finalization.spend),
       finalization,
@@ -322,6 +325,7 @@ test.describe('signing session budget finalizer', () => {
     const { budget, recordedZeroSpends } = makeBudgetRecorder();
     const finalization = makeZeroSpend();
     const finalizer = createSigningSessionBudgetFinalizer({
+      budgetMode: 'with_budget',
       signingSessionBudget: budget,
       budgetIdentity: makeBudgetIdentity(makeSpend()),
       finalization,

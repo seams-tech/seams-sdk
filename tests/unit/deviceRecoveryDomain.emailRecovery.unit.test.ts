@@ -136,14 +136,30 @@ function createLocalDomain(options?: {
         clientVerifyingShareB64u: 'client-ecdsa-verifying-share',
       }),
       prepareThresholdEd25519HssClientCeremonyFromCredential: async () => ({
-        success: true,
+        ok: true,
         contextBindingB64u: 'ctx-binding',
+        signingRootId: 'root',
+        nearAccountId: 'alice.testnet',
+        keyPurpose: 'near-ed25519-signing',
+        keyVersion: 'v1',
+        participantIds: [1, 2],
+        derivationVersion: 1,
         yClientB64u: 'y-client',
         tauClientB64u: 'tau-client',
       }),
       runThresholdEd25519HssCeremonyWithSession: async () => ({
-        success: true,
+        ok: true,
+        contextBindingB64u: 'ctx-binding',
+        preparedSession: {
+          contextBindingB64u: 'ctx-binding',
+          evaluatorDriverStateB64u: 'evaluator-state',
+        },
+        finalizedReport: {
+          contextBindingB64u: 'ctx-binding',
+          clientOutputMessageB64u: 'client-output',
+        },
         clientOutput: {
+          contextBindingB64u: 'ctx-binding',
           xClientBaseB64u: 'x-client-base',
         },
       }),

@@ -104,6 +104,39 @@ type ThresholdEcdsaSessionRecordCore = {
   source: ThresholdEcdsaSessionStoreSource;
 };
 
+export type RawThresholdEcdsaSessionRecord = Record<string, unknown>;
+
+type NormalizedThresholdEcdsaSessionRecordShared = Omit<
+  ThresholdEcdsaSessionRecordCore,
+  | 'clientAdditiveShare32B64u'
+  | 'clientAdditiveShareHandle'
+  | 'emailOtpAuthContext'
+  | 'source'
+  | 'verifiedPublicFacts'
+  | 'thresholdEcdsaPublicKeyB64u'
+> & {
+  verifiedPublicFacts?: VerifiedEcdsaPublicFacts;
+  thresholdEcdsaPublicKeyB64u?: string;
+};
+
+export type ReadyPasskeyEcdsaSessionRecord = NormalizedThresholdEcdsaSessionRecordShared & {
+  source: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
+  clientAdditiveShare32B64u?: string;
+  clientAdditiveShareHandle?: never;
+  emailOtpAuthContext?: never;
+};
+
+export type ReadyEmailOtpEcdsaSessionRecord = NormalizedThresholdEcdsaSessionRecordShared & {
+  source: 'email_otp';
+  clientAdditiveShare32B64u?: string;
+  clientAdditiveShareHandle?: ThresholdEcdsaClientAdditiveShareHandle;
+  emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
+};
+
+export type NormalizedThresholdEcdsaSessionRecord =
+  | ReadyPasskeyEcdsaSessionRecord
+  | ReadyEmailOtpEcdsaSessionRecord;
+
 export type ThresholdEcdsaSessionRecord = ThresholdEcdsaSessionRecordCore;
 
 export type ThresholdEcdsaRuntimeLaneKey = string & {
@@ -958,7 +991,6 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
   if (remainingUses == null || remainingUses < 0) {
     throw new Error('Invalid threshold ECDSA canonical session record: missing remainingUses');
   }
-
   const verifiedPublicFacts = normalizeStoredVerifiedPublicFacts({
     rawVerifiedPublicFacts: obj.verifiedPublicFacts,
     keyHandle,
@@ -971,7 +1003,7 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
       'Invalid threshold ECDSA canonical session record: missing verifiedPublicFacts',
     );
   }
-  return {
+  const sharedRecord = {
     walletId,
     authMetadata: { rpId },
     relayerUrl,
@@ -985,9 +1017,7 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
       : {}),
     relayerKeyId,
     clientVerifyingShareB64u,
-    ...(source !== 'email_otp' && clientAdditiveShare32B64u ? { clientAdditiveShare32B64u } : {}),
-    ...(source === 'email_otp' && clientAdditiveShareHandle ? { clientAdditiveShareHandle } : {}),
-    ecdsaHssRoleLocalClientState,
+    ...(ecdsaHssRoleLocalClientState ? { ecdsaHssRoleLocalClientState } : {}),
     participantIds,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     thresholdSessionKind,
@@ -999,14 +1029,32 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
     expiresAtMs,
     remainingUses,
     ...(thresholdEcdsaPublicKeyB64u ? { thresholdEcdsaPublicKeyB64u } : {}),
-    verifiedPublicFacts,
+    ...(verifiedPublicFacts ? { verifiedPublicFacts } : {}),
     ethereumAddress,
     ...(relayerVerifyingShareB64u ? { relayerVerifyingShareB64u } : {}),
-    ...(emailOtpAuthContext ? { emailOtpAuthContext } : {}),
     updatedAtMs,
-    source,
     chainTarget,
-  } as ThresholdEcdsaSessionRecord;
+  };
+  if (source === 'email_otp') {
+    return {
+      ...sharedRecord,
+      ...(clientAdditiveShareHandle ? { clientAdditiveShareHandle } : {}),
+      ...(emailOtpAuthContext ? { emailOtpAuthContext } : {}),
+      ...(clientAdditiveShare32B64u ? { clientAdditiveShare32B64u } : {}),
+      source,
+    };
+  }
+  return {
+    ...sharedRecord,
+    ...(clientAdditiveShare32B64u ? { clientAdditiveShare32B64u } : {}),
+    source,
+  };
+}
+
+export function parseRawThresholdEcdsaSessionRecord(
+  value: RawThresholdEcdsaSessionRecord | unknown,
+): ThresholdEcdsaSessionRecord {
+  return normalizeThresholdEcdsaSessionRecord(value);
 }
 
 function normalizeThresholdEcdsaHssRoleLocalClientState(

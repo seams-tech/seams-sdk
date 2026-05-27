@@ -65,8 +65,10 @@ export async function runNearEd25519SingleKeyHssExport(
     },
     workerCtx,
   });
-  if (!completed.success || !completed.finalizedReport || !completed.preparedSession) {
-    throw new Error(completed.error || 'Failed to finalize single-key HSS Ed25519 export ceremony');
+  if (!completed.ok) {
+    throw new Error(
+      completed.message || 'Failed to finalize single-key HSS Ed25519 export ceremony',
+    );
   }
 
   return {

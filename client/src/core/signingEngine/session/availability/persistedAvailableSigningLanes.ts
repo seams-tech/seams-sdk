@@ -57,15 +57,12 @@ function applyWalletBudgetStatusToRuntimeClaim(args: {
   if (!budgetStatus) return args.localClaim;
   if (budgetStatus.status === 'active') {
     if (args.localClaim?.state !== 'warm') return args.localClaim;
+    const budgetExpiresAtMs = Math.floor(Number(budgetStatus.expiresAtMs) || 0);
     return {
       state: 'warm',
       sessionId: args.sessionId,
       remainingUses: Math.max(0, Math.floor(Number(budgetStatus.remainingUses) || 0)),
-      ...(Number(budgetStatus.expiresAtMs) > 0
-        ? { expiresAtMs: Math.floor(Number(budgetStatus.expiresAtMs)) }
-        : args.localClaim.expiresAtMs
-          ? { expiresAtMs: args.localClaim.expiresAtMs }
-          : {}),
+      expiresAtMs: budgetExpiresAtMs > 0 ? budgetExpiresAtMs : args.localClaim.expiresAtMs,
     };
   }
   if (budgetStatus.status === 'not_found') {
@@ -220,17 +217,13 @@ export async function readPersistedAvailableSigningLanesForTargets(
           recordWalletId,
         )) {
           if (args.authMethod && args.authMethod !== runtimeLane.authMethod) continue;
-          await pushRuntimeEcdsaRecord(records, seen, {
+          const baseRecord = {
             key: runtimeLane.key,
-            ...(runtimeLane.authMethod === 'passkey' && runtimeLane.resolvedKey
-              ? { resolvedKey: runtimeLane.resolvedKey }
-              : {}),
             keyHandle: runtimeLane.keyHandle,
             ...(runtimeLane.verifiedPublicFacts
               ? { verifiedPublicFacts: runtimeLane.verifiedPublicFacts }
               : {}),
             thresholdEcdsaPublicKeyB64u: runtimeLane.thresholdEcdsaPublicKeyB64u,
-            authMethod: runtimeLane.authMethod,
             curve: 'ecdsa',
             chainTarget: runtimeLane.chainTarget,
             thresholdSessionId: runtimeLane.thresholdSessionId,
@@ -240,7 +233,24 @@ export async function readPersistedAvailableSigningLanesForTargets(
               : { remainingUses: runtimeLane.remainingUses }),
             ...(runtimeLane.expiresAtMs == null ? {} : { expiresAtMs: runtimeLane.expiresAtMs }),
             ...(runtimeLane.updatedAtMs == null ? {} : { updatedAtMs: runtimeLane.updatedAtMs }),
-          });
+          } satisfies Omit<
+            AvailableSigningLanesRuntimeEcdsaRecord,
+            'authMethod' | 'resolvedKey'
+          >;
+          await pushRuntimeEcdsaRecord(
+            records,
+            seen,
+            runtimeLane.authMethod === 'passkey'
+              ? {
+                  ...baseRecord,
+                  authMethod: 'passkey',
+                  ...(runtimeLane.resolvedKey ? { resolvedKey: runtimeLane.resolvedKey } : {}),
+                }
+              : {
+                  ...baseRecord,
+                  authMethod: 'email_otp',
+                },
+          );
         }
         return records;
       },
@@ -264,7 +274,7 @@ export async function readPersistedAvailableSigningLanesForTargets(
             curve: 'ed25519',
             chain: 'near',
             thresholdSessionId: runtimeRecord.thresholdSessionId,
-            walletSigningSessionId: runtimeRecord.walletSigningSessionId,
+            walletSigningSessionId: String(runtimeRecord.walletSigningSessionId || '').trim(),
             remainingUses: runtimeRecord.remainingUses,
             expiresAtMs: runtimeRecord.expiresAtMs,
             updatedAtMs: runtimeRecord.updatedAtMs,

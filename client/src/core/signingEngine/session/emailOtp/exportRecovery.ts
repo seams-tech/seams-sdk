@@ -70,6 +70,54 @@ type EmailOtpWorkerPorts = {
   appSessionJwtFromLane: (authLane?: EmailOtpAuthLane) => string;
 };
 
+type EmailOtpEcdsaExportBaseInput = {
+  mode: 'export_step_up';
+  walletSession: WalletSessionRef;
+  challengeId: string;
+  otpCode: string;
+  relayUrl: string;
+  routePlan: EmailOtpRoutePlan;
+};
+
+export type EmailOtpEcdsaAuthorizedExportStepUpInput = EmailOtpEcdsaExportBaseInput & {
+  source: 'authorized_signing_session';
+  record: ThresholdEcdsaSessionRecord;
+  rpId: string;
+  shamirPrimeB64u: string;
+  keyHandle: string;
+  roleLocalState: NonNullable<ThresholdEcdsaSessionRecord['ecdsaHssRoleLocalClientState']>;
+};
+
+type EmailOtpEcdsaFreshExportSubjectInput =
+  | {
+      authSubjectMode: 'explicit_auth_subject';
+      authSubjectId: string;
+    }
+  | {
+      authSubjectMode: 'wallet_session_subject';
+      authSubjectId?: never;
+    };
+
+export type EmailOtpEcdsaFreshLoginExportStepUpInput = EmailOtpEcdsaExportBaseInput &
+  EmailOtpEcdsaFreshExportSubjectInput & {
+    source: 'fresh_login';
+    chainTarget: ThresholdEcdsaChainTarget;
+    publicFacts: VerifiedEcdsaPublicFacts;
+    runtimePolicyScope: ThresholdRuntimePolicyScope;
+  };
+
+export type EmailOtpEcdsaExportStepUpInput =
+  | EmailOtpEcdsaAuthorizedExportStepUpInput
+  | EmailOtpEcdsaFreshLoginExportStepUpInput;
+
+function requiredEmailOtpExportString(value: unknown, field: string): string {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) {
+    throw new Error(`Email OTP ECDSA export requires ${field}`);
+  }
+  return normalized;
+}
+
 function requireProvidedEmailOtpSigningSessionAuthLane(args: {
   authLane?: EmailOtpAuthLane;
   routeAuth?: AppOrThresholdSessionAuth;
@@ -134,6 +182,119 @@ function requireWalletSigningSessionIdForEmailOtpSigningSession(
     throw new Error(EMAIL_OTP_SIGNING_SESSION_AUTH_UNAVAILABLE);
   }
   return normalized;
+}
+
+function resolveEmailOtpEcdsaAuthorizedExportStepUpInput(
+  ports: Pick<
+    EmailOtpWorkerPorts,
+    | 'getSignerWorkerContext'
+    | 'requireRelayUrl'
+    | 'requireShamirPrimeB64u'
+    | 'buildSigningSessionRoutePlan'
+  >,
+  args: {
+    walletSession: WalletSessionRef;
+    challengeId: string;
+    otpCode: string;
+    record: ThresholdEcdsaSessionRecord;
+    rpId: string;
+    routeAuth?: AppOrThresholdSessionAuth;
+    authLane?: EmailOtpAuthLane;
+  },
+): EmailOtpEcdsaAuthorizedExportStepUpInput {
+  const roleLocalState = args.record.ecdsaHssRoleLocalClientState;
+  if (!roleLocalState) {
+    throw new Error('Email OTP ECDSA export requires role-local HSS client state');
+  }
+  const providedAuthLane = args.authLane;
+  const providedRouteAuth = providedAuthLane
+    ? authLaneToRouteAuth(providedAuthLane)
+    : args.routeAuth;
+  const routePlan = ports.buildSigningSessionRoutePlan({
+    authLane: requireRecordBackedEmailOtpSigningSessionAuthLane({
+      authLane: providedAuthLane,
+      routeAuth: providedRouteAuth,
+      recordIdentity: {
+        thresholdSessionId: args.record.thresholdSessionId,
+        walletSigningSessionId: args.record.walletSigningSessionId,
+        chain: args.record.chainTarget.kind,
+        chainTarget: args.record.chainTarget,
+      },
+    }),
+    operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
+  });
+  return {
+    mode: 'export_step_up',
+    source: 'authorized_signing_session',
+    walletSession: args.walletSession,
+    challengeId: args.challengeId,
+    otpCode: args.otpCode,
+    relayUrl: String(args.record.relayerUrl || ports.requireRelayUrl()).trim(),
+    shamirPrimeB64u: String(ports.requireShamirPrimeB64u()).trim(),
+    routePlan,
+    record: args.record,
+    rpId: requiredEmailOtpExportString(args.rpId, 'rpId'),
+    keyHandle: String(toEvmFamilyEcdsaKeyHandle(args.record.keyHandle)),
+    roleLocalState,
+  };
+}
+
+async function resolveEmailOtpEcdsaFreshLoginExportStepUpInput(
+  ports: Pick<EmailOtpWorkerPorts, 'requireRelayUrl' | 'resolveAppSessionJwt' | 'buildRoutePlan'>,
+  args: {
+    walletSession: WalletSessionRef;
+    chainTarget: ThresholdEcdsaChainTarget;
+    challengeId: string;
+    otpCode: string;
+    publicFacts: VerifiedEcdsaPublicFacts;
+    authSubjectId?: string;
+    runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  },
+): Promise<EmailOtpEcdsaFreshLoginExportStepUpInput> {
+  if (!args.runtimePolicyScope) {
+    throw new Error('Email OTP ECDSA fresh export requires runtimePolicyScope');
+  }
+  const relayUrl = ports.requireRelayUrl();
+  const appSessionJwt = await ports.resolveAppSessionJwt({
+    walletSession: args.walletSession,
+    relayUrl,
+  });
+  const routePlan = ports.buildRoutePlan({
+    freshRouteFamily: 'login',
+    authLane:
+      resolveEmailOtpAuthLane({
+        appSessionJwt,
+        sessionKind: 'jwt',
+      }) ||
+      (() => {
+        throw new Error('Email OTP login requires route auth');
+      })(),
+    operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
+  });
+  const authSubjectId = String(args.authSubjectId || '').trim();
+  const base = {
+    mode: 'export_step_up' as const,
+    source: 'fresh_login' as const,
+    walletSession: args.walletSession,
+    chainTarget: args.chainTarget,
+    challengeId: args.challengeId,
+    otpCode: args.otpCode,
+    publicFacts: args.publicFacts,
+    relayUrl,
+    routePlan,
+    runtimePolicyScope: args.runtimePolicyScope,
+  };
+  if (authSubjectId) {
+    return {
+      ...base,
+      authSubjectMode: 'explicit_auth_subject',
+      authSubjectId,
+    };
+  }
+  return {
+    ...base,
+    authSubjectMode: 'wallet_session_subject',
+  };
 }
 
 async function requestEmailOtpChallengeWithRoutePlan(
@@ -380,13 +541,8 @@ export async function exportEcdsaKeyWithAuthorization(
     authLane?: EmailOtpAuthLane;
   },
 ): Promise<EmailOtpEcdsaExportArtifact> {
-  const relayUrl = String(args.record.relayerUrl || ports.requireRelayUrl()).trim();
-  const shamirPrimeB64u = String(ports.requireShamirPrimeB64u()).trim();
-  const keyHandle = String(toEvmFamilyEcdsaKeyHandle(args.record.keyHandle));
-  const roleLocalState = args.record.ecdsaHssRoleLocalClientState;
-  if (!roleLocalState) {
-    throw new Error('Email OTP ECDSA export requires role-local HSS client state');
-  }
+  const exportInput = resolveEmailOtpEcdsaAuthorizedExportStepUpInput(ports, args);
+  const record = exportInput.record;
   const thresholdSessionAuthToken = String(args.record.thresholdSessionAuthToken || '').trim();
   const sessionKind = args.record.thresholdSessionKind || 'jwt';
   if (!thresholdSessionAuthToken && sessionKind !== 'cookie') {
@@ -396,54 +552,35 @@ export async function exportEcdsaKeyWithAuthorization(
   if (!workerCtx) {
     throw new Error('Email OTP ECDSA export requires the dedicated emailOtp worker');
   }
-  const providedAuthLane = args.authLane;
-  const providedRouteAuth = providedAuthLane
-    ? authLaneToRouteAuth(providedAuthLane)
-    : args.routeAuth;
-  const routePlan = ports.buildSigningSessionRoutePlan({
-    authLane: requireRecordBackedEmailOtpSigningSessionAuthLane({
-      authLane: providedAuthLane,
-      routeAuth: providedRouteAuth,
-      recordIdentity: {
-        thresholdSessionId: args.record.thresholdSessionId,
-        walletSigningSessionId: args.record.walletSigningSessionId,
-        chain: args.record.chainTarget.kind,
-        chainTarget: args.record.chainTarget,
-      },
-    }),
-    operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
-  });
   return await workerCtx.requestWorkerOperation({
     kind: 'emailOtp',
     request: {
       type: 'exportThresholdEcdsaHssKeyWithEmailOtpAuthorization',
       timeoutMs: 60_000,
       payload: {
-        relayUrl,
-        walletId: args.walletSession.walletId,
+        relayUrl: exportInput.relayUrl,
+        walletId: exportInput.walletSession.walletId,
         userId: String(
-          args.record.emailOtpAuthContext?.authSubjectId || args.walletSession.walletSessionUserId,
+          record.emailOtpAuthContext?.authSubjectId || exportInput.walletSession.walletSessionUserId,
         ),
-        challengeId: args.challengeId,
-        otpCode: args.otpCode,
-        shamirPrimeB64u,
-        routePlan,
-        rpId: args.rpId,
+        challengeId: exportInput.challengeId,
+        otpCode: exportInput.otpCode,
+        shamirPrimeB64u: exportInput.shamirPrimeB64u,
+        routePlan: exportInput.routePlan,
+        rpId: exportInput.rpId,
         thresholdSessionAuthToken,
         sessionKind,
-        ecdsaThresholdKeyId: args.record.ecdsaThresholdKeyId,
-        signingRootId: args.record.signingRootId,
-        signingRootVersion: args.record.signingRootVersion,
-        relayerKeyId: args.record.relayerKeyId,
-        roleLocalState,
-        thresholdSessionId: args.record.thresholdSessionId,
-        walletSigningSessionId: args.record.walletSigningSessionId,
-        thresholdExpiresAtMs: args.record.expiresAtMs,
-        participantIds: args.record.participantIds,
-        keyHandle,
-        ...(args.record.runtimePolicyScope
-          ? { runtimePolicyScope: args.record.runtimePolicyScope }
-          : {}),
+        ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
+        signingRootId: record.signingRootId,
+        signingRootVersion: record.signingRootVersion,
+        relayerKeyId: record.relayerKeyId,
+        roleLocalState: exportInput.roleLocalState,
+        thresholdSessionId: record.thresholdSessionId,
+        walletSigningSessionId: record.walletSigningSessionId,
+        thresholdExpiresAtMs: record.expiresAtMs,
+        participantIds: record.participantIds,
+        keyHandle: exportInput.keyHandle,
+        ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
       },
     },
   });
@@ -484,40 +621,27 @@ export async function exportEcdsaKeyWithFreshEmailOtpLane(
     }>;
   },
 ): Promise<EmailOtpEcdsaExportArtifact> {
-  const relayUrl = ports.requireRelayUrl();
-  const operation = WALLET_EMAIL_OTP_EXPORT_OPERATION;
-  const appSessionJwt = await ports.resolveAppSessionJwt({
-    walletSession: args.walletSession,
-    relayUrl,
-  });
-  const routePlan = ports.buildRoutePlan({
-    freshRouteFamily: 'login',
-    authLane:
-      resolveEmailOtpAuthLane({
-        appSessionJwt,
-        sessionKind: 'jwt',
-      }) ||
-      (() => {
-        throw new Error('Email OTP login requires route auth');
-      })(),
-    operation,
-  });
+  const exportInput = await resolveEmailOtpEcdsaFreshLoginExportStepUpInput(ports, args);
   const result = await args.loginWithEcdsaCapabilityInternal({
-    walletSession: args.walletSession,
-    relayUrl,
-    chainTarget: args.chainTarget,
+    walletSession: exportInput.walletSession,
+    relayUrl: exportInput.relayUrl,
+    chainTarget: exportInput.chainTarget,
     emailOtpAuthPolicy: 'per_operation',
     emailOtpAuthReason: 'sign',
-    challengeId: args.challengeId,
-    otpCode: args.otpCode,
-    operation,
-    routePlan,
+    challengeId: exportInput.challengeId,
+    otpCode: exportInput.otpCode,
+    operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
+    routePlan: exportInput.routePlan,
     ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
-    keyHandle: String(args.publicFacts.keyHandle),
-    participantIds: args.publicFacts.participantIds.map((participantId) => Number(participantId)),
+    keyHandle: String(exportInput.publicFacts.keyHandle),
+    participantIds: exportInput.publicFacts.participantIds.map((participantId) =>
+      Number(participantId),
+    ),
     remainingUses: 1,
-    ...(args.authSubjectId ? { authSubjectId: args.authSubjectId } : {}),
-    ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
+    ...(exportInput.authSubjectMode === 'explicit_auth_subject'
+      ? { authSubjectId: exportInput.authSubjectId }
+      : {}),
+    runtimePolicyScope: exportInput.runtimePolicyScope,
     ed25519ReconstructionMode: 'skip',
     ed25519SessionReconstruction: {
       kind: 'defer',

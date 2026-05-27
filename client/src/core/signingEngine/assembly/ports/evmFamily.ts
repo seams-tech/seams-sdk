@@ -63,6 +63,7 @@ export function createEvmFamilySigningDeps(args: {
     }) => {
       const runtimeLane = createWarmSessionCapabilityReader({
         touchConfirm: createArgs.touchConfirm,
+        signingSessionSeal: null,
         getEmailOtpWarmSessionStatus,
       }).resolveEmailOtpSigningSessionAuthLane({ thresholdSessionId, curve });
       if (runtimeLane) return runtimeLane;

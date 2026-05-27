@@ -178,7 +178,7 @@ export async function readEmailOtpPersistedSessionSnapshot(
             curve: 'ed25519',
             chain: 'near',
             thresholdSessionId: runtimeRecord.thresholdSessionId,
-            walletSigningSessionId: runtimeRecord.walletSigningSessionId,
+            walletSigningSessionId: String(runtimeRecord.walletSigningSessionId || '').trim(),
             remainingUses: runtimeRecord.remainingUses,
             expiresAtMs: runtimeRecord.expiresAtMs,
             updatedAtMs: runtimeRecord.updatedAtMs,

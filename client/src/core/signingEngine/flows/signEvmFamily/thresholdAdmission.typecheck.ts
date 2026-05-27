@@ -3,6 +3,7 @@ import type {
   ReadyEvmFamilyEcdsaMaterial,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { ReadyEcdsaMaterial } from './ecdsaMaterialState';
+import type { EcdsaSelectionDiagnostics } from './ecdsaSelection';
 import type {
   EvmFamilyThresholdEcdsaEmailOtpSigning,
   EvmFamilyThresholdEcdsaOperation,
@@ -22,6 +23,7 @@ declare const signerSession: ReadyEcdsaSignerSession;
 declare const operation: EvmFamilyThresholdEcdsaOperation;
 declare const signingAuthPlan: SigningAuthPlan;
 declare const stepUpRuntime: EvmFamilyThresholdEcdsaStepUpRuntime;
+declare const diagnostics: EcdsaSelectionDiagnostics;
 
 void ({
   readyToSignMaterial,
@@ -46,6 +48,16 @@ const missingReadyMaterial = {
 
 // @ts-expect-error reauth results must carry canonical ready EVM-family material
 void (missingReadyMaterial satisfies EvmFamilyThresholdEcdsaReauthResult);
+
+const diagnosticsAsReauthMaterial = {
+  readyToSignMaterial: diagnostics,
+  readyMaterial,
+  signerSession,
+  operation,
+};
+
+// @ts-expect-error admission results do not accept diagnostics as signer material.
+void (diagnosticsAsReauthMaterial satisfies EvmFamilyThresholdEcdsaReauthResult);
 
 const missingSignerSession = {
   readyMaterial,

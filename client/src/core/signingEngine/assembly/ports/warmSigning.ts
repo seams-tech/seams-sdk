@@ -89,7 +89,13 @@ export function createWarmSigningPorts(args: WarmSigningPortsArgs): WarmSigningP
   });
   const capabilityReader = createWarmSessionCapabilityReader({
     touchConfirm: args.touchConfirm,
-    signingSessionSeal: args.signingSessionSeal,
+    signingSessionSeal:
+      args.signingSessionSeal.keyVersion && args.signingSessionSeal.shamirPrimeB64u
+        ? {
+            keyVersion: args.signingSessionSeal.keyVersion,
+            shamirPrimeB64u: args.signingSessionSeal.shamirPrimeB64u,
+          }
+        : null,
     getThresholdEcdsaSessionRecordByThresholdSessionId: getSessionRecordByThresholdSessionId,
     getEmailOtpWarmSessionStatus: args.getEmailOtpWarmSessionStatus,
   });

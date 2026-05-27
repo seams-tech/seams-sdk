@@ -99,9 +99,10 @@ export async function ensureThresholdEd25519HssClientBase(args: {
     workerCtx: { requestWorkerOperation: args.ctx.requestWorkerOperation },
   });
   const relayCeremonyMs = Date.now() - relayCeremonyStartedAt;
-  if (!completed.success || !completed.clientOutput?.xClientBaseB64u) {
+  if (!completed.ok || !completed.clientOutput.xClientBaseB64u) {
     throw new Error(
-      completed.error || 'Failed to reconstruct threshold Ed25519 single-key HSS client base share',
+      completed.message ||
+        'Failed to reconstruct threshold Ed25519 single-key HSS client base share',
     );
   }
   const xClientBaseB64u = String(completed.clientOutput.xClientBaseB64u || '').trim();

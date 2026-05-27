@@ -103,7 +103,7 @@ type EthSignerWorkerRequest =
         sessionId: string;
         relayerParticipantId: number;
         stage: 'triples' | 'presign';
-        incomingMessages?: unknown[];
+        incomingMessages: unknown[];
       };
     }
   | {
@@ -552,9 +552,10 @@ self.addEventListener('message', async (event: MessageEvent) => {
           }
         }
 
-        const incomingMessages = Array.isArray(msg.payload.incomingMessages)
-          ? msg.payload.incomingMessages.map((entry) => toU8(entry))
-          : [];
+        if (!Array.isArray(msg.payload.incomingMessages)) {
+          throw new Error('threshold ECDSA presign step requires incomingMessages');
+        }
+        const incomingMessages = msg.payload.incomingMessages.map((entry) => toU8(entry));
         for (const incoming of incomingMessages) {
           session.message(relayerParticipantId, incoming);
         }

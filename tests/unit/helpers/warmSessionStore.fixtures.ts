@@ -797,8 +797,14 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
     }
   };
   const capabilityReader = createWarmSessionCapabilityReader({
-    touchConfirm: deps.touchConfirm,
-    signingSessionSeal: deps.signingSessionSeal,
+    touchConfirm: deps.touchConfirm ?? null,
+    signingSessionSeal:
+      deps.signingSessionSeal?.keyVersion && deps.signingSessionSeal.shamirPrimeB64u
+        ? {
+            keyVersion: deps.signingSessionSeal.keyVersion,
+            shamirPrimeB64u: deps.signingSessionSeal.shamirPrimeB64u,
+          }
+        : null,
     getEmailOtpWarmSessionStatus,
     getThresholdEcdsaSessionRecordByThresholdSessionId:
       deps.getThresholdEcdsaSessionRecordByThresholdSessionId,

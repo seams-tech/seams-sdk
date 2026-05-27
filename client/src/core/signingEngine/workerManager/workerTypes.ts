@@ -112,7 +112,7 @@ export interface EthSignerWorkerOperationMap {
       sessionId: string;
       relayerParticipantId: number;
       stage: 'triples' | 'presign';
-      incomingMessages?: ArrayBuffer[];
+      incomingMessages: ArrayBuffer[];
     };
     result: ThresholdEcdsaPresignProgressResult;
   };
@@ -158,6 +158,54 @@ export type EmailOtpWorkerProgressCode =
 export type EmailOtpWorkerProgressEvent = {
   code: EmailOtpWorkerProgressCode;
 };
+
+export type EmailOtpEcdsaBootstrapRoleLocalKeyIdentity = {
+  ecdsaThresholdKeyId: string;
+  signingRootId: string;
+  signingRootVersion: string;
+  relayerKeyId: string;
+};
+
+type EmailOtpEcdsaBootstrapBasePayload = {
+  relayUrl: string;
+  walletId: string;
+  walletSessionUserId: string;
+  userId: string;
+  rpId: string;
+  clientRootShare32B64u: string;
+  chainTarget: ThresholdEcdsaChainTarget;
+  publicationChainTargets: ThresholdEcdsaChainTarget[];
+  roleLocalKeyIdentity: EmailOtpEcdsaBootstrapRoleLocalKeyIdentity;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+  participantIds?: number[];
+  sessionId?: string;
+  walletSigningSessionId?: string;
+  ttlMs?: number;
+  remainingUses?: number;
+  includeEcdsaExportArtifact?: boolean;
+};
+
+type EmailOtpEcdsaBootstrapJwtPayload = {
+  sessionKind: 'jwt';
+  routeAuth: AppOrThresholdSessionAuth;
+};
+
+type EmailOtpEcdsaBootstrapCookiePayload = {
+  sessionKind: 'cookie';
+  routeAuth?: never;
+};
+
+type EmailOtpEcdsaBootstrapNewKeyPayload = {
+  keyHandle?: never;
+};
+
+type EmailOtpEcdsaBootstrapExistingKeyPayload = {
+  keyHandle: string;
+};
+
+export type EmailOtpEcdsaBootstrapStrictPayload = EmailOtpEcdsaBootstrapBasePayload &
+  (EmailOtpEcdsaBootstrapJwtPayload | EmailOtpEcdsaBootstrapCookiePayload) &
+  (EmailOtpEcdsaBootstrapNewKeyPayload | EmailOtpEcdsaBootstrapExistingKeyPayload);
 
 export interface EmailOtpWorkerOperationMap {
   requestEmailOtpChallenge: {
@@ -291,32 +339,7 @@ export interface EmailOtpWorkerOperationMap {
     };
   };
   bootstrapEmailOtpEcdsaSessionsFromClientRootShare: {
-    payload: {
-      relayUrl: string;
-      walletId: string;
-      walletSessionUserId: string;
-      userId?: string;
-      rpId: string;
-      clientRootShare32B64u: string;
-      chainTarget: ThresholdEcdsaChainTarget;
-      publicationChainTargets: ThresholdEcdsaChainTarget[];
-      keyHandle?: string;
-      roleLocalKeyIdentity?: {
-        ecdsaThresholdKeyId: string;
-        signingRootId: string;
-        signingRootVersion: string;
-        relayerKeyId: string;
-      };
-      participantIds?: number[];
-      sessionKind?: 'jwt' | 'cookie';
-      sessionId?: string;
-      walletSigningSessionId?: string;
-      routeAuth?: AppOrThresholdSessionAuth;
-      ttlMs?: number;
-      remainingUses?: number;
-      runtimePolicyScope?: ThresholdRuntimePolicyScope;
-      includeEcdsaExportArtifact?: boolean;
-    };
+    payload: EmailOtpEcdsaBootstrapStrictPayload;
     result: {
       bootstraps: ThresholdEcdsaSessionBootstrapResult[];
       ecdsaHssExportArtifact?: {
@@ -483,6 +506,16 @@ export interface EmailOtpWorkerOperationMap {
     };
   };
 }
+
+type EmailOtpWorkerOperationRequestEnvelopeFor<T extends keyof EmailOtpWorkerOperationMap> = {
+  id: string;
+  type: T;
+  payload: EmailOtpWorkerOperationMap[T]['payload'];
+};
+
+export type EmailOtpWorkerOperationRequestEnvelope = {
+  [T in keyof EmailOtpWorkerOperationMap]: EmailOtpWorkerOperationRequestEnvelopeFor<T>;
+}[keyof EmailOtpWorkerOperationMap];
 
 export interface MultichainSignerWorkerOperationMapByKind {
   ethSigner: EthSignerWorkerOperationMap;
