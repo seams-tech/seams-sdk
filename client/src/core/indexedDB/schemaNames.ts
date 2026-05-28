@@ -1,12 +1,12 @@
 export const SEAMS_WALLET_DB_NAME = 'seams_wallet' as const;
-export const SEAMS_WALLET_DB_VERSION = 1 as const;
+export const SEAMS_WALLET_DB_VERSION = 2 as const;
 
 export const SEAMS_WALLET_STORES = {
   appState: 'seams_app_state',
   walletSubjects: 'seams_wallet_subjects',
-  walletAuthenticators: 'seams_wallet_authenticators',
+  walletAuthMethods: 'seams_wallet_auth_methods',
   walletSigners: 'seams_wallet_signers',
-  nearAccountProjections: 'seams_near_account_projections',
+  nearAccountProjections: 'seams_near_accounts',
   signerOpsOutbox: 'seams_signer_ops_outbox',
   recoveryEmails: 'seams_recovery_emails',
   nonceLaneLeases: 'seams_nonce_lane_leases',
@@ -14,7 +14,7 @@ export const SEAMS_WALLET_STORES = {
   keyMaterial: 'seams_key_material',
   signingSessionSeals: 'seams_signing_session_seals',
   signingSessionRestoreLeases: 'seams_signing_session_restore_leases',
-  emailOtpDeviceEnrollmentEscrows: 'seams_email_otp_device_enrollment_escrows',
+  emailOtpDeviceEnrollmentEscrows: 'seams_email_otp_escrows',
 } as const;
 
 export const SEAMS_WALLET_INDEXES = {
@@ -72,13 +72,15 @@ export const SEAMS_WALLET_INDEXES = {
   enrollmentId: 'enrollment_id',
   walletIdAuthSubjectId: 'wallet_id_auth_subject_id',
   walletIdAuthSubjectIdEnrollmentId: 'wallet_id_auth_subject_id_enrollment_id',
+  authIdentifierKey: 'auth_identifier_key',
+  kindRpIdAuthIdentifier: 'kind_rp_id_auth_identifier',
+  passkeyRpIdCredentialId: 'passkey_rp_id_credential_id',
 } as const;
 
 export const LEGACY_INDEXED_DB_NAMES = [
   'PasskeyClientDB',
   'PasskeyAccountKeyMaterial',
   'seams_wallet_v1',
-  'seams_email_otp_device_enrollment_escrows_v1',
 ] as const;
 
 export type SeamsWalletStoreName =
@@ -112,15 +114,33 @@ export const SEAMS_WALLET_SCHEMA_MANIFEST = [
     ],
   },
   {
-    store: SEAMS_WALLET_STORES.walletAuthenticators,
-    keyPath: ['rp_id', 'credential_id_b64u'],
+    store: SEAMS_WALLET_STORES.walletAuthMethods,
+    keyPath: 'wallet_auth_method_id',
     indexes: [
       { name: SEAMS_WALLET_INDEXES.walletSubjectId, keyPath: 'wallet_subject_id', unique: false },
       {
-        name: SEAMS_WALLET_INDEXES.walletSubjectIdRpId,
-        keyPath: ['wallet_subject_id', 'rp_id'],
+        name: SEAMS_WALLET_INDEXES.walletSubjectIdKind,
+        keyPath: ['wallet_subject_id', 'kind'],
         unique: false,
       },
+      { name: SEAMS_WALLET_INDEXES.authMethod, keyPath: 'auth_method', unique: false },
+      { name: SEAMS_WALLET_INDEXES.rpId, keyPath: 'rp_id', unique: false },
+      {
+        name: SEAMS_WALLET_INDEXES.authIdentifierKey,
+        keyPath: 'auth_identifier_key',
+        unique: false,
+      },
+      {
+        name: SEAMS_WALLET_INDEXES.kindRpIdAuthIdentifier,
+        keyPath: ['kind', 'rp_id', 'auth_identifier_key'],
+        unique: true,
+      },
+      {
+        name: SEAMS_WALLET_INDEXES.passkeyRpIdCredentialId,
+        keyPath: ['kind', 'rp_id', 'credential_id_b64u'],
+        unique: true,
+      },
+      { name: SEAMS_WALLET_INDEXES.status, keyPath: 'status', unique: false },
       { name: SEAMS_WALLET_INDEXES.updatedAt, keyPath: 'updated_at', unique: false },
     ],
   },

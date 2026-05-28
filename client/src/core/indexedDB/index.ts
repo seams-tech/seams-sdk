@@ -1,8 +1,6 @@
-export { PasskeyClientDBManager, DBConstraintError } from './passkeyClientDB/manager';
-export { AccountKeyMaterialDBManager } from './accountKeyMaterialDB/manager';
 export { UnifiedIndexedDBManager } from './unifiedIndexedDBManager';
 export { createIndexedDBNonceLaneCoordinationStore } from './nonceLaneCoordinationStore';
-export { passkeyClientDB, accountKeyMaterialDB, seamsWalletDB } from './singletons';
+export { seamsWalletDB } from './singletons';
 export {
   LEGACY_INDEXED_DB_NAMES,
   SEAMS_WALLET_DB_NAME,
@@ -15,6 +13,7 @@ export {
 } from './schemaNames';
 export { upgradeSeamsWalletDBSchema } from './seamsWalletDB/schema';
 export { SeamsWalletDBManager } from './seamsWalletDB/manager';
+export { SeamsWalletRepositories } from './seamsWalletDB/repositories';
 
 export type {
   ActivateAccountSignerInput,
@@ -64,6 +63,7 @@ export type {
   UpsertChainAccountInput,
   UpsertAccountSignerInput,
   EnqueueSignerOperationInput,
+  LocalWalletAuthMethodBindingRecord,
 } from './passkeyClientDB.types';
 
 
@@ -73,49 +73,40 @@ export type {
   KeyMaterialPayloadEnvelope,
   KeyMaterialPayloadEnvelopeAAD,
   KeyMaterialRecord,
-} from './accountKeyMaterialDB.types';
+} from './keyMaterial.types';
 
 import { UnifiedIndexedDBManager } from './unifiedIndexedDBManager';
-import { passkeyClientDB, accountKeyMaterialDB, seamsWalletDB } from './singletons';
+import { seamsWalletDB } from './singletons';
+import { LEGACY_INDEXED_DB_NAMES, SEAMS_WALLET_DB_NAME } from './schemaNames';
 
 export type IndexedDBMode = 'app' | 'wallet' | 'disabled';
 
 const DB_CONFIG_BY_MODE: Record<
   IndexedDBMode,
   {
-    clientDbName: string;
-    accountKeyMaterialDbName: string;
-    clientDisabled: boolean;
-    accountKeyMaterialDisabled: boolean;
+    walletDbName: typeof SEAMS_WALLET_DB_NAME;
+    disabled: boolean;
   }
 > = {
   app: {
-    clientDbName: 'PasskeyClientDB',
-    accountKeyMaterialDbName: 'PasskeyAccountKeyMaterial',
-    clientDisabled: false,
-    accountKeyMaterialDisabled: false,
+    walletDbName: SEAMS_WALLET_DB_NAME,
+    disabled: false,
   },
   wallet: {
-    clientDbName: 'PasskeyClientDB',
-    accountKeyMaterialDbName: 'PasskeyAccountKeyMaterial',
-    clientDisabled: false,
-    accountKeyMaterialDisabled: false,
+    walletDbName: SEAMS_WALLET_DB_NAME,
+    disabled: false,
   },
   // Fully disables IndexedDB for runtimes that route all persistence elsewhere.
   disabled: {
-    clientDbName: 'PasskeyClientDB',
-    accountKeyMaterialDbName: 'PasskeyAccountKeyMaterial',
-    clientDisabled: true,
-    accountKeyMaterialDisabled: true,
+    walletDbName: SEAMS_WALLET_DB_NAME,
+    disabled: true,
   },
 };
 
 let configured: {
   mode: IndexedDBMode;
-  clientDbName: string;
-  accountKeyMaterialDbName: string;
-  clientDisabled: boolean;
-  accountKeyMaterialDisabled: boolean;
+  walletDbName: string;
+  disabled: boolean;
 } | null = null;
 
 /**
@@ -128,8 +119,7 @@ let configured: {
  * - Headless/proxy runtimes that cannot touch IndexedDB should use `mode: 'disabled'`.
  */
 export function configureIndexedDB(args: { mode: IndexedDBMode }): {
-  clientDbName: string;
-  accountKeyMaterialDbName: string;
+  walletDbName: string;
 } {
   const mode = args?.mode;
   const next = DB_CONFIG_BY_MODE[mode];
@@ -139,10 +129,7 @@ export function configureIndexedDB(args: { mode: IndexedDBMode }): {
 
   if (configured) {
     const isSame =
-      configured.clientDbName === next.clientDbName &&
-      configured.accountKeyMaterialDbName === next.accountKeyMaterialDbName &&
-      configured.clientDisabled === next.clientDisabled &&
-      configured.accountKeyMaterialDisabled === next.accountKeyMaterialDisabled;
+      configured.walletDbName === next.walletDbName && configured.disabled === next.disabled;
     if (!isSame) {
       console.warn(
         '[IndexedDBManager] configureIndexedDB called multiple times; ignoring subsequent configuration',
@@ -153,39 +140,32 @@ export function configureIndexedDB(args: { mode: IndexedDBMode }): {
       );
     }
     return {
-      clientDbName: configured.clientDbName,
-      accountKeyMaterialDbName: configured.accountKeyMaterialDbName,
+      walletDbName: configured.walletDbName,
     };
   }
 
   configured = { mode, ...next };
-  passkeyClientDB.setDbName(next.clientDbName);
-  accountKeyMaterialDB.setDbName(next.accountKeyMaterialDbName);
-  seamsWalletDB.setDbName('seams_wallet');
-  passkeyClientDB.setDisabled(next.clientDisabled);
-  accountKeyMaterialDB.setDisabled(next.accountKeyMaterialDisabled);
-  seamsWalletDB.setDisabled(next.clientDisabled && next.accountKeyMaterialDisabled);
+  seamsWalletDB.setDbName(next.walletDbName);
+  seamsWalletDB.setDisabled(next.disabled);
+  seamsWalletDB.setLegacyDatabaseCleanup(next.disabled ? [] : LEGACY_INDEXED_DB_NAMES);
   return {
-    clientDbName: configured.clientDbName,
-    accountKeyMaterialDbName: configured.accountKeyMaterialDbName,
+    walletDbName: configured.walletDbName,
   };
 }
 
-export function getIndexedDBNames(): { clientDbName: string; accountKeyMaterialDbName: string } {
+export function getIndexedDBNames(): { walletDbName: string } {
   return (
     configured || {
-      clientDbName: passkeyClientDB.getDbName(),
-      accountKeyMaterialDbName: accountKeyMaterialDB.getDbName(),
+      walletDbName: seamsWalletDB.getDbName(),
     }
   );
 }
 
 export function isIndexedDBPersistenceDisabled(): boolean {
-  return Boolean(configured?.clientDisabled && configured?.accountKeyMaterialDisabled);
+  return Boolean(configured?.disabled);
 }
 
 // Export singleton instance of unified manager
 export const IndexedDBManager = new UnifiedIndexedDBManager({
-  clientDB: passkeyClientDB,
-  accountKeyMaterialDB: accountKeyMaterialDB,
+  seamsWalletDB,
 });

@@ -4,17 +4,14 @@ import {
   decodeJwtPayloadRecord,
   THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND,
 } from '@shared/utils/sessionTokens';
-import { isIndexedDBPersistenceDisabled } from '../../../indexedDB';
-import { SEAMS_WALLET_INDEXES } from '../../../indexedDB/schemaNames';
-import { upgradeSeamsWalletDBSchema } from '../../../indexedDB/seamsWalletDB/schema';
 import {
-  SIGNING_SESSION_RESTORE_LEASE_STORE_NAME,
+  signingSessionSealsRepository,
+  type StoredRawSealedRecordEntry,
+} from '../../../indexedDB/seamsWalletDB/signingSessionSeals';
+import {
   SIGNING_SESSION_SEALED_RECORD_VERSION,
   SIGNING_SESSION_SEAL_ALG,
-  SIGNING_SESSION_SEAL_DB_NAME,
-  SIGNING_SESSION_SEAL_DB_VERSION,
   SIGNING_SESSION_SEAL_STORAGE_SCOPE,
-  SIGNING_SESSION_SEAL_STORE_NAME,
   SIGNING_SESSION_SECRET_KIND,
   type SealedSigningSessionEcdsaRestoreMetadata,
   type SealedSigningSessionEd25519RestoreMetadata,
@@ -286,130 +283,13 @@ type DeleteExactSealedSessionOptions =
       resolvedIdentityDeleteReason?: never;
     };
 
-const DB_NAME = SIGNING_SESSION_SEAL_DB_NAME;
-const DB_VERSION = SIGNING_SESSION_SEAL_DB_VERSION;
-const STORE_NAME = SIGNING_SESSION_SEAL_STORE_NAME;
-const LEASE_STORE_NAME = SIGNING_SESSION_RESTORE_LEASE_STORE_NAME;
 const DEFAULT_RESTORE_LEASE_TTL_MS = 15_000;
-const SEALED_RECORD_STORE_KEY_PATH = 'store_key';
 const SEALED_RECORD_PAYLOAD_FIELD = 'sealed_record';
-const RESTORE_LEASE_STORE_KEY_PATH = 'lease_key';
-const SEALED_RECORD_THRESHOLD_SESSION_INDEXES = [
-  SEAMS_WALLET_INDEXES.ed25519ThresholdSessionId,
-  SEAMS_WALLET_INDEXES.ecdsaThresholdSessionId,
-] as const;
 const resolvedIdentitiesByPurposeKey = new Map<string, SealedStoreResolvedSigningSessionIdentity>();
 const resolvedIdentityKeysByListKey = new Map<string, Set<string>>();
 
 function createRandomId(prefix: string): string {
   return secureRandomId(prefix, 32, 'sealed signing session restore IDs');
-}
-
-function getIndexedDbSafe(): IDBFactory | null {
-  if (isIndexedDBPersistenceDisabled()) return null;
-  const indexedDBFactory = (globalThis as { indexedDB?: IDBFactory }).indexedDB;
-  return indexedDBFactory || null;
-}
-
-function requestToPromise<T>(request: IDBRequest<T>): Promise<T> {
-  return new Promise((resolve, reject) => {
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error || new Error('IndexedDB request failed'));
-  });
-}
-
-function transactionDone(tx: IDBTransaction): Promise<void> {
-  return new Promise((resolve, reject) => {
-    tx.oncomplete = () => resolve();
-    tx.onabort = () => reject(tx.error || new Error('IndexedDB transaction aborted'));
-    tx.onerror = () => reject(tx.error || new Error('IndexedDB transaction failed'));
-  });
-}
-
-function createStoreIndexes(store: IDBObjectStore): void {
-  const indexes: Array<[string, string | string[]]> = [
-    [SEAMS_WALLET_INDEXES.walletId, 'wallet_id'],
-    [SEAMS_WALLET_INDEXES.authMethod, 'auth_method'],
-    [SEAMS_WALLET_INDEXES.curve, 'curve'],
-    [SEAMS_WALLET_INDEXES.signingRootId, 'signing_root_id'],
-    [SEAMS_WALLET_INDEXES.expiresAtMs, 'expires_at_ms'],
-    [SEAMS_WALLET_INDEXES.updatedAt, 'updated_at'],
-    [
-      SEAMS_WALLET_INDEXES.walletSigningRootAuthMethod,
-      ['wallet_id', 'signing_root_id', 'auth_method'],
-    ],
-    [SEAMS_WALLET_INDEXES.walletSigningSessionId, 'wallet_signing_session_id'],
-    [SEAMS_WALLET_INDEXES.ed25519ThresholdSessionId, 'ed25519_threshold_session_id'],
-    [SEAMS_WALLET_INDEXES.ecdsaThresholdSessionId, 'ecdsa_threshold_session_id'],
-    [SEAMS_WALLET_INDEXES.thresholdSessionId, 'threshold_session_id'],
-    [SEAMS_WALLET_INDEXES.keyHandle, 'key_handle'],
-    [SEAMS_WALLET_INDEXES.chainTargetKey, 'chain_target_key'],
-  ];
-  for (const [name, keyPath] of indexes) {
-    try {
-      store.createIndex(name, keyPath, { unique: false });
-    } catch {}
-  }
-}
-
-function ensureSigningSessionSealStores(
-  db: IDBDatabase,
-  tx?: IDBTransaction | null,
-  opts?: { resetStores?: boolean },
-): void {
-  if (opts?.resetStores) {
-    if (db.objectStoreNames.contains(STORE_NAME)) {
-      db.deleteObjectStore(STORE_NAME);
-    }
-    if (db.objectStoreNames.contains(LEASE_STORE_NAME)) {
-      db.deleteObjectStore(LEASE_STORE_NAME);
-    }
-  }
-  let sealStore: IDBObjectStore | undefined;
-  if (!db.objectStoreNames.contains(STORE_NAME)) {
-    sealStore = db.createObjectStore(STORE_NAME, { keyPath: SEALED_RECORD_STORE_KEY_PATH });
-  } else {
-    const existing = tx?.objectStore(STORE_NAME);
-    if (existing?.keyPath === SEALED_RECORD_STORE_KEY_PATH) {
-      sealStore = existing;
-    } else {
-      // Version 3 changes the primary key from wallet session to purpose. A
-      // stale v2 store cannot hold passkey and Email OTP seals side by side.
-      db.deleteObjectStore(STORE_NAME);
-      sealStore = db.createObjectStore(STORE_NAME, { keyPath: SEALED_RECORD_STORE_KEY_PATH });
-    }
-  }
-  if (sealStore) createStoreIndexes(sealStore);
-  if (!db.objectStoreNames.contains(LEASE_STORE_NAME)) {
-    db.createObjectStore(LEASE_STORE_NAME, { keyPath: RESTORE_LEASE_STORE_KEY_PATH });
-  }
-}
-
-function openSigningSessionSealsDb(): Promise<IDBDatabase | null> {
-  const indexedDBFactory = getIndexedDbSafe();
-  if (!indexedDBFactory) return Promise.resolve(null);
-  return new Promise((resolve) => {
-    let request: IDBOpenDBRequest;
-    try {
-      request = indexedDBFactory.open(DB_NAME, DB_VERSION);
-    } catch {
-      resolve(null);
-      return;
-    }
-    request.onupgradeneeded = (event) => {
-      // v5 cuts ECDSA seals over to canonical EVM-family identity. Older local
-      // seals are discarded at this persistence boundary; restore/auth rebuilds
-      // current lane records explicitly.
-      const oldVersion = Math.floor(Number(event.oldVersion) || 0);
-      upgradeSeamsWalletDBSchema(request.result, request.transaction);
-      ensureSigningSessionSealStores(request.result, request.transaction, {
-        resetStores: oldVersion > 0 && oldVersion < 5,
-      });
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => resolve(null);
-    request.onblocked = () => resolve(null);
-  });
 }
 
 function normalizeThresholdSessionIds(value: unknown): {
@@ -1510,97 +1390,15 @@ function requireSealedRecordPurpose(
   );
 }
 
-async function readRecordsByThresholdSessionId(
-  db: IDBDatabase,
-  thresholdSessionId: string,
-): Promise<CurrentSealedSessionRecord[]> {
-  const indexes = SEALED_RECORD_THRESHOLD_SESSION_INDEXES;
-  const recordsByPurpose = new Map<string, CurrentSealedSessionRecord>();
-  for (const indexName of indexes) {
-    try {
-      const tx = db.transaction(STORE_NAME, 'readonly');
-      const store = tx.objectStore(STORE_NAME);
-      const values = await requestToPromise<unknown[]>(
-        store.index(indexName).getAll(thresholdSessionId),
-      );
-      for (const value of values) {
-        const normalized = normalizeSigningSessionSealedStoreRecord(value);
-        if (normalized?.storeKey) recordsByPurpose.set(normalized.storeKey, normalized);
-      }
-    } catch {}
-  }
-  return [...recordsByPurpose.values()];
-}
-
-type StoredRawSealedRecordEntry = {
-  primaryKey: IDBValidKey;
-  value: unknown;
-};
-
-function collectIndexedRawSealedRecordEntries(
-  index: IDBIndex,
-  thresholdSessionId: string,
-): Promise<StoredRawSealedRecordEntry[]> {
-  return new Promise((resolve, reject) => {
-    const entries: StoredRawSealedRecordEntry[] = [];
-    const request = index.openCursor(thresholdSessionId);
-    request.onsuccess = () => {
-      const cursor = request.result;
-      if (!cursor) {
-        resolve(entries);
-        return;
-      }
-      entries.push({
-        primaryKey: cursor.primaryKey,
-        value: cursor.value,
-      });
-      cursor.continue();
-    };
-    request.onerror = () => reject(request.error || new Error('IndexedDB cursor failed'));
-  });
-}
-
-function collectAllRawSealedRecordEntries(
-  store: IDBObjectStore,
-): Promise<StoredRawSealedRecordEntry[]> {
-  return new Promise((resolve, reject) => {
-    const entries: StoredRawSealedRecordEntry[] = [];
-    const request = store.openCursor();
-    request.onsuccess = () => {
-      const cursor = request.result;
-      if (!cursor) {
-        resolve(entries);
-        return;
-      }
-      entries.push({
-        primaryKey: cursor.primaryKey,
-        value: cursor.value,
-      });
-      cursor.continue();
-    };
-    request.onerror = () => reject(request.error || new Error('IndexedDB cursor failed'));
-  });
-}
-
 async function collectRawSealedRecordEntriesByThresholdSessionId(
-  store: IDBObjectStore,
   thresholdSessionId: string,
 ): Promise<StoredRawSealedRecordEntry[]> {
-  const entriesByPrimaryKey = new Map<string, StoredRawSealedRecordEntry>();
-  for (const indexName of SEALED_RECORD_THRESHOLD_SESSION_INDEXES) {
-    try {
-      const entries = await collectIndexedRawSealedRecordEntries(
-        store.index(indexName),
-        thresholdSessionId,
-      );
-      for (const entry of entries) {
-        entriesByPrimaryKey.set(String(entry.primaryKey), entry);
-      }
-    } catch {}
-  }
-  if (entriesByPrimaryKey.size) return [...entriesByPrimaryKey.values()];
-
-  const allEntries = await collectAllRawSealedRecordEntries(store).catch(() => []);
+  const entries =
+    await signingSessionSealsRepository.collectRawSealedRecordEntriesByThresholdSessionId(
+      thresholdSessionId,
+    );
+  if (entries.length) return entries;
+  const allEntries = await signingSessionSealsRepository.collectAllRawSealedRecordEntries();
   return allEntries.filter((entry) => {
     const record = normalizeSigningSessionSealedStoreRecord(entry.value);
     const rawThresholdSessionIds = rawThresholdSessionIdsFromSealedStoreRow(entry.value);
@@ -1614,16 +1412,14 @@ async function collectRawSealedRecordEntriesByThresholdSessionId(
 }
 
 async function readRecordByThresholdSessionId(
-  db: IDBDatabase,
   thresholdSessionId: string,
   filter: SigningSessionSealedRecordFilter,
   operation: string,
 ): Promise<CurrentSealedSessionRecord | null> {
-  const tx = db.transaction(STORE_NAME, 'readwrite');
-  const store = tx.objectStore(STORE_NAME);
-  const entries = await collectRawSealedRecordEntriesByThresholdSessionId(store, thresholdSessionId);
+  const entries = await collectRawSealedRecordEntriesByThresholdSessionId(thresholdSessionId);
 
   let selected: CurrentSealedSessionRecord | null = null;
+  const deletePrimaryKeys: unknown[] = [];
   for (const entry of entries) {
     const classification = classifyRawSealedSessionRecord(entry.value);
     if (classification.kind === 'current') {
@@ -1634,7 +1430,7 @@ async function readRecordByThresholdSessionId(
     }
     logSealedSessionClassification({ operation, classification });
     if (classification.kind === 'delete_required' || classification.kind === 'malformed') {
-      store.delete(entry.primaryKey);
+      deletePrimaryKeys.push(entry.primaryKey);
       logSealedSessionDeletedRecord({
         operation,
         storeKey: classification.storeKey,
@@ -1644,30 +1440,25 @@ async function readRecordByThresholdSessionId(
       });
     }
     if (classification.kind === 'user_action_required') {
-      await transactionDone(tx).catch(() => undefined);
+      await signingSessionSealsRepository.deleteSealedRecords(deletePrimaryKeys);
       throw new SealedSessionRecordUserActionRequiredError(classification);
     }
   }
-  await transactionDone(tx).catch(() => undefined);
+  await signingSessionSealsRepository.deleteSealedRecords(deletePrimaryKeys);
   return selected;
 }
 
 async function deleteRecordByThresholdSessionId(
-  db: IDBDatabase,
   thresholdSessionId: string,
   filter: SigningSessionSealedRecordFilter,
 ): Promise<void> {
   try {
-    const tx = db.transaction(STORE_NAME, 'readwrite');
-    const store = tx.objectStore(STORE_NAME);
-    const entries = await collectRawSealedRecordEntriesByThresholdSessionId(
-      store,
-      thresholdSessionId,
-    );
+    const entries = await collectRawSealedRecordEntriesByThresholdSessionId(thresholdSessionId);
+    const deletePrimaryKeys: unknown[] = [];
     for (const entry of entries) {
       const record = normalizeSigningSessionSealedStoreRecord(entry.value);
       if (record?.storeKey && recordMatchesFilter(record, thresholdSessionId, filter)) {
-        store.delete(entry.primaryKey);
+        deletePrimaryKeys.push(entry.primaryKey);
         logSealedSessionDeletedRecord({
           operation: 'delete',
           storeKey: record.storeKey,
@@ -1677,29 +1468,25 @@ async function deleteRecordByThresholdSessionId(
         });
       }
     }
-    await transactionDone(tx).catch(() => undefined);
+    await signingSessionSealsRepository.deleteSealedRecords(deletePrimaryKeys);
   } catch {}
 }
 
 async function listSameScopeRecords(
-  db: IDBDatabase,
   record: CurrentSealedSessionRecord,
 ): Promise<CurrentSealedSessionRecord[]> {
   if (!sealedRecordAccountKeys(record).size || !record.authMethod) return [];
   try {
-    const tx = db.transaction(STORE_NAME, 'readonly');
-    const store = tx.objectStore(STORE_NAME);
-    const all = await requestToPromise<unknown[]>(store.getAll());
+    const all = await signingSessionSealsRepository.collectAllRawSealedRecordEntries();
     const records: CurrentSealedSessionRecord[] = [];
     for (const entry of all) {
-      const existing = normalizeSigningSessionSealedStoreRecord(entry);
+      const existing = normalizeSigningSessionSealedStoreRecord(entry.value);
       if (!existing) continue;
       if (existing.storeKey === record.storeKey) continue;
       if (sealedRecordsHaveSamePurpose(existing, record)) {
         records.push(existing);
       }
     }
-    await transactionDone(tx).catch(() => undefined);
     return records;
   } catch {
     return [];
@@ -1713,16 +1500,7 @@ export async function readExactSealedSession(
   const purpose = requireSealedRecordPurpose(filter, 'read');
   const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
   if (!thresholdSessionId) return null;
-  const db = await openSigningSessionSealsDb();
-  if (!db) return null;
-  try {
-    const record = await readRecordByThresholdSessionId(db, thresholdSessionId, purpose, 'read');
-    return record;
-  } finally {
-    try {
-      db.close();
-    } catch {}
-  }
+  return await readRecordByThresholdSessionId(thresholdSessionId, purpose, 'read');
 }
 
 export async function listExactSealedSessionsForWallet(args: {
@@ -1733,12 +1511,9 @@ export async function listExactSealedSessionsForWallet(args: {
   if (!walletId) return [];
   const purpose = requireSealedRecordPurpose(args.filter, 'list exact account records');
   const chainTarget = args.filter.curve === 'ecdsa' ? args.filter.chainTarget : undefined;
-  const db = await openSigningSessionSealsDb();
-  if (!db) return [];
+  const values = await signingSessionSealsRepository.collectAllRawSealedRecordEntries();
+  const deletePrimaryKeys: unknown[] = [];
   try {
-    const tx = db.transaction(STORE_NAME, 'readwrite');
-    const store = tx.objectStore(STORE_NAME);
-    const values = await collectAllRawSealedRecordEntries(store);
     const records: CurrentSealedSessionRecord[] = [];
     const seen = new Set<string>();
     for (const value of values) {
@@ -1749,7 +1524,7 @@ export async function listExactSealedSessionsForWallet(args: {
           classification,
         });
         if (classification.kind === 'delete_required' || classification.kind === 'malformed') {
-          store.delete(value.primaryKey);
+          deletePrimaryKeys.push(value.primaryKey);
           logSealedSessionDeletedRecord({
             operation: 'list exact account records',
             storeKey: classification.storeKey,
@@ -1759,7 +1534,7 @@ export async function listExactSealedSessionsForWallet(args: {
           });
         }
         if (classification.kind === 'user_action_required') {
-          await transactionDone(tx).catch(() => undefined);
+          await signingSessionSealsRepository.deleteSealedRecords(deletePrimaryKeys);
           throw new SealedSessionRecordUserActionRequiredError(classification);
         }
         continue;
@@ -1779,12 +1554,10 @@ export async function listExactSealedSessionsForWallet(args: {
       seen.add(record.storeKey);
       records.push(record);
     }
-    await transactionDone(tx).catch(() => undefined);
+    await signingSessionSealsRepository.deleteSealedRecords(deletePrimaryKeys);
     return records;
   } finally {
-    try {
-      db.close();
-    } catch {}
+    await signingSessionSealsRepository.deleteSealedRecords(deletePrimaryKeys);
   }
 }
 
@@ -1800,12 +1573,9 @@ export async function listEcdsaSealedSessionsForWallet(args: {
     });
     return [];
   }
-  const db = await openSigningSessionSealsDb();
-  if (!db) return [];
+  const values = await signingSessionSealsRepository.collectAllRawSealedRecordEntries();
+  const deletePrimaryKeys: unknown[] = [];
   try {
-    const tx = db.transaction(STORE_NAME, 'readwrite');
-    const store = tx.objectStore(STORE_NAME);
-    const values = await collectAllRawSealedRecordEntries(store);
     const records: CurrentSealedSessionRecord[] = [];
     const seen = new Set<string>();
     for (const value of values) {
@@ -1816,7 +1586,7 @@ export async function listEcdsaSealedSessionsForWallet(args: {
           classification,
         });
         if (classification.kind === 'delete_required' || classification.kind === 'malformed') {
-          store.delete(value.primaryKey);
+          deletePrimaryKeys.push(value.primaryKey);
           logSealedSessionDeletedRecord({
             operation: 'list wallet ecdsa records',
             storeKey: classification.storeKey,
@@ -1826,7 +1596,7 @@ export async function listEcdsaSealedSessionsForWallet(args: {
           });
         }
         if (classification.kind === 'user_action_required') {
-          await transactionDone(tx).catch(() => undefined);
+          await signingSessionSealsRepository.deleteSealedRecords(deletePrimaryKeys);
           throw new SealedSessionRecordUserActionRequiredError(classification);
         }
         continue;
@@ -1840,12 +1610,10 @@ export async function listEcdsaSealedSessionsForWallet(args: {
       seen.add(record.storeKey);
       records.push(record);
     }
-    await transactionDone(tx).catch(() => undefined);
+    await signingSessionSealsRepository.deleteSealedRecords(deletePrimaryKeys);
     return records;
   } finally {
-    try {
-      db.close();
-    } catch {}
+    await signingSessionSealsRepository.deleteSealedRecords(deletePrimaryKeys);
   }
 }
 
@@ -1864,31 +1632,22 @@ export async function writeExactSealedSession(record: CurrentSealedSessionRecord
     record: currentRecord,
   });
 
-  const db = await openSigningSessionSealsDb();
-  if (!db) return;
-  try {
-    const staleRecords = await listSameScopeRecords(db, currentRecord);
-    const tx = db.transaction(STORE_NAME, 'readwrite');
-    const store = tx.objectStore(STORE_NAME);
-    for (const staleRecord of staleRecords) {
-      deleteResolvedIdentityForSealedRecord(staleRecord, 'same_scope_replaced');
-      store.delete(staleRecord.storeKey);
-      logSealedSessionDeletedRecord({
-        operation: 'write exact sealed session',
-        storeKey: staleRecord.storeKey,
-        walletId: staleRecord.walletId || null,
-        reason: 'same_scope_replaced',
-        safeSummary: sealedSessionCurrentSummary(staleRecord),
-      });
-    }
-    store.put(sealedRecordStorageRow(currentRecord));
-    await transactionDone(tx).catch(() => undefined);
-    publishResolvedIdentityForSealedRecord(currentRecord);
-  } finally {
-    try {
-      db.close();
-    } catch {}
+  const staleRecords = await listSameScopeRecords(currentRecord);
+  for (const staleRecord of staleRecords) {
+    deleteResolvedIdentityForSealedRecord(staleRecord, 'same_scope_replaced');
+    logSealedSessionDeletedRecord({
+      operation: 'write exact sealed session',
+      storeKey: staleRecord.storeKey,
+      walletId: staleRecord.walletId || null,
+      reason: 'same_scope_replaced',
+      safeSummary: sealedSessionCurrentSummary(staleRecord),
+    });
   }
+  await signingSessionSealsRepository.replaceSealedRecord({
+    row: sealedRecordStorageRow(currentRecord),
+    staleStoreKeys: staleRecords.map((record) => record.storeKey),
+  });
+  publishResolvedIdentityForSealedRecord(currentRecord);
 }
 
 export async function updateExactSealedSessionPolicy(args: {
@@ -1925,21 +1684,11 @@ export async function deleteExactSealedSession(
   const purpose = requireSealedRecordPurpose(filter, 'delete');
   const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
   if (!thresholdSessionId) return;
-  const db = await openSigningSessionSealsDb();
-  if (!db) return;
-  try {
-    const record = await readRecordByThresholdSessionId(db, thresholdSessionId, purpose, 'delete');
-    await deleteRecordByThresholdSessionId(db, thresholdSessionId, purpose);
-    if (record?.walletSigningSessionId && options.deleteResolvedIdentity) {
-      deleteResolvedIdentityForSealedRecord(record, options.resolvedIdentityDeleteReason);
-      const tx = db.transaction(LEASE_STORE_NAME, 'readwrite');
-      tx.objectStore(LEASE_STORE_NAME).delete(record.storeKey);
-      await transactionDone(tx).catch(() => undefined);
-    }
-  } finally {
-    try {
-      db.close();
-    } catch {}
+  const record = await readRecordByThresholdSessionId(thresholdSessionId, purpose, 'delete');
+  await deleteRecordByThresholdSessionId(thresholdSessionId, purpose);
+  if (record?.walletSigningSessionId && options.deleteResolvedIdentity) {
+    deleteResolvedIdentityForSealedRecord(record, options.resolvedIdentityDeleteReason);
+    await signingSessionSealsRepository.deleteRestoreLease(record.storeKey);
   }
 }
 
@@ -1998,100 +1747,66 @@ export async function acquireSigningSessionRestoreLease(
     normalizeInteger(args.ttlMs ?? DEFAULT_RESTORE_LEASE_TTL_MS) ?? DEFAULT_RESTORE_LEASE_TTL_MS,
   );
   const ownerId = normalizeOptionalNonEmptyString(args.ownerId) || createRandomId('restore-owner');
-  const db = await openSigningSessionSealsDb();
-  if (!db) return null;
-  try {
-    const tx = db.transaction([STORE_NAME, LEASE_STORE_NAME], 'readwrite');
-    const sealStore = tx.objectStore(STORE_NAME);
-    const records: SigningSessionSealedStoreRecord[] = [];
-    const entries = await collectRawSealedRecordEntriesByThresholdSessionId(
-      sealStore,
-      thresholdSessionId,
-    );
-    for (const entry of entries) {
-      const normalized = normalizeSigningSessionSealedStoreRecord(entry.value);
-      if (
-        normalized?.storeKey &&
-        !records.some((record) => record.storeKey === normalized.storeKey)
-      ) {
-        records.push(normalized);
+  return await signingSessionSealsRepository.withRestoreLeaseTransaction(
+    thresholdSessionId,
+    async (tx) => {
+      const records: SigningSessionSealedStoreRecord[] = [];
+      for (const entry of tx.entries) {
+        const normalized = normalizeSigningSessionSealedStoreRecord(entry.value);
+        if (
+          normalized?.storeKey &&
+          !records.some((record) => record.storeKey === normalized.storeKey)
+        ) {
+          records.push(normalized);
+        }
       }
-    }
-    const record =
-      records.find((candidate) => recordMatchesFilter(candidate, thresholdSessionId, purpose)) ||
-      null;
-    if (!record) {
-      tx.abort();
-      return null;
-    }
+      const record =
+        records.find((candidate) => recordMatchesFilter(candidate, thresholdSessionId, purpose)) ||
+        null;
+      if (!record) {
+        tx.abort();
+        return null;
+      }
 
-    const leaseStore = tx.objectStore(LEASE_STORE_NAME);
-    const existing = normalizeSigningSessionRestoreLease(
-      await requestToPromise(leaseStore.get(record.storeKey)),
-    );
-    if (existing && existing.expiresAtMs > nowMs && existing.ownerId !== ownerId) {
-      tx.abort();
-      return null;
-    }
+      const existing = normalizeSigningSessionRestoreLease(
+        await tx.getRawRestoreLease(record.storeKey),
+      );
+      if (existing && existing.expiresAtMs > nowMs && existing.ownerId !== ownerId) {
+        tx.abort();
+        return null;
+      }
 
-    const lease = makeSigningSessionRestoreLease({
-      leaseKey: record.storeKey,
-      walletSigningSessionId: record.walletSigningSessionId,
-      ownerId,
-      nowMs,
-      ttlMs,
-    });
-    leaseStore.put(restoreLeaseStorageRow(lease));
-    await transactionDone(tx);
-    return {
-      ...lease,
-      thresholdSessionId,
-    };
-  } catch {
-    return null;
-  } finally {
-    try {
-      db.close();
-    } catch {}
-  }
+      const lease = makeSigningSessionRestoreLease({
+        leaseKey: record.storeKey,
+        walletSigningSessionId: record.walletSigningSessionId,
+        ownerId,
+        nowMs,
+        ttlMs,
+      });
+      tx.putRestoreLease(restoreLeaseStorageRow(lease));
+      return {
+        ...lease,
+        thresholdSessionId,
+      };
+    },
+  );
 }
 
 export async function releaseSigningSessionRestoreLease(
   lease: SigningSessionRestoreLeaseHandle | null | undefined,
 ): Promise<void> {
   if (!lease?.walletSigningSessionId || !lease.ownerId || !lease.attemptId) return;
-  const db = await openSigningSessionSealsDb();
-  if (!db) return;
-  try {
-    const tx = db.transaction(LEASE_STORE_NAME, 'readwrite');
-    const store = tx.objectStore(LEASE_STORE_NAME);
-    const existing = normalizeSigningSessionRestoreLease(
-      await requestToPromise(store.get(lease.leaseKey)),
-    );
-    if (existing?.ownerId === lease.ownerId && existing.attemptId === lease.attemptId) {
-      store.delete(lease.leaseKey);
-    }
-    await transactionDone(tx).catch(() => undefined);
-  } finally {
-    try {
-      db.close();
-    } catch {}
-  }
+  await signingSessionSealsRepository.deleteRestoreLeaseIf({
+    leaseKey: lease.leaseKey,
+    shouldDelete: (rawLease) => {
+      const existing = normalizeSigningSessionRestoreLease(rawLease);
+      return existing?.ownerId === lease.ownerId && existing.attemptId === lease.attemptId;
+    },
+  });
 }
 
 export async function clearAllSealedSessions(): Promise<void> {
   resolvedIdentitiesByPurposeKey.clear();
   resolvedIdentityKeysByListKey.clear();
-  const db = await openSigningSessionSealsDb();
-  if (!db) return;
-  try {
-    const tx = db.transaction([STORE_NAME, LEASE_STORE_NAME], 'readwrite');
-    tx.objectStore(STORE_NAME).clear();
-    tx.objectStore(LEASE_STORE_NAME).clear();
-    await transactionDone(tx).catch(() => undefined);
-  } finally {
-    try {
-      db.close();
-    } catch {}
-  }
+  await signingSessionSealsRepository.clearAll();
 }

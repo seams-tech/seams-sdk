@@ -8,8 +8,8 @@ export interface KeyMaterialPayloadEnvelopeAAD {
   chainIdKey: string;
   keyKind: string;
   schemaVersion: number;
-  signerId?: string;
-  accountAddress?: string;
+  signerId: string;
+  accountAddress: string;
 }
 
 export interface KeyMaterialPayloadEnvelope {
@@ -25,10 +25,11 @@ export interface KeyMaterialRecord {
   profileId: string;
   signerSlot: number;
   chainIdKey: string;
+  accountAddress: string;
   keyKind: KeyMaterialKind;
   algorithm: KeyMaterialAlgorithm;
   publicKey: string;
-  signerId?: string;
+  signerId: string;
   wrapKeySalt?: string;
   payload?: Record<string, unknown>;
   payloadEnvelope?: KeyMaterialPayloadEnvelope;

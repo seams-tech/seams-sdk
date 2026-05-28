@@ -414,11 +414,10 @@ const configs = [
       // Treat this as an entry so Rolldown doesn't tree-shake its re-exported WASM enums.
       // Tests (and some internal tools) import `core/types/signer-worker` directly.
       '../client/src/core/types/signer-worker.ts',
-      // Keep IndexedDB manager internals as stable deep-import entries for DB migration tests/tools.
+      // Keep active IndexedDB repository internals as stable deep-import entries for tests/tools.
       '../client/src/core/indexedDB/index.ts',
       '../client/src/core/accountData/near/keyMaterial.ts',
-      '../client/src/core/indexedDB/passkeyClientDB/manager.ts',
-      '../client/src/core/indexedDB/accountKeyMaterialDB/manager.ts',
+      '../client/src/core/indexedDB/seamsWalletDB/repositories.ts',
       // Keep Email OTP device-local escrow store as a stable deep import for worker wiring/tests.
       '../client/src/core/signingEngine/workerManager/workers/email-otp/deviceEnrollmentEscrowStore.ts',
       // Keep sealed signing-session persistence stable for worker wiring/tests.

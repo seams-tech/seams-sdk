@@ -2,26 +2,34 @@ import type {
   AccountRef,
   AccountSignerRecord,
   ChainAccountRecord,
+  LastProfileState,
   ProfileRecord,
 } from './passkeyClientDB.types';
-import type { PasskeyClientDBManager } from './passkeyClientDB/manager';
 
 export type ResolvedProfileAccountContext = {
   profileId: string;
   accountRef: AccountRef;
 };
 
-export type ProfileAccountContextPort = Pick<PasskeyClientDBManager, 'resolveProfileAccountContext'>;
+export type ProfileAccountContextPort = {
+  resolveProfileAccountContext: (
+    accountRef: AccountRef,
+  ) => Promise<ResolvedProfileAccountContext | null>;
+};
 
-export type ProfileAccountProjectionPort = Pick<
-  PasskeyClientDBManager,
-  'resolveProfileAccountContext' | 'getProfile' | 'listAccountSigners'
->;
+export type ProfileAccountProjectionPort = ProfileAccountContextPort & {
+  getProfile: (profileId: string) => Promise<ProfileRecord | null>;
+  listAccountSigners: (args: {
+    chainIdKey: string;
+    accountAddress: string;
+    status?: AccountSignerRecord['status'];
+  }) => Promise<AccountSignerRecord[]>;
+};
 
-export type ProfileLastSelectionPort = Pick<
-  PasskeyClientDBManager,
-  'getLastProfileState' | 'listChainAccountsByProfile'
->;
+export type ProfileLastSelectionPort = {
+  getLastProfileState: () => Promise<LastProfileState | null>;
+  listChainAccountsByProfile: (profileId: string) => Promise<ChainAccountRecord[]>;
+};
 
 export function selectPrimaryChainAccount(
   chainAccounts: ChainAccountRecord[],
@@ -106,7 +114,9 @@ export async function resolveProfileAccountProjection(
 }
 
 export async function getPrimaryProfileAccountByChain(
-  clientDB: Pick<PasskeyClientDBManager, 'listChainAccountsByProfile'>,
+  clientDB: {
+    listChainAccountsByProfile: (profileId: string) => Promise<ChainAccountRecord[]>;
+  },
   args: {
     profileId: string;
     chainIdKeys: string[];

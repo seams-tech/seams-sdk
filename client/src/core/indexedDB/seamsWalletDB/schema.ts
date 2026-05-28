@@ -16,6 +16,11 @@ export const SEAMS_WALLET_DB_CONFIG: SeamsWalletDBConfig = {
   dbVersion: SEAMS_WALLET_DB_VERSION,
 } as const;
 
+const OBSOLETE_STORE_NAMES = [
+  'seams_wallet_auth_method_bindings',
+  'seams_wallet_authenticators',
+] as const;
+
 function keyPathForIndexedDB(keyPath: string | readonly string[]): string | string[] {
   return typeof keyPath === 'string' ? keyPath : [...keyPath];
 }
@@ -41,6 +46,11 @@ export function upgradeSeamsWalletDBSchema(
   db: IDBPDatabase | IDBDatabase,
   transaction?: { objectStore(name: string): any } | null,
 ): void {
+  for (const storeName of OBSOLETE_STORE_NAMES) {
+    if (db.objectStoreNames.contains(storeName)) {
+      db.deleteObjectStore(storeName);
+    }
+  }
   for (const definition of SEAMS_WALLET_SCHEMA_MANIFEST) {
     createOrUpdateStore(db, transaction, definition);
   }

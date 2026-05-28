@@ -1,19 +1,27 @@
 import { SIGNER_KINDS } from '@shared/utils/signerDomain';
 import { toTrimmedString } from '@shared/utils/validation';
-import type { PasskeyClientDBManager } from './passkeyClientDB/manager';
+import type { AccountId } from '../types/accountIds';
+import { normalizeLastUserScope } from './normalization';
 import type {
+  AccountRef,
   AccountSignerRecord,
   AccountSignerStatus,
   ChainAccountRecord,
   EnqueueSignerOperationInput,
+  IndexedDBEvent,
   LastProfileState,
+  LocalWalletAuthMethodBindingRecord,
   NonceLaneLeaseStoreRecord,
+  ProfileAuthenticatorRecord,
+  ProfileContinuitySnapshot,
+  ProfileRecoveryEmailRecord,
   ProfileRecord,
   SignerMutationOptions,
   SignerOperationStatus,
   SignerOpOutboxRecord,
   UpsertChainAccountInput,
   UpsertProfileInput,
+  UserPreferences,
 } from './passkeyClientDB.types';
 import type {
   ActivateAccountSignerInput as AccountSignerLifecycleInput,
@@ -21,13 +29,18 @@ import type {
   StageAccountSignerInput,
   StageAccountSignerResult,
 } from './accountSignerLifecycle';
-import type { AccountKeyMaterialDBManager } from './accountKeyMaterialDB/manager';
-import { type KeyMaterialKind, type KeyMaterialRecord } from './accountKeyMaterialDB.types';
-import { passkeyClientDB, accountKeyMaterialDB } from './singletons';
+import { type KeyMaterialKind, type KeyMaterialRecord } from './keyMaterial.types';
+import { seamsWalletDB } from './singletons';
+import type { SeamsWalletDBManager } from './seamsWalletDB/manager';
+import {
+  SeamsWalletRepositories,
+  type StoreWalletSignerFinalizeBatchInput,
+  type StoreWalletRegistrationFinalizeBatchInput,
+  type StoreWalletRegistrationFinalizeBatchResult,
+} from './seamsWalletDB/repositories';
 
 export interface UnifiedIndexedDBManagerDeps {
-  clientDB: PasskeyClientDBManager;
-  accountKeyMaterialDB: AccountKeyMaterialDBManager;
+  seamsWalletDB: SeamsWalletDBManager;
 }
 
 export type LocalSignerReconciliationIssueCode =
@@ -58,40 +71,30 @@ export type LocalSignerReconciliationSummary = {
 const DEFAULT_STALE_PENDING_SIGNER_MS = 24 * 60 * 60_000;
 const KEY_MATERIAL_SIGNER_KINDS = new Set<string>(Object.values(SIGNER_KINDS));
 
-/**
- * Unified IndexedDB interface providing access to both databases
- * This allows centralized access while maintaining separation of concerns
- */
 export class UnifiedIndexedDBManager {
-  public readonly clientDB: PasskeyClientDBManager;
-  public readonly accountKeyMaterialDB: AccountKeyMaterialDBManager;
+  public readonly seamsWalletDB: SeamsWalletDBManager;
+  private readonly seamsWalletRepositories: SeamsWalletRepositories;
+  private readonly eventListeners: Set<(event: IndexedDBEvent) => void> = new Set();
   private _initialized = false;
+  private lastUserScope: string | null = null;
 
   constructor(deps?: Partial<UnifiedIndexedDBManagerDeps>) {
-    this.clientDB = deps?.clientDB || passkeyClientDB;
-    this.accountKeyMaterialDB = deps?.accountKeyMaterialDB || accountKeyMaterialDB;
+    this.seamsWalletDB = deps?.seamsWalletDB || seamsWalletDB;
+    this.seamsWalletRepositories = new SeamsWalletRepositories(this.seamsWalletDB);
   }
 
-  /**
-   * Initialize both databases proactively
-   * This ensures both databases are created and ready for use
-   */
   async initialize(): Promise<void> {
     if (this._initialized) {
       return;
     }
 
     try {
-      if (this.clientDB.isDisabled() || this.accountKeyMaterialDB.isDisabled()) {
+      if (this.seamsWalletDB.isDisabled()) {
         this._initialized = true;
         return;
       }
-      // Initialize both databases by calling a simple operation
-      // This will trigger the getDB() method in both managers and ensure databases are created
-      await Promise.all([
-        this.clientDB.getAppState('_init_check'),
-        this.accountKeyMaterialDB.getKeyMaterial('_init_check', 1, 'init:check', 'init_check'),
-      ]);
+      // Initialize all active persistence managers.
+      await this.seamsWalletRepositories.getAppState('_init_check');
 
       try {
         await this.repairSignerMutationSagas({ limit: 64 });
@@ -118,42 +121,105 @@ export class UnifiedIndexedDBManager {
     return this._initialized;
   }
 
+  isDisabled(): boolean {
+    return this.seamsWalletDB.isDisabled();
+  }
+
+  onChange(callback: (event: IndexedDBEvent) => void): () => void {
+    this.eventListeners.add(callback);
+    return () => {
+      this.eventListeners.delete(callback);
+    };
+  }
+
+  private emitEvent(event: IndexedDBEvent): void {
+    for (const listener of this.eventListeners) {
+      try {
+        listener(event);
+      } catch (error) {
+        console.warn('[UnifiedIndexedDBManager]: Error in event listener:', error);
+      }
+    }
+  }
+
+  async getAppState<T = unknown>(key: string): Promise<T | undefined> {
+    return this.seamsWalletRepositories.getAppState<T>(key);
+  }
+
+  async setAppState<T = unknown>(key: string, value: T): Promise<void> {
+    return this.seamsWalletRepositories.setAppState(key, value);
+  }
+
+  async upsertRecoveryEmails(
+    walletSubjectId: string,
+    entries: Array<{ hashHex: string; email: string }>,
+  ): Promise<void> {
+    return this.seamsWalletRepositories.upsertRecoveryEmails(walletSubjectId, entries);
+  }
+
+  async listRecoveryEmails(profileId: string): Promise<ProfileRecoveryEmailRecord[]> {
+    return this.seamsWalletRepositories.listRecoveryEmails(profileId);
+  }
+
+  setLastUserScope(scope: string | null): void {
+    this.lastUserScope = normalizeLastUserScope(scope);
+  }
+
+  getLastUserScope(): string | null {
+    return this.lastUserScope;
+  }
+
   async getLastProfileState(): Promise<LastProfileState | null> {
-    return this.clientDB.getLastProfileState();
+    return this.seamsWalletRepositories.getLastProfileState(this.lastUserScope);
   }
 
   async setLastProfileState(state: LastProfileState | null): Promise<void> {
-    return this.clientDB.setLastProfileState(state);
+    return this.seamsWalletRepositories.setLastProfileState(state, this.lastUserScope);
+  }
+
+  async setLastProfileStateForProfile(
+    profileId: string,
+    activeSignerSlot: number,
+  ): Promise<void> {
+    return this.seamsWalletRepositories.setLastProfileStateForProfile(
+      profileId,
+      activeSignerSlot,
+      this.lastUserScope,
+    );
+  }
+
+  async clearLastProfileSelection(): Promise<void> {
+    return this.seamsWalletRepositories.clearLastProfileSelection(this.lastUserScope);
   }
 
   async readNonceLaneLeaseRecords(laneKey: string): Promise<NonceLaneLeaseStoreRecord[]> {
-    return this.clientDB.readNonceLaneLeaseRecords(laneKey);
+    return this.seamsWalletRepositories.readNonceLaneLeaseRecords(laneKey);
   }
 
   async listNonceLaneLeaseRecords(args?: {
     accountId?: string;
   }): Promise<NonceLaneLeaseStoreRecord[]> {
-    return this.clientDB.listNonceLaneLeaseRecords(args);
+    return this.seamsWalletRepositories.listNonceLaneLeaseRecords(args);
   }
 
   async upsertNonceLaneLeaseRecord(record: NonceLaneLeaseStoreRecord): Promise<void> {
-    return this.clientDB.upsertNonceLaneLeaseRecord(record);
+    return this.seamsWalletRepositories.upsertNonceLaneLeaseRecord(record);
   }
 
   async removeNonceLaneLeaseRecord(input: { leaseId: string }): Promise<void> {
-    return this.clientDB.removeNonceLaneLeaseRecord(input);
+    return this.seamsWalletRepositories.removeNonceLaneLeaseRecord(input);
   }
 
   async clearNonceLaneLeaseRecordsForAccount(accountId: string): Promise<void> {
-    return this.clientDB.clearNonceLaneLeaseRecordsForAccount(accountId);
+    return this.seamsWalletRepositories.clearNonceLaneLeaseRecordsForAccount(accountId);
   }
 
   async clearAllNonceLaneLeaseRecords(): Promise<void> {
-    return this.clientDB.clearAllNonceLaneLeaseRecords();
+    return this.seamsWalletRepositories.clearAllNonceLaneLeaseRecords();
   }
 
   async pruneExpiredNonceLaneLeaseRecords(nowMs: number): Promise<void> {
-    return this.clientDB.pruneExpiredNonceLaneLeaseRecords(nowMs);
+    return this.seamsWalletRepositories.pruneExpiredNonceLaneLeaseRecords(nowMs);
   }
 
   async withNonceLaneCoordinationLock<T>(
@@ -165,24 +231,39 @@ export class UnifiedIndexedDBManager {
     },
     task: () => Promise<T>,
   ): Promise<T> {
-    return this.clientDB.withNonceLaneCoordinationLock(input, task);
+    return this.seamsWalletRepositories.withNonceLaneCoordinationLock(input, task);
   }
 
   // === profile/account/signer convenience ===
   async getProfile(profileId: string): Promise<ProfileRecord | null> {
-    return this.clientDB.getProfile(profileId);
+    return this.seamsWalletRepositories.getProfile(profileId);
   }
 
   async listProfiles(args?: { limit?: number }): Promise<ProfileRecord[]> {
-    return this.clientDB.listProfiles(args);
+    return this.seamsWalletRepositories.listProfiles(args);
   }
 
   async upsertProfile(input: UpsertProfileInput): Promise<ProfileRecord> {
-    return this.clientDB.upsertProfile(input);
+    return this.seamsWalletRepositories.upsertProfile(input);
   }
 
   async upsertChainAccount(input: UpsertChainAccountInput): Promise<ChainAccountRecord> {
-    return this.clientDB.upsertChainAccount(input);
+    return this.seamsWalletRepositories.upsertChainAccount(input);
+  }
+
+  async listChainAccountsByProfile(profileId: string): Promise<ChainAccountRecord[]> {
+    return this.seamsWalletRepositories.listChainAccountsByProfile(profileId);
+  }
+
+  async listChainAccountsByProfileAndChain(
+    profileId: string,
+    chainIdKey: string,
+  ): Promise<ChainAccountRecord[]> {
+    return this.seamsWalletRepositories.listChainAccountsByProfileAndChain(profileId, chainIdKey);
+  }
+
+  async listChainAccountsByChain(chainIdKey: string): Promise<ChainAccountRecord[]> {
+    return this.seamsWalletRepositories.listChainAccountsByChain(chainIdKey);
   }
 
   async getChainAccount(args: {
@@ -190,17 +271,29 @@ export class UnifiedIndexedDBManager {
     chainIdKey: string;
     accountAddress: string;
   }): Promise<ChainAccountRecord | null> {
-    return this.clientDB.getChainAccount(args);
+    return this.seamsWalletRepositories.getChainAccount(args);
+  }
+
+  async resolveProfileAccountContext(
+    accountRef: AccountRef,
+  ): Promise<{ profileId: string; accountRef: AccountRef } | null> {
+    return this.seamsWalletRepositories.resolveProfileAccountContext(accountRef);
+  }
+
+  async getProfileContinuitySnapshot(
+    profileId: string,
+  ): Promise<ProfileContinuitySnapshot | null> {
+    return this.seamsWalletRepositories.getProfileContinuitySnapshot(profileId);
   }
 
   async activateAccountSigner(
     input: AccountSignerLifecycleInput,
   ): Promise<AccountSignerLifecycleResult> {
-    return this.clientDB.activateAccountSigner(input);
+    return this.seamsWalletRepositories.activateAccountSigner(input);
   }
 
   async stageAccountSigner(input: StageAccountSignerInput): Promise<StageAccountSignerResult> {
-    return this.clientDB.stageAccountSigner(input);
+    return this.seamsWalletRepositories.stageAccountSigner(input);
   }
 
   async listAccountSigners(args: {
@@ -208,7 +301,14 @@ export class UnifiedIndexedDBManager {
     accountAddress: string;
     status?: AccountSignerStatus;
   }): Promise<AccountSignerRecord[]> {
-    return this.clientDB.listAccountSigners(args);
+    return this.seamsWalletRepositories.listAccountSigners(args);
+  }
+
+  async listAccountSignersByProfile(args: {
+    profileId: string;
+    status?: AccountSignerStatus;
+  }): Promise<AccountSignerRecord[]> {
+    return this.seamsWalletRepositories.listAccountSignersByProfile(args);
   }
 
   async getAccountSigner(args: {
@@ -216,7 +316,7 @@ export class UnifiedIndexedDBManager {
     accountAddress: string;
     signerId: string;
   }): Promise<AccountSignerRecord | null> {
-    return this.clientDB.getAccountSigner(args);
+    return this.seamsWalletRepositories.getAccountSigner(args);
   }
 
   async setAccountSignerStatus(args: {
@@ -227,11 +327,11 @@ export class UnifiedIndexedDBManager {
     removedAt?: number;
     mutation?: SignerMutationOptions;
   }): Promise<AccountSignerRecord | null> {
-    return this.clientDB.setAccountSignerStatus(args);
+    return this.seamsWalletRepositories.setAccountSignerStatus(args);
   }
 
   async enqueueSignerOperation(input: EnqueueSignerOperationInput): Promise<SignerOpOutboxRecord> {
-    return this.clientDB.enqueueSignerOperation(input);
+    return this.seamsWalletRepositories.enqueueSignerOperation(input);
   }
 
   async listSignerOperations(args?: {
@@ -239,7 +339,7 @@ export class UnifiedIndexedDBManager {
     dueBefore?: number;
     limit?: number;
   }): Promise<SignerOpOutboxRecord[]> {
-    return this.clientDB.listSignerOperations(args);
+    return this.seamsWalletRepositories.listSignerOperations(args);
   }
 
   async setSignerOperationStatus(args: {
@@ -250,12 +350,99 @@ export class UnifiedIndexedDBManager {
     lastError?: string | null;
     txHash?: string | null;
   }): Promise<SignerOpOutboxRecord | null> {
-    return this.clientDB.setSignerOperationStatus(args);
+    return this.seamsWalletRepositories.setSignerOperationStatus(args);
+  }
+
+  async listProfileAuthenticators(profileId: string): Promise<ProfileAuthenticatorRecord[]> {
+    return this.seamsWalletRepositories.listProfileAuthenticators(profileId);
+  }
+
+  async upsertProfileAuthenticator(record: ProfileAuthenticatorRecord): Promise<void> {
+    return this.seamsWalletRepositories.upsertProfileAuthenticator(record);
+  }
+
+  async getProfileAuthenticatorByCredentialId(
+    profileId: string,
+    credentialId: string,
+  ): Promise<ProfileAuthenticatorRecord | null> {
+    return this.seamsWalletRepositories.getProfileAuthenticatorByCredentialId(
+      profileId,
+      credentialId,
+    );
+  }
+
+  async upsertWalletAuthMethodBinding(
+    record: LocalWalletAuthMethodBindingRecord,
+  ): Promise<LocalWalletAuthMethodBindingRecord> {
+    return this.seamsWalletRepositories.upsertWalletAuthMethodBinding(record);
+  }
+
+  async listWalletAuthMethodBindingsForWalletSubject(
+    walletSubjectId: string,
+  ): Promise<LocalWalletAuthMethodBindingRecord[]> {
+    return this.seamsWalletRepositories.listWalletAuthMethodBindingsForWalletSubject(
+      walletSubjectId,
+    );
+  }
+
+  async persistWalletRegistrationFinalize(
+    input: StoreWalletRegistrationFinalizeBatchInput,
+  ): Promise<StoreWalletRegistrationFinalizeBatchResult> {
+    return this.seamsWalletRepositories.persistWalletRegistrationFinalize(input);
+  }
+
+  async persistWalletSignerFinalize(
+    input: StoreWalletSignerFinalizeBatchInput,
+  ): Promise<StoreWalletRegistrationFinalizeBatchResult> {
+    return this.seamsWalletRepositories.persistWalletSignerFinalize(input);
+  }
+
+  async clearProfileAuthenticators(profileId: string): Promise<void> {
+    return this.seamsWalletRepositories.clearProfileAuthenticators(profileId);
+  }
+
+  async selectProfileAuthenticatorsForPrompt(args: {
+    profileId: string;
+    authenticators: ProfileAuthenticatorRecord[];
+    selectedCredentialRawId?: string;
+    accountLabel?: string;
+  }): Promise<{
+    authenticatorsForPrompt: ProfileAuthenticatorRecord[];
+    wrongPasskeyError?: string;
+  }> {
+    return this.seamsWalletRepositories.selectProfileAuthenticatorsForPrompt(args);
+  }
+
+  async updatePreferences(args: {
+    profileId: string;
+    preferences: Partial<UserPreferences>;
+    eventAccountId?: AccountId | null;
+  }): Promise<void> {
+    const updatedPreferences = await this.seamsWalletRepositories.updatePreferences(args);
+    const accountId = toTrimmedString(args.eventAccountId || '');
+    if (updatedPreferences && accountId) {
+      this.emitEvent({
+        type: 'preferences-updated',
+        accountId: accountId as AccountId,
+        data: { preferences: updatedPreferences },
+      });
+    }
+  }
+
+  async deleteProfileData(
+    profileId: string,
+    args?: { eventAccountId?: AccountId | null },
+  ): Promise<void> {
+    await this.seamsWalletRepositories.deleteProfileData(profileId, this.lastUserScope);
+    const accountId = toTrimmedString(args?.eventAccountId || '');
+    if (accountId) {
+      this.emitEvent({ type: 'user-deleted', accountId: accountId as AccountId });
+    }
   }
 
   // === key material convenience ===
   async storeKeyMaterial(input: KeyMaterialRecord): Promise<void> {
-    return this.accountKeyMaterialDB.storeKeyMaterial(input);
+    return this.seamsWalletRepositories.storeKeyMaterial(input);
   }
 
   async getKeyMaterial(
@@ -264,14 +451,14 @@ export class UnifiedIndexedDBManager {
     chainIdKey: string,
     keyKind: KeyMaterialKind,
   ): Promise<KeyMaterialRecord | null> {
-    return this.accountKeyMaterialDB.getKeyMaterial(profileId, signerSlot, chainIdKey, keyKind);
+    return this.seamsWalletRepositories.getKeyMaterial(profileId, signerSlot, chainIdKey, keyKind);
   }
 
   async listKeyMaterialByProfile(
     profileId: string,
     chainIdKey?: string,
   ): Promise<KeyMaterialRecord[]> {
-    return this.accountKeyMaterialDB.listKeyMaterialByProfile(profileId, chainIdKey);
+    return this.seamsWalletRepositories.listKeyMaterialByProfile(profileId, chainIdKey);
   }
 
   async reconcileLocalSignerState(args?: {
@@ -288,8 +475,8 @@ export class UnifiedIndexedDBManager {
         : DEFAULT_STALE_PENDING_SIGNER_MS;
     const profileId = toTrimmedString(args?.profileId || '');
     const profiles = profileId
-      ? (await this.clientDB.getProfile(profileId).then((profile) => (profile ? [profile] : [])))
-      : await this.clientDB.listProfiles({ limit: args?.limitProfiles });
+      ? (await this.getProfile(profileId).then((profile) => (profile ? [profile] : [])))
+      : await this.listProfiles({ limit: args?.limitProfiles });
     const summary: LocalSignerReconciliationSummary = {
       scannedProfiles: 0,
       scannedSigners: 0,
@@ -304,10 +491,10 @@ export class UnifiedIndexedDBManager {
 
     for (const profile of profiles) {
       summary.scannedProfiles += 1;
-      const signers = await this.clientDB.listAccountSignersByProfile({
+      const signers = await this.listAccountSignersByProfile({
         profileId: profile.profileId,
       });
-      const keyMaterials = await this.accountKeyMaterialDB.listKeyMaterialByProfile(
+      const keyMaterials = await this.seamsWalletRepositories.listKeyMaterialByProfile(
         profile.profileId,
       );
       summary.scannedSigners += signers.length;
@@ -448,7 +635,7 @@ export class UnifiedIndexedDBManager {
       deadLettered: 0,
     };
 
-    const ops = await this.clientDB.listSignerOperations({
+    const ops = await this.listSignerOperations({
       statuses: ['queued', 'submitted', 'failed'],
       dueBefore: now,
       limit,
@@ -457,7 +644,7 @@ export class UnifiedIndexedDBManager {
     for (const op of ops) {
       summary.scanned += 1;
       const payload = (op.payload || {}) as Record<string, unknown>;
-      const signer = await this.clientDB.getAccountSigner({
+      const signer = await this.getAccountSigner({
         chainIdKey: op.chainIdKey,
         accountAddress: op.accountAddress,
         signerId: op.signerId,
@@ -469,7 +656,7 @@ export class UnifiedIndexedDBManager {
 
       const markFailed = async (reason: string): Promise<void> => {
         const nextAttemptCount = (op.attemptCount || 0) + 1;
-        await this.clientDB.setSignerOperationStatus({
+        await this.setSignerOperationStatus({
           opId: op.opId,
           status: 'failed',
           attemptDelta: 1,
@@ -480,7 +667,7 @@ export class UnifiedIndexedDBManager {
       };
 
       const markDeadLetter = async (reason: string): Promise<void> => {
-        await this.clientDB.setSignerOperationStatus({
+        await this.setSignerOperationStatus({
           opId: op.opId,
           status: 'dead-letter',
           lastError: reason,
@@ -490,7 +677,7 @@ export class UnifiedIndexedDBManager {
       };
 
       const markConfirmed = async (): Promise<void> => {
-        await this.clientDB.setSignerOperationStatus({
+        await this.setSignerOperationStatus({
           opId: op.opId,
           status: 'confirmed',
           lastError: null,
@@ -513,7 +700,7 @@ export class UnifiedIndexedDBManager {
             await markDeadLetter('Missing profileId/signerSlot metadata for add-signer operation');
             continue;
           }
-          const chainAccount = await this.clientDB.getChainAccount({
+          const chainAccount = await this.getChainAccount({
             profileId: signer.profileId,
             chainIdKey: op.chainIdKey,
             accountAddress: op.accountAddress,
@@ -522,7 +709,7 @@ export class UnifiedIndexedDBManager {
             await markDeadLetter('Missing chain account row for add-signer operation');
             continue;
           }
-          const keys = await this.accountKeyMaterialDB.listKeyMaterialByProfileAndSignerSlot(
+          const keys = await this.seamsWalletRepositories.listKeyMaterialByProfileAndSignerSlot(
             profileIdRaw,
             signerSlot,
             op.chainIdKey,
@@ -538,7 +725,7 @@ export class UnifiedIndexedDBManager {
         if (op.opType === 'revoke-signer') {
           if (signer) {
             if (signer.status !== 'revoked') {
-              await this.clientDB.setAccountSignerStatus({
+              await this.setAccountSignerStatus({
                 chainIdKey: op.chainIdKey,
                 accountAddress: op.accountAddress,
                 signerId: op.signerId,
@@ -548,13 +735,13 @@ export class UnifiedIndexedDBManager {
               });
             }
             if (profileIdRaw && signerSlot != null) {
-              const keys = await this.accountKeyMaterialDB.listKeyMaterialByProfileAndSignerSlot(
+              const keys = await this.seamsWalletRepositories.listKeyMaterialByProfileAndSignerSlot(
                 profileIdRaw,
                 signerSlot,
                 op.chainIdKey,
               );
               for (const key of keys) {
-                await this.accountKeyMaterialDB.deleteKeyMaterial(
+                await this.seamsWalletRepositories.deleteKeyMaterial(
                   key.profileId,
                   key.signerSlot,
                   key.chainIdKey,

@@ -1,27 +1,50 @@
 import { toTrimmedString } from '@shared/utils/validation';
-import type { PasskeyClientDBManager } from './passkeyClientDB/manager';
-import type { AccountKeyMaterialDBManager } from './accountKeyMaterialDB/manager';
 import type { AccountRef } from './passkeyClientDB.types';
-import type { KeyMaterialAlgorithm, KeyMaterialKind, KeyMaterialRecord } from './accountKeyMaterialDB.types';
-import { resolveProfileAccountContextFromCandidates } from './profileAccountProjection';
+import type { KeyMaterialAlgorithm, KeyMaterialKind, KeyMaterialRecord } from './keyMaterial.types';
+import {
+  resolveProfileAccountContextFromCandidates,
+  type ProfileAccountContextPort,
+} from './profileAccountProjection';
+
+export type AccountKeyMaterialStorePort = {
+  getKeyMaterial: (
+    profileId: string,
+    signerSlot: number,
+    chainIdKey: string,
+    keyKind: KeyMaterialKind,
+  ) => Promise<KeyMaterialRecord | null>;
+  storeKeyMaterial: (input: KeyMaterialRecord) => Promise<void>;
+};
 
 export type AccountKeyMaterialDeps = {
-  clientDB: Pick<PasskeyClientDBManager, 'resolveProfileAccountContext'>;
-  accountKeyMaterialDB: Pick<AccountKeyMaterialDBManager, 'getKeyMaterial' | 'storeKeyMaterial'>;
+  clientDB: ProfileAccountContextPort;
+  keyMaterialStore: AccountKeyMaterialStorePort;
 };
 
-export type ResolveAccountKeyMaterialTargetInput = {
+export type MappedAccountKeyMaterialTargetInput = {
   accountRefs: AccountRef[];
-  explicitProfileId?: string;
-  explicitChainIdKey?: string;
+  explicitProfileId?: never;
+  explicitChainIdKey?: never;
+  explicitAccountAddress?: never;
 };
+
+export type ExplicitAccountKeyMaterialTargetInput = {
+  accountRefs: AccountRef[];
+  explicitProfileId: string;
+  explicitChainIdKey: string;
+  explicitAccountAddress: string;
+};
+
+export type ResolveAccountKeyMaterialTargetInput =
+  | MappedAccountKeyMaterialTargetInput
+  | ExplicitAccountKeyMaterialTargetInput;
 
 export type StoreAccountKeyMaterialInput = ResolveAccountKeyMaterialTargetInput & {
   signerSlot: number;
   keyKind: KeyMaterialKind;
   algorithm: KeyMaterialAlgorithm;
   publicKey: string;
-  signerId?: string;
+  signerId: string;
   wrapKeySalt?: string;
   payload?: Record<string, unknown>;
   timestamp?: number;
@@ -31,6 +54,7 @@ export type StoreAccountKeyMaterialInput = ResolveAccountKeyMaterialTargetInput 
 export type ResolvedAccountKeyMaterialTarget = {
   profileId: string;
   chainIdKey: string;
+  accountAddress: string;
 };
 
 export async function resolveAccountKeyMaterialTarget(
@@ -39,15 +63,14 @@ export async function resolveAccountKeyMaterialTarget(
 ): Promise<ResolvedAccountKeyMaterialTarget | null> {
   const explicitProfileId = toTrimmedString(input.explicitProfileId || '');
   const explicitChainIdKey = toTrimmedString(input.explicitChainIdKey || '').toLowerCase();
-  const hasExplicitProfileId = explicitProfileId.length > 0;
-  const hasExplicitChainIdKey = explicitChainIdKey.length > 0;
-  if (hasExplicitProfileId !== hasExplicitChainIdKey) {
-    throw new Error(
-      'IndexedDBManager: profileId and chainIdKey must be provided together for explicit key target writes',
-    );
-  }
+  const explicitAccountAddress = toTrimmedString(input.explicitAccountAddress || '').toLowerCase();
 
-  if (hasExplicitProfileId && hasExplicitChainIdKey) {
+  if (explicitProfileId || explicitChainIdKey || explicitAccountAddress) {
+    if (!explicitProfileId || !explicitChainIdKey || !explicitAccountAddress) {
+      throw new Error(
+        'IndexedDBManager: profileId, chainIdKey, and accountAddress are required for explicit key target writes',
+      );
+    }
     const matchingExplicitRef = input.accountRefs.find(
       (accountRef) =>
         toTrimmedString(accountRef.chainIdKey || '').toLowerCase() === explicitChainIdKey,
@@ -65,6 +88,7 @@ export async function resolveAccountKeyMaterialTarget(
     return {
       profileId: explicitProfileId,
       chainIdKey: explicitChainIdKey,
+      accountAddress: explicitAccountAddress,
     };
   }
 
@@ -73,6 +97,7 @@ export async function resolveAccountKeyMaterialTarget(
   return {
     profileId: resolved.profileId,
     chainIdKey: resolved.accountRef.chainIdKey,
+    accountAddress: resolved.accountRef.accountAddress,
   };
 }
 
@@ -86,7 +111,7 @@ export async function getAccountKeyMaterial(args: {
     accountRefs: args.accountRefs,
   });
   if (!target?.profileId || !target.chainIdKey) return null;
-  return args.deps.accountKeyMaterialDB.getKeyMaterial(
+  return args.deps.keyMaterialStore.getKeyMaterial(
     target.profileId,
     args.signerSlot,
     target.chainIdKey,
@@ -113,9 +138,13 @@ export async function storeAccountKeyMaterial(
   if (!publicKey) {
     throw new Error('IndexedDBManager: Missing publicKey for key write');
   }
+  const signerId = toTrimmedString(input.signerId || '');
+  if (!signerId) {
+    throw new Error('IndexedDBManager: Missing signerId for key write');
+  }
 
   const target = await resolveAccountKeyMaterialTarget(deps.clientDB, input);
-  if (!target?.profileId || !target.chainIdKey) {
+  if (!target?.profileId || !target.chainIdKey || !target.accountAddress) {
     throw new Error(
       'IndexedDBManager: Missing profile/account mapping for key write. Persist profile/account first or pass explicit profileId + chainIdKey.',
     );
@@ -128,17 +157,24 @@ export async function storeAccountKeyMaterial(
       ? input.schemaVersion
       : 1;
 
-  await deps.accountKeyMaterialDB.storeKeyMaterial({
+  const record: KeyMaterialRecord = {
     profileId: target.profileId,
     signerSlot: input.signerSlot,
     chainIdKey: target.chainIdKey,
+    accountAddress: target.accountAddress,
     keyKind,
     algorithm,
     publicKey,
-    ...(input.signerId ? { signerId: String(input.signerId).trim() } : {}),
-    ...(input.wrapKeySalt ? { wrapKeySalt: String(input.wrapKeySalt).trim() } : {}),
-    ...(input.payload ? { payload: input.payload } : {}),
+    signerId,
     timestamp: typeof input.timestamp === 'number' ? input.timestamp : Date.now(),
     schemaVersion,
-  });
+  };
+  const wrapKeySalt = toTrimmedString(input.wrapKeySalt || '');
+  if (wrapKeySalt) {
+    record.wrapKeySalt = wrapKeySalt;
+  }
+  if (input.payload) {
+    record.payload = input.payload;
+  }
+  await deps.keyMaterialStore.storeKeyMaterial(record);
 }
