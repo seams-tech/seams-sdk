@@ -392,14 +392,14 @@ unions. Authority verification should happen before HSS state is prepared.
 
 ### Phase 4: Email OTP Registration Authority
 
-- [ ] Define Email OTP registration challenge/proof payloads.
-- [ ] Bind Email OTP challenge/proof to registration intent digest, rpId,
+- [x] Define Email OTP registration challenge/proof payloads.
+- [x] Bind Email OTP challenge/proof to registration intent digest, rpId,
       wallet subject, signer selection, and runtime policy scope.
-- [ ] Add Email OTP authority verifier on the server.
-- [ ] Add Email OTP authority adapter on the client.
-- [ ] Derive Email OTP client secret source for Ed25519 HSS registration.
-- [ ] Derive Email OTP client secret source for ECDSA role-local keygen.
-- [ ] Keep session reconstruction functions separate from fresh registration.
+- [x] Add Email OTP authority verifier on the server.
+- [x] Add Email OTP authority adapter on the client.
+- [x] Derive Email OTP client secret source for Ed25519 HSS registration.
+- [x] Derive Email OTP client secret source for ECDSA role-local keygen.
+- [x] Keep session reconstruction functions separate from fresh registration.
 
 ### Phase 5: Email OTP Signer Modes
 
