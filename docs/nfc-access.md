@@ -63,7 +63,7 @@ The smallest useful native product is:
   - mobile Wallet install link or QR code
   - physical NFC card personalization job
   - Android HCE/dev credential for early testing
-- credential lifecycle is linked to `walletSubjectId`
+- credential lifecycle is linked to `walletId`
 - recovery can revoke the old credential and issue a replacement
 
 The NFC tap remains an access-control exchange:
@@ -120,7 +120,7 @@ subject:
 
 ```text
 access_subject_id =
-  HASH("seams:nfc-access-subject:v1" || environment_id || wallet_subject_id)
+  HASH("seams:nfc-access-subject:v1" || environment_id || wallet_id)
 ```
 
 This subject id is safe to store in credential authority records and can be used
@@ -153,7 +153,7 @@ wallet-linked subject.
 
 `Wallet Account`
 
-- existing wallet subject, passkey bindings, recovery factors, signing roots,
+- existing wallet, passkey bindings, recovery factors, signing roots,
   approvals, and audit identity
 
 `Access Credential Service`
@@ -201,7 +201,7 @@ The native authority should expose one narrow internal interface:
 ```ts
 type NativeAccessCredentialIssueInput = {
   kind: 'native_access_credential_issue';
-  walletSubjectId: WalletSubjectId;
+  walletId: WalletId;
   environmentId: EnvironmentId;
   credentialProfileId: AccessCredentialProfileId;
   rail: AccessCredentialRail;
@@ -255,12 +255,12 @@ store or HSM-backed key provider.
 
 ### Credential Binding
 
-Each access credential is bound to one wallet subject:
+Each access credential is bound to one wallet:
 
 ```ts
 type NativeAccessCredentialBinding = {
   id: NativeAccessCredentialId;
-  walletSubjectId: WalletSubjectId;
+  walletId: WalletId;
   environmentId: EnvironmentId;
   credentialProfileId: AccessCredentialProfileId;
   credentialPublicId: AccessCredentialPublicId;
@@ -349,7 +349,7 @@ Use operation-specific intents for policy evaluation and audit:
 type AccessCredentialOperation =
   | {
       kind: 'issue';
-      walletSubjectId: WalletSubjectId;
+      walletId: WalletId;
       credentialProfileId: AccessCredentialProfileId;
       rail: AccessCredentialRail;
       accessScope: AccessCredentialScope;
@@ -357,7 +357,7 @@ type AccessCredentialOperation =
     }
   | {
       kind: 'recover';
-      walletSubjectId: WalletSubjectId;
+      walletId: WalletId;
       oldCredentialId: NativeAccessCredentialId;
       replacementProfileId: AccessCredentialProfileId;
       replacementRail: AccessCredentialRail;
@@ -366,25 +366,25 @@ type AccessCredentialOperation =
     }
   | {
       kind: 'extend';
-      walletSubjectId: WalletSubjectId;
+      walletId: WalletId;
       credentialId: NativeAccessCredentialId;
       requestedValidity: AccessCredentialValidityWindow;
     }
   | {
       kind: 'suspend';
-      walletSubjectId: WalletSubjectId;
+      walletId: WalletId;
       credentialId: NativeAccessCredentialId;
       reason: AccessCredentialLifecycleReason;
     }
   | {
       kind: 'resume';
-      walletSubjectId: WalletSubjectId;
+      walletId: WalletId;
       credentialId: NativeAccessCredentialId;
       reason: AccessCredentialLifecycleReason;
     }
   | {
       kind: 'revoke';
-      walletSubjectId: WalletSubjectId;
+      walletId: WalletId;
       credentialId: NativeAccessCredentialId;
       reason: AccessCredentialLifecycleReason;
     };
@@ -433,14 +433,14 @@ Recovery policy can require:
 - admin approval
 - manager quorum for high-security scopes
 - recent wallet session age
-- no unresolved risk flags on the wallet subject
+- no unresolved risk flags on the wallet
 
 The recovery command should atomically bind the old and replacement records:
 
 ```ts
 type NativeAccessCredentialRecoveryRecord = {
   id: NativeAccessCredentialRecoveryId;
-  walletSubjectId: WalletSubjectId;
+  walletId: WalletId;
   oldCredentialId: NativeAccessCredentialId;
   replacementCredentialId: NativeAccessCredentialId;
   policyId: ConsolePolicyId;
@@ -511,7 +511,7 @@ authoring can expose friendly presets:
 - hotel stay access until checkout
 - warehouse access for a specific shift
 - vault access requiring quorum approval
-- emergency revoke all credentials for a wallet subject
+- emergency revoke all credentials for a wallet
 
 ## Relationship To Gas Sponsorship
 
@@ -571,7 +571,7 @@ recovery, policy, and reader-compatible provisioning.
 ## Security Requirements
 
 - Require cryptographic wallet authentication for provisioning and recovery.
-- Bind every credential to one `walletSubjectId`.
+- Bind every credential to one `walletId`.
 - Bind every credential to one environment, rail, and credential profile.
 - Keep credential authority secrets in server-controlled secret storage or HSM
   infrastructure.
@@ -657,7 +657,7 @@ recovery, policy, and reader-compatible provisioning.
 - [ ] Support quorum approval for vaults, warehouses, labs, and admin-only areas.
 - [ ] Fail closed when revocation or reader-denylist publication cannot be
   confirmed before replacement issuance for sensitive scopes.
-- [ ] Add emergency revoke for all credentials linked to a wallet subject.
+- [ ] Add emergency revoke for all credentials linked to a wallet.
 - [ ] Add audit export for credential lifecycle events.
 
 ### Phase 7: Billing And Reporting
@@ -692,7 +692,7 @@ recovery, policy, and reader-compatible provisioning.
 
 - A wallet user can provision a native access credential from the wallet portal
   after passkey authentication.
-- The credential record is linked to `walletSubjectId`, environment, rail,
+- The credential record is linked to `walletId`, environment, rail,
   credential profile, public credential id, policy, and lifecycle state.
 - The first rail can create a real provisioning artifact or personalization job.
 - Lost-device or lost-card recovery can revoke the old credential and issue a

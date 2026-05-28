@@ -22,7 +22,7 @@ import {
 import {
   thresholdEcdsaChainTargetFromChainFamily,
   thresholdEcdsaChainTargetsEqual,
-  toWalletSubjectId,
+  toWalletId,
   walletSessionRefFromSession,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
@@ -32,7 +32,7 @@ import {
 import type { EmailOtpEd25519SessionReconstructionPlan } from '@/core/signingEngine/session/emailOtp/provisioning';
 import { computeEcdsaHssRoleLocalThresholdKeyId } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 
-const TEST_SUBJECT_ID = toWalletSubjectId('alice.testnet');
+const TEST_SUBJECT_ID = toWalletId('alice.testnet');
 const TEMPO_CHAIN_TARGET = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'tempo',
   chainId: 42431,
@@ -236,6 +236,7 @@ function createCoordinator(overrides?: {
   getThresholdEcdsaSessionRecordByThresholdSessionId?: (thresholdSessionId: string) => any;
   acquireSigningSessionRestoreLease?: (args: any) => Promise<any>;
   releaseSigningSessionRestoreLease?: (lease: any) => Promise<void>;
+  reconstructEd25519Session?: (args: any) => Promise<any>;
 }) {
   const workerCalls: any[] = [];
   let refreshCount = 0;
@@ -376,7 +377,7 @@ function createCoordinator(overrides?: {
     },
   };
   const ecdsaCommitCalls: any[] = [];
-  const ed25519ProvisionCalls: any[] = [];
+  const ed25519ReconstructionCalls: any[] = [];
   const ed25519MetadataWrites: any[] = [];
   const ed25519WarmSessionWrites: any[] = [];
   const hydratedSessions: any[] = [];
@@ -547,43 +548,15 @@ function createCoordinator(overrides?: {
     deleteDurableSealedSessionRecord: async () => {},
     updateExactSealedSessionPolicy: async () => {},
   });
-  const runtime = (coordinator as any).runtime;
-  const runtimeProvisionEd25519Capability = runtime?.provisionEd25519Capability?.bind(runtime);
-  const runtimeReconstructEd25519Session = runtime?.reconstructEd25519Session?.bind(runtime);
-  let provisionEd25519CapabilityImpl = coordinator.provisionEd25519Capability.bind(coordinator);
-  let reconstructEd25519SessionImpl = coordinator.reconstructEd25519Session.bind(coordinator);
-  Object.defineProperty(coordinator, 'provisionEd25519Capability', {
-    configurable: true,
-    get: () => provisionEd25519CapabilityImpl,
-    set: (value) => {
-      provisionEd25519CapabilityImpl = value;
-      if (runtime) {
-        runtime.provisionEd25519Capability = value;
-      }
-    },
-  });
-  Object.defineProperty(coordinator, 'reconstructEd25519Session', {
-    configurable: true,
-    get: () => reconstructEd25519SessionImpl,
-    set: (value) => {
-      reconstructEd25519SessionImpl = value;
-      if (runtime) {
-        runtime.reconstructEd25519Session = value;
-      }
-    },
-  });
-  if (runtime && runtimeProvisionEd25519Capability) {
-    runtime.provisionEd25519Capability = runtimeProvisionEd25519Capability;
-  }
-  if (runtime && runtimeReconstructEd25519Session) {
-    runtime.reconstructEd25519Session = runtimeReconstructEd25519Session;
+  if (overrides?.reconstructEd25519Session) {
+    (coordinator as any).runtime.reconstructEd25519Session = overrides.reconstructEd25519Session;
   }
 
   return {
     coordinator,
     workerCalls,
     ecdsaCommitCalls,
-    ed25519ProvisionCalls,
+    ed25519ReconstructionCalls,
     ed25519MetadataWrites,
     ed25519WarmSessionWrites,
     hydratedSessions,
@@ -837,6 +810,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
   });
 
   test('logs in Ed25519 Email OTP capability with normalized auth context', async () => {
+    const ed25519ReconstructionCalls: any[] = [];
     const ecdsaThresholdSessionAuthToken = thresholdEcdsaSessionJwt({
       walletId: 'alice.testnet',
       keyHandle: 'key-handle-ecdsa',
@@ -844,7 +818,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       walletSigningSessionId: 'wallet-session-ecdsa',
       chainTarget: TEMPO_CHAIN_TARGET,
     });
-    const { coordinator, ed25519ProvisionCalls, workerCalls } = createCoordinator({
+    const { coordinator, workerCalls } = createCoordinator({
       listThresholdEcdsaSessionRecordsForWallet: (walletId) => [
         {
           walletId,
@@ -868,20 +842,20 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
           updatedAtMs: Date.now(),
         },
       ],
+      reconstructEd25519Session: async (args) => {
+        ed25519ReconstructionCalls.push(args);
+        return {
+          relayerKeyId: 'relayer-key',
+          keyVersion: 'v1',
+          sessionId: 'ed-session',
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 1,
+          participantIds: [1, 2],
+          jwt: 'threshold-jwt',
+        };
+      },
     });
     const thresholdSessionAuthToken = 'threshold-ed25519-jwt';
-    coordinator.reconstructEd25519Session = async (args) => {
-      ed25519ProvisionCalls.push(args);
-      return {
-        relayerKeyId: 'relayer-key',
-        keyVersion: 'v1',
-        sessionId: 'ed-session',
-        expiresAtMs: Date.now() + 60_000,
-        remainingUses: 1,
-        participantIds: [1, 2],
-        jwt: 'threshold-jwt',
-      };
-    };
 
     const result = await coordinator.loginWithEd25519CapabilityForSigning({
       nearAccountId: 'alice.testnet',
@@ -912,8 +886,8 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
     });
 
     expect(result.sessionId).toBe('ed-session');
-    expect(ed25519ProvisionCalls).toHaveLength(1);
-    expect(ed25519ProvisionCalls[0]).toMatchObject({
+    expect(ed25519ReconstructionCalls).toHaveLength(1);
+    expect(ed25519ReconstructionCalls[0]).toMatchObject({
       nearAccountId: 'alice.testnet',
       relayUrl: 'https://relay.example',
       rpId: 'localhost',
@@ -949,9 +923,8 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
     });
   });
 
-  test('recovers Ed25519 export material without provisioning or hydrating a signing session', async () => {
-    const { coordinator, workerCalls, ed25519ProvisionCalls, hydratedSessions, getRefreshCount } =
-      createCoordinator();
+  test('recovers Ed25519 export material without hydrating a signing session', async () => {
+    const { coordinator, workerCalls, hydratedSessions, getRefreshCount } = createCoordinator();
     const thresholdSessionAuthToken = `${jsonB64u({ alg: 'none', typ: 'JWT' })}.${jsonB64u({
       kind: 'threshold_ed25519_session_v1',
       sessionId: 'ed25519-restored-session',
@@ -959,11 +932,6 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       walletId: 'alice.testnet',
       exp: Math.floor(Date.now() / 1000) + 3600,
     })}.sig`;
-    coordinator.provisionEd25519Capability = async (args) => {
-      ed25519ProvisionCalls.push(args);
-      throw new Error('Ed25519 export must not provision a signing session');
-    };
-
     const result = await coordinator.recoverEd25519ExportPrfFirst({
       nearAccountId: 'alice.testnet',
       challengeId: 'challenge-1',
@@ -986,7 +954,6 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
     });
 
     expect(result).toEqual({ prfFirstB64u: 'prf-first' });
-    expect(ed25519ProvisionCalls).toEqual([]);
     expect(getRefreshCount()).toBe(0);
     expect(workerCalls[0].request).toMatchObject({
       type: 'recoverEmailOtpEd25519ExportPrfFirst',
@@ -1011,21 +978,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
   });
 
   test('logs in ECDSA Email OTP capability with normalized worker payload and persistence callback', async () => {
-    const { coordinator, workerCalls, ecdsaCommitCalls, ed25519ProvisionCalls } =
-      createCoordinator();
-    coordinator.provisionEd25519Capability = async (args) => {
-      ed25519ProvisionCalls.push(args);
-      return {
-        publicKey: 'ed25519-public',
-        relayerKeyId: 'relayer-key',
-        keyVersion: 'v1',
-        sessionId: 'ed-session',
-        expiresAtMs: Date.now() + 60_000,
-        remainingUses: 1,
-        participantIds: [1, 2],
-        jwt: 'threshold-jwt',
-      };
-    };
+    const { coordinator, workerCalls, ecdsaCommitCalls } = createCoordinator();
 
     const runtimePolicyScope = {
       orgId: 'org',
@@ -1108,7 +1061,6 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       kind: 'deferred',
       reason: 'not_needed_for_ecdsa',
     });
-    expect(ed25519ProvisionCalls).toEqual([]);
   });
 
   test('normal ECDSA Email OTP login derives app-session route auth from appSessionJwt', async () => {
@@ -1127,17 +1079,6 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       envId: runtimePolicyScope.envId,
       signingRootVersion: runtimePolicyScope.signingRootVersion,
     });
-    coordinator.provisionEd25519Capability = async () => ({
-      publicKey: 'ed25519-public',
-      relayerKeyId: 'relayer-key',
-      keyVersion: 'v1',
-      sessionId: 'ed-session',
-      expiresAtMs: Date.now() + 60_000,
-      remainingUses: 1,
-      participantIds: [1, 2],
-      jwt: 'threshold-jwt',
-    });
-
     await coordinator.loginWithEcdsaCapabilityInternal({
       walletSession: TEST_WALLET_SESSION,
       chainTarget: TEMPO_CHAIN_TARGET,
@@ -1203,16 +1144,6 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       signingRootVersion: 'v1',
     };
     const jwt = appSessionJwtWithRuntimePolicyScope(runtimePolicyScope);
-    coordinator.provisionEd25519Capability = async () => ({
-      publicKey: 'ed25519-public',
-      relayerKeyId: 'relayer-key',
-      keyVersion: 'v1',
-      sessionId: 'ed-session',
-      expiresAtMs: Date.now() + 60_000,
-      remainingUses: 1,
-      participantIds: [1, 2],
-      jwt: 'threshold-jwt',
-    });
 
     await coordinator.enrollAndLoginWithEcdsaCapabilityInternal({
       walletSession: TEST_WALLET_SESSION,
@@ -1249,8 +1180,8 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
     });
   });
 
-  test('Email OTP ECDSA registration defers Ed25519 companion ceremony placeholder', async () => {
-    const { coordinator, ed25519ProvisionCalls } = createCoordinator();
+  test('Email OTP ECDSA registration skips Ed25519 reconstruction', async () => {
+    const { coordinator } = createCoordinator();
     const runtimePolicyScope = {
       orgId: 'org',
       projectId: 'proj',
@@ -1258,13 +1189,6 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       signingRootVersion: 'v1',
     };
     const jwt = appSessionJwtWithRuntimePolicyScope(runtimePolicyScope);
-    coordinator.provisionEd25519Capability = async (args) => {
-      ed25519ProvisionCalls.push(args);
-      throw new Error(
-        'Email OTP Ed25519 registration provisioning must use a wallet-subject ceremony before it can run',
-      );
-    };
-
     const result = await coordinator.enrollAndLoginWithEcdsaCapabilityInternal({
       walletSession: TEST_WALLET_SESSION,
       chainTarget: TEMPO_CHAIN_TARGET,
@@ -1277,11 +1201,6 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
     });
 
     expect(result.bootstrap.thresholdEcdsaKeyRef.keyHandle).toBe('key-handle-ecdsa');
-    expect(ed25519ProvisionCalls).toHaveLength(1);
-    expect(ed25519ProvisionCalls[0]).toMatchObject({
-      kind: 'registration_ed25519_companion_provisioning',
-      registrationAttemptId: 'registration-attempt-1',
-    });
   });
 
   test('persists sealed Email OTP signing-session refresh only for session-retained ECDSA login', async () => {
@@ -1366,16 +1285,6 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
         }
         return { ok: true };
       },
-    });
-    coordinator.provisionEd25519Capability = async () => ({
-      publicKey: 'ed25519-public',
-      relayerKeyId: 'relayer-key',
-      keyVersion: 'v1',
-      sessionId: 'ed-session',
-      expiresAtMs: Date.now() + 60_000,
-      remainingUses: 1,
-      participantIds: [1, 2],
-      jwt: 'threshold-jwt',
     });
     const runtimePolicyScope = {
       orgId: 'org',
@@ -1498,16 +1407,6 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
         },
       },
     });
-    coordinator.provisionEd25519Capability = async () => ({
-      publicKey: 'ed25519-public',
-      relayerKeyId: 'relayer-key',
-      keyVersion: 'v1',
-      sessionId: 'ed-session',
-      expiresAtMs: Date.now() + 60_000,
-      remainingUses: 1,
-      participantIds: [1, 2],
-      jwt: 'threshold-jwt',
-    });
     const runtimePolicyScope = {
       orgId: 'org',
       projectId: 'proj',
@@ -1553,17 +1452,6 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
           sessionSeal: { keyVersion: 'seal-v1', shamirPrimeB64u: 'prime-b64u' },
         },
       },
-    });
-    coordinator.scheduleEd25519CapabilityProvisioning = () => undefined;
-    coordinator.provisionEd25519Capability = async () => ({
-      publicKey: 'ed25519-public',
-      relayerKeyId: 'relayer-key',
-      keyVersion: 'v1',
-      sessionId: 'ed-session',
-      expiresAtMs: Date.now() + 60_000,
-      remainingUses: 1,
-      participantIds: [1, 2],
-      jwt: 'threshold-jwt',
     });
     const thresholdSessionAuthToken = 'exhausted-threshold-session-jwt';
     const authorizingWalletSigningSessionId = 'exhausted-wallet-signing-session';
@@ -1652,7 +1540,6 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       workerCalls,
       sealedRecordWrites,
       ecdsaCommitCalls,
-      ed25519ProvisionCalls,
     } = createCoordinator({
       configs: {
         signing: {
@@ -1662,7 +1549,6 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
         },
       },
     });
-    coordinator.scheduleEd25519CapabilityProvisioning = () => undefined;
     const thresholdSessionAuthToken = 'transaction-threshold-session-jwt';
     const tempoChainTarget = thresholdEcdsaChainTargetFromChainFamily({
       chain: 'tempo',
@@ -1764,7 +1650,6 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       workerCalls.some((call) => call.request?.type === 'sealEmailOtpWarmSessionMaterial'),
     ).toBe(false);
     expect(ecdsaCommitCalls).toEqual([]);
-    expect(ed25519ProvisionCalls).toEqual([]);
     expect(sealedRecordWrites).toHaveLength(0);
   });
 
@@ -2607,7 +2492,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
     const ecdsaRecord = {
       nearAccountId: 'alice.testnet' as any,
       chain: 'tempo',
-      subjectId: toWalletSubjectId('alice.testnet'),
+      subjectId: toWalletId('alice.testnet'),
       chainTarget: tempoChainTarget,
       relayerUrl: 'https://relay.example',
       keyHandle: 'key-handle-ecdsa',
@@ -2718,7 +2603,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
         authMethod: 'email_otp',
       },
       source: 'email_otp',
-      subjectId: toWalletSubjectId('alice.testnet'),
+      subjectId: toWalletId('alice.testnet'),
       chainTarget: thresholdEcdsaChainTargetFromChainFamily({
         chain: 'tempo',
         chainId: 42431,
@@ -2824,11 +2709,25 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
   });
 
   test('login reconstructs Ed25519 when route auth supplies the deferred runtime scope', async () => {
+    const reconstructionCalls: any[] = [];
     const { coordinator } = createCoordinator({
       configs: {
         signing: {
           emailOtp: { authPolicy: 'session' },
         },
+      },
+      reconstructEd25519Session: async (args) => {
+        reconstructionCalls.push(args);
+        return {
+          relayerKeyId: args.ed25519Key.relayerKeyId,
+          keyVersion: args.ed25519Key.keyVersion,
+          sessionId: 'ed25519-reconstructed-session',
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 3,
+          participantIds: args.ed25519Key.participantIds,
+          jwt: 'ed25519-reconstructed-jwt',
+          xClientBaseB64u: 'ed25519-reconstructed-client-base',
+        };
       },
     });
     const runtimePolicyScope = {
@@ -2838,20 +2737,6 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       signingRootVersion: 'v1',
     };
     const routeJwt = appSessionJwtWithRuntimePolicyScope(runtimePolicyScope);
-    const reconstructionCalls: any[] = [];
-    coordinator.reconstructEd25519Session = async (args) => {
-      reconstructionCalls.push(args);
-      return {
-        relayerKeyId: args.ed25519Key.relayerKeyId,
-        keyVersion: args.ed25519Key.keyVersion,
-        sessionId: 'ed25519-reconstructed-session',
-        expiresAtMs: Date.now() + 60_000,
-        remainingUses: 3,
-        participantIds: args.ed25519Key.participantIds,
-        jwt: 'ed25519-reconstructed-jwt',
-        xClientBaseB64u: 'ed25519-reconstructed-client-base',
-      };
-    };
 
     const result = await coordinator.loginWithEcdsaCapabilityInternal({
       walletSession: TEST_WALLET_SESSION,
@@ -2899,11 +2784,25 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
   });
 
   test('login reconstructs Ed25519 when runtime scope is supplied out-of-band', async () => {
+    const reconstructionCalls: any[] = [];
     const { coordinator } = createCoordinator({
       configs: {
         signing: {
           emailOtp: { authPolicy: 'session' },
         },
+      },
+      reconstructEd25519Session: async (args) => {
+        reconstructionCalls.push(args);
+        return {
+          relayerKeyId: args.ed25519Key.relayerKeyId,
+          keyVersion: args.ed25519Key.keyVersion,
+          sessionId: 'ed25519-reconstructed-session',
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 3,
+          participantIds: args.ed25519Key.participantIds,
+          jwt: 'ed25519-reconstructed-jwt',
+          xClientBaseB64u: 'ed25519-reconstructed-client-base',
+        };
       },
     });
     const runtimePolicyScope = {
@@ -2912,21 +2811,6 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       envId: 'dev',
       signingRootVersion: 'v1',
     };
-    const reconstructionCalls: any[] = [];
-    coordinator.reconstructEd25519Session = async (args) => {
-      reconstructionCalls.push(args);
-      return {
-        relayerKeyId: args.ed25519Key.relayerKeyId,
-        keyVersion: args.ed25519Key.keyVersion,
-        sessionId: 'ed25519-reconstructed-session',
-        expiresAtMs: Date.now() + 60_000,
-        remainingUses: 3,
-        participantIds: args.ed25519Key.participantIds,
-        jwt: 'ed25519-reconstructed-jwt',
-        xClientBaseB64u: 'ed25519-reconstructed-client-base',
-      };
-    };
-
     const result = await coordinator.loginWithEcdsaCapabilityInternal({
       walletSession: TEST_WALLET_SESSION,
       chainTarget: TEMPO_CHAIN_TARGET,
@@ -2966,8 +2850,8 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
     });
   });
 
-  test('enrolls ECDSA Email OTP capability and awaits Ed25519 provisioning', async () => {
-    const { coordinator, ecdsaCommitCalls, ed25519ProvisionCalls } = createCoordinator();
+  test('enrolls ECDSA Email OTP capability without Ed25519 reconstruction', async () => {
+    const { coordinator, ecdsaCommitCalls } = createCoordinator();
     const runtimePolicyScope = {
       orgId: 'org',
       projectId: 'proj',
@@ -2975,20 +2859,6 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       signingRootVersion: 'v1',
     };
     const jwt = appSessionJwtWithRuntimePolicyScope(runtimePolicyScope);
-    coordinator.provisionEd25519Capability = async (args) => {
-      ed25519ProvisionCalls.push(args);
-      return {
-        publicKey: 'ed25519-public',
-        relayerKeyId: 'relayer-key',
-        keyVersion: 'v1',
-        sessionId: 'ed-session',
-        expiresAtMs: Date.now() + 60_000,
-        remainingUses: 1,
-        participantIds: [1, 2],
-        jwt: 'threshold-jwt',
-      };
-    };
-
     const result = await coordinator.enrollAndLoginWithEcdsaCapabilityInternal({
       walletSession: TEST_WALLET_SESSION,
       chainTarget: TEMPO_CHAIN_TARGET,
@@ -3002,25 +2872,5 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
 
     expect(result.enrollment.thresholdEcdsaClientVerifyingShareB64u).toBe('verifying-share');
     expect(ecdsaCommitCalls).toHaveLength(1);
-    expect(ed25519ProvisionCalls).toHaveLength(1);
-    expect(ed25519ProvisionCalls[0]).toMatchObject({
-      nearAccountId: 'alice.testnet',
-      registrationAttemptId: 'registration-attempt-1',
-      clientSecretSource: {
-        kind: 'email_otp_registration_ed25519_hss_client_secret_source',
-        registrationAttemptId: 'registration-attempt-1',
-        walletId: 'alice.testnet',
-        authSubjectId: 'alice.testnet',
-        prfFirstB64u: 'prf-first-ecdsa-enroll',
-      },
-      ecdsaThresholdSessionId: 'ecdsa-session',
-      emailOtpAuthContext: {
-        policy: 'session',
-        retention: 'session',
-        reason: 'login',
-        authMethod: 'email_otp',
-      },
-    });
-    expect(ed25519ProvisionCalls[0]).not.toHaveProperty('remainingUses');
   });
 });

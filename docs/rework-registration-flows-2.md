@@ -1,6 +1,6 @@
 # Registration Auth Method Refactor
 
-Status: active follow-up plan for refactor-43 style registration work.
+Status: completed.
 
 ## Goal
 
@@ -20,36 +20,36 @@ Signer selection:
 - Ed25519 and ECDSA together.
 
 Every auth method should be able to request every signer-selection mode through
-the same wallet-subject registration state machine. A wallet subject can later
-have multiple active auth methods, for example two passkeys and one Email OTP
-address, without creating a second wallet identity.
+the same wallet registration state machine. A wallet can later have multiple
+active auth methods, for example two passkeys and one Email OTP address,
+without creating a second wallet identity.
 
-## Current Problem
+## Problem Addressed
 
-The current registration API is signer-selection aware, but the authority is
+The previous registration API was signer-selection aware, but the authority was
 implicit passkey authority:
 
 ```ts
 registerWallet({
-  walletSubject,
+  wallet,
   rpId,
   signerSelection,
   options,
 });
 ```
 
-The implementation still carries passkey assumptions:
+The implementation previously carried passkey assumptions:
 
 - `registerWallet()` requires `authenticatorOptions` internally.
 - The client always calls WebAuthn registration confirmation.
 - Events use passkey-specific interaction names.
 - ECDSA registration derives its client root from passkey PRF output.
 - Email OTP Ed25519 registration provisioning is disabled and explicitly
-  throws until it can use a wallet-subject ceremony.
+  throws until it can use a wallet ceremony.
 
-This is the wrong shape for first-class Email OTP and future auth methods. The
-new API should expose the auth method explicitly, then route all auth methods
-into one normalized registration ceremony.
+That shape blocked first-class Email OTP and future auth methods. The completed
+API exposes the auth method explicitly, then routes all auth methods into one
+normalized registration ceremony.
 
 ## Target Model
 
@@ -57,12 +57,12 @@ Wallet identity, auth-method bindings, signer records, and signing sessions are
 separate domain objects.
 
 ```ts
-type WalletSubjectId = string & {
-  readonly __walletSubjectIdBrand: unique symbol;
+type WalletId = string & {
+  readonly __walletIdBrand: unique symbol;
 };
 
-type WalletSubject = {
-  walletSubjectId: WalletSubjectId;
+type Wallet = {
+  walletId: WalletId;
   rpId: string;
   createdAtMs: number;
 };
@@ -71,7 +71,7 @@ type WalletAuthMethodBinding =
   | {
       kind: 'passkey';
       authMethodId: string;
-      walletSubjectId: WalletSubjectId;
+      walletId: WalletId;
       rpId: string;
       credentialIdB64u: string;
       credentialPublicKeyCoseB64u: string;
@@ -82,7 +82,7 @@ type WalletAuthMethodBinding =
   | {
       kind: 'email_otp';
       authMethodId: string;
-      walletSubjectId: WalletSubjectId;
+      walletId: WalletId;
       rpId: string;
       emailHashHex: string;
       status: 'active';
@@ -126,7 +126,7 @@ type RegistrationSignerSelection =
     };
 
 type NormalizedRegistrationRequest = {
-  walletSubjectId: WalletSubjectId;
+  walletId: WalletId;
   rpId: string;
   authority: RegistrationAuthority;
   signerSelection: RegistrationSignerSelection;
@@ -149,7 +149,7 @@ The primary public API should make auth method explicit:
 ```ts
 type RegisterWalletArgs = {
   authMethod: RegistrationAuthMethodInput;
-  walletSubject: RegisterWalletSubjectInput;
+  wallet: RegisterWalletInput;
   rpId?: string;
   signerSelection: RegistrationSignerSelection;
   options?: RegistrationHooksOptions;
@@ -163,7 +163,8 @@ type RegistrationAuthMethodInput =
   | {
       kind: 'email_otp';
       email: string;
-      otpCode?: string;
+      otpCode: string;
+      appSessionJwt: string;
       challengeId?: string;
     };
 ```
@@ -172,7 +173,6 @@ Narrow convenience wrappers should call the same API:
 
 ```ts
 registration.registerWallet(args);
-registration.registerWithPasskey(args);
 registration.registerWithEmailOtp(args);
 near.registerNearWallet(args); // passkey convenience wrapper unless authMethod is supplied
 evm.registerEvmWallet(args);   // passkey convenience wrapper unless authMethod is supplied
@@ -198,7 +198,7 @@ machine:
 
 `/wallets/register/intent` should include:
 
-- `walletSubject`
+- `wallet`
 - `rpId`
 - `signerSelection`
 - `authMethod.kind`
@@ -208,7 +208,7 @@ machine:
 
 - Passkey: WebAuthn `create()` credential bound to the
   `registrationIntentDigestB64u`.
-- Email OTP: verified OTP proof bound to the same wallet subject, rpId,
+- Email OTP: verified OTP proof bound to the same wallet, rpId,
   signer selection, runtime scope, and registration intent digest.
 
 The ceremony store should persist the normalized authority branch after
@@ -224,7 +224,7 @@ Ed25519 only:
 1. Allocate registration intent with `authMethod.kind = 'email_otp'`.
 2. Verify Email OTP proof bound to the intent digest.
 3. Run Ed25519 role-separated HSS registration.
-4. Finalize wallet subject, Email OTP auth-method binding, Ed25519 signer
+4. Finalize wallet, Email OTP auth-method binding, Ed25519 signer
    facts, and optional immediate Ed25519 session.
 
 ECDSA only:
@@ -232,7 +232,7 @@ ECDSA only:
 1. Allocate registration intent with `authMethod.kind = 'email_otp'`.
 2. Verify Email OTP proof bound to the intent digest.
 3. Run ECDSA role-local keygen using Email OTP client secret material.
-4. Finalize wallet subject, Email OTP auth-method binding, EVM-family wallet
+4. Finalize wallet, Email OTP auth-method binding, EVM-family wallet
    key facts, and optional immediate ECDSA session material.
 
 Combined:
@@ -241,18 +241,18 @@ Combined:
 2. Verify one Email OTP proof bound to that intent.
 3. Run Ed25519 HSS registration and ECDSA role-local keygen inside the same
    ceremony.
-4. Finalize both signer families atomically for one wallet subject.
+4. Finalize both signer families atomically for one wallet.
 
 ## Multiple Auth Methods Per Wallet
 
-Initial registration creates the first auth-method binding for the wallet
-subject. Later flows should add more bindings to the same wallet subject.
+Initial registration creates the first auth-method binding for the wallet.
+Later flows should add more bindings to the same wallet.
 
 Add-auth-method routes should be separate from signer creation:
 
-- `POST /wallets/:walletSubjectId/auth-methods/intent`
-- `POST /wallets/:walletSubjectId/auth-methods/start`
-- `POST /wallets/:walletSubjectId/auth-methods/finalize`
+- `POST /wallets/:walletId/auth-methods/intent`
+- `POST /wallets/:walletId/auth-methods/start`
+- `POST /wallets/:walletId/auth-methods/finalize`
 
 Rules:
 
@@ -273,7 +273,7 @@ facts, as long as boundary parsing returns precise internal types.
 
 Recommended logical shape:
 
-- `wallet_subjects`
+- `wallets`
 - `wallet_auth_methods`
 - `wallet_auth_method_passkeys`
 - `wallet_auth_method_email_otps`
@@ -287,8 +287,8 @@ Constraints:
 
 - Unique active passkey credential per rpId: `(rpId, credentialIdB64u)`.
 - Unique active Email OTP binding per wallet/rpId/email hash:
-  `(walletSubjectId, rpId, emailHashHex)`.
-- Auth-method rows must include `walletSubjectId`, `rpId`, `kind`, `status`,
+  `(walletId, rpId, emailHashHex)`.
+- Auth-method rows must include `walletId`, `rpId`, `kind`, `status`,
   `createdAtMs`, and branch-specific facts.
 - Completed registration ceremonies must not store raw OTP codes, PRF roots, or
   client secrets.
@@ -317,7 +317,7 @@ Shared registration orchestrator:
 - runs Ed25519 HSS when requested
 - runs ECDSA role-local keygen when requested
 - finalizes ceremony
-- persists local wallet subject, auth-method binding, signer facts, and warm
+- persists local wallet, auth-method binding, signer facts, and warm
   session material
 
 The orchestrator should switch on:
@@ -394,7 +394,7 @@ unions. Authority verification should happen before HSS state is prepared.
 
 - [x] Define Email OTP registration challenge/proof payloads.
 - [x] Bind Email OTP challenge/proof to registration intent digest, rpId,
-      wallet subject, signer selection, and runtime policy scope.
+      wallet, signer selection, and runtime policy scope.
 - [x] Add Email OTP authority verifier on the server.
 - [x] Add Email OTP authority adapter on the client.
 - [x] Derive Email OTP client secret source for Ed25519 HSS registration.
@@ -403,70 +403,73 @@ unions. Authority verification should happen before HSS state is prepared.
 
 ### Phase 5: Email OTP Signer Modes
 
-- [ ] Implement Email OTP Ed25519-only wallet registration.
-- [ ] Implement Email OTP ECDSA-only wallet registration.
-- [ ] Implement Email OTP combined Ed25519 and ECDSA wallet registration.
-- [ ] Persist Email OTP auth-method binding at finalize.
-- [ ] Persist requested signer facts at finalize.
-- [ ] Hydrate returned warm signing sessions after local persistence succeeds.
-- [ ] Delete the explicit throw in `registerEmailOtpEd25519Capability()` after
-      the replacement path is wired.
+- [x] Add wallet-registration finalize support for Email OTP enrollment material
+      so OTP verification is consumed once and enrollment can persist with the
+      registration ceremony.
+- [x] Implement Email OTP Ed25519-only wallet registration.
+- [x] Implement Email OTP ECDSA-only wallet registration.
+- [x] Implement Email OTP combined Ed25519 and ECDSA wallet registration.
+- [x] Persist Email OTP auth-method binding at finalize.
+- [x] Persist requested signer facts at finalize.
+- [x] Hydrate returned warm signing sessions after local persistence succeeds.
+- [x] Delete the stale `registerEmailOtpEd25519Capability()` sidecar path after
+      the wallet-registration replacement path is wired.
 
 ### Phase 6: Multiple Auth Methods Per Wallet
 
-- [ ] Add add-auth-method intent/start/finalize route definitions.
-- [ ] Add passkey add-auth-method flow for existing wallets.
-- [ ] Add Email OTP add-auth-method flow for existing wallets.
-- [ ] Add revocation flow for auth-method bindings.
-- [ ] Enforce at-least-one-active-auth-method policy unless deleting wallet.
-- [ ] Keep add-auth-method separate from add-signer.
+- [x] Add add-auth-method intent/start/finalize route definitions.
+- [x] Add passkey add-auth-method flow for existing wallets.
+- [x] Add Email OTP add-auth-method flow for existing wallets.
+- [x] Add revocation flow for auth-method bindings.
+- [x] Enforce at-least-one-active-auth-method policy unless deleting wallet.
+- [x] Keep add-auth-method separate from add-signer.
 
 ### Phase 7: Cleanup And Guards
 
-- [ ] Rename passkey-specific storage concepts that now mean auth-method
+- [x] Rename passkey-specific storage concepts that now mean auth-method
       binding.
-- [ ] Add guard tests preventing `/registration/bootstrap` and
+- [x] Add guard tests preventing `/registration/bootstrap` and
       `/registration/threshold-ed25519/hss/*` from returning.
-- [ ] Add guard tests preventing optional auth fields from selecting
+- [x] Add guard tests preventing optional auth fields from selecting
       registration lifecycle.
-- [ ] Add guard tests proving Email OTP registration does not call
-      reconstruction paths.
-- [ ] Remove stale public paths that imply Email OTP Ed25519 registration is a
+- [x] Add guard tests proving Email OTP ECDSA registration does not call
+      legacy Ed25519 sidecar provisioning.
+- [x] Remove stale public paths that imply Email OTP Ed25519 registration is a
       sidecar.
 
 ## Test Matrix
 
 Registration orchestration:
 
-- [ ] Passkey plus Ed25519-only.
-- [ ] Passkey plus ECDSA-only.
-- [ ] Passkey plus combined.
-- [ ] Email OTP plus Ed25519-only.
-- [ ] Email OTP plus ECDSA-only.
-- [ ] Email OTP plus combined.
+- [x] Passkey plus Ed25519-only.
+- [x] Passkey plus ECDSA-only.
+- [x] Passkey plus combined.
+- [x] Email OTP plus Ed25519-only.
+- [x] Email OTP plus ECDSA-only.
+- [x] Email OTP plus combined.
 
 Authority validation:
 
-- [ ] Passkey credential challenge mismatch rejects.
-- [ ] Email OTP challenge mismatch rejects.
-- [ ] Email OTP proof for another wallet subject rejects.
-- [ ] Email OTP proof for another signer selection rejects.
-- [ ] Threshold-session auth rejects for fresh registration authority.
+- [x] Passkey credential challenge mismatch rejects.
+- [x] Email OTP challenge mismatch rejects.
+- [x] Email OTP proof for another wallet rejects.
+- [x] Email OTP proof for another signer selection rejects.
+- [x] Threshold-session auth rejects for fresh registration authority.
 
 Persistence:
 
-- [ ] Registration finalize persists exactly one initial auth-method binding.
-- [ ] Combined registration persists both signer families atomically.
-- [ ] Failed finalize persists no signer facts and no auth-method binding.
-- [ ] Adding a second auth method preserves existing signer records.
-- [ ] Revoking one auth method preserves other active auth methods.
+- [x] Registration finalize persists exactly one initial auth-method binding.
+- [x] Combined registration persists both signer families atomically.
+- [x] Failed finalize persists no signer facts and no auth-method binding.
+- [x] Adding a second auth method preserves existing signer records.
+- [x] Revoking one auth method preserves other active auth methods.
 
 Type coverage:
 
-- [ ] Invalid auth-method branch combinations are rejected.
-- [ ] Invalid signer-selection branch combinations are rejected.
-- [ ] Broad object spreads cannot construct core registration requests.
-- [ ] Raw route bodies cannot cross into core registration services.
+- [x] Invalid auth-method branch combinations are rejected.
+- [x] Invalid signer-selection branch combinations are rejected.
+- [x] Broad object spreads cannot construct core registration requests.
+- [x] Raw route bodies cannot cross into core registration services.
 
 ## Validation
 

@@ -155,8 +155,8 @@ export function useSeamsWithSdkFlow(args: {
     };
 
     const addWalletSignerWithSdkFlow: AddWalletSignerFn = async (addSignerArgs) => {
-      const walletSubjectId = String(addSignerArgs.walletSubjectId || '').trim();
-      const seq = beginSdkFlow('register', walletSubjectId || undefined);
+      const walletId = String(addSignerArgs.walletId || '').trim();
+      const seq = beginSdkFlow('register', walletId || undefined);
       const options = addSignerArgs.options;
       const wrappedOptions: RegistrationHooksOptions = {
         ...options,

@@ -1,7 +1,9 @@
 # Refactor 5x: Cross-Platform SDK Readiness
 
 Date created: 2026-05-27
-Status: planned
+Status: in progress. Phases 0 and 1 are complete, the browser platform runtime
+exists, and Phase 2 is partially wired. The next implementation slice is the
+ECDSA client-bootstrap signer-crypto boundary.
 
 ## Scope
 
@@ -95,7 +97,7 @@ Concrete browser-platform extraction points:
   `interfaces/operationDeps.ts` expose `UnifiedIndexedDBManager` as a core
   runtime dependency.
 
-Concrete signer-compute boundary points:
+Concrete signer-crypto boundary points:
 
 - `client/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts`
   exposes `buildThresholdEcdsaHssRoleLocalClientBootstrapWasm` as a helper-level
@@ -139,10 +141,12 @@ MVP code changes from this verification:
 
 1. Add a browser `PlatformRuntime` adapter and pass it into signing-engine
    assembly instead of importing `IndexedDBManager` inside core signing modules.
-2. Add `SignerComputePort.prepareEcdsaClientBootstrap` as the first coarse
-   compute command, backed by the existing `hssClient` worker/WASM path.
-3. Convert the ECDSA bootstrap output from raw share fields to public facts plus
-   an opaque role-local state blob.
+2. Add `SignerCryptoPort.prepareEcdsaClientBootstrap` and
+   `SignerCryptoPort.finalizeEcdsaClientBootstrap` as the first coarse crypto
+   commands, backed by the existing `hssClient` worker/WASM path.
+3. Convert the ECDSA bootstrap output from raw share fields to a pending local
+   state blob, relayer-facing client bootstrap facts, and a finalized ready
+   opaque role-local state blob after relayer public identity is available.
 4. Move passkey PRF to client-root derivation behind the secret-source boundary,
    preferably into Rust/WASM for the ECDSA HSS slice so TypeScript no longer
    owns the HKDF label.
@@ -151,8 +155,8 @@ MVP code changes from this verification:
 6. Update ECDSA export to consume the opaque role-local state blob rather than
    re-deriving from `clientRootShare32B64u` and public identity fields.
 7. Replace tests that assert raw internal shares with tests that assert public
-   facts, relayer payloads, opaque-state presence, and parity against current
-   fixtures.
+   facts, prepare client-bootstrap facts, ready opaque-state presence, and
+   parity against current fixtures.
 
 ## Target Architecture
 
@@ -165,8 +169,8 @@ flowchart TD
   LINUX["Linux / Embedded SDK"] --> PORTS
 
   PORTS --> CORE_TS["High-Level SDK Orchestration"]
-  CORE_TS --> COMPUTE["SignerComputePort"]
-  COMPUTE --> RUST["Rust Core + WASM / Native Bindings"]
+  CORE_TS --> CRYPTO["SignerCryptoPort"]
+  CRYPTO --> RUST["Rust Core + WASM / Native Bindings"]
 
   WEB --> WEB_IMPL["Browser Adapters: IndexedDB, WebAuthn, Workers, Fetch"]
   IOS --> IOS_IMPL["iOS Adapters: Keychain, AuthenticationServices, Native Rust"]
@@ -215,26 +219,38 @@ export type PlatformRuntime = {
   storage: DurableRecordStore;
   secrets: SecureSecretStore;
   authenticator: AuthenticatorPort;
-  signerCompute: SignerComputePort;
+  signerCrypto: SignerCryptoPort;
   http: HttpTransport;
   clock: ClockPort;
   random: RandomSource;
 };
 ```
 
-Suggested ports:
+Port decisions for this refactor:
 
-- `DurableRecordStore`: versioned records, list/query by typed keys,
-  compare-and-set where required, cleanup, and transactional batches.
+- `DurableRecordStore`: use typed repository batches for the specific
+  signing-session records touched by this refactor. This port is a typed
+  persistence boundary rather than a generic key/value database abstraction.
+  The browser implementation may keep delegating to existing IndexedDB
+  repositories, while core signing code receives normalized records through
+  typed operations such as "load ECDSA role-local material", "persist ECDSA
+  role-local material", and "cleanup malformed signing-session records".
+  Generic `collection` / `key` get/put helpers are acceptable only as temporary
+  scaffolding while the typed batch methods land.
 - `SecureSecretStore`: seal, unseal, rotate, delete, and inspect secret handles.
 - `AuthenticatorPort`: passkey/WebAuthn/native credential registration and
-  assertion flows.
+  assertion flows with branch-specific input and output records. It must return
+  enough boundary-normalized material for registration authority verification,
+  assertion verification, PRF/HMAC-secret derivation, credential identity, and
+  user-cancel/error handling. See the contract below.
 - `UserPresencePort`: local biometric/touch/PIN confirmation when separate from
   credential assertion.
-- `SignerComputePort`: hash, encode, derive, presign, sign, and open/export
-  commands. The first pass should wrap existing worker/WASM commands; later
-  passes should combine helper-shaped commands into protocol-level commands
-  where that reduces TypeScript knowledge of crypto internals.
+- `SignerCryptoPort`: portable signer commands that hide browser Worker
+  mechanics. The first active commands are
+  `prepareEcdsaClientBootstrap` and `finalizeEcdsaClientBootstrap`. Additional
+  hash, encode, presign, sign, and open/export operations should be added only
+  when core call sites move onto the port, preferably as protocol-level commands
+  when that reduces TypeScript knowledge of crypto internals.
 - `HttpTransport`: relayer requests with explicit auth mode and timeout.
 - `ClockPort`: `nowMs`, deadline helpers, and test overrides.
 - `RandomSource`: cryptographic randomness.
@@ -243,6 +259,100 @@ Suggested ports:
 The first implementation should be `createBrowserPlatformRuntime(...)`, which
 wraps the existing IndexedDB, WebAuthn, Worker, Fetch, WebCrypto, and timer
 paths.
+
+### AuthenticatorPort Contract
+
+The authenticator port should expose explicit operation branches instead of one
+broad "run credential" bag:
+
+```ts
+type AuthenticatorOperation =
+  | {
+      kind: 'create_passkey';
+      rpId: string;
+      userHandleB64u: string;
+      challengeB64u: string;
+      requirePrfFirst: true;
+      authenticatorOptions?: AuthenticatorOptions;
+    }
+  | {
+      kind: 'create_passkey';
+      rpId: string;
+      userHandleB64u: string;
+      challengeB64u: string;
+      requirePrfFirst: false;
+      authenticatorOptions?: AuthenticatorOptions;
+    }
+  | {
+      kind: 'get_passkey';
+      rpId: string;
+      credentialIdB64u: string;
+      challengeB64u: string;
+      requirePrfFirst: true;
+    }
+  | {
+      kind: 'get_passkey';
+      rpId: string;
+      credentialIdB64u: string;
+      challengeB64u: string;
+      requirePrfFirst: false;
+    };
+
+type AuthenticatorResult =
+  | {
+      ok: true;
+      operation: 'create_passkey';
+      requirePrfFirst: true;
+      credential: WebAuthnRegistrationCredential;
+      credentialIdB64u: string;
+      rawIdB64u: string;
+      prfFirstB64u: string;
+    }
+  | {
+      ok: true;
+      operation: 'create_passkey';
+      requirePrfFirst: false;
+      credential: WebAuthnRegistrationCredential;
+      credentialIdB64u: string;
+      rawIdB64u: string;
+      prfFirstB64u?: string;
+    }
+  | {
+      ok: true;
+      operation: 'get_passkey';
+      requirePrfFirst: true;
+      credential: WebAuthnAuthenticationCredential;
+      credentialIdB64u: string;
+      rawIdB64u: string;
+      prfFirstB64u: string;
+    }
+  | {
+      ok: true;
+      operation: 'get_passkey';
+      requirePrfFirst: false;
+      credential: WebAuthnAuthenticationCredential;
+      credentialIdB64u: string;
+      rawIdB64u: string;
+      prfFirstB64u?: string;
+    }
+  | {
+      ok: false;
+      code:
+        | 'unavailable'
+        | 'cancelled'
+        | 'not_allowed'
+        | 'prf_unavailable'
+        | 'invalid_credential'
+        | 'platform_error';
+      message: string;
+    };
+```
+
+Browser WebAuthn raw results normalize at this port boundary. Core registration
+and signing code should receive the precise success branch it asked for; raw
+browser credential objects and broad optional auth bags stay at the boundary.
+If an operation sets `requirePrfFirst: true`, success must include
+`prfFirstB64u`; missing PRF output is a `prf_unavailable` failure.
 
 ## Client Secret Source Model
 
@@ -277,28 +387,42 @@ type ClientSecretSource =
 
 Rules:
 
-- Browser WebAuthn code builds `webauthn_prf_first`.
+- Browser WebAuthn code builds `webauthn_prf_first` only after the
+  `AuthenticatorPort` has returned a concrete PRF result for a specific
+  credential, RP ID, and challenge.
+- `email_otp_worker_session` means a worker-owned session handle for a
+  previously normalized Email OTP registration or signing session. The handle is
+  opaque to core TypeScript. Core code must not receive Email OTP root-share
+  bytes through this branch.
 - iOS can later build `secure_enclave_wrapped_secret` or a passkey-backed
-  branch.
+  branch. Browser dispatch returns `unsupported_secret_source` for this branch
+  until a real adapter exists.
 - Linux/embedded can later build `fido2_hmac_secret`, TPM-backed, or
-  local-daemon-backed branches.
+  local-daemon-backed branches. Browser dispatch returns
+  `unsupported_secret_source` for this branch until a real adapter exists.
 - Core provisioning functions accept the narrow branch they support.
 - Unsupported branches fail at boundary dispatch with typed errors.
 
+Required branch fields are identity, not display metadata. Builders must reject
+empty `rpId`, `credentialIdB64u`, `sessionId`, `keyId`, or `accessGroup` values
+at the boundary.
+
 ## MVP Boundary Target
 
-The minimum useful version of this refactor should not attempt to create the
-iOS or embedded SDKs. It should make the current browser SDK consume a platform
-runtime and a coarse signer-compute boundary that a future native SDK can
-implement.
+The minimum useful version of this refactor should keep iOS and embedded SDKs
+out of scope. It should make the current browser SDK consume a platform runtime
+and a coarse signer-crypto boundary that a future native SDK can implement.
 
-MVP target command:
+MVP target commands:
 
 ```ts
-type SignerComputePort = {
+type SignerCryptoPort = {
   prepareEcdsaClientBootstrap(
     input: PrepareEcdsaClientBootstrapInput,
   ): Promise<PrepareEcdsaClientBootstrapResult>;
+  finalizeEcdsaClientBootstrap(
+    input: FinalizeEcdsaClientBootstrapInput,
+  ): Promise<FinalizeEcdsaClientBootstrapResult>;
 };
 ```
 
@@ -309,7 +433,7 @@ MVP Rust/WASM ownership:
 - derive client root share material
 - map additive shares to threshold-signatures shares
 - validate secp256k1 public material
-- construct role-local client state as an opaque state blob
+- construct pending and ready role-local client state as opaque state blobs
 - return public facts needed by TypeScript routing and persistence
 - return typed crypto/protocol error codes
 
@@ -317,29 +441,135 @@ MVP TypeScript ownership:
 
 - collect WebAuthn or platform credential results
 - build the `ClientSecretSource`
-- call the signer compute command
-- store opaque state blobs
-- route public facts and relayer payloads
+- call the signer crypto prepare command
+- send the returned client bootstrap facts to the relayer with route auth,
+  request id, TTL, session policy, and wallet-signing-session context
+- call the signer crypto finalize command after the relayer returns public
+  identity
+- store ready opaque state blobs
+- route public facts
 - run user-visible workflow, retries, UI, and persistence policy
 
-MVP output shape:
+Excluded signer-crypto fields: relayer URL, route auth, JWT/cookie routing,
+request id, keygen session id, wallet signing session id, threshold session id,
+TTL, remaining uses, UI prompt state, and diagnostics. Those values stay in
+TypeScript orchestration and relayer request builders.
+
+MVP input and output shape:
 
 ```ts
+type PrepareEcdsaClientBootstrapInput = {
+  kind: 'prepare_ecdsa_client_bootstrap_v1';
+  algorithm: 'ecdsa_hss_secp256k1_role_local_v1';
+  context: {
+    walletId: WalletId;
+    rpId: RpId;
+    chainTarget: ThresholdEcdsaChainTarget;
+    ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+    signingRootId: EcdsaHssSigningRootId;
+    signingRootVersion: EcdsaHssSigningRootVersion;
+    keyPurpose: 'evm-signing';
+    keyVersion: 'v1';
+  };
+  participants: {
+    clientParticipantId: 1;
+    relayerParticipantId: 2;
+    participantIds: readonly [1, 2];
+  };
+  secretSource: WebAuthnPrfFirstSecretSource | EmailOtpWorkerSessionSecretSource;
+};
+
 type PrepareEcdsaClientBootstrapOutput = {
-  stateBlobB64u: string;
+  pendingStateBlob: EcdsaRoleLocalPendingStateBlob;
+  clientBootstrap: {
+    contextBinding32B64u: string;
+    clientPublicKey33B64u: string;
+    clientShareRetryCounter: number;
+    participantId: 1;
+  };
   publicFacts: {
     clientPublicKey33B64u: string;
     clientVerifyingShareB64u: string;
-    ethereumAddress: string;
-  };
-  relayerPayload: {
-    clientBootstrapB64u: string;
   };
 };
+
+type FinalizeEcdsaClientBootstrapInput = {
+  kind: 'finalize_ecdsa_client_bootstrap_v1';
+  pendingStateBlob: EcdsaRoleLocalPendingStateBlob;
+  relayerPublicIdentity: {
+    relayerKeyId: string;
+    relayerPublicKey33B64u: string;
+    groupPublicKey33B64u: string;
+    ethereumAddress: `0x${string}`;
+  };
+};
+
+type FinalizeEcdsaClientBootstrapOutput = {
+  stateBlob: EcdsaRoleLocalReadyStateBlob;
+  publicFacts: {
+    clientPublicKey33B64u: string;
+    clientVerifyingShareB64u: string;
+    relayerPublicKey33B64u: string;
+    groupPublicKey33B64u: string;
+    ethereumAddress: `0x${string}`;
+  };
+};
+
+type EcdsaRoleLocalPendingStateBlob = {
+  kind: 'ecdsa_role_local_pending_state_blob_v1';
+  curve: 'secp256k1';
+  encoding: 'base64url';
+  producer: 'signer_core';
+  stateBlobB64u: string;
+};
+
+type EcdsaRoleLocalReadyStateBlob = {
+  kind: 'ecdsa_role_local_state_blob_v1';
+  curve: 'secp256k1';
+  encoding: 'base64url';
+  producer: 'signer_core';
+  stateBlobB64u: string;
+};
+
+type PrepareEcdsaClientBootstrapErrorCode =
+  | 'unsupported_secret_source'
+  | 'invalid_secret_source'
+  | 'invalid_context'
+  | 'invalid_threshold_parameters'
+  | 'invalid_public_material'
+  | 'crypto_failure'
+  | 'worker_transport_failure';
+
+type FinalizeEcdsaClientBootstrapErrorCode =
+  | 'invalid_pending_state'
+  | 'invalid_relayer_public_identity'
+  | 'public_identity_mismatch'
+  | 'crypto_failure'
+  | 'worker_transport_failure';
 ```
 
+The current parity target preserves the existing ECDSA HSS derivation context.
+`chainTarget` is a public routing and persistence field unless signer-core
+fixtures intentionally revise the context binding.
+
 This MVP proves the future iOS/Linux seam because native adapters only need to
-provide a secret source, storage, signer compute, and relayer transport.
+provide a secret source, storage, signer crypto, and relayer transport.
+
+Opaque-state ownership:
+
+- `crates/signer-core` owns the internal serialized role-local state format,
+  version, derivation labels, share mapping, and validation.
+- `wasm/hss_client_signer` exposes the browser binding for the signer-core
+  command and does not define a second state format.
+- TypeScript treats `pendingStateBlob.stateBlobB64u` and
+  `stateBlob.stateBlobB64u` as opaque. It may persist ready blobs, compare
+  presence, and pass blobs back into signer-crypto commands. Parsing share
+  fields out of the blob belongs in signer-core.
+- Public routing/index fields stay outside the blob: `walletId`, `rpId`,
+  `chainTarget`, `keyHandle`, `ecdsaThresholdKeyId`, owner address, participant
+  ids, signing-root identity, and the public facts returned by the command.
+- Persistence normalizers validate that public scalar mirrors match the record's
+  public facts. They cannot validate blob internals.
 
 ## Phase 0: Boundary Inventory
 
@@ -357,7 +587,8 @@ Tasks:
       hashing, tx encoding, key derivation, signature verification, HSS
       ceremony commands, and presignature commands.
 - [x] Inventory TypeScript modules that still assemble crypto-internal
-      parameter sets or relayer payloads from helper-level crypto outputs.
+      parameter sets or relayer client-bootstrap payloads from helper-level
+      crypto outputs.
 - [x] Inventory persistence record types that combine raw storage records,
       normalized domain records, public identity, and hot signer material.
 - [x] Inventory current Rust core coverage in `crates/signer-core`,
@@ -384,7 +615,7 @@ Tasks:
 - [x] Add `client/src/core/platform/types.ts`.
 - [x] Define `PlatformRuntime` and the first port interfaces.
 - [x] Use discriminated unions for platform kind, secret source kind, auth
-      operation kind, storage result, and signer compute result.
+      operation kind, storage result, and signer crypto result.
 - [x] Add `assertNever` exhaustiveness checks for platform-kind dispatch.
 - [x] Add type fixtures for invalid port and secret-source combinations.
 - [x] Keep all existing browser managers as implementation details.
@@ -402,13 +633,19 @@ Validation:
 ## Phase 2: Wrap Current Browser Implementations
 
 Build the browser platform runtime as a pass-through adapter over existing code.
+Keep this phase focused on the ports needed by the ECDSA bootstrap slice; broad
+runtime coverage can follow actual call-site migration.
 
 Tasks:
 
 - [x] Add `client/src/core/platform/browser/createBrowserPlatformRuntime.ts`.
-- [x] Wrap `IndexedDBManager` behind `DurableRecordStore`.
+- [x] Add the initial browser `DurableRecordStore` scaffold over existing
+      IndexedDB infrastructure.
+- [ ] Wire `DurableRecordStore` to typed ECDSA signing-session repository
+      batches.
 - [ ] Wrap WebAuthn credential collection behind `AuthenticatorPort`.
-- [ ] Wrap existing worker/WASM operation dispatch behind `SignerComputePort`.
+- [ ] Wrap the ECDSA client-bootstrap hss-client worker dispatch behind
+      `SignerCryptoPort` as a prepare/finalize operation pair.
 - [x] Wrap `fetch`, timers, and WebCrypto randomness behind `HttpTransport`,
       `ClockPort`, and `RandomSource`.
 - [x] Update `createSigningEnginePorts(...)` to receive a platform runtime
@@ -421,8 +658,8 @@ Acceptance criteria:
   `IndexedDBManager` directly.
 - Current SDK browser flows still use the same underlying IndexedDB and
   Rust/WASM Worker code through the adapter.
-- The platform adapter is the only place where the signing runtime constructs
-  browser storage and browser compute primitives.
+- ECDSA bootstrap core code receives typed repository records and signer crypto
+  results through the platform runtime.
 
 Validation:
 
@@ -432,27 +669,36 @@ Validation:
 
 ## Phase 3: Split Persistence Records From IndexedDB Drivers
 
-Move durable record definitions and parsers into browser-neutral modules.
+Move only the persistence records affected by the ECDSA role-local state change
+into browser-neutral modules. Refactor 45 already consolidated the wider
+IndexedDB schema and repository surface; this phase should stay limited to
+ECDSA role-local material rather than unrelated wallet/auth-method/signer
+tables.
 
 Tasks:
 
-- [ ] Split raw storage shapes from normalized internal records.
-- [ ] Move record parsing, version normalization, and cleanup decisions into
-      `client/src/core/signingEngine/session/persistence/records.ts` or a new
-      neutral persistence module.
+- [ ] Split ECDSA HSS role-local raw storage shapes from normalized internal
+      records.
+- [ ] Move ECDSA role-local record parsing, version normalization, and cleanup
+      decisions into `client/src/core/signingEngine/session/persistence/records.ts`
+      or a new neutral persistence module.
 - [ ] Keep IndexedDB schema, indexes, key ranges, and transactions inside
       `client/src/core/indexedDB/*`.
-- [ ] Add strict internal unions for ECDSA and Ed25519 session records:
-      public identity, ready passkey material, ready Email OTP material,
-      reauth-required material, invalid or cleanup-only raw records.
-- [ ] Remove repeated compatibility parsing from core signing modules after the
-      neutral parser exists.
+- [ ] Add strict internal unions for ECDSA role-local session records:
+      ready passkey material, ready Email OTP material, reauth-required
+      material, and invalid or cleanup-only raw records.
+- [ ] Keep Ed25519 record changes out of this phase unless a touched ECDSA
+      parser requires a shared helper.
+- [ ] Remove repeated ECDSA role-local compatibility parsing from core signing
+      modules after the neutral parser exists.
 
 Acceptance criteria:
 
-- Core signing/session logic accepts normalized records only.
-- IndexedDB raw shapes do not leak beyond the storage adapter and parser.
-- Compatibility branches are concentrated in boundary parser modules.
+- Core ECDSA signing/session logic accepts normalized records only.
+- IndexedDB raw ECDSA role-local shapes do not leak beyond the storage adapter
+  and parser.
+- ECDSA role-local compatibility branches are concentrated in boundary parser
+  modules and scheduled for deletion with the in-development data reset.
 
 Validation:
 
@@ -464,26 +710,48 @@ Validation:
 Separate portable signer commands from browser Worker mechanics while preserving
 the current Rust/WASM implementations.
 
+Ordering decision: start with one coarse bootstrap pair before expanding the
+worker surface. A one-for-one wrapper around every current worker message would
+create a large transitional API that still mirrors browser Worker mechanics.
+The next slice should define and wire only
+`SignerCryptoPort.prepareEcdsaClientBootstrap` and
+`SignerCryptoPort.finalizeEcdsaClientBootstrap`, then use that slice to shape
+the general crypto-port conventions. Broader worker wrapping can happen later
+only for operations that core call sites actively move onto `SignerCryptoPort`.
+
+Phase 4 defines the TypeScript port contract and browser transport adapter for
+those operations. Phase 6 implements the cryptographic internals behind the same
+operations in `crates/signer-core` and exposes them through
+`wasm/hss_client_signer`. Keeping those steps separate lets the SDK call sites
+move to a stable transport-free contract before the Rust/WASM implementation
+absorbs HKDF, share mapping, pending state serialization, and ready state
+finalization.
+
 Tasks:
 
-- [ ] Define a `SignerComputePort` operation map that is independent of Web
-      Worker transport.
-- [ ] Start by wrapping existing worker/WASM operations one-for-one.
-- [ ] Identify helper-level command sequences that can become a single coarse
-      Rust/WASM command.
+- [ ] Define the `prepareEcdsaClientBootstrap` and
+      `finalizeEcdsaClientBootstrap` signer-crypto operations
+      independent of Web Worker transport.
+- [ ] Map the browser hss-client worker request/response for these operations in
+      one browser crypto adapter.
+- [ ] Use the ECDSA bootstrap slice to establish the result-envelope and error
+      conventions for future crypto operations.
 - [ ] Keep command payloads narrow, structured, and operation-specific.
-- [ ] Map browser Worker requests to `SignerComputePort` in one adapter.
+- [ ] Defer broad one-for-one worker wrapping until a core call site is ready to
+      consume that operation through `SignerCryptoPort`.
 - [ ] Keep direct-call and native-call adapters possible for future iOS/Linux.
 - [ ] Convert boolean-success worker results to `Result`-style unions where the
       operation carries cryptographic material or lifecycle state.
 
 Acceptance criteria:
 
-- Core signing code calls `SignerComputePort`.
-- Browser Worker request/response envelopes live in the browser compute adapter.
+- ECDSA client-bootstrap core code calls `SignerCryptoPort` for prepare and
+  finalize.
+- The ECDSA bootstrap browser Worker request/response envelopes live in the
+  browser crypto adapter.
 - Existing Rust/WASM crypto remains the implementation behind the browser
-  compute adapter.
-- Future native bindings can implement the same compute port without importing
+  crypto adapter.
+- Future native bindings can implement the same crypto port without importing
   browser Worker types.
 
 Validation:
@@ -502,6 +770,8 @@ Tasks:
 - [ ] Add `ClientSecretSource` and branch-specific builders.
 - [ ] Convert browser WebAuthn credential parsing into a boundary builder that
       returns `webauthn_prf_first`.
+- [ ] Define `email_otp_worker_session` as a worker-owned opaque handle and
+      reject attempts to pass Email OTP root-share bytes through core TypeScript.
 - [ ] Make ECDSA and Ed25519 provisioning functions accept exact supported
       secret-source branches.
 - [ ] Keep unsupported future branches as explicit dispatch failures, not broad
@@ -549,28 +819,45 @@ Rust/WASM should own:
 - Client-root derivation from the accepted secret-source branch.
 - Additive share mapping.
 - secp256k1 public key validation and address derivation.
-- Role-local state construction and internal serialization.
+- Pending role-local state construction, ready role-local state finalization,
+  and internal serialization.
 - Crypto/protocol error codes.
+
+Implementation home:
+
+- Reusable HKDF, client-root derivation, additive-share mapping, secp256k1
+  validation, pending state serialization, and ready state finalization land in
+  `crates/signer-core`.
+- `wasm/hss_client_signer` exposes the browser WASM binding for the signer-core
+  command.
+- Native bindings later wrap the same signer-core command. Shared protocol
+  logic stays in signer-core instead of Swift, C, or platform-specific Rust
+  crates.
 
 TypeScript should own:
 
 - Building a normalized `ClientSecretSource` from platform credential results.
 - Passing account, chain, signing-root, and policy identities.
-- Storing opaque `stateBlobB64u`.
-- Routing public facts and relayer payloads.
+- Sending prepare output to the relayer with auth/session routing fields.
+- Passing relayer public identity into finalize.
+- Storing the opaque `EcdsaRoleLocalReadyStateBlob` envelope.
+- Routing public facts.
 - User workflow, retries, and UI.
 
 Tasks:
 
-- [ ] Define `prepareEcdsaClientBootstrap` on `SignerComputePort`.
-- [ ] Add or extend the Rust/WASM command that implements the full bootstrap
-      slice.
-- [ ] Return `{ stateBlobB64u, publicFacts, relayerPayload }` rather than
-      helper-by-helper crypto outputs.
+- [ ] Define `prepareEcdsaClientBootstrap` and
+      `finalizeEcdsaClientBootstrap` on `SignerCryptoPort`.
+- [ ] Add the reusable signer-core command that implements HKDF/client-root
+      derivation, share mapping, public fact validation, pending state
+      serialization, and ready state finalization.
+- [ ] Expose the signer-core command through `wasm/hss_client_signer`.
+- [ ] Return `{ pendingStateBlob, clientBootstrap, publicFacts }` from prepare
+      and `{ stateBlob, publicFacts }` from finalize.
 - [ ] Replace the TypeScript helper pipeline with the coarse command.
 - [ ] Delete the replaced TypeScript crypto-internal assembly path.
-- [ ] Add parity fixtures for current browser PRF inputs and expected public
-      facts / relayer payload.
+- [ ] Add parity fixtures for current browser PRF inputs, prepare output,
+      relayer public identity input, and finalized public facts.
 - [ ] Add native-binding vector replay coverage if the command lands in
       `crates/signer-platform-ios`.
 - [ ] Record before/after browser JS, WASM, and lazy-flow asset sizes.
@@ -579,6 +866,10 @@ Acceptance criteria:
 
 - ECDSA client bootstrap no longer exposes derivation internals or role-local
   state layout to TypeScript.
+- The active browser path gets HKDF and role-local state construction from
+  `crates/signer-core` through `wasm/hss_client_signer`.
+- The ready role-local state blob is produced only after relayer public identity
+  is supplied to finalize.
 - Browser behavior remains equivalent under parity fixtures and current flow
   tests.
 - Future native SDKs can call the same Rust core command with a platform-built
@@ -637,8 +928,8 @@ Tasks:
       for C ABI functions that remain.
 - [ ] Evaluate UniFFI for Swift bindings once the first real iOS API surface is
       known.
-- [ ] Keep native bindings generated from or wrapping `signer-core`; do not copy
-      protocol logic into Swift or C.
+- [ ] Keep native bindings generated from or wrapping `signer-core`; shared
+      protocol logic stays out of Swift or C.
 - [ ] Add vector replay scripts for any newly exposed binding operation.
 - [ ] Define a future Linux native binding shape: Rust crate, C ABI, or local
       signer daemon.
@@ -658,15 +949,31 @@ Validation:
 
 ## Suggested Implementation Order
 
-1. Phase 0: boundary inventory.
-2. Phase 1: neutral platform contracts.
-3. Phase 2: browser runtime adapter.
-4. Phase 3: persistence record split.
-5. Phase 4: signer operation versus transport split.
-6. Phase 5: platform-neutral secret sources.
-7. Phase 6: one coarse crypto-boundary slice.
-8. Phase 7: optional portable state-machine pilot.
-9. Phase 8: native binding hardening.
+1. Phase 0: boundary inventory. Complete; keep the inventory current when a
+   touched file exposes a new browser dependency.
+2. Phase 1: neutral platform contracts. Complete as a scaffold; tighten
+   `DurableRecordStore`, `AuthenticatorPort`, `ClientSecretSource`, and
+   `SignerCryptoPort` before using them in new core call sites.
+3. Phase 2: browser runtime adapter for the ECDSA bootstrap slice. Finish typed
+   ECDSA repository batches, browser WebAuthn collection, and the browser
+   bootstrap prepare/finalize worker adapter.
+4. Phase 3: narrow ECDSA persistence record split. Move only ECDSA HSS
+   role-local records and key-ref builders onto normalized boundary parsers.
+5. Phase 4: signer operation versus transport split for
+   `prepareEcdsaClientBootstrap` and `finalizeEcdsaClientBootstrap`. This phase
+   defines the operation shapes and maps the current hss-client Worker
+   request/response into a transport-free crypto port.
+6. Phase 5: platform-neutral ECDSA secret sources. Tighten
+   `webauthn_prf_first` and `email_otp_worker_session` branches before moving
+   active bootstrap call sites.
+7. Phase 6: signer-core/WASM coarse ECDSA bootstrap command. Implement HKDF,
+   share mapping, validation, pending state serialization, and ready state
+   finalization in
+   `crates/signer-core`, then expose the command through
+   `wasm/hss_client_signer`.
+8. Phase 7: optional portable state-machine pilot after the coarse command is
+   active and stable.
+9. Phase 8: native binding hardening after signer-core vectors exist.
 
 ## TODO Checklist
 
@@ -680,21 +987,30 @@ to a single PR where practical.
       browser-global usage in signing/session paths.
 - [x] Add `client/src/core/platform/types.ts` with `PlatformRuntime`,
       `PlatformKind`, `DurableRecordStore`, `AuthenticatorPort`,
-      `SignerComputePort`, `HttpTransport`, `ClockPort`, and `RandomSource`.
+      `SignerCryptoPort`, `HttpTransport`, `ClockPort`, and `RandomSource`.
 - [x] Add discriminated-union type fixtures for `PlatformKind`,
-      `ClientSecretSource`, and `SignerComputePort` result branches.
+      `ClientSecretSource`, and `SignerCryptoPort` result branches.
 - [x] Add an `assertNever` helper or reuse the existing project helper for
       platform dispatch exhaustiveness.
+- [ ] Replace temporary generic `DurableRecordStore` get/put/delete scaffolding
+      with typed repository batch operations for the ECDSA signing-session
+      records touched by this refactor.
+- [ ] Update `AuthenticatorPort` types to use branch-specific create/get
+      passkey outputs with raw verification payloads, PRF material, credential
+      identity, and typed cancellation/error codes.
 
 ### Browser Platform Adapter
 
 - [x] Add
       `client/src/core/platform/browser/createBrowserPlatformRuntime.ts`.
-- [x] Wrap the existing `IndexedDBManager` as the browser `DurableRecordStore`
-      implementation.
+- [x] Add the initial browser `DurableRecordStore` scaffold over existing
+      IndexedDB infrastructure.
+- [ ] Wire the browser `DurableRecordStore` to typed ECDSA signing-session
+      repository batches instead of generic unavailable get/put/delete methods.
 - [ ] Wrap existing WebAuthn credential collection as the browser
       `AuthenticatorPort`.
-- [ ] Wrap existing worker dispatch as the browser `SignerComputePort`.
+- [ ] Wrap the ECDSA client-bootstrap hss-client worker dispatch as the first
+      browser `SignerCryptoPort` prepare/finalize operation pair.
 - [x] Wrap `fetch`, `Date.now`, timers, and WebCrypto randomness behind the
       browser runtime ports where current signing flows need them.
 - [x] Update `createSigningEnginePorts(...)` so it receives a browser
@@ -711,38 +1027,54 @@ to a single PR where practical.
 - [ ] Add branch-specific builders for `webauthn_prf_first`,
       `email_otp_worker_session`, `secure_enclave_wrapped_secret`, and
       `fido2_hmac_secret`.
+- [ ] Make `email_otp_worker_session` a worker-owned opaque handle and remove
+      active core paths that pass Email OTP root-share bytes through TypeScript.
 - [ ] Keep iOS and embedded branches as typed unsupported dispatch failures in
       the browser adapter.
 - [ ] Move passkey PRF to client-root HKDF derivation behind
-      `SignerComputePort.prepareEcdsaClientBootstrap`.
-- [ ] Decide whether the HKDF implementation lands directly in
-      `wasm/hss_client_signer` first or in a shared Rust crate consumed by that
-      WASM package.
+      `SignerCryptoPort.prepareEcdsaClientBootstrap`.
+- [x] Decision: reusable HKDF and ECDSA bootstrap logic belongs in
+      `crates/signer-core`, exposed to the browser through
+      `wasm/hss_client_signer`.
 
 ### Coarse ECDSA Bootstrap Command
 
-- [ ] Add `prepareEcdsaClientBootstrap` to `SignerComputePort`.
+- [x] Add the initial `prepareEcdsaClientBootstrap` shape to
+      `SignerCryptoPort`.
+- [ ] Add `finalizeEcdsaClientBootstrap` to `SignerCryptoPort`.
+- [ ] Expand `PrepareEcdsaClientBootstrapInput` to require the full context,
+      participant ids, and narrow `ClientSecretSource` branch.
+- [ ] Add `FinalizeEcdsaClientBootstrapInput` with pending state blob and
+      relayer public identity.
 - [ ] Update the `hssClient` worker request/result contract to expose the new
-      coarse command.
-- [ ] Update `wasm/hss_client_signer` to return public facts and an opaque
-      role-local state blob.
+      coarse prepare/finalize commands.
+- [ ] Add the reusable signer-core command for HKDF/client-root derivation,
+      additive-share mapping, public fact validation, pending state
+      serialization, and ready state finalization.
+- [ ] Update `wasm/hss_client_signer` to call signer-core and return public
+      facts plus pending and ready blob envelopes.
 - [ ] Stop returning `clientShare32B64u`, `mappedPrivateShare32B64u`, and
       `verifyingShare33B64u` to TypeScript from the active bootstrap path.
 - [ ] Update `buildThresholdEcdsaHssRoleLocalClientBootstrapWasm(...)` or
-      replace it with a `prepareEcdsaClientBootstrap(...)` wrapper.
+      replace it with `prepareEcdsaClientBootstrap(...)` and
+      `finalizeEcdsaClientBootstrap(...)` wrappers.
 - [ ] Update wallet registration bootstrap and threshold ECDSA session
-      bootstrap flows to persist opaque state and public facts.
+      bootstrap flows to send prepare output to the relayer, finalize with
+      relayer public identity, then persist ready opaque state and public facts.
 - [ ] Update the Email OTP worker ECDSA bootstrap path to call the same coarse
       Rust/WASM command shape.
 
 ### Persistence And Key Refs
 
 - [ ] Replace `ThresholdEcdsaHssRoleLocalClientState` raw share fields with an
-      opaque `stateBlobB64u` and required public identity fields.
+      `EcdsaRoleLocalReadyStateBlob` envelope and required public identity
+      fields.
 - [ ] Update `ThresholdEcdsaBackendBinding` so signing material is represented
       by an opaque state blob or typed handle.
-- [ ] Update persistence record parsers to normalize old raw boundary data only
-      at the persistence boundary while this in-development data exists.
+- [ ] Scope persistence parser changes to ECDSA HSS role-local session records
+      and key-ref builders. Keep unrelated IndexedDB records out of this phase.
+- [ ] Update persistence record parsers to normalize old ECDSA raw boundary data
+      only at the persistence boundary while this in-development data exists.
 - [ ] Update EVM-family key-ref builders to consume the new opaque role-local
       state shape.
 - [ ] Remove `clientAdditiveShare32B64u` from active core signing paths after
@@ -761,11 +1093,11 @@ to a single PR where practical.
 ### Tests And Verification
 
 - [ ] Update parser and guard tests that currently assert raw HSS fields.
-- [ ] Add parity fixtures for current WebAuthn PRF inputs and expected public
-      facts.
+- [ ] Add parity fixtures for current WebAuthn PRF inputs, prepare output,
+      relayer public identity finalization input, and expected public facts.
 - [ ] Add tests proving TypeScript cannot construct invalid
       `ClientSecretSource` branches or incomplete platform runtimes.
-- [ ] Add persistence tests for the opaque role-local state record shape.
+- [ ] Add persistence tests for the ready opaque role-local state record shape.
 - [ ] Add export tests that use opaque state and reject missing public identity.
 - [x] Run `npx tsc --noEmit -p sdk/tsconfig.build.json`.
 - [ ] Run targeted ECDSA HSS unit tests.
@@ -778,7 +1110,7 @@ to a single PR where practical.
 - [ ] Evaluate moving one deterministic state machine into
       `crates/signer-core` after the coarse ECDSA bootstrap command lands.
 - [ ] Define the first real `crates/signer-platform-ios` API around the same
-      `SignerComputePort` command.
+      `SignerCryptoPort` command.
 - [ ] Define the Linux/embedded binding shape: native crate, C ABI, or local
       daemon.
 - [ ] Add Verus or LEAN-facing invariants only after the Rust state-machine or
@@ -826,7 +1158,7 @@ This refactor is complete when:
 - Browser APIs are isolated to browser adapters and UI/browser folders.
 - Core signing/session modules consume normalized records and strict secret
   source branches.
-- Signer compute operations can be implemented by a browser Worker, direct WASM
+- Signer crypto operations can be implemented by a browser Worker, direct WASM
   call, native binding, or local service through the same command port.
 - At least one crypto-boundary slice has been internalized behind a coarse
   Rust/WASM signer command with parity coverage.

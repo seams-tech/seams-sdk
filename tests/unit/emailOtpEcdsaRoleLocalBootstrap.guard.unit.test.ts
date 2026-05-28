@@ -90,36 +90,18 @@ test.describe('Email OTP ECDSA role-local bootstrap guard', () => {
     expect(source).toContain('runtimePolicyScope,');
   });
 
-  test('enrollment keeps ECDSA and Ed25519 participant sets separate', () => {
+  test('enrollment does not run the legacy Ed25519 sidecar provisioning path', () => {
     const source = readFileSync(EMAIL_OTP_ECDSA_ENROLLMENT_URL, 'utf8');
-    const provisioningStart = source.indexOf('await ports.provisionEd25519Capability({');
-    expect(provisioningStart).toBeGreaterThan(-1);
-    const provisioningEnd = source.indexOf('});', provisioningStart);
-    expect(provisioningEnd).toBeGreaterThan(provisioningStart);
-    const provisioningBlock = source.slice(provisioningStart, provisioningEnd);
-
-    expect(source).toContain('ed25519ParticipantIds?: number[]');
-    expect(provisioningBlock).toContain('args.ed25519ParticipantIds');
-    expect(provisioningBlock).not.toContain('args.participantIds');
+    expect(source).not.toContain('provisionEd25519Capability');
+    expect(source).not.toContain('ed25519ParticipantIds');
+    expect(source).not.toContain('registration_ed25519_companion_provisioning');
   });
 
-  test('enrollment provisions registration Ed25519 as a session-retained lane', () => {
+  test('enrollment keeps fresh registration on ECDSA role-local bootstrap only', () => {
     const source = readFileSync(EMAIL_OTP_ECDSA_ENROLLMENT_URL, 'utf8');
-    const contextStart = source.indexOf(
-      'const ed25519RegistrationAuthContext: ThresholdEcdsaEmailOtpAuthContext',
-    );
-    const provisioningStart = source.indexOf('await ports.provisionEd25519Capability({');
-    expect(contextStart).toBeGreaterThan(-1);
-    expect(provisioningStart).toBeGreaterThan(contextStart);
-    const setupBlock = source.slice(contextStart, provisioningStart);
-    const provisioningEnd = source.indexOf('});', provisioningStart);
-    const provisioningBlock = source.slice(provisioningStart, provisioningEnd);
-
-    expect(setupBlock).toContain("policy: 'session'");
-    expect(setupBlock).toContain("retention: 'session'");
-    expect(setupBlock).toContain("reason: 'login'");
-    expect(provisioningBlock).toContain('emailOtpAuthContext: ed25519RegistrationAuthContext');
-    expect(provisioningBlock).toContain('ed25519RegistrationRemainingUses');
+    expect(source).toContain("type: 'bootstrapEmailOtpEcdsaSessionsFromClientRootShare'");
+    expect(source).toContain('commitEmailOtpEcdsaPublicationBootstraps');
+    expect(source).not.toContain('/threshold-ed25519/hss/');
   });
 
   test('login derives runtime policy scope from route auth before worker bootstrap', () => {
@@ -166,51 +148,34 @@ test.describe('Email OTP ECDSA role-local bootstrap guard', () => {
     expect(source).not.toContain('canUseRegistrationEd25519Provisioning');
   });
 
-  test('Ed25519 registration and reconstruction paths run distinct HSS ceremonies', () => {
+  test('stale Ed25519 sidecar registration provisioning path is deleted', () => {
     const source = readFileSync(EMAIL_OTP_PROVISIONING_URL, 'utf8');
-    const registrationStart = source.indexOf(
-      'export async function registerEmailOtpEd25519Capability',
-    );
     const reconstructionStart = source.indexOf(
       'export async function reconstructEmailOtpEd25519Session',
     );
     const helperStart = source.indexOf('function joinUrlPath', reconstructionStart);
-    expect(registrationStart).toBeGreaterThan(-1);
-    expect(reconstructionStart).toBeGreaterThan(registrationStart);
+    expect(source).not.toContain('registerEmailOtpEd25519Capability');
+    expect(source).not.toContain('/threshold-ed25519/hss/prepare');
+    expect(source).not.toContain('/threshold-ed25519/hss/respond');
+    expect(source).not.toContain('/threshold-ed25519/hss/finalize');
+    expect(source).not.toContain('completeThresholdEd25519HssClientCeremony({');
+    expect(source).not.toContain('requestManagedRegistrationBootstrapGrant({');
+    expect(reconstructionStart).toBeGreaterThan(-1);
     expect(helperStart).toBeGreaterThan(reconstructionStart);
-    const registrationBlock = source.slice(registrationStart, reconstructionStart);
     const reconstructionBlock = source.slice(reconstructionStart, helperStart);
 
-    expect(registrationBlock).toContain('/threshold-ed25519/hss/prepare');
-    expect(registrationBlock).toContain('/threshold-ed25519/hss/respond');
-    expect(registrationBlock).toContain('/threshold-ed25519/hss/finalize');
-    expect(registrationBlock).toContain('completeThresholdEd25519HssClientCeremony({');
-    expect(registrationBlock).toContain('xClientBaseB64u');
     expect(reconstructionBlock).toContain('ReconstructEmailOtpEd25519SessionArgs');
     expect(reconstructionBlock).toContain('/threshold-ed25519/session');
-    expect(reconstructionBlock).not.toContain('/registration/threshold-ed25519/hss/prepare');
-    expect(reconstructionBlock).not.toContain('requestManagedRegistrationBootstrapGrant({');
   });
 
-  test('Ed25519 sealed companion links are attached after signer material is persisted', () => {
+  test('Ed25519 sealed companion links are attached after reconstructed signer material is persisted', () => {
     const source = readFileSync(EMAIL_OTP_PROVISIONING_URL, 'utf8');
-    const registrationStart = source.indexOf(
-      'export async function registerEmailOtpEd25519Capability',
-    );
     const reconstructionStart = source.indexOf(
       'export async function reconstructEmailOtpEd25519Session',
     );
     const helperStart = source.indexOf('function joinUrlPath', reconstructionStart);
-    const registrationBlock = source.slice(registrationStart, reconstructionStart);
     const reconstructionBlock = source.slice(reconstructionStart, helperStart);
 
-    const registrationReadyMaterial = registrationBlock.indexOf('const xClientBaseB64u');
-    const registrationPersistReadyMaterial = registrationBlock.indexOf(
-      'xClientBaseB64u,\n    emailOtpAuthContext',
-    );
-    const registrationAttach = registrationBlock.indexOf(
-      'attachEd25519SessionToEmailOtpSigningSessionSealBestEffort({',
-    );
     const reconstructionReadyMaterial = reconstructionBlock.indexOf(
       'xClientBaseB64u: completed.clientOutput.xClientBaseB64u',
     );
@@ -218,9 +183,6 @@ test.describe('Email OTP ECDSA role-local bootstrap guard', () => {
       'attachEd25519SessionToEmailOtpSigningSessionSealBestEffort({',
     );
 
-    expect(registrationReadyMaterial).toBeGreaterThan(-1);
-    expect(registrationPersistReadyMaterial).toBeGreaterThan(registrationReadyMaterial);
-    expect(registrationAttach).toBeGreaterThan(registrationPersistReadyMaterial);
     expect(reconstructionReadyMaterial).toBeGreaterThan(-1);
     expect(reconstructionAttach).toBeGreaterThan(reconstructionReadyMaterial);
   });

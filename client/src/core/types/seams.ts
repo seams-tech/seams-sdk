@@ -6,6 +6,7 @@ import type {
   NonceLeaseRef,
 } from '../signingEngine/nonce/NonceCoordinator';
 import type { AuthenticatorOptions } from './authenticatorOptions';
+import type { WalletHostVariant } from '../WalletIframe/hostVariant';
 import type { ClientUserData } from '../accountData/near/types';
 import type { WasmSignedDelegate } from './signer-worker';
 import type { EcdsaSignerProvisioningDefaults } from './ecdsaSignerProvisioningDefaults';
@@ -209,9 +210,9 @@ export interface SeamsConfigsInput {
    * - `tempo`: `EcdsaSignerProvisioningPolicy`
    * - `evm`: `EcdsaSignerProvisioningPolicy`
    *
- * `EcdsaSignerProvisioningPolicy` contains:
- * - `enabled`: enable/disable provisioning on that chain.
- * - `signingSession.kind`: `'jwt' | 'cookie'` for the minted signer session.
+   * `EcdsaSignerProvisioningPolicy` contains:
+   * - `enabled`: enable/disable provisioning on that chain.
+   * - `signingSession.kind`: `'jwt' | 'cookie'` for the minted signer session.
    * - `signingSession.ttlMs`: session expiration window in milliseconds.
    * - `signingSession.remainingUses`: max allowed signer operations for the session.
    *
@@ -221,7 +222,7 @@ export interface SeamsConfigsInput {
   provisioningDefaults?: EcdsaSignerProvisioningDefaults;
   // Iframe Wallet configuration (when using a separate wallet origin)
   iframeWallet?: SeamsIframeWalletConfigInput;
- // Relay Server is used to create new NEAR accounts
+  // Relay Server is used to create new NEAR accounts
   relayer?: SeamsRelayerConfigInput;
   // Registration transport for browser-safe bootstrap requests
   registration?: SeamsRegistrationConfigInput;
@@ -393,13 +394,7 @@ export interface LoginResult {
 
 export interface SigningSessionStatus {
   sessionId: string;
-  status:
-    | 'active'
-    | 'exhausted'
-    | 'expired'
-    | 'not_found'
-    | 'unavailable'
-    | 'budget_unknown';
+  status: 'active' | 'exhausted' | 'expired' | 'not_found' | 'unavailable' | 'budget_unknown';
   statusCode?: string;
   authMethod?: WalletAuthMethod | null;
   retention?: SigningSessionRetention | null;
@@ -558,10 +553,7 @@ export interface SeamsEvmChainConfig {
   chainId: number;
 }
 
-export type SeamsChainConfig =
-  | SeamsNearChainConfig
-  | SeamsTempoChainConfig
-  | SeamsEvmChainConfig;
+export type SeamsChainConfig = SeamsNearChainConfig | SeamsTempoChainConfig | SeamsEvmChainConfig;
 
 export type ReadonlyDeep<T> = T extends (...args: never[]) => unknown
   ? T
@@ -573,10 +565,7 @@ export type ReadonlyDeep<T> = T extends (...args: never[]) => unknown
 
 export type SeamsWalletMode = 'direct' | 'iframe';
 
-export type SeamsRegistrationPaymentMode =
-  | 'disabled'
-  | 'quota_then_x402'
-  | 'always_x402';
+export type SeamsRegistrationPaymentMode = 'disabled' | 'quota_then_x402' | 'always_x402';
 
 export interface SeamsSigningSessionDefaultsInput {
   /**
@@ -593,6 +582,7 @@ export interface SeamsIframeWalletConfigInput {
   // SDK assets base used by the parent app to tell the wallet
   // where to load embedded bundles from.
   sdkBasePath?: string; // defaults to '/sdk'
+  walletHostVariant?: WalletHostVariant; // defaults to 'runtime'
   // Force WebAuthn rpId to a base domain so credentials work across subdomains
   // Example: rpIdOverride = 'example.localhost' usable from wallet.example.localhost
   rpIdOverride?: string;
@@ -696,6 +686,7 @@ export interface SeamsIframeWalletConfig {
   origin?: string;
   servicePath: string;
   sdkBasePath: string;
+  walletHostVariant: WalletHostVariant;
   rpIdOverride?: string;
 }
 

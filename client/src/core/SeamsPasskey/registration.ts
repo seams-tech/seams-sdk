@@ -16,6 +16,7 @@ import {
   createThresholdWarmSessionPolicyDraft,
   prewarmThresholdEd25519ClientBaseFromCredential,
   prepareThresholdEd25519RegistrationHssClientMaterial,
+  prepareThresholdEd25519RegistrationHssClientMaterialFromPrfFirst,
   prepareThresholdEd25519RegistrationHssClientRequest,
   persistRegisteredThresholdEd25519Session,
 } from './thresholdWarmSessionBootstrap';
@@ -34,11 +35,11 @@ import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signin
 import type {
   AddSignerSelection,
   RegistrationAuthMethodInput,
-  RegisterWalletSubjectInput,
+  RegisterWalletInput,
   RegistrationSignerSelection,
-  WalletSubjectId,
+  WalletId,
 } from '@shared/utils/registrationIntent';
-import { walletSubjectIdFromString } from '@shared/utils/registrationIntent';
+import { walletIdFromString } from '@shared/utils/registrationIntent';
 import { toWalletId } from '../signingEngine/interfaces/ecdsaChainTarget';
 import { computeRegistrationIntentDigest } from '@/utils/intentDigest';
 import { computeAddSignerIntentDigest } from '@/utils/intentDigest';
@@ -55,25 +56,25 @@ import {
 } from '../rpcClients/relayer/walletRegistration';
 import { buildPasskeyNearWalletRegistrationSignerSelection } from './registrationSignerSelection';
 import { collectPasskeyRegistrationAuthority } from './passkeyRegistrationAuthority';
+import { collectEmailOtpRegistrationAuthority } from './emailOtpRegistrationAuthority';
+import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
 
 // Registration forces a visible, clickable confirmation for cross-origin safety.
 
-type EmitRegistrationEventInput = Omit<
-  CreateRegistrationFlowEventInput,
-  'accountId' | 'authMethod' | 'flowId'
->;
+type EmitRegistrationEventInput = Omit<CreateRegistrationFlowEventInput, 'accountId' | 'flowId'>;
 
 function emitRegistrationEvent(
   onEvent: RegistrationHooksOptions['onEvent'] | undefined,
   nearAccountId: AccountId,
   event: EmitRegistrationEventInput,
 ): void {
+  const authMethod = event.authMethod || 'passkey';
   onEvent?.(
     createRegistrationFlowEvent({
-      flowId: `registration:passkey:${nearAccountId}`,
-      accountId: String(nearAccountId),
-      authMethod: 'passkey',
       ...event,
+      flowId: `registration:${authMethod}:${nearAccountId}`,
+      accountId: String(nearAccountId),
+      authMethod,
     }),
   );
 }
@@ -102,9 +103,9 @@ export async function registerPasskeyInternal(
   }
   return await registerWallet({
     context,
-    walletSubject: {
+    wallet: {
       kind: 'provided',
-      walletSubjectId: walletSubjectIdFromString(String(accountId)),
+      walletId: walletIdFromString(String(accountId)),
     },
     rpId,
     authMethod: { kind: 'passkey' },
@@ -131,20 +132,20 @@ export async function registerPasskey(
 
 async function registerEcdsaWalletOnly(args: {
   context: PasskeyManagerContext;
-  authMethod: Extract<RegistrationAuthMethodInput, { kind: 'passkey' }>;
-  walletSubject: RegisterWalletSubjectInput;
+  authMethod: RegistrationAuthMethodInput;
+  wallet: RegisterWalletInput;
   rpId: string;
   signerSelection: Extract<RegistrationSignerSelection, { mode: 'ecdsa_only' }>;
   options: RegistrationHooksOptions;
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
 }): Promise<RegistrationResult> {
-  const { context, walletSubject, signerSelection } = args;
+  const { context, wallet, signerSelection } = args;
   const options = args.options || {};
   const { onEvent, onError, afterCall } = options;
   const startedAt = performance.now();
   const rpId = String(args.rpId || '').trim();
   const initialEventAccountId = String(
-    walletSubject.kind === 'provided' ? walletSubject.walletSubjectId : 'wallet-registration',
+    wallet.kind === 'provided' ? wallet.walletId : 'wallet-registration',
   ) as AccountId;
 
   if (!rpId) {
@@ -152,6 +153,7 @@ async function registerEcdsaWalletOnly(args: {
   }
 
   emitRegistrationEvent(onEvent, initialEventAccountId, {
+    authMethod: args.authMethod.kind,
     phase: RegistrationEventPhase.STEP_01_STARTED,
     status: 'started',
   });
@@ -164,15 +166,13 @@ async function registerEcdsaWalletOnly(args: {
 
     const managedGrant = await createManagedRegistrationFlowGrant({
       context,
-      ...(walletSubject.kind === 'provided'
-        ? { walletSubjectId: String(walletSubject.walletSubjectId || '').trim() }
-        : {}),
+      ...(wallet.kind === 'provided' ? { walletId: String(wallet.walletId || '').trim() } : {}),
       rpId,
     });
     const intentResponse = await createWalletRegistrationIntent({
       relayerUrl,
       request: {
-        walletSubject,
+        wallet,
         rpId,
         authMethod: args.authMethod,
         signerSelection,
@@ -186,39 +186,93 @@ async function registerEcdsaWalletOnly(args: {
       throw new Error('Registration intent digest mismatch');
     }
 
-    const walletSubjectId = intentResponse.intent.walletSubjectId;
-    const eventAccountId = String(walletSubjectId) as AccountId;
-    emitRegistrationEvent(onEvent, eventAccountId, {
-      phase: RegistrationEventPhase.STEP_04_PASSKEY_CREATE_STARTED,
-      status: 'waiting_for_user',
-      interaction: {
-        kind: 'passkey_create',
-        overlay: 'show',
-      },
-    });
-    const confirmationConfig: Partial<ConfirmationConfig> = {
-      uiMode: 'modal',
-      behavior: 'requireClick',
-      ...(args.confirmationConfigOverride ?? options?.confirmationConfig ?? {}),
-    };
-    const passkeyAuthority = await collectPasskeyRegistrationAuthority({
-      context,
-      walletSubjectId: String(walletSubjectId),
-      signerSlot: 1,
-      registrationIntentDigestB64u: intentResponse.registrationIntentDigestB64u,
-      options,
-      confirmationConfigOverride: confirmationConfig,
-    });
-    emitRegistrationEvent(onEvent, eventAccountId, {
-      phase: RegistrationEventPhase.STEP_04_PASSKEY_CREATE_SUCCEEDED,
-      status: 'succeeded',
-      interaction: {
-        kind: 'passkey_create',
-        overlay: 'hide',
-      },
-    });
+    const walletId = intentResponse.intent.walletId;
+    const eventAccountId = String(walletId) as AccountId;
+    let clientRootShare32B64u = '';
+    let emailOtpChallengeId = '';
+    let emailOtpEmail = '';
+    let emailOtpEnrollment:
+      | Awaited<
+          ReturnType<SigningEnginePublic['prepareEmailOtpRegistrationEnrollmentMaterialInternal']>
+        >['emailOtpEnrollment']
+      | null = null;
+    let passkeyAuthority: Awaited<ReturnType<typeof collectPasskeyRegistrationAuthority>> | null =
+      null;
+    let startAuthority:
+      | {
+          kind: 'passkey';
+          webauthnRegistration: unknown;
+        }
+      | {
+          kind: 'email_otp';
+          emailOtpRegistrationProof: Awaited<
+            ReturnType<typeof collectEmailOtpRegistrationAuthority>
+          >['proof'];
+        };
+    if (args.authMethod.kind === 'passkey') {
+      emitRegistrationEvent(onEvent, eventAccountId, {
+        authMethod: args.authMethod.kind,
+        phase: RegistrationEventPhase.STEP_04_PASSKEY_CREATE_STARTED,
+        status: 'waiting_for_user',
+        interaction: {
+          kind: 'passkey_create',
+          overlay: 'show',
+        },
+      });
+      const confirmationConfig: Partial<ConfirmationConfig> = {
+        uiMode: 'modal',
+        behavior: 'requireClick',
+        ...(args.confirmationConfigOverride ?? options?.confirmationConfig ?? {}),
+      };
+      passkeyAuthority = await collectPasskeyRegistrationAuthority({
+        context,
+        walletId: String(walletId),
+        signerSlot: 1,
+        registrationIntentDigestB64u: intentResponse.registrationIntentDigestB64u,
+        options,
+        confirmationConfigOverride: confirmationConfig,
+      });
+      clientRootShare32B64u = passkeyAuthority.ecdsaClientRootShare32B64u;
+      startAuthority = {
+        kind: 'passkey',
+        webauthnRegistration: passkeyAuthority.webauthnRegistration,
+      };
+      emitRegistrationEvent(onEvent, eventAccountId, {
+        authMethod: args.authMethod.kind,
+        phase: RegistrationEventPhase.STEP_04_PASSKEY_CREATE_SUCCEEDED,
+        status: 'succeeded',
+        interaction: {
+          kind: 'passkey_create',
+          overlay: 'hide',
+        },
+      });
+    } else {
+      const emailAuthority = await collectEmailOtpRegistrationAuthority({
+        authMethod: args.authMethod,
+        relayUrl: relayerUrl,
+        walletId: String(walletId),
+        registrationIntentDigestB64u: intentResponse.registrationIntentDigestB64u,
+        appSessionJwt: args.authMethod.appSessionJwt,
+      });
+      const enrollment =
+        await context.signingEngine.prepareEmailOtpRegistrationEnrollmentMaterialInternal({
+          relayUrl: relayerUrl,
+          walletId: toWalletId(walletId),
+          userId: emailAuthority.email,
+          appSessionJwt: args.authMethod.appSessionJwt,
+        });
+      clientRootShare32B64u = enrollment.clientRootShare32B64u;
+      emailOtpEnrollment = enrollment.emailOtpEnrollment;
+      emailOtpChallengeId = emailAuthority.challengeId;
+      emailOtpEmail = emailAuthority.email;
+      startAuthority = {
+        kind: 'email_otp',
+        emailOtpRegistrationProof: emailAuthority.proof,
+      };
+    }
 
     emitRegistrationEvent(onEvent, eventAccountId, {
+      authMethod: args.authMethod.kind,
       phase: RegistrationEventPhase.STEP_05_ED25519_SIGNER_PREPARE_STARTED,
       status: 'running',
     });
@@ -227,8 +281,7 @@ async function registerEcdsaWalletOnly(args: {
       registrationIntentGrant: intentResponse.registrationIntentGrant,
       registrationIntentDigestB64u: intentResponse.registrationIntentDigestB64u,
       intent: intentResponse.intent,
-      kind: 'passkey',
-      webauthnRegistration: passkeyAuthority.webauthnRegistration,
+      ...startAuthority,
     });
     if (!startedCeremony.ecdsa) {
       throw new Error('Wallet registration start did not return ECDSA HSS material');
@@ -236,7 +289,7 @@ async function registerEcdsaWalletOnly(args: {
     const preparedClientBootstrap =
       await context.signingEngine.prepareWalletRegistrationEcdsaPreparedClientBootstrap({
         prepare: startedCeremony.ecdsa.prepare,
-        clientRootShare32B64u: passkeyAuthority.ecdsaClientRootShare32B64u,
+        clientRootShare32B64u,
       });
     const responded = await respondWalletRegistrationHss({
       relayerUrl,
@@ -256,37 +309,54 @@ async function registerEcdsaWalletOnly(args: {
       ecdsa: {
         expectedKeyHandles: [ecdsaBootstrap.keyHandle],
       },
+      ...(emailOtpEnrollment ? { emailOtpEnrollment } : {}),
     });
     const walletKeys = finalized.ecdsa?.walletKeys || [];
     if (walletKeys.length === 0) {
       throw new Error('Wallet registration finalize did not return ECDSA wallet keys');
     }
     emitRegistrationEvent(onEvent, eventAccountId, {
+      authMethod: args.authMethod.kind,
       phase: RegistrationEventPhase.STEP_05_ED25519_SIGNER_PREPARE_SUCCEEDED,
       status: 'succeeded',
     });
 
     emitRegistrationEvent(onEvent, eventAccountId, {
+      authMethod: args.authMethod.kind,
       phase: RegistrationEventPhase.STEP_08_STORAGE_PERSIST_STARTED,
       status: 'running',
     });
     await context.signingEngine.persistWalletRegistrationEcdsaBootstrapForWalletKeys({
-      walletId: toWalletId(finalized.walletSubjectId),
+      walletId: toWalletId(finalized.walletId),
       relayerUrl,
       preparedClientBootstrap,
       bootstrap: ecdsaBootstrap,
       walletKeys,
     });
-    await context.signingEngine.storeWalletSubjectEcdsaRegistrationData({
-      walletSubjectId: finalized.walletSubjectId,
-      credential: passkeyAuthority.credential,
-      walletKeys,
-    });
+    if (args.authMethod.kind === 'passkey') {
+      if (!passkeyAuthority) {
+        throw new Error('Passkey registration authority was not collected');
+      }
+      await context.signingEngine.storeWalletEcdsaRegistrationData({
+        walletId: finalized.walletId,
+        credential: passkeyAuthority.credential,
+        walletKeys,
+      });
+    } else {
+      await context.signingEngine.storeWalletEmailOtpEcdsaRegistrationData({
+        walletId: finalized.walletId,
+        email: emailOtpEmail,
+        challengeId: emailOtpChallengeId,
+        walletKeys,
+      });
+    }
     emitRegistrationEvent(onEvent, eventAccountId, {
+      authMethod: args.authMethod.kind,
       phase: RegistrationEventPhase.STEP_08_STORAGE_PERSIST_SUCCEEDED,
       status: 'succeeded',
     });
     emitRegistrationEvent(onEvent, eventAccountId, {
+      authMethod: args.authMethod.kind,
       phase: RegistrationEventPhase.STEP_11_COMPLETED,
       status: 'succeeded',
     });
@@ -298,7 +368,7 @@ async function registerEcdsaWalletOnly(args: {
       thresholdEcdsaPublicKeyB64u: primaryKey.thresholdEcdsaPublicKeyB64u,
     };
     console.info('[Registration] ECDSA wallet flow timings', {
-      walletSubjectId: String(finalized.walletSubjectId),
+      walletId: String(finalized.walletId),
       totalMs: Math.round(performance.now() - startedAt),
     });
     afterCall?.(true, result);
@@ -315,6 +385,7 @@ async function registerEcdsaWalletOnly(args: {
     }
     onError?.(errorObject);
     emitRegistrationEvent(onEvent, initialEventAccountId, {
+      authMethod: args.authMethod.kind,
       phase: RegistrationEventPhase.FAILED,
       status: 'failed',
       message: errorMessage,
@@ -333,8 +404,7 @@ async function registerEcdsaWalletOnly(args: {
       ...(errorCode ? { errorCode } : {}),
     };
     console.info('[Registration] ECDSA wallet flow timings', {
-      walletSubjectId:
-        walletSubject.kind === 'provided' ? String(walletSubject.walletSubjectId) : undefined,
+      walletId: wallet.kind === 'provided' ? String(wallet.walletId) : undefined,
       totalMs: Math.round(performance.now() - startedAt),
       failed: true,
     });
@@ -346,14 +416,14 @@ async function registerEcdsaWalletOnly(args: {
 export async function registerWallet(args: {
   context: PasskeyManagerContext;
   authMethod: RegistrationAuthMethodInput;
-  walletSubject: RegisterWalletSubjectInput;
+  wallet: RegisterWalletInput;
   rpId: string;
   signerSelection: RegistrationSignerSelection;
   options: RegistrationHooksOptions;
   authenticatorOptions: AuthenticatorOptions;
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
 }): Promise<RegistrationResult> {
-  const { context, walletSubject, signerSelection } = args;
+  const { context, wallet, signerSelection } = args;
   const options = args.options || {};
   const { onEvent, onError, afterCall } = options;
   const registrationStartedAt = performance.now();
@@ -365,15 +435,11 @@ export async function registerWallet(args: {
     contractTransactionId: null as string | null,
   };
 
-  if (args.authMethod.kind !== 'passkey') {
-    throw new Error('registerWallet currently supports passkey registration authority only');
-  }
-
   if (signerSelection.mode === 'ecdsa_only') {
     return await registerEcdsaWalletOnly({
       context,
       authMethod: args.authMethod,
-      walletSubject,
+      wallet,
       rpId: args.rpId,
       signerSelection,
       options,
@@ -398,12 +464,19 @@ export async function registerWallet(args: {
   }
 
   emitRegistrationEvent(onEvent, nearAccountId, {
+    authMethod: args.authMethod.kind,
     phase: RegistrationEventPhase.STEP_01_STARTED,
     status: 'started',
   });
 
   try {
-    await validateRegistrationInputs(context, nearAccountId, onEvent, onError);
+    await validateRegistrationInputs(
+      context,
+      nearAccountId,
+      args.authMethod.kind,
+      onEvent,
+      onError,
+    );
 
     const relayerUrl = String(context.configs.network.relayer.url || '').trim();
     if (!relayerUrl) {
@@ -418,7 +491,7 @@ export async function registerWallet(args: {
     const intentResponse = await createWalletRegistrationIntent({
       relayerUrl,
       request: {
-        walletSubject,
+        wallet,
         rpId,
         authMethod: args.authMethod,
         signerSelection,
@@ -451,57 +524,125 @@ export async function registerWallet(args: {
       throw new Error('Registration intent is missing signing root scope');
     }
 
-    emitRegistrationEvent(onEvent, nearAccountId, {
-      phase: RegistrationEventPhase.STEP_04_PASSKEY_CREATE_STARTED,
-      status: 'waiting_for_user',
-      interaction: {
-        kind: 'passkey_create',
-        overlay: 'show',
-      },
-    });
-    const confirmationConfig: Partial<ConfirmationConfig> = {
-      uiMode: 'modal',
-      behavior: 'requireClick',
-      ...(args.confirmationConfigOverride ?? options?.confirmationConfig ?? {}),
-    };
-    const passkeyAuthority = await collectPasskeyRegistrationAuthority({
-      context,
-      walletSubjectId: String(intentResponse.intent.walletSubjectId),
-      signerSlot: ed25519Selection.signerSlot,
-      registrationIntentDigestB64u: intentResponse.registrationIntentDigestB64u,
-      options,
-      confirmationConfigOverride: confirmationConfig,
-    });
-    emitRegistrationEvent(onEvent, nearAccountId, {
-      phase: RegistrationEventPhase.STEP_04_PASSKEY_CREATE_SUCCEEDED,
-      status: 'succeeded',
-      interaction: {
-        kind: 'passkey_create',
-        overlay: 'hide',
-      },
-    });
+    let ed25519PrfFirstB64u = '';
+    let ecdsaClientRootShare32B64u = '';
+    let emailOtpChallengeId = '';
+    let emailOtpEmail = '';
+    let emailOtpEnrollment:
+      | Awaited<
+          ReturnType<SigningEnginePublic['prepareEmailOtpRegistrationEnrollmentMaterialInternal']>
+        >['emailOtpEnrollment']
+      | null = null;
+    let passkeyAuthority: Awaited<ReturnType<typeof collectPasskeyRegistrationAuthority>> | null =
+      null;
+    let startAuthority:
+      | {
+          kind: 'passkey';
+          webauthnRegistration: unknown;
+        }
+      | {
+          kind: 'email_otp';
+          emailOtpRegistrationProof: Awaited<
+            ReturnType<typeof collectEmailOtpRegistrationAuthority>
+          >['proof'];
+        };
+    if (args.authMethod.kind === 'passkey') {
+      emitRegistrationEvent(onEvent, nearAccountId, {
+        authMethod: args.authMethod.kind,
+        phase: RegistrationEventPhase.STEP_04_PASSKEY_CREATE_STARTED,
+        status: 'waiting_for_user',
+        interaction: {
+          kind: 'passkey_create',
+          overlay: 'show',
+        },
+      });
+      const confirmationConfig: Partial<ConfirmationConfig> = {
+        uiMode: 'modal',
+        behavior: 'requireClick',
+        ...(args.confirmationConfigOverride ?? options?.confirmationConfig ?? {}),
+      };
+      passkeyAuthority = await collectPasskeyRegistrationAuthority({
+        context,
+        walletId: String(intentResponse.intent.walletId),
+        signerSlot: ed25519Selection.signerSlot,
+        registrationIntentDigestB64u: intentResponse.registrationIntentDigestB64u,
+        options,
+        confirmationConfigOverride: confirmationConfig,
+      });
+      ed25519PrfFirstB64u = passkeyAuthority.prfFirstB64u;
+      ecdsaClientRootShare32B64u = passkeyAuthority.ecdsaClientRootShare32B64u;
+      startAuthority = {
+        kind: 'passkey',
+        webauthnRegistration: passkeyAuthority.webauthnRegistration,
+      };
+      emitRegistrationEvent(onEvent, nearAccountId, {
+        authMethod: args.authMethod.kind,
+        phase: RegistrationEventPhase.STEP_04_PASSKEY_CREATE_SUCCEEDED,
+        status: 'succeeded',
+        interaction: {
+          kind: 'passkey_create',
+          overlay: 'hide',
+        },
+      });
+    } else {
+      const emailAuthority = await collectEmailOtpRegistrationAuthority({
+        authMethod: args.authMethod,
+        relayUrl: relayerUrl,
+        walletId: String(intentResponse.intent.walletId),
+        registrationIntentDigestB64u: intentResponse.registrationIntentDigestB64u,
+        appSessionJwt: args.authMethod.appSessionJwt,
+      });
+      const enrollment =
+        await context.signingEngine.prepareEmailOtpRegistrationEnrollmentMaterialInternal({
+          relayUrl: relayerUrl,
+          walletId: toWalletId(intentResponse.intent.walletId),
+          userId: emailAuthority.email,
+          appSessionJwt: args.authMethod.appSessionJwt,
+        });
+      ed25519PrfFirstB64u = enrollment.thresholdEd25519PrfFirstB64u;
+      ecdsaClientRootShare32B64u = enrollment.clientRootShare32B64u;
+      emailOtpEnrollment = enrollment.emailOtpEnrollment;
+      emailOtpChallengeId = emailAuthority.challengeId;
+      emailOtpEmail = emailAuthority.email;
+      startAuthority = {
+        kind: 'email_otp',
+        emailOtpRegistrationProof: emailAuthority.proof,
+      };
+    }
 
     emitRegistrationEvent(onEvent, nearAccountId, {
+      authMethod: args.authMethod.kind,
       phase: RegistrationEventPhase.STEP_05_ED25519_SIGNER_PREPARE_STARTED,
       status: 'running',
     });
-    const hssClientMaterial = await prepareThresholdEd25519RegistrationHssClientMaterial({
-      context,
-      credential: passkeyAuthority.credential,
-      signingRootId,
-      nearAccountId,
-      keyPurpose: ed25519Selection.keyPurpose,
-      keyVersion: ed25519Selection.keyVersion,
-      participantIds: ed25519Selection.participantIds,
-      derivationVersion: ed25519Selection.derivationVersion,
-    });
+    const hssClientMaterial =
+      args.authMethod.kind === 'passkey'
+        ? await prepareThresholdEd25519RegistrationHssClientMaterial({
+            context,
+            credential: passkeyAuthority!.credential,
+            signingRootId,
+            nearAccountId,
+            keyPurpose: ed25519Selection.keyPurpose,
+            keyVersion: ed25519Selection.keyVersion,
+            participantIds: ed25519Selection.participantIds,
+            derivationVersion: ed25519Selection.derivationVersion,
+          })
+        : await prepareThresholdEd25519RegistrationHssClientMaterialFromPrfFirst({
+            context,
+            prfFirstB64u: ed25519PrfFirstB64u,
+            signingRootId,
+            nearAccountId,
+            keyPurpose: ed25519Selection.keyPurpose,
+            keyVersion: ed25519Selection.keyVersion,
+            participantIds: ed25519Selection.participantIds,
+            derivationVersion: ed25519Selection.derivationVersion,
+          });
     const startedCeremony = await startWalletRegistration({
       relayerUrl,
       registrationIntentGrant: intentResponse.registrationIntentGrant,
       registrationIntentDigestB64u: intentResponse.registrationIntentDigestB64u,
       intent: intentResponse.intent,
-      kind: 'passkey',
-      webauthnRegistration: passkeyAuthority.webauthnRegistration,
+      ...startAuthority,
     });
     if (!startedCeremony.ed25519) {
       throw new Error('Wallet registration start did not return Ed25519 HSS material');
@@ -515,7 +656,7 @@ export async function registerWallet(args: {
         ? (async () =>
             await context.signingEngine.prepareWalletRegistrationEcdsaPreparedClientBootstrap({
               prepare: ecdsaPrepare,
-              clientRootShare32B64u: passkeyAuthority.ecdsaClientRootShare32B64u,
+              clientRootShare32B64u: ecdsaClientRootShare32B64u,
             }))()
         : Promise.resolve(null);
 
@@ -586,6 +727,7 @@ export async function registerWallet(args: {
             },
           }
         : {}),
+      ...(emailOtpEnrollment ? { emailOtpEnrollment } : {}),
     });
     if (!finalized.ed25519) {
       throw new Error('Wallet registration finalize did not return Ed25519 key material');
@@ -598,6 +740,7 @@ export async function registerWallet(args: {
       performance.now() - registrationStartedAt,
     );
     emitRegistrationEvent(onEvent, nearAccountId, {
+      authMethod: args.authMethod.kind,
       phase: RegistrationEventPhase.STEP_05_ED25519_SIGNER_PREPARE_SUCCEEDED,
       status: 'succeeded',
       data: {
@@ -609,6 +752,7 @@ export async function registerWallet(args: {
     registrationState.accountCreated = ed25519Selection.createNearAccount;
     registrationState.contractRegistered = true;
     emitRegistrationEvent(onEvent, nearAccountId, {
+      authMethod: args.authMethod.kind,
       phase: RegistrationEventPhase.STEP_07_ACCOUNT_VERIFY_STARTED,
       status: 'running',
     });
@@ -622,28 +766,44 @@ export async function registerWallet(args: {
       }).session_policy,
     });
     emitRegistrationEvent(onEvent, nearAccountId, {
+      authMethod: args.authMethod.kind,
       phase: RegistrationEventPhase.STEP_07_ACCOUNT_VERIFY_SUCCEEDED,
       status: 'succeeded',
     });
 
     emitRegistrationEvent(onEvent, nearAccountId, {
+      authMethod: args.authMethod.kind,
       phase: RegistrationEventPhase.STEP_08_STORAGE_PERSIST_STARTED,
       status: 'running',
     });
     const localPersistenceStartedAt = performance.now();
     const storedRegistration =
-      await context.signingEngine.storeWalletSubjectEd25519RegistrationData({
-        walletSubjectId: finalized.walletSubjectId,
-        nearAccountId,
-        credential: passkeyAuthority.credential,
-        operationalPublicKey: completedThresholdEd25519Registration.operationalPublicKey,
-        signerSlot: ed25519Selection.signerSlot,
-        relayerKeyId: finalized.ed25519.relayerKeyId,
-        keyVersion: finalized.ed25519.keyVersion,
-        participantIds: finalized.ed25519.participantIds,
-        clientParticipantId: finalized.ed25519.clientParticipantId,
-        relayerParticipantId: finalized.ed25519.relayerParticipantId,
-      });
+      args.authMethod.kind === 'passkey'
+        ? await context.signingEngine.storeWalletEd25519RegistrationData({
+            walletId: finalized.walletId,
+            nearAccountId,
+            credential: passkeyAuthority!.credential,
+            operationalPublicKey: completedThresholdEd25519Registration.operationalPublicKey,
+            signerSlot: ed25519Selection.signerSlot,
+            relayerKeyId: finalized.ed25519.relayerKeyId,
+            keyVersion: finalized.ed25519.keyVersion,
+            participantIds: finalized.ed25519.participantIds,
+            clientParticipantId: finalized.ed25519.clientParticipantId,
+            relayerParticipantId: finalized.ed25519.relayerParticipantId,
+          })
+        : await context.signingEngine.storeWalletEmailOtpEd25519RegistrationData({
+            walletId: finalized.walletId,
+            nearAccountId,
+            email: emailOtpEmail,
+            challengeId: emailOtpChallengeId,
+            operationalPublicKey: completedThresholdEd25519Registration.operationalPublicKey,
+            signerSlot: ed25519Selection.signerSlot,
+            relayerKeyId: finalized.ed25519.relayerKeyId,
+            keyVersion: finalized.ed25519.keyVersion,
+            participantIds: finalized.ed25519.participantIds,
+            clientParticipantId: finalized.ed25519.clientParticipantId,
+            relayerParticipantId: finalized.ed25519.relayerParticipantId,
+          });
     const signerSlot = storedRegistration.signerSlot;
     const persistedUser = await context.signingEngine.getUserBySignerSlot(
       nearAccountId,
@@ -662,7 +822,7 @@ export async function registerWallet(args: {
       signerSlot,
       rpId,
       relayerUrl,
-      prfFirstB64u: passkeyAuthority.prfFirstB64u,
+      prfFirstB64u: hssClientMaterial.prfFirstB64u,
       registrationSessionPolicy: buildThresholdWarmSessionRequestEnvelope({
         rpId,
         requestedPolicy,
@@ -676,22 +836,30 @@ export async function registerWallet(args: {
         throw new Error('Wallet registration ECDSA session material was not prepared');
       }
       await context.signingEngine.persistWalletRegistrationEcdsaBootstrapForWalletKeys({
-        walletId: toWalletId(finalized.walletSubjectId),
+        walletId: toWalletId(finalized.walletId),
         relayerUrl,
         preparedClientBootstrap: ecdsaPreparedClientBootstrap,
         bootstrap: ecdsaBootstrap,
         walletKeys: ecdsaWalletKeys,
       });
-      await context.signingEngine.storeWalletSubjectEcdsaSignerRecords({
-        walletSubjectId: finalized.walletSubjectId,
-        walletKeys: ecdsaWalletKeys,
-      });
+      if (args.authMethod.kind === 'passkey') {
+        await context.signingEngine.storeWalletEcdsaSignerRecords({
+          walletId: finalized.walletId,
+          walletKeys: ecdsaWalletKeys,
+        });
+      } else {
+        await context.signingEngine.storeWalletEmailOtpEcdsaSignerRecords({
+          walletId: finalized.walletId,
+          walletKeys: ecdsaWalletKeys,
+        });
+      }
     }
     registrationTimingSummary.localPersistenceMs = Math.round(
       performance.now() - localPersistenceStartedAt,
     );
     registrationState.databaseStored = true;
     emitRegistrationEvent(onEvent, nearAccountId, {
+      authMethod: args.authMethod.kind,
       phase: RegistrationEventPhase.STEP_08_STORAGE_PERSIST_SUCCEEDED,
       status: 'succeeded',
       data: {
@@ -701,12 +869,14 @@ export async function registerWallet(args: {
       },
     });
 
-    void prewarmThresholdEd25519ClientBaseFromCredential({
-      context,
-      credential: passkeyAuthority.credential,
-      nearAccountId,
-      signerSlot,
-    }).catch(() => undefined);
+    if (passkeyAuthority) {
+      void prewarmThresholdEd25519ClientBaseFromCredential({
+        context,
+        credential: passkeyAuthority.credential,
+        nearAccountId,
+        signerSlot,
+      }).catch(() => undefined);
+    }
 
     try {
       await context.signingEngine.initializeCurrentUser(nearAccountId, context.nearClient);
@@ -715,6 +885,7 @@ export async function registerWallet(args: {
     }
 
     emitRegistrationEvent(onEvent, nearAccountId, {
+      authMethod: args.authMethod.kind,
       phase: RegistrationEventPhase.STEP_11_COMPLETED,
       status: 'succeeded',
     });
@@ -755,6 +926,7 @@ export async function registerWallet(args: {
     }
     onError?.(errorObject);
     emitRegistrationEvent(onEvent, nearAccountId, {
+      authMethod: args.authMethod.kind,
       phase: RegistrationEventPhase.FAILED,
       status: 'failed',
       message: errorMessage,
@@ -786,7 +958,7 @@ export async function registerWallet(args: {
 
 export async function addWalletSigner(args: {
   context: PasskeyManagerContext;
-  walletSubjectId: WalletSubjectId | string;
+  walletId: WalletId | string;
   rpId: string;
   signerSelection: AddSignerSelection;
   options: RegistrationHooksOptions;
@@ -794,13 +966,13 @@ export async function addWalletSigner(args: {
   const { context, signerSelection } = args;
   const options = args.options || {};
   const { onEvent, onError, afterCall } = options;
-  const walletSubjectId = walletSubjectIdFromString(String(args.walletSubjectId || '').trim());
-  const eventAccountId = String(walletSubjectId) as AccountId;
+  const walletId = walletIdFromString(String(args.walletId || '').trim());
+  const eventAccountId = String(walletId) as AccountId;
   const rpId = String(args.rpId || '').trim();
   const startedAt = performance.now();
 
-  if (!walletSubjectId) {
-    throw new Error('addWalletSigner requires walletSubjectId');
+  if (!walletId) {
+    throw new Error('addWalletSigner requires walletId');
   }
   if (!rpId) {
     throw new Error('addWalletSigner requires rpId');
@@ -818,14 +990,14 @@ export async function addWalletSigner(args: {
 
     const managedGrant = await createManagedRegistrationFlowGrant({
       context,
-      nearAccountId: String(walletSubjectId),
+      nearAccountId: String(walletId),
       rpId,
     });
     const intentResponse = await createWalletAddSignerIntent({
       relayerUrl,
-      walletSubjectId,
+      walletId,
       request: {
-        walletSubjectId,
+        walletId,
         rpId,
         signerSelection,
       },
@@ -846,9 +1018,7 @@ export async function addWalletSigner(args: {
         overlay: 'show',
       },
     });
-    const authenticators = await IndexedDBManager.listProfileAuthenticators(
-      String(walletSubjectId),
-    );
+    const authenticators = await IndexedDBManager.listProfileAuthenticators(String(walletId));
     const allowCredentials = authenticators.map((authenticator) => ({
       id: String(authenticator.credentialId || ''),
       type: 'public-key',
@@ -903,7 +1073,7 @@ export async function addWalletSigner(args: {
       });
       const startedCeremony = await startWalletAddSigner({
         relayerUrl,
-        walletSubjectId,
+        walletId,
         addSignerIntentGrant: intentResponse.addSignerIntentGrant,
         addSignerIntentDigestB64u: intentResponse.addSignerIntentDigestB64u,
         intent: intentResponse.intent,
@@ -926,7 +1096,7 @@ export async function addWalletSigner(args: {
         });
       const responded = await respondWalletAddSignerHss({
         relayerUrl,
-        walletSubjectId,
+        walletId,
         addSignerCeremonyId: startedCeremony.addSignerCeremonyId,
         ed25519: {
           clientRequest: {
@@ -952,7 +1122,7 @@ export async function addWalletSigner(args: {
       }
       const finalized = await finalizeWalletAddSigner({
         relayerUrl,
-        walletSubjectId,
+        walletId,
         addSignerCeremonyId: startedCeremony.addSignerCeremonyId,
         ed25519: {
           evaluationResult,
@@ -981,8 +1151,8 @@ export async function addWalletSigner(args: {
         phase: RegistrationEventPhase.STEP_08_STORAGE_PERSIST_STARTED,
         status: 'running',
       });
-      const storedRegistration = await context.signingEngine.storeWalletSubjectEd25519SignerRecord({
-        walletSubjectId,
+      const storedRegistration = await context.signingEngine.storeWalletEd25519SignerRecord({
+        walletId,
         nearAccountId,
         credential: redactedAuthentication,
         operationalPublicKey: completedThresholdEd25519Registration.operationalPublicKey,
@@ -1023,7 +1193,7 @@ export async function addWalletSigner(args: {
         operationalPublicKey: completedThresholdEd25519Registration.operationalPublicKey,
       };
       console.info('[Registration] add-signer flow timings', {
-        walletSubjectId: String(walletSubjectId),
+        walletId: String(walletId),
         totalMs: Math.round(performance.now() - startedAt),
       });
       afterCall?.(true, result);
@@ -1035,7 +1205,7 @@ export async function addWalletSigner(args: {
 
     const startedCeremony = await startWalletAddSigner({
       relayerUrl,
-      walletSubjectId,
+      walletId,
       addSignerIntentGrant: intentResponse.addSignerIntentGrant,
       addSignerIntentDigestB64u: intentResponse.addSignerIntentDigestB64u,
       intent: intentResponse.intent,
@@ -1055,7 +1225,7 @@ export async function addWalletSigner(args: {
       });
     const responded = await respondWalletAddSignerHss({
       relayerUrl,
-      walletSubjectId,
+      walletId,
       addSignerCeremonyId: startedCeremony.addSignerCeremonyId,
       ecdsa: { clientBootstrap: preparedClientBootstrap.clientBootstrap },
     });
@@ -1068,7 +1238,7 @@ export async function addWalletSigner(args: {
     });
     const finalized = await finalizeWalletAddSigner({
       relayerUrl,
-      walletSubjectId,
+      walletId,
       addSignerCeremonyId: startedCeremony.addSignerCeremonyId,
       ecdsa: {
         expectedKeyHandles: [ecdsaBootstrap.keyHandle],
@@ -1084,14 +1254,14 @@ export async function addWalletSigner(args: {
       status: 'running',
     });
     await context.signingEngine.persistWalletRegistrationEcdsaBootstrapForWalletKeys({
-      walletId: toWalletId(walletSubjectId),
+      walletId: toWalletId(walletId),
       relayerUrl,
       preparedClientBootstrap,
       bootstrap: ecdsaBootstrap,
       walletKeys,
     });
-    await context.signingEngine.storeWalletSubjectEcdsaSignerRecords({
-      walletSubjectId,
+    await context.signingEngine.storeWalletEcdsaSignerRecords({
+      walletId,
       walletKeys,
     });
     emitRegistrationEvent(onEvent, eventAccountId, {
@@ -1110,7 +1280,7 @@ export async function addWalletSigner(args: {
       thresholdEcdsaPublicKeyB64u: primaryKey.thresholdEcdsaPublicKeyB64u,
     };
     console.info('[Registration] add-signer flow timings', {
-      walletSubjectId: String(walletSubjectId),
+      walletId: String(walletId),
       totalMs: Math.round(performance.now() - startedAt),
     });
     afterCall?.(true, result);
@@ -1145,7 +1315,7 @@ export async function addWalletSigner(args: {
       ...(errorCode ? { errorCode } : {}),
     };
     console.info('[Registration] add-signer flow timings', {
-      walletSubjectId: String(walletSubjectId),
+      walletId: String(walletId),
       totalMs: Math.round(performance.now() - startedAt),
       failed: true,
     });
@@ -1171,10 +1341,12 @@ const validateRegistrationInputs = async (
     nearClient: NearClient;
   },
   nearAccountId: AccountId,
+  authMethod: RegistrationAuthMethodInput['kind'],
   onEvent?: RegistrationHooksOptions['onEvent'],
   onError?: (error: Error) => void,
 ) => {
   emitRegistrationEvent(onEvent, nearAccountId, {
+    authMethod,
     phase: RegistrationEventPhase.STEP_02_ACCOUNT_PREFLIGHT_STARTED,
     status: 'running',
   });
@@ -1212,6 +1384,7 @@ const validateRegistrationInputs = async (
   }
 
   emitRegistrationEvent(onEvent, nearAccountId, {
+    authMethod,
     phase: RegistrationEventPhase.STEP_02_ACCOUNT_PREFLIGHT_SUCCEEDED,
     status: 'succeeded',
   });

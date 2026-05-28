@@ -158,6 +158,7 @@
     "test:relayer": "pnpm -C ../tests test:relayer",
     "build:check:fresh": "./scripts/build/check-build-freshness.sh",
     "check:bundle-size": "node ./scripts/checks/report-wallet-iframe-bundle-size.mjs",
+    "check:wasm-exports": "node ./scripts/checks/report-wasm-export-surface.mjs",
     "size:lite": "node ./scripts/reports/report-lite-bundle-sizes.mjs",
     "size:lite:check": "node ./scripts/reports/report-lite-bundle-sizes.mjs --check",
     "type-check": "tsc --noEmit"

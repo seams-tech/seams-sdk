@@ -669,7 +669,7 @@ type SigningBudgetFinalizationResult =
 
 ## Phase 9: Remove ECDSA `subjectId` Where Safe
 
-`walletSubjectId` is still the registration/profile identity and should remain
+`walletId` is still the registration/profile identity and should remain
 owned by registration flows. ECDSA `subjectId` should disappear from public
 commands, lane state, selected/planning identity, freshness, budget
 reservations, and persisted runtime records. HSS protocol inputs may still need a
@@ -679,28 +679,28 @@ until the HSS identity scheme is explicitly versioned.
 
 ### Safety Gates
 
-- [x] Classify every remaining `subjectId` and `walletSubjectId` reference into:
+- [x] Classify every remaining `subjectId` and `walletId` reference into:
       registration/profile identity, HSS protocol identity, Email OTP auth subject,
       ECDSA runtime metadata, persistence compatibility, docs/tests.
-- [x] Keep `walletSubjectId` in registration intent, registration ceremonies,
-      WebAuthn credential binding, and wallet-subject key-facts inventory routes.
+- [x] Keep `walletId` in registration intent, registration ceremonies,
+      WebAuthn credential binding, and wallet key-facts inventory routes.
 - [x] Keep `authSubjectId` separate for Email OTP provider identity.
 - [x] Keep HSS protocol subject identity only behind a narrowly named type such
-      as `BaseEcdsaSubjectId` or `HssWalletSubjectId`.
+      as `BaseEcdsaSubjectId` or `HssWalletId`.
 - [x] Remove HSS protocol `subjectId` from digest/JWT inputs only with a new
       protocol version and an explicit key/session invalidation plan.
 
 ### Tasks
 
 - [x] Rename protocol-local ECDSA HSS `subjectId` fields to
-      `baseEcdsaSubjectId` or `hssWalletSubjectId` at internal boundaries.
+      `baseEcdsaSubjectId` or `hssWalletId` at internal boundaries.
 - [x] Derive the protocol-local HSS subject identity from wallet id in one
       builder. Core ECDSA key/lane/session functions should accept wallet id and
       exact lane identity instead of raw subject strings.
 - [x] Remove `subjectId` from `BuildEvmFamilyEcdsaKeyIdentityInput`; derive and
       validate the base ECDSA subject inside the boundary builder.
-- [x] Replace `walletSubjectIdFromAccountContext({ subjectId, profileId })`
-      fallback usage with explicit parsers for either registration `walletSubjectId`
+- [x] Replace `walletIdFromAccountContext({ subjectId, profileId })`
+      fallback usage with explicit parsers for either registration `walletId`
       or ECDSA `walletId`.
 - [x] Make canonical ECDSA session record parsing reject any `subjectId`, even
       when it matches the wallet-derived value.
@@ -836,7 +836,7 @@ Manual flows:
 - [x] Email OTP refresh 401/403 produces fresh OTP step-up state at the refresh
       boundary.
 - [x] ECDSA runtime, persistence, freshness, reservation, and public API types
-      reject `subjectId`; registration keeps `walletSubjectId`.
+      reject `subjectId`; registration keeps `walletId`.
 - [x] Server ECDSA HSS request and persistence boundaries reject old
       `subjectId`/`walletSessionUserId` field names.
 - [x] Type fixtures reject invalid policy, prompt, admission, reservation, and

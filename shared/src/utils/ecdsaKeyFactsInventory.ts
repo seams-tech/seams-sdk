@@ -14,8 +14,8 @@ type EcdsaInventoryChainTarget =
       networkSlug?: string;
     };
 
-export type WalletSubjectEcdsaKeyFactsInventoryChallengeInput = {
-  walletSubjectId: string;
+export type WalletEcdsaKeyFactsInventoryChallengeInput = {
+  walletId: string;
   rpId: string;
   keyTargets: readonly {
     keyHandle: string;
@@ -45,8 +45,8 @@ function normalizeChainTarget(target: EcdsaInventoryChainTarget): EcdsaInventory
   };
 }
 
-export function canonicalizeWalletSubjectEcdsaKeyFactsInventoryChallenge(
-  input: WalletSubjectEcdsaKeyFactsInventoryChallengeInput,
+export function canonicalizeWalletEcdsaKeyFactsInventoryChallenge(
+  input: WalletEcdsaKeyFactsInventoryChallengeInput,
 ): string {
   const keyTargets = input.keyTargets
     .map((target) => ({
@@ -61,8 +61,8 @@ export function canonicalizeWalletSubjectEcdsaKeyFactsInventoryChallenge(
     });
 
   return alphabetizeStringify({
-    version: 'wallet-subject-ecdsa-key-facts-inventory:v1',
-    walletSubjectId: input.walletSubjectId,
+    version: 'wallet-ecdsa-key-facts-inventory:v1',
+    walletId: input.walletId,
     rpId: input.rpId,
     keyTargets,
     ...(input.runtimePolicyScope ? { runtimePolicyScope: input.runtimePolicyScope } : {}),
@@ -70,10 +70,10 @@ export function canonicalizeWalletSubjectEcdsaKeyFactsInventoryChallenge(
   });
 }
 
-export async function computeWalletSubjectEcdsaKeyFactsInventoryChallengeDigestB64u(
-  input: WalletSubjectEcdsaKeyFactsInventoryChallengeInput,
+export async function computeWalletEcdsaKeyFactsInventoryChallengeDigestB64u(
+  input: WalletEcdsaKeyFactsInventoryChallengeInput,
 ): Promise<string> {
   return base64UrlEncode(
-    await sha256BytesUtf8(canonicalizeWalletSubjectEcdsaKeyFactsInventoryChallenge(input)),
+    await sha256BytesUtf8(canonicalizeWalletEcdsaKeyFactsInventoryChallenge(input)),
   );
 }

@@ -45,20 +45,12 @@ import {
 import { enrollEmailOtpWalletWithRoutePlan } from './walletEnrollment';
 import {
   buildEmailOtpEcdsaRoleLocalRegistrationClientSecretSource,
-  buildEmailOtpEd25519RegistrationClientSecretSource,
 } from './clientSecretSource';
 import {
   buildEmailOtpEcdsaMintingSession,
   buildFreshEmailOtpRoutePlan,
   routeAuthFromEmailOtpRoutePlan,
-  thresholdSessionAuthFromEcdsaBootstrap,
-  thresholdSessionIdFromEcdsaBootstrap,
-  walletSigningSessionIdFromEcdsaBootstrap,
 } from './routePlan';
-import type {
-  EmailOtpThresholdEd25519ProvisioningResult,
-  RegisterEmailOtpEd25519CapabilityArgs,
-} from './provisioning';
 
 export type EmailOtpThresholdEcdsaEnrollmentResult = {
   enrollment: EmailOtpEnrollmentResult;
@@ -79,7 +71,6 @@ export type EnrollAndLoginEmailOtpEcdsaCapabilityArgs = {
   routeAuth?: AppOrThresholdSessionAuth;
   keyHandle?: string;
   participantIds?: number[];
-  ed25519ParticipantIds?: number[];
   sessionKind?: 'jwt' | 'cookie';
   routePlan?: EmailOtpRoutePlan;
   ttlMs?: number;
@@ -136,17 +127,7 @@ export type EmailOtpEcdsaEnrollmentPorts = {
     appSessionJwt?: string;
   }) => void;
   publicationPorts: EmailOtpEcdsaPublicationPorts;
-  provisionEd25519Capability: (
-    args: RegisterEmailOtpEd25519CapabilityArgs,
-  ) => Promise<EmailOtpThresholdEd25519ProvisioningResult>;
 };
-
-const ED25519_REGISTRATION_CEREMONY_REQUIRED_MESSAGE =
-  'Email OTP Ed25519 registration provisioning must use a wallet-subject ceremony before it can run';
-
-function isDeferredEd25519RegistrationProvisioning(error: unknown): boolean {
-  return error instanceof Error && error.message === ED25519_REGISTRATION_CEREMONY_REQUIRED_MESSAGE;
-}
 
 function requiredEmailOtpEcdsaEnrollmentString(value: unknown, field: string): string {
   const normalized = String(value ?? '').trim();
@@ -372,17 +353,6 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
     ...emailOtpAuthContext,
     ...(emailOtpContextAuthSubjectId ? { authSubjectId: emailOtpContextAuthSubjectId } : {}),
   };
-  const ed25519RegistrationAuthContext: ThresholdEcdsaEmailOtpAuthContext = {
-    policy: 'session',
-    retention: 'session',
-    reason: 'login',
-    authMethod: SIGNER_AUTH_METHODS.emailOtp,
-    ...(resolvedEmailOtpAuthContext.authSubjectId
-      ? { authSubjectId: resolvedEmailOtpAuthContext.authSubjectId }
-      : {}),
-  };
-  const ed25519RegistrationRemainingUses =
-    typeof args.remainingUses === 'number' ? args.remainingUses : undefined;
   const { bootstrap, warmCapability } = await commitEmailOtpEcdsaPublicationBootstraps(
     {
       walletId: args.walletSession.walletId,
@@ -395,51 +365,6 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
     },
     ports.publicationPorts,
   );
-  const thresholdEd25519PrfFirstB64u = String(enrollment.thresholdEd25519PrfFirstB64u || '').trim();
-  if (thresholdEd25519PrfFirstB64u) {
-    const ed25519ClientSecretSource = buildEmailOtpEd25519RegistrationClientSecretSource({
-      registrationAttemptId: registrationInput.registrationAttemptId,
-      walletId: String(args.walletSession.walletId),
-      authSubjectId: emailOtpAuthSubjectId,
-      thresholdEd25519PrfFirstB64u,
-    });
-    const freshThresholdSessionAuth = thresholdSessionAuthFromEcdsaBootstrap(bootstrap);
-    const ed25519RouteAuth =
-      freshThresholdSessionAuth ||
-      (registrationInput.sessionKind === 'jwt' ? registrationInput.routeAuth : undefined);
-    try {
-      await ports.provisionEd25519Capability({
-        kind: 'registration_ed25519_companion_provisioning',
-        registrationAttemptId: registrationInput.registrationAttemptId,
-        nearAccountId,
-        relayUrl,
-        rpId,
-        clientSecretSource: ed25519ClientSecretSource,
-        emailOtpAuthContext: ed25519RegistrationAuthContext,
-        ...(appSessionJwt ? { appSessionJwt } : {}),
-        ...(ed25519RouteAuth ? { routeAuth: ed25519RouteAuth } : {}),
-        runtimePolicyScope: registrationInput.runtimePolicyScope,
-        ...(Array.isArray(args.ed25519ParticipantIds)
-          ? { participantIds: args.ed25519ParticipantIds }
-          : {}),
-        ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
-        ...(typeof ed25519RegistrationRemainingUses === 'number'
-          ? { remainingUses: ed25519RegistrationRemainingUses }
-          : {}),
-        walletSigningSessionId: walletSigningSessionIdFromEcdsaBootstrap(
-          bootstrap,
-          walletSigningSessionId,
-        ),
-        ecdsaThresholdSessionId: thresholdSessionIdFromEcdsaBootstrap(bootstrap),
-      });
-    } catch (error) {
-      if (!isDeferredEd25519RegistrationProvisioning(error)) throw error;
-      console.warn('[email-otp] deferred threshold-ed25519 registration provisioning', {
-        walletId: String(args.walletSession.walletId),
-        reason: 'wallet_subject_ceremony_required',
-      });
-    }
-  }
   return {
     enrollment,
     bootstrap,

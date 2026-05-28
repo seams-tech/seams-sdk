@@ -1,4 +1,7 @@
-import { enrollEmailOtpWallet } from '@/core/SeamsPasskey/emailOtp';
+import {
+  enrollEmailOtpWallet,
+  prepareEmailOtpRegistrationEnrollmentMaterial,
+} from '@/core/SeamsPasskey/emailOtp';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { EmailOtpAuthPolicy } from '@/core/types/seams';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
@@ -89,6 +92,20 @@ export type EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs = {
 };
 
 export type EnrollEmailOtpInternalResult = Awaited<ReturnType<typeof enrollEmailOtpWallet>>;
+
+export type PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgs = {
+  walletId: WalletId;
+  userId: string;
+  relayUrl?: string;
+  shamirPrimeB64u?: string;
+  appSessionJwt: string;
+  otpChannel?: WalletEmailOtpChannel;
+  clientSecret32?: Uint8Array;
+};
+
+export type PrepareEmailOtpRegistrationEnrollmentMaterialInternalResult = Awaited<
+  ReturnType<typeof prepareEmailOtpRegistrationEnrollmentMaterial>
+>;
 
 export type EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalResult = {
   enrollment: EnrollEmailOtpInternalResult;
@@ -215,6 +232,31 @@ export async function enrollEmailOtpInternal(
     userId: String(walletId),
     challengeId: args.challengeId,
     otpCode: args.otpCode,
+    shamirPrimeB64u,
+    workerCtx: deps.getSignerWorkerContext(),
+    appSessionJwt: args.appSessionJwt,
+    otpChannel: args.otpChannel,
+    ...(args.clientSecret32 ? { clientSecret32: args.clientSecret32 } : {}),
+  });
+}
+
+export async function prepareEmailOtpRegistrationEnrollmentMaterialInternal(
+  deps: EmailOtpPublicDeps,
+  args: PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgs,
+): Promise<PrepareEmailOtpRegistrationEnrollmentMaterialInternalResult> {
+  const walletId = toAccountId(args.walletId);
+  const relayUrl = String(args.relayUrl || deps.relayerUrl || '').trim();
+  if (!relayUrl) {
+    throw new Error('Missing relayer url (configs.network.relayer.url)');
+  }
+  const shamirPrimeB64u = String(args.shamirPrimeB64u || deps.shamirPrimeB64u || '').trim();
+  if (!shamirPrimeB64u) {
+    throw new Error('Missing shamir prime for Email OTP runtime');
+  }
+  return await prepareEmailOtpRegistrationEnrollmentMaterial({
+    relayUrl,
+    walletId: String(walletId),
+    userId: String(args.userId || walletId).trim(),
     shamirPrimeB64u,
     workerCtx: deps.getSignerWorkerContext(),
     appSessionJwt: args.appSessionJwt,

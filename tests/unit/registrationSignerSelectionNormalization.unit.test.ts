@@ -33,9 +33,9 @@ async function createIntentFromBoundary(service: AuthService, request: unknown) 
 test.describe('registration signer-selection normalization', () => {
   test('normalizes Ed25519-only signer selection into the registration intent', async () => {
     const result = await createIntentFromBoundary(makeService(), {
-      walletSubject: {
+      wallet: {
         kind: 'provided',
-        walletSubjectId: ' wallet_subject_alice ',
+        walletId: ' wallet_alice ',
       },
       rpId: ' wallet.example.test ',
       authMethod: { kind: 'passkey' },
@@ -55,7 +55,7 @@ test.describe('registration signer-selection normalization', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error(result.message);
     expect(result.intent).toMatchObject({
-      walletSubjectId: 'wallet_subject_alice',
+      walletId: 'wallet_alice',
       rpId: 'wallet.example.test',
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
       signerSelection: {
@@ -76,9 +76,9 @@ test.describe('registration signer-selection normalization', () => {
   test('normalizes combined Ed25519 and ECDSA signer selection', async () => {
     const chainTarget = { chain: 'tempo', chainId: 978 };
     const result = await createIntentFromBoundary(makeService(), {
-      walletSubject: {
+      wallet: {
         kind: 'provided',
-        walletSubjectId: 'wallet_subject_combined',
+        walletId: 'wallet_combined',
       },
       rpId: 'wallet.example.test',
       authMethod: { kind: 'passkey' },
@@ -123,7 +123,7 @@ test.describe('registration signer-selection normalization', () => {
   test('rejects unsupported or incomplete signer selections', async () => {
     await expect(
       createIntentFromBoundary(makeService(), {
-        walletSubject: { kind: 'server_generated' },
+        wallet: { kind: 'server_generated' },
         rpId: 'wallet.example.test',
         authMethod: { kind: 'passkey' },
         signerSelection: {
@@ -138,7 +138,7 @@ test.describe('registration signer-selection normalization', () => {
 
     await expect(
       createIntentFromBoundary(makeService(), {
-        walletSubject: { kind: 'server_generated' },
+        wallet: { kind: 'server_generated' },
         rpId: 'wallet.example.test',
         authMethod: { kind: 'passkey' },
         signerSelection: {
@@ -162,7 +162,7 @@ test.describe('registration signer-selection normalization', () => {
 
     await expect(
       createIntentFromBoundary(makeService(), {
-        walletSubject: { kind: 'server_generated' },
+        wallet: { kind: 'server_generated' },
         rpId: 'wallet.example.test',
         authMethod: { kind: 'passkey' },
         signerSelection: {

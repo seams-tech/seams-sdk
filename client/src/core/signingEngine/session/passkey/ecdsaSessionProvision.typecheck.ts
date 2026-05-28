@@ -1,4 +1,4 @@
-import { thresholdEcdsaChainTargetFromChainFamily, toWalletSubjectId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { thresholdEcdsaChainTargetFromChainFamily, toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '../identity/laneIdentity';
 import {
@@ -23,7 +23,7 @@ import {
 } from './ecdsaSessionProvision';
 
 const walletId = 'wallet.testnet';
-const subjectId = toWalletSubjectId(walletId);
+const subjectId = toWalletId(walletId);
 const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'evm',
   chainId: 11155111,

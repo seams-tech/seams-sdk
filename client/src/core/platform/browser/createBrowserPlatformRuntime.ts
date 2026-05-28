@@ -9,7 +9,7 @@ import type {
   PlatformRuntime,
   RandomSource,
   SecureSecretStore,
-  SignerComputePort,
+  SignerCryptoPort,
 } from '../types';
 
 type BrowserPlatformRuntimeDeps = {
@@ -78,14 +78,14 @@ function createBrowserAuthenticatorPort(): AuthenticatorPort {
   };
 }
 
-function createBrowserSignerComputePort(): SignerComputePort {
+function createBrowserSignerCryptoPort(): SignerCryptoPort {
   return {
-    kind: 'signer_compute',
+    kind: 'signer_crypto',
     async prepareEcdsaClientBootstrap() {
       return {
         ok: false,
         code: 'unavailable',
-        message: 'ECDSA client bootstrap compute adapter is not wired yet',
+        message: 'ECDSA client bootstrap crypto adapter is not wired yet',
       };
     },
   };
@@ -153,7 +153,7 @@ export function createBrowserPlatformRuntime(
     storage: createBrowserDurableRecordStore(indexedDB),
     secrets: createBrowserSecureSecretStore(),
     authenticator: createBrowserAuthenticatorPort(),
-    signerCompute: createBrowserSignerComputePort(),
+    signerCrypto: createBrowserSignerCryptoPort(),
     http: createBrowserHttpTransport(deps.fetch || globalThis.fetch?.bind(globalThis)),
     clock: createBrowserClock(deps.nowMs),
     random: createBrowserRandomSource(deps.crypto || globalThis.crypto),

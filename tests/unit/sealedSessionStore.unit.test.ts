@@ -119,8 +119,8 @@ test.describe('signing session sealed store', () => {
           const openReq = indexedDB.open('seams_wallet');
           openReq.onsuccess = () => {
             const db = openReq.result;
-            const tx = db.transaction('seams_signing_session_seals', 'readonly');
-            const getReq = tx.objectStore('seams_signing_session_seals').get(record?.storeKey);
+            const tx = db.transaction('signing_session_seals', 'readonly');
+            const getReq = tx.objectStore('signing_session_seals').get(record?.storeKey);
             getReq.onsuccess = () => {
               const value = getReq.result;
               db.close();
@@ -194,8 +194,8 @@ test.describe('signing session sealed store', () => {
         const db = await new Promise<IDBDatabase>((resolve, reject) => {
           const req = indexedDB.open('seams_wallet');
           req.onupgradeneeded = () => {
-            if (!req.result.objectStoreNames.contains('seams_signing_session_seals')) {
-              req.result.createObjectStore('seams_signing_session_seals', {
+            if (!req.result.objectStoreNames.contains('signing_session_seals')) {
+              req.result.createObjectStore('signing_session_seals', {
                 keyPath: 'store_key',
               });
             }
@@ -203,8 +203,8 @@ test.describe('signing session sealed store', () => {
           req.onsuccess = () => resolve(req.result);
           req.onerror = () => reject(req.error);
         });
-        const tx = db.transaction('seams_signing_session_seals', 'readwrite');
-        tx.objectStore('seams_signing_session_seals').put({
+        const tx = db.transaction('signing_session_seals', 'readwrite');
+        tx.objectStore('signing_session_seals').put({
           store_key: `plaintext:${thresholdSessionId}:passkey:ecdsa`,
           v: 1,
           alg: 'plain-v1',
@@ -315,7 +315,7 @@ test.describe('signing session sealed store', () => {
           const req = indexedDB.open('seams_wallet_v1', 4);
           req.onupgradeneeded = () => {
             const db = req.result;
-            if (!db.objectStoreNames.contains('seams_signing_session_seals')) {
+            if (!db.objectStoreNames.contains('signing_session_seals')) {
               db.createObjectStore('signing_session_seals_v1', {
                 keyPath: 'walletSigningSessionId',
               });
@@ -417,8 +417,8 @@ test.describe('signing session sealed store', () => {
           const req = indexedDB.open('seams_wallet');
           req.onsuccess = () => {
             const db = req.result;
-            const readTx = db.transaction('seams_signing_session_seals', 'readonly');
-            const getAllReq = readTx.objectStore('seams_signing_session_seals').getAll();
+            const readTx = db.transaction('signing_session_seals', 'readonly');
+            const getAllReq = readTx.objectStore('signing_session_seals').getAll();
             getAllReq.onsuccess = () => {
               const keys = (getAllReq.result as Array<Record<string, unknown>>).map((entry) =>
                 String(
@@ -512,8 +512,8 @@ test.describe('signing session sealed store', () => {
           req.onsuccess = () => resolve(req.result);
           req.onerror = () => reject(req.error);
         });
-        const tx = db.transaction('seams_signing_session_seals', 'readwrite');
-        tx.objectStore('seams_signing_session_seals').put({
+        const tx = db.transaction('signing_session_seals', 'readwrite');
+        tx.objectStore('signing_session_seals').put({
           store_key: 'bad-email-otp-wallet-session:email_otp:ecdsa',
           v: 1,
           alg: 'shamir3pass-v1',
@@ -765,32 +765,32 @@ test.describe('signing session sealed store', () => {
           req.onsuccess = () => resolve(req.result);
           req.onerror = () => reject(req.error);
         });
-        const tx = db.transaction('seams_signing_session_seals', 'readwrite');
-        tx.objectStore('seams_signing_session_seals').put({
+        const tx = db.transaction('signing_session_seals', 'readwrite');
+        tx.objectStore('signing_session_seals').put({
           store_key: deleteRequiredRaw.storeKey,
           ...deleteRequiredRaw,
         });
-        tx.objectStore('seams_signing_session_seals').put({
+        tx.objectStore('signing_session_seals').put({
           store_key: rebuildRequiredRaw.storeKey,
           ...rebuildRequiredRaw,
         });
-        tx.objectStore('seams_signing_session_seals').put({
+        tx.objectStore('signing_session_seals').put({
           store_key: missingSigningRootRaw.storeKey,
           ...missingSigningRootRaw,
         });
-        tx.objectStore('seams_signing_session_seals').put({
+        tx.objectStore('signing_session_seals').put({
           store_key: missingTokenRaw.storeKey,
           ...missingTokenRaw,
         });
-        tx.objectStore('seams_signing_session_seals').put({
+        tx.objectStore('signing_session_seals').put({
           store_key: missingOwnerRaw.storeKey,
           ...missingOwnerRaw,
         });
-        tx.objectStore('seams_signing_session_seals').put({
+        tx.objectStore('signing_session_seals').put({
           store_key: missingKeyIdRaw.storeKey,
           ...missingKeyIdRaw,
         });
-        tx.objectStore('seams_signing_session_seals').put({
+        tx.objectStore('signing_session_seals').put({
           store_key: missingWalletSessionRaw.storeKey,
           ...missingWalletSessionRaw,
         });
@@ -837,8 +837,8 @@ test.describe('signing session sealed store', () => {
         );
 
         const remainingKeys = await new Promise<string[]>((resolve, reject) => {
-          const readTx = db.transaction('seams_signing_session_seals', 'readonly');
-          const getReq = readTx.objectStore('seams_signing_session_seals').getAll();
+          const readTx = db.transaction('signing_session_seals', 'readonly');
+          const getReq = readTx.objectStore('signing_session_seals').getAll();
           getReq.onsuccess = () => {
             resolve(
               (getReq.result as Array<Record<string, unknown>>).map((entry) => {

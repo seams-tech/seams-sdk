@@ -17,7 +17,7 @@ and different EVM owner addresses from v1. Existing v1 ECDSA HSS keys,
 threshold sessions, sealed sessions, and cached key facts must be treated as
 stale at boundaries.
 
-`walletSubjectId` stays in registration/profile flows. `authSubjectId` stays in
+`walletId` stays in registration/profile flows. `authSubjectId` stays in
 Email OTP provider identity. This refactor targets the generic ECDSA/HSS
 `subjectId` field only.
 
@@ -33,7 +33,7 @@ identity adds several failure modes:
 - HSS digests, key ids, JWT claims, and server records all include an identity
   field that duplicates wallet identity.
 - Persistence still has boundary compatibility for matching `subjectId` values.
-- Registration `walletSubjectId`, Email OTP `authSubjectId`, and ECDSA
+- Registration `walletId`, Email OTP `authSubjectId`, and ECDSA
   `subjectId` are easy to confuse.
 
 Use HSS v2 to make wallet identity explicit and singular.
@@ -347,7 +347,7 @@ request/persistence boundaries.
 
 - [x] Remove `subjectId` from ECDSA public interfaces, postMessage payloads,
   examples, and docs.
-- [x] Keep registration `walletSubjectId` in registration docs and route docs.
+- [x] Keep registration `walletId` in registration docs and route docs.
 - [x] Keep Email OTP `authSubjectId` in provider-auth docs.
 - [x] Update error messages so ECDSA wallet identity errors mention `walletId`.
 - [x] Update refactor guard tests that search for forbidden `subjectId`.
@@ -400,7 +400,7 @@ Manual flows:
 - [x] Core ECDSA flows accept wallet id and exact lane identity with no raw
   subject strings.
 - [x] Public ECDSA APIs and docs expose no `subjectId`.
-- [x] Registration still uses `walletSubjectId`.
+- [x] Registration still uses `walletId`.
 - [x] Email OTP provider identity still uses `authSubjectId`.
 - [x] v1 ECDSA HSS keys, sessions, sealed records, and JWTs are rejected or
   pruned at boundaries.

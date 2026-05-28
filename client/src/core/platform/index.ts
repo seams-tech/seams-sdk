@@ -15,7 +15,7 @@ export type {
   RandomSource,
   SecureEnclaveWrappedSecretSource,
   SecureSecretStore,
-  SignerComputePort,
+  SignerCryptoPort,
   WebAuthnPrfFirstSecretSource,
 } from './types';
 export { assertNeverPlatform, platformKindLabel } from './types';

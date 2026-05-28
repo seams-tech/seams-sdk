@@ -17,8 +17,22 @@ export const SEAMS_WALLET_DB_CONFIG: SeamsWalletDBConfig = {
 } as const;
 
 const OBSOLETE_STORE_NAMES = [
+  'seams_app_state',
+  'seams_wallets',
+  'seams_wallet_subjects',
+  'seams_wallet_auth_methods',
   'seams_wallet_auth_method_bindings',
   'seams_wallet_authenticators',
+  'seams_wallet_signers',
+  'seams_near_accounts',
+  'seams_signer_ops_outbox',
+  'seams_recovery_emails',
+  'seams_nonce_lane_leases',
+  'seams_nonce_lane_locks',
+  'seams_key_material',
+  'seams_signing_session_seals',
+  'seams_signing_session_restore_leases',
+  'seams_email_otp_escrows',
 ] as const;
 
 function keyPathForIndexedDB(keyPath: string | readonly string[]): string | string[] {

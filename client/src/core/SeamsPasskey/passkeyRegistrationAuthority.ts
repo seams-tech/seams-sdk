@@ -27,7 +27,7 @@ export function requirePasskeyPrfFirstB64u(credential: unknown): string {
 
 export async function collectPasskeyRegistrationAuthority(args: {
   context: PasskeyManagerContext;
-  walletSubjectId: string;
+  walletId: string;
   signerSlot: number;
   registrationIntentDigestB64u: string;
   options: RegistrationHooksOptions;
@@ -35,7 +35,7 @@ export async function collectPasskeyRegistrationAuthority(args: {
 }): Promise<PasskeyRegistrationAuthorityMaterial> {
   const registrationSession =
     await args.context.signingEngine.requestRegistrationCredentialConfirmation({
-      nearAccountId: args.walletSubjectId,
+      nearAccountId: args.walletId,
       signerSlot: args.signerSlot,
       confirmerText: args.options.confirmerText,
       confirmationConfigOverride: args.confirmationConfigOverride,

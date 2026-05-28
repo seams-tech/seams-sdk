@@ -31,9 +31,7 @@ import type { SignNEP413MessageParams, SignNEP413MessageResult } from './signNEP
 import { toError } from '@shared/utils/errors';
 import type { NearSignerCapability } from '..';
 import { routeWalletIframeOrLocal, type WalletIframeRouteDeps } from '../walletIframeRoute';
-import {
-  type NearAccountRef,
-} from '../../signingEngine/interfaces/ecdsaChainTarget';
+import { type NearAccountRef } from '../../signingEngine/interfaces/ecdsaChainTarget';
 import {
   signDelegateAction as signDelegateActionCore,
   sendDelegateActionViaRelayer as sendDelegateActionViaRelayerCore,
@@ -41,7 +39,7 @@ import {
 import { signNEP413Message as signNEP413MessageCore } from './signNEP413';
 import { registerWallet as registerWalletWithUnifiedCeremony } from '../registration';
 import type { RegistrationCapability } from '../interfaces';
-import { walletSubjectIdFromString } from '@shared/utils/registrationIntent';
+import { walletIdFromString } from '@shared/utils/registrationIntent';
 import { cloneAuthenticatorOptions } from '../../types/authenticatorOptions';
 import { buildPasskeyNearWalletRegistrationSignerSelection } from '../registrationSignerSelection';
 
@@ -72,13 +70,14 @@ export class NearSigner implements NearSignerCapability {
     if (!rpId) {
       throw new Error('[SeamsPasskey][near] registerNearWallet requires rpId');
     }
+    const authMethod = args.authMethod || { kind: 'passkey' as const };
     const registerWalletArgs = {
-      walletSubject: {
+      wallet: {
         kind: 'provided',
-        walletSubjectId: walletSubjectIdFromString(String(accountId)),
+        walletId: walletIdFromString(String(accountId)),
       },
       rpId,
-      authMethod: { kind: 'passkey' },
+      authMethod,
       signerSelection: buildPasskeyNearWalletRegistrationSignerSelection({
         configs: context.configs,
         nearAccountId: String(accountId),

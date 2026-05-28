@@ -33,7 +33,7 @@ import {
   type ThresholdEcdsaSessionTransportAuth,
   type VerifiedEcdsaPublicFacts,
 } from './evmFamilyEcdsaIdentity';
-import { walletSubjectIdFromWalletProfile } from '../../interfaces/ecdsaChainTarget';
+import { walletIdFromWalletProfile } from '../../interfaces/ecdsaChainTarget';
 
 const evmTarget = {
   kind: 'evm',
@@ -91,7 +91,7 @@ void invalidKeyWithTarget;
 const invalidKeyWithSubjectId: EvmFamilyEcdsaKeyIdentity = {
   ...key,
   // @ts-expect-error shared key identity derives the base ECDSA subject from wallet identity.
-  subjectId: 'wallet-subject-alice',
+  subjectId: 'wallet-alice',
 };
 void invalidKeyWithSubjectId;
 
@@ -99,9 +99,9 @@ const baseEcdsaSubjectId = deriveBaseEcdsaSubjectIdFromWalletId(key.walletId);
 const validBaseEcdsaSubjectId: BaseEcdsaSubjectId = baseEcdsaSubjectId;
 void validBaseEcdsaSubjectId;
 
-const registrationWalletSubjectId = walletSubjectIdFromWalletProfile({ walletId: key.walletId });
+const registrationWalletId = walletIdFromWalletProfile({ walletId: key.walletId });
 // @ts-expect-error protocol-local ECDSA HSS subject identity requires its narrow builder.
-const invalidBaseEcdsaSubjectId: BaseEcdsaSubjectId = registrationWalletSubjectId;
+const invalidBaseEcdsaSubjectId: BaseEcdsaSubjectId = registrationWalletId;
 void invalidBaseEcdsaSubjectId;
 
 const invalidLaneWithDuplicateKeyId: EvmFamilyEcdsaSessionLane = {
@@ -229,7 +229,7 @@ void invalidPublicFactsWithKeyId;
 const invalidPublicFactsWithSubject: VerifiedEcdsaPublicFacts = {
   ...publicFacts,
   // @ts-expect-error public facts reject auth/session subject fields.
-  subjectId: 'wallet-subject-alice',
+  subjectId: 'wallet-alice',
 };
 void invalidPublicFactsWithSubject;
 
@@ -393,7 +393,7 @@ void invalidResolvedKeyWithSigningRoot;
 const invalidResolvedKeyWithSubjectId: ResolvedEvmFamilyEcdsaKey = {
   ...resolvedPasskeyKey,
   // @ts-expect-error resolved key facade derives the base ECDSA subject from wallet identity.
-  subjectId: 'wallet-subject-alice',
+  subjectId: 'wallet-alice',
 };
 void invalidResolvedKeyWithSubjectId;
 
@@ -464,7 +464,7 @@ declare const readyMaterial: ReadyEvmFamilyEcdsaMaterial;
 const invalidReadyMaterialWithSubjectId = {
   ...readyMaterial,
   // @ts-expect-error ready material derives subject from key/lane identity.
-  subjectId: 'wallet-subject-alice',
+  subjectId: 'wallet-alice',
 } satisfies ReadyEvmFamilyEcdsaMaterial;
 void invalidReadyMaterialWithSubjectId;
 
@@ -522,7 +522,7 @@ void invalidSignerSessionWithExportArtifact;
 const invalidSignerSessionWithSubjectId: ReadyEcdsaSignerSession = {
   ...signerSession,
   // @ts-expect-error signer sessions derive subject from the shared key identity.
-  subjectId: 'wallet-subject-alice',
+  subjectId: 'wallet-alice',
 };
 void invalidSignerSessionWithSubjectId;
 

@@ -1,7 +1,7 @@
 import { toTrimmedString } from '@shared/utils/validation';
 import { SIGNER_KINDS } from '@shared/utils/signerDomain';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
-import { walletSubjectIdFromString } from '@shared/utils/registrationIntent';
+import { walletIdFromString } from '@shared/utils/registrationIntent';
 import type { KeyMaterialKind, KeyMaterialRecord } from '../keyMaterial.types';
 import {
   buildEnvelopeAAD,
@@ -17,7 +17,7 @@ import type {
   DBConstraintErrorCode,
   EnqueueSignerOperationInput,
   LastProfileState,
-  LocalWalletAuthMethodBindingRecord,
+  LocalWalletAuthMethodRecord,
   NonceLaneLeaseStoreRecord,
   NonceLaneLeaseStoreRecordState,
   NonceLaneLockStoreRecord,
@@ -59,8 +59,8 @@ type AppStateRow<T = unknown> = {
   value: T;
 };
 
-type WalletSubjectRow = {
-  wallet_subject_id: string;
+type WalletRow = {
+  wallet_id: string;
   rp_id: string;
   status: 'active';
   created_at: number;
@@ -70,20 +70,20 @@ type WalletSubjectRow = {
 
 type WalletAuthMethodBaseRow = {
   wallet_auth_method_id: string;
-  wallet_subject_id: string;
-  kind: LocalWalletAuthMethodBindingRecord['kind'];
-  auth_method: LocalWalletAuthMethodBindingRecord['kind'];
+  wallet_id: string;
+  kind: LocalWalletAuthMethodRecord['kind'];
+  auth_method: LocalWalletAuthMethodRecord['kind'];
   rp_id: string;
   auth_identifier_key: string;
-  status: LocalWalletAuthMethodBindingRecord['status'];
+  status: LocalWalletAuthMethodRecord['status'];
   updated_at: number;
-  record: LocalWalletAuthMethodBindingRecord;
+  record: LocalWalletAuthMethodRecord;
 };
 
 type WalletPasskeyAuthMethodRow = WalletAuthMethodBaseRow & {
   kind: 'passkey';
   auth_method: 'passkey';
-  record: LocalWalletAuthMethodBindingRecord & { kind: 'passkey' };
+  record: LocalWalletAuthMethodRecord & { kind: 'passkey' };
   credential_id_b64u: string;
   credential_public_key_b64u: string;
   signer_slot: number;
@@ -95,7 +95,7 @@ type WalletPasskeyAuthMethodRow = WalletAuthMethodBaseRow & {
 type WalletEmailOtpAuthMethodRow = WalletAuthMethodBaseRow & {
   kind: 'email_otp';
   auth_method: 'email_otp';
-  record: LocalWalletAuthMethodBindingRecord & { kind: 'email_otp' };
+  record: LocalWalletAuthMethodRecord & { kind: 'email_otp' };
   email_hash_hex: string;
   challenge_id: string;
   credential_id_b64u?: never;
@@ -107,7 +107,7 @@ type WalletEmailOtpAuthMethodRow = WalletAuthMethodBaseRow & {
 type WalletAuthMethodRow = WalletPasskeyAuthMethodRow | WalletEmailOtpAuthMethodRow;
 
 type ChainAccountProjectionRow = {
-  wallet_subject_id: string;
+  wallet_id: string;
   near_account_id: string;
   signer_slot: number;
   profile_id: string;
@@ -121,7 +121,7 @@ type ChainAccountProjectionRow = {
 
 type WalletSignerRow = {
   wallet_signer_id: string;
-  wallet_subject_id: string;
+  wallet_id: string;
   kind: string;
   chain_target_key: string;
   near_signer_slot?: number;
@@ -138,14 +138,14 @@ type SignerOpsOutboxRow = {
   idempotency_key: string;
   status: SignerOperationStatus;
   next_attempt_at: number;
-  wallet_subject_id: string;
+  wallet_id: string;
   chain_target_key: string;
   updated_at: number;
   record: SignerOpOutboxRecord;
 };
 
 type RecoveryEmailRow = {
-  wallet_subject_id: string;
+  wallet_id: string;
   hash_hex: string;
   email: string;
   added_at: number;
@@ -172,7 +172,7 @@ type NonceLaneLockRow = {
 
 type KeyMaterialRow = {
   key_material_id: string;
-  wallet_subject_id: string;
+  wallet_id: string;
   wallet_signer_id: string;
   chain_target_key: string;
   key_handle: string;
@@ -183,7 +183,7 @@ type KeyMaterialRow = {
 
 export type StoreWalletRegistrationFinalizeBatchInput = {
   profiles: readonly UpsertProfileInput[];
-  initialAuthMethodBinding: LocalWalletAuthMethodBindingRecord;
+  initialAuthMethod: LocalWalletAuthMethodRecord;
   authenticators: readonly ProfileAuthenticatorRecord[];
   signerActivations: readonly ActivateAccountSignerInput[];
   keyMaterials: readonly KeyMaterialRecord[];
@@ -213,7 +213,7 @@ const DEFAULT_NONCE_LANE_LOCK_TTL_MS = 5_000;
 const DEFAULT_NONCE_LANE_LOCK_WAIT_TIMEOUT_MS = 3_000;
 const DEFAULT_NONCE_LANE_LOCK_POLL_MS = 25;
 const LAST_PROFILE_STATE_APP_STATE_KEY = 'lastProfileState';
-const DEFAULT_WALLET_SUBJECT_RP_ID = 'local';
+const DEFAULT_WALLET_RP_ID = 'local';
 const CHAIN_ACCOUNT_PROJECTION_SIGNER_SLOT = 0;
 
 export class SeamsWalletDBConstraintError extends Error {
@@ -277,7 +277,7 @@ function parseNonceLeaseRow(value: unknown): NonceLaneLeaseStoreRecord | null {
 function profileRecoveryEmailFromRow(value: unknown): ProfileRecoveryEmailRecord | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const row = value as Partial<RecoveryEmailRow>;
-  const profileId = toTrimmedString(row.wallet_subject_id || '');
+  const profileId = toTrimmedString(row.wallet_id || '');
   const hashHex = toTrimmedString(row.hash_hex || '');
   const email = toTrimmedString(row.email || '');
   const addedAt = Math.floor(Number(row.added_at));
@@ -415,7 +415,7 @@ function makeConstraintError(
   return new SeamsWalletDBConstraintError(code, message, details);
 }
 
-function profileRow(input: UpsertProfileInput, existing?: ProfileRecord): WalletSubjectRow {
+function profileRow(input: UpsertProfileInput, existing?: ProfileRecord): WalletRow {
   const profileId = toTrimmedString(input.profileId || '');
   if (!profileId) throw new Error('[SeamsWalletDB] profileId is required');
   const now = Date.now();
@@ -431,8 +431,8 @@ function profileRow(input: UpsertProfileInput, existing?: ProfileRecord): Wallet
     updatedAt: now,
   };
   return {
-    wallet_subject_id: profileId,
-    rp_id: DEFAULT_WALLET_SUBJECT_RP_ID,
+    wallet_id: profileId,
+    rp_id: DEFAULT_WALLET_RP_ID,
     status: 'active',
     created_at: record.createdAt,
     updated_at: record.updatedAt,
@@ -442,16 +442,16 @@ function profileRow(input: UpsertProfileInput, existing?: ProfileRecord): Wallet
 
 function parseProfileRow(value: unknown): ProfileRecord | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const row = value as Partial<WalletSubjectRow>;
+  const row = value as Partial<WalletRow>;
   const record = row.record;
   if (!record || typeof record !== 'object' || Array.isArray(record)) return null;
-  if (row.wallet_subject_id !== record.profileId) return null;
+  if (row.wallet_id !== record.profileId) return null;
   if (row.created_at !== record.createdAt) return null;
   if (row.updated_at !== record.updatedAt) return null;
   return record;
 }
 
-function walletAuthMethodBindingIdentifier(record: LocalWalletAuthMethodBindingRecord): string {
+function walletAuthMethodIdentifier(record: LocalWalletAuthMethodRecord): string {
   switch (record.kind) {
     case 'passkey':
       return toTrimmedString(record.credentialIdB64u || '');
@@ -464,29 +464,29 @@ function walletAuthMethodBindingIdentifier(record: LocalWalletAuthMethodBindingR
   }
 }
 
-function walletAuthMethodBindingId(record: LocalWalletAuthMethodBindingRecord): string {
+function walletAuthMethodId(record: LocalWalletAuthMethodRecord): string {
   return [
-    toTrimmedString(record.walletSubjectId || ''),
+    toTrimmedString(record.walletId || ''),
     record.kind,
     toTrimmedString(record.rpId || ''),
-    walletAuthMethodBindingIdentifier(record),
+    walletAuthMethodIdentifier(record),
   ].join('\0');
 }
 
-function walletAuthMethodBindingFields(
-  record: LocalWalletAuthMethodBindingRecord,
+function walletAuthMethodFields(
+  record: LocalWalletAuthMethodRecord,
 ): WalletAuthMethodBaseRow {
-  if (record.version !== 'wallet_auth_method_binding_v1') {
+  if (record.version !== 'wallet_auth_method_v1') {
     throw new Error('[SeamsWalletDB] auth-method binding version is invalid');
   }
-  const walletSubjectId = toTrimmedString(record.walletSubjectId || '');
+  const walletId = toTrimmedString(record.walletId || '');
   const rpId = toTrimmedString(record.rpId || '');
-  const authIdentifierKey = walletAuthMethodBindingIdentifier(record);
+  const authIdentifierKey = walletAuthMethodIdentifier(record);
   const createdAtMs = Math.floor(Number(record.createdAtMs));
   const updatedAtMs = Math.floor(Number(record.updatedAtMs));
-  if (!walletSubjectId || !rpId || !authIdentifierKey) {
+  if (!walletId || !rpId || !authIdentifierKey) {
     throw new Error(
-      '[SeamsWalletDB] auth-method binding requires walletSubjectId, rpId, and branch identifier',
+      '[SeamsWalletDB] auth-method binding requires walletId, rpId, and branch identifier',
     );
   }
   if (record.status !== 'active' && record.status !== 'revoked') {
@@ -525,8 +525,8 @@ function walletAuthMethodBindingFields(
     }
   }
   return {
-    wallet_auth_method_id: walletAuthMethodBindingId(record),
-    wallet_subject_id: walletSubjectId,
+    wallet_auth_method_id: walletAuthMethodId(record),
+    wallet_id: walletId,
     kind: record.kind,
     auth_method: record.kind,
     rp_id: rpId,
@@ -573,7 +573,7 @@ function normalizeAuthenticatorRecord(record: ProfileAuthenticatorRecord): Profi
 }
 
 function passkeyAuthenticatorFromBinding(
-  record: LocalWalletAuthMethodBindingRecord & { kind: 'passkey' },
+  record: LocalWalletAuthMethodRecord & { kind: 'passkey' },
   signerSlot: number,
 ): ProfileAuthenticatorRecord {
   const normalizedSignerSlot = Number(signerSlot);
@@ -581,7 +581,7 @@ function passkeyAuthenticatorFromBinding(
     throw new Error('[SeamsWalletDB] passkey auth-method signerSlot must be an integer >= 1');
   }
   return normalizeAuthenticatorRecord({
-    profileId: record.walletSubjectId,
+    profileId: record.walletId,
     signerSlot: normalizedSignerSlot,
     credentialId: record.credentialIdB64u,
     credentialPublicKey: base64UrlDecode(record.credentialPublicKeyB64u),
@@ -592,13 +592,13 @@ function passkeyAuthenticatorFromBinding(
 
 function passkeyBindingFromAuthenticator(
   authenticator: ProfileAuthenticatorRecord,
-  existing?: LocalWalletAuthMethodBindingRecord & { kind: 'passkey' },
-): LocalWalletAuthMethodBindingRecord & { kind: 'passkey' } {
+  existing?: LocalWalletAuthMethodRecord & { kind: 'passkey' },
+): LocalWalletAuthMethodRecord & { kind: 'passkey' } {
   const normalized = normalizeAuthenticatorRecord(authenticator);
   const credentialPublicKeyB64u = base64UrlEncode(normalized.credentialPublicKey);
   if (existing) {
-    if (existing.walletSubjectId !== normalized.profileId) {
-      throw new Error('[SeamsWalletDB] passkey auth-method walletSubjectId does not match authenticator profileId');
+    if (existing.walletId !== normalized.profileId) {
+      throw new Error('[SeamsWalletDB] passkey auth-method walletId does not match authenticator profileId');
     }
     if (existing.credentialIdB64u !== normalized.credentialId) {
       throw new Error('[SeamsWalletDB] passkey auth-method credentialId does not match authenticator credentialId');
@@ -610,12 +610,12 @@ function passkeyBindingFromAuthenticator(
   }
   const nowMs = Date.now();
   return {
-    version: 'wallet_auth_method_binding_v1',
+    version: 'wallet_auth_method_v1',
     kind: 'passkey',
     status: 'active',
     localStatus: 'synced',
-    walletSubjectId: walletSubjectIdFromString(normalized.profileId),
-    rpId: DEFAULT_WALLET_SUBJECT_RP_ID,
+    walletId: walletIdFromString(normalized.profileId),
+    rpId: DEFAULT_WALLET_RP_ID,
     credentialIdB64u: normalized.credentialId,
     credentialPublicKeyB64u,
     counter: 0,
@@ -625,16 +625,16 @@ function passkeyBindingFromAuthenticator(
 }
 
 function passkeyAuthMethodRow(input: {
-  binding: LocalWalletAuthMethodBindingRecord & { kind: 'passkey' };
+  binding: LocalWalletAuthMethodRecord & { kind: 'passkey' };
   authenticator: ProfileAuthenticatorRecord;
 }): WalletPasskeyAuthMethodRow {
-  const base = walletAuthMethodBindingFields(input.binding);
+  const base = walletAuthMethodFields(input.binding);
   const authenticator = normalizeAuthenticatorRecord(input.authenticator);
   const credentialPublicKeyB64u = base64UrlEncode(authenticator.credentialPublicKey);
   if (base.kind !== 'passkey') {
     throw new Error('[SeamsWalletDB] passkey auth-method row requires a passkey binding');
   }
-  if (authenticator.profileId !== base.wallet_subject_id) {
+  if (authenticator.profileId !== base.wallet_id) {
     throw new Error('[SeamsWalletDB] passkey auth-method authenticator profileId mismatch');
   }
   if (authenticator.credentialId !== input.binding.credentialIdB64u) {
@@ -656,9 +656,9 @@ function passkeyAuthMethodRow(input: {
 }
 
 function emailOtpAuthMethodRow(
-  record: LocalWalletAuthMethodBindingRecord & { kind: 'email_otp' },
+  record: LocalWalletAuthMethodRecord & { kind: 'email_otp' },
 ): WalletEmailOtpAuthMethodRow {
-  const base = walletAuthMethodBindingFields(record);
+  const base = walletAuthMethodFields(record);
   if (base.kind !== 'email_otp') {
     throw new Error('[SeamsWalletDB] Email OTP auth-method row requires an Email OTP binding');
   }
@@ -673,7 +673,7 @@ function emailOtpAuthMethodRow(
 }
 
 function walletAuthMethodRowFromBinding(
-  record: LocalWalletAuthMethodBindingRecord,
+  record: LocalWalletAuthMethodRecord,
   signerSlot: number,
 ): WalletAuthMethodRow {
   switch (record.kind) {
@@ -702,7 +702,7 @@ function walletAuthMethodRowFromAuthenticator(
   });
 }
 
-function parseWalletAuthMethodRow(value: unknown): WalletAuthMethodRow | null {
+function parseWalletAuthMethodStorageRow(value: unknown): WalletAuthMethodRow | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const row = value as Partial<WalletAuthMethodRow>;
   const record = row.record;
@@ -724,7 +724,7 @@ function parseWalletAuthMethodRow(value: unknown): WalletAuthMethodRow | null {
     return null;
   }
   if (row.wallet_auth_method_id !== normalized.wallet_auth_method_id) return null;
-  if (row.wallet_subject_id !== normalized.wallet_subject_id) return null;
+  if (row.wallet_id !== normalized.wallet_id) return null;
   if (row.kind !== normalized.kind) return null;
   if (row.auth_method !== normalized.auth_method) return null;
   if (row.rp_id !== normalized.rp_id) return null;
@@ -742,16 +742,16 @@ function parseWalletAuthMethodRow(value: unknown): WalletAuthMethodRow | null {
   return normalized;
 }
 
-function parseWalletAuthMethodBindingRow(
+function parseWalletAuthMethodRow(
   value: unknown,
-): LocalWalletAuthMethodBindingRecord | null {
-  const row = parseWalletAuthMethodRow(value);
+): LocalWalletAuthMethodRecord | null {
+  const row = parseWalletAuthMethodStorageRow(value);
   if (!row) return null;
   return row.record;
 }
 
 function parseAuthenticatorRow(value: unknown): ProfileAuthenticatorRecord | null {
-  const row = parseWalletAuthMethodRow(value);
+  const row = parseWalletAuthMethodStorageRow(value);
   if (!row || row.kind !== 'passkey') return null;
   return row.authenticator;
 }
@@ -769,11 +769,11 @@ function walletAuthMethodRowsForRegistrationFinalize(
   const rows = new Map<string, WalletAuthMethodRow>();
   const credentialRows = new Map<string, WalletPasskeyAuthMethodRow>();
 
-  if (input.initialAuthMethodBinding.kind === 'passkey') {
+  if (input.initialAuthMethod.kind === 'passkey') {
     const matchingAuthenticator = authenticators.find(
       (authenticator) =>
-        authenticator.profileId === input.initialAuthMethodBinding.walletSubjectId &&
-        authenticator.credentialId === input.initialAuthMethodBinding.credentialIdB64u,
+        authenticator.profileId === input.initialAuthMethod.walletId &&
+        authenticator.credentialId === input.initialAuthMethod.credentialIdB64u,
     );
     if (!matchingAuthenticator) {
       throw new Error(
@@ -781,13 +781,13 @@ function walletAuthMethodRowsForRegistrationFinalize(
       );
     }
     const row = passkeyAuthMethodRow({
-      binding: input.initialAuthMethodBinding,
+      binding: input.initialAuthMethod,
       authenticator: matchingAuthenticator,
     });
     rows.set(row.wallet_auth_method_id, row);
     credentialRows.set(passkeyCredentialIndexKey(row), row);
   } else {
-    const row = emailOtpAuthMethodRow(input.initialAuthMethodBinding);
+    const row = emailOtpAuthMethodRow(input.initialAuthMethod);
     rows.set(row.wallet_auth_method_id, row);
   }
 
@@ -837,7 +837,7 @@ function chainAccountProjectionRow(
     updatedAt: now,
   };
   return {
-    wallet_subject_id: profileId,
+    wallet_id: profileId,
     near_account_id: chainAccountProjectionId({ chainIdKey, accountAddress }),
     signer_slot: CHAIN_ACCOUNT_PROJECTION_SIGNER_SLOT,
     profile_id: profileId,
@@ -855,7 +855,7 @@ function parseChainAccountProjectionRow(value: unknown): ChainAccountRecord | nu
   const row = value as Partial<ChainAccountProjectionRow>;
   const record = row.record;
   if (!record || typeof record !== 'object' || Array.isArray(record)) return null;
-  if (row.wallet_subject_id !== record.profileId) return null;
+  if (row.wallet_id !== record.profileId) return null;
   if (row.profile_id !== record.profileId) return null;
   if (row.chain_id_key !== record.chainIdKey) return null;
   if (row.account_address !== record.accountAddress) return null;
@@ -894,7 +894,7 @@ function accountSignerRow(record: AccountSignerRecord): WalletSignerRow {
   });
   return {
     wallet_signer_id: walletSignerId({ chainIdKey, accountAddress, signerId }),
-    wallet_subject_id: profileId,
+    wallet_id: profileId,
     kind: signerKind,
     chain_target_key: mirrors.chainTargetKey,
     ...(mirrors.nearSignerSlot != null ? { near_signer_slot: mirrors.nearSignerSlot } : {}),
@@ -932,7 +932,7 @@ function parseAccountSignerRow(value: unknown): AccountSignerRecord | null {
   ) {
     return null;
   }
-  if (row.wallet_subject_id !== record.profileId) return null;
+  if (row.wallet_id !== record.profileId) return null;
   if (row.kind !== record.signerKind) return null;
   let mirrors: WalletSignerScalarMirrors;
   try {
@@ -966,7 +966,7 @@ function signerOutboxRow(record: SignerOpOutboxRecord): SignerOpsOutboxRow {
     idempotency_key: idempotencyKey,
     status: record.status,
     next_attempt_at: record.nextAttemptAt,
-    wallet_subject_id: toTrimmedString(String(record.payload?.profileId || '')),
+    wallet_id: toTrimmedString(String(record.payload?.profileId || '')),
     chain_target_key: signerChainTargetKey({ chainIdKey, accountAddress }),
     updated_at: record.updatedAt,
     record: {
@@ -1087,7 +1087,7 @@ function keyMaterialRow(data: KeyMaterialRecord): KeyMaterialRow {
   const chainTargetKey = signerChainTargetKey({ chainIdKey, accountAddress });
   return {
     key_material_id: keyMaterialId({ walletSignerId, keyKind }),
-    wallet_subject_id: profileId,
+    wallet_id: profileId,
     wallet_signer_id: walletSignerId,
     chain_target_key: chainTargetKey,
     key_handle: signerId,
@@ -1193,7 +1193,7 @@ function parseKeyMaterialRow(value: unknown): KeyMaterialRecord | null {
   ) {
     return null;
   }
-  if (row.wallet_subject_id !== record.profileId) return null;
+  if (row.wallet_id !== record.profileId) return null;
   if (row.wallet_signer_id !== walletSignerIdForKeyMaterial(record)) return null;
   if (
     row.chain_target_key !==
@@ -1253,7 +1253,7 @@ async function readActiveSignersForProfilesInTransaction(
   const signers: AccountSignerRecord[] = [];
   for (const profileId of profileIds) {
     const rows = (await store
-      .index(SEAMS_WALLET_INDEXES.walletSubjectId)
+      .index(SEAMS_WALLET_INDEXES.walletId)
       .getAll(profileId)) as unknown[];
     for (const row of rows) {
       const parsed = parseAccountSignerRow(row);
@@ -1271,7 +1271,7 @@ async function readThresholdKeyMaterialsForProfilesInTransaction(
   const keyMaterials: KeyMaterialRecord[] = [];
   for (const profileId of profileIds) {
     const rows = (await store
-      .index(SEAMS_WALLET_INDEXES.walletSubjectId)
+      .index(SEAMS_WALLET_INDEXES.walletId)
       .getAll(profileId)) as unknown[];
     for (const row of rows) {
       const parsed = parseKeyMaterialRow(row);
@@ -1382,7 +1382,7 @@ export class SeamsWalletRepositories {
     const normalizedProfileId = toTrimmedString(profileId || '');
     if (!normalizedProfileId) return null;
     const db = await this.manager.getDB();
-    return parseProfileRow(await db.get(SEAMS_WALLET_STORES.walletSubjects, normalizedProfileId));
+    return parseProfileRow(await db.get(SEAMS_WALLET_STORES.wallets, normalizedProfileId));
   }
 
   async listProfiles(args?: { limit?: number }): Promise<ProfileRecord[]> {
@@ -1392,8 +1392,8 @@ export class SeamsWalletRepositories {
         ? Number(args?.limit)
         : undefined;
     const rows = (limit
-      ? await db.getAll(SEAMS_WALLET_STORES.walletSubjects, undefined, limit)
-      : await db.getAll(SEAMS_WALLET_STORES.walletSubjects)) as unknown[];
+      ? await db.getAll(SEAMS_WALLET_STORES.wallets, undefined, limit)
+      : await db.getAll(SEAMS_WALLET_STORES.wallets)) as unknown[];
     return rows.flatMap((row) => {
       const parsed = parseProfileRow(row);
       return parsed ? [parsed] : [];
@@ -1405,10 +1405,10 @@ export class SeamsWalletRepositories {
     if (!profileId) throw new Error('[SeamsWalletDB] profileId is required');
     let written: ProfileRecord | null = null;
     await this.manager.runTransaction(
-      [SEAMS_WALLET_STORES.walletSubjects],
+      [SEAMS_WALLET_STORES.wallets],
       'readwrite',
       async (ctx) => {
-        const store = ctx.store(SEAMS_WALLET_STORES.walletSubjects);
+        const store = ctx.store(SEAMS_WALLET_STORES.wallets);
         const existing = parseProfileRow(await store.get(profileId)) || undefined;
         const next = profileRow(input, existing);
         written = next.record;
@@ -1419,27 +1419,27 @@ export class SeamsWalletRepositories {
     return written;
   }
 
-  async upsertWalletAuthMethodBinding(
-    record: LocalWalletAuthMethodBindingRecord,
-  ): Promise<LocalWalletAuthMethodBindingRecord> {
-    const fields = walletAuthMethodBindingFields(record);
-    let written: LocalWalletAuthMethodBindingRecord | null = null;
+  async upsertWalletAuthMethod(
+    record: LocalWalletAuthMethodRecord,
+  ): Promise<LocalWalletAuthMethodRecord> {
+    const fields = walletAuthMethodFields(record);
+    let written: LocalWalletAuthMethodRecord | null = null;
     await this.manager.runTransaction(
-      [SEAMS_WALLET_STORES.walletSubjects, SEAMS_WALLET_STORES.walletAuthMethods],
+      [SEAMS_WALLET_STORES.wallets, SEAMS_WALLET_STORES.walletAuthMethods],
       'readwrite',
       async (ctx) => {
         const profile = parseProfileRow(
-          await ctx.store(SEAMS_WALLET_STORES.walletSubjects).get(fields.wallet_subject_id),
+          await ctx.store(SEAMS_WALLET_STORES.wallets).get(fields.wallet_id),
         );
         if (!profile) {
           throw makeConstraintError(
             'MISSING_PROFILE',
-            `Cannot upsert auth-method binding for unknown wallet subject: ${fields.wallet_subject_id}`,
-            { profileId: fields.wallet_subject_id, authIdentifierKey: fields.auth_identifier_key },
+            `Cannot upsert auth-method binding for unknown wallet: ${fields.wallet_id}`,
+            { profileId: fields.wallet_id, authIdentifierKey: fields.auth_identifier_key },
           );
         }
         const store = ctx.store(SEAMS_WALLET_STORES.walletAuthMethods);
-        const existing = parseWalletAuthMethodRow(await store.get(fields.wallet_auth_method_id));
+        const existing = parseWalletAuthMethodStorageRow(await store.get(fields.wallet_auth_method_id));
         const row =
           record.kind === 'passkey' && existing?.kind === 'passkey'
             ? passkeyAuthMethodRow({ binding: record, authenticator: existing.authenticator })
@@ -1452,17 +1452,17 @@ export class SeamsWalletRepositories {
     return written;
   }
 
-  async getWalletAuthMethodBinding(args: {
-    kind: LocalWalletAuthMethodBindingRecord['kind'];
+  async getWalletAuthMethod(args: {
+    kind: LocalWalletAuthMethodRecord['kind'];
     rpId: string;
     authIdentifierKey: string;
-  }): Promise<LocalWalletAuthMethodBindingRecord | null> {
+  }): Promise<LocalWalletAuthMethodRecord | null> {
     const kind = args.kind;
     const rpId = toTrimmedString(args.rpId || '');
     const authIdentifierKey = toTrimmedString(args.authIdentifierKey || '');
     if (!rpId || !authIdentifierKey) return null;
     const db = await this.manager.getDB();
-    return parseWalletAuthMethodBindingRow(
+    return parseWalletAuthMethodRow(
       await db
         .transaction(SEAMS_WALLET_STORES.walletAuthMethods, 'readonly')
         .store.index(SEAMS_WALLET_INDEXES.kindRpIdAuthIdentifier)
@@ -1470,18 +1470,18 @@ export class SeamsWalletRepositories {
     );
   }
 
-  async listWalletAuthMethodBindingsForWalletSubject(
-    walletSubjectId: string,
-  ): Promise<LocalWalletAuthMethodBindingRecord[]> {
-    const normalizedWalletSubjectId = toTrimmedString(walletSubjectId || '');
-    if (!normalizedWalletSubjectId) return [];
+  async listWalletAuthMethodsForWallet(
+    walletId: string,
+  ): Promise<LocalWalletAuthMethodRecord[]> {
+    const normalizedWalletId = toTrimmedString(walletId || '');
+    if (!normalizedWalletId) return [];
     const db = await this.manager.getDB();
     const rows = (await db
       .transaction(SEAMS_WALLET_STORES.walletAuthMethods, 'readonly')
-      .store.index(SEAMS_WALLET_INDEXES.walletSubjectId)
-      .getAll(normalizedWalletSubjectId)) as unknown[];
+      .store.index(SEAMS_WALLET_INDEXES.walletId)
+      .getAll(normalizedWalletId)) as unknown[];
     return rows.flatMap((row) => {
-      const parsed = parseWalletAuthMethodBindingRow(row);
+      const parsed = parseWalletAuthMethodRow(row);
       return parsed ? [parsed] : [];
     });
   }
@@ -1495,11 +1495,11 @@ export class SeamsWalletRepositories {
     }
     let written: ChainAccountRecord | null = null;
     await this.manager.runTransaction(
-      [SEAMS_WALLET_STORES.walletSubjects, SEAMS_WALLET_STORES.nearAccountProjections],
+      [SEAMS_WALLET_STORES.wallets, SEAMS_WALLET_STORES.nearAccountProjections],
       'readwrite',
       async (ctx) => {
         const profile = parseProfileRow(
-          await ctx.store(SEAMS_WALLET_STORES.walletSubjects).get(profileId),
+          await ctx.store(SEAMS_WALLET_STORES.wallets).get(profileId),
         );
         if (!profile) {
           throw new Error(
@@ -1880,7 +1880,7 @@ export class SeamsWalletRepositories {
 
     const signerStore = ctx.store(SEAMS_WALLET_STORES.walletSigners);
     const profile = parseProfileRow(
-      await ctx.store(SEAMS_WALLET_STORES.walletSubjects).get(profileId),
+      await ctx.store(SEAMS_WALLET_STORES.wallets).get(profileId),
     );
     if (!profile) {
       throw makeConstraintError(
@@ -1993,7 +1993,7 @@ export class SeamsWalletRepositories {
     let result: ActivateAccountSignerResult | null = null;
     await this.manager.runTransaction(
       [
-        SEAMS_WALLET_STORES.walletSubjects,
+        SEAMS_WALLET_STORES.wallets,
         SEAMS_WALLET_STORES.nearAccountProjections,
         SEAMS_WALLET_STORES.walletSigners,
         SEAMS_WALLET_STORES.appState,
@@ -2061,7 +2061,7 @@ export class SeamsWalletRepositories {
     let result: StageAccountSignerResult | null = null;
     await this.manager.runTransaction(
       [
-        SEAMS_WALLET_STORES.walletSubjects,
+        SEAMS_WALLET_STORES.wallets,
         SEAMS_WALLET_STORES.nearAccountProjections,
         SEAMS_WALLET_STORES.walletSigners,
         SEAMS_WALLET_STORES.signerOpsOutbox,
@@ -2069,7 +2069,7 @@ export class SeamsWalletRepositories {
       'readwrite',
       async (ctx) => {
         const profile = parseProfileRow(
-          await ctx.store(SEAMS_WALLET_STORES.walletSubjects).get(profileId),
+          await ctx.store(SEAMS_WALLET_STORES.wallets).get(profileId),
         );
         if (!profile) {
           throw makeConstraintError(
@@ -2217,7 +2217,7 @@ export class SeamsWalletRepositories {
     const db = await this.manager.getDB();
     const rows = (await db
       .transaction(SEAMS_WALLET_STORES.walletSigners, 'readonly')
-      .store.index(SEAMS_WALLET_INDEXES.walletSubjectId)
+      .store.index(SEAMS_WALLET_INDEXES.walletId)
       .getAll(profileId)) as unknown[];
     return rows.flatMap((row) => {
       const parsed = parseAccountSignerRow(row);
@@ -2452,7 +2452,7 @@ export class SeamsWalletRepositories {
     const db = await this.manager.getDB();
     const tx = db.transaction(SEAMS_WALLET_STORES.walletAuthMethods, 'readonly');
     const rows = (await tx.store
-      .index(SEAMS_WALLET_INDEXES.walletSubjectIdKind)
+      .index(SEAMS_WALLET_INDEXES.walletIdKind)
       .getAll([normalizedProfileId, 'passkey'])) as unknown[];
     await tx.done;
     return rows.flatMap((row) => {
@@ -2464,11 +2464,11 @@ export class SeamsWalletRepositories {
   async upsertProfileAuthenticator(record: ProfileAuthenticatorRecord): Promise<void> {
     const normalized = normalizeAuthenticatorRecord(record);
     await this.manager.runTransaction(
-      [SEAMS_WALLET_STORES.walletSubjects, SEAMS_WALLET_STORES.walletAuthMethods],
+      [SEAMS_WALLET_STORES.wallets, SEAMS_WALLET_STORES.walletAuthMethods],
       'readwrite',
       async (ctx) => {
         const profile = parseProfileRow(
-          await ctx.store(SEAMS_WALLET_STORES.walletSubjects).get(normalized.profileId),
+          await ctx.store(SEAMS_WALLET_STORES.wallets).get(normalized.profileId),
         );
         if (!profile) {
           throw makeConstraintError(
@@ -2478,10 +2478,10 @@ export class SeamsWalletRepositories {
           );
         }
         const store = ctx.store(SEAMS_WALLET_STORES.walletAuthMethods);
-        const existing = parseWalletAuthMethodRow(
+        const existing = parseWalletAuthMethodStorageRow(
           await store
             .index(SEAMS_WALLET_INDEXES.passkeyRpIdCredentialId)
-            .get(['passkey', DEFAULT_WALLET_SUBJECT_RP_ID, normalized.credentialId]),
+            .get(['passkey', DEFAULT_WALLET_RP_ID, normalized.credentialId]),
         );
         const row = walletAuthMethodRowFromAuthenticator(
           normalized,
@@ -2504,7 +2504,7 @@ export class SeamsWalletRepositories {
       await db
         .transaction(SEAMS_WALLET_STORES.walletAuthMethods, 'readonly')
         .store.index(SEAMS_WALLET_INDEXES.passkeyRpIdCredentialId)
-        .get(['passkey', DEFAULT_WALLET_SUBJECT_RP_ID, normalizedCredentialId]),
+        .get(['passkey', DEFAULT_WALLET_RP_ID, normalizedCredentialId]),
     );
     return row?.profileId === normalizedProfileId ? row : null;
   }
@@ -2518,7 +2518,7 @@ export class SeamsWalletRepositories {
     await this.manager.runTransaction(
       [
         SEAMS_WALLET_STORES.appState,
-        SEAMS_WALLET_STORES.walletSubjects,
+        SEAMS_WALLET_STORES.wallets,
         SEAMS_WALLET_STORES.walletAuthMethods,
         SEAMS_WALLET_STORES.walletSigners,
         SEAMS_WALLET_STORES.nearAccountProjections,
@@ -2527,7 +2527,7 @@ export class SeamsWalletRepositories {
       ],
       'readwrite',
       async (ctx) => {
-        const profileStore = ctx.store(SEAMS_WALLET_STORES.walletSubjects);
+        const profileStore = ctx.store(SEAMS_WALLET_STORES.wallets);
         for (const profile of input.profiles) {
           const profileId = toTrimmedString(profile.profileId || '');
           if (!profileId) throw new Error('[SeamsWalletDB] profileId is required');
@@ -2537,13 +2537,13 @@ export class SeamsWalletRepositories {
 
         const authMethodStore = ctx.store(SEAMS_WALLET_STORES.walletAuthMethods);
         for (const row of authMethodRows) {
-          const profile = parseProfileRow(await profileStore.get(row.wallet_subject_id));
+          const profile = parseProfileRow(await profileStore.get(row.wallet_id));
           if (!profile) {
             throw makeConstraintError(
               'MISSING_PROFILE',
-              `Cannot upsert auth method for unknown wallet subject: ${row.wallet_subject_id}`,
+              `Cannot upsert auth method for unknown wallet: ${row.wallet_id}`,
               {
-                profileId: row.wallet_subject_id,
+                profileId: row.wallet_id,
                 authIdentifierKey: row.auth_identifier_key,
               },
             );
@@ -2590,7 +2590,7 @@ export class SeamsWalletRepositories {
     await this.manager.runTransaction(
       [
         SEAMS_WALLET_STORES.appState,
-        SEAMS_WALLET_STORES.walletSubjects,
+        SEAMS_WALLET_STORES.wallets,
         SEAMS_WALLET_STORES.walletSigners,
         SEAMS_WALLET_STORES.nearAccountProjections,
         SEAMS_WALLET_STORES.signerOpsOutbox,
@@ -2598,7 +2598,7 @@ export class SeamsWalletRepositories {
       ],
       'readwrite',
       async (ctx) => {
-        const profileStore = ctx.store(SEAMS_WALLET_STORES.walletSubjects);
+        const profileStore = ctx.store(SEAMS_WALLET_STORES.wallets);
         for (const profile of input.profiles) {
           const profileId = toTrimmedString(profile.profileId || '');
           if (!profileId) throw new Error('[SeamsWalletDB] profileId is required');
@@ -2646,7 +2646,7 @@ export class SeamsWalletRepositories {
       async (ctx) => {
         const store = ctx.store(SEAMS_WALLET_STORES.walletAuthMethods);
         let cursor = await store
-          .index(SEAMS_WALLET_INDEXES.walletSubjectIdKind)
+          .index(SEAMS_WALLET_INDEXES.walletIdKind)
           .openCursor(IDBKeyRange.only([normalizedProfileId, 'passkey']));
         while (cursor) {
           await cursor.delete();
@@ -2715,10 +2715,10 @@ export class SeamsWalletRepositories {
     if (!profileId) return null;
     let updatedPreferences: UserPreferences | null = null;
     await this.manager.runTransaction(
-      [SEAMS_WALLET_STORES.walletSubjects],
+      [SEAMS_WALLET_STORES.wallets],
       'readwrite',
       async (ctx) => {
-        const store = ctx.store(SEAMS_WALLET_STORES.walletSubjects);
+        const store = ctx.store(SEAMS_WALLET_STORES.wallets);
         const profile = parseProfileRow(await store.get(profileId));
         if (!profile) return;
         updatedPreferences = {
@@ -2746,7 +2746,7 @@ export class SeamsWalletRepositories {
     await this.manager.runTransaction(
       [
         SEAMS_WALLET_STORES.appState,
-        SEAMS_WALLET_STORES.walletSubjects,
+        SEAMS_WALLET_STORES.wallets,
         SEAMS_WALLET_STORES.walletAuthMethods,
         SEAMS_WALLET_STORES.walletSigners,
         SEAMS_WALLET_STORES.nearAccountProjections,
@@ -2771,15 +2771,15 @@ export class SeamsWalletRepositories {
           }
         }
 
-        await ctx.store(SEAMS_WALLET_STORES.walletSubjects).delete(normalizedProfileId);
+        await ctx.store(SEAMS_WALLET_STORES.wallets).delete(normalizedProfileId);
         await deleteRowsByIndex({
           store: ctx.store(SEAMS_WALLET_STORES.walletAuthMethods),
-          indexName: SEAMS_WALLET_INDEXES.walletSubjectId,
+          indexName: SEAMS_WALLET_INDEXES.walletId,
           key: IDBKeyRange.only(normalizedProfileId),
         });
         await deleteRowsByIndex({
           store: ctx.store(SEAMS_WALLET_STORES.walletSigners),
-          indexName: SEAMS_WALLET_INDEXES.walletSubjectId,
+          indexName: SEAMS_WALLET_INDEXES.walletId,
           key: IDBKeyRange.only(normalizedProfileId),
         });
         await deleteRowsByIndex({
@@ -2789,17 +2789,17 @@ export class SeamsWalletRepositories {
         });
         await deleteRowsByIndex({
           store: ctx.store(SEAMS_WALLET_STORES.signerOpsOutbox),
-          indexName: SEAMS_WALLET_INDEXES.walletSubjectId,
+          indexName: SEAMS_WALLET_INDEXES.walletId,
           key: IDBKeyRange.only(normalizedProfileId),
         });
         await deleteRowsByIndex({
           store: ctx.store(SEAMS_WALLET_STORES.recoveryEmails),
-          indexName: SEAMS_WALLET_INDEXES.walletSubjectId,
+          indexName: SEAMS_WALLET_INDEXES.walletId,
           key: IDBKeyRange.only(normalizedProfileId),
         });
         await deleteRowsByIndex({
           store: ctx.store(SEAMS_WALLET_STORES.keyMaterial),
-          indexName: SEAMS_WALLET_INDEXES.walletSubjectId,
+          indexName: SEAMS_WALLET_INDEXES.walletId,
           key: IDBKeyRange.only(normalizedProfileId),
         });
       },
@@ -2850,11 +2850,11 @@ export class SeamsWalletRepositories {
   }
 
   async upsertRecoveryEmails(
-    walletSubjectId: string,
+    walletId: string,
     entries: Array<{ hashHex: string; email: string }>,
   ): Promise<void> {
-    const normalizedWalletSubjectId = toTrimmedString(walletSubjectId || '');
-    if (!normalizedWalletSubjectId || entries.length === 0) return;
+    const normalizedWalletId = toTrimmedString(walletId || '');
+    if (!normalizedWalletId || entries.length === 0) return;
     const now = Date.now();
     await this.manager.runTransaction(
       [SEAMS_WALLET_STORES.recoveryEmails],
@@ -2866,7 +2866,7 @@ export class SeamsWalletRepositories {
           const email = toTrimmedString(entry.email || '');
           if (!hashHex) continue;
           const row: RecoveryEmailRow = {
-            wallet_subject_id: normalizedWalletSubjectId,
+            wallet_id: normalizedWalletId,
             hash_hex: hashHex,
             email: email || hashHex,
             added_at: now,
@@ -2878,14 +2878,14 @@ export class SeamsWalletRepositories {
     );
   }
 
-  async listRecoveryEmails(walletSubjectId: string): Promise<ProfileRecoveryEmailRecord[]> {
-    const normalizedWalletSubjectId = toTrimmedString(walletSubjectId || '');
-    if (!normalizedWalletSubjectId) return [];
+  async listRecoveryEmails(walletId: string): Promise<ProfileRecoveryEmailRecord[]> {
+    const normalizedWalletId = toTrimmedString(walletId || '');
+    if (!normalizedWalletId) return [];
     const db = await this.manager.getDB();
     const tx = db.transaction(SEAMS_WALLET_STORES.recoveryEmails, 'readonly');
     const rows = (await tx.store
-      .index(SEAMS_WALLET_INDEXES.walletSubjectId)
-      .getAll(normalizedWalletSubjectId)) as unknown[];
+      .index(SEAMS_WALLET_INDEXES.walletId)
+      .getAll(normalizedWalletId)) as unknown[];
     await tx.done;
     return rows.flatMap((row) => {
       const parsed = profileRecoveryEmailFromRow(row);
@@ -2917,7 +2917,7 @@ export class SeamsWalletRepositories {
       async (ctx) => {
         const keyMaterialRows = (await ctx
           .store(SEAMS_WALLET_STORES.keyMaterial)
-          .index(SEAMS_WALLET_INDEXES.walletSubjectId)
+          .index(SEAMS_WALLET_INDEXES.walletId)
           .getAll(normalizedProfileId)) as unknown[];
         const matches = keyMaterialRows.flatMap((row) => {
           const parsed = parseKeyMaterialRow(row);
@@ -2934,7 +2934,7 @@ export class SeamsWalletRepositories {
         }
         const signerRows = (await ctx
           .store(SEAMS_WALLET_STORES.walletSigners)
-          .index(SEAMS_WALLET_INDEXES.walletSubjectId)
+          .index(SEAMS_WALLET_INDEXES.walletId)
           .getAll(normalizedProfileId)) as unknown[];
         const activeSigners = signerRows.flatMap((row) => {
           const parsed = parseAccountSignerRow(row);
@@ -2960,7 +2960,7 @@ export class SeamsWalletRepositories {
     const db = await this.manager.getDB();
     const tx = db.transaction(SEAMS_WALLET_STORES.keyMaterial, 'readonly');
     const rows = (await tx.store
-      .index(SEAMS_WALLET_INDEXES.walletSubjectId)
+      .index(SEAMS_WALLET_INDEXES.walletId)
       .getAll(normalizedProfileId)) as unknown[];
     await tx.done;
     const records = rows.flatMap((row) => {
@@ -2995,7 +2995,7 @@ export class SeamsWalletRepositories {
     await this.manager.runTransaction([SEAMS_WALLET_STORES.keyMaterial], 'readwrite', async (ctx) => {
       const store = ctx.store(SEAMS_WALLET_STORES.keyMaterial);
       const rows = (await store
-        .index(SEAMS_WALLET_INDEXES.walletSubjectId)
+        .index(SEAMS_WALLET_INDEXES.walletId)
         .getAll(normalizedProfileId)) as unknown[];
       for (const row of rows) {
         const parsed = parseKeyMaterialRow(row);

@@ -116,11 +116,11 @@ import * as registrationPublic from './flows/registration/public';
 import type {
   StoredRegistrationData,
   StoreAuthenticatorInput,
-  StoreWalletSubjectEcdsaRegistrationInput,
-  StoreWalletSubjectEcdsaSignerRecordsInput,
-  StoreWalletSubjectEcdsaSignerRecordsResult,
-  StoreWalletSubjectEd25519RegistrationInput,
-  StoreWalletSubjectEd25519SignerRecordInput,
+  StoreWalletEcdsaRegistrationInput,
+  StoreWalletEcdsaSignerRecordsInput,
+  StoreWalletEcdsaSignerRecordsResult,
+  StoreWalletEd25519RegistrationInput,
+  StoreWalletEd25519SignerRecordInput,
 } from './flows/registration/public';
 import {
   type EmailOtpPublicDeps,
@@ -128,6 +128,8 @@ import {
   type EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalResult,
   type LoginWithEmailOtpEcdsaCapabilityInternalArgs,
   type LoginWithEmailOtpEcdsaCapabilityInternalResult,
+  type PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgs,
+  type PrepareEmailOtpRegistrationEnrollmentMaterialInternalResult,
 } from './flows/signEvmFamily/emailOtpPublic';
 import * as emailOtpPublic from './flows/signEvmFamily/emailOtpPublic';
 import { initializeSigningEngineRuntime } from './assembly/createSigningEngineRuntime';
@@ -698,37 +700,64 @@ export class SigningEngine {
     return registrationPublic.atomicStoreRegistrationData(this.registrationPublicDeps, args);
   }
 
-  storeWalletSubjectEd25519RegistrationData(
-    args: StoreWalletSubjectEd25519RegistrationInput,
+  storeWalletEd25519RegistrationData(
+    args: StoreWalletEd25519RegistrationInput,
   ): Promise<StoredRegistrationData> {
-    return registrationPublic.storeWalletSubjectEd25519RegistrationData(
+    return registrationPublic.storeWalletEd25519RegistrationData(
       this.registrationPublicDeps,
       args,
     );
   }
 
-  storeWalletSubjectEd25519SignerRecord(
-    args: StoreWalletSubjectEd25519SignerRecordInput,
+  storeWalletEmailOtpEd25519RegistrationData(
+    args: registrationPublic.StoreWalletEmailOtpEd25519RegistrationInput,
   ): Promise<StoredRegistrationData> {
-    return registrationPublic.storeWalletSubjectEd25519SignerRecord(
+    return registrationPublic.storeWalletEmailOtpEd25519RegistrationData(
       this.registrationPublicDeps,
       args,
     );
   }
 
-  storeWalletSubjectEcdsaSignerRecords(
-    args: StoreWalletSubjectEcdsaSignerRecordsInput,
-  ): Promise<StoreWalletSubjectEcdsaSignerRecordsResult> {
-    return registrationPublic.storeWalletSubjectEcdsaSignerRecords(
+  storeWalletEd25519SignerRecord(
+    args: StoreWalletEd25519SignerRecordInput,
+  ): Promise<StoredRegistrationData> {
+    return registrationPublic.storeWalletEd25519SignerRecord(
       this.registrationPublicDeps,
       args,
     );
   }
 
-  storeWalletSubjectEcdsaRegistrationData(
-    args: StoreWalletSubjectEcdsaRegistrationInput,
-  ): Promise<StoreWalletSubjectEcdsaSignerRecordsResult> {
-    return registrationPublic.storeWalletSubjectEcdsaRegistrationData(
+  storeWalletEcdsaSignerRecords(
+    args: StoreWalletEcdsaSignerRecordsInput,
+  ): Promise<StoreWalletEcdsaSignerRecordsResult> {
+    return registrationPublic.storeWalletEcdsaSignerRecords(
+      this.registrationPublicDeps,
+      args,
+    );
+  }
+
+  storeWalletEmailOtpEcdsaSignerRecords(
+    args: StoreWalletEcdsaSignerRecordsInput,
+  ): Promise<StoreWalletEcdsaSignerRecordsResult> {
+    return registrationPublic.storeWalletEmailOtpEcdsaSignerRecords(
+      this.registrationPublicDeps,
+      args,
+    );
+  }
+
+  storeWalletEcdsaRegistrationData(
+    args: StoreWalletEcdsaRegistrationInput,
+  ): Promise<StoreWalletEcdsaSignerRecordsResult> {
+    return registrationPublic.storeWalletEcdsaRegistrationData(
+      this.registrationPublicDeps,
+      args,
+    );
+  }
+
+  storeWalletEmailOtpEcdsaRegistrationData(
+    args: registrationPublic.StoreWalletEmailOtpEcdsaRegistrationInput,
+  ): Promise<StoreWalletEcdsaSignerRecordsResult> {
+    return registrationPublic.storeWalletEmailOtpEcdsaRegistrationData(
       this.registrationPublicDeps,
       args,
     );
@@ -1040,6 +1069,15 @@ export class SigningEngine {
     return await emailOtpPublic.enrollEmailOtpInternal(this.emailOtpPublicDeps, args);
   }
 
+  async prepareEmailOtpRegistrationEnrollmentMaterialInternal(
+    args: PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgs,
+  ): Promise<PrepareEmailOtpRegistrationEnrollmentMaterialInternalResult> {
+    return await emailOtpPublic.prepareEmailOtpRegistrationEnrollmentMaterialInternal(
+      this.emailOtpPublicDeps,
+      args,
+    );
+  }
+
   async enrollAndLoginWithEmailOtpEcdsaCapabilityInternal(
     args: EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs,
   ): Promise<EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalResult> {
@@ -1180,6 +1218,17 @@ export class SigningEngine {
     );
   }
 
+  deriveThresholdEd25519HssClientInputsFromPrfFirst(
+    args: Parameters<
+      typeof thresholdEd25519Public.deriveThresholdEd25519HssClientInputsFromPrfFirst
+    >[1],
+  ): ReturnType<typeof thresholdEd25519Public.deriveThresholdEd25519HssClientInputsFromPrfFirst> {
+    return thresholdEd25519Public.deriveThresholdEd25519HssClientInputsFromPrfFirst(
+      this.thresholdEd25519PublicDeps,
+      args,
+    );
+  }
+
   prepareThresholdEd25519HssClientCeremonyFromCredential(
     args: Parameters<
       typeof thresholdEd25519Public.prepareThresholdEd25519HssClientCeremonyFromCredential
@@ -1188,6 +1237,19 @@ export class SigningEngine {
     typeof thresholdEd25519Public.prepareThresholdEd25519HssClientCeremonyFromCredential
   > {
     return thresholdEd25519Public.prepareThresholdEd25519HssClientCeremonyFromCredential(
+      this.thresholdEd25519PublicDeps,
+      args,
+    );
+  }
+
+  prepareThresholdEd25519HssClientCeremonyFromPrfFirst(
+    args: Parameters<
+      typeof thresholdEd25519Public.prepareThresholdEd25519HssClientCeremonyFromPrfFirst
+    >[1],
+  ): ReturnType<
+    typeof thresholdEd25519Public.prepareThresholdEd25519HssClientCeremonyFromPrfFirst
+  > {
+    return thresholdEd25519Public.prepareThresholdEd25519HssClientCeremonyFromPrfFirst(
       this.thresholdEd25519PublicDeps,
       args,
     );
@@ -1286,6 +1348,7 @@ const signingEnginePublicMembers = [
   'warmCriticalResources',
   'assertSealedRefreshStartupParity',
   'restorePersistedSessionsForWallet',
+  'prepareEmailOtpRegistrationEnrollmentMaterialInternal',
   'readPersistedAvailableSigningLanes',
   'signNear',
   'signTempo',
@@ -1306,10 +1369,13 @@ const signingEnginePublicMembers = [
   'rollbackUserRegistration',
   'hasPasskeyCredential',
   'atomicStoreRegistrationData',
-  'storeWalletSubjectEd25519RegistrationData',
-  'storeWalletSubjectEd25519SignerRecord',
-  'storeWalletSubjectEcdsaSignerRecords',
-  'storeWalletSubjectEcdsaRegistrationData',
+  'storeWalletEd25519RegistrationData',
+  'storeWalletEmailOtpEd25519RegistrationData',
+  'storeWalletEd25519SignerRecord',
+  'storeWalletEcdsaSignerRecords',
+  'storeWalletEmailOtpEcdsaSignerRecords',
+  'storeWalletEcdsaRegistrationData',
+  'storeWalletEmailOtpEcdsaRegistrationData',
   'requestRegistrationCredentialConfirmation',
   'getAuthenticationCredentialsSerialized',
   'prepareWalletRegistrationEcdsaPreparedClientBootstrap',
@@ -1339,7 +1405,9 @@ const signingEnginePublicMembers = [
   'clearThresholdEcdsaCommitQueue',
   'deriveThresholdEd25519ClientVerifyingShareFromCredential',
   'deriveThresholdEd25519HssClientInputsFromCredential',
+  'deriveThresholdEd25519HssClientInputsFromPrfFirst',
   'prepareThresholdEd25519HssClientCeremonyFromCredential',
+  'prepareThresholdEd25519HssClientCeremonyFromPrfFirst',
   'prepareThresholdEd25519HssClientRequest',
   'deriveThresholdEd25519HssClientOutputMask',
   'buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact',

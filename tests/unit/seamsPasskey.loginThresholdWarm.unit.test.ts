@@ -8,7 +8,7 @@ import {
 } from '@/core/signingEngine/session/persistence/records';
 import {
   thresholdEcdsaChainTargetKey,
-  walletSubjectIdFromWalletProfile,
+  walletIdFromWalletProfile,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
@@ -21,7 +21,7 @@ const ECDSA_PRF_FIRST_B64U = Buffer.alloc(32, 7).toString('base64url');
 const ECDSA_CLIENT_ROOT_SHARE32_B64U = 'oSWxVelT4exizVyl5Q9RgldZH2hte7-Kf3h2qkA4mlY';
 const ECDSA_PUBLIC_KEY33_B64U = Buffer.alloc(33, 9).toString('base64url');
 const WALLET_SIGNING_SESSION_ID = 'wsess-login-1';
-const SUBJECT_ID = walletSubjectIdFromWalletProfile({ walletId: ACCOUNT_ID });
+const SUBJECT_ID = walletIdFromWalletProfile({ walletId: ACCOUNT_ID });
 const TEMPO_CHAIN_TARGET = {
   kind: 'tempo',
   chainId: 42431,
@@ -659,7 +659,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             kind: 'app_session',
             policy: {
               permission: 'ecdsa_key_facts_inventory',
-              walletSubjectId: 'alice.testnet',
+              walletId: 'alice.testnet',
             },
           },
         });

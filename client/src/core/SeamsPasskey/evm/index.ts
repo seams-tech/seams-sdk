@@ -51,10 +51,11 @@ export class EvmSigner implements EvmSignerCapability {
     if (!args.participantIds.length) {
       throw new Error('[SeamsPasskey][evm] registerEvmWallet requires participant ids');
     }
+    const authMethod = args.authMethod || { kind: 'passkey' as const };
     const registerWalletArgs = {
-      walletSubject: { kind: 'server_generated' },
+      wallet: { kind: 'server_generated' },
       rpId,
-      authMethod: { kind: 'passkey' },
+      authMethod,
       signerSelection: {
         mode: 'ecdsa_only',
         ecdsa: {

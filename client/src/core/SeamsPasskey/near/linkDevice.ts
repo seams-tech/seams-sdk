@@ -30,7 +30,7 @@ import { DEFAULT_WAIT_STATUS } from '../../types/rpc';
 import { ActionType, type ActionArgsWasm } from '../../types/actions';
 import type { WebAuthnRegistrationCredential } from '../../types/webauthn';
 import { THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANTS_V1 } from '@shared/threshold/secp256k1';
-import { walletSubjectIdFromString } from '@shared/utils/registrationIntent';
+import { walletIdFromString } from '@shared/utils/registrationIntent';
 import {
   buildThresholdWarmSessionRequestEnvelope,
   createThresholdWarmSessionPolicyDraft,
@@ -701,8 +701,8 @@ export class LinkDeviceFlow {
       }
       const ecdsaResult = isObject(ecdsaObj.ecdsa) ? ecdsaObj.ecdsa : {};
       const walletKeys = parseLinkDeviceEcdsaWalletKeys(ecdsaResult.walletKeys);
-      await this.context.signingEngine.storeWalletSubjectEcdsaSignerRecords({
-        walletSubjectId: walletSubjectIdFromString(String(nearAccountId)),
+      await this.context.signingEngine.storeWalletEcdsaSignerRecords({
+        walletId: walletIdFromString(String(nearAccountId)),
         walletKeys,
       });
     }

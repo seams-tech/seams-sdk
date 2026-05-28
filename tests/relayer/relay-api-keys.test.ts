@@ -32,7 +32,7 @@ const apiKeyCtx = {
 
 function makeRegistrationBody(): Record<string, unknown> {
   return {
-    walletSubject: { kind: 'provided', walletSubjectId: 'alice.testnet' },
+    wallet: { kind: 'provided', walletId: 'alice.testnet' },
     rpId: 'example.localhost',
     signerSelection: {
       mode: 'ed25519_only',
@@ -55,7 +55,7 @@ function makeRelayService() {
     ok: true,
     intent: {
       version: 'registration_intent_v1',
-      walletSubjectId: input.request.walletSubject.walletSubjectId,
+      walletId: input.request.wallet.walletId,
       rpId: input.request.rpId,
       authMethod: input.request.authMethod,
       signerSelection: input.request.signerSelection,

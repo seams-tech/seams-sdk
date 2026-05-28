@@ -6,6 +6,7 @@ import { setupBasicPasskeyTest } from '../setup';
 import {
   LEGACY_INDEXED_DB_NAMES,
   SEAMS_WALLET_DB_NAME,
+  SEAMS_WALLET_DB_VERSION,
   SEAMS_WALLET_INDEXES,
   SEAMS_WALLET_SCHEMA_MANIFEST,
   SEAMS_WALLET_STORES,
@@ -31,15 +32,17 @@ function listSourceFiles(relativeDir: string): string[] {
 }
 
 test.describe('IndexedDB consolidation guards', () => {
-  test('canonical wallet schema names are Seams-prefixed snake_case', () => {
+  test('canonical wallet schema names use one Seams-prefixed DB and unprefixed snake_case stores', () => {
     expect(SEAMS_WALLET_DB_NAME).toBe('seams_wallet');
-    expect(Object.values(SEAMS_WALLET_STORES).every((name) => name.startsWith('seams_'))).toBe(
+    expect(SEAMS_WALLET_DB_VERSION).toBe(4);
+    expect(Object.values(SEAMS_WALLET_STORES).every((name) => !name.startsWith('seams_'))).toBe(
       true,
     );
 
-    for (const name of [SEAMS_WALLET_DB_NAME, ...Object.values(SEAMS_WALLET_STORES)]) {
-      expect(name, name).toMatch(CANONICAL_NAME_PATTERN);
-      expect(() => assertCanonicalIndexedDBName(name)).not.toThrow();
+    expect(SEAMS_WALLET_DB_NAME).toMatch(CANONICAL_NAME_PATTERN);
+    expect(() => assertCanonicalIndexedDBName(SEAMS_WALLET_DB_NAME)).not.toThrow();
+    for (const name of Object.values(SEAMS_WALLET_STORES)) {
+      expect(name, name).toMatch(SNAKE_CASE_PATTERN);
     }
     for (const name of Object.values(SEAMS_WALLET_INDEXES)) {
       expect(name, name).toMatch(SNAKE_CASE_PATTERN);
@@ -60,11 +63,43 @@ test.describe('IndexedDB consolidation guards', () => {
     expect([...new Set(manifestStores)].sort()).toEqual(Object.values(SEAMS_WALLET_STORES).sort());
 
     for (const entry of SEAMS_WALLET_SCHEMA_MANIFEST) {
-      expect(entry.store, entry.store).toMatch(CANONICAL_NAME_PATTERN);
+      expect(entry.store, entry.store).toMatch(SNAKE_CASE_PATTERN);
+      expect(entry.store, entry.store).not.toMatch(/^seams_/);
       for (const index of entry.indexes) {
         expect(index.name, `${entry.store}:${index.name}`).toMatch(SNAKE_CASE_PATTERN);
       }
     }
+  });
+
+  test('Refactor 45 canonical index inventory matches schema constants', () => {
+    const doc = readRepoSource('docs/refactor-45-consolidate-indexeddb-tables.md');
+    const inventory = doc.match(/canonical index\s+inventory is:\s+```ts\n([\s\S]*?)```/);
+    expect(inventory).not.toBeNull();
+    const documentedIndexes = (inventory?.[1] || '')
+      .split('\n')
+      .map((line) => line.trim().replace(/^'|'$/g, ''))
+      .filter(Boolean);
+    expect([...new Set(documentedIndexes)].sort()).toEqual(
+      Object.values(SEAMS_WALLET_INDEXES).sort(),
+    );
+  });
+
+  test('signing session persistence uses canonical wallet DB constants', () => {
+    const sharedSealSource = readRepoSource('shared/src/utils/signingSessionSeal.ts');
+    expect(sharedSealSource).not.toMatch(/SIGNING_SESSION_SEAL_DB_NAME/);
+    expect(sharedSealSource).not.toMatch(/SIGNING_SESSION_SEAL_DB_VERSION/);
+    expect(sharedSealSource).not.toMatch(/SIGNING_SESSION_SEAL_STORE_NAME/);
+    expect(sharedSealSource).not.toMatch(/SIGNING_SESSION_RESTORE_LEASE_STORE_NAME/);
+
+    const repositorySource = readRepoSource(
+      'client/src/core/indexedDB/seamsWalletDB/signingSessionSeals.ts',
+    );
+    expect(repositorySource).toContain('SEAMS_WALLET_DB_NAME');
+    expect(repositorySource).toContain('SEAMS_WALLET_DB_VERSION');
+    expect(repositorySource).toContain('SEAMS_WALLET_STORES.signingSessionSeals');
+    expect(repositorySource).toContain('SEAMS_WALLET_STORES.signingSessionRestoreLeases');
+    expect(repositorySource).not.toMatch(/SIGNING_SESSION_SEAL_DB_NAME/);
+    expect(repositorySource).not.toMatch(/SIGNING_SESSION_SEAL_DB_VERSION/);
   });
 
   test('fresh seams wallet databases match the schema manifest', async ({ page }) => {
@@ -324,12 +359,12 @@ test.describe('IndexedDB consolidation guards', () => {
           },
         },
       });
-      await repositories.upsertWalletAuthMethodBinding({
-        version: 'wallet_auth_method_binding_v1',
+      await repositories.upsertWalletAuthMethod({
+        version: 'wallet_auth_method_v1',
         kind: 'passkey',
         status: 'active',
         localStatus: 'synced',
-        walletSubjectId: 'alice.testnet',
+        walletId: 'alice.testnet',
         rpId: 'local',
         credentialIdB64u: 'credential-raw-id',
         credentialPublicKeyB64u: 'AQID',
@@ -337,12 +372,12 @@ test.describe('IndexedDB consolidation guards', () => {
         createdAtMs: 1,
         updatedAtMs: 2,
       });
-      await repositories.upsertWalletAuthMethodBinding({
-        version: 'wallet_auth_method_binding_v1',
+      await repositories.upsertWalletAuthMethod({
+        version: 'wallet_auth_method_v1',
         kind: 'email_otp',
         status: 'active',
         localStatus: 'pending',
-        walletSubjectId: 'alice.testnet',
+        walletId: 'alice.testnet',
         rpId: 'local',
         emailHashHex: 'email-hash-hex',
         challengeId: 'challenge-1',
@@ -350,12 +385,12 @@ test.describe('IndexedDB consolidation guards', () => {
         updatedAtMs: 4,
       });
       const mixedBindingRejected = await repositories
-        .upsertWalletAuthMethodBinding({
-          version: 'wallet_auth_method_binding_v1',
+        .upsertWalletAuthMethod({
+          version: 'wallet_auth_method_v1',
           kind: 'passkey',
           status: 'active',
           localStatus: 'synced',
-          walletSubjectId: 'alice.testnet',
+          walletId: 'alice.testnet',
           rpId: 'local',
           credentialIdB64u: 'mixed-credential',
           credentialPublicKeyB64u: 'credential-public-key',
@@ -369,12 +404,12 @@ test.describe('IndexedDB consolidation guards', () => {
       const rejectedFinalizeBatchLeavesNoRows = await repositories
         .persistWalletRegistrationFinalize({
           profiles: [{ profileId: 'atomic-fail.testnet' }],
-          initialAuthMethodBinding: {
-            version: 'wallet_auth_method_binding_v1',
+          initialAuthMethod: {
+            version: 'wallet_auth_method_v1',
             kind: 'email_otp',
             status: 'active',
             localStatus: 'synced',
-            walletSubjectId: 'atomic-fail.testnet',
+            walletId: 'atomic-fail.testnet',
             rpId: 'local',
             emailHashHex: 'atomic-email-hash',
             challengeId: 'challenge-1',
@@ -390,7 +425,7 @@ test.describe('IndexedDB consolidation guards', () => {
         .catch(async () => {
           const profile = await repositories.getProfile('atomic-fail.testnet');
           const bindings =
-            await repositories.listWalletAuthMethodBindingsForWalletSubject('atomic-fail.testnet');
+            await repositories.listWalletAuthMethodsForWallet('atomic-fail.testnet');
           return profile === null && bindings.length === 0;
         });
       await repositories.upsertChainAccount({
@@ -442,12 +477,12 @@ test.describe('IndexedDB consolidation guards', () => {
         profileId: 'delete.testnet',
         defaultSignerSlot: 1,
       });
-      await repositories.upsertWalletAuthMethodBinding({
-        version: 'wallet_auth_method_binding_v1',
+      await repositories.upsertWalletAuthMethod({
+        version: 'wallet_auth_method_v1',
         kind: 'email_otp',
         status: 'active',
         localStatus: 'synced',
-        walletSubjectId: 'delete.testnet',
+        walletId: 'delete.testnet',
         rpId: 'local',
         emailHashHex: 'delete-email-hash',
         challengeId: 'delete-challenge',
@@ -470,7 +505,7 @@ test.describe('IndexedDB consolidation guards', () => {
         syncedAt: '2026-05-28T00:00:00.000Z',
       });
       await repositories.deleteProfileData('delete.testnet');
-      await repositories.setAppState('selected-wallet', { walletSubjectId: 'alice.testnet' });
+      await repositories.setAppState('selected-wallet', { walletId: 'alice.testnet' });
       await repositories.setLastProfileStateForProfile('alice.testnet', 2);
       await repositories.setLastProfileStateForProfile(
         'bob.testnet',
@@ -516,8 +551,8 @@ test.describe('IndexedDB consolidation guards', () => {
         await repositories.listChainAccountsByProfile('delete.testnet');
       const deletedAuthenticators =
         await repositories.listProfileAuthenticators('delete.testnet');
-      const deletedAuthMethodBindings =
-        await repositories.listWalletAuthMethodBindingsForWalletSubject('delete.testnet');
+      const deletedAuthMethods =
+        await repositories.listWalletAuthMethodsForWallet('delete.testnet');
       const chainAccount = await repositories.getChainAccount({
         profileId: 'alice.testnet',
         chainIdKey: 'near:testnet',
@@ -536,14 +571,14 @@ test.describe('IndexedDB consolidation guards', () => {
       });
       const profileAuthenticators =
         await repositories.listProfileAuthenticators('alice.testnet');
-      const authMethodBindings =
-        await repositories.listWalletAuthMethodBindingsForWalletSubject('alice.testnet');
-      const passkeyAuthMethodBinding = await repositories.getWalletAuthMethodBinding({
+      const authMethods =
+        await repositories.listWalletAuthMethodsForWallet('alice.testnet');
+      const passkeyAuthMethod = await repositories.getWalletAuthMethod({
         kind: 'passkey',
         rpId: 'local',
         authIdentifierKey: 'credential-raw-id',
       });
-      const emailOtpAuthMethodBinding = await repositories.getWalletAuthMethodBinding({
+      const emailOtpAuthMethod = await repositories.getWalletAuthMethod({
         kind: 'email_otp',
         rpId: 'local',
         authIdentifierKey: 'email-hash-hex',
@@ -587,7 +622,7 @@ test.describe('IndexedDB consolidation guards', () => {
       const tx = db.transaction(
         [
           schemaNames.SEAMS_WALLET_STORES.appState,
-          schemaNames.SEAMS_WALLET_STORES.walletSubjects,
+          schemaNames.SEAMS_WALLET_STORES.wallets,
           schemaNames.SEAMS_WALLET_STORES.walletAuthMethods,
           schemaNames.SEAMS_WALLET_STORES.walletSigners,
           schemaNames.SEAMS_WALLET_STORES.nearAccountProjections,
@@ -606,13 +641,13 @@ test.describe('IndexedDB consolidation guards', () => {
         scopedLastProfileState: await tx
           .objectStore(schemaNames.SEAMS_WALLET_STORES.appState)
           .get('lastProfileState::https://app.example'),
-        walletSubject: await tx
-          .objectStore(schemaNames.SEAMS_WALLET_STORES.walletSubjects)
+        wallet: await tx
+          .objectStore(schemaNames.SEAMS_WALLET_STORES.wallets)
           .get('alice.testnet'),
-        passkeyAuthMethodBinding: await tx
+        passkeyAuthMethod: await tx
           .objectStore(schemaNames.SEAMS_WALLET_STORES.walletAuthMethods)
           .get(['alice.testnet', 'passkey', 'local', 'credential-raw-id'].join('\0')),
-        emailOtpAuthMethodBinding: await tx
+        emailOtpAuthMethod: await tx
           .objectStore(schemaNames.SEAMS_WALLET_STORES.walletAuthMethods)
           .get(['alice.testnet', 'email_otp', 'local', 'email-hash-hex'].join('\0')),
         chainAccount: await tx
@@ -621,7 +656,7 @@ test.describe('IndexedDB consolidation guards', () => {
         walletSigner: await tx
           .objectStore(schemaNames.SEAMS_WALLET_STORES.walletSigners)
           .get(['near:testnet', 'alice.testnet', 'ed25519:alice'].join('\0')),
-        walletAuthenticator: await tx
+        walletAuthMethod: await tx
           .objectStore(schemaNames.SEAMS_WALLET_STORES.walletAuthMethods)
           .index(schemaNames.SEAMS_WALLET_INDEXES.passkeyRpIdCredentialId)
           .get(['passkey', 'local', 'credential-raw-id']),
@@ -658,16 +693,16 @@ test.describe('IndexedDB consolidation guards', () => {
         deletedProfile,
         deletedChainAccounts,
         deletedAuthenticators,
-        deletedAuthMethodBindings,
+        deletedAuthMethods,
         chainAccount,
         profileChainAccounts,
         signerActivation,
         accountSigner,
         profileSigners,
         profileAuthenticators,
-        authMethodBindings,
-        passkeyAuthMethodBinding,
-        emailOtpAuthMethodBinding,
+        authMethods,
+        passkeyAuthMethod,
+        emailOtpAuthMethod,
         credentialAuthenticator,
         promptSelection,
         signerOps,
@@ -703,7 +738,7 @@ test.describe('IndexedDB consolidation guards', () => {
     expect(result.deletedProfile).toBeNull();
     expect(result.deletedChainAccounts).toEqual([]);
     expect(result.deletedAuthenticators).toEqual([]);
-    expect(result.deletedAuthMethodBindings).toEqual([]);
+    expect(result.deletedAuthMethods).toEqual([]);
     expect(result.mixedBindingRejected).toBe(true);
     expect(result.rejectedFinalizeBatchLeavesNoRows).toBe(true);
     expect(result.chainAccount).toMatchObject({
@@ -725,16 +760,16 @@ test.describe('IndexedDB consolidation guards', () => {
     expect(result.accountSigner?.signerId).toBe('ed25519:alice');
     expect(result.profileSigners).toHaveLength(1);
     expect(result.profileAuthenticators).toHaveLength(1);
-    expect(result.authMethodBindings).toHaveLength(2);
-    expect(result.passkeyAuthMethodBinding).toMatchObject({
+    expect(result.authMethods).toHaveLength(2);
+    expect(result.passkeyAuthMethod).toMatchObject({
       kind: 'passkey',
-      walletSubjectId: 'alice.testnet',
+      walletId: 'alice.testnet',
       credentialIdB64u: 'credential-raw-id',
       localStatus: 'synced',
     });
-    expect(result.emailOtpAuthMethodBinding).toMatchObject({
+    expect(result.emailOtpAuthMethod).toMatchObject({
       kind: 'email_otp',
-      walletSubjectId: 'alice.testnet',
+      walletId: 'alice.testnet',
       emailHashHex: 'email-hash-hex',
       localStatus: 'pending',
     });
@@ -761,7 +796,7 @@ test.describe('IndexedDB consolidation guards', () => {
         accountAddress: 'alice.testnet',
       },
     });
-    expect(result.appState).toEqual({ walletSubjectId: 'alice.testnet' });
+    expect(result.appState).toEqual({ walletId: 'alice.testnet' });
     expect(result.lastProfileState).toEqual({
       profileId: 'alice.testnet',
       activeSignerSlot: 2,
@@ -804,22 +839,22 @@ test.describe('IndexedDB consolidation guards', () => {
       activeSignerSlot: 1,
       scope: 'https://app.example',
     });
-    expect(result.rawRows.walletSubject.wallet_subject_id).toBe('alice.testnet');
-    expect(result.rawRows.walletSubject.record.profileId).toBe('alice.testnet');
-    expect(result.rawRows.passkeyAuthMethodBinding.wallet_subject_id).toBe('alice.testnet');
-    expect(result.rawRows.passkeyAuthMethodBinding.kind).toBe('passkey');
-    expect(result.rawRows.passkeyAuthMethodBinding.auth_identifier_key).toBe('credential-raw-id');
-    expect(result.rawRows.passkeyAuthMethodBinding.record.credentialIdB64u).toBe(
+    expect(result.rawRows.wallet.wallet_id).toBe('alice.testnet');
+    expect(result.rawRows.wallet.record.profileId).toBe('alice.testnet');
+    expect(result.rawRows.passkeyAuthMethod.wallet_id).toBe('alice.testnet');
+    expect(result.rawRows.passkeyAuthMethod.kind).toBe('passkey');
+    expect(result.rawRows.passkeyAuthMethod.auth_identifier_key).toBe('credential-raw-id');
+    expect(result.rawRows.passkeyAuthMethod.record.credentialIdB64u).toBe(
       'credential-raw-id',
     );
-    expect(result.rawRows.emailOtpAuthMethodBinding.wallet_subject_id).toBe('alice.testnet');
-    expect(result.rawRows.emailOtpAuthMethodBinding.kind).toBe('email_otp');
-    expect(result.rawRows.emailOtpAuthMethodBinding.auth_identifier_key).toBe('email-hash-hex');
-    expect(result.rawRows.emailOtpAuthMethodBinding.record.emailHashHex).toBe('email-hash-hex');
-    expect(result.rawRows.chainAccount.wallet_subject_id).toBe('alice.testnet');
+    expect(result.rawRows.emailOtpAuthMethod.wallet_id).toBe('alice.testnet');
+    expect(result.rawRows.emailOtpAuthMethod.kind).toBe('email_otp');
+    expect(result.rawRows.emailOtpAuthMethod.auth_identifier_key).toBe('email-hash-hex');
+    expect(result.rawRows.emailOtpAuthMethod.record.emailHashHex).toBe('email-hash-hex');
+    expect(result.rawRows.chainAccount.wallet_id).toBe('alice.testnet');
     expect(result.rawRows.chainAccount.chain_id_key).toBe('near:testnet');
     expect(result.rawRows.chainAccount.record.accountAddress).toBe('alice.testnet');
-    expect(result.rawRows.walletSigner.wallet_subject_id).toBe('alice.testnet');
+    expect(result.rawRows.walletSigner.wallet_id).toBe('alice.testnet');
     expect(result.rawRows.walletSigner.wallet_signer_id).toBe(
       ['near:testnet', 'alice.testnet', 'ed25519:alice'].join('\0'),
     );
@@ -827,19 +862,19 @@ test.describe('IndexedDB consolidation guards', () => {
       ['near:testnet', 'alice.testnet'].join('\0'),
     );
     expect(result.rawRows.walletSigner.record.signerKind).toBe('threshold-ed25519');
-    expect(result.rawRows.walletAuthenticator.rp_id).toBe('local');
-    expect(result.rawRows.walletAuthenticator.credential_id_b64u).toBe('credential-raw-id');
-    expect(result.rawRows.walletAuthenticator.wallet_subject_id).toBe('alice.testnet');
-    expect(result.rawRows.walletAuthenticator.authenticator.credentialId).toBe('credential-raw-id');
+    expect(result.rawRows.walletAuthMethod.rp_id).toBe('local');
+    expect(result.rawRows.walletAuthMethod.credential_id_b64u).toBe('credential-raw-id');
+    expect(result.rawRows.walletAuthMethod.wallet_id).toBe('alice.testnet');
+    expect(result.rawRows.walletAuthMethod.authenticator.credentialId).toBe('credential-raw-id');
     expect(result.rawRows.signerOp.op_id).toBe('signer-op-1');
     expect(result.rawRows.signerOp.idempotency_key).toBe('signer-op-idempotency-1');
     expect(result.rawRows.signerOp.status).toBe('submitted');
-    expect(result.rawRows.recoveryEmail.wallet_subject_id).toBe('alice.testnet');
+    expect(result.rawRows.recoveryEmail.wallet_id).toBe('alice.testnet');
     expect(result.rawRows.recoveryEmail.hash_hex).toBe('0xabc');
     expect(result.rawRows.keyMaterial.key_material_id).toBe(
       [['near:testnet', 'alice.testnet', 'signer-1'].join('\0'), 'threshold_share_v1'].join('\0'),
     );
-    expect(result.rawRows.keyMaterial.wallet_subject_id).toBe('alice.testnet');
+    expect(result.rawRows.keyMaterial.wallet_id).toBe('alice.testnet');
     expect(result.rawRows.keyMaterial.wallet_signer_id).toBe(
       ['near:testnet', 'alice.testnet', 'signer-1'].join('\0'),
     );
@@ -1111,12 +1146,12 @@ test.describe('IndexedDB consolidation guards', () => {
 
       await repositories.upsertProfile({ profileId: 'wallet_auth_a', defaultSignerSlot: 1 });
       await repositories.upsertProfile({ profileId: 'wallet_auth_b', defaultSignerSlot: 1 });
-      await repositories.upsertWalletAuthMethodBinding({
-        version: 'wallet_auth_method_binding_v1',
+      await repositories.upsertWalletAuthMethod({
+        version: 'wallet_auth_method_v1',
         kind: 'passkey',
         status: 'active',
         localStatus: 'synced',
-        walletSubjectId: 'wallet_auth_a',
+        walletId: 'wallet_auth_a',
         rpId: 'local',
         credentialIdB64u: 'shared-credential',
         credentialPublicKeyB64u: 'AQID',
@@ -1126,12 +1161,12 @@ test.describe('IndexedDB consolidation guards', () => {
       });
 
       const duplicateIdentifierRejected = await repositories
-        .upsertWalletAuthMethodBinding({
-          version: 'wallet_auth_method_binding_v1',
+        .upsertWalletAuthMethod({
+          version: 'wallet_auth_method_v1',
           kind: 'passkey',
           status: 'active',
           localStatus: 'synced',
-          walletSubjectId: 'wallet_auth_b',
+          walletId: 'wallet_auth_b',
           rpId: 'local',
           credentialIdB64u: 'shared-credential',
           credentialPublicKeyB64u: 'AQID',
@@ -1152,17 +1187,17 @@ test.describe('IndexedDB consolidation guards', () => {
       });
       await tx.done;
 
-      const lookupByOriginal = await repositories.getWalletAuthMethodBinding({
+      const lookupByOriginal = await repositories.getWalletAuthMethod({
         kind: 'passkey',
         rpId: 'local',
         authIdentifierKey: 'shared-credential',
       });
-      const lookupByDrifted = await repositories.getWalletAuthMethodBinding({
+      const lookupByDrifted = await repositories.getWalletAuthMethod({
         kind: 'passkey',
         rpId: 'local',
         authIdentifierKey: 'drifted-credential',
       });
-      const listed = await repositories.listWalletAuthMethodBindingsForWalletSubject('wallet_auth_a');
+      const listed = await repositories.listWalletAuthMethodsForWallet('wallet_auth_a');
 
       manager.close();
       await new Promise<void>((resolve) => {

@@ -98,8 +98,8 @@ export type PrepareEcdsaClientBootstrapOutput = {
   };
 };
 
-export type SignerComputePort = {
-  kind: 'signer_compute';
+export type SignerCryptoPort = {
+  kind: 'signer_crypto';
   prepareEcdsaClientBootstrap(
     input: PrepareEcdsaClientBootstrapInput,
   ): Promise<
@@ -136,7 +136,7 @@ export type PlatformRuntime = {
   storage: DurableRecordStore;
   secrets: SecureSecretStore;
   authenticator: AuthenticatorPort;
-  signerCompute: SignerComputePort;
+  signerCrypto: SignerCryptoPort;
   http: HttpTransport;
   clock: ClockPort;
   random: RandomSource;

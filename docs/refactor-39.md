@@ -525,7 +525,7 @@ equality everywhere.
 - [x] Re-key runtime ECDSA records by `walletId`, key handle, auth method,
       curve, chain target, wallet signing-session id, and threshold session id.
 - [x] Replace ECDSA record indexes keyed by subject with wallet-keyed indexes.
-- [x] Replace `WalletSubjectId` inputs in base ECDSA signing/export/unlock flows
+- [x] Replace `WalletId` inputs in base ECDSA signing/export/unlock flows
       with `WalletId`.
   - [x] Remove caller-supplied `subjectId` from EVM-family `signTempo` and
         `executeEvmFamilyTransaction`; derive the base ECDSA subject from
@@ -685,7 +685,7 @@ equality everywhere.
   - [x] Audit trace/debug payload field names that still say `walletId` for
         mixed NEAR/ECDSA owner identity and rename them only where the payload
         is not explicitly wallet-domain data.
-- [x] Keep `WalletSubjectId` only for NEAR account or future multi-subject
+- [x] Keep `WalletId` only for NEAR account or future multi-subject
       features that explicitly need a separate subject namespace.
   - [x] Delete dead base-ECDSA `subjectId` plumbing from internal warm-session
         key-ref listing and reusable-bootstrap helper paths.
@@ -1823,5 +1823,5 @@ Implementation plan:
 
 Refactor 39 is complete. Remaining cleanup around
 `EvmFamilyEcdsaWalletKey`, profile-continuity parsing, Postgres
-shared-identity lookup shape, and wallet-subject key-facts inventory is tracked
+shared-identity lookup shape, and wallet key-facts inventory is tracked
 in `docs/rework-registration-flows.md` Phase 8.

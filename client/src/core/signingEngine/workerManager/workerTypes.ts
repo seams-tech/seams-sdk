@@ -262,6 +262,34 @@ export interface EmailOtpWorkerOperationMap {
       clientRootShare32B64u: string;
     };
   };
+  prepareEmailOtpRegistrationEnrollmentMaterial: {
+    payload: {
+      relayUrl: string;
+      walletId: string;
+      userId?: string;
+      shamirPrimeB64u: string;
+      routePlan: EmailOtpRoutePlan;
+      otpChannel?: WalletEmailOtpChannel;
+      clientSecret32?: ArrayBuffer;
+    };
+    result: {
+      thresholdEcdsaClientVerifyingShareB64u: string;
+      thresholdEd25519PrfFirstB64u: string;
+      recoveryKeys: string[];
+      otpChannel: WalletEmailOtpChannel;
+      enrollmentSealKeyVersion: string;
+      clientUnlockPublicKeyB64u: string;
+      unlockKeyVersion: string;
+      clientRootShare32B64u: string;
+      emailOtpEnrollment: {
+        recoveryWrappedEnrollmentEscrows: unknown[];
+        enrollmentSealKeyVersion: string;
+        clientUnlockPublicKeyB64u: string;
+        unlockKeyVersion: string;
+        thresholdEcdsaClientVerifyingShareB64u: string;
+      };
+    };
+  };
   verifyEmailOtpCode: {
     payload: {
       relayUrl: string;

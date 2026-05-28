@@ -33,20 +33,28 @@ function resolveDefaultFrontendUrlNoCaddy(): string {
       const fs = require('node:fs');
       const ports = [3600, 5180, 5175, 5181, 5190, 5191];
       const expected = process.argv[2];
+      const requireStrictCoep = process.argv[3] === 'strict';
       const timeoutMs = 250;
 
-      async function classify(port) {
-        const url = \`http://127.0.0.1:\${port}/__sdk-root\`;
+      async function classifyOrigin(origin) {
         const controller = new AbortController();
         const t = setTimeout(() => controller.abort(), timeoutMs);
         try {
-          const res = await fetch(url, { signal: controller.signal });
+          const res = await fetch(\`\${origin}/__sdk-root\`, { signal: controller.signal });
           if (!res.ok) return { kind: 'in_use_wrong' };
           const text = String(await res.text()).trim();
           if (text && fs.existsSync(text)) {
             try {
               const real = fs.realpathSync(text);
-              if (real === expected) return { kind: 'in_use_correct' };
+              if (real === expected) {
+                if (requireStrictCoep) {
+                  const doc = await fetch(\`\${origin}/\`, { signal: controller.signal });
+                  if (doc.headers.get('cross-origin-embedder-policy') !== 'require-corp') {
+                    return { kind: 'in_use_wrong' };
+                  }
+                }
+                return { kind: 'in_use_correct' };
+              }
             } catch {}
           }
           return { kind: 'in_use_wrong' };
@@ -55,6 +63,17 @@ function resolveDefaultFrontendUrlNoCaddy(): string {
         } finally {
           clearTimeout(t);
         }
+      }
+
+      async function classify(port) {
+        const localhost = await classifyOrigin(\`http://localhost:\${port}\`);
+        if (localhost.kind === 'in_use_correct') return localhost;
+        const loopback = await classifyOrigin(\`http://127.0.0.1:\${port}\`);
+        if (loopback.kind === 'in_use_correct') return loopback;
+        if (localhost.kind === 'in_use_wrong' || loopback.kind === 'in_use_wrong') {
+          return { kind: 'in_use_wrong' };
+        }
+        return { kind: 'free' };
       }
 
       (async () => {
@@ -72,10 +91,14 @@ function resolveDefaultFrontendUrlNoCaddy(): string {
         console.log(3600);
       })();
     `;
-    const chosenPortRaw = execFileSync(process.execPath, ['-e', script, expectedSdkDistRoot], {
-      stdio: ['ignore', 'pipe', 'ignore'],
-      encoding: 'utf8',
-    })
+    const chosenPortRaw = execFileSync(
+      process.execPath,
+      ['-e', script, expectedSdkDistRoot, process.env.VITE_COEP_MODE ?? 'strict'],
+      {
+        stdio: ['ignore', 'pipe', 'ignore'],
+        encoding: 'utf8',
+      },
+    )
       .toString()
       .trim();
     const chosenPort = Number(chosenPortRaw);

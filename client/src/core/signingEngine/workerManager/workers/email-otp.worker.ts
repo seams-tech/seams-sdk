@@ -1913,12 +1913,13 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
   walletId: string;
   userId?: string;
   challengeId?: string;
-  otpCode: string;
+  otpCode?: string;
   shamirPrimeB64u: string;
   routePlan: EmailOtpRoutePlan;
   clientSecret32?: Uint8Array;
   returnClientRootShare32?: boolean;
   returnClientSecret32?: boolean;
+  skipServerFinalize?: boolean;
   onProgress?: (code: EmailOtpWorkerProgressCode) => void;
 }): Promise<{
   thresholdEcdsaClientVerifyingShareB64u: string;
@@ -1929,6 +1930,13 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
   enrollmentSealKeyVersion: string;
   clientUnlockPublicKeyB64u: string;
   unlockKeyVersion: string;
+  emailOtpEnrollment: {
+    recoveryWrappedEnrollmentEscrows: EmailOtpRecoveryWrappedEnrollmentEscrowPayload[];
+    enrollmentSealKeyVersion: string;
+    clientUnlockPublicKeyB64u: string;
+    unlockKeyVersion: string;
+    thresholdEcdsaClientVerifyingShareB64u: string;
+  };
   clientRootShare32?: Uint8Array;
   clientSecret32?: Uint8Array;
 }> {
@@ -1942,7 +1950,7 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
     routePlan: args.routePlan,
   });
   const shamirPrimeB64u = readString(args.shamirPrimeB64u, 'shamirPrimeB64u');
-  const otpCode = readString(args.otpCode, 'otpCode');
+  const otpCode = args.skipServerFinalize ? '' : readString(args.otpCode, 'otpCode');
   const keyHandle = readString(
     (await runtime.createClientKeyHandle({ shamirPrimeB64u })).keyHandle,
     'keyHandle',
@@ -1958,7 +1966,7 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
   try {
     const sessionAuth = routePlanSessionAuth(args.routePlan);
     let challengeId = readOptionalString(args.challengeId);
-    if (!challengeId) {
+    if (!challengeId && !args.skipServerFinalize) {
       const challenge = await postEmailOtpJson({
         relayUrl,
         route: emailOtpRoutePath(args.routePlan, 'challenge'),
@@ -2053,23 +2061,25 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
       },
       'Email OTP enrollment did not persist device-local enc_s(S)',
     );
-    await postEmailOtpJson({
-      relayUrl,
-      route: emailOtpRoutePath(args.routePlan, 'finalize'),
-      ...(sessionAuth ? { sessionAuth } : {}),
-      body: {
-        walletId,
-        challengeId,
-        otpCode,
-        otpChannel: EMAIL_OTP_CHANNEL,
-        recoveryWrappedEnrollmentEscrows,
-        enrollmentSealKeyVersion,
-        clientUnlockPublicKeyB64u,
-        unlockKeyVersion: EMAIL_OTP_UNLOCK_KEY_VERSION,
-        thresholdEcdsaClientVerifyingShareB64u,
-      },
-    });
-    args.onProgress?.('otp.verify.succeeded');
+    if (!args.skipServerFinalize) {
+      await postEmailOtpJson({
+        relayUrl,
+        route: emailOtpRoutePath(args.routePlan, 'finalize'),
+        ...(sessionAuth ? { sessionAuth } : {}),
+        body: {
+          walletId,
+          challengeId,
+          otpCode,
+          otpChannel: EMAIL_OTP_CHANNEL,
+          recoveryWrappedEnrollmentEscrows,
+          enrollmentSealKeyVersion,
+          clientUnlockPublicKeyB64u,
+          unlockKeyVersion: EMAIL_OTP_UNLOCK_KEY_VERSION,
+          thresholdEcdsaClientVerifyingShareB64u,
+        },
+      });
+      args.onProgress?.('otp.verify.succeeded');
+    }
     args.onProgress?.('signer.email_otp.enroll.started');
     args.onProgress?.('signer.email_otp.enroll.succeeded');
 
@@ -2090,11 +2100,18 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
       thresholdEcdsaClientVerifyingShareB64u,
       thresholdEd25519PrfFirstB64u,
       recoveryKeys,
-      challengeId,
+      challengeId: challengeId || '',
       otpChannel: EMAIL_OTP_CHANNEL,
       enrollmentSealKeyVersion,
       clientUnlockPublicKeyB64u,
       unlockKeyVersion: EMAIL_OTP_UNLOCK_KEY_VERSION,
+      emailOtpEnrollment: {
+        recoveryWrappedEnrollmentEscrows,
+        enrollmentSealKeyVersion,
+        clientUnlockPublicKeyB64u,
+        unlockKeyVersion: EMAIL_OTP_UNLOCK_KEY_VERSION,
+        thresholdEcdsaClientVerifyingShareB64u,
+      },
       ...(returnedClientRootShare32 ? { clientRootShare32: returnedClientRootShare32 } : {}),
       ...(returnedClientSecret32 ? { clientSecret32: returnedClientSecret32 } : {}),
     };
@@ -3242,6 +3259,26 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
             : {}),
         },
       };
+    case 'prepareEmailOtpRegistrationEnrollmentMaterial':
+      return {
+        id,
+        type,
+        payload: {
+          relayUrl: readString(payload.relayUrl, 'relayUrl'),
+          walletId: readString(payload.walletId, 'walletId'),
+          ...(optionalWorkerString(payload.userId)
+            ? { userId: optionalWorkerString(payload.userId)! }
+            : {}),
+          shamirPrimeB64u: readString(payload.shamirPrimeB64u, 'shamirPrimeB64u'),
+          routePlan: readRoutePlan(payload.routePlan, type),
+          ...(optionalWorkerString(payload.otpChannel)
+            ? { otpChannel: optionalWorkerString(payload.otpChannel)! as WalletEmailOtpChannel }
+            : {}),
+          ...(payload.clientSecret32 instanceof ArrayBuffer
+            ? { clientSecret32: payload.clientSecret32 }
+            : {}),
+        },
+      };
     case 'verifyEmailOtpCode':
       return {
         id,
@@ -3672,6 +3709,53 @@ self.addEventListener('message', async (event: MessageEvent) => {
                 return result.clientRootShare32;
               })(),
             ),
+          },
+        });
+        zeroizeBytes(result.clientRootShare32);
+        return;
+      }
+      case 'prepareEmailOtpRegistrationEnrollmentMaterial': {
+        const routePlan = readRoutePlan(
+          msg.payload.routePlan,
+          'prepareEmailOtpRegistrationEnrollmentMaterial',
+        );
+        const result = await completeEmailOtpEnrollmentFromSecret32({
+          relayUrl: readString(msg.payload.relayUrl, 'relayUrl'),
+          walletId: readString(msg.payload.walletId, 'walletId'),
+          userId: msg.payload.userId,
+          shamirPrimeB64u: readString(msg.payload.shamirPrimeB64u, 'shamirPrimeB64u'),
+          routePlan,
+          returnClientRootShare32: true,
+          skipServerFinalize: true,
+          onProgress: (code) => postEmailOtpWorkerProgress(msg.id, code),
+          ...(msg.payload.clientSecret32 instanceof ArrayBuffer
+            ? {
+                clientSecret32: requireFixed32ArrayBuffer(
+                  msg.payload.clientSecret32,
+                  'clientSecret32',
+                ),
+              }
+            : {}),
+        });
+        const clientRootShare32 = (() => {
+          if (!(result.clientRootShare32 instanceof Uint8Array)) {
+            throw new Error('Email OTP enrollment did not return client root share for bootstrap');
+          }
+          return result.clientRootShare32;
+        })();
+        postToMainThread({
+          id: msg.id,
+          ok: true,
+          result: {
+            thresholdEcdsaClientVerifyingShareB64u: result.thresholdEcdsaClientVerifyingShareB64u,
+            thresholdEd25519PrfFirstB64u: result.thresholdEd25519PrfFirstB64u,
+            recoveryKeys: result.recoveryKeys,
+            otpChannel: result.otpChannel,
+            enrollmentSealKeyVersion: result.enrollmentSealKeyVersion,
+            clientUnlockPublicKeyB64u: result.clientUnlockPublicKeyB64u,
+            unlockKeyVersion: result.unlockKeyVersion,
+            clientRootShare32B64u: base64UrlEncode(clientRootShare32),
+            emailOtpEnrollment: result.emailOtpEnrollment,
           },
         });
         zeroizeBytes(result.clientRootShare32);

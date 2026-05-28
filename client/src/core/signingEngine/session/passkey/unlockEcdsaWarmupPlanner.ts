@@ -49,7 +49,7 @@ export type ActiveEcdsaSignerRecord = {
   chainTarget: ThresholdEcdsaChainTarget;
   walletKey: EvmFamilyEcdsaWalletKey;
   signerId?: string;
-  source: 'profile_continuity' | 'wallet_subject';
+  source: 'profile_continuity' | 'wallet';
 };
 
 export type RepairRequiredEcdsaSignerRecord = {

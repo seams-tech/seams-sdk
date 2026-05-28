@@ -288,7 +288,7 @@ function toPrefixWithColon(prefix: unknown, defaultPrefix: string): string {
   return p.endsWith(':') ? p : `${p}:`;
 }
 
-function toEmailOtpPrefix(config: Record<string, unknown>): string {
+export function resolveEmailOtpStoreNamespace(config: Record<string, unknown>): string {
   const explicit =
     toOptionalTrimmedString(config.EMAIL_OTP_PREFIX) ||
     toOptionalTrimmedString(config.EMAIL_OTP_STORE_PREFIX);
@@ -325,7 +325,7 @@ function resolvePostgresEmailOtpStore(
   if (!postgresUrl) {
     throw new Error(`[email-otp] postgres ${storeLabel} store enabled but POSTGRES_URL is not set`);
   }
-  return { postgresUrl, namespace: toEmailOtpPrefix(config) };
+  return { postgresUrl, namespace: resolveEmailOtpStoreNamespace(config) };
 }
 
 function cloneRecord<T>(value: T): T {

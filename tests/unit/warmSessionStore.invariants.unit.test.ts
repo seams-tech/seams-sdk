@@ -164,7 +164,7 @@ test.describe('WarmSessionStore invariants', () => {
     const envelope = createEmptyEnvelope();
     const { record, key, lane } = createEcdsaIdentityArgs({
       walletId: 'invariants.testnet',
-      subjectId: 'wallet-subject-invariants',
+      subjectId: 'wallet-invariants',
       thresholdSessionId: 'record-session',
       walletSigningSessionId: 'wallet-session-record',
       chain: 'evm',
@@ -233,7 +233,7 @@ test.describe('WarmSessionStore invariants', () => {
     const envelope = createEmptyEnvelope();
     const { record, key, lane } = createEcdsaIdentityArgs({
       walletId: 'invariants.testnet',
-      subjectId: 'wallet-subject-invariants',
+      subjectId: 'wallet-invariants',
       thresholdSessionId: 'tempo-bad-claim',
       walletSigningSessionId: 'wallet-session-tempo',
       chain: 'tempo',

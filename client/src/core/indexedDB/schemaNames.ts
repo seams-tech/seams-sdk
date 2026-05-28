@@ -1,20 +1,20 @@
 export const SEAMS_WALLET_DB_NAME = 'seams_wallet' as const;
-export const SEAMS_WALLET_DB_VERSION = 2 as const;
+export const SEAMS_WALLET_DB_VERSION = 4 as const;
 
 export const SEAMS_WALLET_STORES = {
-  appState: 'seams_app_state',
-  walletSubjects: 'seams_wallet_subjects',
-  walletAuthMethods: 'seams_wallet_auth_methods',
-  walletSigners: 'seams_wallet_signers',
-  nearAccountProjections: 'seams_near_accounts',
-  signerOpsOutbox: 'seams_signer_ops_outbox',
-  recoveryEmails: 'seams_recovery_emails',
-  nonceLaneLeases: 'seams_nonce_lane_leases',
-  nonceLaneLocks: 'seams_nonce_lane_locks',
-  keyMaterial: 'seams_key_material',
-  signingSessionSeals: 'seams_signing_session_seals',
-  signingSessionRestoreLeases: 'seams_signing_session_restore_leases',
-  emailOtpDeviceEnrollmentEscrows: 'seams_email_otp_escrows',
+  appState: 'app_state',
+  wallets: 'wallets',
+  walletAuthMethods: 'wallet_auth_methods',
+  walletSigners: 'wallet_signers',
+  nearAccountProjections: 'near_accounts',
+  signerOpsOutbox: 'signer_ops_outbox',
+  recoveryEmails: 'recovery_emails',
+  nonceLaneLeases: 'nonce_lane_leases',
+  nonceLaneLocks: 'nonce_lane_locks',
+  keyMaterial: 'key_material',
+  signingSessionSeals: 'signing_session_seals',
+  signingSessionRestoreLeases: 'signing_session_restore_leases',
+  emailOtpDeviceEnrollmentEscrows: 'email_otp_escrows',
 } as const;
 
 export const SEAMS_WALLET_INDEXES = {
@@ -24,12 +24,12 @@ export const SEAMS_WALLET_INDEXES = {
   profileIdCredentialId: 'profile_id_credential_id',
   profileIdSignerSlot: 'profile_id_signer_slot',
   updatedAt: 'updated_at',
-  walletSubjectId: 'wallet_subject_id',
-  walletSubjectIdRpId: 'wallet_subject_id_rp_id',
-  walletSubjectIdKind: 'wallet_subject_id_kind',
-  walletSubjectKindNearSignerSlot: 'wallet_subject_kind_near_signer_slot',
-  walletSubjectKindChainTargetKeyHandle: 'wallet_subject_kind_chain_target_key_handle',
-  walletSubjectKindChainTargetKeyFacts: 'wallet_subject_kind_chain_target_key_facts',
+  walletId: 'wallet_id',
+  walletIdRpId: 'wallet_id_rp_id',
+  walletIdKind: 'wallet_id_kind',
+  walletKindNearSignerSlot: 'wallet_kind_near_signer_slot',
+  walletKindChainTargetKeyHandle: 'wallet_kind_chain_target_key_handle',
+  walletKindChainTargetKeyFacts: 'wallet_kind_chain_target_key_facts',
   walletSignerId: 'wallet_signer_id',
   nearAccountId: 'near_account_id',
   rpId: 'rp_id',
@@ -55,7 +55,6 @@ export const SEAMS_WALLET_INDEXES = {
   ownerId: 'owner_id',
   chainIdKeyKeyKind: 'chain_id_key_key_kind',
   publicKey: 'public_key',
-  walletId: 'wallet_id',
   userId: 'user_id',
   authMethod: 'auth_method',
   curve: 'curve',
@@ -105,8 +104,8 @@ export const SEAMS_WALLET_SCHEMA_MANIFEST = [
     indexes: [],
   },
   {
-    store: SEAMS_WALLET_STORES.walletSubjects,
-    keyPath: 'wallet_subject_id',
+    store: SEAMS_WALLET_STORES.wallets,
+    keyPath: 'wallet_id',
     indexes: [
       { name: SEAMS_WALLET_INDEXES.rpId, keyPath: 'rp_id', unique: false },
       { name: SEAMS_WALLET_INDEXES.status, keyPath: 'status', unique: false },
@@ -117,10 +116,10 @@ export const SEAMS_WALLET_SCHEMA_MANIFEST = [
     store: SEAMS_WALLET_STORES.walletAuthMethods,
     keyPath: 'wallet_auth_method_id',
     indexes: [
-      { name: SEAMS_WALLET_INDEXES.walletSubjectId, keyPath: 'wallet_subject_id', unique: false },
+      { name: SEAMS_WALLET_INDEXES.walletId, keyPath: 'wallet_id', unique: false },
       {
-        name: SEAMS_WALLET_INDEXES.walletSubjectIdKind,
-        keyPath: ['wallet_subject_id', 'kind'],
+        name: SEAMS_WALLET_INDEXES.walletIdKind,
+        keyPath: ['wallet_id', 'kind'],
         unique: false,
       },
       { name: SEAMS_WALLET_INDEXES.authMethod, keyPath: 'auth_method', unique: false },
@@ -148,25 +147,25 @@ export const SEAMS_WALLET_SCHEMA_MANIFEST = [
     store: SEAMS_WALLET_STORES.walletSigners,
     keyPath: 'wallet_signer_id',
     indexes: [
-      { name: SEAMS_WALLET_INDEXES.walletSubjectId, keyPath: 'wallet_subject_id', unique: false },
+      { name: SEAMS_WALLET_INDEXES.walletId, keyPath: 'wallet_id', unique: false },
       {
-        name: SEAMS_WALLET_INDEXES.walletSubjectIdKind,
-        keyPath: ['wallet_subject_id', 'kind'],
+        name: SEAMS_WALLET_INDEXES.walletIdKind,
+        keyPath: ['wallet_id', 'kind'],
         unique: false,
       },
       {
-        name: SEAMS_WALLET_INDEXES.walletSubjectKindNearSignerSlot,
-        keyPath: ['wallet_subject_id', 'kind', 'near_signer_slot'],
+        name: SEAMS_WALLET_INDEXES.walletKindNearSignerSlot,
+        keyPath: ['wallet_id', 'kind', 'near_signer_slot'],
         unique: true,
       },
       {
-        name: SEAMS_WALLET_INDEXES.walletSubjectKindChainTargetKeyHandle,
-        keyPath: ['wallet_subject_id', 'kind', 'chain_target_key', 'key_handle'],
+        name: SEAMS_WALLET_INDEXES.walletKindChainTargetKeyHandle,
+        keyPath: ['wallet_id', 'kind', 'chain_target_key', 'key_handle'],
         unique: true,
       },
       {
-        name: SEAMS_WALLET_INDEXES.walletSubjectKindChainTargetKeyFacts,
-        keyPath: ['wallet_subject_id', 'kind', 'chain_target_key', 'ecdsa_threshold_key_id'],
+        name: SEAMS_WALLET_INDEXES.walletKindChainTargetKeyFacts,
+        keyPath: ['wallet_id', 'kind', 'chain_target_key', 'ecdsa_threshold_key_id'],
         unique: true,
       },
       { name: SEAMS_WALLET_INDEXES.chainTargetKey, keyPath: 'chain_target_key', unique: false },
@@ -182,7 +181,7 @@ export const SEAMS_WALLET_SCHEMA_MANIFEST = [
   },
   {
     store: SEAMS_WALLET_STORES.nearAccountProjections,
-    keyPath: ['wallet_subject_id', 'near_account_id', 'signer_slot'],
+    keyPath: ['wallet_id', 'near_account_id', 'signer_slot'],
     indexes: [
       { name: SEAMS_WALLET_INDEXES.nearAccountId, keyPath: 'near_account_id', unique: false },
       { name: SEAMS_WALLET_INDEXES.profileId, keyPath: 'profile_id', unique: false },
@@ -202,15 +201,15 @@ export const SEAMS_WALLET_SCHEMA_MANIFEST = [
         unique: false,
       },
       { name: SEAMS_WALLET_INDEXES.idempotencyKey, keyPath: 'idempotency_key', unique: true },
-      { name: SEAMS_WALLET_INDEXES.walletSubjectId, keyPath: 'wallet_subject_id', unique: false },
+      { name: SEAMS_WALLET_INDEXES.walletId, keyPath: 'wallet_id', unique: false },
       { name: SEAMS_WALLET_INDEXES.chainTargetKey, keyPath: 'chain_target_key', unique: false },
     ],
   },
   {
     store: SEAMS_WALLET_STORES.recoveryEmails,
-    keyPath: ['wallet_subject_id', 'hash_hex'],
+    keyPath: ['wallet_id', 'hash_hex'],
     indexes: [
-      { name: SEAMS_WALLET_INDEXES.walletSubjectId, keyPath: 'wallet_subject_id', unique: false },
+      { name: SEAMS_WALLET_INDEXES.walletId, keyPath: 'wallet_id', unique: false },
       { name: SEAMS_WALLET_INDEXES.updatedAt, keyPath: 'updated_at', unique: false },
     ],
   },
@@ -242,7 +241,7 @@ export const SEAMS_WALLET_SCHEMA_MANIFEST = [
     store: SEAMS_WALLET_STORES.keyMaterial,
     keyPath: 'key_material_id',
     indexes: [
-      { name: SEAMS_WALLET_INDEXES.walletSubjectId, keyPath: 'wallet_subject_id', unique: false },
+      { name: SEAMS_WALLET_INDEXES.walletId, keyPath: 'wallet_id', unique: false },
       { name: SEAMS_WALLET_INDEXES.walletSignerId, keyPath: 'wallet_signer_id', unique: false },
       { name: SEAMS_WALLET_INDEXES.chainTargetKey, keyPath: 'chain_target_key', unique: false },
       { name: SEAMS_WALLET_INDEXES.keyHandle, keyPath: 'key_handle', unique: false },
@@ -255,7 +254,6 @@ export const SEAMS_WALLET_SCHEMA_MANIFEST = [
     keyPath: 'store_key',
     indexes: [
       { name: SEAMS_WALLET_INDEXES.walletId, keyPath: 'wallet_id', unique: false },
-      { name: SEAMS_WALLET_INDEXES.walletSubjectId, keyPath: 'wallet_subject_id', unique: false },
       { name: SEAMS_WALLET_INDEXES.authMethod, keyPath: 'auth_method', unique: false },
       { name: SEAMS_WALLET_INDEXES.curve, keyPath: 'curve', unique: false },
       {

@@ -7,7 +7,6 @@ import type {
 import type {
   NearAccountRef,
   ThresholdEcdsaChainTarget,
-  WalletId,
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '../signingEngine/threshold/sessionPolicy';
@@ -77,9 +76,9 @@ import type {
 import type {
   AddSignerSelection,
   RegistrationAuthMethodInput,
-  RegisterWalletSubjectInput,
+  RegisterWalletInput,
   RegistrationSignerSelection,
-  WalletSubjectId,
+  WalletId,
 } from '@shared/utils/registrationIntent';
 
 type PublicThresholdEcdsaSessionKeyRef = Omit<
@@ -108,12 +107,14 @@ export type SignTempoArgs = {
 
 export type RegisterNearWalletArgs = {
   nearAccountId: string;
+  authMethod?: RegistrationAuthMethodInput;
   options?: RegistrationHooksOptions;
 };
 
 export type RegisterEvmWalletArgs = {
   chainTargets: readonly ThresholdEcdsaChainTarget[];
   participantIds: readonly number[];
+  authMethod?: RegistrationAuthMethodInput;
   options?: RegistrationHooksOptions;
 };
 
@@ -365,14 +366,21 @@ export interface AuthCapability {
 
 export interface RegistrationCapability {
   addWalletSigner(args: {
-    walletSubjectId: WalletSubjectId | string;
+    walletId: WalletId | string;
     rpId: string;
     signerSelection: AddSignerSelection;
     options?: RegistrationHooksOptions;
   }): Promise<RegistrationResult>;
   registerWallet(args: {
     authMethod: RegistrationAuthMethodInput;
-    walletSubject: RegisterWalletSubjectInput;
+    wallet: RegisterWalletInput;
+    rpId: string;
+    signerSelection: RegistrationSignerSelection;
+    options?: RegistrationHooksOptions;
+  }): Promise<RegistrationResult>;
+  registerWithEmailOtp(args: {
+    authMethod: Extract<RegistrationAuthMethodInput, { kind: 'email_otp' }>;
+    wallet: RegisterWalletInput;
     rpId: string;
     signerSelection: RegistrationSignerSelection;
     options?: RegistrationHooksOptions;

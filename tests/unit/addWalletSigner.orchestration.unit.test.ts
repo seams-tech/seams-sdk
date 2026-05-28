@@ -8,13 +8,13 @@ import { UserVerificationPolicy } from '../../client/src/core/types/authenticato
 import {
   computeAddSignerIntentDigestB64u,
   computeRegistrationIntentDigestB64u,
-  walletSubjectIdFromString,
+  walletIdFromString,
 } from '../../shared/src/utils/registrationIntent';
 import { derivePasskeyThresholdEcdsaClientRootShare32B64uFromPrfFirst } from '../../client/src/core/signingEngine/session/passkey/ecdsaClientRoot';
 import { parseWalletRegistrationEcdsaHssRespond } from '../../client/src/core/rpcClients/relayer/walletRegistration';
 
 const RELAYER_URL = 'https://relay.example.test';
-const WALLET_SUBJECT_ID = walletSubjectIdFromString('wallet_matrix');
+const WALLET_SUBJECT_ID = walletIdFromString('wallet_matrix');
 const RP_ID = 'wallet.example.test';
 const AUTHENTICATION_PRF_FIRST_B64U = Buffer.alloc(32, 11).toString('base64url');
 const REGISTRATION_PRF_FIRST_B64U = Buffer.alloc(32, 12).toString('base64url');
@@ -187,15 +187,15 @@ function createContext(captures: Record<string, unknown>): any {
         }
         captures.persistedEcdsaBootstrap = input;
       },
-      storeWalletSubjectEcdsaSignerRecords: async (input: Record<string, unknown>) => {
+      storeWalletEcdsaSignerRecords: async (input: Record<string, unknown>) => {
         captures.storedEcdsa = input;
         return { storedSigners: [] };
       },
-      storeWalletSubjectEcdsaRegistrationData: async (input: Record<string, unknown>) => {
+      storeWalletEcdsaRegistrationData: async (input: Record<string, unknown>) => {
         captures.storedEcdsaRegistration = input;
         return { storedSigners: [] };
       },
-      storeWalletSubjectEd25519RegistrationData: async (input: Record<string, unknown>) => {
+      storeWalletEd25519RegistrationData: async (input: Record<string, unknown>) => {
         captures.storedEd25519Registration = input;
         return { signerSlot: input.signerSlot };
       },
@@ -230,7 +230,7 @@ function createContext(captures: Record<string, unknown>): any {
         captures.ed25519ArtifactArgs = input;
         return { stagedEvaluatorArtifactB64u: 'staged-artifact' };
       },
-      storeWalletSubjectEd25519SignerRecord: async (input: Record<string, unknown>) => {
+      storeWalletEd25519SignerRecord: async (input: Record<string, unknown>) => {
         captures.storedEd25519 = input;
         return { signerSlot: input.signerSlot };
       },
@@ -276,7 +276,7 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
     if (path === '/wallets/register/intent') {
       const intent = {
         version: 'registration_intent_v1' as const,
-        walletSubjectId: WALLET_SUBJECT_ID,
+        walletId: WALLET_SUBJECT_ID,
         rpId: RP_ID,
         authMethod: body.authMethod,
         signerSelection: body.signerSelection,
@@ -393,7 +393,7 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
       const sessionPolicy = body.ed25519?.sessionPolicy;
       const responseBody: Record<string, unknown> = {
         ok: true,
-        walletSubjectId: WALLET_SUBJECT_ID,
+        walletId: WALLET_SUBJECT_ID,
         rpId: RP_ID,
       };
       if (body.ed25519) {
@@ -655,7 +655,7 @@ test('registerWallet orchestrates ECDSA-only wallet registration without NEAR pr
       registerWallet({
         context: createContext(captures),
         authMethod: { kind: 'passkey' },
-        walletSubject: { kind: 'server_generated' },
+        wallet: { kind: 'server_generated' },
         rpId: RP_ID,
         signerSelection: {
           mode: 'ecdsa_only',
@@ -701,7 +701,7 @@ test('registerWallet orchestrates ECDSA-only wallet registration without NEAR pr
       },
     });
     expect(captures.storedEcdsaRegistration).toMatchObject({
-      walletSubjectId: WALLET_SUBJECT_ID,
+      walletId: WALLET_SUBJECT_ID,
       walletKeys: [
         {
           keyHandle: 'ehss-registration-key',
@@ -730,7 +730,7 @@ test('registerWallet rejects invalid ECDSA respond bootstrap before finalize', a
       registerWallet({
         context: createContext(captures),
         authMethod: { kind: 'passkey' },
-        walletSubject: { kind: 'server_generated' },
+        wallet: { kind: 'server_generated' },
         rpId: RP_ID,
         signerSelection: {
           mode: 'ecdsa_only',
@@ -776,7 +776,7 @@ test('registerWallet rejects mismatched ECDSA wallet key before registration per
       registerWallet({
         context: createContext(captures),
         authMethod: { kind: 'passkey' },
-        walletSubject: { kind: 'server_generated' },
+        wallet: { kind: 'server_generated' },
         rpId: RP_ID,
         signerSelection: {
           mode: 'ecdsa_only',
@@ -819,7 +819,7 @@ test('registerWallet orchestrates combined Ed25519 and ECDSA wallet registration
       registerWallet({
         context: createContext(captures),
         authMethod: { kind: 'passkey' },
-        walletSubject: { kind: 'server_generated' },
+        wallet: { kind: 'server_generated' },
         rpId: RP_ID,
         signerSelection: {
           mode: 'ed25519_and_ecdsa',
@@ -890,14 +890,14 @@ test('registerWallet orchestrates combined Ed25519 and ECDSA wallet registration
       },
     });
     expect(captures.storedEd25519Registration).toMatchObject({
-      walletSubjectId: WALLET_SUBJECT_ID,
+      walletId: WALLET_SUBJECT_ID,
       nearAccountId: 'combined.testnet',
       operationalPublicKey: 'ed25519:public-key',
       signerSlot: 1,
       relayerKeyId: 'relayer-ed25519',
     });
     expect(captures.storedEcdsa).toMatchObject({
-      walletSubjectId: WALLET_SUBJECT_ID,
+      walletId: WALLET_SUBJECT_ID,
       walletKeys: [
         {
           keyHandle: 'ehss-registration-key',
@@ -935,7 +935,7 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
     if (path === `/wallets/${WALLET_SUBJECT_ID}/signers/intent`) {
       const intent = {
         version: 'add_signer_intent_v1' as const,
-        walletSubjectId: WALLET_SUBJECT_ID,
+        walletId: WALLET_SUBJECT_ID,
         rpId: RP_ID,
         signerSelection: body.signerSelection,
         runtimePolicyScope: RUNTIME_POLICY_SCOPE,
@@ -1045,7 +1045,7 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
       if (body.ecdsa) {
         return jsonResponse({
           ok: true,
-          walletSubjectId: WALLET_SUBJECT_ID,
+          walletId: WALLET_SUBJECT_ID,
           rpId: RP_ID,
           ecdsa: {
             walletKeys: [
@@ -1073,7 +1073,7 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
       const sessionPolicy = body.ed25519.sessionPolicy;
       return jsonResponse({
         ok: true,
-        walletSubjectId: WALLET_SUBJECT_ID,
+        walletId: WALLET_SUBJECT_ID,
         rpId: RP_ID,
         ed25519: {
           nearAccountId: 'later.testnet',
@@ -1118,7 +1118,7 @@ test('addWalletSigner orchestrates later ECDSA from an Ed25519 wallet', async ()
     const result = await withMockedIndexedDb(() =>
       addWalletSigner({
         context: createContext(captures),
-        walletSubjectId: WALLET_SUBJECT_ID,
+        walletId: WALLET_SUBJECT_ID,
         rpId: RP_ID,
         signerSelection: {
           mode: 'ecdsa',
@@ -1163,7 +1163,7 @@ test('addWalletSigner orchestrates later ECDSA from an Ed25519 wallet', async ()
       },
     });
     expect(captures.storedEcdsa).toMatchObject({
-      walletSubjectId: WALLET_SUBJECT_ID,
+      walletId: WALLET_SUBJECT_ID,
       walletKeys: [
         {
           keyHandle: 'ehss-key-matrix',
@@ -1188,7 +1188,7 @@ test('addWalletSigner rejects invalid ECDSA respond bootstrap before finalize', 
     const result = await withMockedIndexedDb(() =>
       addWalletSigner({
         context: createContext(captures),
-        walletSubjectId: WALLET_SUBJECT_ID,
+        walletId: WALLET_SUBJECT_ID,
         rpId: RP_ID,
         signerSelection: {
           mode: 'ecdsa',
@@ -1220,7 +1220,7 @@ test('addWalletSigner orchestrates later Ed25519 from an ECDSA wallet', async ()
     const result = await withMockedIndexedDb(() =>
       addWalletSigner({
         context: createContext(captures),
-        walletSubjectId: WALLET_SUBJECT_ID,
+        walletId: WALLET_SUBJECT_ID,
         rpId: RP_ID,
         signerSelection: {
           mode: 'ed25519',
@@ -1274,7 +1274,7 @@ test('addWalletSigner orchestrates later Ed25519 from an ECDSA wallet', async ()
       },
     });
     expect(captures.storedEd25519).toMatchObject({
-      walletSubjectId: WALLET_SUBJECT_ID,
+      walletId: WALLET_SUBJECT_ID,
       nearAccountId: 'later.testnet',
       operationalPublicKey: 'ed25519:public-key',
       signerSlot: 2,

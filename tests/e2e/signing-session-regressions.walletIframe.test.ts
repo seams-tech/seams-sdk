@@ -227,14 +227,14 @@ async function runPasskeyEvmSign(
             openRequest.onerror = () => resolve(null);
             openRequest.onsuccess = () => resolve(openRequest.result);
           });
-          if (!db || !Array.from(db.objectStoreNames).includes('seams_signing_session_seals')) {
+          if (!db || !Array.from(db.objectStoreNames).includes('signing_session_seals')) {
             db?.close();
             return [];
           }
           try {
-            const tx = db.transaction('seams_signing_session_seals', 'readonly');
+            const tx = db.transaction('signing_session_seals', 'readonly');
             const values = await new Promise<unknown[]>((resolve) => {
-              const request = tx.objectStore('seams_signing_session_seals').getAll();
+              const request = tx.objectStore('signing_session_seals').getAll();
               request.onerror = () => resolve([]);
               request.onsuccess = () =>
                 resolve(Array.isArray(request.result) ? request.result : []);

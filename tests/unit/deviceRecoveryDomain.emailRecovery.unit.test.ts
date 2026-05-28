@@ -169,7 +169,7 @@ function createLocalDomain(options?: {
         clientShareRetryCounter: 0,
         contextBinding32B64u: 'context-binding',
       }),
-      storeWalletSubjectEcdsaSignerRecords: async () => undefined,
+      storeWalletEcdsaSignerRecords: async () => undefined,
       hydrateSigningSession: async (input: any) => {
         warmSigningSession = {
           sessionId: String(input?.sessionId || ''),

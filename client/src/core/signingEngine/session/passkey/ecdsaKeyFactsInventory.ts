@@ -4,7 +4,7 @@ import {
   thresholdEcdsaChainTargetFromRequest,
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
-  walletSubjectIdFromWalletProfile,
+  walletIdFromWalletProfile,
   type ThresholdEcdsaChainTarget,
 } from '../../interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
@@ -232,7 +232,7 @@ function parseThresholdEcdsaKeyIdentityRecord(args: {
   const keyWalletId = String(rawKey.walletId || rawKey.walletSessionUserId || '').trim();
   const rawKeySubjectId = String(rawKey.subjectId || '').trim();
   const expectedKeySubjectId = String(
-    walletSubjectIdFromWalletProfile({ walletId: args.nearAccountId }),
+    walletIdFromWalletProfile({ walletId: args.nearAccountId }),
   );
   const keyRpId = String(rawKey.rpId || '').trim();
   const thresholdEcdsaPublicKeyB64u = String(

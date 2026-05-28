@@ -18,7 +18,7 @@ import {
   type NoPromptWarmSessionDeps,
 } from '@/core/signingEngine/session/passkey/ecdsaWarmCapabilityBootstrap';
 import { toAccountId } from '@/core/types/accountIds';
-import { toWalletSubjectId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 const unusedNoPromptReconnectDeps: Pick<
   NoPromptWarmSessionDeps,

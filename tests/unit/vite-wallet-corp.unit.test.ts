@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { seamsBuildHeaders, seamsWalletService } from '@/plugins/vite';
+import { buildWalletServiceHtml } from '@/plugins/plugin-utils';
 
 test.describe('plugins/vite wallet CORP defaults', () => {
   test('dev wallet-service sets CORP even when COEP is off', async () => {
@@ -43,6 +44,54 @@ test.describe('plugins/vite wallet CORP defaults', () => {
 
     expect(ended).toBe(true);
     expect(headers['cross-origin-resource-policy']).toBe('cross-origin');
+  });
+
+  test('wallet-service HTML can select product-specific host builds', async () => {
+    expect(buildWalletServiceHtml('/sdk', undefined, 'near')).toContain(
+      '/sdk/wallet-iframe-host-near.js',
+    );
+    expect(buildWalletServiceHtml('/sdk', undefined, 'ecdsa')).toContain(
+      '/sdk/wallet-iframe-host-ecdsa.js',
+    );
+    expect(buildWalletServiceHtml('/sdk')).toContain('/sdk/wallet-iframe-host-runtime.js');
+  });
+
+  test('dev wallet-service serves the selected host variant', async () => {
+    const plugin = seamsWalletService({
+      walletServicePath: '/wallet-service',
+      sdkBasePath: '/sdk',
+      walletHostVariant: 'ecdsa',
+      coepMode: 'off',
+    });
+
+    const middlewares: Array<(req: any, res: any, next: any) => void> = [];
+    plugin.configureServer?.({
+      middlewares: {
+        use(fn: any) {
+          middlewares.push(fn);
+        },
+      },
+    });
+
+    let body = '';
+    const res = {
+      statusCode: 0,
+      setHeader() {},
+      end(value?: string) {
+        body = String(value || '');
+      },
+    };
+    const req = { url: '/wallet-service' };
+
+    let i = 0;
+    const next = () => {
+      const fn = middlewares[i++];
+      if (fn) fn(req, res, next);
+    };
+    next();
+
+    expect(body).toContain('/sdk/wallet-iframe-host-ecdsa.js');
+    expect(body).not.toContain('/sdk/wallet-iframe-host-runtime.js');
   });
 
   test('build _headers includes CORP for wallet HTML even when COEP is off', async () => {

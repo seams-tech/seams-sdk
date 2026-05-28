@@ -1,6 +1,10 @@
 import type { AuthService } from '../core/AuthService';
 import type {
+  CreateAddAuthMethodIntentRequest,
+  CreateAddSignerIntentRequest,
+  CreateAddAuthMethodIntentResponse,
   CreateAddSignerIntentResponse,
+  CreateRegistrationIntentRequest,
   CreateRegistrationIntentResponse,
   EcdsaKeyFactsInventoryPolicy,
   Ed25519SessionPolicy,
@@ -11,6 +15,12 @@ import type {
   WalletAddSignerHssRespondResponse,
   WalletAddSignerStartRequest,
   WalletAddSignerStartResponse,
+  WalletAddAuthMethodFinalizeRequest,
+  WalletAddAuthMethodFinalizeResponse,
+  WalletRevokeAuthMethodRequest,
+  WalletRevokeAuthMethodResponse,
+  WalletAddAuthMethodStartRequest,
+  WalletAddAuthMethodStartResponse,
   EcdsaHssServerBootstrapResponse,
   ThresholdEd25519BootstrapSession,
   WalletKeyFactsInventoryAuth,
@@ -18,6 +28,7 @@ import type {
   WalletRegistrationFinalizeResponse,
   WalletRegistrationHssRespondRequest,
   WalletRegistrationHssRespondResponse,
+  WalletRegistrationStartRequest,
   WalletRegistrationStartResponse,
 } from '../core/types';
 import type { ConsoleBootstrapTokenService } from '../console/bootstrapTokens';
@@ -45,14 +56,26 @@ import type { RouteErrorBody } from './routeResponses';
 import { routeError, routeJson } from './routeResponses';
 import { isPlainObject } from '@shared/utils/validation';
 import { normalizeCorsOrigin } from '../core/SessionService';
-import { computeWalletSubjectEcdsaKeyFactsInventoryChallengeDigestB64u } from '@shared/utils/ecdsaKeyFactsInventory';
+import { computeWalletEcdsaKeyFactsInventoryChallengeDigestB64u } from '@shared/utils/ecdsaKeyFactsInventory';
 import {
+  addAuthMethodIntentGrantFromString,
+  computeAddAuthMethodIntentDigestB64u,
+  normalizeAddAuthMethodInput,
   addSignerIntentGrantFromString,
   computeAddSignerIntentDigestB64u,
+  computeRegistrationIntentDigestB64u,
+  normalizeEmailOtpRegistrationProof,
   normalizeNearAccountOwnershipProofV1,
-  walletSubjectIdFromString,
+  normalizeRegistrationAuthMethodInput,
+  normalizeWalletAuthMethodTarget,
+  registrationIntentGrantFromString,
+  walletIdFromString,
   type AddSignerIntentV1,
+  type AddAuthMethodIntentV1,
   type AddSignerSelection,
+  type RegistrationIntentV1,
+  type RegistrationSignerSelection,
+  type RegisterWalletInput,
 } from '@shared/utils/registrationIntent';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import {
@@ -102,6 +125,26 @@ type WalletAddSignerServiceMethods = {
   finalizeWalletAddSigner?: (
     request: WalletAddSignerFinalizeRequest,
   ) => Promise<WalletAddSignerFinalizeResponse>;
+};
+
+type WalletAddAuthMethodServiceMethods = {
+  createAddAuthMethodIntent?: (input: {
+    request: CreateAddAuthMethodIntentRequest;
+    orgId: string;
+    runtimePolicyScope?: RuntimePolicyScope;
+    signingRootId?: string;
+    signingRootVersion?: string;
+    expectedOrigin: string;
+  }) => Promise<CreateAddAuthMethodIntentResponse>;
+  startWalletAddAuthMethod?: (
+    request: WalletAddAuthMethodStartRequest,
+  ) => Promise<WalletAddAuthMethodStartResponse>;
+  finalizeWalletAddAuthMethod?: (
+    request: WalletAddAuthMethodFinalizeRequest,
+  ) => Promise<WalletAddAuthMethodFinalizeResponse>;
+  revokeWalletAuthMethod?: (
+    request: WalletRevokeAuthMethodRequest,
+  ) => Promise<WalletRevokeAuthMethodResponse>;
 };
 
 const ED25519_HSS_RESPOND_FORBIDDEN_FIELDS = [
@@ -156,7 +199,10 @@ function findOwnField(raw: Record<string, unknown>, fields: readonly string[]): 
   return fields.find((field) => Object.prototype.hasOwnProperty.call(raw, field));
 }
 
-function hasBranch(body: Record<string, unknown>, field: 'ed25519' | 'ecdsa'): boolean {
+function hasBranch(
+  body: Record<string, unknown>,
+  field: 'ed25519' | 'ecdsa' | 'emailOtpEnrollment',
+): boolean {
   return Object.prototype.hasOwnProperty.call(body, field);
 }
 
@@ -371,6 +417,234 @@ function parseAddSignerSelection(raw: unknown): ParseResult<AddSignerSelection> 
   };
 }
 
+function parseRegistrationSignerSelection(
+  raw: unknown,
+): ParseResult<RegistrationSignerSelection> {
+  if (!isPlainObject(raw)) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'registration signerSelection is required',
+    };
+  }
+  type RegistrationEd25519Spec = Extract<
+    RegistrationSignerSelection,
+    { mode: 'ed25519_only' }
+  >['ed25519'];
+  const parseEd25519 = (): ParseResult<RegistrationEd25519Spec> => {
+    const ed25519 = isPlainObject(raw.ed25519) ? raw.ed25519 : null;
+    if (!ed25519) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'registration Ed25519 spec is required',
+      };
+    }
+    const nearAccountId =
+      typeof ed25519.nearAccountId === 'string' ? ed25519.nearAccountId.trim() : '';
+    const signerSlot = Math.floor(Number(ed25519.signerSlot));
+    const keyPurpose = typeof ed25519.keyPurpose === 'string' ? ed25519.keyPurpose.trim() : '';
+    const keyVersion = typeof ed25519.keyVersion === 'string' ? ed25519.keyVersion.trim() : '';
+    const derivationVersion = Math.floor(Number(ed25519.derivationVersion));
+    const createNearAccount = Boolean(ed25519.createNearAccount);
+    const participantIds = parseParticipantIds(
+      ed25519.participantIds,
+      'registration Ed25519 participantIds',
+    );
+    if (!participantIds.ok) return participantIds;
+    if (
+      !nearAccountId ||
+      !Number.isFinite(signerSlot) ||
+      signerSlot < 1 ||
+      !keyPurpose ||
+      !keyVersion ||
+      !Number.isFinite(derivationVersion) ||
+      derivationVersion < 1
+    ) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'registration Ed25519 spec is invalid',
+      };
+    }
+    return {
+      ok: true,
+      value: {
+        nearAccountId,
+        signerSlot,
+        participantIds: participantIds.value,
+        keyPurpose,
+        keyVersion,
+        derivationVersion,
+        createNearAccount,
+      },
+    };
+  };
+
+  if (raw.mode === 'ed25519_only') {
+    const ed25519 = parseEd25519();
+    if (!ed25519.ok) return ed25519;
+    return {
+      ok: true,
+      value: {
+        mode: 'ed25519_only',
+        ed25519: ed25519.value,
+      },
+    };
+  }
+  if (raw.mode === 'ecdsa_only') {
+    const ecdsa = isPlainObject(raw.ecdsa) ? raw.ecdsa : null;
+    if (!ecdsa) {
+      return { ok: false, code: 'invalid_body', message: 'registration ECDSA spec is required' };
+    }
+    const chainTargets = parseChainTargets(ecdsa.chainTargets);
+    if (!chainTargets.ok) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'registration ECDSA chainTargets are invalid',
+      };
+    }
+    const participantIds = parseParticipantIds(
+      ecdsa.participantIds,
+      'registration ECDSA participantIds',
+    );
+    if (!participantIds.ok) return participantIds;
+    return {
+      ok: true,
+      value: {
+        mode: 'ecdsa_only',
+        ecdsa: {
+          chainTargets: chainTargets.value,
+          participantIds: participantIds.value,
+        },
+      },
+    };
+  }
+  if (raw.mode === 'ed25519_and_ecdsa') {
+    const ed25519 = parseEd25519();
+    if (!ed25519.ok) return ed25519;
+    const ecdsaSelection = parseRegistrationSignerSelection({
+      mode: 'ecdsa_only',
+      ecdsa: raw.ecdsa,
+    });
+    if (!ecdsaSelection.ok) return ecdsaSelection;
+    if (ecdsaSelection.value.mode !== 'ecdsa_only') {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'registration ECDSA selection is invalid',
+      };
+    }
+    return {
+      ok: true,
+      value: {
+        mode: 'ed25519_and_ecdsa',
+        ed25519: ed25519.value,
+        ecdsa: ecdsaSelection.value.ecdsa,
+      },
+    };
+  }
+  return {
+    ok: false,
+    code: 'invalid_body',
+    message: 'registration signerSelection mode is unsupported',
+  };
+}
+
+function parseRegisterWalletInput(raw: unknown): ParseResult<RegisterWalletInput> {
+  if (!isPlainObject(raw)) {
+    return { ok: false, code: 'invalid_body', message: 'wallet is required' };
+  }
+  const kind = typeof raw.kind === 'string' ? raw.kind.trim() : '';
+  if (kind === 'server_generated') {
+    if (Object.prototype.hasOwnProperty.call(raw, 'walletId')) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'server-generated wallet input must not include walletId',
+      };
+    }
+    return { ok: true, value: { kind: 'server_generated' } };
+  }
+  if (kind === 'provided') {
+    const walletId = walletIdFromString(String(raw.walletId || '').trim());
+    if (!walletId) {
+      return { ok: false, code: 'invalid_body', message: 'wallet.walletId is required' };
+    }
+    return {
+      ok: true,
+      value: {
+        kind: 'provided',
+        walletId,
+      },
+    };
+  }
+  return { ok: false, code: 'invalid_body', message: 'wallet.kind is invalid' };
+}
+
+function parseCreateRegistrationIntentRequest(
+  body: Record<string, unknown>,
+): ParseResult<CreateRegistrationIntentRequest> {
+  const wallet = parseRegisterWalletInput(body.wallet);
+  if (!wallet.ok) return wallet;
+  const rpId = trimRequiredString(body, 'rpId', 'rpId is required');
+  if (!rpId.ok) return rpId;
+  const authMethod = normalizeRegistrationAuthMethodInput(body.authMethod);
+  if (!authMethod) {
+    return { ok: false, code: 'invalid_body', message: 'authMethod is invalid' };
+  }
+  const signerSelection = parseRegistrationSignerSelection(body.signerSelection);
+  if (!signerSelection.ok) return signerSelection;
+  return {
+    ok: true,
+    value: {
+      wallet: wallet.value,
+      rpId: rpId.value,
+      authMethod,
+      signerSelection: signerSelection.value,
+    },
+  };
+}
+
+function parseCreateAddSignerIntentRequest(
+  body: Record<string, unknown>,
+  walletId: string,
+): ParseResult<CreateAddSignerIntentRequest> {
+  const rpId = trimRequiredString(body, 'rpId', 'rpId is required');
+  if (!rpId.ok) return rpId;
+  const signerSelection = parseAddSignerSelection(body.signerSelection);
+  if (!signerSelection.ok) return signerSelection;
+  return {
+    ok: true,
+    value: {
+      walletId: walletIdFromString(walletId),
+      rpId: rpId.value,
+      signerSelection: signerSelection.value,
+    },
+  };
+}
+
+function parseCreateAddAuthMethodIntentRequest(
+  body: Record<string, unknown>,
+  walletId: string,
+): ParseResult<CreateAddAuthMethodIntentRequest> {
+  const rpId = trimRequiredString(body, 'rpId', 'rpId is required');
+  if (!rpId.ok) return rpId;
+  const authMethod = normalizeAddAuthMethodInput(body.authMethod);
+  if (!authMethod) {
+    return { ok: false, code: 'invalid_body', message: 'authMethod is invalid' };
+  }
+  return {
+    ok: true,
+    value: {
+      walletId: walletIdFromString(walletId),
+      rpId: rpId.value,
+      authMethod,
+    },
+  };
+}
+
 function keyTargetsCoveredByPolicy(
   keyTargets: readonly unknown[],
   policyTargets: readonly ThresholdEcdsaChainTarget[],
@@ -462,9 +736,9 @@ function parseOptionalRuntimePolicyScope(
   }
 }
 
-async function parseWalletSubjectEcdsaInventoryBody(
+async function parseWalletEcdsaInventoryBody(
   body: Record<string, unknown>,
-  walletSubjectId: string,
+  walletId: string,
 ): Promise<
   ParseResult<{
     rpId: string;
@@ -505,8 +779,8 @@ async function parseWalletSubjectEcdsaInventoryBody(
     }
     const runtimePolicyScope = parseOptionalRuntimePolicyScope(auth.runtimePolicyScope);
     if (!runtimePolicyScope.ok) return runtimePolicyScope;
-    const computedDigest = await computeWalletSubjectEcdsaKeyFactsInventoryChallengeDigestB64u({
-      walletSubjectId,
+    const computedDigest = await computeWalletEcdsaKeyFactsInventoryChallengeDigestB64u({
+      walletId,
       rpId: rpId.value,
       keyTargets: keyTargets.value,
       ...(runtimePolicyScope.value ? { runtimePolicyScope: runtimePolicyScope.value } : {}),
@@ -548,8 +822,8 @@ async function parseWalletSubjectEcdsaInventoryBody(
       message: 'auth.policy.permission must be ecdsa_key_facts_inventory',
     };
   }
-  if (String(policy.walletSubjectId || '').trim() !== walletSubjectId) {
-    return { ok: false, code: 'invalid_body', message: 'auth.policy.walletSubjectId mismatch' };
+  if (String(policy.walletId || '').trim() !== walletId) {
+    return { ok: false, code: 'invalid_body', message: 'auth.policy.walletId mismatch' };
   }
   const expiresAtMs = Number(policy.expiresAtMs);
   if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
@@ -566,7 +840,7 @@ async function parseWalletSubjectEcdsaInventoryBody(
   }
   const normalizedPolicy: EcdsaKeyFactsInventoryPolicy = {
     permission: 'ecdsa_key_facts_inventory',
-    walletSubjectId: walletSubjectIdFromString(walletSubjectId),
+    walletId: walletIdFromString(walletId),
     chainTargets: policyTargets.value,
     expiresAtMs,
   };
@@ -586,7 +860,7 @@ function sameCanonicalValue(left: unknown, right: unknown): boolean {
 
 async function parseWalletAddSignerStartBody(
   body: Record<string, unknown>,
-  walletSubjectId: string,
+  walletId: string,
 ): Promise<ParseResult<WalletAddSignerStartRequest>> {
   const intent = isPlainObject(body.intent) ? body.intent : null;
   if (!intent || intent.version !== 'add_signer_intent_v1') {
@@ -598,8 +872,8 @@ async function parseWalletAddSignerStartBody(
     return { ok: false, code: 'invalid_body', message: 'add-signer intent grant is required' };
   }
   const addSignerIntentGrant = addSignerIntentGrantFromString(rawAddSignerIntentGrant);
-  if (String(intent.walletSubjectId || '').trim() !== walletSubjectId) {
-    return { ok: false, code: 'invalid_body', message: 'add-signer walletSubjectId mismatch' };
+  if (String(intent.walletId || '').trim() !== walletId) {
+    return { ok: false, code: 'invalid_body', message: 'add-signer walletId mismatch' };
   }
   const signerSelection = parseAddSignerSelection(intent.signerSelection);
   if (!signerSelection.ok) return signerSelection;
@@ -612,7 +886,7 @@ async function parseWalletAddSignerStartBody(
   if (!runtimePolicyScope.ok) return runtimePolicyScope;
   const normalizedIntent: AddSignerIntentV1 = {
     version: 'add_signer_intent_v1',
-    walletSubjectId: walletSubjectIdFromString(walletSubjectId),
+    walletId: walletIdFromString(walletId),
     rpId,
     signerSelection: signerSelection.value,
     ...(runtimePolicyScope.value ? { runtimePolicyScope: runtimePolicyScope.value } : {}),
@@ -646,7 +920,7 @@ async function parseWalletAddSignerStartBody(
     return {
       ok: true,
       value: {
-        walletSubjectId: walletSubjectIdFromString(walletSubjectId),
+        walletId: walletIdFromString(walletId),
         addSignerIntentGrant,
         addSignerIntentDigestB64u: expectedDigest,
         intent: normalizedIntent,
@@ -672,7 +946,7 @@ async function parseWalletAddSignerStartBody(
       message: 'add-signer auth.policy.permission must be wallet_signer_provision',
     };
   }
-  if (String(policy.walletSubjectId || '').trim() !== walletSubjectId) {
+  if (String(policy.walletId || '').trim() !== walletId) {
     return { ok: false, code: 'invalid_body', message: 'add-signer auth.policy wallet mismatch' };
   }
   if (!sameCanonicalValue(policy.signerSelection, normalizedIntent.signerSelection)) {
@@ -691,7 +965,7 @@ async function parseWalletAddSignerStartBody(
   return {
     ok: true,
     value: {
-      walletSubjectId: walletSubjectIdFromString(walletSubjectId),
+      walletId: walletIdFromString(walletId),
       addSignerIntentGrant,
       addSignerIntentDigestB64u: expectedDigest,
       intent: normalizedIntent,
@@ -699,12 +973,306 @@ async function parseWalletAddSignerStartBody(
         kind: 'app_session',
         policy: {
           permission: 'wallet_signer_provision',
-          walletSubjectId: walletSubjectIdFromString(walletSubjectId),
+          walletId: walletIdFromString(walletId),
           signerSelection: normalizedIntent.signerSelection,
           ...(policyRuntimeScope.value ? { runtimePolicyScope: policyRuntimeScope.value } : {}),
           expiresAtMs,
         },
       },
+    },
+  };
+}
+
+async function parseWalletRegistrationStartBody(
+  body: Record<string, unknown>,
+): Promise<ParseResult<WalletRegistrationStartRequest>> {
+  const intent = isPlainObject(body.intent) ? body.intent : null;
+  if (!intent || intent.version !== 'registration_intent_v1') {
+    return { ok: false, code: 'invalid_body', message: 'registration intent is required' };
+  }
+  const rawRegistrationIntentGrant =
+    typeof body.registrationIntentGrant === 'string' ? body.registrationIntentGrant.trim() : '';
+  if (!rawRegistrationIntentGrant) {
+    return { ok: false, code: 'invalid_body', message: 'registration intent grant is required' };
+  }
+  const walletId = String(intent.walletId || '').trim();
+  if (!walletId) {
+    return { ok: false, code: 'invalid_body', message: 'registration walletId is required' };
+  }
+  const authMethod = normalizeRegistrationAuthMethodInput(intent.authMethod);
+  if (!authMethod) {
+    return { ok: false, code: 'invalid_body', message: 'registration authMethod is invalid' };
+  }
+  const signerSelection = parseRegistrationSignerSelection(intent.signerSelection);
+  if (!signerSelection.ok) return signerSelection;
+  const rpId = typeof intent.rpId === 'string' ? intent.rpId.trim() : '';
+  const nonceB64u = typeof intent.nonceB64u === 'string' ? intent.nonceB64u.trim() : '';
+  if (!rpId || !nonceB64u) {
+    return { ok: false, code: 'invalid_body', message: 'registration intent is incomplete' };
+  }
+  const runtimePolicyScope = parseOptionalRuntimePolicyScope(intent.runtimePolicyScope);
+  if (!runtimePolicyScope.ok) return runtimePolicyScope;
+  const normalizedIntent: RegistrationIntentV1 = {
+    version: 'registration_intent_v1',
+    walletId: walletIdFromString(walletId),
+    rpId,
+    authMethod,
+    signerSelection: signerSelection.value,
+    ...(runtimePolicyScope.value ? { runtimePolicyScope: runtimePolicyScope.value } : {}),
+    nonceB64u,
+  };
+  const expectedDigest =
+    typeof body.registrationIntentDigestB64u === 'string'
+      ? body.registrationIntentDigestB64u.trim()
+      : '';
+  const computedDigest = await computeRegistrationIntentDigestB64u(normalizedIntent);
+  if (!expectedDigest || expectedDigest !== computedDigest) {
+    return { ok: false, code: 'invalid_body', message: 'registration intent digest mismatch' };
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(body, 'threshold_ed25519') ||
+    Object.prototype.hasOwnProperty.call(body, 'threshold_ecdsa_prepare') ||
+    Object.prototype.hasOwnProperty.call(body, 'auth')
+  ) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'fresh wallet registration does not accept session or legacy auth branches',
+    };
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'webauthn_registration')) {
+    if (authMethod.kind !== 'passkey') {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'webauthn_registration requires a passkey registration intent',
+      };
+    }
+    return {
+      ok: true,
+      value: {
+        registrationIntentGrant: registrationIntentGrantFromString(rawRegistrationIntentGrant),
+        registrationIntentDigestB64u: expectedDigest,
+        intent: normalizedIntent,
+        authority: {
+          kind: 'passkey',
+          webauthnRegistration: body.webauthn_registration,
+        },
+      },
+    };
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'emailOtpRegistrationProof')) {
+    if (authMethod.kind !== 'email_otp') {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'emailOtpRegistrationProof requires an Email OTP registration intent',
+      };
+    }
+    const proof = normalizeEmailOtpRegistrationProof(body.emailOtpRegistrationProof);
+    if (!proof) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'emailOtpRegistrationProof is invalid',
+      };
+    }
+    return {
+      ok: true,
+      value: {
+        registrationIntentGrant: registrationIntentGrantFromString(rawRegistrationIntentGrant),
+        registrationIntentDigestB64u: expectedDigest,
+        intent: normalizedIntent,
+        authority: {
+          kind: 'email_otp',
+          emailOtpRegistrationProof: proof,
+        },
+      },
+    };
+  }
+  return {
+    ok: false,
+    code: 'invalid_body',
+    message: 'fresh wallet registration authority is required',
+  };
+}
+
+async function parseWalletAddAuthMethodStartBody(
+  body: Record<string, unknown>,
+  walletId: string,
+): Promise<ParseResult<WalletAddAuthMethodStartRequest>> {
+  const intent = isPlainObject(body.intent) ? body.intent : null;
+  if (!intent || intent.version !== 'add_auth_method_intent_v1') {
+    return { ok: false, code: 'invalid_body', message: 'add-auth-method intent is required' };
+  }
+  const rawGrant =
+    typeof body.addAuthMethodIntentGrant === 'string' ? body.addAuthMethodIntentGrant.trim() : '';
+  if (!rawGrant) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'add-auth-method intent grant is required',
+    };
+  }
+  if (String(intent.walletId || '').trim() !== walletId) {
+    return { ok: false, code: 'invalid_body', message: 'add-auth-method walletId mismatch' };
+  }
+  const authMethod = normalizeAddAuthMethodInput(intent.authMethod);
+  if (!authMethod) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'add-auth-method authMethod is invalid',
+    };
+  }
+  const rpId = typeof intent.rpId === 'string' ? intent.rpId.trim() : '';
+  const nonceB64u = typeof intent.nonceB64u === 'string' ? intent.nonceB64u.trim() : '';
+  if (!rpId || !nonceB64u) {
+    return { ok: false, code: 'invalid_body', message: 'add-auth-method intent is incomplete' };
+  }
+  const runtimePolicyScope = parseOptionalRuntimePolicyScope(intent.runtimePolicyScope);
+  if (!runtimePolicyScope.ok) return runtimePolicyScope;
+  const normalizedIntent: AddAuthMethodIntentV1 = {
+    version: 'add_auth_method_intent_v1',
+    walletId: walletIdFromString(walletId),
+    rpId,
+    authMethod,
+    ...(runtimePolicyScope.value ? { runtimePolicyScope: runtimePolicyScope.value } : {}),
+    nonceB64u,
+  };
+  const expectedDigest =
+    typeof body.addAuthMethodIntentDigestB64u === 'string'
+      ? body.addAuthMethodIntentDigestB64u.trim()
+      : '';
+  const computedDigest = await computeAddAuthMethodIntentDigestB64u(normalizedIntent);
+  if (!expectedDigest || expectedDigest !== computedDigest) {
+    return { ok: false, code: 'invalid_body', message: 'add-auth-method intent digest mismatch' };
+  }
+  const auth = isPlainObject(body.auth) ? body.auth : null;
+  if (!auth) {
+    return { ok: false, code: 'invalid_body', message: 'add-auth-method auth is required' };
+  }
+  let existingAuth: WalletAddAuthMethodStartRequest['auth'];
+  if (auth.kind === 'webauthn_assertion') {
+    const credential = parseWebAuthnAuthenticationCredential(auth.credential);
+    if (!credential.ok) return credential;
+    const expectedChallengeDigestB64u =
+      typeof auth.expectedChallengeDigestB64u === 'string'
+        ? auth.expectedChallengeDigestB64u.trim()
+        : '';
+    if (expectedChallengeDigestB64u !== expectedDigest) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'auth.expectedChallengeDigestB64u must match add-auth-method intent digest',
+      };
+    }
+    existingAuth = {
+      kind: 'webauthn_assertion',
+      credential: credential.value,
+      expectedChallengeDigestB64u,
+    };
+  } else if (auth.kind === 'app_session') {
+    const policy = isPlainObject(auth.policy) ? auth.policy : null;
+    if (!policy) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'add-auth-method auth.policy is required',
+      };
+    }
+    if (policy.permission !== 'wallet_auth_method_provision') {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'add-auth-method auth.policy.permission must be wallet_auth_method_provision',
+      };
+    }
+    if (String(policy.walletId || '').trim() !== walletId) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'add-auth-method auth.policy wallet mismatch',
+      };
+    }
+    if (!sameCanonicalValue(policy.authMethod, normalizedIntent.authMethod)) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'add-auth-method auth.policy authMethod mismatch',
+      };
+    }
+    const expiresAtMs = Number(policy.expiresAtMs);
+    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'add-auth-method auth.policy is expired',
+      };
+    }
+    const policyRuntimeScope = parseOptionalRuntimePolicyScope(policy.runtimePolicyScope);
+    if (!policyRuntimeScope.ok) return policyRuntimeScope;
+    existingAuth = {
+      kind: 'app_session',
+      policy: {
+        permission: 'wallet_auth_method_provision',
+        walletId: walletIdFromString(walletId),
+        authMethod: normalizedIntent.authMethod,
+        ...(policyRuntimeScope.value ? { runtimePolicyScope: policyRuntimeScope.value } : {}),
+        expiresAtMs,
+      },
+    };
+  } else {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'add-auth-method auth.kind is unsupported',
+    };
+  }
+
+  let authority: WalletAddAuthMethodStartRequest['authority'];
+  if (Object.prototype.hasOwnProperty.call(body, 'webauthnRegistration')) {
+    authority = {
+      kind: 'passkey',
+      webauthnRegistration: body.webauthnRegistration,
+    };
+  } else if (Object.prototype.hasOwnProperty.call(body, 'emailOtpRegistrationProof')) {
+    const proof = normalizeEmailOtpRegistrationProof(body.emailOtpRegistrationProof);
+    if (!proof) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'emailOtpRegistrationProof is invalid',
+      };
+    }
+    authority = {
+      kind: 'email_otp',
+      emailOtpRegistrationProof: proof,
+    };
+  } else {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'new auth-method authority is required',
+    };
+  }
+  if (authority.kind !== normalizedIntent.authMethod.kind) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'new auth-method authority kind must match the requested auth-method kind',
+    };
+  }
+
+  return {
+    ok: true,
+    value: {
+      walletId: walletIdFromString(walletId),
+      addAuthMethodIntentGrant: addAuthMethodIntentGrantFromString(rawGrant),
+      addAuthMethodIntentDigestB64u: expectedDigest,
+      intent: normalizedIntent,
+      auth: existingAuth,
+      authority,
     },
   };
 }
@@ -901,6 +1469,56 @@ function parseWalletRegistrationFinalizeRequest(
       value.ecdsa = {};
     }
   }
+  if (hasBranch(body, 'emailOtpEnrollment')) {
+    const enrollment = isPlainObject(body.emailOtpEnrollment) ? body.emailOtpEnrollment : null;
+    if (!enrollment) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'emailOtpEnrollment finalize input is invalid',
+      };
+    }
+    if (!Array.isArray(enrollment.recoveryWrappedEnrollmentEscrows)) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'emailOtpEnrollment.recoveryWrappedEnrollmentEscrows must be an array',
+      };
+    }
+    const enrollmentSealKeyVersion = trimRequiredString(
+      enrollment,
+      'enrollmentSealKeyVersion',
+      'emailOtpEnrollment.enrollmentSealKeyVersion is required',
+    );
+    if (!enrollmentSealKeyVersion.ok) return enrollmentSealKeyVersion;
+    const clientUnlockPublicKeyB64u = trimRequiredString(
+      enrollment,
+      'clientUnlockPublicKeyB64u',
+      'emailOtpEnrollment.clientUnlockPublicKeyB64u is required',
+    );
+    if (!clientUnlockPublicKeyB64u.ok) return clientUnlockPublicKeyB64u;
+    const unlockKeyVersion = trimRequiredString(
+      enrollment,
+      'unlockKeyVersion',
+      'emailOtpEnrollment.unlockKeyVersion is required',
+    );
+    if (!unlockKeyVersion.ok) return unlockKeyVersion;
+    const thresholdEcdsaClientVerifyingShareB64u = trimRequiredString(
+      enrollment,
+      'thresholdEcdsaClientVerifyingShareB64u',
+      'emailOtpEnrollment.thresholdEcdsaClientVerifyingShareB64u is required',
+    );
+    if (!thresholdEcdsaClientVerifyingShareB64u.ok) {
+      return thresholdEcdsaClientVerifyingShareB64u;
+    }
+    value.emailOtpEnrollment = {
+      recoveryWrappedEnrollmentEscrows: enrollment.recoveryWrappedEnrollmentEscrows,
+      enrollmentSealKeyVersion: enrollmentSealKeyVersion.value,
+      clientUnlockPublicKeyB64u: clientUnlockPublicKeyB64u.value,
+      unlockKeyVersion: unlockKeyVersion.value,
+      thresholdEcdsaClientVerifyingShareB64u: thresholdEcdsaClientVerifyingShareB64u.value,
+    };
+  }
   return {
     ok: true,
     value,
@@ -955,12 +1573,142 @@ function parseWalletAddSignerFinalizeRequest(
   };
 }
 
+function parseWalletAddAuthMethodFinalizeRequest(
+  body: Record<string, unknown>,
+): ParseResult<WalletAddAuthMethodFinalizeRequest> {
+  const addAuthMethodCeremonyId = trimRequiredString(
+    body,
+    'addAuthMethodCeremonyId',
+    'addAuthMethodCeremonyId is required',
+  );
+  if (!addAuthMethodCeremonyId.ok) return addAuthMethodCeremonyId;
+  return {
+    ok: true,
+    value: {
+      addAuthMethodCeremonyId: addAuthMethodCeremonyId.value,
+    },
+  };
+}
+
+async function parseWalletRevokeAuthMethodRequest(
+  body: Record<string, unknown>,
+  walletId: string,
+): Promise<ParseResult<WalletRevokeAuthMethodRequest>> {
+  const rpId = trimRequiredString(body, 'rpId', 'rpId is required');
+  if (!rpId.ok) return rpId;
+  const target = normalizeWalletAuthMethodTarget(body.target);
+  if (!target) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'auth-method revoke target is invalid',
+    };
+  }
+  const auth = isPlainObject(body.auth) ? body.auth : null;
+  if (!auth) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'auth-method revoke auth is required',
+    };
+  }
+  let existingAuth: WalletRevokeAuthMethodRequest['auth'];
+  if (auth.kind === 'webauthn_assertion') {
+    const credential = parseWebAuthnAuthenticationCredential(auth.credential);
+    if (!credential.ok) return credential;
+    const expectedChallengeDigestB64u =
+      typeof auth.expectedChallengeDigestB64u === 'string'
+        ? auth.expectedChallengeDigestB64u.trim()
+        : '';
+    if (!expectedChallengeDigestB64u) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'auth.expectedChallengeDigestB64u is required',
+      };
+    }
+    existingAuth = {
+      kind: 'webauthn_assertion',
+      credential: credential.value,
+      expectedChallengeDigestB64u,
+    };
+  } else if (auth.kind === 'app_session') {
+    const policy = isPlainObject(auth.policy) ? auth.policy : null;
+    if (!policy) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'auth-method revoke auth.policy is required',
+      };
+    }
+    if (policy.permission !== 'wallet_auth_method_revoke') {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'auth-method revoke auth.policy.permission must be wallet_auth_method_revoke',
+      };
+    }
+    if (String(policy.walletId || '').trim() !== walletId) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'auth-method revoke auth.policy wallet mismatch',
+      };
+    }
+    if (!sameCanonicalValue(policy.target, target)) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'auth-method revoke auth.policy target mismatch',
+      };
+    }
+    const expiresAtMs = Number(policy.expiresAtMs);
+    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'auth-method revoke auth.policy is expired',
+      };
+    }
+    const policyRuntimeScope = parseOptionalRuntimePolicyScope(policy.runtimePolicyScope);
+    if (!policyRuntimeScope.ok) return policyRuntimeScope;
+    existingAuth = {
+      kind: 'app_session',
+      policy: {
+        permission: 'wallet_auth_method_revoke',
+        walletId: walletIdFromString(walletId),
+        target,
+        ...(policyRuntimeScope.value ? { runtimePolicyScope: policyRuntimeScope.value } : {}),
+        expiresAtMs,
+      },
+    };
+  } else {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'auth-method revoke auth.kind is unsupported',
+    };
+  }
+
+  return {
+    ok: true,
+    value: {
+      walletId: walletIdFromString(walletId),
+      rpId: rpId.value,
+      auth: existingAuth,
+      target,
+    },
+  };
+}
+
 export async function handleRelayWalletRegistrationIntent(
   input: RelayWalletRegistrationInput,
 ): Promise<RouteResponse<CreateRegistrationIntentResponse | RouteErrorBody>> {
   if (!isPlainObject(input.body)) {
     return routeError(400, 'invalid_body', 'JSON body required');
   }
+  const request = parseCreateRegistrationIntentRequest(input.body);
+  if (!request.ok) return routeError(400, request.code, request.message);
   const origin = normalizeCorsOrigin(input.origin);
   if (!origin) {
     return routeError(
@@ -1002,7 +1750,7 @@ export async function handleRelayWalletRegistrationIntent(
     envId: principal.envId,
   });
   const result = await input.services.authService.createRegistrationIntent({
-    request: input.body as any,
+    request: request.value,
     orgId: principal.orgId,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     ...(runtimePolicyScope
@@ -1022,10 +1770,12 @@ export async function handleRelayWalletAddSignerIntent(
   if (!isPlainObject(input.body)) {
     return routeError(400, 'invalid_body', 'JSON body required');
   }
-  const walletSubjectId = String(input.pathParams?.walletSubjectId || '').trim();
-  if (!walletSubjectId) {
-    return routeError(400, 'invalid_body', 'walletSubjectId path parameter is required');
+  const walletId = String(input.pathParams?.walletId || '').trim();
+  if (!walletId) {
+    return routeError(400, 'invalid_body', 'walletId path parameter is required');
   }
+  const request = parseCreateAddSignerIntentRequest(input.body, walletId);
+  if (!request.ok) return routeError(400, request.code, request.message);
   const origin = normalizeCorsOrigin(input.origin);
   if (!origin) {
     return routeError(
@@ -1067,10 +1817,7 @@ export async function handleRelayWalletAddSignerIntent(
     envId: principal.envId,
   });
   const result = await input.services.authService.createAddSignerIntent({
-    request: {
-      ...(input.body as any),
-      walletSubjectId: walletSubjectIdFromString(walletSubjectId),
-    },
+    request: request.value,
     orgId: principal.orgId,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     ...(runtimePolicyScope
@@ -1090,7 +1837,9 @@ export async function handleRelayWalletRegistrationStart(
   if (!isPlainObject(input.body)) {
     return routeError(400, 'invalid_body', 'JSON body required');
   }
-  const result = await input.services.authService.startWalletRegistration(input.body as any);
+  const request = await parseWalletRegistrationStartBody(input.body);
+  if (!request.ok) return routeError(400, request.code, request.message);
+  const result = await input.services.authService.startWalletRegistration(request.value);
   return routeJson(result.ok ? 200 : 400, result);
 }
 
@@ -1128,7 +1877,7 @@ export async function handleRelayWalletRegistrationFinalize(
     if (signingError) return signingError;
   }
   return routeJson(result.ok ? 200 : 400, result, {
-    usage: result.ok ? { walletId: result.walletSubjectId } : undefined,
+    usage: result.ok ? { walletId: result.walletId } : undefined,
   });
 }
 
@@ -1138,15 +1887,15 @@ export async function handleRelayWalletAddSignerStart(
   if (!isPlainObject(input.body)) {
     return routeError(400, 'invalid_body', 'JSON body required');
   }
-  const walletSubjectId = String(input.pathParams?.walletSubjectId || '').trim();
-  if (!walletSubjectId) {
-    return routeError(400, 'invalid_body', 'walletSubjectId is required');
+  const walletId = String(input.pathParams?.walletId || '').trim();
+  if (!walletId) {
+    return routeError(400, 'invalid_body', 'walletId is required');
   }
-  const parsedBody = await parseWalletAddSignerStartBody(input.body, walletSubjectId);
+  const parsedBody = await parseWalletAddSignerStartBody(input.body, walletId);
   if (!parsedBody.ok) return routeError(400, parsedBody.code, parsedBody.message);
   if (parsedBody.value.auth.kind === 'webauthn_assertion') {
     const verified = await input.services.authService.verifyWebAuthnAuthenticationLite({
-      nearAccountId: walletSubjectId,
+      nearAccountId: walletId,
       rpId: parsedBody.value.intent.rpId,
       expectedChallenge: parsedBody.value.auth.expectedChallengeDigestB64u,
       webauthn_authentication: parsedBody.value.auth.credential,
@@ -1232,25 +1981,232 @@ export async function handleRelayWalletAddSignerFinalize(
     if (signingError) return signingError;
   }
   return routeJson(result.ok ? 200 : 400, result, {
-    usage: result.ok ? { walletId: result.walletSubjectId } : undefined,
+    usage: result.ok ? { walletId: result.walletId } : undefined,
   });
 }
 
-export async function handleRelayWalletSubjectEcdsaKeyFactsInventory(
+export async function handleRelayWalletAddAuthMethodIntent(
+  input: RelayWalletRegistrationInput,
+): Promise<RouteResponse<CreateAddAuthMethodIntentResponse | RouteErrorBody>> {
+  if (!isPlainObject(input.body)) {
+    return routeError(400, 'invalid_body', 'JSON body required');
+  }
+  const walletId = String(input.pathParams?.walletId || '').trim();
+  if (!walletId) {
+    return routeError(400, 'invalid_body', 'walletId path parameter is required');
+  }
+  const service = input.services.authService as AuthService & WalletAddAuthMethodServiceMethods;
+  if (!service.createAddAuthMethodIntent) {
+    return routeError(501, 'internal', 'wallet add-auth-method intent is not implemented');
+  }
+  const request = parseCreateAddAuthMethodIntentRequest(input.body, walletId);
+  if (!request.ok) return routeError(400, request.code, request.message);
+  const origin = normalizeCorsOrigin(input.origin);
+  if (!origin) {
+    return routeError(
+      403,
+      'forbidden',
+      'Origin header is required and must be a valid exact origin',
+    );
+  }
+  const resolved = await enforceRoutePolicy({
+    headers: input.headers,
+    logger: input.logger,
+    request: { body: input.body, headers: input.headers },
+    route: input.route,
+    services: { authService: input.services.authService },
+    sourceIp: input.sourceIp,
+    resolvers: {
+      apiCredentials: async () =>
+        await resolveRegistrationBootstrapApiCredentialAuth({
+          apiKeyAuth: input.services.apiKeyAuth,
+          body: input.body as Record<string, unknown>,
+          bootstrapTokenStore: input.services.bootstrapTokenStore,
+          headers: input.headers,
+          origin,
+          route: input.route,
+          sourceIp: input.sourceIp,
+        }),
+    },
+  });
+  if (!resolved.ok) return routeJson(resolved.status, resolved.body);
+  if (resolved.context.principal.kind !== 'api_credentials') {
+    return routeError(500, 'internal', 'wallet add-auth-method intent requires API credentials');
+  }
+  const principal = resolved.context.principal.principal;
+  const runtimePolicyScope = await resolveActiveRuntimePolicyScopeForEnvironment({
+    orgProjectEnv: input.services.orgProjectEnv || null,
+    orgId: principal.orgId,
+    environmentId: principal.environmentId,
+    projectId: principal.projectId,
+    envId: principal.envId,
+  });
+  const result = await service.createAddAuthMethodIntent({
+    request: request.value,
+    orgId: principal.orgId,
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+    ...(runtimePolicyScope
+      ? {
+          signingRootId: `${runtimePolicyScope.projectId}:${runtimePolicyScope.envId}`,
+          signingRootVersion: runtimePolicyScope.signingRootVersion,
+        }
+      : {}),
+    expectedOrigin: origin,
+  });
+  return routeJson(result.ok ? 200 : 400, result);
+}
+
+export async function handleRelayWalletAddAuthMethodStart(
+  input: RelayWalletRegistrationInput,
+): Promise<RouteResponse<WalletAddAuthMethodStartResponse | RouteErrorBody>> {
+  if (!isPlainObject(input.body)) {
+    return routeError(400, 'invalid_body', 'JSON body required');
+  }
+  const walletId = String(input.pathParams?.walletId || '').trim();
+  if (!walletId) {
+    return routeError(400, 'invalid_body', 'walletId is required');
+  }
+  const service = input.services.authService as AuthService & WalletAddAuthMethodServiceMethods;
+  if (!service.startWalletAddAuthMethod) {
+    return routeError(501, 'internal', 'wallet add-auth-method start is not implemented');
+  }
+  const parsedBody = await parseWalletAddAuthMethodStartBody(input.body, walletId);
+  if (!parsedBody.ok) return routeError(400, parsedBody.code, parsedBody.message);
+  if (parsedBody.value.auth.kind === 'webauthn_assertion') {
+    const verified = await input.services.authService.verifyWebAuthnAuthenticationLite({
+      nearAccountId: walletId,
+      rpId: parsedBody.value.intent.rpId,
+      expectedChallenge: parsedBody.value.auth.expectedChallengeDigestB64u,
+      webauthn_authentication: parsedBody.value.auth.credential,
+    });
+    if (!verified.success || !verified.verified) {
+      return routeError(
+        401,
+        'unauthorized',
+        verified.message || 'Invalid add-auth-method WebAuthn authorization',
+      );
+    }
+  } else {
+    const session = input.services.session;
+    if (!session) {
+      return routeError(401, 'unauthorized', 'App session auth is required');
+    }
+    const parsedSession = await session.parse(input.headers || {});
+    if (!parsedSession.ok) {
+      return routeError(401, 'unauthorized', 'Missing or invalid app session');
+    }
+    const appSessionClaims = parseAppSessionClaims(parsedSession.claims);
+    if (!appSessionClaims) {
+      return routeError(401, 'unauthorized', 'Add-auth-method requires app-session auth');
+    }
+    if (appSessionClaims.exp !== undefined && appSessionClaims.exp * 1000 <= Date.now()) {
+      return routeError(401, 'unauthorized', 'App session is expired');
+    }
+    const sessionVersion = await input.services.authService.validateAppSessionVersion({
+      userId: appSessionClaims.sub,
+      appSessionVersion: appSessionClaims.appSessionVersion,
+    });
+    if (!sessionVersion.ok) {
+      return routeError(401, 'unauthorized', sessionVersion.message);
+    }
+  }
+  const result = await service.startWalletAddAuthMethod(parsedBody.value);
+  return routeJson(result.ok ? 200 : 400, result);
+}
+
+export async function handleRelayWalletAddAuthMethodFinalize(
+  input: RelayWalletRegistrationInput,
+): Promise<RouteResponse<WalletAddAuthMethodFinalizeResponse | RouteErrorBody>> {
+  if (!isPlainObject(input.body)) {
+    return routeError(400, 'invalid_body', 'JSON body required');
+  }
+  const service = input.services.authService as AuthService & WalletAddAuthMethodServiceMethods;
+  if (!service.finalizeWalletAddAuthMethod) {
+    return routeError(501, 'internal', 'wallet add-auth-method finalize is not implemented');
+  }
+  const request = parseWalletAddAuthMethodFinalizeRequest(input.body);
+  if (!request.ok) return routeError(400, request.code, request.message);
+  const result = await service.finalizeWalletAddAuthMethod(request.value);
+  return routeJson(result.ok ? 200 : 400, result, {
+    usage: result.ok ? { walletId: result.walletId } : undefined,
+  });
+}
+
+export async function handleRelayWalletRevokeAuthMethod(
+  input: RelayWalletRegistrationInput,
+): Promise<RouteResponse<WalletRevokeAuthMethodResponse | RouteErrorBody>> {
+  if (!isPlainObject(input.body)) {
+    return routeError(400, 'invalid_body', 'JSON body required');
+  }
+  const walletId = String(input.pathParams?.walletId || '').trim();
+  if (!walletId) {
+    return routeError(400, 'invalid_body', 'walletId is required');
+  }
+  const service = input.services.authService as AuthService & WalletAddAuthMethodServiceMethods;
+  if (!service.revokeWalletAuthMethod) {
+    return routeError(501, 'internal', 'wallet auth-method revoke is not implemented');
+  }
+  const parsedBody = await parseWalletRevokeAuthMethodRequest(input.body, walletId);
+  if (!parsedBody.ok) return routeError(400, parsedBody.code, parsedBody.message);
+  if (parsedBody.value.auth.kind === 'webauthn_assertion') {
+    const verified = await input.services.authService.verifyWebAuthnAuthenticationLite({
+      nearAccountId: walletId,
+      rpId: parsedBody.value.rpId,
+      expectedChallenge: parsedBody.value.auth.expectedChallengeDigestB64u,
+      webauthn_authentication: parsedBody.value.auth.credential,
+    });
+    if (!verified.success || !verified.verified) {
+      return routeError(
+        401,
+        'unauthorized',
+        verified.message || 'Invalid auth-method revoke WebAuthn authorization',
+      );
+    }
+  } else {
+    const session = input.services.session;
+    if (!session) {
+      return routeError(401, 'unauthorized', 'App session auth is required');
+    }
+    const parsedSession = await session.parse(input.headers || {});
+    if (!parsedSession.ok) {
+      return routeError(401, 'unauthorized', 'Missing or invalid app session');
+    }
+    const appSessionClaims = parseAppSessionClaims(parsedSession.claims);
+    if (!appSessionClaims) {
+      return routeError(401, 'unauthorized', 'Auth-method revoke requires app-session auth');
+    }
+    if (appSessionClaims.exp !== undefined && appSessionClaims.exp * 1000 <= Date.now()) {
+      return routeError(401, 'unauthorized', 'App session is expired');
+    }
+    const sessionVersion = await input.services.authService.validateAppSessionVersion({
+      userId: appSessionClaims.sub,
+      appSessionVersion: appSessionClaims.appSessionVersion,
+    });
+    if (!sessionVersion.ok) {
+      return routeError(401, 'unauthorized', sessionVersion.message);
+    }
+  }
+  const result = await service.revokeWalletAuthMethod(parsedBody.value);
+  return routeJson(result.ok ? 200 : 400, result, {
+    usage: result.ok ? { walletId: result.walletId } : undefined,
+  });
+}
+
+export async function handleRelayWalletEcdsaKeyFactsInventory(
   input: RelayWalletRegistrationInput,
 ): Promise<RouteResponse<RouteErrorBody | Record<string, unknown>>> {
   if (!isPlainObject(input.body)) {
     return routeError(400, 'invalid_body', 'JSON body required');
   }
-  const walletSubjectId = String(input.pathParams?.walletSubjectId || '').trim();
-  if (!walletSubjectId) {
-    return routeError(400, 'invalid_body', 'walletSubjectId is required');
+  const walletId = String(input.pathParams?.walletId || '').trim();
+  if (!walletId) {
+    return routeError(400, 'invalid_body', 'walletId is required');
   }
-  const parsedBody = await parseWalletSubjectEcdsaInventoryBody(input.body, walletSubjectId);
+  const parsedBody = await parseWalletEcdsaInventoryBody(input.body, walletId);
   if (!parsedBody.ok) return routeError(400, parsedBody.code, parsedBody.message);
   if (parsedBody.value.auth.kind === 'webauthn_assertion') {
     const verified = await input.services.authService.verifyWebAuthnAuthenticationLite({
-      nearAccountId: walletSubjectId,
+      nearAccountId: walletId,
       rpId: parsedBody.value.rpId,
       expectedChallenge: parsedBody.value.auth.expectedChallengeDigestB64u,
       webauthn_authentication: parsedBody.value.auth.credential,
@@ -1286,13 +2242,13 @@ export async function handleRelayWalletSubjectEcdsaKeyFactsInventory(
       return routeError(401, 'unauthorized', sessionVersion.message);
     }
   }
-  const keyInventory = await input.services.authService.listWalletSubjectEcdsaKeyFactsInventory({
-    walletSubjectId,
+  const keyInventory = await input.services.authService.listWalletEcdsaKeyFactsInventory({
+    walletId,
     rpId: parsedBody.value.rpId,
     keyTargets: parsedBody.value.keyTargets,
   });
-  input.logger.info('[wallet-subject][ecdsa-key-facts-inventory][diagnostic]', {
-    walletSubjectId,
+  input.logger.info('[wallet][ecdsa-key-facts-inventory][diagnostic]', {
+    walletId,
     ...keyInventory.diagnostics,
   });
   return routeJson(200, {

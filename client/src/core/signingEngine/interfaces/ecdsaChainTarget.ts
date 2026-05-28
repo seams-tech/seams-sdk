@@ -5,12 +5,11 @@ import {
 } from '@/core/config/chains';
 import type { AccountId } from '@/core/types/accountIds';
 import type { SeamsChainConfig, SeamsChainNetwork } from '@/core/types/seams';
+import type { WalletId } from '@shared/utils/registrationIntent';
 
-export type WalletId = string & { readonly __brand: 'WalletId' };
+export type { WalletId } from '@shared/utils/registrationIntent';
 
 export type BaseEcdsaWalletId = WalletId;
-
-export type WalletSubjectId = string & { readonly __brand: 'WalletSubjectId' };
 
 export type NearAccountRef =
   | { kind: 'named'; accountId: AccountId }
@@ -83,16 +82,12 @@ function defaultNetworkSlug(kind: BoundaryEcdsaChainFamily, chainId: number): st
   return kind === 'tempo' ? `tempo-${chainId}` : `evm-${chainId}`;
 }
 
-export function toWalletSubjectId(value: unknown): WalletSubjectId {
-  return requireNonEmptyString(value, 'wallet subject id') as WalletSubjectId;
-}
-
 export function toWalletId(value: unknown): WalletId {
   return requireNonEmptyString(value, 'wallet id') as WalletId;
 }
 
-export function walletSubjectIdFromWalletProfile(args: { walletId: unknown }): WalletSubjectId {
-  return toWalletSubjectId(toWalletId(args.walletId));
+export function walletIdFromWalletProfile(args: { walletId: unknown }): WalletId {
+  return toWalletId(toWalletId(args.walletId));
 }
 
 export function walletIdFromSessionValue(value: unknown): WalletId {

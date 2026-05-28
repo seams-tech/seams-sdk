@@ -136,7 +136,7 @@ export type ThresholdSigningPrefetchIntent =
   | {
       kind: 'evm_family_transaction';
       nearAccountId: string;
-      subjectId: WalletSubjectId;
+      subjectId: WalletId;
       chainTarget: ThresholdEcdsaChainTarget;
       request: MultichainSigningRequest;
     };
@@ -284,7 +284,7 @@ type PrefetchedEcdsaSigningOperation = BudgetAdmittedTransactionOperation & {
 Compute a canonical `intentKey` from normalized command inputs:
 
 - command kind
-- near account or wallet subject
+- near account or wallet
 - exact chain target
 - transaction/message/delegate digest
 - selected signer slot when present

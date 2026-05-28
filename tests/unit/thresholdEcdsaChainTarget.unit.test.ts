@@ -13,7 +13,7 @@ import {
 
 function makeLane(overrides: Partial<ThresholdEcdsaSessionRecordKey> = {}): ThresholdEcdsaSessionRecordKey {
   return {
-    walletId: toAccountId('wallet-subject-1.testnet'),
+    walletId: toAccountId('wallet-1.testnet'),
     keyHandle: 'ehss-key-arc',
     authMethod: 'email_otp',
     curve: 'ecdsa',
@@ -120,7 +120,7 @@ test.describe('threshold ECDSA concrete chain targets', () => {
 
     expect(thresholdEcdsaLaneKey(arc)).toBe(
       [
-        'wallet-subject-1.testnet',
+        'wallet-1.testnet',
         'ehss-key-arc',
         'email_otp',
         'ecdsa',

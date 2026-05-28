@@ -38,13 +38,13 @@ export type {
 export type {
   AddSignerIntentV1,
   AddSignerSelection,
-  RegisterWalletSubjectInput,
+  RegisterWalletInput,
   RegistrationIntentGrant,
   RegistrationIntentV1,
   RegistrationSignerSelection,
   ThresholdEcdsaAddSignerSpec,
   ThresholdEd25519AddSignerSpec,
-  WalletSubjectId as RegistrationWalletSubjectId,
+  WalletId as RegistrationWalletId,
 } from '@shared/utils/registrationIntent';
 export type { StoreUserDataInput } from '../core/accountData/near/types';
 

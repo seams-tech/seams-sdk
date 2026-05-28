@@ -59,6 +59,9 @@ const ALLOWLISTED_PUBLIC_RELAY_ROUTE_IDS = [
   'wallet_add_signer_start',
   'wallet_add_signer_hss_respond',
   'wallet_add_signer_finalize',
+  'wallet_add_auth_method_start',
+  'wallet_add_auth_method_finalize',
+  'wallet_revoke_auth_method',
   'wallet_email_otp_dev_cleanup_google_registration',
   'recover_email',
 ] as const;
@@ -114,6 +117,25 @@ test.describe('route definition scaffolding', () => {
       scopes: ['accounts.create'],
     });
     expect(walletRegistrationIntent?.metering).toEqual({ kind: 'none' });
+
+    const walletAddAuthMethodIntent = routes.find(
+      (route) => route.id === 'wallet_add_auth_method_intent',
+    );
+    expect(walletAddAuthMethodIntent).toBeTruthy();
+    expect(walletAddAuthMethodIntent?.auth).toMatchObject({
+      plane: 'api_credentials',
+      credentials: ['secret_key', 'bootstrap_token'],
+      scopes: ['wallets.auth_methods.create'],
+    });
+    expect(walletAddAuthMethodIntent?.metering).toEqual({ kind: 'none' });
+
+    const walletRevokeAuthMethod = routes.find((route) => route.id === 'wallet_revoke_auth_method');
+    expect(walletRevokeAuthMethod).toBeTruthy();
+    expect(walletRevokeAuthMethod?.auth).toMatchObject({
+      plane: 'public',
+      proof: 'challenge_exchange',
+    });
+    expect(walletRevokeAuthMethod?.metering).toEqual({ kind: 'none' });
 
     const apiWalletList = routes.find((route) => route.id === 'api_wallets_list');
     expect(apiWalletList).toBeTruthy();

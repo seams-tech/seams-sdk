@@ -579,7 +579,7 @@ type SelectedEd25519Lane = BaseSelectedLane & {
 
 type SelectedEcdsaLane = BaseSelectedLane & {
   curve: 'ecdsa';
-  subjectId: WalletSubjectId;
+  subjectId: WalletId;
   thresholdSessionId: ThresholdEcdsaSessionId;
   chainTarget: ThresholdEcdsaChainTarget;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;

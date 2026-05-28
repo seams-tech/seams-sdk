@@ -74,7 +74,7 @@ async function makeGrantBody(overrides?: Partial<Record<string, unknown>>) {
 
 function makeWalletRegistrationIntentBody(overrides?: Partial<Record<string, unknown>>) {
   return {
-    walletSubject: { kind: 'provided', walletSubjectId: 'alice.w3a-relayer.testnet' },
+    wallet: { kind: 'provided', walletId: 'alice.w3a-relayer.testnet' },
     rpId: 'app.example.com',
     signerSelection: {
       mode: 'ed25519_only',
@@ -98,7 +98,7 @@ function makeRelayService() {
     ok: true,
     intent: {
       version: 'registration_intent_v1',
-      walletSubjectId: input.request.walletSubject.walletSubjectId,
+      walletId: input.request.wallet.walletId,
       rpId: input.request.rpId,
       authMethod: input.request.authMethod,
       signerSelection: input.request.signerSelection,
@@ -416,7 +416,7 @@ test.describe('managed bootstrap grants', () => {
         Authorization: `Bearer ${token}`,
       },
       body: makeWalletRegistrationIntentBody({
-        walletSubject: { kind: 'provided', walletSubjectId: 'mallory.w3a-relayer.testnet' },
+        wallet: { kind: 'provided', walletId: 'mallory.w3a-relayer.testnet' },
         signerSelection: {
           mode: 'ed25519_only',
           ed25519: {

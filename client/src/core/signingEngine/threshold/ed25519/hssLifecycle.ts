@@ -380,6 +380,84 @@ export async function deriveThresholdEd25519HssClientInputsFromCredential(
   }
 }
 
+export async function deriveThresholdEd25519HssClientInputsFromPrfFirst(
+  deps: ThresholdEd25519LifecycleDeps,
+  args: {
+    prfFirstB64u: string;
+    signingRootId: string;
+    nearAccountId: AccountId;
+    keyPurpose: string;
+    keyVersion: string;
+    participantIds: number[];
+    derivationVersion: number;
+  },
+): Promise<DeriveThresholdEd25519HssClientInputsResult> {
+  const signingRootId = String(args.signingRootId || '').trim();
+  const nearAccountId = args.nearAccountId;
+  const keyPurpose = String(args.keyPurpose || '').trim();
+  const keyVersion = String(args.keyVersion || '').trim();
+  const participantIds = Array.isArray(args.participantIds)
+    ? args.participantIds.map((value) => Number(value))
+    : [];
+  const derivationVersion = Number(args.derivationVersion);
+  const prfFirstB64u = String(args.prfFirstB64u || '').trim();
+
+  try {
+    if (!prfFirstB64u) {
+      throw new Error('prfFirstB64u is required for threshold Ed25519 HSS client inputs');
+    }
+    const sessionId = deps.createSessionId('threshold-ed25519-hss-client-inputs');
+    const derived = await deps.signingKeyOps.deriveThresholdEd25519HssClientInputs({
+      sessionId,
+      signingRootId,
+      nearAccountId,
+      keyPurpose,
+      keyVersion,
+      participantIds,
+      derivationVersion,
+      prfFirstB64u,
+    });
+    if (!derived.success) {
+      return {
+        ok: false,
+        signingRootId,
+        nearAccountId,
+        keyPurpose,
+        keyVersion,
+        participantIds,
+        derivationVersion,
+        code: 'derive_client_inputs_failed',
+        message: String(derived.error || 'Failed to derive threshold Ed25519 HSS client inputs'),
+      };
+    }
+    return {
+      ok: true,
+      signingRootId: derived.signingRootId,
+      nearAccountId: derived.nearAccountId,
+      keyPurpose: derived.keyPurpose,
+      keyVersion: derived.keyVersion,
+      participantIds: derived.participantIds,
+      derivationVersion: derived.derivationVersion,
+      contextBindingB64u: derived.contextBindingB64u,
+      yClientB64u: derived.yClientB64u,
+      tauClientB64u: derived.tauClientB64u,
+    };
+  } catch (error: unknown) {
+    const message = String((error as { message?: unknown })?.message ?? error);
+    return {
+      ok: false,
+      signingRootId,
+      nearAccountId,
+      keyPurpose,
+      keyVersion,
+      participantIds,
+      derivationVersion,
+      code: 'derive_client_inputs_failed',
+      message,
+    };
+  }
+}
+
 export async function prepareThresholdEd25519HssClientCeremonyFromCredential(
   deps: ThresholdEd25519LifecycleDeps,
   args: {
@@ -436,6 +514,48 @@ export async function prepareThresholdEd25519HssClientCeremonyFromCredential(
       message,
     };
   }
+}
+
+export async function prepareThresholdEd25519HssClientCeremonyFromPrfFirst(
+  deps: ThresholdEd25519LifecycleDeps,
+  args: {
+    prfFirstB64u: string;
+    signingRootId: string;
+    nearAccountId: AccountId;
+    keyPurpose: string;
+    keyVersion: string;
+    participantIds: number[];
+    derivationVersion: number;
+    onProgress?: (message: string) => void;
+  },
+): Promise<PrepareThresholdEd25519HssClientCeremonyResult> {
+  args.onProgress?.('Deriving threshold Ed25519 client inputs from Email OTP material...');
+  const derived = await deriveThresholdEd25519HssClientInputsFromPrfFirst(deps, args);
+  if (!derived.ok) {
+    return {
+      ok: false,
+      signingRootId: derived.signingRootId,
+      nearAccountId: derived.nearAccountId,
+      keyPurpose: derived.keyPurpose,
+      keyVersion: derived.keyVersion,
+      participantIds: derived.participantIds,
+      derivationVersion: derived.derivationVersion,
+      code: derived.code,
+      message: derived.message,
+    };
+  }
+  return {
+    ok: true,
+    signingRootId: derived.signingRootId,
+    nearAccountId: derived.nearAccountId,
+    keyPurpose: derived.keyPurpose,
+    keyVersion: derived.keyVersion,
+    participantIds: derived.participantIds,
+    derivationVersion: derived.derivationVersion,
+    contextBindingB64u: derived.contextBindingB64u,
+    yClientB64u: derived.yClientB64u,
+    tauClientB64u: derived.tauClientB64u,
+  };
 }
 
 export async function completeThresholdEd25519HssClientCeremony(args: {

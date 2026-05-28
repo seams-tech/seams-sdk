@@ -103,12 +103,6 @@ export class EmailOtpThresholdSessionCoordinator {
     return this.runtime.waitForPendingEd25519Warmup(args);
   }
 
-  scheduleEd25519CapabilityProvisioning(
-    args: Parameters<EmailOtpThresholdSessionRuntime['scheduleEd25519CapabilityProvisioning']>[0],
-  ): ReturnType<EmailOtpThresholdSessionRuntime['scheduleEd25519CapabilityProvisioning']> {
-    return this.runtime.scheduleEd25519CapabilityProvisioning(args);
-  }
-
   async requestTransactionSigningChallenge(
     args: Parameters<EmailOtpThresholdSessionRuntime['requestTransactionSigningChallenge']>[0],
   ): ReturnType<EmailOtpThresholdSessionRuntime['requestTransactionSigningChallenge']> {
@@ -161,12 +155,6 @@ export class EmailOtpThresholdSessionCoordinator {
     args: Parameters<EmailOtpThresholdSessionRuntime['loginWithEd25519CapabilityForSigning']>[0],
   ): ReturnType<EmailOtpThresholdSessionRuntime['loginWithEd25519CapabilityForSigning']> {
     return this.runtime.loginWithEd25519CapabilityForSigning(args);
-  }
-
-  provisionEd25519Capability(
-    args: Parameters<EmailOtpThresholdSessionRuntime['provisionEd25519Capability']>[0],
-  ): ReturnType<EmailOtpThresholdSessionRuntime['provisionEd25519Capability']> {
-    return this.runtime.provisionEd25519Capability(args);
   }
 
   reconstructEd25519Session(

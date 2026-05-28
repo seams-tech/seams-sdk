@@ -91,7 +91,7 @@ function normalizeClientContext(input: unknown): RelayBootstrapGrantClientContex
 
 const REGISTRATION_FLOW_GRANT_ALLOWED_PATHS = [
   '/wallets/register/intent',
-  '/wallets/:walletSubjectId/signers/intent',
+  '/wallets/:walletId/signers/intent',
 ] as const;
 
 function normalizeRegistrationBootstrapGrantFlow(raw: unknown): 'registration_v1' {

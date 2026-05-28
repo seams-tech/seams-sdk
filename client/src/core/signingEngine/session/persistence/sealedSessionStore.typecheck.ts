@@ -9,7 +9,7 @@ void currentEcdsaRecord;
 const invalidCurrentEcdsaRecord: CurrentEcdsaSealedSessionRecord = {
   ...({} as CurrentEcdsaSealedSessionRecord),
   // @ts-expect-error current ECDSA sealed records do not carry subjectId.
-  subjectId: 'wallet-subject-alice',
+  subjectId: 'wallet-alice',
 };
 void invalidCurrentEcdsaRecord;
 
@@ -41,7 +41,7 @@ const invalidEcdsaWriteInput: BuildCurrentEcdsaSealedSessionRecordInput = {
   expiresAtMs: 1,
   remainingUses: 1,
   // @ts-expect-error ECDSA sealed writes derive subject from walletId at restore boundaries.
-  subjectId: 'wallet-subject-alice',
+  subjectId: 'wallet-alice',
 };
 void invalidEcdsaWriteInput;
 

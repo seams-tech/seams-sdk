@@ -1,16 +1,15 @@
 import { seamsWalletDB } from '../singletons';
-import { SEAMS_WALLET_INDEXES } from '../schemaNames';
-import { upgradeSeamsWalletDBSchema } from './schema';
 import {
-  SIGNING_SESSION_RESTORE_LEASE_STORE_NAME,
-  SIGNING_SESSION_SEAL_DB_NAME,
-  SIGNING_SESSION_SEAL_DB_VERSION,
-  SIGNING_SESSION_SEAL_STORE_NAME,
-} from '@shared/utils/signingSessionSeal';
+  SEAMS_WALLET_DB_NAME,
+  SEAMS_WALLET_DB_VERSION,
+  SEAMS_WALLET_INDEXES,
+  SEAMS_WALLET_STORES,
+} from '../schemaNames';
+import { upgradeSeamsWalletDBSchema } from './schema';
 
-export const SIGNING_SESSION_SEALS_STORE_NAME = SIGNING_SESSION_SEAL_STORE_NAME;
-export const SIGNING_SESSION_RESTORE_LEASES_STORE_NAME =
-  SIGNING_SESSION_RESTORE_LEASE_STORE_NAME;
+const SIGNING_SESSION_SEALS_STORE_NAME = SEAMS_WALLET_STORES.signingSessionSeals;
+const SIGNING_SESSION_RESTORE_LEASES_STORE_NAME =
+  SEAMS_WALLET_STORES.signingSessionRestoreLeases;
 
 export type StoredRawSealedRecordEntry = {
   primaryKey: unknown;
@@ -55,7 +54,7 @@ function openSigningSessionSealsDb(): Promise<IDBDatabase | null> {
   return new Promise((resolve) => {
     let request: IDBOpenDBRequest;
     try {
-      request = indexedDBFactory.open(SIGNING_SESSION_SEAL_DB_NAME, SIGNING_SESSION_SEAL_DB_VERSION);
+      request = indexedDBFactory.open(SEAMS_WALLET_DB_NAME, SEAMS_WALLET_DB_VERSION);
     } catch {
       resolve(null);
       return;

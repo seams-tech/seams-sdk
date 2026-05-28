@@ -4,14 +4,14 @@ Status: completed historical note. Active follow-up work now lives in
 `docs/rework-registration-flows-2.md`.
 
 The original registration-flow rework replaced the split legacy registration
-path with wallet-subject registration ceremonies. The completed work includes:
+path with wallet registration ceremonies. The completed work includes:
 
 - Passkey wallet registration through `/wallets/register/intent`,
   `/wallets/register/start`, `/wallets/register/hss/respond`, and
   `/wallets/register/finalize`.
 - First-class signer selection for Ed25519-only, ECDSA-only, and combined
   Ed25519 plus ECDSA passkey registration.
-- Add-signer ceremonies through `/wallets/:walletSubjectId/signers/*`.
+- Add-signer ceremonies through `/wallets/:walletId/signers/*`.
 - Deletion of production registration-continuation token generation and
   continuation-token ECDSA bootstrap authorization.
 - Deletion of the legacy `/registration/bootstrap` and

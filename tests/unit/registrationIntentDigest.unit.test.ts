@@ -4,7 +4,7 @@ import {
   computeRegistrationIntentDigestB64u,
   serializeAddSignerIntentV1,
   serializeRegistrationIntentV1,
-  walletSubjectIdFromString,
+  walletIdFromString,
   type AddSignerIntentV1,
   type RegistrationIntentV1,
   type RuntimePolicyScopeLike,
@@ -34,7 +34,7 @@ const ed25519Spec: ThresholdEd25519RegistrationSpec = {
 
 const baseIntent: RegistrationIntentV1 = {
   version: 'registration_intent_v1',
-  walletSubjectId: walletSubjectIdFromString('wallet_alice'),
+  walletId: walletIdFromString('wallet_alice'),
   rpId: 'wallet.example.test',
   runtimePolicyScope,
   authMethod: { kind: 'passkey' },
@@ -47,7 +47,7 @@ const baseIntent: RegistrationIntentV1 = {
 
 const baseAddSignerIntent: AddSignerIntentV1 = {
   version: 'add_signer_intent_v1',
-  walletSubjectId: walletSubjectIdFromString('wallet_alice'),
+  walletId: walletIdFromString('wallet_alice'),
   rpId: 'wallet.example.test',
   runtimePolicyScope,
   signerSelection: {
@@ -89,7 +89,7 @@ test.describe('registration intent digest canonicalization', () => {
       },
       rpId: baseIntent.rpId,
       authMethod: baseIntent.authMethod,
-      walletSubjectId: baseIntent.walletSubjectId,
+      walletId: baseIntent.walletId,
       version: baseIntent.version,
     } satisfies RegistrationIntentV1;
 
@@ -167,7 +167,7 @@ test.describe('add-signer intent digest canonicalization', () => {
         orgId: runtimePolicyScope.orgId,
       },
       rpId: baseAddSignerIntent.rpId,
-      walletSubjectId: baseAddSignerIntent.walletSubjectId,
+      walletId: baseAddSignerIntent.walletId,
       version: baseAddSignerIntent.version,
     } satisfies AddSignerIntentV1;
 

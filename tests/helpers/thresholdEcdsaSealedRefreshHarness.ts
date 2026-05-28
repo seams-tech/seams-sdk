@@ -775,9 +775,9 @@ export async function readWalletIframeThresholdPersistence(page: Page): Promise<
                 request.onsuccess = () => resolve(request.result);
               });
               try {
-                if (!db.objectStoreNames.contains('seams_signing_session_seals')) return [];
-                const tx = db.transaction('seams_signing_session_seals', 'readonly');
-                const store = tx.objectStore('seams_signing_session_seals');
+                if (!db.objectStoreNames.contains('signing_session_seals')) return [];
+                const tx = db.transaction('signing_session_seals', 'readonly');
+                const store = tx.objectStore('signing_session_seals');
                 const getAll = store.getAll();
                 const rows = await new Promise<unknown[]>((resolve, reject) => {
                   getAll.onerror = () => reject(getAll.error);

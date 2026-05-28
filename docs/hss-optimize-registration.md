@@ -214,7 +214,7 @@ Work:
 - keep session HSS prepare routes for existing-key flows such as
   reconstruction, repair, export, and warm-session work
 - bind the prepared session to `registrationCeremonyId`,
-  `walletSubjectId`, the canonical registration intent digest, the Ed25519
+  `walletId`, the canonical registration intent digest, the Ed25519
   signer spec, runtime policy scope, participant ids, and expiry
 
 Expected effect:
@@ -225,7 +225,7 @@ Expected effect:
 Validation:
 
 - route tests proving wallet-registration prepared sessions cannot be reused
-  across wallet subject, account, signing-root, intent digest, or participant
+  across wallet, account, signing-root, intent digest, or participant
   changes
 - active-path timing comparison before and after
 - wallet registration ceremony grant tests

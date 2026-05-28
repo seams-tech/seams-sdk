@@ -9,14 +9,14 @@ declare const runtime: PlatformRuntime;
 declare const result: PlatformResult<{ value: string }, 'failed'>;
 declare const secretSource: ClientSecretSource;
 
-runtime.signerCompute.prepareEcdsaClientBootstrap({
+runtime.signerCrypto.prepareEcdsaClientBootstrap({
   secretSource: {
     kind: 'webauthn_prf_first',
     prfFirstB64u: 'first',
     rpId: 'wallet.example',
     credentialIdB64u: 'credential',
   },
-  walletId: 'wallet_subject_alice',
+  walletId: 'wallet_alice',
   rpId: 'wallet.example',
   participantIds: [0, 1, 2],
 } satisfies PrepareEcdsaClientBootstrapInput);
@@ -48,26 +48,26 @@ switch (secretSource.kind) {
     break;
 }
 
-runtime.signerCompute.prepareEcdsaClientBootstrap({
+runtime.signerCrypto.prepareEcdsaClientBootstrap({
   secretSource: {
     // @ts-expect-error secure enclave sources are unsupported by the MVP ECDSA bootstrap command
     kind: 'secure_enclave_wrapped_secret',
     keyId: 'key',
     accessGroup: 'group',
   },
-  walletId: 'wallet_subject_alice',
+  walletId: 'wallet_alice',
   rpId: 'wallet.example',
   participantIds: [0, 1, 2],
 });
 
-runtime.signerCompute.prepareEcdsaClientBootstrap({
+runtime.signerCrypto.prepareEcdsaClientBootstrap({
   secretSource: {
     // @ts-expect-error FIDO2 HMAC secret sources are unsupported by the MVP ECDSA bootstrap command
     kind: 'fido2_hmac_secret',
     credentialIdB64u: 'credential',
     rpId: 'wallet.example',
   },
-  walletId: 'wallet_subject_alice',
+  walletId: 'wallet_alice',
   rpId: 'wallet.example',
   participantIds: [0, 1, 2],
 });

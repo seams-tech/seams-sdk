@@ -5,8 +5,10 @@ import {
 import type {
   BootstrapThresholdEcdsaSessionArgs,
   ExecuteEvmFamilyTransactionArgs,
+  EvmSignerCapability,
   KeyExportCapability,
   NearSignerCapability,
+  RegistrationCapability,
   SignTempoArgs,
   PublicThresholdEcdsaSessionBootstrapResult,
 } from './interfaces';
@@ -36,7 +38,7 @@ const invalidSignTempoSubjectInput: SignTempoArgs = {
   request: tempoRequest,
   chainTarget: tempoChainTarget,
   // @ts-expect-error ECDSA public signing derives subject from walletSession.walletId.
-  subjectId: 'wallet-subject',
+  subjectId: 'wallet',
 };
 void invalidSignTempoSubjectInput;
 
@@ -54,7 +56,7 @@ const invalidExecuteEvmSubjectInput: ExecuteEvmFamilyTransactionArgs = {
   request: tempoRequest,
   chainTarget: tempoChainTarget,
   // @ts-expect-error EVM-family public signing derives subject from walletSession.walletId.
-  subjectId: 'wallet-subject',
+  subjectId: 'wallet',
 };
 void invalidExecuteEvmSubjectInput;
 
@@ -64,6 +66,55 @@ const validEcdsaBootstrapInput: BootstrapThresholdEcdsaSessionArgs = {
   chainTarget: tempoChainTarget,
 };
 void validEcdsaBootstrapInput;
+
+const validNearEmailOtpRegistrationInput: Parameters<
+  NearSignerCapability['registerNearWallet']
+>[0] = {
+  nearAccountId: 'alice.testnet',
+  authMethod: {
+    kind: 'email_otp',
+    email: 'alice@example.test',
+    otpCode: '123456',
+    appSessionJwt: 'email-otp-app-session-jwt',
+  },
+};
+void validNearEmailOtpRegistrationInput;
+
+const validEvmEmailOtpRegistrationInput: Parameters<
+  EvmSignerCapability['registerEvmWallet']
+>[0] = {
+  chainTargets: [tempoChainTarget],
+  participantIds: [1, 2],
+  authMethod: {
+    kind: 'email_otp',
+    email: 'alice@example.test',
+    otpCode: '123456',
+    appSessionJwt: 'email-otp-app-session-jwt',
+  },
+};
+void validEvmEmailOtpRegistrationInput;
+
+declare const registrationCapability: RegistrationCapability;
+void registrationCapability.registerWithEmailOtp({
+  wallet: {
+    kind: 'provided',
+    walletId: 'alice.testnet' as import('@shared/utils/registrationIntent').WalletId,
+  },
+  rpId: 'example.test',
+  signerSelection: {
+    mode: 'ecdsa_only',
+    ecdsa: {
+      chainTargets: [tempoChainTarget],
+      participantIds: [1, 2],
+    },
+  },
+  authMethod: {
+    kind: 'email_otp',
+    email: 'alice@example.test',
+    otpCode: '123456',
+    appSessionJwt: 'email-otp-app-session-jwt',
+  },
+});
 
 const forbiddenProjectionField = ['smart', 'Account'].join('') as `${'smart'}${'Account'}`;
 const forbiddenProjectionAddressField = ['counter', 'factual', 'Address'].join(
@@ -141,7 +192,7 @@ const invalidEcdsaBootstrapSubjectInput: BootstrapThresholdEcdsaSessionArgs = {
   walletSession,
   chainTarget: tempoChainTarget,
   // @ts-expect-error Public base-ECDSA warm bootstrap derives subject from walletSession.walletId.
-  subjectId: 'wallet-subject',
+  subjectId: 'wallet',
 };
 void invalidEcdsaBootstrapSubjectInput;
 
@@ -192,7 +243,7 @@ const invalidEcdsaExportSubjectInput: PublicKeyExportInput = {
   chainTarget: tempoChainTarget,
   options: {},
   // @ts-expect-error ECDSA public export derives subject from walletSession.walletId.
-  subjectId: 'wallet-subject',
+  subjectId: 'wallet',
 };
 void invalidEcdsaExportSubjectInput;
 

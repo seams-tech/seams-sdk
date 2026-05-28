@@ -9,9 +9,13 @@ import type { SeamsConfigsInput } from '../../types/seams';
 import { WalletIframeDomEvents } from '../events';
 import { isObject } from '@shared/utils/validation';
 import { errorMessage } from '@shared/utils/errors';
-import type { WalletHostRuntimeState } from './runtime';
+import type { WalletHostRuntimeState } from './runtimeContext';
 import { loadWalletHostRuntime } from './runtimeLoader';
-import { routeRequiresRuntime, routeWalletHostRequest } from './requestRouter';
+import {
+  type RuntimeWalletHostRoute,
+  routeRequiresRuntime,
+  routeWalletHostRequest,
+} from './requestRouter';
 
 const PROTOCOL: ReadyPayload['protocolVersion'] = '1.0.0';
 let initialized = false;
@@ -23,7 +27,20 @@ const CONFIRM_UI_SELECTORS = [
   'w3a-export-key-viewer',
 ] as const;
 
-export function initWalletIFrame(): void {
+export type WalletHostRuntimeKind = RuntimeWalletHostRoute['kind'];
+
+export type WalletHostEntryOptions = {
+  supportedRuntimeRouteKinds?: ReadonlySet<WalletHostRuntimeKind>;
+};
+
+function routeIsSupported(
+  route: RuntimeWalletHostRoute,
+  supported: ReadonlySet<WalletHostRuntimeKind> | undefined,
+): boolean {
+  return !supported || supported.has(route.kind);
+}
+
+export function initWalletIFrame(options: WalletHostEntryOptions = {}): void {
   if (initialized) return;
   initialized = true;
 
@@ -118,6 +135,18 @@ export function initWalletIFrame(): void {
             return;
           }
         }
+      }
+
+      if (!routeIsSupported(route, options.supportedRuntimeRouteKinds)) {
+        post({
+          type: 'ERROR',
+          requestId,
+          payload: {
+            code: 'unsupported_request',
+            message: `Unsupported wallet iframe request type: ${route.type}`,
+          },
+        });
+        return;
       }
 
       const runtime = await loadWalletHostRuntime(route);

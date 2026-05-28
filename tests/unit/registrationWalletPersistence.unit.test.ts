@@ -1,15 +1,15 @@
 import { expect, test } from '@playwright/test';
 import {
-  storeWalletSubjectEcdsaSignerRecords,
-  storeWalletSubjectEd25519SignerRecord,
-  storeWalletSubjectEd25519RegistrationData,
+  storeWalletEcdsaSignerRecords,
+  storeWalletEd25519SignerRecord,
+  storeWalletEd25519RegistrationData,
 } from '../../client/src/core/signingEngine/flows/registration/accountLifecycle';
 import type {
   WebAuthnAuthenticationCredential,
   WebAuthnRegistrationCredential,
 } from '../../client/src/core/types/webauthn';
 import { toAccountId } from '../../client/src/core/types/accountIds';
-import { walletSubjectIdFromString } from '../../shared/src/utils/registrationIntent';
+import { walletIdFromString } from '../../shared/src/utils/registrationIntent';
 
 const credential = {
   id: 'credential-id',
@@ -36,11 +36,11 @@ const authenticationCredential = {
   clientExtensionResults: {},
 } as unknown as WebAuthnAuthenticationCredential;
 
-test('wallet registration persists wallet-subject signer before NEAR projection', async () => {
+test('wallet registration persists wallet signer before NEAR projection', async () => {
   const calls: string[] = [];
   const activations: unknown[] = [];
   const authenticators: unknown[] = [];
-  const authMethodBindings: unknown[] = [];
+  const authMethods: unknown[] = [];
   const deps = {
     extractCosePublicKey: async () => new Uint8Array([1, 2, 3]),
     indexedDB: {
@@ -65,7 +65,7 @@ test('wallet registration persists wallet-subject signer before NEAR projection'
       },
       persistWalletRegistrationFinalize: async (batch: {
         profiles: Array<{ profileId: string }>;
-        initialAuthMethodBinding: unknown;
+        initialAuthMethod: unknown;
         authenticators: unknown[];
         signerActivations: unknown[];
         lastProfileState?: { profileId: string; activeSignerSlot: number };
@@ -73,7 +73,7 @@ test('wallet registration persists wallet-subject signer before NEAR projection'
         for (const profile of batch.profiles) {
           calls.push(`profile:${profile.profileId}`);
         }
-        authMethodBindings.push(batch.initialAuthMethodBinding);
+        authMethods.push(batch.initialAuthMethod);
         for (const authenticator of batch.authenticators) {
           calls.push(`auth:${String((authenticator as { profileId?: unknown }).profileId || '')}`);
           authenticators.push(authenticator);
@@ -95,8 +95,8 @@ test('wallet registration persists wallet-subject signer before NEAR projection'
     },
   };
 
-  const result = await storeWalletSubjectEd25519RegistrationData(deps as any, {
-    walletSubjectId: walletSubjectIdFromString('wallet_alice'),
+  const result = await storeWalletEd25519RegistrationData(deps as any, {
+    walletId: walletIdFromString('wallet_alice'),
     nearAccountId: toAccountId('alice.testnet'),
     credential,
     signerSlot: 2,
@@ -116,22 +116,22 @@ test('wallet registration persists wallet-subject signer before NEAR projection'
     'signer:near-profile:alice.testnet',
     'last:near-profile:alice.testnet:2',
   ]);
-  expect(authMethodBindings[0]).toMatchObject({
+  expect(authMethods[0]).toMatchObject({
     kind: 'passkey',
-    walletSubjectId: 'wallet_alice',
+    walletId: 'wallet_alice',
     credentialIdB64u: 'credential-raw-id',
   });
   expect(activations[0]).toMatchObject({
     account: {
       profileId: 'wallet_alice',
-      chainIdKey: 'wallet-subject',
+      chainIdKey: 'wallet',
       accountAddress: 'wallet_alice',
-      accountModel: 'wallet-subject',
+      accountModel: 'wallet',
     },
     signer: {
       signerId: 'ed25519:public',
       metadata: {
-        walletSubjectId: 'wallet_alice',
+        walletId: 'wallet_alice',
         nearAccountId: 'alice.testnet',
         operationalPublicKey: 'ed25519:public',
         relayerKeyId: 'relayer-key',
@@ -193,8 +193,8 @@ test('wallet add-signer persists Ed25519 signer records without re-registering a
     },
   };
 
-  const result = await storeWalletSubjectEd25519SignerRecord(deps as any, {
-    walletSubjectId: walletSubjectIdFromString('wallet_alice'),
+  const result = await storeWalletEd25519SignerRecord(deps as any, {
+    walletId: walletIdFromString('wallet_alice'),
     nearAccountId: toAccountId('alice.testnet'),
     credential: authenticationCredential,
     signerSlot: 3,
@@ -216,14 +216,14 @@ test('wallet add-signer persists Ed25519 signer records without re-registering a
   expect(activations[0]).toMatchObject({
     account: {
       profileId: 'wallet_alice',
-      chainIdKey: 'wallet-subject',
+      chainIdKey: 'wallet',
       accountAddress: 'wallet_alice',
-      accountModel: 'wallet-subject',
+      accountModel: 'wallet',
     },
     signer: {
       signerId: 'ed25519:public',
       metadata: {
-        walletSubjectId: 'wallet_alice',
+        walletId: 'wallet_alice',
         nearAccountId: 'alice.testnet',
         operationalPublicKey: 'ed25519:public',
         relayerKeyId: 'relayer-key',
@@ -273,7 +273,7 @@ test('wallet add-signer persists ECDSA signer records without re-registering aut
     },
   };
 
-  const walletSubjectId = walletSubjectIdFromString('wallet_alice');
+  const walletId = walletIdFromString('wallet_alice');
   const walletKeys = [
     {
       keyScope: 'evm-family' as const,
@@ -298,8 +298,8 @@ test('wallet add-signer persists ECDSA signer records without re-registering aut
     },
   ];
 
-  const result = await storeWalletSubjectEcdsaSignerRecords(deps as any, {
-    walletSubjectId,
+  const result = await storeWalletEcdsaSignerRecords(deps as any, {
+    walletId,
     walletKeys,
   });
 
@@ -358,8 +358,8 @@ test('wallet ECDSA signer validation fails before finalize batch side effects', 
   };
 
   await expect(
-    storeWalletSubjectEcdsaSignerRecords(deps as any, {
-      walletSubjectId: walletSubjectIdFromString('wallet_alice'),
+    storeWalletEcdsaSignerRecords(deps as any, {
+      walletId: walletIdFromString('wallet_alice'),
       walletKeys: [
         {
           keyScope: 'evm-family' as const,
@@ -485,7 +485,7 @@ test('wallet add-signer persistence supports both later signer-family orders', a
       },
     };
   };
-  const walletSubjectId = walletSubjectIdFromString('wallet_matrix');
+  const walletId = walletIdFromString('wallet_matrix');
   const walletKeys = [
     {
       keyScope: 'evm-family' as const,
@@ -511,8 +511,8 @@ test('wallet add-signer persistence supports both later signer-family orders', a
   ];
 
   const ed25519ThenEcdsa = makeDeps();
-  await storeWalletSubjectEd25519RegistrationData(ed25519ThenEcdsa.deps as any, {
-    walletSubjectId,
+  await storeWalletEd25519RegistrationData(ed25519ThenEcdsa.deps as any, {
+    walletId,
     nearAccountId: toAccountId('matrix.testnet'),
     credential,
     signerSlot: 1,
@@ -521,22 +521,22 @@ test('wallet add-signer persistence supports both later signer-family orders', a
     keyVersion: 'threshold-ed25519-hss-v1',
     participantIds: [1, 2],
   });
-  await storeWalletSubjectEcdsaSignerRecords(ed25519ThenEcdsa.deps as any, {
-    walletSubjectId,
+  await storeWalletEcdsaSignerRecords(ed25519ThenEcdsa.deps as any, {
+    walletId,
     walletKeys,
   });
-  expect(ed25519ThenEcdsa.calls).toContain('signer:wallet-subject');
+  expect(ed25519ThenEcdsa.calls).toContain('signer:wallet');
   expect(ed25519ThenEcdsa.calls).toContain('signer:evm:eip155:1');
   expect(ed25519ThenEcdsa.calls).toContain('signer:near:testnet');
   expect(ed25519ThenEcdsa.authenticators).toHaveLength(2);
 
   const ecdsaThenEd25519 = makeDeps();
-  await storeWalletSubjectEcdsaSignerRecords(ecdsaThenEd25519.deps as any, {
-    walletSubjectId,
+  await storeWalletEcdsaSignerRecords(ecdsaThenEd25519.deps as any, {
+    walletId,
     walletKeys,
   });
-  await storeWalletSubjectEd25519SignerRecord(ecdsaThenEd25519.deps as any, {
-    walletSubjectId,
+  await storeWalletEd25519SignerRecord(ecdsaThenEd25519.deps as any, {
+    walletId,
     nearAccountId: toAccountId('matrix.testnet'),
     credential: authenticationCredential,
     signerSlot: 2,
@@ -546,7 +546,7 @@ test('wallet add-signer persistence supports both later signer-family orders', a
     participantIds: [1, 2],
   });
   expect(ecdsaThenEd25519.calls).toContain('signer:evm:eip155:1');
-  expect(ecdsaThenEd25519.calls).toContain('signer:wallet-subject');
+  expect(ecdsaThenEd25519.calls).toContain('signer:wallet');
   expect(ecdsaThenEd25519.calls).toContain('signer:near:testnet');
   expect(ecdsaThenEd25519.authenticators).toEqual([]);
 });

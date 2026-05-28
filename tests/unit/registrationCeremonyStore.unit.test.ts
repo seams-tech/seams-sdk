@@ -8,7 +8,7 @@ import {
 import type { CloudflareDurableObjectNamespaceLike } from '@server/core/types';
 import {
   registrationIntentGrantFromString,
-  walletSubjectIdFromString,
+  walletIdFromString,
   type AddSignerIntentV1,
   type RegistrationIntentV1,
   type RegistrationSignerSelection,
@@ -74,7 +74,7 @@ const SIGNER_SELECTION = {
 
 const INTENT = {
   version: 'registration_intent_v1',
-  walletSubjectId: walletSubjectIdFromString('wallet_subject_registration_store'),
+  walletId: walletIdFromString('wallet_registration_store'),
   rpId: 'wallet.example.test',
   authMethod: { kind: 'passkey' },
   signerSelection: SIGNER_SELECTION,
@@ -83,7 +83,7 @@ const INTENT = {
 
 const ADD_SIGNER_INTENT = {
   version: 'add_signer_intent_v1',
-  walletSubjectId: INTENT.walletSubjectId,
+  walletId: INTENT.walletId,
   rpId: INTENT.rpId,
   signerSelection: {
     mode: 'ecdsa',
@@ -115,7 +115,7 @@ function makeCeremony(expiresAtMs = Date.now() + 60_000): StoredWalletRegistrati
     expiresAtMs,
     authority: {
       kind: 'passkey',
-      walletSubjectId: INTENT.walletSubjectId,
+      walletId: INTENT.walletId,
       rpId: INTENT.rpId,
       credentialIdB64u: 'credential',
       credentialPublicKeyB64u: 'public-key',
@@ -150,7 +150,7 @@ function makeAddSignerCeremony(expiresAtMs = Date.now() + 60_000): StoredWalletA
       chainTargets: [{ kind: 'tempo', chainId: 42431 }],
       prepare: {
         formatVersion: 'ecdsa-hss-role-local',
-        walletId: String(INTENT.walletSubjectId),
+        walletId: String(INTENT.walletId),
         rpId: INTENT.rpId,
         ecdsaThresholdKeyId: 'ek_add_signer',
         signingRootId: 'project:dev',

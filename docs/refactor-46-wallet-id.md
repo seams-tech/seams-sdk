@@ -2,7 +2,25 @@
 
 Date created: 2026-05-28
 
-Status: planned.
+Status: completed.
+
+## Progress
+
+- [x] Rename active domain/request/persistence fields from wallet-subject terms to
+  canonical `walletId` / `wallet_id` / `WalletId`.
+- [x] Rename browser wallet store to `wallets` and bump `seams_wallet`
+  schema version.
+- [x] Merge server passkey authenticator persistence into
+  `wallet_auth_methods` rows.
+- [x] Update server Postgres schema setup to create `wallets`,
+  `wallet_auth_methods`, and `wallet_signers` with `wallet_id`.
+- [x] Rename server wallet auth-method store APIs away from binding language.
+- [x] Update focused IndexedDB, registration persistence, auth-method store, and
+  wallet-registration boundary tests.
+- [x] Add a dedicated Postgres migration script for deployed/self-hosted
+  databases.
+- [x] Complete final active-code stale-term guard cleanup after registration
+  Phase 5-7 lands.
 
 ## Goal
 
@@ -21,9 +39,9 @@ After this refactor:
 Do not keep compatibility aliases such as `walletSubjectId` in core code. This is
 a breaking rename.
 
-## Current Problem
+## Problem Addressed
 
-The codebase currently uses several overlapping terms:
+The codebase previously used several overlapping terms:
 
 - `walletSubjectId`
 - `wallet_subject_id`
@@ -36,8 +54,8 @@ awkward as the main wallet identity term. `walletId` is easier to understand, bu
 it is currently also used in signing-session and Email OTP paths. The result is a
 schema where persistence ownership and runtime/session ids can be confused.
 
-The cleanup should make the durable wallet identity term short and canonical,
-then rename every non-identity wallet-like value to a more specific name.
+The cleanup made the durable wallet identity term short and canonical, then
+renamed non-identity wallet-like values to more specific names.
 
 ## Target Vocabulary
 
@@ -57,7 +75,8 @@ Remove these terms from active code:
 - `WalletSubjectId`
 - `seams_wallet_subjects`
 
-Historical docs may mention them only while this plan is being implemented.
+This completed plan mentions the old names only as historical source terms for
+the rename.
 
 ## Target Postgres Schema
 
@@ -168,7 +187,7 @@ Rename wallet-subject persistence to wallet persistence:
 
 | Current | Target |
 | --- | --- |
-| `seams_wallet_subjects` | `seams_wallets` |
+| `seams_wallet_subjects` | `wallets` |
 | `wallet_subject_id` | `wallet_id` |
 | `wallet_subject_id_kind` | `wallet_id_kind` |
 | `wallet_subject_kind_near_signer_slot` | `wallet_kind_near_signer_slot` |
@@ -179,15 +198,15 @@ Target object stores:
 
 | Store | Parent identity field |
 | --- | --- |
-| `seams_wallets` | `wallet_id` |
-| `seams_wallet_auth_methods` | `wallet_id` |
-| `seams_wallet_signers` | `wallet_id` |
-| `seams_key_material` | `wallet_id` |
-| `seams_near_accounts` | `wallet_id` |
-| `seams_signer_ops_outbox` | `wallet_id` |
-| `seams_recovery_emails` | `wallet_id` |
-| `seams_signing_session_seals` | `wallet_id` |
-| `seams_email_otp_escrows` | `wallet_id` for durable wallet ownership, `auth_subject_id` for the auth principal |
+| `wallets` | `wallet_id` |
+| `wallet_auth_methods` | `wallet_id` |
+| `wallet_signers` | `wallet_id` |
+| `key_material` | `wallet_id` |
+| `near_accounts` | `wallet_id` |
+| `signer_ops_outbox` | `wallet_id` |
+| `recovery_emails` | `wallet_id` |
+| `signing_session_seals` | `wallet_id` |
+| `email_otp_escrows` | `wallet_id` for durable wallet ownership, `auth_subject_id` for the auth principal |
 
 Because this project is in development, bump `seams_wallet` schema version and
 delete obsolete stores during upgrade. Do not add broad migration compatibility
@@ -253,7 +272,7 @@ Keep `walletSigningSessionId` and `walletSessionUserId` for session concepts.
 ### Phase 3. IndexedDB Schema Rename
 
 1. Rename `SEAMS_WALLET_STORES.walletSubjects` to `wallets`.
-2. Rename store string `seams_wallet_subjects` to `seams_wallets`.
+2. Rename store string `seams_wallet_subjects` to `wallets`.
 3. Rename row fields:
    - `wallet_subject_id` -> `wallet_id`
    - `wallet_subject_id_kind` -> `wallet_id_kind`
@@ -285,6 +304,7 @@ Keep `walletSigningSessionId` and `walletSessionUserId` for session concepts.
    - copy or merge `wallet_authenticators` into `wallet_auth_methods`
    - rewrite `record_json` keys from `walletSubjectId` to `walletId`
    - drop old tables once verification passes
+   - run with `pnpm -C examples/relay-server run postgres:migrate:wallet-id`
 
 Example migration shape:
 
@@ -346,8 +366,8 @@ WHERE record_json ? 'walletSubjectId';
    - `walletSessionId` / `walletSigningSessionId` for signing-session state
    - `walletSessionUserId` for session user identity
    - `authSubjectId` for Email OTP auth principal
-4. Verify `seams_signing_session_seals.wallet_id` points to durable wallet id.
-5. Verify `seams_email_otp_escrows.wallet_id` points to durable wallet id and
+4. Verify `signing_session_seals.wallet_id` points to durable wallet id.
+5. Verify `email_otp_escrows.wallet_id` points to durable wallet id and
    `auth_subject_id` remains the auth principal.
 
 ### Phase 8. Tests And Static Fixtures
@@ -357,7 +377,7 @@ WHERE record_json ? 'walletSubjectId';
    - `wallet_subject_id`
    - `WalletSubjectId`
 2. Update IndexedDB schema manifest tests for:
-   - `seams_wallets`
+   - `wallets`
    - `wallet_id`
    - renamed wallet signer indexes
 3. Add repository tests proving:
@@ -404,7 +424,9 @@ Run the cheapest useful checks after each phase:
    - route boundary tests
    - server type checks if server request types change
 5. Final sweep:
-   - `rg "walletSubjectId|wallet_subject_id|WalletSubjectId|seams_wallet_subjects|wallet_subjects" client/src shared/src server/src tests docs`
+   - `rg "walletSubjectId|wallet_subject_id|WalletSubjectId|seams_wallet_subjects|wallet_subjects" client/src shared/src server/src tests`
+   - docs should use `walletId` vocabulary except where a completed migration
+     plan explicitly names historical source terms.
    - `pnpm -s type-check:sdk`
    - affected Playwright unit groups
    - `git diff --check`
@@ -420,7 +442,7 @@ Run the cheapest useful checks after each phase:
   or `walletSessionUserId`.
 - Active code contains no `walletSubjectId`, `wallet_subject_id`,
   `WalletSubjectId`, `wallet_subjects`, or `seams_wallet_subjects`.
-- IndexedDB schema uses `seams_wallets` and `wallet_id`.
+- IndexedDB schema uses `wallets` and `wallet_id`.
 - Postgres schema uses `wallets`, `wallet_auth_methods`, and `wallet_id`.
 - Postgres `record_json` payloads use `walletId`, not `walletSubjectId`.
 - Boundary parsers reject old request fields.

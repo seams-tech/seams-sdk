@@ -190,12 +190,12 @@ async function requestManagedRegistrationFlowGrant(args: {
   publishableKey: string;
   environmentId: string;
   nearAccountId?: string;
-  walletSubjectId?: string;
+  walletId?: string;
   rpId: string;
 }): Promise<ManagedRegistrationFlowGrant> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const bootstrapGrantUrl = joinUrlPath(args.relayerUrl, '/v1/registration/bootstrap-grants');
-  const subjectId = String(args.nearAccountId || args.walletSubjectId || '').trim();
+  const subjectId = String(args.nearAccountId || args.walletId || '').trim();
   const brokerResponse = await fetchWithRegistrationTimeout({
     url: bootstrapGrantUrl,
     operation: 'Managed registration flow grant',
@@ -266,7 +266,7 @@ async function requestManagedRegistrationFlowGrant(args: {
 export async function createManagedRegistrationFlowGrant(args: {
   context: PasskeyManagerContext;
   nearAccountId?: string;
-  walletSubjectId?: string;
+  walletId?: string;
   rpId: string;
 }): Promise<ManagedRegistrationFlowGrant> {
   const registrationTransport = resolveRegistrationTransport(args.context);
@@ -281,8 +281,8 @@ export async function createManagedRegistrationFlowGrant(args: {
     ...(String(args.nearAccountId || '').trim()
       ? { nearAccountId: String(args.nearAccountId || '').trim() }
       : {}),
-    ...(String(args.walletSubjectId || '').trim()
-      ? { walletSubjectId: String(args.walletSubjectId || '').trim() }
+    ...(String(args.walletId || '').trim()
+      ? { walletId: String(args.walletId || '').trim() }
       : {}),
     rpId: String(args.rpId || '').trim(),
   });

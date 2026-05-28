@@ -158,7 +158,7 @@ type VoiceAuthorization =
       kind: 'single_intent';
       method: 'voice_challenge';
       walletId: WalletId;
-      subjectId: WalletSubjectId;
+      subjectId: WalletId;
       intentDigest: IntentDigest;
       challengeId: VoiceChallengeId;
       enrollmentId: VoiceEnrollmentId;
@@ -168,7 +168,7 @@ type VoiceAuthorization =
       kind: 'bounded_session';
       method: 'voice_challenge';
       walletId: WalletId;
-      subjectId: WalletSubjectId;
+      subjectId: WalletId;
       allowedIntentDigests: IntentDigest[];
       maxTotalValueUsd: DecimalString;
       challengeId: VoiceChallengeId;
@@ -194,7 +194,7 @@ Example structured intent:
 type VoiceTransferIntent = {
   kind: 'erc20_transfer';
   walletId: WalletId;
-  subjectId: WalletSubjectId;
+  subjectId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
   chainId: number;
   tokenAddress: EvmAddress;
@@ -690,14 +690,14 @@ type VoiceEnrollmentState =
   | {
       kind: 'not_enrolled';
       walletId: WalletId;
-      subjectId: WalletSubjectId;
+      subjectId: WalletId;
       enrollmentId?: never;
       templateVersion?: never;
     }
   | {
       kind: 'enrollment_pending';
       walletId: WalletId;
-      subjectId: WalletSubjectId;
+      subjectId: WalletId;
       enrollmentId: VoiceEnrollmentId;
       phraseSetId: VoicePhraseSetId;
       expiresAt: IsoDateTime;
@@ -706,7 +706,7 @@ type VoiceEnrollmentState =
   | {
       kind: 'enrolled';
       walletId: WalletId;
-      subjectId: WalletSubjectId;
+      subjectId: WalletId;
       enrollmentId: VoiceEnrollmentId;
       templateVersion: VoiceTemplateVersion;
       enrolledAt: IsoDateTime;
@@ -715,7 +715,7 @@ type VoiceEnrollmentState =
   | {
       kind: 'disabled';
       walletId: WalletId;
-      subjectId: WalletSubjectId;
+      subjectId: WalletId;
       enrollmentId: VoiceEnrollmentId;
       templateVersion: VoiceTemplateVersion;
       disabledAt: IsoDateTime;
@@ -728,7 +728,7 @@ type VoiceChallengeState =
       kind: 'issued';
       challengeId: VoiceChallengeId;
       walletId: WalletId;
-      subjectId: WalletSubjectId;
+      subjectId: WalletId;
       intentDigest: IntentDigest;
       spokenChallenge: SpokenChallenge;
       expiresAt: IsoDateTime;
@@ -739,7 +739,7 @@ type VoiceChallengeState =
       kind: 'consumed';
       challengeId: VoiceChallengeId;
       walletId: WalletId;
-      subjectId: WalletSubjectId;
+      subjectId: WalletId;
       intentDigest: IntentDigest;
       spokenChallenge: SpokenChallenge;
       expiresAt: IsoDateTime;
@@ -750,7 +750,7 @@ type VoiceChallengeState =
       kind: 'failed';
       challengeId: VoiceChallengeId;
       walletId: WalletId;
-      subjectId: WalletSubjectId;
+      subjectId: WalletId;
       intentDigest: IntentDigest;
       spokenChallenge: SpokenChallenge;
       expiresAt: IsoDateTime;

@@ -63,7 +63,7 @@ export type {
   UpsertChainAccountInput,
   UpsertAccountSignerInput,
   EnqueueSignerOperationInput,
-  LocalWalletAuthMethodBindingRecord,
+  LocalWalletAuthMethodRecord,
 } from './passkeyClientDB.types';
 
 

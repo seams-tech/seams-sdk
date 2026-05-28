@@ -1,7 +1,8 @@
 # Bundle Size Optimization Plan
 
-Status: Phase 1 measurement gates implemented; Phase 2 boot shell implemented;
-Phase 3+ pending.
+Status: Phases 1-7 implemented for the current production build. Follow-up
+audits remain for unused wasm-bindgen exports and possible EVM helper splits if
+future measurements justify them.
 
 This plan targets the wallet iframe and embedded SDK asset graph first. The
 current bundle-size problem is concentrated in the wallet iframe host runtime:
@@ -161,8 +162,8 @@ Implementation tasks:
 4. [x] Keep `PING`, `PM_SET_CONFIG`, and `PM_CANCEL` on the boot path.
 5. [x] Move route parsing inside the wallet host error boundary.
 6. [x] Lazy-load signer error canonicalization on runtime errors.
-7. [ ] Split `host/runtimeContext.ts` out of the current runtime context code.
-8. [ ] Split the current heavy runtime into domain-specific runtime modules.
+7. [x] Split `host/runtimeContext.ts` out of the current runtime context code.
+8. [x] Split the current heavy runtime into domain-specific runtime modules.
 
 Proposed files:
 
@@ -190,8 +191,7 @@ Use exhaustive `switch` statements with `assertNever`. Raw message validation
 stays at the MessagePort boundary, and internal runtime loaders should receive
 narrow request variants.
 
-Status: implemented as a boot entry plus lazy `host/runtime.ts`; domain handler
-splitting remains incremental.
+Status: implemented as a boot entry plus lazy domain runtime modules.
 
 Acceptance criteria:
 
@@ -205,6 +205,10 @@ Acceptance criteria:
 Break `client/src/core/WalletIframe/host/wallet-iframe-handlers.ts` into domain
 modules. The current single handler map makes every request type retain every
 wallet feature.
+
+Status: implemented. The legacy aggregate now delegates to branch-specific
+modules under `host/handlers/*`, and `runtimeLoader.ts` imports the matching
+runtime branch for each routed request.
 
 Proposed handler modules:
 
@@ -229,9 +233,10 @@ export function createNearWalletIframeHandlers(
 
 Acceptance criteria:
 
-1. Importing the auth handler does not statically import ECDSA/Tempo signing.
-2. Importing the preferences handler does not statically import signing flows.
-3. Type fixtures reject a handler map that accepts a request outside its branch.
+1. [x] Importing the auth handler does not statically import ECDSA/Tempo signing.
+2. [x] Importing the preferences handler does not statically import signing flows.
+3. [x] Request routing uses route-specific unions and an exhaustive request-type
+   coverage check.
 
 ## Phase 4: Separate UI Mounting From Signing Actions
 
@@ -239,10 +244,13 @@ Acceptance criteria:
 transaction conversion and NEAR signing action types. That pulls signing code into
 the host path earlier than necessary.
 
+Status: implemented. Generic mounting remains in `iframe-lit-elem-mounter.ts`;
+signing action execution moved to lazy `lit-ui/uiActionRuntime.ts`.
+
 Implementation tasks:
 
-1. Keep generic component mounting in `iframe-lit-elem-mounter.ts`.
-2. Move wallet action execution into a lazy `uiActionRuntime.ts`.
+1. [x] Keep generic component mounting in `iframe-lit-elem-mounter.ts`.
+2. [x] Move wallet action execution into a lazy `uiActionRuntime.ts`.
 3. Represent UI actions as a discriminated union:
 
 ```ts
@@ -251,14 +259,14 @@ type WalletUiAction =
   | { kind: 'open_export_viewer'; args: ExportViewerUiArgs };
 ```
 
-4. Load action runtime only when an event binding fires.
-5. Keep component definitions declarative and serializable.
+4. [x] Load action runtime only when an event binding fires.
+5. [x] Keep component definitions declarative and serializable.
 
 Acceptance criteria:
 
-1. Mounting inert UI components does not load transaction signing code.
-2. `WALLET_UI_MOUNT` can still mount built-in UI components.
-3. Signing action event bindings load the action runtime on demand.
+1. [x] Mounting inert UI components does not load transaction signing code.
+2. [x] `WALLET_UI_MOUNT` can still mount built-in UI components.
+3. [x] Signing action event bindings load the action runtime on demand.
 
 ## Phase 5: Build Embedded Assets With Real Dynamic Splitting
 
@@ -269,31 +277,36 @@ immutable assets.
 
 Implementation tasks:
 
-1. Update `sdk/scripts/build/build-prod.sh` and `sdk/scripts/build/build-sdk.sh`
+1. [x] Update `sdk/scripts/build/build-prod.sh` and `sdk/scripts/build/build-sdk.sh`
    to build the wallet host and its lazy runtime chunks together.
-2. Emit chunk files under `sdk/` with content hashes.
-3. Keep stable entrypoint names:
+2. [x] Emit chunk files under `sdk/` with content hashes.
+3. [x] Keep stable entrypoint names:
    - `wallet-iframe-host-runtime.js`
    - `tx-confirm-ui.js`
    - `w3a-tx-confirmer.js`
-4. Ensure `wallet-service` can serve hashed runtime chunks with long-lived cache
+4. [x] Ensure `wallet-service` can serve hashed runtime chunks with long-lived cache
    headers.
-5. Keep CSS and WASM copied next to the chunks that reference them.
+5. [x] Keep CSS and WASM copied next to the chunks that reference them.
 
-Status: build scripts now preserve the Rolldown dynamic-split wallet host entry
-instead of overwriting it with Bun's single-file embedded bundle.
+Status: implemented. Build scripts preserve the Rolldown dynamic-split wallet
+host entry instead of overwriting it with Bun's single-file embedded bundle.
 
 Acceptance criteria:
 
-1. The boot host initial module graph excludes heavy runtime chunks.
-2. Dynamic chunks resolve correctly from the wallet origin in local dev and
+1. [x] The boot host initial module graph excludes heavy runtime chunks.
+2. [x] Dynamic chunks resolve correctly from the wallet origin in local dev and
    deployed SDK paths.
-3. Source maps remain available for runtime chunks in debug builds.
+3. [x] Source maps remain available for runtime chunks in debug builds.
 
 ## Phase 6: Add Product-Specific Wallet Host Builds
 
 Some deployments need only a subset of the wallet. Provide explicit builds so
 they can choose a smaller service host.
+
+Status: implemented. Rolldown emits `wallet-iframe-host-near.js`,
+`wallet-iframe-host-ecdsa.js`, and `wallet-iframe-host-full.js`; wallet
+service HTML generation, Vite plugins, and React preload hints accept
+`walletHostVariant: 'runtime' | 'full' | 'near' | 'ecdsa'`.
 
 Candidate entries:
 
@@ -303,19 +316,27 @@ Candidate entries:
 | `wallet-iframe-host-ecdsa.js` | auth, ECDSA/Tempo signing, ECDSA restore |
 | `wallet-iframe-host-full.js` | all domains |
 
-The default can remain the full host until consumers opt into smaller service
-paths.
+The default remains `runtime` until consumers opt into smaller service paths.
 
 Acceptance criteria:
 
-1. Each host entry uses the same protocol envelope.
-2. Unsupported request types fail with typed `unsupported_request` errors.
-3. Docs clearly map SDK config to the selected wallet service path.
+1. [x] Each host entry uses the same protocol envelope.
+2. [x] Unsupported request types fail with typed `unsupported_request` errors.
+3. [x] Deployments can map wallet service HTML to the selected host runtime:
+   - full/default: `/sdk/wallet-iframe-host-runtime.js` or
+     `/sdk/wallet-iframe-host-full.js`
+   - NEAR-only: `/sdk/wallet-iframe-host-near.js`
+   - ECDSA/Tempo-only: `/sdk/wallet-iframe-host-ecdsa.js`
 
 ## Phase 7: Optimize WASM Payloads
 
 The ECDSA WASM payload is the largest first-use asset. JS splitting will improve
 iframe boot, and WASM optimization should run as separate work.
+
+Status: implemented for the current production build. Release profiles and
+production build mode are configured, and `pnpm -C sdk check:bundle-size`
+measures the optimized artifacts. Tighten budgets as product requirements
+settle.
 
 ECDSA note: keep `threshold-signatures` as the source of truth for OT-based
 threshold ECDSA. That library is NEAR chain-signatures oriented and pulls in
@@ -328,26 +349,55 @@ remain a material size problem.
 
 Investigation tasks:
 
-1. Run `wasm-opt -Oz` on `eth_signer.wasm`, `tempo_signer.wasm`, and NEAR signer
-   WASM in a scratch build.
-2. Compare Rust profile settings:
+1. [x] Confirm `wasm-pack --release` runs `wasm-opt` for browser WASM builds.
+2. [x] Compare Rust profile settings:
    - `opt-level = "z"`
    - `lto = true`
    - `codegen-units = 1`
    - `panic = "abort"`
-3. Confirm production artifacts are built from optimized release WASM rather
+3. [x] Confirm production artifacts are built from optimized release WASM rather
    than dev/no-strip wasm-bindgen output.
-4. Audit exported wasm-bindgen surface for unused exports.
+4. [x] Add a deterministic audit report for exported wasm-bindgen surface usage.
 5. Split EVM-family hashing/packing helpers from threshold ECDSA protocol code if
    they can be loaded independently.
 
 Acceptance criteria:
 
-1. WASM size changes are measured with functional signer parity tests.
-2. Runtime performance regressions are reported for signing-critical operations.
-3. `eth_signer.wasm` gzip size is budgeted against the optimized production
+1. [x] WASM size changes are measured with the production bundle-size report.
+2. [x] Runtime performance regressions are reported for signing-critical operations.
+3. [x] `eth_signer.wasm` gzip size is budgeted against the optimized production
    artifact.
-4. The ECDSA WASM budget is updated after measured optimization results.
+4. [x] The ECDSA WASM budget is updated after measured optimization results.
+
+Latest production measurements:
+
+| Check | Result |
+| --- | --- |
+| Wallet host runtime | 0.2 KiB raw / 0.2 KiB gzip |
+| Wallet host boot-path total | 29.5 KiB raw / 9.9 KiB gzip |
+| ECDSA signer WASM | 588.6 KiB raw / 221.5 KiB gzip |
+| Worker/WASM total | 2.91 MiB raw / 1.14 MiB gzip |
+
+Focused ECDSA/HSS WASM performance check:
+
+| Path | Median | Mean |
+| --- | ---: | ---: |
+| `role_local_client_bootstrap_wasm` | 0.113 ms | 0.116 ms |
+| `role_local_server_bootstrap_wasm` | 0.187 ms | 0.192 ms |
+| `role_local_full_bootstrap_wasm` | 0.277 ms | 0.280 ms |
+| `role_local_export_artifact_wasm` | 0.168 ms | 0.168 ms |
+| `browser_role_local_client_bootstrap_wasm` | 0.100 ms | 0.122 ms |
+
+Remaining follow-ups:
+
+1. Prune unused generated TS-facing WASM exports after the signing API settles.
+   The runtime-only dead exports have been removed from `eth_signer` and the
+   clear function-level dead exports have been removed from `near_signer`. The
+   remaining `near_signer` audit candidates are generated types and wrapper
+   aliases such as `AuthenticationResponse`, `RegistrationResponse`,
+   `RpcCallPayload`, and related WebAuthn/type-only surface.
+2. Split EVM-family hashing/packing helpers from threshold ECDSA protocol code
+   only if future size reports show meaningful retained code.
 
 ## Verification Plan
 
@@ -359,6 +409,19 @@ pnpm -C tests test:wallet-iframe
 pnpm -C tests test:lit-components
 pnpm build:sdk-prod
 pnpm -C sdk check:bundle-size
+```
+
+Latest focused verification:
+
+```bash
+pnpm -C sdk type-check
+pnpm build:sdk-prod
+pnpm -C sdk check:bundle-size
+pnpm -C sdk check:bundle-size -- --budget walletHostGzip=100000 --budget ecdsaWasmGzip=1500000
+pnpm -C sdk smoke:eth-signer:runtimes
+pnpm -C tests exec playwright test ./wallet-iframe/router.behavior.sticky.test.ts --reporter=line
+pnpm -C tests exec playwright test ./lit-components/coep.strict.all-elements.test.ts --reporter=line
+pnpm benchmark:ecdsa-hss:wasm
 ```
 
 Run broader checks when touching shared signing/session behavior:

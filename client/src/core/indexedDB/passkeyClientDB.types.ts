@@ -6,7 +6,7 @@ import type {
   SignerKind,
   SignerSource,
 } from '@shared/utils';
-import type { WalletAuthMethodBinding } from '@shared/utils/registrationIntent';
+import type { WalletAuthMethodRecord } from '@shared/utils/registrationIntent';
 
 export interface PasskeyCredentialRecord {
   id: string;
@@ -131,7 +131,7 @@ export interface AccountSignerRecord {
   metadata?: Record<string, unknown>;
 }
 
-export type LocalWalletAuthMethodBindingRecord = WalletAuthMethodBinding & {
+export type LocalWalletAuthMethodRecord = WalletAuthMethodRecord & {
   localStatus: 'synced' | 'pending';
 };
 

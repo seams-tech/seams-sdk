@@ -1,13 +1,17 @@
 import type {
+  AddAuthMethodInput,
+  AddAuthMethodIntentGrant,
+  AddAuthMethodIntentV1,
   AddSignerIntentV1,
   AddSignerIntentGrant,
   EmailOtpRegistrationProof,
   RegistrationAuthMethodInput,
-  RegisterWalletSubjectInput,
+  RegisterWalletInput,
   RegistrationIntentGrant,
   RegistrationIntentV1,
   RegistrationSignerSelection,
-  WalletSubjectId,
+  WalletAuthMethodTarget,
+  WalletId,
 } from '@shared/utils/registrationIntent';
 import type { AccountId } from '@/core/types/accountIds';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
@@ -64,7 +68,7 @@ async function postJson<TResponse>(args: {
 }
 
 export type CreateRegistrationIntentRequest = {
-  walletSubject: RegisterWalletSubjectInput;
+  wallet: RegisterWalletInput;
   rpId: string;
   authMethod: RegistrationAuthMethodInput;
   signerSelection: RegistrationSignerSelection;
@@ -108,7 +112,7 @@ export type WalletRegistrationHssRespondResponse = {
 
 export type WalletRegistrationFinalizeResponse = {
   ok: true;
-  walletSubjectId: WalletSubjectId;
+  walletId: WalletId;
   rpId: string;
   ed25519?: {
     nearAccountId: string;
@@ -136,16 +140,54 @@ export type WalletRegistrationFinalizeResponse = {
   };
 };
 
+export type WalletRegistrationEmailOtpEnrollmentMaterial = {
+  recoveryWrappedEnrollmentEscrows: unknown[];
+  enrollmentSealKeyVersion: string;
+  clientUnlockPublicKeyB64u: string;
+  unlockKeyVersion: string;
+  thresholdEcdsaClientVerifyingShareB64u: string;
+};
+
 export type AddSignerAppSessionPolicy = {
   permission: 'wallet_signer_provision';
-  walletSubjectId: WalletSubjectId;
+  walletId: WalletId;
   signerSelection: AddSignerIntentV1['signerSelection'];
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   expiresAtMs: number;
 };
 
+export type AddAuthMethodAppSessionPolicy = {
+  permission: 'wallet_auth_method_provision';
+  walletId: WalletId;
+  authMethod: AddAuthMethodInput;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  expiresAtMs: number;
+};
+
+export type RevokeAuthMethodAppSessionPolicy = {
+  permission: 'wallet_auth_method_revoke';
+  walletId: WalletId;
+  target: WalletAuthMethodTarget;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  expiresAtMs: number;
+};
+
+export type CreateAddAuthMethodIntentRequest = {
+  walletId: WalletId;
+  rpId: string;
+  authMethod: AddAuthMethodInput;
+};
+
+export type CreateAddAuthMethodIntentResponse = {
+  ok: true;
+  intent: AddAuthMethodIntentV1;
+  addAuthMethodIntentDigestB64u: string;
+  addAuthMethodIntentGrant: AddAuthMethodIntentGrant;
+  expiresAtMs: number;
+};
+
 export type CreateAddSignerIntentRequest = {
-  walletSubjectId: WalletSubjectId;
+  walletId: WalletId;
   rpId: string;
   signerSelection: AddSignerIntentV1['signerSelection'];
 };
@@ -170,6 +212,68 @@ export type AddSignerAuth =
       policy: AddSignerAppSessionPolicy;
     };
 
+export type AddAuthMethodAuth =
+  | {
+      kind: 'webauthn_assertion';
+      credential: WebAuthnAuthenticationCredential;
+      expectedChallengeDigestB64u: string;
+    }
+  | {
+      kind: 'app_session';
+      appSessionJwt: string;
+      policy: AddAuthMethodAppSessionPolicy;
+    };
+
+export type WalletAddAuthMethodAuthority =
+  | {
+      kind: 'passkey';
+      webauthnRegistration: unknown;
+      emailOtpRegistrationProof?: never;
+    }
+  | {
+      kind: 'email_otp';
+      emailOtpRegistrationProof: EmailOtpRegistrationProof;
+      webauthnRegistration?: never;
+    };
+
+export type WalletAddAuthMethodStartResponse = {
+  ok: true;
+  addAuthMethodCeremonyId: string;
+  intent: AddAuthMethodIntentV1;
+};
+
+export type WalletAddAuthMethodFinalizeResponse = {
+  ok: true;
+  walletId: WalletId;
+  rpId: string;
+  authMethod: {
+    kind: 'passkey' | 'email_otp';
+    status: 'active' | 'revoked';
+  };
+};
+
+export type RevokeAuthMethodAuth =
+  | {
+      kind: 'webauthn_assertion';
+      credential: WebAuthnAuthenticationCredential;
+      expectedChallengeDigestB64u: string;
+    }
+  | {
+      kind: 'app_session';
+      appSessionJwt: string;
+      policy: RevokeAuthMethodAppSessionPolicy;
+    };
+
+export type WalletRevokeAuthMethodResponse = {
+  ok: true;
+  walletId: WalletId;
+  rpId: string;
+  authMethod: {
+    kind: 'passkey' | 'email_otp';
+    status: 'revoked';
+  };
+};
+
 export type WalletAddSignerStartResponse = {
   ok: true;
   addSignerCeremonyId: string;
@@ -187,7 +291,7 @@ export type WalletAddSignerHssRespondResponse = {
 
 export type WalletAddSignerFinalizeResponse = {
   ok: true;
-  walletSubjectId: WalletSubjectId;
+  walletId: WalletId;
   rpId: string;
   ed25519?: WalletRegistrationFinalizeResponse['ed25519'];
   ecdsa?: WalletRegistrationFinalizeResponse['ecdsa'];
@@ -542,20 +646,20 @@ export function buildWalletRegistrationEcdsaSessionBootstrap(args: {
   };
 }
 
-export type WalletSubjectEcdsaKeyFactsInventoryTarget = {
+export type WalletEcdsaKeyFactsInventoryTarget = {
   keyHandle: string;
   ecdsaThresholdKeyId?: never;
   chainTarget: ThresholdEcdsaChainTarget;
 };
 
-export type WalletSubjectEcdsaKeyFactsInventoryAppSessionPolicy = {
+export type WalletEcdsaKeyFactsInventoryAppSessionPolicy = {
   permission: 'ecdsa_key_facts_inventory';
-  walletSubjectId: AccountId;
+  walletId: AccountId;
   chainTargets: readonly ThresholdEcdsaChainTarget[];
   expiresAtMs: number;
 };
 
-export type WalletSubjectEcdsaKeyFactsInventoryResponse = {
+export type WalletEcdsaKeyFactsInventoryResponse = {
   ok: true;
   records: ThresholdEcdsaKeyIdentityInventoryEntry[];
   diagnostics: unknown;
@@ -576,15 +680,31 @@ export async function createWalletRegistrationIntent(args: {
 
 export async function createWalletAddSignerIntent(args: {
   relayerUrl: string;
-  walletSubjectId: WalletSubjectId;
+  walletId: WalletId;
   request: CreateAddSignerIntentRequest;
   headers?: Record<string, string>;
 }): Promise<CreateAddSignerIntentResponse> {
-  const walletSubjectId = String(args.walletSubjectId || '').trim();
-  if (!walletSubjectId) throw new Error('walletSubjectId is required for add-signer intent');
+  const walletId = String(args.walletId || '').trim();
+  if (!walletId) throw new Error('walletId is required for add-signer intent');
   return await postJson<CreateAddSignerIntentResponse>({
     relayerUrl: args.relayerUrl,
-    path: `/wallets/${encodeURIComponent(walletSubjectId)}/signers/intent`,
+    path: `/wallets/${encodeURIComponent(walletId)}/signers/intent`,
+    headers: args.headers,
+    body: args.request,
+  });
+}
+
+export async function createWalletAddAuthMethodIntent(args: {
+  relayerUrl: string;
+  walletId: WalletId;
+  request: CreateAddAuthMethodIntentRequest;
+  headers?: Record<string, string>;
+}): Promise<CreateAddAuthMethodIntentResponse> {
+  const walletId = String(args.walletId || '').trim();
+  if (!walletId) throw new Error('walletId is required for add-auth-method intent');
+  return await postJson<CreateAddAuthMethodIntentResponse>({
+    relayerUrl: args.relayerUrl,
+    path: `/wallets/${encodeURIComponent(walletId)}/auth-methods/intent`,
     headers: args.headers,
     body: args.request,
   });
@@ -652,6 +772,7 @@ export async function finalizeWalletRegistration(args: {
   ecdsa?: {
     expectedKeyHandles?: string[];
   };
+  emailOtpEnrollment?: WalletRegistrationEmailOtpEnrollmentMaterial;
 }): Promise<WalletRegistrationFinalizeResponse> {
   return await postJson<WalletRegistrationFinalizeResponse>({
     relayerUrl: args.relayerUrl,
@@ -660,6 +781,7 @@ export async function finalizeWalletRegistration(args: {
       registrationCeremonyId: args.registrationCeremonyId,
       ...(args.ed25519 ? { ed25519: args.ed25519 } : {}),
       ...(args.ecdsa ? { ecdsa: args.ecdsa } : {}),
+      ...(args.emailOtpEnrollment ? { emailOtpEnrollment: args.emailOtpEnrollment } : {}),
     },
   });
 }
@@ -687,19 +809,76 @@ function addSignerAuthBody(auth: AddSignerAuth): unknown {
   }
 }
 
+function addAuthMethodAuthHeaders(auth: AddAuthMethodAuth): Record<string, string> | undefined {
+  if (auth.kind !== 'app_session') return undefined;
+  const token = String(auth.appSessionJwt || '').trim();
+  if (!token) throw new Error('appSessionJwt is required for app-session add-auth-method auth');
+  return { Authorization: `Bearer ${token}` };
+}
+
+function addAuthMethodAuthBody(auth: AddAuthMethodAuth): unknown {
+  switch (auth.kind) {
+    case 'webauthn_assertion':
+      return {
+        kind: 'webauthn_assertion',
+        credential: auth.credential,
+        expectedChallengeDigestB64u: auth.expectedChallengeDigestB64u,
+      };
+    case 'app_session':
+      return {
+        kind: 'app_session',
+        policy: auth.policy,
+      };
+  }
+}
+
+function addAuthMethodAuthorityBody(authority: WalletAddAuthMethodAuthority): Record<string, unknown> {
+  switch (authority.kind) {
+    case 'passkey':
+      return { webauthnRegistration: authority.webauthnRegistration };
+    case 'email_otp':
+      return { emailOtpRegistrationProof: authority.emailOtpRegistrationProof };
+  }
+}
+
+function revokeAuthMethodAuthHeaders(
+  auth: RevokeAuthMethodAuth,
+): Record<string, string> | undefined {
+  if (auth.kind !== 'app_session') return undefined;
+  const token = String(auth.appSessionJwt || '').trim();
+  if (!token) throw new Error('appSessionJwt is required for app-session auth-method revoke');
+  return { Authorization: `Bearer ${token}` };
+}
+
+function revokeAuthMethodAuthBody(auth: RevokeAuthMethodAuth): unknown {
+  switch (auth.kind) {
+    case 'webauthn_assertion':
+      return {
+        kind: 'webauthn_assertion',
+        credential: auth.credential,
+        expectedChallengeDigestB64u: auth.expectedChallengeDigestB64u,
+      };
+    case 'app_session':
+      return {
+        kind: 'app_session',
+        policy: auth.policy,
+      };
+  }
+}
+
 export async function startWalletAddSigner(args: {
   relayerUrl: string;
-  walletSubjectId: WalletSubjectId;
+  walletId: WalletId;
   addSignerIntentGrant: AddSignerIntentGrant;
   addSignerIntentDigestB64u: string;
   intent: AddSignerIntentV1;
   auth: AddSignerAuth;
 }): Promise<WalletAddSignerStartResponse> {
-  const walletSubjectId = String(args.walletSubjectId || '').trim();
-  if (!walletSubjectId) throw new Error('walletSubjectId is required for add-signer start');
+  const walletId = String(args.walletId || '').trim();
+  if (!walletId) throw new Error('walletId is required for add-signer start');
   return await postJson<WalletAddSignerStartResponse>({
     relayerUrl: args.relayerUrl,
-    path: `/wallets/${encodeURIComponent(walletSubjectId)}/signers/start`,
+    path: `/wallets/${encodeURIComponent(walletId)}/signers/start`,
     headers: addSignerAuthHeaders(args.auth),
     body: {
       addSignerIntentGrant: args.addSignerIntentGrant,
@@ -710,9 +889,34 @@ export async function startWalletAddSigner(args: {
   });
 }
 
+export async function startWalletAddAuthMethod(args: {
+  relayerUrl: string;
+  walletId: WalletId;
+  addAuthMethodIntentGrant: AddAuthMethodIntentGrant;
+  addAuthMethodIntentDigestB64u: string;
+  intent: AddAuthMethodIntentV1;
+  auth: AddAuthMethodAuth;
+  authority: WalletAddAuthMethodAuthority;
+}): Promise<WalletAddAuthMethodStartResponse> {
+  const walletId = String(args.walletId || '').trim();
+  if (!walletId) throw new Error('walletId is required for add-auth-method start');
+  return await postJson<WalletAddAuthMethodStartResponse>({
+    relayerUrl: args.relayerUrl,
+    path: `/wallets/${encodeURIComponent(walletId)}/auth-methods/start`,
+    headers: addAuthMethodAuthHeaders(args.auth),
+    body: {
+      addAuthMethodIntentGrant: args.addAuthMethodIntentGrant,
+      addAuthMethodIntentDigestB64u: args.addAuthMethodIntentDigestB64u,
+      intent: args.intent,
+      auth: addAuthMethodAuthBody(args.auth),
+      ...addAuthMethodAuthorityBody(args.authority),
+    },
+  });
+}
+
 export async function respondWalletAddSignerHss(args: {
   relayerUrl: string;
-  walletSubjectId: WalletSubjectId;
+  walletId: WalletId;
   addSignerCeremonyId: string;
   ed25519?: {
     clientRequest: ThresholdEd25519HssServerVisibleClientRequestEnvelope;
@@ -721,11 +925,11 @@ export async function respondWalletAddSignerHss(args: {
     clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
   };
 }): Promise<WalletAddSignerHssRespondResponse> {
-  const walletSubjectId = String(args.walletSubjectId || '').trim();
-  if (!walletSubjectId) throw new Error('walletSubjectId is required for add-signer HSS respond');
+  const walletId = String(args.walletId || '').trim();
+  if (!walletId) throw new Error('walletId is required for add-signer HSS respond');
   return await postJson<WalletAddSignerHssRespondResponse>({
     relayerUrl: args.relayerUrl,
-    path: `/wallets/${encodeURIComponent(walletSubjectId)}/signers/hss/respond`,
+    path: `/wallets/${encodeURIComponent(walletId)}/signers/hss/respond`,
     body: {
       addSignerCeremonyId: args.addSignerCeremonyId,
       ...(args.ed25519 ? { ed25519: args.ed25519 } : {}),
@@ -736,7 +940,7 @@ export async function respondWalletAddSignerHss(args: {
 
 export async function finalizeWalletAddSigner(args: {
   relayerUrl: string;
-  walletSubjectId: WalletSubjectId;
+  walletId: WalletId;
   addSignerCeremonyId: string;
   ed25519?: {
     evaluationResult: ThresholdEd25519HssStagedEvaluatorArtifactEnvelope;
@@ -747,11 +951,11 @@ export async function finalizeWalletAddSigner(args: {
     expectedKeyHandles?: string[];
   };
 }): Promise<WalletAddSignerFinalizeResponse> {
-  const walletSubjectId = String(args.walletSubjectId || '').trim();
-  if (!walletSubjectId) throw new Error('walletSubjectId is required for add-signer finalize');
+  const walletId = String(args.walletId || '').trim();
+  if (!walletId) throw new Error('walletId is required for add-signer finalize');
   return await postJson<WalletAddSignerFinalizeResponse>({
     relayerUrl: args.relayerUrl,
-    path: `/wallets/${encodeURIComponent(walletSubjectId)}/signers/finalize`,
+    path: `/wallets/${encodeURIComponent(walletId)}/signers/finalize`,
     body: {
       addSignerCeremonyId: args.addSignerCeremonyId,
       ...(args.ed25519 ? { ed25519: args.ed25519 } : {}),
@@ -760,20 +964,59 @@ export async function finalizeWalletAddSigner(args: {
   });
 }
 
-export async function repairWalletSubjectEcdsaKeyFactsInventoryWithAppSession(args: {
+export async function finalizeWalletAddAuthMethod(args: {
   relayerUrl: string;
-  walletSubjectId: AccountId;
+  walletId: WalletId;
+  addAuthMethodCeremonyId: string;
+}): Promise<WalletAddAuthMethodFinalizeResponse> {
+  const walletId = String(args.walletId || '').trim();
+  if (!walletId) throw new Error('walletId is required for add-auth-method finalize');
+  return await postJson<WalletAddAuthMethodFinalizeResponse>({
+    relayerUrl: args.relayerUrl,
+    path: `/wallets/${encodeURIComponent(walletId)}/auth-methods/finalize`,
+    body: {
+      addAuthMethodCeremonyId: args.addAuthMethodCeremonyId,
+    },
+  });
+}
+
+export async function revokeWalletAuthMethod(args: {
+  relayerUrl: string;
+  walletId: WalletId;
+  rpId: string;
+  auth: RevokeAuthMethodAuth;
+  target: WalletAuthMethodTarget;
+}): Promise<WalletRevokeAuthMethodResponse> {
+  const walletId = String(args.walletId || '').trim();
+  if (!walletId) throw new Error('walletId is required for auth-method revoke');
+  const rpId = String(args.rpId || '').trim();
+  if (!rpId) throw new Error('rpId is required for auth-method revoke');
+  return await postJson<WalletRevokeAuthMethodResponse>({
+    relayerUrl: args.relayerUrl,
+    path: `/wallets/${encodeURIComponent(walletId)}/auth-methods/revoke`,
+    headers: revokeAuthMethodAuthHeaders(args.auth),
+    body: {
+      rpId,
+      auth: revokeAuthMethodAuthBody(args.auth),
+      target: args.target,
+    },
+  });
+}
+
+export async function repairWalletEcdsaKeyFactsInventoryWithAppSession(args: {
+  relayerUrl: string;
+  walletId: AccountId;
   rpId: string;
   appSessionJwt: string;
-  keyTargets: readonly WalletSubjectEcdsaKeyFactsInventoryTarget[];
-  policy: WalletSubjectEcdsaKeyFactsInventoryAppSessionPolicy;
+  keyTargets: readonly WalletEcdsaKeyFactsInventoryTarget[];
+  policy: WalletEcdsaKeyFactsInventoryAppSessionPolicy;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
-}): Promise<WalletSubjectEcdsaKeyFactsInventoryResponse> {
-  const walletSubjectId = String(args.walletSubjectId || '').trim();
+}): Promise<WalletEcdsaKeyFactsInventoryResponse> {
+  const walletId = String(args.walletId || '').trim();
   const rpId = String(args.rpId || '').trim();
   const appSessionJwt = String(args.appSessionJwt || '').trim();
-  if (!walletSubjectId) {
-    throw new Error('walletSubjectId is required for ECDSA key-facts repair');
+  if (!walletId) {
+    throw new Error('walletId is required for ECDSA key-facts repair');
   }
   if (!rpId) {
     throw new Error('rpId is required for ECDSA key-facts repair');
@@ -781,13 +1024,13 @@ export async function repairWalletSubjectEcdsaKeyFactsInventoryWithAppSession(ar
   if (!appSessionJwt) {
     throw new Error('appSessionJwt is required for ECDSA key-facts repair');
   }
-  if (String(args.policy.walletSubjectId || '').trim() !== walletSubjectId) {
-    throw new Error('policy.walletSubjectId must match walletSubjectId for ECDSA key-facts repair');
+  if (String(args.policy.walletId || '').trim() !== walletId) {
+    throw new Error('policy.walletId must match walletId for ECDSA key-facts repair');
   }
 
   const data = await postJson<Record<string, unknown>>({
     relayerUrl: args.relayerUrl,
-    path: `/wallets/${encodeURIComponent(walletSubjectId)}/signers/ecdsa/key-facts/inventory`,
+    path: `/wallets/${encodeURIComponent(walletId)}/signers/ecdsa/key-facts/inventory`,
     headers: {
       Authorization: `Bearer ${appSessionJwt}`,
     },
@@ -804,7 +1047,7 @@ export async function repairWalletSubjectEcdsaKeyFactsInventoryWithAppSession(ar
   return {
     ok: true,
     records: parseThresholdEcdsaKeyIdentityTargets({
-      nearAccountId: args.walletSubjectId,
+      nearAccountId: args.walletId,
       rpId,
       ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
       records,
@@ -815,22 +1058,22 @@ export async function repairWalletSubjectEcdsaKeyFactsInventoryWithAppSession(ar
   };
 }
 
-export async function repairWalletSubjectEcdsaKeyFactsInventoryWithWebAuthn(args: {
+export async function repairWalletEcdsaKeyFactsInventoryWithWebAuthn(args: {
   relayerUrl: string;
-  walletSubjectId: AccountId;
+  walletId: AccountId;
   rpId: string;
   credential: WebAuthnAuthenticationCredential;
-  keyTargets: readonly WalletSubjectEcdsaKeyFactsInventoryTarget[];
+  keyTargets: readonly WalletEcdsaKeyFactsInventoryTarget[];
   serverNonceB64u: string;
   expectedChallengeDigestB64u: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
-}): Promise<WalletSubjectEcdsaKeyFactsInventoryResponse> {
-  const walletSubjectId = String(args.walletSubjectId || '').trim();
+}): Promise<WalletEcdsaKeyFactsInventoryResponse> {
+  const walletId = String(args.walletId || '').trim();
   const rpId = String(args.rpId || '').trim();
   const serverNonceB64u = String(args.serverNonceB64u || '').trim();
   const expectedChallengeDigestB64u = String(args.expectedChallengeDigestB64u || '').trim();
-  if (!walletSubjectId) {
-    throw new Error('walletSubjectId is required for ECDSA key-facts repair');
+  if (!walletId) {
+    throw new Error('walletId is required for ECDSA key-facts repair');
   }
   if (!rpId) {
     throw new Error('rpId is required for ECDSA key-facts repair');
@@ -841,7 +1084,7 @@ export async function repairWalletSubjectEcdsaKeyFactsInventoryWithWebAuthn(args
 
   const data = await postJson<Record<string, unknown>>({
     relayerUrl: args.relayerUrl,
-    path: `/wallets/${encodeURIComponent(walletSubjectId)}/signers/ecdsa/key-facts/inventory`,
+    path: `/wallets/${encodeURIComponent(walletId)}/signers/ecdsa/key-facts/inventory`,
     body: {
       rpId,
       keyTargets: args.keyTargets,
@@ -858,7 +1101,7 @@ export async function repairWalletSubjectEcdsaKeyFactsInventoryWithWebAuthn(args
   return {
     ok: true,
     records: parseThresholdEcdsaKeyIdentityTargets({
-      nearAccountId: args.walletSubjectId,
+      nearAccountId: args.walletId,
       rpId,
       ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
       records,

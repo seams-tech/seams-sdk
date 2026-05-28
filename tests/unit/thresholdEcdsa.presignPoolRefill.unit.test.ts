@@ -19,7 +19,7 @@ import type {
 } from '@/core/signingEngine/interfaces/signing';
 import {
   thresholdEcdsaChainTargetFromChainFamily,
-  toWalletSubjectId,
+  toWalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 const RELAYER_URL = 'https://relay.example';
@@ -27,7 +27,7 @@ const ECDSA_KEY_HANDLE = 'ehss-key-presign-test';
 const ECDSA_THRESHOLD_KEY_ID = 'ecdsa-hss-test-key-1';
 const BACKEND_RELAYER_KEY_ID = 'rk-1';
 const USER_ID = 'alice.testnet';
-const USER_SUBJECT_ID = toWalletSubjectId(USER_ID);
+const USER_SUBJECT_ID = toWalletId(USER_ID);
 const EVM_CHAIN_TARGET = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'evm',
   chainId: 5042002,

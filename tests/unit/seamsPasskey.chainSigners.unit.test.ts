@@ -8,11 +8,11 @@ import { createSigningFlowEvent, SigningEventPhase } from '@/core/types/sdkSentE
 import {
   nearAccountRefFromAccountId,
   thresholdEcdsaChainTargetFromChainFamily,
-  toWalletSubjectId,
+  toWalletId,
   walletSessionRefFromSession,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
-const TEST_SUBJECT_ID = toWalletSubjectId('alice.testnet');
+const TEST_SUBJECT_ID = toWalletId('alice.testnet');
 const TEST_NEAR_ACCOUNT = nearAccountRefFromAccountId('alice.testnet');
 const TEST_WALLET_SESSION = walletSessionRefFromSession({
   walletId: 'alice.testnet',

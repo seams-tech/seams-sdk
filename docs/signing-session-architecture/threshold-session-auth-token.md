@@ -37,7 +37,7 @@ type RegistrationContinuationClaims = {
 Rules:
 
 - Mint only after successful account registration.
-- Scope to wallet subject, RP ID, runtime policy scope, and explicit ECDSA targets.
+- Scope to wallet, RP ID, runtime policy scope, and explicit ECDSA targets.
 - Allow only registration/post-registration ECDSA provisioning.
 - Reject for transaction signing, key export, restore, budget admission, presign, and maintenance restore.
 - Server HSS prepare compares continuation claims to `sessionPolicy.walletId` and `sessionPolicy.chainTarget`.

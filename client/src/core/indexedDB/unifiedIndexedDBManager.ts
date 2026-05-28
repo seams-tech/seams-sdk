@@ -10,7 +10,7 @@ import type {
   EnqueueSignerOperationInput,
   IndexedDBEvent,
   LastProfileState,
-  LocalWalletAuthMethodBindingRecord,
+  LocalWalletAuthMethodRecord,
   NonceLaneLeaseStoreRecord,
   ProfileAuthenticatorRecord,
   ProfileContinuitySnapshot,
@@ -151,10 +151,10 @@ export class UnifiedIndexedDBManager {
   }
 
   async upsertRecoveryEmails(
-    walletSubjectId: string,
+    walletId: string,
     entries: Array<{ hashHex: string; email: string }>,
   ): Promise<void> {
-    return this.seamsWalletRepositories.upsertRecoveryEmails(walletSubjectId, entries);
+    return this.seamsWalletRepositories.upsertRecoveryEmails(walletId, entries);
   }
 
   async listRecoveryEmails(profileId: string): Promise<ProfileRecoveryEmailRecord[]> {
@@ -371,17 +371,17 @@ export class UnifiedIndexedDBManager {
     );
   }
 
-  async upsertWalletAuthMethodBinding(
-    record: LocalWalletAuthMethodBindingRecord,
-  ): Promise<LocalWalletAuthMethodBindingRecord> {
-    return this.seamsWalletRepositories.upsertWalletAuthMethodBinding(record);
+  async upsertWalletAuthMethod(
+    record: LocalWalletAuthMethodRecord,
+  ): Promise<LocalWalletAuthMethodRecord> {
+    return this.seamsWalletRepositories.upsertWalletAuthMethod(record);
   }
 
-  async listWalletAuthMethodBindingsForWalletSubject(
-    walletSubjectId: string,
-  ): Promise<LocalWalletAuthMethodBindingRecord[]> {
-    return this.seamsWalletRepositories.listWalletAuthMethodBindingsForWalletSubject(
-      walletSubjectId,
+  async listWalletAuthMethodsForWallet(
+    walletId: string,
+  ): Promise<LocalWalletAuthMethodRecord[]> {
+    return this.seamsWalletRepositories.listWalletAuthMethodsForWallet(
+      walletId,
     );
   }
 

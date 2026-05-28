@@ -27,19 +27,24 @@ import {
   initializeCurrentUser as initializeCurrentUserValue,
   rollbackUserRegistration as rollbackUserRegistrationValue,
   setLastUser as setLastUserValue,
-  storeWalletSubjectEd25519SignerRecord as storeWalletSubjectEd25519SignerRecordValue,
-  storeWalletSubjectEd25519RegistrationData as storeWalletSubjectEd25519RegistrationDataValue,
-  storeWalletSubjectEcdsaRegistrationData as storeWalletSubjectEcdsaRegistrationDataValue,
-  storeWalletSubjectEcdsaSignerRecords as storeWalletSubjectEcdsaSignerRecordsValue,
+  storeWalletEd25519SignerRecord as storeWalletEd25519SignerRecordValue,
+  storeWalletEd25519RegistrationData as storeWalletEd25519RegistrationDataValue,
+  storeWalletEmailOtpEd25519RegistrationData as storeWalletEmailOtpEd25519RegistrationDataValue,
+  storeWalletEmailOtpEcdsaRegistrationData as storeWalletEmailOtpEcdsaRegistrationDataValue,
+  storeWalletEmailOtpEcdsaSignerRecords as storeWalletEmailOtpEcdsaSignerRecordsValue,
+  storeWalletEcdsaRegistrationData as storeWalletEcdsaRegistrationDataValue,
+  storeWalletEcdsaSignerRecords as storeWalletEcdsaSignerRecordsValue,
   storeAuthenticator as storeAuthenticatorValue,
   storeUserData as storeUserDataValue,
   updateLastLogin as updateLastLoginValue,
   type StoredRegistrationData,
-  type StoreWalletSubjectEcdsaSignerRecordsInput,
-  type StoreWalletSubjectEcdsaRegistrationInput,
-  type StoreWalletSubjectEcdsaSignerRecordsResult,
-  type StoreWalletSubjectEd25519RegistrationInput,
-  type StoreWalletSubjectEd25519SignerRecordInput,
+  type StoreWalletEcdsaSignerRecordsInput,
+  type StoreWalletEcdsaRegistrationInput,
+  type StoreWalletEcdsaSignerRecordsResult,
+  type StoreWalletEmailOtpEd25519RegistrationInput,
+  type StoreWalletEmailOtpEcdsaRegistrationInput,
+  type StoreWalletEd25519RegistrationInput,
+  type StoreWalletEd25519SignerRecordInput,
   type StoreAuthenticatorInput,
 } from './accountLifecycle';
 import {
@@ -50,11 +55,13 @@ import {
 export type { StoreAuthenticatorInput };
 export type { StoredRegistrationData };
 export type {
-  StoreWalletSubjectEcdsaSignerRecordsInput,
-  StoreWalletSubjectEcdsaRegistrationInput,
-  StoreWalletSubjectEcdsaSignerRecordsResult,
-  StoreWalletSubjectEd25519RegistrationInput,
-  StoreWalletSubjectEd25519SignerRecordInput,
+  StoreWalletEcdsaSignerRecordsInput,
+  StoreWalletEcdsaRegistrationInput,
+  StoreWalletEcdsaSignerRecordsResult,
+  StoreWalletEmailOtpEd25519RegistrationInput,
+  StoreWalletEmailOtpEcdsaRegistrationInput,
+  StoreWalletEd25519RegistrationInput,
+  StoreWalletEd25519SignerRecordInput,
 };
 
 export type RegistrationPublicDeps = {
@@ -150,32 +157,53 @@ export function atomicStoreRegistrationData(
   return atomicStoreRegistrationDataValue(deps.accountLifecycle, args);
 }
 
-export function storeWalletSubjectEd25519RegistrationData(
+export function storeWalletEd25519RegistrationData(
   deps: RegistrationPublicDeps,
-  args: StoreWalletSubjectEd25519RegistrationInput,
+  args: StoreWalletEd25519RegistrationInput,
 ): Promise<StoredRegistrationData> {
-  return storeWalletSubjectEd25519RegistrationDataValue(deps.accountLifecycle, args);
+  return storeWalletEd25519RegistrationDataValue(deps.accountLifecycle, args);
 }
 
-export function storeWalletSubjectEd25519SignerRecord(
+export function storeWalletEmailOtpEd25519RegistrationData(
   deps: RegistrationPublicDeps,
-  args: StoreWalletSubjectEd25519SignerRecordInput,
+  args: StoreWalletEmailOtpEd25519RegistrationInput,
 ): Promise<StoredRegistrationData> {
-  return storeWalletSubjectEd25519SignerRecordValue(deps.accountLifecycle, args);
+  return storeWalletEmailOtpEd25519RegistrationDataValue(deps.accountLifecycle, args);
 }
 
-export function storeWalletSubjectEcdsaSignerRecords(
+export function storeWalletEd25519SignerRecord(
   deps: RegistrationPublicDeps,
-  args: StoreWalletSubjectEcdsaSignerRecordsInput,
-): Promise<StoreWalletSubjectEcdsaSignerRecordsResult> {
-  return storeWalletSubjectEcdsaSignerRecordsValue(deps.accountLifecycle, args);
+  args: StoreWalletEd25519SignerRecordInput,
+): Promise<StoredRegistrationData> {
+  return storeWalletEd25519SignerRecordValue(deps.accountLifecycle, args);
 }
 
-export function storeWalletSubjectEcdsaRegistrationData(
+export function storeWalletEcdsaSignerRecords(
   deps: RegistrationPublicDeps,
-  args: StoreWalletSubjectEcdsaRegistrationInput,
-): Promise<StoreWalletSubjectEcdsaSignerRecordsResult> {
-  return storeWalletSubjectEcdsaRegistrationDataValue(deps.accountLifecycle, args);
+  args: StoreWalletEcdsaSignerRecordsInput,
+): Promise<StoreWalletEcdsaSignerRecordsResult> {
+  return storeWalletEcdsaSignerRecordsValue(deps.accountLifecycle, args);
+}
+
+export function storeWalletEmailOtpEcdsaSignerRecords(
+  deps: RegistrationPublicDeps,
+  args: StoreWalletEcdsaSignerRecordsInput,
+): Promise<StoreWalletEcdsaSignerRecordsResult> {
+  return storeWalletEmailOtpEcdsaSignerRecordsValue(deps.accountLifecycle, args);
+}
+
+export function storeWalletEcdsaRegistrationData(
+  deps: RegistrationPublicDeps,
+  args: StoreWalletEcdsaRegistrationInput,
+): Promise<StoreWalletEcdsaSignerRecordsResult> {
+  return storeWalletEcdsaRegistrationDataValue(deps.accountLifecycle, args);
+}
+
+export function storeWalletEmailOtpEcdsaRegistrationData(
+  deps: RegistrationPublicDeps,
+  args: StoreWalletEmailOtpEcdsaRegistrationInput,
+): Promise<StoreWalletEcdsaSignerRecordsResult> {
+  return storeWalletEmailOtpEcdsaRegistrationDataValue(deps.accountLifecycle, args);
 }
 
 export function requestRegistrationCredentialConfirmation(

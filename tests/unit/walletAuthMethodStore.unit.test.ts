@@ -1,14 +1,14 @@
 import { expect, test } from '@playwright/test';
-import { normalizeWalletAuthMethodBinding } from '@server/core/WalletAuthMethodBindingStore';
+import { normalizeWalletAuthMethod } from '@server/core/WalletAuthMethodStore';
 
 test.describe('wallet auth-method binding normalization', () => {
   test('accepts passkey and Email OTP binding branches', () => {
     expect(
-      normalizeWalletAuthMethodBinding({
-        version: 'wallet_auth_method_binding_v1',
+      normalizeWalletAuthMethod({
+        version: 'wallet_auth_method_v1',
         kind: 'passkey',
         status: 'active',
-        walletSubjectId: 'wallet_alice',
+        walletId: 'wallet_alice',
         rpId: 'wallet.example.test',
         credentialIdB64u: 'credential',
         credentialPublicKeyB64u: 'public-key',
@@ -22,11 +22,11 @@ test.describe('wallet auth-method binding normalization', () => {
     });
 
     expect(
-      normalizeWalletAuthMethodBinding({
-        version: 'wallet_auth_method_binding_v1',
+      normalizeWalletAuthMethod({
+        version: 'wallet_auth_method_v1',
         kind: 'email_otp',
         status: 'active',
-        walletSubjectId: 'wallet_alice',
+        walletId: 'wallet_alice',
         rpId: 'wallet.example.test',
         emailHashHex: 'abc123',
         challengeId: 'challenge',
@@ -39,13 +39,28 @@ test.describe('wallet auth-method binding normalization', () => {
     });
   });
 
+  test('rejects missing Email OTP challenge ids', () => {
+    expect(
+      normalizeWalletAuthMethod({
+        version: 'wallet_auth_method_v1',
+        kind: 'email_otp',
+        status: 'active',
+        walletId: 'wallet_alice',
+        rpId: 'wallet.example.test',
+        emailHashHex: 'abc123',
+        createdAtMs: 1,
+        updatedAtMs: 2,
+      }),
+    ).toBeNull();
+  });
+
   test('rejects branch-mixed bindings at the boundary', () => {
     expect(
-      normalizeWalletAuthMethodBinding({
-        version: 'wallet_auth_method_binding_v1',
+      normalizeWalletAuthMethod({
+        version: 'wallet_auth_method_v1',
         kind: 'passkey',
         status: 'active',
-        walletSubjectId: 'wallet_alice',
+        walletId: 'wallet_alice',
         rpId: 'wallet.example.test',
         emailHashHex: 'abc123',
         createdAtMs: 1,
@@ -54,11 +69,11 @@ test.describe('wallet auth-method binding normalization', () => {
     ).toBeNull();
 
     expect(
-      normalizeWalletAuthMethodBinding({
-        version: 'wallet_auth_method_binding_v1',
+      normalizeWalletAuthMethod({
+        version: 'wallet_auth_method_v1',
         kind: 'email_otp',
         status: 'active',
-        walletSubjectId: 'wallet_alice',
+        walletId: 'wallet_alice',
         rpId: 'wallet.example.test',
         credentialIdB64u: 'credential',
         credentialPublicKeyB64u: 'public-key',

@@ -32,7 +32,7 @@ function appSessionVersionFromJwt(appSessionJwt: string): string {
 export async function collectEmailOtpRegistrationAuthority(args: {
   authMethod: EmailOtpRegistrationAuthMethodInput;
   relayUrl: string;
-  walletSubjectId: string;
+  walletId: string;
   registrationIntentDigestB64u: string;
   appSessionJwt: string;
   appSessionVersion?: string;
@@ -41,7 +41,7 @@ export async function collectEmailOtpRegistrationAuthority(args: {
   const email = requireTrimmedField(args.authMethod.email, 'email').toLowerCase();
   const otpCode = requireTrimmedField(args.authMethod.otpCode, 'otpCode');
   const relayUrl = requireTrimmedField(args.relayUrl, 'relayUrl');
-  const walletSubjectId = requireTrimmedField(args.walletSubjectId, 'walletSubjectId');
+  const walletId = requireTrimmedField(args.walletId, 'walletId');
   const registrationIntentDigestB64u = requireTrimmedField(
     args.registrationIntentDigestB64u,
     'registrationIntentDigestB64u',
@@ -53,7 +53,7 @@ export async function collectEmailOtpRegistrationAuthority(args: {
     ? null
     : await requestEmailOtpEnrollmentChallenge({
         relayUrl,
-        walletId: walletSubjectId,
+        walletId: walletId,
         appSessionJwt,
         fetchImpl: args.fetchImpl,
       });

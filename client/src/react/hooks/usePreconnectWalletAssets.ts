@@ -1,6 +1,10 @@
 import React from 'react';
 import type { SeamsContextProviderProps } from '../types';
 import { setEmbeddedBase } from '../../core/walletRuntimePaths';
+import {
+  normalizeWalletHostVariant,
+  walletHostScriptFileForVariant,
+} from '../../core/WalletIframe/hostVariant';
 
 // Internal: Add preconnect/prefetch hints for wallet service + relayer and
 // expose an absolute embedded asset base for srcdoc iframes.
@@ -29,6 +33,7 @@ export function usePreconnectWalletAssets(config: SeamsContextProviderProps['con
   const walletOrigin = config?.iframeWallet?.walletOrigin as string | undefined;
   const servicePath = config?.iframeWallet?.walletServicePath || '/wallet-service';
   const sdkBasePath = config?.iframeWallet?.sdkBasePath || '/sdk';
+  const walletHostVariant = normalizeWalletHostVariant(config?.iframeWallet?.walletHostVariant);
   const relayerUrl = config?.relayer?.url as string | undefined;
 
   React.useEffect(() => {
@@ -88,12 +93,15 @@ export function usePreconnectWalletAssets(config: SeamsContextProviderProps['con
 
         // Preload the wallet host script module so the iframe boots faster
         // Ensure the base URL ends with a trailing slash; otherwise new URL('file', base)
-        // would replace the last path segment ("/sdk") and yield "/wallet-iframe-host-runtime.js".
+        // would replace the last path segment ("/sdk") and yield a root-level host script path.
         try {
           const sdkPath = (sdkBasePath || '/sdk') as string;
           const withSlash = sdkPath.endsWith('/') ? sdkPath : sdkPath + '/';
           const base = new URL(withSlash, walletOrigin);
-          const hostJs = new URL('wallet-iframe-host-runtime.js', base).toString();
+          const hostJs = new URL(
+            walletHostScriptFileForVariant(walletHostVariant),
+            base,
+          ).toString();
           ensureLink('modulepreload', hostJs, { crossorigin: '' });
 
           // Optionally prefetch WASM binaries to accelerate first-use while avoiding preload warnings
@@ -124,7 +132,7 @@ export function usePreconnectWalletAssets(config: SeamsContextProviderProps['con
         ensureLink('preconnect', relayerUrl, { crossorigin: '' });
       }
     } catch {}
-  }, [walletOrigin, servicePath, sdkBasePath, relayerUrl]);
+  }, [walletOrigin, servicePath, sdkBasePath, walletHostVariant, relayerUrl]);
 }
 
 export default usePreconnectWalletAssets;

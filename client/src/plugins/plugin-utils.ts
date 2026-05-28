@@ -2,6 +2,11 @@
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { createRequire } from 'node:module';
+import {
+  normalizeWalletHostVariant,
+  walletHostScriptFileForVariant,
+  type WalletHostVariant,
+} from '../core/WalletIframe/hostVariant';
 
 export function addPreconnectLink(res: any, origin?: string) {
   if (!origin) return;
@@ -31,7 +36,11 @@ function withAssetVersion(url: string, assetVersion?: string): string {
 
 // Builds wallet service HTML that links only external CSS/JS (no inline),
 // so strict CSP (style-src 'self'; style-src-attr 'none') works in dev/prod.
-export function buildWalletServiceHtml(sdkBasePath: string, assetVersion?: string): string {
+export function buildWalletServiceHtml(
+  sdkBasePath: string = '/sdk',
+  assetVersion?: string,
+  walletHostVariant: WalletHostVariant = 'runtime',
+): string {
   const walletServiceCss = withAssetVersion(`${sdkBasePath}/wallet-service.css`, assetVersion);
   const drawerCss = withAssetVersion(`${sdkBasePath}/drawer.css`, assetVersion);
   const txTreeCss = withAssetVersion(`${sdkBasePath}/tx-tree.css`, assetVersion);
@@ -43,8 +52,8 @@ export function buildWalletServiceHtml(sdkBasePath: string, assetVersion?: strin
   const componentsCss = withAssetVersion(`${sdkBasePath}/w3a-components.css`, assetVersion);
   const txConfirmerCss = withAssetVersion(`${sdkBasePath}/tx-confirmer.css`, assetVersion);
   const walletShimsJs = withAssetVersion(`${sdkBasePath}/wallet-shims.js`, assetVersion);
-  const walletHostRuntime = withAssetVersion(
-    `${sdkBasePath}/wallet-iframe-host-runtime.js`,
+  const walletHostScript = withAssetVersion(
+    `${sdkBasePath}/${walletHostScriptFileForVariant(normalizeWalletHostVariant(walletHostVariant))}`,
     assetVersion,
   );
 
@@ -69,11 +78,11 @@ export function buildWalletServiceHtml(sdkBasePath: string, assetVersion?: strin
     <!-- Minimal shims some ESM bundles expect (externalized to enable strict CSP) -->
     <script src="${walletShimsJs}"></script>
     <!-- Hint the browser to fetch the host script earlier -->
-    <link rel="modulepreload" href="${walletHostRuntime}" crossorigin>
+    <link rel="modulepreload" href="${walletHostScript}" crossorigin>
   </head>
   <body>
     <!-- sdkBasePath points to the SDK root (e.g. '/sdk'). Load the host directly. -->
-    <script type="module" src="${walletHostRuntime}"></script>
+    <script type="module" src="${walletHostScript}"></script>
   </body>
 </html>`;
 }

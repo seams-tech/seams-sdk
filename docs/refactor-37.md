@@ -42,7 +42,7 @@ Introduce one shared key identity:
 ```ts
 type EvmFamilyEcdsaKeyIdentity = {
   walletId: WalletId;
-  subjectId: WalletSubjectId;
+  subjectId: WalletId;
   rpId: RpId;
   keyScope: 'evm-family';
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
@@ -326,7 +326,7 @@ the `ready` branch only.
   - `EmailOtpAuthSubjectId`
 - [x] Reuse ECDSA identity brands from
       `session/identity/evmFamilyEcdsaIdentity.ts`:
-  - `WalletSubjectId` / ECDSA subject identity
+  - `WalletId` / ECDSA subject identity
   - `EcdsaThresholdKeyId`
   - `SigningRootId`
   - `SigningRootVersion`
@@ -336,14 +336,14 @@ the `ready` branch only.
 - [x] Add boundary parsers/builders that convert raw strings once:
   - wallet/account id to `WalletSessionUserId`
   - provider subject such as `google:*` to `EmailOtpAuthSubjectId`
-  - wallet ECDSA lane subject to `WalletSubjectId`
+  - wallet ECDSA lane subject to `WalletId`
   - server key id to `EcdsaThresholdKeyId`
 - [x] Replace raw `walletSessionUserId: string` in Email OTP HSS request and
       session policy types with `WalletSessionUserId`.
 - [x] Keep provider identity out of wallet-scoped HSS fields:
   - `authSubjectId: EmailOtpAuthSubjectId`
   - `walletSessionUserId: WalletSessionUserId`
-  - `subjectId: WalletSubjectId`
+  - `subjectId: WalletId`
 - [x] Split Email OTP HSS bootstrap lifecycle types:
   - [x] `EmailOtpRegistrationBootstrap` permits no preexisting
         `ecdsaThresholdKeyId`.

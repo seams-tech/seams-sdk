@@ -30,7 +30,6 @@ import { EmailOtpAppSessionJwtCache } from './appSessionJwtCache';
 import {
   type EmailOtpThresholdEd25519ProvisioningResult,
   type ReconstructEmailOtpEd25519SessionArgs,
-  type RegisterEmailOtpEd25519CapabilityArgs,
 } from './provisioning';
 import type { EmailOtpThresholdSessionCoordinatorDeps } from './ports';
 import { readEmailOtpPersistedSessionSnapshot } from './persistedSnapshot';
@@ -120,7 +119,6 @@ export class EmailOtpThresholdSessionRuntime {
       rememberAppSessionJwt: (request) => this.rememberAppSessionJwt(request),
       resolveAppSessionJwt: (request) => this.resolveAppSessionJwt(request),
       publicationPorts: () => this.sealedSessionRegistry.ecdsaPublicationPorts(),
-      provisionEd25519Capability: (request) => this.provisionEd25519Capability(request),
       reconstructEd25519Session: (request) => this.reconstructEd25519Session(request),
     });
     this.exportRecoveryRuntime = new EmailOtpExportRecoveryRuntime({
@@ -286,14 +284,6 @@ export class EmailOtpThresholdSessionRuntime {
     return await this.ed25519Warmup.waitForPending(args);
   }
 
-  scheduleEd25519CapabilityProvisioning(
-    args: RegisterEmailOtpEd25519CapabilityArgs,
-  ): void {
-    this.ed25519Warmup.scheduleProvisioning(args, {
-      provisionCapability: (request) => this.provisionEd25519Capability(request),
-    });
-  }
-
   async requestTransactionSigningChallenge(
     args: RequestEmailOtpChallengeArgs,
   ): Promise<{ challengeId: string; emailHint?: string }> {
@@ -352,12 +342,6 @@ export class EmailOtpThresholdSessionRuntime {
     remainingUses?: number;
   }): Promise<{ sessionId: string; record?: ThresholdEd25519SessionRecord }> {
     return await this.ed25519Warmup.loginForSigning(args);
-  }
-
-  async provisionEd25519Capability(
-    args: RegisterEmailOtpEd25519CapabilityArgs,
-  ): Promise<EmailOtpThresholdEd25519ProvisioningResult> {
-    return await this.ed25519Warmup.provisionCapability(args);
   }
 
   async reconstructEd25519Session(

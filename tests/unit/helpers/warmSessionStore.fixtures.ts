@@ -79,10 +79,8 @@ import type {
 import {
   thresholdEcdsaChainTargetFromChainFamily,
   toWalletId,
-  toWalletSubjectId,
   type ThresholdEcdsaChainTarget,
   type WalletId,
-  type WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 function testEcdsaChainId(chain: ThresholdEcdsaActivationChain): number {
@@ -620,10 +618,10 @@ const emptyThresholdEcdsaStoreDeps = (): ThresholdEcdsaSessionStoreDeps => ({
 
 function listThresholdEcdsaSessionRecordsForSubjectTestOnly(
   deps: ThresholdEcdsaSessionStoreDeps,
-  args: { subjectId: WalletSubjectId },
+  args: { subjectId: WalletId },
 ): ThresholdEcdsaSessionRecord[] {
   return [...deps.recordsByLane.values()]
-    .filter((record) => toWalletSubjectId(record.walletId) === args.subjectId)
+    .filter((record) => toWalletId(record.walletId) === args.subjectId)
     .sort(
       (left, right) =>
         Math.floor(Number(right.updatedAtMs) || 0) - Math.floor(Number(left.updatedAtMs) || 0),

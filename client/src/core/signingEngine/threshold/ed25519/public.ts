@@ -3,8 +3,10 @@ import {
   completeThresholdEd25519HssClientCeremony as completeThresholdEd25519HssClientCeremonyValue,
   deriveThresholdEd25519ClientVerifyingShareFromCredential as deriveThresholdEd25519ClientVerifyingShareFromCredentialValue,
   deriveThresholdEd25519HssClientInputsFromCredential as deriveThresholdEd25519HssClientInputsFromCredentialValue,
+  deriveThresholdEd25519HssClientInputsFromPrfFirst as deriveThresholdEd25519HssClientInputsFromPrfFirstValue,
   openThresholdEd25519HssSeedOutput as openThresholdEd25519HssSeedOutputValue,
   prepareThresholdEd25519HssClientCeremonyFromCredential as prepareThresholdEd25519HssClientCeremonyFromCredentialValue,
+  prepareThresholdEd25519HssClientCeremonyFromPrfFirst as prepareThresholdEd25519HssClientCeremonyFromPrfFirstValue,
   runThresholdEd25519HssCeremonyWithSession as runThresholdEd25519HssCeremonyWithSessionValue,
   type ThresholdEd25519LifecycleDeps,
 } from './hssLifecycle';
@@ -30,11 +32,25 @@ export function deriveThresholdEd25519HssClientInputsFromCredential(
   return deriveThresholdEd25519HssClientInputsFromCredentialValue(deps, args);
 }
 
+export function deriveThresholdEd25519HssClientInputsFromPrfFirst(
+  deps: ThresholdEd25519PublicDeps,
+  args: Parameters<typeof deriveThresholdEd25519HssClientInputsFromPrfFirstValue>[1],
+): ReturnType<typeof deriveThresholdEd25519HssClientInputsFromPrfFirstValue> {
+  return deriveThresholdEd25519HssClientInputsFromPrfFirstValue(deps, args);
+}
+
 export function prepareThresholdEd25519HssClientCeremonyFromCredential(
   deps: ThresholdEd25519PublicDeps,
   args: Parameters<typeof prepareThresholdEd25519HssClientCeremonyFromCredentialValue>[1],
 ): ReturnType<typeof prepareThresholdEd25519HssClientCeremonyFromCredentialValue> {
   return prepareThresholdEd25519HssClientCeremonyFromCredentialValue(deps, args);
+}
+
+export function prepareThresholdEd25519HssClientCeremonyFromPrfFirst(
+  deps: ThresholdEd25519PublicDeps,
+  args: Parameters<typeof prepareThresholdEd25519HssClientCeremonyFromPrfFirstValue>[1],
+): ReturnType<typeof prepareThresholdEd25519HssClientCeremonyFromPrfFirstValue> {
+  return prepareThresholdEd25519HssClientCeremonyFromPrfFirstValue(deps, args);
 }
 
 export function prepareThresholdEd25519HssClientRequest(

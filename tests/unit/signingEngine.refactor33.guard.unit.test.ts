@@ -153,6 +153,7 @@ const deletedSigningEngineFolders = [
   'client/src/core/signingEngine/signers/wasm',
   'client/src/core/signingEngine/signers/webauthn',
   'client/src/core/signingEngine/webauthnAuth/cose',
+  'client/src/core/signingEngine/otpSessions',
   'client/src/core/signingEngine/sessionEmailOtp',
   'client/src/core/signingEngine/sessionsEmailOtp',
   'client/src/core/signingEngine/flows/emailOtp',

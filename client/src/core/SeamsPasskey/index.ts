@@ -105,7 +105,7 @@ import { DeviceLinkingDomain } from './near/linkDevice';
 import { NearSigner } from './near';
 import { TempoSigner } from './tempo';
 import { EvmSigner } from './evm';
-import { walletSubjectIdFromString } from '@shared/utils/registrationIntent';
+import { walletIdFromString } from '@shared/utils/registrationIntent';
 import { buildPasskeyNearWalletRegistrationSignerSelection } from './registrationSignerSelection';
 
 ///////////////////////////////////////
@@ -282,6 +282,7 @@ export class SeamsPasskey {
     this.registration = {
       addWalletSigner: async (args) => await this.addWalletSigner(args),
       registerWallet: async (args) => await this.registerWallet(args),
+      registerWithEmailOtp: async (args) => await this.registerWallet(args),
       registerPasskey: async (nearAccountId, options) =>
         await this.registerPasskey(nearAccountId, options),
       registerPasskeyInternal: async (nearAccountId, options, confirmationConfigOverride) =>
@@ -496,7 +497,7 @@ export class SeamsPasskey {
     return await registerWalletWithUnifiedCeremony({
       context: this.getContext(),
       authMethod: args.authMethod,
-      walletSubject: args.walletSubject,
+      wallet: args.wallet,
       rpId: args.rpId,
       signerSelection: args.signerSelection,
       options: args.options || {},
@@ -509,7 +510,7 @@ export class SeamsPasskey {
   ): Promise<RegistrationResult> {
     if (this.walletIframe.shouldUseWalletIframe()) {
       try {
-        const router = await this.walletIframe.requireRouter(String(args.walletSubjectId || ''));
+        const router = await this.walletIframe.requireRouter(String(args.walletId || ''));
         const res = await router.addWalletSigner(args);
         await args.options?.afterCall?.(true, res);
         return res;
@@ -522,7 +523,7 @@ export class SeamsPasskey {
     }
     return await addWalletSignerWithUnifiedCeremony({
       context: this.getContext(),
-      walletSubjectId: args.walletSubjectId,
+      walletId: args.walletId,
       rpId: args.rpId,
       signerSelection: args.signerSelection,
       options: args.options || {},
@@ -572,9 +573,9 @@ export class SeamsPasskey {
       throw new Error('Missing rpId for relay registration');
     }
     return await this.registerWallet({
-      walletSubject: {
+      wallet: {
         kind: 'provided',
-        walletSubjectId: walletSubjectIdFromString(String(accountId)),
+        walletId: walletIdFromString(String(accountId)),
       },
       rpId,
       authMethod: { kind: 'passkey' },

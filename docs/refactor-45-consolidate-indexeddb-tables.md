@@ -8,8 +8,15 @@ been removed, first-class auth-method rows live in `seams_wallet`, and
 registration/add-signer finalize now use atomic repository batches. Keep this
 document as the active IndexedDB cleanup plan until the manual verification
 section passes.
-Start implementation after `docs/rework-registration-flows-2.md` stabilizes the
-registration auth-method and wallet-subject repository shape. The collapsed
+
+Only Phase 7 manual verification remains open.
+
+Historical terminology note: previous revisions used `wallet-subject`,
+`wallet_subject_id`, and `seams_wallet_subjects`. Active code uses `wallet_id`
+and unprefixed store names such as `wallets`; old terms remain only in explicit
+historical/delete-only context.
+Implementation followed `docs/rework-registration-flows-2.md` after the
+registration auth-method and wallet repository shape stabilized. The collapsed
 `docs/rework-registration-flows.md` is a completed historical note.
 
 ## Objective
@@ -68,9 +75,9 @@ Current implementation snapshot:
    unified key-material repository methods.
 4. Signing-session seal constants now point at `seams_wallet`; raw IndexedDB
    opens, cursor scans, writes, and restore-lease transactions live in the
-   `seams_signing_session_seals` repository.
+   `signing_session_seals` repository.
 5. Email OTP device enrollment escrow reads/writes now delegate to the
-   `seams_email_otp_escrows` repository.
+   `email_otp_escrows` repository.
 6. `client/src/core/indexedDB/index.ts` configures `seams_wallet` for `app` and
    `wallet` modes and disables IndexedDB in `disabled` mode. It no longer
    exports or constructs `PasskeyClientDBManager`.
@@ -92,10 +99,10 @@ Current implementation snapshot:
     `keyHandle`, and complete ECDSA public facts. IndexedDB records that store
     active ECDSA signers or sealed ECDSA sessions must persist those exact
     scalar identities instead of re-deriving them from broad profile metadata.
-11. The completed registration rework made wallet-subject records the local
+11. The completed registration rework made wallet records the local
     source of truth. `docs/rework-registration-flows-2.md` is the active
     follow-up for first-class auth-method bindings. NEAR profile/account state
-    remains a projection written after wallet-subject persistence succeeds.
+    remains a projection written after wallet persistence succeeds.
 12. Refactor 41 makes prompt policy, step-up freshness, reservation identity,
     exhausted-session reauth anchors, and Email OTP refresh rejection explicit
     domain state. IndexedDB repositories must not expose raw persistence records
@@ -122,7 +129,7 @@ revisit during the consolidation:
    `client/src/core/SeamsPasskey/login.ts`,
    `client/src/core/signingEngine/flows/registration/*`,
    and `client/src/core/rpcClients/relayer/walletRegistration.ts` need
-   wallet-subject repository ports once the registration rework lands.
+   wallet repository ports once the registration rework lands.
 5. `client/src/core/accountData/near/*`,
    `client/src/core/indexedDB/accountKeyMaterial.ts`,
    `client/src/core/indexedDB/profileAccountProjection.ts`, and
@@ -144,7 +151,7 @@ The storage ownership rule from Refactor 35/36 is: direct sealed-session storage
 changes belong in `session/persistence/*`; restore orchestration and method
 folders consume normalized recovery records.
 
-The registration ownership rule is: wallet-subject, authenticator, and signer
+The registration ownership rule is: wallet, authenticator, and signer
 records are the source of truth. NEAR profile/account state and display caches
 are projections that can be rebuilt from those records.
 
@@ -155,7 +162,7 @@ canonical database:
 
 ```ts
 export const SEAMS_WALLET_DB_NAME = 'seams_wallet' as const;
-export const SEAMS_WALLET_DB_VERSION = 1 as const;
+export const SEAMS_WALLET_DB_VERSION = 3 as const;
 ```
 
 The unified database replaces all current runtime databases:
@@ -181,17 +188,16 @@ and `session/persistence/*` must not receive raw snake_case storage rows.
 Repository normalizers are the casing and validation boundary. They must verify
 that scalar index mirrors match the nested domain object they summarize, for
 example `chain_target_key`, `exact_signing_lane_identity_key`, and
-`wallet_subject_kind_chain_target_key_handle`.
+`wallet_kind_chain_target_key_handle`.
 
 Identity vocabulary:
 
 | Field | Meaning | Source-of-truth rule |
 | --- | --- | --- |
-| `wallet_subject_id` | Canonical local wallet identity produced by wallet-subject registration. | Source-of-truth registration, authenticator, signer, and projection stores key by this field. |
-| `wallet_id` | Protocol/session wallet identifier used by ECDSA, Email OTP, signing-session, and relayer-facing records. | For wallet-subject-backed rows it must derive from or equal `wallet_subject_id` at the repository boundary. |
+| `wallet_id` | Canonical local wallet identity for registration, auth methods, signers, and projections. | Source-of-truth registration, authenticator, signer, and projection stores key by this field. |
 | `near_account_id` | NEAR account projection for Ed25519 wallets. | Projection only; never creates source-of-truth wallet, authenticator, signer, or key-material rows. |
-| `auth_subject_id` | External auth subject for Email OTP/OIDC-style auth methods. | Selects an auth-method binding only together with `wallet_subject_id` and auth-method kind. |
-| `user_id` | Legacy/protocol field still present in some shared sealed/session payloads. | New unified rows should prefer `wallet_subject_id` or `wallet_id`; include `user_id` only when an existing protocol record requires it. |
+| `auth_subject_id` | External auth subject for Email OTP/OIDC-style auth methods. | Selects an auth-method binding only together with `wallet_id` and auth-method kind. |
+| `user_id` | Legacy/protocol field still present in some shared sealed/session payloads. | New unified rows should prefer `wallet_id`; include `user_id` only when an existing protocol record requires it. |
 | `profile_id` | Legacy `PasskeyClientDB` profile vocabulary. | Banned from source-of-truth rows; allowed only as a derived projection field while old profile-facing APIs still exist. |
 
 IndexedDB mode behavior after consolidation:
@@ -202,23 +208,23 @@ IndexedDB mode behavior after consolidation:
 | `app` | Open `seams_wallet` in the app origin only for non-iframe SDK usage where the app owns persistence. |
 | `disabled` | Open no IndexedDB database and run no legacy deletion. Use this when wallet-iframe mode routes persistence to the wallet origin. |
 
-Canonical object stores after the registration auth-method follow-up:
+Canonical object stores after the store-name cleanup:
 
 | Store | Role | Replaces or absorbs |
 | --- | --- | --- |
-| `seams_app_state` | local UI/session preferences such as the last selected wallet | `appState` |
-| `seams_wallet_subjects` | wallet-subject records keyed by `walletSubjectId` | new source of truth from registration rework |
-| `seams_wallet_auth_methods` | branch-specific passkey, Email OTP, and future auth-method rows keyed by wallet subject and branch identifier; passkey rows include WebAuthn credential material | `profileAuthenticators`, WebAuthn binding projections, and `WalletAuthMethodBinding` rows |
-| `seams_wallet_signers` | Ed25519 and ECDSA active signer records keyed by wallet subject | `chainAccounts`, `accountSigners`, and ECDSA profile metadata |
-| `seams_near_accounts` | derived NEAR profile/account projection for Ed25519 wallets | `profiles` and `chainAccounts` read models |
-| `seams_signer_ops_outbox` | durable signer mutation outbox | `signerOpsOutbox` |
-| `seams_recovery_emails` | recovery email hints keyed by wallet subject | `recoveryEmailsV2` |
-| `seams_nonce_lane_leases` | durable nonce lane leases | `nonceLaneLeasesV1` |
-| `seams_nonce_lane_locks` | durable nonce lane locks | `nonceLaneLocksV1` |
-| `seams_key_material` | encrypted local key-material envelopes keyed by wallet signer identity | `keyMaterial` in `PasskeyAccountKeyMaterial` |
-| `seams_signing_session_seals` | durable sealed signing-session records | `signing_session_seals_v1` |
-| `seams_signing_session_restore_leases` | restore-attempt leases for sealed sessions | `signing_session_restore_leases_v1` |
-| `seams_email_otp_escrows` | Email OTP device enrollment escrow records | `email_otp_device_enrollment_escrows_v1` |
+| `app_state` | local UI/session preferences such as the last selected wallet | `appState`, `seams_app_state` |
+| `wallets` | wallet records keyed by `walletId` | `seams_wallets` |
+| `wallet_auth_methods` | branch-specific passkey, Email OTP, and future auth-method rows keyed by wallet and branch identifier; passkey rows include WebAuthn credential material | `profileAuthenticators`, WebAuthn binding projections, `WalletAuthMethodBinding` rows, and `seams_wallet_auth_methods` |
+| `wallet_signers` | Ed25519 and ECDSA active signer records keyed by wallet | `chainAccounts`, `accountSigners`, ECDSA profile metadata, and `seams_wallet_signers` |
+| `near_accounts` | derived NEAR profile/account projection for Ed25519 wallets | `profiles`, `chainAccounts` read models, and `seams_near_accounts` |
+| `signer_ops_outbox` | durable signer mutation outbox | `signerOpsOutbox` and `seams_signer_ops_outbox` |
+| `recovery_emails` | recovery email hints keyed by wallet | `recoveryEmailsV2` and `seams_recovery_emails` |
+| `nonce_lane_leases` | durable nonce lane leases | `nonceLaneLeasesV1` and `seams_nonce_lane_leases` |
+| `nonce_lane_locks` | durable nonce lane locks | `nonceLaneLocksV1` and `seams_nonce_lane_locks` |
+| `key_material` | encrypted local key-material envelopes keyed by wallet signer identity | `keyMaterial` in `PasskeyAccountKeyMaterial` and `seams_key_material` |
+| `signing_session_seals` | durable sealed signing-session records | `signing_session_seals_v1` and `seams_signing_session_seals` |
+| `signing_session_restore_leases` | restore-attempt leases for sealed sessions | `signing_session_restore_leases_v1` and `seams_signing_session_restore_leases` |
+| `email_otp_escrows` | Email OTP device enrollment escrow records | `email_otp_device_enrollment_escrows_v1` and `seams_email_otp_escrows` |
 
 Index names should also be snake_case. They do not need the `seams_` prefix
 because they are scoped under a Seams-prefixed object store. The canonical index
@@ -228,18 +234,16 @@ inventory is:
 'profile_id'
 'credential_id'
 'credential_id_b64u'
-'wallet_auth_method_id'
-'auth_identifier_key'
-'kind_rp_id_auth_identifier'
 'profile_id_credential_id'
 'profile_id_signer_slot'
 'updated_at'
-'wallet_subject_id'
-'wallet_subject_id_rp_id'
-'wallet_subject_id_kind'
-'wallet_subject_kind_near_signer_slot'
-'wallet_subject_kind_chain_target_key_handle'
-'wallet_subject_kind_chain_target_key_facts'
+'wallet_id'
+'wallet_id_rp_id'
+'wallet_id_kind'
+'wallet_kind_near_signer_slot'
+'wallet_kind_chain_target_key_handle'
+'wallet_kind_chain_target_key_facts'
+'wallet_signer_id'
 'near_account_id'
 'rp_id'
 'rp_id_credential_id'
@@ -264,7 +268,6 @@ inventory is:
 'owner_id'
 'chain_id_key_key_kind'
 'public_key'
-'wallet_id'
 'user_id'
 'auth_method'
 'curve'
@@ -281,6 +284,9 @@ inventory is:
 'enrollment_id'
 'wallet_id_auth_subject_id'
 'wallet_id_auth_subject_id_enrollment_id'
+'auth_identifier_key'
+'kind_rp_id_auth_identifier'
+'passkey_rp_id_credential_id'
 ```
 
 ## Non-Negotiable Rules
@@ -303,9 +309,9 @@ inventory is:
    `session/sealedRecovery/recoveryRecord.ts`. Restore, flow, budget,
    availability, identity, and operation-state code consumes normalized
    discriminated records.
-10. Wallet-subject signer records are the source of truth for active signers.
+10. Wallet signer records are the source of truth for active signers.
     NEAR profile/account rows are projections and must be written only after the
-    wallet-subject records are committed.
+    wallet records are committed.
 11. Wallet auth-method rows are the source of truth for local passkey,
     Email OTP, and future authentication methods. Passkey rows store the
     WebAuthn credential material on the same branch-specific record.
@@ -314,7 +320,7 @@ inventory is:
     address, participant ids, and concrete `chainTarget`.
 13. Store every indexed complex identity as a canonical scalar field on the
     record. Examples: `chain_target_key`, `exact_signing_lane_identity_key`,
-    and `wallet_subject_kind_chain_target_key_handle`.
+    and `wallet_kind_chain_target_key_handle`.
 14. Repository normalizers must validate that scalar index fields match the
     nested domain object they summarize.
 15. Raw IndexedDB row fields, key paths, and index key paths use `snake_case`.
@@ -329,21 +335,22 @@ Add one schema-name module:
 ```ts
 // client/src/core/indexedDB/schemaNames.ts
 export const SEAMS_WALLET_DB_NAME = 'seams_wallet' as const;
+export const SEAMS_WALLET_DB_VERSION = 3 as const;
 
 export const SEAMS_WALLET_STORES = {
-  appState: 'seams_app_state',
-  walletSubjects: 'seams_wallet_subjects',
-  walletAuthMethods: 'seams_wallet_auth_methods',
-  walletSigners: 'seams_wallet_signers',
-  nearAccountProjections: 'seams_near_accounts',
-  signerOpsOutbox: 'seams_signer_ops_outbox',
-  recoveryEmails: 'seams_recovery_emails',
-  nonceLaneLeases: 'seams_nonce_lane_leases',
-  nonceLaneLocks: 'seams_nonce_lane_locks',
-  keyMaterial: 'seams_key_material',
-  signingSessionSeals: 'seams_signing_session_seals',
-  signingSessionRestoreLeases: 'seams_signing_session_restore_leases',
-  emailOtpDeviceEnrollmentEscrows: 'seams_email_otp_escrows',
+  appState: 'app_state',
+  wallets: 'wallets',
+  walletAuthMethods: 'wallet_auth_methods',
+  walletSigners: 'wallet_signers',
+  nearAccountProjections: 'near_accounts',
+  signerOpsOutbox: 'signer_ops_outbox',
+  recoveryEmails: 'recovery_emails',
+  nonceLaneLeases: 'nonce_lane_leases',
+  nonceLaneLocks: 'nonce_lane_locks',
+  keyMaterial: 'key_material',
+  signingSessionSeals: 'signing_session_seals',
+  signingSessionRestoreLeases: 'signing_session_restore_leases',
+  emailOtpDeviceEnrollmentEscrows: 'email_otp_escrows',
 } as const;
 ```
 
@@ -370,7 +377,7 @@ type SeamsWalletDbManager = {
 
 type SeamsWalletRepositories = {
   appState: AppStateRepository;
-  walletSubjects: WalletSubjectRepository;
+  wallets: WalletRepository;
   walletAuthMethods: WalletAuthMethodRepository;
   walletSigners: WalletSignerRepository;
   nearAccountProjections: NearAccountProjectionRepository;
@@ -406,19 +413,19 @@ indexes, uniqueness, record owners, and repository ownership.
 
 | Store | Key path | Required indexes | Repository owner |
 | --- | --- | --- | --- |
-| `seams_app_state` | `key` | none beyond key path | `AppStateRepository` |
-| `seams_wallet_subjects` | `wallet_subject_id` | `rp_id`, `status`, `updated_at` | `WalletSubjectRepository` |
-| `seams_wallet_auth_methods` | `wallet_auth_method_id` | `wallet_subject_id`, `wallet_subject_id_kind`, `auth_method`, `rp_id`, `auth_identifier_key`, `kind_rp_id_auth_identifier`, `passkey_rp_id_credential_id`, `status`, `updated_at`; unique `kind_rp_id_auth_identifier` prevents duplicate branch identifiers per RP, and unique `passkey_rp_id_credential_id` keeps WebAuthn credential lookup direct | `WalletAuthMethodRepository` |
-| `seams_wallet_signers` | `wallet_signer_id` | `wallet_subject_id`, `wallet_subject_id_kind`, `wallet_subject_kind_near_signer_slot`, `wallet_subject_kind_chain_target_key_handle`, `wallet_subject_kind_chain_target_key_facts`, `chain_target_key`, `key_handle`, `threshold_owner_address`, `status`, `updated_at` | `WalletSignerRepository` |
-| `seams_near_accounts` | `['wallet_subject_id', 'near_account_id', 'signer_slot']` | `near_account_id`, `profile_id`, `public_key`, `updated_at` | `NearAccountProjectionRepository` |
-| `seams_signer_ops_outbox` | `op_id` | `status`, `next_attempt_at`, `status_next_attempt_at`, `idempotency_key`, `wallet_subject_id`, `chain_target_key` | `SignerOpsOutboxRepository` |
-| `seams_recovery_emails` | `['wallet_subject_id', 'hash_hex']` | `wallet_subject_id`, `updated_at` | `RecoveryEmailRepository` |
-| `seams_nonce_lane_leases` | `lease_id` | `lane_key`, `account_id`, `state`, `expires_at_ms`, `lane_state`, `account_expires_at` | `NonceLaneCoordinationRepository` |
-| `seams_nonce_lane_locks` | `lock_key` | `expires_at_ms`, `owner_id` | `NonceLaneCoordinationRepository` |
-| `seams_key_material` | `key_material_id` | `wallet_subject_id`, `wallet_signer_id`, `chain_target_key`, `key_handle`, `public_key`, `updated_at` | `KeyMaterialRepository` |
-| `seams_signing_session_seals` | `store_key` | `wallet_id`, `wallet_subject_id`, `auth_method`, `curve`, `wallet_signing_session_id`, `ed25519_threshold_session_id`, `ecdsa_threshold_session_id`, `threshold_session_id`, `key_handle`, `chain_target_key`, `exact_signing_lane_identity_key`, `expires_at_ms`, `updated_at` | `SigningSessionSealRepository` through `session/persistence/*` |
-| `seams_signing_session_restore_leases` | `lease_key` | `wallet_signing_session_id`, `threshold_session_id`, `owner_id`, `expires_at_ms` | `SigningSessionRestoreLeaseRepository` through `session/persistence/*` |
-| `seams_email_otp_escrows` | `['wallet_id', 'auth_subject_id', 'enrollment_id']` | `wallet_id`, `auth_subject_id`, `enrollment_id`, `wallet_id_auth_subject_id`, `wallet_id_auth_subject_id_enrollment_id`, `signing_root_id` | `EmailOtpDeviceEnrollmentEscrowRepository` |
+| `app_state` | `key` | none beyond key path | `AppStateRepository` |
+| `wallets` | `wallet_id` | `rp_id`, `status`, `updated_at` | `WalletRepository` |
+| `wallet_auth_methods` | `wallet_auth_method_id` | `wallet_id`, `wallet_id_kind`, `auth_method`, `rp_id`, `auth_identifier_key`, `kind_rp_id_auth_identifier`, `passkey_rp_id_credential_id`, `status`, `updated_at`; unique `kind_rp_id_auth_identifier` prevents duplicate branch identifiers per RP, and unique `passkey_rp_id_credential_id` keeps WebAuthn credential lookup direct | `WalletAuthMethodRepository` |
+| `wallet_signers` | `wallet_signer_id` | `wallet_id`, `wallet_id_kind`, `wallet_kind_near_signer_slot`, `wallet_kind_chain_target_key_handle`, `wallet_kind_chain_target_key_facts`, `chain_target_key`, `key_handle`, `threshold_owner_address`, `status`, `updated_at` | `WalletSignerRepository` |
+| `near_accounts` | `['wallet_id', 'near_account_id', 'signer_slot']` | `near_account_id`, `profile_id`, `public_key`, `updated_at` | `NearAccountProjectionRepository` |
+| `signer_ops_outbox` | `op_id` | `status`, `next_attempt_at`, `status_next_attempt_at`, `idempotency_key`, `wallet_id`, `chain_target_key` | `SignerOpsOutboxRepository` |
+| `recovery_emails` | `['wallet_id', 'hash_hex']` | `wallet_id`, `updated_at` | `RecoveryEmailRepository` |
+| `nonce_lane_leases` | `lease_id` | `lane_key`, `account_id`, `state`, `expires_at_ms`, `lane_state`, `account_expires_at` | `NonceLaneCoordinationRepository` |
+| `nonce_lane_locks` | `lock_key` | `expires_at_ms`, `owner_id` | `NonceLaneCoordinationRepository` |
+| `key_material` | `key_material_id` | `wallet_id`, `wallet_signer_id`, `chain_target_key`, `key_handle`, `public_key`, `updated_at` | `KeyMaterialRepository` |
+| `signing_session_seals` | `store_key` | `wallet_id`, `auth_method`, `curve`, `wallet_signing_session_id`, `ed25519_threshold_session_id`, `ecdsa_threshold_session_id`, `threshold_session_id`, `key_handle`, `chain_target_key`, `exact_signing_lane_identity_key`, `expires_at_ms`, `updated_at` | `SigningSessionSealRepository` through `session/persistence/*` |
+| `signing_session_restore_leases` | `lease_key` | `wallet_signing_session_id`, `threshold_session_id`, `owner_id`, `expires_at_ms` | `SigningSessionRestoreLeaseRepository` through `session/persistence/*` |
+| `email_otp_escrows` | `['wallet_id', 'auth_subject_id', 'enrollment_id']` | `wallet_id`, `auth_subject_id`, `enrollment_id`, `wallet_id_auth_subject_id`, `wallet_id_auth_subject_id_enrollment_id`, `signing_root_id` | `EmailOtpDeviceEnrollmentEscrowRepository` |
 
 Schema manifest rules:
 
@@ -431,10 +438,10 @@ Schema manifest rules:
    `chain_target_key` from the canonical chain-target encoder and validate it at
    the repository boundary.
 4. Unique wallet-signer constraints:
-   - Ed25519: `wallet_subject_kind_near_signer_slot`.
-   - ECDSA selector: `wallet_subject_kind_chain_target_key_handle`.
+   - Ed25519: `wallet_kind_near_signer_slot`.
+   - ECDSA selector: `wallet_kind_chain_target_key_handle`.
    - ECDSA key-facts lookup:
-     `wallet_subject_kind_chain_target_key_facts`.
+     `wallet_kind_chain_target_key_facts`.
 5. Unique auth-method constraints:
    `kind_rp_id_auth_identifier`, where `auth_identifier_key` is the passkey
    `credentialIdB64u`, Email OTP `emailHashHex`, or future branch-specific
@@ -443,7 +450,7 @@ Schema manifest rules:
    branch-specific auth-method data, and the repository normalizer must reject
    mixed passkey/Email OTP fields.
 6. WebAuthn credential material is stored on the passkey branch of
-   `seams_wallet_auth_methods`.
+   `wallet_auth_methods`.
 7. Unique Email OTP escrow constraint:
    `wallet_id_auth_subject_id_enrollment_id`.
 8. Repository tests should snapshot the manifest so store names, key paths,
@@ -455,24 +462,24 @@ Use one `seams_wallet` readwrite transaction for changes that must become
 visible together. These flows must go through `SeamsWalletDbManager.runTransaction(...)`
 or a repository batch method that uses it internally:
 
-1. Wallet registration finalize writes `seams_wallet_subjects`,
-   branch-specific `seams_wallet_auth_methods`, `seams_wallet_signers`, `seams_key_material`,
-   and then `seams_near_accounts` when an Ed25519 result exists.
+1. Wallet registration finalize writes `wallets`,
+   branch-specific `wallet_auth_methods`, `wallet_signers`, `key_material`,
+   and then `near_accounts` when an Ed25519 result exists.
 2. ECDSA-only registration writes no NEAR projection rows and skips NEAR profile
    continuity helpers.
 3. Add-signer finalize writes the wallet signer and key-material envelope in the
    same transaction.
-4. Signer mutation outbox writes should include the wallet-subject identity and
+4. Signer mutation outbox writes should include the wallet identity and
    idempotency key in the same transaction as any local projection update they
    schedule.
 5. Signing-session seal and restore-lease updates should share a transaction
    when a restore attempt reserves, consumes, deletes, or clears records.
-6. Projection writers never create source-of-truth wallet-subject, authenticator,
+6. Projection writers never create source-of-truth wallet, authenticator,
    signer, or key-material records.
 
 All relayer responses, worker outputs, and wallet registration bootstrap material
 must be validated and normalized before opening the transaction. A failed parser
-must leave no wallet-subject, projection, key-material, warm-session, or
+must leave no wallet, projection, key-material, warm-session, or
 signing-session side effect behind.
 
 Registration finalize must use one named repository batch instead of a sequence
@@ -481,7 +488,7 @@ implementation, but the plan assumes an API with this ownership:
 
 ```ts
 type PersistWalletRegistrationFinalizeInput = {
-  walletSubject: NormalizedWalletSubjectRecord;
+  wallet: NormalizedWalletRecord;
   initialAuthMethodBinding: WalletAuthMethodBinding;
   passkeyAuthenticator?: NormalizedWebAuthnAuthenticatorRecord;
   walletSigners: readonly NormalizedWalletSignerRecord[];
@@ -508,14 +515,14 @@ Run this phase after `docs/rework-registration-flows-2.md`,
 are complete enough that their public types and repository ports have
 stabilized.
 
-1. Rescan current wallet-subject, authenticator, signer, key-material,
+1. Rescan current wallet, authenticator, signer, key-material,
    signing-session, Email OTP escrow, nonce, and outbox persistence callers.
-2. Update `SEAMS_WALLET_SCHEMA_MANIFEST` to match the final wallet-subject,
+2. Update `SEAMS_WALLET_SCHEMA_MANIFEST` to match the final wallet,
    registration auth-method, Refactor 40 HSS v2, Refactor 41 identity, and
    Refactor 42 strict-union types.
-3. Confirm whether `seams_near_accounts` needs one store or separate
+3. Confirm whether `near_accounts` needs one store or separate
    NEAR profile/account projection stores. Keep projection stores derived from
-   wallet-subject source records.
+   wallet source records.
 4. Confirm the canonical scalar encoders for:
    - `chain_target_key`
    - `exact_signing_lane_identity_key`
@@ -567,7 +574,7 @@ stabilized.
 7. [x] Add an import-boundary guard that keeps `IDBDatabase`, `IDBTransaction`,
    `IDBObjectStore`, and `IDBRequest` usage inside IndexedDB repository modules,
    the wallet DB manager, and focused repository tests.
-8. [x] Add a registration persistence guard proving source-of-truth wallet-subject
+8. [x] Add a registration persistence guard proving source-of-truth wallet
    writes happen before NEAR projection writes in registration code.
 9. [x] Record the current post-refactor 33/35/36/39/40 IndexedDB callsite inventory
    before moving repositories. Use the canonical `flows/`, `session/`,
@@ -584,44 +591,44 @@ stabilized.
 ### Phase 2. Create the Unified Schema
 
 1. [x] Introduce `SeamsWalletDBManager` with `SEAMS_WALLET_DB_NAME`.
-2. [x] Create current wallet-subject source-of-truth stores first:
-   - `seams_wallet_subjects`
-   - `seams_wallet_auth_methods`
-   - `seams_wallet_signers`
-   - `seams_near_accounts`
+2. [x] Create current wallet source-of-truth stores first:
+   - `wallets`
+   - `wallet_auth_methods`
+   - `wallet_signers`
+   - `near_accounts`
 3. [x] Add the first-class branch-specific auth-method store:
-   - `seams_wallet_auth_methods`
+   - `wallet_auth_methods`
    This store carries passkey, Email OTP, and future auth-method branches.
 4. [x] Replace the existing `PasskeyClientDB` responsibilities with unified-schema
-   wallet-subject repositories and NEAR projection repositories.
+   wallet repositories and NEAR projection repositories.
    - [x] Moved app-state rows, recovery-email hints, nonce-lane leases, and
      nonce-lane locks behind `SeamsWalletRepositories` backed by
      `seams_wallet`.
    - [x] Added strict `seams_wallet` repository methods for profile records in
-     `seams_wallet_subjects` and chain-account projection rows in
-     `seams_near_accounts`.
-   - [x] Added wallet-subject repository methods for signer lifecycle rows in
-     `seams_wallet_signers` and signer mutation rows in
-     `seams_signer_ops_outbox`, with snake_case scalar mirrors validated
+     `wallets` and chain-account projection rows in
+     `near_accounts`.
+   - [x] Added wallet repository methods for signer lifecycle rows in
+     `wallet_signers` and signer mutation rows in
+     `signer_ops_outbox`, with snake_case scalar mirrors validated
      against the nested signer/outbox records.
    - [x] Moved authenticator reads/writes and prompt selection to the passkey
-     branch of `seams_wallet_auth_methods` through `SeamsWalletRepositories`.
+     branch of `wallet_auth_methods` through `SeamsWalletRepositories`.
    - [x] Moved preference updates and profile deletion cleanup to
-     `SeamsWalletRepositories`, including wallet-subject, projection,
+     `SeamsWalletRepositories`, including wallet, projection,
      authenticator, signer, outbox, recovery-email, and key-material rows.
-   - [x] Add `seams_wallet_auth_methods` repository methods for passkey and
+   - [x] Add `wallet_auth_methods` repository methods for passkey and
      Email OTP rows, with scalar mirrors validated against the discriminated
      auth-method branch.
 5. [x] Replace `PasskeyAccountKeyMaterial` with the unified schema as
-   `seams_key_material`, keyed by wallet signer identity instead of profile id
+   `key_material`, keyed by wallet signer identity instead of profile id
    and signer slot.
-   - [x] Added `seams_key_material` repository methods for store, read, list,
+   - [x] Added `key_material` repository methods for store, read, list,
      and delete, with snake_case scalar mirrors validated against the nested
      key-material record.
    - [x] Routed `UnifiedIndexedDBManager` key-material convenience methods and
      local signer reconciliation through `SeamsWalletRepositories`.
    - [x] Repointed NEAR/signing key-material ports to the unified manager so
-     those paths use `seams_key_material` through the repository surface.
+     those paths use `key_material` through the repository surface.
    - [x] Migrated focused key-material, local signer reconciliation, and signer
      mutation saga browser tests off `PasskeyAccountKeyMaterial-*` databases.
    - [x] Replaced remaining direct `accountKeyMaterialDB` dependency-property
@@ -633,10 +640,10 @@ stabilized.
      `chainIdKey`, and `accountAddress` are required together, and replaced
      conditional spread construction with explicit record builders.
 6. [x] Replace signing-session sealed records with unified-schema stores:
-   - `seams_signing_session_seals`
-   - `seams_signing_session_restore_leases`
+   - `signing_session_seals`
+   - `signing_session_restore_leases`
 7. [x] Replace Email OTP device enrollment escrow records with a unified-schema store:
-   - `seams_email_otp_escrows`
+   - `email_otp_escrows`
 8. [x] This is a code responsibility move only. Existing browser data in old
    databases is discarded; do not read legacy databases to seed `seams_wallet`.
 9. [x] Keep all record schemas strict. Do not add compatibility reads for old object
@@ -653,7 +660,7 @@ stabilized.
    ports.
    - [x] Routed `UnifiedIndexedDBManager` app-state, recovery-email, and
      nonce-lane methods through `SeamsWalletRepositories`.
-   - [x] Routed last-profile selection state through `seams_app_state` via
+   - [x] Routed last-profile selection state through `app_state` via
      `SeamsWalletRepositories` and `UnifiedIndexedDBManager`.
    - [x] Repointed runtime callsites from direct `clientDB` access to the
      `UnifiedIndexedDBManager` projection, profile, authenticator, and signer
@@ -702,8 +709,8 @@ stabilized.
      `keyMaterial.*` names.
 3. Replace direct IndexedDB logic inside
    `client/src/core/signingEngine/session/persistence/sealedSessionStore.ts`
-   with calls to the `seams_signing_session_seals` and
-   `seams_signing_session_restore_leases` repositories on the unified wallet DB.
+   with calls to the `signing_session_seals` and
+   `signing_session_restore_leases` repositories on the unified wallet DB.
    Keep sealed-store APIs and raw-record classification in `session/persistence/*`.
    - [x] Moved raw sealed-session IndexedDB opens, cursors, record writes, and
      restore-lease transactions into
@@ -716,7 +723,7 @@ stabilized.
 5. Move Email OTP device enrollment escrow reads/writes from
    `client/src/core/signingEngine/workerManager/workers/email-otp/deviceEnrollmentEscrowStore.ts`
    into a
-   `seams_email_otp_escrows` repository on the unified wallet
+   `email_otp_escrows` repository on the unified wallet
    DB.
    - [x] Moved the Email OTP device-enrollment escrow raw IndexedDB code into
      `indexedDB/seamsWalletDB/emailOtpDeviceEnrollmentEscrows.ts`; the worker
@@ -730,7 +737,7 @@ stabilized.
 7. [x] Reduce `UnifiedIndexedDBManager` to a compatibility facade over
    `SeamsWalletRepositories` and repository-shaped ports.
 8. [x] Add `persistWalletRegistrationFinalize(...)` or an equivalent batch method
-   over wallet subject, branch-specific auth method,
+   over wallet, branch-specific auth method,
    wallet signer, key-material, and NEAR projection stores. Registration
    finalize paths must call this batch instead of awaiting several independent
    persistence methods.
@@ -762,7 +769,7 @@ stabilized.
    - `webauthnAuth/device/*`
    - `walletAuth/webauthn/*`
    - `workerManager/workers/email-otp/*`
-10. [x] Replace profile/account/signer source-of-truth calls with wallet-subject
+10. [x] Replace profile/account/signer source-of-truth calls with wallet
    repository calls. Keep NEAR profile access behind projection repositories.
 11. [x] Delete old manager files once no production import remains.
 12. [x] Confirm `seams_wallet` is the only runtime database opened by the wallet
@@ -803,6 +810,8 @@ Add or update tests for:
 1. [x] New installs create only `seams_wallet` for wallet-origin persistence.
 2. [x] App-origin iframe mode creates no app-origin IndexedDB database.
 3. [x] All object stores in `seams_wallet` are `seams_*` and snake_case.
+   Phase 6 supersedes this completed intermediate state by removing the
+   redundant store prefix.
 4. [x] Store key paths, index names, and unique flags match
    `SEAMS_WALLET_SCHEMA_MANIFEST`.
 5. [x] Legacy databases are deleted when present.
@@ -819,16 +828,17 @@ Add or update tests for:
      reconciliation, and signer mutation saga tests use `seams_test_wallet_*`.
    - [x] Remaining legacy unique test DB names in unit helpers were removed.
 9. [x] Architecture guards reject new IndexedDB database names or stores that are not
-   `seams_*` snake_case.
+   `seams_*` snake_case. Phase 6 will replace the store-name half of this guard
+   with unprefixed snake_case expectations inside `seams_wallet`.
 10. [x] Architecture guards reject direct `indexedDB.open(...)` and raw IndexedDB
     object types outside the wallet DB manager, repositories, and focused tests.
     - [x] Added a runtime-callsite guard rejecting direct
       `IndexedDBManager.clientDB` / `*.indexedDB.clientDB` access outside the
       unified IndexedDB manager.
-11. [x] Wallet registration finalize writes wallet-subject records before NEAR
+11. [x] Wallet registration finalize writes wallet records before NEAR
     projection rows and leaves no projection rows for ECDSA-only registration.
 12. [x] Wallet registration finalize uses the named atomic batch and persists exactly
-    one initial auth-method binding. A failed batch leaves no wallet-subject,
+    one initial auth-method binding. A failed batch leaves no wallet,
     auth-method binding, signer, key-material, or projection rows behind.
 13. [x] Auth-method binding repositories reject invalid passkey/Email OTP branch
     combinations, duplicate branch identifiers for the same RP, and scalar
@@ -865,10 +875,10 @@ Existing tests to revisit during implementation:
    ports replace compatibility adapters.
 3. [x] `sealedSessionStore.unit.test.ts` should keep raw sealed-record fixtures
    scoped to `session/persistence/*` while asserting unified
-   `seams_signing_session_seals` repository behavior. Legacy `seams_wallet_v1`
+   `signing_session_seals` repository behavior. Legacy `seams_wallet_v1`
    coverage should exist only as an explicit deletion/no-read guard.
 4. [x] `emailOtpDeviceEnrollmentEscrowStore.unit.test.ts` should assert unified
-   `seams_email_otp_escrows` repository behavior.
+   `email_otp_escrows` repository behavior.
 5. [x] `availableSigningLanes.*`, `touchConfirm.workerRouter.*`,
    `thresholdEd25519.registrationWarmSession.*`, and post-refactor 33 operation
    tests should use the repository assembly rather than the old
@@ -878,18 +888,77 @@ Existing tests to revisit during implementation:
    normalized recovery-record builders from Refactor 36.
 7. [x] `accountData/near/*` and `webauthnAuth/device/*` tests should update
    `PasskeyClientDBManager`-shaped ports to the new repository-shaped ports.
-8. [x] Registration tests should write through wallet-subject repositories and treat
+8. [x] Registration tests should write through wallet repositories and treat
    NEAR profile rows as projections.
 9. [x] Refactor 41 budget and freshness tests should use repository fixtures that
    provide exact lane identity and canonical scalar identity keys.
 
-### Phase 6. Manual Verification
+### Phase 6. Remove Redundant Store Prefixes
 
-1. Clear site data for all local wallet/app origins.
-2. Create a fresh passkey account.
-3. Create a fresh Email OTP account.
-4. Confirm DevTools IndexedDB shows only Seams-prefixed DBs for each origin.
-5. Verify:
+Status: completed.
+
+The database name `seams_wallet` is the product namespace. Object stores inside
+that database should use concise local table names without the redundant
+`seams_` prefix.
+
+Target rename:
+
+| Current store | Target store |
+| --- | --- |
+| `seams_app_state` | `app_state` |
+| `seams_wallets` | `wallets` |
+| `seams_wallet_auth_methods` | `wallet_auth_methods` |
+| `seams_wallet_signers` | `wallet_signers` |
+| `seams_near_accounts` | `near_accounts` |
+| `seams_signer_ops_outbox` | `signer_ops_outbox` |
+| `seams_recovery_emails` | `recovery_emails` |
+| `seams_nonce_lane_leases` | `nonce_lane_leases` |
+| `seams_nonce_lane_locks` | `nonce_lane_locks` |
+| `seams_key_material` | `key_material` |
+| `seams_signing_session_seals` | `signing_session_seals` |
+| `seams_signing_session_restore_leases` | `signing_session_restore_leases` |
+| `seams_email_otp_escrows` | `email_otp_escrows` |
+
+Rules:
+
+1. Keep the IndexedDB database name `seams_wallet`.
+2. Bump `SEAMS_WALLET_DB_VERSION`.
+3. Update `SEAMS_WALLET_STORES` to the target names above.
+4. Delete obsolete `seams_*` stores during schema upgrade. Do not add
+   compatibility readers or dual-write paths.
+5. Keep index names unchanged unless they contain stale domain vocabulary; index
+   names are scoped by store and already omit the product prefix.
+6. Update schema manifest tests, IndexedDB consolidation guards, repository
+   fixtures, and docs to expect unprefixed store names.
+7. Update guard wording: runtime database names stay `seams_*`; object store
+   names must be `snake_case` and must not use the redundant `seams_` prefix
+   inside `seams_wallet`.
+8. Run focused validation:
+   - `pnpm -C tests exec playwright test ./unit/indexedDBConsolidation.guard.unit.test.ts --reporter=line`
+   - `pnpm -C sdk type-check`
+   - `git diff --check`
+
+### Phase 7. Manual Verification
+
+Status: pending manual evidence. Automated checks are complete, but this
+section stays open until a human run records explicit results.
+
+Latest automated evidence (2026-05-28):
+
+- `pnpm -C tests exec playwright test ./unit/passkeyClientDB.deviceSelection.test.ts --reporter=line`
+  passed (15/15)
+- `pnpm -C tests exec playwright test ./unit/indexedDBConsolidation.guard.unit.test.ts --reporter=line`
+  passed (17/17) after Phase 6 store-prefix cleanup
+- `pnpm -C tests exec playwright test ./unit/emailOtpDeviceEnrollmentEscrowStore.unit.test.ts ./unit/sealedSessionStore.unit.test.ts ./unit/nonceCoordinator.durableArchitecture.guard.unit.test.ts --reporter=line`
+  passed (28/28)
+- `pnpm -C sdk type-check` passed
+
+1. [ ] Clear site data for all local wallet/app origins.
+2. [ ] Create a fresh passkey account.
+3. [ ] Create a fresh Email OTP account.
+4. [ ] Confirm DevTools IndexedDB shows only the `seams_wallet` database for each
+   wallet-owning origin, with unprefixed snake_case object stores.
+5. [ ] Verify:
    - wallet unlock
    - passkey sealed-session restore after page refresh
    - Email OTP sealed-session restore after page refresh
@@ -900,28 +969,30 @@ Existing tests to revisit during implementation:
    - ED25519 key export
    - ECDSA key export
    - Email OTP export recovery
-6. Repeat in wallet-iframe mode and confirm the app origin does not create local
+6. [ ] Repeat in wallet-iframe mode and confirm the app origin does not create local
    IndexedDB state.
 
 ## Completion Criteria
 
 - Runtime code has one canonical IndexedDB database name: `seams_wallet`.
-- Every Seams object store is `seams_*` snake_case.
+- The canonical IndexedDB database is product-prefixed as `seams_wallet`.
+- Object stores inside `seams_wallet` are unprefixed `snake_case` names.
 - Raw IndexedDB row key paths, index key paths, and scalar mirror fields are
   `snake_case`; repository APIs return normalized domain types.
-- No production runtime code references old database names.
+- No production runtime code references old database names outside the explicit
+  delete-only cleanup boundary.
 - No production runtime code reads or migrates old IndexedDB databases.
 - `disabled` mode opens no wallet database and runs no legacy database deletion.
-- Wallet-subject records, branch-specific auth methods,
+- Wallet records, branch-specific auth methods,
   signer records, key material, NEAR projections, nonce coordination,
   signing-session seals, and Email OTP enrollment escrow records live under the
   unified wallet DB.
 - Wallet auth-methods are first-class local rows under
-  `seams_wallet_auth_methods`; passkey rows carry WebAuthn credential material.
-- Wallet registration finalize uses one repository batch for wallet subject,
+  `wallet_auth_methods`; passkey rows carry WebAuthn credential material.
+- Wallet registration finalize uses one repository batch for wallet,
   initial auth-method branch, signer records,
   key material, and optional NEAR projections.
-- Wallet-subject signer records are the active-signer source of truth; NEAR
+- Wallet signer records are the active-signer source of truth; NEAR
   profile/account rows are derived projections.
 - ECDSA active signer records contain direct `keyHandle`, required key facts,
   owner address, participant ids, and concrete `chainTarget`.

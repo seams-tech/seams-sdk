@@ -5,10 +5,6 @@ export type NearWalletRequestType =
   | 'PM_REGISTER'
   | 'PM_REGISTER_WALLET'
   | 'PM_ADD_WALLET_SIGNER'
-  | 'PM_UNLOCK'
-  | 'PM_LOCK'
-  | 'PM_GET_WALLET_SESSION'
-  | 'PM_GET_RECENT_UNLOCKS'
   | 'PM_PREFETCH_BLOCKHEIGHT'
   | 'PM_SIGN_TXS_WITH_ACTIONS'
   | 'PM_SIGN_AND_SEND_TXS'
@@ -16,6 +12,11 @@ export type NearWalletRequestType =
   | 'PM_EXECUTE_ACTION'
   | 'PM_SIGN_DELEGATE_ACTION'
   | 'PM_SIGN_NEP413';
+export type AuthWalletRequestType =
+  | 'PM_UNLOCK'
+  | 'PM_LOCK'
+  | 'PM_GET_WALLET_SESSION'
+  | 'PM_GET_RECENT_UNLOCKS';
 export type EcdsaWalletRequestType =
   | 'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION'
   | 'PM_SIGN_TEMPO'
@@ -33,10 +34,14 @@ export type EmailOtpWalletRequestType =
   | 'PM_ENROLL_EMAIL_OTP'
   | 'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY'
   | 'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION'
-  | 'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY'
+  | 'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY';
+export type RecoveryWalletRequestType =
+  | 'PM_GET_RECOVERY_EMAILS'
+  | 'PM_SET_RECOVERY_EMAILS'
   | 'PM_START_EMAIL_RECOVERY'
   | 'PM_FINALIZE_EMAIL_RECOVERY'
-  | 'PM_STOP_EMAIL_RECOVERY';
+  | 'PM_STOP_EMAIL_RECOVERY'
+  | 'PM_SYNC_ACCOUNT_FLOW';
 export type ExportWalletRequestType =
   | 'PM_EXPORT_KEYPAIR_UI'
   | 'PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI';
@@ -68,6 +73,11 @@ export type WalletHostRoute =
       request: Extract<ParentToChildEnvelope, { type: NearWalletRequestType }>;
     }
   | {
+      kind: 'auth';
+      type: AuthWalletRequestType;
+      request: Extract<ParentToChildEnvelope, { type: AuthWalletRequestType }>;
+    }
+  | {
       kind: 'ecdsa';
       type: EcdsaWalletRequestType;
       request: Extract<ParentToChildEnvelope, { type: EcdsaWalletRequestType }>;
@@ -76,6 +86,11 @@ export type WalletHostRoute =
       kind: 'email_otp';
       type: EmailOtpWalletRequestType;
       request: Extract<ParentToChildEnvelope, { type: EmailOtpWalletRequestType }>;
+    }
+  | {
+      kind: 'recovery';
+      type: RecoveryWalletRequestType;
+      request: Extract<ParentToChildEnvelope, { type: RecoveryWalletRequestType }>;
     }
   | {
       kind: 'export';
@@ -107,10 +122,6 @@ export function routeWalletHostRequest(request: ParentToChildEnvelope): WalletHo
     case 'PM_REGISTER':
     case 'PM_REGISTER_WALLET':
     case 'PM_ADD_WALLET_SIGNER':
-    case 'PM_UNLOCK':
-    case 'PM_LOCK':
-    case 'PM_GET_WALLET_SESSION':
-    case 'PM_GET_RECENT_UNLOCKS':
     case 'PM_PREFETCH_BLOCKHEIGHT':
     case 'PM_SIGN_TXS_WITH_ACTIONS':
     case 'PM_SIGN_AND_SEND_TXS':
@@ -119,6 +130,12 @@ export function routeWalletHostRequest(request: ParentToChildEnvelope): WalletHo
     case 'PM_SIGN_DELEGATE_ACTION':
     case 'PM_SIGN_NEP413':
       return { kind: 'near', type: request.type, request };
+
+    case 'PM_UNLOCK':
+    case 'PM_LOCK':
+    case 'PM_GET_WALLET_SESSION':
+    case 'PM_GET_RECENT_UNLOCKS':
+      return { kind: 'auth', type: request.type, request };
 
     case 'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION':
     case 'PM_SIGN_TEMPO':
@@ -138,10 +155,15 @@ export function routeWalletHostRequest(request: ParentToChildEnvelope): WalletHo
     case 'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY':
     case 'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION':
     case 'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY':
+      return { kind: 'email_otp', type: request.type, request };
+
     case 'PM_START_EMAIL_RECOVERY':
     case 'PM_FINALIZE_EMAIL_RECOVERY':
     case 'PM_STOP_EMAIL_RECOVERY':
-      return { kind: 'email_otp', type: request.type, request };
+    case 'PM_GET_RECOVERY_EMAILS':
+    case 'PM_SET_RECOVERY_EMAILS':
+    case 'PM_SYNC_ACCOUNT_FLOW':
+      return { kind: 'recovery', type: request.type, request };
 
     case 'PM_EXPORT_KEYPAIR_UI':
     case 'PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI':
@@ -153,11 +175,8 @@ export function routeWalletHostRequest(request: ParentToChildEnvelope): WalletHo
     case 'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA':
     case 'PM_START_DEVICE2_LINKING_FLOW':
     case 'PM_STOP_DEVICE2_LINKING_FLOW':
-    case 'PM_SYNC_ACCOUNT_FLOW':
       return { kind: 'device_link', type: request.type, request };
 
-    case 'PM_GET_RECOVERY_EMAILS':
-    case 'PM_SET_RECOVERY_EMAILS':
     case 'PM_SET_CONFIRM_BEHAVIOR':
     case 'PM_SET_CONFIRMATION_CONFIG':
     case 'PM_GET_CONFIRMATION_CONFIG':

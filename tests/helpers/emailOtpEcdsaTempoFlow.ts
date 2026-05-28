@@ -967,13 +967,13 @@ export async function runEmailOtpReloadPhase(
           openRequest.onerror = () => resolve(null);
           openRequest.onsuccess = () => resolve(openRequest.result);
         });
-        if (!db || !Array.from(db.objectStoreNames).includes('seams_signing_session_seals')) {
+        if (!db || !Array.from(db.objectStoreNames).includes('signing_session_seals')) {
           db?.close();
           return [];
         }
         try {
-          const tx = db.transaction('seams_signing_session_seals', 'readonly');
-          const store = tx.objectStore('seams_signing_session_seals');
+          const tx = db.transaction('signing_session_seals', 'readonly');
+          const store = tx.objectStore('signing_session_seals');
           const getAllRequest = store.getAll();
           const values = await new Promise<unknown[]>((resolve) => {
             getAllRequest.onerror = () => resolve([]);

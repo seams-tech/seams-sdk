@@ -169,7 +169,7 @@ formats from entering the SDK.
   Deterministic derivation needs replay policy; stateful generation needs
   storage and deletion policy.
 - [ ] **Sender ephemeral authorization scope.** Define the exact context bound
-  into a relayer ephemeral contribution: wallet subject, rp id, chain id,
+  into a relayer ephemeral contribution: wallet, rp id, chain id,
   recipient spend/view keys, request nonce, origin/runtime policy scope, and
   expiry.
 - [ ] **Sender endpoint response.** Decide whether the server returns only
@@ -560,7 +560,7 @@ Add a threshold sender flow that does one-time ephemeral derivation:
 type ThresholdErc5564SenderEphemeralRequest = {
   kind: 'threshold_erc5564_sender_ephemeral';
   relayerUrl: string;
-  walletSubjectId: WalletSubjectId;
+  walletId: WalletId;
   recipient: Erc5564StealthMetaAddress;
   chainId: number;
   requestNonce32: Uint8Array;
@@ -582,7 +582,7 @@ client ephemeral scalar.
 Persistence:
 
 - Prefer stateless deterministic relayer derivation from a server secret,
-  request nonce, recipient keys, chain id, and wallet subject.
+  request nonce, recipient keys, chain id, and wallet.
 - If stateful replay protection is required, store only a request digest and
   expiry. Do not store the relayer scalar.
 

@@ -208,6 +208,54 @@ export async function prepareThresholdEd25519RegistrationHssClientMaterial(args:
   };
 }
 
+export async function prepareThresholdEd25519RegistrationHssClientMaterialFromPrfFirst(args: {
+  context: PasskeyManagerContext;
+  prfFirstB64u: string;
+  signingRootId: string;
+  nearAccountId: AccountId;
+  keyPurpose: string;
+  keyVersion: string;
+  participantIds: number[];
+  derivationVersion: number;
+  onProgress?: (message: string) => void;
+}): Promise<ThresholdEd25519RegistrationHssClientMaterial> {
+  const prfFirstB64u = String(args.prfFirstB64u || '').trim();
+  if (!prfFirstB64u) {
+    throw new Error('Missing PRF.first material for threshold Ed25519 HSS registration');
+  }
+  const prepared =
+    await args.context.signingEngine.prepareThresholdEd25519HssClientCeremonyFromPrfFirst({
+      prfFirstB64u,
+      signingRootId: args.signingRootId,
+      nearAccountId: String(args.nearAccountId),
+      keyPurpose: args.keyPurpose,
+      keyVersion: args.keyVersion,
+      participantIds: args.participantIds,
+      derivationVersion: args.derivationVersion,
+      onProgress: args.onProgress,
+    });
+  if (!prepared.ok) {
+    throw new Error(prepared.message || 'Failed to prepare threshold Ed25519 HSS registration');
+  }
+
+  return {
+    hssContext: {
+      signingRootId: args.signingRootId,
+      nearAccountId: args.nearAccountId,
+      keyPurpose: args.keyPurpose,
+      keyVersion: args.keyVersion,
+      participantIds: prepared.participantIds,
+      derivationVersion: args.derivationVersion,
+    },
+    prfFirstB64u,
+    clientInputs: {
+      contextBindingB64u: prepared.contextBindingB64u,
+      yClientB64u: prepared.yClientB64u,
+      tauClientB64u: prepared.tauClientB64u,
+    },
+  };
+}
+
 export async function prepareThresholdEd25519RegistrationHssClientRequest(args: {
   context: PasskeyManagerContext;
   material: ThresholdEd25519RegistrationHssClientMaterial;

@@ -55,19 +55,6 @@ pub fn secp256k1_private_key_32_to_public_key_33(
     result
 }
 
-pub fn derive_threshold_secp256k1_relayer_share(
-    mut master_secret: Vec<u8>,
-    relayer_key_id: String,
-) -> Result<Vec<u8>, JsValue> {
-    let result = signer_platform_web::secp256k1::derive_threshold_secp256k1_relayer_share(
-        master_secret.as_slice(),
-        relayer_key_id.as_str(),
-    )
-    .map_err(js_core_err);
-    master_secret.zeroize();
-    result
-}
-
 pub fn secp256k1_public_key_33_to_ethereum_address_20(
     public_key33: Vec<u8>,
 ) -> Result<Vec<u8>, JsValue> {

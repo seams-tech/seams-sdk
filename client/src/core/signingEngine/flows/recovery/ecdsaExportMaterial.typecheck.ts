@@ -91,7 +91,7 @@ const freshNeedsChallengeMissingRuntimeScope: FreshEmailOtpEcdsaExportMaterialNe
 void freshNeedsChallengeMissingRuntimeScope;
 
 // @ts-expect-error wallet-session subject branch rejects explicit auth subjects.
-const freshNeedsChallengeWalletSubjectWithAuthSubject: FreshEmailOtpEcdsaExportMaterialNeedsChallenge = {
+const freshNeedsChallengeWalletWithAuthSubject: FreshEmailOtpEcdsaExportMaterialNeedsChallenge = {
   kind: 'fresh_email_otp_needs_challenge',
   authSubjectMode: 'wallet_session_subject',
   chainTarget: record.chainTarget,
@@ -99,7 +99,7 @@ const freshNeedsChallengeWalletSubjectWithAuthSubject: FreshEmailOtpEcdsaExportM
   runtimePolicyScope,
   authSubjectId: 'google:alice',
 };
-void freshNeedsChallengeWalletSubjectWithAuthSubject;
+void freshNeedsChallengeWalletWithAuthSubject;
 
 const freshRouteAuthReadyMaterial: FreshEmailOtpEcdsaExportMaterialRouteAuthReady = {
   kind: 'fresh_email_otp_route_auth_ready',

@@ -5,7 +5,7 @@ import type {
   ThresholdEcdsaChainTarget,
   ThresholdStoreConfigInput,
   WalletRegistrationEcdsaWalletKey,
-  WalletSubjectId,
+  WalletId,
 } from './types';
 import {
   THRESHOLD_DO_OBJECT_NAME_DEFAULT,
@@ -18,28 +18,17 @@ import {
 } from '../storage/postgres';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 
-export type WalletSubjectRecord = {
-  version: 'wallet_subject_v1';
-  walletSubjectId: WalletSubjectId;
+export type WalletRecord = {
+  version: 'wallet_v1';
+  walletId: WalletId;
   rpId: string;
   createdAtMs: number;
   updatedAtMs: number;
 };
 
-export type WalletSubjectAuthenticatorRecord = {
-  version: 'wallet_authenticator_v1';
-  walletSubjectId: WalletSubjectId;
-  rpId: string;
-  credentialIdB64u: string;
-  credentialPublicKeyB64u: string;
-  counter: number;
-  createdAtMs: number;
-  updatedAtMs: number;
-};
-
-export type WalletSubjectEd25519SignerRecord = {
+export type WalletEd25519SignerRecord = {
   version: 'wallet_signer_ed25519_v1';
-  walletSubjectId: WalletSubjectId;
+  walletId: WalletId;
   rpId: string;
   signerId: string;
   nearAccountId: string;
@@ -55,9 +44,9 @@ export type WalletSubjectEd25519SignerRecord = {
   updatedAtMs: number;
 };
 
-export type WalletSubjectEcdsaSignerRecord = {
+export type WalletEcdsaSignerRecord = {
   version: 'wallet_signer_ecdsa_v1';
-  walletSubjectId: WalletSubjectId;
+  walletId: WalletId;
   rpId: string;
   signerId: string;
   chainTargetKey: string;
@@ -67,15 +56,14 @@ export type WalletSubjectEcdsaSignerRecord = {
   updatedAtMs: number;
 };
 
-export type WalletSubjectSignerRecord =
-  | WalletSubjectEd25519SignerRecord
-  | WalletSubjectEcdsaSignerRecord;
+export type WalletSignerRecord =
+  | WalletEd25519SignerRecord
+  | WalletEcdsaSignerRecord;
 
-export interface WalletSubjectStore {
-  putSubject(record: WalletSubjectRecord): Promise<void>;
-  putAuthenticator(record: WalletSubjectAuthenticatorRecord): Promise<void>;
-  putSigner(record: WalletSubjectSignerRecord): Promise<void>;
-  putSigners(records: readonly WalletSubjectSignerRecord[]): Promise<void>;
+export interface WalletStore {
+  putSubject(record: WalletRecord): Promise<void>;
+  putSigner(record: WalletSignerRecord): Promise<void>;
+  putSigners(records: readonly WalletSignerRecord[]): Promise<void>;
 }
 
 function isObject(v: unknown): v is Record<string, unknown> {
@@ -92,12 +80,12 @@ function toPrefixWithColon(prefix: unknown, defaultPrefix: string): string {
   return p.endsWith(':') ? p : `${p}:`;
 }
 
-export function resolveWalletSubjectStoreNamespace(config: Record<string, unknown>): string {
-  const explicit = toOptionalTrimmedString(config.WALLET_SUBJECT_PREFIX);
+export function resolveWalletStoreNamespace(config: Record<string, unknown>): string {
+  const explicit = toOptionalTrimmedString(config.WALLET_PREFIX);
   if (explicit) return toPrefixWithColon(explicit, '');
   const base = toOptionalTrimmedString(config.THRESHOLD_PREFIX) || THRESHOLD_PREFIX_DEFAULT;
   const baseWithColon = toPrefixWithColon(base, `${THRESHOLD_PREFIX_DEFAULT}:`);
-  return `${baseWithColon}wallet-subject:`;
+  return `${baseWithColon}wallet:`;
 }
 
 function resolveDoNamespaceFromConfig(
@@ -114,31 +102,31 @@ function resolveDoNamespaceFromConfig(
   return null;
 }
 
-function signerFamily(record: WalletSubjectSignerRecord): 'ed25519' | 'ecdsa' {
+function signerFamily(record: WalletSignerRecord): 'ed25519' | 'ecdsa' {
   return record.version === 'wallet_signer_ed25519_v1' ? 'ed25519' : 'ecdsa';
 }
 
-function recordChainTargetKey(record: WalletSubjectSignerRecord): string | null {
+function recordChainTargetKey(record: WalletSignerRecord): string | null {
   return record.version === 'wallet_signer_ecdsa_v1' ? record.chainTargetKey : null;
 }
 
-export function buildWalletSubjectEd25519SignerId(input: {
+export function buildWalletEd25519SignerId(input: {
   nearAccountId: string;
   signerSlot: number;
 }): string {
   return `ed25519:${String(input.nearAccountId || '').trim()}:${Math.max(1, Math.floor(Number(input.signerSlot) || 1))}`;
 }
 
-export function buildWalletSubjectEcdsaSignerRecord(input: {
-  walletSubjectId: WalletSubjectId;
+export function buildWalletEcdsaSignerRecord(input: {
+  walletId: WalletId;
   walletKey: WalletRegistrationEcdsaWalletKey;
   createdAtMs: number;
   updatedAtMs: number;
-}): WalletSubjectEcdsaSignerRecord {
+}): WalletEcdsaSignerRecord {
   const chainTargetKey = thresholdEcdsaChainTargetKey(input.walletKey.chainTarget);
   return {
     version: 'wallet_signer_ecdsa_v1',
-    walletSubjectId: input.walletSubjectId,
+    walletId: input.walletId,
     rpId: input.walletKey.rpId,
     signerId: `ecdsa:${chainTargetKey}`,
     chainTargetKey,
@@ -149,26 +137,26 @@ export function buildWalletSubjectEcdsaSignerRecord(input: {
   };
 }
 
-export async function putWalletSubjectRecordWithExecutor(input: {
+export async function putWalletRecordWithExecutor(input: {
   executor: PgQueryExecutor;
   namespace: string;
-  record: WalletSubjectRecord;
+  record: WalletRecord;
 }): Promise<void> {
   const { record } = input;
   await input.executor.query(
     `
-      INSERT INTO wallet_subjects
-        (namespace, wallet_subject_id, rp_id, record_json, created_at_ms, updated_at_ms)
+      INSERT INTO wallets
+        (namespace, wallet_id, rp_id, record_json, created_at_ms, updated_at_ms)
       VALUES ($1, $2, $3, $4::jsonb, $5, $6)
-      ON CONFLICT (namespace, wallet_subject_id) DO UPDATE SET
+      ON CONFLICT (namespace, wallet_id) DO UPDATE SET
         rp_id = EXCLUDED.rp_id,
         record_json = EXCLUDED.record_json,
-        created_at_ms = LEAST(wallet_subjects.created_at_ms, EXCLUDED.created_at_ms),
-        updated_at_ms = GREATEST(wallet_subjects.updated_at_ms, EXCLUDED.updated_at_ms)
+        created_at_ms = LEAST(wallets.created_at_ms, EXCLUDED.created_at_ms),
+        updated_at_ms = GREATEST(wallets.updated_at_ms, EXCLUDED.updated_at_ms)
     `,
     [
       input.namespace,
-      record.walletSubjectId,
+      record.walletId,
       record.rpId,
       JSON.stringify(record),
       record.createdAtMs,
@@ -177,47 +165,10 @@ export async function putWalletSubjectRecordWithExecutor(input: {
   );
 }
 
-export async function putWalletSubjectAuthenticatorRecordWithExecutor(input: {
+export async function putWalletSignerRecordWithExecutor(input: {
   executor: PgQueryExecutor;
   namespace: string;
-  record: WalletSubjectAuthenticatorRecord;
-}): Promise<void> {
-  const { record } = input;
-  await input.executor.query(
-    `
-      INSERT INTO wallet_authenticators
-        (
-          namespace,
-          wallet_subject_id,
-          rp_id,
-          credential_id_b64u,
-          record_json,
-          created_at_ms,
-          updated_at_ms
-        )
-      VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
-      ON CONFLICT (namespace, wallet_subject_id, credential_id_b64u) DO UPDATE SET
-        rp_id = EXCLUDED.rp_id,
-        record_json = EXCLUDED.record_json,
-        created_at_ms = LEAST(wallet_authenticators.created_at_ms, EXCLUDED.created_at_ms),
-        updated_at_ms = GREATEST(wallet_authenticators.updated_at_ms, EXCLUDED.updated_at_ms)
-    `,
-    [
-      input.namespace,
-      record.walletSubjectId,
-      record.rpId,
-      record.credentialIdB64u,
-      JSON.stringify(record),
-      record.createdAtMs,
-      record.updatedAtMs,
-    ],
-  );
-}
-
-export async function putWalletSubjectSignerRecordWithExecutor(input: {
-  executor: PgQueryExecutor;
-  namespace: string;
-  record: WalletSubjectSignerRecord;
+  record: WalletSignerRecord;
 }): Promise<void> {
   const { record } = input;
   await input.executor.query(
@@ -225,7 +176,7 @@ export async function putWalletSubjectSignerRecordWithExecutor(input: {
       INSERT INTO wallet_signers
         (
           namespace,
-          wallet_subject_id,
+          wallet_id,
           signer_family,
           signer_id,
           chain_target_key,
@@ -234,7 +185,7 @@ export async function putWalletSubjectSignerRecordWithExecutor(input: {
           updated_at_ms
         )
       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
-      ON CONFLICT (namespace, wallet_subject_id, signer_family, signer_id) DO UPDATE SET
+      ON CONFLICT (namespace, wallet_id, signer_family, signer_id) DO UPDATE SET
         chain_target_key = EXCLUDED.chain_target_key,
         record_json = EXCLUDED.record_json,
         created_at_ms = LEAST(wallet_signers.created_at_ms, EXCLUDED.created_at_ms),
@@ -242,7 +193,7 @@ export async function putWalletSubjectSignerRecordWithExecutor(input: {
     `,
     [
       input.namespace,
-      record.walletSubjectId,
+      record.walletId,
       signerFamily(record),
       record.signerId,
       recordChainTargetKey(record),
@@ -253,73 +204,56 @@ export async function putWalletSubjectSignerRecordWithExecutor(input: {
   );
 }
 
-class InMemoryWalletSubjectStore implements WalletSubjectStore {
-  private readonly subjects = new Map<string, WalletSubjectRecord>();
-  private readonly authenticators = new Map<string, WalletSubjectAuthenticatorRecord>();
-  private readonly signers = new Map<string, WalletSubjectSignerRecord>();
+class InMemoryWalletStore implements WalletStore {
+  private readonly subjects = new Map<string, WalletRecord>();
+  private readonly signers = new Map<string, WalletSignerRecord>();
 
   constructor(private readonly prefix: string) {}
 
-  async putSubject(record: WalletSubjectRecord): Promise<void> {
-    this.subjects.set(`${this.prefix}${record.walletSubjectId}`, record);
+  async putSubject(record: WalletRecord): Promise<void> {
+    this.subjects.set(`${this.prefix}${record.walletId}`, record);
   }
 
-  async putAuthenticator(record: WalletSubjectAuthenticatorRecord): Promise<void> {
-    this.authenticators.set(
-      `${this.prefix}${record.walletSubjectId}:${record.credentialIdB64u}`,
-      record,
-    );
-  }
-
-  async putSigner(record: WalletSubjectSignerRecord): Promise<void> {
+  async putSigner(record: WalletSignerRecord): Promise<void> {
     this.signers.set(
-      `${this.prefix}${record.walletSubjectId}:${signerFamily(record)}:${record.signerId}`,
+      `${this.prefix}${record.walletId}:${signerFamily(record)}:${record.signerId}`,
       record,
     );
   }
 
-  async putSigners(records: readonly WalletSubjectSignerRecord[]): Promise<void> {
+  async putSigners(records: readonly WalletSignerRecord[]): Promise<void> {
     for (const record of records) {
       await this.putSigner(record);
     }
   }
 }
 
-class PostgresWalletSubjectStore implements WalletSubjectStore {
+class PostgresWalletStore implements WalletStore {
   private readonly poolPromise: ReturnType<typeof getPostgresPool>;
 
   constructor(private readonly input: { postgresUrl: string; namespace: string }) {
     this.poolPromise = getPostgresPool(input.postgresUrl);
   }
 
-  async putSubject(record: WalletSubjectRecord): Promise<void> {
+  async putSubject(record: WalletRecord): Promise<void> {
     const pool = await this.poolPromise;
-    await putWalletSubjectRecordWithExecutor({
+    await putWalletRecordWithExecutor({
       executor: pool,
       namespace: this.input.namespace,
       record,
     });
   }
 
-  async putAuthenticator(record: WalletSubjectAuthenticatorRecord): Promise<void> {
+  async putSigner(record: WalletSignerRecord): Promise<void> {
     const pool = await this.poolPromise;
-    await putWalletSubjectAuthenticatorRecordWithExecutor({
+    await putWalletSignerRecordWithExecutor({
       executor: pool,
       namespace: this.input.namespace,
       record,
     });
   }
 
-  async putSigner(record: WalletSubjectSignerRecord): Promise<void> {
-    const pool = await this.poolPromise;
-    await putWalletSubjectSignerRecordWithExecutor({
-      executor: pool,
-      namespace: this.input.namespace,
-      record,
-    });
-  }
-
-  async putSigners(records: readonly WalletSubjectSignerRecord[]): Promise<void> {
+  async putSigners(records: readonly WalletSignerRecord[]): Promise<void> {
     for (const record of records) {
       await this.putSigner(record);
     }
@@ -328,7 +262,7 @@ class PostgresWalletSubjectStore implements WalletSubjectStore {
 
 type DurableObjectStubLike = { fetch(input: RequestInfo, init?: RequestInit): Promise<Response> };
 
-class CloudflareDurableObjectWalletSubjectStore implements WalletSubjectStore {
+class CloudflareDurableObjectWalletStore implements WalletStore {
   private readonly stub: DurableObjectStubLike;
 
   constructor(private readonly input: {
@@ -340,7 +274,7 @@ class CloudflareDurableObjectWalletSubjectStore implements WalletSubjectStore {
     this.stub = input.namespace.get(id) as unknown as DurableObjectStubLike;
   }
 
-  private key(scope: 'subject' | 'authenticator' | 'signer', id: string): string {
+  private key(scope: 'subject' | 'signer', id: string): string {
     return `${this.input.prefix}${scope}:${id}`;
   }
 
@@ -351,66 +285,59 @@ class CloudflareDurableObjectWalletSubjectStore implements WalletSubjectStore {
       body: JSON.stringify({ op: 'set', key, value }),
     });
     if (!response.ok) {
-      throw new Error(`Wallet subject DO store HTTP ${response.status}: ${await response.text()}`);
+      throw new Error(`Wallet DO store HTTP ${response.status}: ${await response.text()}`);
     }
   }
 
-  async putSubject(record: WalletSubjectRecord): Promise<void> {
-    await this.put(this.key('subject', record.walletSubjectId), record);
+  async putSubject(record: WalletRecord): Promise<void> {
+    await this.put(this.key('subject', record.walletId), record);
   }
 
-  async putAuthenticator(record: WalletSubjectAuthenticatorRecord): Promise<void> {
+  async putSigner(record: WalletSignerRecord): Promise<void> {
     await this.put(
-      this.key('authenticator', `${record.walletSubjectId}:${record.credentialIdB64u}`),
+      this.key('signer', `${record.walletId}:${signerFamily(record)}:${record.signerId}`),
       record,
     );
   }
 
-  async putSigner(record: WalletSubjectSignerRecord): Promise<void> {
-    await this.put(
-      this.key('signer', `${record.walletSubjectId}:${signerFamily(record)}:${record.signerId}`),
-      record,
-    );
-  }
-
-  async putSigners(records: readonly WalletSubjectSignerRecord[]): Promise<void> {
+  async putSigners(records: readonly WalletSignerRecord[]): Promise<void> {
     for (const record of records) {
       await this.putSigner(record);
     }
   }
 }
 
-export function createWalletSubjectStore(input: {
+export function createWalletStore(input: {
   config?: ThresholdStoreConfigInput | null;
   logger: NormalizedLogger;
   isNode: boolean;
-}): WalletSubjectStore {
+}): WalletStore {
   const config = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
-  const prefix = resolveWalletSubjectStoreNamespace(config);
+  const prefix = resolveWalletStoreNamespace(config);
   const kind = toOptionalTrimmedString(config.kind);
   if (kind === 'cloudflare-do') {
     const namespace = resolveDoNamespaceFromConfig(config);
     if (!namespace) {
       throw new Error(
-        'cloudflare-do wallet-subject store selected but no Durable Object namespace was provided',
+        'cloudflare-do wallet store selected but no Durable Object namespace was provided',
       );
     }
     const objectName =
       trimString(config.objectName) || trimString(config.name) || THRESHOLD_DO_OBJECT_NAME_DEFAULT;
-    input.logger.info('[wallet-subject] Using Cloudflare Durable Object store');
-    return new CloudflareDurableObjectWalletSubjectStore({ namespace, objectName, prefix });
+    input.logger.info('[wallet] Using Cloudflare Durable Object store');
+    return new CloudflareDurableObjectWalletStore({ namespace, objectName, prefix });
   }
   const postgresUrl = getPostgresUrlFromConfig(config);
   if (kind === 'postgres' || postgresUrl) {
     if (!input.isNode) {
-      throw new Error('[wallet-subject] Postgres store is not supported in this runtime');
+      throw new Error('[wallet] Postgres store is not supported in this runtime');
     }
     if (!postgresUrl) {
-      throw new Error('[wallet-subject] postgres store enabled but POSTGRES_URL is not set');
+      throw new Error('[wallet] postgres store enabled but POSTGRES_URL is not set');
     }
-    input.logger.info('[wallet-subject] Using Postgres store');
-    return new PostgresWalletSubjectStore({ postgresUrl, namespace: prefix });
+    input.logger.info('[wallet] Using Postgres store');
+    return new PostgresWalletStore({ postgresUrl, namespace: prefix });
   }
-  input.logger.info('[wallet-subject] Using in-memory store (non-persistent)');
-  return new InMemoryWalletSubjectStore(prefix);
+  input.logger.info('[wallet] Using in-memory store (non-persistent)');
+  return new InMemoryWalletStore(prefix);
 }

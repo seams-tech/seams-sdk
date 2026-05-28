@@ -1,6 +1,6 @@
 import type { AccountId } from '@/core/types/accountIds';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
-import type { WalletSubjectId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   EcdsaBootstrapRequest,
@@ -14,7 +14,7 @@ import type {
 } from '../identity/evmFamilyEcdsaIdentity';
 
 declare const walletId: AccountId;
-declare const subjectId: WalletSubjectId;
+declare const subjectId: WalletId;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const webauthnAuthentication: WebAuthnAuthenticationCredential;
 declare const keyHandle: EvmFamilyEcdsaKeyHandle;

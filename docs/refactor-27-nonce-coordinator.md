@@ -5,7 +5,7 @@ Date created: 2026-04-26
 Status: active nonce plan. EVM-family nonce identity must follow the concrete
 ECDSA lane model from
 [signing-session-architecture/](signing-session-architecture/): protocol-neutral
-`WalletSubjectId` plus concrete `ThresholdEcdsaChainTarget`. NEAR nonce lanes
+`WalletId` plus concrete `ThresholdEcdsaChainTarget`. NEAR nonce lanes
 remain access-key scoped by NEAR account and public key.
 
 ## Objective
@@ -120,7 +120,7 @@ Nonce lanes should be explicit and chain-specific without duplicating lifecycle
 logic.
 
 ```ts
-type WalletSubjectId = string & { readonly __brand: 'WalletSubjectId' };
+type WalletId = string & { readonly __brand: 'WalletId' };
 
 type ThresholdEcdsaChainTarget =
   | { kind: 'evm'; namespace: 'eip155'; chainId: number; networkSlug: string }
@@ -133,7 +133,7 @@ type NonceLane =
       networkKey: string;
       sender: `0x${string}`;
       nonceKey?: bigint;
-      subjectId: WalletSubjectId;
+      subjectId: WalletId;
     }
   | {
       family: 'near';
@@ -144,7 +144,7 @@ type NonceLane =
 ```
 
 For EVM-family lanes, `chainTarget` is the concrete ECDSA chain identity and
-`subjectId` is the protocol-neutral wallet subject. Raw collapsed
+`subjectId` is the protocol-neutral wallet. Raw collapsed
 `chain: 'evm' | 'tempo'` strings are request/config boundary data only; they
 must be normalized to `ThresholdEcdsaChainTarget` before reaching nonce
 internals. `nonceKey` remains available for account-abstraction or chain-specific
@@ -172,7 +172,7 @@ type NonceBudgetSessionContext =
     }
   | {
       kind: 'threshold_ecdsa';
-      subjectId: WalletSubjectId;
+      subjectId: WalletId;
       chainTarget: ThresholdEcdsaChainTarget;
       authMethod: 'email_otp' | 'passkey';
       walletSigningSessionId: string;
@@ -482,7 +482,7 @@ leases with those budget reservations, but it must not decrement or refill
        budget exactly once and reconciles nonce state.
    - Legacy signing-session budget finalizer tests were deleted during the
      concrete ECDSA lane-identity cleanup. Replace them with concrete
-     `WalletSubjectId + ThresholdEcdsaChainTarget` budget/nonce tests rather
+     `WalletId + ThresholdEcdsaChainTarget` budget/nonce tests rather
      than restoring collapsed `chainFamily` fixtures.
 4. [ ] Add tests that two in-flight wallet-session reservations exhaust local
        availability for the third transaction.
@@ -1132,7 +1132,7 @@ is broadly right, but EVM-family nonce identity must catch up with the concrete
 ECDSA identity work in the signing-session state machine, and transition
 fingerprint binding must be enforced by code rather than only described by the
 state machine. Internally, nonce lanes should use concrete
-`ThresholdEcdsaChainTarget` and protocol-neutral `WalletSubjectId`. Raw
+`ThresholdEcdsaChainTarget` and protocol-neutral `WalletId`. Raw
 `evm`/`tempo` strings should survive only at SDK, iframe, config, and RPC request
 boundaries, where they are normalized before nonce code runs.
 
@@ -1144,7 +1144,7 @@ boundaries, where they are normalized before nonce code runs.
      for equality and lane key material.
    - Keep raw `chain: 'evm' | 'tempo'` only at request/config boundaries.
 2. [ ] Replace ECDSA nonce `accountId` / `nearAccountId` authority with
-       `WalletSubjectId`.
+       `WalletId`.
    - Keep NEAR account ids where they are actually NEAR access-key lane
      identity.
    - Do not use account-primary or collapsed account strings as ECDSA nonce
@@ -1216,7 +1216,7 @@ boundaries, where they are normalized before nonce code runs.
 10. Every nonce lifecycle transition verifies both `operationId` and
     `operationFingerprint`.
 11. EVM-family nonce identity uses concrete `ThresholdEcdsaChainTarget` and
-    `WalletSubjectId` internally; raw `evm`/`tempo` strings appear only at
+    `WalletId` internally; raw `evm`/`tempo` strings appear only at
     normalization boundaries.
 
 ## Related Docs

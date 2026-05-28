@@ -38,8 +38,8 @@ test.describe('nonce coordinator durable architecture guards', () => {
     );
     const store = readRepoSource('client/src/core/indexedDB/nonceLaneCoordinationStore.ts');
 
-    expect(schemaNames).toContain("nonceLaneLeases: 'seams_nonce_lane_leases'");
-    expect(schemaNames).toContain("nonceLaneLocks: 'seams_nonce_lane_locks'");
+    expect(schemaNames).toContain("nonceLaneLeases: 'nonce_lane_leases'");
+    expect(schemaNames).toContain("nonceLaneLocks: 'nonce_lane_locks'");
     expect(repositories).toContain('SeamsWalletRepositories');
     expect(repositories).toContain('readNonceLaneLeaseRecords');
     expect(schemaNames).not.toContain('nonceLaneLeasesV1');

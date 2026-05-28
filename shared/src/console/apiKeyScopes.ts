@@ -1,6 +1,7 @@
 export const API_CREDENTIAL_SCOPES = [
   'accounts.create',
   'wallets.read',
+  'wallets.auth_methods.create',
   'wallets.signers.create',
 ] as const;
 
@@ -23,6 +24,10 @@ const API_CREDENTIAL_SCOPE_METADATA: Record<
   'wallets.read': {
     label: 'Read wallets',
     description: 'Allows backend access to list, search, and read wallets within the key environment.',
+  },
+  'wallets.auth_methods.create': {
+    label: 'Create wallet auth methods',
+    description: 'Allows backend bootstrap flows to attach new wallet auth methods.',
   },
   'wallets.signers.create': {
     label: 'Create wallet signers',

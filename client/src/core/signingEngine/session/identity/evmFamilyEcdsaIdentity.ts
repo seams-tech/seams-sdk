@@ -18,10 +18,9 @@ import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
   toWalletId,
-  walletSubjectIdFromWalletProfile,
+  walletIdFromWalletProfile,
   type ThresholdEcdsaChainTarget,
   type WalletId,
-  type WalletSubjectId,
 } from '../../interfaces/ecdsaChainTarget';
 import {
   SigningSessionIds,
@@ -33,7 +32,7 @@ import type {
   ThresholdSessionKind,
 } from '../../threshold/sessionPolicy';
 
-export type { WalletId, WalletSubjectId, ThresholdEcdsaSessionId, WalletSigningSessionId };
+export type { WalletId, ThresholdEcdsaSessionId, WalletSigningSessionId };
 
 export type RpId = string & { readonly __brand: 'RpId' };
 export type EcdsaThresholdKeyId = string & { readonly __brand: 'EcdsaThresholdKeyId' };
@@ -55,7 +54,7 @@ export type EmailOtpAuthSubjectId = string & {
 export type EmailOtpProviderId = string & {
   readonly __brand: 'EmailOtpProviderId';
 };
-export type BaseEcdsaSubjectId = WalletSubjectId & {
+export type BaseEcdsaSubjectId = WalletId & {
   readonly __baseEcdsaSubjectIdBrand: 'BaseEcdsaSubjectId';
 };
 export type VerifiedThresholdSessionAuth = string & {
@@ -818,7 +817,7 @@ export function buildSessionBootstrapKeyContext(input: {
 export function deriveBaseEcdsaSubjectIdFromWalletId(
   walletId: WalletId | string,
 ): BaseEcdsaSubjectId {
-  return walletSubjectIdFromWalletProfile({
+  return walletIdFromWalletProfile({
     walletId: toWalletId(walletId),
   }) as BaseEcdsaSubjectId;
 }

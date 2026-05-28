@@ -294,7 +294,7 @@ test.describe('AuthService OIDC exchange verification', () => {
     );
   });
 
-  test('Google Email OTP login repairs missing wallet subject link from finalized enrollment', async () => {
+  test('Google Email OTP login repairs missing wallet link from finalized enrollment', async () => {
     const service = makeService();
     const registered = await service.resolveGoogleEmailOtpSession({
       providerSubject: 'google:subject-orphaned-enrollment',

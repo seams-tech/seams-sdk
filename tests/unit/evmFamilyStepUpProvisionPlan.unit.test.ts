@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { toAccountId } from '../../client/src/core/types/accountIds';
 import {
-  toWalletSubjectId,
+  toWalletId,
   type ThresholdEcdsaChainTarget,
 } from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import {

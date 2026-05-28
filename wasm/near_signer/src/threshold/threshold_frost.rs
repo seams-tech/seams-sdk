@@ -7,32 +7,6 @@ use sha2::{Digest, Sha512};
 use std::collections::BTreeMap;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen]
-pub fn threshold_ed25519_keygen_from_client_verifying_share(
-    args: JsValue,
-) -> Result<JsValue, JsValue> {
-    let args: signer_platform_web::near_threshold_frost::ThresholdEd25519KeygenFromClientVerifyingShareArgs =
-        serde_wasm_bindgen::from_value(args)
-            .map_err(|e| JsValue::from_str(&format!("Invalid args: {e}")))?;
-    let out = signer_platform_web::near_threshold_frost::threshold_ed25519_keygen_from_client_verifying_share(args)
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
-    serde_wasm_bindgen::to_value(&out)
-        .map_err(|e| JsValue::from_str(&format!("Failed to serialize keygen output: {e}")))
-}
-
-#[wasm_bindgen]
-pub fn threshold_ed25519_keygen_from_master_secret_and_client_verifying_share(
-    args: JsValue,
-) -> Result<JsValue, JsValue> {
-    let args: signer_platform_web::near_threshold_frost::ThresholdEd25519KeygenFromMasterSecretArgs =
-        serde_wasm_bindgen::from_value(args)
-            .map_err(|e| JsValue::from_str(&format!("Invalid args: {e}")))?;
-    let out = signer_platform_web::near_threshold_frost::threshold_ed25519_keygen_from_master_secret_and_client_verifying_share(args)
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
-    serde_wasm_bindgen::to_value(&out)
-        .map_err(|e| JsValue::from_str(&format!("Failed to serialize keygen output: {e}")))
-}
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg(feature = "hss-server-exports")]
@@ -236,12 +210,6 @@ struct LagrangeCoefficientInput {
 struct MultiplyScalarInput {
     scalar_b64u: String,
     factor_bytes_le32: Vec<u8>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct AddScalarsInput {
-    scalars_b64u: Vec<String>,
 }
 
 fn decode_fixed_32(input_b64u: &str, label: &str) -> Result<[u8; 32], JsValue> {
@@ -459,23 +427,4 @@ pub fn threshold_ed25519_multiply_scalar_b64u_by_scalar_le32(
         return Err(JsValue::from_str("Derived scalar is zero"));
     }
     Ok(base64_url_encode(&out.to_bytes()))
-}
-
-#[wasm_bindgen]
-pub fn threshold_ed25519_add_scalars_b64u(args: JsValue) -> Result<String, JsValue> {
-    let input: AddScalarsInput = serde_wasm_bindgen::from_value(args)
-        .map_err(|e| JsValue::from_str(&format!("Invalid scalar-add args: {e}")))?;
-    if input.scalars_b64u.is_empty() {
-        return Err(JsValue::from_str("scalarsB64u must be a non-empty array"));
-    }
-
-    let mut acc = Scalar::ZERO;
-    for item in input.scalars_b64u {
-        let scalar_bytes = decode_fixed_32(item.as_str(), "scalarB64u")?;
-        acc += Scalar::from_bytes_mod_order(scalar_bytes);
-    }
-    if acc == Scalar::ZERO {
-        return Err(JsValue::from_str("Sum of scalars is zero"));
-    }
-    Ok(base64_url_encode(&acc.to_bytes()))
 }

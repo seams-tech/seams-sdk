@@ -28,7 +28,7 @@ import { joinNormalizedUrl } from '@shared/utils/normalize';
 import { prepareRecoveryEmails, getLocalRecoveryEmails } from '../../../utils/emailRecovery';
 import { restoreLocalLoginState } from '../restoreLocalLoginState';
 import { THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANTS_V1 } from '@shared/threshold/secp256k1';
-import { walletSubjectIdFromString } from '@shared/utils/registrationIntent';
+import { walletIdFromString } from '@shared/utils/registrationIntent';
 import {
   buildThresholdWarmSessionRequestEnvelope,
   createThresholdWarmSessionPolicyDraft,
@@ -596,8 +596,8 @@ export class EmailRecoveryDomain {
           ? thresholdSection.participantIds
           : undefined,
       });
-      await context.signingEngine.storeWalletSubjectEcdsaSignerRecords({
-        walletSubjectId: walletSubjectIdFromString(String(nearAccountId)),
+      await context.signingEngine.storeWalletEcdsaSignerRecords({
+        walletId: walletIdFromString(String(nearAccountId)),
         walletKeys,
       });
 

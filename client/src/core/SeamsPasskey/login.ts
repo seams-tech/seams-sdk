@@ -36,9 +36,9 @@ import { getNearThresholdKeyMaterial } from '../accountData/near/keyMaterial';
 import type { ClientAuthenticatorData, ClientUserData } from '../accountData/near/types';
 import { exchangeSession, type SessionExchangeInput } from '../rpcClients/near/rpcCalls';
 import {
-  repairWalletSubjectEcdsaKeyFactsInventoryWithAppSession,
-  repairWalletSubjectEcdsaKeyFactsInventoryWithWebAuthn,
-  type WalletSubjectEcdsaKeyFactsInventoryTarget,
+  repairWalletEcdsaKeyFactsInventoryWithAppSession,
+  repairWalletEcdsaKeyFactsInventoryWithWebAuthn,
+  type WalletEcdsaKeyFactsInventoryTarget,
 } from '../rpcClients/relayer/walletRegistration';
 import type { ThresholdEcdsaHssRouteAuth } from '../rpcClients/relayer/thresholdEcdsa';
 import { parseSignerSlot } from '../signingEngine/webauthnAuth/device/signerSlot';
@@ -113,7 +113,7 @@ import {
   type WalletUnlockBudgetPolicy,
 } from '../signingEngine/session/budget/policy';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
-import { computeWalletSubjectEcdsaKeyFactsInventoryChallengeDigestB64u } from '@shared/utils/ecdsaKeyFactsInventory';
+import { computeWalletEcdsaKeyFactsInventoryChallengeDigestB64u } from '@shared/utils/ecdsaKeyFactsInventory';
 
 type EmitUnlockEventInput = Omit<CreateUnlockFlowEventInput, 'accountId' | 'flowId'>;
 
@@ -364,7 +364,7 @@ async function readLoginUnlockAccountPhase(args: {
       signerSlot: userData.signerSlot,
       ...(accountSubject.operationalPublicKey
         ? { operationalPublicKey: accountSubject.operationalPublicKey }
-        : { walletSubjectKind: accountSubject.kind }),
+        : { walletKind: accountSubject.kind }),
     },
   });
 
@@ -2117,11 +2117,11 @@ function createLocalUnlockChallengeB64u(): string {
   return base64UrlEncode(challenge);
 }
 
-async function resolveWalletSubjectEcdsaKeyFactsInventoryWithWebAuthn(args: {
+async function resolveWalletEcdsaKeyFactsInventoryWithWebAuthn(args: {
   nearAccountId: AccountId;
   relayerUrl: string;
   rpId: string;
-  keyTargets: readonly WalletSubjectEcdsaKeyFactsInventoryTarget[];
+  keyTargets: readonly WalletEcdsaKeyFactsInventoryTarget[];
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   collectCredential?: (challengeB64u: string) => Promise<WebAuthnAuthenticationCredential>;
 }) {
@@ -2130,17 +2130,17 @@ async function resolveWalletSubjectEcdsaKeyFactsInventoryWithWebAuthn(args: {
   }
   const serverNonceB64u = createLocalUnlockChallengeB64u();
   const expectedChallengeDigestB64u =
-    await computeWalletSubjectEcdsaKeyFactsInventoryChallengeDigestB64u({
-      walletSubjectId: args.nearAccountId,
+    await computeWalletEcdsaKeyFactsInventoryChallengeDigestB64u({
+      walletId: args.nearAccountId,
       rpId: args.rpId,
       keyTargets: args.keyTargets,
       serverNonceB64u,
       ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
     });
   const credential = await args.collectCredential(expectedChallengeDigestB64u);
-  return await repairWalletSubjectEcdsaKeyFactsInventoryWithWebAuthn({
+  return await repairWalletEcdsaKeyFactsInventoryWithWebAuthn({
     relayerUrl: args.relayerUrl,
-    walletSubjectId: args.nearAccountId,
+    walletId: args.nearAccountId,
     rpId: args.rpId,
     credential,
     keyTargets: args.keyTargets,
@@ -2239,15 +2239,15 @@ async function resolveProfileContinuityEcdsaWarmKeys(
       }
       const inventory =
         repairAuthority.kind === 'app_session'
-          ? await repairWalletSubjectEcdsaKeyFactsInventoryWithAppSession({
+          ? await repairWalletEcdsaKeyFactsInventoryWithAppSession({
               relayerUrl,
-              walletSubjectId: nearAccountId,
+              walletId: nearAccountId,
               rpId,
               appSessionJwt: repairAuthority.appSessionJwt,
               keyTargets: plan.keyTargets,
               policy: {
                 permission: 'ecdsa_key_facts_inventory',
-                walletSubjectId: nearAccountId,
+                walletId: nearAccountId,
                 chainTargets: plan.keyTargets.map((target) => target.chainTarget),
                 expiresAtMs: repairAuthority.policyExpiresAtMs,
               },
@@ -2255,7 +2255,7 @@ async function resolveProfileContinuityEcdsaWarmKeys(
                 ? { runtimePolicyScope: repairInput.runtimePolicyScope }
                 : {}),
             })
-          : await resolveWalletSubjectEcdsaKeyFactsInventoryWithWebAuthn({
+          : await resolveWalletEcdsaKeyFactsInventoryWithWebAuthn({
               nearAccountId,
               relayerUrl,
               rpId,

@@ -23,6 +23,10 @@ import {
   resolveSdkDistRoot,
 } from './plugin-utils';
 import { setContentType } from './plugin-utils';
+import {
+  normalizeWalletHostVariant,
+  type WalletHostVariant,
+} from '../core/WalletIframe/hostVariant';
 
 export type VitePlugin = {
   name: string;
@@ -38,6 +42,7 @@ export type Web3AuthnDevOptions = {
   sdkBasePath?: string;
   walletServicePath?: string;
   walletOrigin?: string;
+  walletHostVariant?: WalletHostVariant;
   setDevHeaders?: boolean;
   enableDebugRoutes?: boolean;
   /**
@@ -61,6 +66,7 @@ export type ServeSdkOptions = {
 export type WalletServiceOptions = {
   walletServicePath?: string;
   sdkBasePath?: string;
+  walletHostVariant?: WalletHostVariant;
   coepMode?: 'strict' | 'off';
 };
 
@@ -134,7 +140,7 @@ const WALLET_SURFACE_CSS = [
  * Seams SDK plugin: serve SDK assets under a stable base (default: /sdk) with optional COEP/CORP (strict mode) and permissive CORS.
  * Where it runs: both the app server and the wallet-iframe server.
  * - App server: lets host pages and Lit components load SDK CSS/JS locally.
- * - Wallet server: used by /wallet-service to load wallet-iframe-host-runtime.js and related CSS/JS.
+ * - Wallet server: used by /wallet-service to load the selected wallet host script and related CSS/JS.
  */
 export function seamsServeSdk(opts: ServeSdkOptions = {}): VitePlugin {
   const configuredBase = toBasePath(opts.sdkBasePath, '/sdk');
@@ -235,6 +241,9 @@ export function seamsServeSdk(opts: ServeSdkOptions = {}): VitePlugin {
 export function seamsWalletService(opts: WalletServiceOptions = {}): VitePlugin {
   const walletServicePath = toBasePath(opts.walletServicePath, '/wallet-service');
   const sdkBasePath = toBasePath(opts.sdkBasePath, '/sdk');
+  const walletHostVariant = normalizeWalletHostVariant(
+    opts.walletHostVariant || process.env.VITE_WALLET_HOST_VARIANT,
+  );
   const coepMode = resolveCoepMode(opts.coepMode);
 
   return {
@@ -250,7 +259,7 @@ export function seamsWalletService(opts: WalletServiceOptions = {}): VitePlugin 
           url === `${walletServicePath}/` ||
           url === `${walletServicePath}//`;
         if (isWalletRoute) {
-          const html = buildWalletServiceHtml(sdkBasePath, String(Date.now()));
+          const html = buildWalletServiceHtml(sdkBasePath, String(Date.now()), walletHostVariant);
           res.statusCode = 200;
           res.setHeader('Content-Type', 'text/html; charset=utf-8');
           res.setHeader('Cache-Control', 'no-store, max-age=0');
@@ -401,6 +410,9 @@ function seamsDevServer(options: Web3AuthnDevOptions = {}): VitePlugin {
     '/wallet-service',
   );
   const walletOrigin = (options.walletOrigin ?? process.env.VITE_WALLET_ORIGIN)?.trim();
+  const walletHostVariant = normalizeWalletHostVariant(
+    options.walletHostVariant || process.env.VITE_WALLET_HOST_VARIANT,
+  );
   const setDevHeaders = options.setDevHeaders !== false; // default true
   const enableDebugRoutes = options.enableDebugRoutes === true;
   const sdkDistRoot = resolveSdkDistRoot(options.sdkDistRoot);
@@ -408,7 +420,12 @@ function seamsDevServer(options: Web3AuthnDevOptions = {}): VitePlugin {
 
   // Build the sub-plugins to keep logic small and testable
   const sdkPlugin = seamsServeSdk({ sdkBasePath, sdkDistRoot, enableDebugRoutes, coepMode });
-  const walletPlugin = seamsWalletService({ walletServicePath, sdkBasePath, coepMode });
+  const walletPlugin = seamsWalletService({
+    walletServicePath,
+    sdkBasePath,
+    walletHostVariant,
+    coepMode,
+  });
   const wasmMimePlugin = seamsWasmMime();
   // Flip wallet CSP to strict by default in dev. Consumers can override via
   // VITE_WALLET_DEV_CSP or by composing seamsHeaders directly.
@@ -449,12 +466,16 @@ export function seamsBuildHeaders(
     walletOrigin?: string;
     cors?: { accessControlAllowOrigin?: string };
     coepMode?: 'strict' | 'off';
+    walletHostVariant?: WalletHostVariant;
   } = {},
 ): VitePlugin {
   const walletOriginRaw = opts.walletOrigin ?? process.env.VITE_WALLET_ORIGIN;
   const walletOrigin = walletOriginRaw?.trim();
   const walletServicePath = toBasePath(process.env.VITE_WALLET_SERVICE_PATH, '/wallet-service');
   const sdkBasePath = toBasePath(process.env.VITE_SDK_BASE_PATH, '/sdk');
+  const walletHostVariant = normalizeWalletHostVariant(
+    opts.walletHostVariant || process.env.VITE_WALLET_HOST_VARIANT,
+  );
   const coepMode = resolveCoepMode(opts.coepMode);
 
   // Build headers via shared helpers to avoid drift between frameworks
@@ -555,7 +576,11 @@ export function seamsBuildHeaders(
         const wsHtml = path.join(wsDir, 'index.html');
         if (!fs.existsSync(wsHtml)) {
           fs.mkdirSync(wsDir, { recursive: true });
-          fs.writeFileSync(wsHtml, buildWalletServiceHtml(sdkBasePath), 'utf-8');
+          fs.writeFileSync(
+            wsHtml,
+            buildWalletServiceHtml(sdkBasePath, undefined, walletHostVariant),
+            'utf-8',
+          );
           console.log(
             `[seams] emitted ${path.posix.join('/', walletRel, 'index.html')} (minimal wallet service)`,
           );
@@ -619,7 +644,11 @@ export function seamsApp(
   const app = seamsAppServer(devOpts);
   // Build-time emission is opt-in and will no-op if `_headers` already exists.
   const hdr = emitHeaders
-    ? seamsBuildHeaders({ walletOrigin, coepMode: devOpts.coepMode })
+    ? seamsBuildHeaders({
+        walletOrigin,
+        coepMode: devOpts.coepMode,
+        walletHostVariant: devOpts.walletHostVariant,
+      })
     : undefined;
   return [app, hdr].filter(Boolean) as any[];
 }
@@ -647,7 +676,11 @@ export function seamsWallet(
   const wallet = seamsWalletServer(devOpts);
   // Build-time emission is opt-in and will no-op if `_headers` already exists.
   const hdr = emitHeaders
-    ? seamsBuildHeaders({ walletOrigin, coepMode: devOpts.coepMode })
+    ? seamsBuildHeaders({
+        walletOrigin,
+        coepMode: devOpts.coepMode,
+        walletHostVariant: devOpts.walletHostVariant,
+      })
     : undefined;
   return [wallet, hdr].filter(Boolean) as any[];
 }

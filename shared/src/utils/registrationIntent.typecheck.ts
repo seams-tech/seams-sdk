@@ -1,9 +1,11 @@
 import {
-  walletSubjectIdFromString,
+  normalizeWalletAuthMethodTarget,
+  walletIdFromString,
   type RegistrationAuthMethodInput,
   type RegistrationIntentV1,
   type RegistrationSignerSelection,
-  type WalletAuthMethodBinding,
+  type WalletAuthMethodRecord,
+  type WalletAuthMethodTarget,
 } from './registrationIntent';
 
 const passkeyAuthMethod = {
@@ -13,6 +15,8 @@ const passkeyAuthMethod = {
 const emailOtpAuthMethod = {
   kind: 'email_otp',
   email: 'alice@example.test',
+  otpCode: '123456',
+  appSessionJwt: 'app-session.jwt',
   challengeId: 'challenge',
 } satisfies RegistrationAuthMethodInput;
 
@@ -39,7 +43,7 @@ const ed25519OnlySelection = {
 
 void ({
   version: 'registration_intent_v1',
-  walletSubjectId: walletSubjectIdFromString('wallet_alice'),
+  walletId: walletIdFromString('wallet_alice'),
   rpId: 'wallet.example.test',
   authMethod: emailOtpAuthMethod,
   signerSelection: ecdsaOnlySelection,
@@ -48,7 +52,7 @@ void ({
 
 void ({
   version: 'registration_intent_v1',
-  walletSubjectId: walletSubjectIdFromString('wallet_alice'),
+  walletId: walletIdFromString('wallet_alice'),
   rpId: 'wallet.example.test',
   authMethod: passkeyAuthMethod,
   signerSelection: ed25519OnlySelection,
@@ -58,7 +62,7 @@ void ({
 // @ts-expect-error registration intents require explicit authMethod.
 const missingAuthMethod: RegistrationIntentV1 = {
   version: 'registration_intent_v1',
-  walletSubjectId: walletSubjectIdFromString('wallet_alice'),
+  walletId: walletIdFromString('wallet_alice'),
   rpId: 'wallet.example.test',
   signerSelection: ed25519OnlySelection,
   nonceB64u: 'nonce',
@@ -76,33 +80,82 @@ void passkeyWithEmail;
 const emailOtpWithAuthenticatorOptions: RegistrationAuthMethodInput = {
   kind: 'email_otp',
   email: 'alice@example.test',
+  otpCode: '123456',
+  appSessionJwt: 'app-session.jwt',
   authenticatorOptions: {},
 };
 void emailOtpWithAuthenticatorOptions;
 
+// @ts-expect-error Email OTP registration auth requires an OTP code.
+const emailOtpMissingOtpCode: RegistrationAuthMethodInput = {
+  kind: 'email_otp',
+  email: 'alice@example.test',
+  appSessionJwt: 'app-session.jwt',
+};
+void emailOtpMissingOtpCode;
+
+// @ts-expect-error Email OTP registration auth requires app-session authority.
+const emailOtpMissingAppSession: RegistrationAuthMethodInput = {
+  kind: 'email_otp',
+  email: 'alice@example.test',
+  otpCode: '123456',
+};
+void emailOtpMissingAppSession;
+
 void ({
-  version: 'wallet_auth_method_binding_v1',
+  version: 'wallet_auth_method_v1',
   kind: 'passkey',
   status: 'active',
-  walletSubjectId: walletSubjectIdFromString('wallet_alice'),
+  walletId: walletIdFromString('wallet_alice'),
   rpId: 'wallet.example.test',
   credentialIdB64u: 'credential',
   credentialPublicKeyB64u: 'public-key',
   counter: 0,
   createdAtMs: 1,
   updatedAtMs: 1,
-} satisfies WalletAuthMethodBinding);
+} satisfies WalletAuthMethodRecord);
 
 void ({
-  version: 'wallet_auth_method_binding_v1',
+  version: 'wallet_auth_method_v1',
   kind: 'email_otp',
   status: 'active',
-  walletSubjectId: walletSubjectIdFromString('wallet_alice'),
+  walletId: walletIdFromString('wallet_alice'),
   rpId: 'wallet.example.test',
   emailHashHex: '00',
   challengeId: 'challenge',
   createdAtMs: 1,
   updatedAtMs: 1,
-} satisfies WalletAuthMethodBinding);
+} satisfies WalletAuthMethodRecord);
+
+void ({
+  kind: 'passkey',
+  credentialIdB64u: 'credential',
+} satisfies WalletAuthMethodTarget);
+
+void ({
+  kind: 'email_otp',
+  email: 'alice@example.test',
+} satisfies WalletAuthMethodTarget);
+
+// @ts-expect-error passkey revoke target cannot carry Email OTP fields.
+const passkeyTargetWithEmail: WalletAuthMethodTarget = {
+  kind: 'passkey',
+  credentialIdB64u: 'credential',
+  email: 'alice@example.test',
+};
+void passkeyTargetWithEmail;
+
+// @ts-expect-error Email OTP revoke target cannot carry passkey credential ids.
+const emailOtpTargetWithCredential: WalletAuthMethodTarget = {
+  kind: 'email_otp',
+  email: 'alice@example.test',
+  credentialIdB64u: 'credential',
+};
+void emailOtpTargetWithCredential;
+
+void normalizeWalletAuthMethodTarget({
+  kind: 'passkey',
+  credentialIdB64u: 'credential',
+});
 
 export {};

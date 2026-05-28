@@ -563,6 +563,61 @@ export async function enrollEmailOtpWallet(args: {
   }
 }
 
+export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
+  relayUrl: string;
+  walletId: string;
+  userId?: string;
+  shamirPrimeB64u: string;
+  workerCtx: WorkerOperationContext;
+  appSessionJwt?: string;
+  otpChannel?: WalletEmailOtpChannel;
+  clientSecret32?: Uint8Array;
+}): Promise<{
+  thresholdEcdsaClientVerifyingShareB64u: string;
+  thresholdEd25519PrfFirstB64u: string;
+  recoveryKeys: string[];
+  otpChannel: WalletEmailOtpChannel;
+  enrollmentSealKeyVersion: string;
+  clientUnlockPublicKeyB64u: string;
+  unlockKeyVersion: string;
+  clientRootShare32B64u: string;
+  emailOtpEnrollment: {
+    recoveryWrappedEnrollmentEscrows: unknown[];
+    enrollmentSealKeyVersion: string;
+    clientUnlockPublicKeyB64u: string;
+    unlockKeyVersion: string;
+    thresholdEcdsaClientVerifyingShareB64u: string;
+  };
+}> {
+  const workerCtx = requireWorkerCtx(args.workerCtx);
+  let workerClientSecret32: Uint8Array | null = null;
+  try {
+    workerClientSecret32 = args.clientSecret32
+      ? cloneFixed32Bytes(args.clientSecret32, 'clientSecret32')
+      : null;
+    return await workerCtx.requestWorkerOperation({
+      kind: 'emailOtp',
+      request: {
+        type: 'prepareEmailOtpRegistrationEnrollmentMaterial',
+        payload: {
+          relayUrl: readString(args.relayUrl, 'relayUrl'),
+          walletId: readString(args.walletId, 'walletId'),
+          ...(readOptionalString(args.userId) ? { userId: readOptionalString(args.userId) } : {}),
+          shamirPrimeB64u: readString(args.shamirPrimeB64u, 'shamirPrimeB64u'),
+          routePlan: buildWorkerEmailOtpRoutePlan({
+            routeFamily: 'registration',
+            appSessionJwt: args.appSessionJwt,
+          }),
+          otpChannel: EMAIL_OTP_CHANNEL,
+          ...(workerClientSecret32 ? { clientSecret32: workerClientSecret32.buffer.slice(0) } : {}),
+        },
+      },
+    });
+  } finally {
+    zeroizeBytes(workerClientSecret32);
+  }
+}
+
 export async function restoreEmailOtpDeviceEnrollmentEscrow(args: {
   relayUrl: string;
   walletId: string;

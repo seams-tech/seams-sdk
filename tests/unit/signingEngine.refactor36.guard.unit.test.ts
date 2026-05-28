@@ -462,7 +462,7 @@ test.describe('signing engine refactor 36 guards', () => {
   test('near account to ECDSA subject derivations stay finite', () => {
     const guardedRoots = ['client/src/core/signingEngine', 'client/src/core/SeamsPasskey'];
     const accountToSubjectPattern =
-      /toWalletSubjectId\(\s*(?:(?:args|input|request)\.)?(?:nearAccountId|accountId)\s*\)/;
+      /toWalletId\(\s*(?:(?:args|input|request)\.)?(?:nearAccountId|accountId)\s*\)/;
     const actual = new Map<string, number>();
     for (const relativePath of guardedRoots.flatMap((root) => listTsFiles(root))) {
       if (relativePath.endsWith('.typecheck.ts')) continue;
@@ -1023,7 +1023,7 @@ test.describe('signing engine refactor 36 guards', () => {
     const offenders: string[] = [];
     for (const forbidden of [
       'listThresholdEcdsaRuntimeLanesForSubject',
-      'toWalletSubjectId(walletId)',
+      'toWalletId(walletId)',
     ]) {
       if (source.includes(forbidden)) {
         offenders.push(`budgetStatusReader contains forbidden ECDSA fallback ${forbidden}`);
@@ -1051,7 +1051,7 @@ test.describe('signing engine refactor 36 guards', () => {
         offenders.push(`Missing SigningEngine.${methodName}`);
         continue;
       }
-      if (/\btoWalletSubjectId\(/.test(methodSource)) {
+      if (/\btoWalletId\(/.test(methodSource)) {
         offenders.push(`SigningEngine.${methodName} derives subject identity`);
       }
       if (/\bnearAccountId\b/.test(methodSource)) {

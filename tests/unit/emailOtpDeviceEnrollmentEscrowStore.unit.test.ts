@@ -46,9 +46,9 @@ test.describe('Email OTP device enrollment escrow store', () => {
           const openReq = indexedDB.open('seams_wallet');
           openReq.onsuccess = () => {
             const db = openReq.result;
-            const tx = db.transaction('seams_email_otp_escrows', 'readonly');
+            const tx = db.transaction('email_otp_escrows', 'readonly');
             const getReq = tx
-              .objectStore('seams_email_otp_escrows')
+              .objectStore('email_otp_escrows')
               .get(['alice.testnet', 'google-sub-1', 'enrollment-1']);
             getReq.onsuccess = () => {
               const value = getReq.result;
@@ -104,19 +104,12 @@ test.describe('Email OTP device enrollment escrow store', () => {
         const mod = await import(paths.store);
         await mod.clearAllEmailOtpDeviceEnrollmentEscrowRecords();
         const db = await new Promise<IDBDatabase>((resolve, reject) => {
-          const req = indexedDB.open('seams_wallet', 1);
-          req.onupgradeneeded = () => {
-            if (!req.result.objectStoreNames.contains('seams_email_otp_escrows')) {
-              req.result.createObjectStore('seams_email_otp_escrows', {
-                keyPath: ['wallet_id', 'auth_subject_id', 'enrollment_id'],
-              });
-            }
-          };
+          const req = indexedDB.open('seams_wallet');
           req.onsuccess = () => resolve(req.result);
           req.onerror = () => reject(req.error);
         });
-        const tx = db.transaction('seams_email_otp_escrows', 'readwrite');
-        const store = tx.objectStore('seams_email_otp_escrows');
+        const tx = db.transaction('email_otp_escrows', 'readwrite');
+        const store = tx.objectStore('email_otp_escrows');
         store.put({
           wallet_id: 'alice.testnet',
           auth_subject_id: 'google-sub-1',

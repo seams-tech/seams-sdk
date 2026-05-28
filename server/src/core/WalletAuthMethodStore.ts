@@ -14,22 +14,27 @@ import {
 } from '../storage/postgres';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import {
-  walletSubjectIdFromString,
-  type WalletAuthMethodBinding,
+  walletIdFromString,
+  type WalletAuthMethodRecord as SharedWalletAuthMethodRecord,
 } from '@shared/utils/registrationIntent';
 
-export type WalletAuthMethodBindingRecord = WalletAuthMethodBinding;
+export type WalletAuthMethodRecord = SharedWalletAuthMethodRecord;
 
-export interface WalletAuthMethodBindingStore {
-  putBinding(record: WalletAuthMethodBindingRecord): Promise<void>;
-  getPasskeyBinding(input: {
+export interface WalletAuthMethodStore {
+  put(record: WalletAuthMethodRecord): Promise<void>;
+  getPasskey(input: {
     rpId: string;
     credentialIdB64u: string;
-  }): Promise<WalletAuthMethodBindingRecord | null>;
-  listForWallet(input: {
-    walletSubjectId: string;
+  }): Promise<WalletAuthMethodRecord | null>;
+  getEmailOtp(input: {
+    walletId: string;
     rpId: string;
-  }): Promise<WalletAuthMethodBindingRecord[]>;
+    emailHashHex: string;
+  }): Promise<WalletAuthMethodRecord | null>;
+  listForWallet(input: {
+    walletId: string;
+    rpId: string;
+  }): Promise<WalletAuthMethodRecord[]>;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -46,37 +51,37 @@ function toPrefixWithColon(prefix: unknown, defaultPrefix: string): string {
   return p.endsWith(':') ? p : `${p}:`;
 }
 
-function bindingKey(record: WalletAuthMethodBindingRecord): string {
+function walletAuthMethodId(record: WalletAuthMethodRecord): string {
   return record.kind === 'passkey'
     ? `passkey:${record.rpId}:${record.credentialIdB64u}`
-    : `email_otp:${record.rpId}:${record.emailHashHex}`;
+    : `email_otp:${record.walletId}:${record.rpId}:${record.emailHashHex}`;
 }
 
-export function resolveWalletAuthMethodBindingStoreNamespace(
+export function resolveWalletAuthMethodStoreNamespace(
   config: Record<string, unknown>,
 ): string {
-  const explicit = toOptionalTrimmedString(config.WALLET_AUTH_METHOD_BINDING_PREFIX);
+  const explicit = toOptionalTrimmedString(config.WALLET_AUTH_METHOD_PREFIX);
   if (explicit) return toPrefixWithColon(explicit, '');
   const base = toOptionalTrimmedString(config.THRESHOLD_PREFIX) || THRESHOLD_PREFIX_DEFAULT;
   return `${toPrefixWithColon(base, `${THRESHOLD_PREFIX_DEFAULT}:`)}wallet-auth-method:`;
 }
 
-export function normalizeWalletAuthMethodBinding(
+export function normalizeWalletAuthMethod(
   raw: unknown,
-): WalletAuthMethodBindingRecord | null {
+): WalletAuthMethodRecord | null {
   if (!isObject(raw)) return null;
   const version = trimString(raw.version);
   const kind = trimString(raw.kind);
   const status = trimString(raw.status);
-  const walletSubjectId = walletSubjectIdFromString(trimString(raw.walletSubjectId));
+  const walletId = walletIdFromString(trimString(raw.walletId));
   const rpId = trimString(raw.rpId);
   const createdAtMs = Math.floor(Number(raw.createdAtMs));
   const updatedAtMs = Math.floor(Number(raw.updatedAtMs));
   if (
-    version !== 'wallet_auth_method_binding_v1' ||
+    version !== 'wallet_auth_method_v1' ||
     (kind !== 'passkey' && kind !== 'email_otp') ||
     (status !== 'active' && status !== 'revoked') ||
-    !walletSubjectId ||
+    !walletId ||
     !rpId ||
     !Number.isSafeInteger(createdAtMs) ||
     !Number.isSafeInteger(updatedAtMs)
@@ -91,10 +96,10 @@ export function normalizeWalletAuthMethodBinding(
       return null;
     }
     return {
-      version: 'wallet_auth_method_binding_v1',
+      version: 'wallet_auth_method_v1',
       kind: 'passkey',
       status,
-      walletSubjectId,
+      walletId,
       rpId,
       credentialIdB64u,
       credentialPublicKeyB64u,
@@ -107,10 +112,10 @@ export function normalizeWalletAuthMethodBinding(
   const challengeId = trimString(raw.challengeId);
   if (!emailHashHex || !challengeId) return null;
   return {
-    version: 'wallet_auth_method_binding_v1',
+    version: 'wallet_auth_method_v1',
     kind: 'email_otp',
     status,
-    walletSubjectId,
+    walletId,
     rpId,
     emailHashHex,
     challengeId,
@@ -119,49 +124,60 @@ export function normalizeWalletAuthMethodBinding(
   };
 }
 
-export async function putWalletAuthMethodBindingWithExecutor(input: {
+export async function putWalletAuthMethodWithExecutor(input: {
   executor: PgQueryExecutor;
   namespace: string;
-  record: WalletAuthMethodBindingRecord;
+  record: WalletAuthMethodRecord;
 }): Promise<void> {
   const { record } = input;
   await input.executor.query(
     `
-      INSERT INTO wallet_auth_method_bindings
+      INSERT INTO wallet_auth_methods
         (
           namespace,
-          wallet_subject_id,
+          wallet_id,
           rp_id,
           kind,
           status,
-          binding_key,
+          wallet_auth_method_id,
+          auth_identifier_key,
           credential_id_b64u,
+          credential_public_key_b64u,
+          signer_slot,
           email_hash_hex,
+          challenge_id,
           record_json,
           created_at_ms,
           updated_at_ms
         )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11)
-      ON CONFLICT (namespace, binding_key) DO UPDATE SET
-        wallet_subject_id = EXCLUDED.wallet_subject_id,
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, $10, $11, $12::jsonb, $13, $14)
+      ON CONFLICT (namespace, wallet_auth_method_id) DO UPDATE SET
+        wallet_id = EXCLUDED.wallet_id,
         rp_id = EXCLUDED.rp_id,
         kind = EXCLUDED.kind,
         status = EXCLUDED.status,
+        auth_identifier_key = EXCLUDED.auth_identifier_key,
         credential_id_b64u = EXCLUDED.credential_id_b64u,
+        credential_public_key_b64u = EXCLUDED.credential_public_key_b64u,
+        signer_slot = EXCLUDED.signer_slot,
         email_hash_hex = EXCLUDED.email_hash_hex,
+        challenge_id = EXCLUDED.challenge_id,
         record_json = EXCLUDED.record_json,
-        created_at_ms = LEAST(wallet_auth_method_bindings.created_at_ms, EXCLUDED.created_at_ms),
-        updated_at_ms = GREATEST(wallet_auth_method_bindings.updated_at_ms, EXCLUDED.updated_at_ms)
+        created_at_ms = LEAST(wallet_auth_methods.created_at_ms, EXCLUDED.created_at_ms),
+        updated_at_ms = GREATEST(wallet_auth_methods.updated_at_ms, EXCLUDED.updated_at_ms)
     `,
     [
       input.namespace,
-      record.walletSubjectId,
+      record.walletId,
       record.rpId,
       record.kind,
       record.status,
-      bindingKey(record),
+      walletAuthMethodId(record),
+      record.kind === 'passkey' ? record.credentialIdB64u : record.emailHashHex,
       record.kind === 'passkey' ? record.credentialIdB64u : null,
+      record.kind === 'passkey' ? record.credentialPublicKeyB64u : null,
       record.kind === 'email_otp' ? record.emailHashHex : null,
+      record.kind === 'email_otp' ? record.challengeId : null,
       JSON.stringify(record),
       record.createdAtMs,
       record.updatedAtMs,
@@ -169,89 +185,121 @@ export async function putWalletAuthMethodBindingWithExecutor(input: {
   );
 }
 
-class InMemoryWalletAuthMethodBindingStore implements WalletAuthMethodBindingStore {
-  private readonly records = new Map<string, WalletAuthMethodBindingRecord>();
+class InMemoryWalletAuthMethodStore implements WalletAuthMethodStore {
+  private readonly records = new Map<string, WalletAuthMethodRecord>();
 
   constructor(private readonly namespace: string) {}
 
-  async putBinding(record: WalletAuthMethodBindingRecord): Promise<void> {
-    this.records.set(`${this.namespace}${bindingKey(record)}`, record);
+  async put(record: WalletAuthMethodRecord): Promise<void> {
+    this.records.set(`${this.namespace}${walletAuthMethodId(record)}`, record);
   }
 
-  async getPasskeyBinding(input: {
+  async getPasskey(input: {
     rpId: string;
     credentialIdB64u: string;
-  }): Promise<WalletAuthMethodBindingRecord | null> {
-    return this.records.get(`${this.namespace}passkey:${input.rpId}:${input.credentialIdB64u}`) || null;
+  }): Promise<WalletAuthMethodRecord | null> {
+    return (
+      this.records.get(`${this.namespace}passkey:${input.rpId}:${input.credentialIdB64u}`) || null
+    );
+  }
+
+  async getEmailOtp(input: {
+    walletId: string;
+    rpId: string;
+    emailHashHex: string;
+  }): Promise<WalletAuthMethodRecord | null> {
+    return (
+      this.records.get(
+        `${this.namespace}email_otp:${input.walletId}:${input.rpId}:${input.emailHashHex}`,
+      ) || null
+    );
   }
 
   async listForWallet(input: {
-    walletSubjectId: string;
+    walletId: string;
     rpId: string;
-  }): Promise<WalletAuthMethodBindingRecord[]> {
+  }): Promise<WalletAuthMethodRecord[]> {
     return [...this.records.values()].filter(
-      (record) => record.walletSubjectId === input.walletSubjectId && record.rpId === input.rpId,
+      (record) => record.walletId === input.walletId && record.rpId === input.rpId,
     );
   }
 }
 
-class PostgresWalletAuthMethodBindingStore implements WalletAuthMethodBindingStore {
+class PostgresWalletAuthMethodStore implements WalletAuthMethodStore {
   private readonly poolPromise: ReturnType<typeof getPostgresPool>;
 
   constructor(private readonly input: { postgresUrl: string; namespace: string }) {
     this.poolPromise = getPostgresPool(input.postgresUrl);
   }
 
-  async putBinding(record: WalletAuthMethodBindingRecord): Promise<void> {
+  async put(record: WalletAuthMethodRecord): Promise<void> {
     const pool = await this.poolPromise;
-    await putWalletAuthMethodBindingWithExecutor({
+    await putWalletAuthMethodWithExecutor({
       executor: pool,
       namespace: this.input.namespace,
       record,
     });
   }
 
-  async getPasskeyBinding(input: {
+  async getPasskey(input: {
     rpId: string;
     credentialIdB64u: string;
-  }): Promise<WalletAuthMethodBindingRecord | null> {
+  }): Promise<WalletAuthMethodRecord | null> {
     const pool = await this.poolPromise;
     const result = await pool.query(
       `
         SELECT record_json
-        FROM wallet_auth_method_bindings
-        WHERE namespace = $1 AND binding_key = $2
+        FROM wallet_auth_methods
+        WHERE namespace = $1 AND wallet_auth_method_id = $2
         LIMIT 1
       `,
       [this.input.namespace, `passkey:${input.rpId}:${input.credentialIdB64u}`],
     );
-    return normalizeWalletAuthMethodBinding(result.rows[0]?.record_json);
+    return normalizeWalletAuthMethod(result.rows[0]?.record_json);
   }
 
-  async listForWallet(input: {
-    walletSubjectId: string;
+  async getEmailOtp(input: {
+    walletId: string;
     rpId: string;
-  }): Promise<WalletAuthMethodBindingRecord[]> {
+    emailHashHex: string;
+  }): Promise<WalletAuthMethodRecord | null> {
     const pool = await this.poolPromise;
     const result = await pool.query(
       `
         SELECT record_json
-        FROM wallet_auth_method_bindings
-        WHERE namespace = $1 AND wallet_subject_id = $2 AND rp_id = $3
+        FROM wallet_auth_methods
+        WHERE namespace = $1 AND wallet_auth_method_id = $2
+        LIMIT 1
+      `,
+      [this.input.namespace, `email_otp:${input.walletId}:${input.rpId}:${input.emailHashHex}`],
+    );
+    return normalizeWalletAuthMethod(result.rows[0]?.record_json);
+  }
+
+  async listForWallet(input: {
+    walletId: string;
+    rpId: string;
+  }): Promise<WalletAuthMethodRecord[]> {
+    const pool = await this.poolPromise;
+    const result = await pool.query(
+      `
+        SELECT record_json
+        FROM wallet_auth_methods
+        WHERE namespace = $1 AND wallet_id = $2 AND rp_id = $3
         ORDER BY created_at_ms ASC
       `,
-      [this.input.namespace, input.walletSubjectId, input.rpId],
+      [this.input.namespace, input.walletId, input.rpId],
     );
     return result.rows
-      .map((row) => normalizeWalletAuthMethodBinding(row.record_json))
-      .filter((record): record is WalletAuthMethodBindingRecord => Boolean(record));
+      .map((row) => normalizeWalletAuthMethod(row.record_json))
+      .filter((record): record is WalletAuthMethodRecord => Boolean(record));
   }
 }
 
 type DurableObjectStubLike = { fetch(input: RequestInfo, init?: RequestInit): Promise<Response> };
 
-class CloudflareDurableObjectWalletAuthMethodBindingStore
-  implements WalletAuthMethodBindingStore
+class CloudflareDurableObjectWalletAuthMethodStore
+  implements WalletAuthMethodStore
 {
   private readonly stub: DurableObjectStubLike;
 
@@ -265,11 +313,11 @@ class CloudflareDurableObjectWalletAuthMethodBindingStore
   }
 
   private key(id: string): string {
-    return `${this.input.prefix}binding:${id}`;
+    return `${this.input.prefix}auth-method:${id}`;
   }
 
-  private walletIndexKey(input: { walletSubjectId: string; rpId: string }): string {
-    return `${this.input.prefix}wallet-index:${input.rpId}:${input.walletSubjectId}`;
+  private walletIndexKey(input: { walletId: string; rpId: string }): string {
+    return `${this.input.prefix}wallet-index:${input.rpId}:${input.walletId}`;
   }
 
   private async request<T>(body: unknown): Promise<T> {
@@ -284,8 +332,8 @@ class CloudflareDurableObjectWalletAuthMethodBindingStore
     return (await response.json().catch(() => null)) as T;
   }
 
-  async putBinding(record: WalletAuthMethodBindingRecord): Promise<void> {
-    const key = this.key(bindingKey(record));
+  async put(record: WalletAuthMethodRecord): Promise<void> {
+    const key = this.key(walletAuthMethodId(record));
     const indexKey = this.walletIndexKey(record);
     const current = await this.request<{ value?: unknown }>({ op: 'get', key: indexKey });
     const keys = Array.isArray(current?.value)
@@ -296,21 +344,33 @@ class CloudflareDurableObjectWalletAuthMethodBindingStore
     await this.request({ op: 'set', key: indexKey, value: nextKeys });
   }
 
-  async getPasskeyBinding(input: {
+  async getPasskey(input: {
     rpId: string;
     credentialIdB64u: string;
-  }): Promise<WalletAuthMethodBindingRecord | null> {
+  }): Promise<WalletAuthMethodRecord | null> {
     const result = await this.request<{ value?: unknown }>({
       op: 'get',
       key: this.key(`passkey:${input.rpId}:${input.credentialIdB64u}`),
     });
-    return normalizeWalletAuthMethodBinding(result?.value);
+    return normalizeWalletAuthMethod(result?.value);
+  }
+
+  async getEmailOtp(input: {
+    walletId: string;
+    rpId: string;
+    emailHashHex: string;
+  }): Promise<WalletAuthMethodRecord | null> {
+    const result = await this.request<{ value?: unknown }>({
+      op: 'get',
+      key: this.key(`email_otp:${input.walletId}:${input.rpId}:${input.emailHashHex}`),
+    });
+    return normalizeWalletAuthMethod(result?.value);
   }
 
   async listForWallet(input: {
-    walletSubjectId: string;
+    walletId: string;
     rpId: string;
-  }): Promise<WalletAuthMethodBindingRecord[]> {
+  }): Promise<WalletAuthMethodRecord[]> {
     const current = await this.request<{ value?: unknown }>({
       op: 'get',
       key: this.walletIndexKey(input),
@@ -318,10 +378,10 @@ class CloudflareDurableObjectWalletAuthMethodBindingStore
     const keys = Array.isArray(current?.value)
       ? current.value.filter((value): value is string => typeof value === 'string' && value.length > 0)
       : [];
-    const records: WalletAuthMethodBindingRecord[] = [];
+    const records: WalletAuthMethodRecord[] = [];
     for (const key of keys) {
       const result = await this.request<{ value?: unknown }>({ op: 'get', key });
-      const record = normalizeWalletAuthMethodBinding(result?.value);
+      const record = normalizeWalletAuthMethod(result?.value);
       if (record) records.push(record);
     }
     return records;
@@ -339,13 +399,13 @@ function resolveDoNamespaceFromConfig(
   return null;
 }
 
-export function createWalletAuthMethodBindingStore(input: {
+export function createWalletAuthMethodStore(input: {
   config?: ThresholdStoreConfigInput | null;
   logger: NormalizedLogger;
   isNode: boolean;
-}): WalletAuthMethodBindingStore {
+}): WalletAuthMethodStore {
   const config = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
-  const namespace = resolveWalletAuthMethodBindingStoreNamespace(config);
+  const namespace = resolveWalletAuthMethodStoreNamespace(config);
   const kind = toOptionalTrimmedString(config.kind);
   if (kind === 'cloudflare-do') {
     const durableObjectNamespace = resolveDoNamespaceFromConfig(config);
@@ -357,7 +417,7 @@ export function createWalletAuthMethodBindingStore(input: {
     const objectName =
       trimString(config.objectName) || trimString(config.name) || THRESHOLD_DO_OBJECT_NAME_DEFAULT;
     input.logger.info('[wallet-auth-method] Using Cloudflare Durable Object store');
-    return new CloudflareDurableObjectWalletAuthMethodBindingStore({
+    return new CloudflareDurableObjectWalletAuthMethodStore({
       namespace: durableObjectNamespace,
       objectName,
       prefix: namespace,
@@ -372,8 +432,8 @@ export function createWalletAuthMethodBindingStore(input: {
       throw new Error('[wallet-auth-method] postgres store enabled but POSTGRES_URL is not set');
     }
     input.logger.info('[wallet-auth-method] Using Postgres store');
-    return new PostgresWalletAuthMethodBindingStore({ postgresUrl, namespace });
+    return new PostgresWalletAuthMethodStore({ postgresUrl, namespace });
   }
   input.logger.info('[wallet-auth-method] Using in-memory store');
-  return new InMemoryWalletAuthMethodBindingStore(namespace);
+  return new InMemoryWalletAuthMethodStore(namespace);
 }

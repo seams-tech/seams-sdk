@@ -708,6 +708,9 @@ const configs = [
         '../client/src/core/signingEngine/uiConfirm/ui/lit-components/IframeTxConfirmer/tx-confirmer-wrapper.ts',
       // Wallet service host (headless)
       'wallet-iframe-host-runtime': '../client/src/core/WalletIframe/host/index.ts',
+      'wallet-iframe-host-near': '../client/src/core/WalletIframe/host/entry-near.ts',
+      'wallet-iframe-host-ecdsa': '../client/src/core/WalletIframe/host/entry-ecdsa.ts',
+      'wallet-iframe-host-full': '../client/src/core/WalletIframe/host/entry-full.ts',
       // Export viewer host + bootstrap
       'iframe-export-bootstrap':
         '../client/src/core/signingEngine/uiConfirm/ui/lit-components/ExportPrivateKey/iframe-export-bootstrap-script.ts',

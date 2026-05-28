@@ -332,7 +332,6 @@ function sealedRecordStorageRow(record: CurrentSealedSessionRecord): Record<stri
   return {
     store_key: record.storeKey,
     wallet_id: record.walletId,
-    wallet_subject_id: record.walletId,
     user_id: optionalStringForIndex(record.userId),
     auth_method: record.authMethod,
     curve: record.curve,
