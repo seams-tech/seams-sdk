@@ -3556,15 +3556,30 @@ self.addEventListener('message', async (event: MessageEvent) => {
         const delivery = response.delivery as Record<string, unknown> | undefined;
         const expiresAtMs = Number(challenge?.expiresAtMs);
         const emailHint = String(delivery?.emailHint || '').trim();
+        const appSessionVersion = String(challenge?.appSessionVersion || '').trim();
+        const result: {
+          challengeId: string;
+          otpChannel: typeof EMAIL_OTP_CHANNEL;
+          emailHint?: string;
+          expiresAtMs?: number;
+          appSessionVersion?: string;
+        } = {
+          challengeId: readString(challenge?.challengeId, 'challengeId'),
+          otpChannel: EMAIL_OTP_CHANNEL,
+        };
+        if (emailHint) {
+          result.emailHint = emailHint;
+        }
+        if (Number.isFinite(expiresAtMs)) {
+          result.expiresAtMs = expiresAtMs;
+        }
+        if (appSessionVersion) {
+          result.appSessionVersion = appSessionVersion;
+        }
         postToMainThread({
           id: msg.id,
           ok: true,
-          result: {
-            challengeId: readString(challenge?.challengeId, 'challengeId'),
-            otpChannel: EMAIL_OTP_CHANNEL,
-            ...(emailHint ? { emailHint } : {}),
-            ...(Number.isFinite(expiresAtMs) ? { expiresAtMs } : {}),
-          },
+          result,
         });
         return;
       }
@@ -3587,15 +3602,30 @@ self.addEventListener('message', async (event: MessageEvent) => {
         const delivery = response.delivery as Record<string, unknown> | undefined;
         const expiresAtMs = Number(challenge?.expiresAtMs);
         const emailHint = String(delivery?.emailHint || '').trim();
+        const appSessionVersion = String(challenge?.appSessionVersion || '').trim();
+        const result: {
+          challengeId: string;
+          otpChannel: typeof EMAIL_OTP_CHANNEL;
+          emailHint?: string;
+          expiresAtMs?: number;
+          appSessionVersion?: string;
+        } = {
+          challengeId: readString(challenge?.challengeId, 'challengeId'),
+          otpChannel: EMAIL_OTP_CHANNEL,
+        };
+        if (emailHint) {
+          result.emailHint = emailHint;
+        }
+        if (Number.isFinite(expiresAtMs)) {
+          result.expiresAtMs = expiresAtMs;
+        }
+        if (appSessionVersion) {
+          result.appSessionVersion = appSessionVersion;
+        }
         postToMainThread({
           id: msg.id,
           ok: true,
-          result: {
-            challengeId: readString(challenge?.challengeId, 'challengeId'),
-            otpChannel: EMAIL_OTP_CHANNEL,
-            ...(emailHint ? { emailHint } : {}),
-            ...(Number.isFinite(expiresAtMs) ? { expiresAtMs } : {}),
-          },
+          result,
         });
         return;
       }

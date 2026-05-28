@@ -34,26 +34,26 @@ export class EmailRecoveryPendingStore implements PendingStore {
   async get(accountId: AccountId, nearPublicKey?: string): Promise<PendingEmailRecovery | null> {
     const pendingTtlMs = this.getPendingTtlMs();
     const indexKey = this.getPendingIndexKey(accountId);
-    const indexedNearPublicKey = await IndexedDBManager.clientDB.getAppState<string>(indexKey);
+    const indexedNearPublicKey = await IndexedDBManager.getAppState<string>(indexKey);
     const resolvedNearPublicKey = nearPublicKey ?? indexedNearPublicKey;
     if (!resolvedNearPublicKey) {
       return null;
     }
 
     const recordKey = this.getPendingRecordKey(accountId, resolvedNearPublicKey);
-    const record = await IndexedDBManager.clientDB.getAppState<PendingEmailRecovery>(recordKey);
+    const record = await IndexedDBManager.getAppState<PendingEmailRecovery>(recordKey);
     const shouldClearIndex = indexedNearPublicKey === resolvedNearPublicKey;
     if (!record) {
       if (shouldClearIndex) {
-        await IndexedDBManager.clientDB.setAppState(indexKey, undefined as any).catch(() => {});
+        await IndexedDBManager.setAppState(indexKey, undefined as any).catch(() => {});
       }
       return null;
     }
 
     if (this.now() - record.createdAt > pendingTtlMs) {
-      await IndexedDBManager.clientDB.setAppState(recordKey, undefined as any).catch(() => {});
+      await IndexedDBManager.setAppState(recordKey, undefined as any).catch(() => {});
       if (shouldClearIndex) {
-        await IndexedDBManager.clientDB.setAppState(indexKey, undefined as any).catch(() => {});
+        await IndexedDBManager.setAppState(indexKey, undefined as any).catch(() => {});
       }
       return null;
     }
@@ -72,30 +72,30 @@ export class EmailRecoveryPendingStore implements PendingStore {
       );
     }
     const key = this.getPendingRecordKey(record.accountId, nearPublicKey);
-    await IndexedDBManager.clientDB.setAppState(key, record);
+    await IndexedDBManager.setAppState(key, record);
     await this.touchIndex(record.accountId, nearPublicKey);
   }
 
   async clear(accountId: AccountId, nearPublicKey?: string): Promise<void> {
     const indexKey = this.getPendingIndexKey(accountId);
-    const idx = await IndexedDBManager.clientDB
+    const idx = await IndexedDBManager
       .getAppState<string>(indexKey)
       .catch(() => undefined);
 
     const resolvedNearPublicKey = nearPublicKey || idx || '';
     if (resolvedNearPublicKey) {
-      await IndexedDBManager.clientDB
+      await IndexedDBManager
         .setAppState(this.getPendingRecordKey(accountId, resolvedNearPublicKey), undefined as any)
         .catch(() => {});
     }
 
     if (!nearPublicKey || idx === nearPublicKey) {
-      await IndexedDBManager.clientDB.setAppState(indexKey, undefined as any).catch(() => {});
+      await IndexedDBManager.setAppState(indexKey, undefined as any).catch(() => {});
     }
   }
 
   async touchIndex(accountId: AccountId, nearPublicKey: string): Promise<void> {
-    await IndexedDBManager.clientDB
+    await IndexedDBManager
       .setAppState(this.getPendingIndexKey(accountId), nearPublicKey)
       .catch(() => {});
   }

@@ -1,5 +1,6 @@
 import { SIGNER_AUTH_METHODS, SIGNER_KINDS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
 import type { WalletSubjectId } from '@shared/utils/registrationIntent';
+import { base64UrlEncode } from '@shared/utils/base64';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type {
@@ -28,8 +29,12 @@ import {
 import { inferNearChainIdKey } from '@/core/accountData/near/accountRefs';
 import { buildNearProfileId } from '@/core/accountData/near/profileId';
 import { getLastLoggedInSignerSlot } from '../../webauthnAuth/device/signerSlot';
-import type { ProfileAuthenticatorRecord } from '@/core/indexedDB/passkeyClientDB.types';
-import type { IDBPDatabase } from 'idb';
+import type {
+  ActivateAccountSignerInput,
+  KeyMaterialRecord,
+  LocalWalletAuthMethodBindingRecord,
+  ProfileAuthenticatorRecord,
+} from '@/core/indexedDB';
 import type { RegistrationAccountLifecycleDeps } from '../../interfaces/operationDeps';
 import {
   thresholdEcdsaChainTargetKey,
@@ -117,6 +122,7 @@ export type StoreWalletSubjectEcdsaSignerRecordsResult = {
 const WALLET_SUBJECT_CHAIN_ID_KEY = 'wallet-subject';
 const WALLET_SUBJECT_ACCOUNT_MODEL = 'wallet-subject';
 const THRESHOLD_ECDSA_ACCOUNT_MODEL = 'threshold-ecdsa';
+const LOCAL_WALLET_AUTH_RP_ID = 'local';
 
 async function resolveNearProfileContext(
   deps: RegistrationAccountLifecycleDeps,
@@ -124,7 +130,7 @@ async function resolveNearProfileContext(
 ): Promise<{ profileId: string; chainIdKey: string; accountAddress: string } | null> {
   const accountId = toAccountId(nearAccountId);
   const context = await resolveProfileAccountContextFromCandidates(
-    deps.indexedDB.clientDB,
+    deps.indexedDB,
     buildNearAccountRefs(accountId),
   ).catch(() => null);
   if (!context?.profileId) return null;
@@ -141,7 +147,7 @@ async function readNearUserData(
   signerSlot?: number,
 ): Promise<ClientUserData | null> {
   const accountId = toAccountId(nearAccountId);
-  const projection = await resolveProfileAccountProjection(deps.indexedDB.clientDB, {
+  const projection = await resolveProfileAccountProjection(deps.indexedDB, {
     accountRefs: buildNearAccountRefs(accountId),
     ...(typeof signerSlot === 'number' ? { signerSlot } : {}),
   }).catch(() => null);
@@ -189,20 +195,20 @@ export async function storeUserData(
   const signerId =
     String(userData.passkeyCredential?.rawId || '').trim() || `signer-${normalizedSignerSlot}`;
 
-  await deps.indexedDB.clientDB.upsertProfile({
+  await deps.indexedDB.upsertProfile({
     profileId,
     defaultSignerSlot: normalizedSignerSlot,
     passkeyCredential: userData.passkeyCredential,
     ...(userData.preferences ? { preferences: userData.preferences } : {}),
   });
-  const existingSigner = await deps.indexedDB.clientDB
+  const existingSigner = await deps.indexedDB
     .getAccountSigner({
       chainIdKey,
       accountAddress,
       signerId,
     })
     .catch(() => null);
-  const activation = await deps.indexedDB.clientDB.activateAccountSigner({
+  const activation = await deps.indexedDB.activateAccountSigner({
     account: {
       profileId,
       chainIdKey,
@@ -228,17 +234,14 @@ export async function storeUserData(
   });
 
   if (activation.signerSlot !== normalizedSignerSlot) {
-    await deps.indexedDB.clientDB.upsertProfile({
+    await deps.indexedDB.upsertProfile({
       profileId,
       defaultSignerSlot: activation.signerSlot,
       passkeyCredential: userData.passkeyCredential,
       ...(userData.preferences ? { preferences: userData.preferences } : {}),
     });
   }
-  await deps.indexedDB.clientDB.setLastProfileStateForProfile(
-    profileId,
-    activation.signerSlot,
-  );
+  await deps.indexedDB.setLastProfileStateForProfile(profileId, activation.signerSlot);
 
   return { signerSlot: activation.signerSlot };
 }
@@ -246,7 +249,7 @@ export async function storeUserData(
 export function getAllUsers(
   deps: RegistrationAccountLifecycleDeps,
 ): Promise<ClientUserData[]> {
-  return listNearAccountProjections(deps.indexedDB.clientDB);
+  return listNearAccountProjections(deps.indexedDB);
 }
 
 export function getUserBySignerSlot(
@@ -254,13 +257,13 @@ export function getUserBySignerSlot(
   nearAccountId: AccountId,
   signerSlot: number,
 ): Promise<ClientUserData | null> {
-  return getNearAccountProjection(deps.indexedDB.clientDB, nearAccountId, signerSlot);
+  return getNearAccountProjection(deps.indexedDB, nearAccountId, signerSlot);
 }
 
 export function getLastUser(
   deps: RegistrationAccountLifecycleDeps,
 ): Promise<ClientUserData | null> {
-  return getLastSelectedNearAccountProjection(deps.indexedDB.clientDB);
+  return getLastSelectedNearAccountProjection(deps.indexedDB);
 }
 
 function mapProfileAuthenticatorToClient(
@@ -285,11 +288,11 @@ export async function getAuthenticatorsByUser(
 ): Promise<ClientAuthenticatorData[]> {
   const accountId = toAccountId(nearAccountId);
   const context = await resolveProfileAccountContextFromCandidates(
-    deps.indexedDB.clientDB,
+    deps.indexedDB,
     buildNearAccountRefs(accountId),
   ).catch(() => null);
   if (!context?.profileId) return [];
-  const rows = await deps.indexedDB.clientDB.listProfileAuthenticators(context.profileId);
+  const rows = await deps.indexedDB.listProfileAuthenticators(context.profileId);
   return rows.map((row) => mapProfileAuthenticatorToClient(row, accountId));
 }
 
@@ -299,13 +302,13 @@ export async function updateLastLogin(
 ): Promise<void> {
   const accountId = toAccountId(nearAccountId);
   const context = await resolveProfileAccountContextFromCandidates(
-    deps.indexedDB.clientDB,
+    deps.indexedDB,
     buildNearAccountRefs(accountId),
   ).catch(() => null);
   if (!context?.profileId) return;
   const [lastProfileState, profile] = await Promise.all([
-    deps.indexedDB.clientDB.getLastProfileState().catch(() => null),
-    deps.indexedDB.clientDB.getProfile(context.profileId).catch(() => null),
+    deps.indexedDB.getLastProfileState().catch(() => null),
+    deps.indexedDB.getProfile(context.profileId).catch(() => null),
   ]);
   const defaultSignerSlot = Number(profile?.defaultSignerSlot);
   const signerSlot =
@@ -314,7 +317,7 @@ export async function updateLastLogin(
       : Number.isSafeInteger(defaultSignerSlot) && defaultSignerSlot >= 1
         ? defaultSignerSlot
         : 1;
-  await deps.indexedDB.clientDB.setLastProfileStateForProfile(context.profileId, signerSlot);
+  await deps.indexedDB.setLastProfileStateForProfile(context.profileId, signerSlot);
 }
 
 export async function setLastUser(
@@ -324,22 +327,19 @@ export async function setLastUser(
 ): Promise<void> {
   const normalizedSignerSlot = Number(signerSlot);
   if (!Number.isSafeInteger(normalizedSignerSlot) || normalizedSignerSlot < 1) {
-    throw new Error('PasskeyClientDB: signerSlot must be an integer >= 1');
+    throw new Error('SeamsWalletDB: signerSlot must be an integer >= 1');
   }
   const accountId = toAccountId(nearAccountId);
   const context = await resolveProfileAccountContextFromCandidates(
-    deps.indexedDB.clientDB,
+    deps.indexedDB,
     buildNearAccountRefs(accountId),
   ).catch(() => null);
   if (!context?.profileId) {
     throw new Error(
-      `PasskeyClientDB: Missing profile/account mapping for NEAR account ${String(accountId)}`,
+      `SeamsWalletDB: Missing profile/account mapping for NEAR account ${String(accountId)}`,
     );
   }
-  await deps.indexedDB.clientDB.setLastProfileStateForProfile(
-    context.profileId,
-    normalizedSignerSlot,
-  );
+  await deps.indexedDB.setLastProfileStateForProfile(context.profileId, normalizedSignerSlot);
 }
 
 export async function initializeCurrentUser(
@@ -351,12 +351,12 @@ export async function initializeCurrentUser(
   // Set as last profile/signer slot for future sessions, preferring the existing pointer.
   let signerSlotToUse = await getLastLoggedInSignerSlot(
     accountId,
-    deps.indexedDB.clientDB,
+    deps.indexedDB,
   ).catch(() => null as number | null);
   if (signerSlotToUse === null) {
     const context = await resolveNearProfileContext(deps, accountId);
     const profile = context?.profileId
-      ? await deps.indexedDB.clientDB.getProfile(context.profileId).catch(() => null)
+      ? await deps.indexedDB.getProfile(context.profileId).catch(() => null)
       : null;
     const defaultSignerSlot = Number(profile?.defaultSignerSlot);
     signerSlotToUse =
@@ -364,10 +364,7 @@ export async function initializeCurrentUser(
   }
   const context = await resolveNearProfileContext(deps, accountId);
   if (context?.profileId) {
-    await deps.indexedDB.clientDB.setLastProfileStateForProfile(
-      context.profileId,
-      signerSlotToUse,
-    );
+    await deps.indexedDB.setLastProfileStateForProfile(context.profileId, signerSlotToUse);
   }
 
   // Set as current user for immediate use
@@ -409,7 +406,7 @@ export async function registerUser(
   );
   if (!stored) {
     throw new Error(
-      `PasskeyClientDB: Failed to resolve stored NEAR account projection for ${String(storeUserDataInput.nearAccountId || '').trim()}`,
+      `SeamsWalletDB: Failed to resolve stored NEAR account projection for ${String(storeUserDataInput.nearAccountId || '').trim()}`,
     );
   }
   return stored;
@@ -421,7 +418,7 @@ export async function storeAuthenticator(
 ): Promise<void> {
   const signerSlot = Number(authenticatorData.signerSlot);
   if (!Number.isSafeInteger(signerSlot) || signerSlot < 1) {
-    throw new Error('PasskeyClientDB: authenticator signerSlot must be an integer >= 1');
+    throw new Error('SeamsWalletDB: authenticator signerSlot must be an integer >= 1');
   }
   const authData = {
     ...authenticatorData,
@@ -431,10 +428,10 @@ export async function storeAuthenticator(
   const context = await resolveNearProfileContext(deps, authData.nearAccountId);
   if (!context?.profileId) {
     throw new Error(
-      `PasskeyClientDB: Missing profile/account mapping for NEAR account ${authData.nearAccountId}`,
+      `SeamsWalletDB: Missing profile/account mapping for NEAR account ${authData.nearAccountId}`,
     );
   }
-  await deps.indexedDB.clientDB.upsertProfileAuthenticator({
+  await deps.indexedDB.upsertProfileAuthenticator({
     profileId: context.profileId,
     signerSlot: authData.signerSlot,
     credentialId: authData.credentialId,
@@ -450,11 +447,25 @@ export function extractUsername(nearAccountId: AccountId): string {
   return String(nearAccountId).split('.')[0] || '';
 }
 
-export async function atomicOperation<T>(
-  deps: RegistrationAccountLifecycleDeps,
-  callback: (db: IDBPDatabase) => Promise<T>,
-): Promise<T> {
-  return await deps.indexedDB.clientDB.atomicOperation(callback);
+function passkeyAuthMethodBinding(args: {
+  walletSubjectId: WalletSubjectId;
+  credentialId: string;
+  credentialPublicKey: Uint8Array;
+}): LocalWalletAuthMethodBindingRecord {
+  const nowMs = Date.now();
+  return {
+    version: 'wallet_auth_method_binding_v1',
+    kind: 'passkey',
+    status: 'active',
+    localStatus: 'synced',
+    walletSubjectId: args.walletSubjectId,
+    rpId: LOCAL_WALLET_AUTH_RP_ID,
+    credentialIdB64u: args.credentialId,
+    credentialPublicKeyB64u: base64UrlEncode(args.credentialPublicKey),
+    counter: 0,
+    createdAtMs: nowMs,
+    updatedAtMs: nowMs,
+  };
 }
 
 export async function rollbackUserRegistration(
@@ -464,7 +475,7 @@ export async function rollbackUserRegistration(
   const accountId = toAccountId(nearAccountId);
   const context = await resolveNearProfileContext(deps, accountId);
   if (!context?.profileId) return;
-  await deps.indexedDB.clientDB.deleteProfileData(context.profileId, { eventAccountId: accountId });
+  await deps.indexedDB.deleteProfileData(context.profileId, { eventAccountId: accountId });
 }
 
 export async function hasPasskeyCredential(
@@ -474,9 +485,9 @@ export async function hasPasskeyCredential(
   const accountId = toAccountId(nearAccountId);
   const context = await resolveNearProfileContext(deps, accountId);
   if (!context?.profileId) return false;
-  const authenticators = await deps.indexedDB.clientDB.listProfileAuthenticators(context.profileId);
+  const authenticators = await deps.indexedDB.listProfileAuthenticators(context.profileId);
   if (authenticators.length > 0) return !!authenticators[0]?.credentialId;
-  const profile = await deps.indexedDB.clientDB.getProfile(context.profileId).catch(() => null);
+  const profile = await deps.indexedDB.getProfile(context.profileId).catch(() => null);
   return !!profile?.passkeyCredential?.rawId;
 }
 
@@ -488,39 +499,75 @@ export async function atomicStoreRegistrationData(
     operationalPublicKey: string;
   },
 ): Promise<StoredRegistrationData> {
-  return await atomicOperation(deps, async () => {
-    // Store credential for authentication
-    const credentialId: string = args.credential.rawId;
-    const attestationB64u: string = args.credential.response.attestationObject;
-    const transports: string[] = args.credential.response?.transports;
-    const credentialPublicKey = await deps.extractCosePublicKey(attestationB64u);
+  const credentialId: string = args.credential.rawId;
+  const attestationB64u: string = args.credential.response.attestationObject;
+  const transports: string[] = args.credential.response?.transports;
+  const credentialPublicKey = await deps.extractCosePublicKey(attestationB64u);
 
-    // Persist profile/account mapping first.
-    const activation = await storeUserData(deps, {
-      nearAccountId: args.nearAccountId,
-      signerSlot: 1,
-      operationalPublicKey: args.operationalPublicKey,
-      lastUpdated: Date.now(),
-      passkeyCredential: {
-        id: args.credential.id,
-        rawId: credentialId,
-      },
-      version: 2,
-    });
-
-    await storeAuthenticator(deps, {
-      nearAccountId: args.nearAccountId,
-      credentialId: credentialId,
-      credentialPublicKey,
-      transports,
-      name: `Passkey for ${extractUsername(args.nearAccountId)}`,
-      registered: new Date().toISOString(),
-      syncedAt: new Date().toISOString(),
-      signerSlot: activation.signerSlot,
-    });
-
-    return { signerSlot: activation.signerSlot };
+  const activation = await storeUserData(deps, {
+    nearAccountId: args.nearAccountId,
+    signerSlot: 1,
+    operationalPublicKey: args.operationalPublicKey,
+    lastUpdated: Date.now(),
+    passkeyCredential: {
+      id: args.credential.id,
+      rawId: credentialId,
+    },
+    version: 2,
   });
+
+  await storeAuthenticator(deps, {
+    nearAccountId: args.nearAccountId,
+    credentialId: credentialId,
+    credentialPublicKey,
+    transports,
+    name: `Passkey for ${extractUsername(args.nearAccountId)}`,
+    registered: new Date().toISOString(),
+    syncedAt: new Date().toISOString(),
+    signerSlot: activation.signerSlot,
+  });
+
+  return { signerSlot: activation.signerSlot };
+}
+
+function keyMaterialForSignerActivation(args: {
+  activation: ActivateAccountSignerInput;
+  signerSlot: number;
+  timestamp: number;
+}): KeyMaterialRecord {
+  const metadata = args.activation.signer.metadata || {};
+  const signerKind = args.activation.signer.signerKind;
+  const publicKey = signerKind === SIGNER_KINDS.thresholdEcdsa
+    ? requireStoreWalletSubjectString(
+        metadata.thresholdEcdsaPublicKeyB64u,
+        'ECDSA key material publicKey',
+      )
+    : requireStoreWalletSubjectString(
+        metadata.operationalPublicKey,
+        'Ed25519 key material publicKey',
+      );
+  const record: KeyMaterialRecord = {
+    profileId: requireStoreWalletSubjectString(args.activation.account.profileId, 'profileId'),
+    signerSlot: args.signerSlot,
+    chainIdKey: requireStoreWalletSubjectString(args.activation.account.chainIdKey, 'chainIdKey'),
+    accountAddress: requireStoreWalletSubjectString(
+      args.activation.account.accountAddress,
+      'accountAddress',
+    ),
+    signerId: requireStoreWalletSubjectString(args.activation.signer.signerId, 'signerId'),
+    keyKind: 'threshold_share_v1',
+    algorithm: signerKind === SIGNER_KINDS.thresholdEcdsa ? 'secp256k1' : 'ed25519',
+    publicKey,
+    timestamp: args.timestamp,
+    schemaVersion: 1,
+  };
+  if (signerKind === SIGNER_KINDS.thresholdEd25519) {
+    record.payload = {
+      relayerKeyId: requireStoreWalletSubjectString(metadata.relayerKeyId, 'relayerKeyId'),
+      keyVersion: requireStoreWalletSubjectString(metadata.keyVersion, 'keyVersion'),
+    };
+  }
+  return record;
 }
 
 export async function storeWalletSubjectEd25519RegistrationData(
@@ -529,15 +576,15 @@ export async function storeWalletSubjectEd25519RegistrationData(
 ): Promise<StoredRegistrationData> {
   const credentialId = String(args.credential.rawId || '').trim();
   if (!credentialId) {
-    throw new Error('PasskeyClientDB: registration credential rawId is required');
+    throw new Error('SeamsWalletDB: registration credential rawId is required');
   }
   const signerSlot = Number(args.signerSlot);
   if (!Number.isSafeInteger(signerSlot) || signerSlot < 1) {
-    throw new Error('PasskeyClientDB: wallet-subject signerSlot must be an integer >= 1');
+    throw new Error('SeamsWalletDB: wallet-subject signerSlot must be an integer >= 1');
   }
   const walletSubjectId = String(args.walletSubjectId || '').trim();
   if (!walletSubjectId) {
-    throw new Error('PasskeyClientDB: walletSubjectId is required');
+    throw new Error('SeamsWalletDB: walletSubjectId is required');
   }
   const nearAccountId = toAccountId(args.nearAccountId);
   const credentialPublicKey = await deps.extractCosePublicKey(args.credential.response.attestationObject);
@@ -559,12 +606,14 @@ export async function storeWalletSubjectEd25519RegistrationData(
     ...(args.relayerParticipantId != null ? { relayerParticipantId: args.relayerParticipantId } : {}),
   };
 
-  await deps.indexedDB.clientDB.upsertProfile({
-    profileId: walletSubjectId,
-    defaultSignerSlot: signerSlot,
-    passkeyCredential,
-  });
-  const walletActivation = await deps.indexedDB.clientDB.activateAccountSigner({
+  const nearProfileId = buildNearProfileId(nearAccountId);
+  const chainIdKey = inferNearChainIdKey(nearAccountId);
+  const accountAddress = normalizeIndexedDbAccountAddress(nearAccountId);
+  const ed25519SignerId = requireStoreWalletSubjectString(
+    args.operationalPublicKey,
+    'Ed25519 signerId',
+  );
+  const walletActivation: ActivateAccountSignerInput = {
     account: {
       profileId: walletSubjectId,
       chainIdKey: WALLET_SUBJECT_CHAIN_ID_KEY,
@@ -572,7 +621,7 @@ export async function storeWalletSubjectEd25519RegistrationData(
       accountModel: WALLET_SUBJECT_ACCOUNT_MODEL,
     },
     signer: {
-      signerId: credentialId,
+      signerId: ed25519SignerId,
       signerType: 'threshold',
       signerKind: SIGNER_KINDS.thresholdEd25519,
       signerAuthMethod: SIGNER_AUTH_METHODS.passkey,
@@ -582,27 +631,8 @@ export async function storeWalletSubjectEd25519RegistrationData(
     activationPolicy: { mode: 'fail_if_occupied', signerSlot },
     preferredSlot: signerSlot,
     mutation: { routeThroughOutbox: false },
-  });
-  await deps.indexedDB.clientDB.upsertProfileAuthenticator({
-    profileId: walletSubjectId,
-    signerSlot: walletActivation.signerSlot,
-    credentialId,
-    credentialPublicKey,
-    transports: args.credential.response?.transports,
-    name: `Passkey for ${extractUsername(nearAccountId)}`,
-    registered: nowIso,
-    syncedAt: nowIso,
-  });
-
-  const nearProfileId = buildNearProfileId(nearAccountId);
-  const chainIdKey = inferNearChainIdKey(nearAccountId);
-  const accountAddress = normalizeIndexedDbAccountAddress(nearAccountId);
-  await deps.indexedDB.clientDB.upsertProfile({
-    profileId: nearProfileId,
-    defaultSignerSlot: walletActivation.signerSlot,
-    passkeyCredential,
-  });
-  const nearActivation = await deps.indexedDB.clientDB.activateAccountSigner({
+  };
+  const nearActivation: ActivateAccountSignerInput = {
     account: {
       profileId: nearProfileId,
       chainIdKey,
@@ -610,29 +640,78 @@ export async function storeWalletSubjectEd25519RegistrationData(
       accountModel: 'near-native',
     },
     signer: {
-      signerId: credentialId,
+      signerId: ed25519SignerId,
       signerType: 'threshold',
       signerKind: SIGNER_KINDS.thresholdEd25519,
       signerAuthMethod: SIGNER_AUTH_METHODS.passkey,
       signerSource: SIGNER_SOURCES.passkeyRegistration,
       metadata: signerMetadata,
     },
-    activationPolicy: { mode: 'fail_if_occupied', signerSlot: walletActivation.signerSlot },
-    preferredSlot: walletActivation.signerSlot,
+    activationPolicy: { mode: 'fail_if_occupied', signerSlot },
+    preferredSlot: signerSlot,
     mutation: { routeThroughOutbox: false },
+  };
+  const keyMaterialTimestamp = Date.now();
+  const result = await deps.indexedDB.persistWalletRegistrationFinalize({
+    profiles: [
+      {
+        profileId: walletSubjectId,
+        defaultSignerSlot: signerSlot,
+        passkeyCredential,
+      },
+      {
+        profileId: nearProfileId,
+        defaultSignerSlot: signerSlot,
+        passkeyCredential,
+      },
+    ],
+    initialAuthMethodBinding: passkeyAuthMethodBinding({
+      walletSubjectId: args.walletSubjectId,
+      credentialId,
+      credentialPublicKey,
+    }),
+    authenticators: [
+      {
+        profileId: walletSubjectId,
+        signerSlot,
+        credentialId,
+        credentialPublicKey,
+        transports: args.credential.response?.transports,
+        name: `Passkey for ${extractUsername(nearAccountId)}`,
+        registered: nowIso,
+        syncedAt: nowIso,
+      },
+      {
+        profileId: nearProfileId,
+        signerSlot,
+        credentialId,
+        credentialPublicKey,
+        transports: args.credential.response?.transports,
+        name: `Passkey for ${extractUsername(nearAccountId)}`,
+        registered: nowIso,
+        syncedAt: nowIso,
+      },
+    ],
+    signerActivations: [walletActivation, nearActivation],
+    keyMaterials: [
+      keyMaterialForSignerActivation({
+        activation: walletActivation,
+        signerSlot,
+        timestamp: keyMaterialTimestamp,
+      }),
+      keyMaterialForSignerActivation({
+        activation: nearActivation,
+        signerSlot,
+        timestamp: keyMaterialTimestamp,
+      }),
+    ],
+    lastProfileState: { profileId: nearProfileId, activeSignerSlot: signerSlot },
   });
-  await deps.indexedDB.clientDB.upsertProfileAuthenticator({
-    profileId: nearProfileId,
-    signerSlot: nearActivation.signerSlot,
-    credentialId,
-    credentialPublicKey,
-    transports: args.credential.response?.transports,
-    name: `Passkey for ${extractUsername(nearAccountId)}`,
-    registered: nowIso,
-    syncedAt: nowIso,
-  });
-  await deps.indexedDB.clientDB.setLastProfileStateForProfile(nearProfileId, nearActivation.signerSlot);
-  return { signerSlot: nearActivation.signerSlot };
+  const storedNearActivation = result.signerActivations[1];
+  if (!storedNearActivation) {
+    throw new Error('SeamsWalletDB: wallet-subject Ed25519 registration batch did not complete');
+  }
+  return { signerSlot: storedNearActivation.signerSlot };
 }
 
 export async function storeWalletSubjectEd25519SignerRecord(
@@ -641,15 +720,15 @@ export async function storeWalletSubjectEd25519SignerRecord(
 ): Promise<StoredRegistrationData> {
   const credentialId = String(args.credential.rawId || args.credential.id || '').trim();
   if (!credentialId) {
-    throw new Error('PasskeyClientDB: add-signer credential id is required');
+    throw new Error('SeamsWalletDB: add-signer credential id is required');
   }
   const signerSlot = Number(args.signerSlot);
   if (!Number.isSafeInteger(signerSlot) || signerSlot < 1) {
-    throw new Error('PasskeyClientDB: wallet-subject signerSlot must be an integer >= 1');
+    throw new Error('SeamsWalletDB: wallet-subject signerSlot must be an integer >= 1');
   }
   const walletSubjectId = String(args.walletSubjectId || '').trim();
   if (!walletSubjectId) {
-    throw new Error('PasskeyClientDB: walletSubjectId is required');
+    throw new Error('SeamsWalletDB: walletSubjectId is required');
   }
   const nearAccountId = toAccountId(args.nearAccountId);
   const passkeyCredential = {
@@ -669,12 +748,14 @@ export async function storeWalletSubjectEd25519SignerRecord(
     ...(args.relayerParticipantId != null ? { relayerParticipantId: args.relayerParticipantId } : {}),
   };
 
-  await deps.indexedDB.clientDB.upsertProfile({
-    profileId: walletSubjectId,
-    defaultSignerSlot: signerSlot,
-    passkeyCredential,
-  });
-  const walletActivation = await deps.indexedDB.clientDB.activateAccountSigner({
+  const nearProfileId = buildNearProfileId(nearAccountId);
+  const chainIdKey = inferNearChainIdKey(nearAccountId);
+  const accountAddress = normalizeIndexedDbAccountAddress(nearAccountId);
+  const ed25519SignerId = requireStoreWalletSubjectString(
+    args.operationalPublicKey,
+    'Ed25519 signerId',
+  );
+  const walletActivation = {
     account: {
       profileId: walletSubjectId,
       chainIdKey: WALLET_SUBJECT_CHAIN_ID_KEY,
@@ -682,7 +763,7 @@ export async function storeWalletSubjectEd25519SignerRecord(
       accountModel: WALLET_SUBJECT_ACCOUNT_MODEL,
     },
     signer: {
-      signerId: credentialId,
+      signerId: ed25519SignerId,
       signerType: 'threshold',
       signerKind: SIGNER_KINDS.thresholdEd25519,
       signerAuthMethod: SIGNER_AUTH_METHODS.passkey,
@@ -692,17 +773,8 @@ export async function storeWalletSubjectEd25519SignerRecord(
     activationPolicy: { mode: 'fail_if_occupied', signerSlot },
     preferredSlot: signerSlot,
     mutation: { routeThroughOutbox: false },
-  });
-
-  const nearProfileId = buildNearProfileId(nearAccountId);
-  const chainIdKey = inferNearChainIdKey(nearAccountId);
-  const accountAddress = normalizeIndexedDbAccountAddress(nearAccountId);
-  await deps.indexedDB.clientDB.upsertProfile({
-    profileId: nearProfileId,
-    defaultSignerSlot: walletActivation.signerSlot,
-    passkeyCredential,
-  });
-  const nearActivation = await deps.indexedDB.clientDB.activateAccountSigner({
+  } satisfies ActivateAccountSignerInput;
+  const nearActivation = {
     account: {
       profileId: nearProfileId,
       chainIdKey,
@@ -710,67 +782,107 @@ export async function storeWalletSubjectEd25519SignerRecord(
       accountModel: 'near-native',
     },
     signer: {
-      signerId: credentialId,
+      signerId: ed25519SignerId,
       signerType: 'threshold',
       signerKind: SIGNER_KINDS.thresholdEd25519,
       signerAuthMethod: SIGNER_AUTH_METHODS.passkey,
       signerSource: SIGNER_SOURCES.passkeyRegistration,
       metadata: signerMetadata,
     },
-    activationPolicy: { mode: 'fail_if_occupied', signerSlot: walletActivation.signerSlot },
-    preferredSlot: walletActivation.signerSlot,
+    activationPolicy: { mode: 'fail_if_occupied', signerSlot },
+    preferredSlot: signerSlot,
     mutation: { routeThroughOutbox: false },
+  } satisfies ActivateAccountSignerInput;
+  const keyMaterialTimestamp = Date.now();
+  const result = await deps.indexedDB.persistWalletSignerFinalize({
+    profiles: [
+      {
+        profileId: walletSubjectId,
+        defaultSignerSlot: signerSlot,
+        passkeyCredential,
+      },
+      {
+        profileId: nearProfileId,
+        defaultSignerSlot: signerSlot,
+        passkeyCredential,
+      },
+    ],
+    signerActivations: [
+      walletActivation,
+      nearActivation,
+    ],
+    keyMaterials: [
+      keyMaterialForSignerActivation({
+        activation: walletActivation,
+        signerSlot,
+        timestamp: keyMaterialTimestamp,
+      }),
+      keyMaterialForSignerActivation({
+        activation: nearActivation,
+        signerSlot,
+        timestamp: keyMaterialTimestamp,
+      }),
+    ],
+    lastProfileState: { profileId: nearProfileId, activeSignerSlot: signerSlot },
   });
-  await deps.indexedDB.clientDB.setLastProfileStateForProfile(
-    nearProfileId,
-    nearActivation.signerSlot,
-  );
-  return { signerSlot: nearActivation.signerSlot };
+  const storedNearActivation = result.signerActivations[1];
+  if (!storedNearActivation) {
+    throw new Error('SeamsWalletDB: wallet-subject Ed25519 signer batch did not complete');
+  }
+  return { signerSlot: storedNearActivation.signerSlot };
 }
 
 function requireStoreWalletSubjectString(value: unknown, field: string): string {
   const normalized = String(value || '').trim();
   if (!normalized) {
-    throw new Error(`PasskeyClientDB: ${field} is required`);
+    throw new Error(`SeamsWalletDB: ${field} is required`);
   }
   return normalized;
 }
 
 function normalizeStoreWalletSubjectParticipantIds(value: readonly number[]): number[] {
   if (!Array.isArray(value) || value.length === 0) {
-    throw new Error('PasskeyClientDB: threshold ECDSA participantIds are required');
+    throw new Error('SeamsWalletDB: threshold ECDSA participantIds are required');
   }
   return value.map((participantId) => {
     const normalized = Number(participantId);
     if (!Number.isSafeInteger(normalized) || normalized <= 0) {
-      throw new Error('PasskeyClientDB: threshold ECDSA participantIds must be positive integers');
+      throw new Error('SeamsWalletDB: threshold ECDSA participantIds must be positive integers');
     }
     return normalized;
   });
 }
 
-export async function storeWalletSubjectEcdsaSignerRecords(
-  deps: RegistrationAccountLifecycleDeps,
+type PreparedWalletSubjectEcdsaSignerActivation = {
+  chainTarget: ThresholdEcdsaChainTarget;
+  targetKey: string;
+  signerId: string;
+  signerSlot: number;
+  input: ActivateAccountSignerInput;
+};
+
+function prepareWalletSubjectEcdsaSignerActivations(
   args: StoreWalletSubjectEcdsaSignerRecordsInput,
-): Promise<StoreWalletSubjectEcdsaSignerRecordsResult> {
+): {
+  walletSubjectId: string;
+  signerActivations: PreparedWalletSubjectEcdsaSignerActivation[];
+} {
   const walletSubjectId = requireStoreWalletSubjectString(
     args.walletSubjectId,
     'walletSubjectId',
   );
   if (!Array.isArray(args.walletKeys) || args.walletKeys.length === 0) {
-    throw new Error('PasskeyClientDB: threshold ECDSA walletKeys are required');
+    throw new Error('SeamsWalletDB: threshold ECDSA walletKeys are required');
   }
 
-  await deps.indexedDB.clientDB.upsertProfile({ profileId: walletSubjectId });
-
-  const storedSigners: StoredWalletSubjectEcdsaSignerRecord[] = [];
+  const signerActivations: PreparedWalletSubjectEcdsaSignerActivation[] = [];
   for (const walletKey of args.walletKeys) {
     if (walletKey.keyScope !== 'evm-family') {
-      throw new Error('PasskeyClientDB: threshold ECDSA wallet keyScope must be evm-family');
+      throw new Error('SeamsWalletDB: threshold ECDSA wallet keyScope must be evm-family');
     }
     const walletId = requireStoreWalletSubjectString(walletKey.walletId, 'wallet key walletId');
     if (walletId !== walletSubjectId) {
-      throw new Error('PasskeyClientDB: threshold ECDSA wallet key walletId mismatch');
+      throw new Error('SeamsWalletDB: threshold ECDSA wallet key walletId mismatch');
     }
     const keyHandle = requireStoreWalletSubjectString(walletKey.keyHandle, 'wallet key keyHandle');
     const ecdsaThresholdKeyId = requireStoreWalletSubjectString(
@@ -799,76 +911,109 @@ export async function storeWalletSubjectEcdsaSignerRecords(
       walletKey.thresholdOwnerAddress,
     );
     if (!thresholdOwnerAddress) {
-      throw new Error('PasskeyClientDB: wallet key thresholdOwnerAddress is required');
+      throw new Error('SeamsWalletDB: wallet key thresholdOwnerAddress is required');
     }
     const chainIdKey = toIndexedDbChainTargetKey(walletKey.chainTarget);
     const targetKey = thresholdEcdsaChainTargetKey(walletKey.chainTarget);
 
-    const activation = await deps.indexedDB.clientDB.activateAccountSigner({
-      account: {
-        profileId: walletSubjectId,
-        chainIdKey,
-        accountAddress: thresholdOwnerAddress,
-        accountModel: THRESHOLD_ECDSA_ACCOUNT_MODEL,
-      },
-      signer: {
-        signerId: thresholdOwnerAddress,
-        signerType: 'threshold',
-        signerKind: SIGNER_KINDS.thresholdEcdsa,
-        signerAuthMethod: SIGNER_AUTH_METHODS.passkey,
-        signerSource: SIGNER_SOURCES.passkeyRegistration,
-        metadata: {
-          accountModel: THRESHOLD_ECDSA_ACCOUNT_MODEL,
+    signerActivations.push({
+      chainTarget: walletKey.chainTarget,
+      targetKey,
+      signerId: thresholdOwnerAddress,
+      signerSlot: 1,
+      input: {
+        account: {
+          profileId: walletSubjectId,
+          chainIdKey,
           accountAddress: thresholdOwnerAddress,
-          ownerAddress: thresholdOwnerAddress,
-          thresholdOwnerAddress,
-          keyScope: walletKey.keyScope,
-          keyHandle,
-          walletId: walletSubjectId,
-          rpId,
-          ecdsaThresholdKeyId,
-          signingRootId,
-          signingRootVersion,
-          relayerKeyId,
-          relayerVerifyingShareB64u: requireStoreWalletSubjectString(
-            walletKey.relayerVerifyingShareB64u,
-            'wallet key relayerVerifyingShareB64u',
-          ),
-          thresholdEcdsaPublicKeyB64u,
-          participantIds,
-          chainTarget: walletKey.chainTarget,
-          targetMembership: {
-            targetKey,
-            chainTarget: walletKey.chainTarget,
-          },
-          sharedEvmFamilyKey: {
-            walletId: walletSubjectId,
-            rpId,
+          accountModel: THRESHOLD_ECDSA_ACCOUNT_MODEL,
+        },
+        signer: {
+          signerId: thresholdOwnerAddress,
+          signerType: 'threshold',
+          signerKind: SIGNER_KINDS.thresholdEcdsa,
+          signerAuthMethod: SIGNER_AUTH_METHODS.passkey,
+          signerSource: SIGNER_SOURCES.passkeyRegistration,
+          metadata: {
+            accountModel: THRESHOLD_ECDSA_ACCOUNT_MODEL,
+            accountAddress: thresholdOwnerAddress,
+            ownerAddress: thresholdOwnerAddress,
+            thresholdOwnerAddress,
             keyScope: walletKey.keyScope,
             keyHandle,
+            walletId: walletSubjectId,
+            rpId,
             ecdsaThresholdKeyId,
             signingRootId,
             signingRootVersion,
-            participantIds,
-            thresholdOwnerAddress,
+            relayerKeyId,
+            relayerVerifyingShareB64u: requireStoreWalletSubjectString(
+              walletKey.relayerVerifyingShareB64u,
+              'wallet key relayerVerifyingShareB64u',
+            ),
             thresholdEcdsaPublicKeyB64u,
+            participantIds,
+            chainTarget: walletKey.chainTarget,
+            targetMembership: {
+              targetKey,
+              chainTarget: walletKey.chainTarget,
+            },
+            sharedEvmFamilyKey: {
+              walletId: walletSubjectId,
+              rpId,
+              keyScope: walletKey.keyScope,
+              keyHandle,
+              ecdsaThresholdKeyId,
+              signingRootId,
+              signingRootVersion,
+              participantIds,
+              thresholdOwnerAddress,
+              thresholdEcdsaPublicKeyB64u,
+            },
+            chainId: walletKey.chainTarget.chainId,
           },
-          chainId: walletKey.chainTarget.chainId,
         },
+        activationPolicy: { mode: 'allocate_next_free' },
+        preferredSlot: 1,
+        mutation: { routeThroughOutbox: false },
       },
-      activationPolicy: { mode: 'allocate_next_free' },
-      mutation: { routeThroughOutbox: false },
-    });
-
-    storedSigners.push({
-      chainTarget: walletKey.chainTarget,
-      targetKey,
-      signerSlot: activation.signerSlot,
-      signerId: thresholdOwnerAddress,
     });
   }
+  return { walletSubjectId, signerActivations };
+}
 
-  return { storedSigners };
+export async function storeWalletSubjectEcdsaSignerRecords(
+  deps: RegistrationAccountLifecycleDeps,
+  args: StoreWalletSubjectEcdsaSignerRecordsInput,
+): Promise<StoreWalletSubjectEcdsaSignerRecordsResult> {
+  const { walletSubjectId, signerActivations } =
+    prepareWalletSubjectEcdsaSignerActivations(args);
+  const keyMaterialTimestamp = Date.now();
+  const batch = await deps.indexedDB.persistWalletSignerFinalize({
+    profiles: [{ profileId: walletSubjectId }],
+    signerActivations: signerActivations.map((activation) => activation.input),
+    keyMaterials: signerActivations.map((activation) =>
+      keyMaterialForSignerActivation({
+        activation: activation.input,
+        signerSlot: activation.signerSlot,
+        timestamp: keyMaterialTimestamp,
+      }),
+    ),
+  });
+  return {
+    storedSigners: signerActivations.map((activation, index) => {
+      const result = batch.signerActivations[index];
+      if (!result) {
+        throw new Error('SeamsWalletDB: wallet-subject ECDSA signer batch did not complete');
+      }
+      return {
+        chainTarget: activation.chainTarget,
+        targetKey: activation.targetKey,
+        signerSlot: result.signerSlot,
+        signerId: activation.signerId,
+      };
+    }),
+  };
 }
 
 export async function storeWalletSubjectEcdsaRegistrationData(
@@ -881,7 +1026,7 @@ export async function storeWalletSubjectEcdsaRegistrationData(
   );
   const credentialId = String(args.credential.rawId || '').trim();
   if (!credentialId) {
-    throw new Error('PasskeyClientDB: registration credential rawId is required');
+    throw new Error('SeamsWalletDB: registration credential rawId is required');
   }
   const credentialPublicKey = await deps.extractCosePublicKey(
     args.credential.response.attestationObject,
@@ -891,25 +1036,59 @@ export async function storeWalletSubjectEcdsaRegistrationData(
     rawId: credentialId,
   };
   const nowIso = new Date().toISOString();
-
-  await deps.indexedDB.clientDB.upsertProfile({
-    profileId: walletSubjectId,
-    defaultSignerSlot: 1,
-    passkeyCredential,
-  });
-  await deps.indexedDB.clientDB.upsertProfileAuthenticator({
-    profileId: walletSubjectId,
-    signerSlot: 1,
-    credentialId,
-    credentialPublicKey,
-    transports: args.credential.response?.transports,
-    name: 'Passkey for wallet',
-    registered: nowIso,
-    syncedAt: nowIso,
-  });
-
-  return await storeWalletSubjectEcdsaSignerRecords(deps, {
+  const preparedEcdsa = prepareWalletSubjectEcdsaSignerActivations({
     walletSubjectId: args.walletSubjectId,
     walletKeys: args.walletKeys,
   });
+  const keyMaterialTimestamp = Date.now();
+
+  const batch = await deps.indexedDB.persistWalletRegistrationFinalize({
+    profiles: [
+      {
+        profileId: walletSubjectId,
+        defaultSignerSlot: 1,
+        passkeyCredential,
+      },
+    ],
+    initialAuthMethodBinding: passkeyAuthMethodBinding({
+      walletSubjectId: args.walletSubjectId,
+      credentialId,
+      credentialPublicKey,
+    }),
+    authenticators: [
+      {
+        profileId: walletSubjectId,
+        signerSlot: 1,
+        credentialId,
+        credentialPublicKey,
+        transports: args.credential.response?.transports,
+        name: 'Passkey for wallet',
+        registered: nowIso,
+        syncedAt: nowIso,
+      },
+    ],
+    signerActivations: preparedEcdsa.signerActivations.map((activation) => activation.input),
+    keyMaterials: preparedEcdsa.signerActivations.map((activation) =>
+      keyMaterialForSignerActivation({
+        activation: activation.input,
+        signerSlot: activation.signerSlot,
+        timestamp: keyMaterialTimestamp,
+      }),
+    ),
+  });
+
+  return {
+    storedSigners: preparedEcdsa.signerActivations.map((activation, index) => {
+      const result = batch.signerActivations[index];
+      if (!result) {
+        throw new Error('SeamsWalletDB: wallet-subject ECDSA registration batch did not complete');
+      }
+      return {
+        chainTarget: activation.chainTarget,
+        targetKey: activation.targetKey,
+        signerSlot: result.signerSlot,
+        signerId: activation.signerId,
+      };
+    }),
+  };
 }

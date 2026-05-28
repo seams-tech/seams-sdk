@@ -132,11 +132,11 @@ export async function prepareRecoveryEmails(
   void (async () => {
     try {
       const continuity = await resolveNearAccountProfileContinuity(
-        IndexedDBManager.clientDB,
+        IndexedDBManager,
         accountId,
       ).catch(() => null);
       if (!continuity?.profile.profileId) return;
-      await IndexedDBManager.clientDB.upsertRecoveryEmails(continuity.profile.profileId, pairs);
+      await IndexedDBManager.upsertRecoveryEmails(continuity.profile.profileId, pairs);
     } catch (error) {
       console.warn('[EmailRecovery] Failed to persist local recovery emails', error);
     }
@@ -150,11 +150,11 @@ export async function getLocalRecoveryEmails(
 ): Promise<RecoveryEmailRecord[]> {
   const accountId = toAccountId(nearAccountId);
   const continuity = await resolveNearAccountProfileContinuity(
-    IndexedDBManager.clientDB,
+    IndexedDBManager,
     accountId,
   ).catch(() => null);
   if (!continuity?.profile.profileId) return [];
-  const rows = await IndexedDBManager.clientDB.listRecoveryEmails(continuity.profile.profileId);
+  const rows = await IndexedDBManager.listRecoveryEmails(continuity.profile.profileId);
   return rows.map((row) => ({
     nearAccountId: accountId,
     hashHex: String(row.hashHex || ''),

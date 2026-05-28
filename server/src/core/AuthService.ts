@@ -138,10 +138,11 @@ import {
 } from '@shared/threshold/signingRootScope';
 import {
   addSignerIntentGrantFromString,
-  computeAddSignerIntentDigestB64u,
-  computeRegistrationIntentDigestB64u,
-  normalizeNearAccountOwnershipProofV1,
-  normalizeRegistrationAuthMethodInput,
+	  computeAddSignerIntentDigestB64u,
+	  computeRegistrationIntentDigestB64u,
+	  normalizeEmailOtpRegistrationProof,
+	  normalizeNearAccountOwnershipProofV1,
+	  normalizeRegistrationAuthMethodInput,
   registrationIntentGrantFromString,
   serializeNearAccountOwnershipProofMessageV1,
   walletSubjectIdFromString,
@@ -611,6 +612,10 @@ function randomBase64Url(bytes: number): string {
   const data = new Uint8Array(bytes);
   crypto.getRandomValues(data);
   return base64UrlEncode(data);
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 function normalizePositiveInteger(raw: unknown, fallback: number): number {
@@ -3886,7 +3891,9 @@ export class AuthService {
   private async verifyRegistrationAuthorityForIntent(input: {
     intent: RegistrationIntentV1;
     registrationIntentDigestB64u: string;
+    orgId: string;
     expectedOrigin?: string;
+    emailOtpRegistrationProof?: unknown;
     webauthnRegistration: unknown;
   }): Promise<
     | {
@@ -3917,12 +3924,63 @@ export class AuthService {
           },
         };
       }
-      case 'email_otp':
+      case 'email_otp': {
+        const proof = normalizeEmailOtpRegistrationProof(input.emailOtpRegistrationProof);
+        if (!proof) {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'emailOtpRegistrationProof is required for Email OTP registration',
+          };
+        }
+        if (proof.registrationIntentDigestB64u !== input.registrationIntentDigestB64u) {
+          return {
+            ok: false,
+            code: 'registration_intent_digest_mismatch',
+            message: 'Email OTP registration proof is not bound to this registration intent',
+          };
+        }
+        if (proof.email !== input.intent.authMethod.email.toLowerCase()) {
+          return {
+            ok: false,
+            code: 'email_mismatch',
+            message: 'Email OTP registration proof email does not match the intent',
+          };
+        }
+        const verified = await this.verifyEmailOtpChallengeCode({
+          userId: proof.email,
+          walletId: input.intent.walletSubjectId,
+          orgId: input.orgId,
+          challengeId: proof.challengeId,
+          otpCode: proof.otpCode,
+          otpChannel: proof.otpChannel,
+          sessionHash: input.registrationIntentDigestB64u,
+          appSessionVersion: proof.appSessionVersion,
+          expectedAction: WALLET_EMAIL_OTP_ACTIONS.registration,
+          expectedOperation: WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
+        });
+        if (!verified.ok) return verified;
+        const verifiedEmail = toOptionalTrimmedString(verified.email)?.toLowerCase();
+        if (verifiedEmail !== proof.email) {
+          return {
+            ok: false,
+            code: 'email_mismatch',
+            message: 'Verified Email OTP address does not match the registration proof',
+          };
+        }
+        const emailHashHex = bytesToHex(await sha256BytesUtf8(proof.email));
         return {
-          ok: false,
-          code: 'unsupported_auth_method',
-          message: 'wallet registration start currently supports passkey authority only',
+          ok: true,
+          authority: {
+            kind: 'email_otp',
+            walletSubjectId: input.intent.walletSubjectId,
+            rpId: input.intent.rpId,
+            emailHashHex,
+            challengeId: proof.challengeId,
+            registrationIntentDigestB64u: input.registrationIntentDigestB64u,
+          },
         };
+      }
     }
     return assertNever(input.intent.authMethod);
   }
@@ -4160,20 +4218,15 @@ export class AuthService {
       }
 
       const verifiedAuthority = await this.verifyRegistrationAuthorityForIntent({
-        intent: storedIntent.intent,
-        registrationIntentDigestB64u: storedIntent.digestB64u,
-        expectedOrigin: storedIntent.expectedOrigin,
-        webauthnRegistration: request.webauthn_registration,
-      });
-      if (!verifiedAuthority.ok) return verifiedAuthority;
-      const authority = verifiedAuthority.authority;
-      if (authority.kind !== 'passkey') {
-        return {
-          ok: false,
-          code: 'unsupported_auth_method',
-          message: 'wallet registration start currently supports passkey authority only',
-        };
-      }
+	        intent: storedIntent.intent,
+	        registrationIntentDigestB64u: storedIntent.digestB64u,
+	        orgId: storedIntent.orgId,
+	        expectedOrigin: storedIntent.expectedOrigin,
+	        emailOtpRegistrationProof: request.emailOtpRegistrationProof,
+	        webauthnRegistration: request.webauthn_registration,
+	      });
+	      if (!verifiedAuthority.ok) return verifiedAuthority;
+	      const authority = verifiedAuthority.authority;
 
       const registrationCeremonyId = `wrc_${randomBase64Url(24)}`;
       if (selection.mode === 'ecdsa_only') {

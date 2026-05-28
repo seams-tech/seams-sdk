@@ -48,6 +48,7 @@ import type {
 } from '@/core/signingEngine/session/persistence/records';
 import type { PersistWarmSessionEd25519CapabilityArgs } from '../warmCapabilities/persistence';
 import { attachEd25519SessionToEmailOtpSigningSessionSealBestEffort } from './companionSessions';
+import type { EmailOtpEd25519RegistrationClientSecretSource } from './clientSecretSource';
 
 type ManagedRegistrationBootstrapGrant = {
   token: string;
@@ -119,7 +120,6 @@ type EmailOtpEd25519CommonArgs = {
   nearAccountId: AccountId | string;
   relayUrl: string;
   rpId: string;
-  prfFirstB64u: string;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
   participantIds?: number[];
   ttlMs?: number;
@@ -128,6 +128,8 @@ type EmailOtpEd25519CommonArgs = {
 
 export type RegisterEmailOtpEd25519CapabilityArgs = EmailOtpEd25519CommonArgs &
   EmailOtpEd25519RegistrationProvisioningIntent & {
+    clientSecretSource: EmailOtpEd25519RegistrationClientSecretSource;
+    prfFirstB64u?: never;
     appSessionJwt?: string;
     routeAuth?: AppOrThresholdSessionAuth;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -138,6 +140,7 @@ export type ReconstructEmailOtpEd25519SessionArgs = Omit<
   'participantIds'
 > & {
   kind: 'session_ed25519_reconstruction';
+  prfFirstB64u: string;
   routeAuth: AppOrThresholdSessionAuth;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   walletSigningSessionId: string;
@@ -151,8 +154,8 @@ type NormalizedEmailOtpEd25519ProvisioningCommon = {
   nearAccountId: AccountId;
   relayUrl: string;
   rpId: string;
-  prfFirstB64u: string;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
+  clientSecretSource: EmailOtpEd25519RegistrationClientSecretSource;
   appSessionJwt?: string;
   routeAuth?: AppOrThresholdSessionAuth;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -181,7 +184,8 @@ function normalizeEmailOtpEd25519ProvisioningInput(
   const nearAccountId = toAccountId(input.nearAccountId);
   const relayUrl = String(input.relayUrl || '').trim();
   const rpId = String(input.rpId || '').trim();
-  const prfFirstB64u = String(input.prfFirstB64u || '').trim();
+  const clientSecretSource = input.clientSecretSource;
+  const prfFirstB64u = String(clientSecretSource?.prfFirstB64u || '').trim();
   if (!relayUrl) {
     throw new Error('Email OTP threshold-ed25519 provisioning requires relayerUrl');
   }
@@ -193,8 +197,8 @@ function normalizeEmailOtpEd25519ProvisioningInput(
     nearAccountId,
     relayUrl,
     rpId,
-    prfFirstB64u,
     emailOtpAuthContext: input.emailOtpAuthContext,
+    clientSecretSource,
     ...(input.appSessionJwt ? { appSessionJwt: input.appSessionJwt } : {}),
     ...(input.routeAuth ? { routeAuth: input.routeAuth } : {}),
     ...(input.runtimePolicyScope ? { runtimePolicyScope: input.runtimePolicyScope } : {}),
@@ -205,6 +209,12 @@ function normalizeEmailOtpEd25519ProvisioningInput(
   const registrationAttemptId = normalizeOptionalString(input.registrationAttemptId);
   if (!registrationAttemptId) {
     throw new Error('Email OTP threshold-ed25519 registration requires a registration attempt');
+  }
+  if (
+    clientSecretSource.kind !== 'email_otp_registration_ed25519_hss_client_secret_source' ||
+    clientSecretSource.registrationAttemptId !== registrationAttemptId
+  ) {
+    throw new Error('Email OTP threshold-ed25519 registration client secret source mismatch');
   }
   if (input.kind === 'registration_ed25519_provisioning') {
     return {
@@ -271,7 +281,7 @@ export async function registerEmailOtpEd25519Capability(args: {
   const nearAccountId = input.nearAccountId;
   const relayerUrl = input.relayUrl;
   const rpId = input.rpId;
-  const prfFirstB64u = input.prfFirstB64u;
+  const prfFirstB64u = input.clientSecretSource.prfFirstB64u;
 
   const participantIds = normalizeThresholdEd25519ParticipantIds(input.participantIds) || [
     ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,

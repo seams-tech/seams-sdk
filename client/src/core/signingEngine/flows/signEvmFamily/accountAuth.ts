@@ -28,20 +28,20 @@ export async function resolveEvmFamilyTransactionWalletAuth(args: {
 
   const walletId = toAccountId(args.walletId);
   const context = await resolveProfileAccountContextFromCandidates(
-    args.deps.indexedDB.clientDB,
+    args.deps.indexedDB,
     buildNearAccountRefs(walletId),
   ).catch(() => null);
   if (context?.profileId) {
     const [profile, activeSigners, lastProfileState] = await Promise.all([
-      args.deps.indexedDB.clientDB.getProfile(context.profileId).catch(() => null),
-      args.deps.indexedDB.clientDB
+      args.deps.indexedDB.getProfile(context.profileId).catch(() => null),
+      args.deps.indexedDB
         .listAccountSigners({
           chainIdKey: context.accountRef.chainIdKey,
           accountAddress: context.accountRef.accountAddress,
           status: 'active',
         })
         .catch(() => []),
-      args.deps.indexedDB.clientDB.getLastProfileState().catch(() => null),
+      args.deps.indexedDB.getLastProfileState().catch(() => null),
     ]);
     if (profile && activeSigners.length) {
       const activeSignerSlot =

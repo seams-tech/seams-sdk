@@ -85,7 +85,7 @@ export class UserPreferencesManager {
   }
 
   private subscribeToIndexedDBChanges(): void {
-    this.unsubscribeFromIndexedDB = IndexedDBManager.clientDB.onChange((event) => {
+    this.unsubscribeFromIndexedDB = IndexedDBManager.onChange((event) => {
       void this.handleIndexedDBEvent(event).catch((error) => {
         console.warn('[SigningEngine]: Error handling IndexedDB event:', error);
       });
@@ -163,7 +163,7 @@ export class UserPreferencesManager {
     if (!prev || String(prev) !== String(walletId)) {
       this.notifyCurrentWalletChange(walletId);
     }
-    if (!IndexedDBManager.clientDB.isDisabled()) {
+    if (!IndexedDBManager.isDisabled()) {
       void this.loadSettingsForWallet(walletId).catch(() => undefined);
     }
   }
@@ -178,14 +178,14 @@ export class UserPreferencesManager {
   }
 
   private async loadSettingsForWallet(walletId: WalletId): Promise<void> {
-    if (IndexedDBManager.clientDB.isDisabled()) return;
+    if (IndexedDBManager.isDisabled()) return;
     const nearAccountId = hostedWalletIdAsNearAccountId(walletId);
     const context = await resolveProfileAccountContextFromCandidates(
-      IndexedDBManager.clientDB,
+      IndexedDBManager,
       buildNearAccountRefs(nearAccountId),
     ).catch(() => null);
     if (!context?.profileId) return;
-    const profile = await IndexedDBManager.clientDB.getProfile(context.profileId).catch(() => null);
+    const profile = await IndexedDBManager.getProfile(context.profileId).catch(() => null);
     if (!profile) return;
     this.applyStoredPreferences(profile.preferences);
   }
@@ -212,14 +212,14 @@ export class UserPreferencesManager {
   }
 
   async loadUserSettings(): Promise<void> {
-    if (IndexedDBManager.clientDB.isDisabled()) return;
-    const last = await getLastSelectedNearAccount(IndexedDBManager.clientDB).catch(() => null);
+    if (IndexedDBManager.isDisabled()) return;
+    const last = await getLastSelectedNearAccount(IndexedDBManager).catch(() => null);
     if (!last) {
       console.debug('[SigningEngine]: No last user found, using default settings');
       return;
     }
     this.currentWalletId = toWalletId(last.nearAccountId);
-    const profile = await IndexedDBManager.clientDB.getProfile(last.profileId).catch(() => null);
+    const profile = await IndexedDBManager.getProfile(last.profileId).catch(() => null);
     if (!profile) {
       console.debug('[SigningEngine]: No profile found for last user, using default settings');
       return;
@@ -238,7 +238,7 @@ export class UserPreferencesManager {
       }
 
       const accountId = hostedWalletIdAsNearAccountId(walletId);
-      await updateNearAccountPreferences(IndexedDBManager.clientDB, accountId, {
+      await updateNearAccountPreferences(IndexedDBManager, accountId, {
         confirmationConfig: this.confirmationConfig,
       });
     } catch (error) {

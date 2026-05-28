@@ -37,9 +37,8 @@ import { runNearEd25519SingleKeyHssExport } from './nearEd25519HssExport';
 import { buildThresholdEd25519SeedExportArtifactFromHssReport } from '../../threshold/ed25519/hssLifecycle';
 
 export type NearEd25519SingleKeyExportDeps = {
-  indexedDB: Parameters<typeof getNearThresholdKeyMaterial>[0] & {
-    clientDB: Parameters<typeof getLastLoggedInSignerSlot>[1];
-  };
+  indexedDB: Parameters<typeof getLastLoggedInSignerSlot>[1] &
+    Parameters<typeof getNearThresholdKeyMaterial>[0]['keyMaterialStore'];
   touchConfirm: Parameters<typeof showNearEd25519ExportViewer>[0]['touchConfirm'];
   theme?: ThemeName;
   emailOtpSessions: {
@@ -280,7 +279,7 @@ export async function tryExportNearEd25519SingleKeyHssWithAuthorization(
   const defaultSigningRootId =
     signingRootScopeFromRuntimePolicyScope(defaultRuntimePolicyScope).signingRootId;
 
-  const signerSlot = await getLastLoggedInSignerSlot(nearAccountId, deps.indexedDB.clientDB).catch(
+  const signerSlot = await getLastLoggedInSignerSlot(nearAccountId, deps.indexedDB).catch(
     () => null as number | null,
   );
   if (signerSlot == null) {
@@ -292,7 +291,10 @@ export async function tryExportNearEd25519SingleKeyHssWithAuthorization(
   }
 
   const thresholdKeyMaterial = await getNearThresholdKeyMaterial(
-    deps.indexedDB,
+    {
+      clientDB: deps.indexedDB,
+      keyMaterialStore: deps.indexedDB,
+    },
     nearAccountId,
     signerSlot,
   ).catch(() => null);

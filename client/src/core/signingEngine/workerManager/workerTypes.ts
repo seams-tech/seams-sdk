@@ -220,6 +220,7 @@ export interface EmailOtpWorkerOperationMap {
       otpChannel: WalletEmailOtpChannel;
       emailHint?: string;
       expiresAtMs?: number;
+      appSessionVersion?: string;
     };
   };
   requestEmailOtpEnrollmentChallenge: {
@@ -234,6 +235,7 @@ export interface EmailOtpWorkerOperationMap {
       otpChannel: WalletEmailOtpChannel;
       emailHint?: string;
       expiresAtMs?: number;
+      appSessionVersion?: string;
     };
   };
   enrollEmailOtpWallet: {

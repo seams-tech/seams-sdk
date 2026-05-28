@@ -62,12 +62,12 @@ export async function resolveNearSigningMaterials(args: {
   }
   const resolvedSignerSlot =
     parsedSignerSlot ??
-    (await getLastLoggedInSignerSlot(nearAccountId, args.ctx.indexedDB.clientDB));
+    (await getLastLoggedInSignerSlot(nearAccountId, args.ctx.indexedDB));
 
   const thresholdKeyMaterial = await getNearThresholdKeyMaterial(
     {
-      clientDB: args.ctx.indexedDB.clientDB,
-      accountKeyMaterialDB: args.ctx.indexedDB.accountKeyMaterialDB,
+      clientDB: args.ctx.indexedDB,
+      keyMaterialStore: args.ctx.indexedDB,
     },
     nearAccountId,
     resolvedSignerSlot,

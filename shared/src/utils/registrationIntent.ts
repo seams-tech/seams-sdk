@@ -65,7 +65,17 @@ export type RegistrationAuthority =
       credentialIdB64u?: never;
       credentialPublicKeyB64u?: never;
       counter?: never;
-    };
+	    };
+
+export type EmailOtpRegistrationProof = {
+  version: 'email_otp_registration_proof_v1';
+  email: string;
+  challengeId: string;
+  otpCode: string;
+  otpChannel: 'email_otp';
+  registrationIntentDigestB64u: string;
+  appSessionVersion: string;
+};
 
 export type WalletAuthMethodBinding =
   | {
@@ -298,6 +308,39 @@ export function normalizeRegistrationAuthMethodInput(
     };
   }
   return null;
+}
+
+export function normalizeEmailOtpRegistrationProof(
+  raw: unknown,
+): EmailOtpRegistrationProof | null {
+  if (!isRecord(raw)) return null;
+  const version = trimString(raw.version);
+  const email = trimString(raw.email).toLowerCase();
+  const challengeId = trimString(raw.challengeId);
+  const otpCode = trimString(raw.otpCode);
+  const otpChannel = trimString(raw.otpChannel);
+  const registrationIntentDigestB64u = trimString(raw.registrationIntentDigestB64u);
+  const appSessionVersion = trimString(raw.appSessionVersion);
+  if (
+    version !== 'email_otp_registration_proof_v1' ||
+    !email ||
+    !challengeId ||
+    !otpCode ||
+    otpChannel !== 'email_otp' ||
+    !registrationIntentDigestB64u ||
+    !appSessionVersion
+  ) {
+    return null;
+  }
+  return {
+    version: 'email_otp_registration_proof_v1',
+    email,
+    challengeId,
+    otpCode,
+    otpChannel: 'email_otp',
+    registrationIntentDigestB64u,
+    appSessionVersion,
+  };
 }
 
 function normalizeTimestampMs(value: unknown): number | null {

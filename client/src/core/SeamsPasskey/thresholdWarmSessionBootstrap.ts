@@ -336,6 +336,7 @@ export function completeRegisteredThresholdEd25519Registration(args: {
 export async function storeThresholdEd25519KeyMaterial(args: {
   nearAccountId: AccountId;
   signerSlot: number;
+  signerId: string;
   publicKey: string;
   relayerKeyId: string;
   keyVersion: string;
@@ -346,6 +347,7 @@ export async function storeThresholdEd25519KeyMaterial(args: {
 }): Promise<void> {
   const nearAccountId = String(args.nearAccountId || '').trim();
   const publicKey = String(args.publicKey || '').trim();
+  const signerId = String(args.signerId || '').trim();
   const relayerKeyId = String(args.relayerKeyId || '').trim();
   const keyVersion = String(args.keyVersion || '').trim();
   if (!nearAccountId) {
@@ -357,18 +359,22 @@ export async function storeThresholdEd25519KeyMaterial(args: {
   if (!publicKey) {
     throw new Error('Threshold Ed25519 key persistence requires publicKey');
   }
+  if (!signerId) {
+    throw new Error('Threshold Ed25519 key persistence requires signerId');
+  }
   if (!relayerKeyId || !keyVersion) {
     throw new Error('Threshold Ed25519 key persistence requires complete relayer metadata');
   }
 
   await storeNearThresholdKeyMaterial(
     {
-      clientDB: IndexedDBManager.clientDB,
-      accountKeyMaterialDB: IndexedDBManager.accountKeyMaterialDB,
+      clientDB: IndexedDBManager,
+      keyMaterialStore: IndexedDBManager,
     },
     {
       nearAccountId: nearAccountId as AccountId,
       signerSlot: args.signerSlot,
+      signerId,
       publicKey,
       relayerKeyId,
       keyVersion,
@@ -401,6 +407,7 @@ export async function persistRegisteredThresholdEd25519Session(args: {
   await storeThresholdEd25519KeyMaterial({
     nearAccountId: args.nearAccountId,
     signerSlot: args.signerSlot,
+    signerId: args.completedRegistration.operationalPublicKey,
     publicKey: args.completedRegistration.registered.publicKey,
     relayerKeyId: args.completedRegistration.registered.relayerKeyId,
     keyVersion: args.completedRegistration.registered.keyVersion,
@@ -590,8 +597,8 @@ export async function prewarmThresholdEd25519ClientBaseFromCredential(args: {
   const task = (async (): Promise<void> => {
     const thresholdKeyMaterial = await getNearThresholdKeyMaterial(
       {
-        clientDB: IndexedDBManager.clientDB,
-        accountKeyMaterialDB: IndexedDBManager.accountKeyMaterialDB,
+        clientDB: IndexedDBManager,
+        keyMaterialStore: IndexedDBManager,
       },
       toAccountId(nearAccountId),
       signerSlot,

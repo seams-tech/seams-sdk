@@ -227,6 +227,7 @@ async function registerEcdsaWalletOnly(args: {
       registrationIntentGrant: intentResponse.registrationIntentGrant,
       registrationIntentDigestB64u: intentResponse.registrationIntentDigestB64u,
       intent: intentResponse.intent,
+      kind: 'passkey',
       webauthnRegistration: passkeyAuthority.webauthnRegistration,
     });
     if (!startedCeremony.ecdsa) {
@@ -499,6 +500,7 @@ export async function registerWallet(args: {
       registrationIntentGrant: intentResponse.registrationIntentGrant,
       registrationIntentDigestB64u: intentResponse.registrationIntentDigestB64u,
       intent: intentResponse.intent,
+      kind: 'passkey',
       webauthnRegistration: passkeyAuthority.webauthnRegistration,
     });
     if (!startedCeremony.ed25519) {
@@ -844,7 +846,7 @@ export async function addWalletSigner(args: {
         overlay: 'show',
       },
     });
-    const authenticators = await IndexedDBManager.clientDB.listProfileAuthenticators(
+    const authenticators = await IndexedDBManager.listProfileAuthenticators(
       String(walletSubjectId),
     );
     const allowCredentials = authenticators.map((authenticator) => ({

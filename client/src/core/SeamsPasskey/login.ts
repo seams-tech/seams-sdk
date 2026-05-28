@@ -322,7 +322,7 @@ async function readLoginUnlockAccountPhase(args: {
   const [hintUser, lastUser, latestByAccount, authenticators] = await Promise.all([
     hintUserPromise,
     args.signingEngine.getLastUser().catch(() => null),
-    getNearAccountProjection(IndexedDBManager.clientDB, args.nearAccountId).catch(() => null),
+    getNearAccountProjection(IndexedDBManager, args.nearAccountId).catch(() => null),
     args.signingEngine.getAuthenticatorsByUser(args.nearAccountId).catch(() => []),
   ]);
 
@@ -550,8 +550,8 @@ export async function unlock(
       const thresholdKeyMaterial = warmupInput.wantsEd25519Warmup
         ? await getNearThresholdKeyMaterial(
             {
-              clientDB: IndexedDBManager.clientDB,
-              accountKeyMaterialDB: IndexedDBManager.accountKeyMaterialDB,
+              clientDB: IndexedDBManager,
+              keyMaterialStore: IndexedDBManager,
             },
             nearAccountId,
             warmupInput.signerSlot,
@@ -1930,7 +1930,7 @@ async function readProfileContinuityThresholdEcdsaWalletKeys(
   nearAccountId: AccountId,
 ): Promise<ActiveEcdsaSignerRecord['walletKey'][]> {
   const continuity = await resolveNearAccountProfileContinuity(
-    IndexedDBManager.clientDB,
+    IndexedDBManager,
     nearAccountId,
   ).catch(() => null);
   if (!continuity?.accountSigners?.length) return [];
@@ -2165,7 +2165,7 @@ async function resolveProfileContinuityEcdsaWarmKeys(
   },
 ): Promise<ConfiguredTargetThresholdEcdsaWarmKey[]> {
   const continuity = await resolveNearAccountProfileContinuity(
-    IndexedDBManager.clientDB,
+    IndexedDBManager,
     nearAccountId,
   ).catch(() => null);
   const configuredChainTargets = configuredTargets.map((target) => target.chainTarget);
@@ -2660,7 +2660,7 @@ async function getLoginStateInternal(
     const lastSelectedAccount =
       nearAccountId || lastUser?.nearAccountId
         ? null
-        : await getLastSelectedNearAccount(IndexedDBManager.clientDB).catch(() => null);
+        : await getLastSelectedNearAccount(IndexedDBManager).catch(() => null);
     const targetAccountId =
       nearAccountId ?? lastUser?.nearAccountId ?? lastSelectedAccount?.nearAccountId ?? null;
     if (!targetAccountId) {
@@ -2678,7 +2678,7 @@ async function getLoginStateInternal(
     const latestByAccount =
       lastUser && lastUser.nearAccountId === targetAccountId
         ? null
-        : await getNearAccountProjection(IndexedDBManager.clientDB, targetAccountId).catch(
+        : await getNearAccountProjection(IndexedDBManager, targetAccountId).catch(
             () => null,
           );
     const userData =
@@ -2803,7 +2803,7 @@ export async function getRecentUnlocks(
  */
 export async function lock(context: PasskeyManagerContext): Promise<void> {
   const { signingEngine } = context;
-  await IndexedDBManager.clientDB.clearLastProfileSelection().catch(() => undefined);
+  await IndexedDBManager.clearLastProfileSelection().catch(() => undefined);
   try {
     signingEngine.getNonceCoordinator().clearAll();
   } catch {}

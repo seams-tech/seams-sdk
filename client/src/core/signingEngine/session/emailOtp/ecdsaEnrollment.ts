@@ -44,6 +44,10 @@ import {
 } from './ecdsaRoleLocalIdentity';
 import { enrollEmailOtpWalletWithRoutePlan } from './walletEnrollment';
 import {
+  buildEmailOtpEcdsaRoleLocalRegistrationClientSecretSource,
+  buildEmailOtpEd25519RegistrationClientSecretSource,
+} from './clientSecretSource';
+import {
   buildEmailOtpEcdsaMintingSession,
   buildFreshEmailOtpRoutePlan,
   routeAuthFromEmailOtpRoutePlan,
@@ -304,13 +308,19 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
     ...(args.otpChannel ? { otpChannel: args.otpChannel } : {}),
     ...(args.onProgress ? { onProgress: args.onProgress } : {}),
   });
+  const ecdsaClientSecretSource = buildEmailOtpEcdsaRoleLocalRegistrationClientSecretSource({
+    registrationAttemptId: registrationInput.registrationAttemptId,
+    walletId: String(args.walletSession.walletId),
+    authSubjectId: emailOtpAuthSubjectId,
+    clientRootShare32B64u: enrollment.clientRootShare32B64u,
+  });
   const bootstrapPayloadBase = {
     relayUrl,
     walletId: String(args.walletSession.walletId),
     walletSessionUserId,
     userId: emailOtpAuthSubjectId,
     rpId,
-    clientRootShare32B64u: enrollment.clientRootShare32B64u,
+    clientRootShare32B64u: ecdsaClientSecretSource.clientRootShare32B64u,
     chainTarget,
     publicationChainTargets,
     ...(registrationInput.keyMode === 'existing_role_local_key'
@@ -387,6 +397,12 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
   );
   const thresholdEd25519PrfFirstB64u = String(enrollment.thresholdEd25519PrfFirstB64u || '').trim();
   if (thresholdEd25519PrfFirstB64u) {
+    const ed25519ClientSecretSource = buildEmailOtpEd25519RegistrationClientSecretSource({
+      registrationAttemptId: registrationInput.registrationAttemptId,
+      walletId: String(args.walletSession.walletId),
+      authSubjectId: emailOtpAuthSubjectId,
+      thresholdEd25519PrfFirstB64u,
+    });
     const freshThresholdSessionAuth = thresholdSessionAuthFromEcdsaBootstrap(bootstrap);
     const ed25519RouteAuth =
       freshThresholdSessionAuth ||
@@ -398,7 +414,7 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
         nearAccountId,
         relayUrl,
         rpId,
-        prfFirstB64u: thresholdEd25519PrfFirstB64u,
+        clientSecretSource: ed25519ClientSecretSource,
         emailOtpAuthContext: ed25519RegistrationAuthContext,
         ...(appSessionJwt ? { appSessionJwt } : {}),
         ...(ed25519RouteAuth ? { routeAuth: ed25519RouteAuth } : {}),

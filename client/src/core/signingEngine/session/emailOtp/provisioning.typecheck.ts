@@ -4,11 +4,19 @@ import type {
   RegisterEmailOtpEd25519CapabilityArgs,
 } from './provisioning';
 
+const registrationClientSecretSource = {
+  kind: 'email_otp_registration_ed25519_hss_client_secret_source',
+  registrationAttemptId: 'registration-attempt',
+  walletId: 'wallet-subject-alice',
+  authSubjectId: 'alice@example.test',
+  prfFirstB64u: 'prf-first-b64u',
+} as const;
+
 const commonRegistration = {
   nearAccountId: 'alice.testnet',
   relayUrl: 'https://relay.example',
   rpId: 'localhost',
-  prfFirstB64u: 'prf-first-b64u',
+  clientSecretSource: registrationClientSecretSource,
   emailOtpAuthContext: {
     policy: 'session',
     retention: 'session',
@@ -41,10 +49,19 @@ const invalidRegistrationWithoutAttempt: RegisterEmailOtpEd25519CapabilityArgs =
   nearAccountId: 'alice.testnet',
   relayUrl: 'https://relay.example',
   rpId: 'localhost',
-  prfFirstB64u: 'prf-first-b64u',
+  clientSecretSource: registrationClientSecretSource,
   emailOtpAuthContext: commonRegistration.emailOtpAuthContext,
   kind: 'registration_ed25519_provisioning',
 };
+
+const invalidRegistrationWithRawPrfFirst: RegisterEmailOtpEd25519CapabilityArgs = {
+  ...commonRegistration,
+  kind: 'registration_ed25519_provisioning',
+  // @ts-expect-error registration provisioning requires a client secret source, not raw PRF material
+  prfFirstB64u: 'prf-first-b64u',
+};
+
+void invalidRegistrationWithRawPrfFirst;
 
 // @ts-expect-error registration provisioning cannot carry companion ECDSA identity
 const invalidRegistrationWithCompanionIds: RegisterEmailOtpEd25519CapabilityArgs = {

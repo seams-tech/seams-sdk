@@ -15,9 +15,14 @@ import {
   resolveProfileAccountProjection,
   resolveProfileAccountContextFromCandidates,
   selectAccountSigner,
+  type ProfileAccountContextPort,
+  type ProfileAccountProjectionPort,
+  type ProfileLastSelectionPort,
 } from '../../indexedDB/profileAccountProjection';
 import type {
   AccountSignerRecord,
+  ChainAccountRecord,
+  LastProfileState,
   ProfileContinuitySnapshot,
   ProfileAuthenticatorRecord,
   ProfileRecord,
@@ -28,7 +33,6 @@ import type {
   ActivateAccountSignerInput,
   ActivateAccountSignerResult,
 } from '../../indexedDB/accountSignerLifecycle';
-import type { PasskeyClientDBManager } from '../../indexedDB/passkeyClientDB/manager';
 import { getNearChainCandidates, inferNearChainIdKey } from './accountRefs';
 import { buildNearProfileId } from './profileId';
 import { normalizeIndexedDbAccountAddress as normalizeAccountAddress } from '../../indexedDB/normalization';
@@ -53,7 +57,7 @@ export async function upsertNearAccountProjectionRecords(args: {
   const accountId = toAccountId(userData.nearAccountId);
   const signerSlot = Number(userData.signerSlot);
   if (!Number.isSafeInteger(signerSlot) || signerSlot < 1) {
-    throw new Error('PasskeyClientDB: signerSlot must be an integer >= 1');
+    throw new Error('SeamsWalletDB: signerSlot must be an integer >= 1');
   }
 
   const profileId = buildNearProfileId(accountId);
@@ -117,21 +121,31 @@ type NearAccountContext = {
   sourceAccountAddress: string;
 };
 
-type NearAccountClientDbPort = Pick<
-  PasskeyClientDBManager,
-  | 'resolveProfileAccountContext'
-  | 'getProfile'
-  | 'getLastProfileState'
-  | 'setLastProfileStateForProfile'
-  | 'listChainAccountsByProfile'
-  | 'listChainAccountsByChain'
-  | 'listAccountSigners'
-  | 'getProfileContinuitySnapshot'
-  | 'upsertProfile'
-  | 'getAccountSigner'
-  | 'activateAccountSigner'
-  | 'updatePreferences'
->;
+type NearAccountClientDbPort = ProfileAccountProjectionPort &
+  ProfileLastSelectionPort & {
+    setLastProfileStateForProfile: (
+      profileId: string,
+      activeSignerSlot: number,
+    ) => Promise<void>;
+    listChainAccountsByChain: (chainIdKey: string) => Promise<ChainAccountRecord[]>;
+    getProfileContinuitySnapshot: (
+      profileId: string,
+    ) => Promise<ProfileContinuitySnapshot | null>;
+    upsertProfile: (input: UpsertProfileInput) => Promise<ProfileRecord>;
+    getAccountSigner: (args: {
+      chainIdKey: string;
+      accountAddress: string;
+      signerId: string;
+    }) => Promise<AccountSignerRecord | null>;
+    activateAccountSigner: (
+      input: ActivateAccountSignerInput,
+    ) => Promise<ActivateAccountSignerResult>;
+    updatePreferences: (args: {
+      profileId: string;
+      preferences: Partial<UserPreferences>;
+      eventAccountId?: AccountId | null;
+    }) => Promise<void>;
+  };
 
 function toWalletAuthMethod(authMethod: unknown): WalletAuthMethod | null {
   if (authMethod === SIGNER_AUTH_METHODS.emailOtp) return SIGNER_AUTH_METHODS.emailOtp;
@@ -140,7 +154,7 @@ function toWalletAuthMethod(authMethod: unknown): WalletAuthMethod | null {
 }
 
 export async function resolveNearAccountContext(
-  clientDB: Pick<PasskeyClientDBManager, 'resolveProfileAccountContext'>,
+  clientDB: ProfileAccountContextPort,
   nearAccountId: AccountId,
 ): Promise<NearAccountContext | null> {
   const accountId = toAccountId(nearAccountId);
@@ -166,7 +180,9 @@ export async function resolveNearAccountContext(
 }
 
 export async function getNearAccountIdForProfile(
-  clientDB: Pick<PasskeyClientDBManager, 'listChainAccountsByProfile'>,
+  clientDB: {
+    listChainAccountsByProfile: (profileId: string) => Promise<ChainAccountRecord[]>;
+  },
   profileId: string,
 ): Promise<AccountId | null> {
   const normalizedProfileId = toTrimmedString(profileId || '');
@@ -186,10 +202,11 @@ export async function getNearAccountIdForProfile(
 }
 
 export async function resolveNearAccountProfileContinuity(
-  clientDB: Pick<
-    PasskeyClientDBManager,
-    'resolveProfileAccountContext' | 'getProfileContinuitySnapshot'
-  >,
+  clientDB: ProfileAccountContextPort & {
+    getProfileContinuitySnapshot: (
+      profileId: string,
+    ) => Promise<ProfileContinuitySnapshot | null>;
+  },
   nearAccountId: AccountId,
 ): Promise<ProfileContinuitySnapshot | null> {
   const context = await resolveNearAccountContext(clientDB, nearAccountId);
@@ -244,7 +261,7 @@ export async function getNearAccountProjection(
 }
 
 export async function getLastSelectedNearAccount(
-  clientDB: Pick<PasskeyClientDBManager, 'getLastProfileState' | 'listChainAccountsByProfile'>,
+  clientDB: ProfileLastSelectionPort,
 ): Promise<{ nearAccountId: AccountId; profileId: string; signerSlot: number } | null> {
   const last = await getLastSelectedProfileAccountByChain(clientDB, {
     chainIdKeys: ['near:testnet', 'near:mainnet'],
@@ -272,7 +289,7 @@ export async function getLastSelectedNearAccountProjection(
 }
 
 export async function listNearAccountProjections(
-  clientDB: Pick<PasskeyClientDBManager, 'listChainAccountsByChain'> & NearAccountClientDbPort,
+  clientDB: NearAccountClientDbPort,
 ): Promise<ClientUserData[]> {
   const [nearTestnetRows, nearMainnetRows] = await Promise.all([
     clientDB.listChainAccountsByChain('near:testnet'),
@@ -323,21 +340,23 @@ export async function listNearAccountProjections(
 }
 
 export async function setLastProfileStateForNearAccount(
-  clientDB: Pick<
-    PasskeyClientDBManager,
-    'resolveProfileAccountContext' | 'setLastProfileStateForProfile'
-  >,
+  clientDB: ProfileAccountContextPort & {
+    setLastProfileStateForProfile: (
+      profileId: string,
+      activeSignerSlot: number,
+    ) => Promise<void>;
+  },
   nearAccountId: AccountId,
   signerSlot: number,
 ): Promise<void> {
   const normalizedSignerSlot = Number(signerSlot);
   if (!Number.isSafeInteger(normalizedSignerSlot) || normalizedSignerSlot < 1) {
-    throw new Error('PasskeyClientDB: signerSlot must be an integer >= 1');
+    throw new Error('SeamsWalletDB: signerSlot must be an integer >= 1');
   }
   const context = await resolveNearAccountContext(clientDB, nearAccountId);
   if (!context?.profileId) {
     throw new Error(
-      `PasskeyClientDB: Missing profile/account mapping for NEAR account ${String(nearAccountId)}`,
+      `SeamsWalletDB: Missing profile/account mapping for NEAR account ${String(nearAccountId)}`,
     );
   }
   await clientDB.setLastProfileStateForProfile(context.profileId, normalizedSignerSlot);
@@ -386,13 +405,14 @@ export async function upsertNearAccountProjection(
 }
 
 export async function touchLastLoginForNearAccount(
-  clientDB: Pick<
-    PasskeyClientDBManager,
-    | 'resolveProfileAccountContext'
-    | 'getLastProfileState'
-    | 'getProfile'
-    | 'setLastProfileStateForProfile'
-  >,
+  clientDB: ProfileAccountContextPort & {
+    getLastProfileState: () => Promise<LastProfileState | null>;
+    getProfile: (profileId: string) => Promise<ProfileRecord | null>;
+    setLastProfileStateForProfile: (
+      profileId: string,
+      activeSignerSlot: number,
+    ) => Promise<void>;
+  },
   nearAccountId: AccountId,
 ): Promise<void> {
   const context = await resolveNearAccountContext(clientDB, nearAccountId).catch(() => null);
@@ -412,7 +432,13 @@ export async function touchLastLoginForNearAccount(
 }
 
 export async function updateNearAccountPreferences(
-  clientDB: Pick<PasskeyClientDBManager, 'resolveProfileAccountContext' | 'updatePreferences'>,
+  clientDB: ProfileAccountContextPort & {
+    updatePreferences: (args: {
+      profileId: string;
+      preferences: Partial<UserPreferences>;
+      eventAccountId?: AccountId | null;
+    }) => Promise<void>;
+  },
   nearAccountId: AccountId,
   preferences: Partial<UserPreferences>,
 ): Promise<void> {

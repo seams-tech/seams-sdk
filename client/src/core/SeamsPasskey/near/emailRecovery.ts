@@ -558,6 +558,7 @@ export class EmailRecoveryDomain {
       await storeThresholdEd25519KeyMaterial({
         nearAccountId,
         signerSlot,
+        signerId: thresholdPublicKey,
         publicKey: thresholdPublicKey,
         relayerKeyId,
         keyVersion: thresholdKeyVersion,

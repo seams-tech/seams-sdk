@@ -47,12 +47,12 @@ export async function warmCriticalResources(
     const accountId = toAccountId(nearAccountId);
     const signerSlot = await getLastLoggedInSignerSlot(
       accountId,
-      deps.indexedDB.clientDB,
+      deps.indexedDB,
     ).catch(() => 1);
     await getNearThresholdKeyMaterial(
       {
-        clientDB: deps.indexedDB.clientDB,
-        accountKeyMaterialDB: deps.indexedDB.accountKeyMaterialDB,
+        clientDB: deps.indexedDB,
+        keyMaterialStore: deps.indexedDB,
       },
       accountId,
       signerSlot,

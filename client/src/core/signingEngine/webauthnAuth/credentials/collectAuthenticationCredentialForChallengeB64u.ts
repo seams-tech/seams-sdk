@@ -36,9 +36,7 @@ export type WebAuthnIndexedDbClientPort<
 
 export type WebAuthnIndexedDbPort<
   TAuth extends WebAuthnAuthenticatorRecord = ProfileAuthenticatorRecord,
-> = {
-  clientDB: WebAuthnIndexedDbClientPort<TAuth>;
-};
+> = WebAuthnIndexedDbClientPort<TAuth>;
 
 export type WebAuthnPromptPort = {
   getRpId: () => string;
@@ -76,17 +74,17 @@ export async function collectAuthenticationCredentialForChallengeB64u<
 }): Promise<WebAuthnAuthenticationCredential> {
   const nearAccountId = toAccountId(args.nearAccountId);
   const context = await resolveProfileAccountContextFromCandidates(
-    args.indexedDB.clientDB as any,
+    args.indexedDB,
     buildNearAccountRefs(nearAccountId),
   );
   if (!context?.profileId) {
     throw new Error(`[multichain] no profile/account mapping found for account ${nearAccountId}`);
   }
 
-  const authenticators = await args.indexedDB.clientDB.listProfileAuthenticators(context.profileId);
+  const authenticators = await args.indexedDB.listProfileAuthenticators(context.profileId);
   let authenticatorsForPrompt = authenticators;
   if (authenticators.length > 0) {
-    const ensured = await args.indexedDB.clientDB.selectProfileAuthenticatorsForPrompt({
+    const ensured = await args.indexedDB.selectProfileAuthenticatorsForPrompt({
       profileId: context.profileId,
       authenticators,
       accountLabel: nearAccountId,
@@ -110,7 +108,7 @@ export async function collectAuthenticationCredentialForChallengeB64u<
     });
 
   if (authenticators.length > 0) {
-    const ensured = await args.indexedDB.clientDB.selectProfileAuthenticatorsForPrompt({
+    const ensured = await args.indexedDB.selectProfileAuthenticatorsForPrompt({
       profileId: context.profileId,
       authenticators,
       selectedCredentialRawId: serialized.rawId,

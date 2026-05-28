@@ -19,18 +19,16 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export type ThresholdEcdsaBootstrapIndexedDbPort = {
-  clientDB: {
-    resolveProfileAccountContext: (args: {
-      chainIdKey: string;
-      accountAddress: string;
-    }) => Promise<{
-      profileId: string;
-      accountRef: { chainIdKey: string; accountAddress: string };
-    } | null>;
-    getProfile?: (profileId: string) => Promise<{ defaultSignerSlot?: number } | null>;
-    upsertProfile: (input: UpsertProfileInput) => Promise<unknown>;
-    setLastProfileStateForProfile: (profileId: string, signerSlot: number) => Promise<void>;
-  };
+  resolveProfileAccountContext: (args: {
+    chainIdKey: string;
+    accountAddress: string;
+  }) => Promise<{
+    profileId: string;
+    accountRef: { chainIdKey: string; accountAddress: string };
+  } | null>;
+  getProfile?: (profileId: string) => Promise<{ defaultSignerSlot?: number } | null>;
+  upsertProfile: (input: UpsertProfileInput) => Promise<unknown>;
+  setLastProfileStateForProfile: (profileId: string, signerSlot: number) => Promise<void>;
   upsertChainAccount: (input: UpsertChainAccountInput) => Promise<ChainAccountRecord>;
 };
 
@@ -57,15 +55,13 @@ async function ensureEmailOtpWalletProfileAccountMapping(args: {
 }): Promise<void> {
   const walletId = toAccountId(String(args.walletId || '').trim());
   const existing = await resolveProfileAccountContextFromCandidates(
-    args.indexedDB.clientDB as any,
+    args.indexedDB,
     buildNearAccountRefs(walletId),
   );
   if (existing?.profileId) {
-    const profile = await args.indexedDB.clientDB
-      .getProfile?.(existing.profileId)
-      .catch(() => null);
+    const profile = await args.indexedDB.getProfile?.(existing.profileId).catch(() => null);
     const signerSlot = Number(profile?.defaultSignerSlot);
-    await args.indexedDB.clientDB.setLastProfileStateForProfile(
+    await args.indexedDB.setLastProfileStateForProfile(
       existing.profileId,
       Number.isSafeInteger(signerSlot) && signerSlot >= 1 ? signerSlot : 1,
     );
@@ -82,7 +78,7 @@ async function ensureEmailOtpWalletProfileAccountMapping(args: {
   const chainIdKey = inferNearChainIdKey(walletId);
   const useNetwork = chainIdKey.endsWith('mainnet') ? 'mainnet' : 'testnet';
 
-  await args.indexedDB.clientDB.upsertProfile({
+  await args.indexedDB.upsertProfile({
     profileId,
     defaultSignerSlot: 1,
     preferences: {
@@ -98,7 +94,7 @@ async function ensureEmailOtpWalletProfileAccountMapping(args: {
     accountModel: 'near-native',
     isPrimary: true,
   });
-  await args.indexedDB.clientDB.setLastProfileStateForProfile(profileId, 1);
+  await args.indexedDB.setLastProfileStateForProfile(profileId, 1);
 }
 
 export async function persistThresholdEcdsaBootstrapForWalletTarget(args: {
@@ -116,7 +112,7 @@ export async function persistThresholdEcdsaBootstrapForWalletTarget(args: {
     });
   }
   const nearContext = await resolveProfileAccountContextFromCandidates(
-    args.indexedDB.clientDB as any,
+    args.indexedDB,
     buildNearAccountRefs(walletId),
   );
   if (!nearContext?.profileId) {

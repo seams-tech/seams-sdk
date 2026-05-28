@@ -287,6 +287,7 @@ export async function syncAccount(
       await storeThresholdEd25519KeyMaterial({
         nearAccountId: normalizedAccountId,
         signerSlot,
+        signerId: publicKey,
         publicKey,
         relayerKeyId,
         keyVersion: thresholdKeyVersion,

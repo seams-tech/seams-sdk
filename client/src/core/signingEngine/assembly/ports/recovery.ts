@@ -104,10 +104,7 @@ export function createRecoveryPublicDeps(args: {
         args.emailOtpSessions.restorePersistedSessionForSigning(restoreArgs),
     },
     nearSingleKeyHss: {
-      indexedDB: {
-        clientDB: args.indexedDB.clientDB,
-        accountKeyMaterialDB: args.indexedDB.accountKeyMaterialDB,
-      },
+      indexedDB: args.indexedDB,
       touchConfirm: args.touchConfirm,
       emailOtpSessions: {
         requestExportChallenge: (

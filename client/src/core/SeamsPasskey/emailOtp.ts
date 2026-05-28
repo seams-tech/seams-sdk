@@ -214,6 +214,7 @@ export async function requestEmailOtpChallenge(args: {
   otpChannel: WalletEmailOtpChannel;
   emailHint?: string;
   expiresAtMs?: number;
+  appSessionVersion?: string;
 }> {
   if (!args.fetchImpl && args.workerCtx) {
     return await args.workerCtx.requestWorkerOperation({
@@ -251,12 +252,27 @@ export async function requestEmailOtpChallenge(args: {
       : requireObjectJson(response.delivery, 'wallet/email-otp/login/challenge delivery');
   const expiresAtMs = Number(challenge.expiresAtMs);
   const emailHint = readOptionalString(delivery.emailHint);
-  return {
+  const appSessionVersion = readOptionalString(challenge.appSessionVersion);
+  const result: {
+    challengeId: string;
+    otpChannel: typeof EMAIL_OTP_CHANNEL;
+    emailHint?: string;
+    expiresAtMs?: number;
+    appSessionVersion?: string;
+  } = {
     challengeId: readString(challenge.challengeId, 'wallet/email-otp/login/challenge challengeId'),
     otpChannel: EMAIL_OTP_CHANNEL,
-    ...(emailHint ? { emailHint } : {}),
-    ...(Number.isFinite(expiresAtMs) ? { expiresAtMs } : {}),
   };
+  if (emailHint) {
+    result.emailHint = emailHint;
+  }
+  if (Number.isFinite(expiresAtMs)) {
+    result.expiresAtMs = expiresAtMs;
+  }
+  if (appSessionVersion) {
+    result.appSessionVersion = appSessionVersion;
+  }
+  return result;
 }
 
 export async function requestEmailOtpEnrollmentChallenge(args: {
@@ -271,6 +287,7 @@ export async function requestEmailOtpEnrollmentChallenge(args: {
   otpChannel: WalletEmailOtpChannel;
   emailHint?: string;
   expiresAtMs?: number;
+  appSessionVersion?: string;
 }> {
   if (!args.fetchImpl && args.workerCtx) {
     return await args.workerCtx.requestWorkerOperation({
@@ -308,15 +325,30 @@ export async function requestEmailOtpEnrollmentChallenge(args: {
       : requireObjectJson(response.delivery, 'wallet/email-otp/registration/challenge delivery');
   const expiresAtMs = Number(challenge.expiresAtMs);
   const emailHint = readOptionalString(delivery.emailHint);
-  return {
+  const appSessionVersion = readOptionalString(challenge.appSessionVersion);
+  const result: {
+    challengeId: string;
+    otpChannel: typeof EMAIL_OTP_CHANNEL;
+    emailHint?: string;
+    expiresAtMs?: number;
+    appSessionVersion?: string;
+  } = {
     challengeId: readString(
       challenge.challengeId,
       'wallet/email-otp/registration/challenge challengeId',
     ),
     otpChannel: EMAIL_OTP_CHANNEL,
-    ...(emailHint ? { emailHint } : {}),
-    ...(Number.isFinite(expiresAtMs) ? { expiresAtMs } : {}),
   };
+  if (emailHint) {
+    result.emailHint = emailHint;
+  }
+  if (Number.isFinite(expiresAtMs)) {
+    result.expiresAtMs = expiresAtMs;
+  }
+  if (appSessionVersion) {
+    result.appSessionVersion = appSessionVersion;
+  }
+  return result;
 }
 
 export async function requestEmailOtpDeviceRecoveryChallenge(args: {

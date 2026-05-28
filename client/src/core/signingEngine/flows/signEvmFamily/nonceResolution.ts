@@ -153,7 +153,7 @@ export async function resolveProfileChainAccountNonceSenderIdentity(args: {
 }): Promise<EvmFamilyManagedNonceSenderIdentity> {
   const walletId = toAccountId(args.walletId);
   const context = await resolveProfileAccountContextFromCandidates(
-    args.deps.indexedDB.clientDB,
+    args.deps.indexedDB,
     buildNearAccountRefs(walletId),
   );
   if (!context?.profileId) {
@@ -163,7 +163,7 @@ export async function resolveProfileChainAccountNonceSenderIdentity(args: {
   }
 
   const chainIdKey = toIndexedDbChainTargetKey(args.chainTarget);
-  const rows = await args.deps.indexedDB.clientDB
+  const rows = await args.deps.indexedDB
     .listChainAccountsByProfileAndChain(context.profileId, chainIdKey)
     .catch(() => []);
   const selected = pickPreferredChainAccountRow(rows);

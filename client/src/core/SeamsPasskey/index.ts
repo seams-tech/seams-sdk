@@ -126,13 +126,13 @@ async function resolveEmailOtpEd25519SessionReconstruction(
   args: EmailOtpEcdsaCapabilityArgs,
 ): Promise<EmailOtpEd25519SessionReconstructionPlan> {
   const walletId = toAccountId(args.walletSession.walletId);
-  const signerSlot = await getLastLoggedInSignerSlot(walletId, IndexedDBManager.clientDB).catch(
+  const signerSlot = await getLastLoggedInSignerSlot(walletId, IndexedDBManager).catch(
     () => 1,
   );
   const thresholdKeyMaterial = await getNearThresholdKeyMaterial(
     {
-      clientDB: IndexedDBManager.clientDB,
-      accountKeyMaterialDB: IndexedDBManager.accountKeyMaterialDB,
+      clientDB: IndexedDBManager,
+      keyMaterialStore: IndexedDBManager,
     },
     walletId,
     signerSlot,

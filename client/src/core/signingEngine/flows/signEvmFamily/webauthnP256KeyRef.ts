@@ -15,20 +15,20 @@ export async function resolveWebAuthnP256KeyRefForWallet(args: {
 }): Promise<KeyRef & { type: 'webauthnP256' }> {
   const walletId = toAccountId(args.walletId);
   const context = await resolveProfileAccountContextFromCandidates(
-    args.indexedDB.clientDB,
+    args.indexedDB,
     buildNearAccountRefs(walletId),
   );
   if (!context?.profileId) {
     throw new Error(`[multichain] no profile/account mapping found for wallet ${walletId}`);
   }
 
-  const authenticators = await args.indexedDB.clientDB.listProfileAuthenticators(context.profileId);
+  const authenticators = await args.indexedDB.listProfileAuthenticators(context.profileId);
   if (!authenticators.length) {
     throw new Error(`[multichain] no passkeys found for wallet ${walletId}`);
   }
 
   const { authenticatorsForPrompt } =
-    await args.indexedDB.clientDB.selectProfileAuthenticatorsForPrompt({
+    await args.indexedDB.selectProfileAuthenticatorsForPrompt({
       profileId: context.profileId,
       authenticators,
       accountLabel: walletId,

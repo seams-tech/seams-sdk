@@ -1,6 +1,7 @@
 import type {
   AddSignerIntentV1,
   AddSignerIntentGrant,
+  EmailOtpRegistrationProof,
   RegistrationAuthMethodInput,
   RegisterWalletSubjectInput,
   RegistrationIntentGrant,
@@ -238,6 +239,18 @@ export type WalletRegistrationEcdsaCompletedBootstrap = {
   bootstrap: ThresholdEcdsaHssRoleLocalBootstrapValue;
   publicIdentity: EcdsaHssRoleLocalPublicIdentity;
 };
+
+type WalletRegistrationStartAuthority =
+  | {
+      kind: 'passkey';
+      webauthnRegistration: unknown;
+      emailOtpRegistrationProof?: never;
+    }
+  | {
+      kind: 'email_otp';
+      emailOtpRegistrationProof: EmailOtpRegistrationProof;
+      webauthnRegistration?: never;
+    };
 
 export type WalletRegistrationEcdsaLocalClientBootstrap = ThresholdEcdsaHssRoleLocalClientBootstrap;
 
@@ -577,22 +590,33 @@ export async function createWalletAddSignerIntent(args: {
   });
 }
 
+function walletRegistrationStartAuthorityBody(
+  authority: WalletRegistrationStartAuthority,
+): Record<string, unknown> {
+  switch (authority.kind) {
+    case 'passkey':
+      return { webauthn_registration: authority.webauthnRegistration };
+    case 'email_otp':
+      return { emailOtpRegistrationProof: authority.emailOtpRegistrationProof };
+  }
+}
+
 export async function startWalletRegistration(args: {
   relayerUrl: string;
   registrationIntentGrant: RegistrationIntentGrant;
   registrationIntentDigestB64u: string;
   intent: RegistrationIntentV1;
-  webauthnRegistration: unknown;
-}): Promise<WalletRegistrationStartResponse> {
+} & WalletRegistrationStartAuthority): Promise<WalletRegistrationStartResponse> {
+  const body = {
+    registrationIntentGrant: args.registrationIntentGrant,
+    registrationIntentDigestB64u: args.registrationIntentDigestB64u,
+    intent: args.intent,
+    ...walletRegistrationStartAuthorityBody(args),
+  };
   return await postJson<WalletRegistrationStartResponse>({
     relayerUrl: args.relayerUrl,
     path: '/wallets/register/start',
-    body: {
-      registrationIntentGrant: args.registrationIntentGrant,
-      registrationIntentDigestB64u: args.registrationIntentDigestB64u,
-      intent: args.intent,
-      webauthn_registration: args.webauthnRegistration,
-    },
+    body,
   });
 }
 

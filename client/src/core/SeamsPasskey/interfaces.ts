@@ -217,6 +217,8 @@ export type EmailOtpChallengeResult = {
   challengeId: string;
   otpChannel: WalletEmailOtpChannel;
   emailHint?: string;
+  expiresAtMs?: number;
+  appSessionVersion?: string;
 };
 
 export type EmailOtpEnrollmentResult = {

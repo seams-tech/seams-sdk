@@ -4,7 +4,7 @@ import type {
   ReadyPayload,
 } from '../shared/messages';
 import type { HostContext } from './context';
-import { passkeyClientDB } from '../../indexedDB';
+import { IndexedDBManager } from '../../indexedDB';
 
 export function post(ctx: HostContext, msg: ChildToParentEnvelope): void {
   try {
@@ -66,7 +66,7 @@ export function onWindowMessage(
     if (typeof e.origin === 'string' && e.origin.length && e.origin !== 'null') {
       ctx.parentOrigin = e.origin;
       try {
-        passkeyClientDB.setLastUserScope(e.origin);
+        IndexedDBManager.setLastUserScope(e.origin);
       } catch {}
     }
     adoptPort(ctx, ports[0], onPortMessage, protocolVersion);

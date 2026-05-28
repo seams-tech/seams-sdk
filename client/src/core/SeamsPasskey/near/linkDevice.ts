@@ -639,6 +639,7 @@ export class LinkDeviceFlow {
     await storeThresholdEd25519KeyMaterial({
       nearAccountId,
       signerSlot: resolvedSignerSlot,
+      signerId: thresholdPublicKey,
       publicKey: thresholdPublicKey,
       relayerKeyId,
       keyVersion: thresholdKeyVersion,

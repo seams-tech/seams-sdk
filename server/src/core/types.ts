@@ -11,6 +11,7 @@ import type {
   AddSignerIntentGrant,
   AddSignerIntentV1,
   AddSignerSelection,
+  EmailOtpRegistrationProof,
   RegistrationAuthMethodInput,
   RegisterWalletSubjectInput,
   RegistrationIntentGrant,
@@ -285,6 +286,7 @@ export interface ThresholdEd25519HssDerivedPublicKey {
 export type {
   AddSignerIntentGrant,
   AddSignerIntentV1,
+  EmailOtpRegistrationProof,
   AddSignerSelection,
   RegisterWalletSubjectInput,
   RegistrationIntentGrant,
@@ -447,12 +449,21 @@ export type WalletAddSignerFinalizeResponse =
       message: string;
     };
 
-export type WalletRegistrationStartRequest = {
+type WalletRegistrationStartRequestBase = {
   registrationIntentGrant: RegistrationIntentGrant;
   registrationIntentDigestB64u: string;
   intent: RegistrationIntentV1;
-  webauthn_registration: unknown;
 };
+
+export type WalletRegistrationStartRequest =
+  | (WalletRegistrationStartRequestBase & {
+      webauthn_registration: unknown;
+      emailOtpRegistrationProof?: never;
+    })
+  | (WalletRegistrationStartRequestBase & {
+      emailOtpRegistrationProof: EmailOtpRegistrationProof;
+      webauthn_registration?: never;
+    });
 
 export type WalletRegistrationEcdsaPreparePayload = {
   kind: 'evm_family_ecdsa_keygen';

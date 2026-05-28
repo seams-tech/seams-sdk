@@ -1,6 +1,9 @@
-import type { PasskeyClientDBManager } from '@/core/indexedDB';
 import { buildNearAccountRefs } from '@/core/accountData/near/accountRefs';
-import { resolveProfileAccountContextFromCandidates } from '@/core/indexedDB/profileAccountProjection';
+import {
+  resolveProfileAccountContextFromCandidates,
+  type ProfileAccountContextPort,
+} from '@/core/indexedDB/profileAccountProjection';
+import type { LastProfileState } from '@/core/indexedDB/passkeyClientDB.types';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import { parseSignerSlot } from '@shared/utils/signerSlot';
 
@@ -14,7 +17,9 @@ export { parseSignerSlot };
  */
 export async function getLastLoggedInSignerSlot(
   nearAccountId: AccountId | string,
-  clientDB: Pick<PasskeyClientDBManager, 'resolveProfileAccountContext' | 'getLastProfileState'>,
+  clientDB: ProfileAccountContextPort & {
+    getLastProfileState: () => Promise<LastProfileState | null>;
+  },
 ): Promise<number> {
   const accountId = toAccountId(nearAccountId);
   const context = await resolveProfileAccountContextFromCandidates(
