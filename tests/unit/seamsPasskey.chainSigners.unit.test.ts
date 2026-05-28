@@ -298,7 +298,7 @@ test.describe('SeamsPasskey chain signer modules', () => {
   });
 
   test('wallet session does not expose profile-only threshold ECDSA owner address', async () => {
-    const clientDb = IndexedDBManager.clientDB as unknown as Record<string, unknown>;
+    const clientDb = IndexedDBManager as unknown as Record<string, unknown>;
     const originalResolveProfileAccountContext = clientDb.resolveProfileAccountContext;
     const originalGetProfileContinuitySnapshot = clientDb.getProfileContinuitySnapshot;
     const ownerAddress = `0x${'11'.repeat(20)}`;
@@ -389,7 +389,7 @@ test.describe('SeamsPasskey chain signer modules', () => {
   });
 
   test('wallet session exposes registered threshold ECDSA owner address from complete profile key facts', async () => {
-    const clientDb = IndexedDBManager.clientDB as unknown as Record<string, unknown>;
+    const clientDb = IndexedDBManager as unknown as Record<string, unknown>;
     const originalResolveProfileAccountContext = clientDb.resolveProfileAccountContext;
     const originalGetProfileContinuitySnapshot = clientDb.getProfileContinuitySnapshot;
     const ownerAddress = `0x${'33'.repeat(20)}`;
@@ -501,7 +501,7 @@ test.describe('SeamsPasskey chain signer modules', () => {
   });
 
   test('wallet session ignores conflicting threshold ECDSA record addresses without complete profile fallback', async () => {
-    const clientDb = IndexedDBManager.clientDB as unknown as Record<string, unknown>;
+    const clientDb = IndexedDBManager as unknown as Record<string, unknown>;
     const originalResolveProfileAccountContext = clientDb.resolveProfileAccountContext;
     const originalGetProfileContinuitySnapshot = clientDb.getProfileContinuitySnapshot;
     const originalWarn = console.warn;

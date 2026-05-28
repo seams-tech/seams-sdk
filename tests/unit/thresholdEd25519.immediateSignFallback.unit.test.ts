@@ -104,7 +104,7 @@ function createNearThresholdRuntimeCtx({
           },
         }),
       },
-      accountKeyMaterialDB: {
+      keyMaterialStore: {
         getKeyMaterial: async () => ({
           profileId: `profile-${nearAccountId}`,
           signerSlot: 1,
@@ -401,7 +401,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
                 },
               }),
             },
-            accountKeyMaterialDB: {
+            keyMaterialStore: {
               getKeyMaterial: async () => ({
                 profileId: 'profile-email-otp-ed25519',
                 signerSlot: 1,
@@ -654,7 +654,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
                 },
               }),
             },
-            accountKeyMaterialDB: {
+            keyMaterialStore: {
               getKeyMaterial: async () => ({
                 profileId: 'profile-email-otp-ed25519-per-operation',
                 signerSlot: 1,
@@ -918,7 +918,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
                   },
                 }),
               },
-              accountKeyMaterialDB: {
+              keyMaterialStore: {
                 getKeyMaterial: async () => ({
                   profileId: 'profile-email-otp-refresh-required',
                   signerSlot: 1,
@@ -1083,7 +1083,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
                 },
               }),
             },
-            accountKeyMaterialDB: {
+            keyMaterialStore: {
               getKeyMaterial: async () => ({
                 profileId: 'profile-immediate-fallback',
                 signerSlot: 1,

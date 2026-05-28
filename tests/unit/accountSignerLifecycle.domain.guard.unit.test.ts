@@ -56,10 +56,6 @@ test.describe('account signer lifecycle domain guard', () => {
 
     for (const absolutePath of listTsFiles(clientSrcRoot)) {
       const relativePath = path.relative(repoRoot, absolutePath);
-      if (relativePath.endsWith('client/src/core/indexedDB/passkeyClientDB/manager.ts')) {
-        continue;
-      }
-
       const source = readRepoFile(relativePath);
       for (const callName of ['activateAccountSigner', 'stageAccountSigner']) {
         for (const callObject of findCallObjects(source, callName)) {

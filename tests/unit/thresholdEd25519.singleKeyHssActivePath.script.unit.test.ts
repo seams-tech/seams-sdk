@@ -505,7 +505,7 @@ function makeIndexedDbThresholdDeps(publicKey: string) {
         accountAddress: string;
       }) => ({ profileId: 'profile-1', accountRef }),
     },
-    accountKeyMaterialDB: {
+    keyMaterialStore: {
       getKeyMaterial: async () => makeThresholdKeyMaterialRecord(publicKey),
       storeKeyMaterial: async () => undefined,
     },
@@ -1647,7 +1647,7 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
         privateKeyExportRecoveryDeps: {
           indexedDB: {
             ...makeIndexedDbThresholdDeps('ed25519:unused'),
-            accountKeyMaterialDB: {
+            keyMaterialStore: {
               getKeyMaterial: async () => ({
                 ...makeThresholdKeyMaterialRecord('ed25519:unused'),
                 payload: {
@@ -1669,7 +1669,7 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
           clientDB: {
             ...makeIndexedDbThresholdDeps('ed25519:unused').clientDB,
           },
-          accountKeyMaterialDB: {
+          keyMaterialStore: {
             getKeyMaterial: async () => null,
             storeKeyMaterial: async () => undefined,
           },

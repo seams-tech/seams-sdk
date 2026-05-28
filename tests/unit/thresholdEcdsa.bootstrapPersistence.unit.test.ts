@@ -21,17 +21,15 @@ const TEMPO_TARGET = {
 
 function createIndexedDbPort(calls: UpsertCall[]): ThresholdEcdsaBootstrapIndexedDbPort {
   return {
-    clientDB: {
-      resolveProfileAccountContext: async () => ({
-        profileId: 'profile-1',
-        accountRef: {
-          chainIdKey: 'near:testnet',
-          accountAddress: 'alice.testnet',
-        },
-      }),
-      upsertProfile: async () => ({}),
-      setLastProfileStateForProfile: async () => undefined,
-    },
+    resolveProfileAccountContext: async () => ({
+      profileId: 'profile-1',
+      accountRef: {
+        chainIdKey: 'near:testnet',
+        accountAddress: 'alice.testnet',
+      },
+    }),
+    upsertProfile: async () => ({}),
+    setLastProfileStateForProfile: async () => undefined,
     upsertChainAccount: async (input) => {
       calls.push(input);
       return {
@@ -96,24 +94,22 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
     const lastProfileSelections: unknown[] = [];
     let hasNearProjection = false;
     const port: ThresholdEcdsaBootstrapIndexedDbPort = {
-      clientDB: {
-        resolveProfileAccountContext: async () =>
-          hasNearProjection
-            ? {
-                profileId: 'near-profile:google-user.testnet',
-                accountRef: {
-                  chainIdKey: 'near:testnet',
-                  accountAddress: 'google-user.testnet',
-                },
-              }
-            : null,
-        upsertProfile: async (input) => {
-          profileCalls.push(input);
-          return {};
-        },
-        setLastProfileStateForProfile: async (profileId, signerSlot) => {
-          lastProfileSelections.push({ profileId, signerSlot });
-        },
+      resolveProfileAccountContext: async () =>
+        hasNearProjection
+          ? {
+              profileId: 'near-profile:google-user.testnet',
+              accountRef: {
+                chainIdKey: 'near:testnet',
+                accountAddress: 'google-user.testnet',
+              },
+            }
+          : null,
+      upsertProfile: async (input) => {
+        profileCalls.push(input);
+        return {};
+      },
+      setLastProfileStateForProfile: async (profileId: string, signerSlot: number) => {
+        lastProfileSelections.push({ profileId, signerSlot });
       },
       upsertChainAccount: async (input) => {
         calls.push(input);

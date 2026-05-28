@@ -235,12 +235,12 @@ test.describe('EmailRecoveryDomain', () => {
     const thresholdMaterialWrites: any[] = [];
 
     const originalFetch = globalThis.fetch;
-    const clientDb = IndexedDBManager.clientDB as { resolveProfileAccountContext?: unknown };
-    const accountKeyMaterialDb = IndexedDBManager.accountKeyMaterialDB as {
+    const clientDb = IndexedDBManager as unknown as { resolveProfileAccountContext?: unknown };
+    const keyMaterialPort = IndexedDBManager as unknown as {
       storeKeyMaterial?: unknown;
     };
     const originalProfileLookup = clientDb.resolveProfileAccountContext;
-    const originalStoreKeyMaterial = accountKeyMaterialDb.storeKeyMaterial;
+    const originalStoreKeyMaterial = keyMaterialPort.storeKeyMaterial;
     try {
       globalThis.fetch = (async (input: unknown) => {
         const url = String((input as any)?.url || input);
@@ -375,7 +375,7 @@ test.describe('EmailRecoveryDomain', () => {
         String(accountRef.accountAddress || '').trim() === 'alice.testnet'
           ? { profileId: 'legacy-near:alice.testnet', accountRef }
           : null;
-      accountKeyMaterialDb.storeKeyMaterial = async (input: any) => {
+      keyMaterialPort.storeKeyMaterial = async (input: any) => {
         thresholdMaterialWrites.push({
           publicKey: input?.publicKey,
           relayerKeyId: input?.payload?.relayerKeyId,
@@ -422,7 +422,7 @@ test.describe('EmailRecoveryDomain', () => {
     } finally {
       globalThis.fetch = originalFetch;
       clientDb.resolveProfileAccountContext = originalProfileLookup;
-      accountKeyMaterialDb.storeKeyMaterial = originalStoreKeyMaterial;
+      keyMaterialPort.storeKeyMaterial = originalStoreKeyMaterial;
     }
   });
 

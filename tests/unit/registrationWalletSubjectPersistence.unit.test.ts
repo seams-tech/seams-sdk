@@ -40,29 +40,57 @@ test('wallet registration persists wallet-subject signer before NEAR projection'
   const calls: string[] = [];
   const activations: unknown[] = [];
   const authenticators: unknown[] = [];
+  const authMethodBindings: unknown[] = [];
   const deps = {
     extractCosePublicKey: async () => new Uint8Array([1, 2, 3]),
     indexedDB: {
-      clientDB: {
-        upsertProfile: async (input: { profileId: string }) => {
-          calls.push(`profile:${input.profileId}`);
-        },
-        activateAccountSigner: async (input: unknown) => {
+      upsertProfile: async (input: { profileId: string }) => {
+        calls.push(`profile:${input.profileId}`);
+      },
+      activateAccountSigner: async (input: unknown) => {
+        calls.push(
+          `signer:${String((input as { account?: { profileId?: unknown } }).account?.profileId || '')}`,
+        );
+        activations.push(input);
+        return { signerSlot: 2, signer: { signerSlot: 2 } };
+      },
+      upsertProfileAuthenticator: async (input: unknown) => {
+        calls.push(
+          `auth:${String((input as { profileId?: unknown }).profileId || '')}`,
+        );
+        authenticators.push(input);
+      },
+      setLastProfileStateForProfile: async (profileId: string, signerSlot: number) => {
+        calls.push(`last:${profileId}:${signerSlot}`);
+      },
+      persistWalletRegistrationFinalize: async (batch: {
+        profiles: Array<{ profileId: string }>;
+        initialAuthMethodBinding: unknown;
+        authenticators: unknown[];
+        signerActivations: unknown[];
+        lastProfileState?: { profileId: string; activeSignerSlot: number };
+      }) => {
+        for (const profile of batch.profiles) {
+          calls.push(`profile:${profile.profileId}`);
+        }
+        authMethodBindings.push(batch.initialAuthMethodBinding);
+        for (const authenticator of batch.authenticators) {
+          calls.push(`auth:${String((authenticator as { profileId?: unknown }).profileId || '')}`);
+          authenticators.push(authenticator);
+        }
+        const signerActivations = batch.signerActivations.map((input) => {
           calls.push(
             `signer:${String((input as { account?: { profileId?: unknown } }).account?.profileId || '')}`,
           );
           activations.push(input);
           return { signerSlot: 2, signer: { signerSlot: 2 } };
-        },
-        upsertProfileAuthenticator: async (input: unknown) => {
+        });
+        if (batch.lastProfileState) {
           calls.push(
-            `auth:${String((input as { profileId?: unknown }).profileId || '')}`,
+            `last:${batch.lastProfileState.profileId}:${batch.lastProfileState.activeSignerSlot}`,
           );
-          authenticators.push(input);
-        },
-        setLastProfileStateForProfile: async (profileId: string, signerSlot: number) => {
-          calls.push(`last:${profileId}:${signerSlot}`);
-        },
+        }
+        return { signerActivations };
       },
     },
   };
@@ -81,13 +109,18 @@ test('wallet registration persists wallet-subject signer before NEAR projection'
   expect(result.signerSlot).toBe(2);
   expect(calls).toEqual([
     'profile:wallet_alice',
-    'signer:wallet_alice',
-    'auth:wallet_alice',
     'profile:near-profile:alice.testnet',
-    'signer:near-profile:alice.testnet',
+    'auth:wallet_alice',
     'auth:near-profile:alice.testnet',
+    'signer:wallet_alice',
+    'signer:near-profile:alice.testnet',
     'last:near-profile:alice.testnet:2',
   ]);
+  expect(authMethodBindings[0]).toMatchObject({
+    kind: 'passkey',
+    walletSubjectId: 'wallet_alice',
+    credentialIdB64u: 'credential-raw-id',
+  });
   expect(activations[0]).toMatchObject({
     account: {
       profileId: 'wallet_alice',
@@ -96,7 +129,7 @@ test('wallet registration persists wallet-subject signer before NEAR projection'
       accountModel: 'wallet-subject',
     },
     signer: {
-      signerId: 'credential-raw-id',
+      signerId: 'ed25519:public',
       metadata: {
         walletSubjectId: 'wallet_alice',
         nearAccountId: 'alice.testnet',
@@ -119,23 +152,43 @@ test('wallet add-signer persists Ed25519 signer records without re-registering a
   const deps = {
     extractCosePublicKey: async () => new Uint8Array([1, 2, 3]),
     indexedDB: {
-      clientDB: {
-        upsertProfile: async (input: { profileId: string }) => {
-          calls.push(`profile:${input.profileId}`);
-        },
-        activateAccountSigner: async (input: unknown) => {
+      upsertProfile: async (input: { profileId: string }) => {
+        calls.push(`profile:${input.profileId}`);
+      },
+      activateAccountSigner: async (input: unknown) => {
+        calls.push(
+          `signer:${String((input as { account?: { profileId?: unknown } }).account?.profileId || '')}`,
+        );
+        activations.push(input);
+        return { signerSlot: 3, signer: { signerSlot: 3 } };
+      },
+      upsertProfileAuthenticator: async (input: unknown) => {
+        authenticators.push(input);
+      },
+      setLastProfileStateForProfile: async (profileId: string, signerSlot: number) => {
+        calls.push(`last:${profileId}:${signerSlot}`);
+      },
+      persistWalletSignerFinalize: async (batch: {
+        profiles: Array<{ profileId: string }>;
+        signerActivations: unknown[];
+        lastProfileState?: { profileId: string; activeSignerSlot: number };
+      }) => {
+        for (const profile of batch.profiles) {
+          calls.push(`profile:${profile.profileId}`);
+        }
+        const signerActivations = batch.signerActivations.map((input) => {
           calls.push(
             `signer:${String((input as { account?: { profileId?: unknown } }).account?.profileId || '')}`,
           );
           activations.push(input);
           return { signerSlot: 3, signer: { signerSlot: 3 } };
-        },
-        upsertProfileAuthenticator: async (input: unknown) => {
-          authenticators.push(input);
-        },
-        setLastProfileStateForProfile: async (profileId: string, signerSlot: number) => {
-          calls.push(`last:${profileId}:${signerSlot}`);
-        },
+        });
+        if (batch.lastProfileState) {
+          calls.push(
+            `last:${batch.lastProfileState.profileId}:${batch.lastProfileState.activeSignerSlot}`,
+          );
+        }
+        return { signerActivations };
       },
     },
   };
@@ -154,8 +207,8 @@ test('wallet add-signer persists Ed25519 signer records without re-registering a
   expect(result.signerSlot).toBe(3);
   expect(calls).toEqual([
     'profile:wallet_alice',
-    'signer:wallet_alice',
     'profile:near-profile:alice.testnet',
+    'signer:wallet_alice',
     'signer:near-profile:alice.testnet',
     'last:near-profile:alice.testnet:3',
   ]);
@@ -168,7 +221,7 @@ test('wallet add-signer persists Ed25519 signer records without re-registering a
       accountModel: 'wallet-subject',
     },
     signer: {
-      signerId: 'credential-raw-id',
+      signerId: 'ed25519:public',
       metadata: {
         walletSubjectId: 'wallet_alice',
         nearAccountId: 'alice.testnet',
@@ -186,21 +239,36 @@ test('wallet add-signer persists ECDSA signer records without re-registering aut
   const deps = {
     extractCosePublicKey: async () => new Uint8Array([1, 2, 3]),
     indexedDB: {
-      clientDB: {
-        upsertProfile: async (input: { profileId: string }) => {
-          calls.push(`profile:${input.profileId}`);
-        },
-        activateAccountSigner: async (input: unknown) => {
+      upsertProfile: async (input: { profileId: string }) => {
+        calls.push(`profile:${input.profileId}`);
+      },
+      activateAccountSigner: async (input: unknown) => {
+        const chainIdKey = String(
+          (input as { account?: { chainIdKey?: unknown } }).account?.chainIdKey || '',
+        );
+        calls.push(`signer:${chainIdKey}`);
+        activations.push(input);
+        return { signerSlot: activations.length, signer: { signerSlot: activations.length } };
+      },
+      upsertProfileAuthenticator: async (input: unknown) => {
+        authenticators.push(input);
+      },
+      persistWalletSignerFinalize: async (batch: {
+        profiles: Array<{ profileId: string }>;
+        signerActivations: unknown[];
+      }) => {
+        for (const profile of batch.profiles) {
+          calls.push(`profile:${profile.profileId}`);
+        }
+        const signerActivations = batch.signerActivations.map((input) => {
           const chainIdKey = String(
             (input as { account?: { chainIdKey?: unknown } }).account?.chainIdKey || '',
           );
           calls.push(`signer:${chainIdKey}`);
           activations.push(input);
           return { signerSlot: activations.length, signer: { signerSlot: activations.length } };
-        },
-        upsertProfileAuthenticator: async (input: unknown) => {
-          authenticators.push(input);
-        },
+        });
+        return { signerActivations };
       },
     },
   };
@@ -215,7 +283,7 @@ test('wallet add-signer persists ECDSA signer records without re-registering aut
         chainId: 1,
         networkSlug: 'ethereum',
       },
-      walletId: 'wallet-session-user',
+      walletId: 'wallet_alice',
       rpId: 'example.localhost',
       keyHandle: 'ehss-key-alice',
       ecdsaThresholdKeyId: 'ehss-key-id-alice',
@@ -277,6 +345,49 @@ test('wallet add-signer persists ECDSA signer records without re-registering aut
   });
 });
 
+test('wallet ECDSA signer validation fails before finalize batch side effects', async () => {
+  let batchCalled = false;
+  const deps = {
+    extractCosePublicKey: async () => new Uint8Array([1, 2, 3]),
+    indexedDB: {
+      persistWalletSignerFinalize: async () => {
+        batchCalled = true;
+        return { signerActivations: [] };
+      },
+    },
+  };
+
+  await expect(
+    storeWalletSubjectEcdsaSignerRecords(deps as any, {
+      walletSubjectId: walletSubjectIdFromString('wallet_alice'),
+      walletKeys: [
+        {
+          keyScope: 'evm-family' as const,
+          chainTarget: {
+            kind: 'evm' as const,
+            namespace: 'eip155' as const,
+            chainId: 1,
+            networkSlug: 'ethereum',
+          },
+          walletId: 'wallet_bob',
+          rpId: 'example.localhost',
+          keyHandle: 'ehss-key-alice',
+          ecdsaThresholdKeyId: 'ehss-key-id-alice',
+          signingRootId: 'project_registration:dev',
+          signingRootVersion: 'root_v1',
+          thresholdEcdsaPublicKeyB64u:
+            'A1111111111111111111111111111111111111111111',
+          thresholdOwnerAddress: '0x1111111111111111111111111111111111111111',
+          relayerKeyId: 'relayer-key-ecdsa',
+          relayerVerifyingShareB64u: 'relayer-share',
+          participantIds: [1, 2],
+        },
+      ],
+    }),
+  ).rejects.toThrow('wallet key walletId mismatch');
+  expect(batchCalled).toBe(false);
+});
+
 test('wallet add-signer persistence supports both later signer-family orders', async () => {
   const makeDeps = () => {
     const calls: string[] = [];
@@ -289,11 +400,42 @@ test('wallet add-signer persistence supports both later signer-family orders', a
       deps: {
         extractCosePublicKey: async () => new Uint8Array([1, 2, 3]),
         indexedDB: {
-          clientDB: {
-            upsertProfile: async (input: { profileId: string }) => {
-              calls.push(`profile:${input.profileId}`);
-            },
-            activateAccountSigner: async (input: unknown) => {
+          upsertProfile: async (input: { profileId: string }) => {
+            calls.push(`profile:${input.profileId}`);
+          },
+          activateAccountSigner: async (input: unknown) => {
+            const account = (input as { account?: { chainIdKey?: unknown; profileId?: unknown } })
+              .account;
+            calls.push(
+              `signer:${String(account?.chainIdKey || account?.profileId || '')}`,
+            );
+            activations.push(input);
+            return {
+              signerSlot: activations.length,
+              signer: { signerSlot: activations.length },
+            };
+          },
+          upsertProfileAuthenticator: async (input: unknown) => {
+            authenticators.push(input);
+            calls.push(`auth:${String((input as { profileId?: unknown }).profileId || '')}`);
+          },
+          setLastProfileStateForProfile: async (profileId: string, signerSlot: number) => {
+            calls.push(`last:${profileId}:${signerSlot}`);
+          },
+          persistWalletRegistrationFinalize: async (batch: {
+            profiles: Array<{ profileId: string }>;
+            authenticators: unknown[];
+            signerActivations: unknown[];
+            lastProfileState?: { profileId: string; activeSignerSlot: number };
+          }) => {
+            for (const profile of batch.profiles) {
+              calls.push(`profile:${profile.profileId}`);
+            }
+            for (const authenticator of batch.authenticators) {
+              authenticators.push(authenticator);
+              calls.push(`auth:${String((authenticator as { profileId?: unknown }).profileId || '')}`);
+            }
+            const signerActivations = batch.signerActivations.map((input) => {
               const account = (input as { account?: { chainIdKey?: unknown; profileId?: unknown } })
                 .account;
               calls.push(
@@ -304,14 +446,40 @@ test('wallet add-signer persistence supports both later signer-family orders', a
                 signerSlot: activations.length,
                 signer: { signerSlot: activations.length },
               };
-            },
-            upsertProfileAuthenticator: async (input: unknown) => {
-              authenticators.push(input);
-              calls.push(`auth:${String((input as { profileId?: unknown }).profileId || '')}`);
-            },
-            setLastProfileStateForProfile: async (profileId: string, signerSlot: number) => {
-              calls.push(`last:${profileId}:${signerSlot}`);
-            },
+            });
+            if (batch.lastProfileState) {
+              calls.push(
+                `last:${batch.lastProfileState.profileId}:${batch.lastProfileState.activeSignerSlot}`,
+              );
+            }
+            return { signerActivations };
+          },
+          persistWalletSignerFinalize: async (batch: {
+            profiles: Array<{ profileId: string }>;
+            signerActivations: unknown[];
+            lastProfileState?: { profileId: string; activeSignerSlot: number };
+          }) => {
+            for (const profile of batch.profiles) {
+              calls.push(`profile:${profile.profileId}`);
+            }
+            const signerActivations = batch.signerActivations.map((input) => {
+              const account = (input as { account?: { chainIdKey?: unknown; profileId?: unknown } })
+                .account;
+              calls.push(
+                `signer:${String(account?.chainIdKey || account?.profileId || '')}`,
+              );
+              activations.push(input);
+              return {
+                signerSlot: activations.length,
+                signer: { signerSlot: activations.length },
+              };
+            });
+            if (batch.lastProfileState) {
+              calls.push(
+                `last:${batch.lastProfileState.profileId}:${batch.lastProfileState.activeSignerSlot}`,
+              );
+            }
+            return { signerActivations };
           },
         },
       },
@@ -327,7 +495,7 @@ test('wallet add-signer persistence supports both later signer-family orders', a
         chainId: 1,
         networkSlug: 'ethereum',
       },
-      walletId: 'wallet-session-user',
+      walletId: 'wallet_matrix',
       rpId: 'example.localhost',
       keyHandle: 'ehss-key-matrix',
       ecdsaThresholdKeyId: 'ehss-key-id-matrix',

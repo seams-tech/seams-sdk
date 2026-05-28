@@ -290,8 +290,8 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
       const signingEngine = context.signingEngine;
       const thresholdKeyMaterial = await getNearThresholdKeyMaterial(
         {
-          clientDB: IndexedDBManager.clientDB,
-          accountKeyMaterialDB: IndexedDBManager.accountKeyMaterialDB,
+          clientDB: IndexedDBManager,
+          keyMaterialStore: IndexedDBManager,
         },
         input.accountId,
         1,
@@ -722,8 +722,8 @@ export async function runThresholdEcdsaTempoFlow(
       };
       const thresholdKeyMaterial = await getNearThresholdKeyMaterial(
         {
-          clientDB: IndexedDBManager.clientDB,
-          accountKeyMaterialDB: IndexedDBManager.accountKeyMaterialDB,
+          clientDB: IndexedDBManager,
+          keyMaterialStore: IndexedDBManager,
         },
         accountId,
         1,

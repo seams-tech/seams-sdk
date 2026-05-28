@@ -462,32 +462,33 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
 }
 
 async function withMockedIndexedDb<T>(run: () => Promise<T>): Promise<T> {
-  const originalClientDb = IndexedDBManager.clientDB;
-  const originalKeyMaterialDb = IndexedDBManager.accountKeyMaterialDB;
+  const indexedDB = IndexedDBManager as unknown as Record<string, unknown>;
+  const originalListProfileAuthenticators = indexedDB.listProfileAuthenticators;
+  const originalResolveProfileAccountContext = indexedDB.resolveProfileAccountContext;
+  const originalGetKeyMaterial = IndexedDBManager.getKeyMaterial;
+  const originalStoreKeyMaterial = IndexedDBManager.storeKeyMaterial;
   const keyMaterialWrites: unknown[] = [];
-  (IndexedDBManager as any).clientDB = {
-    listProfileAuthenticators: async () => [
-      {
-        credentialId: 'credential-id',
-        transports: ['internal'],
-      },
-    ],
-    resolveProfileAccountContext: async (accountRef: unknown) => ({
-      profileId: 'near-profile:later.testnet',
-      accountRef,
-    }),
-  };
-  (IndexedDBManager as any).accountKeyMaterialDB = {
-    getKeyMaterial: async () => null,
-    storeKeyMaterial: async (record: unknown) => {
-      keyMaterialWrites.push(record);
+  indexedDB.listProfileAuthenticators = async () => [
+    {
+      credentialId: 'credential-id',
+      transports: ['internal'],
     },
+  ];
+  indexedDB.resolveProfileAccountContext = async (accountRef: unknown) => ({
+    profileId: 'near-profile:later.testnet',
+    accountRef,
+  });
+  (IndexedDBManager as any).getKeyMaterial = async () => null;
+  (IndexedDBManager as any).storeKeyMaterial = async (record: unknown) => {
+    keyMaterialWrites.push(record);
   };
   try {
     return await run();
   } finally {
-    (IndexedDBManager as any).clientDB = originalClientDb;
-    (IndexedDBManager as any).accountKeyMaterialDB = originalKeyMaterialDb;
+    indexedDB.listProfileAuthenticators = originalListProfileAuthenticators;
+    indexedDB.resolveProfileAccountContext = originalResolveProfileAccountContext;
+    (IndexedDBManager as any).getKeyMaterial = originalGetKeyMaterial;
+    (IndexedDBManager as any).storeKeyMaterial = originalStoreKeyMaterial;
   }
 }
 

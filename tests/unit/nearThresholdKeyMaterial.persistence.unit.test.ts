@@ -2,9 +2,7 @@ import { expect, test } from '@playwright/test';
 import { sdkEsmPath, setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  clientDb: sdkEsmPath('core/indexedDB/passkeyClientDB/manager.js'),
   nearDb: sdkEsmPath('core/accountData/near/keyMaterial.js'),
-  accountKeyMaterialDb: sdkEsmPath('core/indexedDB/accountKeyMaterialDB/manager.js'),
   unifiedDb: sdkEsmPath('core/indexedDB/index.js'),
 } as const;
 
@@ -16,29 +14,24 @@ test.describe('NEAR threshold key material persistence', () => {
   test('threshold key writes persist the canonical single-key record shape', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
-        const { PasskeyClientDBManager } = await import(paths.clientDb);
         const { getNearThresholdKeyMaterial, storeNearThresholdKeyMaterial } = await import(
           paths.nearDb
         );
-        const { AccountKeyMaterialDBManager } = await import(paths.accountKeyMaterialDb);
-        const { UnifiedIndexedDBManager } = await import(paths.unifiedDb);
+        const { UnifiedIndexedDBManager, SeamsWalletDBManager, createSeamsTestWalletDbName } =
+          await import(paths.unifiedDb);
 
         const suffix =
           typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
             ? crypto.randomUUID()
             : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-        const clientDB = new PasskeyClientDBManager();
-        clientDB.setDbName(`PasskeyClientDB-nearThresholdCanonical-${suffix}`);
-        const accountKeyMaterialDB = new AccountKeyMaterialDBManager();
-        accountKeyMaterialDB.setDbName(
-          `PasskeyAccountKeyMaterial-nearThresholdCanonical-${suffix}`,
-        );
-        const indexedDB = new UnifiedIndexedDBManager({ clientDB, accountKeyMaterialDB });
+        const seamsWalletDB = new SeamsWalletDBManager();
+        seamsWalletDB.setDbName(createSeamsTestWalletDbName(`near-threshold-canonical-${suffix}`));
+        const indexedDB = new UnifiedIndexedDBManager({ seamsWalletDB });
         const nearAccountId = 'alice.testnet';
         const chainIdKey = 'near:testnet';
         const profileId = `profile-near:${nearAccountId}`;
 
-        await clientDB.upsertProfile({
+        await indexedDB.upsertProfile({
           profileId,
           defaultSignerSlot: 1,
           passkeyCredential: {
@@ -46,45 +39,51 @@ test.describe('NEAR threshold key material persistence', () => {
             rawId: 'credential-raw-id',
           },
         });
-        await clientDB.upsertChainAccount({
+        await indexedDB.upsertChainAccount({
           profileId,
           chainIdKey,
           accountAddress: nearAccountId,
           accountModel: 'near-native',
           isPrimary: true,
         });
-        await clientDB.upsertAccountSigner({
-          profileId,
-          chainIdKey,
-          accountAddress: nearAccountId,
-          signerId: 'ed25519:threshold-operational',
-          signerSlot: 1,
-          signerType: 'threshold',
-          signerKind: 'threshold-ed25519',
-          signerAuthMethod: 'passkey',
-          signerSource: 'passkey_registration',
-          status: 'active',
+        await indexedDB.activateAccountSigner({
+          account: {
+            profileId,
+            chainIdKey,
+            accountAddress: nearAccountId,
+            accountModel: 'near-native',
+          },
+          signer: {
+            signerId: 'ed25519:threshold-operational',
+            signerType: 'threshold',
+            signerKind: 'threshold-ed25519',
+            signerAuthMethod: 'passkey',
+            signerSource: 'passkey_registration',
+          },
+          activationPolicy: { mode: 'fail_if_occupied', signerSlot: 1 },
+          preferredSlot: 1,
           mutation: { routeThroughOutbox: false },
         });
 
         await storeNearThresholdKeyMaterial(
-          { clientDB, accountKeyMaterialDB },
+          { clientDB: indexedDB, keyMaterialStore: indexedDB },
           {
             nearAccountId,
             signerSlot: 1,
             publicKey: 'ed25519:threshold-operational',
+            signerId: 'ed25519:threshold-operational',
             relayerKeyId: 'rk-1',
             keyVersion: 'threshold-ed25519-hss-v1',
             timestamp: Date.now(),
           },
         );
 
-        const context = await clientDB.resolveProfileAccountContext({
+        const context = await indexedDB.resolveProfileAccountContext({
           chainIdKey,
           accountAddress: nearAccountId,
         });
         const raw = context
-          ? await accountKeyMaterialDB.getKeyMaterial(
+          ? await indexedDB.getKeyMaterial(
               context.profileId,
               1,
               context.accountRef.chainIdKey,
@@ -92,7 +91,7 @@ test.describe('NEAR threshold key material persistence', () => {
             )
           : null;
         const material = await getNearThresholdKeyMaterial(
-          { clientDB, accountKeyMaterialDB },
+          { clientDB: indexedDB, keyMaterialStore: indexedDB },
           nearAccountId,
           1,
         );
@@ -150,25 +149,22 @@ test.describe('NEAR threshold key material persistence', () => {
   }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
-        const { PasskeyClientDBManager } = await import(paths.clientDb);
         const { getNearThresholdKeyMaterial } = await import(paths.nearDb);
-        const { AccountKeyMaterialDBManager } = await import(paths.accountKeyMaterialDb);
-        const { UnifiedIndexedDBManager } = await import(paths.unifiedDb);
+        const { UnifiedIndexedDBManager, SeamsWalletDBManager, createSeamsTestWalletDbName } =
+          await import(paths.unifiedDb);
 
         const suffix =
           typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
             ? crypto.randomUUID()
             : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-        const clientDB = new PasskeyClientDBManager();
-        clientDB.setDbName(`PasskeyClientDB-nearThresholdFallback-${suffix}`);
-        const accountKeyMaterialDB = new AccountKeyMaterialDBManager();
-        accountKeyMaterialDB.setDbName(`PasskeyAccountKeyMaterial-nearThresholdFallback-${suffix}`);
-        const indexedDB = new UnifiedIndexedDBManager({ clientDB, accountKeyMaterialDB });
+        const seamsWalletDB = new SeamsWalletDBManager();
+        seamsWalletDB.setDbName(createSeamsTestWalletDbName(`near-threshold-fallback-${suffix}`));
+        const indexedDB = new UnifiedIndexedDBManager({ seamsWalletDB });
         const nearAccountId = 'alice.testnet';
         const chainIdKey = 'near:testnet';
         const profileId = `profile-near:${nearAccountId}`;
 
-        await clientDB.upsertProfile({
+        await indexedDB.upsertProfile({
           profileId,
           defaultSignerSlot: 1,
           passkeyCredential: {
@@ -176,28 +172,33 @@ test.describe('NEAR threshold key material persistence', () => {
             rawId: 'credential-raw-id',
           },
         });
-        await clientDB.upsertChainAccount({
+        await indexedDB.upsertChainAccount({
           profileId,
           chainIdKey,
           accountAddress: nearAccountId,
           accountModel: 'near-native',
           isPrimary: true,
         });
-        await clientDB.upsertAccountSigner({
-          profileId,
-          chainIdKey,
-          accountAddress: nearAccountId,
-          signerId: 'ed25519:threshold-operational',
-          signerSlot: 1,
-          signerType: 'threshold',
-          signerKind: 'threshold-ed25519',
-          signerAuthMethod: 'passkey',
-          signerSource: 'passkey_registration',
-          status: 'active',
+        await indexedDB.activateAccountSigner({
+          account: {
+            profileId,
+            chainIdKey,
+            accountAddress: nearAccountId,
+            accountModel: 'near-native',
+          },
+          signer: {
+            signerId: 'ed25519:threshold-operational',
+            signerType: 'threshold',
+            signerKind: 'threshold-ed25519',
+            signerAuthMethod: 'passkey',
+            signerSource: 'passkey_registration',
+          },
+          activationPolicy: { mode: 'fail_if_occupied', signerSlot: 1 },
+          preferredSlot: 1,
           mutation: { routeThroughOutbox: false },
         });
 
-        const context = await clientDB.resolveProfileAccountContext({
+        const context = await indexedDB.resolveProfileAccountContext({
           chainIdKey,
           accountAddress: nearAccountId,
         });
@@ -205,13 +206,15 @@ test.describe('NEAR threshold key material persistence', () => {
           throw new Error('missing near account context');
         }
 
-        await accountKeyMaterialDB.storeKeyMaterial({
+        await indexedDB.storeKeyMaterial({
           profileId: context.profileId,
           signerSlot: 1,
           chainIdKey: context.accountRef.chainIdKey,
+          accountAddress: context.accountRef.accountAddress,
           keyKind: 'threshold_share_v1',
           algorithm: 'ed25519',
           publicKey: 'ed25519:threshold-operational',
+          signerId: 'ed25519:threshold-operational',
           payload: {
             relayerKeyId: 'rk-1',
             keyVersion: 'threshold-ed25519-hss-v1',
@@ -221,7 +224,7 @@ test.describe('NEAR threshold key material persistence', () => {
         });
 
         const material = await getNearThresholdKeyMaterial(
-          { clientDB, accountKeyMaterialDB },
+          { clientDB: indexedDB, keyMaterialStore: indexedDB },
           nearAccountId,
           1,
         );

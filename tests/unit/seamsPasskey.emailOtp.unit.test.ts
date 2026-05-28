@@ -10,6 +10,7 @@ import {
   restoreEmailOtpDeviceEnrollmentEscrow,
   verifyEmailOtpCode,
 } from '@/core/SeamsPasskey/emailOtp';
+import { collectEmailOtpRegistrationAuthority } from '@/core/SeamsPasskey/emailOtpRegistrationAuthority';
 
 test.describe('SeamsPasskey Email OTP runtime', () => {
   test('Email OTP pre-unseal routes dispatch through the dedicated Email OTP worker when no fetch override is provided', async () => {
@@ -257,6 +258,74 @@ test.describe('SeamsPasskey Email OTP runtime', () => {
         token: 'google-id-token-1',
       },
     });
+  });
+
+  test('Email OTP registration authority adapter builds a digest-bound proof', async () => {
+    const fetchCalls: Array<{ url: string; body: Record<string, unknown>; authorization: string }> =
+      [];
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const url = String(input);
+      const body = JSON.parse(String(init?.body || '{}'));
+      const headers = new Headers(init?.headers);
+      fetchCalls.push({
+        url,
+        body,
+        authorization: headers.get('Authorization') || '',
+      });
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          challenge: {
+            challengeId: 'registration-challenge-1',
+            appSessionVersion: 'app-session-v1',
+            expiresAtMs: 1_900_000_000_000,
+          },
+          delivery: {
+            emailHint: 'a***@example.test',
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    };
+
+    const authority = await collectEmailOtpRegistrationAuthority({
+      authMethod: {
+        kind: 'email_otp',
+        email: ' Alice@Example.Test ',
+        otpCode: ' 123456 ',
+      },
+      relayUrl: 'https://relay.example',
+      walletSubjectId: 'wallet_subject_alice',
+      registrationIntentDigestB64u: 'intent-digest-1',
+      appSessionJwt: 'app-session-jwt-1',
+      fetchImpl,
+    });
+
+    expect(authority).toEqual({
+      kind: 'email_otp',
+      challengeId: 'registration-challenge-1',
+      appSessionVersion: 'app-session-v1',
+      email: 'alice@example.test',
+      proof: {
+        version: 'email_otp_registration_proof_v1',
+        email: 'alice@example.test',
+        challengeId: 'registration-challenge-1',
+        otpCode: '123456',
+        otpChannel: 'email_otp',
+        registrationIntentDigestB64u: 'intent-digest-1',
+        appSessionVersion: 'app-session-v1',
+      },
+    });
+    expect(fetchCalls).toEqual([
+      {
+        url: 'https://relay.example/wallet/email-otp/registration/challenge',
+        authorization: 'Bearer app-session-jwt-1',
+        body: {
+          walletId: 'wallet_subject_alice',
+          otpChannel: 'email_otp',
+        },
+      },
+    ]);
   });
 
   test('Email OTP route helpers preserve rate-limit metadata', async () => {

@@ -6,6 +6,7 @@ import {
   walletSubjectIdFromString,
   type AddSignerIntentV1,
   type NearAccountOwnershipProofV1,
+  type RegistrationAuthMethodInput,
   type RegistrationSignerSelection,
 } from '@shared/utils/registrationIntent';
 import { base58Encode, base64UrlEncode } from '@shared/utils/encoders';
@@ -99,6 +100,7 @@ function makeService(): AuthService {
 async function allocateIntent(
   service: AuthService,
   signerSelection: RegistrationSignerSelection = SIGNER_SELECTION,
+  authMethod: RegistrationAuthMethodInput = { kind: 'passkey' },
 ) {
   return await service.createRegistrationIntent({
     request: {
@@ -107,12 +109,19 @@ async function allocateIntent(
         walletSubjectId: walletSubjectIdFromString('wallet_subject_alice'),
       },
       rpId: 'wallet.example.test',
-      authMethod: { kind: 'passkey' },
+      authMethod,
       signerSelection,
     },
     orgId: ORG_ID,
     runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     expectedOrigin: 'https://wallet.example.test',
+  });
+}
+
+async function allocateEmailOtpIntent(service: AuthService) {
+  return await allocateIntent(service, SIGNER_SELECTION, {
+    kind: 'email_otp',
+    email: 'Alice@Example.Test',
   });
 }
 
@@ -261,6 +270,84 @@ test.describe('registration intent allocation', () => {
       ok: false,
       code: 'invalid_grant',
     });
+  });
+
+  test('starts Email OTP registration with a digest-bound authority proof', async () => {
+    const service = makeService();
+    let challengeVerification: Record<string, unknown> | null = null;
+    (service as any).verifyEmailOtpChallengeCode = async (request: Record<string, unknown>) => {
+      challengeVerification = request;
+      return {
+        ok: true,
+        challengeId: request.challengeId,
+        userId: request.userId,
+        walletId: request.walletId,
+        orgId: request.orgId,
+        email: 'alice@example.test',
+        otpChannel: 'email_otp',
+      };
+    };
+    (service as any).getThresholdSigningService = () => ({
+      ed25519Hss: {
+        prepareForRegistration: async () => ({
+          ok: true,
+          ceremonyHandle: 'email-otp-ed25519-handle',
+          preparedSession: { prepared: true },
+          clientOtOfferMessageB64u: 'client-ot-offer',
+        }),
+      },
+    });
+
+    const allocated = await allocateEmailOtpIntent(service);
+    expect(allocated.ok).toBe(true);
+    if (!allocated.ok) throw new Error(allocated.message);
+
+    const started = await service.startWalletRegistration({
+      registrationIntentGrant: allocated.registrationIntentGrant,
+      registrationIntentDigestB64u: allocated.registrationIntentDigestB64u,
+      intent: allocated.intent,
+      emailOtpRegistrationProof: {
+        version: 'email_otp_registration_proof_v1',
+        email: 'alice@example.test',
+        challengeId: 'email-otp-challenge-1',
+        otpCode: '123456',
+        otpChannel: 'email_otp',
+        registrationIntentDigestB64u: allocated.registrationIntentDigestB64u,
+        appSessionVersion: 'email-otp-registration-v1',
+      },
+    });
+
+    expect(started).toMatchObject({
+      ok: true,
+      ed25519: {
+        ceremonyHandle: 'email-otp-ed25519-handle',
+      },
+    });
+    expect(challengeVerification).toMatchObject({
+      userId: 'alice@example.test',
+      walletId: 'wallet_subject_alice',
+      orgId: ORG_ID,
+      challengeId: 'email-otp-challenge-1',
+      otpCode: '123456',
+      otpChannel: 'email_otp',
+      sessionHash: allocated.registrationIntentDigestB64u,
+      appSessionVersion: 'email-otp-registration-v1',
+      expectedAction: 'wallet_email_otp_registration',
+      expectedOperation: 'registration',
+    });
+
+    if (!started.ok) throw new Error(started.message);
+    const ceremony = await (service as any)
+      .getRegistrationCeremonyStore()
+      .getCeremony(started.registrationCeremonyId);
+    expect(ceremony.authority).toMatchObject({
+      kind: 'email_otp',
+      walletSubjectId: 'wallet_subject_alice',
+      rpId: 'wallet.example.test',
+      challengeId: 'email-otp-challenge-1',
+      registrationIntentDigestB64u: allocated.registrationIntentDigestB64u,
+    });
+    expect(ceremony.authority.emailHashHex).toMatch(/^[0-9a-f]{64}$/);
   });
 
   test('runs combined Ed25519 and ECDSA registration through one ceremony', async () => {

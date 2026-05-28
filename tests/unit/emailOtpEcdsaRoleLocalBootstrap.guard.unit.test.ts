@@ -261,7 +261,7 @@ test.describe('Email OTP ECDSA role-local bootstrap guard', () => {
       .replace(/,\)/g, ')');
 
     expect(reconstructionHelper).toContain(
-      'getLastLoggedInSignerSlot(walletId, IndexedDBManager.clientDB)',
+      'getLastLoggedInSignerSlot(walletId, IndexedDBManager)',
     );
     expect(reconstructionHelper).toContain('getNearThresholdKeyMaterial(');
     expect(reconstructionHelper).toContain('relayerKeyId: thresholdKeyMaterial.relayerKeyId');

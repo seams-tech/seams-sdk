@@ -46,9 +46,9 @@ test.describe('Email OTP device enrollment escrow store', () => {
           const openReq = indexedDB.open('seams_wallet');
           openReq.onsuccess = () => {
             const db = openReq.result;
-            const tx = db.transaction('seams_email_otp_device_enrollment_escrows', 'readonly');
+            const tx = db.transaction('seams_email_otp_escrows', 'readonly');
             const getReq = tx
-              .objectStore('seams_email_otp_device_enrollment_escrows')
+              .objectStore('seams_email_otp_escrows')
               .get(['alice.testnet', 'google-sub-1', 'enrollment-1']);
             getReq.onsuccess = () => {
               const value = getReq.result;
@@ -106,8 +106,8 @@ test.describe('Email OTP device enrollment escrow store', () => {
         const db = await new Promise<IDBDatabase>((resolve, reject) => {
           const req = indexedDB.open('seams_wallet', 1);
           req.onupgradeneeded = () => {
-            if (!req.result.objectStoreNames.contains('seams_email_otp_device_enrollment_escrows')) {
-              req.result.createObjectStore('seams_email_otp_device_enrollment_escrows', {
+            if (!req.result.objectStoreNames.contains('seams_email_otp_escrows')) {
+              req.result.createObjectStore('seams_email_otp_escrows', {
                 keyPath: ['wallet_id', 'auth_subject_id', 'enrollment_id'],
               });
             }
@@ -115,8 +115,8 @@ test.describe('Email OTP device enrollment escrow store', () => {
           req.onsuccess = () => resolve(req.result);
           req.onerror = () => reject(req.error);
         });
-        const tx = db.transaction('seams_email_otp_device_enrollment_escrows', 'readwrite');
-        const store = tx.objectStore('seams_email_otp_device_enrollment_escrows');
+        const tx = db.transaction('seams_email_otp_escrows', 'readwrite');
+        const store = tx.objectStore('seams_email_otp_escrows');
         store.put({
           wallet_id: 'alice.testnet',
           auth_subject_id: 'google-sub-1',
@@ -217,10 +217,8 @@ test.describe('Email OTP device enrollment escrow store', () => {
         const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'indexedDB');
         let unavailableMessage = '';
         try {
-          Object.defineProperty(globalThis, 'indexedDB', {
-            configurable: true,
-            value: undefined,
-          });
+          const singletons = await import('/sdk/esm/core/indexedDB/singletons.js');
+          singletons.seamsWalletDB.setDisabled(true);
           unavailableMessage = await mod
             .writeEmailOtpDeviceEnrollmentEscrowRecord({
               walletId: 'alice.testnet',
@@ -237,6 +235,8 @@ test.describe('Email OTP device enrollment escrow store', () => {
               (error: unknown) => String((error as Error)?.message || error),
             );
         } finally {
+          const singletons = await import('/sdk/esm/core/indexedDB/singletons.js');
+          singletons.seamsWalletDB.setDisabled(false);
           if (descriptor) {
             Object.defineProperty(globalThis, 'indexedDB', descriptor);
           }
@@ -249,11 +249,11 @@ test.describe('Email OTP device enrollment escrow store', () => {
 
     expect(result.invalidMessage).toBe('Invalid Email OTP device enrollment escrow record');
     expect(result.unavailableMessage).toBe(
-      'Email OTP device enrollment escrow IndexedDB is unavailable',
+      '[SeamsWalletDBManager] IndexedDB is disabled in this environment.',
     );
   });
 
-  test('write rejects blocked IndexedDB open and transaction aborts', async ({ page }) => {
+  test('write uses wallet DB disabled-mode protection without opening IndexedDB', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.store);
@@ -269,80 +269,42 @@ test.describe('Email OTP device enrollment escrow store', () => {
         };
 
         const indexedDbDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'indexedDB');
-        let blockedMessage = '';
+        let disabledMessage = '';
+        let openCalledWhileDisabled = false;
         try {
+          const singletons = await import('/sdk/esm/core/indexedDB/singletons.js');
+          const originalIndexedDB = globalThis.indexedDB;
           Object.defineProperty(globalThis, 'indexedDB', {
             configurable: true,
             value: {
-              open: () => {
-                const request: Record<string, unknown> = {};
-                setTimeout(() => {
-                  const onblocked = request.onblocked;
-                  if (typeof onblocked === 'function') onblocked.call(request, new Event('blocked'));
-                }, 0);
-                return request;
+              ...originalIndexedDB,
+              open: (...args: unknown[]) => {
+                openCalledWhileDisabled = true;
+                return originalIndexedDB.open(...(args as [string, number?]));
               },
             },
           });
-          blockedMessage = await mod.writeEmailOtpDeviceEnrollmentEscrowRecord(validRecord).then(
+          singletons.seamsWalletDB.setDisabled(true);
+          disabledMessage = await mod.writeEmailOtpDeviceEnrollmentEscrowRecord(validRecord).then(
             () => '',
             (error: unknown) => String((error as Error)?.message || error),
           );
         } finally {
+          const singletons = await import('/sdk/esm/core/indexedDB/singletons.js');
+          singletons.seamsWalletDB.setDisabled(false);
           if (indexedDbDescriptor) {
             Object.defineProperty(globalThis, 'indexedDB', indexedDbDescriptor);
           }
         }
 
-        const transactionDescriptor = Object.getOwnPropertyDescriptor(
-          IDBDatabase.prototype,
-          'transaction',
-        );
-        let abortMessage = '';
-        try {
-          Object.defineProperty(IDBDatabase.prototype, 'transaction', {
-            configurable: true,
-            value: () => {
-              const tx: Record<string, unknown> = {
-                error: new Error('forced transaction abort'),
-                objectStore: () => ({
-                  put: () => {
-                    const request: Record<string, unknown> = { result: undefined };
-                    setTimeout(() => {
-                      const onsuccess = request.onsuccess;
-                      if (typeof onsuccess === 'function') {
-                        onsuccess.call(request, new Event('success'));
-                      }
-                      const onabort = tx.onabort;
-                      if (typeof onabort === 'function') onabort.call(tx, new Event('abort'));
-                    }, 0);
-                    return request;
-                  },
-                }),
-              };
-              return tx;
-            },
-          });
-          abortMessage = await mod.writeEmailOtpDeviceEnrollmentEscrowRecord(validRecord).then(
-            () => '',
-            (error: unknown) => String((error as Error)?.message || error),
-          );
-        } finally {
-          if (transactionDescriptor) {
-            Object.defineProperty(IDBDatabase.prototype, 'transaction', transactionDescriptor);
-          } else {
-            delete (IDBDatabase.prototype as unknown as Record<string, unknown>).transaction;
-          }
-        }
-
-        return { blockedMessage, abortMessage };
+        return { disabledMessage, openCalledWhileDisabled };
       },
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.blockedMessage).toBe(
-      'Email OTP device enrollment escrow IndexedDB is unavailable',
+    expect(result.disabledMessage).toBe(
+      '[SeamsWalletDBManager] IndexedDB is disabled in this environment.',
     );
-    expect(result.abortMessage).toBe('forced transaction abort');
+    expect(result.openCalledWhileDisabled).toBe(false);
   });
 });

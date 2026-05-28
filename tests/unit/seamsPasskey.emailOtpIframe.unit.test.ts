@@ -473,7 +473,9 @@ test.describe('SeamsPasskey Email OTP wallet iframe ownership', () => {
           },
           options: { confirmationConfig: { uiMode: 'modal' } },
         });
-        const { IndexedDBManager } = await import('/sdk/esm/core/indexedDB/index.js');
+        const { IndexedDBManager, seamsWalletDB } = await import(
+          '/sdk/esm/core/indexedDB/index.js'
+        );
         const forbiddenKeys = new Set([
           'S',
           'secretS',
@@ -564,8 +566,8 @@ test.describe('SeamsPasskey Email OTP wallet iframe ownership', () => {
           secretRejectionEventInteractions: secretRejectionEvents.map((event) => event.interaction),
           secretRejectionEventErrors: secretRejectionEvents.map((event) => event.error),
           appOriginForbiddenFields,
-          clientDbDisabled: IndexedDBManager.clientDB.isDisabled(),
-          accountKeyMaterialDbDisabled: IndexedDBManager.accountKeyMaterialDB.isDisabled(),
+          indexedDbDisabled: IndexedDBManager.isDisabled(),
+          seamsWalletDbDisabled: seamsWalletDB.isDisabled(),
         };
       },
       { walletOrigin: WALLET_ORIGIN },
@@ -657,8 +659,8 @@ test.describe('SeamsPasskey Email OTP wallet iframe ownership', () => {
         },
       ],
       appOriginForbiddenFields: [],
-      clientDbDisabled: true,
-      accountKeyMaterialDbDisabled: true,
+      indexedDbDisabled: true,
+      seamsWalletDbDisabled: true,
     });
 
     const walletFrame = page.frames().find((frame) => {

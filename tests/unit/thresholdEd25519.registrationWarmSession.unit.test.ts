@@ -29,17 +29,14 @@ test.describe('threshold Ed25519 registration warm-session', () => {
 
         sessionStoreMod.clearAllStoredThresholdEd25519SessionRecords();
 
-        const clientDb = indexedDbMod.IndexedDBManager.clientDB as Record<string, unknown>;
-        const accountKeyMaterialDb = indexedDbMod.IndexedDBManager.accountKeyMaterialDB as Record<
-          string,
-          unknown
-        >;
+        const clientDb = indexedDbMod.IndexedDBManager as Record<string, unknown>;
+        const keyMaterialPort = indexedDbMod.IndexedDBManager as Record<string, unknown>;
         const originalResolveProfileAccountContext = clientDb.resolveProfileAccountContext;
         const originalGetMostRecentNearAccountProjection = clientDb.getMostRecentNearAccountProjection;
         const originalResolveNearAccountProfileContinuity =
           clientDb.resolveNearAccountProfileContinuity;
-        const originalStoreKeyMaterial = accountKeyMaterialDb.storeKeyMaterial;
-        const originalGetKeyMaterial = accountKeyMaterialDb.getKeyMaterial;
+        const originalStoreKeyMaterial = keyMaterialPort.storeKeyMaterial;
+        const originalGetKeyMaterial = keyMaterialPort.getKeyMaterial;
 
         clientDb.resolveProfileAccountContext = async (accountRef: {
           chainIdKey: string;
@@ -51,8 +48,8 @@ test.describe('threshold Ed25519 registration warm-session', () => {
             : null;
         clientDb.getMostRecentNearAccountProjection = async () => null;
         clientDb.resolveNearAccountProfileContinuity = async () => ({ chainAccounts: [] });
-        accountKeyMaterialDb.storeKeyMaterial = async () => undefined;
-        accountKeyMaterialDb.getKeyMaterial = async () => null;
+        keyMaterialPort.storeKeyMaterial = async () => undefined;
+        keyMaterialPort.getKeyMaterial = async () => null;
 
         try {
           const context = {
@@ -164,8 +161,8 @@ test.describe('threshold Ed25519 registration warm-session', () => {
           clientDb.resolveProfileAccountContext = originalResolveProfileAccountContext;
           clientDb.getMostRecentNearAccountProjection = originalGetMostRecentNearAccountProjection;
           clientDb.resolveNearAccountProfileContinuity = originalResolveNearAccountProfileContinuity;
-          accountKeyMaterialDb.storeKeyMaterial = originalStoreKeyMaterial;
-          accountKeyMaterialDb.getKeyMaterial = originalGetKeyMaterial;
+          keyMaterialPort.storeKeyMaterial = originalStoreKeyMaterial;
+          keyMaterialPort.getKeyMaterial = originalGetKeyMaterial;
           sessionStoreMod.clearAllStoredThresholdEd25519SessionRecords();
         }
       },
@@ -195,17 +192,14 @@ test.describe('threshold Ed25519 registration warm-session', () => {
 
         sessionStoreMod.clearAllStoredThresholdEd25519SessionRecords();
 
-        const clientDb = indexedDbMod.IndexedDBManager.clientDB as Record<string, unknown>;
-        const accountKeyMaterialDb = indexedDbMod.IndexedDBManager.accountKeyMaterialDB as Record<
-          string,
-          unknown
-        >;
+        const clientDb = indexedDbMod.IndexedDBManager as Record<string, unknown>;
+        const keyMaterialPort = indexedDbMod.IndexedDBManager as Record<string, unknown>;
         const originalResolveProfileAccountContext = clientDb.resolveProfileAccountContext;
         const originalGetMostRecentNearAccountProjection = clientDb.getMostRecentNearAccountProjection;
         const originalResolveNearAccountProfileContinuity =
           clientDb.resolveNearAccountProfileContinuity;
-        const originalStoreKeyMaterial = accountKeyMaterialDb.storeKeyMaterial;
-        const originalGetKeyMaterial = accountKeyMaterialDb.getKeyMaterial;
+        const originalStoreKeyMaterial = keyMaterialPort.storeKeyMaterial;
+        const originalGetKeyMaterial = keyMaterialPort.getKeyMaterial;
 
         clientDb.resolveProfileAccountContext = async (accountRef: {
           chainIdKey: string;
@@ -217,8 +211,8 @@ test.describe('threshold Ed25519 registration warm-session', () => {
             : null;
         clientDb.getMostRecentNearAccountProjection = async () => null;
         clientDb.resolveNearAccountProfileContinuity = async () => ({ chainAccounts: [] });
-        accountKeyMaterialDb.storeKeyMaterial = async () => undefined;
-        accountKeyMaterialDb.getKeyMaterial = async () => null;
+        keyMaterialPort.storeKeyMaterial = async () => undefined;
+        keyMaterialPort.getKeyMaterial = async () => null;
 
         try {
           const context = {
@@ -325,8 +319,8 @@ test.describe('threshold Ed25519 registration warm-session', () => {
           clientDb.resolveProfileAccountContext = originalResolveProfileAccountContext;
           clientDb.getMostRecentNearAccountProjection = originalGetMostRecentNearAccountProjection;
           clientDb.resolveNearAccountProfileContinuity = originalResolveNearAccountProfileContinuity;
-          accountKeyMaterialDb.storeKeyMaterial = originalStoreKeyMaterial;
-          accountKeyMaterialDb.getKeyMaterial = originalGetKeyMaterial;
+          keyMaterialPort.storeKeyMaterial = originalStoreKeyMaterial;
+          keyMaterialPort.getKeyMaterial = originalGetKeyMaterial;
           sessionStoreMod.clearAllStoredThresholdEd25519SessionRecords();
         }
       },

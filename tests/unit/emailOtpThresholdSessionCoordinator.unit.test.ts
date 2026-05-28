@@ -3005,8 +3005,14 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
     expect(ed25519ProvisionCalls).toHaveLength(1);
     expect(ed25519ProvisionCalls[0]).toMatchObject({
       nearAccountId: 'alice.testnet',
-      prfFirstB64u: 'prf-first-ecdsa-enroll',
       registrationAttemptId: 'registration-attempt-1',
+      clientSecretSource: {
+        kind: 'email_otp_registration_ed25519_hss_client_secret_source',
+        registrationAttemptId: 'registration-attempt-1',
+        walletId: 'alice.testnet',
+        authSubjectId: 'alice.testnet',
+        prfFirstB64u: 'prf-first-ecdsa-enroll',
+      },
       ecdsaThresholdSessionId: 'ecdsa-session',
       emailOtpAuthContext: {
         policy: 'session',

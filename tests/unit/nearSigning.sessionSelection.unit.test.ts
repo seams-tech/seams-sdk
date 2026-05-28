@@ -250,7 +250,7 @@ test.describe('near signing session selection', () => {
                     },
                   }),
                 },
-                accountKeyMaterialDB: {
+                keyMaterialStore: {
                   getKeyMaterial: async () => ({
                     profileId: 'profile-alice',
                     signerSlot: 1,
@@ -450,7 +450,7 @@ test.describe('near signing session selection', () => {
                     },
                   }),
                 },
-                accountKeyMaterialDB: {
+                keyMaterialStore: {
                   getKeyMaterial: async () => ({
                     profileId: 'profile-prepared-warm',
                     signerSlot: 1,
@@ -689,7 +689,7 @@ test.describe('near signing session selection', () => {
                     },
                   }),
                 },
-                accountKeyMaterialDB: {
+                keyMaterialStore: {
                   getKeyMaterial: async () => ({
                     profileId: 'profile-otp-confirmation-order',
                     signerSlot: 1,
@@ -974,7 +974,7 @@ test.describe('near signing session selection', () => {
                     },
                   }),
                 },
-                accountKeyMaterialDB: {
+                keyMaterialStore: {
                   getKeyMaterial: async () => ({
                     profileId: 'profile-otp-missing-runtime',
                     signerSlot: 1,
@@ -1212,7 +1212,7 @@ test.describe('near signing session selection', () => {
                     },
                   }),
                 },
-                accountKeyMaterialDB: {
+                keyMaterialStore: {
                   getKeyMaterial: async () => ({
                     profileId: 'profile-durable-ed25519-valid-budget',
                     signerSlot: 1,
@@ -1487,7 +1487,7 @@ test.describe('near signing session selection', () => {
                     },
                   }),
                 },
-                accountKeyMaterialDB: {
+                keyMaterialStore: {
                   getKeyMaterial: async () => ({
                     profileId: 'profile-passkey-stale-runtime-restorable',
                     signerSlot: 1,
@@ -1742,7 +1742,7 @@ test.describe('near signing session selection', () => {
                     },
                   }),
                 },
-                accountKeyMaterialDB: {
+                keyMaterialStore: {
                   getKeyMaterial: async () => ({
                     profileId: 'profile-otp-runtime-candidate-selection',
                     signerSlot: 1,
@@ -1944,7 +1944,7 @@ test.describe('near signing session selection', () => {
                     },
                   }),
                 },
-                accountKeyMaterialDB: {
+                keyMaterialStore: {
                   getKeyMaterial: async () => ({
                     profileId: 'profile-otp-runtime-candidate-missing',
                     signerSlot: 1,
@@ -2165,7 +2165,7 @@ test.describe('near signing session selection', () => {
                     },
                   }),
                 },
-                accountKeyMaterialDB: {
+                keyMaterialStore: {
                   getKeyMaterial: async () => ({
                     profileId: 'profile-otp-post-confirm-retry',
                     signerSlot: 1,

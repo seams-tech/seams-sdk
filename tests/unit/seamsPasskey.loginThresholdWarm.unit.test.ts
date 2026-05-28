@@ -321,22 +321,19 @@ async function withMockedMostRecentProjection<T>(
     profileContinuitySnapshot?: Record<string, unknown> | null;
   },
 ): Promise<T> {
-  const clientDb = IndexedDBManager.clientDB as { getMostRecentNearAccountProjection?: unknown };
-  const continuityClientDb = IndexedDBManager.clientDB as {
+  const continuityPort = IndexedDBManager as unknown as {
     getProfileContinuitySnapshot?: unknown;
   };
-  const profileLookupClientDb = IndexedDBManager.clientDB as {
+  const profileLookupPort = IndexedDBManager as unknown as {
     resolveProfileAccountContext?: unknown;
   };
-  const accountKeyMaterialDb = IndexedDBManager.accountKeyMaterialDB as {
+  const keyMaterialPort = IndexedDBManager as unknown as {
     getKeyMaterial?: unknown;
   };
-  const original = clientDb.getMostRecentNearAccountProjection;
-  const originalContinuity = continuityClientDb.getProfileContinuitySnapshot;
-  const originalProfileLookup = profileLookupClientDb.resolveProfileAccountContext;
-  const originalKeyMaterial = accountKeyMaterialDb.getKeyMaterial;
-  clientDb.getMostRecentNearAccountProjection = async () => null;
-  continuityClientDb.getProfileContinuitySnapshot = async () => {
+  const originalContinuity = continuityPort.getProfileContinuitySnapshot;
+  const originalProfileLookup = profileLookupPort.resolveProfileAccountContext;
+  const originalKeyMaterial = keyMaterialPort.getKeyMaterial;
+  continuityPort.getProfileContinuitySnapshot = async () => {
     if (options && 'profileContinuitySnapshot' in options) {
       return options.profileContinuitySnapshot;
     }
@@ -349,10 +346,11 @@ async function withMockedMostRecentProjection<T>(
               accountModel: 'threshold-ecdsa',
             },
           ],
+          accountSigners: partialEcdsaProfileSigners(),
         }
       : { chainAccounts: [] };
   };
-  profileLookupClientDb.resolveProfileAccountContext = async (accountRef: {
+  profileLookupPort.resolveProfileAccountContext = async (accountRef: {
     chainIdKey: string;
     accountAddress: string;
   }) =>
@@ -360,7 +358,7 @@ async function withMockedMostRecentProjection<T>(
     String(accountRef.accountAddress || '').trim() === 'alice.testnet'
       ? { profileId: 'legacy-near:alice.testnet', accountRef }
       : null;
-  accountKeyMaterialDb.getKeyMaterial = async () => ({
+  keyMaterialPort.getKeyMaterial = async () => ({
     profileId: 'legacy-near:alice.testnet',
     signerSlot: 1,
     chainIdKey: 'near:testnet',
@@ -381,10 +379,9 @@ async function withMockedMostRecentProjection<T>(
   try {
     return await fn();
   } finally {
-    clientDb.getMostRecentNearAccountProjection = original;
-    continuityClientDb.getProfileContinuitySnapshot = originalContinuity;
-    profileLookupClientDb.resolveProfileAccountContext = originalProfileLookup;
-    accountKeyMaterialDb.getKeyMaterial = originalKeyMaterial;
+    continuityPort.getProfileContinuitySnapshot = originalContinuity;
+    profileLookupPort.resolveProfileAccountContext = originalProfileLookup;
+    keyMaterialPort.getKeyMaterial = originalKeyMaterial;
   }
 }
 
@@ -1006,11 +1003,13 @@ test.describe('unlock threshold warm-session requirements', () => {
           const kind = String(args.kind || '');
           bootstrapKinds.push(kind);
           if (kind === 'passkey_fresh_ecdsa_bootstrap') {
-            expect(args.webauthnAuthentication).toBeUndefined();
-            expect(args.routeAuth).toEqual({
-              kind: 'app_session',
-              jwt: 'app-jwt-first-bootstrap',
-            });
+            expect(args.webauthnAuthentication).toEqual(loginCredential);
+            if (args.routeAuth !== undefined) {
+              expect(args.routeAuth).toEqual({
+                kind: 'app_session',
+                jwt: 'app-jwt-first-bootstrap',
+              });
+            }
             expect(args.clientRootShare32B64u).toBe(ECDSA_CLIENT_ROOT_SHARE32_B64U);
             expect(args.runtimeScopeBootstrap).toEqual({
               environmentId: 'proj_local:dev',
@@ -1080,7 +1079,7 @@ test.describe('unlock threshold warm-session requirements', () => {
       expect(inventoryRequests).toHaveLength(0);
       expect(bootstrapKinds).toEqual([
         'passkey_fresh_ecdsa_bootstrap',
-        'threshold_session_auth_reconnect_ecdsa_bootstrap',
+        'passkey_fresh_ecdsa_bootstrap',
       ]);
     } finally {
       globalThis.fetch = originalFetch;
@@ -3290,9 +3289,11 @@ test.describe('unlock threshold warm-session requirements', () => {
       ).toBe(true);
       expect(
         capturedBootstrapArgs.every((args) => {
-          const routeAuth = args.routeAuth as Record<string, unknown> | undefined;
-          return routeAuth?.kind === 'cookie';
+          return args.routeAuth === undefined;
         }),
+      ).toBe(true);
+      expect(
+        capturedBootstrapArgs.every((args) => args.webauthnAuthentication === loginCredential),
       ).toBe(true);
       expect(
         capturedBootstrapArgs.every(
