@@ -81,6 +81,7 @@ import {
 } from './requireEvmFamilyStepUpAuth';
 import { buildEvmFamilyEcdsaStepUpAuthorization } from './stepUpAuthorization';
 import type { EvmFamilySigningAuthSideEffect } from './freshAuthRetryPolicy';
+import { requiredEvmFamilySignatureUses } from './signatureUses';
 import type {
   ReadySecp256k1Signer,
   ReadySecp256k1SigningMaterial,
@@ -428,7 +429,9 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
         const thresholdReconnect = thresholdEcdsaStepUpRuntime.thresholdReconnect!;
         const ensured = await thresholdReconnect.ensureThresholdEcdsaReadyMaterial({
           authorization: stepUpAuthorization,
-          usesNeeded: 1,
+          usesNeeded: intentPrepared
+            ? requiredEvmFamilySignatureUses(intentPrepared.intent)
+            : 1,
         });
         thresholdEcdsaSignerSession = ensured.signerSession;
         thresholdEcdsaSingleUseEmailOtpSession = false;
@@ -461,10 +464,12 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
       interaction: { kind: 'transaction_confirmation', overlay: 'show' },
     });
     input.onConfirmationDisplayed?.();
+    const preparedIntentForBudget = await intentPreparationTask;
     const stepUp = await requireEvmFamilyStepUpAuth({
       thresholdEcdsaStepUp,
       hasThresholdEcdsaRequest,
       needsWebAuthn,
+      requiredSignatureUses: requiredEvmFamilySignatureUses(preparedIntentForBudget.intent),
       explicitAuthErrorLabel: config.explicitAuthErrorLabel,
     });
     preparedStepUpAuth = stepUp;
@@ -537,6 +542,7 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
     intentHasSecp256k1Request = intentPrepared.intent.signRequests.some(
       (signReq) => signReq.algorithm === 'secp256k1',
     );
+    const requiredSignatureUses = requiredEvmFamilySignatureUses(intentPrepared.intent);
     if (!confirmation) {
       throw new Error('[chains] signing confirmation is required before threshold admission');
     }
@@ -548,6 +554,9 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
     }
     const admissionMode: EvmFamilyThresholdEcdsaAdmissionMode = (() => {
       if (!intentHasSecp256k1Request) return { kind: 'not_required' };
+      if (activeThresholdEcdsaOperation && thresholdEcdsaSignerSession) {
+        return { kind: 'already_admitted' };
+      }
       if (thresholdEcdsaStepUpRuntime?.emailOtpSigning) {
         return {
           kind: 'email_otp',
@@ -597,7 +606,7 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
     const admissionCompletion = await completeEvmFamilyThresholdEcdsaAdmissionAfterConfirmation({
       mode: admissionMode,
       confirmation: admissionConfirmation,
-      usesNeeded: 1,
+      usesNeeded: requiredSignatureUses,
     });
     if (admissionCompletion) {
       fallbackReadySecp256k1Material = null;

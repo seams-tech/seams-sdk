@@ -1,5 +1,5 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
-import type { ProfileAuthenticatorRecord } from '@/core/indexedDB';
+import type { AccountSignerStatus, ProfileAuthenticatorRecord } from '@/core/indexedDB';
 import { buildNearAccountRefs } from '@/core/accountData/near/accountRefs';
 import { resolveProfileAccountContextFromCandidates } from '@/core/indexedDB/profileAccountProjection';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
@@ -23,6 +23,11 @@ export type WebAuthnIndexedDbClientPort<
     accountAddress: string;
   }) => Promise<{ profileId: string; accountRef: { chainIdKey: string; accountAddress: string } } | null>;
   listProfileAuthenticators: (profileId: string) => Promise<TAuth[]>;
+  listAccountSigners: (args: {
+    chainIdKey: string;
+    accountAddress: string;
+    status?: AccountSignerStatus;
+  }) => Promise<Array<{ metadata?: Record<string, unknown>; signerAuthMethod?: string }>>;
   selectProfileAuthenticatorsForPrompt: (args: {
     profileId: string;
     authenticators: TAuth[];
@@ -58,6 +63,101 @@ export function authenticatorsToAllowCredentials<TAuth extends WebAuthnAuthentic
   }));
 }
 
+function canonicalWalletIdFromPasskeySigner(
+  signer: { metadata?: Record<string, unknown>; signerAuthMethod?: string },
+): string {
+  if (String(signer.signerAuthMethod || '') !== 'passkey') return '';
+  const walletId = String(signer.metadata?.walletId || '').trim();
+  const credentialId = String(signer.metadata?.passkeyCredentialRawId || '').trim();
+  return walletId && credentialId ? walletId : '';
+}
+
+async function resolveCanonicalWalletPasskeyContext<
+  TAuth extends WebAuthnAuthenticatorRecord = ProfileAuthenticatorRecord,
+>(args: {
+  indexedDB: WebAuthnIndexedDbPort<TAuth>;
+  chainIdKey: string;
+  accountAddress: string;
+  accountLabel: string;
+}): Promise<{ walletId: string; authenticators: TAuth[] }> {
+  const signers = await args.indexedDB
+    .listAccountSigners({
+      chainIdKey: args.chainIdKey,
+      accountAddress: args.accountAddress,
+      status: 'active',
+    });
+  const walletIds = Array.from(
+    new Set(signers.map(canonicalWalletIdFromPasskeySigner).filter(Boolean)),
+  );
+  if (walletIds.length === 0) {
+    throw new Error(`[multichain] no passkey signer found for account ${args.accountLabel}`);
+  }
+  if (walletIds.length > 1) {
+    throw new Error(`[multichain] multiple wallet identities found for account ${args.accountLabel}`);
+  }
+  const walletId = walletIds[0];
+  const authenticators = await args.indexedDB.listProfileAuthenticators(walletId);
+  return { walletId, authenticators };
+}
+
+async function collectFromAuthenticators<
+  TAuth extends WebAuthnAuthenticatorRecord = ProfileAuthenticatorRecord,
+>(args: {
+  indexedDB: WebAuthnIndexedDbPort<TAuth>;
+  touchIdPrompt: Pick<WebAuthnPromptPort, 'getAuthenticationCredentialsSerializedForChallengeB64u'>;
+  profileId: string;
+  accountLabel: AccountId | string;
+  challengeB64u: string;
+  authenticators: TAuth[];
+  onBeforePrompt?: (info: {
+    authenticators: TAuth[];
+    authenticatorsForPrompt: TAuth[];
+    challengeB64u: string;
+  }) => void;
+  includeSecondPrfOutput?: boolean;
+}): Promise<WebAuthnAuthenticationCredential> {
+  if (args.authenticators.length === 0) {
+    throw new Error(`[multichain] no passkeys found for account ${String(args.accountLabel)}`);
+  }
+
+  const ensured = await args.indexedDB.selectProfileAuthenticatorsForPrompt({
+    profileId: args.profileId,
+    authenticators: args.authenticators,
+    accountLabel: String(args.accountLabel),
+  });
+  const authenticatorsForPrompt = ensured.authenticatorsForPrompt;
+  if (authenticatorsForPrompt.length === 0) {
+    throw new Error(`[multichain] no passkey credential selected for account ${String(args.accountLabel)}`);
+  }
+
+  args.onBeforePrompt?.({
+    authenticators: args.authenticators,
+    authenticatorsForPrompt,
+    challengeB64u: args.challengeB64u,
+  });
+
+  const allowCredentials = authenticatorsToAllowCredentials(authenticatorsForPrompt);
+  const serialized =
+    await args.touchIdPrompt.getAuthenticationCredentialsSerializedForChallengeB64u({
+      nearAccountId: String(args.accountLabel) as AccountId,
+      challengeB64u: args.challengeB64u,
+      allowCredentials,
+      includeSecondPrfOutput: args.includeSecondPrfOutput,
+    });
+
+  const selected = await args.indexedDB.selectProfileAuthenticatorsForPrompt({
+    profileId: args.profileId,
+    authenticators: args.authenticators,
+    selectedCredentialRawId: serialized.rawId,
+    accountLabel: String(args.accountLabel),
+  });
+  if (selected?.wrongPasskeyError) {
+    throw new Error(String(selected.wrongPasskeyError));
+  }
+
+  return serialized;
+}
+
 export async function collectAuthenticationCredentialForChallengeB64u<
   TAuth extends WebAuthnAuthenticatorRecord = ProfileAuthenticatorRecord,
 >(args: {
@@ -81,45 +181,24 @@ export async function collectAuthenticationCredentialForChallengeB64u<
     throw new Error(`[multichain] no profile/account mapping found for account ${nearAccountId}`);
   }
 
-  const authenticators = await args.indexedDB.listProfileAuthenticators(context.profileId);
-  let authenticatorsForPrompt = authenticators;
-  if (authenticators.length > 0) {
-    const ensured = await args.indexedDB.selectProfileAuthenticatorsForPrompt({
-      profileId: context.profileId,
-      authenticators,
-      accountLabel: nearAccountId,
-    });
-    authenticatorsForPrompt = ensured.authenticatorsForPrompt;
-  }
-
-  args.onBeforePrompt?.({
-    authenticators,
-    authenticatorsForPrompt,
-    challengeB64u: args.challengeB64u,
+  const passkeyContext = await resolveCanonicalWalletPasskeyContext({
+    indexedDB: args.indexedDB,
+    chainIdKey: context.accountRef.chainIdKey,
+    accountAddress: context.accountRef.accountAddress,
+    accountLabel: nearAccountId,
   });
-
-  const allowCredentials = authenticatorsToAllowCredentials(authenticatorsForPrompt);
-  const serialized =
-    await args.touchIdPrompt.getAuthenticationCredentialsSerializedForChallengeB64u({
-      nearAccountId,
-      challengeB64u: args.challengeB64u,
-      allowCredentials,
-      includeSecondPrfOutput: args.includeSecondPrfOutput,
-    });
-
-  if (authenticators.length > 0) {
-    const ensured = await args.indexedDB.selectProfileAuthenticatorsForPrompt({
-      profileId: context.profileId,
-      authenticators,
-      selectedCredentialRawId: serialized.rawId,
-      accountLabel: nearAccountId,
-    });
-    if (ensured?.wrongPasskeyError) {
-      throw new Error(String(ensured.wrongPasskeyError));
-    }
-  }
-
-  return serialized;
+  return await collectFromAuthenticators({
+    indexedDB: args.indexedDB,
+    touchIdPrompt: args.touchIdPrompt,
+    profileId: passkeyContext.walletId,
+    accountLabel: nearAccountId,
+    authenticators: passkeyContext.authenticators,
+    challengeB64u: args.challengeB64u,
+    ...(args.onBeforePrompt ? { onBeforePrompt: args.onBeforePrompt } : {}),
+    ...(typeof args.includeSecondPrfOutput === 'boolean'
+      ? { includeSecondPrfOutput: args.includeSecondPrfOutput }
+      : {}),
+  });
 }
 
 export async function collectAuthenticationCredentialForWalletChallengeB64u<
@@ -136,10 +215,14 @@ export async function collectAuthenticationCredentialForWalletChallengeB64u<
   }) => void;
   includeSecondPrfOutput?: boolean;
 }): Promise<WebAuthnAuthenticationCredential> {
-  return await collectAuthenticationCredentialForChallengeB64u({
+  const walletId = String(args.walletId || '').trim();
+  const authenticators = await args.indexedDB.listProfileAuthenticators(walletId);
+  return await collectFromAuthenticators({
     indexedDB: args.indexedDB,
     touchIdPrompt: args.touchIdPrompt,
-    nearAccountId: args.walletId,
+    profileId: walletId,
+    accountLabel: walletId,
+    authenticators,
     challengeB64u: args.challengeB64u,
     ...(args.onBeforePrompt ? { onBeforePrompt: args.onBeforePrompt } : {}),
     ...(typeof args.includeSecondPrfOutput === 'boolean'

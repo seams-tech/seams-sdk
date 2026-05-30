@@ -230,36 +230,6 @@ export async function reconstructEmailOtpEd25519Session(args: {
       'Email OTP threshold-ed25519 session reconstruction mint returned incomplete data',
     );
   }
-  await args.persistWarmSessionEd25519Capability({
-    kind: 'jwt_email_otp',
-    nearAccountId,
-    rpId,
-    relayerUrl,
-    relayerKeyId,
-    runtimePolicyScope: sessionScope,
-    participantIds,
-    sessionKind: 'jwt',
-    sessionId,
-    walletSigningSessionId,
-    expiresAtMs,
-    remainingUses,
-    jwt,
-    emailOtpAuthContext: input.emailOtpAuthContext,
-    source: 'email_otp',
-  });
-  await args.hydrateSigningSession({
-    sessionId,
-    prfFirstB64u,
-    expiresAtMs,
-    remainingUses,
-    transport: {
-      curve: 'ed25519',
-      walletId: String(nearAccountId),
-      relayerUrl,
-      walletSigningSessionId,
-      thresholdSessionAuthToken: jwt,
-    },
-  });
   const completed = await runThresholdEd25519HssCeremonyWithSessionValue({
     relayerUrl,
     thresholdSessionAuthToken: jwt,
@@ -298,6 +268,19 @@ export async function reconstructEmailOtpEd25519Session(args: {
     xClientBaseB64u: completed.clientOutput.xClientBaseB64u,
     emailOtpAuthContext: input.emailOtpAuthContext,
     source: 'email_otp',
+  });
+  await args.hydrateSigningSession({
+    sessionId,
+    prfFirstB64u,
+    expiresAtMs,
+    remainingUses,
+    transport: {
+      curve: 'ed25519',
+      walletId: String(nearAccountId),
+      relayerUrl,
+      walletSigningSessionId,
+      thresholdSessionAuthToken: jwt,
+    },
   });
   await attachEd25519SessionToEmailOtpSigningSessionSealBestEffort({
     sessionPersistenceMode: args.sessionPersistenceMode,

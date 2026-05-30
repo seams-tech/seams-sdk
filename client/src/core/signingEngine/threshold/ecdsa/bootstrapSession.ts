@@ -3,9 +3,13 @@ import { base64UrlEncode } from '@shared/utils/base64';
 import { sha256BytesUtf8 } from '@shared/utils/digests';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import {
+  computeEcdsaHssRoleLocalFirstBootstrapRootProofDigest32,
+  ECDSA_HSS_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION,
   computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u,
   computeEcdsaHssRoleLocalRelayerKeyId,
   computeEcdsaHssRoleLocalThresholdKeyId,
+  type EcdsaClientRootPublicKey33B64u,
+  type EcdsaHssClientSharePublicKey33B64u,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { ThresholdEcdsaHssRoleLocalClientState } from '../../interfaces/signing';
@@ -34,6 +38,10 @@ import {
   toEcdsaHssThresholdKeyId,
 } from '../../session/identity/emailOtpHssIdentity';
 import { buildThresholdEcdsaHssRoleLocalClientBootstrapWasm } from '../crypto/hssClientSignerWasm';
+import {
+  secp256k1PrivateKey32ToPublicKey33Wasm,
+  signSecp256k1RecoverableWasm,
+} from '../../chains/evm/ethSignerWasm';
 import { resolveThresholdEcdsaClientRootShare } from './clientSecretSource';
 import { type ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
@@ -155,6 +163,47 @@ function summarizeHssRouteAuth(
   }
   if (auth.kind === 'cookie') return { kind: 'cookie' };
   return { kind: auth.kind, hasToken: Boolean(String(auth.token || '').trim()) };
+}
+
+async function buildEcdsaHssClientRootProof(args: {
+  request: Pick<
+    ThresholdEcdsaHssRoleLocalBootstrapRequest,
+    | 'walletId'
+    | 'rpId'
+    | 'ecdsaThresholdKeyId'
+    | 'signingRootId'
+    | 'signingRootVersion'
+    | 'keyScope'
+    | 'relayerKeyId'
+    | 'hssClientSharePublicKey33B64u'
+    | 'clientShareRetryCounter'
+    | 'contextBinding32B64u'
+    | 'requestId'
+    | 'sessionId'
+    | 'walletSigningSessionId'
+    | 'ttlMs'
+    | 'remainingUses'
+    | 'participantIds'
+  >;
+  clientRootShare32: Uint8Array;
+  workerCtx: WorkerOperationContext;
+}): Promise<NonNullable<ThresholdEcdsaHssRoleLocalBootstrapRequest['clientRootProof']>> {
+  const digest32 = await computeEcdsaHssRoleLocalFirstBootstrapRootProofDigest32(args.request);
+  const publicKey33 = await secp256k1PrivateKey32ToPublicKey33Wasm({
+    privateKey32: args.clientRootShare32,
+    workerCtx: args.workerCtx,
+  });
+  const signature65 = await signSecp256k1RecoverableWasm({
+    digest32,
+    privateKey32: args.clientRootShare32,
+    workerCtx: args.workerCtx,
+  });
+  return {
+    version: ECDSA_HSS_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION,
+    clientRootPublicKey33B64u: base64UrlEncode(publicKey33) as EcdsaClientRootPublicKey33B64u,
+    digest32B64u: base64UrlEncode(digest32),
+    signature65B64u: base64UrlEncode(signature65),
+  };
 }
 
 async function emitBootstrapChallengeDiagnostic(args: {
@@ -585,7 +634,8 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
         signingRootVersion: clientBootstrap.signingRootVersion,
         keyScope: 'evm-family',
         relayerKeyId: roleLocalRelayerKeyId,
-        clientPublicKey33B64u: clientBootstrap.clientPublicKey33B64u,
+        hssClientSharePublicKey33B64u:
+          clientBootstrap.clientPublicKey33B64u as EcdsaHssClientSharePublicKey33B64u,
         clientShareRetryCounter: clientBootstrap.clientShareRetryCounter,
         contextBinding32B64u: clientBootstrap.contextBinding32B64u,
         requestId: keygenSessionId,
@@ -609,7 +659,14 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
                 ...(runtimeEnvironmentId ? { runtimeEnvironmentId } : {}),
               },
             } satisfies ThresholdEcdsaHssRoleLocalBootstrapRequest)
-          : bootstrapRequestBase;
+          : ({
+              ...bootstrapRequestBase,
+              clientRootProof: await buildEcdsaHssClientRootProof({
+                request: bootstrapRequestBase,
+                clientRootShare32,
+                workerCtx: args.workerCtx,
+              }),
+            } satisfies ThresholdEcdsaHssRoleLocalBootstrapRequest);
       const bootstrap = await thresholdEcdsaHssRoleLocalBootstrap(
         args.relayerUrl,
         bootstrapRequest,

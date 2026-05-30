@@ -27,6 +27,7 @@ import {
   refreshEmailOtpSigningSession as refreshEmailOtpSigningSessionValue,
 } from './emailOtpSigningSession';
 import type { EmailOtpEd25519SessionReconstructionPlan } from '../../session/emailOtp/provisioning';
+import type { EmailOtpEd25519ReconstructionResult } from '../../session/emailOtp/ecdsaLogin';
 
 export type LoginWithEmailOtpEcdsaCapabilityInternalArgs = {
   walletSession: WalletSessionRef;
@@ -54,6 +55,7 @@ export type LoginWithEmailOtpEcdsaCapabilityInternalResult = {
   recovery: EmailOtpBootstrapRecovery;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
   warmCapability: WarmSessionEcdsaCapabilityState;
+  ed25519Reconstruction: EmailOtpEd25519ReconstructionResult;
 };
 
 export type EnrollEmailOtpInternalArgs = {

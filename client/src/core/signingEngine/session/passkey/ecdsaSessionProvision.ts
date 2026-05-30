@@ -448,7 +448,7 @@ export async function provisionThresholdEcdsaSessionFromBootstrapArgs(
     const thresholdSessionId = String(
       bootstrap.thresholdEcdsaKeyRef.thresholdSessionId || '',
     ).trim();
-    if (thresholdSessionId) {
+    if (thresholdSessionId && request.kind !== 'email_otp_ecdsa_bootstrap') {
       await ensureEcdsaPrfSealPersisted({
         touchConfirm: deps.touchConfirm,
         chainTarget,

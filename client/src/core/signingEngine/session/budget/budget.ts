@@ -308,7 +308,7 @@ export type SigningBudgetReservationIdentity = {
   thresholdSessionIds: NonEmptyThresholdSessionIds;
   backingMaterialSessionIds: readonly BackingMaterialSessionId[];
   admittedProjection: KnownBudgetReservationProjectionState;
-  reservedUses: 1;
+  reservedUses: number;
 };
 
 export type SigningBudgetReservationKey = string & {
@@ -742,7 +742,7 @@ export function buildSigningBudgetReservationIdentity(args: {
       kind: 'known',
       version: projectionVersion,
     },
-    reservedUses: 1,
+    reservedUses: Math.max(1, Math.floor(Number(spend.uses) || 1)),
   };
 }
 
@@ -851,8 +851,9 @@ export function normalizeStringList(values: readonly string[] | undefined): stri
 export function buildWalletSigningSpendPlan(
   operation: SigningOperationContext,
   lane: SelectedSigningSessionPlanningLane,
-  identity?: { ecdsaKey: EvmFamilyEcdsaKeyIdentity },
+  identity?: { ecdsaKey?: EvmFamilyEcdsaKeyIdentity; uses?: number },
 ): WalletSigningSpendPlan {
+  const uses = Math.max(1, Math.floor(Number(identity?.uses) || 1));
   const base = {
     operationId: operation.operationId,
     ...(operation.operationFingerprint
@@ -863,7 +864,7 @@ export function buildWalletSigningSpendPlan(
     lane,
     thresholdSessionIds: uniqueDefined([lane.thresholdSessionId]),
     backingMaterialSessionIds: uniqueDefined([lane.backingMaterialSessionId]),
-    uses: 1,
+    uses,
     reason: operation.intent,
   };
   return normalizeWalletSigningSpendPlan(

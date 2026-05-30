@@ -13,8 +13,8 @@ import {
   type SigningSessionBudgetStatusCheck,
 } from '../budget/budget';
 import {
-  getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
+  getThresholdEcdsaSessionRecordByKey,
   listStoredThresholdEd25519SessionRecordsForAccount,
   listThresholdEcdsaRuntimeLanesForWallet,
   thresholdEcdsaSessionRecordReadModel,
@@ -29,6 +29,8 @@ import {
   ed25519AvailableLaneIdentityKey,
   readAvailableSigningLanes,
   runtimeEcdsaAvailableLaneIdentityKey,
+  runtimeEcdsaRecordClaimKey,
+  runtimeRecordPolicyClaim,
   warmStatusToAvailableSigningLanesRuntimeClaim,
   type ReadAvailableSigningLanesForSigningInput,
   type ReadAvailableSigningLanesInput,
@@ -43,6 +45,7 @@ export type PersistedAvailableSigningLanesDeps = {
   statusReader: {
     getWarmSessionStatus: (args: { sessionId: string }) => Promise<WarmSessionStatusResult>;
   };
+  getEmailOtpWarmSessionStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
   getWalletSigningBudgetStatus?: (
     args: SigningSessionBudgetStatusCheck,
   ) => Promise<SigningSessionStatus | null>;
@@ -282,44 +285,125 @@ export async function readPersistedAvailableSigningLanesForTargets(
         }
         return records;
       },
+      readRuntimeEcdsaClaimsForRecords: async (runtimeRecords) => {
+        const claims = new Map<string, AvailableSigningLanesRuntimeClaim | null>();
+        await Promise.all(
+          runtimeRecords.map(async (runtimeRecord) => {
+            const claimKey = runtimeEcdsaRecordClaimKey(runtimeRecord);
+            if (!claimKey) return;
+            const keyHandle = String(runtimeRecord.keyHandle || '').trim();
+            if (!keyHandle) {
+              claims.set(claimKey, null);
+              return;
+            }
+            const sessionId = String(runtimeRecord.thresholdSessionId || '').trim();
+            const walletSigningSessionId = String(
+              runtimeRecord.walletSigningSessionId || '',
+            ).trim();
+            const ecdsaRecord = getThresholdEcdsaSessionRecordByKey(deps.ecdsaSessions, {
+              walletId: toAccountId(runtimeRecord.key.walletId),
+              keyHandle,
+              authMethod: runtimeRecord.authMethod,
+              curve: 'ecdsa',
+              chainTarget: runtimeRecord.chainTarget,
+              walletSigningSessionId,
+              thresholdSessionId: sessionId,
+            });
+            let localClaim: AvailableSigningLanesRuntimeClaim | null = null;
+            if (!ecdsaRecord) {
+              localClaim = null;
+            } else if (ecdsaRecord.source === SIGNER_AUTH_METHODS.emailOtp) {
+              if (String(ecdsaRecord.clientAdditiveShare32B64u || '').trim()) {
+                localClaim = runtimeRecordPolicyClaim({
+                  sessionId,
+                  remainingUses: ecdsaRecord.remainingUses,
+                  expiresAtMs: ecdsaRecord.expiresAtMs,
+                });
+              } else {
+                const emailOtpWorkerSessionId = resolveEmailOtpEcdsaWorkerSessionId(ecdsaRecord);
+                const status = emailOtpWorkerSessionId
+                  ? await deps.getEmailOtpWarmSessionStatus(emailOtpWorkerSessionId).catch(() => null)
+                  : null;
+                localClaim = status
+                  ? warmStatusToAvailableSigningLanesRuntimeClaim({ sessionId, status })
+                  : null;
+              }
+            } else {
+              const status = await deps.statusReader
+                .getWarmSessionStatus({ sessionId })
+                .catch(() => null);
+              localClaim = status
+                ? warmStatusToAvailableSigningLanesRuntimeClaim({ sessionId, status })
+                : null;
+            }
+            const walletBudgetStatus =
+              ecdsaRecord && deps.getWalletSigningBudgetStatus
+                ? await deps
+                    .getWalletSigningBudgetStatus(
+                      buildEcdsaLaneBudgetStatusCheck({
+                        key: thresholdEcdsaSessionRecordReadModel(ecdsaRecord).key,
+                        keyHandle: ecdsaRecord.keyHandle,
+                        chainTarget: ecdsaRecord.chainTarget,
+                        walletSigningSessionId,
+                        thresholdSessionId: ecdsaRecord.thresholdSessionId,
+                      }),
+                    )
+                    .catch(() => null)
+                : null;
+            claims.set(
+              claimKey,
+              applyWalletBudgetStatusToRuntimeClaim({
+                sessionId,
+                localClaim,
+                walletBudgetStatus,
+              }),
+            );
+          }),
+        );
+        return claims;
+      },
       readRuntimeClaimsForSessions: async (sessionIds) => {
         const claims = new Map<string, AvailableSigningLanesRuntimeClaim | null>();
         await Promise.all(
           sessionIds.map(async (sessionId) => {
-            const ecdsaRecord = getStoredThresholdEcdsaSessionRecordByThresholdSessionId(sessionId);
-            const ed25519Record = ecdsaRecord
-              ? null
-              : getStoredThresholdEd25519SessionRecordByThresholdSessionId(sessionId);
-            const statusSessionId =
-              ecdsaRecord?.source === SIGNER_AUTH_METHODS.emailOtp
-                ? resolveEmailOtpEcdsaWorkerSessionId(ecdsaRecord)
-                : sessionId;
-            const status = await deps.statusReader
-              .getWarmSessionStatus({ sessionId: statusSessionId })
-              .catch(() => null);
-            const localClaim = status
-              ? warmStatusToAvailableSigningLanesRuntimeClaim({ sessionId, status })
-              : null;
+            const ed25519Record =
+              getStoredThresholdEd25519SessionRecordByThresholdSessionId(sessionId);
+            let localClaim: AvailableSigningLanesRuntimeClaim | null = null;
+            if (ed25519Record?.source === SIGNER_AUTH_METHODS.emailOtp) {
+              if (String(ed25519Record.xClientBaseB64u || '').trim()) {
+                localClaim = runtimeRecordPolicyClaim({
+                  sessionId,
+                  remainingUses: ed25519Record.remainingUses,
+                  expiresAtMs: ed25519Record.expiresAtMs,
+                });
+              } else {
+                const status = await deps
+                  .getEmailOtpWarmSessionStatus(sessionId)
+                  .catch(() => null);
+                localClaim = status
+                  ? warmStatusToAvailableSigningLanesRuntimeClaim({ sessionId, status })
+                  : null;
+              }
+            } else {
+              const status = await deps.statusReader
+                .getWarmSessionStatus({ sessionId })
+                .catch(() => null);
+              localClaim = status
+                ? warmStatusToAvailableSigningLanesRuntimeClaim({ sessionId, status })
+                : null;
+            }
             const walletSigningSessionId = String(
-              ecdsaRecord?.walletSigningSessionId || ed25519Record?.walletSigningSessionId || '',
+              ed25519Record?.walletSigningSessionId || '',
             ).trim();
             const walletBudgetStatus =
               walletSigningSessionId && deps.getWalletSigningBudgetStatus
                 ? await deps
                     .getWalletSigningBudgetStatus(
-                      ecdsaRecord
-                        ? buildEcdsaLaneBudgetStatusCheck({
-                            key: thresholdEcdsaSessionRecordReadModel(ecdsaRecord).key,
-                            keyHandle: ecdsaRecord.keyHandle,
-                            chainTarget: ecdsaRecord.chainTarget,
-                            walletSigningSessionId,
-                            thresholdSessionId: ecdsaRecord.thresholdSessionId,
-                          })
-                        : buildThresholdBudgetStatusCheck({
-                            owner: ed25519WalletBudgetOwner(walletAccountId),
-                            walletSigningSessionId,
-                            targetThresholdSessionIds: [sessionId],
-                          }),
+                      buildThresholdBudgetStatusCheck({
+                        owner: ed25519WalletBudgetOwner(walletAccountId),
+                        walletSigningSessionId,
+                        targetThresholdSessionIds: [sessionId],
+                      }),
                     )
                     .catch(() => null)
                 : null;

@@ -62,7 +62,10 @@ import {
   type ThresholdEd25519SessionRecord,
   type ThresholdEcdsaSessionRecord,
 } from './session/persistence/records';
-import type { ThresholdEcdsaSessionStoreSource } from './session/identity/laneIdentity';
+import type {
+  ThresholdEcdsaEmailOtpAuthContext,
+  ThresholdEcdsaSessionStoreSource,
+} from './session/identity/laneIdentity';
 import {
   configuredThresholdEcdsaChainTargets,
   thresholdEcdsaChainTargetKey,
@@ -318,6 +321,8 @@ export class SigningEngine {
       availableLanes: {
         ecdsaSessions: this.warmSigning.ecdsaSessions,
         statusReader: this.touchConfirm,
+        getEmailOtpWarmSessionStatus: (sessionId) =>
+          this.emailOtpSessions.readWarmSessionStatusOnly(sessionId),
         getWalletSigningBudgetStatus: (statusArgs) =>
           readTrustedWalletSigningBudgetStatusOperation(
             {
@@ -408,8 +413,24 @@ export class SigningEngine {
           chainTarget: args.chainTarget,
           bootstrap: args.bootstrap,
         }),
-      upsertThresholdEcdsaSessionFromBootstrap: (args) =>
-        upsertThresholdEcdsaSessionFromBootstrapOperation(this.warmSigning.ecdsaSessions, args),
+      upsertThresholdEcdsaSessionFromBootstrap: (args) => {
+        if (args.hasEmailOtpAuthContext) {
+          upsertThresholdEcdsaSessionFromBootstrapOperation(this.warmSigning.ecdsaSessions, {
+            walletId: args.walletId,
+            chainTarget: args.chainTarget,
+            bootstrap: args.bootstrap,
+            source: 'email_otp',
+            emailOtpAuthContext: args.emailOtpAuthContext,
+          });
+          return;
+        }
+        upsertThresholdEcdsaSessionFromBootstrapOperation(this.warmSigning.ecdsaSessions, {
+          walletId: args.walletId,
+          chainTarget: args.chainTarget,
+          bootstrap: args.bootstrap,
+          source: args.source,
+        });
+      },
       listThresholdEcdsaKeyRefsForWalletTarget: (args) =>
         listThresholdEcdsaKeyRefsForWalletTargetOperation(this.warmSigning.ecdsaSessions, args),
       listThresholdEcdsaSessionRecordsForWalletTarget: (args) =>
@@ -476,6 +497,8 @@ export class SigningEngine {
           {
             ecdsaSessions: this.warmSigning.ecdsaSessions,
             statusReader: this.warmSigning.statusUiConfirm,
+            getEmailOtpWarmSessionStatus: (sessionId) =>
+              this.emailOtpSessions.readWarmSessionStatusOnly(sessionId),
             getWalletSigningBudgetStatus: (statusArgs) =>
               this.enginePorts.signingSessionCoordinator.getAvailableStatus(statusArgs),
           },
@@ -807,7 +830,7 @@ export class SigningEngine {
     });
     const serverVisibleClientBootstrap: WalletRegistrationEcdsaClientBootstrap = {
       ...args.prepare,
-      clientPublicKey33B64u: clientBootstrap.clientPublicKey33B64u,
+      hssClientSharePublicKey33B64u: clientBootstrap.clientPublicKey33B64u,
       clientShareRetryCounter: clientBootstrap.clientShareRetryCounter,
       contextBinding32B64u: clientBootstrap.contextBinding32B64u,
     };
@@ -831,6 +854,9 @@ export class SigningEngine {
     preparedClientBootstrap: WalletRegistrationEcdsaPreparedClientBootstrap;
     bootstrap: WalletRegistrationEcdsaHssRespondBootstrap;
     walletKeys: readonly WalletRegistrationEcdsaWalletKey[];
+    auth:
+      | { kind: 'passkey' }
+      | { kind: 'email_otp'; emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext };
   }): Promise<void> {
     const sessionBootstraps = args.walletKeys.map((walletKey) => ({
       walletKey,
@@ -844,24 +870,70 @@ export class SigningEngine {
         walletKey,
       }),
     }));
-    await this.enginePorts.thresholdSessionActivationDeps.touchConfirm.putWarmSessionMaterial({
-      sessionId: args.bootstrap.thresholdSessionId,
-      prfFirstB64u: args.preparedClientBootstrap.clientRootShare32B64u,
-      expiresAtMs: Number(args.bootstrap.expiresAtMs),
-      remainingUses: Number(args.bootstrap.remainingUses),
-    });
     for (const { walletKey, bootstrap } of sessionBootstraps) {
       await this.persistThresholdEcdsaBootstrapForWalletTarget({
         walletId: args.walletId,
         chainTarget: walletKey.chainTarget,
         bootstrap,
       });
-      this.upsertThresholdEcdsaSessionFromBootstrap({
-        walletId: args.walletId,
-        chainTarget: walletKey.chainTarget,
-        bootstrap,
-        source: 'registration',
-      });
+      if (args.auth.kind === 'email_otp') {
+        this.upsertThresholdEcdsaSessionFromBootstrap({
+          walletId: args.walletId,
+          chainTarget: walletKey.chainTarget,
+          bootstrap,
+          source: 'email_otp',
+          emailOtpAuthContext: args.auth.emailOtpAuthContext,
+        });
+      } else {
+        this.upsertThresholdEcdsaSessionFromBootstrap({
+          walletId: args.walletId,
+          chainTarget: walletKey.chainTarget,
+          bootstrap,
+          source: 'registration',
+        });
+      }
+      if (args.auth.kind === 'passkey') {
+        const thresholdSessionId = String(bootstrap.session.sessionId || '').trim();
+        const walletSigningSessionId = String(
+          bootstrap.session.walletSigningSessionId ||
+            bootstrap.thresholdEcdsaKeyRef.walletSigningSessionId ||
+            '',
+        ).trim();
+        const thresholdSessionAuthToken = String(
+          bootstrap.session.jwt || bootstrap.thresholdEcdsaKeyRef.thresholdSessionAuthToken || '',
+        ).trim();
+        const transport: WarmSessionSealTransportInput = {
+          curve: 'ecdsa',
+          walletId: String(args.walletId),
+          chainTarget: walletKey.chainTarget,
+          relayerUrl: args.relayerUrl,
+        };
+        if (walletSigningSessionId) {
+          transport.walletSigningSessionId = walletSigningSessionId;
+        }
+        if (thresholdSessionAuthToken) {
+          transport.thresholdSessionAuthToken = thresholdSessionAuthToken;
+        }
+        const sealKeyVersion = String(
+          this.seamsPasskeyConfigs.signing.sessionSeal?.keyVersion || '',
+        ).trim();
+        if (sealKeyVersion) {
+          transport.keyVersion = sealKeyVersion;
+        }
+        const sealShamirPrimeB64u = String(
+          this.seamsPasskeyConfigs.signing.sessionSeal?.shamirPrimeB64u || '',
+        ).trim();
+        if (sealShamirPrimeB64u) {
+          transport.shamirPrimeB64u = sealShamirPrimeB64u;
+        }
+        await this.enginePorts.thresholdSessionActivationDeps.touchConfirm.putWarmSessionMaterial({
+          sessionId: thresholdSessionId,
+          prfFirstB64u: args.preparedClientBootstrap.clientRootShare32B64u,
+          expiresAtMs: Number(bootstrap.session.expiresAtMs),
+          remainingUses: Number(bootstrap.session.remainingUses),
+          transport,
+        });
+      }
     }
   }
 

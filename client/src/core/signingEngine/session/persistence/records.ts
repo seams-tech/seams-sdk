@@ -123,14 +123,13 @@ export type ReadyPasskeyEcdsaSessionRecord = NormalizedThresholdEcdsaSessionReco
   source: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
   clientAdditiveShare32B64u?: string;
   clientAdditiveShareHandle?: ThresholdEcdsaClientAdditiveShareHandle;
-  emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
 };
 
 export type ReadyEmailOtpEcdsaSessionRecord = NormalizedThresholdEcdsaSessionRecordShared & {
   source: 'email_otp';
   clientAdditiveShare32B64u?: string;
   clientAdditiveShareHandle?: ThresholdEcdsaClientAdditiveShareHandle;
-  emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
+  emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
 };
 
 export type NormalizedThresholdEcdsaSessionRecord =
@@ -138,6 +137,12 @@ export type NormalizedThresholdEcdsaSessionRecord =
   | ReadyEmailOtpEcdsaSessionRecord;
 
 export type ThresholdEcdsaSessionRecord = NormalizedThresholdEcdsaSessionRecord;
+
+export function thresholdEcdsaEmailOtpAuthContext(
+  record: ThresholdEcdsaSessionRecord | null | undefined,
+): ThresholdEcdsaEmailOtpAuthContext | null {
+  return record?.source === 'email_otp' ? record.emailOtpAuthContext : null;
+}
 
 export type ThresholdEcdsaRuntimeLaneKey = string & {
   readonly __brand: 'ThresholdEcdsaRuntimeLaneKey';
@@ -1036,10 +1041,13 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
     chainTarget,
   };
   if (source === 'email_otp') {
+    if (!emailOtpAuthContext) {
+      throw new Error('Invalid threshold ECDSA canonical session record: missing Email OTP context');
+    }
     return {
       ...sharedRecord,
       ...(clientAdditiveShareHandle ? { clientAdditiveShareHandle } : {}),
-      ...(emailOtpAuthContext ? { emailOtpAuthContext } : {}),
+      emailOtpAuthContext,
       ...(clientAdditiveShare32B64u ? { clientAdditiveShare32B64u } : {}),
       source,
     };
@@ -1527,7 +1535,9 @@ function positiveRemainingUses(value: number): PositiveRemainingUses | null {
 }
 
 function normalizedConsumedAtMs(record: ThresholdEcdsaSessionRecord): number | null {
-  const consumedAtMs = Math.floor(Number(record.emailOtpAuthContext?.consumedAtMs));
+  const consumedAtMs = Math.floor(
+    Number(thresholdEcdsaEmailOtpAuthContext(record)?.consumedAtMs),
+  );
   return Number.isFinite(consumedAtMs) && consumedAtMs > 0 ? consumedAtMs : null;
 }
 
@@ -1625,18 +1635,32 @@ function pickPreferredThresholdEcdsaSessionRecord(
     : a;
 }
 
-function buildEcdsaRecordFromBootstrap(args: {
+type EcdsaRecordFromBootstrapArgsBase = {
   walletId: AccountId | string;
   chainTarget: ThresholdEcdsaChainTarget;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
-  source: ThresholdEcdsaSessionStoreSource;
-  emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
-  nowMs: number;
   signingSessionSeal?: {
     keyVersion?: string;
     shamirPrimeB64u?: string;
   };
-}): ThresholdEcdsaSessionRecord {
+};
+
+type EcdsaRecordFromBootstrapArgs =
+  | (EcdsaRecordFromBootstrapArgsBase & {
+      source: 'email_otp';
+      emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
+    })
+  | (EcdsaRecordFromBootstrapArgsBase & {
+      source: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
+    });
+
+type BuildEcdsaRecordFromBootstrapArgs = EcdsaRecordFromBootstrapArgs & {
+  nowMs: number;
+};
+
+function buildEcdsaRecordFromBootstrap(
+  args: BuildEcdsaRecordFromBootstrapArgs,
+): ThresholdEcdsaSessionRecord {
   const accountId = toAccountId(args.walletId);
   const keyRef = args.bootstrap.thresholdEcdsaKeyRef;
   const keyHandle = String(keyRef.keyHandle || '').trim();
@@ -1686,16 +1710,15 @@ function buildEcdsaRecordFromBootstrap(args: {
       signingRootVersion: keyRef.signingRootVersion,
     },
   });
-  const clientAdditiveShare32B64u =
-    args.source === 'email_otp'
-      ? undefined
-      : normalizeOptionalNonEmptyString(keyRef.backendBinding?.clientAdditiveShare32B64u);
-  const clientAdditiveShareHandle =
-    args.source === 'email_otp'
-      ? normalizeThresholdEcdsaClientAdditiveShareHandle(
-          keyRef.backendBinding?.clientAdditiveShareHandle,
-        )
-      : null;
+  const clientAdditiveShareHandle = normalizeThresholdEcdsaClientAdditiveShareHandle(
+    keyRef.backendBinding?.clientAdditiveShareHandle,
+  );
+  const inlineClientAdditiveShare32B64u = normalizeOptionalNonEmptyString(
+    keyRef.backendBinding?.clientAdditiveShare32B64u,
+  );
+  const clientAdditiveShare32B64u = clientAdditiveShareHandle
+    ? undefined
+    : inlineClientAdditiveShare32B64u;
   const ecdsaHssRoleLocalClientState = normalizeThresholdEcdsaHssRoleLocalClientState(
     keyRef.backendBinding?.ecdsaHssRoleLocalClientState,
   );
@@ -1743,7 +1766,7 @@ function buildEcdsaRecordFromBootstrap(args: {
     thresholdEcdsaPublicKeyB64u,
     ethereumAddress,
     relayerVerifyingShareB64u: keyRef.relayerVerifyingShareB64u,
-    ...(args.emailOtpAuthContext ? { emailOtpAuthContext: args.emailOtpAuthContext } : {}),
+    ...(args.source === 'email_otp' ? { emailOtpAuthContext: args.emailOtpAuthContext } : {}),
     updatedAtMs: args.nowMs,
     source: args.source,
   });
@@ -1808,28 +1831,28 @@ function clearConflictingCurrentPasskeyThresholdEcdsaRecords(args: {
 
 export function upsertThresholdEcdsaSessionFromBootstrap(
   deps: ThresholdEcdsaSessionStoreDeps,
-  args: {
-    walletId: AccountId | string;
-    chainTarget: ThresholdEcdsaChainTarget;
-    bootstrap: ThresholdEcdsaSessionBootstrapResult;
-    source: ThresholdEcdsaSessionStoreSource;
-    emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
-    signingSessionSeal?: {
-      keyVersion?: string;
-      shamirPrimeB64u?: string;
-    };
-  },
+  args: EcdsaRecordFromBootstrapArgs,
 ): ThresholdEcdsaSessionRecord {
   const nowMs = Math.max(0, Math.floor((deps.now || Date.now)()));
-  const record = buildEcdsaRecordFromBootstrap({
-    walletId: args.walletId,
-    chainTarget: args.chainTarget,
-    bootstrap: args.bootstrap,
-    source: args.source,
-    ...(args.emailOtpAuthContext ? { emailOtpAuthContext: args.emailOtpAuthContext } : {}),
-    nowMs,
-    ...(args.signingSessionSeal ? { signingSessionSeal: args.signingSessionSeal } : {}),
-  });
+  const record =
+    args.source === 'email_otp'
+      ? buildEcdsaRecordFromBootstrap({
+          walletId: args.walletId,
+          chainTarget: args.chainTarget,
+          bootstrap: args.bootstrap,
+          source: 'email_otp',
+          emailOtpAuthContext: args.emailOtpAuthContext,
+          nowMs,
+          ...(args.signingSessionSeal ? { signingSessionSeal: args.signingSessionSeal } : {}),
+        })
+      : buildEcdsaRecordFromBootstrap({
+          walletId: args.walletId,
+          chainTarget: args.chainTarget,
+          bootstrap: args.bootstrap,
+          source: args.source,
+          nowMs,
+          ...(args.signingSessionSeal ? { signingSessionSeal: args.signingSessionSeal } : {}),
+        });
   const laneKey = getThresholdEcdsaSessionLaneKeyForRecord(record);
   const depsIndex = getThresholdEcdsaRuntimeRecordIndex(deps);
   assertUniqueEvmFamilyEcdsaIdentityForStore({
@@ -2232,7 +2255,7 @@ export function consumeSingleUseEmailOtpEcdsaLane(
   if (identityMismatch) {
     return staleSingleUseEmailOtpEcdsaLaneResult({ laneKey, reason: identityMismatch });
   }
-  const emailOtpAuthContext = record.emailOtpAuthContext;
+  const emailOtpAuthContext = thresholdEcdsaEmailOtpAuthContext(record);
   if (
     record.source !== 'email_otp' ||
     !emailOtpAuthContext ||

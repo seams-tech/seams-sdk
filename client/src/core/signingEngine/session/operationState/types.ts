@@ -182,7 +182,7 @@ export type Ed25519WalletSigningSpendPlan = {
   lane: SelectedEd25519SigningSessionPlanningLane;
   thresholdSessionIds: readonly ThresholdEd25519SessionId[];
   backingMaterialSessionIds: readonly BackingMaterialSessionId[];
-  uses: 1;
+  uses: number;
   reason: SigningOperationIntent;
 };
 
@@ -195,7 +195,7 @@ export type EcdsaWalletSigningSpendPlan = {
   ecdsaKey: EvmFamilyEcdsaKeyIdentity;
   thresholdSessionIds: readonly ThresholdEcdsaSessionId[];
   backingMaterialSessionIds: readonly BackingMaterialSessionId[];
-  uses: 1;
+  uses: number;
   reason: SigningOperationIntent;
 };
 
@@ -416,8 +416,9 @@ export function normalizeWalletSigningSpendPlan(
       '[SigningSession] wallet signing spend walletSigningSessionId does not match lane',
     );
   }
-  if (input.uses !== 1) {
-    throw new Error('[SigningSession] wallet signing spend uses must be 1');
+  const uses = Math.floor(Number(input.uses) || 0);
+  if (!Number.isFinite(uses) || uses <= 0) {
+    throw new Error('[SigningSession] wallet signing spend uses must be a positive integer');
   }
   if (input.reason !== SigningOperationIntent.TransactionSign) {
     throw new Error('[SigningSession] wallet signing spend reason is invalid');
@@ -456,7 +457,7 @@ export function normalizeWalletSigningSpendPlan(
       SigningSessionIds.backingMaterialSession,
       'backingMaterialSessionIds',
     ),
-    uses: 1,
+    uses,
     reason: SigningOperationIntent.TransactionSign,
   } as WalletSigningSpendPlan;
 }

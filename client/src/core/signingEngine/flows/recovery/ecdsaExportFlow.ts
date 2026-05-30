@@ -245,6 +245,7 @@ export async function exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth(
       chain: exportChain,
       publicKey: String(args.material.publicFacts.publicKeyB64u),
       curve: 'ecdsa' satisfies WalletAuthCurve,
+      authLane: args.material.authLane,
     },
   );
   emitEcdsaMaterialStarted({

@@ -6,7 +6,7 @@ import {
   readPersistedAvailableSigningLanes,
   readPersistedAvailableSigningLanesForTargets,
 } from '../../session/availability/persistedAvailableSigningLanes';
-import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/types';
+import type { UiConfirmRuntimeBridgePort, WarmSessionStatusResult } from '../../uiConfirm/types';
 import type { WarmSessionCapabilityReader } from '../../session/warmCapabilities/types';
 import type { WarmSigningStatusReader } from '../../session/warmCapabilities/statusReader';
 import type { WalletSigningBudgetAvailableStatusDeps } from '../../session/budget/budgetStatusReader';
@@ -42,6 +42,7 @@ export function createRecoveryPublicDeps(args: {
   ecdsaSessions: RecoveryPublicEcdsaSessionStoreDeps;
   touchConfirm: UiConfirmRuntimeBridgePort;
   emailOtpSessions: {
+    readWarmSessionStatusOnly: (sessionId: string) => Promise<WarmSessionStatusResult>;
     restorePersistedSessionForSigning: RecoveryPublicDeps['laneSelection']['restoreEmailOtpPersistedSessionForSigning'];
     requestExportChallenge:
       & EmailOtpNearAccountExportAuthorizationDeps['requestExportChallenge']
@@ -57,6 +58,8 @@ export function createRecoveryPublicDeps(args: {
   };
   getWalletSigningBudgetStatus: WalletSigningBudgetAvailableStatusDeps['getAvailableStatus'];
 }): RecoveryPublicDeps {
+  const getEmailOtpWarmSessionStatus = (sessionId: string) =>
+    args.emailOtpSessions.readWarmSessionStatusOnly(sessionId);
   const configuredChainTargets = configuredThresholdEcdsaChainTargets(
     args.seamsPasskeyConfigs.network.chains,
   );
@@ -84,6 +87,7 @@ export function createRecoveryPublicDeps(args: {
           {
             ecdsaSessions: args.ecdsaSessions,
             statusReader: args.touchConfirm,
+            getEmailOtpWarmSessionStatus,
             getWalletSigningBudgetStatus: args.getWalletSigningBudgetStatus,
           },
           availableLanesArgs,
@@ -94,6 +98,7 @@ export function createRecoveryPublicDeps(args: {
           {
             ecdsaSessions: args.ecdsaSessions,
             statusReader: args.touchConfirm,
+            getEmailOtpWarmSessionStatus,
             getWalletSigningBudgetStatus: args.getWalletSigningBudgetStatus,
           },
           completeConfiguredEcdsaTargets(availableLanesArgs),

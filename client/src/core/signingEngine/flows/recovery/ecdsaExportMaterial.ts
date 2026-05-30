@@ -282,7 +282,9 @@ export async function resolveFreshEmailOtpEcdsaExportMaterialForLane(
     actual: publicFacts,
     context: 'fresh Email OTP export lane',
   });
-  const authSubjectId = String(runtimeRecord?.emailOtpAuthContext?.authSubjectId || '').trim();
+  const authSubjectId = String(
+    runtimeRecord?.source === 'email_otp' ? runtimeRecord.emailOtpAuthContext.authSubjectId : '',
+  ).trim();
   const runtimePolicyScope =
     runtimeRecord?.runtimePolicyScope ||
     normalizeThresholdRuntimePolicyScope(sealedRestore?.runtimePolicyScope);

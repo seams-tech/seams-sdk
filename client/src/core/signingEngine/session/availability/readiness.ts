@@ -63,7 +63,7 @@ export type SigningSessionLane = {
 
 export type DiscoveredSigningSessionLane = SigningSessionLane & {
   record: ThresholdEd25519SessionRecord | ThresholdEcdsaSessionRecord;
-  backing: 'touch_confirm' | 'email_otp_worker';
+  backing: 'touch_confirm' | 'email_otp_worker' | 'record_policy';
 };
 
 export type WalletSigningSessionStatusOverride = {
@@ -136,6 +136,24 @@ export type SigningSessionReadinessWithBudget = {
 
 export function normalizeNonEmpty(value: unknown): string {
   return String(value || '').trim();
+}
+
+export function warmClaimFromRecordPolicy(args: {
+  sessionId: string;
+  remainingUses: number;
+  expiresAtMs: number;
+}): WarmSessionPrfClaim {
+  const sessionId = normalizeNonEmpty(args.sessionId);
+  const remainingUses = Math.max(0, Math.floor(Number(args.remainingUses) || 0));
+  const expiresAtMs = Math.floor(Number(args.expiresAtMs) || 0);
+  if (remainingUses <= 0) return { state: 'exhausted', sessionId };
+  if (expiresAtMs <= Date.now()) return { state: 'expired', sessionId };
+  return {
+    state: 'warm',
+    sessionId,
+    remainingUses,
+    expiresAtMs,
+  };
 }
 
 export function applyWalletBudgetStatusToSigningSessionReadiness(args: {
@@ -224,7 +242,10 @@ function resolveRecordWalletOwnerId(
     : ed25519WalletBudgetOwner(toAccountId(record.nearAccountId));
 }
 
-export function resolveEmailOtpEcdsaWorkerSessionId(record: ThresholdEcdsaSessionRecord): string {
+export function resolveEmailOtpEcdsaWorkerSessionId(
+  record: ThresholdEcdsaSessionRecord,
+): string | null {
+  if (record.source !== 'email_otp') return null;
   const thresholdSessionId = normalizeNonEmpty(record.thresholdSessionId);
   if (record.clientAdditiveShareHandle?.kind === 'email_otp_worker_session') {
     const workerSessionId = normalizeNonEmpty(record.clientAdditiveShareHandle.sessionId);
@@ -242,11 +263,16 @@ export function resolveEmailOtpEcdsaWorkerSessionId(record: ThresholdEcdsaSessio
           workerSessionId,
         },
       );
+      return null;
     } else if (workerSessionId) {
       return workerSessionId;
     }
   }
-  return thresholdSessionId;
+  return null;
+}
+
+function ecdsaRecordHasInlineEmailOtpMaterial(record: ThresholdEcdsaSessionRecord): boolean {
+  return record.source === 'email_otp' && Boolean(normalizeNonEmpty(record.clientAdditiveShare32B64u));
 }
 
 function addLane(
@@ -267,18 +293,46 @@ export function buildDiscoveredLaneForRecord(
     const thresholdSessionId = normalizeNonEmpty(record.thresholdSessionId);
     if (!thresholdSessionId) return null;
     const source = toLaneSource(record);
+    const chain = record.chainTarget.kind;
+    const chainTarget = record.chainTarget;
+    const walletSigningSessionId = resolveWalletSigningSessionId(record);
+    if (source === 'email_otp') {
+      const emailOtpWorkerSessionId = resolveEmailOtpEcdsaWorkerSessionId(record);
+      if (emailOtpWorkerSessionId) {
+        return {
+          curve: 'ecdsa',
+          chain,
+          chainTarget,
+          source,
+          thresholdSessionId,
+          walletSigningSessionId,
+          backingMaterialSessionId: emailOtpWorkerSessionId,
+          backing: 'email_otp_worker',
+          record,
+        };
+      }
+      if (!ecdsaRecordHasInlineEmailOtpMaterial(record)) return null;
+      return {
+        curve: 'ecdsa',
+        chain,
+        chainTarget,
+        source,
+        thresholdSessionId,
+        walletSigningSessionId,
+        backingMaterialSessionId: thresholdSessionId,
+        backing: 'record_policy',
+        record,
+      };
+    }
     return {
       curve: 'ecdsa',
-      chain: record.chainTarget.kind,
-      chainTarget: record.chainTarget,
+      chain,
+      chainTarget,
       source,
       thresholdSessionId,
-      walletSigningSessionId: resolveWalletSigningSessionId(record),
-      backingMaterialSessionId:
-        source === 'email_otp'
-          ? resolveEmailOtpEcdsaWorkerSessionId(record)
-          : thresholdSessionId,
-      backing: source === 'email_otp' ? 'email_otp_worker' : 'touch_confirm',
+      walletSigningSessionId,
+      backingMaterialSessionId: thresholdSessionId,
+      backing: 'touch_confirm',
       record,
     };
   }
@@ -551,6 +605,21 @@ export async function readClaimsForLanes(args: {
   lanes: DiscoveredSigningSessionLane[];
 }): Promise<Map<string, WarmSessionPrfClaim | null>> {
   const claims = new Map<string, WarmSessionPrfClaim | null>();
+  for (const lane of args.lanes.filter((candidate) => candidate.backing === 'record_policy')) {
+    const record = lane.record;
+    if (!('chainTarget' in record)) {
+      claims.set(lane.thresholdSessionId, null);
+      continue;
+    }
+    claims.set(
+      lane.thresholdSessionId,
+      warmClaimFromRecordPolicy({
+        sessionId: lane.thresholdSessionId,
+        remainingUses: record.remainingUses,
+        expiresAtMs: record.expiresAtMs,
+      }),
+    );
+  }
   const touchConfirm = normalizeWarmSessionReadPorts(args.deps.touchConfirm);
   const touchConfirmLanes = args.lanes.filter((lane) => lane.backing === 'touch_confirm');
   const touchConfirmClaims = await readWarmSessionClaims({
@@ -679,11 +748,15 @@ export function statusFromClaim(args: {
   claim: WarmSessionPrfClaim | null;
 }): SigningSessionStatus {
   const emailOtpLane = args.lanes.find((lane) => lane.source === 'email_otp');
+  const emailOtpRetention =
+    emailOtpLane?.record.source === 'email_otp'
+      ? emailOtpLane.record.emailOtpAuthContext?.retention || null
+      : null;
   return toSigningSessionStatus({
     sessionId: args.walletSigningSessionId,
     claim: args.claim,
     authMethod: emailOtpLane ? 'email_otp' : 'passkey',
-    retention: emailOtpLane?.record.emailOtpAuthContext?.retention || null,
+    retention: emailOtpRetention,
   });
 }
 
@@ -692,14 +765,16 @@ export function statusFromConsumedLanes(args: {
   lanes: DiscoveredSigningSessionLane[];
 }): SigningSessionStatus {
   const emailOtpLane = args.lanes.find((lane) => lane.source === 'email_otp');
+  const emailOtpRetention =
+    emailOtpLane?.record.source === 'email_otp'
+      ? emailOtpLane.record.emailOtpAuthContext?.retention || null
+      : null;
   return {
     sessionId: args.walletSigningSessionId,
     status: 'exhausted',
     remainingUses: 0,
     ...(emailOtpLane ? { authMethod: 'email_otp' as const } : { authMethod: 'passkey' as const }),
-    ...(emailOtpLane?.record.emailOtpAuthContext?.retention
-      ? { retention: emailOtpLane.record.emailOtpAuthContext.retention }
-      : {}),
+    ...(emailOtpRetention ? { retention: emailOtpRetention } : {}),
   };
 }
 
@@ -871,34 +946,41 @@ export async function consumeWalletSigningSessionUse(args: {
     }
     if (consumedBacking.has(lane.backingMaterialSessionId)) continue;
 
-    if (lane.backing === 'email_otp_worker') {
-      const result = await args.deps.consumeEmailOtpWarmSessionUses?.({
-        sessionId: lane.backingMaterialSessionId,
-        uses,
-      });
-      if (result) consumeResults.push({ lane, result, laneIsExplicitTarget });
-      assertConsumeResult({
-        result,
-        backing: lane.backing,
-        required: laneIsExplicitTarget,
-      });
-    } else {
-      const result = await args.deps.touchConfirm?.consumeWarmSessionUses?.({
-        sessionId: lane.backingMaterialSessionId,
-        uses,
-        curve: lane.curve,
-        ...(lane.curve === 'ecdsa' && lane.chainTarget
-          ? { chainTarget: lane.chainTarget }
-          : lane.curve === 'ed25519' && lane.chain === 'near'
-            ? { chain: lane.chain }
-            : {}),
-      });
-      if (result) consumeResults.push({ lane, result, laneIsExplicitTarget });
-      assertConsumeResult({
-        result,
-        backing: lane.backing,
-        required: laneIsExplicitTarget,
-      });
+    switch (lane.backing) {
+      case 'email_otp_worker': {
+        const result = await args.deps.consumeEmailOtpWarmSessionUses?.({
+          sessionId: lane.backingMaterialSessionId,
+          uses,
+        });
+        if (result) consumeResults.push({ lane, result, laneIsExplicitTarget });
+        assertConsumeResult({
+          result,
+          backing: lane.backing,
+          required: laneIsExplicitTarget,
+        });
+        break;
+      }
+      case 'touch_confirm': {
+        const result = await args.deps.touchConfirm?.consumeWarmSessionUses?.({
+          sessionId: lane.backingMaterialSessionId,
+          uses,
+          curve: lane.curve,
+          ...(lane.curve === 'ecdsa' && lane.chainTarget
+            ? { chainTarget: lane.chainTarget }
+            : lane.curve === 'ed25519' && lane.chain === 'near'
+              ? { chain: lane.chain }
+              : {}),
+        });
+        if (result) consumeResults.push({ lane, result, laneIsExplicitTarget });
+        assertConsumeResult({
+          result,
+          backing: lane.backing,
+          required: laneIsExplicitTarget,
+        });
+        break;
+      }
+      case 'record_policy':
+        break;
     }
     consumedBacking.add(lane.backingMaterialSessionId);
   }
@@ -1003,6 +1085,7 @@ export async function clearWalletSigningSession(args: {
       }
       if (cleared.has(lane.backingMaterialSessionId)) return;
       cleared.add(lane.backingMaterialSessionId);
+      if (lane.backing === 'record_policy') return;
       if (lane.backing === 'email_otp_worker') {
         await args.deps
           .clearEmailOtpWarmSessionMaterial?.({ sessionId: lane.backingMaterialSessionId })

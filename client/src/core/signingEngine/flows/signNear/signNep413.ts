@@ -95,10 +95,10 @@ export async function signNep413Message({
     }
     const signingSessionCoordinator = createNearSigningSessionCoordinator(touchConfirm);
 
-    const usesNeeded = 1;
+    const requiredSignatureUses = 1;
     const thresholdAuthContext = await resolveNearThresholdSigningAuthContext({
       warmSessionReader: signingSessionCoordinator,
-      usesNeeded,
+      requiredSignatureUses,
       nearAccount,
       operationLabel: 'NEP-413 signing',
     });
@@ -144,7 +144,7 @@ export async function signNep413Message({
     const preparedStepUp = await requireNearStepUpAuth({
       signingAuthPlan: thresholdAuthPlan.signingAuthPlan,
       signingLane: thresholdAuthPlan.lane,
-      usesNeeded,
+      requiredSignatureUses,
     });
     const confirmation = await runSigningConfirmationCommand({
       signingSessionPlan: resolvedThresholdSigningSession.signingSessionPlan,
@@ -181,10 +181,10 @@ export async function signNep413Message({
           ? await signingSessionCoordinator.claimPrfFirstByThresholdSessionId({
               kind: 'wallet_scoped_ed25519_claim',
               thresholdSessionId: thresholdAuthPlan.sessionId,
-              uses: usesNeeded,
+              uses: requiredSignatureUses,
               errorContext: 'threshold-ed25519 nep413 signing',
               walletId: nearAccountId,
-              authMethod: 'passkey',
+              authMethod: thresholdAuthPlan.lane.authMethod,
               curve: 'ed25519',
               chain: 'near',
               walletSigningSessionId: thresholdAuthPlan.lane.walletSigningSessionId,

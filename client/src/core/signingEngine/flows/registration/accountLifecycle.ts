@@ -32,6 +32,7 @@ import { buildNearProfileId } from '@/core/accountData/near/profileId';
 import { getLastLoggedInSignerSlot } from '../../webauthnAuth/device/signerSlot';
 import type {
   ActivateAccountSignerInput,
+  AccountSignerRecord,
   KeyMaterialRecord,
   LocalWalletAuthMethodRecord,
   ProfileAuthenticatorRecord,
@@ -284,10 +285,11 @@ export function getLastUser(
 function mapProfileAuthenticatorToClient(
   profileAuthenticator: ProfileAuthenticatorRecord,
   nearAccountId: AccountId,
+  signerSlotOverride?: number,
 ): ClientAuthenticatorData {
   return {
     nearAccountId,
-    signerSlot: profileAuthenticator.signerSlot,
+    signerSlot: signerSlotOverride ?? profileAuthenticator.signerSlot,
     credentialId: profileAuthenticator.credentialId,
     credentialPublicKey: profileAuthenticator.credentialPublicKey,
     transports: profileAuthenticator.transports,
@@ -295,6 +297,64 @@ function mapProfileAuthenticatorToClient(
     registered: profileAuthenticator.registered,
     syncedAt: profileAuthenticator.syncedAt,
   };
+}
+
+type PasskeySignerAuthenticatorBinding = {
+  walletId: string;
+  credentialId: string;
+  signerSlot: number;
+};
+
+function passkeySignerAuthenticatorBinding(
+  signer: AccountSignerRecord,
+): PasskeySignerAuthenticatorBinding | null {
+  if (signer.signerAuthMethod !== SIGNER_AUTH_METHODS.passkey) return null;
+  const walletId = String(signer.metadata?.walletId || '').trim();
+  const credentialId = String(signer.metadata?.passkeyCredentialRawId || '').trim();
+  if (!walletId || !credentialId) return null;
+  return { walletId, credentialId, signerSlot: signer.signerSlot };
+}
+
+async function listCanonicalPasskeyAuthenticatorsForNearAccount(
+  deps: RegistrationAccountLifecycleDeps,
+  args: {
+    nearAccountId: AccountId;
+    chainIdKey: string;
+    accountAddress: string;
+  },
+): Promise<ClientAuthenticatorData[]> {
+  const activeSigners = await deps.indexedDB.listAccountSigners({
+    chainIdKey: args.chainIdKey,
+    accountAddress: args.accountAddress,
+    status: 'active',
+  });
+  const bindings = activeSigners
+    .map(passkeySignerAuthenticatorBinding)
+    .filter((binding): binding is PasskeySignerAuthenticatorBinding => binding !== null);
+  const byWalletId = new Map<string, PasskeySignerAuthenticatorBinding[]>();
+  for (const binding of bindings) {
+    const existing = byWalletId.get(binding.walletId);
+    if (existing) {
+      existing.push(binding);
+    } else {
+      byWalletId.set(binding.walletId, [binding]);
+    }
+  }
+
+  const authenticators: ClientAuthenticatorData[] = [];
+  for (const [walletId, walletBindings] of byWalletId.entries()) {
+    const walletAuthenticators = await deps.indexedDB.listProfileAuthenticators(walletId);
+    for (const binding of walletBindings) {
+      const matched = walletAuthenticators.find(
+        (authenticator) => authenticator.credentialId === binding.credentialId,
+      );
+      if (!matched) continue;
+      authenticators.push(
+        mapProfileAuthenticatorToClient(matched, args.nearAccountId, binding.signerSlot),
+      );
+    }
+  }
+  return authenticators;
 }
 
 export async function getAuthenticatorsByUser(
@@ -306,9 +366,12 @@ export async function getAuthenticatorsByUser(
     deps.indexedDB,
     buildNearAccountRefs(accountId),
   ).catch(() => null);
-  if (!context?.profileId) return [];
-  const rows = await deps.indexedDB.listProfileAuthenticators(context.profileId);
-  return rows.map((row) => mapProfileAuthenticatorToClient(row, accountId));
+  if (!context?.accountRef) return [];
+  return await listCanonicalPasskeyAuthenticatorsForNearAccount(deps, {
+    nearAccountId: accountId,
+    chainIdKey: context.accountRef.chainIdKey,
+    accountAddress: context.accountRef.accountAddress,
+  });
 }
 
 export async function updateLastLogin(
@@ -524,12 +587,8 @@ export async function hasPasskeyCredential(
   nearAccountId: AccountId,
 ): Promise<boolean> {
   const accountId = toAccountId(nearAccountId);
-  const context = await resolveNearProfileContext(deps, accountId);
-  if (!context?.profileId) return false;
-  const authenticators = await deps.indexedDB.listProfileAuthenticators(context.profileId);
-  if (authenticators.length > 0) return !!authenticators[0]?.credentialId;
-  const profile = await deps.indexedDB.getProfile(context.profileId).catch(() => null);
-  return !!profile?.passkeyCredential?.rawId;
+  const authenticators = await getAuthenticatorsByUser(deps, accountId);
+  return authenticators.length > 0;
 }
 
 export async function atomicStoreRegistrationData(

@@ -14,6 +14,7 @@ import {
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import {
   EMAIL_OTP_CHANNEL,
+  WALLET_EMAIL_OTP_ACTIONS,
   WALLET_EMAIL_OTP_EXPORT_OPERATION,
   type WalletEmailOtpChannel,
 } from '@shared/utils/emailOtpDomain';
@@ -22,6 +23,9 @@ import {
   computeEcdsaHssRoleLocalFirstBootstrapRootProofDigest32,
   computeEcdsaHssRoleLocalRelayerKeyId,
   computeEcdsaHssRoleLocalThresholdKeyId,
+  type EcdsaClientRootPublicKey33B64u,
+  type EcdsaHssClientSharePublicKey33B64u,
+  type EcdsaRelayerHssPublicKey33B64u,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
@@ -153,11 +157,11 @@ function readJwtPayloadObject(jwtRaw: unknown): Record<string, unknown> | null {
   }
 }
 
-function readAppSessionUserIdFromRoutePlan(routePlan: EmailOtpRoutePlan): string {
+function readAppSessionAuthSubjectIdFromRoutePlan(routePlan: EmailOtpRoutePlan): string {
   const lane = routePlan.authLane;
   if (lane.kind !== 'app_session') return '';
   const payload = readJwtPayloadObject(lane.jwt);
-  return readOptionalString(payload?.sub) || '';
+  return readOptionalString(payload?.providerSubject) || '';
 }
 
 function resolveEmailOtpAuthSubjectId(args: {
@@ -165,8 +169,8 @@ function resolveEmailOtpAuthSubjectId(args: {
   userId?: unknown;
   routePlan: EmailOtpRoutePlan;
 }): string {
-  const sessionUserId = readAppSessionUserIdFromRoutePlan(args.routePlan);
-  if (sessionUserId) return sessionUserId;
+  const appSessionAuthSubjectId = readAppSessionAuthSubjectIdFromRoutePlan(args.routePlan);
+  if (appSessionAuthSubjectId) return appSessionAuthSubjectId;
   return readOptionalString(args.userId) || args.walletId;
 }
 
@@ -530,6 +534,31 @@ function readEcdsaPublicationChainTargets(args: {
 
 function routePlanSessionAuth(plan: EmailOtpRoutePlan): AppOrThresholdSessionAuth | undefined {
   return authLaneToRouteAuth(plan.authLane);
+}
+
+function assertEmailOtpChallengeAction(args: {
+  response: Record<string, unknown>;
+  expectedAction: string;
+  label: string;
+}): void {
+  const challenge =
+    args.response.challenge &&
+    typeof args.response.challenge === 'object' &&
+    !Array.isArray(args.response.challenge)
+      ? (args.response.challenge as Record<string, unknown>)
+      : null;
+  const action = normalizeOptionalTrimmedString(challenge?.action);
+  if (action && action !== args.expectedAction) {
+    throw new Error(`${args.label} returned ${action}; expected ${args.expectedAction}`);
+  }
+}
+
+function googleEmailOtpRegistrationAttemptIdFromRoutePlan(plan: EmailOtpRoutePlan): string {
+  if (plan.routeFamily !== 'registration') return '';
+  const auth = routePlanSessionAuth(plan);
+  if (auth?.kind !== 'app_session') return '';
+  const payload = decodeJwtPayloadRecord(auth.jwt);
+  return normalizeOptionalTrimmedString(payload?.googleEmailOtpRegistrationAttemptId);
 }
 
 function parseSigningSessionSealTransport(value: unknown): SigningSessionSealTransport | null {
@@ -1920,6 +1949,7 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
   returnClientRootShare32?: boolean;
   returnClientSecret32?: boolean;
   skipServerFinalize?: boolean;
+  googleEmailOtpRegistrationAttemptId?: string;
   onProgress?: (code: EmailOtpWorkerProgressCode) => void;
 }): Promise<{
   thresholdEcdsaClientVerifyingShareB64u: string;
@@ -1975,6 +2005,11 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
           walletId,
           otpChannel: EMAIL_OTP_CHANNEL,
         },
+      });
+      assertEmailOtpChallengeAction({
+        response: challenge,
+        expectedAction: WALLET_EMAIL_OTP_ACTIONS.registration,
+        label: 'Email OTP registration challenge',
       });
       challengeId = readString(
         (challenge.challenge as Record<string, unknown>)?.challengeId,
@@ -2062,6 +2097,9 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
       'Email OTP enrollment did not persist device-local enc_s(S)',
     );
     if (!args.skipServerFinalize) {
+      const googleEmailOtpRegistrationAttemptId =
+        readOptionalString(args.googleEmailOtpRegistrationAttemptId) ||
+        googleEmailOtpRegistrationAttemptIdFromRoutePlan(args.routePlan);
       await postEmailOtpJson({
         relayUrl,
         route: emailOtpRoutePath(args.routePlan, 'finalize'),
@@ -2076,6 +2114,9 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
           clientUnlockPublicKeyB64u,
           unlockKeyVersion: EMAIL_OTP_UNLOCK_KEY_VERSION,
           thresholdEcdsaClientVerifyingShareB64u,
+          ...(googleEmailOtpRegistrationAttemptId
+            ? { googleEmailOtpRegistrationAttemptId }
+            : {}),
         },
       });
       args.onProgress?.('otp.verify.succeeded');
@@ -2170,6 +2211,11 @@ async function loginWithEmailOtpAndRecoverClientRootShare(args: {
           otpChannel: EMAIL_OTP_CHANNEL,
           operation: args.routePlan.operation,
         },
+      });
+      assertEmailOtpChallengeAction({
+        response: challenge,
+        expectedAction: WALLET_EMAIL_OTP_ACTIONS.login,
+        label: 'Email OTP login challenge',
       });
       challengeId = readString(
         (challenge.challenge as Record<string, unknown>)?.challengeId,
@@ -2484,7 +2530,8 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
       signingRootVersion: roleLocalArgs.signingRootVersion,
       keyScope: 'evm-family' as const,
       relayerKeyId: roleLocalArgs.relayerKeyId,
-      clientPublicKey33B64u,
+      hssClientSharePublicKey33B64u:
+        clientPublicKey33B64u as EcdsaHssClientSharePublicKey33B64u,
       clientShareRetryCounter,
       contextBinding32B64u,
       requestId: keygenSessionId,
@@ -2500,6 +2547,9 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
     const clientRootProof = proofDigest32
       ? {
           version: ECDSA_HSS_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION,
+          clientRootPublicKey33B64u: base64UrlEncode(
+            secp256k1_private_key_32_to_public_key_33(args.clientRootShare32) as Uint8Array,
+          ) as EcdsaClientRootPublicKey33B64u,
           digest32B64u: base64UrlEncode(proofDigest32),
           signature65B64u: base64UrlEncode(
             sign_secp256k1_recoverable(proofDigest32, args.clientRootShare32) as Uint8Array,
@@ -2516,7 +2566,8 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
       signingRootVersion: roleLocalArgs.signingRootVersion,
       keyScope: 'evm-family',
       relayerKeyId: roleLocalArgs.relayerKeyId,
-      clientPublicKey33B64u,
+      hssClientSharePublicKey33B64u:
+        clientPublicKey33B64u as EcdsaHssClientSharePublicKey33B64u,
       clientShareRetryCounter,
       contextBinding32B64u,
       requestId: keygenSessionId,
@@ -2905,8 +2956,10 @@ async function runThresholdEcdsaRoleLocalExportFromClientRootShare(args: {
   }
   const relayerKeyId = readString(args.relayerKeyId, 'relayerKeyId');
   const publicIdentity = {
-    clientPublicKey33B64u: args.roleLocalState.clientPublicKey33B64u,
-    relayerPublicKey33B64u: args.roleLocalState.relayerPublicKey33B64u,
+    hssClientSharePublicKey33B64u:
+      args.roleLocalState.clientPublicKey33B64u as EcdsaHssClientSharePublicKey33B64u,
+    relayerPublicKey33B64u:
+      args.roleLocalState.relayerPublicKey33B64u as EcdsaRelayerHssPublicKey33B64u,
     groupPublicKey33B64u: args.roleLocalState.groupPublicKey33B64u,
     ethereumAddress: args.roleLocalState.ethereumAddress,
   };
@@ -3214,6 +3267,14 @@ function parseWorkerSealTransport(value: unknown): {
   };
 }
 
+function readRegistrationRoutePlan(value: unknown, label: string): EmailOtpRoutePlan {
+  const routePlan = readRoutePlan(value, label);
+  if (routePlan.routeFamily !== 'registration') {
+    throw new Error(`${label} requires an Email OTP registration route plan`);
+  }
+  return routePlan;
+}
+
 function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null {
   const obj = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null;
   if (!obj) return null;
@@ -3224,7 +3285,6 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
 
   switch (type) {
     case 'requestEmailOtpChallenge':
-    case 'requestEmailOtpEnrollmentChallenge':
       return {
         id,
         type,
@@ -3232,6 +3292,19 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
           relayUrl: readString(payload.relayUrl, 'relayUrl'),
           walletId: readString(payload.walletId, 'walletId'),
           routePlan: readRoutePlan(payload.routePlan, type),
+          ...(optionalWorkerString(payload.otpChannel)
+            ? { otpChannel: optionalWorkerString(payload.otpChannel)! as WalletEmailOtpChannel }
+            : {}),
+        },
+      };
+    case 'requestEmailOtpEnrollmentChallenge':
+      return {
+        id,
+        type,
+        payload: {
+          relayUrl: readString(payload.relayUrl, 'relayUrl'),
+          walletId: readString(payload.walletId, 'walletId'),
+          routePlan: readRegistrationRoutePlan(payload.routePlan, type),
           ...(optionalWorkerString(payload.otpChannel)
             ? { otpChannel: optionalWorkerString(payload.otpChannel)! as WalletEmailOtpChannel }
             : {}),
@@ -3250,7 +3323,14 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
             : {}),
           otpCode: readString(payload.otpCode, 'otpCode'),
           shamirPrimeB64u: readString(payload.shamirPrimeB64u, 'shamirPrimeB64u'),
-          routePlan: readRoutePlan(payload.routePlan, type),
+          routePlan: readRegistrationRoutePlan(payload.routePlan, type),
+          ...(optionalWorkerString(payload.googleEmailOtpRegistrationAttemptId)
+            ? {
+                googleEmailOtpRegistrationAttemptId: optionalWorkerString(
+                  payload.googleEmailOtpRegistrationAttemptId,
+                )!,
+              }
+            : {}),
           ...(optionalWorkerString(payload.otpChannel)
             ? { otpChannel: optionalWorkerString(payload.otpChannel)! as WalletEmailOtpChannel }
             : {}),
@@ -3270,7 +3350,7 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
             ? { userId: optionalWorkerString(payload.userId)! }
             : {}),
           shamirPrimeB64u: readString(payload.shamirPrimeB64u, 'shamirPrimeB64u'),
-          routePlan: readRoutePlan(payload.routePlan, type),
+          routePlan: readRegistrationRoutePlan(payload.routePlan, type),
           ...(optionalWorkerString(payload.otpChannel)
             ? { otpChannel: optionalWorkerString(payload.otpChannel)! as WalletEmailOtpChannel }
             : {}),
@@ -3589,6 +3669,11 @@ self.addEventListener('message', async (event: MessageEvent) => {
             operation: routePlan.operation,
           },
         });
+        assertEmailOtpChallengeAction({
+          response,
+          expectedAction: WALLET_EMAIL_OTP_ACTIONS.login,
+          label: 'Email OTP login challenge',
+        });
         const challenge = response.challenge as Record<string, unknown>;
         const delivery = response.delivery as Record<string, unknown> | undefined;
         const expiresAtMs = Number(challenge?.expiresAtMs);
@@ -3635,6 +3720,11 @@ self.addEventListener('message', async (event: MessageEvent) => {
             otpChannel: EMAIL_OTP_CHANNEL,
           },
         });
+        assertEmailOtpChallengeAction({
+          response,
+          expectedAction: WALLET_EMAIL_OTP_ACTIONS.registration,
+          label: 'Email OTP registration challenge',
+        });
         const challenge = response.challenge as Record<string, unknown>;
         const delivery = response.delivery as Record<string, unknown> | undefined;
         const expiresAtMs = Number(challenge?.expiresAtMs);
@@ -3676,6 +3766,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           otpCode: readString(msg.payload.otpCode, 'otpCode'),
           shamirPrimeB64u: readString(msg.payload.shamirPrimeB64u, 'shamirPrimeB64u'),
           routePlan,
+          googleEmailOtpRegistrationAttemptId: msg.payload.googleEmailOtpRegistrationAttemptId,
           returnClientRootShare32: true,
           onProgress: (code) => postEmailOtpWorkerProgress(msg.id, code),
           ...(msg.payload.clientSecret32 instanceof ArrayBuffer

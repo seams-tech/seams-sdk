@@ -661,7 +661,7 @@ export async function buildThresholdEcdsaHssRoleLocalExportArtifactWasm(input: {
   clientRootShare32B64u?: string;
   serverExportShare32B64u: string;
   publicIdentity: {
-    clientPublicKey33B64u: string;
+    hssClientSharePublicKey33B64u: string;
     relayerPublicKey33B64u: string;
     groupPublicKey33B64u: string;
     ethereumAddress: string;
@@ -689,7 +689,7 @@ export async function buildThresholdEcdsaHssRoleLocalExportArtifactWasm(input: {
           ...clientRootSharePayload,
           serverExportShare32B64u: input.serverExportShare32B64u,
           contextBinding32B64u: input.contextBinding32B64u,
-          clientPublicKey33B64u: input.publicIdentity.clientPublicKey33B64u,
+          clientPublicKey33B64u: input.publicIdentity.hssClientSharePublicKey33B64u,
           relayerPublicKey33B64u: input.publicIdentity.relayerPublicKey33B64u,
           groupPublicKey33B64u: input.publicIdentity.groupPublicKey33B64u,
           ethereumAddress: input.publicIdentity.ethereumAddress,

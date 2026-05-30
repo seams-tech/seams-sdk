@@ -440,7 +440,7 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
   > {
     const walletSigningSessionId = String(input.lane.walletSigningSessionId || '').trim();
     const walletBudgetStatus = walletSigningSessionId
-        ? await this.walletBudget
+      ? await this.walletBudget
           .getAvailableStatus(
             buildBudgetStatusCheckForLane({
               lane: input.lane,
@@ -451,9 +451,35 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
             status: 'unavailable' as const,
           }))
       : null;
+    const emailOtpEd25519PreflightUnavailable =
+      input.lane.authMethod === 'email_otp' &&
+      input.lane.curve === 'ed25519' &&
+      (walletBudgetStatus?.status === 'budget_unknown' ||
+        walletBudgetStatus?.status === 'unavailable');
+    // Email OTP can mint a fresh Ed25519 session at step-up. Treat an
+    // unreadable preflight as reauthable so server-side authorize remains
+    // the budget enforcement point instead of failing before the prompt.
+    const budgetStatusForPlanning =
+      emailOtpEd25519PreflightUnavailable && walletBudgetStatus
+        ? {
+            sessionId: walletSigningSessionId,
+            status: 'not_found' as const,
+            statusCode: walletBudgetStatus.status,
+          }
+        : walletBudgetStatus;
+    if (emailOtpEd25519PreflightUnavailable && walletBudgetStatus) {
+      console.warn('[SigningSessionCoordinator][email-otp-ed25519] budget preflight unavailable', {
+        walletSigningSessionId,
+        thresholdSessionId: input.lane.thresholdSessionId,
+        budgetStatus: walletBudgetStatus.status,
+        readiness: input.readiness.status,
+        remainingUses: input.remainingUses,
+        usesNeeded: input.usesNeeded,
+      });
+    }
     return applyWalletBudgetStatusToSigningSessionReadiness({
       ...input.readiness,
-      walletBudgetStatus,
+      walletBudgetStatus: budgetStatusForPlanning,
       expiresAtMs: Math.floor(Number(input.expiresAtMs) || 0),
       remainingUses: Math.floor(Number(input.remainingUses) || 0),
       usesNeeded: input.usesNeeded,

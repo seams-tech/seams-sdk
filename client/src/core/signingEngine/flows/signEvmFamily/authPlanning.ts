@@ -151,18 +151,18 @@ export async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
 
   const materialIsEmailOtp = isEmailOtpThresholdEcdsaSigningContext({ record });
   if (materialIsEmailOtp) {
+    const inlineClientAdditiveShare32B64u = String(record.clientAdditiveShare32B64u || '').trim();
+    if (inlineClientAdditiveShare32B64u) {
+      return buildBackingReadiness({
+        expiresAtMs: record.expiresAtMs,
+        remainingUses: record.remainingUses,
+      });
+    }
     const emailOtpWorkerSessionId = resolveEmailOtpEcdsaWorkerSessionId(record);
-    const readEmailOtpStatus = async () => {
-      if (emailOtpWorkerSessionId && typeof args.deps.getEmailOtpWarmSessionStatus === 'function') {
-        return await args.deps
-          .getEmailOtpWarmSessionStatus(emailOtpWorkerSessionId)
-          .catch(() => null);
-      }
-      return await args.deps.touchConfirm
-        .getWarmSessionStatus({ sessionId: record.thresholdSessionId })
-        .catch(() => null);
-    };
-    let status = await readEmailOtpStatus();
+    const status =
+      emailOtpWorkerSessionId && typeof args.deps.getEmailOtpWarmSessionStatus === 'function'
+        ? await args.deps.getEmailOtpWarmSessionStatus(emailOtpWorkerSessionId).catch(() => null)
+        : null;
     const statusExpiresAtMs = status?.ok ? status.expiresAtMs : 0;
     const statusRemainingUses = status?.ok ? status.remainingUses : 0;
     return buildBackingReadiness({

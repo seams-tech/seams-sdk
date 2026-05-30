@@ -504,7 +504,11 @@ export async function recoverEd25519ExportPrfFirst(
       payload: {
         relayUrl,
         walletId: String(nearAccountId),
-        userId: String(args.record.emailOtpAuthContext?.authSubjectId || nearAccountId),
+        userId: String(
+          args.record.source === 'email_otp'
+            ? args.record.emailOtpAuthContext?.authSubjectId || nearAccountId
+            : nearAccountId,
+        ),
         challengeId: args.challengeId,
         otpCode: args.otpCode,
         shamirPrimeB64u,
@@ -561,7 +565,10 @@ export async function exportEcdsaKeyWithAuthorization(
         relayUrl: exportInput.relayUrl,
         walletId: exportInput.walletSession.walletId,
         userId: String(
-          record.emailOtpAuthContext?.authSubjectId || exportInput.walletSession.walletSessionUserId,
+          record.source === 'email_otp'
+            ? record.emailOtpAuthContext.authSubjectId ||
+                exportInput.walletSession.walletSessionUserId
+            : exportInput.walletSession.walletSessionUserId,
         ),
         challengeId: exportInput.challengeId,
         otpCode: exportInput.otpCode,

@@ -6,6 +6,7 @@ import type {
   SigningAuthPlan,
   UserConfirmProgressEvent,
 } from './types';
+import { SigningAuthPlanKind as SigningAuthPlanKinds } from './types';
 import type {
   SerializableCredential,
   UserConfirmDecision,
@@ -164,6 +165,31 @@ export type ConfirmSigningOperationResult =
   | SigningConfirmationResultWithTxContext
   | SigningConfirmationResultIntentDigest;
 
+function assertSigningConfirmationAuthRoute(request: OrchestrateSigningConfirmationParams): void {
+  if (
+    request.signingAuthPlan.kind === SigningAuthPlanKinds.PasskeyReauth &&
+    request.emailOtpPrompt
+  ) {
+    console.warn('[SigningConfirmation] Email OTP prompt attached to passkey auth plan', {
+      chain: request.chain,
+      kind: request.kind,
+      signingAuthPlanKind: request.signingAuthPlan.kind,
+    });
+    throw new Error('[SigningConfirmation] auth_method_route_mismatch');
+  }
+  if (
+    request.signingAuthPlan.kind === SigningAuthPlanKinds.EmailOtpReauth &&
+    request.webauthnChallenge
+  ) {
+    console.warn('[SigningConfirmation] WebAuthn challenge attached to Email OTP auth plan', {
+      chain: request.chain,
+      kind: request.kind,
+      signingAuthPlanKind: request.signingAuthPlan.kind,
+    });
+    throw new Error('[SigningConfirmation] auth_method_route_mismatch');
+  }
+}
+
 export async function confirmSigningOperation(args: {
   runtime: ConfirmSigningOperationRuntime;
   request: ConfirmIntentDigestSigningOperationRequest;
@@ -178,6 +204,7 @@ export async function confirmSigningOperation(args: {
   runtime: ConfirmSigningOperationRuntime;
   request: OrchestrateSigningConfirmationParams;
 }): Promise<ConfirmSigningOperationResult> {
+  assertSigningConfirmationAuthRoute(args.request);
   const orchestrate = args.runtime.orchestrateSigningConfirmation as (
     request: OrchestrateSigningConfirmationParams,
   ) => Promise<ConfirmSigningOperationResult>;

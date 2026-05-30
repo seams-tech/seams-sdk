@@ -12,7 +12,10 @@ import {
   type IntentDigestUserConfirmRequest,
   type WebAuthnChallenge,
 } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
-import { SigningAuthPlanKind } from '@/core/signingEngine/stepUpConfirmation/types';
+import {
+  SigningAuthPlanKind,
+  type SigningAuthPlanKind as SigningAuthPlanKindType,
+} from '@/core/signingEngine/stepUpConfirmation/types';
 import {
   isUserCancelledUserConfirm,
   ERROR_MESSAGES,
@@ -72,6 +75,22 @@ function normalizeSixDigitOtpCode(value: unknown): string {
     throw new Error('Enter the 6-digit Email OTP code to continue');
   }
   return code;
+}
+
+function assertPasskeyWebAuthnRoute(args: {
+  stage: 'transaction_prompt' | 'intent_digest_prompt';
+  nearAccountId: string;
+  requestId: string;
+  signingAuthPlanKind: SigningAuthPlanKindType;
+}): void {
+  if (args.signingAuthPlanKind !== SigningAuthPlanKind.EmailOtpReauth) return;
+  console.warn('[SigningEngine][ui-confirm] Email OTP auth plan reached passkey credential lookup', {
+    stage: args.stage,
+    nearAccountId: args.nearAccountId,
+    requestId: args.requestId,
+    signingAuthPlanKind: args.signingAuthPlanKind,
+  });
+  throw new Error('[SigningEngine] passkey_lookup_for_email_otp');
 }
 
 function assertNever(value: never): never {
@@ -452,6 +471,12 @@ export async function handleTransactionSigningFlow(
     }
 
     // 5) Collect authentication credential.
+    assertPasskeyWebAuthnRoute({
+      stage: 'transaction_prompt',
+      nearAccountId,
+      requestId: request.requestId,
+      signingAuthPlanKind: request.payload.signingAuthPlan.kind,
+    });
     const resolvedWebAuthnChallenge = resolveTypedWebAuthnChallenge({
       webauthnChallenge: request.payload.webauthnChallenge,
       fallbackChallengeB64u: String(resolvedChallengeB64u || '').trim(),
@@ -685,6 +710,12 @@ export async function handleIntentDigestSigningFlow(
       });
     }
 
+    assertPasskeyWebAuthnRoute({
+      stage: 'intent_digest_prompt',
+      nearAccountId,
+      requestId: request.requestId,
+      signingAuthPlanKind: request.payload.signingAuthPlan.kind,
+    });
     const resolvedWebAuthnChallenge = resolveTypedWebAuthnChallenge({
       webauthnChallenge: request.payload.webauthnChallenge,
       fallbackChallengeB64u: String(resolvedChallengeB64u || '').trim(),

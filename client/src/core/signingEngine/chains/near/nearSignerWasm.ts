@@ -15,6 +15,30 @@ import {
 
 const NEAR_SIGNER_WORKER_TIMEOUT_MS = 20_000;
 
+export function parseCosePublicKeyBytesFromWorker(value: unknown): Uint8Array {
+  if (value instanceof Uint8Array) {
+    if (value.byteLength === 0) throw new Error('COSE public key extraction returned empty bytes');
+    return new Uint8Array(value);
+  }
+  if (value instanceof ArrayBuffer) {
+    if (value.byteLength === 0) throw new Error('COSE public key extraction returned empty bytes');
+    return new Uint8Array(value.slice(0));
+  }
+  if (ArrayBuffer.isView(value)) {
+    if (value.byteLength === 0) throw new Error('COSE public key extraction returned empty bytes');
+    return new Uint8Array(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) throw new Error('COSE public key extraction returned empty bytes');
+    const bytes = value.map((entry) => Number(entry));
+    if (!bytes.every((entry) => Number.isInteger(entry) && entry >= 0 && entry <= 255)) {
+      throw new Error('COSE public key extraction returned invalid byte array');
+    }
+    return Uint8Array.from(bytes);
+  }
+  throw new Error('COSE public key extraction returned invalid byte shape');
+}
+
 export async function deriveThresholdEd25519ClientVerifyingShareWasm(args: {
   sessionId: string;
   nearAccountId: string;
@@ -83,7 +107,7 @@ export async function extractCosePublicKeyWasm(args: {
     throw new Error('COSE public key extraction failed in WASM worker');
   }
 
-  return response.payload.cosePublicKeyBytes;
+  return parseCosePublicKeyBytesFromWorker(response.payload.cosePublicKeyBytes);
 }
 
 export async function signTransactionWithKeyPairWasm(args: {

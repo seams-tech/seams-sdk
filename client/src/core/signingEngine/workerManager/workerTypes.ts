@@ -247,6 +247,7 @@ export interface EmailOtpWorkerOperationMap {
       otpCode: string;
       shamirPrimeB64u: string;
       routePlan: EmailOtpRoutePlan;
+      googleEmailOtpRegistrationAttemptId?: string;
       otpChannel?: WalletEmailOtpChannel;
       clientSecret32?: ArrayBuffer;
     };

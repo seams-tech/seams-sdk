@@ -47,14 +47,15 @@ export type SecondaryEcdsaPostSignPolicyMaterial = EcdsaPostSignPolicyMaterialBa
 export function ecdsaPostSignPolicySessionFromRecord(
   record: ThresholdEcdsaSessionRecord,
 ): EcdsaPostSignPolicySession {
-  const consumedAtMs = Math.floor(Number(record.emailOtpAuthContext?.consumedAtMs));
+  const emailOtpAuthContext = record.source === 'email_otp' ? record.emailOtpAuthContext : null;
+  const consumedAtMs = Math.floor(Number(emailOtpAuthContext?.consumedAtMs));
   return {
     walletId: record.walletId,
     chainTarget: record.chainTarget,
     source: record.source,
     walletSigningSessionId: String(record.walletSigningSessionId || '').trim(),
     thresholdSessionId: String(record.thresholdSessionId || '').trim(),
-    emailOtpRetention: record.emailOtpAuthContext?.retention || null,
+    emailOtpRetention: emailOtpAuthContext?.retention || null,
     emailOtpConsumedAtMs: Number.isFinite(consumedAtMs) && consumedAtMs > 0 ? consumedAtMs : null,
   };
 }

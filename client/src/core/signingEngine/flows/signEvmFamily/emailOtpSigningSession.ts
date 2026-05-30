@@ -43,6 +43,7 @@ import {
 import { EMAIL_OTP_SIGNING_SESSION_AUTH_UNAVAILABLE } from '../../session/emailOtp/exportRecovery';
 import type { EmailOtpEcdsaBootstrapAuthorization } from '../../session/emailOtp/routePlan';
 import type { ReauthAnchorIdentity } from '../../session/operationState/transactionState';
+import type { EmailOtpEd25519ReconstructionResult } from '../../session/emailOtp/ecdsaLogin';
 
 type WalletSessionEmailOtpChallengeArgs = Extract<
   RequestEmailOtpChallengeArgs,
@@ -78,6 +79,7 @@ export type EmailOtpEcdsaSigningSessionDeps = {
       recovery: EmailOtpBootstrapRecovery;
       bootstrap: ThresholdEcdsaSessionBootstrapResult;
       warmCapability: WarmSessionEcdsaCapabilityState;
+      ed25519Reconstruction: EmailOtpEd25519ReconstructionResult;
     }>;
   };
 };
@@ -308,6 +310,7 @@ export async function refreshEmailOtpSigningSession(
   recovery: EmailOtpBootstrapRecovery;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
   warmCapability: WarmSessionEcdsaCapabilityState;
+  ed25519Reconstruction: EmailOtpEd25519ReconstructionResult;
 }> {
   const { record, authLane } = resolveEmailOtpEcdsaSigningSessionAuth(deps, {
     walletId: args.walletSession.walletId,

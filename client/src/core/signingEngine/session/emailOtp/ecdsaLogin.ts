@@ -123,6 +123,31 @@ export type LoginEmailOtpEcdsaCapabilityArgs = {
   includeEcdsaExportArtifact?: boolean;
 };
 
+function buildEd25519ReconstructionAuthContext(args: {
+  ecdsaAuthContext: ThresholdEcdsaEmailOtpAuthContext;
+  authSubjectId?: string;
+}): ThresholdEcdsaEmailOtpAuthContext {
+  const authSubjectId = String(args.authSubjectId || '').trim();
+  if (args.ecdsaAuthContext.reason === 'sign') {
+    const context: ThresholdEcdsaEmailOtpAuthContext = {
+      policy: args.ecdsaAuthContext.policy,
+      retention: args.ecdsaAuthContext.retention,
+      reason: 'sign',
+      authMethod: SIGNER_AUTH_METHODS.emailOtp,
+    };
+    if (authSubjectId) context.authSubjectId = authSubjectId;
+    return context;
+  }
+  const context: ThresholdEcdsaEmailOtpAuthContext = {
+    policy: 'session',
+    retention: 'session',
+    reason: 'login',
+    authMethod: SIGNER_AUTH_METHODS.emailOtp,
+  };
+  if (authSubjectId) context.authSubjectId = authSubjectId;
+  return context;
+}
+
 export type EmailOtpEcdsaLoginPorts = {
   configs: SeamsConfigsReadonly;
   getSignerWorkerContext: () => WorkerOperationContext | null | undefined;
@@ -331,7 +356,7 @@ export async function loginWithEmailOtpEcdsaCapabilityForSigning(
     participantIds: record.participantIds,
     sessionKind: record.thresholdSessionKind,
     routePlan,
-    authSubjectId: record.emailOtpAuthContext?.authSubjectId,
+    authSubjectId: record.source === 'email_otp' ? record.emailOtpAuthContext.authSubjectId : undefined,
     ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
     remainingUses,
     ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
@@ -351,10 +376,15 @@ export async function loginWithEmailOtpEcdsaCapability(
   const chainTarget = args.chainTarget;
   const emailOtpAuthPolicy: EmailOtpAuthPolicy =
     args.emailOtpAuthPolicy || ports.configs.signing.emailOtp.authPolicy;
+  const emailOtpAuthReason = args.emailOtpAuthReason || 'login';
+  const emailOtpAuthRetention =
+    emailOtpAuthReason === 'sign' && emailOtpAuthPolicy === 'per_operation'
+      ? 'single_use'
+      : 'session';
   const emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext = {
     policy: emailOtpAuthPolicy,
-    retention: emailOtpAuthPolicy === 'per_operation' ? 'single_use' : 'session',
-    reason: args.emailOtpAuthReason || 'login',
+    retention: emailOtpAuthRetention,
+    reason: emailOtpAuthReason,
     authMethod: SIGNER_AUTH_METHODS.emailOtp,
   };
   const relayUrl = String(args.relayUrl || ports.requireRelayUrl()).trim();
@@ -388,7 +418,7 @@ export async function loginWithEmailOtpEcdsaCapability(
     ),
   });
   const remainingUses =
-    emailOtpAuthPolicy === 'per_operation'
+    emailOtpAuthRetention === 'single_use'
       ? resolveSigningBudgetPolicyRemainingUses(postExhaustionStepUpBudgetPolicy)
       : resolveSigningBudgetPolicyRemainingUses(unlockBudgetPolicy);
   const workerCtx = ports.getSignerWorkerContext();
@@ -517,6 +547,10 @@ export async function loginWithEmailOtpEcdsaCapability(
     ...emailOtpAuthContext,
     ...(emailOtpContextAuthSubjectId ? { authSubjectId: emailOtpContextAuthSubjectId } : {}),
   };
+  const ed25519ReconstructionAuthContext = buildEd25519ReconstructionAuthContext({
+    ecdsaAuthContext: emailOtpAuthContext,
+    authSubjectId: emailOtpContextAuthSubjectId,
+  });
   const { bootstrap, warmCapability } = await commitEmailOtpEcdsaPublicationBootstraps(
     {
       walletId: toWalletId(args.walletSession.walletId),
@@ -561,7 +595,7 @@ export async function loginWithEmailOtpEcdsaCapability(
         relayUrl,
         rpId,
         prfFirstB64u: thresholdEd25519PrfFirstB64u,
-        emailOtpAuthContext,
+        emailOtpAuthContext: ed25519ReconstructionAuthContext,
         routeAuth: reconstructionAuth,
         runtimePolicyScope: resolvedEd25519Reconstruction.runtimePolicyScope,
         ed25519Key: resolvedEd25519Reconstruction.ed25519Key,

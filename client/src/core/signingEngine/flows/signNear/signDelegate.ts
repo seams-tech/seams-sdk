@@ -131,10 +131,10 @@ export async function runNearDelegateActionSigning({
   }
   const signingSessionCoordinator = createNearSigningSessionCoordinator(touchConfirm);
 
-  const usesNeeded = 1;
+  const requiredSignatureUses = 1;
   const thresholdAuthContext = await resolveNearThresholdSigningAuthContext({
     warmSessionReader: signingSessionCoordinator,
-    usesNeeded,
+    requiredSignatureUses,
     nearAccount,
     operationLabel: 'delegate signing',
   });
@@ -207,7 +207,7 @@ export async function runNearDelegateActionSigning({
   const preparedStepUp = await requireNearStepUpAuth({
     signingAuthPlan: thresholdAuthPlan.signingAuthPlan,
     signingLane: thresholdAuthPlan.lane,
-    usesNeeded,
+    requiredSignatureUses,
   });
   const confirmationAuthPayload = preparedStepUp.confirmationAuthPayload;
   if (isWarmSessionSigningAuthPlan(confirmationAuthPayload.signingAuthPlan)) {
@@ -273,10 +273,10 @@ export async function runNearDelegateActionSigning({
         ? await signingSessionCoordinator.claimPrfFirstByThresholdSessionId({
             kind: 'wallet_scoped_ed25519_claim',
             thresholdSessionId: thresholdAuthPlan.sessionId,
-            uses: usesNeeded,
+            uses: requiredSignatureUses,
             errorContext: 'threshold-ed25519 delegate signing',
             walletId: nearAccountId,
-            authMethod: 'passkey',
+            authMethod: thresholdAuthPlan.lane.authMethod,
             curve: 'ed25519',
             chain: 'near',
             walletSigningSessionId: thresholdAuthPlan.lane.walletSigningSessionId,

@@ -267,7 +267,9 @@ export class BudgetCoordinator implements SigningSessionBudget {
         this.emitFinalizationTrace(normalizedInput, result);
         return result;
       }
-      if (status.status !== 'active') {
+      const externallyConsumedAlreadyReflected =
+        normalizedInput.kind === 'externally_consumed_success' && status.status === 'exhausted';
+      if (status.status !== 'active' && !externallyConsumedAlreadyReflected) {
         throw new Error(`[SigningSessionBudget] wallet signing-session budget is ${status.status}`);
       }
       if (normalizedInput.kind !== 'externally_consumed_success') {
@@ -297,10 +299,12 @@ export class BudgetCoordinator implements SigningSessionBudget {
               normalizedInput.expectedBudgetProjectionVersion,
               'expectedBudgetProjectionVersion',
             );
-      successIdentity = buildSigningBudgetReservationIdentity({
-        spend: normalizedInput.spend,
-        projectionVersion: successProjectionVersion,
-      });
+      successIdentity = externallyConsumedAlreadyReflected
+        ? normalizedInput.finalizationCommand.reservation
+        : buildSigningBudgetReservationIdentity({
+            spend: normalizedInput.spend,
+            projectionVersion: successProjectionVersion,
+          });
       const commandMismatch = finalizationCommandIdentityMismatch({
         expected: normalizedInput.finalizationCommand.reservation,
         actual: successIdentity,

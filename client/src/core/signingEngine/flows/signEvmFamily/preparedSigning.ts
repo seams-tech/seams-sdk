@@ -133,6 +133,7 @@ function getSingleRuntimeBackedEcdsaAvailableLane(args: {
   ).filter(
     (lane): lane is EvmFamilyEcdsaAvailableLane =>
       isRuntimeBackedEcdsaAvailableLane(lane) &&
+      lane.state === 'ready' &&
       thresholdEcdsaChainTargetsEqual(lane.chainTarget, args.signingTarget),
   );
   if (runtimeCandidates.length === 1) return runtimeCandidates[0];
@@ -464,7 +465,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
   const preparedTransaction = await prepareTransactionSigningOperation({
     intent: buildEvmFamilyTransactionSigningIntent({
       walletId,
-      authSelectionPolicy: { kind: 'account_class', authMethod: 'passkey' },
+      authSelectionPolicy: { kind: 'any' },
       operationUsesNeeded: 1,
       signingTarget: args.signingTarget,
     }),
@@ -618,12 +619,6 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           );
         }
         const authMethod = transactionLane.authMethod;
-        const hasExactHotMaterial = Boolean(
-          args.deps.getThresholdEcdsaSessionRecordByKey(transactionLane),
-        );
-        // Transaction prepare first reads side-effect-free available signing
-        // lanes, then restores only the selected exact auth-method lane.
-        // Broad probing belongs to startup/session-status maintenance paths.
         const restoreResults: Record<string, unknown> = {};
         const laneRequiresFreshAuth =
           laneCandidate.state === 'expired' || laneCandidate.state === 'exhausted';
@@ -651,11 +646,29 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
         if (laneRequiresFreshAuth && !reauthAnchor) {
           throw new Error('[SigningEngine][ecdsa] exhausted/expired lane did not produce a reauth anchor');
         }
+        const resolveSelectedEcdsaMaterial = async () =>
+          await resolveEvmFamilyEcdsaSigningSelection({
+            deps: args.deps,
+            walletId,
+            chain,
+            chainTarget,
+            senderSignatureAlgorithm: 'secp256k1',
+            authMethod,
+            laneCandidate,
+            ...(reauthAnchor ? { reauthAnchor } : {}),
+            allowMissingHotMaterial: args.forceFreshAuth === true,
+          });
+        let selection = await resolveSelectedEcdsaMaterial();
+        const hasSelectedHotMaterial = selection.kind === 'ready';
+        // Material selection understands shared EVM-family source targets. Only
+        // restore after selection proves the selected lane lacks usable material.
         const shouldRestoreAvailableLane =
           !laneRequiresFreshAuth &&
+          !hasSelectedHotMaterial &&
           (laneCandidate.state === 'restorable' ||
             laneCandidate.state === 'deferred' ||
-            !hasExactHotMaterial);
+            selection.kind === 'missing_material' ||
+            (selection.kind === 'reauth_required' && selection.reason === 'missing_hot_material'));
         const restoreChainTarget =
           selectedAvailableLane.source === 'evm_family_shared_key'
             ? selectedAvailableLane.sourceChainTarget
@@ -668,7 +681,8 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
             chainTarget,
             restoreChainTarget,
             authMethod,
-            hasExactHotMaterial,
+            hasSelectedHotMaterial,
+            selectionKind: selection.kind,
             selectedAvailableLane: summarizeEcdsaAvailableLane(selectedAvailableLane),
             selectedLaneCandidate: summarizeEcdsaLaneCandidate(laneCandidate),
           });
@@ -724,6 +738,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
             selectedAvailableLane: summarizeEcdsaAvailableLane(selectedAvailableLane),
             selectedLaneCandidate: summarizeEcdsaLaneCandidate(laneCandidate),
           });
+          selection = await resolveSelectedEcdsaMaterial();
         } else {
           args.diagnostics.sealedRestoreBeforeSelection = {
             attempted: false,
@@ -739,18 +754,6 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           results: restoreResults,
           selectedLaneCandidate: summarizeEcdsaLaneCandidate(laneCandidate),
         };
-
-        const selection = await resolveEvmFamilyEcdsaSigningSelection({
-          deps: args.deps,
-          walletId,
-          chain,
-          chainTarget,
-          senderSignatureAlgorithm: 'secp256k1',
-          authMethod,
-          laneCandidate,
-          ...(reauthAnchor ? { reauthAnchor } : {}),
-          allowMissingHotMaterial: args.forceFreshAuth === true,
-        });
         emitSigningSessionFlowTrace('evm-family', {
           stage: 'ecdsa_prepare.material_selected',
           accountId: walletId,

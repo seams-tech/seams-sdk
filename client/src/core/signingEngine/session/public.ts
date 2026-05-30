@@ -69,13 +69,21 @@ export type SessionPublicDeps = {
   };
 };
 
-export type UpsertThresholdEcdsaSessionFromBootstrapInput = {
+type UpsertThresholdEcdsaSessionFromBootstrapInputBase = {
   walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
-  source: ThresholdEcdsaSessionStoreSource;
-  emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
 };
+
+export type UpsertThresholdEcdsaSessionFromBootstrapInput =
+  | (UpsertThresholdEcdsaSessionFromBootstrapInputBase & {
+      source: 'email_otp';
+      emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
+    })
+  | (UpsertThresholdEcdsaSessionFromBootstrapInputBase & {
+      source: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
+      emailOtpAuthContext?: never;
+    });
 
 export type GetThresholdEcdsaKeyRefForWalletTargetInput = {
   walletId: WalletId;
@@ -150,12 +158,22 @@ export function upsertThresholdEcdsaSessionFromBootstrap(
   deps: SessionPublicDeps,
   args: UpsertThresholdEcdsaSessionFromBootstrapInput,
 ): void {
+  if (args.source === 'email_otp') {
+    upsertThresholdEcdsaSessionFromBootstrapValue(deps.ecdsaSessions, {
+      walletId: args.walletId,
+      chainTarget: args.chainTarget,
+      bootstrap: args.bootstrap,
+      source: 'email_otp',
+      emailOtpAuthContext: args.emailOtpAuthContext,
+      ...(deps.signingSessionSeal ? { signingSessionSeal: deps.signingSessionSeal } : {}),
+    });
+    return;
+  }
   upsertThresholdEcdsaSessionFromBootstrapValue(deps.ecdsaSessions, {
     walletId: args.walletId,
     chainTarget: args.chainTarget,
     bootstrap: args.bootstrap,
     source: args.source,
-    ...(args.emailOtpAuthContext ? { emailOtpAuthContext: args.emailOtpAuthContext } : {}),
     ...(deps.signingSessionSeal ? { signingSessionSeal: deps.signingSessionSeal } : {}),
   });
 }

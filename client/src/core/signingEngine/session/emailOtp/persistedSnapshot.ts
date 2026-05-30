@@ -7,7 +7,7 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
-  getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
+  getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget,
   listStoredThresholdEd25519SessionRecordsForAccount,
   listThresholdEcdsaRuntimeLanesForWallet,
 } from '@/core/signingEngine/session/persistence/records';
@@ -15,6 +15,8 @@ import type { listExactSealedSessionsForWallet } from '@/core/signingEngine/sess
 import {
   ed25519AvailableLaneIdentityKey,
   readAvailableSigningLanes,
+  runtimeEcdsaRecordClaimKey,
+  runtimeRecordPolicyClaim,
   warmStatusToAvailableSigningLanesRuntimeClaim,
   type AvailableSigningLanes,
   type AvailableSigningLanesRuntimeClaim,
@@ -186,16 +188,60 @@ export async function readEmailOtpPersistedSessionSnapshot(
         }
         return records;
       },
+      readRuntimeEcdsaClaimsForRecords: async (runtimeRecords) => {
+        const claims = new Map<string, AvailableSigningLanesRuntimeClaim | null>();
+        await Promise.all(
+          runtimeRecords.map(async (runtimeRecord) => {
+            const claimKey = runtimeEcdsaRecordClaimKey(runtimeRecord);
+            if (!claimKey) return;
+            const sessionId = String(runtimeRecord.thresholdSessionId || '').trim();
+            const storedRecord = getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget({
+              thresholdSessionId: sessionId,
+              chainTarget: runtimeRecord.chainTarget,
+            });
+            if (!storedRecord || storedRecord.source !== SIGNER_AUTH_METHODS.emailOtp) {
+              claims.set(claimKey, null);
+              return;
+            }
+            if (
+              String(storedRecord.walletId) !== String(runtimeRecord.key.walletId) ||
+              String(storedRecord.keyHandle) !== String(runtimeRecord.keyHandle) ||
+              String(storedRecord.walletSigningSessionId || '').trim() !==
+                String(runtimeRecord.walletSigningSessionId || '').trim()
+            ) {
+              claims.set(claimKey, null);
+              return;
+            }
+            const inlineClaim = String(storedRecord.clientAdditiveShare32B64u || '').trim()
+              ? runtimeRecordPolicyClaim({
+                  sessionId,
+                  remainingUses: storedRecord.remainingUses,
+                  expiresAtMs: storedRecord.expiresAtMs,
+                })
+              : null;
+            if (inlineClaim) {
+              claims.set(claimKey, inlineClaim);
+              return;
+            }
+            const statusSessionId = resolveEmailOtpEcdsaWorkerSessionId(storedRecord);
+            if (!statusSessionId) {
+              claims.set(claimKey, null);
+              return;
+            }
+            const status = await ports.readWarmSessionStatusOnly(statusSessionId);
+            claims.set(
+              claimKey,
+              warmStatusToAvailableSigningLanesRuntimeClaim({ sessionId, status }),
+            );
+          }),
+        );
+        return claims;
+      },
       readRuntimeClaimsForSessions: async (sessionIds) => {
         const claims = new Map<string, AvailableSigningLanesRuntimeClaim | null>();
         await Promise.all(
           sessionIds.map(async (sessionId) => {
-            const ecdsaRecord = getStoredThresholdEcdsaSessionRecordByThresholdSessionId(sessionId);
-            const statusSessionId =
-              ecdsaRecord?.source === 'email_otp'
-                ? resolveEmailOtpEcdsaWorkerSessionId(ecdsaRecord)
-                : sessionId;
-            const status = await ports.readWarmSessionStatusOnly(statusSessionId);
+            const status = await ports.readWarmSessionStatusOnly(sessionId);
             claims.set(
               sessionId,
               warmStatusToAvailableSigningLanesRuntimeClaim({ sessionId, status }),

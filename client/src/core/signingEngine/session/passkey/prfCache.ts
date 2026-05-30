@@ -45,6 +45,7 @@ function normalizeSigningSessionCacheEntry(
     prfFirstB64u,
     expiresAtMs: Math.floor(expiresAtMsRaw),
     remainingUses,
+    ...(args.transport ? { transport: args.transport } : {}),
   };
 }
 

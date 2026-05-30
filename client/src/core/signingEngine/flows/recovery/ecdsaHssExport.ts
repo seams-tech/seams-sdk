@@ -14,6 +14,10 @@ import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/reco
 import { buildThresholdEcdsaHssRoleLocalExportArtifactWasm } from '../../threshold/crypto/hssClientSignerWasm';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
+import type {
+  EcdsaHssClientSharePublicKey33B64u,
+  EcdsaRelayerHssPublicKey33B64u,
+} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 
 const ECDSA_HSS_EXPORT_CONFIRMATION_DIGEST_VERSION =
   'ecdsa-hss:role-local:product-export-confirmation:v2';
@@ -90,8 +94,10 @@ export async function exportEcdsaHssKeyWithThresholdSession(
   }
 
   const publicIdentity = {
-    clientPublicKey33B64u: roleLocalState.clientPublicKey33B64u,
-    relayerPublicKey33B64u: roleLocalState.relayerPublicKey33B64u,
+    hssClientSharePublicKey33B64u:
+      roleLocalState.clientPublicKey33B64u as EcdsaHssClientSharePublicKey33B64u,
+    relayerPublicKey33B64u:
+      roleLocalState.relayerPublicKey33B64u as EcdsaRelayerHssPublicKey33B64u,
     groupPublicKey33B64u: roleLocalState.groupPublicKey33B64u,
     ethereumAddress: roleLocalState.ethereumAddress,
   };

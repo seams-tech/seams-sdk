@@ -140,6 +140,17 @@ export function createNearSigningSessionCoordinator(
             consume,
           });
         case 'wallet_scoped_ed25519_claim':
+          if (claimArgs.authMethod === 'email_otp') {
+            return await claimWarmSessionPrfFirst({
+              touchConfirm,
+              thresholdSessionId: claimArgs.thresholdSessionId,
+              errorContext: claimArgs.errorContext,
+              uses: claimArgs.uses,
+              consume,
+              curve: 'ed25519',
+              chain: 'near',
+            });
+          }
           return await claimPasskeyEd25519PrfFirst({
             touchConfirm,
             walletId: claimArgs.walletId,
@@ -158,7 +169,7 @@ export async function resolveNearThresholdSigningAuthContext(args: {
   warmSessionReader: NearWarmSessionReader;
   nearAccount: NearAccountRef;
   operationLabel: string;
-  usesNeeded?: number;
+  requiredSignatureUses?: number;
 }): Promise<NearThresholdSigningAuthContext> {
   const accountId = String(args.nearAccount.accountId || '').trim();
   const warmSession = await args.warmSessionReader.getWarmSession(accountId);
@@ -201,7 +212,7 @@ export async function resolveNearThresholdSigningAuthContext(args: {
     nearAccountId: accountId,
     capability,
     sessionId,
-    usesNeeded: args.usesNeeded,
+    requiredSignatureUses: args.requiredSignatureUses,
     operationLabel: args.operationLabel,
   });
   emitSigningBoundaryTrace(
@@ -218,7 +229,7 @@ export async function resolveNearThresholdSigningAuthContext(args: {
     readiness: readiness.readiness,
     expiresAtMs: readiness.expiresAtMs,
     remainingUses: readiness.remainingUses,
-    usesNeeded: args.usesNeeded,
+    usesNeeded: args.requiredSignatureUses,
     forceFreshAuth:
       isEmailOtpSession &&
       capability.state === 'ready' &&
@@ -297,7 +308,7 @@ async function resolvePlannerReadinessForEd25519(args: {
     ReturnType<WarmSessionCapabilityReader['getWarmSession']>
   >['capabilities']['ed25519'];
   sessionId: string;
-  usesNeeded?: number;
+  requiredSignatureUses?: number;
   operationLabel?: string;
 }): Promise<{
   readiness: SigningSessionReadiness;
@@ -375,7 +386,7 @@ async function resolvePlannerReadinessForEd25519(args: {
           : args.capability.record?.remainingUses,
       ) || 0,
     );
-    if (remainingUses < normalizeUsesNeeded(args.usesNeeded)) {
+    if (remainingUses < normalizeRequiredSignatureUses(args.requiredSignatureUses)) {
       return buildReadiness({ status: 'exhausted', remainingUses });
     }
     return buildReadiness({ status: 'ready', remainingUses });
@@ -412,11 +423,8 @@ async function resolvePlannerReadinessForEd25519(args: {
     return buildReadiness({ status: 'exhausted', remainingUses: 0 });
   }
   if (status?.status === 'active') {
-    if (isEmailOtpSession) {
-      return buildReadiness({ status: 'missing_session', remainingUses: 0 });
-    }
     const remainingUses = Math.floor(Number(status.remainingUses) || 0);
-    if (remainingUses < normalizeUsesNeeded(args.usesNeeded)) {
+    if (remainingUses < normalizeRequiredSignatureUses(args.requiredSignatureUses)) {
       return buildReadiness({ status: 'exhausted', remainingUses });
     }
     return buildReadiness({
@@ -474,7 +482,7 @@ async function restorePasskeyEd25519SessionBeforePlanning(args: {
   });
 }
 
-function normalizeUsesNeeded(usesNeededRaw: unknown): number {
-  const usesNeeded = Math.floor(Number(usesNeededRaw) || 0);
-  return usesNeeded > 0 ? usesNeeded : 1;
+function normalizeRequiredSignatureUses(requiredSignatureUsesRaw: unknown): number {
+  const requiredSignatureUses = Math.floor(Number(requiredSignatureUsesRaw) || 0);
+  return requiredSignatureUses > 0 ? requiredSignatureUses : 1;
 }

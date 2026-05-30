@@ -62,10 +62,7 @@ export function emailOtpEcdsaPublicationChainTargets(args: {
     targets.push(target);
   };
   pushTarget(args.primaryChain);
-  if (
-    args.emailOtpAuthContext.retention === 'session' &&
-    args.emailOtpAuthContext.reason === 'login'
-  ) {
+  if (args.emailOtpAuthContext.reason === 'login') {
     for (const target of configuredEmailOtpEcdsaSnapshotChainTargets(args.configs)) {
       pushTarget(target);
     }

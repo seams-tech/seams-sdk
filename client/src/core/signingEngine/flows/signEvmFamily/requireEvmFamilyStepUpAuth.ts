@@ -127,8 +127,13 @@ export async function requireEvmFamilyStepUpAuth(args: {
   thresholdEcdsaStepUp: EvmFamilyThresholdEcdsaStepUp;
   hasThresholdEcdsaRequest: boolean;
   needsWebAuthn: boolean;
+  requiredSignatureUses: number;
   explicitAuthErrorLabel: 'EVM' | 'Tempo';
 }): Promise<EvmFamilyPreparedStepUpAuth> {
+  const requiredSignatureUses = Math.max(
+    1,
+    Math.floor(Number(args.requiredSignatureUses) || 1),
+  );
   const signingAuthPlan = signingAuthPlanFromThresholdEcdsaStepUp(args.thresholdEcdsaStepUp);
   const stepUpRuntime =
     args.thresholdEcdsaStepUp.kind === 'not_required'
@@ -149,7 +154,7 @@ export async function requireEvmFamilyStepUpAuth(args: {
   const prepared = await prepareStepUpAuth({
     operation: {
       kind: 'evm_family_threshold_ecdsa_step_up' as const,
-      usesNeeded: 1,
+      usesNeeded: requiredSignatureUses,
     },
     selectedLane,
     policy: stepUpPolicyFromSigningAuthPlan(signingAuthPlan),
@@ -186,7 +191,7 @@ export async function requireEvmFamilyStepUpAuth(args: {
         prepare: async () => {
           if (stepUpRuntime?.passkeyReconnect) {
             plannedPasskeyReconnect = await stepUpRuntime.passkeyReconnect.prepare({
-              usesNeeded: 1,
+              usesNeeded: requiredSignatureUses,
             });
           }
           return {};
@@ -209,7 +214,7 @@ export async function requireEvmFamilyStepUpAuth(args: {
                 ? { plannedPasskeyReconnect }
                 : {}),
             },
-            usesNeeded: 1,
+            usesNeeded: requiredSignatureUses,
           });
         },
       },

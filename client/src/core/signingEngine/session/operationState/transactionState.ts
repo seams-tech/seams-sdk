@@ -85,6 +85,7 @@ export type TransactionSigningIntent =
   | EvmFamilyEcdsaTransactionSigningIntent;
 
 export type TransactionAuthSelectionPolicy =
+  | { kind: 'any' }
   | { kind: 'explicit'; authMethod: SigningAuthMethod }
   | { kind: 'account_class'; authMethod: SigningAuthMethod };
 

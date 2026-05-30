@@ -245,7 +245,7 @@ export type ThresholdSessionActivationDeps = {
           walletId: WalletId;
           chainTarget: ThresholdEcdsaChainTarget;
           bootstrap: ThresholdEcdsaSessionBootstrapResult;
-          source: ThresholdEcdsaSessionStoreSource;
+          source: 'email_otp';
           hasEmailOtpAuthContext: true;
           emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
         }
@@ -253,7 +253,7 @@ export type ThresholdSessionActivationDeps = {
           walletId: WalletId;
           chainTarget: ThresholdEcdsaChainTarget;
           bootstrap: ThresholdEcdsaSessionBootstrapResult;
-          source: ThresholdEcdsaSessionStoreSource;
+          source: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
           hasEmailOtpAuthContext: false;
           emailOtpAuthContext?: never;
         },
@@ -492,12 +492,17 @@ export async function bootstrapEcdsaSessionValue(
     activationDeps,
     toActivateEcdsaSessionRequest(normalizedRequest, relayerUrl),
   );
-  await deps.touchConfirm.putWarmSessionMaterial({
-    sessionId: activation.session.sessionId,
-    prfFirstB64u: activation.clientRootShare32B64u,
-    expiresAtMs: Number(activation.session.expiresAtMs),
-    remainingUses: Number(activation.session.remainingUses),
-  });
+  const thresholdSessionAuthToken = String(
+    activation.session.jwt || activation.thresholdEcdsaKeyRef.thresholdSessionAuthToken || '',
+  ).trim();
+  const transport = {
+    curve: 'ecdsa' as const,
+    walletId: String(walletId),
+    chainTarget,
+    relayerUrl,
+    walletSigningSessionId: activation.session.walletSigningSessionId,
+    thresholdSessionAuthToken,
+  };
   const thresholdEcdsaKeyRef = requireCanonicalThresholdEcdsaKeyRefIdentity(
     activation.thresholdEcdsaKeyRef,
   );
@@ -521,12 +526,25 @@ export async function bootstrapEcdsaSessionValue(
       emailOtpAuthContext: normalizedRequest.emailOtpAuthContext,
     });
   } else {
+    const source =
+      normalizedRequest.source === 'email_otp'
+        ? 'manual-bootstrap'
+        : normalizedRequest.source || 'manual-bootstrap';
     deps.upsertThresholdEcdsaSessionFromBootstrap({
       walletId,
       chainTarget,
       bootstrap: canonicalBootstrap,
-      source: normalizedRequest.source || 'manual-bootstrap',
+      source,
       hasEmailOtpAuthContext: false,
+    });
+  }
+  if (normalizedRequest.kind !== 'email_otp_ecdsa_bootstrap') {
+    await deps.touchConfirm.putWarmSessionMaterial({
+      sessionId: activation.session.sessionId,
+      prfFirstB64u: activation.clientRootShare32B64u,
+      expiresAtMs: Number(activation.session.expiresAtMs),
+      remainingUses: Number(activation.session.remainingUses),
+      transport,
     });
   }
   return canonicalBootstrap;

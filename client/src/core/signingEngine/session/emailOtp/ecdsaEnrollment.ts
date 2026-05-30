@@ -51,6 +51,11 @@ import {
   buildFreshEmailOtpRoutePlan,
   routeAuthFromEmailOtpRoutePlan,
 } from './routePlan';
+import {
+  DEV_DEFAULT_UNLOCK_REMAINING_USES,
+  resolveSigningBudgetPolicyRemainingUses,
+  resolveWalletUnlockBudgetPolicyFromRequestedUses,
+} from '../budget/policy';
 
 export type EmailOtpThresholdEcdsaEnrollmentResult = {
   enrollment: EmailOtpEnrollmentResult;
@@ -204,7 +209,7 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
     args.emailOtpAuthPolicy || ports.configs.signing.emailOtp.authPolicy;
   const emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext = {
     policy: emailOtpAuthPolicy,
-    retention: emailOtpAuthPolicy === 'per_operation' ? 'single_use' : 'session',
+    retention: 'session',
     reason: 'login',
     authMethod: SIGNER_AUTH_METHODS.emailOtp,
   };
@@ -251,12 +256,30 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
   const emailOtpContextAuthSubjectId = authSubjectId
     ? toEmailOtpAuthSubjectId(authSubjectId)
     : undefined;
-  const remainingUses =
-    typeof args.remainingUses === 'number'
-      ? args.remainingUses
-      : emailOtpAuthPolicy === 'per_operation'
-        ? 1
-        : undefined;
+  const configuredRemainingUses = args.remainingUses;
+  const defaultRemainingUses = ports.configs.signing.sessionDefaults?.remainingUses;
+  const requestedRemainingUses = Math.min(
+    Math.max(
+      1,
+      Math.floor(
+        Number(
+          configuredRemainingUses ?? defaultRemainingUses ?? DEV_DEFAULT_UNLOCK_REMAINING_USES,
+        ) || 1,
+      ),
+    ),
+    DEV_DEFAULT_UNLOCK_REMAINING_USES,
+  );
+  const unlockBudgetPolicy =
+    resolveWalletUnlockBudgetPolicyFromRequestedUses({
+      requestedRemainingUses,
+      ...(configuredRemainingUses == null && defaultRemainingUses == null
+        ? {}
+        : { policyVersion: 'sdk_email_otp_registration_config_v1' }),
+    }) ||
+    (() => {
+      throw new Error('[SigningEngine][email-otp] registration budget policy is required');
+    })();
+  const remainingUses = resolveSigningBudgetPolicyRemainingUses(unlockBudgetPolicy);
   const emailOtpAuthSubjectId = toEmailOtpAuthSubjectId(
     args.walletSession.walletSessionUserId || nearAccountId,
   );
@@ -285,6 +308,7 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
     shamirPrimeB64u,
     routePlan,
     workerCtx,
+    googleEmailOtpRegistrationAttemptId: registrationInput.registrationAttemptId,
     ...(args.clientSecret32 ? { clientSecret32: args.clientSecret32 } : {}),
     ...(args.otpChannel ? { otpChannel: args.otpChannel } : {}),
     ...(args.onProgress ? { onProgress: args.onProgress } : {}),
@@ -314,7 +338,7 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
       : {}),
     walletSigningSessionId,
     ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
-    ...(typeof remainingUses === 'number' ? { remainingUses } : {}),
+    remainingUses,
   };
   const bootstrapPayload: EmailOtpEcdsaBootstrapStrictPayload =
     registrationInput.sessionKind === 'jwt'

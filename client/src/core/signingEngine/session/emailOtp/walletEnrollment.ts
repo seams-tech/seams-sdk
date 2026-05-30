@@ -14,6 +14,7 @@ export async function enrollEmailOtpWalletWithRoutePlan(args: {
   shamirPrimeB64u: string;
   routePlan: EmailOtpRoutePlan;
   workerCtx: WorkerOperationContext;
+  googleEmailOtpRegistrationAttemptId?: string;
   clientSecret32?: Uint8Array;
   otpChannel?: WalletEmailOtpChannel;
   onProgress?: (progress: EmailOtpWorkerProgressEvent) => void;
@@ -40,6 +41,9 @@ export async function enrollEmailOtpWalletWithRoutePlan(args: {
           otpCode: args.otpCode,
           shamirPrimeB64u: args.shamirPrimeB64u,
           routePlan: args.routePlan,
+          ...(args.googleEmailOtpRegistrationAttemptId
+            ? { googleEmailOtpRegistrationAttemptId: args.googleEmailOtpRegistrationAttemptId }
+            : {}),
           otpChannel: args.otpChannel || EMAIL_OTP_CHANNEL,
           ...(workerClientSecret32
             ? { clientSecret32: workerClientSecret32.buffer.slice(0) }

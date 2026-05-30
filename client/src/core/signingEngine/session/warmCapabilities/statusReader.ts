@@ -22,6 +22,7 @@ import {
   readWalletScopedLaneClaimsForLanes,
   readWalletScopedLaneClaimsForWallet as readWalletScopedLaneClaimsForWalletCore,
   resolveEmailOtpEcdsaWorkerSessionId,
+  warmClaimFromRecordPolicy,
 } from '../availability/readiness';
 import {
   readWarmSessionCapabilityRecordsForWallet,
@@ -139,9 +140,16 @@ export function createWarmSessionStatusReader(
   ): Promise<WarmSessionPrfClaim | null> {
     const identity = tryBuildEcdsaSessionIdentity(record);
     if (!identity) return null;
-    const workerSessionId =
-      record.source === 'email_otp' ? resolveEmailOtpEcdsaWorkerSessionId(record) : '';
-    if (workerSessionId) {
+    if (record.source === 'email_otp') {
+      if (String(record.clientAdditiveShare32B64u || '').trim()) {
+        return warmClaimFromRecordPolicy({
+          sessionId: identity.thresholdSessionId,
+          remainingUses: record.remainingUses,
+          expiresAtMs: record.expiresAtMs,
+        });
+      }
+      const workerSessionId = resolveEmailOtpEcdsaWorkerSessionId(record);
+      if (!workerSessionId) return null;
       const status = await deps.getEmailOtpWarmSessionStatus(workerSessionId).catch(() => null);
       return status
         ? toWarmSessionClaimFromStatusResult({ sessionId: identity.thresholdSessionId, status })
@@ -387,7 +395,8 @@ export function createWarmSessionStatusReader(
         sessionId: identity.thresholdSessionId,
         claim: args.claim,
         authMethod: args.record.source === 'email_otp' ? 'email_otp' : 'passkey',
-        retention: args.record.emailOtpAuthContext?.retention || null,
+        retention:
+          args.record.source === 'email_otp' ? args.record.emailOtpAuthContext.retention : null,
       }),
       key,
       lane: selectedEcdsaLane({

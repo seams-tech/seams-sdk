@@ -23,7 +23,6 @@ import {
 } from './ecdsaMaterialState';
 import {
   findExactEcdsaSessionRecordForSelectedLane,
-  isSingleUseEmailOtpEcdsaRecord,
   logEvmFamilyEcdsaLaneDiagnostic,
   requireResolvedEvmFamilyEcdsaSigningLane,
   summarizeEvmFamilyEcdsaLane,
@@ -105,7 +104,7 @@ type ReauthRequiredEvmFamilyEcdsaSigningSelectionBase = {
   accountAuth: AccountAuthMetadata;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
   material: EcdsaMaterialState;
-  reason: 'single_use_email_otp' | 'missing_hot_material' | 'expired' | 'exhausted';
+  reason: 'missing_hot_material' | 'expired' | 'exhausted';
   diagnostics: EcdsaSelectionDiagnostics;
 };
 
@@ -115,7 +114,7 @@ type ReauthAnchorBackedEvmFamilyEcdsaSigningSelection = {
 };
 
 type MaterialBackedEvmFamilyEcdsaSigningSelection = {
-  reason: 'single_use_email_otp' | 'missing_hot_material';
+  reason: 'missing_hot_material';
   reauthAnchor?: never;
 };
 
@@ -528,10 +527,13 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
     args.laneCandidate.source === 'evm_family_shared_key'
       ? args.laneCandidate.sourceChainTarget
       : args.chainTarget;
-  const exactRecordForCandidate = findExactEcdsaSessionRecordForSelectedLane({
-    deps: args.deps,
-    lane,
-  });
+  const exactRecordForCandidate =
+    args.laneCandidate.source === 'evm_family_shared_key'
+      ? undefined
+      : findExactEcdsaSessionRecordForSelectedLane({
+          deps: args.deps,
+          lane,
+        });
 
   const emailOtpRecord = tryGetEmailOtpThresholdEcdsaSessionRecordForSigning({
     deps: args.deps,
@@ -547,7 +549,10 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
     args.laneCandidate.authMethod === SIGNER_AUTH_METHODS.emailOtp
       ? buildEcdsaMaterialStateForCandidate({
           candidate: args.laneCandidate,
-          record: exactRecordForCandidate || emailOtpRecord,
+          record:
+            args.laneCandidate.source === 'evm_family_shared_key'
+              ? emailOtpRecord
+              : exactRecordForCandidate,
           authMethod: SIGNER_AUTH_METHODS.emailOtp,
           source: SIGNER_AUTH_METHODS.emailOtp,
           chainTarget: args.chainTarget,
@@ -638,22 +643,6 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
       materialChainTarget,
       reason: 'exhausted',
       ...(args.reauthAnchor ? { reauthAnchor: args.reauthAnchor } : {}),
-      diagnostics,
-    });
-  }
-
-  if (
-    exactCandidateMaterial.kind === 'ready_to_sign' &&
-    args.laneCandidate.authMethod === SIGNER_AUTH_METHODS.emailOtp &&
-    isSingleUseEmailOtpEcdsaRecord(exactCandidateMaterial.record)
-  ) {
-    return reauthRequiredSelection({
-      accountAuth: selectedAccountAuth,
-      candidate: args.laneCandidate,
-      lane,
-      material: exactCandidateMaterial,
-      materialChainTarget,
-      reason: 'single_use_email_otp',
       diagnostics,
     });
   }

@@ -142,6 +142,7 @@ import {
   type EvmFamilySigningAuthSideEffect,
 } from './freshAuthRetryPolicy';
 import { emitEvmFamilySigningEvent, emitEvmFamilySigningOperationTrace } from './events';
+import { requiredEvmFamilyRequestSignatureUses } from './signatureUses';
 import { toOptionalEvmAddress } from './addresses';
 import {
   bindEvmFamilyCallerProvidedOperationIdToFingerprint,
@@ -280,6 +281,7 @@ async function signEvmFamilyAttempt(
     request: args.request,
     chainTarget: args.chainTarget,
   });
+  const requiredSignatureUses = requiredEvmFamilyRequestSignatureUses(args.request);
   await ensureSealedRefreshStartupParityForTransactionSigning(
     deps.ensureSealedRefreshStartupParity,
     {
@@ -721,7 +723,7 @@ async function signEvmFamilyAttempt(
               chain: 'tempo',
               chainTarget: signingTarget,
               authSelectionPolicy: { kind: 'explicit', authMethod: resolvedLane.authMethod },
-              operationUsesNeeded: 1,
+              operationUsesNeeded: requiredSignatureUses,
             }
           : {
               walletId,
@@ -729,7 +731,7 @@ async function signEvmFamilyAttempt(
               chain: 'evm',
               chainTarget: signingTarget,
               authSelectionPolicy: { kind: 'explicit', authMethod: resolvedLane.authMethod },
-              operationUsesNeeded: 1,
+              operationUsesNeeded: requiredSignatureUses,
             },
       coordinator: signingSessionCoordinator,
       missingWhenExpiresAtMissing: true,
@@ -842,7 +844,7 @@ async function signEvmFamilyAttempt(
     }
     const budgetIdentity = await signingSessionCoordinator.prepareBudgetIdentity({
       lane: prepared.signingLane,
-      operationUsesNeeded: 1,
+      operationUsesNeeded: requiredSignatureUses,
       ...(trustedStatusAuth || prepared.budgetStatusAuth
         ? { trustedStatusAuth: trustedStatusAuth || prepared.budgetStatusAuth }
         : {}),
