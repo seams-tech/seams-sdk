@@ -3,7 +3,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
 import { evmFamilySigningTargetFromExplicitTarget } from '@/core/signingEngine/flows/signEvmFamily/types';
-import type { AuthenticatedEcdsaLaneBudgetStatusCheck } from '@/core/signingEngine/session/budget/budget';
+import {
+  buildEcdsaLaneBudgetStatusCheck,
+  type AuthenticatedEcdsaLaneBudgetStatusCheck,
+} from '@/core/signingEngine/session/budget/budget';
 import { readTrustedWalletSigningBudgetStatus } from '@/core/signingEngine/session/budget/budgetStatusReader';
 import { thresholdEcdsaChainTargetFromChainFamily } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
@@ -12,9 +15,13 @@ import {
   toEvmFamilyEcdsaKeyHandle,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
+  createThresholdEcdsaBootstrapFixture,
   createThresholdEcdsaStoreFixture,
   resetWarmSessionFixtureState,
+  seedEcdsaWarmSessionRecord,
+  testEcdsaChainTarget,
 } from './helpers/warmSessionStore.fixtures';
+import { thresholdEcdsaSessionRecordReadModel } from '@/core/signingEngine/session/persistence/records';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const budgetChainTarget = thresholdEcdsaChainTargetFromChainFamily({
@@ -158,6 +165,91 @@ test.describe('EVM-family request boundaries', () => {
 });
 
 test.describe('Trusted wallet signing budget status', () => {
+  test('resolves ECDSA budget auth from the exact chain target when session ids are shared', async () => {
+    const ecdsaSessions = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaSessions);
+    const walletId = 'budget-shared-target.testnet';
+    const thresholdSessionId = 'threshold-session-shared-target';
+    const walletSigningSessionId = 'wallet-session-shared-target';
+    const ecdsaThresholdKeyId = 'ecdsa-budget-key';
+    const keyHandle = 'ecdsa-budget-key-handle';
+    const tempoRecord = seedEcdsaWarmSessionRecord(ecdsaSessions, {
+      nearAccountId: walletId,
+      chain: 'tempo',
+      source: 'email_otp',
+      bootstrap: createThresholdEcdsaBootstrapFixture({
+        nearAccountId: walletId,
+        chain: 'tempo',
+        sessionId: thresholdSessionId,
+        walletSigningSessionId,
+        ecdsaThresholdKeyId,
+        keyHandle,
+        sessionAuthToken: 'tempo-target-token',
+      }),
+    });
+    const evmTarget = testEcdsaChainTarget('evm');
+    const evmRecord = seedEcdsaWarmSessionRecord(ecdsaSessions, {
+      nearAccountId: walletId,
+      chain: 'evm',
+      source: 'email_otp',
+      bootstrap: createThresholdEcdsaBootstrapFixture({
+        nearAccountId: walletId,
+        chain: 'evm',
+        sessionId: thresholdSessionId,
+        walletSigningSessionId,
+        ecdsaThresholdKeyId,
+        keyHandle,
+        sessionAuthToken: 'evm-target-token',
+      }),
+    });
+    if (!tempoRecord || !evmRecord) throw new Error('failed to seed shared-target ECDSA records');
+    expect(evmRecord.thresholdSessionAuthToken).not.toBe(tempoRecord.thresholdSessionAuthToken);
+
+    const originalFetch = globalThis.fetch;
+    const authorizations: string[] = [];
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const authorization = String(new Headers(init?.headers).get('Authorization') || '');
+      authorizations.push(authorization);
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          walletSigningSessionId,
+          thresholdSessionId,
+          status: 'active',
+          remainingUses: 2,
+          expiresAtMs: 1_777_777_777_000,
+          projectionVersion: 'projection-v1',
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }) as typeof fetch;
+
+    try {
+      const status = await readTrustedWalletSigningBudgetStatus(
+        { ecdsaSessions },
+        buildEcdsaLaneBudgetStatusCheck({
+          key: thresholdEcdsaSessionRecordReadModel(evmRecord).key,
+          keyHandle: evmRecord.keyHandle,
+          chainTarget: evmTarget,
+          walletSigningSessionId,
+          thresholdSessionId,
+        }),
+      );
+
+      expect(status).toMatchObject({
+        sessionId: walletSigningSessionId,
+        status: 'active',
+        remainingUses: 2,
+      });
+      expect(authorizations).toEqual([`Bearer ${evmRecord.thresholdSessionAuthToken}`]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test('treats auth-rejected not_found status as budget_unknown', async () => {
     const ecdsaSessions = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaSessions);

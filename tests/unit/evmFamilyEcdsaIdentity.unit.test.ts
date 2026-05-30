@@ -359,6 +359,41 @@ test.describe('EVM-family ECDSA identity', () => {
     expect(signerSession.clientShare.kind).toBe('inline_client_share');
   });
 
+  test('treats Email OTP registration ECDSA records with inline HSS share as ready', async () => {
+    const record = makeRecord({
+      source: 'email_otp',
+      emailOtpAuthContext: {
+        retention: 'session',
+        reason: 'login',
+        policy: 'session',
+        authMethod: 'email_otp',
+      },
+      thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,
+    });
+
+    const resolution = resolveReadyEvmFamilyEcdsaMaterial({
+      record,
+      rpId: RP_ID,
+      expected: {
+        walletId: WALLET_ID,
+        chainTarget: EVM_TARGET,
+        authMethod: 'email_otp',
+        source: 'email_otp',
+        thresholdSessionId: record.thresholdSessionId,
+        walletSigningSessionId: record.walletSigningSessionId,
+      },
+    });
+
+    expect(resolution.kind).toBe('ready');
+    if (resolution.kind !== 'ready') {
+      throw new Error('expected ready Email OTP ECDSA material');
+    }
+    const signerSession = await toReadyEcdsaSignerSessionFromReadyMaterial({
+      material: resolution.material,
+    });
+    expect(signerSession.clientShare.kind).toBe('inline_client_share');
+  });
+
   test('ready-material public facts come from the validated session record', async () => {
     const record = makeRecord({
       thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,

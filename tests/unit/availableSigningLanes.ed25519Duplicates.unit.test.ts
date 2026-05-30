@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   isConcreteAvailableSigningLane,
   readAvailableSigningLanes,
+  runtimeEcdsaRecordClaimKey,
   type AvailableSigningLanesRuntimeClaim,
   type AvailableSigningLanesRuntimeEcdsaRecord,
   type AvailableSigningLanesRuntimeEd25519Record,
@@ -195,6 +196,15 @@ async function readAvailableLanes(args: {
         }),
       listRuntimeEcdsaLanesForWallet: async () => args.runtimeEcdsaRecords || [],
       listRuntimeEd25519RecordsForAccount: async () => args.runtimeRecords || [],
+      readRuntimeEcdsaClaimsForRecords: async (records) => {
+        const claims = new Map<string, AvailableSigningLanesRuntimeClaim | null>();
+        for (const record of records) {
+          const claimKey = runtimeEcdsaRecordClaimKey(record);
+          if (!claimKey) continue;
+          claims.set(claimKey, args.runtimeClaims?.get(record.thresholdSessionId) || null);
+        }
+        return claims;
+      },
       readRuntimeClaimsForSessions: async (sessionIds) => {
         const claims = new Map<string, AvailableSigningLanesRuntimeClaim | null>();
         for (const sessionId of sessionIds) {
@@ -643,6 +653,57 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
       remainingUses: 0,
       walletSigningSessionId: 'wsess-email-otp-runtime-exhausted',
       thresholdSessionId: 'tsess-email-otp-runtime-exhausted',
+    });
+  });
+
+  test('propagates ready Email OTP runtime ECDSA state to shared Tempo lanes', async () => {
+    const thresholdSessionId = 'tsess-email-otp-runtime-ready';
+    const availableLanes = await readAvailableLanes({
+      sealedRecords: [],
+      ecdsaChainTargets: [ECDSA_TARGET, TEMPO_TARGET],
+      runtimeEcdsaRecords: [
+        runtimeEcdsaRecord({
+          authMethod: 'email_otp',
+          chainTarget: ECDSA_TARGET,
+          thresholdSessionId,
+          walletSigningSessionId: 'wsess-email-otp-runtime-ready',
+          thresholdOwnerAddress: `0x${'EF'.repeat(20)}`,
+          remainingUses: 1,
+        }),
+      ],
+      runtimeClaims: new Map([
+        [
+          thresholdSessionId,
+          {
+            state: 'warm',
+            sessionId: thresholdSessionId,
+            remainingUses: 1,
+            expiresAtMs: EXPIRES_AT_MS,
+          },
+        ],
+      ]),
+    });
+
+    const evmTargetKey = thresholdEcdsaChainTargetKey(ECDSA_TARGET);
+    const tempoTargetKey = thresholdEcdsaChainTargetKey(TEMPO_TARGET);
+    expect(availableLanes.ecdsa.candidatesByTarget[evmTargetKey]).toHaveLength(1);
+    expect(availableLanes.ecdsa.candidatesByTarget[evmTargetKey][0]).toMatchObject({
+      authMethod: 'email_otp',
+      source: 'runtime_session_record',
+      state: 'ready',
+      remainingUses: 1,
+      walletSigningSessionId: 'wsess-email-otp-runtime-ready',
+      thresholdSessionId,
+    });
+    expect(availableLanes.ecdsa.candidatesByTarget[tempoTargetKey]).toHaveLength(1);
+    expect(availableLanes.ecdsa.candidatesByTarget[tempoTargetKey][0]).toMatchObject({
+      authMethod: 'email_otp',
+      source: 'evm_family_shared_key',
+      sourceChainTarget: ECDSA_TARGET,
+      state: 'ready',
+      remainingUses: 1,
+      walletSigningSessionId: 'wsess-email-otp-runtime-ready',
+      thresholdSessionId,
     });
   });
 

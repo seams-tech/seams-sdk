@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
+  getAuthenticatorsByUser,
+  hasPasskeyCredential,
   storeWalletEcdsaSignerRecords,
   storeWalletEd25519SignerRecord,
   storeWalletEd25519RegistrationData,
@@ -35,6 +37,74 @@ const authenticationCredential = {
   authenticatorAttachment: null,
   clientExtensionResults: {},
 } as unknown as WebAuthnAuthenticationCredential;
+
+test('NEAR authenticator lookup resolves the canonical wallet passkey auth method', async () => {
+  const deps = {
+    indexedDB: {
+      resolveProfileAccountContext: async (accountRef: {
+        chainIdKey: string;
+        accountAddress: string;
+      }) => ({
+        profileId: 'near-profile:alice.testnet',
+        accountRef,
+      }),
+      listAccountSigners: async () => [
+        {
+          profileId: 'near-profile:alice.testnet',
+          chainIdKey: 'near:testnet',
+          accountAddress: 'alice.testnet',
+          signerId: 'ed25519:public',
+          signerSlot: 2,
+          signerType: 'threshold',
+          signerKind: 'threshold-ed25519',
+          signerAuthMethod: 'passkey',
+          signerSource: 'passkey_registration',
+          status: 'active',
+          addedAt: 1,
+          updatedAt: 1,
+          metadata: {
+            walletId: 'wallet_alice',
+            passkeyCredentialRawId: 'credential-raw-id',
+          },
+        },
+      ],
+      listProfileAuthenticators: async (profileId: string) =>
+        profileId === 'wallet_alice'
+          ? [
+              {
+                profileId: 'wallet_alice',
+                signerSlot: 99,
+                credentialId: 'credential-raw-id',
+                credentialPublicKey: new Uint8Array([1, 2, 3]),
+                transports: ['internal'],
+                registered: new Date(0).toISOString(),
+                syncedAt: new Date(0).toISOString(),
+              },
+              {
+                profileId: 'wallet_alice',
+                signerSlot: 1,
+                credentialId: 'stale-credential',
+                credentialPublicKey: new Uint8Array([4, 5, 6]),
+                transports: [],
+                registered: new Date(0).toISOString(),
+                syncedAt: new Date(0).toISOString(),
+              },
+            ]
+          : [],
+    },
+  };
+
+  const authenticators = await getAuthenticatorsByUser(deps as any, toAccountId('alice.testnet'));
+
+  expect(authenticators).toHaveLength(1);
+  expect(authenticators[0]).toMatchObject({
+    nearAccountId: 'alice.testnet',
+    signerSlot: 2,
+    credentialId: 'credential-raw-id',
+    transports: ['internal'],
+  });
+  await expect(hasPasskeyCredential(deps as any, toAccountId('alice.testnet'))).resolves.toBe(true);
+});
 
 test('wallet registration persists wallet signer before NEAR projection', async () => {
   const calls: string[] = [];

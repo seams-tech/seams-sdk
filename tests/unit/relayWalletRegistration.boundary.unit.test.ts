@@ -233,7 +233,7 @@ function validEcdsaClientBootstrap() {
     signingRootVersion: 'default',
     keyScope: 'evm-family',
     relayerKeyId: 'ehss-relayer-alice',
-    clientPublicKey33B64u: b64u([2, ...Array(32).fill(1)]),
+    hssClientSharePublicKey33B64u: b64u([2, ...Array(32).fill(1)]),
     clientShareRetryCounter: 0,
     contextBinding32B64u: b64u(Array(32).fill(2)),
     requestId: 'request-1',
@@ -260,8 +260,9 @@ function validEcdsaServerBootstrap() {
     relayerKeyId: 'ehss-relayer-alice',
     contextBinding32B64u: b64u(Array(32).fill(2)),
     publicIdentity: {
-      keyScope: 'evm-family',
-      publicKey33B64u: b64u([2, ...Array(32).fill(3)]),
+      hssClientSharePublicKey33B64u: b64u([2, ...Array(32).fill(1)]),
+      relayerPublicKey33B64u: b64u([3, ...Array(32).fill(6)]),
+      groupPublicKey33B64u: b64u([2, ...Array(32).fill(5)]),
       ethereumAddress: '0x1111111111111111111111111111111111111111',
     },
     publicTranscriptDigest32B64u: b64u(Array(32).fill(4)),
@@ -476,6 +477,7 @@ test.describe('wallet registration route boundaries', () => {
           intent,
           emailOtpRegistrationProof: {
             version: 'email_otp_registration_proof_v1',
+            providerSubject: 'google:alice',
             email: 'Alice@Example.test',
             challengeId: 'challenge-1',
             otpCode: '123456',
@@ -1361,6 +1363,7 @@ test.describe('wallet registration route boundaries', () => {
           },
           emailOtpRegistrationProof: {
             version: 'email_otp_registration_proof_v1',
+            providerSubject: 'google:alice',
             email: 'Alice@Example.test',
             challengeId: 'challenge-1',
             otpCode: '123456',

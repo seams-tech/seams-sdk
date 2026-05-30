@@ -12,6 +12,11 @@ import {
 } from '@/core/SeamsPasskey/emailOtp';
 import { collectEmailOtpRegistrationAuthority } from '@/core/SeamsPasskey/emailOtpRegistrationAuthority';
 
+function jwtWithPayload(payload: Record<string, unknown>): string {
+  const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
+  return `${encode({ alg: 'none', typ: 'JWT' })}.${encode(payload)}.`;
+}
+
 test.describe('SeamsPasskey Email OTP runtime', () => {
   test('Email OTP pre-unseal routes dispatch through the dedicated Email OTP worker when no fetch override is provided', async () => {
     const workerCalls: Array<{ kind: string; type: string; payload: Record<string, unknown> }> = [];
@@ -288,17 +293,24 @@ test.describe('SeamsPasskey Email OTP runtime', () => {
       );
     };
 
+    const appSessionJwt = jwtWithPayload({
+      kind: 'app_session_v1',
+      sub: 'google:subject-1',
+      providerSubject: 'google:subject-1',
+      appSessionVersion: 'app-session-v1',
+    });
+
     const authority = await collectEmailOtpRegistrationAuthority({
       authMethod: {
         kind: 'email_otp',
         email: ' Alice@Example.Test ',
         otpCode: ' 123456 ',
-        appSessionJwt: 'app-session-jwt-1',
+        appSessionJwt,
       },
       relayUrl: 'https://relay.example',
       walletId: 'wallet_alice',
       registrationIntentDigestB64u: 'intent-digest-1',
-      appSessionJwt: 'app-session-jwt-1',
+      appSessionJwt,
       fetchImpl,
     });
 
@@ -306,9 +318,11 @@ test.describe('SeamsPasskey Email OTP runtime', () => {
       kind: 'email_otp',
       challengeId: 'registration-challenge-1',
       appSessionVersion: 'app-session-v1',
+      providerSubject: 'google:subject-1',
       email: 'alice@example.test',
       proof: {
         version: 'email_otp_registration_proof_v1',
+        providerSubject: 'google:subject-1',
         email: 'alice@example.test',
         challengeId: 'registration-challenge-1',
         otpCode: '123456',
@@ -320,7 +334,7 @@ test.describe('SeamsPasskey Email OTP runtime', () => {
     expect(fetchCalls).toEqual([
       {
         url: 'https://relay.example/wallet/email-otp/registration/challenge',
-        authorization: 'Bearer app-session-jwt-1',
+        authorization: `Bearer ${appSessionJwt}`,
         body: {
           walletId: 'wallet_alice',
           otpChannel: 'email_otp',

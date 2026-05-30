@@ -648,6 +648,12 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
     expect(recoveryAssembly).toContain('export function createRecoveryPublicDeps');
     expect(recoveryAssembly).toContain('readPersistedAvailableSigningLanes');
     expect(recoveryAssembly).toContain('readPersistedAvailableSigningLanesForTargets');
+    expect(recoveryAssembly).toContain(
+      'const getEmailOtpWarmSessionStatus = (sessionId: string) =>',
+    );
+    expect(recoveryAssembly).not.toContain(
+      'getEmailOtpWarmSessionStatus: args.emailOtpSessions.readWarmSessionStatusOnly',
+    );
   });
 
   test('session facade methods delegate through session public entrypoints', () => {

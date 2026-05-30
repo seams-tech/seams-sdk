@@ -1041,7 +1041,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
           keyHandle,
           participantIds: [1, 3],
           sessionKind: 'jwt',
-          remainingUses: 1,
+          remainingUses: 3,
           routeAuth: { kind: 'app_session', jwt },
         },
       },
@@ -1052,7 +1052,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       source: 'email_otp',
       emailOtpAuthContext: {
         policy: 'per_operation',
-        retention: 'single_use',
+        retention: 'session',
         reason: 'login',
         authMethod: 'email_otp',
       },
@@ -1397,7 +1397,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
     ).rejects.toThrow('Email OTP sealed refresh tempo:42431 record was not durably persisted');
   });
 
-  test('does not persist sealed Email OTP refresh records for per-operation ECDSA login', async () => {
+  test('persists sealed Email OTP refresh records for wallet-unlock ECDSA login under per-operation policy', async () => {
     const { coordinator, workerCalls, sealedRecordWrites } = createCoordinator({
       configs: {
         signing: {
@@ -1439,8 +1439,8 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
 
     expect(
       workerCalls.some((call) => call.request?.type === 'sealEmailOtpWarmSessionMaterial'),
-    ).toBe(false);
-    expect(sealedRecordWrites).toHaveLength(0);
+    ).toBe(true);
+    expect(sealedRecordWrites.length).toBeGreaterThan(0);
   });
 
   test('Email OTP per-operation ECDSA signing mints a fresh wallet signing-session id', async () => {
@@ -2710,12 +2710,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
 
   test('login reconstructs Ed25519 when route auth supplies the deferred runtime scope', async () => {
     const reconstructionCalls: any[] = [];
-    const { coordinator } = createCoordinator({
-      configs: {
-        signing: {
-          emailOtp: { authPolicy: 'session' },
-        },
-      },
+    const { coordinator, ecdsaCommitCalls } = createCoordinator({
       reconstructEd25519Session: async (args) => {
         reconstructionCalls.push(args);
         return {
@@ -2779,6 +2774,18 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       },
       walletSigningSessionId: expect.any(String),
       ecdsaThresholdSessionId: 'ecdsa-session',
+      emailOtpAuthContext: {
+        policy: 'session',
+        retention: 'session',
+        reason: 'login',
+        authMethod: 'email_otp',
+      },
+    });
+    expect(ecdsaCommitCalls[0].emailOtpAuthContext).toMatchObject({
+      policy: 'per_operation',
+      retention: 'session',
+      reason: 'login',
+      authMethod: 'email_otp',
     });
     expect(String(reconstructionCalls[0].walletSigningSessionId || '')).toBeTruthy();
   });
@@ -2871,6 +2878,10 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
     });
 
     expect(result.enrollment.thresholdEcdsaClientVerifyingShareB64u).toBe('verifying-share');
-    expect(ecdsaCommitCalls).toHaveLength(1);
+    expect(ecdsaCommitCalls).toHaveLength(2);
+    expect(ecdsaCommitCalls.map((call) => call.primaryChain.kind).sort()).toEqual([
+      'evm',
+      'tempo',
+    ]);
   });
 });

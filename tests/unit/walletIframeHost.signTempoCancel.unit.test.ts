@@ -349,12 +349,72 @@ test.describe('wallet iframe host canonical signer error mapping', () => {
     ).toContain('blocked by wallet policy');
   });
 
-  test('prevents unknown signer-boundary code leakage', async () => {
+  test('does not masquerade unknown signer-boundary errors as session-not-ready', async () => {
     const code = resolveWalletBoundaryErrorCode({
       requestType: 'PM_SIGN_TEMPO',
       rawCode: 'SOME_INTERNAL_RUNTIME_ERROR',
       message: 'unexpected runtime path',
     });
-    expect(code).toBe('threshold_ecdsa_session_not_ready');
+    expect(code).toBe('SOME_INTERNAL_RUNTIME_ERROR');
+  });
+
+  test('preserves unknown signer-boundary messages for debugging', async () => {
+    const code = resolveWalletBoundaryErrorCode({
+      requestType: 'PM_SIGN_TXS_WITH_ACTIONS',
+      message: '[SigningEngine][near] Ed25519 transaction has ambiguous runtime lanes',
+      defaultCode: 'HOST_ERROR',
+    });
+    const message = resolveWalletBoundaryErrorMessage({
+      requestType: 'PM_SIGN_TXS_WITH_ACTIONS',
+      code,
+      message: '[SigningEngine][near] Ed25519 transaction has ambiguous runtime lanes',
+    });
+    expect(code).toBe('HOST_ERROR');
+    expect(message).toContain('ambiguous runtime lanes');
+  });
+
+  test('does not collapse NEAR Email OTP wiring and material errors into session-not-ready', async () => {
+    const messages = [
+      '[SigningEngine] Email OTP step-up runtime is unavailable',
+      '[SigningEngine] Email OTP signing did not return a threshold session id',
+      'Missing PRF.first output for signing',
+      '[SigningEngine][near] Ed25519 transaction has ambiguous runtime lanes',
+      '[SigningEngine][near] Ed25519 transaction signing requires an exact selected lane',
+      '[SigningEngine][near] available Ed25519 lane identity does not match runtime session record for alice.testnet',
+    ];
+    for (const message of messages) {
+      const code = resolveWalletBoundaryErrorCode({
+        requestType: 'PM_SIGN_TXS_WITH_ACTIONS',
+        message,
+        defaultCode: 'HOST_ERROR',
+      });
+      expect(code, message).toBe('HOST_ERROR');
+      expect(
+        resolveWalletBoundaryErrorMessage({
+          requestType: 'PM_SIGN_TXS_WITH_ACTIONS',
+          code,
+          message,
+        }),
+        message,
+      ).toBe(message);
+    }
+  });
+
+  test('still maps true NEAR threshold session failures to threshold_ed25519_session_not_ready', async () => {
+    const messages = [
+      '[chains] threshold signingSession auth is unavailable; reconnect threshold session before signing',
+      '[SigningEngine][near] signing session is not ready: missing_session',
+      '[SigningEngine][near] signing session is not ready: exhausted',
+      'Missing threshold wrapKeySalt for account: alice.testnet',
+    ];
+    for (const message of messages) {
+      expect(
+        resolveWalletBoundaryErrorCode({
+          requestType: 'PM_SIGN_TXS_WITH_ACTIONS',
+          message,
+        }),
+        message,
+      ).toBe('threshold_ed25519_session_not_ready');
+    }
   });
 });

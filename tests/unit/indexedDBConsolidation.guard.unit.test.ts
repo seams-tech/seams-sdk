@@ -34,7 +34,7 @@ function listSourceFiles(relativeDir: string): string[] {
 test.describe('IndexedDB consolidation guards', () => {
   test('canonical wallet schema names use one Seams-prefixed DB and unprefixed snake_case stores', () => {
     expect(SEAMS_WALLET_DB_NAME).toBe('seams_wallet');
-    expect(SEAMS_WALLET_DB_VERSION).toBe(4);
+    expect(SEAMS_WALLET_DB_VERSION).toBe(5);
     expect(Object.values(SEAMS_WALLET_STORES).every((name) => !name.startsWith('seams_'))).toBe(
       true,
     );
@@ -179,6 +179,69 @@ test.describe('IndexedDB consolidation guards', () => {
         })),
       );
     }
+  });
+
+  test('schema upgrade replaces stale unique auth-method identifier index', async ({ page }) => {
+    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    const result = await page.evaluate(async () => {
+      const schemaNames = await import('/sdk/esm/core/indexedDB/schemaNames.js');
+      const managerModule = await import('/sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
+      const dbName = schemaNames.createSeamsTestWalletDbName(
+        `auth_method_index_upgrade_${crypto.randomUUID()}`,
+      );
+      await new Promise<void>((resolve) => {
+        const request = indexedDB.deleteDatabase(dbName);
+        request.onsuccess = () => resolve();
+        request.onerror = () => resolve();
+        request.onblocked = () => resolve();
+      });
+      await new Promise<void>((resolve, reject) => {
+        const request = indexedDB.open(dbName, 4);
+        request.onupgradeneeded = () => {
+          const store = request.result.createObjectStore(
+            schemaNames.SEAMS_WALLET_STORES.walletAuthMethods,
+            { keyPath: 'wallet_auth_method_id' },
+          );
+          store.createIndex(
+            schemaNames.SEAMS_WALLET_INDEXES.kindRpIdAuthIdentifier,
+            ['kind', 'rp_id', 'auth_identifier_key'],
+            { unique: true },
+          );
+        };
+        request.onsuccess = () => {
+          request.result.close();
+          resolve();
+        };
+        request.onerror = () => reject(request.error);
+      });
+
+      const manager = new managerModule.SeamsWalletDBManager();
+      manager.setDbName(dbName);
+      const db = await manager.getDB();
+      const tx = db.transaction(schemaNames.SEAMS_WALLET_STORES.walletAuthMethods, 'readonly');
+      const index = tx
+        .objectStore(schemaNames.SEAMS_WALLET_STORES.walletAuthMethods)
+        .index(schemaNames.SEAMS_WALLET_INDEXES.kindRpIdAuthIdentifier);
+      const observed = {
+        version: db.version,
+        unique: index.unique,
+        keyPath: index.keyPath,
+      };
+      manager.close();
+      await new Promise<void>((resolve) => {
+        const request = indexedDB.deleteDatabase(dbName);
+        request.onsuccess = () => resolve();
+        request.onerror = () => resolve();
+        request.onblocked = () => resolve();
+      });
+      return observed;
+    });
+
+    expect(result).toEqual({
+      version: SEAMS_WALLET_DB_VERSION,
+      unique: false,
+      keyPath: ['kind', 'rp_id', 'auth_identifier_key'],
+    });
   });
 
   test('wallet DB manager deletes legacy local databases before opening seams_wallet', async ({
@@ -1013,6 +1076,12 @@ test.describe('IndexedDB consolidation guards', () => {
           key_handle: 'wrong-key-handle',
         });
       }
+      if (ed25519Row) {
+        const legacyEd25519Row = { ...ed25519Row };
+        delete legacyEd25519Row.chain_target_key;
+        delete legacyEd25519Row.near_signer_slot;
+        await db.put(schemaNames.SEAMS_WALLET_STORES.walletSigners, legacyEd25519Row);
+      }
       const parsedAfterMirrorDrift = await repositories.listAccountSignersByProfile({
         profileId: 'wallet_alice',
       });
@@ -1129,7 +1198,7 @@ test.describe('IndexedDB consolidation guards', () => {
     });
   });
 
-  test('wallet auth-method rows reject duplicate identifiers and scalar drift', async ({
+  test('wallet auth-method rows allow shared Email OTP identifiers and reject passkey duplicates plus scalar drift', async ({
     page,
   }) => {
     await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
@@ -1146,6 +1215,8 @@ test.describe('IndexedDB consolidation guards', () => {
 
       await repositories.upsertProfile({ profileId: 'wallet_auth_a', defaultSignerSlot: 1 });
       await repositories.upsertProfile({ profileId: 'wallet_auth_b', defaultSignerSlot: 1 });
+      await repositories.upsertProfile({ profileId: 'wallet_email_a', defaultSignerSlot: 1 });
+      await repositories.upsertProfile({ profileId: 'wallet_email_b', defaultSignerSlot: 1 });
       await repositories.upsertWalletAuthMethod({
         version: 'wallet_auth_method_v1',
         kind: 'passkey',
@@ -1176,6 +1247,38 @@ test.describe('IndexedDB consolidation guards', () => {
         })
         .then(() => false)
         .catch(() => true);
+
+      const sharedEmailIdentifierWrites = await Promise.all([
+        repositories.upsertWalletAuthMethod({
+          version: 'wallet_auth_method_v1',
+          kind: 'email_otp',
+          status: 'active',
+          localStatus: 'synced',
+          walletId: 'wallet_email_a',
+          rpId: 'local',
+          emailHashHex: 'same-email-hash',
+          challengeId: 'challenge-a',
+          createdAtMs: 5,
+          updatedAtMs: 6,
+        }),
+        repositories.upsertWalletAuthMethod({
+          version: 'wallet_auth_method_v1',
+          kind: 'email_otp',
+          status: 'active',
+          localStatus: 'synced',
+          walletId: 'wallet_email_b',
+          rpId: 'local',
+          emailHashHex: 'same-email-hash',
+          challengeId: 'challenge-b',
+          createdAtMs: 7,
+          updatedAtMs: 8,
+        }),
+      ]);
+      const ambiguousSharedEmailLookup = await repositories.getWalletAuthMethod({
+        kind: 'email_otp',
+        rpId: 'local',
+        authIdentifierKey: 'same-email-hash',
+      });
 
       const db = await manager.getDB();
       const tx = db.transaction(schemaNames.SEAMS_WALLET_STORES.walletAuthMethods, 'readwrite');
@@ -1208,6 +1311,8 @@ test.describe('IndexedDB consolidation guards', () => {
       });
       return {
         duplicateIdentifierRejected,
+        sharedEmailIdentifierWriteCount: sharedEmailIdentifierWrites.length,
+        ambiguousSharedEmailLookup: ambiguousSharedEmailLookup === null,
         lookupByOriginal: lookupByOriginal === null,
         lookupByDrifted: lookupByDrifted === null,
         listedCount: listed.length,
@@ -1216,6 +1321,8 @@ test.describe('IndexedDB consolidation guards', () => {
 
     expect(result).toEqual({
       duplicateIdentifierRejected: true,
+      sharedEmailIdentifierWriteCount: 2,
+      ambiguousSharedEmailLookup: true,
       lookupByOriginal: true,
       lookupByDrifted: true,
       listedCount: 0,

@@ -12,6 +12,7 @@ import {
 } from '../../shared/src/utils/registrationIntent';
 import { derivePasskeyThresholdEcdsaClientRootShare32B64uFromPrfFirst } from '../../client/src/core/signingEngine/session/passkey/ecdsaClientRoot';
 import { parseWalletRegistrationEcdsaHssRespond } from '../../client/src/core/rpcClients/relayer/walletRegistration';
+import { thresholdEcdsaChainTargetKey } from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
 
 const RELAYER_URL = 'https://relay.example.test';
 const WALLET_SUBJECT_ID = walletIdFromString('wallet_matrix');
@@ -82,7 +83,7 @@ function createContext(captures: Record<string, unknown>): any {
     captures.ecdsaClientBootstrapArgs = args;
     const clientBootstrap = {
       ...(args.prepare as Record<string, unknown>),
-      clientPublicKey33B64u: 'client-public-key',
+      hssClientSharePublicKey33B64u: 'client-public-key',
       clientShareRetryCounter: 0,
       contextBinding32B64u: 'context-binding',
     };
@@ -237,6 +238,71 @@ function createContext(captures: Record<string, unknown>): any {
       hydrateSigningSession: async (input: Record<string, unknown>) => {
         captures.hydratedSession = input;
       },
+      readPersistedAvailableSigningLanes: async (input: Record<string, unknown>) => {
+        const authMethod = input.authMethod === 'email_otp' ? 'email_otp' : 'passkey';
+        const walletId = String(input.walletId || WALLET_SUBJECT_ID);
+        const chainTargets =
+          (captures.intent as any)?.signerSelection?.ecdsa?.chainTargets ||
+          (captures.finalizeBody as any)?.ecdsa?.walletKeys?.map(
+            (walletKey: { chainTarget: unknown }) => walletKey.chainTarget,
+          ) ||
+          [];
+        const lanesByTarget: Record<string, unknown> = {};
+        const candidatesByTarget: Record<string, unknown[]> = {};
+        for (const chainTarget of chainTargets) {
+          const targetKey = thresholdEcdsaChainTargetKey(chainTarget as any);
+          const lane = {
+            curve: 'ecdsa',
+            chainTarget,
+            state: 'ready',
+            authMethod,
+            thresholdSessionId: 'session-ecdsa',
+            walletSigningSessionId: 'wallet-session-ecdsa',
+            remainingUses: 1,
+            expiresAtMs: Date.now() + 60_000,
+            key: {
+              walletId,
+              chainTarget,
+              keyHandle: 'ehss-registration-key',
+              ecdsaThresholdKeyId: 'ecdsa-threshold-key-id',
+              signingRootId: 'project_matrix:dev',
+              signingRootVersion: RUNTIME_POLICY_SCOPE.signingRootVersion,
+            },
+            publicFacts: {
+              keyHandle: 'ehss-registration-key',
+              ecdsaThresholdKeyId: 'ecdsa-threshold-key-id',
+              signingRootId: 'project_matrix:dev',
+              signingRootVersion: RUNTIME_POLICY_SCOPE.signingRootVersion,
+              thresholdEcdsaPublicKeyB64u: 'group-public-key',
+              ethereumAddress: '0x3333333333333333333333333333333333333333',
+              participantIds: [1, 2],
+            },
+          };
+          lanesByTarget[targetKey] = lane;
+          candidatesByTarget[targetKey] = [lane];
+        }
+        const ed25519Lane = {
+          curve: 'ed25519',
+          chain: 'near',
+          state: 'ready',
+          authMethod,
+          thresholdSessionId: 'threshold-session-id',
+          walletSigningSessionId: 'wallet-session-ed25519',
+          remainingUses: 1,
+          expiresAtMs: Date.now() + 60_000,
+        };
+        return {
+          walletId,
+          generation: Date.now(),
+          ecdsa: {
+            targets: chainTargets,
+            lanesByTarget,
+            candidatesByTarget,
+          },
+          lanes: { ed25519: { near: ed25519Lane } },
+          candidates: { ed25519: { near: [ed25519Lane] } },
+        };
+      },
       getUserBySignerSlot: async (nearAccountId: unknown, signerSlot: unknown) => ({
         nearAccountId,
         signerSlot,
@@ -348,7 +414,7 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
         ? {
             ...body.ecdsa.clientBootstrap,
             publicIdentity: {
-              clientPublicKey33B64u: 'client-public-key',
+              hssClientSharePublicKey33B64u: 'client-public-key',
               relayerPublicKey33B64u: 'relayer-public-key',
               groupPublicKey33B64u: 'group-public-key',
               ethereumAddress: '0x3333333333333333333333333333333333333333',
@@ -517,7 +583,6 @@ test('near.registerNearWallet wraps combined registration for configured ECDSA t
         options: {},
       }),
     );
-
     expect(result).toMatchObject({
       success: true,
       nearAccountId: 'wrapper.testnet',
@@ -720,7 +785,7 @@ test('registerWallet rejects invalid ECDSA respond bootstrap before finalize', a
       ...bootstrap,
       publicIdentity: {
         ...(bootstrap.publicIdentity as Record<string, unknown>),
-        clientPublicKey33B64u: 'mismatched-client-public-key',
+        hssClientSharePublicKey33B64u: 'mismatched-client-public-key',
       },
     }),
   };
@@ -753,7 +818,7 @@ test('registerWallet rejects invalid ECDSA respond bootstrap before finalize', a
 
     expect(result).toMatchObject({
       success: false,
-      error: expect.stringMatching(/clientPublicKey33B64u mismatch/),
+      error: expect.stringMatching(/hssClientSharePublicKey33B64u mismatch/),
     });
     expect(captures.finalizeBody).toBeUndefined();
     expect(captures.persistedEcdsaBootstrap).toBeUndefined();
@@ -874,7 +939,7 @@ test('registerWallet orchestrates combined Ed25519 and ECDSA wallet registration
       },
       ecdsa: {
         clientBootstrap: {
-          clientPublicKey33B64u: 'client-public-key',
+          hssClientSharePublicKey33B64u: 'client-public-key',
         },
       },
     });
@@ -1004,7 +1069,7 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
         const ecdsaBootstrap = {
           ...body.ecdsa.clientBootstrap,
           publicIdentity: {
-            clientPublicKey33B64u: 'client-public-key',
+            hssClientSharePublicKey33B64u: 'client-public-key',
             relayerPublicKey33B64u: 'relayer-public-key',
             groupPublicKey33B64u: 'group-public-key',
             ethereumAddress: '0x1111111111111111111111111111111111111111',
@@ -1343,7 +1408,7 @@ test('SigningEngine validates ECDSA bootstrap identity before warm-session mater
       ...localBootstrap,
       formatVersion: 'ecdsa-hss-role-local',
       publicIdentity: {
-        clientPublicKey33B64u: 'client-public-key',
+        hssClientSharePublicKey33B64u: 'client-public-key',
         relayerPublicKey33B64u: 'relayer-public-key',
         groupPublicKey33B64u: 'group-public-key',
         ethereumAddress: '0x3333333333333333333333333333333333333333',

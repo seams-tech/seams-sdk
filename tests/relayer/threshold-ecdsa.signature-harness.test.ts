@@ -279,7 +279,7 @@ async function stagedExplicitExportThresholdEcdsa(args: {
     clientRootShare32B64u: args.clientRootShare32B64u,
     serverExportShare32B64u: String(exportValue.serverExportShare32B64u || ''),
     contextBinding32B64u: String(args.bootstrapJson.contextBinding32B64u || ''),
-    clientPublicKey33B64u: String(publicIdentity.clientPublicKey33B64u || ''),
+    clientPublicKey33B64u: String(publicIdentity.hssClientSharePublicKey33B64u || ''),
     relayerPublicKey33B64u: String(publicIdentity.relayerPublicKey33B64u || ''),
     groupPublicKey33B64u: String(publicIdentity.groupPublicKey33B64u || ''),
     ethereumAddress: String(publicIdentity.ethereumAddress || ''),

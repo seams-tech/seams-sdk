@@ -95,6 +95,14 @@ function emailOtpSharedTempoCandidate(): EcdsaLaneCandidate {
   };
 }
 
+function emailOtpSharedEvmCandidateFromTempo(): EcdsaLaneCandidate {
+  return {
+    ...emailOtpCandidate('ready'),
+    source: 'evm_family_shared_key',
+    sourceChainTarget: tempoChainTarget,
+  };
+}
+
 function reauthAnchorForCandidate(input: EcdsaLaneCandidate) {
   const buildLane =
     input.chainTarget.kind === 'tempo'
@@ -363,6 +371,41 @@ test.describe('ECDSA restorable lane selection', () => {
     });
   });
 
+  test('uses single-use Email OTP exact material while the record still has signing budget', async () => {
+    const input = emailOtpCandidate('ready');
+    const emailOtpRecord: ThresholdEcdsaSessionRecord = {
+      ...emailOtpRecordForChainTarget(input, input.chainTarget),
+      emailOtpAuthContext: {
+        policy: 'per_operation',
+        retention: 'single_use',
+        reason: 'login',
+        authMethod: 'email_otp',
+      },
+      remainingUses: 1,
+    };
+    const deps: EvmFamilyEcdsaSigningSelectionDeps = {
+      ...selectionDeps(),
+      getThresholdEcdsaSessionRecordByKey: () => emailOtpRecord,
+      getEmailOtpThresholdEcdsaSessionRecordForSigning: () => emailOtpRecord,
+    };
+
+    const selection = await resolveEvmFamilyEcdsaSigningSelection({
+      deps,
+      walletId,
+      chain: 'evm',
+      chainTarget,
+      senderSignatureAlgorithm: 'secp256k1',
+      authMethod: 'email_otp',
+      laneCandidate: input,
+    });
+
+    expect(selection.kind).toBe('ready');
+    if (selection.kind !== 'ready') return;
+    expect(selection.authMethod).toBe('email_otp');
+    expect(selection.material.record.emailOtpAuthContext.retention).toBe('single_use');
+    expect(selection.material.record.remainingUses).toBe(1);
+  });
+
   test('uses Email OTP source material for shared Tempo ECDSA lanes', async () => {
     const input = emailOtpSharedTempoCandidate();
     const emailOtpRecord = emailOtpRecordForChainTarget(input, chainTarget);
@@ -397,6 +440,52 @@ test.describe('ECDSA restorable lane selection', () => {
     expect(selection.material.chainTarget).toEqual(tempoChainTarget);
     expect(selection.material.record.chainTarget).toEqual(chainTarget);
     expect(selection.diagnostics.selectedPasskeyMaterial).toEqual({ present: false });
+  });
+
+  test('uses Email OTP source material for shared EVM lanes even when exact target has public identity only', async () => {
+    const input = emailOtpSharedEvmCandidateFromTempo();
+    const tempoSourceRecord = emailOtpRecordForChainTarget(input, tempoChainTarget);
+    const {
+      clientAdditiveShare32B64u: _inlineShare,
+      clientAdditiveShareHandle: _workerShare,
+      ...arcPublicOnlyRecord
+    } = emailOtpRecordForChainTarget(input, chainTarget);
+    const deps: EvmFamilyEcdsaSigningSelectionDeps = {
+      ...selectionDeps(),
+      getThresholdEcdsaSessionRecordByKey: () => arcPublicOnlyRecord,
+      getEmailOtpThresholdEcdsaSessionRecordForSigning: ({ chainTarget: requestedChainTarget }) => {
+        if (
+          requestedChainTarget.kind === tempoChainTarget.kind &&
+          requestedChainTarget.chainId === tempoChainTarget.chainId
+        ) {
+          return tempoSourceRecord;
+        }
+        throw new Error('missing Email OTP source record');
+      },
+    };
+
+    const selection = await resolveEvmFamilyEcdsaSigningSelection({
+      deps,
+      walletId,
+      chain: 'evm',
+      chainTarget,
+      senderSignatureAlgorithm: 'secp256k1',
+      authMethod: 'email_otp',
+      laneCandidate: input,
+    });
+
+    expect(selection.kind).toBe('ready');
+    if (selection.kind !== 'ready') return;
+    expect(selection.authMethod).toBe('email_otp');
+    expect(selection.lane.chainTarget).toEqual(chainTarget);
+    expect(selection.material.chainTarget).toEqual(chainTarget);
+    expect(selection.material.record.chainTarget).toEqual(tempoChainTarget);
+    expect(selection.diagnostics.exactCandidateMaterial).toMatchObject({
+      present: true,
+      kind: 'ready_to_sign',
+      signerMaterialPresent: true,
+      chainTarget,
+    });
   });
 
   test('routes exhausted shared Tempo Email OTP lanes to source-chain OTP reauth', async () => {

@@ -16,7 +16,7 @@ test.describe('email otp postgres records', () => {
         recordJson: {
           version: 'email_otp_challenge_v1',
           challengeId: 'challenge-id',
-          userId: 'user-id',
+          challengeSubjectId: 'user-id',
           walletId: 'wallet-id',
           otpChannel: 'email_otp',
           email: 'user@example.com',
@@ -35,7 +35,7 @@ test.describe('email otp postgres records', () => {
     ).toEqual({
       version: 'email_otp_challenge_v1',
       challengeId: 'challenge-id',
-      userId: 'user-id',
+      challengeSubjectId: 'user-id',
       walletId: 'wallet-id',
       otpChannel: 'email_otp',
       email: 'user@example.com',
@@ -55,7 +55,7 @@ test.describe('email otp postgres records', () => {
         recordJson: {
           version: 'email_otp_challenge_v1',
           challengeId: 'challenge-id',
-          userId: 'user-id',
+          challengeSubjectId: 'user-id',
           walletId: 'wallet-id',
           otpChannel: 'email_otp',
           email: 'user@example.com',
@@ -77,7 +77,7 @@ test.describe('email otp postgres records', () => {
         recordJson: {
           version: 'email_otp_challenge_v1',
           challengeId: 'challenge-id',
-          userId: 'user-id',
+          challengeSubjectId: 'user-id',
           walletId: 'wallet-id',
           otpChannel: 'email_otp',
           email: 'user@example.com',

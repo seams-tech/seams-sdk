@@ -17,8 +17,11 @@ import {
   resolveFreshEmailOtpEcdsaExportMaterialForLane,
   type EcdsaExportSessionStoreDeps,
   type ExactEcdsaExportLane,
+  type FreshEmailOtpEcdsaExportMaterialRouteAuthReady,
 } from '../../client/src/core/signingEngine/flows/recovery/ecdsaExportMaterial';
+import { exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth } from '../../client/src/core/signingEngine/flows/recovery/ecdsaExportFlow';
 import type { ThresholdEcdsaCanonicalExportArtifact } from '../../client/src/core/signingEngine/interfaces/signing';
+import { toAuthorizingWalletSigningSessionId } from '../../client/src/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 
 const WALLET_ID = toAccountId('alice.testnet');
 const RP_ID = 'localhost';
@@ -181,6 +184,89 @@ test.describe('ECDSA export material', () => {
     expect(material.runtimePolicyScope.orgId).toBe('org-export');
     expect('publicKey' in material).toBe(false);
     expect('participantIds' in material).toBe(false);
+  });
+
+  test('fresh Email OTP route-auth export requests challenge with signing-session lane', async () => {
+    const record = makeRecord();
+    const exportLane = await exactExportLane(record);
+    const publicFacts = await toVerifiedEcdsaPublicFactsFromRecord({ record });
+    const authLane = {
+      kind: 'signing_session' as const,
+      jwt: record.thresholdSessionAuthToken,
+      thresholdSessionId: record.thresholdSessionId,
+      authorizingWalletSigningSessionId: toAuthorizingWalletSigningSessionId(
+        record.walletSigningSessionId,
+      ),
+      curve: 'ecdsa' as const,
+      chainTarget: record.chainTarget,
+    };
+    const material: FreshEmailOtpEcdsaExportMaterialRouteAuthReady = {
+      kind: 'fresh_email_otp_route_auth_ready',
+      chainTarget: record.chainTarget,
+      publicFacts,
+      runtimePolicyScope: record.runtimePolicyScope!,
+      record,
+      authLane,
+    };
+    const challengeRequests: unknown[] = [];
+    const exportRequests: unknown[] = [];
+
+    await exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth(
+      {
+        sessionStore: depsForRecord(record),
+        touchConfirm: {
+          requestUserConfirmation: async () => ({
+            confirmed: true,
+            otpCode: '123456',
+            emailOtpChallengeId: 'export-challenge-1',
+          }),
+        },
+        getRpId: () => RP_ID,
+        emailOtp: {
+          requestExportChallenge: async (request) => {
+            challengeRequests.push(request);
+            return { challengeId: 'export-challenge-1' };
+          },
+          exportEcdsaKeyWithFreshEmailOtpLane: async () => {
+            throw new Error('unexpected fresh-lane export');
+          },
+          exportEcdsaKeyWithAuthorization: async (request) => {
+            exportRequests.push(request);
+            return {
+              publicKeyHex: '02',
+              privateKeyHex: '01',
+              ethereumAddress: OWNER_ADDRESS,
+            };
+          },
+        },
+        warmSessionPolicy: {
+          getWarmSession: async () => null,
+          resolveExactEcdsaRecord: async () => null,
+        },
+        getSignerWorkerContext: () => {
+          throw new Error('unexpected worker context read');
+        },
+      },
+      {
+        walletSessionUserId: String(WALLET_ID),
+        exportLane,
+        material,
+        options: {},
+        flowId: 'flow-export-route-auth',
+      },
+    );
+
+    expect(challengeRequests).toHaveLength(1);
+    expect(challengeRequests[0]).toMatchObject({
+      kind: 'wallet_session_challenge',
+      authLane,
+    });
+    expect(exportRequests).toHaveLength(1);
+    expect(exportRequests[0]).toMatchObject({
+      authLane,
+      challengeId: 'export-challenge-1',
+      otpCode: '123456',
+    });
   });
 
   test('fresh Email OTP export material needs challenge when route auth is absent', async () => {

@@ -21,6 +21,7 @@ test.describe('signing session PRF cache utilities', () => {
           prfFirstB64u: string;
           expiresAtMs: number;
           remainingUses: number;
+          transport?: unknown;
         }> = [];
 
         await mod.cacheSigningSessionPrfFirst(
@@ -30,6 +31,7 @@ test.describe('signing session PRF cache utilities', () => {
               prfFirstB64u: string;
               expiresAtMs: number;
               remainingUses: number;
+              transport?: unknown;
             }) => {
               putCalls.push(args);
             },
@@ -39,6 +41,13 @@ test.describe('signing session PRF cache utilities', () => {
             prfFirstB64u: 'AQ',
             expiresAtMs: 123_456,
             remainingUses: 2,
+            transport: {
+              curve: 'ecdsa',
+              walletId: 'wallet.testnet',
+              chainTarget: { kind: 'tempo', chainId: 42431 },
+              relayerUrl: 'https://relay.example.test',
+              walletSigningSessionId: 'wallet-session',
+            },
           },
         );
 
@@ -53,6 +62,13 @@ test.describe('signing session PRF cache utilities', () => {
         prfFirstB64u: 'AQ',
         expiresAtMs: 123_456,
         remainingUses: 2,
+        transport: {
+          curve: 'ecdsa',
+          walletId: 'wallet.testnet',
+          chainTarget: { kind: 'tempo', chainId: 42431 },
+          relayerUrl: 'https://relay.example.test',
+          walletSigningSessionId: 'wallet-session',
+        },
       },
     ]);
   });
@@ -238,6 +254,17 @@ test.describe('signing session PRF cache utilities', () => {
     expect(reuseBlock).not.toContain('bootstrapPasskeyCookieReconnect(');
     expect(reuseBlock).not.toContain('bootstrapDirectEcdsaRequest(');
     expect(reuseBlock).not.toContain('freshBootstrap');
+  });
+
+  test('missing ECDSA seal transport reports the session and transport target at the boundary', () => {
+    const source = fs.readFileSync(
+      path.resolve(process.cwd(), '../client/src/core/signingEngine/uiConfirm/UiConfirmManager.ts'),
+      'utf8',
+    );
+
+    expect(source).toContain('transportChainTargetKey');
+    expect(source).toContain('thresholdSessionId=${thresholdSessionId}');
+    expect(source).toContain('transportChainTarget=${transportChainTargetKey}');
   });
 
   test('demo threshold owner display reads do not bootstrap ECDSA sessions', () => {

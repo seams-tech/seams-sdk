@@ -319,6 +319,7 @@ async function withMockedMostRecentProjection<T>(
   options?: {
     includeThresholdEcdsaProfiles?: boolean;
     profileContinuitySnapshot?: Record<string, unknown> | null;
+    walletAccountSigners?: Array<Record<string, unknown>>;
   },
 ): Promise<T> {
   const continuityPort = IndexedDBManager as unknown as {
@@ -330,9 +331,24 @@ async function withMockedMostRecentProjection<T>(
   const keyMaterialPort = IndexedDBManager as unknown as {
     getKeyMaterial?: unknown;
   };
+  const signerPort = IndexedDBManager as unknown as {
+    listAccountSignersByProfile?: unknown;
+  };
   const originalContinuity = continuityPort.getProfileContinuitySnapshot;
   const originalProfileLookup = profileLookupPort.resolveProfileAccountContext;
   const originalKeyMaterial = keyMaterialPort.getKeyMaterial;
+  const originalListAccountSignersByProfile = signerPort.listAccountSignersByProfile;
+  const resolveMockAccountSigners = (): Array<Record<string, unknown>> => {
+    if (options?.walletAccountSigners) {
+      return options.walletAccountSigners;
+    }
+    if (options && 'profileContinuitySnapshot' in options) {
+      return Array.isArray(options.profileContinuitySnapshot?.accountSigners)
+        ? (options.profileContinuitySnapshot.accountSigners as Array<Record<string, unknown>>)
+        : [];
+    }
+    return options?.includeThresholdEcdsaProfiles ? partialEcdsaProfileSigners() : [];
+  };
   continuityPort.getProfileContinuitySnapshot = async () => {
     if (options && 'profileContinuitySnapshot' in options) {
       return options.profileContinuitySnapshot;
@@ -346,10 +362,11 @@ async function withMockedMostRecentProjection<T>(
               accountModel: 'threshold-ecdsa',
             },
           ],
-          accountSigners: partialEcdsaProfileSigners(),
+          accountSigners: resolveMockAccountSigners(),
         }
       : { chainAccounts: [] };
   };
+  signerPort.listAccountSignersByProfile = async () => resolveMockAccountSigners();
   profileLookupPort.resolveProfileAccountContext = async (accountRef: {
     chainIdKey: string;
     accountAddress: string;
@@ -382,6 +399,7 @@ async function withMockedMostRecentProjection<T>(
     continuityPort.getProfileContinuitySnapshot = originalContinuity;
     profileLookupPort.resolveProfileAccountContext = originalProfileLookup;
     keyMaterialPort.getKeyMaterial = originalKeyMaterial;
+    signerPort.listAccountSignersByProfile = originalListAccountSignersByProfile;
   }
 }
 
@@ -1238,7 +1256,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     ]);
   });
 
-  test('passkey unlock uses complete active ECDSA profile key facts without inventory fetch', async () => {
+  test('passkey unlock uses complete active wallet-scoped ECDSA key facts without inventory fetch', async () => {
     const originalFetch = globalThis.fetch;
     const inventoryRequests: unknown[] = [];
     const bootstrapKinds: string[] = [];
@@ -1304,10 +1322,8 @@ test.describe('unlock threshold warm-session requirements', () => {
       const result = await withMockedMostRecentProjection(
         async () => await unlock(context, ACCOUNT_ID),
         {
-          profileContinuitySnapshot: {
-            chainAccounts: [],
-            accountSigners: completeEcdsaProfileSigners(),
-          },
+          profileContinuitySnapshot: { chainAccounts: [], accountSigners: [] },
+          walletAccountSigners: completeEcdsaProfileSigners(),
         },
       );
 

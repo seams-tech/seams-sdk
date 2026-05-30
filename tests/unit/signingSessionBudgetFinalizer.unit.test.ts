@@ -66,6 +66,7 @@ function makeSpend(args?: {
   thresholdSessionId?: string;
   operationFingerprint?: string;
   operationId?: string;
+  uses?: number;
 }): WalletSigningSpendPlan {
   const lane = makeLane(args);
   return {
@@ -78,7 +79,7 @@ function makeSpend(args?: {
     lane,
     thresholdSessionIds: [lane.thresholdSessionId],
     backingMaterialSessionIds: [],
-    uses: 1,
+    uses: args?.uses ?? 1,
     reason: SigningOperationIntent.TransactionSign,
   };
 }
@@ -484,6 +485,50 @@ test.describe('budget coordinator reserved success handling', () => {
 
     expect(consumeUseCalls).toHaveLength(1);
     expect(result.kind).toBe('finalized');
+  });
+
+  test('reserves and records multi-use NEAR transaction spends as one operation', async () => {
+    const consumeUses: number[] = [];
+    const coordinator = new BudgetCoordinator({
+      async readStatus() {
+        return {
+          sessionId: 'wallet-session-1',
+          status: 'active',
+          projectionVersion: 'projection-1',
+          remainingUses: 2,
+          expiresAtMs: 1_900_000_000_000,
+        };
+      },
+      async consumeUse(args) {
+        consumeUses.push(args.uses);
+        return {
+          sessionId: args.walletSigningSessionId,
+          status: 'exhausted',
+          projectionVersion: 'projection-2',
+          remainingUses: 0,
+          expiresAtMs: 1_900_000_000_000,
+        };
+      },
+    });
+    const spend = makeSpend({ uses: 2 });
+    const finalization = withSuccessCommand({
+      kind: 'externally_consumed_success',
+      spend,
+      alreadyConsumedThresholdSessionIds: [spend.lane.thresholdSessionId],
+    });
+
+    await coordinator.reserve({
+      spend,
+      expectedBudgetProjectionVersion: 'projection-1',
+    });
+    const result = await coordinator.recordSuccess(finalization);
+
+    expect(consumeUses).toEqual([2]);
+    expect(result).toMatchObject({
+      kind: 'finalized',
+      remainingUses: 0,
+      reservation: { reservedUses: 2 },
+    });
   });
 
   test('accepts reserved_success when another spend advances the projection before finalization', async () => {

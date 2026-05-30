@@ -1,5 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { AuthService } from '@server/core/AuthService';
+import {
+  WALLET_EMAIL_OTP_ACTIONS,
+  WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
+  WALLET_EMAIL_OTP_UNLOCK_OPERATION,
+} from '@shared/utils/emailOtpDomain';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
 
 const ORG_ID = 'org_hosted_account_privacy_tests';
@@ -258,6 +263,359 @@ test.describe('hosted Google Email OTP account privacy', () => {
       walletId: rerolled.walletId,
       walletIdDerivationNonce: expect.any(String),
       collisionCounter: 0,
+    });
+  });
+
+  test('registration OTP challenge survives wallet id reroll for the same Google email', async () => {
+    const service = makeService();
+    const challenge = await service.createEmailOtpEnrollmentChallenge({
+      userId: 'google:subject-registration-reroll-otp',
+      walletId: 'spruce-plain-cps1f80m3a.w3a-relayer.testnet',
+      orgId: ORG_ID,
+      email: 'Reroll-Otp@Example.com',
+      otpChannel: 'email_otp',
+      sessionHash: 'initial-app-session-hash',
+      appSessionVersion: 'google-app-session-v1',
+    });
+    expect(challenge.ok).toBe(true);
+    if (!challenge.ok) return;
+    const challengeRecord = await (service as any)
+      .getEmailOtpChallengeStore()
+      .get(challenge.challenge.challengeId);
+    expect(challengeRecord).toMatchObject({
+      challengeSubjectId: 'google:subject-registration-reroll-otp',
+      walletId: 'spruce-plain-cps1f80m3a.w3a-relayer.testnet',
+      email: 'reroll-otp@example.com',
+    });
+
+    const verified = await (service as any).verifyEmailOtpChallengeCode({
+      challengeSubjectId: 'google:subject-registration-reroll-otp',
+      registrationRerollProof: {
+        providerSubject: 'google:subject-registration-reroll-otp',
+        proofEmail: 'reroll-otp@example.com',
+        challengeId: challenge.challenge.challengeId,
+      },
+      walletId: 'cobalt-meadow-35whhdqoua.w3a-relayer.testnet',
+      orgId: ORG_ID,
+      challengeId: challenge.challenge.challengeId,
+      otpCode: challengeRecord.otpCode,
+      otpChannel: 'email_otp',
+      sessionHash: 'rerolled-registration-intent-digest',
+      appSessionVersion: 'google-app-session-v2',
+      expectedAction: WALLET_EMAIL_OTP_ACTIONS.registration,
+      expectedOperation: WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
+    });
+    expect(verified).toMatchObject({
+      ok: true,
+      walletId: 'cobalt-meadow-35whhdqoua.w3a-relayer.testnet',
+      email: 'reroll-otp@example.com',
+    });
+  });
+
+  test('register-mode reroll can reuse an existing-wallet login OTP for the same Google subject', async () => {
+    const service = makeService();
+    const providerSubject = 'google:subject-registration-reroll-from-login';
+    const existingWalletId = 'spruce-plain-cps1f80m3a.w3a-relayer.testnet';
+    await seedNonHostedEmailOtpMapping(service, {
+      providerSubject,
+      walletId: existingWalletId,
+    });
+
+    const challenge = await service.createEmailOtpChallenge({
+      userId: providerSubject,
+      walletId: existingWalletId,
+      orgId: ORG_ID,
+      otpChannel: 'email_otp',
+      sessionHash: 'existing-wallet-login-session-hash',
+      appSessionVersion: 'google-app-session-v1',
+      operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
+    });
+    expect(challenge.ok).toBe(true);
+    if (!challenge.ok) return;
+    expect(challenge.challenge).toMatchObject({
+      action: WALLET_EMAIL_OTP_ACTIONS.login,
+      operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
+    });
+    const challengeRecord = await (service as any)
+      .getEmailOtpChallengeStore()
+      .get(challenge.challenge.challengeId);
+
+    await expect(
+      (service as any).verifyEmailOtpChallengeCode({
+        challengeSubjectId: providerSubject,
+        registrationRerollProof: {
+          providerSubject,
+          proofEmail: 'active@example.com',
+          challengeId: challenge.challenge.challengeId,
+        },
+        allowRegistrationChallengeReroll: true,
+        walletId: 'steady-lake-1p5it43hyd.w3a-relayer.testnet',
+        orgId: ORG_ID,
+        challengeId: challenge.challenge.challengeId,
+        otpCode: challengeRecord.otpCode,
+        otpChannel: 'email_otp',
+        sessionHash: 'rerolled-registration-intent-digest',
+        appSessionVersion: 'google-app-session-v2',
+        expectedAction: WALLET_EMAIL_OTP_ACTIONS.registration,
+        expectedOperation: WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      walletId: 'steady-lake-1p5it43hyd.w3a-relayer.testnet',
+      email: 'active@example.com',
+    });
+  });
+
+  test('register-mode reroll rejects existing-wallet login OTP without matching proof email', async () => {
+    const service = makeService();
+    const providerSubject = 'google:subject-registration-reroll-from-login-email-mismatch';
+    const existingWalletId = 'spruce-plain-cps1f80m3a.w3a-relayer.testnet';
+    await seedNonHostedEmailOtpMapping(service, {
+      providerSubject,
+      walletId: existingWalletId,
+    });
+
+    const challenge = await service.createEmailOtpChallenge({
+      userId: providerSubject,
+      walletId: existingWalletId,
+      orgId: ORG_ID,
+      otpChannel: 'email_otp',
+      sessionHash: 'existing-wallet-login-session-hash',
+      appSessionVersion: 'google-app-session-v1',
+      operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
+    });
+    expect(challenge.ok).toBe(true);
+    if (!challenge.ok) return;
+    const challengeRecord = await (service as any)
+      .getEmailOtpChallengeStore()
+      .get(challenge.challenge.challengeId);
+
+    await expect(
+      (service as any).verifyEmailOtpChallengeCode({
+        challengeSubjectId: providerSubject,
+        registrationRerollProof: {
+          providerSubject,
+          proofEmail: 'other@example.com',
+          challengeId: challenge.challenge.challengeId,
+        },
+        allowRegistrationChallengeReroll: true,
+        walletId: 'steady-lake-1p5it43hyd.w3a-relayer.testnet',
+        orgId: ORG_ID,
+        challengeId: challenge.challenge.challengeId,
+        otpCode: challengeRecord.otpCode,
+        otpChannel: 'email_otp',
+        sessionHash: 'rerolled-registration-intent-digest',
+        appSessionVersion: 'google-app-session-v2',
+        expectedAction: WALLET_EMAIL_OTP_ACTIONS.registration,
+        expectedOperation: WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'challenge_email_mismatch',
+    });
+  });
+
+  test('registration OTP reroll exemption follows the Google provider subject', async () => {
+    const service = makeService();
+    const challenge = await service.createEmailOtpEnrollmentChallenge({
+      userId: 'google:subject-registration-reroll-otp-mismatch',
+      walletId: 'spruce-plain-cps1f80m3a.w3a-relayer.testnet',
+      orgId: ORG_ID,
+      email: 'Reroll-Otp@Example.com',
+      otpChannel: 'email_otp',
+      sessionHash: 'initial-app-session-hash',
+      appSessionVersion: 'google-app-session-v1',
+    });
+    expect(challenge.ok).toBe(true);
+    if (!challenge.ok) return;
+    const challengeRecord = await (service as any)
+      .getEmailOtpChallengeStore()
+      .get(challenge.challenge.challengeId);
+
+    await expect(
+      (service as any).verifyEmailOtpChallengeCode({
+        challengeSubjectId: 'google:subject-registration-reroll-otp-mismatch',
+        registrationRerollProof: {
+          providerSubject: 'google:subject-registration-reroll-otp-mismatch',
+          proofEmail: 'reroll-otp@example.com',
+          challengeId: challenge.challenge.challengeId,
+        },
+        allowRegistrationChallengeReroll: true,
+        walletId: 'cobalt-meadow-35whhdqoua.w3a-relayer.testnet',
+        orgId: ORG_ID,
+        challengeId: challenge.challenge.challengeId,
+        otpCode: challengeRecord.otpCode,
+        otpChannel: 'email_otp',
+        sessionHash: 'rerolled-registration-intent-digest',
+        appSessionVersion: 'google-app-session-v1',
+        expectedAction: WALLET_EMAIL_OTP_ACTIONS.registration,
+        expectedOperation: WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      walletId: 'cobalt-meadow-35whhdqoua.w3a-relayer.testnet',
+    });
+  });
+
+  test('registration OTP reroll exemption requires a registration proof binding', async () => {
+    const service = makeService();
+    const challenge = await service.createEmailOtpEnrollmentChallenge({
+      userId: 'google:subject-registration-reroll-no-proof',
+      walletId: 'spruce-plain-cps1f80m3a.w3a-relayer.testnet',
+      orgId: ORG_ID,
+      email: 'Reroll-No-Proof@Example.com',
+      otpChannel: 'email_otp',
+      sessionHash: 'initial-app-session-hash',
+      appSessionVersion: 'google-app-session-v1',
+    });
+    expect(challenge.ok).toBe(true);
+    if (!challenge.ok) return;
+    const challengeRecord = await (service as any)
+      .getEmailOtpChallengeStore()
+      .get(challenge.challenge.challengeId);
+
+    await expect(
+      (service as any).verifyEmailOtpChallengeCode({
+        challengeSubjectId: 'google:subject-registration-reroll-no-proof',
+        walletId: 'cobalt-meadow-35whhdqoua.w3a-relayer.testnet',
+        orgId: ORG_ID,
+        challengeId: challenge.challenge.challengeId,
+        otpCode: challengeRecord.otpCode,
+        otpChannel: 'email_otp',
+        sessionHash: 'rerolled-registration-intent-digest',
+        appSessionVersion: 'google-app-session-v2',
+        expectedAction: WALLET_EMAIL_OTP_ACTIONS.registration,
+        expectedOperation: WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'invalid_body',
+    });
+  });
+
+  test('registration OTP reroll exemption rejects proof challenge id mismatch', async () => {
+    const service = makeService();
+    const challenge = await service.createEmailOtpEnrollmentChallenge({
+      userId: 'google:subject-registration-reroll-challenge-id',
+      walletId: 'spruce-plain-cps1f80m3a.w3a-relayer.testnet',
+      orgId: ORG_ID,
+      email: 'Reroll-Otp@Example.com',
+      otpChannel: 'email_otp',
+      sessionHash: 'initial-app-session-hash',
+      appSessionVersion: 'google-app-session-v1',
+    });
+    expect(challenge.ok).toBe(true);
+    if (!challenge.ok) return;
+    const challengeRecord = await (service as any)
+      .getEmailOtpChallengeStore()
+      .get(challenge.challenge.challengeId);
+
+    await expect(
+      (service as any).verifyEmailOtpChallengeCode({
+        challengeSubjectId: 'google:subject-registration-reroll-challenge-id',
+        registrationRerollProof: {
+          providerSubject: 'google:subject-registration-reroll-challenge-id',
+          proofEmail: 'reroll-otp@example.com',
+          challengeId: 'different-challenge-id',
+        },
+        allowRegistrationChallengeReroll: true,
+        walletId: 'cobalt-meadow-35whhdqoua.w3a-relayer.testnet',
+        orgId: ORG_ID,
+        challengeId: challenge.challenge.challengeId,
+        otpCode: challengeRecord.otpCode,
+        otpChannel: 'email_otp',
+        sessionHash: 'rerolled-registration-intent-digest',
+        appSessionVersion: 'google-app-session-v1',
+        expectedAction: WALLET_EMAIL_OTP_ACTIONS.registration,
+        expectedOperation: WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'challenge_id_mismatch',
+    });
+  });
+
+  test('registration OTP reroll exemption rejects provider subject mismatch', async () => {
+    const service = makeService();
+    const challenge = await service.createEmailOtpEnrollmentChallenge({
+      userId: 'google:subject-registration-reroll-otp-provider',
+      walletId: 'spruce-plain-cps1f80m3a.w3a-relayer.testnet',
+      orgId: ORG_ID,
+      email: 'Reroll-Otp@Example.com',
+      otpChannel: 'email_otp',
+      sessionHash: 'initial-app-session-hash',
+      appSessionVersion: 'google-app-session-v1',
+    });
+    expect(challenge.ok).toBe(true);
+    if (!challenge.ok) return;
+    const challengeRecord = await (service as any)
+      .getEmailOtpChallengeStore()
+      .get(challenge.challenge.challengeId);
+
+    await expect(
+      (service as any).verifyEmailOtpChallengeCode({
+        challengeSubjectId: 'google:different-subject',
+        registrationRerollProof: {
+          providerSubject: 'google:different-subject',
+          proofEmail: 'reroll-otp@example.com',
+          challengeId: challenge.challenge.challengeId,
+        },
+        allowRegistrationChallengeReroll: true,
+        walletId: 'cobalt-meadow-35whhdqoua.w3a-relayer.testnet',
+        orgId: ORG_ID,
+        challengeId: challenge.challenge.challengeId,
+        otpCode: challengeRecord.otpCode,
+        otpChannel: 'email_otp',
+        sessionHash: 'rerolled-registration-intent-digest',
+        appSessionVersion: 'google-app-session-v1',
+        expectedAction: WALLET_EMAIL_OTP_ACTIONS.registration,
+        expectedOperation: WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'challenge_subject_mismatch',
+    });
+  });
+
+  test('registration OTP reroll exemption still rejects org mismatch', async () => {
+    const service = makeService();
+    const challenge = await service.createEmailOtpEnrollmentChallenge({
+      userId: 'google:subject-registration-reroll-explicit',
+      walletId: 'spruce-plain-cps1f80m3a.w3a-relayer.testnet',
+      orgId: ORG_ID,
+      email: 'Reroll-Otp@Example.com',
+      otpChannel: 'email_otp',
+      sessionHash: 'initial-app-session-hash',
+      appSessionVersion: 'google-app-session-v1',
+    });
+    expect(challenge.ok).toBe(true);
+    if (!challenge.ok) return;
+    const challengeRecord = await (service as any)
+      .getEmailOtpChallengeStore()
+      .get(challenge.challenge.challengeId);
+
+    await expect(
+      (service as any).verifyEmailOtpChallengeCode({
+        challengeSubjectId: 'google:subject-registration-reroll-explicit',
+        walletId: 'cobalt-meadow-35whhdqoua.w3a-relayer.testnet',
+        orgId: 'org_other_tenant',
+        challengeId: challenge.challenge.challengeId,
+        otpCode: challengeRecord.otpCode,
+        otpChannel: 'email_otp',
+        sessionHash: 'rerolled-registration-intent-digest',
+        appSessionVersion: 'google-app-session-v1',
+        expectedAction: WALLET_EMAIL_OTP_ACTIONS.registration,
+        expectedOperation: WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
+        registrationRerollProof: {
+          providerSubject: 'google:subject-registration-reroll-explicit',
+          proofEmail: 'reroll-otp@example.com',
+          challengeId: challenge.challenge.challengeId,
+        },
+        allowRegistrationChallengeReroll: true,
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'challenge_org_mismatch',
     });
   });
 });

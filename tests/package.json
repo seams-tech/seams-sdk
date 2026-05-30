@@ -1,5 +1,5 @@
 {
-  "name": "@seams-xyz/tests",
+  "name": "@seams-sdk/tests",
   "private": true,
   "type": "module",
   "scripts": {

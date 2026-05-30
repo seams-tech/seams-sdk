@@ -21,6 +21,8 @@ import {
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
 
 const ORG_ID = 'org_registration_intent_allocation_tests';
+const EMAIL_OTP_PROVIDER_SUBJECT = 'google:alice';
+const EMAIL_OTP_EMAIL = 'alice@example.test';
 const RUNTIME_POLICY_SCOPE = {
   orgId: ORG_ID,
   projectId: 'project_registration_intent_allocation_tests',
@@ -38,7 +40,7 @@ function secp256k1BasePointB64u(): string {
   return base64UrlEncode(Uint8Array.from(Buffer.from(hex, 'hex')));
 }
 
-function emailOtpEnrollmentMaterial(walletId: string, email: string) {
+function emailOtpEnrollmentMaterial(walletId: string, authSubjectId: string) {
   const publicKey = secp256k1BasePointB64u();
   const enrollmentSealKeyVersion = 'email-otp-seal-v1';
   const nowMs = 1_700_000_000_000;
@@ -48,10 +50,10 @@ function emailOtpEnrollmentMaterial(walletId: string, email: string) {
       (_, index) => {
         const metadata = {
           walletId,
-          userId: email,
-          authSubjectId: email,
+          userId: authSubjectId,
+          authSubjectId,
           authMethod: 'google_sso_email_otp',
-          enrollmentId: `email-otp-device-enrollment-v1:${walletId}:${email}`,
+          enrollmentId: `email-otp-device-enrollment-v1:${walletId}:${authSubjectId}`,
           enrollmentVersion: '1',
           enrollmentSealKeyVersion,
           signingRootId: 'email_otp_default_signing_root',
@@ -594,10 +596,10 @@ test.describe('registration intent allocation', () => {
       return {
         ok: true,
         challengeId: request.challengeId,
-        userId: request.userId,
+        challengeSubjectId: request.challengeSubjectId,
         walletId: request.walletId,
         orgId: request.orgId,
-        email: 'alice@example.test',
+        email: EMAIL_OTP_EMAIL,
         otpChannel: 'email_otp',
       };
     };
@@ -624,7 +626,8 @@ test.describe('registration intent allocation', () => {
         kind: 'email_otp',
         emailOtpRegistrationProof: {
           version: 'email_otp_registration_proof_v1',
-          email: 'alice@example.test',
+          providerSubject: EMAIL_OTP_PROVIDER_SUBJECT,
+          email: EMAIL_OTP_EMAIL,
           challengeId: 'email-otp-challenge-1',
           otpCode: '123456',
           otpChannel: 'email_otp',
@@ -641,7 +644,11 @@ test.describe('registration intent allocation', () => {
       },
     });
     expect(challengeVerification).toMatchObject({
-      userId: 'alice@example.test',
+      challengeSubjectId: EMAIL_OTP_PROVIDER_SUBJECT,
+      registrationRerollProof: {
+        providerSubject: EMAIL_OTP_PROVIDER_SUBJECT,
+        proofEmail: EMAIL_OTP_EMAIL,
+      },
       walletId: 'wallet_alice',
       orgId: ORG_ID,
       challengeId: 'email-otp-challenge-1',
@@ -663,6 +670,8 @@ test.describe('registration intent allocation', () => {
       rpId: 'wallet.example.test',
       challengeId: 'email-otp-challenge-1',
       registrationIntentDigestB64u: allocated.registrationIntentDigestB64u,
+      providerSubject: EMAIL_OTP_PROVIDER_SUBJECT,
+      email: EMAIL_OTP_EMAIL,
     });
     expect(ceremony.authority.emailHashHex).toMatch(/^[0-9a-f]{64}$/);
   });
@@ -672,10 +681,10 @@ test.describe('registration intent allocation', () => {
     (service as any).verifyEmailOtpChallengeCode = async () => ({
       ok: true,
       challengeId: 'email-otp-challenge-1',
-      userId: 'alice@example.test',
+      challengeSubjectId: EMAIL_OTP_PROVIDER_SUBJECT,
       walletId: 'wallet_alice',
       orgId: ORG_ID,
-      email: 'alice@example.test',
+      email: EMAIL_OTP_EMAIL,
       otpChannel: 'email_otp',
     });
     let authenticatorWrites = 0;
@@ -745,7 +754,8 @@ test.describe('registration intent allocation', () => {
         kind: 'email_otp',
         emailOtpRegistrationProof: {
           version: 'email_otp_registration_proof_v1',
-          email: 'alice@example.test',
+          providerSubject: EMAIL_OTP_PROVIDER_SUBJECT,
+          email: EMAIL_OTP_EMAIL,
           challengeId: 'email-otp-challenge-1',
           otpCode: '123456',
           otpChannel: 'email_otp',
@@ -772,7 +782,7 @@ test.describe('registration intent allocation', () => {
         ed25519: {
           evaluationResult: { stagedEvaluatorArtifactB64u: 'evaluation-result' } as any,
         },
-        emailOtpEnrollment: emailOtpEnrollmentMaterial('wallet_alice', 'alice@example.test'),
+        emailOtpEnrollment: emailOtpEnrollmentMaterial('wallet_alice', EMAIL_OTP_PROVIDER_SUBJECT),
       }),
     ).resolves.toMatchObject({
       ok: true,
@@ -794,6 +804,15 @@ test.describe('registration intent allocation', () => {
       challengeId: 'email-otp-challenge-1',
     });
     expect(String((walletAuthMethodWrite as any)?.emailHashHex || '')).toMatch(/^[0-9a-f]{64}$/);
+    await expect(
+      service.readEmailOtpEnrollment({ walletId: 'wallet_alice', orgId: ORG_ID }),
+    ).resolves.toMatchObject({
+      ok: true,
+      enrollment: {
+        providerUserId: EMAIL_OTP_PROVIDER_SUBJECT,
+        verifiedEmail: EMAIL_OTP_EMAIL,
+      },
+    });
   });
 
   test('rejects Email OTP registration when challenge verification mismatches', async () => {
@@ -817,7 +836,8 @@ test.describe('registration intent allocation', () => {
           kind: 'email_otp',
           emailOtpRegistrationProof: {
             version: 'email_otp_registration_proof_v1',
-            email: 'alice@example.test',
+            providerSubject: EMAIL_OTP_PROVIDER_SUBJECT,
+            email: EMAIL_OTP_EMAIL,
             challengeId: 'email-otp-challenge-1',
             otpCode: '123456',
             otpChannel: 'email_otp',
@@ -854,7 +874,7 @@ test.describe('registration intent allocation', () => {
         rpId: 'wallet.example.test',
         authMethod: {
           kind: 'email_otp',
-          email: 'alice@example.test',
+          email: EMAIL_OTP_EMAIL,
           otpCode: '123456',
           appSessionJwt: 'app-session.jwt',
         },
@@ -876,7 +896,8 @@ test.describe('registration intent allocation', () => {
           kind: 'email_otp',
           emailOtpRegistrationProof: {
             version: 'email_otp_registration_proof_v1',
-            email: 'alice@example.test',
+            providerSubject: EMAIL_OTP_PROVIDER_SUBJECT,
+            email: EMAIL_OTP_EMAIL,
             challengeId: 'email-otp-challenge-1',
             otpCode: '123456',
             otpChannel: 'email_otp',
@@ -909,7 +930,7 @@ test.describe('registration intent allocation', () => {
       COMBINED_SIGNER_SELECTION,
       {
         kind: 'email_otp',
-        email: 'alice@example.test',
+        email: EMAIL_OTP_EMAIL,
         otpCode: '123456',
         appSessionJwt: 'app-session.jwt',
       },
@@ -926,7 +947,8 @@ test.describe('registration intent allocation', () => {
           kind: 'email_otp',
           emailOtpRegistrationProof: {
             version: 'email_otp_registration_proof_v1',
-            email: 'alice@example.test',
+            providerSubject: EMAIL_OTP_PROVIDER_SUBJECT,
+            email: EMAIL_OTP_EMAIL,
             challengeId: 'email-otp-challenge-1',
             otpCode: '123456',
             otpChannel: 'email_otp',
@@ -1068,6 +1090,7 @@ test.describe('registration intent allocation', () => {
     if (!started.ok || !started.ed25519 || !started.ecdsa) {
       throw new Error('combined registration start failed');
     }
+    expect(started.ecdsa.prepare.remainingUses).toBe(3);
     expect(webAuthnCreateVerifications).toBe(1);
     expect(ed25519PrepareRequest).toMatchObject({
       orgId: ORG_ID,
@@ -1225,6 +1248,7 @@ test.describe('registration intent allocation', () => {
       },
     });
     if (!started.ok || !started.ecdsa) throw new Error('ECDSA start failed');
+    expect(started.ecdsa.prepare.remainingUses).toBe(3);
 
     const clientBootstrap = {
       ...started.ecdsa.prepare,
@@ -1608,10 +1632,10 @@ test.describe('registration intent allocation', () => {
       return {
         ok: true,
         challengeId: 'challenge-email-1',
-        userId: 'alice@example.test',
+        challengeSubjectId: EMAIL_OTP_PROVIDER_SUBJECT,
         walletId: 'wallet_alice',
         orgId: ORG_ID,
-        email: 'alice@example.test',
+        email: EMAIL_OTP_EMAIL,
         otpChannel: 'email_otp',
       };
     };
@@ -1642,7 +1666,8 @@ test.describe('registration intent allocation', () => {
         kind: 'email_otp',
         emailOtpRegistrationProof: {
           version: 'email_otp_registration_proof_v1',
-          email: 'alice@example.test',
+          providerSubject: EMAIL_OTP_PROVIDER_SUBJECT,
+          email: EMAIL_OTP_EMAIL,
           challengeId: 'challenge-email-1',
           otpCode: '123456',
           otpChannel: 'email_otp',
@@ -1658,7 +1683,7 @@ test.describe('registration intent allocation', () => {
     });
     if (!started.ok) throw new Error(started.message);
     expect(verifyRequest).toMatchObject({
-      userId: 'alice@example.test',
+      challengeSubjectId: EMAIL_OTP_PROVIDER_SUBJECT,
       walletId: 'wallet_alice',
       orgId: ORG_ID,
       challengeId: 'challenge-email-1',
@@ -2257,6 +2282,7 @@ test.describe('registration intent allocation', () => {
       },
     });
     if (!started.ok || !started.ecdsa) throw new Error('ECDSA add-signer start failed');
+    expect(started.ecdsa.prepare.remainingUses).toBe(3);
 
     const clientBootstrap = {
       ...started.ecdsa.prepare,
