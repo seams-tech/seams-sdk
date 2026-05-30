@@ -109,27 +109,32 @@ Unlock warms a short-lived multi-use wallet session. Post-exhaustion step-up
 authorizes the current operation unless the caller explicitly requests warm
 budget refresh.
 
-Budget-size correction from the embedded Refactor 39 draft: `remainingUses = 3`
-applies to wallet unlock and explicit warm-budget refresh under the development
-default. Default post-exhaustion step-up is single-operation and uses
-`remainingUses = 1`.
+Budget-size correction from the embedded Refactor 39 draft: the development
+default gives wallet unlock and explicit warm-budget refresh three
+user-facing approvals. Default post-exhaustion step-up is a single-operation
+approval that provisions enough internal signature budget for the approved
+operation.
 
 ### Target Types
 
 ```ts
-type PositiveRemainingUses = number & {
-  readonly __brand: 'PositiveRemainingUses';
+type PositiveRemainingApprovals = number & {
+  readonly __brand: 'PositiveRemainingApprovals';
+};
+
+type PositiveSignatureUses = number & {
+  readonly __brand: 'PositiveSignatureUses';
 };
 
 type SigningBudgetAllowance =
   | {
       kind: 'dev_default_budget_allowance';
-      remainingUses: 3;
+      remainingApprovals: 3;
       source: 'sdk_dev_default';
     }
   | {
       kind: 'server_environment_budget_allowance';
-      remainingUses: PositiveRemainingUses;
+      remainingApprovals: PositiveRemainingApprovals;
       policyVersion: string;
       source: 'server_environment_policy';
     };
@@ -143,7 +148,11 @@ type WalletUnlockBudgetPolicy = {
 
 type SingleOperationStepUpBudgetPolicy = {
   kind: 'single_operation_step_up_budget_policy';
-  allowance: { kind: 'single_operation_allowance'; remainingUses: 1 };
+  allowance: {
+    kind: 'single_operation_approval_allowance';
+    remainingApprovals: 1;
+    requiredSignatureUses: PositiveSignatureUses;
+  };
   scope: 'single_operation_step_up';
   operationId: SigningOperationId;
 };
@@ -156,7 +165,7 @@ type SigningBudgetPolicy =
 ### Tasks
 
 - [x] Add a boundary parser for server/environment budget allowance.
-- [x] Keep the development default as literal `remainingUses: 3`.
+- [x] Keep the development default as three approvals.
 - [x] Make unlock provisioning accept only `WalletUnlockBudgetPolicy`.
 - [x] Make post-exhaustion signing accept `SingleOperationStepUpBudgetPolicy`
       by default.
@@ -164,8 +173,80 @@ type SigningBudgetPolicy =
       flow explicitly needs it.
 - [x] Add type fixtures rejecting operation-less step-up policies and
       operation-scoped unlock policies.
-- [x] Add tests proving unlock starts with 3 uses under dev default.
-- [x] Add tests proving default post-exhaustion step-up starts with 1 use.
+- [x] Add tests proving unlock starts with three approvals under dev default.
+- [x] Add tests proving default post-exhaustion step-up starts with one
+      approval.
+
+## Phase 1B: Separate Approval Budget From Signature-Use Budget
+
+Manual NEAR testing exposed a budget-unit ambiguity: the SDK described
+post-exhaustion step-up as a single operation with one remaining use, while the
+NEAR `transactionsWithActions` API can request signatures for multiple NEAR
+transactions in one user-approved operation. Product surfaces should model the
+user-facing budget as approvals. Server enforcement should track signature uses.
+
+Canonical policy:
+
+- `remainingApprovals` is the SDK/UI concept. One confirmed signing intent
+  consumes one approval.
+- `remainingSignatureUses` is the server/security concept. One threshold
+  signature consumes one signature use.
+- Step-up remains one user-facing approval for one confirmed operation.
+- Step-up provisions enough `remainingSignatureUses` for the approved operation.
+- One NEAR transaction containing many actions requires one signature use.
+- One Tempo transaction containing many calls requires one signature use.
+- One EVM transaction requires one signature use.
+- A request that signs multiple independent transactions requires one signature
+  use per transaction digest.
+- Readiness and step-up provisioning must compare trusted
+  `remainingSignatureUses` against `requiredSignatureUses` before threshold
+  signing starts.
+- Budget finalization must spend the same `requiredSignatureUses` captured at
+  admission. It must never recompute the count after signing.
+- SDK/API responses and UI copy should expose `remainingApprovals` where users
+  are making approval decisions. Low-level diagnostics may include
+  `remainingSignatureUses`.
+
+Current ECDSA status:
+
+- EVM-family public signing currently accepts one EVM or Tempo transaction per
+  request.
+- Tempo transactions can include multiple calls, but they produce one sender
+  signature.
+- The generic EVM-family intent runner can iterate multiple sign requests, so
+  the budget model must be ready for future ECDSA batch signing before such an
+  API is added.
+
+Tasks:
+
+- [x] Rename ambiguous `usesNeeded` variables in transaction signing paths to
+      `requiredSignatureUses` or `signatureUsesNeeded`.
+- [ ] Rename internal server-enforced counters away from `remainingUses` toward
+      `remainingSignatureUses` where the counter is signature-use based.
+- [ ] Add an SDK/UI projection that exposes `remainingApprovals` for approval
+      budget display.
+- [x] Add branch-specific helpers:
+      `requiredNearTransactionSignatureUses(transactions)` and
+      `requiredEvmFamilySignatureUses(intent)`.
+- [x] Make NEAR `transactionsWithActions` readiness, step-up provisioning,
+      budget reservation, and finalization use
+      `requiredNearTransactionSignatureUses(...)`.
+- [x] Keep NEAR action batching at one use per transaction, independent of the
+      number of actions inside that transaction.
+- [x] Add tests for a NEAR request with one transaction and multiple actions
+      proving it requires one signature use.
+- [x] Add tests for a NEAR request with two transactions proving step-up
+      provisions two signature uses and finalization spends two.
+- [ ] Add tests proving a session with one remaining use signs a one-transaction
+      multi-action NEAR request without step-up.
+- [ ] Add tests proving a session with one remaining use triggers step-up before
+      a two-transaction NEAR request starts signing.
+- [x] Add EVM-family guard tests proving current EVM and Tempo adapters produce
+      one threshold ECDSA signature use per transaction request.
+- [x] Add a type or runtime guard for future ECDSA batch requests requiring the
+      batch API to declare `requiredSignatureUses` before budget admission.
+- [ ] Update user-facing copy to say "approvals remaining".
+- [ ] Keep signature-use terminology in low-level diagnostics and server logs.
 
 ## Phase 2: Add Exact Signing Lane Identity Foundation
 

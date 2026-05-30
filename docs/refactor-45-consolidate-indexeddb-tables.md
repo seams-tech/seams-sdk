@@ -162,7 +162,7 @@ canonical database:
 
 ```ts
 export const SEAMS_WALLET_DB_NAME = 'seams_wallet' as const;
-export const SEAMS_WALLET_DB_VERSION = 3 as const;
+export const SEAMS_WALLET_DB_VERSION = 5 as const;
 ```
 
 The unified database replaces all current runtime databases:
@@ -335,7 +335,7 @@ Add one schema-name module:
 ```ts
 // client/src/core/indexedDB/schemaNames.ts
 export const SEAMS_WALLET_DB_NAME = 'seams_wallet' as const;
-export const SEAMS_WALLET_DB_VERSION = 3 as const;
+export const SEAMS_WALLET_DB_VERSION = 5 as const;
 
 export const SEAMS_WALLET_STORES = {
   appState: 'app_state',
@@ -415,7 +415,7 @@ indexes, uniqueness, record owners, and repository ownership.
 | --- | --- | --- | --- |
 | `app_state` | `key` | none beyond key path | `AppStateRepository` |
 | `wallets` | `wallet_id` | `rp_id`, `status`, `updated_at` | `WalletRepository` |
-| `wallet_auth_methods` | `wallet_auth_method_id` | `wallet_id`, `wallet_id_kind`, `auth_method`, `rp_id`, `auth_identifier_key`, `kind_rp_id_auth_identifier`, `passkey_rp_id_credential_id`, `status`, `updated_at`; unique `kind_rp_id_auth_identifier` prevents duplicate branch identifiers per RP, and unique `passkey_rp_id_credential_id` keeps WebAuthn credential lookup direct | `WalletAuthMethodRepository` |
+| `wallet_auth_methods` | `wallet_auth_method_id` | `wallet_id`, `wallet_id_kind`, `auth_method`, `rp_id`, `auth_identifier_key`, `kind_rp_id_auth_identifier`, `passkey_rp_id_credential_id`, `status`, `updated_at`; non-unique `kind_rp_id_auth_identifier` supports one Email OTP identifier across multiple wallets, and unique `passkey_rp_id_credential_id` keeps WebAuthn credential lookup direct | `WalletAuthMethodRepository` |
 | `wallet_signers` | `wallet_signer_id` | `wallet_id`, `wallet_id_kind`, `wallet_kind_near_signer_slot`, `wallet_kind_chain_target_key_handle`, `wallet_kind_chain_target_key_facts`, `chain_target_key`, `key_handle`, `threshold_owner_address`, `status`, `updated_at` | `WalletSignerRepository` |
 | `near_accounts` | `['wallet_id', 'near_account_id', 'signer_slot']` | `near_account_id`, `profile_id`, `public_key`, `updated_at` | `NearAccountProjectionRepository` |
 | `signer_ops_outbox` | `op_id` | `status`, `next_attempt_at`, `status_next_attempt_at`, `idempotency_key`, `wallet_id`, `chain_target_key` | `SignerOpsOutboxRepository` |
@@ -442,13 +442,12 @@ Schema manifest rules:
    - ECDSA selector: `wallet_kind_chain_target_key_handle`.
    - ECDSA key-facts lookup:
      `wallet_kind_chain_target_key_facts`.
-5. Unique auth-method constraints:
-   `kind_rp_id_auth_identifier`, where `auth_identifier_key` is the passkey
-   `credentialIdB64u`, Email OTP `emailHashHex`, or future branch-specific
-   stable identifier. Passkey rows also use `passkey_rp_id_credential_id` for
-   direct WebAuthn credential lookup. The stored row must contain the normalized
-   branch-specific auth-method data, and the repository normalizer must reject
-   mixed passkey/Email OTP fields.
+5. Auth-method identifier indexes: `kind_rp_id_auth_identifier` is a lookup
+   index, not a uniqueness constraint, because the same Email OTP identifier can
+   authorize multiple wallets. Passkey rows use unique
+   `passkey_rp_id_credential_id` for direct WebAuthn credential lookup. The
+   stored row must contain the normalized branch-specific auth-method data, and
+   the repository normalizer must reject mixed passkey/Email OTP fields.
 6. WebAuthn credential material is stored on the passkey branch of
    `wallet_auth_methods`.
 7. Unique Email OTP escrow constraint:

@@ -243,6 +243,69 @@ Combined:
    ceremony.
 4. Finalize both signer families atomically for one wallet.
 
+## Email OTP Registration Proof Hardening
+
+Status: implemented.
+
+Manual testing showed a valid Google Email OTP registration challenge can be
+created before the user rerolls/shuffles the generated wallet name. The OTP
+must remain usable after that reroll so registration sends one email code, but
+the proof should stay bound to the Google account that created the challenge.
+
+Target shape:
+
+```ts
+type EmailOtpRegistrationProof = {
+  version: 'email_otp_registration_proof_v1';
+  email: string;
+  providerSubject: string;
+  challengeId: string;
+  otpCode: string;
+  otpChannel: 'email_otp';
+  registrationIntentDigestB64u: string;
+  appSessionVersion: string;
+};
+```
+
+Rules:
+
+- `providerSubject` is required for Google/OIDC Email OTP registration proofs.
+- The client authority adapter reads `providerSubject` from `appSessionJwt`
+  and writes it into `EmailOtpRegistrationProof.providerSubject`.
+- The server verifies `proof.providerSubject` against the challenge record
+  `challengeSubjectId`. For Google/OIDC registration, `challengeSubjectId` is
+  the provider subject that requested the OTP.
+- The server verifies `proof.email` against the challenge record email.
+- Wallet id, registration intent digest, and app-session version may change
+  only for the explicit Google registration reroll case.
+- The reroll exemption must not apply to login, key export, recovery, or
+  add-auth-method flows.
+- The challenge is still consumed once on successful verification.
+
+Tasks:
+
+- [x] Add `providerSubject` to `EmailOtpRegistrationProof` and its boundary
+      normalizer.
+- [x] Update `collectEmailOtpRegistrationAuthority(...)` to decode
+      `appSessionJwt.providerSubject` and include it as `providerSubject`.
+- [x] Update wallet-registration start verification to require `proof.providerSubject`
+      for Email OTP registration.
+- [x] Update `verifyEmailOtpChallengeCode(...)` reroll handling so the reroll
+      branch requires both `record.challengeSubjectId === proof.providerSubject` and
+      `record.email === proof.email`.
+- [x] Keep add-auth-method Email OTP proof handling wallet-bound unless a
+      separate reroll requirement is introduced.
+- [x] Apply the same explicit reroll verification to the Email OTP enrollment
+      finalize route used by Google SSO registration.
+- [x] Add regression tests for:
+      - OTP issued before wallet-name reroll succeeds for the rerolled wallet.
+      - Provider-subject mismatch rejects even when email, org, app-session
+        version, and OTP code match.
+      - Email mismatch rejects even when provider subject and OTP code match.
+      - Login/export/recovery OTPs cannot use the registration reroll branch.
+      - Type fixtures reject Email OTP registration proofs without
+        `providerSubject`.
+
 ## Multiple Auth Methods Per Wallet
 
 Initial registration creates the first auth-method binding for the wallet.

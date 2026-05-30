@@ -483,12 +483,12 @@ type PrepareEcdsaClientBootstrapOutput = {
   pendingStateBlob: EcdsaRoleLocalPendingStateBlob;
   clientBootstrap: {
     contextBinding32B64u: string;
-    clientPublicKey33B64u: string;
+    hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
     clientShareRetryCounter: number;
     participantId: 1;
   };
   publicFacts: {
-    clientPublicKey33B64u: string;
+    hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
     clientVerifyingShareB64u: string;
   };
 };
@@ -507,9 +507,9 @@ type FinalizeEcdsaClientBootstrapInput = {
 type FinalizeEcdsaClientBootstrapOutput = {
   stateBlob: EcdsaRoleLocalReadyStateBlob;
   publicFacts: {
-    clientPublicKey33B64u: string;
+    hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
     clientVerifyingShareB64u: string;
-    relayerPublicKey33B64u: string;
+    relayerPublicKey33B64u: EcdsaRelayerHssPublicKey33B64u;
     groupPublicKey33B64u: string;
     ethereumAddress: `0x${string}`;
   };
@@ -529,6 +529,25 @@ type EcdsaRoleLocalReadyStateBlob = {
   encoding: 'base64url';
   producer: 'signer_core';
   stateBlobB64u: string;
+};
+
+type EcdsaClientRootPublicKey33B64u = string & {
+  readonly __brand: 'EcdsaClientRootPublicKey33B64u';
+};
+
+type EcdsaHssClientSharePublicKey33B64u = string & {
+  readonly __brand: 'EcdsaHssClientSharePublicKey33B64u';
+};
+
+type EcdsaRelayerHssPublicKey33B64u = string & {
+  readonly __brand: 'EcdsaRelayerHssPublicKey33B64u';
+};
+
+type EcdsaClientRootProof = {
+  kind: 'ecdsa_client_root_proof_v1';
+  clientRootPublicKey33B64u: EcdsaClientRootPublicKey33B64u;
+  signatureB64u: string;
+  messageB64u: string;
 };
 
 type PrepareEcdsaClientBootstrapErrorCode =
@@ -727,11 +746,38 @@ move to a stable transport-free contract before the Rust/WASM implementation
 absorbs HKDF, share mapping, pending state serialization, and ready state
 finalization.
 
+Key-domain safety requirement:
+
+The ECDSA bootstrap path must make client-root keys, HSS client-share keys, and
+relayer HSS keys structurally distinct. The previous string-shaped boundary made
+it possible to verify a client-root proof against the HSS client-share public
+key because both were represented as generic compressed secp256k1 public keys.
+
+Required naming and type changes:
+
+- Rename `clientPublicKey33B64u` to `hssClientSharePublicKey33B64u` anywhere it
+  identifies the HSS ceremony/client-share public key.
+- Rename `clientRootProof.publicKey33B64u` to
+  `clientRootProof.clientRootPublicKey33B64u`.
+- Add branded/opaque TypeScript types:
+  `EcdsaClientRootPublicKey33B64u`,
+  `EcdsaHssClientSharePublicKey33B64u`, and
+  `EcdsaRelayerHssPublicKey33B64u`.
+- Make root-proof verification accept a narrow proof object:
+  `verifyClientRootProof(proof: EcdsaClientRootProof): Result<...>`. The proof
+  object carries `clientRootPublicKey33B64u`, so callers cannot supply an HSS
+  client-share public key as the verifier.
+- Parse HSS bootstrap identity and client-root proof identity through separate
+  boundary parsers. Combine the normalized results only after both branches are
+  independently validated.
+
 Tasks:
 
 - [ ] Define the `prepareEcdsaClientBootstrap` and
       `finalizeEcdsaClientBootstrap` signer-crypto operations
       independent of Web Worker transport.
+- [ ] Split key-domain types for ECDSA client-root, HSS client-share, and
+      relayer HSS public keys before wiring the bootstrap port.
 - [ ] Map the browser hss-client worker request/response for these operations in
       one browser crypto adapter.
 - [ ] Use the ECDSA bootstrap slice to establish the result-envelope and error
@@ -742,6 +788,10 @@ Tasks:
 - [ ] Keep direct-call and native-call adapters possible for future iOS/Linux.
 - [ ] Convert boolean-success worker results to `Result`-style unions where the
       operation carries cryptographic material or lifecycle state.
+- [ ] Add a runtime regression test proving a proof signed by the client root
+      share rejects when verified against an HSS client-share public key.
+- [ ] Add a type fixture proving `EcdsaHssClientSharePublicKey33B64u` cannot be
+      passed where `EcdsaClientRootPublicKey33B64u` is required.
 
 Acceptance criteria:
 
@@ -1042,6 +1092,16 @@ to a single PR where practical.
 - [x] Add the initial `prepareEcdsaClientBootstrap` shape to
       `SignerCryptoPort`.
 - [ ] Add `finalizeEcdsaClientBootstrap` to `SignerCryptoPort`.
+- [x] Rename HSS client-share public key fields to
+      `hssClientSharePublicKey33B64u`.
+- [x] Rename client-root proof verifier fields to
+      `clientRootPublicKey33B64u`.
+- [x] Add branded key-domain types for client-root, HSS client-share, and
+      relayer HSS public keys.
+- [x] Make `verifyClientRootProof(...)` accept an `EcdsaClientRootProof` object
+      that carries its root verifier key.
+- [x] Keep HSS bootstrap identity parsing separate from client-root proof
+      parsing, then combine only validated normalized branches.
 - [ ] Expand `PrepareEcdsaClientBootstrapInput` to require the full context,
       participant ids, and narrow `ClientSecretSource` branch.
 - [ ] Add `FinalizeEcdsaClientBootstrapInput` with pending state blob and
@@ -1093,6 +1153,11 @@ to a single PR where practical.
 ### Tests And Verification
 
 - [ ] Update parser and guard tests that currently assert raw HSS fields.
+- [x] Add a runtime regression test where a client-root proof rejects when
+      verified against an HSS client-share public key.
+- [x] Add a type fixture rejecting
+      `EcdsaHssClientSharePublicKey33B64u` as an
+      `EcdsaClientRootPublicKey33B64u` verifier.
 - [ ] Add parity fixtures for current WebAuthn PRF inputs, prepare output,
       relayer public identity finalization input, and expected public facts.
 - [ ] Add tests proving TypeScript cannot construct invalid
@@ -1100,7 +1165,7 @@ to a single PR where practical.
 - [ ] Add persistence tests for the ready opaque role-local state record shape.
 - [ ] Add export tests that use opaque state and reject missing public identity.
 - [x] Run `npx tsc --noEmit -p sdk/tsconfig.build.json`.
-- [ ] Run targeted ECDSA HSS unit tests.
+- [x] Run targeted ECDSA HSS unit tests.
 - [ ] Run relevant `cargo test` commands for the Rust crate/WASM package touched
       by the coarse command.
 - [ ] Record before/after browser JS, WASM, and lazy-flow asset sizes.
