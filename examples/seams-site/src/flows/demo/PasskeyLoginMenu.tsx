@@ -313,13 +313,20 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     if (!walletId) {
       throw new Error('Google session exchange did not return a wallet id');
     }
+    let walletSessionUserId = String(exchange.session?.userId || '').trim();
     const emailHint = String(exchange.session?.email || '').trim();
     let appSessionJwt = String(exchange.jwt || '').trim();
     if (!appSessionJwt) {
       throw new Error('Google SSO did not return an app session token for Email OTP wallet access');
     }
+    let runtimePolicyScope = exchange.session.runtimePolicyScope;
     let googleResolution = exchange.session.googleEmailOtpResolution;
-    let otpFlow: 'enroll' | 'login' =
+    type GoogleEmailOtpPromptFlow = 'enroll' | 'login';
+    type GoogleEmailOtpChallengeState = {
+      walletId: string;
+      challenge: Awaited<ReturnType<typeof seams.auth.requestEmailOtpChallenge>>;
+    };
+    let otpFlow: GoogleEmailOtpPromptFlow =
       googleResolution?.mode === 'register_started' ? 'enroll' : 'login';
     if (isRegister && otpFlow === 'login') {
       toast.info(
@@ -339,20 +346,22 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     const requestCurrentOtpChallenge = async () => {
       try {
         if (otpFlow === 'login') {
-          return await seams.auth.requestEmailOtpChallenge({
+          const nextChallenge = await seams.auth.requestEmailOtpChallenge({
             nearAccountId: walletId,
             relayUrl: relayerBaseUrl,
             appSessionJwt,
             onEvent: handleGoogleEmailOtpUnlockEvent,
           });
+          return { walletId, challenge: nextChallenge };
         }
 
-        return await seams.auth.requestEmailOtpEnrollmentChallenge({
+        const nextChallenge = await seams.auth.requestEmailOtpEnrollmentChallenge({
           nearAccountId: walletId,
           relayUrl: relayerBaseUrl,
           appSessionJwt,
           onEvent: handleGoogleEmailOtpRegistrationEvent,
         });
+        return { walletId, challenge: nextChallenge };
       } catch (error: unknown) {
         const message = formatGoogleSsoEmailOtpError(error);
         toast.error(message, { id: 'google-sso' });
@@ -374,7 +383,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
           ? 'Google started your wallet registration. The email code secures wallet signing for this account.'
           : 'Google keeps you signed in. The email code unlocks wallet signing for this session.',
     });
-    let challenge = await requestCurrentOtpChallenge();
+    let challengeState: GoogleEmailOtpChallengeState = await requestCurrentOtpChallenge();
     const otpPromptCopy = buildOtpPromptCopy();
 
     toast.success('Email code sent', { id: 'google-sso' });
@@ -408,19 +417,14 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
                   throw new Error('Google SSO did not return a new wallet name');
                 }
                 walletId = nextWalletId;
+                walletSessionUserId = String(nextExchange.session?.userId || '').trim();
                 appSessionJwt = nextAppSessionJwt;
+                runtimePolicyScope = nextExchange.session.runtimePolicyScope;
                 googleResolution = nextExchange.session.googleEmailOtpResolution;
                 otpFlow = googleResolution?.mode === 'register_started' ? 'enroll' : 'login';
-                if (otpFlow === 'login') {
-                  challenge = await requestCurrentOtpChallenge();
-                  toast.success('Existing wallet selected. Email code sent.', {
-                    id: 'google-sso',
-                  });
-                } else {
-                  toast.success('New wallet name selected. Use the email code already sent.', {
-                    id: 'google-sso',
-                  });
-                }
+                toast.success('New wallet name selected. Use the email code already sent.', {
+                  id: 'google-sso',
+                });
                 const nextPromptCopy = buildOtpPromptCopy();
                 return {
                   username: walletId,
@@ -430,16 +434,19 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
                   description: nextPromptCopy.description,
                   submitLabel: nextPromptCopy.submitLabel,
                   helperText: nextPromptCopy.helperText,
+                  codeDelivery: 'reused' as const,
                 };
               },
             }
           : {}),
         onResend: async () => {
-          challenge = await requestCurrentOtpChallenge();
+          challengeState = await requestCurrentOtpChallenge();
           toast.success('Email code sent', { id: 'google-email-otp-resend' });
           return {
-            challengeId: challenge.challengeId,
-            ...(challenge.emailHint ? { emailHint: challenge.emailHint } : {}),
+            challengeId: challengeState.challenge.challengeId,
+            ...(challengeState.challenge.emailHint
+              ? { emailHint: challengeState.challenge.emailHint }
+              : {}),
           };
         },
         onSubmit: async (otpCode: string) => {
@@ -451,39 +458,37 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
             { id: toastId },
           );
           if (otpFlow === 'enroll') {
-            await seams.auth.enrollAndLoginWithEmailOtpEcdsaCapability({
-              walletSession: walletSessionRefFromSession({
-                walletId,
-                userId: exchange.session.userId,
-              }),
-              chainTarget: resolveDemoThresholdEcdsaChainTarget('tempo'),
-              challengeId: challenge.challengeId,
-              otpCode,
-              relayUrl: relayerBaseUrl,
-              appSessionJwt,
-              ...(exchange.session.runtimePolicyScope
-                ? { runtimePolicyScope: exchange.session.runtimePolicyScope }
-                : {}),
-              emailOtpAuthPolicy: args.emailOtpAuthPolicy,
-              onEvent: handleGoogleEmailOtpEvent,
-              ...(googleResolution?.registrationAttemptId
-                ? { registrationAttemptId: googleResolution.registrationAttemptId }
-                : {}),
+            if (!emailHint) {
+              throw new Error('Google SSO did not return an email for Email OTP registration');
+            }
+            const registrationResult = await seams.near.registerNearWallet({
+              nearAccountId: walletId,
+              authMethod: {
+                kind: 'email_otp',
+                email: emailHint,
+                challengeId: challengeState.challenge.challengeId,
+                otpCode,
+                appSessionJwt,
+              },
+              options: {
+                onEvent: handleGoogleEmailOtpRegistrationEvent,
+              },
             });
+            if (!registrationResult.success) {
+              throw new Error(registrationResult.error || 'Email OTP wallet registration failed');
+            }
           } else {
             await seams.auth.loginWithEmailOtpEcdsaCapability({
               walletSession: walletSessionRefFromSession({
                 walletId,
-                userId: exchange.session.userId,
+                userId: walletSessionUserId,
               }),
               chainTarget: resolveDemoThresholdEcdsaChainTarget('tempo'),
-              challengeId: challenge.challengeId,
+              challengeId: challengeState.challenge.challengeId,
               otpCode,
               relayUrl: relayerBaseUrl,
               appSessionJwt,
-              ...(exchange.session.runtimePolicyScope
-                ? { runtimePolicyScope: exchange.session.runtimePolicyScope }
-                : {}),
+              ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
               emailOtpAuthPolicy: args.emailOtpAuthPolicy,
               onEvent: handleGoogleEmailOtpUnlockEvent,
             });

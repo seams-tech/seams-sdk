@@ -25,7 +25,7 @@ function getInstallCommand(packageManager: PackageManager): string {
 function highlightInstallCommand(command: string): string {
   return command
     .replace(/^(npm|pnpm|bun)/, '<span class="code-kw-pm">$1</span>')
-    .replace(/(@seams-xyz\/sdk)/, '<span class="code-kw-pkg">$1</span>');
+    .replace(/(@seams\/sdk)/, '<span class="code-kw-pkg">$1</span>');
 }
 
 export function HomeHero(): React.JSX.Element {

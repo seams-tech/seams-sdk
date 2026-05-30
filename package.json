@@ -1,5 +1,5 @@
 {
-  "name": "seams-xyz-monorepo",
+  "name": "seams-sdk-monorepo",
   "private": true,
   "type": "module",
   "scripts": {
