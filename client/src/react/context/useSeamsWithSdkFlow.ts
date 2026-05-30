@@ -41,6 +41,7 @@ export function useSeamsWithSdkFlow(args: {
      */
     type LoginFn = AuthCapability['unlock'];
     type RegisterWalletFn = RegistrationCapability['registerWallet'];
+    type RegisterWithEmailOtpFn = RegistrationCapability['registerWithEmailOtp'];
     type AddWalletSignerFn = RegistrationCapability['addWalletSigner'];
     type RegisterPasskeyFn = RegistrationCapability['registerPasskey'];
     type SyncAccountFn = RecoveryCapability['syncAccount'];
@@ -153,6 +154,8 @@ export function useSeamsWithSdkFlow(args: {
         options: wrappedOptions,
       });
     };
+    const registerWithEmailOtpWithSdkFlow: RegisterWithEmailOtpFn = async (registerWalletArgs) =>
+      await registerWalletWithSdkFlow(registerWalletArgs);
 
     const addWalletSignerWithSdkFlow: AddWalletSignerFn = async (addSignerArgs) => {
       const walletId = String(addSignerArgs.walletId || '').trim();
@@ -260,6 +263,7 @@ export function useSeamsWithSdkFlow(args: {
           return {
             addWalletSigner: addWalletSignerWithSdkFlow,
             registerWallet: registerWalletWithSdkFlow,
+            registerWithEmailOtp: registerWithEmailOtpWithSdkFlow,
             registerPasskey: registerPasskeyWithSdkFlow,
             registerPasskeyInternal: (
               ...args: Parameters<RegistrationCapability['registerPasskeyInternal']>

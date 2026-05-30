@@ -1929,19 +1929,18 @@ async function readProfileContinuityThresholdEcdsaWalletKeys(
   context: PasskeyManagerContext,
   nearAccountId: AccountId,
 ): Promise<ActiveEcdsaSignerRecord['walletKey'][]> {
-  const continuity = await resolveNearAccountProfileContinuity(
-    IndexedDBManager,
-    nearAccountId,
-  ).catch(() => null);
-  if (!continuity?.accountSigners?.length) return [];
   const configuredTargets = listConfiguredThresholdEcdsaPublicationTargets(
     context.configs.network.chains,
   ).map((target) => target.chainTarget);
   if (!configuredTargets.length) return [];
+  const walletSigners = await IndexedDBManager.listAccountSignersByProfile({
+    profileId: String(toWalletId(nearAccountId)),
+    status: 'active',
+  }).catch(() => []);
   const walletKeys: ActiveEcdsaSignerRecord['walletKey'][] = [];
-  for (const signer of continuity.accountSigners) {
+  for (const signer of walletSigners) {
     const parsed = parseActiveEcdsaSignerRecordForUnlock({
-      walletId: nearAccountId,
+      walletId: toWalletId(nearAccountId),
       configuredTargets,
       signer,
     });
@@ -2164,17 +2163,17 @@ async function resolveProfileContinuityEcdsaWarmKeys(
     ) => Promise<WebAuthnAuthenticationCredential>;
   },
 ): Promise<ConfiguredTargetThresholdEcdsaWarmKey[]> {
-  const continuity = await resolveNearAccountProfileContinuity(
-    IndexedDBManager,
-    nearAccountId,
-  ).catch(() => null);
   const configuredChainTargets = configuredTargets.map((target) => target.chainTarget);
+  const walletSigners = await IndexedDBManager.listAccountSignersByProfile({
+    profileId: String(toWalletId(nearAccountId)),
+    status: 'active',
+  }).catch(() => []);
   const activeSignerRecords: ActiveEcdsaSignerRecord[] = [];
   const repairRecords: RepairRequiredEcdsaSignerRecord[] = [];
   const blockedRecords: BlockedEcdsaSignerRecord[] = [];
-  for (const signer of continuity?.accountSigners || []) {
+  for (const signer of walletSigners) {
     const parsed = parseActiveEcdsaSignerRecordForUnlock({
-      walletId: nearAccountId,
+      walletId: toWalletId(nearAccountId),
       configuredTargets: configuredChainTargets,
       signer,
     });

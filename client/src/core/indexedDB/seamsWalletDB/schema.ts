@@ -50,9 +50,19 @@ function createOrUpdateStore(
   if (!store) return;
 
   for (const index of definition.indexes) {
-    try {
-      store.createIndex(index.name, keyPathForIndexedDB(index.keyPath), { unique: index.unique });
-    } catch {}
+    const keyPath = keyPathForIndexedDB(index.keyPath);
+    if (store.indexNames.contains(index.name)) {
+      const existingIndex = store.index(index.name);
+      if (
+        JSON.stringify(existingIndex.keyPath) !== JSON.stringify(keyPath) ||
+        existingIndex.unique !== index.unique
+      ) {
+        store.deleteIndex(index.name);
+        store.createIndex(index.name, keyPath, { unique: index.unique });
+      }
+      continue;
+    }
+    store.createIndex(index.name, keyPath, { unique: index.unique });
   }
 }
 

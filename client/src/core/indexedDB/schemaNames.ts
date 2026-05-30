@@ -1,5 +1,5 @@
 export const SEAMS_WALLET_DB_NAME = 'seams_wallet' as const;
-export const SEAMS_WALLET_DB_VERSION = 4 as const;
+export const SEAMS_WALLET_DB_VERSION = 5 as const;
 
 export const SEAMS_WALLET_STORES = {
   appState: 'app_state',
@@ -132,7 +132,7 @@ export const SEAMS_WALLET_SCHEMA_MANIFEST = [
       {
         name: SEAMS_WALLET_INDEXES.kindRpIdAuthIdentifier,
         keyPath: ['kind', 'rp_id', 'auth_identifier_key'],
-        unique: true,
+        unique: false,
       },
       {
         name: SEAMS_WALLET_INDEXES.passkeyRpIdCredentialId,

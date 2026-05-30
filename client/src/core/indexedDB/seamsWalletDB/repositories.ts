@@ -940,8 +940,16 @@ function parseAccountSignerRow(value: unknown): AccountSignerRecord | null {
   } catch {
     return null;
   }
-  if (row.chain_target_key !== mirrors.chainTargetKey) return null;
-  if (row.near_signer_slot !== mirrors.nearSignerSlot) return null;
+  if (record.signerKind === SIGNER_KINDS.thresholdEd25519) {
+    if (row.chain_target_key !== undefined && row.chain_target_key !== mirrors.chainTargetKey) {
+      return null;
+    }
+    if (row.near_signer_slot !== undefined && row.near_signer_slot !== mirrors.nearSignerSlot) {
+      return null;
+    }
+  } else if (row.chain_target_key !== mirrors.chainTargetKey) {
+    return null;
+  }
   if (row.key_handle !== mirrors.keyHandle) return null;
   if (row.ecdsa_threshold_key_id !== mirrors.ecdsaThresholdKeyId) return null;
   if (row.threshold_owner_address !== mirrors.thresholdOwnerAddress) return null;
@@ -1462,12 +1470,15 @@ export class SeamsWalletRepositories {
     const authIdentifierKey = toTrimmedString(args.authIdentifierKey || '');
     if (!rpId || !authIdentifierKey) return null;
     const db = await this.manager.getDB();
-    return parseWalletAuthMethodRow(
-      await db
-        .transaction(SEAMS_WALLET_STORES.walletAuthMethods, 'readonly')
-        .store.index(SEAMS_WALLET_INDEXES.kindRpIdAuthIdentifier)
-        .get([kind, rpId, authIdentifierKey]),
-    );
+    const rows = (await db
+      .transaction(SEAMS_WALLET_STORES.walletAuthMethods, 'readonly')
+      .store.index(SEAMS_WALLET_INDEXES.kindRpIdAuthIdentifier)
+      .getAll([kind, rpId, authIdentifierKey])) as unknown[];
+    const parsed = rows.flatMap((row) => {
+      const record = parseWalletAuthMethodRow(row);
+      return record ? [record] : [];
+    });
+    return parsed.length === 1 ? parsed[0] : null;
   }
 
   async listWalletAuthMethodsForWallet(
@@ -2672,7 +2683,7 @@ export class SeamsWalletRepositories {
     }
 
     const lastProfileState = await this.getLastProfileState().catch(() => null);
-    if (!lastProfileState || lastProfileState.profileId !== profileId) {
+    if (!lastProfileState) {
       return { authenticatorsForPrompt: authenticators };
     }
 
