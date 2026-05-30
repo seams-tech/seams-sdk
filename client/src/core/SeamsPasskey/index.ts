@@ -89,6 +89,8 @@ import {
   type WalletId,
   type WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { assertWalletRuntimePostconditions } from '../signingEngine/session/postconditions/runtimePostconditions';
+import { configuredEmailOtpEcdsaSnapshotChainTargets } from '../signingEngine/session/emailOtp/persistedSnapshot';
 import type { EmailOtpWorkerProgressEvent } from '../signingEngine/workerManager/workerTypes';
 import { getLastLoggedInSignerSlot } from '../signingEngine/webauthnAuth/device/signerSlot';
 import {
@@ -1535,27 +1537,22 @@ export class SeamsPasskey {
         ed25519SessionReconstruction,
         onProgress: markWorkerProgress,
       });
-      if (result.ed25519Reconstruction.kind !== 'completed') {
-        console.warn('[SeamsPasskey][email-otp] unlock completed without Ed25519 session reconstruction', {
-          walletId,
-          chainTarget,
-          reconstructionPlan: ed25519SessionReconstruction.kind,
-          reconstructionReason:
-            ed25519SessionReconstruction.kind === 'defer'
-              ? ed25519SessionReconstruction.reason
-              : undefined,
-          resultReason: result.ed25519Reconstruction.reason,
-        });
-      } else {
-        console.info('[SeamsPasskey][email-otp] unlock reconstructed Ed25519 signing session', {
-          walletId,
-          thresholdSessionId: result.ed25519Reconstruction.sessionMaterial.sessionId,
-          remainingUses: result.ed25519Reconstruction.sessionMaterial.remainingUses,
-          expiresAtMs: result.ed25519Reconstruction.sessionMaterial.expiresAtMs,
-        });
-      }
       await this.signingEngine.initializeCurrentUser(toAccountId(walletId), this.nearClient)
         .catch(() => undefined);
+      await assertWalletRuntimePostconditions({
+        source: 'wallet_unlock',
+        walletId,
+        authMethod: 'email_otp',
+        requiredTargets: [
+          { curve: 'ed25519' },
+          ...configuredEmailOtpEcdsaSnapshotChainTargets(this.configs).map((target) => ({
+            curve: 'ecdsa' as const,
+            chainTarget: target,
+          })),
+        ],
+        readPersistedAvailableSigningLanes: async (input) =>
+          await this.signingEngine.readPersistedAvailableSigningLanes(input),
+      });
       emitIfWorkerProgressMissing({
         flowId,
         accountId: walletId,

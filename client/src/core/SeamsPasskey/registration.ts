@@ -43,7 +43,6 @@ import type {
 import { walletIdFromString } from '@shared/utils/registrationIntent';
 import {
   thresholdEcdsaChainTargetFromRequest,
-  thresholdEcdsaChainTargetKey,
   toWalletId,
   type ThresholdEcdsaChainTarget,
 } from '../signingEngine/interfaces/ecdsaChainTarget';
@@ -67,6 +66,7 @@ import { collectEmailOtpRegistrationAuthority } from './emailOtpRegistrationAuth
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '../signingEngine/session/identity/laneIdentity';
+import { assertWalletRuntimePostconditions } from '../signingEngine/session/postconditions/runtimePostconditions';
 
 // Registration forces a visible, clickable confirmation for cross-origin safety.
 
@@ -154,47 +154,20 @@ async function assertImmediateRegistrationSigningLanes(args: {
   expectEd25519: boolean;
   expectedEcdsaChainTargets: readonly ThresholdEcdsaChainTarget[];
 }): Promise<void> {
-  const lanes = await args.signingEngine.readPersistedAvailableSigningLanes({
+  await assertWalletRuntimePostconditions({
+    source: 'registration_finalize',
     walletId: args.walletId,
     authMethod: args.authMethod,
+    requiredTargets: [
+      ...(args.expectEd25519 ? [{ curve: 'ed25519' as const }] : []),
+      ...args.expectedEcdsaChainTargets.map((chainTarget) => ({
+        curve: 'ecdsa' as const,
+        chainTarget,
+      })),
+    ],
+    readPersistedAvailableSigningLanes: async (input) =>
+      await args.signingEngine.readPersistedAvailableSigningLanes(input),
   });
-  if (args.expectEd25519) {
-    const ed25519Lane = lanes.lanes.ed25519.near;
-    if (
-      ed25519Lane.state !== 'ready' ||
-      ed25519Lane.authMethod !== args.authMethod ||
-      !ed25519Lane.thresholdSessionId
-    ) {
-      console.warn('[Registration][postcondition] Ed25519 lane missing after registration', {
-        walletId: args.walletId,
-        authMethod: args.authMethod,
-        state: ed25519Lane.state,
-        laneAuthMethod: 'authMethod' in ed25519Lane ? ed25519Lane.authMethod : null,
-        candidateCount: lanes.candidates.ed25519.near.length,
-      });
-      throw new Error('[Registration][postcondition] ed25519_lane_missing');
-    }
-  }
-  for (const chainTarget of args.expectedEcdsaChainTargets) {
-    const targetKey = thresholdEcdsaChainTargetKey(chainTarget);
-    const ecdsaLane = lanes.ecdsa.lanesByTarget[targetKey];
-    if (
-      !ecdsaLane ||
-      ecdsaLane.state !== 'ready' ||
-      ecdsaLane.authMethod !== args.authMethod ||
-      !ecdsaLane.thresholdSessionId
-    ) {
-      console.warn('[Registration][postcondition] ECDSA lane missing after registration', {
-        walletId: args.walletId,
-        authMethod: args.authMethod,
-        targetKey,
-        state: ecdsaLane?.state || 'missing',
-        laneAuthMethod: ecdsaLane && 'authMethod' in ecdsaLane ? ecdsaLane.authMethod : null,
-        candidateCount: lanes.ecdsa.candidatesByTarget[targetKey]?.length || 0,
-      });
-      throw new Error('[Registration][postcondition] ecdsa_lane_missing');
-    }
-  }
 }
 
 function expectedEcdsaChainTargetsFromRegistrationSpec(

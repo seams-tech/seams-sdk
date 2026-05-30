@@ -145,6 +145,22 @@ import {
   normalizeRuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
 import {
+  parseAppSessionVersion,
+  parseChallengeSubjectId,
+  parseEmailOtpChallengeId,
+  parseEmailOtpRegistrationAttemptId,
+  parseOrgId,
+  parseProviderSubject,
+  parseWalletId,
+  type AppSessionVersion,
+  type ChallengeSubjectId,
+  type EmailOtpChallengeId,
+  type EmailOtpRegistrationAttemptId,
+  type OrgId,
+  type ProviderSubject,
+  type WalletId,
+} from '@shared/utils/domainIds';
+import {
   addAuthMethodIntentGrantFromString,
   computeAddAuthMethodIntentDigestB64u,
   addSignerIntentGrantFromString,
@@ -164,7 +180,6 @@ import {
   type RegistrationAuthority,
   type RegistrationIntentV1,
   type RegistrationSignerSelection,
-  type WalletId,
 } from '@shared/utils/registrationIntent';
 import {
   computeEcdsaHssRoleLocalRelayerKeyId,
@@ -1339,33 +1354,83 @@ type EmailOtpRegistrationEnrollmentPersistence = {
   authState: EmailOtpAuthStateRecord;
 };
 
-type EmailOtpRegistrationRerollProofBinding =
+type EmailOtpRegistrationChallengePurpose =
+  | {
+      kind: 'registration';
+      action: typeof WALLET_EMAIL_OTP_ACTIONS.registration;
+      operation: typeof WALLET_EMAIL_OTP_REGISTRATION_OPERATION;
+    }
+  | {
+      kind: 'registration_reroll';
+      action: typeof WALLET_EMAIL_OTP_ACTIONS.login;
+      operation: typeof WALLET_EMAIL_OTP_UNLOCK_OPERATION;
+    };
+
+type EmailOtpRegistrationChallengeProof =
   | {
       kind: 'registration_attempt';
       /** OIDC provider subject from the app-session JWT and registration proof. */
-      providerSubject: string;
+      providerSubject: ProviderSubject;
+      /** Challenge owner parsed from the same provider subject boundary input. */
+      challengeSubjectId: ChallengeSubjectId;
       /** Email asserted by the signed registration proof. */
       proofEmail: string;
       /** Stable server-side registration-attempt handle for hosted Google flows. */
-      registrationAttemptId: string;
+      registrationAttemptId: EmailOtpRegistrationAttemptId;
       /** Challenge id submitted with the registration proof. */
-      challengeId: string;
+      challengeId: EmailOtpChallengeId;
+      /** Final wallet id selected for registration after any wallet-name reroll. */
+      finalWalletId: WalletId;
+      /** Tenant scope that must match the OTP challenge record. */
+      orgId: OrgId;
+      /** App-session version that must match the OTP challenge record. */
+      appSessionVersion: AppSessionVersion;
     }
   | {
       kind: 'direct_proof_email';
       /** OIDC provider subject from the app-session JWT and registration proof. */
-      providerSubject: string;
+      providerSubject: ProviderSubject;
+      /** Challenge owner parsed from the same provider subject boundary input. */
+      challengeSubjectId: ChallengeSubjectId;
       /** Email asserted by the signed registration proof. */
       proofEmail: string;
       registrationAttemptId?: never;
       /** Challenge id submitted with the registration proof. */
-      challengeId: string;
+      challengeId: EmailOtpChallengeId;
+      /** Final wallet id selected for registration after any wallet-name reroll. */
+      finalWalletId: WalletId;
+      /** Tenant scope that must match the OTP challenge record. */
+      orgId: OrgId;
+      /** App-session version that must match the OTP challenge record. */
+      appSessionVersion: AppSessionVersion;
     };
+
+type VerifiedEmailOtpRegistrationChallengeProofShared = {
+  providerSubject: ProviderSubject;
+  challengeSubjectId: ChallengeSubjectId;
+  challengeEmail: string;
+  challengeId: EmailOtpChallengeId;
+  originalWalletId: WalletId;
+  finalWalletId: WalletId;
+  orgId: OrgId;
+  appSessionVersion: AppSessionVersion;
+  purpose: EmailOtpRegistrationChallengePurpose;
+};
+
+type VerifiedEmailOtpRegistrationChallengeProof =
+  | (VerifiedEmailOtpRegistrationChallengeProofShared & {
+      kind: 'registration_attempt';
+      registrationAttemptId: EmailOtpRegistrationAttemptId;
+    })
+  | (VerifiedEmailOtpRegistrationChallengeProofShared & {
+      kind: 'direct_proof_email';
+      registrationAttemptId?: never;
+    });
 
 type EmailOtpChallengeVerificationIntent =
   | {
       kind: 'registration';
-      binding: EmailOtpRegistrationRerollProofBinding;
+      binding: EmailOtpRegistrationChallengeProof;
       allowWalletReroll: boolean;
     }
   | {
@@ -1416,21 +1481,51 @@ type EmailOtpChallengeBindingMismatchCode =
   | 'challenge_wallet_mismatch'
   | 'challenge_session_mismatch'
   | 'challenge_org_mismatch'
-  | 'challenge_channel_mismatch';
+  | 'challenge_channel_mismatch'
+  | 'registration_reroll_disallowed';
+
+type VerifiedEmailOtpChallengeCodeSuccessBase = {
+  challengeId: EmailOtpChallengeId;
+  challengeSubjectId: ChallengeSubjectId;
+  walletId: WalletId;
+  orgId: OrgId;
+  email?: string;
+  otpChannel: EmailOtpChannel;
+};
+
+type VerifiedEmailOtpChallengeCodeSuccess =
+  | (VerifiedEmailOtpChallengeCodeSuccessBase & {
+      intent: 'registration';
+      registrationChallengeProof: VerifiedEmailOtpRegistrationChallengeProof;
+    })
+  | (VerifiedEmailOtpChallengeCodeSuccessBase & {
+      intent: 'wallet_unlock' | 'transaction_sign' | 'export_key' | 'device_recovery';
+      registrationChallengeProof?: never;
+    });
+
+type VerifiedEmailOtpChallengeCodeResult =
+  | ({ ok: true } & VerifiedEmailOtpChallengeCodeSuccess)
+  | {
+      ok: false;
+      code: string;
+      message: string;
+      attemptsRemaining?: number;
+      lockedUntilMs?: number;
+    };
 
 function emailOtpChallengeVerificationIntentFromRequest(input: {
   expectedAction: EmailOtpChallengeAction;
   expectedOperation?: EmailOtpChallengeOperation;
-  registrationRerollProof?: EmailOtpRegistrationRerollProofBinding;
+  registrationChallengeProof?: EmailOtpRegistrationChallengeProof;
   allowRegistrationChallengeReroll?: boolean;
 }): EmailOtpChallengeVerificationIntent {
   if (input.expectedAction === WALLET_EMAIL_OTP_ACTIONS.registration) {
-    if (!input.registrationRerollProof) {
-      throw new Error('Email OTP registration verification requires registration proof binding');
+    if (!input.registrationChallengeProof) {
+      throw new Error('Email OTP registration verification requires registration challenge proof');
     }
     return {
       kind: 'registration',
-      binding: input.registrationRerollProof,
+      binding: input.registrationChallengeProof,
       allowWalletReroll: input.allowRegistrationChallengeReroll === true,
     };
   }
@@ -1546,96 +1641,194 @@ function emailOtpStoredChallengePurposeMatches(input: {
   );
 }
 
-function emailOtpRegistrationChallengeMatchesSubject(input: {
-  record: EmailOtpChallengeRecord;
-  challengeSubjectId: string;
-  proof: EmailOtpRegistrationRerollProofBinding;
+function emailOtpRegistrationChallengePurposeForRecord(input: {
+  storedPurpose: EmailOtpStoredChallengePurpose | null;
   allowWalletReroll: boolean;
-}): boolean {
-  if (input.record.challengeSubjectId !== input.challengeSubjectId) return false;
-  if (input.proof.providerSubject !== input.challengeSubjectId) return false;
-  const storedPurpose = readEmailOtpStoredChallengePurpose(input.record);
-  const proofEmail = toOptionalTrimmedString(input.proof.proofEmail)?.toLowerCase();
-  const recordEmail = toOptionalTrimmedString(input.record.email)?.toLowerCase();
-  const proofEmailMatchesRecord = Boolean(proofEmail && recordEmail && proofEmail === recordEmail);
-  if (storedPurpose?.kind === 'registration') {
-    return proofEmailMatchesRecord;
+}): EmailOtpRegistrationChallengePurpose | null {
+  if (input.storedPurpose?.kind === 'registration') {
+    return {
+      kind: 'registration',
+      action: WALLET_EMAIL_OTP_ACTIONS.registration,
+      operation: WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
+    };
   }
-  if (!input.allowWalletReroll) return false;
-  if (storedPurpose?.kind === 'wallet_unlock') {
-    return proofEmailMatchesRecord;
+  if (input.allowWalletReroll && input.storedPurpose?.kind === 'wallet_unlock') {
+    return {
+      kind: 'registration_reroll',
+      action: WALLET_EMAIL_OTP_ACTIONS.login,
+      operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
+    };
   }
-  return false;
+  return null;
 }
 
-type EmailOtpRegistrationProofBindingResult =
-  | { ok: true; proof: EmailOtpRegistrationRerollProofBinding }
+function buildVerifiedEmailOtpRegistrationChallengeProof(input: {
+  record: EmailOtpChallengeRecord;
+  challengeSubjectId: ChallengeSubjectId;
+  proof: EmailOtpRegistrationChallengeProof;
+  storedPurpose: EmailOtpStoredChallengePurpose | null;
+  allowWalletReroll: boolean;
+}): VerifiedEmailOtpRegistrationChallengeProof | null {
+  if (input.record.challengeSubjectId !== input.challengeSubjectId) return null;
+  if (input.proof.challengeSubjectId !== input.challengeSubjectId) return null;
+  if (String(input.proof.providerSubject) !== String(input.proof.challengeSubjectId)) return null;
+  if (input.record.otpChannel !== EMAIL_OTP_CHANNEL) return null;
+  if (String(input.record.orgId || '') !== input.proof.orgId) return null;
+  if (input.record.appSessionVersion !== input.proof.appSessionVersion) return null;
+  const purpose = emailOtpRegistrationChallengePurposeForRecord({
+    storedPurpose: input.storedPurpose,
+    allowWalletReroll: input.allowWalletReroll,
+  });
+  if (!purpose) return null;
+  const proofEmail = toOptionalTrimmedString(input.proof.proofEmail)?.toLowerCase();
+  const challengeEmail = toOptionalTrimmedString(input.record.email)?.toLowerCase();
+  if (!proofEmail || !challengeEmail || proofEmail !== challengeEmail) return null;
+  const originalWalletId = parseWalletId(input.record.walletId);
+  if (!originalWalletId.ok) return null;
+
+  switch (input.proof.kind) {
+    case 'registration_attempt':
+      return {
+        kind: 'registration_attempt',
+        providerSubject: input.proof.providerSubject,
+        challengeSubjectId: input.proof.challengeSubjectId,
+        challengeEmail,
+        challengeId: input.proof.challengeId,
+        originalWalletId: originalWalletId.value,
+        finalWalletId: input.proof.finalWalletId,
+        orgId: input.proof.orgId,
+        appSessionVersion: input.proof.appSessionVersion,
+        purpose,
+        registrationAttemptId: input.proof.registrationAttemptId,
+      };
+    case 'direct_proof_email':
+      return {
+        kind: 'direct_proof_email',
+        providerSubject: input.proof.providerSubject,
+        challengeSubjectId: input.proof.challengeSubjectId,
+        challengeEmail,
+        challengeId: input.proof.challengeId,
+        originalWalletId: originalWalletId.value,
+        finalWalletId: input.proof.finalWalletId,
+        orgId: input.proof.orgId,
+        appSessionVersion: input.proof.appSessionVersion,
+        purpose,
+      };
+  }
+  return assertNever(input.proof);
+}
+
+type EmailOtpRegistrationChallengeProofResult =
+  | { ok: true; proof: EmailOtpRegistrationChallengeProof }
   | { ok: false; code: string; message: string };
 
-type EmailOtpRegistrationProofBindingInput =
+type EmailOtpRegistrationChallengeProofInput =
   | {
       kind: 'google_registration_attempt';
-      providerSubject: string;
-      walletId: string;
-      registrationAttemptId: string;
-      challengeId: string;
+      providerSubject: ProviderSubject;
+      challengeSubjectId: ChallengeSubjectId;
+      walletId: WalletId;
+      orgId: OrgId;
+      appSessionVersion: AppSessionVersion;
+      registrationAttemptId: EmailOtpRegistrationAttemptId;
+      challengeId: EmailOtpChallengeId;
     }
   | {
       kind: 'direct_proof_email';
-      providerSubject: string;
+      providerSubject: ProviderSubject;
+      challengeSubjectId: ChallengeSubjectId;
+      finalWalletId: WalletId;
+      orgId: OrgId;
+      appSessionVersion: AppSessionVersion;
       proofEmail: string;
-      challengeId: string;
+      challengeId: EmailOtpChallengeId;
     };
 
-type EmailOtpRegistrationProofBindingInputResult =
-  | { ok: true; input: EmailOtpRegistrationProofBindingInput }
+type EmailOtpRegistrationChallengeProofInputResult =
+  | { ok: true; input: EmailOtpRegistrationChallengeProofInput }
   | { ok: false; code: string; message: string };
 
-function normalizeEmailOtpRegistrationProofBindingInput(request: {
+function parseRawEmailOtpRegistrationChallengeProofInput(request: {
   providerSubject: unknown;
   walletId: unknown;
+  orgId: unknown;
+  appSessionVersion: unknown;
   challengeId: unknown;
   proofEmail?: unknown;
   googleEmailOtpRegistrationAttemptId?: unknown;
-}): EmailOtpRegistrationProofBindingInputResult {
-  const providerSubject = toOptionalTrimmedString(request.providerSubject);
-  if (!providerSubject) {
+}): EmailOtpRegistrationChallengeProofInputResult {
+  const providerSubject = parseProviderSubject(request.providerSubject);
+  if (!providerSubject.ok) {
     return {
       ok: false,
       code: 'invalid_body',
       message: 'Email OTP registration requires providerSubject',
     };
   }
-  const challengeId = toOptionalTrimmedString(request.challengeId);
-  if (!challengeId) {
+  const challengeSubjectId = parseChallengeSubjectId(request.providerSubject);
+  if (!challengeSubjectId.ok) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'Email OTP registration requires challengeSubjectId',
+    };
+  }
+  const challengeId = parseEmailOtpChallengeId(request.challengeId);
+  if (!challengeId.ok) {
     return {
       ok: false,
       code: 'invalid_body',
       message: 'Email OTP registration requires challengeId',
     };
   }
+  const finalWalletId = parseWalletId(request.walletId);
+  if (!finalWalletId.ok) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'Email OTP registration requires walletId',
+    };
+  }
+  const orgId = parseOrgId(request.orgId);
+  if (!orgId.ok) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'Email OTP registration requires orgId',
+    };
+  }
+  const appSessionVersion = parseAppSessionVersion(request.appSessionVersion);
+  if (!appSessionVersion.ok) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'Email OTP registration requires appSessionVersion',
+    };
+  }
 
-  const registrationAttemptId = toOptionalTrimmedString(
+  const registrationAttemptId = parseEmailOtpRegistrationAttemptId(
     request.googleEmailOtpRegistrationAttemptId,
   );
-  if (registrationAttemptId) {
-    const walletId = toOptionalTrimmedString(request.walletId);
-    if (!walletId) {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'Email OTP registration attempt verification requires walletId',
-      };
-    }
+  if (registrationAttemptId.ok) {
     return {
       ok: true,
       input: {
         kind: 'google_registration_attempt',
-        providerSubject,
-        walletId,
-        registrationAttemptId,
-        challengeId,
+        providerSubject: providerSubject.value,
+        challengeSubjectId: challengeSubjectId.value,
+        walletId: finalWalletId.value,
+        orgId: orgId.value,
+        appSessionVersion: appSessionVersion.value,
+        registrationAttemptId: registrationAttemptId.value,
+        challengeId: challengeId.value,
       },
+    };
+  }
+  if (registrationAttemptId.error.code === 'invalid') {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'googleEmailOtpRegistrationAttemptId must be a string',
     };
   }
 
@@ -1651,9 +1844,92 @@ function normalizeEmailOtpRegistrationProofBindingInput(request: {
     ok: true,
     input: {
       kind: 'direct_proof_email',
-      providerSubject,
+      providerSubject: providerSubject.value,
+      challengeSubjectId: challengeSubjectId.value,
+      finalWalletId: finalWalletId.value,
+      orgId: orgId.value,
+      appSessionVersion: appSessionVersion.value,
       proofEmail,
-      challengeId,
+      challengeId: challengeId.value,
+    },
+  };
+}
+
+function parseDirectEmailOtpRegistrationChallengeProof(request: {
+  providerSubject: unknown;
+  proofEmail: unknown;
+  challengeId: unknown;
+  finalWalletId: unknown;
+  orgId: unknown;
+  appSessionVersion: unknown;
+}): EmailOtpRegistrationChallengeProofResult {
+  const providerSubject = parseProviderSubject(request.providerSubject);
+  if (!providerSubject.ok) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'Email OTP registration proof requires providerSubject',
+    };
+  }
+  const challengeSubjectId = parseChallengeSubjectId(request.providerSubject);
+  if (!challengeSubjectId.ok) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'Email OTP registration proof requires challengeSubjectId',
+    };
+  }
+  const challengeId = parseEmailOtpChallengeId(request.challengeId);
+  if (!challengeId.ok) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'Email OTP registration proof requires challengeId',
+    };
+  }
+  const finalWalletId = parseWalletId(request.finalWalletId);
+  if (!finalWalletId.ok) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'Email OTP registration proof requires finalWalletId',
+    };
+  }
+  const orgId = parseOrgId(request.orgId);
+  if (!orgId.ok) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'Email OTP registration proof requires orgId',
+    };
+  }
+  const appSessionVersion = parseAppSessionVersion(request.appSessionVersion);
+  if (!appSessionVersion.ok) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'Email OTP registration proof requires appSessionVersion',
+    };
+  }
+  const proofEmail = toOptionalTrimmedString(request.proofEmail)?.toLowerCase();
+  if (!proofEmail) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'Email OTP registration proof requires proofEmail',
+    };
+  }
+  return {
+    ok: true,
+    proof: {
+      kind: 'direct_proof_email',
+      providerSubject: providerSubject.value,
+      challengeSubjectId: challengeSubjectId.value,
+      proofEmail,
+      challengeId: challengeId.value,
+      finalWalletId: finalWalletId.value,
+      orgId: orgId.value,
+      appSessionVersion: appSessionVersion.value,
     },
   };
 }
@@ -4341,18 +4617,22 @@ export class AuthService {
             message: 'Email OTP registration proof email does not match the intent',
           };
         }
+        const proofResult = parseDirectEmailOtpRegistrationChallengeProof({
+          providerSubject: proof.providerSubject,
+          proofEmail: proof.email,
+          challengeId: proof.challengeId,
+          finalWalletId: input.intent.walletId,
+          orgId: input.orgId,
+          appSessionVersion: proof.appSessionVersion,
+        });
+        if (!proofResult.ok) return proofResult;
         const verified = await this.verifyEmailOtpChallengeCode({
-          challengeSubjectId: proof.providerSubject,
-          registrationRerollProof: {
-            kind: 'direct_proof_email',
-            providerSubject: proof.providerSubject,
-            proofEmail: proof.email,
-            challengeId: proof.challengeId,
-          },
+          challengeSubjectId: proofResult.proof.challengeSubjectId,
+          registrationChallengeProof: proofResult.proof,
           allowRegistrationChallengeReroll: true,
           walletId: input.intent.walletId,
           orgId: input.orgId,
-          challengeId: proof.challengeId,
+          challengeId: proofResult.proof.challengeId,
           otpCode: proof.otpCode,
           otpChannel: proof.otpChannel,
           sessionHash: input.registrationIntentDigestB64u,
@@ -4361,7 +4641,15 @@ export class AuthService {
           expectedOperation: WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
         });
         if (!verified.ok) return verified;
-        const verifiedEmail = toOptionalTrimmedString(verified.email)?.toLowerCase();
+        if (verified.intent !== 'registration') {
+          return {
+            ok: false,
+            code: 'challenge_purpose_mismatch',
+            message: 'Email OTP registration verification returned a non-registration proof',
+          };
+        }
+        const challengeProof = verified.registrationChallengeProof;
+        const verifiedEmail = toOptionalTrimmedString(challengeProof.challengeEmail)?.toLowerCase();
         if (verifiedEmail !== proof.email) {
           return {
             ok: false,
@@ -4369,17 +4657,23 @@ export class AuthService {
             message: 'Verified Email OTP address does not match the registration proof',
           };
         }
-        const emailHashHex = bytesToHex(await sha256BytesUtf8(proof.email));
+        const emailHashHex = bytesToHex(await sha256BytesUtf8(challengeProof.challengeEmail));
         return {
           ok: true,
           authority: {
             kind: 'email_otp',
-            walletId: input.intent.walletId,
+            walletId: challengeProof.finalWalletId,
             rpId: input.intent.rpId,
-            providerSubject: proof.providerSubject,
-            email: proof.email,
+            providerSubject: challengeProof.providerSubject,
+            challengeSubjectId: challengeProof.challengeSubjectId,
+            email: challengeProof.challengeEmail,
             emailHashHex,
-            challengeId: proof.challengeId,
+            challengeId: challengeProof.challengeId,
+            originalWalletId: challengeProof.originalWalletId,
+            finalWalletId: challengeProof.finalWalletId,
+            orgId: challengeProof.orgId,
+            appSessionVersion: challengeProof.appSessionVersion,
+            challengePurpose: challengeProof.purpose.kind,
             registrationIntentDigestB64u: input.registrationIntentDigestB64u,
           },
         };
@@ -6624,18 +6918,22 @@ export class AuthService {
             message: 'Email OTP registration proof email does not match the intent',
           };
         }
+        const proofResult = parseDirectEmailOtpRegistrationChallengeProof({
+          providerSubject: proof.providerSubject,
+          proofEmail: proof.email,
+          challengeId: proof.challengeId,
+          finalWalletId: input.intent.walletId,
+          orgId: input.orgId,
+          appSessionVersion: proof.appSessionVersion,
+        });
+        if (!proofResult.ok) return proofResult;
         const verified = await this.verifyEmailOtpChallengeCode({
-          challengeSubjectId: proof.providerSubject,
-          registrationRerollProof: {
-            kind: 'direct_proof_email',
-            providerSubject: proof.providerSubject,
-            proofEmail: proof.email,
-            challengeId: proof.challengeId,
-          },
+          challengeSubjectId: proofResult.proof.challengeSubjectId,
+          registrationChallengeProof: proofResult.proof,
           allowRegistrationChallengeReroll: false,
           walletId: input.intent.walletId,
           orgId: input.orgId,
-          challengeId: proof.challengeId,
+          challengeId: proofResult.proof.challengeId,
           otpCode: proof.otpCode,
           otpChannel: proof.otpChannel,
           sessionHash: input.expectedDigestB64u,
@@ -6644,7 +6942,15 @@ export class AuthService {
           expectedOperation: WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
         });
         if (!verified.ok) return verified;
-        const verifiedEmail = toOptionalTrimmedString(verified.email)?.toLowerCase();
+        if (verified.intent !== 'registration') {
+          return {
+            ok: false,
+            code: 'challenge_purpose_mismatch',
+            message: 'Email OTP add-auth-method verification returned a non-registration proof',
+          };
+        }
+        const challengeProof = verified.registrationChallengeProof;
+        const verifiedEmail = toOptionalTrimmedString(challengeProof.challengeEmail)?.toLowerCase();
         if (verifiedEmail !== proof.email) {
           return {
             ok: false,
@@ -6652,7 +6958,7 @@ export class AuthService {
             message: 'Verified Email OTP address does not match the registration proof',
           };
         }
-        const emailHashHex = bytesToHex(await sha256BytesUtf8(proof.email));
+        const emailHashHex = bytesToHex(await sha256BytesUtf8(challengeProof.challengeEmail));
         const duplicateEmailOtp = await input.walletAuthMethodStore.getEmailOtp({
           walletId: input.intent.walletId,
           rpId: input.intent.rpId,
@@ -6669,12 +6975,18 @@ export class AuthService {
           ok: true,
           authority: {
             kind: 'email_otp',
-            walletId: input.intent.walletId,
+            walletId: challengeProof.finalWalletId,
             rpId: input.intent.rpId,
-            providerSubject: proof.providerSubject,
-            email: proof.email,
+            providerSubject: challengeProof.providerSubject,
+            challengeSubjectId: challengeProof.challengeSubjectId,
+            email: challengeProof.challengeEmail,
             emailHashHex,
-            challengeId: proof.challengeId,
+            challengeId: challengeProof.challengeId,
+            originalWalletId: challengeProof.originalWalletId,
+            finalWalletId: challengeProof.finalWalletId,
+            orgId: challengeProof.orgId,
+            appSessionVersion: challengeProof.appSessionVersion,
+            challengePurpose: challengeProof.purpose.kind,
             registrationIntentDigestB64u: input.expectedDigestB64u,
           },
         };
@@ -9118,34 +9430,17 @@ export class AuthService {
     otpChannel?: unknown;
     sessionHash?: unknown;
     appSessionVersion?: unknown;
-    registrationRerollProof?: EmailOtpRegistrationRerollProofBinding;
+    registrationChallengeProof?: EmailOtpRegistrationChallengeProof;
     allowRegistrationChallengeReroll?: boolean;
     clientIp?: unknown;
     expectedAction: EmailOtpChallengeAction;
     expectedOperation?: EmailOtpChallengeOperation;
-  }): Promise<
-    | {
-        ok: true;
-        challengeId: string;
-        challengeSubjectId: string;
-        walletId: string;
-        orgId: string;
-        email?: string;
-        otpChannel: EmailOtpChannel;
-      }
-    | {
-        ok: false;
-        code: string;
-        message: string;
-        attemptsRemaining?: number;
-        lockedUntilMs?: number;
-      }
-  > {
+  }): Promise<VerifiedEmailOtpChallengeCodeResult> {
     try {
-      const challengeSubjectId = toOptionalTrimmedString(request.challengeSubjectId);
-      const walletId = toOptionalTrimmedString(request.walletId);
-      const orgId = toOptionalTrimmedString(request.orgId) || '';
-      const challengeId = toOptionalTrimmedString(request.challengeId);
+      const challengeSubjectId = parseChallengeSubjectId(request.challengeSubjectId);
+      const walletId = parseWalletId(request.walletId);
+      const orgId = parseOrgId(request.orgId);
+      const challengeId = parseEmailOtpChallengeId(request.challengeId);
       const otpCode = toOptionalTrimmedString(request.otpCode);
       const otpChannel = toOptionalTrimmedString(request.otpChannel);
       const sessionHash = toOptionalTrimmedString(request.sessionHash);
@@ -9155,39 +9450,69 @@ export class AuthService {
       const expectedOperation = request.expectedOperation;
       if (
         expectedAction === WALLET_EMAIL_OTP_ACTIONS.registration &&
-        !request.registrationRerollProof
+        !request.registrationChallengeProof
       ) {
         return {
           ok: false,
           code: 'invalid_body',
-          message: 'Email OTP registration verification requires registration proof binding',
+          message: 'Email OTP registration verification requires registration challenge proof',
         };
       }
       const verificationIntent = emailOtpChallengeVerificationIntentFromRequest({
         expectedAction,
         ...(expectedOperation ? { expectedOperation } : {}),
-        ...(request.registrationRerollProof
-          ? { registrationRerollProof: request.registrationRerollProof }
+        ...(request.registrationChallengeProof
+          ? { registrationChallengeProof: request.registrationChallengeProof }
           : {}),
         ...(request.allowRegistrationChallengeReroll
           ? { allowRegistrationChallengeReroll: true }
           : {}),
       });
       const expectedPurpose = expectedEmailOtpStoredChallengePurpose(verificationIntent);
-      if (!challengeSubjectId) {
+      if (!challengeSubjectId.ok) {
         return { ok: false, code: 'invalid_body', message: 'Missing challengeSubjectId' };
       }
-      if (!walletId) return { ok: false, code: 'invalid_body', message: 'Missing walletId' };
-      if (!orgId) return { ok: false, code: 'invalid_body', message: 'Missing orgId' };
-      if (!challengeId) return { ok: false, code: 'invalid_body', message: 'Missing challengeId' };
+      if (!walletId.ok) return { ok: false, code: 'invalid_body', message: 'Missing walletId' };
+      if (!orgId.ok) return { ok: false, code: 'invalid_body', message: 'Missing orgId' };
+      if (!challengeId.ok) return { ok: false, code: 'invalid_body', message: 'Missing challengeId' };
       if (
-        request.registrationRerollProof &&
-        request.registrationRerollProof.challengeId !== challengeId
+        request.registrationChallengeProof &&
+        request.registrationChallengeProof.challengeId !== challengeId.value
       ) {
         return {
           ok: false,
           code: 'challenge_id_mismatch',
           message: 'Email OTP registration proof does not match challengeId',
+        };
+      }
+      if (
+        request.registrationChallengeProof &&
+        request.registrationChallengeProof.finalWalletId !== walletId.value
+      ) {
+        return {
+          ok: false,
+          code: 'challenge_wallet_mismatch',
+          message: 'Email OTP registration proof does not match walletId',
+        };
+      }
+      if (
+        request.registrationChallengeProof &&
+        request.registrationChallengeProof.orgId !== orgId.value
+      ) {
+        return {
+          ok: false,
+          code: 'challenge_org_mismatch',
+          message: 'Email OTP registration proof does not match orgId',
+        };
+      }
+      if (
+        request.registrationChallengeProof &&
+        request.registrationChallengeProof.appSessionVersion !== appSessionVersion
+      ) {
+        return {
+          ok: false,
+          code: 'challenge_session_mismatch',
+          message: 'Email OTP registration proof does not match appSessionVersion',
         };
       }
       if (!otpCode) return { ok: false, code: 'invalid_body', message: 'Missing otpCode' };
@@ -9205,22 +9530,22 @@ export class AuthService {
       const rateLimit = await this.consumeEmailOtpRateLimit({
         scope: 'verify',
         action: expectedAction,
-        userId: challengeSubjectId,
-        walletId,
-        orgId,
+        userId: challengeSubjectId.value,
+        walletId: walletId.value,
+        orgId: orgId.value,
         clientIp,
       });
       if (!rateLimit.ok) return rateLimit;
 
       const activeEnrollment =
         expectedAction !== WALLET_EMAIL_OTP_ACTIONS.registration
-          ? await this.readActiveEmailOtpEnrollment({ walletId, orgId })
+          ? await this.readActiveEmailOtpEnrollment({ walletId: walletId.value, orgId: orgId.value })
           : null;
       if (activeEnrollment && !activeEnrollment.ok) return activeEnrollment;
       const enrollment = activeEnrollment?.ok
         ? activeEnrollment.enrollment
-        : await this.getEmailOtpWalletEnrollmentStore().get(walletId);
-      if (enrollment && enrollment.orgId !== orgId) {
+        : await this.getEmailOtpWalletEnrollmentStore().get(walletId.value);
+      if (enrollment && enrollment.orgId !== orgId.value) {
         return {
           ok: false,
           code: 'tenant_scope_mismatch',
@@ -9248,12 +9573,12 @@ export class AuthService {
       const challengeStore = this.getEmailOtpChallengeStore();
       const nowMs = Date.now();
       await this.pruneExpiredEmailOtpChallenges(challengeStore, nowMs);
-      let record = await challengeStore.get(challengeId);
+      let record = await challengeStore.get(challengeId.value);
       if (!record) {
         record = await challengeStore.findActiveByContext({
-          challengeSubjectId,
-          walletId,
-          orgId,
+          challengeSubjectId: challengeSubjectId.value,
+          walletId: walletId.value,
+          orgId: orgId.value,
           otpChannel: EMAIL_OTP_CHANNEL,
           sessionHash,
           appSessionVersion,
@@ -9264,9 +9589,9 @@ export class AuthService {
         });
         if (!record) {
           this.logger.warn('[email-otp] challenge record not found during verification', {
-            challengeId,
-            walletId,
-            challengeSubjectId,
+            challengeId: challengeId.value,
+            walletId: walletId.value,
+            challengeSubjectId: challengeSubjectId.value,
             otpChannel: EMAIL_OTP_CHANNEL,
             action: expectedAction,
           });
@@ -9288,31 +9613,38 @@ export class AuthService {
         };
       }
 
-      const registrationChallengeCanFollowReroll =
-        verificationIntent.kind === 'registration' &&
-        emailOtpRegistrationChallengeMatchesSubject({
-          record,
-          challengeSubjectId,
-          proof: verificationIntent.binding,
-          allowWalletReroll: verificationIntent.allowWalletReroll,
-        });
-      const registrationRerollEmailMatches =
-        verificationIntent.kind === 'registration' &&
-        toOptionalTrimmedString(record.email)?.toLowerCase() ===
-          toOptionalTrimmedString(verificationIntent.binding.proofEmail)?.toLowerCase();
       const storedPurpose = readEmailOtpStoredChallengePurpose(record);
       const purposeMatches = emailOtpStoredChallengePurposeMatches({
         expected: expectedPurpose,
         actual: storedPurpose,
       });
-      // Registration name rerolls mint a new app session and walletId while the
-      // OTP stays bound to the Google subject, email, and org.
+      const verifiedRegistrationChallengeProof =
+        verificationIntent.kind === 'registration'
+          ? buildVerifiedEmailOtpRegistrationChallengeProof({
+              record,
+              challengeSubjectId: challengeSubjectId.value,
+              proof: verificationIntent.binding,
+              storedPurpose,
+              allowWalletReroll: verificationIntent.allowWalletReroll,
+            })
+          : null;
+      const registrationChallengeCanFollowReroll = verifiedRegistrationChallengeProof != null;
+      const registrationChallengeEmailMatches =
+        verificationIntent.kind === 'registration' &&
+        toOptionalTrimmedString(record.email)?.toLowerCase() ===
+          toOptionalTrimmedString(verificationIntent.binding.proofEmail)?.toLowerCase();
+      const registrationRerollDisallowed =
+        verificationIntent.kind === 'registration' &&
+        storedPurpose?.kind === 'wallet_unlock' &&
+        !verificationIntent.allowWalletReroll;
+      // Registration name rerolls change only the final wallet id; the OTP
+      // remains bound to the same provider subject, email, org, and app session.
       const subjectMismatch = registrationChallengeCanFollowReroll
         ? false
-        : record.challengeSubjectId !== challengeSubjectId;
+        : record.challengeSubjectId !== challengeSubjectId.value;
       const walletMismatch = registrationChallengeCanFollowReroll
         ? false
-        : record.walletId !== walletId;
+        : record.walletId !== walletId.value;
       const actionMismatch = registrationChallengeCanFollowReroll
         ? false
         : !purposeMatches;
@@ -9333,32 +9665,38 @@ export class AuthService {
         operationMismatch ||
         sessionHashMismatch ||
         appSessionVersionMismatch ||
-        String(record.orgId || '') !== String(orgId || '');
+        String(record.orgId || '') !== String(orgId.value || '');
       if (bindingMismatch) {
         const mismatchCode: EmailOtpChallengeBindingMismatchCode =
           record.otpChannel !== EMAIL_OTP_CHANNEL
             ? 'challenge_channel_mismatch'
             : subjectMismatch
               ? 'challenge_subject_mismatch'
-              : verificationIntent.kind === 'registration' && !registrationRerollEmailMatches
+              : verificationIntent.kind === 'registration' && !registrationChallengeEmailMatches
                 ? 'challenge_email_mismatch'
-                : actionMismatch || operationMismatch
-                  ? 'challenge_purpose_mismatch'
-                  : walletMismatch
-                    ? 'challenge_wallet_mismatch'
-                    : sessionHashMismatch || appSessionVersionMismatch
-                      ? 'challenge_session_mismatch'
-                      : 'challenge_org_mismatch';
+                : String(record.orgId || '') !== String(orgId.value || '')
+                  ? 'challenge_org_mismatch'
+                  : registrationRerollDisallowed
+                    ? 'registration_reroll_disallowed'
+                    : actionMismatch || operationMismatch
+                      ? 'challenge_purpose_mismatch'
+                      : walletMismatch
+                        ? 'challenge_wallet_mismatch'
+                        : sessionHashMismatch || appSessionVersionMismatch
+                          ? 'challenge_session_mismatch'
+                          : 'challenge_org_mismatch';
         this.logger.warn('[email-otp] challenge binding mismatch during verification', {
           challengeId: record.challengeId,
-          expectedChallengeId: challengeId,
+          expectedChallengeId: challengeId.value,
           expectedAction,
           expectedOperation: expectedOperation || null,
           recordAction: record.action,
           recordOperation: record.operation,
-          hasRegistrationRerollProof: request.registrationRerollProof != null,
+          hasRegistrationChallengeProof: request.registrationChallengeProof != null,
           registrationChallengeCanFollowReroll,
-          registrationRerollEmailMatches,
+          registrationRerollDisallowed,
+          registrationChallengeEmailMatches,
+          registrationChallengePurpose: verifiedRegistrationChallengeProof?.purpose.kind || null,
           subjectMatches: !subjectMismatch,
           walletMatches: !walletMismatch,
           otpChannelMatches: record.otpChannel === EMAIL_OTP_CHANNEL,
@@ -9366,9 +9704,9 @@ export class AuthService {
           operationMatches: !operationMismatch,
           sessionHashMatches: !sessionHashMismatch,
           appSessionVersionMatches: !appSessionVersionMismatch,
-          orgMatches: String(record.orgId || '') === String(orgId || ''),
+          orgMatches: String(record.orgId || '') === String(orgId.value || ''),
           recordWalletId: record.walletId,
-          requestWalletId: walletId,
+          requestWalletId: walletId.value,
           mismatchCode,
           expectedPurpose,
           storedPurpose,
@@ -9383,16 +9721,19 @@ export class AuthService {
         this.logger.info('[email-otp] registration reroll challenge validation', {
           challengeId: record.challengeId,
           registrationAttemptId:
-            verificationIntent.binding.kind === 'registration_attempt'
-              ? verificationIntent.binding.registrationAttemptId
+            verifiedRegistrationChallengeProof.kind === 'registration_attempt'
+              ? verifiedRegistrationChallengeProof.registrationAttemptId
               : null,
-          originalWalletId: record.walletId,
-          finalWalletId: walletId,
-          providerSubject: challengeSubjectId,
-          providerSubjectMatches: record.challengeSubjectId === challengeSubjectId,
-          proofEmailMatches: registrationRerollEmailMatches,
-          appSessionVersionMatches: record.appSessionVersion === appSessionVersion,
-          orgMatches: String(record.orgId || '') === String(orgId || ''),
+          originalWalletId: verifiedRegistrationChallengeProof.originalWalletId,
+          finalWalletId: verifiedRegistrationChallengeProof.finalWalletId,
+          providerSubject: verifiedRegistrationChallengeProof.providerSubject,
+          providerSubjectMatches:
+            record.challengeSubjectId === verifiedRegistrationChallengeProof.challengeSubjectId,
+          proofEmailMatches: registrationChallengeEmailMatches,
+          appSessionVersionMatches:
+            record.appSessionVersion === verifiedRegistrationChallengeProof.appSessionVersion,
+          orgMatches: String(record.orgId || '') === String(verifiedRegistrationChallengeProof.orgId),
+          purpose: verifiedRegistrationChallengeProof.purpose,
           expectedPurpose,
           storedPurpose,
         });
@@ -9400,9 +9741,9 @@ export class AuthService {
 
       if (record.otpCode !== otpCode) {
         const matchingRecord = await challengeStore.findActiveByContext({
-          challengeSubjectId,
-          walletId,
-          orgId,
+          challengeSubjectId: challengeSubjectId.value,
+          walletId: walletId.value,
+          orgId: orgId.value,
           otpChannel: EMAIL_OTP_CHANNEL,
           sessionHash,
           appSessionVersion,
@@ -9471,14 +9812,48 @@ export class AuthService {
         }
       }
 
+      const verifiedChallengeId = parseEmailOtpChallengeId(record.challengeId);
+      if (!verifiedChallengeId.ok) {
+        return {
+          ok: false,
+          code: 'internal',
+          message: 'Email OTP challenge record has an invalid challenge id',
+        };
+      }
+      const successBase: VerifiedEmailOtpChallengeCodeSuccessBase = {
+        challengeId: verifiedChallengeId.value,
+        challengeSubjectId: challengeSubjectId.value,
+        walletId: walletId.value,
+        orgId: orgId.value,
+        otpChannel: EMAIL_OTP_CHANNEL,
+      };
+      if (record.email) successBase.email = record.email;
+      if (verificationIntent.kind === 'registration') {
+        const finalRegistrationChallengeProof = buildVerifiedEmailOtpRegistrationChallengeProof({
+          record,
+          challengeSubjectId: challengeSubjectId.value,
+          proof: verificationIntent.binding,
+          storedPurpose: readEmailOtpStoredChallengePurpose(record),
+          allowWalletReroll: verificationIntent.allowWalletReroll,
+        });
+        if (!finalRegistrationChallengeProof) {
+          return {
+            ok: false,
+            code: 'challenge_purpose_mismatch',
+            message: 'Email OTP challenge is not valid for registration',
+          };
+        }
+        return {
+          ok: true,
+          ...successBase,
+          intent: 'registration',
+          registrationChallengeProof: finalRegistrationChallengeProof,
+        };
+      }
       return {
         ok: true,
-        challengeId: record.challengeId,
-        challengeSubjectId,
-        walletId,
-        orgId,
-        ...(record.email ? { email: record.email } : {}),
-        otpChannel: EMAIL_OTP_CHANNEL,
+        ...successBase,
+        intent: verificationIntent.kind,
       };
     } catch (e: unknown) {
       return {
@@ -10058,6 +10433,17 @@ export class AuthService {
         message: 'Email OTP registration finalize requires emailOtpEnrollment',
       };
     }
+    if (
+      input.authority.walletId !== input.walletId ||
+      input.authority.finalWalletId !== input.walletId ||
+      input.authority.orgId !== input.orgId
+    ) {
+      return {
+        ok: false,
+        code: 'authority_binding_mismatch',
+        message: 'Email OTP registration authority does not match finalize scope',
+      };
+    }
     const authSubjectId = toOptionalTrimmedString(input.authority.providerSubject) || '';
     const verifiedEmail = toOptionalTrimmedString(input.authority.email)?.toLowerCase() || '';
     const enrollment = await this.buildEmailOtpRegistrationEnrollmentPersistence({
@@ -10072,9 +10458,9 @@ export class AuthService {
     return { ok: true, persistence: enrollment.persistence };
   }
 
-  private async resolveEmailOtpRegistrationProofBinding(
-    input: EmailOtpRegistrationProofBindingInput,
-  ): Promise<EmailOtpRegistrationProofBindingResult> {
+  private async resolveEmailOtpRegistrationChallengeProof(
+    input: EmailOtpRegistrationChallengeProofInput,
+  ): Promise<EmailOtpRegistrationChallengeProofResult> {
     switch (input.kind) {
       case 'google_registration_attempt': {
         const attempt = await this.getEmailOtpRegistrationAttemptStore().get(
@@ -10083,7 +10469,7 @@ export class AuthService {
         if (!attempt) {
           return {
             ok: false,
-            code: 'registration_incomplete',
+            code: 'registration_attempt_missing',
             message: 'Google Email OTP registration attempt expired or was not found',
           };
         }
@@ -10097,7 +10483,7 @@ export class AuthService {
         if (attempt.expiresAtMs <= Date.now()) {
           return {
             ok: false,
-            code: 'registration_incomplete',
+            code: 'registration_attempt_expired',
             message: 'Google Email OTP registration attempt expired',
           };
         }
@@ -10113,9 +10499,13 @@ export class AuthService {
           proof: {
             kind: 'registration_attempt',
             providerSubject: input.providerSubject,
+            challengeSubjectId: input.challengeSubjectId,
             proofEmail: attempt.email.toLowerCase(),
             registrationAttemptId: input.registrationAttemptId,
             challengeId: input.challengeId,
+            finalWalletId: input.walletId,
+            orgId: input.orgId,
+            appSessionVersion: input.appSessionVersion,
           },
         };
       }
@@ -10125,8 +10515,12 @@ export class AuthService {
           proof: {
             kind: 'direct_proof_email',
             providerSubject: input.providerSubject,
+            challengeSubjectId: input.challengeSubjectId,
             proofEmail: input.proofEmail,
             challengeId: input.challengeId,
+            finalWalletId: input.finalWalletId,
+            orgId: input.orgId,
+            appSessionVersion: input.appSessionVersion,
           },
         };
     }
@@ -10172,16 +10566,16 @@ export class AuthService {
         lockedUntilMs?: number;
       }
   > {
-    const proofBindingInput = normalizeEmailOtpRegistrationProofBindingInput(request);
-    if (!proofBindingInput.ok) return proofBindingInput;
-    const proofBinding = await this.resolveEmailOtpRegistrationProofBinding(
-      proofBindingInput.input,
+    const proofInput = parseRawEmailOtpRegistrationChallengeProofInput(request);
+    if (!proofInput.ok) return proofInput;
+    const proofResult = await this.resolveEmailOtpRegistrationChallengeProof(
+      proofInput.input,
     );
-    if (!proofBinding.ok) return proofBinding;
+    if (!proofResult.ok) return proofResult;
     const verified = await this.verifyEmailOtpChallengeCode({
       ...request,
-      challengeSubjectId: proofBinding.proof.providerSubject,
-      registrationRerollProof: proofBinding.proof,
+      challengeSubjectId: proofResult.proof.challengeSubjectId,
+      registrationChallengeProof: proofResult.proof,
       allowRegistrationChallengeReroll: true,
       expectedAction: WALLET_EMAIL_OTP_ACTIONS.registration,
     });

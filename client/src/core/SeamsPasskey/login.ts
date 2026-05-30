@@ -70,6 +70,7 @@ import {
   ecdsaAvailableLaneTargets,
   isConcreteAvailableSigningLane,
 } from '../signingEngine/session/availability/availableSigningLanes';
+import { assertWalletRuntimePostconditions } from '../signingEngine/session/postconditions/runtimePostconditions';
 import {
   thresholdEcdsaChainTargetKey,
   type ThresholdEcdsaChainTarget,
@@ -269,6 +270,30 @@ function resolveThresholdLoginWarmupPhaseInput(
       ? {}
       : { useAppSessionCookie: args.useAppSessionCookie }),
   };
+}
+
+async function assertPasskeyUnlockRuntimePostconditions(args: {
+  context: PasskeyManagerContext;
+  nearAccountId: AccountId;
+  signersWarmed: readonly ('ed25519' | 'ecdsa')[];
+}): Promise<void> {
+  const requiredTargets = [
+    ...(args.signersWarmed.includes('ed25519') ? [{ curve: 'ed25519' as const }] : []),
+    ...(args.signersWarmed.includes('ecdsa')
+      ? listConfiguredThresholdEcdsaPublicationTargets(args.context.configs.network.chains).map(
+          (target) => ({ curve: 'ecdsa' as const, chainTarget: target.chainTarget }),
+        )
+      : []),
+  ];
+  if (requiredTargets.length === 0) return;
+  await assertWalletRuntimePostconditions({
+    source: 'wallet_unlock',
+    walletId: String(args.nearAccountId),
+    authMethod: 'passkey',
+    requiredTargets,
+    readPersistedAvailableSigningLanes: async (input) =>
+      await args.context.signingEngine.readPersistedAvailableSigningLanes(input),
+  });
 }
 
 function normalizeLoginUnlockAccountSubject(args: {
@@ -838,6 +863,11 @@ export async function unlock(
             }),
           );
           signingSession = warmupPhase.signingSession;
+          await assertPasskeyUnlockRuntimePostconditions({
+            context,
+            nearAccountId,
+            signersWarmed: warmupPhase.signersWarmed,
+          });
         }
         await persistSuccessfulLoginState(baseSignerSlot);
         await recoverNonceLanesAfterUnlock();
@@ -917,6 +947,11 @@ export async function unlock(
         }),
       );
       signingSession = warmupPhase.signingSession;
+      await assertPasskeyUnlockRuntimePostconditions({
+        context,
+        nearAccountId,
+        signersWarmed: warmupPhase.signersWarmed,
+      });
     }
 
     await persistSuccessfulLoginState(baseSignerSlot);

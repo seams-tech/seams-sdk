@@ -5,9 +5,9 @@ import {
 } from '@/core/config/chains';
 import type { AccountId } from '@/core/types/accountIds';
 import type { SeamsChainConfig, SeamsChainNetwork } from '@/core/types/seams';
-import type { WalletId } from '@shared/utils/registrationIntent';
+import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
 
-export type { WalletId } from '@shared/utils/registrationIntent';
+export type { WalletId } from '@shared/utils/domainIds';
 
 export type BaseEcdsaWalletId = WalletId;
 
@@ -83,11 +83,15 @@ function defaultNetworkSlug(kind: BoundaryEcdsaChainFamily, chainId: number): st
 }
 
 export function toWalletId(value: unknown): WalletId {
-  return requireNonEmptyString(value, 'wallet id') as WalletId;
+  const parsed = parseWalletId(value);
+  if (!parsed.ok) {
+    throw new Error(parsed.error.message);
+  }
+  return parsed.value;
 }
 
 export function walletIdFromWalletProfile(args: { walletId: unknown }): WalletId {
-  return toWalletId(toWalletId(args.walletId));
+  return toWalletId(args.walletId);
 }
 
 export function walletIdFromSessionValue(value: unknown): WalletId {

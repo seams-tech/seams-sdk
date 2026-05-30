@@ -54,7 +54,28 @@ export function emailOtpStatusCode(code: string | undefined): number {
   if (code === 'not_found') return 404;
   if (code === 'rate_limited') return 429;
   if (code === 'stronger_auth_required') return 403;
-  if (code === 'reenrollment_required') return 409;
+  if (
+    code === 'reenrollment_required' ||
+    code === 'registration_attempt_missing' ||
+    code === 'registration_attempt_expired'
+  ) {
+    return 409;
+  }
+  if (
+    code === 'challenge_id_mismatch' ||
+    code === 'challenge_purpose_mismatch' ||
+    code === 'challenge_subject_mismatch' ||
+    code === 'challenge_email_mismatch' ||
+    code === 'challenge_wallet_mismatch' ||
+    code === 'challenge_session_mismatch' ||
+    code === 'challenge_org_mismatch' ||
+    code === 'challenge_channel_mismatch' ||
+    code === 'registration_reroll_disallowed' ||
+    code === 'challenge_expired_or_invalid' ||
+    code === 'invalid_otp'
+  ) {
+    return 401;
+  }
   return 400;
 }
 

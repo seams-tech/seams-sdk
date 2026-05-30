@@ -18,6 +18,14 @@ import {
   normalizeAddAuthMethodInput,
   walletIdFromString,
 } from '@shared/utils/registrationIntent';
+import {
+  parseAppSessionVersion,
+  parseChallengeSubjectId,
+  parseEmailOtpChallengeId,
+  parseOrgId,
+  parseProviderSubject,
+  parseWalletId,
+} from '@shared/utils/domainIds';
 import { getPostgresPool, getPostgresUrlFromConfig } from '../storage/postgres';
 import type { NormalizedLogger } from './logger';
 import { THRESHOLD_DO_OBJECT_NAME_DEFAULT } from './defaultConfigsServer';
@@ -702,15 +710,48 @@ function parseStoredRegistrationAuthority(value: unknown): StoredRegistrationAut
         typeof value.challengeId === 'string' && value.challengeId.trim()
           ? value.challengeId
           : null;
-      if (!providerSubject || !email || !emailHashHex || !challengeId) return null;
+      const challengeSubjectId = parseChallengeSubjectId(value.challengeSubjectId);
+      const parsedProviderSubject = parseProviderSubject(providerSubject);
+      const parsedChallengeId = parseEmailOtpChallengeId(challengeId);
+      const originalWalletId = parseWalletId(value.originalWalletId);
+      const finalWalletId = parseWalletId(value.finalWalletId);
+      const orgId = parseOrgId(value.orgId);
+      const appSessionVersion = parseAppSessionVersion(value.appSessionVersion);
+      const challengePurpose =
+        value.challengePurpose === 'registration' ||
+        value.challengePurpose === 'registration_reroll'
+          ? value.challengePurpose
+          : null;
+      if (
+        !providerSubject ||
+        !email ||
+        !emailHashHex ||
+        !challengeId ||
+        !challengeSubjectId.ok ||
+        !parsedProviderSubject.ok ||
+        !parsedChallengeId.ok ||
+        !originalWalletId.ok ||
+        !finalWalletId.ok ||
+        !orgId.ok ||
+        !appSessionVersion.ok ||
+        !challengePurpose
+      ) {
+        return null;
+      }
       return {
         kind: 'email_otp',
         walletId,
         rpId,
-        providerSubject,
+        providerSubject: parsedProviderSubject.value,
+        challengeSubjectId: challengeSubjectId.value,
         email,
         emailHashHex,
-        challengeId,
+        challengeId: parsedChallengeId.value,
+        originalWalletId: originalWalletId.value,
+        finalWalletId: finalWalletId.value,
+        orgId: orgId.value,
+        appSessionVersion: appSessionVersion.value,
+        challengePurpose,
         registrationIntentDigestB64u,
       };
     }

@@ -22,6 +22,7 @@ import {
   type ThresholdEcdsaSessionRecord,
 } from '../../session/persistence/records';
 import {
+  thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -36,6 +37,111 @@ type EcdsaMaterialBase = {
   source: ThresholdEcdsaSessionStoreSource;
   chainTarget: ThresholdEcdsaChainTarget;
   identity: EcdsaSessionIdentity;
+};
+
+export type PositiveSignatureUses = number & { readonly __brand: 'PositiveSignatureUses' };
+export type FutureEpochMs = number & { readonly __brand: 'FutureEpochMs' };
+
+export type EvmFamilySharedEcdsaSignerMaterial =
+  | {
+      kind: 'inline';
+      clientAdditiveShare32B64u: string;
+      workerSessionId?: never;
+      sourceChainTarget?: never;
+    }
+  | {
+      kind: 'worker_handle';
+      workerSessionId: string;
+      clientAdditiveShare32B64u?: never;
+      sourceChainTarget?: never;
+    }
+  | {
+      kind: 'source_chain_material';
+      sourceChainTarget: ThresholdEcdsaChainTarget;
+      clientAdditiveShare32B64u?: never;
+      workerSessionId?: never;
+    };
+
+export type EvmFamilySharedEcdsaUnavailableState = {
+  kind: 'unavailable';
+  reason: 'missing_record' | 'invalid_record' | 'unsupported_target';
+  walletId: string;
+  requestChainTarget: ThresholdEcdsaChainTarget;
+  sourceChainTarget?: never;
+  publishedTargets?: never;
+  sharedPublicFacts?: never;
+  walletSigningSessionId?: never;
+  thresholdSessionId?: never;
+  signerMaterial?: never;
+};
+
+export type EvmFamilySharedEcdsaPublicIdentityOnlyState = {
+  kind: 'public_identity_only';
+  walletId: string;
+  authMethod: EvmFamilyEcdsaAuthMethod;
+  sourceChainTarget: ThresholdEcdsaChainTarget;
+  publishedTargets: readonly ThresholdEcdsaChainTarget[];
+  sharedPublicFacts: VerifiedEcdsaPublicFacts;
+  walletSigningSessionId?: never;
+  thresholdSessionId?: never;
+  signerMaterial?: never;
+};
+
+export type EvmFamilySharedEcdsaRestorableState = {
+  kind: 'restorable';
+  walletId: string;
+  authMethod: EvmFamilyEcdsaAuthMethod;
+  sourceChainTarget: ThresholdEcdsaChainTarget;
+  publishedTargets: readonly ThresholdEcdsaChainTarget[];
+  sharedPublicFacts: VerifiedEcdsaPublicFacts;
+  walletSigningSessionId: EcdsaSessionIdentity['walletSigningSessionId'];
+  thresholdSessionId: EcdsaSessionIdentity['thresholdSessionId'];
+  restore:
+    | { kind: 'email_otp_worker'; workerSessionId: string; credentialIdB64u?: never }
+    | { kind: 'passkey_seal'; credentialIdB64u: string; workerSessionId?: never };
+  signerMaterial?: never;
+};
+
+export type EvmFamilySharedEcdsaReadyState = {
+  kind: 'ready_to_sign';
+  walletId: string;
+  authMethod: EvmFamilyEcdsaAuthMethod;
+  sourceChainTarget: ThresholdEcdsaChainTarget;
+  publishedTargets: readonly ThresholdEcdsaChainTarget[];
+  sharedPublicFacts: VerifiedEcdsaPublicFacts;
+  walletSigningSessionId: EcdsaSessionIdentity['walletSigningSessionId'];
+  thresholdSessionId: EcdsaSessionIdentity['thresholdSessionId'];
+  remainingSignatureUses: PositiveSignatureUses;
+  expiresAtMs: FutureEpochMs;
+  signerMaterial: EvmFamilySharedEcdsaSignerMaterial;
+  restore?: never;
+};
+
+export type EvmFamilySharedEcdsaExportReadyState = {
+  kind: 'ready_for_export';
+  walletId: string;
+  authMethod: EvmFamilyEcdsaAuthMethod;
+  sourceChainTarget: ThresholdEcdsaChainTarget;
+  publishedTargets: readonly ThresholdEcdsaChainTarget[];
+  sharedPublicFacts: VerifiedEcdsaPublicFacts;
+  walletSigningSessionId: EcdsaSessionIdentity['walletSigningSessionId'];
+  thresholdSessionId: EcdsaSessionIdentity['thresholdSessionId'];
+  exportMaterial: { kind: 'canonical_export_artifact'; artifactPresent: true };
+  signerMaterial?: never;
+  restore?: never;
+};
+
+export type EvmFamilySharedEcdsaState =
+  | EvmFamilySharedEcdsaUnavailableState
+  | EvmFamilySharedEcdsaPublicIdentityOnlyState
+  | EvmFamilySharedEcdsaRestorableState
+  | EvmFamilySharedEcdsaReadyState
+  | EvmFamilySharedEcdsaExportReadyState;
+
+export type TargetSpecificEvmFamilyEcdsaLaneState = {
+  kind: 'target_specific_evm_family_ecdsa_lane_state';
+  targetChainTarget: ThresholdEcdsaChainTarget;
+  sharedKeyState: EvmFamilySharedEcdsaReadyState;
 };
 
 export type MissingEcdsaMaterial = EcdsaMaterialBase & {
@@ -70,6 +176,7 @@ export type ReadyEcdsaMaterial = EcdsaMaterialBase & {
   signingKeyContext: EcdsaSigningKeyContext;
   readyMaterial: ReadyEvmFamilyEcdsaMaterial;
   signerSession: ReadyEcdsaSignerSession;
+  sharedKeyState: EvmFamilySharedEcdsaReadyState;
   record: ThresholdEcdsaSessionRecord;
   keyRef?: never;
 };
@@ -168,6 +275,14 @@ export function buildEcdsaMaterialStateForCandidate(
       signingKeyContext: readyResolution.material.signingKeyContext,
       readyMaterial: readyResolution.material,
       signerSession,
+      sharedKeyState: buildReadySharedEcdsaState({
+        authMethod: args.authMethod,
+        chainTarget: args.chainTarget,
+        sourceChainTarget: args.materialChainTarget,
+        publicFacts,
+        material: readyResolution.material,
+        signerSession,
+      }),
       record: readyResolution.material.record,
     };
   }
@@ -407,6 +522,86 @@ function missingShareReasonForRecord(
     return 'missing_worker_share';
   }
   return 'missing_inline_share';
+}
+
+function buildReadySharedEcdsaState(args: {
+  authMethod: EvmFamilyEcdsaAuthMethod;
+  chainTarget: ThresholdEcdsaChainTarget;
+  sourceChainTarget: ThresholdEcdsaChainTarget;
+  publicFacts: VerifiedEcdsaPublicFacts;
+  material: ReadyEvmFamilyEcdsaMaterial;
+  signerSession: ReadyEcdsaSignerSession;
+}): EvmFamilySharedEcdsaReadyState {
+  return {
+    kind: 'ready_to_sign',
+    walletId: String(args.material.key.walletId),
+    authMethod: args.authMethod,
+    sourceChainTarget: args.sourceChainTarget,
+    publishedTargets: uniqueChainTargets([args.sourceChainTarget, args.chainTarget]),
+    sharedPublicFacts: args.publicFacts,
+    walletSigningSessionId: args.material.lane.walletSigningSessionId,
+    thresholdSessionId: args.material.lane.thresholdSessionId,
+    remainingSignatureUses: positiveSignatureUses(args.material.lane.remainingUses),
+    expiresAtMs: futureEpochMs(args.material.lane.expiresAtMs),
+    signerMaterial: sharedSignerMaterial({
+      requestChainTarget: args.chainTarget,
+      sourceChainTarget: args.sourceChainTarget,
+      signerSession: args.signerSession,
+    }),
+  };
+}
+
+function sharedSignerMaterial(args: {
+  requestChainTarget: ThresholdEcdsaChainTarget;
+  sourceChainTarget: ThresholdEcdsaChainTarget;
+  signerSession: ReadyEcdsaSignerSession;
+}): EvmFamilySharedEcdsaSignerMaterial {
+  if (!thresholdEcdsaChainTargetsEqual(args.requestChainTarget, args.sourceChainTarget)) {
+    return {
+      kind: 'source_chain_material',
+      sourceChainTarget: args.sourceChainTarget,
+    };
+  }
+  switch (args.signerSession.clientShare.kind) {
+    case 'inline_client_share':
+      return {
+        kind: 'inline',
+        clientAdditiveShare32B64u: args.signerSession.clientShare.clientAdditiveShare32B64u,
+      };
+    case 'email_otp_worker_share':
+      return {
+        kind: 'worker_handle',
+        workerSessionId: args.signerSession.clientShare.handle.sessionId,
+      };
+  }
+}
+
+function positiveSignatureUses(value: number): PositiveSignatureUses {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error('[SigningEngine][ecdsa] ready shared ECDSA state requires positive uses');
+  }
+  return value as PositiveSignatureUses;
+}
+
+function futureEpochMs(value: number): FutureEpochMs {
+  if (!Number.isSafeInteger(value) || value <= Date.now()) {
+    throw new Error('[SigningEngine][ecdsa] ready shared ECDSA state requires future expiry');
+  }
+  return value as FutureEpochMs;
+}
+
+function uniqueChainTargets(
+  chainTargets: readonly ThresholdEcdsaChainTarget[],
+): readonly ThresholdEcdsaChainTarget[] {
+  const seen = new Set<string>();
+  const unique: ThresholdEcdsaChainTarget[] = [];
+  for (const chainTarget of chainTargets) {
+    const key = thresholdEcdsaChainTargetKey(chainTarget);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(chainTarget);
+  }
+  return unique;
 }
 
 function safeDeriveRecordPublicFactsFingerprint(args: {

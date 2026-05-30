@@ -156,7 +156,7 @@ test.describe('EVM-family request boundaries', () => {
 
     const keyRefRefreshStart = signEvmFamily.lastIndexOf(
       'updateResolvedEvmFamilyEcdsaSigningLaneIdentity({',
-      signEvmFamily.indexOf("context: 'EVM-family signing keyRef refresh'"),
+      signEvmFamily.indexOf("context: 'EVM-family signing record refresh'"),
     );
     const keyRefRefreshCall = signEvmFamily.slice(keyRefRefreshStart, keyRefRefreshStart + 400);
     expect(keyRefRefreshCall).toContain('chain: requestChain');

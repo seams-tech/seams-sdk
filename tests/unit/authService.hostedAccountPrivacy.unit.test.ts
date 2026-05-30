@@ -62,6 +62,25 @@ async function seedNonHostedEmailOtpMapping(
   });
 }
 
+function directRegistrationChallengeProof(input: {
+  providerSubject: string;
+  proofEmail: string;
+  challengeId: string;
+  finalWalletId: string;
+  appSessionVersion: string;
+}) {
+  return {
+    kind: 'direct_proof_email',
+    providerSubject: input.providerSubject,
+    challengeSubjectId: input.providerSubject,
+    proofEmail: input.proofEmail,
+    challengeId: input.challengeId,
+    finalWalletId: input.finalWalletId,
+    orgId: ORG_ID,
+    appSessionVersion: input.appSessionVersion,
+  };
+}
+
 test.describe('hosted Google Email OTP account privacy', () => {
   test('registration fails closed on non-HMAC-readable email-derived wallet mappings', async () => {
     const service = makeService();
@@ -290,18 +309,20 @@ test.describe('hosted Google Email OTP account privacy', () => {
 
     const verified = await (service as any).verifyEmailOtpChallengeCode({
       challengeSubjectId: 'google:subject-registration-reroll-otp',
-      registrationRerollProof: {
+      registrationChallengeProof: directRegistrationChallengeProof({
         providerSubject: 'google:subject-registration-reroll-otp',
         proofEmail: 'reroll-otp@example.com',
         challengeId: challenge.challenge.challengeId,
-      },
+        finalWalletId: 'cobalt-meadow-35whhdqoua.w3a-relayer.testnet',
+        appSessionVersion: 'google-app-session-v1',
+      }),
       walletId: 'cobalt-meadow-35whhdqoua.w3a-relayer.testnet',
       orgId: ORG_ID,
       challengeId: challenge.challenge.challengeId,
       otpCode: challengeRecord.otpCode,
       otpChannel: 'email_otp',
       sessionHash: 'rerolled-registration-intent-digest',
-      appSessionVersion: 'google-app-session-v2',
+      appSessionVersion: 'google-app-session-v1',
       expectedAction: WALLET_EMAIL_OTP_ACTIONS.registration,
       expectedOperation: WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
     });
@@ -343,11 +364,13 @@ test.describe('hosted Google Email OTP account privacy', () => {
     await expect(
       (service as any).verifyEmailOtpChallengeCode({
         challengeSubjectId: providerSubject,
-        registrationRerollProof: {
+        registrationChallengeProof: directRegistrationChallengeProof({
           providerSubject,
           proofEmail: 'active@example.com',
           challengeId: challenge.challenge.challengeId,
-        },
+          finalWalletId: 'steady-lake-1p5it43hyd.w3a-relayer.testnet',
+          appSessionVersion: 'google-app-session-v1',
+        }),
         allowRegistrationChallengeReroll: true,
         walletId: 'steady-lake-1p5it43hyd.w3a-relayer.testnet',
         orgId: ORG_ID,
@@ -355,7 +378,7 @@ test.describe('hosted Google Email OTP account privacy', () => {
         otpCode: challengeRecord.otpCode,
         otpChannel: 'email_otp',
         sessionHash: 'rerolled-registration-intent-digest',
-        appSessionVersion: 'google-app-session-v2',
+        appSessionVersion: 'google-app-session-v1',
         expectedAction: WALLET_EMAIL_OTP_ACTIONS.registration,
         expectedOperation: WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
       }),
@@ -363,6 +386,56 @@ test.describe('hosted Google Email OTP account privacy', () => {
       ok: true,
       walletId: 'steady-lake-1p5it43hyd.w3a-relayer.testnet',
       email: 'active@example.com',
+    });
+  });
+
+  test('register-mode reroll rejects existing-wallet login OTP when reroll bridge is not allowed', async () => {
+    const service = makeService();
+    const providerSubject = 'google:subject-registration-reroll-disallowed';
+    const existingWalletId = 'spruce-plain-cps1f80m3a.w3a-relayer.testnet';
+    await seedNonHostedEmailOtpMapping(service, {
+      providerSubject,
+      walletId: existingWalletId,
+    });
+
+    const challenge = await service.createEmailOtpChallenge({
+      userId: providerSubject,
+      walletId: existingWalletId,
+      orgId: ORG_ID,
+      otpChannel: 'email_otp',
+      sessionHash: 'existing-wallet-login-session-hash',
+      appSessionVersion: 'google-app-session-v1',
+      operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
+    });
+    expect(challenge.ok).toBe(true);
+    if (!challenge.ok) return;
+    const challengeRecord = await (service as any)
+      .getEmailOtpChallengeStore()
+      .get(challenge.challenge.challengeId);
+
+    await expect(
+      (service as any).verifyEmailOtpChallengeCode({
+        challengeSubjectId: providerSubject,
+        registrationChallengeProof: directRegistrationChallengeProof({
+          providerSubject,
+          proofEmail: 'active@example.com',
+          challengeId: challenge.challenge.challengeId,
+          finalWalletId: 'steady-lake-1p5it43hyd.w3a-relayer.testnet',
+          appSessionVersion: 'google-app-session-v1',
+        }),
+        walletId: 'steady-lake-1p5it43hyd.w3a-relayer.testnet',
+        orgId: ORG_ID,
+        challengeId: challenge.challenge.challengeId,
+        otpCode: challengeRecord.otpCode,
+        otpChannel: 'email_otp',
+        sessionHash: 'rerolled-registration-intent-digest',
+        appSessionVersion: 'google-app-session-v1',
+        expectedAction: WALLET_EMAIL_OTP_ACTIONS.registration,
+        expectedOperation: WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'registration_reroll_disallowed',
     });
   });
 
@@ -393,11 +466,13 @@ test.describe('hosted Google Email OTP account privacy', () => {
     await expect(
       (service as any).verifyEmailOtpChallengeCode({
         challengeSubjectId: providerSubject,
-        registrationRerollProof: {
+        registrationChallengeProof: directRegistrationChallengeProof({
           providerSubject,
           proofEmail: 'other@example.com',
           challengeId: challenge.challenge.challengeId,
-        },
+          finalWalletId: 'steady-lake-1p5it43hyd.w3a-relayer.testnet',
+          appSessionVersion: 'google-app-session-v1',
+        }),
         allowRegistrationChallengeReroll: true,
         walletId: 'steady-lake-1p5it43hyd.w3a-relayer.testnet',
         orgId: ORG_ID,
@@ -405,7 +480,7 @@ test.describe('hosted Google Email OTP account privacy', () => {
         otpCode: challengeRecord.otpCode,
         otpChannel: 'email_otp',
         sessionHash: 'rerolled-registration-intent-digest',
-        appSessionVersion: 'google-app-session-v2',
+        appSessionVersion: 'google-app-session-v1',
         expectedAction: WALLET_EMAIL_OTP_ACTIONS.registration,
         expectedOperation: WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
       }),
@@ -435,11 +510,13 @@ test.describe('hosted Google Email OTP account privacy', () => {
     await expect(
       (service as any).verifyEmailOtpChallengeCode({
         challengeSubjectId: 'google:subject-registration-reroll-otp-mismatch',
-        registrationRerollProof: {
+        registrationChallengeProof: directRegistrationChallengeProof({
           providerSubject: 'google:subject-registration-reroll-otp-mismatch',
           proofEmail: 'reroll-otp@example.com',
           challengeId: challenge.challenge.challengeId,
-        },
+          finalWalletId: 'cobalt-meadow-35whhdqoua.w3a-relayer.testnet',
+          appSessionVersion: 'google-app-session-v1',
+        }),
         allowRegistrationChallengeReroll: true,
         walletId: 'cobalt-meadow-35whhdqoua.w3a-relayer.testnet',
         orgId: ORG_ID,
@@ -457,7 +534,7 @@ test.describe('hosted Google Email OTP account privacy', () => {
     });
   });
 
-  test('registration OTP reroll exemption requires a registration proof binding', async () => {
+  test('registration OTP reroll exemption requires a registration challenge proof', async () => {
     const service = makeService();
     const challenge = await service.createEmailOtpEnrollmentChallenge({
       userId: 'google:subject-registration-reroll-no-proof',
@@ -483,7 +560,7 @@ test.describe('hosted Google Email OTP account privacy', () => {
         otpCode: challengeRecord.otpCode,
         otpChannel: 'email_otp',
         sessionHash: 'rerolled-registration-intent-digest',
-        appSessionVersion: 'google-app-session-v2',
+        appSessionVersion: 'google-app-session-v1',
         expectedAction: WALLET_EMAIL_OTP_ACTIONS.registration,
         expectedOperation: WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
       }),
@@ -513,11 +590,13 @@ test.describe('hosted Google Email OTP account privacy', () => {
     await expect(
       (service as any).verifyEmailOtpChallengeCode({
         challengeSubjectId: 'google:subject-registration-reroll-challenge-id',
-        registrationRerollProof: {
+        registrationChallengeProof: directRegistrationChallengeProof({
           providerSubject: 'google:subject-registration-reroll-challenge-id',
           proofEmail: 'reroll-otp@example.com',
           challengeId: 'different-challenge-id',
-        },
+          finalWalletId: 'cobalt-meadow-35whhdqoua.w3a-relayer.testnet',
+          appSessionVersion: 'google-app-session-v1',
+        }),
         allowRegistrationChallengeReroll: true,
         walletId: 'cobalt-meadow-35whhdqoua.w3a-relayer.testnet',
         orgId: ORG_ID,
@@ -555,11 +634,13 @@ test.describe('hosted Google Email OTP account privacy', () => {
     await expect(
       (service as any).verifyEmailOtpChallengeCode({
         challengeSubjectId: 'google:different-subject',
-        registrationRerollProof: {
+        registrationChallengeProof: directRegistrationChallengeProof({
           providerSubject: 'google:different-subject',
           proofEmail: 'reroll-otp@example.com',
           challengeId: challenge.challenge.challengeId,
-        },
+          finalWalletId: 'cobalt-meadow-35whhdqoua.w3a-relayer.testnet',
+          appSessionVersion: 'google-app-session-v1',
+        }),
         allowRegistrationChallengeReroll: true,
         walletId: 'cobalt-meadow-35whhdqoua.w3a-relayer.testnet',
         orgId: ORG_ID,
@@ -606,10 +687,15 @@ test.describe('hosted Google Email OTP account privacy', () => {
         appSessionVersion: 'google-app-session-v1',
         expectedAction: WALLET_EMAIL_OTP_ACTIONS.registration,
         expectedOperation: WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
-        registrationRerollProof: {
+        registrationChallengeProof: {
+          kind: 'direct_proof_email',
           providerSubject: 'google:subject-registration-reroll-explicit',
+          challengeSubjectId: 'google:subject-registration-reroll-explicit',
           proofEmail: 'reroll-otp@example.com',
           challengeId: challenge.challenge.challengeId,
+          finalWalletId: 'cobalt-meadow-35whhdqoua.w3a-relayer.testnet',
+          orgId: 'org_other_tenant',
+          appSessionVersion: 'google-app-session-v1',
         },
         allowRegistrationChallengeReroll: true,
       }),

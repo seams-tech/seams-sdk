@@ -332,6 +332,14 @@ test.describe('ECDSA restorable lane selection', () => {
     expect(selection.lane.chainTarget).toEqual(tempoChainTarget);
     expect(selection.material.chainTarget).toEqual(tempoChainTarget);
     expect(selection.material.record.chainTarget).toEqual(chainTarget);
+    expect(selection.material.sharedKeyState).toMatchObject({
+      kind: 'ready_to_sign',
+      sourceChainTarget: chainTarget,
+      signerMaterial: {
+        kind: 'source_chain_material',
+        sourceChainTarget: chainTarget,
+      },
+    });
     expect(selection.diagnostics.selectedLaneCandidate).toMatchObject({
       source: 'evm_family_shared_key',
       sourceChainTarget: chainTarget,
@@ -439,6 +447,14 @@ test.describe('ECDSA restorable lane selection', () => {
     expect(selection.lane.chainTarget).toEqual(tempoChainTarget);
     expect(selection.material.chainTarget).toEqual(tempoChainTarget);
     expect(selection.material.record.chainTarget).toEqual(chainTarget);
+    expect(selection.material.sharedKeyState).toMatchObject({
+      kind: 'ready_to_sign',
+      sourceChainTarget: chainTarget,
+      signerMaterial: {
+        kind: 'source_chain_material',
+        sourceChainTarget: chainTarget,
+      },
+    });
     expect(selection.diagnostics.selectedPasskeyMaterial).toEqual({ present: false });
   });
 
@@ -480,6 +496,14 @@ test.describe('ECDSA restorable lane selection', () => {
     expect(selection.lane.chainTarget).toEqual(chainTarget);
     expect(selection.material.chainTarget).toEqual(chainTarget);
     expect(selection.material.record.chainTarget).toEqual(tempoChainTarget);
+    expect(selection.material.sharedKeyState).toMatchObject({
+      kind: 'ready_to_sign',
+      sourceChainTarget: tempoChainTarget,
+      signerMaterial: {
+        kind: 'source_chain_material',
+        sourceChainTarget: tempoChainTarget,
+      },
+    });
     expect(selection.diagnostics.exactCandidateMaterial).toMatchObject({
       present: true,
       kind: 'ready_to_sign',

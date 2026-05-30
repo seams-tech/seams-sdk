@@ -2,11 +2,30 @@ import {
   normalizeWalletAuthMethodTarget,
   walletIdFromString,
   type RegistrationAuthMethodInput,
+  type RegistrationAuthority,
   type RegistrationIntentV1,
   type RegistrationSignerSelection,
   type WalletAuthMethodRecord,
   type WalletAuthMethodTarget,
 } from './registrationIntent';
+import {
+  parseAppSessionVersion,
+  parseChallengeSubjectId,
+  parseEmailOtpChallengeId,
+  parseOrgId,
+  parseProviderSubject,
+} from './domainIds';
+
+function unwrapDomainId<T>(result: { ok: true; value: T } | { ok: false }): T {
+  if (!result.ok) throw new Error('invalid type fixture domain id');
+  return result.value;
+}
+
+const providerSubject = unwrapDomainId(parseProviderSubject('google:alice'));
+const challengeSubjectId = unwrapDomainId(parseChallengeSubjectId('google:alice'));
+const emailOtpChallengeId = unwrapDomainId(parseEmailOtpChallengeId('challenge'));
+const orgId = unwrapDomainId(parseOrgId('org_test'));
+const appSessionVersion = unwrapDomainId(parseAppSessionVersion('app-session-v1'));
 
 const passkeyAuthMethod = {
   kind: 'passkey',
@@ -114,6 +133,41 @@ void ({
   createdAtMs: 1,
   updatedAtMs: 1,
 } satisfies WalletAuthMethodRecord);
+
+void ({
+  kind: 'email_otp',
+  walletId: walletIdFromString('wallet_alice'),
+  rpId: 'wallet.example.test',
+  providerSubject,
+  challengeSubjectId,
+  email: 'alice@example.test',
+  emailHashHex: '00',
+  challengeId: emailOtpChallengeId,
+  originalWalletId: walletIdFromString('wallet_alice_original'),
+  finalWalletId: walletIdFromString('wallet_alice'),
+  orgId,
+  appSessionVersion,
+  challengePurpose: 'registration_reroll',
+  registrationIntentDigestB64u: 'digest',
+} satisfies RegistrationAuthority);
+
+// @ts-expect-error Email OTP authority requires the normalized challenge owner.
+const emailOtpAuthorityMissingChallengeSubject: RegistrationAuthority = {
+  kind: 'email_otp',
+  walletId: walletIdFromString('wallet_alice'),
+  rpId: 'wallet.example.test',
+  providerSubject,
+  email: 'alice@example.test',
+  emailHashHex: '00',
+  challengeId: emailOtpChallengeId,
+  originalWalletId: walletIdFromString('wallet_alice_original'),
+  finalWalletId: walletIdFromString('wallet_alice'),
+  orgId,
+  appSessionVersion,
+  challengePurpose: 'registration_reroll',
+  registrationIntentDigestB64u: 'digest',
+};
+void emailOtpAuthorityMissingChallengeSubject;
 
 void ({
   version: 'wallet_auth_method_v1',

@@ -1,9 +1,16 @@
 import { alphabetizeStringify, sha256BytesUtf8 } from './digests';
+import type {
+  AppSessionVersion,
+  ChallengeSubjectId,
+  EmailOtpChallengeId,
+  OrgId,
+  ProviderSubject,
+  WalletId,
+} from './domainIds';
+import { parseWalletId } from './domainIds';
 import { base64UrlEncode } from './encoders';
 
-export type WalletId = string & {
-  readonly __walletIdBrand: unique symbol;
-};
+export type { WalletId } from './domainIds';
 
 export type RegistrationIntentGrant = string & {
   readonly __registrationIntentGrantBrand: unique symbol;
@@ -89,20 +96,37 @@ export type RegistrationAuthority =
       counter: number;
       registrationIntentDigestB64u: string;
       providerSubject?: never;
+      challengeSubjectId?: never;
       email?: never;
       emailHashHex?: never;
       challengeId?: never;
+      originalWalletId?: never;
+      finalWalletId?: never;
+      orgId?: never;
+      appSessionVersion?: never;
+      challengePurpose?: never;
     }
   | {
       kind: 'email_otp';
       walletId: WalletId;
       rpId: string;
       /** OIDC provider subject from the app-session JWT that requested the OTP. */
-      providerSubject: string;
+      providerSubject: ProviderSubject;
+      /** Challenge owner verified against the OTP challenge record. */
+      challengeSubjectId: ChallengeSubjectId;
       /** Normalized email address that received and verified the OTP. */
       email: string;
       emailHashHex: string;
-      challengeId: string;
+      challengeId: EmailOtpChallengeId;
+      /** Wallet id attached to the original OTP challenge before any name reroll. */
+      originalWalletId: WalletId;
+      /** Final wallet id selected for registration. */
+      finalWalletId: WalletId;
+      /** Tenant scope verified against the OTP challenge record. */
+      orgId: OrgId;
+      /** App-session version verified against the OTP challenge record. */
+      appSessionVersion: AppSessionVersion;
+      challengePurpose: 'registration' | 'registration_reroll';
       registrationIntentDigestB64u: string;
       credentialIdB64u?: never;
       credentialPublicKeyB64u?: never;
@@ -277,7 +301,11 @@ export type AddAuthMethodIntentV1 = {
 };
 
 export function walletIdFromString(value: string): WalletId {
-  return String(value || '').trim() as WalletId;
+  const parsed = parseWalletId(value);
+  if (!parsed.ok) {
+    throw new Error(parsed.error.message);
+  }
+  return parsed.value;
 }
 
 export function registrationIntentGrantFromString(value: string): RegistrationIntentGrant {
