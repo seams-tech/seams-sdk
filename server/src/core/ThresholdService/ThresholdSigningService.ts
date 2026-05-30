@@ -1,5 +1,6 @@
 import type { NormalizedLogger } from '../logger';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
+import type { EcdsaRelayerHssPublicKey33B64u } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type { SessionClaims } from '../../router/relay';
 import type { AccessKeyList } from '@/core/rpcClients/near/NearClient';
@@ -85,6 +86,7 @@ import {
   secp256k1PublicKey33ToEthereumAddress,
   validateSecp256k1PublicKey33,
 } from './ethSignerWasm';
+import { verifyEcdsaClientRootProof } from './ecdsaClientRootProof';
 import {
   deriveThresholdEd25519VerifyingShareFromSigningShare,
   deriveThresholdEd25519RegistrationMaterialFromHssFinalize,
@@ -2747,12 +2749,12 @@ export class ThresholdSigningService {
           message: derivedRelayerShare.message,
         };
       }
-      const clientPublicKey33 = base64UrlDecode(request.clientPublicKey33B64u);
+      const hssClientSharePublicKey33 = base64UrlDecode(request.hssClientSharePublicKey33B64u);
       const relayerBootstrap = await roleLocalThresholdEcdsaHssRelayerBootstrap({
         ...hssContext,
         relayerKeyId: request.relayerKeyId,
         yRelayer32Le: derivedRelayerShare.value,
-        clientPublicKey33,
+        clientPublicKey33: hssClientSharePublicKey33,
         clientShareRetryCounter: request.clientShareRetryCounter,
       });
       const expectedContextBinding32 = base64UrlDecode(request.contextBinding32B64u);
@@ -2789,7 +2791,7 @@ export class ThresholdSigningService {
           existing.signingRootVersion !== signingRootVersion ||
           existing.keyScope !== request.keyScope ||
           existing.contextBinding32B64u !== request.contextBinding32B64u ||
-          existing.clientPublicKey33B64u !== request.clientPublicKey33B64u
+          existing.clientPublicKey33B64u !== request.hssClientSharePublicKey33B64u
         ) {
           return {
             ok: false,
@@ -2800,7 +2802,7 @@ export class ThresholdSigningService {
       }
       const session = await this.ecdsaMintSessionWithoutWebAuthn({
         relayerKeyId: request.relayerKeyId,
-        clientVerifyingShareB64u: request.clientPublicKey33B64u,
+        clientVerifyingShareB64u: request.hssClientSharePublicKey33B64u,
         walletSessionUserId: request.walletId,
         rpId: request.rpId,
         sessionId: request.sessionId,
@@ -2843,7 +2845,7 @@ export class ThresholdSigningService {
         contextBinding32B64u: request.contextBinding32B64u,
         relayerShare32B64u: base64UrlEncode(relayerBootstrap.relayerShare32),
         relayerPublicKey33B64u,
-        clientPublicKey33B64u: request.clientPublicKey33B64u,
+        clientPublicKey33B64u: request.hssClientSharePublicKey33B64u,
         groupPublicKey33B64u,
         ethereumAddress,
         relayerCaitSithInput: {
@@ -2868,8 +2870,8 @@ export class ThresholdSigningService {
           relayerKeyId: request.relayerKeyId,
           contextBinding32B64u: request.contextBinding32B64u,
           publicIdentity: {
-            clientPublicKey33B64u: request.clientPublicKey33B64u,
-            relayerPublicKey33B64u,
+            hssClientSharePublicKey33B64u: request.hssClientSharePublicKey33B64u,
+            relayerPublicKey33B64u: relayerPublicKey33B64u as EcdsaRelayerHssPublicKey33B64u,
             groupPublicKey33B64u,
             ethereumAddress,
           },
@@ -2904,6 +2906,51 @@ export class ThresholdSigningService {
         code: 'internal',
         message: message || 'threshold-ecdsa role-local bootstrap failed',
       };
+    }
+  }
+
+  async verifyEcdsaHssRoleLocalClientRootProofForExistingKey(
+    request: EcdsaHssClientBootstrapRequest & {
+      clientRootProof: NonNullable<EcdsaHssClientBootstrapRequest['clientRootProof']>;
+    },
+  ): Promise<EcdsaHssRouteResult<{ keyHandle: string }>> {
+    try {
+      const keyHandle = await deriveThresholdEcdsaHssKeyHandle({
+        ecdsaThresholdKeyId: request.ecdsaThresholdKeyId,
+        signingRootId: request.signingRootId,
+        signingRootVersion: request.signingRootVersion,
+      });
+      const record = await this.ecdsaKeyStore.getRoleLocalByKeyHandle(keyHandle);
+      if (!record) {
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: 'ECDSA role-local key is not active for bootstrap authorization',
+        };
+      }
+      if (
+        record.walletId !== request.walletId ||
+        record.rpId !== request.rpId ||
+        record.ecdsaThresholdKeyId !== request.ecdsaThresholdKeyId ||
+        record.keyHandle !== keyHandle ||
+        record.signingRootId !== request.signingRootId ||
+        record.signingRootVersion !== canonicalEcdsaHssSigningRootVersion(request.signingRootVersion) ||
+        record.relayerKeyId !== request.relayerKeyId ||
+        record.keyScope !== request.keyScope ||
+        record.contextBinding32B64u !== request.contextBinding32B64u ||
+        record.clientPublicKey33B64u !== request.hssClientSharePublicKey33B64u
+      ) {
+        return {
+          ok: false,
+          code: 'identity_mismatch',
+          message: 'ECDSA role-local bootstrap proof does not match persisted key identity',
+        };
+      }
+      const verifiedRootProof = await verifyEcdsaClientRootProof(request.clientRootProof);
+      if (!verifiedRootProof.ok) return verifiedRootProof;
+      return { ok: true, value: { keyHandle } };
+    } catch {
+      return { ok: false, code: 'unauthorized', message: 'Invalid client root proof' };
     }
   }
 
@@ -3063,7 +3110,7 @@ export class ThresholdSigningService {
         };
       }
       if (
-        record.clientPublicKey33B64u !== request.publicIdentity.clientPublicKey33B64u ||
+        record.clientPublicKey33B64u !== request.publicIdentity.hssClientSharePublicKey33B64u ||
         record.relayerPublicKey33B64u !== request.publicIdentity.relayerPublicKey33B64u ||
         record.groupPublicKey33B64u !== request.publicIdentity.groupPublicKey33B64u ||
         record.ethereumAddress.toLowerCase() !==

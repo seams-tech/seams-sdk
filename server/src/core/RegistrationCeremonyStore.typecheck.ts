@@ -27,6 +27,10 @@ import type {
   WalletRegistrationEcdsaPreparePayload,
   WalletRegistrationEcdsaWalletKey,
 } from './types';
+import type {
+  EcdsaHssClientSharePublicKey33B64u,
+  EcdsaRelayerHssPublicKey33B64u,
+} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 
 const intent = {
   version: 'registration_intent_v1',
@@ -191,8 +195,9 @@ const ecdsaBootstrap = {
   relayerKeyId: 'rk_registration',
   contextBinding32B64u: 'context',
   publicIdentity: {
-    clientPublicKey33B64u: 'client-public',
-    relayerPublicKey33B64u: 'relayer-public',
+    hssClientSharePublicKey33B64u:
+      'client-public' as EcdsaHssClientSharePublicKey33B64u,
+    relayerPublicKey33B64u: 'relayer-public' as EcdsaRelayerHssPublicKey33B64u,
     groupPublicKey33B64u: 'group-public',
     ethereumAddress: '0x0000000000000000000000000000000000000001',
   },

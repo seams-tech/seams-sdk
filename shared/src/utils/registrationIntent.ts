@@ -88,6 +88,8 @@ export type RegistrationAuthority =
       credentialPublicKeyB64u: string;
       counter: number;
       registrationIntentDigestB64u: string;
+      providerSubject?: never;
+      email?: never;
       emailHashHex?: never;
       challengeId?: never;
     }
@@ -95,20 +97,28 @@ export type RegistrationAuthority =
       kind: 'email_otp';
       walletId: WalletId;
       rpId: string;
+      /** OIDC provider subject from the app-session JWT that requested the OTP. */
+      providerSubject: string;
+      /** Normalized email address that received and verified the OTP. */
+      email: string;
       emailHashHex: string;
       challengeId: string;
       registrationIntentDigestB64u: string;
       credentialIdB64u?: never;
       credentialPublicKeyB64u?: never;
       counter?: never;
-	    };
+    };
 
 export type EmailOtpRegistrationProof = {
   version: 'email_otp_registration_proof_v1';
+  /** OIDC provider subject from the app-session JWT that requested the OTP. */
+  providerSubject: string;
+  /** Normalized email address that received the OTP. */
   email: string;
   challengeId: string;
   otpCode: string;
   otpChannel: 'email_otp';
+  /** Registration intent digest that binds the OTP proof to the wallet-registration request. */
   registrationIntentDigestB64u: string;
   appSessionVersion: string;
 };
@@ -443,6 +453,7 @@ export function normalizeEmailOtpRegistrationProof(
 ): EmailOtpRegistrationProof | null {
   if (!isRecord(raw)) return null;
   const version = trimString(raw.version);
+  const providerSubject = trimString(raw.providerSubject);
   const email = trimString(raw.email).toLowerCase();
   const challengeId = trimString(raw.challengeId);
   const otpCode = trimString(raw.otpCode);
@@ -451,6 +462,7 @@ export function normalizeEmailOtpRegistrationProof(
   const appSessionVersion = trimString(raw.appSessionVersion);
   if (
     version !== 'email_otp_registration_proof_v1' ||
+    !providerSubject ||
     !email ||
     !challengeId ||
     !otpCode ||
@@ -462,6 +474,7 @@ export function normalizeEmailOtpRegistrationProof(
   }
   return {
     version: 'email_otp_registration_proof_v1',
+    providerSubject,
     email,
     challengeId,
     otpCode,

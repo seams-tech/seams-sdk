@@ -92,7 +92,7 @@ export function parseCurrentEmailOtpChallengeRecord(
   const obj = parsed as Record<string, unknown>;
   const version = toOptionalTrimmedString(obj.version);
   const challengeId = toOptionalTrimmedString(obj.challengeId);
-  const userId = toOptionalTrimmedString(obj.userId);
+  const challengeSubjectId = toOptionalTrimmedString(obj.challengeSubjectId);
   const walletId = toOptionalTrimmedString(obj.walletId);
   const orgId = toOptionalTrimmedString(obj.orgId) || undefined;
   const otpChannel = toOptionalTrimmedString(obj.otpChannel);
@@ -109,7 +109,7 @@ export function parseCurrentEmailOtpChallengeRecord(
   if (version !== 'email_otp_challenge_v1') return null;
   if (
     !challengeId ||
-    !userId ||
+    !challengeSubjectId ||
     !walletId ||
     !email ||
     !otpCode ||
@@ -142,7 +142,7 @@ export function parseCurrentEmailOtpChallengeRecord(
   return {
     version: 'email_otp_challenge_v1',
     challengeId,
-    userId,
+    challengeSubjectId,
     walletId,
     ...(orgId ? { orgId } : {}),
     otpChannel: EMAIL_OTP_CHANNEL,

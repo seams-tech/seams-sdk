@@ -9,6 +9,7 @@ import {
   registrationIntentGrantFromString,
   walletIdFromString,
   type AddAuthMethodIntentV1,
+  type EmailOtpRegistrationProof,
   type RegistrationIntentV1,
 } from '@shared/utils/registrationIntent';
 
@@ -47,6 +48,7 @@ const addAuthMethodIntent = {
 const mixedAuthoritySpread = {
   emailOtpRegistrationProof: {
     version: 'email_otp_registration_proof_v1' as const,
+    providerSubject: 'google:alice',
     email: 'alice@example.test',
     challengeId: 'challenge-1',
     otpCode: '123456',
@@ -80,6 +82,18 @@ const rawAddSignerIntentBody = {
     mode: 'ed25519_only' as const,
   },
 };
+
+// @ts-expect-error Email OTP proofs must identify the provider subject that owns the OTP.
+const invalidEmailOtpRegistrationProof: EmailOtpRegistrationProof = {
+  version: 'email_otp_registration_proof_v1',
+  email: 'alice@example.test',
+  challengeId: 'challenge-1',
+  otpCode: '123456',
+  otpChannel: 'email_otp',
+  registrationIntentDigestB64u: 'digest',
+  appSessionVersion: 'v1',
+};
+void invalidEmailOtpRegistrationProof;
 
 const invalidRegistrationStart: WalletRegistrationStartRequest = {
   registrationIntentGrant: registrationIntentGrantFromString('rig_1'),

@@ -61,6 +61,7 @@ export type WalletSignerRecord =
   | WalletEcdsaSignerRecord;
 
 export interface WalletStore {
+  getWallet(input: { walletId: WalletId }): Promise<WalletRecord | null>;
   putSubject(record: WalletRecord): Promise<void>;
   putSigner(record: WalletSignerRecord): Promise<void>;
   putSigners(records: readonly WalletSignerRecord[]): Promise<void>;
@@ -108,6 +109,29 @@ function signerFamily(record: WalletSignerRecord): 'ed25519' | 'ecdsa' {
 
 function recordChainTargetKey(record: WalletSignerRecord): string | null {
   return record.version === 'wallet_signer_ecdsa_v1' ? record.chainTargetKey : null;
+}
+
+function normalizeTimestampMs(value: unknown): number | null {
+  const numberValue = Number(value);
+  if (!Number.isFinite(numberValue) || numberValue < 0) return null;
+  return Math.floor(numberValue);
+}
+
+function parseWalletRecord(raw: unknown): WalletRecord | null {
+  if (!isObject(raw)) return null;
+  if (raw.version !== 'wallet_v1') return null;
+  const walletId = toOptionalTrimmedString(raw.walletId);
+  const rpId = toOptionalTrimmedString(raw.rpId);
+  const createdAtMs = normalizeTimestampMs(raw.createdAtMs);
+  const updatedAtMs = normalizeTimestampMs(raw.updatedAtMs);
+  if (!walletId || !rpId || createdAtMs == null || updatedAtMs == null) return null;
+  return {
+    version: 'wallet_v1',
+    walletId: walletId as WalletId,
+    rpId,
+    createdAtMs,
+    updatedAtMs,
+  };
 }
 
 export function buildWalletEd25519SignerId(input: {
@@ -210,6 +234,12 @@ class InMemoryWalletStore implements WalletStore {
 
   constructor(private readonly prefix: string) {}
 
+  async getWallet(input: { walletId: WalletId }): Promise<WalletRecord | null> {
+    const walletId = toOptionalTrimmedString(input.walletId);
+    if (!walletId) return null;
+    return this.subjects.get(`${this.prefix}${walletId}`) ?? null;
+  }
+
   async putSubject(record: WalletRecord): Promise<void> {
     this.subjects.set(`${this.prefix}${record.walletId}`, record);
   }
@@ -233,6 +263,21 @@ class PostgresWalletStore implements WalletStore {
 
   constructor(private readonly input: { postgresUrl: string; namespace: string }) {
     this.poolPromise = getPostgresPool(input.postgresUrl);
+  }
+
+  async getWallet(input: { walletId: WalletId }): Promise<WalletRecord | null> {
+    const walletId = toOptionalTrimmedString(input.walletId);
+    if (!walletId) return null;
+    const pool = await this.poolPromise;
+    const { rows } = await pool.query(
+      `
+        SELECT record_json
+        FROM wallets
+        WHERE namespace = $1 AND wallet_id = $2
+      `,
+      [this.input.namespace, walletId],
+    );
+    return parseWalletRecord(rows[0]?.record_json);
   }
 
   async putSubject(record: WalletRecord): Promise<void> {
@@ -291,6 +336,19 @@ class CloudflareDurableObjectWalletStore implements WalletStore {
 
   async putSubject(record: WalletRecord): Promise<void> {
     await this.put(this.key('subject', record.walletId), record);
+  }
+
+  async getWallet(input: { walletId: WalletId }): Promise<WalletRecord | null> {
+    const walletId = toOptionalTrimmedString(input.walletId);
+    if (!walletId) return null;
+    const response = await this.stub.fetch('https://threshold-store.invalid/', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ op: 'get', key: this.key('subject', walletId) }),
+    });
+    if (!response.ok) return null;
+    const current = (await response.json().catch(() => null)) as { value?: unknown } | null;
+    return parseWalletRecord(current?.value);
   }
 
   async putSigner(record: WalletSignerRecord): Promise<void> {

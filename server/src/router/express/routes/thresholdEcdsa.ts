@@ -14,6 +14,7 @@ import {
   parseEcdsaHssClientBootstrapRequest,
   parseEcdsaHssExportShareRequest,
   parseThresholdEcdsaSessionClaims,
+  parseThresholdEd25519SessionClaims,
   resolveAppSessionWalletIdForWalletScope,
   resolveAppSessionProviderUserIdForWalletScope,
 } from '../../../core/ThresholdService/validation';
@@ -43,6 +44,9 @@ import { verifySecp256k1RecoverableSignatureAgainstPublicKey33 } from '../../../
 
 type EcdsaRuntimePolicyScope = RuntimePolicyScope;
 type ThresholdEcdsaSessionClaims = NonNullable<ReturnType<typeof parseThresholdEcdsaSessionClaims>>;
+type ThresholdEd25519SessionClaims = NonNullable<
+  ReturnType<typeof parseThresholdEd25519SessionClaims>
+>;
 
 const NOT_IMPLEMENTED = {
   ok: false,
@@ -203,11 +207,30 @@ function normalizeEcdsaRuntimePolicyScope(raw: unknown): EcdsaRuntimePolicyScope
 function resolveEcdsaRuntimePolicyScopeFromClaims(input: {
   appSessionClaims: ReturnType<typeof parseAppSessionClaims>;
   ecdsaSessionClaims: ReturnType<typeof parseThresholdEcdsaSessionClaims>;
+  ed25519SessionClaims: ReturnType<typeof parseThresholdEd25519SessionClaims>;
 }): EcdsaRuntimePolicyScope | undefined {
   return (
     normalizeEcdsaRuntimePolicyScope(input.appSessionClaims?.runtimePolicyScope) ||
-    normalizeEcdsaRuntimePolicyScope(input.ecdsaSessionClaims?.runtimePolicyScope)
+    normalizeEcdsaRuntimePolicyScope(input.ecdsaSessionClaims?.runtimePolicyScope) ||
+    normalizeEcdsaRuntimePolicyScope(input.ed25519SessionClaims?.runtimePolicyScope)
   );
+}
+
+function validateEd25519SessionBridgeForEcdsaHssBootstrap(input: {
+  claims: ThresholdEd25519SessionClaims;
+  walletId: string;
+  rpId: string;
+}): { ok: true } | { ok: false; code: string; message: string } {
+  if (input.claims.thresholdExpiresAtMs <= Date.now()) {
+    return { ok: false, code: 'unauthorized', message: 'Threshold Ed25519 session is expired' };
+  }
+  if (input.claims.walletId !== input.walletId) {
+    return { ok: false, code: 'identity_mismatch', message: 'walletId mismatch' };
+  }
+  if (input.claims.rpId !== input.rpId) {
+    return { ok: false, code: 'identity_mismatch', message: 'rpId mismatch' };
+  }
+  return { ok: true };
 }
 
 async function authorizeEcdsaHssRoleLocalBootstrap(input: {
@@ -333,7 +356,8 @@ async function authorizeEcdsaHssRoleLocalBootstrap(input: {
     if (!validated.ok) appSessionClaims = null;
   }
   const ecdsaSessionClaims = parseThresholdEcdsaSessionClaims(parsedSession.claims);
-  const sessionClaims = appSessionClaims || ecdsaSessionClaims;
+  const ed25519SessionClaims = parseThresholdEd25519SessionClaims(parsedSession.claims);
+  const sessionClaims = appSessionClaims || ecdsaSessionClaims || ed25519SessionClaims;
   if (!sessionClaims) {
     return { ok: false, code: 'unauthorized', message: 'Invalid bootstrap authorization session' };
   }
@@ -352,12 +376,20 @@ async function authorizeEcdsaHssRoleLocalBootstrap(input: {
     if (!appSessionWalletId && !appSessionProviderUserId) {
       return { ok: false, code: 'identity_mismatch', message: 'walletId mismatch' };
     }
+  } else if (ed25519SessionClaims) {
+    const identity = validateEd25519SessionBridgeForEcdsaHssBootstrap({
+      claims: ed25519SessionClaims,
+      walletId: request.walletId,
+      rpId: request.rpId,
+    });
+    if (!identity.ok) return identity;
   } else if (String(sessionClaims.walletId || '').trim() !== request.walletId) {
     return { ok: false, code: 'identity_mismatch', message: 'walletId mismatch' };
   }
   const runtimePolicyScope = resolveEcdsaRuntimePolicyScopeFromClaims({
     appSessionClaims,
     ecdsaSessionClaims,
+    ed25519SessionClaims,
   });
   if (!proof) {
     return {
@@ -365,6 +397,14 @@ async function authorizeEcdsaHssRoleLocalBootstrap(input: {
       code: 'unauthorized',
       message: 'First bootstrap requires client root proof',
     };
+  }
+  if (ed25519SessionClaims) {
+    const verified = await ctx.service.verifyEcdsaHssRoleLocalClientRootProofForExistingKey({
+      ...request,
+      clientRootProof: proof,
+    });
+    if (!verified.ok) return verified;
+    return { ok: true, ...(runtimePolicyScope ? { runtimePolicyScope } : {}) };
   }
   const enrollment = await ctx.service.readActiveEmailOtpEnrollment({
     walletId: request.walletId,
@@ -379,6 +419,7 @@ async function authorizeEcdsaHssRoleLocalBootstrap(input: {
   ).trim();
   if (
     !verifier ||
+    proof.clientRootPublicKey33B64u !== verifier ||
     (appSessionProviderUserId && enrollment.enrollment.providerUserId !== appSessionProviderUserId)
   ) {
     return { ok: false, code: 'unauthorized', message: 'Invalid Email OTP enrollment' };

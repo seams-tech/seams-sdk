@@ -1,5 +1,6 @@
 import {
   EMAIL_OTP_CHANNEL,
+  WALLET_EMAIL_OTP_ACTIONS,
   type WalletEmailOtpChannel,
   type WalletEmailOtpLoginOperation,
 } from '@shared/utils/emailOtpDomain';
@@ -161,6 +162,19 @@ function buildWorkerEmailOtpRoutePlan(args: {
   });
 }
 
+function requireEmailOtpChallengeAction(args: {
+  challenge: JsonObject;
+  expectedAction: string;
+  context: string;
+}): void {
+  const action = readOptionalString(args.challenge.action);
+  if (action && action !== args.expectedAction) {
+    throw new Error(
+      `${args.context} returned ${action}; expected ${args.expectedAction}`,
+    );
+  }
+}
+
 async function postJson(args: {
   url: string;
   body: JsonObject;
@@ -246,6 +260,11 @@ export async function requestEmailOtpChallenge(args: {
     },
   });
   const challenge = requireObjectJson(response.challenge, 'wallet/email-otp/login/challenge');
+  requireEmailOtpChallengeAction({
+    challenge,
+    expectedAction: WALLET_EMAIL_OTP_ACTIONS.login,
+    context: 'wallet/email-otp/login/challenge',
+  });
   const delivery =
     response.delivery == null
       ? {}
@@ -319,6 +338,11 @@ export async function requestEmailOtpEnrollmentChallenge(args: {
     response.challenge,
     'wallet/email-otp/registration/challenge',
   );
+  requireEmailOtpChallengeAction({
+    challenge,
+    expectedAction: WALLET_EMAIL_OTP_ACTIONS.registration,
+    context: 'wallet/email-otp/registration/challenge',
+  });
   const delivery =
     response.delivery == null
       ? {}

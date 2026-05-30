@@ -16,16 +16,22 @@ import type {
   EcdsaThresholdKeyId,
 } from '@/core/signingEngine/session/identity/emailOtpHssIdentity';
 import { toEcdsaHssThresholdKeyId } from '@/core/signingEngine/session/identity/emailOtpHssIdentity';
+import type {
+  EcdsaClientRootPublicKey33B64u,
+  EcdsaHssClientSharePublicKey33B64u,
+  EcdsaRelayerHssPublicKey33B64u,
+} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 
 export type EcdsaHssRoleLocalPublicIdentity = {
-  clientPublicKey33B64u: string;
-  relayerPublicKey33B64u: string;
+  hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
+  relayerPublicKey33B64u: EcdsaRelayerHssPublicKey33B64u;
   groupPublicKey33B64u: string;
   ethereumAddress: string;
 };
 
 export type ThresholdEcdsaHssRoleLocalClientRootProof = {
   version: 'ecdsa-hss:role-local:first-bootstrap-root-proof:v2';
+  clientRootPublicKey33B64u: EcdsaClientRootPublicKey33B64u;
   digest32B64u: string;
   signature65B64u: string;
 };
@@ -46,7 +52,7 @@ export type ThresholdEcdsaHssRoleLocalBootstrapRequest = {
   signingRootVersion: string;
   keyScope: 'evm-family';
   relayerKeyId: string;
-  clientPublicKey33B64u: string;
+  hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
   clientShareRetryCounter: number;
   contextBinding32B64u: string;
   requestId: string;
@@ -82,7 +88,7 @@ type ThresholdEcdsaHssRoleLocalBootstrapBodyBase = {
   signingRootVersion: string;
   keyScope: 'evm-family';
   relayerKeyId: string;
-  clientPublicKey33B64u: string;
+  hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
   clientShareRetryCounter: number;
   contextBinding32B64u: string;
   requestId: string;
@@ -103,7 +109,7 @@ type ThresholdEcdsaHssRoleLocalBootstrapBody = {
   signingRootVersion: string;
   keyScope: 'evm-family';
   relayerKeyId: string;
-  clientPublicKey33B64u: string;
+  hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
   clientShareRetryCounter: number;
   contextBinding32B64u: string;
   requestId: string;
@@ -281,15 +287,17 @@ function parseEcdsaHssRoleLocalPublicIdentity(
   value: unknown,
 ): EcdsaHssRoleLocalPublicIdentity {
   const record = requireRecord(value, 'publicIdentity');
+  const hssClientSharePublicKey33B64u = requireNonEmptyString(
+    record.hssClientSharePublicKey33B64u,
+    'publicIdentity.hssClientSharePublicKey33B64u',
+  ) as EcdsaHssClientSharePublicKey33B64u;
+  const relayerPublicKey33B64u = requireNonEmptyString(
+    record.relayerPublicKey33B64u,
+    'publicIdentity.relayerPublicKey33B64u',
+  ) as EcdsaRelayerHssPublicKey33B64u;
   return {
-    clientPublicKey33B64u: requireNonEmptyString(
-      record.clientPublicKey33B64u,
-      'publicIdentity.clientPublicKey33B64u',
-    ),
-    relayerPublicKey33B64u: requireNonEmptyString(
-      record.relayerPublicKey33B64u,
-      'publicIdentity.relayerPublicKey33B64u',
-    ),
+    hssClientSharePublicKey33B64u,
+    relayerPublicKey33B64u,
     groupPublicKey33B64u: requireNonEmptyString(
       record.groupPublicKey33B64u,
       'publicIdentity.groupPublicKey33B64u',
@@ -418,10 +426,10 @@ export async function thresholdEcdsaHssRoleLocalBootstrap(
       signingRootVersion: requireNonEmptyString(args.signingRootVersion, 'signingRootVersion'),
       keyScope: 'evm-family',
       relayerKeyId: requireNonEmptyString(args.relayerKeyId, 'relayerKeyId'),
-      clientPublicKey33B64u: requireNonEmptyString(
-        args.clientPublicKey33B64u,
-        'clientPublicKey33B64u',
-      ),
+      hssClientSharePublicKey33B64u: requireNonEmptyString(
+        args.hssClientSharePublicKey33B64u,
+        'hssClientSharePublicKey33B64u',
+      ) as EcdsaHssClientSharePublicKey33B64u,
       clientShareRetryCounter: requireNumber(
         args.clientShareRetryCounter,
         'clientShareRetryCounter',
@@ -446,6 +454,10 @@ export async function thresholdEcdsaHssRoleLocalBootstrap(
           ...bodyBase,
           clientRootProof: {
             version: 'ecdsa-hss:role-local:first-bootstrap-root-proof:v2',
+            clientRootPublicKey33B64u: requireNonEmptyString(
+              args.clientRootProof.clientRootPublicKey33B64u,
+              'clientRootProof.clientRootPublicKey33B64u',
+            ) as EcdsaClientRootPublicKey33B64u,
             digest32B64u: requireNonEmptyString(
               args.clientRootProof.digest32B64u,
               'clientRootProof.digest32B64u',
@@ -523,14 +535,14 @@ export async function thresholdEcdsaHssRoleLocalExportShare(
         'contextBinding32B64u',
       ),
       publicIdentity: {
-        clientPublicKey33B64u: requireNonEmptyString(
-          args.publicIdentity.clientPublicKey33B64u,
-          'publicIdentity.clientPublicKey33B64u',
-        ),
+        hssClientSharePublicKey33B64u: requireNonEmptyString(
+          args.publicIdentity.hssClientSharePublicKey33B64u,
+          'publicIdentity.hssClientSharePublicKey33B64u',
+        ) as EcdsaHssClientSharePublicKey33B64u,
         relayerPublicKey33B64u: requireNonEmptyString(
           args.publicIdentity.relayerPublicKey33B64u,
           'publicIdentity.relayerPublicKey33B64u',
-        ),
+        ) as EcdsaRelayerHssPublicKey33B64u,
         groupPublicKey33B64u: requireNonEmptyString(
           args.publicIdentity.groupPublicKey33B64u,
           'publicIdentity.groupPublicKey33B64u',

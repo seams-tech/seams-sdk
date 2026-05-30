@@ -690,15 +690,25 @@ function parseStoredRegistrationAuthority(value: unknown): StoredRegistrationAut
         typeof value.emailHashHex === 'string' && value.emailHashHex.trim()
           ? value.emailHashHex
           : null;
+      const providerSubject =
+        typeof value.providerSubject === 'string' && value.providerSubject.trim()
+          ? value.providerSubject
+          : null;
+      const email =
+        typeof value.email === 'string' && value.email.trim()
+          ? value.email.toLowerCase()
+          : null;
       const challengeId =
         typeof value.challengeId === 'string' && value.challengeId.trim()
           ? value.challengeId
           : null;
-      if (!emailHashHex || !challengeId) return null;
+      if (!providerSubject || !email || !emailHashHex || !challengeId) return null;
       return {
         kind: 'email_otp',
         walletId,
         rpId,
+        providerSubject,
+        email,
         emailHashHex,
         challengeId,
         registrationIntentDigestB64u,

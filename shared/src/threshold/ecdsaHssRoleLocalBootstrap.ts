@@ -8,8 +8,21 @@ export const ECDSA_HSS_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION =
 export const ECDSA_HSS_ROLE_LOCAL_PASSKEY_BOOTSTRAP_AUTH_VERSION =
   'ecdsa-hss:role-local:passkey-bootstrap-auth:v2' as const;
 
+export type EcdsaClientRootPublicKey33B64u = string & {
+  readonly __brand: 'EcdsaClientRootPublicKey33B64u';
+};
+
+export type EcdsaHssClientSharePublicKey33B64u = string & {
+  readonly __brand: 'EcdsaHssClientSharePublicKey33B64u';
+};
+
+export type EcdsaRelayerHssPublicKey33B64u = string & {
+  readonly __brand: 'EcdsaRelayerHssPublicKey33B64u';
+};
+
 export type EcdsaHssRoleLocalFirstBootstrapRootProof = {
   version: typeof ECDSA_HSS_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION;
+  clientRootPublicKey33B64u: EcdsaClientRootPublicKey33B64u;
   digest32B64u: string;
   signature65B64u: string;
 };
@@ -22,7 +35,7 @@ export type EcdsaHssRoleLocalBootstrapIdentity = {
   signingRootVersion: string;
   keyScope: 'evm-family';
   relayerKeyId: string;
-  clientPublicKey33B64u: string;
+  hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
   clientShareRetryCounter: number;
   contextBinding32B64u: string;
   requestId: string;
@@ -35,7 +48,7 @@ export type EcdsaHssRoleLocalBootstrapIdentity = {
 
 export type EcdsaHssRoleLocalPasskeyBootstrapIdentity = Omit<
   EcdsaHssRoleLocalBootstrapIdentity,
-  'clientPublicKey33B64u' | 'clientShareRetryCounter' | 'contextBinding32B64u'
+  'hssClientSharePublicKey33B64u' | 'clientShareRetryCounter' | 'contextBinding32B64u'
 >;
 
 export async function computeEcdsaHssRoleLocalThresholdKeyId(input: {
@@ -85,7 +98,7 @@ export async function computeEcdsaHssRoleLocalFirstBootstrapRootProofDigest32(
       signingRootVersion: input.signingRootVersion,
       keyScope: input.keyScope,
       relayerKeyId: input.relayerKeyId,
-      clientPublicKey33B64u: input.clientPublicKey33B64u,
+      hssClientSharePublicKey33B64u: input.hssClientSharePublicKey33B64u,
       clientShareRetryCounter: input.clientShareRetryCounter,
       contextBinding32B64u: input.contextBinding32B64u,
       requestId: input.requestId,

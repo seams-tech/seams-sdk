@@ -55,12 +55,21 @@ export type EmailOtpLoginChallengeOperation = WalletEmailOtpLoginOperation;
 export type EmailOtpChallengeRecord = {
   version: 'email_otp_challenge_v1';
   challengeId: string;
-  userId: string;
+  /**
+   * Subject that owns the OTP challenge.
+   * For Google registration this is the OIDC provider subject. For existing-wallet
+   * Email OTP flows this is the enrolled provider subject.
+   */
+  challengeSubjectId: string;
+  /** Wallet being registered or unlocked. Registration rerolls may change this after issuance. */
   walletId: string;
+  /** Tenant scope that prevents cross-org challenge reuse. */
   orgId?: string;
   otpChannel: EmailOtpChannel;
+  /** Normalized email address that received the OTP code. */
   email: string;
   otpCode: string;
+  /** App-session binding hash for non-reroll flows. */
   sessionHash: string;
   appSessionVersion: string;
   action: EmailOtpChallengeAction;
@@ -71,43 +80,28 @@ export type EmailOtpChallengeRecord = {
   maxAttempts: number;
 };
 
+export type EmailOtpChallengeContextInput = {
+  challengeSubjectId: string;
+  walletId: string;
+  orgId?: string;
+  otpChannel: EmailOtpChannel;
+  sessionHash: string;
+  appSessionVersion: string;
+  action: EmailOtpChallengeAction;
+  operation: EmailOtpChallengeOperation;
+  nowMs: number;
+};
+
 export interface EmailOtpChallengeStore {
   put(record: EmailOtpChallengeRecord): Promise<void>;
   get(challengeId: string): Promise<EmailOtpChallengeRecord | null>;
   deleteExpired(nowMs: number): Promise<EmailOtpChallengeRecord[]>;
-  countActiveByContext(input: {
-    userId: string;
-    walletId: string;
-    orgId?: string;
-    otpChannel: EmailOtpChannel;
-    sessionHash: string;
-    appSessionVersion: string;
-    action: EmailOtpChallengeAction;
-    operation: EmailOtpChallengeOperation;
-    nowMs: number;
-  }): Promise<number>;
-  deleteOldestActiveByContext(input: {
-    userId: string;
-    walletId: string;
-    orgId?: string;
-    otpChannel: EmailOtpChannel;
-    sessionHash: string;
-    appSessionVersion: string;
-    action: EmailOtpChallengeAction;
-    operation: EmailOtpChallengeOperation;
-    nowMs: number;
-  }): Promise<EmailOtpChallengeRecord | null>;
-  findActiveByContext(input: {
-    userId: string;
-    walletId: string;
-    orgId?: string;
-    otpChannel: EmailOtpChannel;
-    sessionHash: string;
-    appSessionVersion: string;
-    action: EmailOtpChallengeAction;
-    operation: EmailOtpChallengeOperation;
+  countActiveByContext(input: EmailOtpChallengeContextInput): Promise<number>;
+  deleteOldestActiveByContext(
+    input: EmailOtpChallengeContextInput,
+  ): Promise<EmailOtpChallengeRecord | null>;
+  findActiveByContext(input: EmailOtpChallengeContextInput & {
     otpCode: string;
-    nowMs: number;
   }): Promise<EmailOtpChallengeRecord | null>;
   del(challengeId: string): Promise<void>;
 }
@@ -347,7 +341,7 @@ function parseChallengeRecord(raw: unknown): EmailOtpChallengeRecord | null {
   const obj = raw as Record<string, unknown>;
   const version = toOptionalTrimmedString(obj.version);
   const challengeId = toOptionalTrimmedString(obj.challengeId);
-  const userId = toOptionalTrimmedString(obj.userId);
+  const challengeSubjectId = toOptionalTrimmedString(obj.challengeSubjectId);
   const walletId = toOptionalTrimmedString(obj.walletId);
   const orgId = toOptionalTrimmedString(obj.orgId) || undefined;
   const otpChannel = toOptionalTrimmedString(obj.otpChannel);
@@ -362,7 +356,8 @@ function parseChallengeRecord(raw: unknown): EmailOtpChallengeRecord | null {
   const attemptCount = Number(obj.attemptCount);
   const maxAttempts = Number(obj.maxAttempts);
   if (version !== 'email_otp_challenge_v1') return null;
-  if (!challengeId || !userId || !walletId || !email || !otpCode || !sessionHash) return null;
+  if (!challengeId || !challengeSubjectId || !walletId || !email || !otpCode || !sessionHash)
+    return null;
   if (otpChannel !== EMAIL_OTP_CHANNEL) return null;
   if (
     action !== WALLET_EMAIL_OTP_ACTIONS.login &&
@@ -384,7 +379,7 @@ function parseChallengeRecord(raw: unknown): EmailOtpChallengeRecord | null {
   return {
     version: 'email_otp_challenge_v1',
     challengeId,
-    userId,
+    challengeSubjectId,
     walletId,
     ...(orgId ? { orgId } : {}),
     otpChannel: EMAIL_OTP_CHANNEL,
@@ -403,21 +398,11 @@ function parseChallengeRecord(raw: unknown): EmailOtpChallengeRecord | null {
 
 function challengeContextMatches(
   record: EmailOtpChallengeRecord,
-  input: {
-    userId: string;
-    walletId: string;
-    orgId?: string;
-    otpChannel: EmailOtpChannel;
-    sessionHash: string;
-    appSessionVersion: string;
-    action: EmailOtpChallengeAction;
-    operation: EmailOtpChallengeOperation;
-    nowMs: number;
-  },
+  input: EmailOtpChallengeContextInput,
 ): boolean {
   return (
     record.expiresAtMs > input.nowMs &&
-    record.userId === input.userId &&
+    record.challengeSubjectId === input.challengeSubjectId &&
     record.walletId === input.walletId &&
     String(record.orgId || '') === String(input.orgId || '') &&
     record.otpChannel === input.otpChannel &&
@@ -868,17 +853,7 @@ class InMemoryEmailOtpChallengeStore implements EmailOtpChallengeStore {
     return deleted;
   }
 
-  async countActiveByContext(input: {
-    userId: string;
-    walletId: string;
-    orgId?: string;
-    otpChannel: EmailOtpChannel;
-    sessionHash: string;
-    appSessionVersion: string;
-    action: EmailOtpChallengeAction;
-    operation: EmailOtpChallengeOperation;
-    nowMs: number;
-  }): Promise<number> {
+  async countActiveByContext(input: EmailOtpChallengeContextInput): Promise<number> {
     let count = 0;
     for (const record of this.map.values()) {
       if (!challengeContextMatches(record, input)) continue;
@@ -887,17 +862,9 @@ class InMemoryEmailOtpChallengeStore implements EmailOtpChallengeStore {
     return count;
   }
 
-  async deleteOldestActiveByContext(input: {
-    userId: string;
-    walletId: string;
-    orgId?: string;
-    otpChannel: EmailOtpChannel;
-    sessionHash: string;
-    appSessionVersion: string;
-    action: EmailOtpChallengeAction;
-    operation: EmailOtpChallengeOperation;
-    nowMs: number;
-  }): Promise<EmailOtpChallengeRecord | null> {
+  async deleteOldestActiveByContext(
+    input: EmailOtpChallengeContextInput,
+  ): Promise<EmailOtpChallengeRecord | null> {
     let oldest: EmailOtpChallengeRecord | null = null;
     for (const record of this.map.values()) {
       if (!challengeContextMatches(record, input)) continue;
@@ -908,18 +875,9 @@ class InMemoryEmailOtpChallengeStore implements EmailOtpChallengeStore {
     return cloneRecord(oldest);
   }
 
-  async findActiveByContext(input: {
-    userId: string;
-    walletId: string;
-    orgId?: string;
-    otpChannel: EmailOtpChannel;
-    sessionHash: string;
-    appSessionVersion: string;
-    action: EmailOtpChallengeAction;
-    operation: EmailOtpChallengeOperation;
-    otpCode: string;
-    nowMs: number;
-  }): Promise<EmailOtpChallengeRecord | null> {
+  async findActiveByContext(
+    input: EmailOtpChallengeContextInput & { otpCode: string },
+  ): Promise<EmailOtpChallengeRecord | null> {
     for (const record of this.map.values()) {
       if (!challengeContextMatches(record, input)) continue;
       if (record.otpCode !== input.otpCode) continue;
@@ -1235,17 +1193,7 @@ class PostgresEmailOtpChallengeStore implements EmailOtpChallengeStore {
       .map((record) => cloneRecord(record));
   }
 
-  async countActiveByContext(input: {
-    userId: string;
-    walletId: string;
-    orgId?: string;
-    otpChannel: EmailOtpChannel;
-    sessionHash: string;
-    appSessionVersion: string;
-    action: EmailOtpChallengeAction;
-    operation: EmailOtpChallengeOperation;
-    nowMs: number;
-  }): Promise<number> {
+  async countActiveByContext(input: EmailOtpChallengeContextInput): Promise<number> {
     const pool = await this.poolPromise;
     const { rows } = await pool.query(
       `
@@ -1253,7 +1201,7 @@ class PostgresEmailOtpChallengeStore implements EmailOtpChallengeStore {
         FROM email_otp_challenges
         WHERE namespace = $1
           AND expires_at_ms > $2
-          AND record_json->>'userId' = $3
+          AND record_json->>'challengeSubjectId' = $3
           AND record_json->>'walletId' = $4
           AND COALESCE(record_json->>'orgId', '') = $5
           AND record_json->>'otpChannel' = $6
@@ -1265,7 +1213,7 @@ class PostgresEmailOtpChallengeStore implements EmailOtpChallengeStore {
       [
         this.namespace,
         input.nowMs,
-        input.userId,
+        input.challengeSubjectId,
         input.walletId,
         String(input.orgId || ''),
         input.otpChannel,
@@ -1278,17 +1226,9 @@ class PostgresEmailOtpChallengeStore implements EmailOtpChallengeStore {
     return Number(rows[0]?.count || 0);
   }
 
-  async deleteOldestActiveByContext(input: {
-    userId: string;
-    walletId: string;
-    orgId?: string;
-    otpChannel: EmailOtpChannel;
-    sessionHash: string;
-    appSessionVersion: string;
-    action: EmailOtpChallengeAction;
-    operation: EmailOtpChallengeOperation;
-    nowMs: number;
-  }): Promise<EmailOtpChallengeRecord | null> {
+  async deleteOldestActiveByContext(
+    input: EmailOtpChallengeContextInput,
+  ): Promise<EmailOtpChallengeRecord | null> {
     const pool = await this.poolPromise;
     const { rows } = await pool.query(
       `
@@ -1297,7 +1237,7 @@ class PostgresEmailOtpChallengeStore implements EmailOtpChallengeStore {
           FROM email_otp_challenges
           WHERE namespace = $1
             AND expires_at_ms > $2
-            AND record_json->>'userId' = $3
+            AND record_json->>'challengeSubjectId' = $3
             AND record_json->>'walletId' = $4
             AND COALESCE(record_json->>'orgId', '') = $5
             AND record_json->>'otpChannel' = $6
@@ -1315,7 +1255,7 @@ class PostgresEmailOtpChallengeStore implements EmailOtpChallengeStore {
       [
         this.namespace,
         input.nowMs,
-        input.userId,
+        input.challengeSubjectId,
         input.walletId,
         String(input.orgId || ''),
         input.otpChannel,
@@ -1346,18 +1286,9 @@ class PostgresEmailOtpChallengeStore implements EmailOtpChallengeStore {
     return cloneRecord(parsed.value);
   }
 
-  async findActiveByContext(input: {
-    userId: string;
-    walletId: string;
-    orgId?: string;
-    otpChannel: EmailOtpChannel;
-    sessionHash: string;
-    appSessionVersion: string;
-    action: EmailOtpChallengeAction;
-    operation: EmailOtpChallengeOperation;
-    otpCode: string;
-    nowMs: number;
-  }): Promise<EmailOtpChallengeRecord | null> {
+  async findActiveByContext(
+    input: EmailOtpChallengeContextInput & { otpCode: string },
+  ): Promise<EmailOtpChallengeRecord | null> {
     const pool = await this.poolPromise;
     const { rows } = await pool.query(
       `
@@ -1365,7 +1296,7 @@ class PostgresEmailOtpChallengeStore implements EmailOtpChallengeStore {
         FROM email_otp_challenges
         WHERE namespace = $1
           AND expires_at_ms > $2
-          AND record_json->>'userId' = $3
+          AND record_json->>'challengeSubjectId' = $3
           AND record_json->>'walletId' = $4
           AND COALESCE(record_json->>'orgId', '') = $5
           AND record_json->>'otpChannel' = $6
@@ -1380,7 +1311,7 @@ class PostgresEmailOtpChallengeStore implements EmailOtpChallengeStore {
       [
         this.namespace,
         input.nowMs,
-        input.userId,
+        input.challengeSubjectId,
         input.walletId,
         String(input.orgId || ''),
         input.otpChannel,

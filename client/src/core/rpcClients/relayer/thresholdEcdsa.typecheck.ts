@@ -7,6 +7,10 @@ import {
   toEcdsaHssThresholdKeyId,
 } from '../../signingEngine/session/identity/emailOtpHssIdentity';
 import { toWalletId } from '../../signingEngine/interfaces/ecdsaChainTarget';
+import type {
+  EcdsaClientRootPublicKey33B64u,
+  EcdsaHssClientSharePublicKey33B64u,
+} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 
 const bootstrapBase = {
   formatVersion: 'ecdsa-hss-role-local',
@@ -17,7 +21,8 @@ const bootstrapBase = {
   signingRootVersion: 'default',
   keyScope: 'evm-family',
   relayerKeyId: 'relayer-key',
-  clientPublicKey33B64u: 'client-public-key',
+  hssClientSharePublicKey33B64u:
+    'client-public-key' as EcdsaHssClientSharePublicKey33B64u,
   clientShareRetryCounter: 0,
   contextBinding32B64u: 'context-binding',
   requestId: 'request-id',
@@ -30,9 +35,17 @@ const bootstrapBase = {
 
 const clientRootProof = {
   version: 'ecdsa-hss:role-local:first-bootstrap-root-proof:v2',
+  clientRootPublicKey33B64u: 'public-key' as EcdsaClientRootPublicKey33B64u,
   digest32B64u: 'digest',
   signature65B64u: 'signature',
 } satisfies ThresholdEcdsaHssRoleLocalClientRootProof;
+
+declare const hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
+void ({
+  ...clientRootProof,
+  // @ts-expect-error HSS client-share keys cannot verify client-root proofs.
+  clientRootPublicKey33B64u: hssClientSharePublicKey33B64u,
+} satisfies ThresholdEcdsaHssRoleLocalClientRootProof);
 
 declare const passkeyBootstrapAuthorization: ThresholdEcdsaHssRoleLocalPasskeyBootstrapAuthorization;
 

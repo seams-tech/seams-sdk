@@ -380,6 +380,7 @@ function inferCanonicalCodeFromMessage(args: {
   }
 
   if (
+    message.includes('signing session is not ready') ||
     message.includes('no cached threshold session token') ||
     message.includes('missing threshold wrapkeysalt') ||
     message.includes('missing threshold wrap key salt') ||
@@ -387,6 +388,7 @@ function inferCanonicalCodeFromMessage(args: {
     message.includes('threshold-ecdsa session record not available') ||
     message.includes('missing canonical threshold ecdsa session') ||
     message.includes('relayer threshold session expired') ||
+    message.includes('threshold signingsession auth is unavailable') ||
     message.includes('threshold session exhausted') ||
     message.includes('threshold session expired') ||
     message.includes('missing or invalid threshold session token') ||
@@ -453,11 +455,6 @@ export function resolveWalletBoundaryErrorCode(args: {
   const canonical = resolveCanonicalWalletSignerErrorCode(args);
   if (canonical) return canonical;
 
-  if (isWalletSignerBoundaryRequestType(args.requestType)) {
-    // Signer boundary contract: never leak non-canonical internal codes.
-    return defaultSessionNotReadyCanonicalCodeForRequestType(args.requestType);
-  }
-
   const rawCode = String(args.rawCode || '').trim();
   if (rawCode) return rawCode;
 
@@ -482,12 +479,6 @@ export function resolveWalletBoundaryErrorMessage(args: {
 
   if (normalizeCodeToken(args.rawCode ?? args.code) === 'deployment_failed') {
     return 'Wallet deployment failed. Retry the request.';
-  }
-
-  if (isWalletSignerBoundaryRequestType(args.requestType)) {
-    return CANONICAL_SIGNER_ERROR_MESSAGES[
-      defaultSessionNotReadyCanonicalCodeForRequestType(args.requestType)
-    ];
   }
 
   const fallback = String(args.message || '').trim();

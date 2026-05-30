@@ -1359,7 +1359,7 @@ function parseWalletRegistrationHssRespondRequest(
         signingRootVersion: parsed.signingRootVersion,
         keyScope: parsed.keyScope,
         relayerKeyId: parsed.relayerKeyId,
-        clientPublicKey33B64u: parsed.clientPublicKey33B64u,
+        hssClientSharePublicKey33B64u: parsed.hssClientSharePublicKey33B64u,
         clientShareRetryCounter: parsed.clientShareRetryCounter,
         contextBinding32B64u: parsed.contextBinding32B64u,
         requestId: parsed.requestId,

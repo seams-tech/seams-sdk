@@ -70,6 +70,32 @@ async function requireEmailOtpEnrollmentMutationAuth(input: {
   };
 }
 
+function resolveEmailOtpProviderUserId(input: {
+  claims: Record<string, unknown>;
+  userId: string;
+}):
+  | { ok: true; providerUserId: string }
+  | { ok: false; response: EmailOtpRouteResponse } {
+  if (!isGoogleOidcEmailOtpSession(input.claims)) {
+    return { ok: true, providerUserId: input.userId };
+  }
+  const providerSubject = toOptionalRecordString(input.claims, 'providerSubject');
+  if (!providerSubject) {
+    return {
+      ok: false,
+      response: {
+        status: 400,
+        body: {
+          ok: false,
+          code: 'invalid_app_session',
+          message: 'Google Email OTP session requires providerSubject',
+        },
+      },
+    };
+  }
+  return { ok: true, providerUserId: providerSubject };
+}
+
 export async function handleEmailOtpRegistrationChallengeRoute(input: {
   body: unknown;
   claims: Record<string, unknown>;
@@ -104,9 +130,22 @@ export async function handleEmailOtpRegistrationChallengeRoute(input: {
 
   const email =
     typeof input.claims.email === 'string' ? input.claims.email.trim().toLowerCase() : '';
+  const googleRegistrationSession = isGoogleOidcEmailOtpSession(input.claims);
+  const claimProviderSubject = toOptionalRecordString(input.claims, 'providerSubject');
+  if (googleRegistrationSession && !claimProviderSubject) {
+    return {
+      status: 400,
+      body: {
+        ok: false,
+        code: 'invalid_app_session',
+        message: 'Google Email OTP registration requires providerSubject',
+      },
+    };
+  }
+  const challengeSubjectId = googleRegistrationSession ? claimProviderSubject : input.userId;
   const sessionHash = await hashEmailOtpAppSessionClaims(input.claims);
   const result = await input.service.createEmailOtpEnrollmentChallenge({
-    userId: input.userId,
+    userId: challengeSubjectId,
     walletId,
     orgId: readEmailOtpOrgIdFromClaims(input.claims),
     email,
@@ -208,9 +247,32 @@ export async function handleEmailOtpRegistrationFinalizeRoute(input: {
   });
   if (authGate) return authGate;
 
+  const googleRegistrationSession = isGoogleOidcEmailOtpSession(input.claims);
+  const claimProviderSubject = toOptionalRecordString(input.claims, 'providerSubject');
+  if (googleRegistrationSession && !claimProviderSubject) {
+    return {
+      status: 400,
+      body: {
+        ok: false,
+        code: 'invalid_app_session',
+        message: 'Google Email OTP registration requires providerSubject',
+      },
+    };
+  }
+  const providerSubject = googleRegistrationSession ? claimProviderSubject : input.userId;
+  const proofEmail = toOptionalRecordString(input.claims, 'email')?.toLowerCase();
+  const bodyGoogleEmailOtpRegistrationAttemptId = toOptionalRecordString(
+    body,
+    'googleEmailOtpRegistrationAttemptId',
+  );
+  const claimGoogleEmailOtpRegistrationAttemptId = googleRegistrationSession
+    ? toOptionalRecordString(input.claims, 'googleEmailOtpRegistrationAttemptId')
+    : undefined;
+  const googleEmailOtpRegistrationAttemptId =
+    bodyGoogleEmailOtpRegistrationAttemptId || claimGoogleEmailOtpRegistrationAttemptId;
   const sessionHash = await hashEmailOtpAppSessionClaims(input.claims);
   const result = await input.service.verifyEmailOtpEnrollment({
-    userId: input.userId,
+    providerSubject,
     walletId,
     orgId: readEmailOtpOrgIdFromClaims(input.claims),
     challengeId,
@@ -218,15 +280,14 @@ export async function handleEmailOtpRegistrationFinalizeRoute(input: {
     otpChannel,
     sessionHash,
     appSessionVersion: input.appSessionVersion,
+    ...(proofEmail ? { proofEmail } : {}),
     clientIp: input.clientIp,
     recoveryWrappedEnrollmentEscrows: body.recoveryWrappedEnrollmentEscrows,
     enrollmentSealKeyVersion: body.enrollmentSealKeyVersion,
     clientUnlockPublicKeyB64u: body.clientUnlockPublicKeyB64u,
     unlockKeyVersion: body.unlockKeyVersion,
     thresholdEcdsaClientVerifyingShareB64u: body.thresholdEcdsaClientVerifyingShareB64u,
-    googleEmailOtpRegistrationAttemptId: isGoogleOidcEmailOtpSession(input.claims)
-      ? toOptionalRecordString(input.claims, 'googleEmailOtpRegistrationAttemptId')
-      : undefined,
+    ...(googleEmailOtpRegistrationAttemptId ? { googleEmailOtpRegistrationAttemptId } : {}),
   });
 
   if (result.ok) {
@@ -297,6 +358,11 @@ export async function handleEmailOtpLoginChallengeRoute(input: {
 
   const parsedOperation = parseWalletEmailOtpLoginOperation(body.operation);
   if (!parsedOperation.ok) return { status: 400, body: parsedOperation };
+  const providerUser = resolveEmailOtpProviderUserId({
+    claims: input.claims,
+    userId: input.userId,
+  });
+  if (!providerUser.ok) return providerUser.response;
 
   const sessionHash = await hashEmailOtpAppSessionClaims(input.claims);
   const exportPolicy =
@@ -342,12 +408,12 @@ export async function handleEmailOtpLoginChallengeRoute(input: {
     service: input.service,
     walletId,
     orgId: readEmailOtpOrgIdFromClaims(input.claims),
-    providerUserId: input.userId,
+    providerUserId: providerUser.providerUserId,
   });
   if (!email.ok) return { status: email.status, body: email.body };
 
   const result = await input.service.createEmailOtpChallenge({
-    userId: input.userId,
+    userId: providerUser.providerUserId,
     walletId,
     orgId: readEmailOtpOrgIdFromClaims(input.claims),
     email: email.email,
@@ -423,18 +489,23 @@ export async function handleEmailOtpDeviceRecoveryChallengeRoute(input: {
   const channelValidation = validateEmailOtpChannel(body);
   if (!channelValidation.ok)
     return { status: channelValidation.status, body: channelValidation.body };
+  const providerUser = resolveEmailOtpProviderUserId({
+    claims: input.claims,
+    userId: input.userId,
+  });
+  if (!providerUser.ok) return providerUser.response;
 
   const email = await readServerKnownEmailOtpAddress({
     service: input.service,
     walletId,
     orgId: readEmailOtpOrgIdFromClaims(input.claims),
-    providerUserId: input.userId,
+    providerUserId: providerUser.providerUserId,
   });
   if (!email.ok) return { status: email.status, body: email.body };
 
   const sessionHash = await hashEmailOtpAppSessionClaims(input.claims);
   const result = await input.service.createEmailOtpDeviceRecoveryChallenge({
-    userId: input.userId,
+    userId: providerUser.providerUserId,
     walletId,
     orgId: readEmailOtpOrgIdFromClaims(input.claims),
     email: email.email,
@@ -488,8 +559,13 @@ export async function handleEmailOtpRecoveryWrappedEscrowsRoute(input: {
   const otpChannel = channelValidation.otpChannel;
 
   const sessionHash = await hashEmailOtpAppSessionClaims(input.claims);
-  const result = await input.service.verifyEmailOtpDeviceRecoveryChallenge({
+  const providerUser = resolveEmailOtpProviderUserId({
+    claims: input.claims,
     userId: input.userId,
+  });
+  if (!providerUser.ok) return providerUser.response;
+  const result = await input.service.verifyEmailOtpDeviceRecoveryChallenge({
+    userId: providerUser.providerUserId,
     walletId,
     orgId: readEmailOtpOrgIdFromClaims(input.claims),
     challengeId,
@@ -870,6 +946,11 @@ export async function handleEmailOtpLoginVerifyRoute(input: {
 
   const parsedOperation = parseWalletEmailOtpLoginOperation(body.operation);
   if (!parsedOperation.ok) return { status: 400, body: parsedOperation };
+  const providerUser = resolveEmailOtpProviderUserId({
+    claims: input.claims,
+    userId: input.userId,
+  });
+  if (!providerUser.ok) return providerUser.response;
 
   const sessionHash = await hashEmailOtpAppSessionClaims(input.claims);
   const exportPolicy =
@@ -914,7 +995,7 @@ export async function handleEmailOtpLoginVerifyRoute(input: {
   }
 
   const result = await input.service.verifyEmailOtpChallenge({
-    userId: input.userId,
+    userId: providerUser.providerUserId,
     walletId,
     orgId: readEmailOtpOrgIdFromClaims(input.claims),
     challengeId,
@@ -1028,9 +1109,14 @@ export async function handleEmailOtpLoginVerifyAndUnsealRoute(input: {
   const loginGrant = String(verified.body.loginGrant || '').trim();
   const sessionHash = await hashEmailOtpAppSessionClaims(input.claims);
   const sessionWalletId = getSessionWalletId(input.claims, input.userId);
+  const providerUser = resolveEmailOtpProviderUserId({
+    claims: input.claims,
+    userId: input.userId,
+  });
+  if (!providerUser.ok) return providerUser.response;
   const grant = await input.service.consumeEmailOtpGrant({
     loginGrant,
-    userId: input.userId,
+    userId: providerUser.providerUserId,
     walletId: sessionWalletId,
     orgId: readEmailOtpOrgIdFromClaims(input.claims),
     otpChannel: EMAIL_OTP_CHANNEL,
@@ -1256,9 +1342,14 @@ export async function handleEmailOtpUnsealRoute(input: {
 
   const sessionHash = await hashEmailOtpAppSessionClaims(input.claims);
   const sessionWalletId = getSessionWalletId(input.claims, input.userId);
+  const providerUser = resolveEmailOtpProviderUserId({
+    claims: input.claims,
+    userId: input.userId,
+  });
+  if (!providerUser.ok) return providerUser.response;
   const grant = await input.service.consumeEmailOtpGrant({
     loginGrant,
-    userId: input.userId,
+    userId: providerUser.providerUserId,
     walletId: sessionWalletId,
     orgId: readEmailOtpOrgIdFromClaims(input.claims),
     otpChannel: EMAIL_OTP_CHANNEL,
@@ -1422,6 +1513,19 @@ export async function handleEmailOtpDevOtpOutboxRoute(input: {
     userId: input.userId,
     walletId,
   });
+  const providerSubject = toOptionalRecordString(input.claims, 'providerSubject');
+  if (
+    !result.ok &&
+    result.code === 'not_found' &&
+    isGoogleOidcEmailOtpSession(input.claims) &&
+    providerSubject
+  ) {
+    result = await input.service.readEmailOtpOutboxEntry({
+      challengeId,
+      userId: providerSubject,
+      walletId,
+    });
+  }
   if (!result.ok && result.code === 'not_found' && walletId !== input.userId) {
     // Dev-only outbox reads are wallet-scoped after the app-session wallet check above.
     // Signing-session OTP challenges are stored under the wallet id, while Google SSO

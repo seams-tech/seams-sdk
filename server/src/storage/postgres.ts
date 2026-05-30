@@ -420,7 +420,10 @@ export async function ensurePostgresSchema(input: {
       ON wallet_auth_methods (namespace, wallet_id, rp_id, status)
     `);
     await pool.query(`
-      CREATE UNIQUE INDEX IF NOT EXISTS wallet_auth_methods_identifier_uidx
+      DROP INDEX IF EXISTS wallet_auth_methods_identifier_uidx
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS wallet_auth_methods_identifier_idx
       ON wallet_auth_methods (namespace, kind, rp_id, auth_identifier_key)
     `);
     await pool.query(`

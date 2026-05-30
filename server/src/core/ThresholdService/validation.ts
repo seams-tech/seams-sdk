@@ -4,6 +4,9 @@ import { base64UrlDecode } from '@shared/utils/encoders';
 import { ensureEd25519Prefix, toOptionalString, toTrimmedString } from '@shared/utils/validation';
 import {
   ECDSA_HSS_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION,
+  type EcdsaClientRootPublicKey33B64u,
+  type EcdsaHssClientSharePublicKey33B64u,
+  type EcdsaRelayerHssPublicKey33B64u,
   type EcdsaHssRoleLocalFirstBootstrapRootProof,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import {
@@ -72,11 +75,15 @@ function parseEcdsaHssClientRootProof(
   ) {
     return null;
   }
+  const clientRootPublicKey33B64u = parseSec1CompressedPublicKey33B64u(
+    value.clientRootPublicKey33B64u,
+  );
   const digest32B64u = parseB64uFixed(value.digest32B64u, 32);
   const signature65B64u = parseB64uFixed(value.signature65B64u, 65);
-  if (!digest32B64u || !signature65B64u) return null;
+  if (!clientRootPublicKey33B64u || !digest32B64u || !signature65B64u) return null;
   return {
     version: ECDSA_HSS_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION,
+    clientRootPublicKey33B64u: clientRootPublicKey33B64u as EcdsaClientRootPublicKey33B64u,
     digest32B64u,
     signature65B64u,
   };
@@ -298,16 +305,24 @@ const ECDSA_HSS_EXPORT_REQUEST_FORBIDDEN_FIELDS = [
 
 function parseEcdsaHssPublicIdentity(raw: unknown): EcdsaHssPublicIdentity | null {
   if (!isObject(raw)) return null;
-  const clientPublicKey33B64u = parseSec1CompressedPublicKey33B64u(raw.clientPublicKey33B64u);
+  const hssClientSharePublicKey33B64u = parseSec1CompressedPublicKey33B64u(
+    raw.hssClientSharePublicKey33B64u,
+  );
   const relayerPublicKey33B64u = parseSec1CompressedPublicKey33B64u(raw.relayerPublicKey33B64u);
   const groupPublicKey33B64u = parseSec1CompressedPublicKey33B64u(raw.groupPublicKey33B64u);
   const ethereumAddress = toOptionalString(raw.ethereumAddress);
-  if (!clientPublicKey33B64u || !relayerPublicKey33B64u || !groupPublicKey33B64u || !ethereumAddress) {
+  if (
+    !hssClientSharePublicKey33B64u ||
+    !relayerPublicKey33B64u ||
+    !groupPublicKey33B64u ||
+    !ethereumAddress
+  ) {
     return null;
   }
   return {
-    clientPublicKey33B64u,
-    relayerPublicKey33B64u,
+    hssClientSharePublicKey33B64u:
+      hssClientSharePublicKey33B64u as EcdsaHssClientSharePublicKey33B64u,
+    relayerPublicKey33B64u: relayerPublicKey33B64u as EcdsaRelayerHssPublicKey33B64u,
     groupPublicKey33B64u,
     ethereumAddress,
   };
@@ -326,7 +341,9 @@ export function parseEcdsaHssClientBootstrapRequest(
   const signingRootId = toOptionalString(raw.signingRootId);
   const signingRootVersion = toOptionalString(raw.signingRootVersion);
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
-  const clientPublicKey33B64u = parseSec1CompressedPublicKey33B64u(raw.clientPublicKey33B64u);
+  const hssClientSharePublicKey33B64u = parseSec1CompressedPublicKey33B64u(
+    raw.hssClientSharePublicKey33B64u,
+  );
   const contextBinding32B64u = parseB64uFixed(raw.contextBinding32B64u, 32);
   const requestId = toOptionalString(raw.requestId);
   const sessionId = toOptionalString(raw.sessionId);
@@ -354,7 +371,7 @@ export function parseEcdsaHssClientBootstrapRequest(
     !signingRootId ||
     !signingRootVersion ||
     !relayerKeyId ||
-    !clientPublicKey33B64u ||
+    !hssClientSharePublicKey33B64u ||
     !contextBinding32B64u ||
     !requestId ||
     !sessionId ||
@@ -382,7 +399,8 @@ export function parseEcdsaHssClientBootstrapRequest(
     signingRootVersion,
     keyScope: 'evm-family' as const,
     relayerKeyId,
-    clientPublicKey33B64u,
+    hssClientSharePublicKey33B64u:
+      hssClientSharePublicKey33B64u as EcdsaHssClientSharePublicKey33B64u,
     clientShareRetryCounter,
     contextBinding32B64u,
     requestId,

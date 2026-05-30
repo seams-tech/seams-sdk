@@ -8,6 +8,11 @@ import type { InitInput } from '../../../wasm/near_signer/pkg/wasm_signer_worker
 import type { Logger } from './logger';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type {
+  EcdsaClientRootPublicKey33B64u,
+  EcdsaHssClientSharePublicKey33B64u,
+  EcdsaRelayerHssPublicKey33B64u,
+} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+import type {
   AddAuthMethodInput,
   AddAuthMethodIntentGrant,
   AddAuthMethodIntentV1,
@@ -643,7 +648,7 @@ export type WalletRegistrationEcdsaClientBootstrap = {
   signingRootVersion: string;
   keyScope: EcdsaHssKeyScope;
   relayerKeyId: string;
-  clientPublicKey33B64u: string;
+  hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
   clientShareRetryCounter: number;
   contextBinding32B64u: string;
   requestId: string;
@@ -1622,8 +1627,8 @@ export type EcdsaHssRoleLocalExportFormatVersion = 'ecdsa-hss-role-local-export'
 export type EcdsaHssKeyScope = 'evm-family';
 
 export interface EcdsaHssPublicIdentity {
-  clientPublicKey33B64u: string;
-  relayerPublicKey33B64u: string;
+  hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
+  relayerPublicKey33B64u: EcdsaRelayerHssPublicKey33B64u;
   groupPublicKey33B64u: string;
   ethereumAddress: string;
 }
@@ -1636,6 +1641,7 @@ export interface EcdsaHssCaitSithInput {
 
 export interface EcdsaHssClientRootProof {
   version: 'ecdsa-hss:role-local:first-bootstrap-root-proof:v2';
+  clientRootPublicKey33B64u: EcdsaClientRootPublicKey33B64u;
   digest32B64u: string;
   signature65B64u: string;
 }
@@ -1656,7 +1662,7 @@ interface EcdsaHssClientBootstrapRequestBase {
   signingRootVersion: string;
   keyScope: EcdsaHssKeyScope;
   relayerKeyId: string;
-  clientPublicKey33B64u: string;
+  hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
   clientShareRetryCounter: number;
   contextBinding32B64u: string;
   requestId: string;

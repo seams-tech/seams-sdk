@@ -316,7 +316,7 @@ export type WalletRegistrationEcdsaPrepareContext = {
 };
 
 export type WalletRegistrationEcdsaClientBootstrap = WalletRegistrationEcdsaPrepareContext & {
-  clientPublicKey33B64u: string;
+  hssClientSharePublicKey33B64u: string;
   clientShareRetryCounter: number;
   contextBinding32B64u: string;
   clientRootProof?: never;
@@ -422,9 +422,9 @@ export function parseWalletRegistrationEcdsaHssRespond(args: {
   const localBootstrap = args.localBootstrap;
   const serverBootstrap = args.serverBootstrap;
   requireMatchingString({
-    field: 'clientPublicKey33B64u',
+    field: 'hssClientSharePublicKey33B64u',
     expected: localBootstrap.clientPublicKey33B64u,
-    actual: serverBootstrap.publicIdentity.clientPublicKey33B64u,
+    actual: serverBootstrap.publicIdentity.hssClientSharePublicKey33B64u,
   });
   const contextBinding32B64u = requireMatchingString({
     field: 'contextBinding32B64u',

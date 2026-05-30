@@ -94,7 +94,10 @@ async function createCanonicalTables(client) {
     ON wallet_auth_methods (namespace, wallet_id, rp_id, status)
   `);
   await client.query(`
-    CREATE UNIQUE INDEX IF NOT EXISTS wallet_auth_methods_identifier_uidx
+    DROP INDEX IF EXISTS wallet_auth_methods_identifier_uidx
+  `);
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS wallet_auth_methods_identifier_idx
     ON wallet_auth_methods (namespace, kind, rp_id, auth_identifier_key)
   `);
   await client.query(`

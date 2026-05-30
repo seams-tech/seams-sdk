@@ -13,6 +13,7 @@ export type EmailOtpRegistrationAuthorityMaterial = {
   proof: EmailOtpRegistrationProof;
   challengeId: string;
   appSessionVersion: string;
+  providerSubject: string;
   email: string;
 };
 
@@ -27,6 +28,11 @@ function requireTrimmedField(value: unknown, label: string): string {
 function appSessionVersionFromJwt(appSessionJwt: string): string {
   const payload = decodeJwtPayloadRecord(appSessionJwt);
   return typeof payload?.appSessionVersion === 'string' ? payload.appSessionVersion.trim() : '';
+}
+
+function emailOtpRegistrationProviderSubjectFromJwt(appSessionJwt: string): string {
+  const payload = decodeJwtPayloadRecord(appSessionJwt);
+  return typeof payload?.providerSubject === 'string' ? payload.providerSubject.trim() : '';
 }
 
 export async function collectEmailOtpRegistrationAuthority(args: {
@@ -47,6 +53,10 @@ export async function collectEmailOtpRegistrationAuthority(args: {
     'registrationIntentDigestB64u',
   );
   const appSessionJwt = requireTrimmedField(args.appSessionJwt, 'appSessionJwt');
+  const providerSubject = requireTrimmedField(
+    emailOtpRegistrationProviderSubjectFromJwt(appSessionJwt),
+    'providerSubject',
+  );
   const inputChallengeId =
     typeof args.authMethod.challengeId === 'string' ? args.authMethod.challengeId.trim() : '';
   const challenge = inputChallengeId
@@ -69,6 +79,7 @@ export async function collectEmailOtpRegistrationAuthority(args: {
     kind: 'email_otp',
     proof: {
       version: 'email_otp_registration_proof_v1',
+      providerSubject,
       email,
       challengeId,
       otpCode,
@@ -78,6 +89,7 @@ export async function collectEmailOtpRegistrationAuthority(args: {
     },
     challengeId,
     appSessionVersion,
+    providerSubject,
     email,
   };
 }
