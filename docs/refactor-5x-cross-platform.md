@@ -1861,6 +1861,8 @@ to a single PR where practical.
       key refs.
 - [x] Route ready ECDSA signer-session construction through an exhaustive
       `materialKind` switch instead of optional backend material probing.
+- [x] Move ECDSA role-local material presence checks behind the neutral
+      role-local record parser for readiness and lane discovery.
 - [x] Scope persistence parser changes to ECDSA HSS role-local session records
       and key-ref builders. Keep unrelated IndexedDB records out of this phase.
 - [x] Update persistence record parsers to normalize old ECDSA raw boundary data

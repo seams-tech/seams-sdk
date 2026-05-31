@@ -1,4 +1,5 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
+import { thresholdEcdsaRecordHasRoleLocalSigningMaterial } from '@/core/platform/ecdsaRoleLocalRecords';
 import { thresholdEcdsaRecordRpId, type ThresholdEcdsaSessionRecord } from '../persistence/records';
 import type {
   ThresholdEcdsaEmailOtpAuthContext,
@@ -195,8 +196,7 @@ type EcdsaRecordCandidate = {
 };
 
 function hasEcdsaRecordSigningMaterial(record: ThresholdEcdsaSessionRecord): boolean {
-  if (String(record.clientAdditiveShare32B64u || '').trim()) return true;
-  return record.clientAdditiveShareHandle?.kind === 'email_otp_worker_session';
+  return thresholdEcdsaRecordHasRoleLocalSigningMaterial(record);
 }
 
 function readEcdsaRecordCandidates(

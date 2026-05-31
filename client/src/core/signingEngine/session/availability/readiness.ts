@@ -1,6 +1,7 @@
 import type { AccountId } from '@/core/types/accountIds';
 import { toAccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
+import { thresholdEcdsaRecordHasInlineRoleLocalSigningMaterial } from '@/core/platform/ecdsaRoleLocalRecords';
 import type {
   VolatileWarmMaterialPort,
   WarmSessionStatusResult,
@@ -272,7 +273,7 @@ export function resolveEmailOtpEcdsaWorkerSessionId(
 }
 
 function ecdsaRecordHasInlineEmailOtpMaterial(record: ThresholdEcdsaSessionRecord): boolean {
-  return record.source === 'email_otp' && Boolean(normalizeNonEmpty(record.clientAdditiveShare32B64u));
+  return record.source === 'email_otp' && thresholdEcdsaRecordHasInlineRoleLocalSigningMaterial(record);
 }
 
 function addLane(

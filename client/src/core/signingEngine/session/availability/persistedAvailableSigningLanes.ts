@@ -1,6 +1,7 @@
 import { toAccountId } from '@/core/types/accountIds';
 import type { AccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
+import { thresholdEcdsaRecordHasInlineRoleLocalSigningMaterial } from '@/core/platform/ecdsaRoleLocalRecords';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -313,7 +314,7 @@ export async function readPersistedAvailableSigningLanesForTargets(
             if (!ecdsaRecord) {
               localClaim = null;
             } else if (ecdsaRecord.source === SIGNER_AUTH_METHODS.emailOtp) {
-              if (String(ecdsaRecord.clientAdditiveShare32B64u || '').trim()) {
+              if (thresholdEcdsaRecordHasInlineRoleLocalSigningMaterial(ecdsaRecord)) {
                 localClaim = runtimeRecordPolicyClaim({
                   sessionId,
                   remainingUses: ecdsaRecord.remainingUses,

@@ -268,6 +268,35 @@ export function parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(
   );
 }
 
+export function thresholdEcdsaRecordHasInlineRoleLocalSigningMaterial(input: unknown): boolean {
+  try {
+    const record = parseRawThresholdEcdsaSessionRecord(input);
+    if (!String(record.clientAdditiveShare32B64u || '').trim()) {
+      return false;
+    }
+    thresholdEcdsaSessionRecordAsRoleLocalReadyRecord(record);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function thresholdEcdsaRecordHasRoleLocalSigningMaterial(input: unknown): boolean {
+  try {
+    const record = parseRawThresholdEcdsaSessionRecord(input);
+    const handle = record.clientAdditiveShareHandle;
+    if (
+      handle?.kind === 'email_otp_worker_session' &&
+      String(handle.sessionId || '').trim()
+    ) {
+      return true;
+    }
+    return thresholdEcdsaRecordHasInlineRoleLocalSigningMaterial(record);
+  } catch {
+    return false;
+  }
+}
+
 export function parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial(
   input: unknown,
 ): EcdsaRoleLocalExportMaterial {

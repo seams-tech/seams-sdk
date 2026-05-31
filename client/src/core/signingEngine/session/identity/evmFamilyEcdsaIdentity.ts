@@ -13,7 +13,10 @@ import type {
   ThresholdEcdsaCanonicalExportArtifact,
   ThresholdEcdsaSecp256k1KeyRef,
 } from '../../interfaces/signing';
-import { parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord } from '@/core/platform/ecdsaRoleLocalRecords';
+import {
+  parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord,
+  thresholdEcdsaRecordHasRoleLocalSigningMaterial,
+} from '@/core/platform/ecdsaRoleLocalRecords';
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import type { ThresholdEcdsaSessionStoreSource } from './laneIdentity';
 import {
@@ -1037,11 +1040,7 @@ function buildThresholdEcdsaSignerClientShare(args: {
 }
 
 function hasReadyThresholdEcdsaRecordClientShare(record: ThresholdEcdsaSessionRecord): boolean {
-  const handle = record.clientAdditiveShareHandle;
-  if (handle?.kind === 'email_otp_worker_session') {
-    return Boolean(String(handle.sessionId || '').trim());
-  }
-  return Boolean(String(record.clientAdditiveShare32B64u || '').trim());
+  return thresholdEcdsaRecordHasRoleLocalSigningMaterial(record);
 }
 
 export function buildKnownReadyThresholdEcdsaSessionPolicy(args: {

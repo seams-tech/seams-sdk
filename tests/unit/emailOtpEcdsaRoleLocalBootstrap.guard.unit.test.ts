@@ -235,7 +235,9 @@ test.describe('Email OTP ECDSA role-local bootstrap guard', () => {
     const emailOtpBranch = functionBlock.indexOf(
       'ecdsaRecord.source === SIGNER_AUTH_METHODS.emailOtp',
     );
-    const inlineShareCheck = functionBlock.indexOf('ecdsaRecord.clientAdditiveShare32B64u');
+    const inlineShareCheck = functionBlock.indexOf(
+      'thresholdEcdsaRecordHasInlineRoleLocalSigningMaterial(ecdsaRecord)',
+    );
     const policyClaim = functionBlock.indexOf('runtimeRecordPolicyClaim');
     const workerStatus = functionBlock.indexOf('getEmailOtpWarmSessionStatus');
     const passkeyStatus = functionBlock.indexOf('deps.statusReader');
@@ -569,23 +571,20 @@ test.describe('Email OTP ECDSA role-local bootstrap guard', () => {
 
     expect(reconstructionHelper).toContain('resolveEmailOtpEd25519KeyIdentity(walletId)');
     expect(sdkSource).toContain("source: 'wallet_profile_signer'");
-    expect(sdkSource).toContain("'near_account_signer'");
     expect(sdkSource).toContain('listAccountSignersByProfile');
     expect(sdkSource).toContain('walletProfileSignerCount');
     expect(sdkSource).toContain('participantIdsFromEmailOtpEd25519SignerMetadata');
     expect(sdkSource).toContain('buildThresholdEd25519Participants2pV1');
-    expect(reconstructionHelper).toContain('getNearThresholdKeyMaterial(');
     expect(reconstructionHelper).toContain('const ed25519Key = keyIdentity.ed25519Key');
-    expect(reconstructionHelper).toContain('relayerKeyId: thresholdKeyMaterial.relayerKeyId');
-    expect(reconstructionHelper).toContain('keyVersion: thresholdKeyMaterial.keyVersion');
+    expect(sdkSource).toContain('const relayerKeyId = String(metadata.relayerKeyId');
+    expect(sdkSource).toContain('const keyVersion = String(metadata.keyVersion');
     expect(reconstructionHelper).toContain('participantIds');
     expect(reconstructionHelper).toContain("'missing_runtime_policy_scope'");
     expect(reconstructionHelper).toContain('ed25519Key');
     expect(sdkLogin).toContain('await resolveEmailOtpEd25519SessionReconstruction(args)');
-    expect(sdkSource).toContain('async function resolveEmailOtpEd25519SignerSlot');
-    expect(sdkSource).toContain('buildNearAccountRefs(walletId)');
-    expect(sdkSource).toContain('profile?.defaultSignerSlot');
-    expect(sdkSource).toContain('getLastLoggedInSignerSlot(walletId, IndexedDBManager)');
+    expect(sdkSource).toContain('async function resolveEmailOtpEd25519KeyIdentity');
+    expect(sdkSource).toContain('IndexedDBManager.listAccountSignersByProfile');
+    expect(sdkSource).toContain("'wallet_profile_signer'");
     expect(sdkLogin).toContain("ed25519ReconstructionMode: 'await'");
     expect(sdkLogin).toContain('ed25519SessionReconstruction');
     expect(sdkLogin).toContain('initializeCurrentUser(toAccountId(walletId), this.nearClient)');

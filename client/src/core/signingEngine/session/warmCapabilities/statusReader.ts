@@ -1,5 +1,6 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
+import { thresholdEcdsaRecordHasInlineRoleLocalSigningMaterial } from '@/core/platform/ecdsaRoleLocalRecords';
 import type { WarmSessionStatusResult } from '../../uiConfirm/types';
 import {
   ThresholdEcdsaSessionRecord,
@@ -141,7 +142,7 @@ export function createWarmSessionStatusReader(
     const identity = tryBuildEcdsaSessionIdentity(record);
     if (!identity) return null;
     if (record.source === 'email_otp') {
-      if (String(record.clientAdditiveShare32B64u || '').trim()) {
+      if (thresholdEcdsaRecordHasInlineRoleLocalSigningMaterial(record)) {
         return warmClaimFromRecordPolicy({
           sessionId: identity.thresholdSessionId,
           remainingUses: record.remainingUses,
