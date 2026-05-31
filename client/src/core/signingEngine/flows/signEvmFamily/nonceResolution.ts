@@ -1,11 +1,7 @@
-import { buildNearAccountRefs } from '@/core/accountData/near/accountRefs';
 import { chainFamilyFromNetwork } from '@/core/config/chains';
 import {
   toIndexedDbChainTargetKey,
 } from '@/core/indexedDB/normalization';
-import type { ChainAccountRecord } from '@/core/indexedDB/passkeyClientDB.types';
-import { resolveProfileAccountContextFromCandidates } from '@/core/indexedDB/profileAccountProjection';
-import { toAccountId } from '@/core/types/accountIds';
 import type { SeamsChainConfig, SeamsConfigsReadonly } from '@/core/types/seams';
 import type { EvmSigningRequest } from '../../chains/evm/types';
 import type { TempoSigningRequest } from '../../chains/tempo/types';
@@ -108,11 +104,6 @@ export type EvmFamilyManagedNonceSenderIdentity =
       thresholdOwnerAddress?: never;
     };
 
-function pickPreferredChainAccountRow(rows: ChainAccountRecord[]): ChainAccountRecord | null {
-  if (!rows.length) return null;
-  return rows.find((row) => !!row.isPrimary) || rows[0] || null;
-}
-
 export function thresholdOwnerNonceSenderIdentity(
   thresholdOwnerAddress: `0x${string}`,
 ): EvmFamilyManagedNonceSenderIdentity {
@@ -146,35 +137,23 @@ function senderAddressFromIdentity(
   }
 }
 
-export async function resolveProfileChainAccountNonceSenderIdentity(args: {
+export async function resolveWalletChainNonceSenderIdentity(args: {
   deps: EvmFamilyAccountMetadataDeps;
   walletId: string;
   chainTarget: ThresholdEcdsaChainTarget;
 }): Promise<EvmFamilyManagedNonceSenderIdentity> {
-  const walletId = toAccountId(args.walletId);
-  const context = await resolveProfileAccountContextFromCandidates(
-    args.deps.indexedDB,
-    buildNearAccountRefs(walletId),
-  );
-  if (!context?.profileId) {
-    throw new Error(
-      `[SigningEngine] unable to resolve profile mapping for managed nonce (${String(walletId)})`,
-    );
-  }
-
-  const chainIdKey = toIndexedDbChainTargetKey(args.chainTarget);
-  const rows = await args.deps.indexedDB
-    .listChainAccountsByProfileAndChain(context.profileId, chainIdKey)
-    .catch(() => []);
-  const selected = pickPreferredChainAccountRow(rows);
-  const chainAccountAddress = toOptionalEvmAddress(selected?.accountAddress);
+  const signer = await args.deps.indexedDB.getActiveWalletSignerForChainTarget({
+    walletId: args.walletId,
+    chainTarget: args.chainTarget,
+  });
+  const metadata = signer?.metadata || {};
+  const thresholdOwnerAddress = toOptionalEvmAddress(metadata.thresholdOwnerAddress);
+  if (thresholdOwnerAddress) return thresholdOwnerNonceSenderIdentity(thresholdOwnerAddress);
+  const chainAccountAddress = toOptionalEvmAddress(metadata.accountAddress);
   if (chainAccountAddress) return chainAccountNonceSenderIdentity(chainAccountAddress);
-
-  const contextMappedSender = toOptionalEvmAddress(context.accountRef.accountAddress);
-  if (contextMappedSender) return chainAccountNonceSenderIdentity(contextMappedSender);
-
+  const chainIdKey = toIndexedDbChainTargetKey(args.chainTarget);
   throw new Error(
-    `[SigningEngine] unable to resolve managed nonce chain account for ${context.profileId} (${chainIdKey})`,
+    `[SigningEngine] unable to resolve managed nonce wallet signer for ${args.walletId} (${chainIdKey})`,
   );
 }
 

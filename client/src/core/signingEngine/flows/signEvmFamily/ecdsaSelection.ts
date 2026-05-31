@@ -587,6 +587,7 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
     deps: args.deps,
     walletId: args.walletId,
     senderSignatureAlgorithm: args.senderSignatureAlgorithm,
+    chainTarget: args.chainTarget,
     ...(walletAuthInputs.sessionSource ? { sessionSource: walletAuthInputs.sessionSource } : {}),
     ...(typeof walletAuthInputs.isEmailOtpThresholdContext === 'boolean'
       ? { isEmailOtpThresholdContext: walletAuthInputs.isEmailOtpThresholdContext }

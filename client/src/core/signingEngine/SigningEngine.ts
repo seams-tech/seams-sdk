@@ -22,6 +22,7 @@ import {
   type WalletEmailOtpChannel,
   type WalletEmailOtpLoginOperation,
 } from '@shared/utils/emailOtpDomain';
+import { SIGNER_AUTH_METHODS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
 import { type AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 import type { UserPreferencesManager } from './session/userPreferences';
 import type {
@@ -48,7 +49,10 @@ import type {
 } from './session/identity/evmFamilyEcdsaIdentity';
 import { toRpId } from './session/identity/evmFamilyEcdsaIdentity';
 import * as thresholdEd25519Public from './threshold/ed25519/public';
-import { persistThresholdEcdsaBootstrapForWalletTarget as persistThresholdEcdsaBootstrapForWalletTargetOperation } from './session/warmCapabilities/ecdsaBootstrapPersistence';
+import {
+  persistThresholdEcdsaBootstrapForWalletTarget as persistThresholdEcdsaBootstrapForWalletTargetOperation,
+  type ThresholdEcdsaBootstrapSignerAuth,
+} from './session/warmCapabilities/ecdsaBootstrapPersistence';
 import {
   clearThresholdEcdsaSessionRecordForWalletTarget as clearThresholdEcdsaSessionRecordForWalletTargetOperation,
   getStoredThresholdEd25519SessionRecordForAccount,
@@ -409,9 +413,10 @@ export class SigningEngine {
       persistThresholdEcdsaBootstrapForWalletTarget: (args) =>
         persistThresholdEcdsaBootstrapForWalletTargetOperation({
           indexedDB: this.enginePorts.indexedDB,
-          walletId: toAccountId(args.walletId),
+          walletId: args.walletId,
           chainTarget: args.chainTarget,
           bootstrap: args.bootstrap,
+          signerAuth: args.signerAuth,
         }),
       upsertThresholdEcdsaSessionFromBootstrap: (args) => {
         if (args.hasEmailOtpAuthContext) {
@@ -685,7 +690,14 @@ export class SigningEngine {
   }
 
   getAuthenticatorsByUser(nearAccountId: AccountId): Promise<ClientAuthenticatorData[]> {
-    return registrationPublic.getAuthenticatorsByUser(this.registrationPublicDeps, nearAccountId);
+    return this.nearAuthenticatorsByAccount(nearAccountId);
+  }
+
+  nearAuthenticatorsByAccount(nearAccountId: AccountId): Promise<ClientAuthenticatorData[]> {
+    return registrationPublic.nearAuthenticatorsByAccount(
+      this.registrationPublicDeps,
+      nearAccountId,
+    );
   }
 
   updateLastLogin(nearAccountId: AccountId): Promise<void> {
@@ -875,6 +887,16 @@ export class SigningEngine {
         walletId: args.walletId,
         chainTarget: walletKey.chainTarget,
         bootstrap,
+        signerAuth:
+          args.auth.kind === 'email_otp'
+            ? {
+                authMethod: SIGNER_AUTH_METHODS.emailOtp,
+                signerSource: SIGNER_SOURCES.emailOtpRegistration,
+              }
+            : {
+                authMethod: SIGNER_AUTH_METHODS.passkey,
+                signerSource: SIGNER_SOURCES.passkeyRegistration,
+              },
       });
       if (args.auth.kind === 'email_otp') {
         this.upsertThresholdEcdsaSessionFromBootstrap({
@@ -1192,7 +1214,7 @@ export class SigningEngine {
     walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
-    ensureEmailOtpNearAccountMapping?: boolean;
+    signerAuth: ThresholdEcdsaBootstrapSignerAuth;
   }): Promise<void> {
     return warmCapabilitiesPublic.persistThresholdEcdsaBootstrapForWalletTarget(
       this.warmCapabilitiesPublicDeps,
@@ -1434,6 +1456,7 @@ const signingEnginePublicMembers = [
   'getUserBySignerSlot',
   'getLastUser',
   'getAuthenticatorsByUser',
+  'nearAuthenticatorsByAccount',
   'updateLastLogin',
   'setLastUser',
   'initializeCurrentUser',

@@ -1,7 +1,6 @@
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import { base64UrlDecode } from '@shared/utils/base64';
 import type { ThresholdEcdsaCanonicalExportArtifact } from '../../interfaces/signing';
-import { toAccountId } from '@/core/types/accountIds';
 import {
   getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
   getThresholdEcdsaSessionRecordByThresholdSessionId,
@@ -183,10 +182,10 @@ export function createWarmCapabilitiesPublicDeps(args: {
     ) =>
       await persistThresholdEcdsaBootstrapForWalletTarget({
         indexedDB: args.indexedDB,
-        walletId: toAccountId(persistArgs.walletId),
+        walletId: persistArgs.walletId,
         chainTarget: persistArgs.chainTarget,
         bootstrap: persistArgs.bootstrap,
-        ensureEmailOtpNearAccountMapping: persistArgs.ensureEmailOtpNearAccountMapping,
+        signerAuth: persistArgs.signerAuth,
       }),
     hydrateSigningSession: async (hydrateArgs: HydrateSigningSessionInput) =>
       await cacheSigningSessionPrfFirst(args.touchConfirm, hydrateArgs),

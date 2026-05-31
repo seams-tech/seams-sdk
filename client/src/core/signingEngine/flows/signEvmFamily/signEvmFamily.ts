@@ -463,6 +463,7 @@ async function signEvmFamilyAttempt(
       deps,
       walletId,
       senderSignatureAlgorithm: args.request.senderSignatureAlgorithm,
+      chainTarget: requestChainTarget,
     });
   }
   const isEmailOtpThresholdContext =
@@ -475,6 +476,7 @@ async function signEvmFamilyAttempt(
       deps,
       walletId,
       senderSignatureAlgorithm: args.request.senderSignatureAlgorithm,
+      chainTarget: requestChainTarget,
       ...(thresholdEcdsaRecord ? { sessionSource: thresholdEcdsaRecord.source } : {}),
       isEmailOtpThresholdContext,
     }));

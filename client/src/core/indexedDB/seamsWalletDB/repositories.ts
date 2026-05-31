@@ -32,7 +32,9 @@ import type {
   UpsertChainAccountInput,
   UpsertProfileInput,
   UserPreferences,
+  WalletSignerLookup,
 } from '../passkeyClientDB.types';
+import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   planAccountSignerActivation,
   type ActivateAccountSignerInput,
@@ -1393,6 +1395,11 @@ export class SeamsWalletRepositories {
     return parseProfileRow(await db.get(SEAMS_WALLET_STORES.wallets, normalizedProfileId));
   }
 
+  async getWalletPreferences(walletId: string): Promise<Partial<UserPreferences>> {
+    const walletProfile = await this.getProfile(walletId);
+    return walletProfile?.preferences || {};
+  }
+
   async listProfiles(args?: { limit?: number }): Promise<ProfileRecord[]> {
     const db = await this.manager.getDB();
     const limit =
@@ -2236,6 +2243,42 @@ export class SeamsWalletRepositories {
     });
   }
 
+  async listActiveWalletSigners(args: {
+    walletId: string;
+    signerFamily: WalletSignerLookup['signerFamily'];
+  }): Promise<AccountSignerRecord[]> {
+    const walletId = toTrimmedString(args.walletId || '');
+    if (!walletId) return [];
+    const signerKind =
+      args.signerFamily === 'ecdsa'
+        ? SIGNER_KINDS.thresholdEcdsa
+        : SIGNER_KINDS.thresholdEd25519;
+    const signers = await this.listAccountSignersByProfile({
+      profileId: walletId,
+      status: 'active',
+    });
+    return signers.filter((signer) => signer.signerKind === signerKind);
+  }
+
+  async getActiveWalletSignerForChainTarget(args: {
+    walletId: string;
+    chainTarget: ThresholdEcdsaChainTarget;
+  }): Promise<AccountSignerRecord | null> {
+    const walletId = toTrimmedString(args.walletId || '');
+    if (!walletId) return null;
+    const chainTargetKey = toIndexedDbChainTargetKey(args.chainTarget);
+    const matches = (await this.listActiveWalletSigners({
+      walletId,
+      signerFamily: 'ecdsa',
+    })).filter((signer) => signer.chainIdKey === chainTargetKey);
+    if (matches.length > 1) {
+      throw new Error(
+        `[SeamsWalletDB] ambiguous active ECDSA wallet signer for ${walletId}/${chainTargetKey}`,
+      );
+    }
+    return matches[0] || null;
+  }
+
   async getAccountSigner(args: {
     chainIdKey: string;
     accountAddress: string;
@@ -2470,6 +2513,17 @@ export class SeamsWalletRepositories {
       const parsed = parseAuthenticatorRow(row);
       return parsed ? [parsed] : [];
     });
+  }
+
+  async listWalletPasskeyAuthenticators(walletId: string): Promise<ProfileAuthenticatorRecord[]> {
+    return await this.listProfileAuthenticators(walletId);
+  }
+
+  async getWalletPasskeyAuthenticator(args: {
+    walletId: string;
+    credentialId: string;
+  }): Promise<ProfileAuthenticatorRecord | null> {
+    return await this.getProfileAuthenticatorByCredentialId(args.walletId, args.credentialId);
   }
 
   async upsertProfileAuthenticator(record: ProfileAuthenticatorRecord): Promise<void> {
@@ -2749,6 +2803,18 @@ export class SeamsWalletRepositories {
       },
     );
     return updatedPreferences;
+  }
+
+  async updateWalletPreferences(args: {
+    walletId: string;
+    preferences: Partial<UserPreferences>;
+  }): Promise<UserPreferences | null> {
+    const walletId = toTrimmedString(args.walletId || '');
+    if (!walletId) return null;
+    return await this.updatePreferences({
+      profileId: walletId,
+      preferences: args.preferences,
+    });
   }
 
   async deleteProfileData(profileId: string, scope?: string | null): Promise<void> {

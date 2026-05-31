@@ -39,6 +39,8 @@ import {
   type EvmFamilyEcdsaSessionLanePolicy,
 } from '../identity/evmFamilyEcdsaIdentity';
 import type { PasskeyEcdsaReadyPersistInput } from '../warmCapabilities/persistencePorts';
+import { SIGNER_AUTH_METHODS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
+import type { ThresholdEcdsaBootstrapSignerAuth } from '../warmCapabilities/ecdsaBootstrapPersistence';
 
 export type ExistingEcdsaBootstrapKeyIntent = {
   kind: 'existing_ecdsa_key';
@@ -239,6 +241,7 @@ export type ThresholdSessionActivationDeps = {
     walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
+    signerAuth: ThresholdEcdsaBootstrapSignerAuth;
   }) => Promise<void>;
   upsertThresholdEcdsaSessionFromBootstrap: (
     args:
@@ -358,6 +361,21 @@ function passkeyEcdsaPersistenceSource(args: {
   }
   args.request satisfies never;
   return null;
+}
+
+function ecdsaBootstrapSignerAuth(
+  request: EcdsaBootstrapRequest,
+): ThresholdEcdsaBootstrapSignerAuth {
+  if (request.kind === 'email_otp_ecdsa_bootstrap') {
+    return {
+      authMethod: SIGNER_AUTH_METHODS.emailOtp,
+      signerSource: SIGNER_SOURCES.emailOtpRegistration,
+    };
+  }
+  return {
+    authMethod: SIGNER_AUTH_METHODS.passkey,
+    signerSource: SIGNER_SOURCES.passkeyRegistration,
+  };
 }
 
 function toActivateEcdsaSessionRequest(
@@ -557,6 +575,7 @@ export async function bootstrapEcdsaSessionValue(
     walletId,
     chainTarget,
     bootstrap: canonicalBootstrap,
+    signerAuth: ecdsaBootstrapSignerAuth(normalizedRequest),
   });
   if (normalizedRequest.kind === 'email_otp_ecdsa_bootstrap') {
     deps.upsertThresholdEcdsaSessionFromBootstrap({

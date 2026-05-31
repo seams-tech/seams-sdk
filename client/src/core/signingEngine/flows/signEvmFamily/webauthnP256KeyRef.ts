@@ -1,9 +1,7 @@
 import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
-import { buildNearAccountRefs } from '@/core/accountData/near/accountRefs';
-import { resolveProfileAccountContextFromCandidates } from '@/core/indexedDB/profileAccountProjection';
-import { toAccountId } from '@/core/types/accountIds';
 import { base64UrlDecode } from '@shared/utils/base64';
 import { decodeCoseP256PublicKeyWasm } from '../../chains/evm/ethSignerWasm';
+import { toWalletId } from '../../interfaces/ecdsaChainTarget';
 import type { KeyRef } from '../../interfaces/signing';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 
@@ -13,23 +11,15 @@ export async function resolveWebAuthnP256KeyRefForWallet(args: {
   workerCtx: WorkerOperationContext;
   rpId?: string;
 }): Promise<KeyRef & { type: 'webauthnP256' }> {
-  const walletId = toAccountId(args.walletId);
-  const context = await resolveProfileAccountContextFromCandidates(
-    args.indexedDB,
-    buildNearAccountRefs(walletId),
-  );
-  if (!context?.profileId) {
-    throw new Error(`[multichain] no profile/account mapping found for wallet ${walletId}`);
-  }
-
-  const authenticators = await args.indexedDB.listProfileAuthenticators(context.profileId);
+  const walletId = toWalletId(args.walletId);
+  const authenticators = await args.indexedDB.listWalletPasskeyAuthenticators(walletId);
   if (!authenticators.length) {
     throw new Error(`[multichain] no passkeys found for wallet ${walletId}`);
   }
 
   const { authenticatorsForPrompt } =
     await args.indexedDB.selectProfileAuthenticatorsForPrompt({
-      profileId: context.profileId,
+      profileId: walletId,
       authenticators,
       accountLabel: walletId,
     });

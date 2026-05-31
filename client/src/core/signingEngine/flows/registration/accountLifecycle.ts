@@ -357,7 +357,7 @@ async function listCanonicalPasskeyAuthenticatorsForNearAccount(
   return authenticators;
 }
 
-export async function getAuthenticatorsByUser(
+export async function nearAuthenticatorsByAccount(
   deps: RegistrationAccountLifecycleDeps,
   nearAccountId: AccountId,
 ): Promise<ClientAuthenticatorData[]> {
@@ -587,7 +587,7 @@ export async function hasPasskeyCredential(
   nearAccountId: AccountId,
 ): Promise<boolean> {
   const accountId = toAccountId(nearAccountId);
-  const authenticators = await getAuthenticatorsByUser(deps, accountId);
+  const authenticators = await nearAuthenticatorsByAccount(deps, accountId);
   return authenticators.length > 0;
 }
 

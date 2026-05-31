@@ -20,11 +20,11 @@ import type { NearSigningKeyOps } from '../../interfaces/nearKeyOps';
 import {
   atomicStoreRegistrationData as atomicStoreRegistrationDataValue,
   getAllUsers as getAllUsersValue,
-  getAuthenticatorsByUser as getAuthenticatorsByUserValue,
   getLastUser as getLastUserValue,
   getUserBySignerSlot as getUserBySignerSlotValue,
   hasPasskeyCredential as hasPasskeyCredentialValue,
   initializeCurrentUser as initializeCurrentUserValue,
+  nearAuthenticatorsByAccount as nearAuthenticatorsByAccountValue,
   rollbackUserRegistration as rollbackUserRegistrationValue,
   setLastUser as setLastUserValue,
   storeWalletEd25519SignerRecord as storeWalletEd25519SignerRecordValue,
@@ -93,11 +93,11 @@ export function getLastUser(deps: RegistrationPublicDeps): Promise<ClientUserDat
   return getLastUserValue(deps.accountLifecycle);
 }
 
-export function getAuthenticatorsByUser(
+export function nearAuthenticatorsByAccount(
   deps: RegistrationPublicDeps,
   nearAccountId: AccountId,
 ): Promise<ClientAuthenticatorData[]> {
-  return getAuthenticatorsByUserValue(deps.accountLifecycle, nearAccountId);
+  return nearAuthenticatorsByAccountValue(deps.accountLifecycle, nearAccountId);
 }
 
 export function updateLastLogin(

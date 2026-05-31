@@ -531,6 +531,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           deps: args.deps,
           walletId,
           senderSignatureAlgorithm: 'secp256k1',
+          chainTarget: args.signingTarget,
           ...walletAuthInputs,
         });
         const primaryAuthMethod =

@@ -23,7 +23,7 @@ import {
   type EvmFamilyNonceLifecycleDeps,
 } from './nonceLifecycleAdapter';
 import {
-  resolveProfileChainAccountNonceSenderIdentity,
+  resolveWalletChainNonceSenderIdentity,
   thresholdOwnerNonceSenderIdentity,
   resolveNonceNetworkKeyForError,
   type EvmFamilyManagedNonceSenderIdentity,
@@ -131,7 +131,7 @@ function resolveFallbackChainAccountNonceSenderIdentity(args: {
   walletId: string;
   chainTarget: ThresholdEcdsaChainTarget;
 }): Promise<EvmFamilyManagedNonceSenderIdentity> {
-  return resolveProfileChainAccountNonceSenderIdentity({
+  return resolveWalletChainNonceSenderIdentity({
     deps: args.deps,
     walletId: args.walletId,
     chainTarget: args.chainTarget,

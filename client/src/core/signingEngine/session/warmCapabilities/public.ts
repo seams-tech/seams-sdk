@@ -18,6 +18,7 @@ import {
   type ThresholdEcdsaLoginPrefillResult,
 } from './ecdsaLoginPrefill';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
+import type { ThresholdEcdsaBootstrapSignerAuth } from './ecdsaBootstrapPersistence';
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import type {
   WarmEcdsaRecordBackedSigningSessionStatus,
@@ -29,7 +30,7 @@ export type PersistThresholdEcdsaBootstrapForWalletTargetInput = {
   walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
-  ensureEmailOtpNearAccountMapping?: boolean;
+  signerAuth: ThresholdEcdsaBootstrapSignerAuth;
 };
 
 export type HydrateSigningSessionInput = {

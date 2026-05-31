@@ -52,7 +52,7 @@ export function createDeviceLinkWalletIframeHandlers(deps: HandlerDeps): Handler
       const web = ctx?.signingEngine;
       if (web) {
         await web.getLastUser().catch(() => undefined);
-        await web.getAuthenticatorsByUser(toAccountId(nearAccountId)).catch(() => undefined);
+        await web.nearAuthenticatorsByAccount(toAccountId(nearAccountId)).catch(() => undefined);
       }
       const result = await pm.auth.hasPasskeyCredential(toAccountId(nearAccountId));
       respondOkResult(deps, req.requestId, result);
@@ -76,4 +76,3 @@ export function createDeviceLinkWalletIframeHandlers(deps: HandlerDeps): Handler
     },
   };
 }
-

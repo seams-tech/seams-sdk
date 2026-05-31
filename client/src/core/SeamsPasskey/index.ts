@@ -39,9 +39,6 @@ import { ConfirmationConfig, type ConfirmationBehavior } from '../types/signer-w
 import { cloneAuthenticatorOptions } from '../types/authenticatorOptions';
 import { toAccountId, type AccountId } from '../types/accountIds';
 import { configureIndexedDB, IndexedDBManager } from '../indexedDB';
-import { getNearThresholdKeyMaterial } from '../accountData/near/keyMaterial';
-import { buildNearAccountRefs } from '../accountData/near/accountRefs';
-import { resolveProfileAccountContextFromCandidates } from '../indexedDB/profileAccountProjection';
 import { ActionType } from '../types/actions';
 import type { PreferencesChangedPayload } from '../WalletIframe/shared/messages';
 import { __isWalletIframeHostMode } from '../WalletIframe/host-mode';
@@ -92,7 +89,6 @@ import {
 import { assertWalletRuntimePostconditions } from '../signingEngine/session/postconditions/runtimePostconditions';
 import { configuredEmailOtpEcdsaSnapshotChainTargets } from '../signingEngine/session/emailOtp/persistedSnapshot';
 import type { EmailOtpWorkerProgressEvent } from '../signingEngine/workerManager/workerTypes';
-import { getLastLoggedInSignerSlot } from '../signingEngine/webauthnAuth/device/signerSlot';
 import {
   parseThresholdRuntimePolicyScopeFromJwt,
 } from '../signingEngine/threshold/sessionPolicy';
@@ -183,7 +179,7 @@ async function resolveEmailOtpEd25519SessionReconstruction(
 
 type EmailOtpEd25519KeyIdentity = {
   signerSlot: number;
-  source: 'wallet_profile_signer' | 'near_account_signer' | 'key_material';
+  source: 'wallet_profile_signer';
   ed25519Key: {
     relayerKeyId: string;
     keyVersion: string;
@@ -282,79 +278,12 @@ async function resolveEmailOtpEd25519KeyIdentity(
   );
   if (walletProfileIdentity) return walletProfileIdentity;
 
-  const accountRefs = buildNearAccountRefs(walletId);
-  const context = await resolveProfileAccountContextFromCandidates(
-    IndexedDBManager,
-    accountRefs,
-  ).catch(() => null);
-  const activeSigners = context
-    ? await IndexedDBManager.listAccountSigners({
-        chainIdKey: context.accountRef.chainIdKey,
-        accountAddress: context.accountRef.accountAddress,
-        status: 'active',
-      }).catch(() => [])
-    : [];
-  const nearAccountIdentity = findEmailOtpEd25519KeyIdentityFromSigners(
-    activeSigners,
-    'near_account_signer',
-  );
-  if (nearAccountIdentity) return nearAccountIdentity;
-
-  const signerSlot = await resolveEmailOtpEd25519SignerSlot(walletId);
-  const thresholdKeyMaterial = await getNearThresholdKeyMaterial(
-    {
-      clientDB: IndexedDBManager,
-      keyMaterialStore: IndexedDBManager,
-    },
+  console.warn('[SeamsPasskey][email-otp] Ed25519 key identity lookup failed', {
     walletId,
-    signerSlot,
-  ).catch(() => null);
-  const participantIds = normalizeParticipantIds(thresholdKeyMaterial?.participants);
-  if (
-    !thresholdKeyMaterial?.relayerKeyId ||
-    !thresholdKeyMaterial.keyVersion ||
-    !participantIds.length
-  ) {
-    console.warn('[SeamsPasskey][email-otp] Ed25519 key identity lookup failed', {
-      walletId,
-      walletProfileSignerCount: walletProfileSigners.length,
-      walletProfileSigners: accountSignerDiagnosticSummary(walletProfileSigners),
-      nearAccountContextFound: Boolean(context),
-      nearAccountProfileId: context?.profileId || null,
-      nearAccountSignerCount: activeSigners.length,
-      nearAccountSigners: accountSignerDiagnosticSummary(activeSigners),
-      keyMaterialSignerSlot: signerSlot,
-      keyMaterialFound: Boolean(thresholdKeyMaterial),
-      keyMaterialHasRelayerKeyId: Boolean(thresholdKeyMaterial?.relayerKeyId),
-      keyMaterialHasKeyVersion: Boolean(thresholdKeyMaterial?.keyVersion),
-      keyMaterialParticipantCount: participantIds.length,
-    });
-    return null;
-  }
-  return {
-    signerSlot,
-    source: 'key_material',
-    ed25519Key: {
-      relayerKeyId: thresholdKeyMaterial.relayerKeyId,
-      keyVersion: thresholdKeyMaterial.keyVersion,
-      participantIds,
-    },
-  };
-}
-
-async function resolveEmailOtpEd25519SignerSlot(walletId: AccountId): Promise<number> {
-  const context = await resolveProfileAccountContextFromCandidates(
-    IndexedDBManager,
-    buildNearAccountRefs(walletId),
-  ).catch(() => null);
-  if (context?.profileId) {
-    const profile = await IndexedDBManager.getProfile(context.profileId).catch(() => null);
-    const defaultSignerSlot = Number(profile?.defaultSignerSlot);
-    if (Number.isSafeInteger(defaultSignerSlot) && defaultSignerSlot >= 1) {
-      return defaultSignerSlot;
-    }
-  }
-  return await getLastLoggedInSignerSlot(walletId, IndexedDBManager).catch(() => 1);
+    walletProfileSignerCount: walletProfileSigners.length,
+    walletProfileSigners: accountSignerDiagnosticSummary(walletProfileSigners),
+  });
+  return null;
 }
 
 /**

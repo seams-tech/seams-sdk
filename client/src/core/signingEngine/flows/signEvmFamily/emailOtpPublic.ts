@@ -2,7 +2,6 @@ import {
   enrollEmailOtpWallet,
   prepareEmailOtpRegistrationEnrollmentMaterial,
 } from '@/core/SeamsPasskey/emailOtp';
-import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { EmailOtpAuthPolicy } from '@/core/types/seams';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import type {
@@ -12,6 +11,7 @@ import type {
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 import type { EmailOtpBootstrapRecovery } from '../../stepUpConfirmation/otpPrompt/bootstrapRecovery';
 import type { ThresholdEcdsaSessionStoreDeps } from '../../session/persistence/records';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   ThresholdEcdsaChainTarget,
   WalletId,
@@ -219,7 +219,7 @@ export async function enrollEmailOtpInternal(
   deps: EmailOtpPublicDeps,
   args: EnrollEmailOtpInternalArgs,
 ): Promise<EnrollEmailOtpInternalResult> {
-  const walletId = toAccountId(args.walletId);
+  const walletId = toWalletId(args.walletId);
   const relayUrl = String(args.relayUrl || deps.relayerUrl || '').trim();
   if (!relayUrl) {
     throw new Error('Missing relayer url (configs.network.relayer.url)');
@@ -246,7 +246,7 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterialInternal(
   deps: EmailOtpPublicDeps,
   args: PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgs,
 ): Promise<PrepareEmailOtpRegistrationEnrollmentMaterialInternalResult> {
-  const walletId = toAccountId(args.walletId);
+  const walletId = toWalletId(args.walletId);
   const relayUrl = String(args.relayUrl || deps.relayerUrl || '').trim();
   if (!relayUrl) {
     throw new Error('Missing relayer url (configs.network.relayer.url)');

@@ -22,7 +22,9 @@ import type {
   UpsertChainAccountInput,
   UpsertProfileInput,
   UserPreferences,
+  WalletSignerLookup,
 } from './passkeyClientDB.types';
+import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   ActivateAccountSignerInput as AccountSignerLifecycleInput,
   ActivateAccountSignerResult as AccountSignerLifecycleResult,
@@ -239,6 +241,10 @@ export class UnifiedIndexedDBManager {
     return this.seamsWalletRepositories.getProfile(profileId);
   }
 
+  async getWalletPreferences(walletId: string): Promise<Partial<UserPreferences>> {
+    return await this.seamsWalletRepositories.getWalletPreferences(walletId);
+  }
+
   async listProfiles(args?: { limit?: number }): Promise<ProfileRecord[]> {
     return this.seamsWalletRepositories.listProfiles(args);
   }
@@ -311,6 +317,20 @@ export class UnifiedIndexedDBManager {
     return this.seamsWalletRepositories.listAccountSignersByProfile(args);
   }
 
+  async listActiveWalletSigners(args: {
+    walletId: string;
+    signerFamily: WalletSignerLookup['signerFamily'];
+  }): Promise<AccountSignerRecord[]> {
+    return this.seamsWalletRepositories.listActiveWalletSigners(args);
+  }
+
+  async getActiveWalletSignerForChainTarget(args: {
+    walletId: string;
+    chainTarget: ThresholdEcdsaChainTarget;
+  }): Promise<AccountSignerRecord | null> {
+    return this.seamsWalletRepositories.getActiveWalletSignerForChainTarget(args);
+  }
+
   async getAccountSigner(args: {
     chainIdKey: string;
     accountAddress: string;
@@ -357,6 +377,10 @@ export class UnifiedIndexedDBManager {
     return this.seamsWalletRepositories.listProfileAuthenticators(profileId);
   }
 
+  async listWalletPasskeyAuthenticators(walletId: string): Promise<ProfileAuthenticatorRecord[]> {
+    return this.seamsWalletRepositories.listWalletPasskeyAuthenticators(walletId);
+  }
+
   async upsertProfileAuthenticator(record: ProfileAuthenticatorRecord): Promise<void> {
     return this.seamsWalletRepositories.upsertProfileAuthenticator(record);
   }
@@ -369,6 +393,13 @@ export class UnifiedIndexedDBManager {
       profileId,
       credentialId,
     );
+  }
+
+  async getWalletPasskeyAuthenticator(args: {
+    walletId: string;
+    credentialId: string;
+  }): Promise<ProfileAuthenticatorRecord | null> {
+    return this.seamsWalletRepositories.getWalletPasskeyAuthenticator(args);
   }
 
   async upsertWalletAuthMethod(
@@ -416,7 +447,7 @@ export class UnifiedIndexedDBManager {
   async updatePreferences(args: {
     profileId: string;
     preferences: Partial<UserPreferences>;
-    eventAccountId?: AccountId | null;
+    eventAccountId?: string | null;
   }): Promise<void> {
     const updatedPreferences = await this.seamsWalletRepositories.updatePreferences(args);
     const accountId = toTrimmedString(args.eventAccountId || '');
@@ -424,6 +455,20 @@ export class UnifiedIndexedDBManager {
       this.emitEvent({
         type: 'preferences-updated',
         accountId: accountId as AccountId,
+        data: { preferences: updatedPreferences },
+      });
+    }
+  }
+
+  async updateWalletPreferences(args: {
+    walletId: string;
+    preferences: Partial<UserPreferences>;
+  }): Promise<void> {
+    const updatedPreferences = await this.seamsWalletRepositories.updateWalletPreferences(args);
+    if (updatedPreferences) {
+      this.emitEvent({
+        type: 'preferences-updated',
+        accountId: args.walletId as AccountId,
         data: { preferences: updatedPreferences },
       });
     }

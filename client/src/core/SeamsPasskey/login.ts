@@ -348,7 +348,7 @@ async function readLoginUnlockAccountPhase(args: {
     hintUserPromise,
     args.signingEngine.getLastUser().catch(() => null),
     getNearAccountProjection(IndexedDBManager, args.nearAccountId).catch(() => null),
-    args.signingEngine.getAuthenticatorsByUser(args.nearAccountId).catch(() => []),
+    args.signingEngine.nearAuthenticatorsByAccount(args.nearAccountId).catch(() => []),
   ]);
 
   if (authenticators.length === 0) {
