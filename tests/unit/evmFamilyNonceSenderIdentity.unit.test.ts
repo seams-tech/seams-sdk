@@ -3,7 +3,7 @@ import { resolveManagedEvmNonceReservationInput } from '@/core/signingEngine/flo
 import {
   chainAccountNonceSenderIdentity,
   resolveManagedNonceSender,
-  resolveProfileChainAccountNonceSenderIdentity,
+  resolveWalletChainNonceSenderIdentity,
   thresholdOwnerNonceSenderIdentity,
 } from '@/core/signingEngine/flows/signEvmFamily/nonceResolution';
 import { reserveManagedTempoNonceForRequest } from '@/core/signingEngine/flows/signEvmFamily/tempoNonceLifecycle';
@@ -45,16 +45,21 @@ function depsWithProfileRows(rows: Array<Record<string, unknown>>) {
       },
     },
     indexedDB: {
-      clientDB: {
-        resolveProfileAccountContext: async () => ({
-          profileId: 'profile-alice',
-          accountRef: {
-            chainIdKey: 'near:testnet',
-            accountAddress: 'alice.testnet',
-          },
-        }),
-        listChainAccountsByProfileAndChain: async (_profileId: string, chainIdKey: string) =>
-          rows.filter((row) => row.chainIdKey === chainIdKey),
+      getActiveWalletSignerForChainTarget: async ({ chainTarget }: any) => {
+        const chainIdKey =
+          chainTarget.kind === 'tempo'
+            ? `tempo:${chainTarget.chainId}`
+            : `evm:eip155:${chainTarget.chainId}`;
+        const row = rows.find((candidate) => candidate.chainIdKey === chainIdKey);
+        return row
+          ? {
+              chainIdKey,
+              metadata: row.metadata || {
+                accountAddress: row.accountAddress,
+                thresholdOwnerAddress: row.thresholdOwnerAddress,
+              },
+            }
+          : null;
       },
     },
     nonceCoordinator: {
@@ -147,7 +152,7 @@ test.describe('EVM-family nonce sender identity', () => {
   });
 
   test('non-threshold fallback is an explicit chain-account sender identity', async () => {
-    const senderIdentity = await resolveProfileChainAccountNonceSenderIdentity({
+    const senderIdentity = await resolveWalletChainNonceSenderIdentity({
       deps: depsWithProfileRows([
         {
           profileId: 'profile-alice',

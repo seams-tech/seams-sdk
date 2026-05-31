@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
-  getAuthenticatorsByUser,
   hasPasskeyCredential,
+  nearAuthenticatorsByAccount,
   storeWalletEcdsaSignerRecords,
   storeWalletEd25519SignerRecord,
   storeWalletEd25519RegistrationData,
@@ -94,7 +94,10 @@ test('NEAR authenticator lookup resolves the canonical wallet passkey auth metho
     },
   };
 
-  const authenticators = await getAuthenticatorsByUser(deps as any, toAccountId('alice.testnet'));
+  const authenticators = await nearAuthenticatorsByAccount(
+    deps as any,
+    toAccountId('alice.testnet'),
+  );
 
   expect(authenticators).toHaveLength(1);
   expect(authenticators[0]).toMatchObject({

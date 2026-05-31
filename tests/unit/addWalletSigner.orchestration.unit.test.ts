@@ -1451,6 +1451,7 @@ test('SigningEngine validates ECDSA bootstrap identity before warm-session mater
           participantIds: [1, 2],
         },
       ],
+      auth: { kind: 'passkey' },
     }),
   ).rejects.toThrow(/keyHandle mismatch/);
 
