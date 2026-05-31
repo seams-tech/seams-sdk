@@ -51,6 +51,21 @@ const TEST_ECDSA_BACKEND_BINDING = {
   relayerKeyId: 'relayer-key',
   clientVerifyingShareB64u: 'verifying-share',
 };
+const VALID_ECDSA_PUBLIC_KEY_B64U = Buffer.from(new Uint8Array([2, ...Array(32).fill(1)])).toString(
+  'base64url',
+);
+const VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U = Buffer.from(
+  new Uint8Array([2, ...Array(32).fill(2)]),
+).toString('base64url');
+const VALID_ECDSA_CLIENT_PUBLIC_KEY_B64U = Buffer.from(
+  new Uint8Array([2, ...Array(32).fill(3)]),
+).toString('base64url');
+const VALID_ECDSA_PRIVATE_SHARE_B64U = Buffer.from(new Uint8Array(32).fill(4)).toString(
+  'base64url',
+);
+const VALID_ECDSA_CONTEXT_BINDING_B64U = Buffer.from(new Uint8Array(32).fill(5)).toString(
+  'base64url',
+);
 const DEFER_ED25519_RECONSTRUCTION_FOR_ECDSA = {
   kind: 'defer',
   reason: 'not_needed_for_ecdsa',
@@ -76,6 +91,20 @@ function appSessionJwtWithRuntimePolicyScope(
     runtimePolicyScope,
     exp: expSeconds,
   })}.sig`;
+}
+
+function emailOtpEcdsaClientRootHandleFromWorkerCall(call: any) {
+  const binding = call.request?.payload?.ecdsaClientRootHandleBinding;
+  return {
+    kind: 'email_otp_worker_session_handle_v1',
+    sessionId: 'email-otp-ecdsa-root-test',
+    walletId: call.request?.payload?.walletId || 'alice.testnet',
+    rpId: binding?.rpId || 'localhost',
+    authSubjectId: binding?.authSubjectId || call.request?.payload?.userId || 'alice.testnet',
+    action: 'threshold_ecdsa_bootstrap',
+    operation: binding?.operation || 'wallet_unlock',
+    chainTarget: binding?.chainTarget || TEMPO_CHAIN_TARGET,
+  };
 }
 
 function thresholdEcdsaSessionJwt(args: {
@@ -296,13 +325,13 @@ function createCoordinator(overrides?: {
       if (call.request?.type === 'loginWithEmailOtpWallet') {
         return {
           recovery: { thresholdEd25519PrfFirstB64u: 'prf-first-ecdsa-login' },
-          clientRootShare32B64u: 'client-root-share',
+          clientRootShareHandle: emailOtpEcdsaClientRootHandleFromWorkerCall(call),
         };
       }
-      if (call.request?.type === 'recoverEmailOtpEd25519ExportPrfFirst') {
+      if (call.request?.type === 'exportEmailOtpEd25519SeedWithAuthorization') {
         return {
-          challengeId: call.request.payload.challengeId,
-          thresholdEd25519PrfFirstB64u: 'prf-first',
+          publicKey: 'ed25519:public',
+          privateKey: 'ed25519:private',
         };
       }
       if (call.request?.type === 'exportThresholdEcdsaHssKeyWithEmailOtpAuthorization') {
@@ -312,7 +341,7 @@ function createCoordinator(overrides?: {
           ethereumAddress: '0x'.padEnd(42, 'a'),
         };
       }
-      if (call.request?.type === 'bootstrapEmailOtpEcdsaSessionsFromClientRootShare') {
+      if (call.request?.type === 'bootstrapEmailOtpEcdsaSessionsFromWorkerHandle') {
         return {
           bootstraps: call.request.payload.publicationChainTargets.map((chainTarget: any) =>
             buildWorkerEcdsaBootstrap(call, chainTarget),
@@ -370,7 +399,7 @@ function createCoordinator(overrides?: {
           clientUnlockPublicKeyB64u: 'unlock-public',
           unlockKeyVersion: 'unlock-v1',
           thresholdEd25519PrfFirstB64u: 'prf-first-ecdsa-enroll',
-          clientRootShare32B64u: 'client-root-share-enroll',
+          clientRootShareHandle: emailOtpEcdsaClientRootHandleFromWorkerCall(call),
         };
       }
       return { ok: true };
@@ -915,7 +944,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       curve: 'ed25519',
     });
     const bootstrapCall = workerCalls.find(
-      (call) => call.request?.type === 'bootstrapEmailOtpEcdsaSessionsFromClientRootShare',
+      (call) => call.request?.type === 'bootstrapEmailOtpEcdsaSessionsFromWorkerHandle',
     );
     expect(bootstrapCall?.request?.payload?.routeAuth).toEqual({
       kind: 'threshold_session',
@@ -923,7 +952,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
     });
   });
 
-  test('recovers Ed25519 export material without hydrating a signing session', async () => {
+  test('exports Ed25519 seed material in the Email OTP worker without hydrating a signing session', async () => {
     const { coordinator, workerCalls, hydratedSessions, getRefreshCount } = createCoordinator();
     const thresholdSessionAuthToken = `${jsonB64u({ alg: 'none', typ: 'JWT' })}.${jsonB64u({
       kind: 'threshold_ed25519_session_v1',
@@ -932,10 +961,17 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       walletId: 'alice.testnet',
       exp: Math.floor(Date.now() / 1000) + 3600,
     })}.sig`;
-    const result = await coordinator.recoverEd25519ExportPrfFirst({
+    const result = await coordinator.exportEd25519SeedWithAuthorization({
       nearAccountId: 'alice.testnet',
       challengeId: 'challenge-1',
       otpCode: '123456',
+      signingRootId: 'signing-root',
+      keyVersion: 'v1',
+      participantIds: [1, 2],
+      thresholdSessionId: 'ed25519-restored-session',
+      thresholdSessionAuthToken,
+      relayerKeyId: 'relayer-key',
+      expectedPublicKey: 'ed25519:public',
       routeAuth: { kind: 'threshold_session', jwt: thresholdSessionAuthToken },
       record: {
         thresholdSessionId: 'ed25519-restored-session',
@@ -953,14 +989,22 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       } as any,
     });
 
-    expect(result).toEqual({ prfFirstB64u: 'prf-first' });
+    expect(result).toEqual({ publicKey: 'ed25519:public', privateKey: 'ed25519:private' });
     expect(getRefreshCount()).toBe(0);
     expect(workerCalls[0].request).toMatchObject({
-      type: 'recoverEmailOtpEd25519ExportPrfFirst',
+      type: 'exportEmailOtpEd25519SeedWithAuthorization',
       payload: {
         walletId: 'alice.testnet',
+        nearAccountId: 'alice.testnet',
         challengeId: 'challenge-1',
         otpCode: '123456',
+        signingRootId: 'signing-root',
+        keyVersion: 'v1',
+        participantIds: [1, 2],
+        thresholdSessionId: 'ed25519-restored-session',
+        thresholdSessionAuthToken,
+        relayerKeyId: 'relayer-key',
+        expectedPublicKey: 'ed25519:public',
         routePlan: {
           routeFamily: 'signing_session',
           authLane: {
@@ -1032,7 +1076,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
     expect(workerCalls.at(-1)).toMatchObject({
       kind: 'emailOtp',
       request: {
-        type: 'bootstrapEmailOtpEcdsaSessionsFromClientRootShare',
+        type: 'bootstrapEmailOtpEcdsaSessionsFromWorkerHandle',
         payload: {
           relayUrl: 'https://relay.example',
           walletId: 'alice.testnet',
@@ -1096,7 +1140,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
     expect(workerCalls.at(-1)).toMatchObject({
       kind: 'emailOtp',
       request: {
-        type: 'bootstrapEmailOtpEcdsaSessionsFromClientRootShare',
+        type: 'bootstrapEmailOtpEcdsaSessionsFromWorkerHandle',
         payload: {
           routeAuth: { kind: 'app_session', jwt },
         },
@@ -1130,7 +1174,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
     ).toBe(false);
     expect(
       workerCalls.some(
-        (call) => call.request?.type === 'bootstrapEmailOtpEcdsaSessionsFromClientRootShare',
+        (call) => call.request?.type === 'bootstrapEmailOtpEcdsaSessionsFromWorkerHandle',
       ),
     ).toBe(false);
   });
@@ -1172,7 +1216,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
     expect(workerCalls.at(-1)).toMatchObject({
       kind: 'emailOtp',
       request: {
-        type: 'bootstrapEmailOtpEcdsaSessionsFromClientRootShare',
+        type: 'bootstrapEmailOtpEcdsaSessionsFromWorkerHandle',
         payload: {
           routeAuth: { kind: 'app_session', jwt },
         },
@@ -1225,10 +1269,10 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
               unlockSignatureB64u: 'unlock-sig',
               thresholdEd25519PrfFirstB64u: 'prf-first-ecdsa-login',
             },
-            clientRootShare32B64u: 'client-root-share',
+            clientRootShareHandle: emailOtpEcdsaClientRootHandleFromWorkerCall(call),
           };
         }
-        if (call.request?.type === 'bootstrapEmailOtpEcdsaSessionsFromClientRootShare') {
+        if (call.request?.type === 'bootstrapEmailOtpEcdsaSessionsFromWorkerHandle') {
           return {
             bootstraps: call.request.payload.publicationChainTargets.map((chainTarget: any) => ({
               thresholdEcdsaKeyRef: {
@@ -1491,6 +1535,14 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
           sessionId: 'exhausted-threshold-session',
         },
         participantIds: [1, 3],
+        thresholdEcdsaPublicKeyB64u: 'threshold-public-key',
+        verifiedPublicFacts: {
+          kind: 'verified_ecdsa_public_facts',
+          keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-transaction'),
+          publicKeyB64u: 'threshold-public-key',
+          participantIds: [1, 3],
+          thresholdOwnerAddress: '0x'.padEnd(42, 'a'),
+        },
         ethereumAddress: '0x'.padEnd(42, 'a'),
         thresholdSessionKind: 'jwt',
         thresholdSessionId: 'exhausted-threshold-session',
@@ -1512,7 +1564,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
 
     const loginCall = workerCalls.find((call) => call.request?.type === 'loginWithEmailOtpWallet');
     const bootstrapCall = workerCalls.find(
-      (call) => call.request?.type === 'bootstrapEmailOtpEcdsaSessionsFromClientRootShare',
+      (call) => call.request?.type === 'bootstrapEmailOtpEcdsaSessionsFromWorkerHandle',
     );
     expect(loginCall?.request.payload.routePlan).toMatchObject({
       routeFamily: 'signing_session',
@@ -1573,22 +1625,23 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
         keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-transaction'),
         ecdsaThresholdKeyId: 'ecdsa-key' as any,
         signingRootId: 'signing-root',
+        signingRootVersion: 'root-v1',
         relayerKeyId: 'relayer-key',
         clientVerifyingShareB64u: 'client-verifying-share',
         ecdsaHssRoleLocalClientState: {
           kind: 'role_local_ready',
           artifactKind: 'ecdsa-hss-role-local-client-state',
-          contextBinding32B64u: 'context-binding',
-          clientShare32B64u: 'client-share',
-          clientPublicKey33B64u: 'client-public-key',
+          contextBinding32B64u: VALID_ECDSA_CONTEXT_BINDING_B64U,
+          clientShare32B64u: VALID_ECDSA_PRIVATE_SHARE_B64U,
+          clientPublicKey33B64u: VALID_ECDSA_CLIENT_PUBLIC_KEY_B64U,
           clientShareRetryCounter: 0,
-          relayerPublicKey33B64u: 'relayer-public-key',
-          groupPublicKey33B64u: 'threshold-public-key',
+          relayerPublicKey33B64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
+          groupPublicKey33B64u: VALID_ECDSA_PUBLIC_KEY_B64U,
           ethereumAddress: '0x'.padEnd(42, 'a'),
           clientCaitSithInput: {
             participantId: 1,
-            mappedPrivateShare32B64u: 'mapped-share',
-            verifyingShare33B64u: 'verifying-share',
+            mappedPrivateShare32B64u: VALID_ECDSA_PRIVATE_SHARE_B64U,
+            verifyingShare33B64u: VALID_ECDSA_CLIENT_PUBLIC_KEY_B64U,
           },
           createdAtMs: Date.now(),
           updatedAtMs: Date.now(),
@@ -1597,7 +1650,15 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
           kind: 'email_otp_worker_session',
           sessionId: 'transaction-ecdsa-session',
         },
-        participantIds: [1, 3],
+        participantIds: [1, 2],
+        thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
+        verifiedPublicFacts: {
+          kind: 'verified_ecdsa_public_facts',
+          keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-transaction'),
+          publicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
+          participantIds: [1, 2],
+          thresholdOwnerAddress: '0x'.padEnd(42, 'a'),
+        },
         ethereumAddress: '0x'.padEnd(42, 'a'),
         thresholdSessionKind: 'jwt',
         thresholdSessionId: 'transaction-ecdsa-session',

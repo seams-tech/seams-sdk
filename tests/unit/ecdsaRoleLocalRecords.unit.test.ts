@@ -188,6 +188,19 @@ test.describe('ECDSA role-local record boundary parser', () => {
     expect(material.clientShareRetryCounter).toBe(0);
   });
 
+  test('rejects export material when required public identity is missing', () => {
+    expect(() =>
+      parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial(
+        rawSessionRecord({
+          ecdsaHssRoleLocalClientState: {
+            ...roleLocalState(),
+            relayerPublicKey33B64u: '',
+          },
+        }),
+      ),
+    ).toThrow(/role-local|public/i);
+  });
+
   test('parses inline signing material at the role-local boundary', () => {
     const material = parseThresholdEcdsaSessionRecordAsInlineRoleLocalSigningMaterial(
       rawSessionRecord({ clientAdditiveShare32B64u: share32B64u }),

@@ -96,6 +96,7 @@ function makeThresholdEcdsaKeyRef(
     ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
     signingRootId: 'proj_local:dev',
     backendBinding: {
+      materialKind: 'inline_role_local_ready',
       relayerKeyId: BACKEND_RELAYER_KEY_ID,
       clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
       clientAdditiveShare32B64u: BACKEND_CLIENT_ADDITIVE_SHARE_32_B64U,
@@ -182,7 +183,10 @@ function makeWorkerCtx(args: {
         return { stage: 'done', event: 'none', outgoingMessages: [] } as any;
       }
       if (type === 'thresholdEcdsaPresignSessionAbort') {
-        return { ok: true } as any;
+        return {
+          kind: 'threshold_ecdsa_presign_session_aborted',
+          sessionId: String(payload.sessionId || ''),
+        } as any;
       }
       if (type === 'thresholdEcdsaComputeSignatureShare') {
         return args.clientSignatureShare32.slice().buffer as any;

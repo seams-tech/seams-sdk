@@ -175,6 +175,71 @@ function ecdsaKeyIdentityTargetRecord(
   };
 }
 
+function loginReadySigningLanes(args: {
+  walletId: unknown;
+  authMethod: 'email_otp' | 'passkey';
+}): Record<string, unknown> {
+  const expiresAtMs = Date.now() + 60_000;
+  const ed25519Lane = {
+    authMethod: args.authMethod,
+    curve: 'ed25519',
+    chain: 'near',
+    state: 'ready',
+    walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+    thresholdSessionId: 'tsess-login-ed25519',
+    remainingUses: 3,
+    expiresAtMs,
+    updatedAtMs: Date.now(),
+    source: 'runtime_session_record',
+  };
+  const ecdsaLanesByTarget = Object.fromEntries(
+    [TEMPO_CHAIN_TARGET, EVM_CHAIN_TARGET].map((chainTarget) => {
+      const targetKey = thresholdEcdsaChainTargetKey(chainTarget);
+      const lane = {
+        authMethod: args.authMethod,
+        curve: 'ecdsa',
+        chainTarget,
+        state: 'ready',
+        walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+        thresholdSessionId: `tehss-login-${targetKey}`,
+        remainingUses: 3,
+        expiresAtMs,
+        updatedAtMs: Date.now(),
+        source: 'runtime_session_record',
+        key: ecdsaKeyIdentityTargetRecord(chainTarget).key,
+        publicFacts: {
+          keyHandle: ECDSA_KEY_HANDLE,
+          publicKeyB64u: ECDSA_PUBLIC_KEY33_B64U,
+          participantIds: [1, 2],
+          thresholdOwnerAddress: THRESHOLD_OWNER_ADDRESS,
+        },
+      };
+      return [targetKey, lane];
+    }),
+  );
+  return {
+    walletId: toAccountId(String(args.walletId || ACCOUNT_ID)),
+    generation: Date.now(),
+    ecdsa: {
+      targets: [TEMPO_CHAIN_TARGET, EVM_CHAIN_TARGET],
+      lanesByTarget: ecdsaLanesByTarget,
+      candidatesByTarget: Object.fromEntries(
+        Object.entries(ecdsaLanesByTarget).map(([targetKey, lane]) => [targetKey, [lane]]),
+      ),
+    },
+    lanes: {
+      ed25519: {
+        near: ed25519Lane,
+      },
+    },
+    candidates: {
+      ed25519: {
+        near: [ed25519Lane],
+      },
+    },
+  };
+}
+
 function createBaseContext(args?: {
   signingEngine?: Record<string, unknown>;
   configs?: Record<string, unknown>;
@@ -194,6 +259,7 @@ function createBaseContext(args?: {
         signerSlot: 1,
         operationalPublicKey: 'ed25519:alice',
       }),
+      nearAuthenticatorsByAccount: async () => [{ credentialId: 'cred-1', signerSlot: 1 }],
       getAuthenticatorsByUser: async () => [{ credentialId: 'cred-1', signerSlot: 1 }],
       getAuthenticationCredentialsSerialized: async () => ({
         id: 'cred-1',
@@ -215,6 +281,11 @@ function createBaseContext(args?: {
           },
         },
       }),
+      readPersistedAvailableSigningLanes: async (input: Record<string, unknown>) =>
+        loginReadySigningLanes({
+          walletId: input.walletId,
+          authMethod: input.authMethod === 'email_otp' ? 'email_otp' : 'passkey',
+        }),
       connectEd25519Session: async () => ({
         ok: true,
         sessionId: 'session-1',
@@ -1236,10 +1307,13 @@ test.describe('unlock threshold warm-session requirements', () => {
     expect(credentialPrompts).toBe(0);
     expect(connectArgs).not.toBeNull();
     const capturedConnectArgs = connectArgs as unknown as Record<string, unknown>;
-    expect(capturedConnectArgs.auth).toEqual({
+    expect(capturedConnectArgs.auth).toMatchObject({
       kind: 'threshold_ecdsa_session_jwt',
       thresholdEcdsaSessionJwt: 'jwt-ecdsa',
-      localPrfFirstB64u: ECDSA_PRF_FIRST_B64U,
+      localSecretSource: {
+        kind: 'provided_prf_first_v1',
+        prfFirstB64u: ECDSA_PRF_FIRST_B64U,
+      },
     });
     expect(capturedConnectArgs.kind).toBe('exact_ed25519_provisioning');
     expect(String(capturedConnectArgs.sessionId || '')).toMatch(/^threshold-login-/);
@@ -2865,10 +2939,19 @@ test.describe('unlock threshold warm-session requirements', () => {
       expect(credentialPrompts).toBe(1);
       expect(capturedConnectArgs).not.toBeNull();
       const connectArgs = capturedConnectArgs as Record<string, any> | null;
-      expect(connectArgs?.auth).toEqual({
+      expect(connectArgs?.auth).toMatchObject({
         kind: 'app_session_jwt',
         appSessionJwt: 'app-jwt-passkey-warm',
-        localPrfCredential: loginCredential,
+        localSecretSource: {
+          kind: 'webauthn_prf_first_credential',
+          credential: loginCredential,
+          secretSource: {
+            kind: 'webauthn_prf_first',
+            prfFirstB64u: 'prf-first-warm',
+            rpId: 'example.localhost',
+            credentialIdB64u: 'cred-warm',
+          },
+        },
       });
     } finally {
       globalThis.fetch = originalFetch;
@@ -3293,9 +3376,18 @@ test.describe('unlock threshold warm-session requirements', () => {
       expect(result.success).toBe(true);
       expect(capturedConnectArgs).not.toBeNull();
       const connectArgs = capturedConnectArgs as Record<string, any> | null;
-      expect(connectArgs?.auth).toEqual({
+      expect(connectArgs?.auth).toMatchObject({
         kind: 'app_session_cookie',
-        localPrfCredential: loginCredential,
+        localSecretSource: {
+          kind: 'webauthn_prf_first_credential',
+          credential: loginCredential,
+          secretSource: {
+            kind: 'webauthn_prf_first',
+            prfFirstB64u: 'prf-first-cookie-warm',
+            rpId: 'example.localhost',
+            credentialIdB64u: 'cred-cookie-warm',
+          },
+        },
       });
       expect(capturedBootstrapArgs).toHaveLength(2);
       expect(

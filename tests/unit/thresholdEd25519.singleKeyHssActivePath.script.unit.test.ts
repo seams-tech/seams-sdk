@@ -497,18 +497,22 @@ function makeThresholdKeyMaterialRecord(publicKey: string) {
 }
 
 function makeIndexedDbThresholdDeps(publicKey: string) {
+  const clientDB = {
+    getLastProfileState: async () => ({ profileId: 'profile-1', activeSignerSlot: 1 }),
+    resolveProfileAccountContext: async (accountRef: {
+      chainIdKey: string;
+      accountAddress: string;
+    }) => ({ profileId: 'profile-1', accountRef }),
+  };
+  const keyMaterialStore = {
+    getKeyMaterial: async () => makeThresholdKeyMaterialRecord(publicKey),
+    storeKeyMaterial: async () => undefined,
+  };
   return {
-    clientDB: {
-      getLastProfileState: async () => ({ profileId: 'profile-1', activeSignerSlot: 1 }),
-      resolveProfileAccountContext: async (accountRef: {
-        chainIdKey: string;
-        accountAddress: string;
-      }) => ({ profileId: 'profile-1', accountRef }),
-    },
-    keyMaterialStore: {
-      getKeyMaterial: async () => makeThresholdKeyMaterialRecord(publicKey),
-      storeKeyMaterial: async () => undefined,
-    },
+    ...clientDB,
+    ...keyMaterialStore,
+    clientDB,
+    keyMaterialStore,
   };
 }
 
@@ -580,7 +584,10 @@ function installRecoveryPublicApiForTest(args: {
       touchConfirm: args.engine.touchConfirm,
       emailOtpSessions: {
         requestExportChallenge: async () => ({ challengeId: 'challenge-id' }),
-        recoverEd25519ExportPrfFirst: async () => ({ prfFirstB64u: PRF_FIRST_B64U }),
+        exportEd25519SeedWithAuthorization: async () => ({
+          publicKey: args.expectedPublicKey,
+          privateKey: `ed25519:${PRF_FIRST_B64U}`,
+        }),
       },
       getSignerWorkerContext: () => ({
         requestWorkerOperation: async ({ request }: any) =>

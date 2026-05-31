@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { runNearTransactionsWithActionsSigning as signPreparedTransactionsWithActions } from '@/core/signingEngine/flows/signNear/signTransactions';
 import { createNearSigningSessionCoordinator } from '@/core/signingEngine/flows/signNear/shared/thresholdAuthMode';
 import { connectEd25519Session } from '@/core/signingEngine/threshold/ed25519/connectSession';
+import { buildThresholdEd25519WebAuthnPrfSecretSource } from '@/core/signingEngine/threshold/ed25519/authSession';
 import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmCapabilities/persistence';
 import {
   clearAllStoredThresholdEd25519SessionRecords,
@@ -1559,7 +1560,10 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
           remainingUses: 1,
           auth: {
             kind: 'threshold_session_policy_webauthn',
-            webauthnAuthentication: credential as any,
+            policySecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
+              credential: credential as any,
+              rpId: 'example.localhost',
+            }),
           },
         });
 
@@ -1662,7 +1666,10 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
           auth: {
             kind: 'app_session_jwt',
             appSessionJwt,
-            localPrfCredential: credential as any,
+            localSecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
+              credential: credential as any,
+              rpId: 'example.localhost',
+            }),
           },
           runtimeScopeBootstrap: {
             environmentId: 'dev',
@@ -1766,7 +1773,10 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
           auth: {
             kind: 'app_session_jwt',
             appSessionJwt,
-            localPrfCredential: credential as any,
+            localSecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
+              credential: credential as any,
+              rpId: 'example.localhost',
+            }),
           },
           runtimeScopeBootstrap: {
             environmentId: 'dev',
@@ -1854,7 +1864,10 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
           sessionKind: 'cookie',
           auth: {
             kind: 'threshold_session_policy_webauthn',
-            webauthnAuthentication: credential as any,
+            policySecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
+              credential: credential as any,
+              rpId: 'example.localhost',
+            }),
           },
         });
 
