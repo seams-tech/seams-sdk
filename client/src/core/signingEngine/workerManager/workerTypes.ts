@@ -753,3 +753,11 @@ export function getSignerWorkerOperationErrorCode(error: unknown): string | unde
   const trimmed = code.trim();
   return trimmed.length ? trimmed : undefined;
 }
+
+export function getSignerWorkerOperationCoreCode(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object') return undefined;
+  const code = (error as { coreCode?: unknown }).coreCode;
+  if (typeof code !== 'string') return undefined;
+  const trimmed = code.trim();
+  return trimmed.length ? trimmed : undefined;
+}

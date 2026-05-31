@@ -1,5 +1,7 @@
-import { createIndexedDBNonceLaneCoordinationStore } from '@/core/indexedDB';
-import { getBrowserPlatformIndexedDB, type BrowserPlatformRuntime } from '@/core/platform';
+import {
+  createIndexedDBNonceLaneCoordinationStore,
+  IndexedDBManager,
+} from '@/core/indexedDB';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import { createEvmNonceBackend } from '@/core/rpcClients/evm/nonceBackend';
 import {
@@ -28,13 +30,13 @@ export type ManagerAssembly = {
 };
 
 export function createManagerAssembly(args: {
-  platformRuntime: BrowserPlatformRuntime;
+  indexedDB: typeof IndexedDBManager;
   seamsPasskeyConfigs: SeamsConfigsReadonly;
   nearClient: NearClient;
   getTheme: () => ThemeName;
   getAppearanceTokens?: () => ThemeTokenOverridesInput | undefined;
 }): ManagerAssembly {
-  const indexedDB = getBrowserPlatformIndexedDB(args.platformRuntime);
+  const indexedDB = args.indexedDB;
   const touchIdPrompt = new TouchIdPrompt(
     args.seamsPasskeyConfigs.wallet.iframe?.rpIdOverride,
     true,

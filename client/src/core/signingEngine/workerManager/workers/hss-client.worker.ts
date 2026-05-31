@@ -25,6 +25,66 @@ const hssClientSignerWasmUrl = resolveWasmUrl('hss_client_signer_bg.wasm', 'HSS 
 let hssClientSignerInitPromise: Promise<void> | null = null;
 let messageQueue: Promise<void> = Promise.resolve();
 
+function isHssWasmInitFailureMessage(message: string): boolean {
+  return /hss client wasm initialization failed|wasm initialization failed|failed to instantiate|module_or_path|webassembly/i.test(
+    message,
+  );
+}
+
+function classifyHssWorkerFailure(error: unknown): {
+  message: string;
+  code: string;
+  coreCode?: string;
+} {
+  if (error && typeof error === 'object') {
+    const message =
+      typeof (error as { message?: unknown }).message === 'string'
+        ? String((error as { message?: string }).message).trim()
+        : '';
+    const code =
+      typeof (error as { code?: unknown }).code === 'string'
+        ? String((error as { code?: string }).code).trim()
+        : '';
+    const coreCode =
+      typeof (error as { coreCode?: unknown }).coreCode === 'string'
+        ? String((error as { coreCode?: string }).coreCode).trim()
+        : '';
+    const resolvedMessage = message || errorMessage(error);
+    if (isHssWasmInitFailureMessage(resolvedMessage)) {
+      return {
+        message: resolvedMessage,
+        code: 'WORKER_RUNTIME_ERROR',
+        coreCode: 'HSS_WASM_INIT_FAILURE',
+      };
+    }
+    if (code) {
+      return {
+        message: resolvedMessage,
+        code,
+        ...(coreCode ? { coreCode } : {}),
+      };
+    }
+    return {
+      message: resolvedMessage,
+      code: 'SIGNER_CRYPTO_ERROR',
+      coreCode: 'HSS_COMMAND_FAILURE',
+    };
+  }
+  const message = errorMessage(error);
+  if (isHssWasmInitFailureMessage(message)) {
+    return {
+      message,
+      code: 'WORKER_RUNTIME_ERROR',
+      coreCode: 'HSS_WASM_INIT_FAILURE',
+    };
+  }
+  return {
+    message,
+    code: 'SIGNER_CRYPTO_ERROR',
+    coreCode: 'HSS_COMMAND_FAILURE',
+  };
+}
+
 async function initializeHssClientSignerWasm(): Promise<void> {
   if (hssClientSignerInitPromise) return hssClientSignerInitPromise;
   hssClientSignerInitPromise = (async () => {
@@ -135,11 +195,13 @@ async function processWorkerMessage(event: MessageEvent): Promise<void> {
     });
   } catch (error: unknown) {
     console.error('[hss-client-worker]: Message processing failed:', error);
+    const failure = classifyHssWorkerFailure(error);
     self.postMessage({
       id: requestId,
       ok: false,
-      error: errorMessage(error),
-      code: 'WORKER_RUNTIME_ERROR',
+      error: failure.message,
+      code: failure.code,
+      ...(failure.coreCode ? { coreCode: failure.coreCode } : {}),
     });
   }
 }

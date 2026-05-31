@@ -1,9 +1,10 @@
 # Refactor 5x: Cross-Platform SDK Readiness
 
 Date created: 2026-05-27
-Status: in progress. Phases 0 and 1 are complete, the browser platform runtime
-exists, and Phase 2 is partially wired. The next implementation slice is the
-ECDSA client-bootstrap signer-crypto boundary.
+Status: in progress. Phases 0, 1, 1.5, and the ECDSA signer-crypto boundary
+slice are complete. The browser platform runtime exists, Phase 2 is partially
+wired, and the next implementation slice is typed durable ECDSA repository
+wiring.
 
 ## Scope
 
@@ -471,8 +472,10 @@ Boundary builder requirements:
 - `buildWebAuthnPrfFirstSecretSource(...)` accepts only the authenticator success
   branch with `prf.kind: 'required'`.
 - `buildEmailOtpWorkerSessionSecretSource(...)` accepts only a worker-issued
-  session handle that has already been bound to wallet id, user id, action, and
-  operation at the Email OTP boundary.
+  session handle that has already been bound to wallet id, provider/session
+  subject, action, and operation at the Email OTP boundary. For action
+  `threshold_ecdsa_bootstrap`, `chainTarget` is required. For action
+  `threshold_ed25519_session`, `chainTarget` is forbidden.
 - `buildSecureEnclaveWrappedSecretSource(...)` and
   `buildFido2HmacSecretSource(...)` are allowed as typed future builders, and
   the browser adapter returns `unsupported_secret_source` for those branches.
@@ -857,19 +860,19 @@ land before migrating more core ECDSA bootstrap code onto `PlatformRuntime`.
 
 Tasks:
 
-- [ ] Update `client/src/core/platform/types.ts` so `PlatformRuntime`,
+- [x] Update `client/src/core/platform/types.ts` so `PlatformRuntime`,
       `AuthenticatorPort`, `ClientSecretSource`, `SignerCryptoPort`, and
       `DurableRecordStore` match this document's canonical contracts.
-- [ ] Add `finalizeEcdsaClientBootstrap` to `SignerCryptoPort` with the
+- [x] Add `finalizeEcdsaClientBootstrap` to `SignerCryptoPort` with the
       `SignerCryptoResult` envelope.
-- [ ] Split signer-crypto command errors from invocation errors.
-- [ ] Replace optional PRF success output with explicit `prf.kind` branches.
-- [ ] Replace generic durable-record get/put/delete scaffolding with the typed
+- [x] Split signer-crypto command errors from invocation errors.
+- [x] Replace optional PRF success output with explicit `prf.kind` branches.
+- [x] Replace generic durable-record get/put/delete scaffolding with the typed
       ECDSA repository batch signatures used by Phase 3.
-- [ ] Add type fixtures for invalid authenticator PRF branches, unsupported
+- [x] Add type fixtures for invalid authenticator PRF branches, unsupported
       future secret sources in MVP ECDSA bootstrap, ready/pending blob mixups,
       and broad object spreads into `ClientSecretSource`.
-- [ ] Add an import guard that fails when core signing/session modules import
+- [x] Add an import guard that fails when core signing/session modules import
       `IndexedDBManager`, `Worker`, `MessageChannel`, `navigator.credentials`,
       `window`, `document`, or raw HSS share field names.
 
@@ -902,13 +905,16 @@ Tasks:
       IndexedDB infrastructure.
 - [ ] Wire `DurableRecordStore` to typed ECDSA signing-session repository
       batches.
-- [ ] Wrap WebAuthn credential collection behind `AuthenticatorPort`.
-- [ ] Wrap the ECDSA client-bootstrap hss-client worker dispatch behind
+- [x] Wrap WebAuthn credential collection behind `AuthenticatorPort`.
+- [x] Wrap the ECDSA client-bootstrap hss-client worker dispatch behind
       `SignerCryptoPort` as a prepare/finalize operation pair.
 - [x] Wrap `fetch`, timers, and WebCrypto randomness behind `HttpTransport`,
       `ClockPort`, and `RandomSource`.
 - [x] Update `createSigningEnginePorts(...)` to receive a platform runtime
       instead of importing `IndexedDBManager` directly.
+- [x] Construct the production browser `PlatformRuntime` after
+      `SignerWorkerManager` exists, with `workerCtx` wired into
+      `SignerCryptoPort`.
 - [x] Keep browser adapter construction in the existing assembly layer.
 
 Acceptance criteria:
@@ -1013,24 +1019,24 @@ Required naming and type changes:
 
 Tasks:
 
-- [ ] Define the `prepareEcdsaClientBootstrap` and
+- [x] Define the `prepareEcdsaClientBootstrap` and
       `finalizeEcdsaClientBootstrap` signer-crypto operations
       independent of Web Worker transport.
-- [ ] Split key-domain types for ECDSA client-root, HSS client-share, and
+- [x] Split key-domain types for ECDSA client-root, HSS client-share, and
       relayer HSS public keys before wiring the bootstrap port.
-- [ ] Map the browser hss-client worker request/response for these operations in
+- [x] Map the browser hss-client worker request/response for these operations in
       one browser crypto adapter.
-- [ ] Use the ECDSA bootstrap slice to establish the result-envelope and error
+- [x] Use the ECDSA bootstrap slice to establish the result-envelope and error
       conventions for future crypto operations.
-- [ ] Keep command payloads narrow, structured, and operation-specific.
-- [ ] Defer broad one-for-one worker wrapping until a core call site is ready to
+- [x] Keep command payloads narrow, structured, and operation-specific.
+- [x] Defer broad one-for-one worker wrapping until a core call site is ready to
       consume that operation through `SignerCryptoPort`.
 - [ ] Keep direct-call and native-call adapters possible for future iOS/Linux.
 - [ ] Convert boolean-success worker results to `Result`-style unions where the
       operation carries cryptographic material or lifecycle state.
-- [ ] Add a runtime regression test proving a proof signed by the client root
+- [x] Add a runtime regression test proving a proof signed by the client root
       share rejects when verified against an HSS client-share public key.
-- [ ] Add a type fixture proving `EcdsaHssClientSharePublicKey33B64u` cannot be
+- [x] Add a type fixture proving `EcdsaHssClientSharePublicKey33B64u` cannot be
       passed where `EcdsaClientRootPublicKey33B64u` is required.
 
 Acceptance criteria:
@@ -1057,16 +1063,16 @@ strict secret-source branches.
 
 Tasks:
 
-- [ ] Add `ClientSecretSource` and branch-specific builders.
+- [x] Add `ClientSecretSource` and branch-specific builders.
 - [ ] Convert browser WebAuthn credential parsing into a boundary builder that
       returns `webauthn_prf_first`.
-- [ ] Define `email_otp_worker_session` as a worker-owned opaque handle and
+- [x] Define `email_otp_worker_session` as a worker-owned opaque handle and
       reject attempts to pass Email OTP root-share bytes through core TypeScript.
 - [ ] Make ECDSA and Ed25519 provisioning functions accept exact supported
       secret-source branches.
 - [ ] Keep unsupported future branches as explicit dispatch failures, not broad
       optional bags.
-- [ ] Add type fixtures rejecting missing identity fields for every concrete
+- [x] Add type fixtures rejecting missing identity fields for every concrete
       branch.
 
 Acceptance criteria:
@@ -1142,7 +1148,7 @@ Tasks:
       derivation, share mapping, public fact validation, pending state
       serialization, and ready state finalization.
 - [ ] Expose the signer-core command through `wasm/hss_client_signer`.
-- [ ] Return `{ pendingStateBlob, clientBootstrap, publicFacts }` from prepare
+- [x] Return `{ pendingStateBlob, clientBootstrap, publicFacts }` from prepare
       and `{ stateBlob, publicFacts }` from finalize.
 - [ ] Replace the TypeScript helper pipeline with the coarse command.
 - [ ] Delete the replaced TypeScript crypto-internal assembly path.
@@ -1248,8 +1254,8 @@ Validation:
    with this document, add finalize, split command/invocation errors, remove
    optional PRF success fields, and add guard/type fixtures.
 4. Phase 2: browser runtime adapter for the ECDSA bootstrap slice. Finish typed
-   ECDSA repository batches, browser WebAuthn collection, and the browser
-   bootstrap prepare/finalize worker adapter.
+   ECDSA repository batches. Browser WebAuthn collection and the browser
+   bootstrap prepare/finalize worker adapter are complete for this slice.
 5. Phase 3: narrow ECDSA persistence record split. Move only ECDSA HSS
    role-local records and key-ref builders onto normalized boundary parsers.
 6. Phase 4: signer operation versus transport split for
@@ -1627,7 +1633,9 @@ Rules:
   authenticator result whose `prf.kind === 'required'`.
 - `buildEmailOtpWorkerSessionSecretSource(...)` accepts only an Email OTP
   worker-issued handle already bound to wallet id, provider subject or session
-  subject as appropriate, action, operation, and chain target.
+  subject as appropriate, action, and operation. For action
+  `threshold_ecdsa_bootstrap`, `chainTarget` is required. For action
+  `threshold_ed25519_session`, `chainTarget` is forbidden.
 - Core ECDSA bootstrap does not accept `clientRootShare32B64u`,
   `clientRootShare32`, or Email OTP root-share bytes after this phase.
 - Browser dispatch rejects unsupported future branches with
@@ -1742,17 +1750,17 @@ to a single PR where practical.
       `ClientSecretSource`, and `SignerCryptoPort` result branches.
 - [x] Add an `assertNever` helper or reuse the existing project helper for
       platform dispatch exhaustiveness.
-- [ ] Bring `client/src/core/platform/types.ts` into exact alignment with the
+- [x] Bring `client/src/core/platform/types.ts` into exact alignment with the
       canonical contract in this document.
-- [ ] Add `SignerCryptoResult` with separate command and invocation failure
+- [x] Add `SignerCryptoResult` with separate command and invocation failure
       branches.
-- [ ] Add `finalizeEcdsaClientBootstrap` to the platform signer-crypto contract.
-- [ ] Replace optional authenticator PRF result fields with explicit `prf.kind`
+- [x] Add `finalizeEcdsaClientBootstrap` to the platform signer-crypto contract.
+- [x] Replace optional authenticator PRF result fields with explicit `prf.kind`
       success branches.
-- [ ] Replace temporary generic `DurableRecordStore` get/put/delete scaffolding
+- [x] Replace temporary generic `DurableRecordStore` get/put/delete scaffolding
       with typed repository batch operations for the ECDSA signing-session
       records touched by this refactor.
-- [ ] Update `AuthenticatorPort` types to use branch-specific create/get
+- [x] Update `AuthenticatorPort` types to use branch-specific create/get
       passkey outputs with raw verification payloads, PRF material, credential
       identity, and typed cancellation/error codes.
 
@@ -1764,14 +1772,17 @@ to a single PR where practical.
       IndexedDB infrastructure.
 - [ ] Wire the browser `DurableRecordStore` to typed ECDSA signing-session
       repository batches instead of generic unavailable get/put/delete methods.
-- [ ] Wrap existing WebAuthn credential collection as the browser
+- [x] Wrap existing WebAuthn credential collection as the browser
       `AuthenticatorPort`.
-- [ ] Wrap the ECDSA client-bootstrap hss-client worker dispatch as the first
+- [x] Wrap the ECDSA client-bootstrap hss-client worker dispatch as the first
       browser `SignerCryptoPort` prepare/finalize operation pair.
 - [x] Wrap `fetch`, `Date.now`, timers, and WebCrypto randomness behind the
       browser runtime ports where current signing flows need them.
 - [x] Update `createSigningEnginePorts(...)` so it receives a browser
       `PlatformRuntime`.
+- [x] Construct the production browser `PlatformRuntime` after
+      `SignerWorkerManager` exists, with `workerCtx` wired into
+      `SignerCryptoPort`.
 - [x] Remove direct `IndexedDBManager` imports from signing-engine assembly
       files after the platform runtime is wired.
 - [ ] Update `SignerWorkerManager` so storage, authenticator, and worker
@@ -1781,10 +1792,10 @@ to a single PR where practical.
 
 - [ ] Promote the existing ECDSA client-secret source helper into the canonical
       `ClientSecretSource` boundary.
-- [ ] Add branch-specific builders for `webauthn_prf_first`,
+- [x] Add branch-specific builders for `webauthn_prf_first`,
       `email_otp_worker_session`, `secure_enclave_wrapped_secret`, and
       `fido2_hmac_secret`.
-- [ ] Add type fixtures rejecting broad spreads and raw-record casts into
+- [x] Add type fixtures rejecting broad spreads and raw-record casts into
       `ClientSecretSource`.
 - [ ] Make `email_otp_worker_session` a worker-owned opaque handle and remove
       active core paths that pass Email OTP root-share bytes through TypeScript.
@@ -1800,7 +1811,7 @@ to a single PR where practical.
 
 - [x] Add the initial `prepareEcdsaClientBootstrap` shape to
       `SignerCryptoPort`.
-- [ ] Add `finalizeEcdsaClientBootstrap` to `SignerCryptoPort`.
+- [x] Add `finalizeEcdsaClientBootstrap` to `SignerCryptoPort`.
 - [x] Rename HSS client-share public key fields to
       `hssClientSharePublicKey33B64u`.
 - [x] Rename client-root proof verifier fields to
@@ -1811,11 +1822,11 @@ to a single PR where practical.
       that carries its root verifier key.
 - [x] Keep HSS bootstrap identity parsing separate from client-root proof
       parsing, then combine only validated normalized branches.
-- [ ] Expand `PrepareEcdsaClientBootstrapInput` to require the full context,
+- [x] Expand `PrepareEcdsaClientBootstrapInput` to require the full context,
       participant ids, and narrow `ClientSecretSource` branch.
-- [ ] Add `FinalizeEcdsaClientBootstrapInput` with pending state blob and
+- [x] Add `FinalizeEcdsaClientBootstrapInput` with pending state blob and
       relayer public identity.
-- [ ] Add type fixtures proving ready state blobs cannot be passed to finalize
+- [x] Add type fixtures proving ready state blobs cannot be passed to finalize
       and pending state blobs cannot be used by signing/export/key-ref builders.
 - [ ] Update the `hssClient` worker request/result contract to expose the new
       coarse prepare/finalize commands.
@@ -1875,15 +1886,15 @@ to a single PR where practical.
       `EcdsaClientRootPublicKey33B64u` verifier.
 - [ ] Add parity fixtures for current WebAuthn PRF inputs, prepare output,
       relayer public identity finalization input, and expected public facts.
-- [ ] Add tests proving TypeScript cannot construct invalid
+- [x] Add tests proving TypeScript cannot construct invalid
       `ClientSecretSource` branches or incomplete platform runtimes.
-- [ ] Add tests proving authenticator success branches cannot omit required PRF
+- [x] Add tests proving authenticator success branches cannot omit required PRF
       material.
 - [ ] Add persistence tests for the ready opaque role-local state record shape.
-- [ ] Add import guards for platform leakage and raw HSS share-field leakage in
+- [x] Add import guards for platform leakage and raw HSS share-field leakage in
       core modules.
 - [ ] Add export tests that use opaque state and reject missing public identity.
-- [x] Run `npx tsc --noEmit -p sdk/tsconfig.build.json`.
+- [ ] Run `npx tsc --noEmit -p sdk/tsconfig.build.json`.
 - [x] Run targeted ECDSA HSS unit tests.
 - [ ] Run relevant `cargo test` commands for the Rust crate/WASM package touched
       by the coarse command.

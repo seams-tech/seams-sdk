@@ -266,7 +266,6 @@ export class SigningEngine {
   constructor(seamsPasskeyConfigs: SeamsConfigsReadonly, nearClient: NearClient) {
     this.seamsPasskeyConfigs = seamsPasskeyConfigs;
     this.nearClient = nearClient;
-    this.platformRuntime = createBrowserPlatformRuntime({ indexedDB: IndexedDBManager });
     this.sealedRefreshStartupParityPromise = verifySealedRefreshStartupParity({
       configs: this.seamsPasskeyConfigs,
     }).catch((error: unknown) => {
@@ -277,7 +276,7 @@ export class SigningEngine {
     });
 
     const assembly = createManagerAssembly({
-      platformRuntime: this.platformRuntime,
+      indexedDB: IndexedDBManager,
       seamsPasskeyConfigs: this.seamsPasskeyConfigs,
       nearClient: this.nearClient,
       getTheme: () => this.theme,
@@ -288,6 +287,10 @@ export class SigningEngine {
     this.userPreferencesManager = assembly.userPreferencesManager;
     this.nonceCoordinator = assembly.nonceCoordinator;
     this.signerWorkerManager = assembly.signerWorkerManager;
+    this.platformRuntime = createBrowserPlatformRuntime({
+      indexedDB: IndexedDBManager,
+      workerCtx: this.signerWorkerManager.getContext(),
+    });
     const stepUpRuntime = createStepUpRuntime({
       seamsPasskeyConfigs: this.seamsPasskeyConfigs,
       touchIdPrompt: this.touchIdPrompt,
