@@ -1856,6 +1856,9 @@ to a single PR where practical.
       parser and all new writes use `ready_blob_v1`.
 - [ ] Update `ThresholdEcdsaBackendBinding` so signing material is represented
       by an opaque state blob or typed handle.
+- [x] Split `ThresholdEcdsaBackendBinding` into explicit material branches for
+      inline role-local records, Email OTP worker handles, and metadata-only
+      key refs.
 - [x] Scope persistence parser changes to ECDSA HSS role-local session records
       and key-ref builders. Keep unrelated IndexedDB records out of this phase.
 - [x] Update persistence record parsers to normalize old ECDSA raw boundary data

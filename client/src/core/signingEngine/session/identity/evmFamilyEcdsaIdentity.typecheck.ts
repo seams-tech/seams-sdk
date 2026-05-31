@@ -1,5 +1,9 @@
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
+import type {
+  ThresholdEcdsaBackendBinding,
+  ThresholdEcdsaSecp256k1KeyRef,
+} from '../../interfaces/signing';
+import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/types';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   buildEvmFamilyEcdsaKeyIdentity,
@@ -518,6 +522,54 @@ const invalidSignerSessionWithExportArtifact: ReadyEcdsaSignerSession = {
   exportArtifact: {},
 };
 void invalidSignerSessionWithExportArtifact;
+
+declare const roleLocalReadyRecord: EcdsaRoleLocalReadyRecord;
+
+const validInlineBackendBinding = {
+  materialKind: 'inline_role_local_ready',
+  relayerKeyId: 'relayer-key',
+  clientVerifyingShareB64u: 'client-verifying-share',
+  clientAdditiveShare32B64u: 'client-share',
+  ecdsaRoleLocalReadyRecord: roleLocalReadyRecord,
+} satisfies ThresholdEcdsaBackendBinding;
+void validInlineBackendBinding;
+
+const invalidInlineBackendBindingWithWorkerHandle = {
+  materialKind: 'inline_role_local_ready',
+  relayerKeyId: 'relayer-key',
+  clientVerifyingShareB64u: 'client-verifying-share',
+  clientAdditiveShare32B64u: 'client-share',
+  ecdsaRoleLocalReadyRecord: roleLocalReadyRecord,
+  clientAdditiveShareHandle: {
+    kind: 'email_otp_worker_session' as const,
+    sessionId: 'worker-session',
+  },
+};
+// @ts-expect-error inline backend bindings reject Email OTP worker handles.
+void (invalidInlineBackendBindingWithWorkerHandle satisfies ThresholdEcdsaBackendBinding);
+
+const invalidWorkerBackendBindingWithInlineShare = {
+  materialKind: 'email_otp_worker_handle',
+  relayerKeyId: 'relayer-key',
+  clientVerifyingShareB64u: 'client-verifying-share',
+  clientAdditiveShareHandle: {
+    kind: 'email_otp_worker_session' as const,
+    sessionId: 'worker-session',
+  },
+  ecdsaRoleLocalReadyRecord: roleLocalReadyRecord,
+  clientAdditiveShare32B64u: 'client-share',
+};
+// @ts-expect-error Email OTP worker backend bindings reject inline share bytes.
+void (invalidWorkerBackendBindingWithInlineShare satisfies ThresholdEcdsaBackendBinding);
+
+const invalidMetadataBackendBindingWithMaterial = {
+  materialKind: 'metadata_only',
+  relayerKeyId: 'relayer-key',
+  clientVerifyingShareB64u: 'client-verifying-share',
+  clientAdditiveShare32B64u: 'client-share',
+};
+// @ts-expect-error metadata-only backend bindings reject signing material.
+void (invalidMetadataBackendBindingWithMaterial satisfies ThresholdEcdsaBackendBinding);
 
 const invalidSignerSessionWithSubjectId: ReadyEcdsaSignerSession = {
   ...signerSession,

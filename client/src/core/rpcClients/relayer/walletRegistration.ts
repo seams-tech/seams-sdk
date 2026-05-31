@@ -615,6 +615,7 @@ export function buildWalletRegistrationEcdsaSessionBootstrap(args: {
     signingRootId,
     ...(signingRootVersion ? { signingRootVersion } : {}),
     backendBinding: {
+      materialKind: 'inline_role_local_ready',
       relayerKeyId,
       clientVerifyingShareB64u: localBootstrap.clientPublicKey33B64u,
       clientAdditiveShare32B64u: localBootstrap.clientShare32B64u,

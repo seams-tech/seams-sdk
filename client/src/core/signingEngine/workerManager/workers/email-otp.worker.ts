@@ -66,6 +66,7 @@ import {
   type ThresholdRuntimePolicyScope,
 } from '@/core/signingEngine/threshold/sessionPolicy';
 import { type ThresholdEcdsaHssRoleLocalClientState } from '@/core/signingEngine/interfaces/signing';
+import { buildEcdsaRoleLocalReadyRecordFromLegacyState } from '@/core/platform/ecdsaRoleLocalRecords';
 import {
   type EcdsaThresholdKeyId,
   type EmailOtpExistingKeyBootstrap,
@@ -2626,6 +2627,17 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
       createdAtMs: nowMs,
       updatedAtMs: nowMs,
     };
+    const ecdsaRoleLocalReadyRecord = buildEcdsaRoleLocalReadyRecordFromLegacyState({
+      walletId,
+      rpId,
+      chainTarget,
+      keyHandle: value.keyHandle,
+      ecdsaThresholdKeyId: value.ecdsaThresholdKeyId,
+      signingRootId: value.signingRootId,
+      signingRootVersion: value.signingRootVersion,
+      participantIds: resolvedParticipantIds,
+      state: ecdsaHssRoleLocalClientState,
+    });
     const clientAdditiveShareHandle = {
       kind: 'email_otp_worker_session' as const,
       sessionId: value.sessionId,
@@ -2644,9 +2656,11 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
         signingRootId: value.signingRootId,
         signingRootVersion: value.signingRootVersion,
         backendBinding: {
+          materialKind: 'email_otp_worker_handle',
           relayerKeyId: value.relayerKeyId,
           clientVerifyingShareB64u: clientPublicKey33B64u,
           clientAdditiveShareHandle,
+          ecdsaRoleLocalReadyRecord,
           ecdsaHssRoleLocalClientState,
         },
         participantIds: resolvedParticipantIds,

@@ -65,6 +65,7 @@ const reconnectKeyRef = {
   signingRootId: 'signing-root-1',
   signingRootVersion: 'v1',
   backendBinding: {
+    materialKind: 'metadata_only',
     relayerKeyId: 'relayer-key-1',
     clientVerifyingShareB64u: 'share',
   },

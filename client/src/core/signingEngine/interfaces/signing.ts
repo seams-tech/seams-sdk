@@ -47,7 +47,7 @@ export type ThresholdEcdsaHssRoleLocalClientState = {
   updatedAtMs: number;
 };
 
-export type ThresholdEcdsaBackendBinding = {
+export type ThresholdEcdsaBackendBindingCommon = {
   /**
    * Backend integration identifier for the current threshold-signatures signer
    * path. This is not part of the public threshold identity seam.
@@ -58,19 +58,55 @@ export type ThresholdEcdsaBackendBinding = {
    * path. This is not part of the public threshold identity seam.
    */
   clientVerifyingShareB64u: string;
-  /**
-   * Canonical client additive share for integrated ecdsa-hss signing.
-   * This remains an internal signer binding, not a public identity field.
-   */
-  clientAdditiveShare32B64u?: string;
-  /**
-   * Opaque handle for Email OTP-derived signing material owned by the Email OTP worker.
-   * The handle is not secret material; callers must ask the worker for a one-time byte handoff.
-   */
-  clientAdditiveShareHandle?: ThresholdEcdsaClientAdditiveShareHandle;
-  ecdsaRoleLocalReadyRecord?: EcdsaRoleLocalReadyRecord;
-  ecdsaHssRoleLocalClientState?: ThresholdEcdsaHssRoleLocalClientState;
 };
+
+export type ThresholdEcdsaInlineRoleLocalBackendBinding =
+  ThresholdEcdsaBackendBindingCommon & {
+    materialKind: 'inline_role_local_ready';
+    /**
+     * Canonical client additive share for current browser signing.
+     * This remains an internal signer binding, not a public identity field.
+     */
+    clientAdditiveShare32B64u: string;
+    ecdsaRoleLocalReadyRecord: EcdsaRoleLocalReadyRecord;
+    /**
+     * In-development browser compatibility field. New consumers should use
+     * ecdsaRoleLocalReadyRecord and platform signer-crypto handles.
+     */
+    ecdsaHssRoleLocalClientState?: ThresholdEcdsaHssRoleLocalClientState;
+    clientAdditiveShareHandle?: never;
+  };
+
+export type ThresholdEcdsaEmailOtpWorkerBackendBinding =
+  ThresholdEcdsaBackendBindingCommon & {
+    materialKind: 'email_otp_worker_handle';
+    /**
+     * Opaque handle for Email OTP-derived signing material owned by the Email OTP worker.
+     * The handle is not secret material; callers must ask the worker for a one-time byte handoff.
+     */
+    clientAdditiveShareHandle: ThresholdEcdsaClientAdditiveShareHandle;
+    ecdsaRoleLocalReadyRecord: EcdsaRoleLocalReadyRecord;
+    /**
+     * In-development browser compatibility field. New consumers should use
+     * ecdsaRoleLocalReadyRecord and worker-owned material handles.
+     */
+    ecdsaHssRoleLocalClientState?: ThresholdEcdsaHssRoleLocalClientState;
+    clientAdditiveShare32B64u?: never;
+  };
+
+export type ThresholdEcdsaMetadataOnlyBackendBinding =
+  ThresholdEcdsaBackendBindingCommon & {
+    materialKind: 'metadata_only';
+    clientAdditiveShare32B64u?: never;
+    clientAdditiveShareHandle?: never;
+    ecdsaRoleLocalReadyRecord?: never;
+    ecdsaHssRoleLocalClientState?: never;
+  };
+
+export type ThresholdEcdsaBackendBinding =
+  | ThresholdEcdsaInlineRoleLocalBackendBinding
+  | ThresholdEcdsaEmailOtpWorkerBackendBinding
+  | ThresholdEcdsaMetadataOnlyBackendBinding;
 
 export type KeyRef =
   | {

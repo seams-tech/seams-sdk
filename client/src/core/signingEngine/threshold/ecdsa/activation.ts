@@ -429,6 +429,9 @@ export async function activateEcdsaSession(
         state: bootstrap.ecdsaHssRoleLocalClientState,
       })
     : undefined;
+  if (!ecdsaRoleLocalReadyRecord) {
+    throw new Error('threshold-ecdsa bootstrap returned empty role-local ready record');
+  }
 
   const keygen: EcdsaKeygenSuccess = {
     ok: true,
@@ -475,10 +478,11 @@ export async function activateEcdsaSession(
     signingRootId,
     ...(signingRootVersion ? { signingRootVersion } : {}),
     backendBinding: {
+      materialKind: 'inline_role_local_ready',
       relayerKeyId,
       clientVerifyingShareB64u,
-      ...(clientAdditiveShare32B64u ? { clientAdditiveShare32B64u } : {}),
-      ...(ecdsaRoleLocalReadyRecord ? { ecdsaRoleLocalReadyRecord } : {}),
+      clientAdditiveShare32B64u,
+      ecdsaRoleLocalReadyRecord,
       ...(bootstrap.ecdsaHssRoleLocalClientState
         ? { ecdsaHssRoleLocalClientState: bootstrap.ecdsaHssRoleLocalClientState }
         : {}),

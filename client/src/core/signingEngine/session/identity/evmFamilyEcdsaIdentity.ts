@@ -1124,6 +1124,33 @@ export function buildThresholdEcdsaSecp256k1KeyRefFromSessionRecord(args: {
   const record = args.record;
   const signingRootBinding = resolveThresholdSigningRootBindingFromRecord({ record });
   const ecdsaRoleLocalReadyRecord = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(record);
+  const backendBinding = record.clientAdditiveShareHandle
+    ? {
+        materialKind: 'email_otp_worker_handle' as const,
+        relayerKeyId: record.relayerKeyId,
+        clientVerifyingShareB64u: record.clientVerifyingShareB64u,
+        clientAdditiveShareHandle: record.clientAdditiveShareHandle,
+        ecdsaRoleLocalReadyRecord,
+        ...(record.ecdsaHssRoleLocalClientState
+          ? { ecdsaHssRoleLocalClientState: record.ecdsaHssRoleLocalClientState }
+          : {}),
+      }
+    : record.clientAdditiveShare32B64u
+      ? {
+          materialKind: 'inline_role_local_ready' as const,
+          relayerKeyId: record.relayerKeyId,
+          clientVerifyingShareB64u: record.clientVerifyingShareB64u,
+          clientAdditiveShare32B64u: record.clientAdditiveShare32B64u,
+          ecdsaRoleLocalReadyRecord,
+          ...(record.ecdsaHssRoleLocalClientState
+            ? { ecdsaHssRoleLocalClientState: record.ecdsaHssRoleLocalClientState }
+            : {}),
+        }
+      : {
+          materialKind: 'metadata_only' as const,
+          relayerKeyId: record.relayerKeyId,
+          clientVerifyingShareB64u: record.clientVerifyingShareB64u,
+        };
   return {
     type: 'threshold-ecdsa-secp256k1',
     userId: String(record.walletId),
@@ -1135,20 +1162,7 @@ export function buildThresholdEcdsaSecp256k1KeyRefFromSessionRecord(args: {
     ...(signingRootBinding.signingRootVersion
       ? { signingRootVersion: signingRootBinding.signingRootVersion }
       : {}),
-    backendBinding: {
-      relayerKeyId: record.relayerKeyId,
-      clientVerifyingShareB64u: record.clientVerifyingShareB64u,
-      ...(record.clientAdditiveShare32B64u
-        ? { clientAdditiveShare32B64u: record.clientAdditiveShare32B64u }
-        : {}),
-      ...(record.clientAdditiveShareHandle
-        ? { clientAdditiveShareHandle: record.clientAdditiveShareHandle }
-        : {}),
-      ecdsaRoleLocalReadyRecord,
-      ...(record.ecdsaHssRoleLocalClientState
-        ? { ecdsaHssRoleLocalClientState: record.ecdsaHssRoleLocalClientState }
-        : {}),
-    },
+    backendBinding,
     ...(args.exportArtifact ? { ecdsaHssExportArtifact: args.exportArtifact } : {}),
     participantIds: record.participantIds,
     thresholdSessionKind: record.thresholdSessionKind,
