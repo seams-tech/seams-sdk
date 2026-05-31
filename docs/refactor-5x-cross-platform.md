@@ -1,10 +1,9 @@
 # Refactor 5x: Cross-Platform SDK Readiness
 
 Date created: 2026-05-27
-Status: in progress. Phases 0, 1, 1.5, and the ECDSA signer-crypto boundary
-slice are complete. The browser platform runtime exists, Phase 2 is partially
-wired, and the next implementation slice is typed durable ECDSA repository
-wiring.
+Status: in progress. Phases 0, 1, 1.5, the ECDSA signer-crypto boundary slice,
+and Phase 2 typed durable ECDSA repository wiring are complete. The next
+implementation slice is Phase 3 ECDSA persistence/key-ref cleanup.
 
 ## Scope
 
@@ -903,7 +902,7 @@ Tasks:
 - [x] Add `client/src/core/platform/browser/createBrowserPlatformRuntime.ts`.
 - [x] Add the initial browser `DurableRecordStore` scaffold over existing
       IndexedDB infrastructure.
-- [ ] Wire `DurableRecordStore` to typed ECDSA signing-session repository
+- [x] Wire `DurableRecordStore` to typed ECDSA signing-session repository
       batches.
 - [x] Wrap WebAuthn credential collection behind `AuthenticatorPort`.
 - [x] Wrap the ECDSA client-bootstrap hss-client worker dispatch behind
@@ -1770,7 +1769,7 @@ to a single PR where practical.
       `client/src/core/platform/browser/createBrowserPlatformRuntime.ts`.
 - [x] Add the initial browser `DurableRecordStore` scaffold over existing
       IndexedDB infrastructure.
-- [ ] Wire the browser `DurableRecordStore` to typed ECDSA signing-session
+- [x] Wire the browser `DurableRecordStore` to typed ECDSA signing-session
       repository batches instead of generic unavailable get/put/delete methods.
 - [x] Wrap existing WebAuthn credential collection as the browser
       `AuthenticatorPort`.
@@ -1890,11 +1889,11 @@ to a single PR where practical.
       `ClientSecretSource` branches or incomplete platform runtimes.
 - [x] Add tests proving authenticator success branches cannot omit required PRF
       material.
-- [ ] Add persistence tests for the ready opaque role-local state record shape.
+- [x] Add persistence tests for the ready opaque role-local state record shape.
 - [x] Add import guards for platform leakage and raw HSS share-field leakage in
       core modules.
 - [ ] Add export tests that use opaque state and reject missing public identity.
-- [ ] Run `npx tsc --noEmit -p sdk/tsconfig.build.json`.
+- [x] Run `npx tsc --noEmit -p sdk/tsconfig.build.json`.
 - [x] Run targeted ECDSA HSS unit tests.
 - [ ] Run relevant `cargo test` commands for the Rust crate/WASM package touched
       by the coarse command.

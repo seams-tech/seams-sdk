@@ -2116,6 +2116,34 @@ export function clearThresholdEcdsaSessionRecordForWalletTarget(
   }
 }
 
+export function clearThresholdEcdsaSessionRecordsForWalletTargetKeyHandle(
+  deps: ThresholdEcdsaSessionStoreDeps,
+  args: {
+    walletId: AccountId | string;
+    chainTarget: ThresholdEcdsaChainTarget;
+    keyHandle: EvmFamilyEcdsaKeyHandle | string;
+  },
+): number {
+  const walletId = toAccountId(args.walletId);
+  const keyHandle = normalizeOptionalNonEmptyString(args.keyHandle);
+  if (!keyHandle) return 0;
+  let removed = 0;
+  const depsIndex = getThresholdEcdsaRuntimeRecordIndex(deps);
+  for (const record of listAllThresholdEcdsaRecords(deps)) {
+    if (String(record.walletId) !== String(walletId)) continue;
+    if (!thresholdEcdsaChainTargetsEqual(record.chainTarget, args.chainTarget)) continue;
+    if (String(record.keyHandle || '').trim() !== keyHandle) continue;
+    const laneKey = getThresholdEcdsaSessionLaneKeyForRecord(record);
+    const persistedRecord = deps.recordsByLane.get(laneKey);
+    if (persistedRecord) deindexThresholdEcdsaRecord(depsIndex, laneKey, persistedRecord);
+    deps.recordsByLane.delete(laneKey);
+    deps.exportArtifactsByLane?.delete(laneKey);
+    forgetInMemoryThresholdEcdsaRecord(laneKey);
+    removed += 1;
+  }
+  return removed;
+}
+
 export function clearStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget(args: {
   thresholdSessionId: string;
   chainTarget: ThresholdEcdsaChainTarget;

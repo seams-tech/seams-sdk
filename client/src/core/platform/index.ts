@@ -55,3 +55,10 @@ export {
   type BrowserDurableRecordStore,
   type BrowserPlatformRuntime,
 } from './browser/createBrowserPlatformRuntime';
+export {
+  ecdsaRoleLocalReadyRecordMatchesInput,
+  ecdsaRoleLocalReadyRecordStorageKey,
+  parseEcdsaRoleLocalReadyRecord,
+  parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord,
+  serializeEcdsaRoleLocalReadyRecord,
+} from './ecdsaRoleLocalRecords';

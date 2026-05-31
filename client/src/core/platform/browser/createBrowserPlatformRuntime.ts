@@ -19,6 +19,18 @@ import {
 import {
   getPrfFirstB64uFromCredential,
 } from '../../signingEngine/webauthnAuth/credentials/credentialExtensions';
+import {
+  clearThresholdEcdsaSessionRecordsForWalletTargetKeyHandle,
+  listThresholdEcdsaSessionRecordsForWalletTarget,
+  type ThresholdEcdsaSessionStoreDeps,
+} from '../../signingEngine/session/persistence/records';
+import {
+  ecdsaRoleLocalReadyRecordMatchesInput,
+  ecdsaRoleLocalReadyRecordStorageKey,
+  parseEcdsaRoleLocalReadyRecord,
+  parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord,
+  serializeEcdsaRoleLocalReadyRecord,
+} from '../ecdsaRoleLocalRecords';
 import type {
   AuthenticatorOperation,
   AuthenticatorResult,
@@ -54,6 +66,7 @@ type BrowserPlatformRuntimeDeps = {
   crypto?: Crypto;
   credentials?: CredentialsContainer;
   workerCtx?: WorkerOperationContext;
+  ecdsaSessionStore?: ThresholdEcdsaSessionStoreDeps;
   nowMs?: () => number;
 };
 
@@ -337,20 +350,89 @@ function parseRelayerPublicIdentity(
 
 function createBrowserDurableRecordStore(
   indexedDB: typeof IndexedDBManager,
+  ecdsaSessionStore: ThresholdEcdsaSessionStoreDeps | undefined,
 ): BrowserDurableRecordStore {
   return {
     kind: 'durable_record_store',
     indexedDB,
-    async loadEcdsaRoleLocalReadyRecord(): Promise<LoadEcdsaRoleLocalReadyRecordResult> {
-      return unavailable('Browser ECDSA role-local record loading is not wired yet');
+    async loadEcdsaRoleLocalReadyRecord(input): Promise<LoadEcdsaRoleLocalReadyRecordResult> {
+      const storageKey = ecdsaRoleLocalReadyRecordStorageKey(input);
+      try {
+        const stored = await indexedDB.getAppState<unknown>(storageKey);
+        if (stored !== undefined && stored !== null) {
+          const parsed = parseEcdsaRoleLocalReadyRecord(stored);
+          if (!ecdsaRoleLocalReadyRecordMatchesInput({ record: parsed, input })) {
+            return {
+              ok: false,
+              code: 'malformed_record',
+              message: 'Stored ECDSA role-local record identity does not match lookup input',
+            };
+          }
+          return { ok: true, value: parsed };
+        }
+        if (!ecdsaSessionStore) return { ok: true, value: null };
+        const candidates = listThresholdEcdsaSessionRecordsForWalletTarget(ecdsaSessionStore, {
+          walletId: input.walletId,
+          chainTarget: input.chainTarget,
+        });
+        for (const candidate of candidates) {
+          let parsed = null;
+          try {
+            parsed = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(candidate);
+          } catch {
+            continue;
+          }
+          if (ecdsaRoleLocalReadyRecordMatchesInput({ record: parsed, input })) {
+            return { ok: true, value: parsed };
+          }
+        }
+        return { ok: true, value: null };
+      } catch (error) {
+        return {
+          ok: false,
+          code: 'malformed_record',
+          message: errorMessage(error),
+        };
+      }
     },
-    async persistEcdsaRoleLocalReadyRecord(): Promise<PersistEcdsaRoleLocalReadyRecordResult> {
-      return unavailable('Browser ECDSA role-local record persistence is not wired yet');
+    async persistEcdsaRoleLocalReadyRecord(
+      input,
+    ): Promise<PersistEcdsaRoleLocalReadyRecordResult> {
+      try {
+        const record = parseEcdsaRoleLocalReadyRecord(input.record);
+        await indexedDB.setAppState(
+          ecdsaRoleLocalReadyRecordStorageKey(record.publicFacts),
+          serializeEcdsaRoleLocalReadyRecord(record),
+        );
+        return { ok: true, value: undefined };
+      } catch (error) {
+        return {
+          ok: false,
+          code: 'invalid_record',
+          message: errorMessage(error),
+        };
+      }
     },
-    async cleanupMalformedEcdsaRoleLocalRecord(): Promise<
+    async cleanupMalformedEcdsaRoleLocalRecord(input): Promise<
       CleanupMalformedEcdsaRoleLocalRecordResult
     > {
-      return unavailable('Browser ECDSA role-local record cleanup is not wired yet');
+      try {
+        await indexedDB.setAppState(ecdsaRoleLocalReadyRecordStorageKey(input), null);
+        if (ecdsaSessionStore) {
+          clearThresholdEcdsaSessionRecordsForWalletTargetKeyHandle(ecdsaSessionStore, {
+            walletId: input.walletId,
+            chainTarget: input.chainTarget,
+            keyHandle: input.keyHandle,
+          });
+        }
+        return { ok: true, value: undefined };
+      } catch (error) {
+        return {
+          ok: false,
+          code: 'unavailable',
+          message: errorMessage(error),
+        };
+      }
     },
   };
 }
@@ -743,7 +825,7 @@ export function createBrowserPlatformRuntime(
   const indexedDB = deps.indexedDB || IndexedDBManager;
   return {
     kind: 'browser',
-    storage: createBrowserDurableRecordStore(indexedDB),
+    storage: createBrowserDurableRecordStore(indexedDB, deps.ecdsaSessionStore),
     secrets: createBrowserSecureSecretStore(),
     authenticator: createBrowserAuthenticatorPort(deps.credentials || globalThis.navigator?.credentials),
     signerCrypto: createBrowserSignerCryptoPort(deps.workerCtx),

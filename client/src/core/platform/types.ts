@@ -132,6 +132,10 @@ export type CleanupMalformedEcdsaRoleLocalRecordInput = {
   rpId: RpId;
   chainTarget: ThresholdEcdsaChainTarget;
   keyHandle: string;
+  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  signingRootId: SigningRootId;
+  signingRootVersion: SigningRootVersion;
+  participantIds: readonly [1, 2];
   reason: string;
 };
 

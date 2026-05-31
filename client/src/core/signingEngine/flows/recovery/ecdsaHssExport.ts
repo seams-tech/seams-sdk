@@ -11,13 +11,10 @@ import {
   type ReadyEcdsaSignerSession,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
+import { parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord } from '@/core/platform/ecdsaRoleLocalRecords';
 import { buildThresholdEcdsaHssRoleLocalExportArtifactWasm } from '../../threshold/crypto/hssClientSignerWasm';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
-import type {
-  EcdsaHssClientSharePublicKey33B64u,
-  EcdsaRelayerHssPublicKey33B64u,
-} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 
 const ECDSA_HSS_EXPORT_CONFIRMATION_DIGEST_VERSION =
   'ecdsa-hss:role-local:product-export-confirmation:v2';
@@ -93,13 +90,12 @@ export async function exportEcdsaHssKeyWithThresholdSession(
     throw new Error('Threshold ECDSA export session is expired');
   }
 
+  const readyRecord = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(args.record);
   const publicIdentity = {
-    hssClientSharePublicKey33B64u:
-      roleLocalState.clientPublicKey33B64u as EcdsaHssClientSharePublicKey33B64u,
-    relayerPublicKey33B64u:
-      roleLocalState.relayerPublicKey33B64u as EcdsaRelayerHssPublicKey33B64u,
-    groupPublicKey33B64u: roleLocalState.groupPublicKey33B64u,
-    ethereumAddress: roleLocalState.ethereumAddress,
+    hssClientSharePublicKey33B64u: readyRecord.publicFacts.hssClientSharePublicKey33B64u,
+    relayerPublicKey33B64u: readyRecord.publicFacts.relayerPublicKey33B64u,
+    groupPublicKey33B64u: readyRecord.publicFacts.groupPublicKey33B64u,
+    ethereumAddress: readyRecord.publicFacts.ethereumAddress,
   };
   const exportRequestNonce32B64u = randomB64u32();
   const confirmationDigest32B64u = await digestB64u({

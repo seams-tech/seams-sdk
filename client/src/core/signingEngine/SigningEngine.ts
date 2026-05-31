@@ -290,6 +290,10 @@ export class SigningEngine {
     this.platformRuntime = createBrowserPlatformRuntime({
       indexedDB: IndexedDBManager,
       workerCtx: this.signerWorkerManager.getContext(),
+      ecdsaSessionStore: {
+        recordsByLane: this.thresholdEcdsaSessionByLane,
+        exportArtifactsByLane: this.thresholdEcdsaExportArtifactByLane,
+      },
     });
     const stepUpRuntime = createStepUpRuntime({
       seamsPasskeyConfigs: this.seamsPasskeyConfigs,
