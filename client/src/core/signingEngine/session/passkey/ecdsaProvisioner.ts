@@ -1,5 +1,8 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
-import { thresholdEcdsaRecordHasRoleLocalSigningMaterial } from '@/core/platform/ecdsaRoleLocalRecords';
+import {
+  parseThresholdEcdsaSessionRecordAsInlineRoleLocalSigningMaterial,
+  thresholdEcdsaRecordHasRoleLocalSigningMaterial,
+} from '@/core/platform/ecdsaRoleLocalRecords';
 import { thresholdEcdsaRecordRpId, type ThresholdEcdsaSessionRecord } from '../persistence/records';
 import type {
   ThresholdEcdsaEmailOtpAuthContext,
@@ -1335,14 +1338,23 @@ export function buildReusableEcdsaBootstrapResult(args: {
   if (!record || !auth || !prfClaim || prfClaim.state !== 'warm') return null;
 
   const clientVerifyingShareB64u = String(record.clientVerifyingShareB64u || '').trim();
-  const clientAdditiveShare32B64u = String(record.clientAdditiveShare32B64u || '').trim();
   const relayerKeyId = String(record.relayerKeyId || '').trim();
   const identity = tryBuildEcdsaSessionIdentity(record);
   // A warm ECDSA capability is only directly reusable when the persisted
   // session record already carries local signing material. Restored passkey
   // lanes often have only the PRF/JWT until reconnect recreates the additive
   // share.
-  if (!clientVerifyingShareB64u || !clientAdditiveShare32B64u || !relayerKeyId || !identity) {
+  if (!clientVerifyingShareB64u || !relayerKeyId || !identity) {
+    return null;
+  }
+  let inlineSigningMaterial: ReturnType<
+    typeof parseThresholdEcdsaSessionRecordAsInlineRoleLocalSigningMaterial
+  >;
+  try {
+    inlineSigningMaterial = parseThresholdEcdsaSessionRecordAsInlineRoleLocalSigningMaterial(
+      record,
+    );
+  } catch {
     return null;
   }
   const ecdsaThresholdKeyId = String(resolveThresholdEcdsaKeyIdFromRecord({ record }) || '').trim();
@@ -1369,7 +1381,7 @@ export function buildReusableEcdsaBootstrapResult(args: {
       ecdsaThresholdKeyId,
       relayerKeyId,
       clientVerifyingShareB64u,
-      clientAdditiveShare32B64u,
+      clientAdditiveShare32B64u: inlineSigningMaterial.clientAdditiveShare32B64u,
       participantIds: record.participantIds,
       thresholdEcdsaPublicKeyB64u: record.thresholdEcdsaPublicKeyB64u,
       ethereumAddress: record.ethereumAddress,

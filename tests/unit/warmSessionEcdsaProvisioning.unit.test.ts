@@ -10,7 +10,13 @@ import {
 import { selectedEcdsaLane } from '@/core/signingEngine/session/identity/laneIdentity';
 import type { WarmSessionEnvelope } from '@/core/signingEngine/session/warmCapabilities/types';
 import {
+  buildEvmFamilyEcdsaKeyIdentityFromRecord,
+} from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { thresholdEcdsaRecordRpId } from '@/core/signingEngine/session/persistence/records';
+import {
+  createThresholdEcdsaStoreFixture,
   createThresholdEcdsaBootstrapFixture,
+  seedEcdsaWarmSessionRecord,
   testEcdsaChainTarget,
 } from './helpers/warmSessionStore.fixtures';
 
@@ -18,22 +24,43 @@ const EVM_CHAIN_TARGET = testEcdsaChainTarget('evm');
 const TEMPO_CHAIN_TARGET = testEcdsaChainTarget('tempo');
 
 function createEnvelope(): WarmSessionEnvelope {
+  const ecdsaSessions = createThresholdEcdsaStoreFixture();
   const evmBootstrap = createThresholdEcdsaBootstrapFixture({
     nearAccountId: 'provisioning.testnet',
     chain: 'evm',
     ecdsaThresholdKeyId: 'ek-evm',
     sessionId: 'evm-session',
-    sessionAuthToken: 'jwt:evm-session',
+    sessionAuthToken: 'jwt.evm.session',
   });
   const tempoBootstrap = createThresholdEcdsaBootstrapFixture({
     nearAccountId: 'provisioning.testnet',
     chain: 'tempo',
-    ecdsaThresholdKeyId: 'ek-tempo',
+    ecdsaThresholdKeyId: 'ek-evm',
     sessionId: 'tempo-session',
-    sessionAuthToken: 'jwt:tempo-session',
+    sessionAuthToken: 'jwt.tempo.session',
+  });
+  const evmRecord = seedEcdsaWarmSessionRecord(ecdsaSessions, {
+    nearAccountId: 'provisioning.testnet',
+    chain: 'evm',
+    source: 'login',
+    bootstrap: evmBootstrap,
+  });
+  const tempoRecord = seedEcdsaWarmSessionRecord(ecdsaSessions, {
+    nearAccountId: 'provisioning.testnet',
+    chain: 'tempo',
+    source: 'login',
+    bootstrap: tempoBootstrap,
+  });
+  const evmKey = buildEvmFamilyEcdsaKeyIdentityFromRecord({
+    record: evmRecord,
+    rpId: thresholdEcdsaRecordRpId(evmRecord),
+  });
+  const tempoKey = buildEvmFamilyEcdsaKeyIdentityFromRecord({
+    record: tempoRecord,
+    rpId: thresholdEcdsaRecordRpId(tempoRecord),
   });
   const envelope: WarmSessionEnvelope = {
-    walletId: 'provisioning.testnet' as any,
+    walletId: evmRecord.walletId,
     capabilities: {
       ed25519: {
         capability: 'ed25519',
@@ -45,29 +72,21 @@ function createEnvelope(): WarmSessionEnvelope {
       ecdsa: {
         evm: {
           capability: 'ecdsa',
-          record: {
-            walletId: 'provisioning.testnet',
-            chainTarget: EVM_CHAIN_TARGET,
-            keyHandle: evmBootstrap.thresholdEcdsaKeyRef.keyHandle,
-            ecdsaThresholdKeyId: 'ek-evm',
-            signingRootId: evmBootstrap.thresholdEcdsaKeyRef.signingRootId,
-            signingRootVersion: evmBootstrap.thresholdEcdsaKeyRef.signingRootVersion,
-            thresholdSessionId: 'evm-session',
-            walletSigningSessionId: evmBootstrap.session.walletSigningSessionId,
-            thresholdSessionKind: 'jwt',
-            relayerUrl: evmBootstrap.thresholdEcdsaKeyRef.relayerUrl,
-            relayerKeyId: evmBootstrap.keygen.relayerKeyId,
-            clientVerifyingShareB64u: evmBootstrap.keygen.clientVerifyingShareB64u,
-            clientAdditiveShare32B64u:
-              evmBootstrap.thresholdEcdsaKeyRef.backendBinding?.clientAdditiveShare32B64u,
-            participantIds: [1, 2],
-          } as any,
-          key: null as any,
-          lane: null as any,
+          record: evmRecord,
+          key: evmKey,
+          lane: selectedEcdsaLane({
+            key: evmKey,
+            keyHandle: evmRecord.keyHandle,
+            walletId: evmRecord.walletId,
+            authMethod: 'passkey',
+            walletSigningSessionId: evmRecord.walletSigningSessionId,
+            thresholdSessionId: evmRecord.thresholdSessionId,
+            chainTarget: evmRecord.chainTarget,
+          }),
           auth: {
             capability: 'ecdsa',
-            record: {} as any,
-            thresholdSessionAuthToken: 'jwt:evm-session',
+            record: evmRecord,
+            thresholdSessionAuthToken: evmRecord.thresholdSessionAuthToken,
             thresholdSessionAuthTokenSource: 'ecdsa',
           },
           prfClaim: {
@@ -80,29 +99,21 @@ function createEnvelope(): WarmSessionEnvelope {
         },
         tempo: {
           capability: 'ecdsa',
-          record: {
-            walletId: 'provisioning.testnet',
-            chainTarget: TEMPO_CHAIN_TARGET,
-            keyHandle: tempoBootstrap.thresholdEcdsaKeyRef.keyHandle,
-            ecdsaThresholdKeyId: 'ek-tempo',
-            signingRootId: tempoBootstrap.thresholdEcdsaKeyRef.signingRootId,
-            signingRootVersion: tempoBootstrap.thresholdEcdsaKeyRef.signingRootVersion,
-            thresholdSessionId: 'tempo-session',
-            walletSigningSessionId: tempoBootstrap.session.walletSigningSessionId,
-            thresholdSessionKind: 'jwt',
-            relayerUrl: tempoBootstrap.thresholdEcdsaKeyRef.relayerUrl,
-            relayerKeyId: tempoBootstrap.keygen.relayerKeyId,
-            clientVerifyingShareB64u: tempoBootstrap.keygen.clientVerifyingShareB64u,
-            clientAdditiveShare32B64u:
-              tempoBootstrap.thresholdEcdsaKeyRef.backendBinding?.clientAdditiveShare32B64u,
-            participantIds: [1, 2],
-          } as any,
-          key: null as any,
-          lane: null as any,
+          record: tempoRecord,
+          key: tempoKey,
+          lane: selectedEcdsaLane({
+            key: tempoKey,
+            keyHandle: tempoRecord.keyHandle,
+            walletId: tempoRecord.walletId,
+            authMethod: 'passkey',
+            walletSigningSessionId: tempoRecord.walletSigningSessionId,
+            thresholdSessionId: tempoRecord.thresholdSessionId,
+            chainTarget: tempoRecord.chainTarget,
+          }),
           auth: {
             capability: 'ecdsa',
-            record: {} as any,
-            thresholdSessionAuthToken: 'jwt:tempo-session',
+            record: tempoRecord,
+            thresholdSessionAuthToken: tempoRecord.thresholdSessionAuthToken,
             thresholdSessionAuthTokenSource: 'ecdsa',
           },
           prfClaim: {
@@ -117,57 +128,6 @@ function createEnvelope(): WarmSessionEnvelope {
     },
     updatedAtMs: Date.now(),
   };
-  envelope.capabilities.ecdsa.evm.auth!.record = envelope.capabilities.ecdsa.evm.record!;
-  envelope.capabilities.ecdsa.tempo.auth!.record = envelope.capabilities.ecdsa.tempo.record!;
-  const evmRecord = envelope.capabilities.ecdsa.evm.record!;
-  const evmKey = {
-    walletId: evmRecord.walletId,
-    rpId: 'example.localhost',
-    keyScope: 'evm-family',
-    ecdsaThresholdKeyId: evmRecord.ecdsaThresholdKeyId,
-    signingRootId: evmRecord.signingRootId,
-    signingRootVersion: evmRecord.signingRootVersion,
-    participantIds: [1, 2],
-    thresholdOwnerAddress: `0x${'11'.repeat(20)}`,
-  };
-  envelope.capabilities.ecdsa.evm.key = evmKey as any;
-  envelope.capabilities.ecdsa.evm.lane = {
-    ...selectedEcdsaLane({
-      key: evmKey as any,
-      keyHandle: evmRecord.keyHandle,
-      walletId: evmRecord.walletId as any,
-      authMethod: 'passkey',
-      walletSigningSessionId: evmRecord.walletSigningSessionId,
-      thresholdSessionId: evmRecord.thresholdSessionId,
-      chainTarget: evmRecord.chainTarget,
-    }),
-    key: evmKey,
-  } as any;
-
-  const tempoRecord = envelope.capabilities.ecdsa.tempo.record!;
-  const tempoKey = {
-    walletId: tempoRecord.walletId,
-    rpId: 'example.localhost',
-    keyScope: 'evm-family',
-    ecdsaThresholdKeyId: tempoRecord.ecdsaThresholdKeyId,
-    signingRootId: tempoRecord.signingRootId,
-    signingRootVersion: tempoRecord.signingRootVersion,
-    participantIds: [1, 2],
-    thresholdOwnerAddress: `0x${'11'.repeat(20)}`,
-  };
-  envelope.capabilities.ecdsa.tempo.key = tempoKey as any;
-  envelope.capabilities.ecdsa.tempo.lane = {
-    ...selectedEcdsaLane({
-      key: tempoKey as any,
-      keyHandle: tempoRecord.keyHandle,
-      walletId: tempoRecord.walletId as any,
-      authMethod: 'passkey',
-      walletSigningSessionId: tempoRecord.walletSigningSessionId,
-      thresholdSessionId: tempoRecord.thresholdSessionId,
-      chainTarget: tempoRecord.chainTarget,
-    }),
-    key: tempoKey,
-  } as any;
   return envelope;
 }
 
@@ -212,13 +172,13 @@ test.describe('warmSessionEcdsaProvisioning', () => {
       thresholdEcdsaKeyRef: {
         ecdsaThresholdKeyId: 'ek-evm',
         thresholdSessionId: 'evm-session',
-        thresholdSessionAuthToken: 'jwt:evm-session',
+        thresholdSessionAuthToken: record.thresholdSessionAuthToken,
       },
       session: {
         ok: true,
         sessionId: 'evm-session',
         walletSigningSessionId: 'wsess-evm-session',
-        jwt: 'jwt:evm-session',
+        jwt: record.thresholdSessionAuthToken,
       },
     });
   });

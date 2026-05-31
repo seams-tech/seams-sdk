@@ -102,6 +102,60 @@ export type EcdsaRoleLocalReadyRecord = {
   publicFacts: EcdsaRoleLocalPublicFacts;
 };
 
+export type EcdsaRoleLocalInlineClientShare = {
+  kind: 'inline_client_share';
+  clientAdditiveShare32B64u: string;
+  workerSessionId?: never;
+};
+
+export type EcdsaRoleLocalEmailOtpWorkerShare = {
+  kind: 'email_otp_worker_share';
+  workerSessionId: string;
+  clientAdditiveShare32B64u?: never;
+};
+
+export type EcdsaRoleLocalSessionRecordState =
+  | {
+      kind: 'ready_passkey_role_local_material_v1';
+      authMethod: 'passkey';
+      readyRecord: EcdsaRoleLocalReadyRecord;
+      inlineSigningMaterial: EcdsaRoleLocalInlineClientShare;
+      reauth?: never;
+      cleanup?: never;
+    }
+  | {
+      kind: 'ready_email_otp_role_local_material_v1';
+      authMethod: 'email_otp';
+      readyRecord: EcdsaRoleLocalReadyRecord;
+      inlineSigningMaterial:
+        | EcdsaRoleLocalInlineClientShare
+        | EcdsaRoleLocalEmailOtpWorkerShare;
+      reauth?: never;
+      cleanup?: never;
+    }
+  | {
+      kind: 'reauth_required_role_local_material_v1';
+      authMethod: 'passkey' | 'email_otp';
+      readyRecord: EcdsaRoleLocalReadyRecord;
+      reason:
+        | 'missing_inline_share'
+        | 'missing_worker_share'
+        | 'expired'
+        | 'exhausted'
+        | 'unsupported_material_owner';
+      inlineSigningMaterial?: never;
+      cleanup?: never;
+    }
+  | {
+      kind: 'cleanup_only_raw_role_local_record_v1';
+      reason: 'malformed_record' | 'legacy_after_reset' | 'identity_mismatch';
+      message: string;
+      authMethod?: never;
+      readyRecord?: never;
+      inlineSigningMaterial?: never;
+      reauth?: never;
+    };
+
 export type EcdsaRoleLocalRecordParseResult =
   | {
       ok: true;
@@ -261,9 +315,7 @@ export type ClientSecretSource =
   | Fido2HmacSecretSource
   | EmailOtpWorkerSessionSecretSource;
 
-export type EcdsaBootstrapSecretSource =
-  | WebAuthnPrfFirstSecretSource
-  | EmailOtpWorkerSessionSecretSource;
+export type EcdsaBootstrapSecretSource = ClientSecretSource;
 
 function requirePlatformString(value: string, field: string): string {
   const normalized = String(value || '').trim();

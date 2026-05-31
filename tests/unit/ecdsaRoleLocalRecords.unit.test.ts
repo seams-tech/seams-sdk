@@ -3,9 +3,11 @@ import { base64UrlEncode } from '@shared/utils/base64';
 import { createBrowserPlatformRuntime } from '@/core/platform';
 import {
   buildEcdsaRoleLocalReadyRecordFromLegacyState,
+  classifyThresholdEcdsaSessionRecordRoleLocalState,
   ecdsaRoleLocalReadyRecordStorageKey,
   parseEcdsaRoleLocalReadyRecord,
   parseRawEcdsaRoleLocalRecord,
+  parseThresholdEcdsaSessionRecordAsInlineRoleLocalSigningMaterial,
   parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial,
   parseThresholdEcdsaSessionRecordAsRoleLocalWorkerExportMaterial,
   parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord,
@@ -109,6 +111,29 @@ test.describe('ECDSA role-local record boundary parser', () => {
     expect(ready.stateBlob.kind).toBe('ecdsa_role_local_state_blob_v1');
   });
 
+  test('reads persisted ready records without legacy role-local raw state', () => {
+    const ready = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(rawSessionRecord());
+    const record = rawSessionRecord({
+      ecdsaRoleLocalReadyRecord: ready,
+      ecdsaHssRoleLocalClientState: undefined,
+      clientAdditiveShare32B64u: share32B64u,
+    });
+
+    const parsed = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(record);
+    expect(parsed.publicFacts.hssClientSharePublicKey33B64u).toBe(clientPublicKey33B64u);
+
+    const state = classifyThresholdEcdsaSessionRecordRoleLocalState({
+      record,
+      nowMs: 1,
+    });
+    expect(state.kind).toBe('ready_passkey_role_local_material_v1');
+    if (state.kind !== 'ready_passkey_role_local_material_v1') {
+      throw new Error('expected ready passkey material');
+    }
+    expect(state.readyRecord.publicFacts.keyHandle).toBe(keyHandle);
+    expect(state.inlineSigningMaterial.clientAdditiveShare32B64u).toBe(share32B64u);
+  });
+
   test('builds normalized ready records from explicit legacy role-local state', () => {
     const ready = buildEcdsaRoleLocalReadyRecordFromLegacyState({
       walletId,
@@ -161,6 +186,100 @@ test.describe('ECDSA role-local record boundary parser', () => {
     expect(material.readyRecord.publicFacts.groupPublicKey33B64u).toBe(groupPublicKey33B64u);
     expect(material.contextBinding32B64u).toBe(share32B64u);
     expect(material.clientShareRetryCounter).toBe(0);
+  });
+
+  test('parses inline signing material at the role-local boundary', () => {
+    const material = parseThresholdEcdsaSessionRecordAsInlineRoleLocalSigningMaterial(
+      rawSessionRecord({ clientAdditiveShare32B64u: share32B64u }),
+    );
+    expect(material.clientAdditiveShare32B64u).toBe(share32B64u);
+    expect(material.clientSigningShare32).toHaveLength(32);
+    expect(material.readyRecord.publicFacts.hssClientSharePublicKey33B64u).toBe(
+      clientPublicKey33B64u,
+    );
+  });
+
+  test('rejects inline signing material when the record is worker-owned', () => {
+    expect(() =>
+      parseThresholdEcdsaSessionRecordAsInlineRoleLocalSigningMaterial(
+        rawSessionRecord({
+          source: 'email_otp',
+          emailOtpAuthContext: {
+            policy: 'session',
+            retention: 'session',
+            reason: 'login',
+            authMethod: 'email_otp',
+          },
+          clientAdditiveShare32B64u: share32B64u,
+          clientAdditiveShareHandle: {
+            kind: 'email_otp_worker_session',
+            sessionId: 'email-otp-session',
+          },
+        }),
+      ),
+    ).toThrow(/worker handle/i);
+  });
+
+  test('classifies passkey inline material through the strict session-state union', () => {
+    const state = classifyThresholdEcdsaSessionRecordRoleLocalState({
+      record: rawSessionRecord({ clientAdditiveShare32B64u: share32B64u }),
+      nowMs: 1,
+    });
+    expect(state.kind).toBe('ready_passkey_role_local_material_v1');
+    if (state.kind !== 'ready_passkey_role_local_material_v1') {
+      throw new Error('expected ready passkey material');
+    }
+    expect(state.inlineSigningMaterial.clientAdditiveShare32B64u).toBe(share32B64u);
+  });
+
+  test('classifies Email OTP worker-owned material without exposing inline share fields', () => {
+    const state = classifyThresholdEcdsaSessionRecordRoleLocalState({
+      record: rawSessionRecord({
+        source: 'email_otp',
+        emailOtpAuthContext: {
+          policy: 'session',
+          retention: 'session',
+          reason: 'login',
+          authMethod: 'email_otp',
+        },
+        clientAdditiveShareHandle: {
+          kind: 'email_otp_worker_session',
+          sessionId: 'email-otp-session',
+        },
+      }),
+      nowMs: 1,
+    });
+    expect(state.kind).toBe('ready_email_otp_role_local_material_v1');
+    if (state.kind !== 'ready_email_otp_role_local_material_v1') {
+      throw new Error('expected ready Email OTP material');
+    }
+    expect(state.inlineSigningMaterial).toEqual({
+      kind: 'email_otp_worker_share',
+      workerSessionId: 'email-otp-session',
+    });
+  });
+
+  test('classifies expired and malformed records without raw-shape leakage', () => {
+    const expired = classifyThresholdEcdsaSessionRecordRoleLocalState({
+      record: rawSessionRecord({
+        clientAdditiveShare32B64u: share32B64u,
+        expiresAtMs: 10,
+      }),
+      nowMs: 11,
+    });
+    expect(expired).toMatchObject({
+      kind: 'reauth_required_role_local_material_v1',
+      reason: 'expired',
+    });
+
+    const malformed = classifyThresholdEcdsaSessionRecordRoleLocalState({
+      record: { kind: 'wrong' },
+      nowMs: 1,
+    });
+    expect(malformed).toMatchObject({
+      kind: 'cleanup_only_raw_role_local_record_v1',
+      reason: 'malformed_record',
+    });
   });
 
   test('parses worker export material at the boundary for current browser worker calls', () => {

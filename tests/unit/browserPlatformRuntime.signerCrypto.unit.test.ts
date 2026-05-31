@@ -11,6 +11,8 @@ import {
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import { SignerWorkerOperationError } from '@/core/signingEngine/workerManager/workerTypes';
 import {
+  buildFido2HmacSecretSource,
+  buildSecureEnclaveWrappedSecretSource,
   buildWebAuthnPrfFirstSecretSource,
   type EcdsaRoleLocalPendingStateBlob,
   type PrepareEcdsaClientBootstrapInput,
@@ -161,6 +163,52 @@ function pendingBlobWithContextOverrides(overrides: Partial<Record<string, unkno
 }
 
 test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
+  test('builds WebAuthn PRF secret sources only after required PRF credential parsing', () => {
+    const source = buildWebAuthnPrfFirstSecretSource(requiredPrfSuccess);
+    expect(source).toMatchObject({
+      kind: 'webauthn_prf_first',
+      prfFirstB64u: requiredPrfSuccess.prf.prfFirstB64u,
+      rpId: requiredPrfSuccess.rpId,
+      credentialIdB64u: requiredPrfSuccess.credentialIdB64u,
+    });
+  });
+
+  test('rejects unsupported future secret-source branches at browser dispatch', async () => {
+    const runtime = createBrowserPlatformRuntime({
+      workerCtx: {
+        async requestWorkerOperation() {
+          throw new Error('worker must not be called for unsupported secret sources');
+        },
+      },
+    });
+
+    const secureEnclaveResult = await runtime.signerCrypto.prepareEcdsaClientBootstrap({
+      ...prepareInput,
+      secretSource: buildSecureEnclaveWrappedSecretSource({
+        keyId: 'secure-key',
+        accessGroup: 'group',
+      }),
+    });
+    expect(secureEnclaveResult).toMatchObject({
+      ok: false,
+      failure: 'command',
+      code: 'unsupported_secret_source',
+    });
+
+    const fido2Result = await runtime.signerCrypto.prepareEcdsaClientBootstrap({
+      ...prepareInput,
+      secretSource: buildFido2HmacSecretSource({
+        credentialIdB64u: 'credential',
+        rpId: toRpId('localhost'),
+      }),
+    });
+    expect(fido2Result).toMatchObject({
+      ok: false,
+      failure: 'command',
+      code: 'unsupported_secret_source',
+    });
+  });
+
   test('maps worker timeout failures to invocation failures', async () => {
     const workerCtx: WorkerOperationContext = {
       async requestWorkerOperation() {

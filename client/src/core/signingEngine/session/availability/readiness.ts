@@ -1,7 +1,7 @@
 import type { AccountId } from '@/core/types/accountIds';
 import { toAccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
-import { thresholdEcdsaRecordHasInlineRoleLocalSigningMaterial } from '@/core/platform/ecdsaRoleLocalRecords';
+import { classifyThresholdEcdsaSessionRecordRoleLocalState } from '@/core/platform/ecdsaRoleLocalRecords';
 import type {
   VolatileWarmMaterialPort,
   WarmSessionStatusResult,
@@ -273,7 +273,14 @@ export function resolveEmailOtpEcdsaWorkerSessionId(
 }
 
 function ecdsaRecordHasInlineEmailOtpMaterial(record: ThresholdEcdsaSessionRecord): boolean {
-  return record.source === 'email_otp' && thresholdEcdsaRecordHasInlineRoleLocalSigningMaterial(record);
+  const roleLocalState = classifyThresholdEcdsaSessionRecordRoleLocalState({
+    record,
+    nowMs: Date.now(),
+  });
+  return (
+    roleLocalState.kind === 'ready_email_otp_role_local_material_v1' &&
+    roleLocalState.inlineSigningMaterial.kind === 'inline_client_share'
+  );
 }
 
 function addLane(

@@ -17,11 +17,13 @@ import {
   type ThresholdEcdsaSessionRecord,
 } from '../signingEngine/session/persistence/records';
 import type { ThresholdEcdsaHssRoleLocalClientState } from '../signingEngine/interfaces/signing';
+import { assertNeverPlatform } from './types';
 import type {
   EcdsaRoleLocalPublicFacts,
   EcdsaRoleLocalRecordParseResult,
   EcdsaRoleLocalReadyRecord,
   EcdsaRoleLocalReadyStateBlob,
+  EcdsaRoleLocalSessionRecordState,
   LoadEcdsaRoleLocalReadyRecordInput,
 } from './types';
 import type {
@@ -37,6 +39,12 @@ export type EcdsaRoleLocalExportMaterial = {
   readyRecord: EcdsaRoleLocalReadyRecord;
   contextBinding32B64u: string;
   clientShareRetryCounter: number;
+};
+
+export type EcdsaRoleLocalInlineSigningMaterial = {
+  readyRecord: EcdsaRoleLocalReadyRecord;
+  clientAdditiveShare32B64u: string;
+  clientSigningShare32: Uint8Array;
 };
 
 export type EcdsaRoleLocalWorkerExportMaterial = EcdsaRoleLocalExportMaterial & {
@@ -205,6 +213,9 @@ export function parseEcdsaRoleLocalReadyRecord(input: unknown): EcdsaRoleLocalRe
 function thresholdEcdsaSessionRecordAsRoleLocalReadyRecord(
   record: ThresholdEcdsaSessionRecord,
 ): EcdsaRoleLocalReadyRecord {
+  if (record.ecdsaRoleLocalReadyRecord) {
+    return parseEcdsaRoleLocalReadyRecord(record.ecdsaRoleLocalReadyRecord);
+  }
   const state = record.ecdsaHssRoleLocalClientState;
   if (!state) {
     throw new Error('[platform][ecdsa-role-local] session record is missing role-local state');
@@ -270,11 +281,7 @@ export function parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(
 
 export function thresholdEcdsaRecordHasInlineRoleLocalSigningMaterial(input: unknown): boolean {
   try {
-    const record = parseRawThresholdEcdsaSessionRecord(input);
-    if (!String(record.clientAdditiveShare32B64u || '').trim()) {
-      return false;
-    }
-    thresholdEcdsaSessionRecordAsRoleLocalReadyRecord(record);
+    parseThresholdEcdsaSessionRecordAsInlineRoleLocalSigningMaterial(input);
     return true;
   } catch {
     return false;
@@ -282,19 +289,127 @@ export function thresholdEcdsaRecordHasInlineRoleLocalSigningMaterial(input: unk
 }
 
 export function thresholdEcdsaRecordHasRoleLocalSigningMaterial(input: unknown): boolean {
-  try {
-    const record = parseRawThresholdEcdsaSessionRecord(input);
-    const handle = record.clientAdditiveShareHandle;
-    if (
-      handle?.kind === 'email_otp_worker_session' &&
-      String(handle.sessionId || '').trim()
-    ) {
+  const state = classifyThresholdEcdsaSessionRecordRoleLocalState({
+    record: input,
+    nowMs: Date.now(),
+  });
+  switch (state.kind) {
+    case 'ready_passkey_role_local_material_v1':
+    case 'ready_email_otp_role_local_material_v1':
       return true;
-    }
-    return thresholdEcdsaRecordHasInlineRoleLocalSigningMaterial(record);
-  } catch {
-    return false;
+    case 'reauth_required_role_local_material_v1':
+    case 'cleanup_only_raw_role_local_record_v1':
+      return false;
+    default:
+      return assertNeverPlatform(state);
   }
+}
+
+export function classifyThresholdEcdsaSessionRecordRoleLocalState(args: {
+  record: unknown;
+  nowMs: number;
+}): EcdsaRoleLocalSessionRecordState {
+  let record: ThresholdEcdsaSessionRecord;
+  let readyRecord: EcdsaRoleLocalReadyRecord;
+  try {
+    record = parseRawThresholdEcdsaSessionRecord(args.record);
+    readyRecord = thresholdEcdsaSessionRecordAsRoleLocalReadyRecord(record);
+  } catch (error) {
+    return {
+      kind: 'cleanup_only_raw_role_local_record_v1',
+      reason: 'malformed_record',
+      message:
+        error instanceof Error
+          ? error.message
+          : '[platform][ecdsa-role-local] malformed role-local record',
+    };
+  }
+
+  const authMethod = record.source === 'email_otp' ? 'email_otp' : 'passkey';
+  const remainingUses = Math.floor(Number(record.remainingUses) || 0);
+  if (remainingUses <= 0) {
+    return {
+      kind: 'reauth_required_role_local_material_v1',
+      authMethod,
+      readyRecord,
+      reason: 'exhausted',
+    };
+  }
+  const expiresAtMs = Math.floor(Number(record.expiresAtMs) || 0);
+  if (expiresAtMs <= Math.floor(Number(args.nowMs) || 0)) {
+    return {
+      kind: 'reauth_required_role_local_material_v1',
+      authMethod,
+      readyRecord,
+      reason: 'expired',
+    };
+  }
+
+  const handle = record.clientAdditiveShareHandle;
+  const workerSessionId =
+    handle?.kind === 'email_otp_worker_session'
+      ? String(handle.sessionId || '').trim()
+      : '';
+  if (authMethod === 'email_otp' && workerSessionId) {
+    if (String(record.clientAdditiveShare32B64u || '').trim()) {
+      return {
+        kind: 'reauth_required_role_local_material_v1',
+        authMethod,
+        readyRecord,
+        reason: 'unsupported_material_owner',
+      };
+    }
+    return {
+      kind: 'ready_email_otp_role_local_material_v1',
+      authMethod,
+      readyRecord,
+      inlineSigningMaterial: {
+        kind: 'email_otp_worker_share',
+        workerSessionId,
+      },
+    };
+  }
+  if (authMethod === 'passkey' && workerSessionId) {
+    return {
+      kind: 'reauth_required_role_local_material_v1',
+      authMethod,
+      readyRecord,
+      reason: 'unsupported_material_owner',
+    };
+  }
+
+  let inlineMaterial: EcdsaRoleLocalInlineSigningMaterial;
+  try {
+    inlineMaterial = parseThresholdEcdsaSessionRecordAsInlineRoleLocalSigningMaterial(record);
+  } catch {
+    return {
+      kind: 'reauth_required_role_local_material_v1',
+      authMethod,
+      readyRecord,
+      reason: authMethod === 'email_otp' ? 'missing_worker_share' : 'missing_inline_share',
+    };
+  }
+
+  if (authMethod === 'email_otp') {
+    return {
+      kind: 'ready_email_otp_role_local_material_v1',
+      authMethod,
+      readyRecord,
+      inlineSigningMaterial: {
+        kind: 'inline_client_share',
+        clientAdditiveShare32B64u: inlineMaterial.clientAdditiveShare32B64u,
+      },
+    };
+  }
+  return {
+    kind: 'ready_passkey_role_local_material_v1',
+    authMethod,
+    readyRecord,
+    inlineSigningMaterial: {
+      kind: 'inline_client_share',
+      clientAdditiveShare32B64u: inlineMaterial.clientAdditiveShare32B64u,
+    },
+  };
 }
 
 export function parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial(
@@ -320,6 +435,27 @@ function thresholdEcdsaSessionRecordAsRoleLocalExportMaterial(
       32,
     ),
     clientShareRetryCounter: Math.max(0, Math.floor(Number(state.clientShareRetryCounter))),
+  };
+}
+
+export function parseThresholdEcdsaSessionRecordAsInlineRoleLocalSigningMaterial(
+  input: unknown,
+): EcdsaRoleLocalInlineSigningMaterial {
+  const record = parseRawThresholdEcdsaSessionRecord(input);
+  if (record.clientAdditiveShareHandle) {
+    throw new Error(
+      '[platform][ecdsa-role-local] inline signing material cannot use a worker handle',
+    );
+  }
+  const clientAdditiveShare32B64u = parseBase64UrlBytes(
+    record.clientAdditiveShare32B64u,
+    'clientAdditiveShare32B64u',
+    32,
+  );
+  return {
+    readyRecord: thresholdEcdsaSessionRecordAsRoleLocalReadyRecord(record),
+    clientAdditiveShare32B64u,
+    clientSigningShare32: base64UrlDecode(clientAdditiveShare32B64u),
   };
 }
 

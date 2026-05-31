@@ -75,8 +75,8 @@ function makeRecord(
     signingRootId: 'project:dev',
     signingRootVersion: 'default',
     relayerKeyId: 'relayer-key',
-    clientVerifyingShareB64u: 'client-verifying-share',
-    clientAdditiveShare32B64u: 'client-share',
+    clientVerifyingShareB64u: VALID_PUBLIC_KEY_B64U,
+    clientAdditiveShare32B64u: VALID_SHARE_32_B64U,
     ecdsaHssRoleLocalClientState: {
       kind: 'role_local_ready',
       artifactKind: 'ecdsa-hss-role-local-client-state',
@@ -127,8 +127,8 @@ function makeKeyRef(
     backendBinding: {
       materialKind: 'inline_role_local_ready',
       relayerKeyId: 'relayer-key',
-      clientVerifyingShareB64u: 'client-verifying-share',
-      clientAdditiveShare32B64u: 'client-share',
+      clientVerifyingShareB64u: VALID_PUBLIC_KEY_B64U,
+      clientAdditiveShare32B64u: VALID_SHARE_32_B64U,
       ecdsaRoleLocalReadyRecord: parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(
         makeRecord(),
       ),
@@ -318,7 +318,7 @@ test.describe('EVM-family ECDSA identity', () => {
     if (signerSession.clientShare.kind !== 'inline_client_share') {
       throw new Error('expected inline client share');
     }
-    expect(signerSession.clientShare.clientAdditiveShare32B64u).toBe('client-share');
+    expect(signerSession.clientShare.clientAdditiveShare32B64u).toBe(VALID_SHARE_32_B64U);
     expect('keyRef' in signerSession).toBe(false);
     expect('thresholdSessionAuthToken' in signerSession).toBe(false);
   });
@@ -450,7 +450,7 @@ test.describe('EVM-family ECDSA identity', () => {
       backendBinding: {
         materialKind: 'email_otp_worker_handle',
         relayerKeyId: 'relayer-key',
-        clientVerifyingShareB64u: 'client-verifying-share',
+        clientVerifyingShareB64u: VALID_PUBLIC_KEY_B64U,
         clientAdditiveShareHandle: {
           kind: 'email_otp_worker_session',
           sessionId: 'email-otp-worker-share-1',
@@ -492,7 +492,7 @@ test.describe('EVM-family ECDSA identity', () => {
       backendBinding: {
         materialKind: 'metadata_only',
         relayerKeyId: 'relayer-key',
-        clientVerifyingShareB64u: 'client-verifying-share',
+        clientVerifyingShareB64u: VALID_PUBLIC_KEY_B64U,
       },
     });
     const publicFacts = await toVerifiedEcdsaPublicFactsFromKeyRef({ keyRef });

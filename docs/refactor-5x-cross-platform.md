@@ -2,8 +2,10 @@
 
 Date created: 2026-05-27
 Status: in progress. Phases 0, 1, 1.5, the ECDSA signer-crypto boundary slice,
-and Phase 2 typed durable ECDSA repository wiring are complete. The next
-implementation slice is Phase 3 ECDSA persistence/key-ref cleanup.
+Phase 2 typed durable ECDSA repository wiring, and the Phase 3 ECDSA
+persistence/key-ref cleanup are complete. The next implementation slice is
+Phase 5 client-secret/provisioning strictness, followed by Phase 6 Rust/WASM
+implementation of the existing signer-crypto contract.
 
 ## Scope
 
@@ -225,6 +227,12 @@ export type PlatformRuntime = {
   random: RandomSource;
 };
 ```
+
+`PlatformRuntime` is an assembly-time aggregate only. Core signing, recovery,
+registration, and provisioning modules must receive the narrowest port they use,
+for example `SignerCryptoPort` or `DurableRecordStore`, never the whole runtime.
+This keeps the platform layer from becoming a service locator and keeps test
+fixtures honest about each module's actual dependency boundary.
 
 Port decisions for this refactor:
 
@@ -948,13 +956,17 @@ Tasks:
       or a new neutral persistence module.
 - [x] Keep IndexedDB schema, indexes, key ranges, and transactions inside
       `client/src/core/indexedDB/*`.
-- [ ] Add strict internal unions for ECDSA role-local session records:
+- [x] Add strict internal unions for ECDSA role-local session records:
       ready passkey material, ready Email OTP material, reauth-required
       material, and invalid or cleanup-only raw records.
 - [x] Keep Ed25519 record changes out of this phase unless a touched ECDSA
       parser requires a shared helper.
-- [ ] Remove repeated ECDSA role-local compatibility parsing from core signing
+- [x] Remove repeated ECDSA role-local compatibility parsing from core signing
       modules after the neutral parser exists.
+- [x] Add a named deletion gate for `legacy_raw_role_local_v1` parsing:
+      remove it in the Phase 3 cleanup pass after the next development data
+      reset or before Phase 6 signer-core replacement begins, whichever comes
+      first.
 
 Acceptance criteria:
 
@@ -1063,13 +1075,13 @@ strict secret-source branches.
 Tasks:
 
 - [x] Add `ClientSecretSource` and branch-specific builders.
-- [ ] Convert browser WebAuthn credential parsing into a boundary builder that
+- [x] Convert browser WebAuthn credential parsing into a boundary builder that
       returns `webauthn_prf_first`.
 - [x] Define `email_otp_worker_session` as a worker-owned opaque handle and
       reject attempts to pass Email OTP root-share bytes through core TypeScript.
 - [ ] Make ECDSA and Ed25519 provisioning functions accept exact supported
       secret-source branches.
-- [ ] Keep unsupported future branches as explicit dispatch failures, not broad
+- [x] Keep unsupported future branches as explicit dispatch failures, not broad
       optional bags.
 - [x] Add type fixtures rejecting missing identity fields for every concrete
       branch.
@@ -1089,7 +1101,7 @@ Validation:
   `derivePasskeyThresholdEcdsaClientRootShare32B64uFromPrfFirst` and current
   registration/login bootstrap flows.
 
-## Phase 6: Internalize One Crypto Boundary Slice
+## Phase 6: Implement The Existing Crypto Boundary In Rust/WASM
 
 Use the existing Rust/WASM crypto baseline to move one helper-shaped TypeScript
 workflow behind a coarse signer command. This is the MVP of the cryptographic
@@ -1141,8 +1153,11 @@ TypeScript should own:
 
 Tasks:
 
-- [ ] Define `prepareEcdsaClientBootstrap` and
-      `finalizeEcdsaClientBootstrap` on `SignerCryptoPort`.
+- [ ] Implement the existing `prepareEcdsaClientBootstrap` and
+      `finalizeEcdsaClientBootstrap` `SignerCryptoPort` contract in
+      `signer-core` and the WASM adapter. Do not reopen the TypeScript port
+      shape in this phase unless a parity fixture proves the existing contract
+      is unsound.
 - [ ] Add the reusable signer-core command that implements HKDF/client-root
       derivation, share mapping, public fact validation, pending state
       serialization, and ready state finalization.
@@ -1525,6 +1540,67 @@ export type EcdsaRoleLocalReadyRecord = {
 };
 ```
 
+The internal session-state union is:
+
+```ts
+export type EcdsaRoleLocalSessionRecordState =
+  | {
+      kind: 'ready_passkey_role_local_material_v1';
+      authMethod: 'passkey';
+      readyRecord: EcdsaRoleLocalReadyRecord;
+      inlineSigningMaterial: {
+        kind: 'inline_client_share';
+        clientAdditiveShare32B64u: string;
+      };
+      workerHandle?: never;
+      reauth?: never;
+      cleanup?: never;
+    }
+  | {
+      kind: 'ready_email_otp_role_local_material_v1';
+      authMethod: 'email_otp';
+      readyRecord: EcdsaRoleLocalReadyRecord;
+      inlineSigningMaterial:
+        | {
+            kind: 'inline_client_share';
+            clientAdditiveShare32B64u: string;
+          }
+        | {
+            kind: 'email_otp_worker_share';
+            workerSessionId: string;
+          };
+      reauth?: never;
+      cleanup?: never;
+    }
+  | {
+      kind: 'reauth_required_role_local_material_v1';
+      authMethod: 'passkey' | 'email_otp';
+      readyRecord: EcdsaRoleLocalReadyRecord;
+      reason:
+        | 'missing_inline_share'
+        | 'missing_worker_share'
+        | 'expired'
+        | 'exhausted'
+        | 'unsupported_material_owner';
+      inlineSigningMaterial?: never;
+      workerHandle?: never;
+      cleanup?: never;
+    }
+  | {
+      kind: 'cleanup_only_raw_role_local_record_v1';
+      reason: 'malformed_record' | 'legacy_after_reset' | 'identity_mismatch';
+      message: string;
+      readyRecord?: never;
+      inlineSigningMaterial?: never;
+      workerHandle?: never;
+      reauth?: never;
+    };
+```
+
+Core modules may switch on this union, but they must not inspect raw record
+fields to decide readiness. The parser owns every conversion from raw DB,
+session, or worker shapes into this union.
+
 The raw boundary record is:
 
 ```ts
@@ -1573,9 +1649,10 @@ Consumers that must move to `EcdsaRoleLocalReadyRecord` only:
 
 Deletion rule:
 
-- After the in-development data reset, remove
-  `legacy_raw_role_local_v1` parsing and all references to raw share fields
-  outside tests that assert deletion.
+- **Deletion gate `ecdsa-role-local-legacy-reset`:** after the next
+  in-development data reset, or before Phase 6 starts replacing the TypeScript
+  helper pipeline, remove `legacy_raw_role_local_v1` parsing and all references
+  to raw share fields outside tests that assert deletion.
 
 ### Phase 4 Prepare/Finalize Mapping
 
@@ -1852,7 +1929,7 @@ to a single PR where practical.
       fields.
 - [x] Add `EcdsaRoleLocalPublicFacts`, `EcdsaRoleLocalReadyRecord`, and
       `EcdsaRoleLocalRecordParseResult` to the neutral persistence module.
-- [ ] Ensure old raw role-local records are read only by the persistence boundary
+- [x] Ensure old raw role-local records are read only by the persistence boundary
       parser and all new writes use `ready_blob_v1`.
 - [ ] Update `ThresholdEcdsaBackendBinding` so signing material is represented
       by an opaque state blob or typed handle.
@@ -1874,6 +1951,10 @@ to a single PR where practical.
 - [x] Attach `EcdsaRoleLocalReadyRecord` from registration and activation
       key-ref producers so downstream code can consume normalized role-local
       state without reconstructing it.
+- [x] Route warm-signing and reusable-bootstrap inline share extraction through
+      the role-local parser boundary.
+- [x] Route EVM-family key-ref inline backend binding extraction through the
+      role-local parser boundary.
 - [ ] Remove `clientAdditiveShare32B64u` from active core signing paths after
       the opaque state path is complete.
 
@@ -1904,6 +1985,7 @@ to a single PR where practical.
 - [x] Add persistence tests for the ready opaque role-local state record shape.
 - [x] Add import guards for platform leakage and raw HSS share-field leakage in
       core modules.
+- [x] Add a guard that keeps `PlatformRuntime` as an assembly-only aggregate.
 - [ ] Add export tests that use opaque state and reject missing public identity.
 - [x] Run `npx tsc --noEmit -p sdk/tsconfig.build.json`.
 - [x] Run targeted ECDSA HSS unit tests.

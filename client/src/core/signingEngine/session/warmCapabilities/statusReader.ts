@@ -1,6 +1,6 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
-import { thresholdEcdsaRecordHasInlineRoleLocalSigningMaterial } from '@/core/platform/ecdsaRoleLocalRecords';
+import { classifyThresholdEcdsaSessionRecordRoleLocalState } from '@/core/platform/ecdsaRoleLocalRecords';
 import type { WarmSessionStatusResult } from '../../uiConfirm/types';
 import {
   ThresholdEcdsaSessionRecord,
@@ -22,7 +22,6 @@ import {
   type DiscoveredSigningSessionLane,
   readWalletScopedLaneClaimsForLanes,
   readWalletScopedLaneClaimsForWallet as readWalletScopedLaneClaimsForWalletCore,
-  resolveEmailOtpEcdsaWorkerSessionId,
   warmClaimFromRecordPolicy,
 } from '../availability/readiness';
 import {
@@ -142,16 +141,29 @@ export function createWarmSessionStatusReader(
     const identity = tryBuildEcdsaSessionIdentity(record);
     if (!identity) return null;
     if (record.source === 'email_otp') {
-      if (thresholdEcdsaRecordHasInlineRoleLocalSigningMaterial(record)) {
+      const roleLocalState = classifyThresholdEcdsaSessionRecordRoleLocalState({
+        record,
+        nowMs: Date.now(),
+      });
+      if (
+        roleLocalState.kind === 'ready_email_otp_role_local_material_v1' &&
+        roleLocalState.inlineSigningMaterial.kind === 'inline_client_share'
+      ) {
         return warmClaimFromRecordPolicy({
           sessionId: identity.thresholdSessionId,
           remainingUses: record.remainingUses,
           expiresAtMs: record.expiresAtMs,
         });
       }
-      const workerSessionId = resolveEmailOtpEcdsaWorkerSessionId(record);
-      if (!workerSessionId) return null;
-      const status = await deps.getEmailOtpWarmSessionStatus(workerSessionId).catch(() => null);
+      if (
+        roleLocalState.kind !== 'ready_email_otp_role_local_material_v1' ||
+        roleLocalState.inlineSigningMaterial.kind !== 'email_otp_worker_share'
+      ) {
+        return null;
+      }
+      const status = await deps
+        .getEmailOtpWarmSessionStatus(roleLocalState.inlineSigningMaterial.workerSessionId)
+        .catch(() => null);
       return status
         ? toWarmSessionClaimFromStatusResult({ sessionId: identity.thresholdSessionId, status })
         : null;

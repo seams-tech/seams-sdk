@@ -5,7 +5,7 @@ import {
 } from '@/core/signingEngine/stepUpConfirmation/types';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
-import { thresholdEcdsaRecordHasInlineRoleLocalSigningMaterial } from '@/core/platform/ecdsaRoleLocalRecords';
+import { classifyThresholdEcdsaSessionRecordRoleLocalState } from '@/core/platform/ecdsaRoleLocalRecords';
 import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { EmailOtpEcdsaSigningBootstrapResult } from '../../interfaces/operationDeps';
 import type { WarmSessionStatusReader, WarmSessionStatusResult } from '../../uiConfirm/types';
@@ -17,7 +17,6 @@ import {
   isSigningSessionBudgetExhaustedError,
   type SigningSessionBudgetStatusAuth,
 } from '../../session/budget/budget';
-import { resolveEmailOtpEcdsaWorkerSessionId } from '../../session/availability/readiness';
 import type { SigningSessionPlan } from '../../session/operationState/types';
 import { SigningOperationIntent, SigningSessionPlanKind } from '../../session/operationState/types';
 import type { PreparedThresholdSigningOperation } from '../../session/operationState/preparedOperation';
@@ -152,16 +151,26 @@ export async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
 
   const materialIsEmailOtp = isEmailOtpThresholdEcdsaSigningContext({ record });
   if (materialIsEmailOtp) {
-    if (thresholdEcdsaRecordHasInlineRoleLocalSigningMaterial(record)) {
+    const roleLocalState = classifyThresholdEcdsaSessionRecordRoleLocalState({
+      record,
+      nowMs: Date.now(),
+    });
+    if (
+      roleLocalState.kind === 'ready_email_otp_role_local_material_v1' &&
+      roleLocalState.inlineSigningMaterial.kind === 'inline_client_share'
+    ) {
       return buildBackingReadiness({
         expiresAtMs: record.expiresAtMs,
         remainingUses: record.remainingUses,
       });
     }
-    const emailOtpWorkerSessionId = resolveEmailOtpEcdsaWorkerSessionId(record);
     const status =
-      emailOtpWorkerSessionId && typeof args.deps.getEmailOtpWarmSessionStatus === 'function'
-        ? await args.deps.getEmailOtpWarmSessionStatus(emailOtpWorkerSessionId).catch(() => null)
+      roleLocalState.kind === 'ready_email_otp_role_local_material_v1' &&
+      roleLocalState.inlineSigningMaterial.kind === 'email_otp_worker_share' &&
+      typeof args.deps.getEmailOtpWarmSessionStatus === 'function'
+        ? await args.deps
+            .getEmailOtpWarmSessionStatus(roleLocalState.inlineSigningMaterial.workerSessionId)
+            .catch(() => null)
         : null;
     const statusExpiresAtMs = status?.ok ? status.expiresAtMs : 0;
     const statusRemainingUses = status?.ok ? status.remainingUses : 0;

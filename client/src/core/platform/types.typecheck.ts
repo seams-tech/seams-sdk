@@ -17,7 +17,9 @@ import type {
   AuthenticatorResult,
   ClientSecretSource,
   EcdsaRoleLocalPendingStateBlob,
+  EcdsaRoleLocalReadyRecord,
   EcdsaRoleLocalReadyStateBlob,
+  EcdsaRoleLocalSessionRecordState,
   EmailOtpWorkerIssuedSessionHandle,
   PlatformResult,
   PlatformRuntime,
@@ -44,6 +46,7 @@ declare const hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
 declare const relayerPublicKey33B64u: EcdsaRelayerHssPublicKey33B64u;
 declare const pendingBlob: EcdsaRoleLocalPendingStateBlob;
 declare const readyBlob: EcdsaRoleLocalReadyStateBlob;
+declare const readyRecord: EcdsaRoleLocalReadyRecord;
 declare const requiredPrfAuthenticatorSuccess: RequiredPrfAuthenticatorSuccess;
 
 const emailOtpWorkerIssuedSessionHandleFromBuilder = buildEmailOtpWorkerIssuedSessionHandle({
@@ -129,7 +132,6 @@ switch (secretSource.kind) {
 
 runtime.signerCrypto.prepareEcdsaClientBootstrap({
   ...prepareInput,
-  // @ts-expect-error secure enclave sources are unsupported by the MVP ECDSA bootstrap command
   secretSource: buildSecureEnclaveWrappedSecretSource({
     keyId: 'key',
     accessGroup: 'group',
@@ -138,7 +140,6 @@ runtime.signerCrypto.prepareEcdsaClientBootstrap({
 
 runtime.signerCrypto.prepareEcdsaClientBootstrap({
   ...prepareInput,
-  // @ts-expect-error FIDO2 HMAC secret sources are unsupported by the MVP ECDSA bootstrap command
   secretSource: buildFido2HmacSecretSource({
     credentialIdB64u: 'credential',
     rpId: toRpId('wallet.example'),
@@ -300,6 +301,42 @@ declare function useReadyBlob(blob: EcdsaRoleLocalReadyStateBlob): void;
 // @ts-expect-error pending ECDSA blobs cannot be used as ready signing/export material
 useReadyBlob(pendingBlob);
 useReadyBlob(readyBlob);
+
+const passkeyReadyRoleLocalState = {
+  kind: 'ready_passkey_role_local_material_v1',
+  authMethod: 'passkey',
+  readyRecord,
+  inlineSigningMaterial: {
+    kind: 'inline_client_share',
+    clientAdditiveShare32B64u: 'share',
+  },
+} satisfies EcdsaRoleLocalSessionRecordState;
+void passkeyReadyRoleLocalState;
+
+const passkeyWorkerRoleLocalState = {
+  kind: 'ready_passkey_role_local_material_v1',
+  authMethod: 'passkey',
+  readyRecord,
+  inlineSigningMaterial: {
+    kind: 'email_otp_worker_share',
+    workerSessionId: 'otp-session',
+  },
+};
+// @ts-expect-error passkey-ready role-local state cannot carry Email OTP worker material
+passkeyWorkerRoleLocalState satisfies EcdsaRoleLocalSessionRecordState;
+
+const reauthWithInlineRoleLocalState = {
+  kind: 'reauth_required_role_local_material_v1',
+  authMethod: 'email_otp',
+  readyRecord,
+  reason: 'expired',
+  inlineSigningMaterial: {
+    kind: 'inline_client_share',
+    clientAdditiveShare32B64u: 'share',
+  },
+};
+// @ts-expect-error reauth-required role-local state cannot carry ready signing material
+reauthWithInlineRoleLocalState satisfies EcdsaRoleLocalSessionRecordState;
 
 const incompletePlatformRuntime = {
   kind: 'browser',

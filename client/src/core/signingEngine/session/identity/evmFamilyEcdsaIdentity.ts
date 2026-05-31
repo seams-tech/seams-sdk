@@ -14,6 +14,7 @@ import type {
   ThresholdEcdsaSecp256k1KeyRef,
 } from '../../interfaces/signing';
 import {
+  parseThresholdEcdsaSessionRecordAsInlineRoleLocalSigningMaterial,
   parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord,
   thresholdEcdsaRecordHasRoleLocalSigningMaterial,
 } from '@/core/platform/ecdsaRoleLocalRecords';
@@ -1143,6 +1144,15 @@ export function buildThresholdEcdsaSecp256k1KeyRefFromSessionRecord(args: {
   const record = args.record;
   const signingRootBinding = resolveThresholdSigningRootBindingFromRecord({ record });
   const ecdsaRoleLocalReadyRecord = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(record);
+  const inlineSigningMaterial = record.clientAdditiveShareHandle
+    ? null
+    : (() => {
+        try {
+          return parseThresholdEcdsaSessionRecordAsInlineRoleLocalSigningMaterial(record);
+        } catch {
+          return null;
+        }
+      })();
   const backendBinding = record.clientAdditiveShareHandle
     ? {
         materialKind: 'email_otp_worker_handle' as const,
@@ -1154,12 +1164,12 @@ export function buildThresholdEcdsaSecp256k1KeyRefFromSessionRecord(args: {
           ? { ecdsaHssRoleLocalClientState: record.ecdsaHssRoleLocalClientState }
           : {}),
       }
-    : record.clientAdditiveShare32B64u
+    : inlineSigningMaterial
       ? {
           materialKind: 'inline_role_local_ready' as const,
           relayerKeyId: record.relayerKeyId,
           clientVerifyingShareB64u: record.clientVerifyingShareB64u,
-          clientAdditiveShare32B64u: record.clientAdditiveShare32B64u,
+          clientAdditiveShare32B64u: inlineSigningMaterial.clientAdditiveShare32B64u,
           ecdsaRoleLocalReadyRecord,
           ...(record.ecdsaHssRoleLocalClientState
             ? { ecdsaHssRoleLocalClientState: record.ecdsaHssRoleLocalClientState }

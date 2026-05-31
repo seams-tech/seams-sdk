@@ -1,5 +1,7 @@
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
-import { base64UrlDecode } from '@shared/utils/base64';
+import {
+  parseThresholdEcdsaSessionRecordAsInlineRoleLocalSigningMaterial,
+} from '@/core/platform/ecdsaRoleLocalRecords';
 import type { ThresholdEcdsaCanonicalExportArtifact } from '../../interfaces/signing';
 import {
   getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
@@ -217,20 +219,8 @@ export function createWarmCapabilitiesPublicDeps(args: {
           sessionId: emailOtpWorkerShareSessionId,
         });
       }
-      const clientAdditiveShare32B64u = String(record.clientAdditiveShare32B64u || '').trim();
-      if (!clientAdditiveShare32B64u) {
-        throw new Error('missing ECDSA signing material');
-      }
-      let clientSigningShare32: Uint8Array;
-      try {
-        clientSigningShare32 = base64UrlDecode(clientAdditiveShare32B64u);
-      } catch {
-        throw new Error('clientAdditiveShare32B64u must be valid base64url');
-      }
-      if (clientSigningShare32.length !== 32) {
-        throw new Error('clientAdditiveShare32B64u must decode to 32 bytes');
-      }
-      return clientSigningShare32;
+      return parseThresholdEcdsaSessionRecordAsInlineRoleLocalSigningMaterial(record)
+        .clientSigningShare32;
     },
   };
 }

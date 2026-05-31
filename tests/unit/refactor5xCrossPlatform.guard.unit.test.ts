@@ -100,6 +100,14 @@ const secretSourceCastPatterns = [
   /\bas\s+Fido2HmacSecretSource\b/,
 ];
 
+const platformRuntimeAssemblyAllowlist = new Set([
+  'client/src/core/signingEngine/SigningEngine.ts',
+  'client/src/core/signingEngine/assembly/createPorts.ts',
+  'client/src/core/signingEngine/assembly/ports/evmFamily.ts',
+  'client/src/core/signingEngine/assembly/ports/near.ts',
+  'client/src/core/signingEngine/assembly/ports/shared.ts',
+]);
+
 test.describe('refactor 5x cross-platform guards', () => {
   test('keeps platform APIs behind known adapter boundaries', () => {
     const violations: string[] = [];
@@ -138,6 +146,18 @@ test.describe('refactor 5x cross-platform guards', () => {
         if (pattern.test(source)) {
           violations.push(`${file}: ${pattern}`);
         }
+      }
+    }
+    expect(violations, violations.join('\n')).toEqual([]);
+  });
+
+  test('keeps PlatformRuntime as an assembly-only aggregate', () => {
+    const violations: string[] = [];
+    for (const file of listTypeScriptFiles('client/src/core/signingEngine')) {
+      if (platformRuntimeAssemblyAllowlist.has(file)) continue;
+      const source = readRepoFile(file);
+      if (/\bPlatformRuntime\b/.test(source) || /\bcreateBrowserPlatformRuntime\b/.test(source)) {
+        violations.push(file);
       }
     }
     expect(violations, violations.join('\n')).toEqual([]);

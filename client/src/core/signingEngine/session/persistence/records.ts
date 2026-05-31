@@ -62,6 +62,7 @@ import {
   type ThresholdRuntimePolicyScope,
 } from '../../threshold/sessionPolicy';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/types';
 
 export type ThresholdSessionCurve = 'ed25519' | 'ecdsa';
 
@@ -84,6 +85,7 @@ type ThresholdEcdsaSessionRecordCore = {
   clientVerifyingShareB64u: string;
   clientAdditiveShare32B64u?: string;
   clientAdditiveShareHandle?: ThresholdEcdsaClientAdditiveShareHandle;
+  ecdsaRoleLocalReadyRecord?: EcdsaRoleLocalReadyRecord;
   ecdsaHssRoleLocalClientState?: ThresholdEcdsaHssRoleLocalClientState;
   participantIds: number[];
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -926,6 +928,9 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
   const clientAdditiveShareHandle = normalizeThresholdEcdsaClientAdditiveShareHandle(
     obj.clientAdditiveShareHandle,
   );
+  const ecdsaRoleLocalReadyRecord = normalizeEcdsaRoleLocalReadyRecord(
+    obj.ecdsaRoleLocalReadyRecord,
+  );
   const ecdsaHssRoleLocalClientState = normalizeThresholdEcdsaHssRoleLocalClientState(
     obj.ecdsaHssRoleLocalClientState,
   );
@@ -1022,6 +1027,7 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
       : {}),
     relayerKeyId,
     clientVerifyingShareB64u,
+    ...(ecdsaRoleLocalReadyRecord ? { ecdsaRoleLocalReadyRecord } : {}),
     ...(ecdsaHssRoleLocalClientState ? { ecdsaHssRoleLocalClientState } : {}),
     participantIds,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
@@ -1117,6 +1123,20 @@ function normalizeThresholdEcdsaHssRoleLocalClientState(
     throw new Error('Invalid threshold ECDSA role-local client state');
   }
   return state;
+}
+
+function normalizeEcdsaRoleLocalReadyRecord(value: unknown): EcdsaRoleLocalReadyRecord | null {
+  const obj = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+  if (String(obj.kind || '').trim() !== 'ecdsa_role_local_ready_record_v1') {
+    return null;
+  }
+  if (!obj.stateBlob || typeof obj.stateBlob !== 'object' || Array.isArray(obj.stateBlob)) {
+    return null;
+  }
+  if (!obj.publicFacts || typeof obj.publicFacts !== 'object' || Array.isArray(obj.publicFacts)) {
+    return null;
+  }
+  return obj as unknown as EcdsaRoleLocalReadyRecord;
 }
 
 function normalizeThresholdEcdsaClientAdditiveShareHandle(
@@ -1719,6 +1739,9 @@ function buildEcdsaRecordFromBootstrap(
   const clientAdditiveShare32B64u = clientAdditiveShareHandle
     ? undefined
     : inlineClientAdditiveShare32B64u;
+  const ecdsaRoleLocalReadyRecord = normalizeEcdsaRoleLocalReadyRecord(
+    keyRef.backendBinding?.ecdsaRoleLocalReadyRecord,
+  );
   const ecdsaHssRoleLocalClientState = normalizeThresholdEcdsaHssRoleLocalClientState(
     keyRef.backendBinding?.ecdsaHssRoleLocalClientState,
   );
@@ -1733,8 +1756,10 @@ function buildEcdsaRecordFromBootstrap(
       '[SigningEngine] threshold ECDSA bootstrap did not provide thresholdSessionAuthToken',
     );
   }
-  if (!ecdsaHssRoleLocalClientState) {
-    throw new Error('[SigningEngine] threshold ECDSA bootstrap did not provide role-local state');
+  if (!ecdsaRoleLocalReadyRecord && !ecdsaHssRoleLocalClientState) {
+    throw new Error(
+      '[SigningEngine] threshold ECDSA bootstrap did not provide role-local ready record',
+    );
   }
 
   return normalizeThresholdEcdsaSessionRecord({
@@ -1752,7 +1777,8 @@ function buildEcdsaRecordFromBootstrap(
     clientVerifyingShareB64u: keyRef.backendBinding?.clientVerifyingShareB64u,
     ...(clientAdditiveShare32B64u ? { clientAdditiveShare32B64u } : {}),
     ...(clientAdditiveShareHandle ? { clientAdditiveShareHandle } : {}),
-    ecdsaHssRoleLocalClientState,
+    ...(ecdsaRoleLocalReadyRecord ? { ecdsaRoleLocalReadyRecord } : {}),
+    ...(ecdsaRoleLocalReadyRecord ? {} : { ecdsaHssRoleLocalClientState }),
     participantIds,
     thresholdSessionKind,
     thresholdSessionId,

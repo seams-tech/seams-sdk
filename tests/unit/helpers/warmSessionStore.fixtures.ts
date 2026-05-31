@@ -88,6 +88,8 @@ function testEcdsaChainId(chain: ThresholdEcdsaActivationChain): number {
 }
 
 const VALID_ECDSA_PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U = 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const VALID_ECDSA_SHARE32_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
 export function testEcdsaChainTarget(
   chain: ThresholdEcdsaActivationChain,
@@ -230,10 +232,10 @@ export function createThresholdEcdsaBootstrapFixture(args: {
   const rpId = String(args.rpId || 'localhost').trim();
   const relayerKeyId = String(args.relayerKeyId || `rk-${chainLabel}-1`).trim();
   const clientVerifyingShareB64u = String(
-    args.clientVerifyingShareB64u || `cvs-${chainLabel}-1`,
+    args.clientVerifyingShareB64u || VALID_ECDSA_PUBLIC_KEY_B64U,
   ).trim();
   const clientAdditiveShare32B64u = String(
-    args.clientAdditiveShare32B64u || `cas-${chainLabel}-1`,
+    args.clientAdditiveShare32B64u || VALID_ECDSA_SHARE32_B64U,
   ).trim();
   const participantIds = args.participantIds || [1, 2];
   const ethereumAddress = args.ethereumAddress || `0x${'11'.repeat(20)}`;
@@ -250,17 +252,17 @@ export function createThresholdEcdsaBootstrapFixture(args: {
   const ecdsaHssRoleLocalClientState: ThresholdEcdsaHssRoleLocalClientState = {
     kind: 'role_local_ready',
     artifactKind: 'ecdsa-hss-role-local-client-state',
-    contextBinding32B64u: `ctx-${chainLabel}-1`,
+    contextBinding32B64u: VALID_ECDSA_SHARE32_B64U,
     clientShare32B64u: clientAdditiveShare32B64u,
-    clientPublicKey33B64u: `client-public-${chainLabel}-1`,
+    clientPublicKey33B64u: clientVerifyingShareB64u,
     clientShareRetryCounter: 0,
-    relayerPublicKey33B64u: `relayer-public-${chainLabel}-1`,
+    relayerPublicKey33B64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
     groupPublicKey33B64u: VALID_ECDSA_PUBLIC_KEY_B64U,
     ethereumAddress,
     clientCaitSithInput: {
       participantId: 1,
-      mappedPrivateShare32B64u: `mapped-share-${chainLabel}-1`,
-      verifyingShare33B64u: `verifying-share-${chainLabel}-1`,
+      mappedPrivateShare32B64u: VALID_ECDSA_SHARE32_B64U,
+      verifyingShare33B64u: clientVerifyingShareB64u,
     },
     createdAtMs: nowMs,
     updatedAtMs: nowMs,
@@ -304,7 +306,7 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       ...(sessionAuthToken ? { thresholdSessionAuthToken: sessionAuthToken } : {}),
       ethereumAddress,
       thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
-      relayerVerifyingShareB64u: `relayer-${chainLabel}-share-b64u`,
+      relayerVerifyingShareB64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
     },
     keygen: {
       ok: true,
@@ -315,7 +317,7 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       participantIds: [...participantIds],
       ethereumAddress,
       thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
-      relayerVerifyingShareB64u: `relayer-${chainLabel}-share-b64u`,
+      relayerVerifyingShareB64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
     },
     session: {
       ok: true,

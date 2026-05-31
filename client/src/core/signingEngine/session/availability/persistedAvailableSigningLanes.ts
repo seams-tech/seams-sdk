@@ -1,12 +1,11 @@
 import { toAccountId } from '@/core/types/accountIds';
 import type { AccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
-import { thresholdEcdsaRecordHasInlineRoleLocalSigningMaterial } from '@/core/platform/ecdsaRoleLocalRecords';
+import { classifyThresholdEcdsaSessionRecordRoleLocalState } from '@/core/platform/ecdsaRoleLocalRecords';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WarmSessionStatusResult } from '../../uiConfirm/types';
-import { resolveEmailOtpEcdsaWorkerSessionId } from './readiness';
 import {
   buildEcdsaLaneBudgetStatusCheck,
   buildThresholdBudgetStatusCheck,
@@ -314,20 +313,31 @@ export async function readPersistedAvailableSigningLanesForTargets(
             if (!ecdsaRecord) {
               localClaim = null;
             } else if (ecdsaRecord.source === SIGNER_AUTH_METHODS.emailOtp) {
-              if (thresholdEcdsaRecordHasInlineRoleLocalSigningMaterial(ecdsaRecord)) {
+              const roleLocalState = classifyThresholdEcdsaSessionRecordRoleLocalState({
+                record: ecdsaRecord,
+                nowMs: Date.now(),
+              });
+              if (
+                roleLocalState.kind === 'ready_email_otp_role_local_material_v1' &&
+                roleLocalState.inlineSigningMaterial.kind === 'inline_client_share'
+              ) {
                 localClaim = runtimeRecordPolicyClaim({
                   sessionId,
                   remainingUses: ecdsaRecord.remainingUses,
                   expiresAtMs: ecdsaRecord.expiresAtMs,
                 });
-              } else {
-                const emailOtpWorkerSessionId = resolveEmailOtpEcdsaWorkerSessionId(ecdsaRecord);
-                const status = emailOtpWorkerSessionId
-                  ? await deps.getEmailOtpWarmSessionStatus(emailOtpWorkerSessionId).catch(() => null)
-                  : null;
+              } else if (
+                roleLocalState.kind === 'ready_email_otp_role_local_material_v1' &&
+                roleLocalState.inlineSigningMaterial.kind === 'email_otp_worker_share'
+              ) {
+                const status = await deps
+                  .getEmailOtpWarmSessionStatus(roleLocalState.inlineSigningMaterial.workerSessionId)
+                  .catch(() => null);
                 localClaim = status
                   ? warmStatusToAvailableSigningLanesRuntimeClaim({ sessionId, status })
                   : null;
+              } else {
+                localClaim = null;
               }
             } else {
               const status = await deps.statusReader
