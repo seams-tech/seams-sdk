@@ -40,11 +40,11 @@ UI and worker construction remain browser-only in:
 
 Current extraction target: route passkey create/get through
 `AuthenticatorPort`, and keep Worker construction inside the browser
-`SignerComputePort` adapter.
+`SignerCryptoPort` adapter.
 
 ## Crypto And Signer Compute Boundaries
 
-Portable signer work that should move behind `SignerComputePort` first:
+Portable signer work that should move behind `SignerCryptoPort` first:
 
 - ECDSA HSS role-local client bootstrap in
   `client/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts`
@@ -69,7 +69,7 @@ Runtime global usage that remains outside platform adapters:
   confirmation UI, and worker transport.
 
 Current extraction target: keep host/UI globals in browser entrypoints, and move
-crypto/global signer operations behind `SignerComputePort` as each command is
+crypto/global signer operations behind `SignerCryptoPort` as each command is
 coarsened.
 
 ## Rust/WASM Coverage
