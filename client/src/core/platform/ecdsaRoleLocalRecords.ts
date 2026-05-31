@@ -31,6 +31,12 @@ type RoleLocalLegacyState = NonNullable<
   ThresholdEcdsaSessionRecord['ecdsaHssRoleLocalClientState']
 >;
 
+export type EcdsaRoleLocalExportMaterial = {
+  readyRecord: EcdsaRoleLocalReadyRecord;
+  contextBinding32B64u: string;
+  clientShareRetryCounter: number;
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
@@ -190,10 +196,9 @@ export function parseEcdsaRoleLocalReadyRecord(input: unknown): EcdsaRoleLocalRe
   };
 }
 
-export function parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(
-  input: unknown,
+function thresholdEcdsaSessionRecordAsRoleLocalReadyRecord(
+  record: ThresholdEcdsaSessionRecord,
 ): EcdsaRoleLocalReadyRecord {
-  const record = parseRawThresholdEcdsaSessionRecord(input);
   const state = record.ecdsaHssRoleLocalClientState;
   if (!state) {
     throw new Error('[platform][ecdsa-role-local] session record is missing role-local state');
@@ -218,6 +223,33 @@ export function parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(
     kind: 'ecdsa_role_local_ready_record_v1',
     stateBlob: roleLocalReadyStateBlobFromLegacy({ state, publicFacts }),
     publicFacts,
+  };
+}
+
+export function parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(
+  input: unknown,
+): EcdsaRoleLocalReadyRecord {
+  return thresholdEcdsaSessionRecordAsRoleLocalReadyRecord(
+    parseRawThresholdEcdsaSessionRecord(input),
+  );
+}
+
+export function parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial(
+  input: unknown,
+): EcdsaRoleLocalExportMaterial {
+  const record = parseRawThresholdEcdsaSessionRecord(input);
+  const state = record.ecdsaHssRoleLocalClientState;
+  if (!state) {
+    throw new Error('[platform][ecdsa-role-local] session record is missing role-local state');
+  }
+  return {
+    readyRecord: thresholdEcdsaSessionRecordAsRoleLocalReadyRecord(record),
+    contextBinding32B64u: parseBase64UrlBytes(
+      state.contextBinding32B64u,
+      'contextBinding32B64u',
+      32,
+    ),
+    clientShareRetryCounter: Math.max(0, Math.floor(Number(state.clientShareRetryCounter))),
   };
 }
 

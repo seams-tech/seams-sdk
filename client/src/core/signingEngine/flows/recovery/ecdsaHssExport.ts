@@ -11,7 +11,7 @@ import {
   type ReadyEcdsaSignerSession,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
-import { parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord } from '@/core/platform/ecdsaRoleLocalRecords';
+import { parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial } from '@/core/platform/ecdsaRoleLocalRecords';
 import { buildThresholdEcdsaHssRoleLocalExportArtifactWasm } from '../../threshold/crypto/hssClientSignerWasm';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
@@ -72,10 +72,7 @@ export async function exportEcdsaHssKeyWithThresholdSession(
     );
   }
 
-  const roleLocalState = args.record.ecdsaHssRoleLocalClientState;
-  if (!roleLocalState) {
-    throw new Error('Threshold ECDSA export requires role-local HSS client state');
-  }
+  const roleLocalMaterial = parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial(args.record);
   const ecdsaThresholdKeyId = toEcdsaHssThresholdKeyId(args.record.ecdsaThresholdKeyId);
   const signingRootId = toEcdsaHssSigningRootId(args.record.signingRootId);
   const signingRootVersion = toEcdsaHssSigningRootVersion(
@@ -90,12 +87,12 @@ export async function exportEcdsaHssKeyWithThresholdSession(
     throw new Error('Threshold ECDSA export session is expired');
   }
 
-  const readyRecord = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(args.record);
   const publicIdentity = {
-    hssClientSharePublicKey33B64u: readyRecord.publicFacts.hssClientSharePublicKey33B64u,
-    relayerPublicKey33B64u: readyRecord.publicFacts.relayerPublicKey33B64u,
-    groupPublicKey33B64u: readyRecord.publicFacts.groupPublicKey33B64u,
-    ethereumAddress: readyRecord.publicFacts.ethereumAddress,
+    hssClientSharePublicKey33B64u:
+      roleLocalMaterial.readyRecord.publicFacts.hssClientSharePublicKey33B64u,
+    relayerPublicKey33B64u: roleLocalMaterial.readyRecord.publicFacts.relayerPublicKey33B64u,
+    groupPublicKey33B64u: roleLocalMaterial.readyRecord.publicFacts.groupPublicKey33B64u,
+    ethereumAddress: roleLocalMaterial.readyRecord.publicFacts.ethereumAddress,
   };
   const exportRequestNonce32B64u = randomB64u32();
   const confirmationDigest32B64u = await digestB64u({
@@ -104,7 +101,7 @@ export async function exportEcdsaHssKeyWithThresholdSession(
     rpId: args.rpId,
     ecdsaThresholdKeyId,
     relayerKeyId: signerTransport.relayerKeyId,
-    contextBinding32B64u: roleLocalState.contextBinding32B64u,
+    contextBinding32B64u: roleLocalMaterial.contextBinding32B64u,
     publicIdentity,
     clientDeviceId: String(args.signerSession.session.walletSigningSessionId),
     clientSessionId: String(args.signerSession.session.thresholdSessionId),
@@ -122,7 +119,7 @@ export async function exportEcdsaHssKeyWithThresholdSession(
     relayerKeyId: signerTransport.relayerKeyId,
     signingRootId,
     signingRootVersion,
-    contextBinding32B64u: roleLocalState.contextBinding32B64u,
+    contextBinding32B64u: roleLocalMaterial.contextBinding32B64u,
     publicIdentity,
     exportRequestNonce32B64u,
     confirmationDigest32B64u,
@@ -142,7 +139,7 @@ export async function exportEcdsaHssKeyWithThresholdSession(
     rpId: args.rpId,
     ecdsaThresholdKeyId,
     relayerKeyId: signerTransport.relayerKeyId,
-    contextBinding32B64u: roleLocalState.contextBinding32B64u,
+    contextBinding32B64u: roleLocalMaterial.contextBinding32B64u,
     publicIdentity,
     exportRequestNonce32B64u,
     confirmationDigest32B64u,
@@ -175,9 +172,9 @@ export async function exportEcdsaHssKeyWithThresholdSession(
     },
     clientRootShare32B64u: args.clientRootShare32B64u,
     serverExportShare32B64u: exportShare.value.serverExportShare32B64u,
-    contextBinding32B64u: roleLocalState.contextBinding32B64u,
+    contextBinding32B64u: roleLocalMaterial.contextBinding32B64u,
     publicIdentity: exportShare.value.publicIdentity,
-    clientShareRetryCounter: roleLocalState.clientShareRetryCounter,
+    clientShareRetryCounter: roleLocalMaterial.clientShareRetryCounter,
     workerCtx: deps.getSignerWorkerContext(),
   });
 }

@@ -4,6 +4,7 @@ import { createBrowserPlatformRuntime } from '@/core/platform';
 import {
   ecdsaRoleLocalReadyRecordStorageKey,
   parseEcdsaRoleLocalReadyRecord,
+  parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial,
   parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord,
 } from '@/core/platform/ecdsaRoleLocalRecords';
 import { thresholdEcdsaChainTargetFromChainFamily, toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -106,6 +107,13 @@ test.describe('ECDSA role-local record boundary parser', () => {
         rawSessionRecord({ ecdsaHssRoleLocalClientState: undefined }),
       ),
     ).toThrow(/role-local/i);
+  });
+
+  test('parses export material without exposing raw role-local state to export consumers', () => {
+    const material = parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial(rawSessionRecord());
+    expect(material.readyRecord.publicFacts.groupPublicKey33B64u).toBe(groupPublicKey33B64u);
+    expect(material.contextBinding32B64u).toBe(share32B64u);
+    expect(material.clientShareRetryCounter).toBe(0);
   });
 
   test('round-trips persisted ready records through the browser durable store', async () => {
