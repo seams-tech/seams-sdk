@@ -4,6 +4,9 @@ import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 import type {
   EmailOtpEcdsaBootstrapRoleLocalKeyIdentity,
   EmailOtpEcdsaBootstrapStrictPayload,
+  EmailOtpEcdsaSessionBootstrapHandlePayload,
+  EmailOtpWalletRegistrationEcdsaPrepareHandlePayload,
+  EmailOtpWorkerIssuedSessionHandlePayload,
   EmailOtpWorkerOperationRequestEnvelope,
   EthSignerWorkerOperationMap,
 } from './workerTypes';
@@ -15,13 +18,44 @@ declare const routeAuth: AppOrThresholdSessionAuth;
 declare const roleLocalKeyIdentity: EmailOtpEcdsaBootstrapRoleLocalKeyIdentity;
 declare const incomingMessage: ArrayBuffer;
 
+const clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload = {
+  kind: 'email_otp_worker_session_handle_v1',
+  sessionId: 'otp-root-session',
+  walletId: 'wallet.testnet',
+  rpId: 'localhost',
+  authSubjectId: 'google:subject',
+  action: 'threshold_ecdsa_bootstrap',
+  operation: 'registration',
+  chainTarget,
+};
+
+const walletRegistrationEcdsaPrepareHandle: EmailOtpWalletRegistrationEcdsaPrepareHandlePayload = {
+  kind: 'email_otp_worker_session_handle_v1',
+  sessionId: 'otp-registration-root-session',
+  walletId: 'wallet.testnet',
+  rpId: 'localhost',
+  authSubjectId: 'google:subject',
+  action: 'wallet_registration_ecdsa_prepare',
+  operation: 'registration',
+  keyScope: 'evm-family',
+};
+void walletRegistrationEcdsaPrepareHandle;
+
+// @ts-expect-error Registration-prep worker handles cannot be used for session bootstrap.
+const bootstrapHandleFromRegistrationPrepare: EmailOtpEcdsaSessionBootstrapHandlePayload =
+  walletRegistrationEcdsaPrepareHandle;
+void bootstrapHandleFromRegistrationPrepare;
+
+const issuedHandle: EmailOtpWorkerIssuedSessionHandlePayload = walletRegistrationEcdsaPrepareHandle;
+void issuedHandle;
+
 const jwtBootstrap: EmailOtpEcdsaBootstrapStrictPayload = {
   relayUrl: 'https://relay.example',
   walletId: 'wallet.testnet',
   walletSessionUserId: 'wallet.testnet',
   userId: 'wallet.testnet',
   rpId: 'localhost',
-  clientRootShare32B64u: 'client-root-share',
+  clientRootShareHandle,
   chainTarget,
   publicationChainTargets,
   roleLocalKeyIdentity,
@@ -38,7 +72,7 @@ const jwtBootstrapWithoutRouteAuth: EmailOtpEcdsaBootstrapStrictPayload = {
   walletSessionUserId: 'wallet.testnet',
   userId: 'wallet.testnet',
   rpId: 'localhost',
-  clientRootShare32B64u: 'client-root-share',
+  clientRootShareHandle,
   chainTarget,
   publicationChainTargets,
   roleLocalKeyIdentity,
@@ -53,7 +87,7 @@ const cookieBootstrap: EmailOtpEcdsaBootstrapStrictPayload = {
   walletSessionUserId: 'wallet.testnet',
   userId: 'wallet.testnet',
   rpId: 'localhost',
-  clientRootShare32B64u: 'client-root-share',
+  clientRootShareHandle,
   chainTarget,
   publicationChainTargets,
   roleLocalKeyIdentity,
@@ -69,7 +103,7 @@ const bootstrapWithoutRoleLocalIdentity: EmailOtpEcdsaBootstrapStrictPayload = {
   walletSessionUserId: 'wallet.testnet',
   userId: 'wallet.testnet',
   rpId: 'localhost',
-  clientRootShare32B64u: 'client-root-share',
+  clientRootShareHandle,
   chainTarget,
   publicationChainTargets,
   runtimePolicyScope,
@@ -85,7 +119,7 @@ const bootstrapWithoutRuntimePolicyScope: EmailOtpEcdsaBootstrapStrictPayload = 
   walletSessionUserId: 'wallet.testnet',
   userId: 'wallet.testnet',
   rpId: 'localhost',
-  clientRootShare32B64u: 'client-root-share',
+  clientRootShareHandle,
   chainTarget,
   publicationChainTargets,
   roleLocalKeyIdentity,
@@ -121,7 +155,7 @@ void presignStepWithoutIncomingMessages;
 
 const emailOtpBootstrapWorkerRequest: EmailOtpWorkerOperationRequestEnvelope = {
   id: 'request-1',
-  type: 'bootstrapEmailOtpEcdsaSessionsFromClientRootShare',
+  type: 'bootstrapEmailOtpEcdsaSessionsFromWorkerHandle',
   payload: jwtBootstrap,
 };
 void emailOtpBootstrapWorkerRequest;
@@ -129,7 +163,7 @@ void emailOtpBootstrapWorkerRequest;
 // @ts-expect-error worker request envelope binds each operation to its exact payload type.
 const emailOtpBootstrapWorkerRequestWithoutStrictPayload: EmailOtpWorkerOperationRequestEnvelope = {
   id: 'request-2',
-  type: 'bootstrapEmailOtpEcdsaSessionsFromClientRootShare',
+  type: 'bootstrapEmailOtpEcdsaSessionsFromWorkerHandle',
   payload: {
     relayUrl: 'https://relay.example',
     walletId: 'wallet.testnet',

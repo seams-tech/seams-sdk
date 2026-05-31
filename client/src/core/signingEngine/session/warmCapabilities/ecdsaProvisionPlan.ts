@@ -49,6 +49,20 @@ export type VerifiedEcdsaThresholdSessionAuth = {
   ed25519RelayerKeyId?: never;
 };
 
+export type PasskeyEcdsaProvisionSecretSource = {
+  kind: 'webauthn_prf_first_client_root_share_v1';
+  clientRootShare32B64u: string;
+  webauthnAuthentication: WebAuthnAuthenticationCredential;
+  emailOtpAuthContext?: never;
+};
+
+export type EmailOtpEcdsaProvisionSecretSource = {
+  kind: 'email_otp_worker_client_root_share_v1';
+  clientRootShare32B64u: string;
+  emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
+  webauthnAuthentication?: never;
+};
+
 export type PasskeyEcdsaSessionProvision = {
   kind: 'passkey_ecdsa_session_provision';
   key: EvmFamilyEcdsaKeyIdentity;
@@ -60,11 +74,12 @@ export type PasskeyEcdsaSessionProvision = {
   requestId: string;
 
   // Branch-specific fields.
-  clientRootShare32B64u: string;
-  webauthnAuthentication: WebAuthnAuthenticationCredential;
+  provisionSecretSource: PasskeyEcdsaProvisionSecretSource;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   thresholdSessionAuth?: never;
   emailOtpAuthContext?: never;
+  clientRootShare32B64u?: never;
+  webauthnAuthentication?: never;
 };
 
 export type ThresholdSessionAuthEcdsaReconnect = {
@@ -107,9 +122,10 @@ export type EmailOtpEcdsaSessionProvision = {
   sessionBudgetUses: number;
 
   // Branch-specific fields.
-  emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
-  clientRootShare32B64u: string;
+  provisionSecretSource: EmailOtpEcdsaProvisionSecretSource;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  emailOtpAuthContext?: never;
+  clientRootShare32B64u?: never;
   webauthnAuthentication?: never;
   thresholdSessionAuth?: never;
 };
@@ -135,11 +151,12 @@ type BuildPasskeyEcdsaSessionProvisionPlanArgs = {
   sessionKind: ThresholdSessionKind;
   sessionBudgetUses: number;
   requestId: string;
-  clientRootShare32B64u: string;
-  webauthnAuthentication: WebAuthnAuthenticationCredential;
+  provisionSecretSource: PasskeyEcdsaProvisionSecretSource;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   emailOtpAuthContext?: never;
   reconnectMaterial?: never;
+  clientRootShare32B64u?: never;
+  webauthnAuthentication?: never;
 };
 
 type BuildEmailOtpEcdsaSessionProvisionPlanArgs = {
@@ -150,9 +167,10 @@ type BuildEmailOtpEcdsaSessionProvisionPlanArgs = {
   signingKeyContext: EcdsaSigningKeyContext;
   sessionKind: ThresholdSessionKind;
   sessionBudgetUses: number;
-  emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
-  clientRootShare32B64u: string;
+  provisionSecretSource: EmailOtpEcdsaProvisionSecretSource;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  emailOtpAuthContext?: never;
+  clientRootShare32B64u?: never;
   webauthnAuthentication?: never;
   reconnectMaterial?: never;
 };
@@ -207,6 +225,34 @@ function requireParticipantIds(
     throw new Error(`[SigningEngine][ecdsa] ${field} is required`);
   }
   return normalized;
+}
+
+export function buildPasskeyEcdsaProvisionSecretSource(args: {
+  clientRootShare32B64u: string;
+  webauthnAuthentication: WebAuthnAuthenticationCredential;
+}): PasskeyEcdsaProvisionSecretSource {
+  return {
+    kind: 'webauthn_prf_first_client_root_share_v1',
+    clientRootShare32B64u: requireNonEmptyString(
+      args.clientRootShare32B64u,
+      'clientRootShare32B64u',
+    ),
+    webauthnAuthentication: args.webauthnAuthentication,
+  };
+}
+
+export function buildEmailOtpEcdsaProvisionSecretSource(args: {
+  clientRootShare32B64u: string;
+  emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
+}): EmailOtpEcdsaProvisionSecretSource {
+  return {
+    kind: 'email_otp_worker_client_root_share_v1',
+    clientRootShare32B64u: requireNonEmptyString(
+      args.clientRootShare32B64u,
+      'clientRootShare32B64u',
+    ),
+    emailOtpAuthContext: args.emailOtpAuthContext,
+  };
 }
 
 export function buildEcdsaSigningKeyContextFromRecord(
@@ -349,8 +395,7 @@ export function buildPasskeyEcdsaSessionProvision(args: {
   sessionKind: ThresholdSessionKind;
   sessionBudgetUses: number;
   requestId: string;
-  clientRootShare32B64u: string;
-  webauthnAuthentication: WebAuthnAuthenticationCredential;
+  provisionSecretSource: PasskeyEcdsaProvisionSecretSource;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
 }): PasskeyEcdsaSessionProvision {
   return {
@@ -364,11 +409,7 @@ export function buildPasskeyEcdsaSessionProvision(args: {
     requestId: requireNonEmptyString(args.requestId, 'requestId'),
 
     // Branch-specific fields.
-    clientRootShare32B64u: requireNonEmptyString(
-      args.clientRootShare32B64u,
-      'clientRootShare32B64u',
-    ),
-    webauthnAuthentication: args.webauthnAuthentication,
+    provisionSecretSource: args.provisionSecretSource,
     ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
   } satisfies PasskeyEcdsaSessionProvision;
 }
@@ -442,8 +483,7 @@ export function buildEmailOtpEcdsaSessionProvision(args: {
   signingKeyContext: EcdsaSigningKeyContext;
   sessionKind: ThresholdSessionKind;
   sessionBudgetUses: number;
-  emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
-  clientRootShare32B64u: string;
+  provisionSecretSource: EmailOtpEcdsaProvisionSecretSource;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
 }): EmailOtpEcdsaSessionProvision {
   return {
@@ -456,11 +496,7 @@ export function buildEmailOtpEcdsaSessionProvision(args: {
     sessionBudgetUses: requirePositiveInteger(args.sessionBudgetUses, 'sessionBudgetUses'),
 
     // Branch-specific fields.
-    emailOtpAuthContext: args.emailOtpAuthContext,
-    clientRootShare32B64u: requireNonEmptyString(
-      args.clientRootShare32B64u,
-      'clientRootShare32B64u',
-    ),
+    provisionSecretSource: args.provisionSecretSource,
     ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
   } satisfies EmailOtpEcdsaSessionProvision;
 }
@@ -477,11 +513,7 @@ export function buildEcdsaSessionProvisionPlan(
         signingKeyContext: args.signingKeyContext,
         sessionKind: args.sessionKind,
         sessionBudgetUses: args.sessionBudgetUses,
-        emailOtpAuthContext: args.emailOtpAuthContext,
-        clientRootShare32B64u: requireNonEmptyString(
-          args.clientRootShare32B64u,
-          'clientRootShare32B64u',
-        ),
+        provisionSecretSource: args.provisionSecretSource,
         ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
       });
     case 'passkey_ecdsa_session_provision':
@@ -493,11 +525,7 @@ export function buildEcdsaSessionProvisionPlan(
         sessionKind: args.sessionKind,
         sessionBudgetUses: args.sessionBudgetUses,
         requestId: args.requestId,
-        clientRootShare32B64u: requireNonEmptyString(
-          args.clientRootShare32B64u,
-          'clientRootShare32B64u',
-        ),
-        webauthnAuthentication: args.webauthnAuthentication,
+        provisionSecretSource: args.provisionSecretSource,
         ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
       });
     case 'ecdsa_session_reconnect':

@@ -47,10 +47,11 @@ import {
 } from './ecdsaLifecycleRuntime';
 import {
   EmailOtpExportRecoveryRuntime,
+  type EmailOtpEd25519ExportArtifact,
   type EmailOtpEcdsaExportArtifact,
+  type ExportEd25519SeedWithAuthorizationArgs,
   type ExportEcdsaKeyWithAuthorizationArgs,
   type ExportEcdsaKeyWithFreshEmailOtpLaneArgs,
-  type RecoverEd25519ExportPrfFirstArgs,
   type RequestEmailOtpChallengeArgs,
 } from './exportRecoveryRuntime';
 import { EmailOtpEd25519Warmup } from './ed25519Warmup';
@@ -296,10 +297,10 @@ export class EmailOtpThresholdSessionRuntime {
     return await this.exportRecoveryRuntime.requestExportChallenge(args);
   }
 
-  async recoverEd25519ExportPrfFirst(
-    args: RecoverEd25519ExportPrfFirstArgs,
-  ): Promise<{ prfFirstB64u: string }> {
-    return await this.exportRecoveryRuntime.recoverEd25519ExportPrfFirst(args);
+  async exportEd25519SeedWithAuthorization(
+    args: ExportEd25519SeedWithAuthorizationArgs,
+  ): Promise<EmailOtpEd25519ExportArtifact> {
+    return await this.exportRecoveryRuntime.exportEd25519SeedWithAuthorization(args);
   }
 
   async exportEcdsaKeyWithAuthorization(

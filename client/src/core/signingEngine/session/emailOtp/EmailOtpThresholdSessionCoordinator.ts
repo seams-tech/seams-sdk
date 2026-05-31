@@ -115,10 +115,10 @@ export class EmailOtpThresholdSessionCoordinator {
     return await this.runtime.requestExportChallenge(args);
   }
 
-  recoverEd25519ExportPrfFirst(
-    args: Parameters<EmailOtpThresholdSessionRuntime['recoverEd25519ExportPrfFirst']>[0],
-  ): ReturnType<EmailOtpThresholdSessionRuntime['recoverEd25519ExportPrfFirst']> {
-    return this.runtime.recoverEd25519ExportPrfFirst(args);
+  exportEd25519SeedWithAuthorization(
+    args: Parameters<EmailOtpThresholdSessionRuntime['exportEd25519SeedWithAuthorization']>[0],
+  ): ReturnType<EmailOtpThresholdSessionRuntime['exportEd25519SeedWithAuthorization']> {
+    return this.runtime.exportEd25519SeedWithAuthorization(args);
   }
 
   exportEcdsaKeyWithAuthorization(

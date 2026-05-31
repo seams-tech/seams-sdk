@@ -250,6 +250,11 @@ async function registerEcdsaWalletOnly(args: {
     const walletId = intentResponse.intent.walletId;
     const eventAccountId = String(walletId) as AccountId;
     let clientRootShare32B64u = '';
+    let emailOtpClientRootShareHandle:
+      | Awaited<
+          ReturnType<SigningEnginePublic['prepareEmailOtpRegistrationEnrollmentMaterialInternal']>
+        >['clientRootShareHandle']
+      | null = null;
     let emailOtpChallengeId = '';
     let emailOtpEmail = '';
     let emailOtpProviderSubject = '';
@@ -321,9 +326,10 @@ async function registerEcdsaWalletOnly(args: {
           relayUrl: relayerUrl,
           walletId: toWalletId(walletId),
           userId: emailAuthority.providerSubject,
+          rpId,
           appSessionJwt: args.authMethod.appSessionJwt,
         });
-      clientRootShare32B64u = enrollment.clientRootShare32B64u;
+      emailOtpClientRootShareHandle = enrollment.clientRootShareHandle;
       emailOtpEnrollment = enrollment.emailOtpEnrollment;
       emailOtpChallengeId = emailAuthority.challengeId;
       emailOtpEmail = emailAuthority.email;
@@ -349,11 +355,24 @@ async function registerEcdsaWalletOnly(args: {
     if (!startedCeremony.ecdsa) {
       throw new Error('Wallet registration start did not return ECDSA HSS material');
     }
+    const ecdsaPrepare = startedCeremony.ecdsa.prepare;
     const preparedClientBootstrap =
-      await context.signingEngine.prepareWalletRegistrationEcdsaPreparedClientBootstrap({
-        prepare: startedCeremony.ecdsa.prepare,
-        clientRootShare32B64u,
-      });
+      args.authMethod.kind === 'email_otp'
+        ? await (async () => {
+            if (!emailOtpClientRootShareHandle) {
+              throw new Error('Email OTP ECDSA registration prepare is missing worker handle');
+            }
+            return await context.signingEngine.prepareWalletRegistrationEcdsaPreparedClientBootstrapFromEmailOtpHandle(
+              {
+                prepare: ecdsaPrepare,
+                clientRootShareHandle: emailOtpClientRootShareHandle,
+              },
+            );
+          })()
+        : await context.signingEngine.prepareWalletRegistrationEcdsaPreparedClientBootstrap({
+            prepare: ecdsaPrepare,
+            clientRootShare32B64u,
+          });
     const responded = await respondWalletRegistrationHss({
       relayerUrl,
       registrationCeremonyId: startedCeremony.registrationCeremonyId,
@@ -608,6 +627,11 @@ export async function registerWallet(args: {
 
     let ed25519PrfFirstB64u = '';
     let ecdsaClientRootShare32B64u = '';
+    let emailOtpClientRootShareHandle:
+      | Awaited<
+          ReturnType<SigningEnginePublic['prepareEmailOtpRegistrationEnrollmentMaterialInternal']>
+        >['clientRootShareHandle']
+      | null = null;
     let emailOtpChallengeId = '';
     let emailOtpEmail = '';
     let emailOtpProviderSubject = '';
@@ -680,10 +704,11 @@ export async function registerWallet(args: {
           relayUrl: relayerUrl,
           walletId: toWalletId(intentResponse.intent.walletId),
           userId: emailAuthority.providerSubject,
+          rpId,
           appSessionJwt: args.authMethod.appSessionJwt,
         });
       ed25519PrfFirstB64u = enrollment.thresholdEd25519PrfFirstB64u;
-      ecdsaClientRootShare32B64u = enrollment.clientRootShare32B64u;
+      emailOtpClientRootShareHandle = enrollment.clientRootShareHandle;
       emailOtpEnrollment = enrollment.emailOtpEnrollment;
       emailOtpChallengeId = emailAuthority.challengeId;
       emailOtpEmail = emailAuthority.email;
@@ -738,10 +763,24 @@ export async function registerWallet(args: {
     const ecdsaPreparedClientBootstrapPromise =
       ecdsaSelection && ecdsaPrepare
         ? (async () =>
-            await context.signingEngine.prepareWalletRegistrationEcdsaPreparedClientBootstrap({
-              prepare: ecdsaPrepare,
-              clientRootShare32B64u: ecdsaClientRootShare32B64u,
-            }))()
+            args.authMethod.kind === 'email_otp'
+              ? await (async () => {
+                  if (!emailOtpClientRootShareHandle) {
+                    throw new Error(
+                      'Email OTP ECDSA registration prepare is missing worker handle',
+                    );
+                  }
+                  return await context.signingEngine.prepareWalletRegistrationEcdsaPreparedClientBootstrapFromEmailOtpHandle(
+                    {
+                      prepare: ecdsaPrepare,
+                      clientRootShareHandle: emailOtpClientRootShareHandle,
+                    },
+                  );
+                })()
+              : await context.signingEngine.prepareWalletRegistrationEcdsaPreparedClientBootstrap({
+                  prepare: ecdsaPrepare,
+                  clientRootShare32B64u: ecdsaClientRootShare32B64u,
+                }))()
         : Promise.resolve(null);
 
     const ed25519ClientRequestPromise = prepareThresholdEd25519RegistrationHssClientRequest({

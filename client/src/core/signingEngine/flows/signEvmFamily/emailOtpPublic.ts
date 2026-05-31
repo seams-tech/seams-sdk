@@ -98,6 +98,7 @@ export type EnrollEmailOtpInternalResult = Awaited<ReturnType<typeof enrollEmail
 export type PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgs = {
   walletId: WalletId;
   userId: string;
+  rpId: string;
   relayUrl?: string;
   shamirPrimeB64u?: string;
   appSessionJwt: string;
@@ -263,6 +264,13 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterialInternal(
     workerCtx: deps.getSignerWorkerContext(),
     appSessionJwt: args.appSessionJwt,
     otpChannel: args.otpChannel,
+    ecdsaClientRootHandleBinding: {
+      rpId: String(args.rpId).trim(),
+      authSubjectId: String(args.userId).trim(),
+      action: 'wallet_registration_ecdsa_prepare',
+      operation: 'registration',
+      keyScope: 'evm-family',
+    },
     ...(args.clientSecret32 ? { clientSecret32: args.clientSecret32 } : {}),
   });
 }

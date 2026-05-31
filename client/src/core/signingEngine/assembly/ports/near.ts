@@ -90,7 +90,7 @@ export function createNearSigningDeps(args: {
     reconnectPasskeyEd25519CapabilityForSigning: async ({
       nearAccountId,
       record,
-      localPrfCredential,
+      policySecretSource,
       remainingUses,
       sessionId,
       walletSigningSessionId,
@@ -98,7 +98,7 @@ export function createNearSigningDeps(args: {
       reconnectPasskeyEd25519CapabilityForSigning({
         nearAccountId,
         record,
-        localPrfCredential,
+        policySecretSource,
         remainingUses,
         sessionId,
         walletSigningSessionId,

@@ -18,11 +18,19 @@ import {
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type { WarmSessionEcdsaCapabilityState } from '@/core/signingEngine/session/warmCapabilities/types';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import type { EmailOtpWorkerProgressEvent } from '@/core/signingEngine/workerManager/workerTypes';
+import type {
+  EmailOtpEcdsaSessionBootstrapHandlePayload,
+  EmailOtpWorkerProgressEvent,
+  EmailOtpWorkerSessionHandleOperation,
+} from '@/core/signingEngine/workerManager/workerTypes';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 import {
+  WALLET_EMAIL_OTP_EXPORT_OPERATION,
+  WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
   WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
+  WALLET_EMAIL_OTP_UNLOCK_OPERATION,
   type WalletEmailOtpLoginOperation,
+  type WalletEmailOtpOperation,
 } from '@shared/utils/emailOtpDomain';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { EmailOtpEcdsaBootstrapStrictPayload } from '@/core/signingEngine/workerManager/workerTypes';
@@ -76,7 +84,7 @@ export type EmailOtpThresholdEcdsaLoginResult = {
   recovery: EmailOtpBootstrapRecovery;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
   warmCapability: WarmSessionEcdsaCapabilityState;
-  clientRootShare32B64u: string;
+  clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
   ed25519Reconstruction: EmailOtpEd25519ReconstructionResult;
 };
 
@@ -146,6 +154,23 @@ function buildEd25519ReconstructionAuthContext(args: {
   };
   if (authSubjectId) context.authSubjectId = authSubjectId;
   return context;
+}
+
+function emailOtpWorkerHandleOperationFromLoginOperation(
+  operation: WalletEmailOtpOperation,
+): EmailOtpWorkerSessionHandleOperation {
+  switch (operation) {
+    case WALLET_EMAIL_OTP_REGISTRATION_OPERATION:
+      return 'registration';
+    case WALLET_EMAIL_OTP_UNLOCK_OPERATION:
+      return 'wallet_unlock';
+    case WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION:
+      return 'sign';
+    case WALLET_EMAIL_OTP_EXPORT_OPERATION:
+      return 'export';
+  }
+  operation satisfies never;
+  throw new Error('Unsupported Email OTP login operation for ECDSA worker handle');
 }
 
 export type EmailOtpEcdsaLoginPorts = {
@@ -491,6 +516,12 @@ export async function loginWithEmailOtpEcdsaCapability(
     otpCode: args.otpCode,
     routePlan,
     workerCtx,
+    ecdsaClientRootHandleBinding: {
+      rpId,
+      authSubjectId: emailOtpAuthSubjectId,
+      operation: emailOtpWorkerHandleOperationFromLoginOperation(routePlan.operation),
+      chainTarget,
+    },
     ...(args.challengeId ? { challengeId: args.challengeId } : {}),
     runtimePolicyScope,
     ...(args.onProgress ? { onProgress: args.onProgress } : {}),
@@ -519,7 +550,7 @@ export async function loginWithEmailOtpEcdsaCapability(
     walletSessionUserId,
     userId: emailOtpAuthSubjectId,
     rpId,
-    clientRootShare32B64u: workerResult.clientRootShare32B64u,
+    clientRootShareHandle: workerResult.clientRootShareHandle,
     chainTarget,
     publicationChainTargets,
     roleLocalKeyIdentity,
@@ -537,7 +568,7 @@ export async function loginWithEmailOtpEcdsaCapability(
   const bootstrapResult = await workerCtx.requestWorkerOperation({
     kind: 'emailOtp',
     request: {
-      type: 'bootstrapEmailOtpEcdsaSessionsFromClientRootShare',
+      type: 'bootstrapEmailOtpEcdsaSessionsFromWorkerHandle',
       timeoutMs: 60_000,
       payload: bootstrapPayload,
       onEvent: args.onProgress,
@@ -642,7 +673,7 @@ export async function loginWithEmailOtpEcdsaCapability(
     recovery: workerResult.recovery,
     bootstrap,
     warmCapability,
-    clientRootShare32B64u: workerResult.clientRootShare32B64u,
+    clientRootShareHandle: workerResult.clientRootShareHandle,
     ed25519Reconstruction,
   };
 }

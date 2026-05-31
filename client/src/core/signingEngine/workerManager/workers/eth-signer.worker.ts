@@ -570,7 +570,10 @@ self.addEventListener('message', async (event: MessageEvent) => {
         const sessionId = String(msg.payload.sessionId || '').trim();
         if (!sessionId) throw new Error('Missing sessionId');
         freePresignSession(sessionId);
-        postOperationSucceeded(msg, { ok: true });
+        postOperationSucceeded(msg, {
+          kind: 'threshold_ecdsa_presign_session_aborted',
+          sessionId,
+        });
         return;
       }
       case 'thresholdEcdsaComputeSignatureShare': {

@@ -7,7 +7,6 @@ import {
   type PasskeyStepUpAuthorization,
   type SigningAuthPlan,
   type UserConfirmDecision,
-  type WarmSessionStepUpAuthorization,
 } from '@/core/signingEngine/stepUpConfirmation/types';
 import { normalizeAuthenticationCredential } from '@/core/signingEngine/webauthnAuth/credentials/helpers';
 import type { WalletAuthCurve, WalletAuthIntent } from '@/core/types/seams';
@@ -36,16 +35,6 @@ type ExportAuthorizationIdentity =
   | NearExportAuthorizationIdentity
   | EcdsaExportAuthorizationIdentity;
 
-export type ExportWarmSessionStepUpAuthorization =
-  | (WarmSessionStepUpAuthorization<
-      Extract<SigningAuthPlan, { kind: typeof SigningAuthPlanKind.WarmSession }>
-    > &
-      NearExportAuthorizationIdentity)
-  | (WarmSessionStepUpAuthorization<
-      Extract<SigningAuthPlan, { kind: typeof SigningAuthPlanKind.WarmSession }>
-    > &
-      EcdsaExportAuthorizationIdentity);
-
 export type ExportPasskeyStepUpAuthorization =
   | (PasskeyStepUpAuthorization<
       Extract<SigningAuthPlan, { kind: typeof SigningAuthPlanKind.PasskeyReauth }>,
@@ -71,7 +60,6 @@ export type ExportEmailOtpStepUpAuthorization =
       EcdsaExportAuthorizationIdentity);
 
 export type ExportStepUpAuthorization =
-  | ExportWarmSessionStepUpAuthorization
   | ExportPasskeyStepUpAuthorization
   | ExportEmailOtpStepUpAuthorization;
 
@@ -90,12 +78,18 @@ export function buildExportStepUpAuthorization(
   args:
     | ({
         method: 'email_otp';
-        decision: Pick<UserConfirmDecision, 'confirmed' | 'error' | 'otpCode' | 'emailOtpChallengeId'>;
+        decision: Pick<
+          UserConfirmDecision,
+          'confirmed' | 'error' | 'otpCode' | 'emailOtpChallengeId'
+        >;
         emailOtpPrompt: EmailOtpConfirmPrompt;
       } & NearExportAuthorizationIdentity)
     | ({
         method: 'email_otp';
-        decision: Pick<UserConfirmDecision, 'confirmed' | 'error' | 'otpCode' | 'emailOtpChallengeId'>;
+        decision: Pick<
+          UserConfirmDecision,
+          'confirmed' | 'error' | 'otpCode' | 'emailOtpChallengeId'
+        >;
         emailOtpPrompt: EmailOtpConfirmPrompt;
       } & EcdsaExportAuthorizationIdentity),
 ): ExportEmailOtpStepUpAuthorization;
@@ -107,7 +101,10 @@ export function buildExportStepUpAuthorization(
       } & ExportAuthorizationIdentity)
     | ({
         method: 'email_otp';
-        decision: Pick<UserConfirmDecision, 'confirmed' | 'error' | 'otpCode' | 'emailOtpChallengeId'>;
+        decision: Pick<
+          UserConfirmDecision,
+          'confirmed' | 'error' | 'otpCode' | 'emailOtpChallengeId'
+        >;
         emailOtpPrompt: EmailOtpConfirmPrompt;
       } & ExportAuthorizationIdentity),
 ): ExportStepUpAuthorization {

@@ -7,6 +7,10 @@ import {
 import { joinNormalizedUrl } from '@shared/utils/normalize';
 import { requireTrimmedString, toOptionalTrimmedNonEmptyString } from '@shared/utils/validation';
 import type { WorkerOperationContext } from '../signingEngine/workerManager/executeWorkerOperation';
+import type {
+  EmailOtpWalletRegistrationEcdsaPrepareHandleBinding,
+  EmailOtpWalletRegistrationEcdsaPrepareHandlePayload,
+} from '../signingEngine/workerManager/workerTypes';
 import {
   normalizeThresholdRuntimePolicyScope,
   type ThresholdRuntimePolicyScope,
@@ -596,6 +600,7 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
   appSessionJwt?: string;
   otpChannel?: WalletEmailOtpChannel;
   clientSecret32?: Uint8Array;
+  ecdsaClientRootHandleBinding: EmailOtpWalletRegistrationEcdsaPrepareHandleBinding;
 }): Promise<{
   thresholdEcdsaClientVerifyingShareB64u: string;
   thresholdEd25519PrfFirstB64u: string;
@@ -604,7 +609,7 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
   enrollmentSealKeyVersion: string;
   clientUnlockPublicKeyB64u: string;
   unlockKeyVersion: string;
-  clientRootShare32B64u: string;
+  clientRootShareHandle: EmailOtpWalletRegistrationEcdsaPrepareHandlePayload;
   emailOtpEnrollment: {
     recoveryWrappedEnrollmentEscrows: unknown[];
     enrollmentSealKeyVersion: string;
@@ -633,6 +638,7 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
             appSessionJwt: args.appSessionJwt,
           }),
           otpChannel: EMAIL_OTP_CHANNEL,
+          ecdsaClientRootHandleBinding: args.ecdsaClientRootHandleBinding,
           ...(workerClientSecret32 ? { clientSecret32: workerClientSecret32.buffer.slice(0) } : {}),
         },
       },

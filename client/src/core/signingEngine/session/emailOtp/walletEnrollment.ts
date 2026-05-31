@@ -1,6 +1,10 @@
 import type { EmailOtpEnrollmentResult } from '@/core/SeamsPasskey/emailOtp';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import type { EmailOtpWorkerProgressEvent } from '@/core/signingEngine/workerManager/workerTypes';
+import type {
+  EmailOtpEcdsaSessionBootstrapHandleBinding,
+  EmailOtpEcdsaSessionBootstrapHandlePayload,
+  EmailOtpWorkerProgressEvent,
+} from '@/core/signingEngine/workerManager/workerTypes';
 import type { WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
 import type { EmailOtpRoutePlan } from '../../stepUpConfirmation/otpPrompt/authLane';
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
@@ -18,17 +22,18 @@ export async function enrollEmailOtpWalletWithRoutePlan(args: {
   clientSecret32?: Uint8Array;
   otpChannel?: WalletEmailOtpChannel;
   onProgress?: (progress: EmailOtpWorkerProgressEvent) => void;
+  ecdsaClientRootHandleBinding: EmailOtpEcdsaSessionBootstrapHandleBinding;
 }): Promise<
   EmailOtpEnrollmentResult & {
     thresholdEd25519PrfFirstB64u: string;
-    clientRootShare32B64u: string;
+    clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
   }
 > {
   let workerClientSecret32: Uint8Array | null = args.clientSecret32
     ? Uint8Array.from(args.clientSecret32)
     : null;
   try {
-    return await args.workerCtx.requestWorkerOperation({
+    const result = await args.workerCtx.requestWorkerOperation({
       kind: 'emailOtp',
       request: {
         type: 'enrollEmailOtpWallet',
@@ -45,6 +50,7 @@ export async function enrollEmailOtpWalletWithRoutePlan(args: {
             ? { googleEmailOtpRegistrationAttemptId: args.googleEmailOtpRegistrationAttemptId }
             : {}),
           otpChannel: args.otpChannel || EMAIL_OTP_CHANNEL,
+          ecdsaClientRootHandleBinding: args.ecdsaClientRootHandleBinding,
           ...(workerClientSecret32
             ? { clientSecret32: workerClientSecret32.buffer.slice(0) }
             : {}),
@@ -52,6 +58,13 @@ export async function enrollEmailOtpWalletWithRoutePlan(args: {
         onEvent: args.onProgress,
       },
     });
+    if (!result.clientRootShareHandle) {
+      throw new Error('Email OTP enrollment did not return an ECDSA client-root worker handle');
+    }
+    return {
+      ...result,
+      clientRootShareHandle: result.clientRootShareHandle,
+    };
   } finally {
     workerClientSecret32?.fill(0);
     workerClientSecret32 = null;

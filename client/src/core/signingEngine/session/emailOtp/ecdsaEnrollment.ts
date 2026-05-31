@@ -44,9 +44,6 @@ import {
 } from './ecdsaRoleLocalIdentity';
 import { enrollEmailOtpWalletWithRoutePlan } from './walletEnrollment';
 import {
-  buildEmailOtpEcdsaRoleLocalRegistrationClientSecretSource,
-} from './clientSecretSource';
-import {
   buildEmailOtpEcdsaMintingSession,
   buildFreshEmailOtpRoutePlan,
   routeAuthFromEmailOtpRoutePlan,
@@ -309,15 +306,15 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
     routePlan,
     workerCtx,
     googleEmailOtpRegistrationAttemptId: registrationInput.registrationAttemptId,
+    ecdsaClientRootHandleBinding: {
+      rpId,
+      authSubjectId: emailOtpAuthSubjectId,
+      operation: 'registration',
+      chainTarget,
+    },
     ...(args.clientSecret32 ? { clientSecret32: args.clientSecret32 } : {}),
     ...(args.otpChannel ? { otpChannel: args.otpChannel } : {}),
     ...(args.onProgress ? { onProgress: args.onProgress } : {}),
-  });
-  const ecdsaClientSecretSource = buildEmailOtpEcdsaRoleLocalRegistrationClientSecretSource({
-    registrationAttemptId: registrationInput.registrationAttemptId,
-    walletId: String(args.walletSession.walletId),
-    authSubjectId: emailOtpAuthSubjectId,
-    clientRootShare32B64u: enrollment.clientRootShare32B64u,
   });
   const bootstrapPayloadBase = {
     relayUrl,
@@ -325,7 +322,7 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
     walletSessionUserId,
     userId: emailOtpAuthSubjectId,
     rpId,
-    clientRootShare32B64u: ecdsaClientSecretSource.clientRootShare32B64u,
+    clientRootShareHandle: enrollment.clientRootShareHandle,
     chainTarget,
     publicationChainTargets,
     ...(registrationInput.keyMode === 'existing_role_local_key'
@@ -367,7 +364,7 @@ export async function enrollAndLoginWithEmailOtpEcdsaCapability(
   const bootstrapResult = await workerCtx.requestWorkerOperation({
     kind: 'emailOtp',
     request: {
-      type: 'bootstrapEmailOtpEcdsaSessionsFromClientRootShare',
+      type: 'bootstrapEmailOtpEcdsaSessionsFromWorkerHandle',
       timeoutMs: 60_000,
       payload: bootstrapPayload,
       onEvent: args.onProgress,

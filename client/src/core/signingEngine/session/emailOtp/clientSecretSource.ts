@@ -6,14 +6,6 @@ export type EmailOtpEd25519RegistrationClientSecretSource = {
   prfFirstB64u: string;
 };
 
-export type EmailOtpEcdsaRoleLocalRegistrationClientSecretSource = {
-  kind: 'email_otp_registration_ecdsa_role_local_client_secret_source';
-  registrationAttemptId: string;
-  walletId: string;
-  authSubjectId: string;
-  clientRootShare32B64u: string;
-};
-
 function requireTrimmedString(value: unknown, label: string): string {
   const normalized = String(value ?? '').trim();
   if (!normalized) {
@@ -34,20 +26,5 @@ export function buildEmailOtpEd25519RegistrationClientSecretSource(args: {
     walletId: requireTrimmedString(args.walletId, 'walletId'),
     authSubjectId: requireTrimmedString(args.authSubjectId, 'authSubjectId'),
     prfFirstB64u: requireTrimmedString(args.thresholdEd25519PrfFirstB64u, 'prfFirstB64u'),
-  };
-}
-
-export function buildEmailOtpEcdsaRoleLocalRegistrationClientSecretSource(args: {
-  registrationAttemptId: string;
-  walletId: string;
-  authSubjectId: string;
-  clientRootShare32B64u: string;
-}): EmailOtpEcdsaRoleLocalRegistrationClientSecretSource {
-  return {
-    kind: 'email_otp_registration_ecdsa_role_local_client_secret_source',
-    registrationAttemptId: requireTrimmedString(args.registrationAttemptId, 'registrationAttemptId'),
-    walletId: requireTrimmedString(args.walletId, 'walletId'),
-    authSubjectId: requireTrimmedString(args.authSubjectId, 'authSubjectId'),
-    clientRootShare32B64u: requireTrimmedString(args.clientRootShare32B64u, 'clientRootShare32B64u'),
   };
 }

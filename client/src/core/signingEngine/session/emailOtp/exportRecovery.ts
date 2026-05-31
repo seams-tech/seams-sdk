@@ -33,7 +33,7 @@ import {
   type EmailOtpSigningSessionAuthLane,
 } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import type { RequestEmailOtpChallengeArgs } from './exportRecoveryRuntime';
-import type { RecoverEd25519ExportPrfFirstArgs } from './exportRecoveryRuntime';
+import type { ExportEd25519SeedWithAuthorizationArgs } from './exportRecoveryRuntime';
 import {
   parseThresholdEcdsaSessionRecordAsRoleLocalWorkerExportMaterial,
   type EcdsaRoleLocalWorkerExportMaterial,
@@ -52,6 +52,11 @@ export type EmailOtpEcdsaExportArtifact = {
   publicKeyHex: string;
   privateKeyHex: string;
   ethereumAddress: string;
+};
+
+export type EmailOtpEd25519ExportArtifact = {
+  publicKey: string;
+  privateKey: string;
 };
 
 type EmailOtpWorkerPorts = {
@@ -464,7 +469,7 @@ export async function requestExportChallenge(
   };
 }
 
-export async function recoverEd25519ExportPrfFirst(
+export async function exportEd25519SeedWithAuthorization(
   ports: Pick<
     EmailOtpWorkerPorts,
     | 'getSignerWorkerContext'
@@ -472,8 +477,8 @@ export async function recoverEd25519ExportPrfFirst(
     | 'requireShamirPrimeB64u'
     | 'buildSigningSessionRoutePlan'
   >,
-  args: RecoverEd25519ExportPrfFirstArgs,
-): Promise<{ prfFirstB64u: string }> {
+  args: ExportEd25519SeedWithAuthorizationArgs,
+): Promise<EmailOtpEd25519ExportArtifact> {
   const nearAccountId = args.nearAccountId;
   const relayUrl = String(args.record.relayerUrl || ports.requireRelayUrl()).trim();
   const shamirPrimeB64u = String(ports.requireShamirPrimeB64u()).trim();
@@ -502,11 +507,12 @@ export async function recoverEd25519ExportPrfFirst(
   const workerResult = await workerCtx.requestWorkerOperation({
     kind: 'emailOtp',
     request: {
-      type: 'recoverEmailOtpEd25519ExportPrfFirst',
+      type: 'exportEmailOtpEd25519SeedWithAuthorization',
       timeoutMs: 60_000,
       payload: {
         relayUrl,
         walletId: String(nearAccountId),
+        nearAccountId: String(nearAccountId),
         userId: String(
           args.record.source === 'email_otp'
             ? args.record.emailOtpAuthContext?.authSubjectId || nearAccountId
@@ -520,14 +526,22 @@ export async function recoverEd25519ExportPrfFirst(
         ...(args.record.runtimePolicyScope
           ? { runtimePolicyScope: args.record.runtimePolicyScope }
           : {}),
+        signingRootId: args.signingRootId,
+        keyVersion: args.keyVersion,
+        participantIds: args.participantIds,
+        thresholdSessionId: args.thresholdSessionId,
+        thresholdSessionAuthToken: args.thresholdSessionAuthToken,
+        relayerKeyId: args.relayerKeyId,
+        expectedPublicKey: args.expectedPublicKey,
       },
     },
   });
-  const prfFirstB64u = String(workerResult.thresholdEd25519PrfFirstB64u || '').trim();
-  if (!prfFirstB64u) {
-    throw new Error('Email OTP Ed25519 export did not recover client seed material');
+  const publicKey = String(workerResult.publicKey || '').trim();
+  const privateKey = String(workerResult.privateKey || '').trim();
+  if (!publicKey || !privateKey) {
+    throw new Error('Email OTP Ed25519 export did not return a seed artifact');
   }
-  return { prfFirstB64u };
+  return { publicKey, privateKey };
 }
 
 export async function exportEcdsaKeyWithAuthorization(

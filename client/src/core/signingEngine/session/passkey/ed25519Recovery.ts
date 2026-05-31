@@ -1,4 +1,3 @@
-import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
 import type { AccountId } from '@/core/types/accountIds';
 import {
@@ -15,6 +14,7 @@ import type { RestorePersistedEd25519SessionPurpose } from '@/core/signingEngine
 import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/types';
 import { publishResolvedIdentity } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
+import type { ThresholdEd25519WebAuthnPrfSecretSource } from '../../threshold/ed25519/authSession';
 import { claimWarmSessionPrfFirst, type PasskeyWarmSessionRecoveryPorts } from './prfClaim';
 
 type PasskeyEd25519SessionRestoreIdentity = {
@@ -73,7 +73,7 @@ export async function claimPasskeyEd25519PrfFirst(
 export async function reconnectPasskeyEd25519CapabilityForSigning(args: {
   nearAccountId: AccountId;
   record: ThresholdEd25519SessionRecord;
-  localPrfCredential: WebAuthnAuthenticationCredential;
+  policySecretSource: ThresholdEd25519WebAuthnPrfSecretSource;
   remainingUses?: number;
   sessionId: string;
   walletSigningSessionId: string;
@@ -98,7 +98,7 @@ export async function reconnectPasskeyEd25519CapabilityForSigning(args: {
     source: 'login',
     auth: {
       kind: 'threshold_session_policy_webauthn',
-      webauthnAuthentication: args.localPrfCredential,
+      policySecretSource: args.policySecretSource,
     },
     ...(args.record.runtimePolicyScope
       ? { runtimePolicyScope: args.record.runtimePolicyScope }

@@ -31,7 +31,10 @@ import type {
 } from './interfaces/signing';
 import type { ThresholdEcdsaSessionBootstrapResult } from './threshold/ecdsa/activation';
 import type { SignerWorkerManager } from './workerManager/SignerWorkerManager';
-import type { EmailOtpWorkerProgressEvent } from './workerManager/workerTypes';
+import type {
+  EmailOtpWalletRegistrationEcdsaPrepareHandlePayload,
+  EmailOtpWorkerProgressEvent,
+} from './workerManager/workerTypes';
 import type { UiConfirmRuntimeBridgePort } from './uiConfirm/types';
 import { readTrustedWalletSigningBudgetStatus as readTrustedWalletSigningBudgetStatusOperation } from './session/budget/budgetStatusReader';
 import type { TouchIdPrompt } from './stepUpConfirmation/passkeyPrompt/touchIdPrompt';
@@ -200,11 +203,23 @@ export type { EmailOtpBootstrapRecovery } from './stepUpConfirmation/otpPrompt/b
 export type { NearSignIntentRequest, NearSignIntentResult } from './flows/signNear/signNear';
 export type { ThresholdEcdsaLoginPrefillResult } from './session/warmCapabilities/ecdsaLoginPrefill';
 
-export type WalletRegistrationEcdsaPreparedClientBootstrap = {
+export type PasskeyWalletRegistrationEcdsaPreparedClientBootstrap = {
+  materialSource: 'passkey_client_root_share';
   clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
   localClientBootstrap: ThresholdEcdsaHssRoleLocalClientBootstrap;
   clientRootShare32B64u: string;
 };
+
+export type EmailOtpWalletRegistrationEcdsaPreparedClientBootstrap = {
+  materialSource: 'email_otp_worker_handle';
+  clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
+  localClientBootstrap: ThresholdEcdsaHssRoleLocalClientBootstrap;
+  clientRootShare32B64u?: never;
+};
+
+export type WalletRegistrationEcdsaPreparedClientBootstrap =
+  | PasskeyWalletRegistrationEcdsaPreparedClientBootstrap
+  | EmailOtpWalletRegistrationEcdsaPreparedClientBootstrap;
 
 export type BootstrapLoginEcdsaSessionFromRestoredEd25519Args = {
   walletId: WalletId;
@@ -854,9 +869,35 @@ export class SigningEngine {
       contextBinding32B64u: clientBootstrap.contextBinding32B64u,
     };
     return {
+      materialSource: 'passkey_client_root_share',
       clientBootstrap: serverVisibleClientBootstrap,
       localClientBootstrap: clientBootstrap,
       clientRootShare32B64u: args.clientRootShare32B64u,
+    };
+  }
+
+  async prepareWalletRegistrationEcdsaPreparedClientBootstrapFromEmailOtpHandle(args: {
+    prepare: WalletRegistrationEcdsaPrepareContext;
+    clientRootShareHandle: EmailOtpWalletRegistrationEcdsaPrepareHandlePayload;
+  }): Promise<EmailOtpWalletRegistrationEcdsaPreparedClientBootstrap> {
+    const result =
+      await this.enginePorts.thresholdSessionActivationDeps
+        .getSignerWorkerContext()
+        .requestWorkerOperation({
+          kind: 'emailOtp',
+          request: {
+            type: 'prepareWalletRegistrationEcdsaPreparedClientBootstrapFromEmailOtpHandle',
+            timeoutMs: 60_000,
+            payload: {
+              prepare: args.prepare,
+              clientRootShareHandle: args.clientRootShareHandle,
+            },
+          },
+        });
+    return {
+      materialSource: 'email_otp_worker_handle',
+      clientBootstrap: result.clientBootstrap,
+      localClientBootstrap: result.localClientBootstrap,
     };
   }
 
@@ -922,6 +963,9 @@ export class SigningEngine {
         });
       }
       if (args.auth.kind === 'passkey') {
+        if (args.preparedClientBootstrap.materialSource !== 'passkey_client_root_share') {
+          throw new Error('Passkey ECDSA registration persistence requires passkey root material');
+        }
         const thresholdSessionId = String(bootstrap.session.sessionId || '').trim();
         const walletSigningSessionId = String(
           bootstrap.session.walletSigningSessionId ||
@@ -1481,6 +1525,7 @@ const signingEnginePublicMembers = [
   'requestRegistrationCredentialConfirmation',
   'getAuthenticationCredentialsSerialized',
   'prepareWalletRegistrationEcdsaPreparedClientBootstrap',
+  'prepareWalletRegistrationEcdsaPreparedClientBootstrapFromEmailOtpHandle',
   'prepareWalletRegistrationEcdsaClientBootstrap',
   'persistWalletRegistrationEcdsaBootstrapForWalletKeys',
   'extractCosePublicKey',

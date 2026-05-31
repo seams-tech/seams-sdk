@@ -8,10 +8,15 @@ import type { MultichainWorkerKind } from '@/core/walletRuntimePaths/multichainW
 import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaHssRoleLocalClientState } from '../interfaces/signing';
+import type { ThresholdEcdsaHssRoleLocalClientBootstrap } from '../threshold/crypto/hssClientSignerWasm';
 import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import type { WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 import type { EmailOtpRoutePlan } from '../stepUpConfirmation/otpPrompt/authLane';
+import type {
+  WalletRegistrationEcdsaClientBootstrap,
+  WalletRegistrationEcdsaPrepareContext,
+} from '@/core/rpcClients/relayer/walletRegistration';
 
 /**
  * Control messages exchanged between worker shims and the main thread.
@@ -35,6 +40,11 @@ export type ThresholdEcdsaPresignProgressResult = {
   event: ThresholdEcdsaPresignEvent;
   outgoingMessages: ArrayBuffer[];
   presignature97?: ArrayBuffer;
+};
+
+export type ThresholdEcdsaPresignAbortResult = {
+  kind: 'threshold_ecdsa_presign_session_aborted';
+  sessionId: string;
 };
 
 export type RpcSignerWorkerProgressEvent = {
@@ -118,7 +128,7 @@ export interface EthSignerWorkerOperationMap {
   };
   thresholdEcdsaPresignSessionAbort: {
     payload: { sessionId: string };
-    result: { ok: boolean };
+    result: ThresholdEcdsaPresignAbortResult;
   };
   thresholdEcdsaComputeSignatureShare: {
     payload: {
@@ -166,13 +176,67 @@ export type EmailOtpEcdsaBootstrapRoleLocalKeyIdentity = {
   relayerKeyId: string;
 };
 
+export type EmailOtpWorkerSessionHandleOperation =
+  | 'registration'
+  | 'wallet_unlock'
+  | 'sign'
+  | 'export';
+
+export type EmailOtpEcdsaSessionBootstrapHandlePayload = {
+  kind: 'email_otp_worker_session_handle_v1';
+  sessionId: string;
+  walletId: string;
+  rpId: string;
+  authSubjectId: string;
+  action: 'threshold_ecdsa_bootstrap';
+  operation: EmailOtpWorkerSessionHandleOperation;
+  chainTarget: ThresholdEcdsaChainTarget;
+};
+
+export type EmailOtpWalletRegistrationEcdsaPrepareHandlePayload = {
+  kind: 'email_otp_worker_session_handle_v1';
+  sessionId: string;
+  walletId: string;
+  rpId: string;
+  authSubjectId: string;
+  action: 'wallet_registration_ecdsa_prepare';
+  operation: 'registration';
+  keyScope: 'evm-family';
+  chainTarget?: never;
+};
+
+export type EmailOtpWorkerIssuedSessionHandlePayload =
+  | EmailOtpEcdsaSessionBootstrapHandlePayload
+  | EmailOtpWalletRegistrationEcdsaPrepareHandlePayload;
+
+export type EmailOtpEcdsaSessionBootstrapHandleBinding = {
+  rpId: string;
+  authSubjectId: string;
+  action?: 'threshold_ecdsa_bootstrap';
+  operation: EmailOtpWorkerSessionHandleOperation;
+  chainTarget: ThresholdEcdsaChainTarget;
+};
+
+export type EmailOtpWalletRegistrationEcdsaPrepareHandleBinding = {
+  rpId: string;
+  authSubjectId: string;
+  action: 'wallet_registration_ecdsa_prepare';
+  operation: 'registration';
+  keyScope: 'evm-family';
+  chainTarget?: never;
+};
+
+export type EmailOtpEcdsaClientRootHandleBinding =
+  | EmailOtpEcdsaSessionBootstrapHandleBinding
+  | EmailOtpWalletRegistrationEcdsaPrepareHandleBinding;
+
 type EmailOtpEcdsaBootstrapBasePayload = {
   relayUrl: string;
   walletId: string;
   walletSessionUserId: string;
   userId: string;
   rpId: string;
-  clientRootShare32B64u: string;
+  clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
   chainTarget: ThresholdEcdsaChainTarget;
   publicationChainTargets: ThresholdEcdsaChainTarget[];
   roleLocalKeyIdentity: EmailOtpEcdsaBootstrapRoleLocalKeyIdentity;
@@ -250,6 +314,7 @@ export interface EmailOtpWorkerOperationMap {
       googleEmailOtpRegistrationAttemptId?: string;
       otpChannel?: WalletEmailOtpChannel;
       clientSecret32?: ArrayBuffer;
+      ecdsaClientRootHandleBinding?: EmailOtpEcdsaSessionBootstrapHandleBinding;
     };
     result: {
       thresholdEcdsaClientVerifyingShareB64u: string;
@@ -260,7 +325,7 @@ export interface EmailOtpWorkerOperationMap {
       enrollmentSealKeyVersion: string;
       clientUnlockPublicKeyB64u: string;
       unlockKeyVersion: string;
-      clientRootShare32B64u: string;
+      clientRootShareHandle?: EmailOtpEcdsaSessionBootstrapHandlePayload;
     };
   };
   prepareEmailOtpRegistrationEnrollmentMaterial: {
@@ -272,6 +337,7 @@ export interface EmailOtpWorkerOperationMap {
       routePlan: EmailOtpRoutePlan;
       otpChannel?: WalletEmailOtpChannel;
       clientSecret32?: ArrayBuffer;
+      ecdsaClientRootHandleBinding: EmailOtpWalletRegistrationEcdsaPrepareHandleBinding;
     };
     result: {
       thresholdEcdsaClientVerifyingShareB64u: string;
@@ -281,7 +347,7 @@ export interface EmailOtpWorkerOperationMap {
       enrollmentSealKeyVersion: string;
       clientUnlockPublicKeyB64u: string;
       unlockKeyVersion: string;
-      clientRootShare32B64u: string;
+      clientRootShareHandle: EmailOtpWalletRegistrationEcdsaPrepareHandlePayload;
       emailOtpEnrollment: {
         recoveryWrappedEnrollmentEscrows: unknown[];
         enrollmentSealKeyVersion: string;
@@ -289,6 +355,16 @@ export interface EmailOtpWorkerOperationMap {
         unlockKeyVersion: string;
         thresholdEcdsaClientVerifyingShareB64u: string;
       };
+    };
+  };
+  prepareWalletRegistrationEcdsaPreparedClientBootstrapFromEmailOtpHandle: {
+    payload: {
+      prepare: WalletRegistrationEcdsaPrepareContext;
+      clientRootShareHandle: EmailOtpWalletRegistrationEcdsaPrepareHandlePayload;
+    };
+    result: {
+      clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
+      localClientBootstrap: ThresholdEcdsaHssRoleLocalClientBootstrap;
     };
   };
   verifyEmailOtpCode: {
@@ -355,6 +431,7 @@ export interface EmailOtpWorkerOperationMap {
       routePlan: EmailOtpRoutePlan;
       otpChannel?: WalletEmailOtpChannel;
       runtimePolicyScope?: ThresholdRuntimePolicyScope;
+      ecdsaClientRootHandleBinding?: EmailOtpEcdsaSessionBootstrapHandleBinding;
     };
     result: {
       recovery: {
@@ -366,10 +443,10 @@ export interface EmailOtpWorkerOperationMap {
         unlockSignatureB64u: string;
         thresholdEd25519PrfFirstB64u: string;
       };
-      clientRootShare32B64u: string;
+      clientRootShareHandle?: EmailOtpEcdsaSessionBootstrapHandlePayload;
     };
   };
-  bootstrapEmailOtpEcdsaSessionsFromClientRootShare: {
+  bootstrapEmailOtpEcdsaSessionsFromWorkerHandle: {
     payload: EmailOtpEcdsaBootstrapStrictPayload;
     result: {
       bootstraps: ThresholdEcdsaSessionBootstrapResult[];
@@ -384,10 +461,11 @@ export interface EmailOtpWorkerOperationMap {
       };
     };
   };
-  recoverEmailOtpEd25519ExportPrfFirst: {
+  exportEmailOtpEd25519SeedWithAuthorization: {
     payload: {
       relayUrl: string;
       walletId: string;
+      nearAccountId: string;
       userId?: string;
       challengeId: string;
       otpCode: string;
@@ -395,10 +473,17 @@ export interface EmailOtpWorkerOperationMap {
       routePlan: EmailOtpRoutePlan;
       otpChannel?: WalletEmailOtpChannel;
       runtimePolicyScope?: ThresholdRuntimePolicyScope;
+      signingRootId: string;
+      keyVersion: string;
+      participantIds: number[];
+      thresholdSessionId: string;
+      thresholdSessionAuthToken: string;
+      relayerKeyId: string;
+      expectedPublicKey: string;
     };
     result: {
-      challengeId: string;
-      thresholdEd25519PrfFirstB64u: string;
+      publicKey: string;
+      privateKey: string;
     };
   };
   getEmailOtpWarmSessionStatus: {

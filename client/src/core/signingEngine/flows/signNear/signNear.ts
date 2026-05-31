@@ -50,6 +50,7 @@ import {
   buildEd25519SessionPolicy,
   isThresholdSessionAuthUnavailableError,
 } from '../../threshold/sessionPolicy';
+import { buildThresholdEd25519WebAuthnPrfSecretSource } from '../../threshold/ed25519/authSession';
 import {
   SigningOperationIntent,
   SigningSessionPlanKind,
@@ -913,7 +914,10 @@ function buildNearPasskeyEd25519Reconnect(args: {
       const refreshed = await args.deps.reconnectPasskeyEd25519CapabilityForSigning!({
         nearAccountId: args.nearAccount.accountId,
         record: thresholdSessionRecord,
-        localPrfCredential: authorization.credential,
+        policySecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
+          credential: authorization.credential,
+          rpId: thresholdSessionRecord.rpId,
+        }),
         usesNeeded: requiredSignatureUses,
         remainingUses: resolveTransactionStepUpSessionUses({
           operationId: args.operationId,

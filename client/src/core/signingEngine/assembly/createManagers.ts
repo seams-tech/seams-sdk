@@ -18,6 +18,7 @@ import { createUiConfirmManager } from '../uiConfirm/UiConfirmManager';
 import type { UiConfirmRuntimeBridgePort } from '../uiConfirm/types';
 import { TouchIdPrompt } from '../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import { SignerWorkerManager } from '../workerManager/SignerWorkerManager';
+import { getWorkerTransport } from '../workerManager/workerTransport';
 import { UserPreferencesManager } from '../session/userPreferences';
 import UserPreferencesInstance from '../session/userPreferences';
 
@@ -90,20 +91,21 @@ export function createManagerAssembly(args: {
     },
   );
 
-  const signerWorkerManager = new SignerWorkerManager(
+  const signerWorkerManager = new SignerWorkerManager({
+    indexedDB,
+    touchIdPrompt,
     touchConfirm,
-    args.nearClient,
+    nearClient: args.nearClient,
     userPreferencesManager,
     nonceCoordinator,
-    args.seamsPasskeyConfigs.network.relayer.url,
+    relayerUrl: args.seamsPasskeyConfigs.network.relayer.url,
+    workerTransport: getWorkerTransport(),
     chains,
-    args.seamsPasskeyConfigs.wallet.iframe?.rpIdOverride,
-    true,
     nearExplorerUrl,
     tempoExplorerUrl,
     evmExplorerUrl,
-    args.getTheme,
-  );
+    getTheme: args.getTheme,
+  });
 
   return {
     touchIdPrompt,

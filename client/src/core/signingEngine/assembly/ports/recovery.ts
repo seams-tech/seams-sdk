@@ -49,7 +49,7 @@ export function createRecoveryPublicDeps(args: {
       & EmailOtpWalletSessionExportAuthorizationDeps['requestExportChallenge'];
     exportEcdsaKeyWithFreshEmailOtpLane: RecoveryPublicDeps['ecdsa']['emailOtp']['exportEcdsaKeyWithFreshEmailOtpLane'];
     exportEcdsaKeyWithAuthorization: RecoveryPublicDeps['ecdsa']['emailOtp']['exportEcdsaKeyWithAuthorization'];
-    recoverEd25519ExportPrfFirst: RecoveryPublicDeps['nearSingleKeyHss']['emailOtpSessions']['recoverEd25519ExportPrfFirst'];
+    exportEd25519SeedWithAuthorization: RecoveryPublicDeps['nearSingleKeyHss']['emailOtpSessions']['exportEd25519SeedWithAuthorization'];
   };
   indexedDB: UnifiedIndexedDBManager;
   warmSessionPolicy: {
@@ -115,8 +115,8 @@ export function createRecoveryPublicDeps(args: {
         requestExportChallenge: (
           request: Parameters<EmailOtpNearAccountExportAuthorizationDeps['requestExportChallenge']>[0],
         ) => args.emailOtpSessions.requestExportChallenge(request),
-        recoverEd25519ExportPrfFirst: (request) =>
-          args.emailOtpSessions.recoverEd25519ExportPrfFirst(request),
+        exportEd25519SeedWithAuthorization: (request) =>
+          args.emailOtpSessions.exportEd25519SeedWithAuthorization(request),
       },
       getSignerWorkerContext: () =>
         args.signerWorkerManager.getContext(),

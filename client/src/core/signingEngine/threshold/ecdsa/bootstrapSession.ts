@@ -42,7 +42,10 @@ import {
   secp256k1PrivateKey32ToPublicKey33Wasm,
   signSecp256k1RecoverableWasm,
 } from '../../chains/evm/ethSignerWasm';
-import { resolveThresholdEcdsaClientRootShare } from './clientSecretSource';
+import {
+  resolveThresholdEcdsaClientRootShare,
+  type ThresholdEcdsaClientRootShareRequest,
+} from './clientSecretSource';
 import { type ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   EvmFamilyEcdsaKeyHandle,
@@ -497,15 +500,40 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
       walletSigningSessionId,
       challengeKind: 'ecdsa_role_local_bootstrap',
     });
-    const resolvedClientRootShare = await resolveThresholdEcdsaClientRootShare({
-      indexedDB: args.indexedDB,
-      touchIdPrompt: args.touchIdPrompt,
-      walletId: userId,
-      challengeB64u,
-      providedClientRootShare32,
-      providedClientRootShare32B64u,
-      providedCredential: args.webauthnAuthentication,
-    });
+    const clientRootShareRequest: ThresholdEcdsaClientRootShareRequest | null =
+      providedClientRootShare32
+        ? { kind: 'provided_client_root_share_bytes', clientRootShare32: providedClientRootShare32 }
+        : providedClientRootShare32B64u
+          ? {
+              kind: 'provided_client_root_share_b64u',
+              clientRootShare32B64u: providedClientRootShare32B64u,
+            }
+          : args.webauthnAuthentication
+            ? {
+                kind: 'provided_webauthn_prf_credential',
+                credential: args.webauthnAuthentication,
+                rpId,
+              }
+            : challengeB64u
+              ? {
+                  kind: 'collect_webauthn_prf_credential',
+                  indexedDB: args.indexedDB,
+                  touchIdPrompt: args.touchIdPrompt,
+                  walletId: userId,
+                  challengeB64u,
+                  rpId,
+                }
+              : null;
+    if (!clientRootShareRequest) {
+      return {
+        ok: false,
+        code: 'invalid_args',
+        message:
+          'Missing threshold-ecdsa client root share for bootstrap; reconnect with WebAuthn or provide canonical session material',
+      };
+    }
+    const resolvedClientRootShare =
+      await resolveThresholdEcdsaClientRootShare(clientRootShareRequest);
     if (!resolvedClientRootShare.ok) {
       return resolvedClientRootShare;
     }

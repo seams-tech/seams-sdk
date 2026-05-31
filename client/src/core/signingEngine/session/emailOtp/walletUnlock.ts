@@ -1,6 +1,10 @@
 import type { WalletSessionRef } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import type { EmailOtpWorkerProgressEvent } from '@/core/signingEngine/workerManager/workerTypes';
+import type {
+  EmailOtpEcdsaSessionBootstrapHandleBinding,
+  EmailOtpEcdsaSessionBootstrapHandlePayload,
+  EmailOtpWorkerProgressEvent,
+} from '@/core/signingEngine/workerManager/workerTypes';
 import type { EmailOtpRoutePlan } from '../../stepUpConfirmation/otpPrompt/authLane';
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
 
@@ -16,7 +20,7 @@ export type EmailOtpWalletUnlockRecovery = {
 
 export type EmailOtpWalletUnlockResult = {
   recovery: EmailOtpWalletUnlockRecovery;
-  clientRootShare32B64u: string;
+  clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
 };
 
 export async function unlockEmailOtpWallet(args: {
@@ -28,6 +32,7 @@ export async function unlockEmailOtpWallet(args: {
   workerCtx: WorkerOperationContext;
   challengeId?: string;
   onProgress?: (progress: EmailOtpWorkerProgressEvent) => void;
+  ecdsaClientRootHandleBinding: EmailOtpEcdsaSessionBootstrapHandleBinding;
   runtimePolicyScope?: {
     orgId: string;
     projectId: string;
@@ -35,7 +40,7 @@ export async function unlockEmailOtpWallet(args: {
     signingRootVersion: string;
   };
 }): Promise<EmailOtpWalletUnlockResult> {
-  return await args.workerCtx.requestWorkerOperation({
+  const result = await args.workerCtx.requestWorkerOperation({
     kind: 'emailOtp',
     request: {
       type: 'loginWithEmailOtpWallet',
@@ -49,9 +54,17 @@ export async function unlockEmailOtpWallet(args: {
         shamirPrimeB64u: args.shamirPrimeB64u,
         routePlan: args.routePlan,
         otpChannel: EMAIL_OTP_CHANNEL,
+        ecdsaClientRootHandleBinding: args.ecdsaClientRootHandleBinding,
         ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
       },
       onEvent: args.onProgress,
     },
   });
+  if (!result.clientRootShareHandle) {
+    throw new Error('Email OTP wallet unlock did not return an ECDSA client-root worker handle');
+  }
+  return {
+    recovery: result.recovery,
+    clientRootShareHandle: result.clientRootShareHandle,
+  };
 }

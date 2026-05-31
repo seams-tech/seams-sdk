@@ -31,6 +31,7 @@ import {
   type WarmSessionTransitionEvent,
 } from '../warmCapabilities/transitions';
 import {
+  buildEmailOtpEcdsaProvisionSecretSource,
   buildEcdsaSessionIdentity,
   ecdsaSessionIdentitiesEqual,
   ecdsaSessionIdentityMatches,
@@ -129,7 +130,7 @@ type PasskeyEcdsaActivation = EcdsaProvisionActivationCommon & {
   webauthnAuthentication: Extract<
     EcdsaSessionProvisionPlan,
     { kind: 'passkey_ecdsa_session_provision' }
-  >['webauthnAuthentication'];
+  >['provisionSecretSource']['webauthnAuthentication'];
   plan: Extract<EcdsaSessionProvisionPlan, { kind: 'passkey_ecdsa_session_provision' }>;
 };
 
@@ -139,7 +140,7 @@ type EmailOtpEcdsaActivation = EcdsaProvisionActivationCommon & {
   emailOtpAuthContext: Extract<
     EcdsaSessionProvisionPlan,
     { kind: 'email_otp_ecdsa_session_provision' }
-  >['emailOtpAuthContext'];
+  >['provisionSecretSource']['emailOtpAuthContext'];
   plan: Extract<EcdsaSessionProvisionPlan, { kind: 'email_otp_ecdsa_session_provision' }>;
 };
 
@@ -425,8 +426,8 @@ function buildPasskeyEcdsaActivation(args: {
     sessionKind: args.plan.sessionKind,
     sessionBudgetUses: args.plan.sessionBudgetUses,
     runtimePolicy: args.runtimePolicy,
-    clientRootShare32B64u: args.plan.clientRootShare32B64u,
-    webauthnAuthentication: args.plan.webauthnAuthentication,
+    clientRootShare32B64u: args.plan.provisionSecretSource.clientRootShare32B64u,
+    webauthnAuthentication: args.plan.provisionSecretSource.webauthnAuthentication,
     plan: args.plan,
   };
   if (args.options.runtimeScopeBootstrap) {
@@ -464,8 +465,8 @@ function buildEmailOtpEcdsaActivation(args: {
     sessionKind: args.plan.sessionKind,
     sessionBudgetUses: args.plan.sessionBudgetUses,
     runtimePolicy: args.runtimePolicy,
-    clientRootShare32B64u: args.plan.clientRootShare32B64u,
-    emailOtpAuthContext: args.plan.emailOtpAuthContext,
+    clientRootShare32B64u: args.plan.provisionSecretSource.clientRootShare32B64u,
+    emailOtpAuthContext: args.plan.provisionSecretSource.emailOtpAuthContext,
     plan: args.plan,
   };
   if (args.options.runtimeScopeBootstrap) {
@@ -595,8 +596,8 @@ async function provisionPasskeyEcdsaSession(
       ? { runtimeScopeBootstrap: activation.runtimeScopeBootstrap }
       : {}),
     ...(activation.operationIntent ? { operationIntent: activation.operationIntent } : {}),
-    clientRootShare32B64u: plan.clientRootShare32B64u,
-    webauthnAuthentication: plan.webauthnAuthentication,
+    clientRootShare32B64u: plan.provisionSecretSource.clientRootShare32B64u,
+    webauthnAuthentication: plan.provisionSecretSource.webauthnAuthentication,
   };
   return await deps.provisionThresholdEcdsaSession(
     buildPasskeyReconnectEcdsaActivation({
@@ -718,21 +719,21 @@ async function provisionEmailOtpEcdsaSession(
       ? { runtimeScopeBootstrap: activation.runtimeScopeBootstrap }
       : {}),
     ...(activation.operationIntent ? { operationIntent: activation.operationIntent } : {}),
-    clientRootShare32B64u: plan.clientRootShare32B64u,
+    clientRootShare32B64u: plan.provisionSecretSource.clientRootShare32B64u,
   };
-  if (plan.emailOtpAuthContext.retention === 'single_use') {
+  if (plan.provisionSecretSource.emailOtpAuthContext.retention === 'single_use') {
     const emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext & {
       retention: 'single_use';
     } = {
-      policy: plan.emailOtpAuthContext.policy,
+      policy: plan.provisionSecretSource.emailOtpAuthContext.policy,
       retention: 'single_use',
-      reason: plan.emailOtpAuthContext.reason,
+      reason: plan.provisionSecretSource.emailOtpAuthContext.reason,
       authMethod: 'email_otp',
-      ...(plan.emailOtpAuthContext.authSubjectId
-        ? { authSubjectId: plan.emailOtpAuthContext.authSubjectId }
+      ...(plan.provisionSecretSource.emailOtpAuthContext.authSubjectId
+        ? { authSubjectId: plan.provisionSecretSource.emailOtpAuthContext.authSubjectId }
         : {}),
-      ...(typeof plan.emailOtpAuthContext.consumedAtMs === 'number'
-        ? { consumedAtMs: plan.emailOtpAuthContext.consumedAtMs }
+      ...(typeof plan.provisionSecretSource.emailOtpAuthContext.consumedAtMs === 'number'
+        ? { consumedAtMs: plan.provisionSecretSource.emailOtpAuthContext.consumedAtMs }
         : {}),
     };
     return await deps.provisionThresholdEcdsaSession(
@@ -757,15 +758,15 @@ async function provisionEmailOtpEcdsaSession(
   const emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext & {
     retention: 'session';
   } = {
-    policy: plan.emailOtpAuthContext.policy,
+    policy: plan.provisionSecretSource.emailOtpAuthContext.policy,
     retention: 'session',
-    reason: plan.emailOtpAuthContext.reason,
+    reason: plan.provisionSecretSource.emailOtpAuthContext.reason,
     authMethod: 'email_otp',
-    ...(plan.emailOtpAuthContext.authSubjectId
-      ? { authSubjectId: plan.emailOtpAuthContext.authSubjectId }
+    ...(plan.provisionSecretSource.emailOtpAuthContext.authSubjectId
+      ? { authSubjectId: plan.provisionSecretSource.emailOtpAuthContext.authSubjectId }
       : {}),
-    ...(typeof plan.emailOtpAuthContext.consumedAtMs === 'number'
-      ? { consumedAtMs: plan.emailOtpAuthContext.consumedAtMs }
+    ...(typeof plan.provisionSecretSource.emailOtpAuthContext.consumedAtMs === 'number'
+      ? { consumedAtMs: plan.provisionSecretSource.emailOtpAuthContext.consumedAtMs }
       : {}),
   };
   return await deps.provisionThresholdEcdsaSession(
@@ -1087,8 +1088,11 @@ export async function ensureWarmEcdsaCapabilityReady(
               signingKeyContext: args.plan.signingKeyContext,
               sessionKind: args.plan.sessionKind,
               sessionBudgetUses: args.plan.sessionBudgetUses,
-              emailOtpAuthContext: inheritedEmailOtpRecord.emailOtpAuthContext,
-              clientRootShare32B64u: args.plan.clientRootShare32B64u,
+              provisionSecretSource: buildEmailOtpEcdsaProvisionSecretSource({
+                clientRootShare32B64u:
+                  args.plan.provisionSecretSource.clientRootShare32B64u,
+                emailOtpAuthContext: inheritedEmailOtpRecord.emailOtpAuthContext,
+              }),
               ...(args.plan.runtimePolicyScope
                 ? { runtimePolicyScope: args.plan.runtimePolicyScope }
                 : {}),

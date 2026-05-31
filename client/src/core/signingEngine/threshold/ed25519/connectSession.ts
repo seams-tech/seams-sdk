@@ -1,9 +1,8 @@
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import { collectAuthenticationCredentialForChallengeB64u } from '../../webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
-import {
-  getPrfFirstB64uFromCredential,
-  type ThresholdIndexedDbPort,
-  type ThresholdWebAuthnPromptPort,
+import type {
+  ThresholdIndexedDbPort,
+  ThresholdWebAuthnPromptPort,
 } from '../crypto/webauthn';
 import { buildEd25519SessionPolicy } from '../sessionPolicy';
 import {
@@ -12,6 +11,7 @@ import {
   type ThresholdSessionKind,
 } from '../sessionPolicy';
 import {
+  buildThresholdEd25519WebAuthnPrfSecretSource,
   localPrfFirstForThresholdEd25519SessionMintAuthorization,
   mintEd25519AuthSession,
   type ThresholdEd25519SessionMintAuthorization,
@@ -83,7 +83,7 @@ export async function connectEd25519Session(args: {
   let auth: ThresholdEd25519SessionMintAuthorization | undefined = args.auth;
   if (!auth) {
     // Collect WebAuthn only when the caller did not already confirm the same session policy.
-    // A regression here ignored `localPrfCredential`, so post-exhaustion transaction signing
+    // A regression here ignored the provided PRF source, so post-exhaustion transaction signing
     // showed one tx confirmation and then a second TouchID prompt for the session mint.
     const credential = await collectAuthenticationCredentialForChallengeB64u({
       indexedDB: args.indexedDB,
@@ -93,14 +93,14 @@ export async function connectEd25519Session(args: {
     });
     auth = {
       kind: 'threshold_session_policy_webauthn',
-      webauthnAuthentication: credential,
+      policySecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
+        credential,
+        rpId,
+      }),
     };
   }
 
-  const prfFirstB64u = localPrfFirstForThresholdEd25519SessionMintAuthorization({
-    auth,
-    prfFirstFromCredential: getPrfFirstB64uFromCredential,
-  });
+  const prfFirstB64u = localPrfFirstForThresholdEd25519SessionMintAuthorization(auth);
   if (!prfFirstB64u) {
     return {
       ok: false,

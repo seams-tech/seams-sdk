@@ -43,14 +43,21 @@ export type NearEd25519SingleKeyExportDeps = {
   theme?: ThemeName;
   emailOtpSessions: {
     requestExportChallenge: EmailOtpNearAccountExportAuthorizationDeps['requestExportChallenge'];
-    recoverEd25519ExportPrfFirst: (args: {
+    exportEd25519SeedWithAuthorization: (args: {
       nearAccountId: AccountId;
       challengeId: string;
       otpCode: string;
       record: ThresholdEd25519SessionRecord;
+      signingRootId: string;
+      keyVersion: string;
+      participantIds: number[];
+      thresholdSessionId: string;
+      thresholdSessionAuthToken: string;
+      relayerKeyId: string;
+      expectedPublicKey: string;
       routeAuth?: AppOrThresholdSessionAuth;
       authLane?: EmailOtpAuthLane;
-    }) => Promise<{ prfFirstB64u: string }>;
+    }) => Promise<{ publicKey: string; privateKey: string }>;
   };
   getSignerWorkerContext: () => WorkerOperationContext;
 };
@@ -349,30 +356,47 @@ export async function tryExportNearEd25519SingleKeyHssWithAuthorization(
           authLane: exportSigningSessionAuthLane,
         },
       );
-      const exportMaterial = await deps.emailOtpSessions.recoverEd25519ExportPrfFirst({
+      emitNearEd25519MaterialStarted({
+        flowId: args.flowId,
+        nearAccountId,
+        onEvent: args.onEvent,
+      });
+      const artifact = await deps.emailOtpSessions.exportEd25519SeedWithAuthorization({
         nearAccountId,
         challengeId: authorization.challengeId,
         otpCode: authorization.otpCode,
         record: sessionRecord,
-        authLane: exportSigningSessionAuthLane,
-      });
-      return await runNearEd25519HssExportAndViewer(deps, {
         signingRootId: defaultSigningRootId,
-        nearAccountId,
         keyVersion,
         participantIds,
         thresholdSessionId,
         thresholdSessionAuthToken,
-        relayerUrl,
         relayerKeyId,
-        prfFirstB64u: exportMaterial.prfFirstB64u,
         expectedPublicKey,
-        viewerSessionId,
-        options: args.options,
-        flowId: args.flowId,
-        onEvent: args.onEvent,
-        errorContext: 'Email OTP single-key HSS',
+        authLane: exportSigningSessionAuthLane,
       });
+      emitNearEd25519MaterialSucceeded({
+        flowId: args.flowId,
+        nearAccountId,
+        onEvent: args.onEvent,
+      });
+      await showNearEd25519ExportViewer(
+        { touchConfirm: deps.touchConfirm, theme: deps.theme },
+        {
+          nearAccountId,
+          expectedPublicKey: artifact.publicKey,
+          privateKey: artifact.privateKey,
+          variant: args.options.variant,
+          theme: args.options.theme,
+          viewerSessionId,
+          flowId: args.flowId,
+          onEvent: args.onEvent,
+        },
+      );
+      return {
+        accountId: nearAccountId,
+        exportedSchemes: ['ed25519'],
+      };
     }
 
     const exportCredential = await requestNearEd25519ExportAuthorization(

@@ -55,7 +55,11 @@ import {
   parseThresholdRuntimePolicyScopeFromJwt,
   type ThresholdRuntimePolicyScope,
 } from '../signingEngine/threshold/sessionPolicy';
-import type { ThresholdEd25519SessionMintAuthorization } from '../signingEngine/threshold/ed25519/authSession';
+import {
+  buildThresholdEd25519ProvidedPrfSecretSource,
+  buildThresholdEd25519WebAuthnPrfSecretSource,
+  type ThresholdEd25519SessionMintAuthorization,
+} from '../signingEngine/threshold/ed25519/authSession';
 import { shouldRequireThresholdWarmSession } from './thresholdWarmSessionDefaults';
 import { prewarmThresholdEd25519ClientBaseFromCredential } from './thresholdWarmSessionBootstrap';
 import { listConfiguredThresholdEcdsaPublicationTargets } from './thresholdEcdsaProvisioning';
@@ -1300,6 +1304,7 @@ function buildLoginThresholdEd25519SessionMintAuthorization(args: {
   appSessionJwt?: string;
   useAppSessionCookie?: boolean;
   credential?: WebAuthnAuthenticationCredential;
+  rpId: string;
   thresholdEcdsaSessionJwt?: string;
   localPrfFirstB64u?: string;
 }): ThresholdEd25519SessionMintAuthorization | undefined {
@@ -1309,7 +1314,9 @@ function buildLoginThresholdEd25519SessionMintAuthorization(args: {
     return {
       kind: 'threshold_ecdsa_session_jwt',
       thresholdEcdsaSessionJwt,
-      localPrfFirstB64u,
+      localSecretSource: buildThresholdEd25519ProvidedPrfSecretSource({
+        prfFirstB64u: localPrfFirstB64u,
+      }),
     };
   }
   const appSessionJwt = String(args.appSessionJwt || '').trim();
@@ -1318,14 +1325,20 @@ function buildLoginThresholdEd25519SessionMintAuthorization(args: {
     return {
       kind: 'app_session_jwt',
       appSessionJwt,
-      localPrfCredential: args.credential,
+      localSecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
+        credential: args.credential,
+        rpId: args.rpId,
+      }),
     };
   }
   if (args.useAppSessionCookie) {
     if (!args.credential) return undefined;
     return {
       kind: 'app_session_cookie',
-      localPrfCredential: args.credential,
+      localSecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
+        credential: args.credential,
+        rpId: args.rpId,
+      }),
     };
   }
   return undefined;
@@ -1377,6 +1390,7 @@ async function primeThresholdLoginWarmSigners(args: {
           appSessionJwt: args.appSessionJwt,
           useAppSessionCookie: args.useAppSessionCookie,
           credential: args.credential,
+          rpId: args.signingEngine.getRpId(),
           thresholdEcdsaSessionJwt: ecdsaMint?.thresholdEcdsaSessionJwt,
           localPrfFirstB64u: ecdsaMint?.passkeyPrfFirstB64u,
         });
