@@ -8,6 +8,7 @@ import {
 } from '@shared/utils/thresholdEcdsaKeyHandle';
 import type { AccountId } from '@/core/types/accountIds';
 import type {
+  ThresholdEcdsaBackendBinding,
   ThresholdEcdsaClientAdditiveShareHandle,
   ThresholdEcdsaCanonicalExportArtifact,
   ThresholdEcdsaSecp256k1KeyRef,
@@ -990,31 +991,49 @@ function buildEmailOtpWorkerShareHandle(args: {
   };
 }
 
+function assertNeverThresholdEcdsaBackendBinding(value: never): never {
+  throw new Error('[evm-family-ecdsa] unsupported ECDSA backend binding material kind');
+}
+
+function requireThresholdEcdsaBackendBinding(
+  binding: ThresholdEcdsaSecp256k1KeyRef['backendBinding'],
+): ThresholdEcdsaBackendBinding {
+  if (!binding) {
+    throw new Error('[evm-family-ecdsa] ready ECDSA signer session requires backend binding');
+  }
+  return binding;
+}
+
 function buildThresholdEcdsaSignerClientShare(args: {
-  keyRef: ThresholdEcdsaSecp256k1KeyRef;
+  backendBinding: ThresholdEcdsaBackendBinding;
   publicFacts: VerifiedEcdsaPublicFacts;
   chainTarget: ThresholdEcdsaChainTarget;
   session: ThresholdEcdsaSignerSessionIdentity;
 }): ThresholdEcdsaSignerClientShare {
-  const handle = args.keyRef.backendBinding?.clientAdditiveShareHandle;
-  if (handle?.kind === 'email_otp_worker_session') {
-    return {
-      kind: 'email_otp_worker_share',
-      handle: buildEmailOtpWorkerShareHandle({
-        handle,
-        publicFacts: args.publicFacts,
-        chainTarget: args.chainTarget,
-        session: args.session,
-      }),
-    };
+  switch (args.backendBinding.materialKind) {
+    case 'email_otp_worker_handle':
+      return {
+        kind: 'email_otp_worker_share',
+        handle: buildEmailOtpWorkerShareHandle({
+          handle: args.backendBinding.clientAdditiveShareHandle,
+          publicFacts: args.publicFacts,
+          chainTarget: args.chainTarget,
+          session: args.session,
+        }),
+      };
+    case 'inline_role_local_ready':
+      return {
+        kind: 'inline_client_share',
+        clientAdditiveShare32B64u: requiredString(
+          args.backendBinding.clientAdditiveShare32B64u,
+          'clientAdditiveShare32B64u',
+        ),
+      };
+    case 'metadata_only':
+      throw new Error('[evm-family-ecdsa] ready ECDSA signer session requires signing material');
+    default:
+      return assertNeverThresholdEcdsaBackendBinding(args.backendBinding);
   }
-  return {
-    kind: 'inline_client_share',
-    clientAdditiveShare32B64u: requiredString(
-      args.keyRef.backendBinding?.clientAdditiveShare32B64u,
-      'clientAdditiveShare32B64u',
-    ),
-  };
 }
 
 function hasReadyThresholdEcdsaRecordClientShare(record: ThresholdEcdsaSessionRecord): boolean {
@@ -1069,6 +1088,7 @@ export function buildReadyThresholdEcdsaSession(args: {
 export function buildReadyEcdsaSignerSession(
   input: BuildReadyEcdsaSignerSessionInput,
 ): ReadyEcdsaSignerSession {
+  const backendBinding = requireThresholdEcdsaBackendBinding(input.keyRef.backendBinding);
   const session = buildReadyThresholdEcdsaSession({
     walletSigningSessionId: input.keyRef.walletSigningSessionId,
     thresholdSessionId: input.keyRef.thresholdSessionId,
@@ -1098,9 +1118,9 @@ export function buildReadyEcdsaSignerSession(
       kind: 'threshold_ecdsa_signer_transport',
       relayerUrl: requiredString(input.keyRef.relayerUrl, 'relayerUrl'),
       ecdsaThresholdKeyId: normalizeEcdsaThresholdKeyId(input.keyRef.ecdsaThresholdKeyId),
-      relayerKeyId: requiredString(input.keyRef.backendBinding?.relayerKeyId, 'relayerKeyId'),
+      relayerKeyId: requiredString(backendBinding.relayerKeyId, 'relayerKeyId'),
       clientVerifyingShareB64u: requiredString(
-        input.keyRef.backendBinding?.clientVerifyingShareB64u,
+        backendBinding.clientVerifyingShareB64u,
         'clientVerifyingShareB64u',
       ),
       ...(String(input.keyRef.relayerVerifyingShareB64u || '').trim()
@@ -1109,7 +1129,7 @@ export function buildReadyEcdsaSignerSession(
       auth: transportAuth,
     },
     clientShare: buildThresholdEcdsaSignerClientShare({
-      keyRef: input.keyRef,
+      backendBinding,
       publicFacts: input.publicFacts,
       chainTarget,
       session: signerIdentity,
