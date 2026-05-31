@@ -1,12 +1,15 @@
 import { IndexedDBManager } from '../../indexedDB';
-import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
+import { base64UrlDecode } from '@shared/utils/base64';
 import {
   PASSKEY_PRF_FIRST_SALT_V1,
   PASSKEY_PRF_SECOND_SALT_V1,
 } from '@shared/utils/signingSessionSeal';
 import { errorMessage } from '@shared/utils/errors';
 import { derivePasskeyThresholdEcdsaClientRootShare32B64uFromPrfFirst } from '../../signingEngine/session/passkey/ecdsaClientRoot';
-import { buildThresholdEcdsaHssRoleLocalClientBootstrapWasm } from '../../signingEngine/threshold/crypto/hssClientSignerWasm';
+import {
+  finalizeThresholdEcdsaHssRoleLocalClientBootstrapWasm,
+  prepareThresholdEcdsaHssRoleLocalClientBootstrapWasm,
+} from '../../signingEngine/threshold/crypto/hssClientSignerWasm';
 import type { WorkerOperationContext } from '../../signingEngine/workerManager/executeWorkerOperation';
 import {
   getSignerWorkerOperationCoreCode,
@@ -16,9 +19,7 @@ import {
   serializeAuthenticationCredentialWithPRF,
   serializeRegistrationCredentialWithPRF,
 } from '../../signingEngine/webauthnAuth/credentials/helpers';
-import {
-  getPrfFirstB64uFromCredential,
-} from '../../signingEngine/webauthnAuth/credentials/credentialExtensions';
+import { getPrfFirstB64uFromCredential } from '../../signingEngine/webauthnAuth/credentials/credentialExtensions';
 import {
   clearThresholdEcdsaSessionRecordsForWalletTargetKeyHandle,
   listThresholdEcdsaSessionRecordsForWalletTarget,
@@ -83,36 +84,11 @@ function unavailable<T>(message: string): PlatformResult<T, 'unavailable'> {
   return { ok: false, code: 'unavailable', message };
 }
 
-type BrowserPendingEcdsaStateBlobPayload = {
-  kind: 'browser_pending_ecdsa_role_local_state_v1';
-  context: PrepareEcdsaClientBootstrapOutput['publicFacts'] & {
-    walletId: string;
-    rpId: string;
-    ecdsaThresholdKeyId: string;
-    signingRootId: string;
-    signingRootVersion: string;
-    keyPurpose: 'evm-signing';
-    keyVersion: 'v1';
-  };
-  contextBinding32B64u: string;
-  clientShareRetryCounter: number;
-  clientShare32B64u: string;
-  clientCaitSithInput: {
-    participantId: 1;
-    mappedPrivateShare32B64u: string;
-    verifyingShare33B64u: string;
-  };
-};
-
-type BrowserReadyEcdsaStateBlobPayload = {
-  kind: 'browser_ready_ecdsa_role_local_state_v1';
-  pending: BrowserPendingEcdsaStateBlobPayload;
-  relayerPublicIdentity: {
-    relayerKeyId: string;
-    relayerPublicKey33B64u: EcdsaRelayerHssPublicKey33B64u;
-    groupPublicKey33B64u: string;
-    ethereumAddress: `0x${string}`;
-  };
+type BrowserRelayerPublicIdentity = {
+  relayerKeyId: string;
+  relayerPublicKey33B64u: EcdsaRelayerHssPublicKey33B64u;
+  groupPublicKey33B64u: string;
+  ethereumAddress: `0x${string}`;
 };
 
 type SignerCryptoInvocationFailure<CommandCode extends string> = Extract<
@@ -139,33 +115,14 @@ function signerCryptoCommandFailure<CommandCode extends string>(
   return { ok: false, failure: 'command', code, message };
 }
 
-function encodeJsonBlob(value: unknown): string {
-  return base64UrlEncode(new TextEncoder().encode(JSON.stringify(value)));
-}
-
-function decodeJsonBlob(blobB64u: string): unknown {
-  return JSON.parse(new TextDecoder().decode(base64UrlDecode(blobB64u)));
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
-function requiredStringFromRecord(
-  record: Record<string, unknown>,
-  field: string,
-): string {
+function requiredStringFromRecord(record: Record<string, unknown>, field: string): string {
   const value = String(record[field] || '').trim();
   if (!value) {
     throw new Error(`ECDSA client bootstrap state is missing ${field}`);
-  }
-  return value;
-}
-
-function requiredIntegerFromRecord(record: Record<string, unknown>, field: string): number {
-  const value = Number(record[field]);
-  if (!Number.isInteger(value)) {
-    throw new Error(`ECDSA client bootstrap state has invalid ${field}`);
   }
   return value;
 }
@@ -196,10 +153,6 @@ function parseRelayerHssPublicKey33B64u(value: string): EcdsaRelayerHssPublicKey
     value,
     'ECDSA relayer HSS public key',
   ) as EcdsaRelayerHssPublicKey33B64u;
-}
-
-function parseShare32B64u(value: string, field: string): string {
-  return requireBase64UrlBytes(value, field, 32);
 }
 
 function parseEthereumAddress(value: unknown): `0x${string}` {
@@ -241,97 +194,29 @@ function mapSignerCryptoInvocationError<CommandCode extends string>(
   if (/timed out/i.test(message)) {
     return signerCryptoInvocationFailure('timeout', message);
   }
-  if (/postMessage|worker runtime|worker response|worker protocol|Malformed worker|Unknown worker/i.test(message)) {
+  if (
+    /postMessage|worker runtime|worker response|worker protocol|Malformed worker|Unknown worker/i.test(
+      message,
+    )
+  ) {
     return signerCryptoInvocationFailure('worker_transport_failure', message);
   }
   return null;
 }
 
-function parseBrowserPendingEcdsaStateBlob(
-  blob: EcdsaRoleLocalPendingStateBlob,
-): BrowserPendingEcdsaStateBlobPayload {
+function mapFinalizeEcdsaCommandError(
+  error: unknown,
+): SignerCryptoCommandFailure<FinalizeEcdsaClientBootstrapErrorCode> {
+  const message = errorMessage(error);
   if (
-    blob.kind !== 'ecdsa_role_local_pending_state_blob_v1' ||
-    blob.curve !== 'secp256k1' ||
-    blob.encoding !== 'base64url' ||
-    blob.producer !== 'signer_core'
+    /relayer|public identity|group public key|ethereum address|threshold public key/i.test(message)
   ) {
-    throw new Error('ECDSA client bootstrap pending blob envelope is invalid');
+    return signerCryptoCommandFailure('public_identity_mismatch', message);
   }
-  const parsed = decodeJsonBlob(blob.stateBlobB64u);
-  if (!isRecord(parsed) || parsed.kind !== 'browser_pending_ecdsa_role_local_state_v1') {
-    throw new Error('ECDSA client bootstrap pending state has an invalid kind');
-  }
-  const context = parsed.context;
-  if (!isRecord(context)) {
-    throw new Error('ECDSA client bootstrap pending state is missing context');
-  }
-  const clientCaitSithInput = parsed.clientCaitSithInput;
-  if (!isRecord(clientCaitSithInput)) {
-    throw new Error('ECDSA client bootstrap pending state is missing clientCaitSithInput');
-  }
-  const participantId = requiredIntegerFromRecord(clientCaitSithInput, 'participantId');
-  if (participantId !== 1) {
-    throw new Error('ECDSA client bootstrap pending state has invalid participantId');
-  }
-  const hssClientSharePublicKey33B64u = parseHssClientSharePublicKey33B64u(
-    requiredStringFromRecord(context, 'hssClientSharePublicKey33B64u'),
-  );
-  const keyPurpose = requiredStringFromRecord(context, 'keyPurpose');
-  if (keyPurpose !== 'evm-signing') {
-    throw new Error('ECDSA client bootstrap pending state has invalid keyPurpose');
-  }
-  const keyVersion = requiredStringFromRecord(context, 'keyVersion');
-  if (keyVersion !== 'v1') {
-    throw new Error('ECDSA client bootstrap pending state has invalid keyVersion');
-  }
-  const clientVerifyingShareB64u = parsePublicKey33B64u(
-    requiredStringFromRecord(context, 'clientVerifyingShareB64u'),
-    'clientVerifyingShareB64u',
-  );
-  const verifyingShare33B64u = parsePublicKey33B64u(
-    requiredStringFromRecord(clientCaitSithInput, 'verifyingShare33B64u'),
-    'clientCaitSithInput.verifyingShare33B64u',
-  );
-  if (clientVerifyingShareB64u !== verifyingShare33B64u) {
-    throw new Error('ECDSA pending state public facts do not match clientCaitSithInput');
-  }
-  return {
-    kind: 'browser_pending_ecdsa_role_local_state_v1',
-    context: {
-      walletId: requiredStringFromRecord(context, 'walletId'),
-      rpId: requiredStringFromRecord(context, 'rpId'),
-      ecdsaThresholdKeyId: requiredStringFromRecord(context, 'ecdsaThresholdKeyId'),
-      signingRootId: requiredStringFromRecord(context, 'signingRootId'),
-      signingRootVersion: requiredStringFromRecord(context, 'signingRootVersion'),
-      keyPurpose,
-      keyVersion,
-      hssClientSharePublicKey33B64u,
-      clientVerifyingShareB64u,
-    },
-    contextBinding32B64u: parseShare32B64u(
-      requiredStringFromRecord(parsed, 'contextBinding32B64u'),
-      'contextBinding32B64u',
-    ),
-    clientShareRetryCounter: requiredIntegerFromRecord(parsed, 'clientShareRetryCounter'),
-    clientShare32B64u: parseShare32B64u(
-      requiredStringFromRecord(parsed, 'clientShare32B64u'),
-      'clientShare32B64u',
-    ),
-    clientCaitSithInput: {
-      participantId: 1,
-      mappedPrivateShare32B64u: parseShare32B64u(
-        requiredStringFromRecord(clientCaitSithInput, 'mappedPrivateShare32B64u'),
-        'clientCaitSithInput.mappedPrivateShare32B64u',
-      ),
-      verifyingShare33B64u,
-    },
-  };
+  return signerCryptoCommandFailure('invalid_pending_state', message);
 }
 
-function parseRelayerPublicIdentity(
-  input: unknown,
-): BrowserReadyEcdsaStateBlobPayload['relayerPublicIdentity'] {
+function parseRelayerPublicIdentity(input: unknown): BrowserRelayerPublicIdentity {
   if (!isRecord(input)) {
     throw new Error('ECDSA relayer public identity must be an object');
   }
@@ -395,9 +280,7 @@ function createBrowserDurableRecordStore(
         };
       }
     },
-    async persistEcdsaRoleLocalReadyRecord(
-      input,
-    ): Promise<PersistEcdsaRoleLocalReadyRecordResult> {
+    async persistEcdsaRoleLocalReadyRecord(input): Promise<PersistEcdsaRoleLocalReadyRecordResult> {
       try {
         const record = parseEcdsaRoleLocalReadyRecord(input.record);
         await indexedDB.setAppState(
@@ -413,9 +296,9 @@ function createBrowserDurableRecordStore(
         };
       }
     },
-    async cleanupMalformedEcdsaRoleLocalRecord(input): Promise<
-      CleanupMalformedEcdsaRoleLocalRecordResult
-    > {
+    async cleanupMalformedEcdsaRoleLocalRecord(
+      input,
+    ): Promise<CleanupMalformedEcdsaRoleLocalRecordResult> {
       try {
         await indexedDB.setAppState(ecdsaRoleLocalReadyRecordStorageKey(input), null);
         if (ecdsaSessionStore) {
@@ -492,11 +375,11 @@ function requiredPrfFailure(): AuthenticatorResult {
 function isPublicKeyCredential(value: Credential | null): value is PublicKeyCredential {
   return Boolean(
     value &&
-      typeof value === 'object' &&
-      'rawId' in value &&
-      'response' in value &&
-      typeof (value as { getClientExtensionResults?: unknown }).getClientExtensionResults ===
-        'function',
+    typeof value === 'object' &&
+    'rawId' in value &&
+    'response' in value &&
+    typeof (value as { getClientExtensionResults?: unknown }).getClientExtensionResults ===
+      'function',
   );
 }
 
@@ -625,10 +508,14 @@ function createBrowserAuthenticatorPort(
   };
 }
 
-function createBrowserSignerCryptoPort(workerCtx: WorkerOperationContext | undefined): SignerCryptoPort {
+function createBrowserSignerCryptoPort(
+  workerCtx: WorkerOperationContext | undefined,
+): SignerCryptoPort {
   return {
     kind: 'signer_crypto',
-    async prepareEcdsaClientBootstrap(input): Promise<
+    async prepareEcdsaClientBootstrap(
+      input,
+    ): Promise<
       SignerCryptoResult<PrepareEcdsaClientBootstrapOutput, PrepareEcdsaClientBootstrapErrorCode>
     > {
       if (!workerCtx) {
@@ -648,7 +535,7 @@ function createBrowserSignerCryptoPort(workerCtx: WorkerOperationContext | undef
           await derivePasskeyThresholdEcdsaClientRootShare32B64uFromPrfFirst(
             input.secretSource.prfFirstB64u,
           );
-        const bootstrap = await buildThresholdEcdsaHssRoleLocalClientBootstrapWasm({
+        const prepared = await prepareThresholdEcdsaHssRoleLocalClientBootstrapWasm({
           context: {
             walletId: input.context.walletId,
             rpId: input.context.rpId,
@@ -662,46 +549,28 @@ function createBrowserSignerCryptoPort(workerCtx: WorkerOperationContext | undef
           workerCtx,
         });
         const hssClientSharePublicKey33B64u = parseHssClientSharePublicKey33B64u(
-          bootstrap.clientPublicKey33B64u,
+          prepared.hssClientSharePublicKey33B64u,
         );
-        const pendingStatePayload: BrowserPendingEcdsaStateBlobPayload = {
-          kind: 'browser_pending_ecdsa_role_local_state_v1',
-          context: {
-            walletId: input.context.walletId,
-            rpId: input.context.rpId,
-            ecdsaThresholdKeyId: input.context.ecdsaThresholdKeyId,
-            signingRootId: input.context.signingRootId,
-            signingRootVersion: input.context.signingRootVersion,
-            keyPurpose: input.context.keyPurpose,
-            keyVersion: input.context.keyVersion,
-            hssClientSharePublicKey33B64u,
-            clientVerifyingShareB64u: bootstrap.clientCaitSithInput.verifyingShare33B64u,
-          },
-          contextBinding32B64u: bootstrap.contextBinding32B64u,
-          clientShareRetryCounter: bootstrap.clientShareRetryCounter,
-          clientShare32B64u: bootstrap.clientShare32B64u,
-          clientCaitSithInput: bootstrap.clientCaitSithInput,
-        };
         const pendingStateBlob: EcdsaRoleLocalPendingStateBlob = {
           kind: 'ecdsa_role_local_pending_state_blob_v1',
           curve: 'secp256k1',
           encoding: 'base64url',
           producer: 'signer_core',
-          stateBlobB64u: encodeJsonBlob(pendingStatePayload),
+          stateBlobB64u: prepared.pendingStateBlobB64u,
         };
         return {
           ok: true,
           value: {
             pendingStateBlob,
             clientBootstrap: {
-              contextBinding32B64u: bootstrap.contextBinding32B64u,
+              contextBinding32B64u: prepared.contextBinding32B64u,
               hssClientSharePublicKey33B64u,
-              clientShareRetryCounter: bootstrap.clientShareRetryCounter,
-              participantId: 1,
+              clientShareRetryCounter: prepared.clientShareRetryCounter,
+              participantId: prepared.participantId,
             },
             publicFacts: {
               hssClientSharePublicKey33B64u,
-              clientVerifyingShareB64u: bootstrap.clientCaitSithInput.verifyingShare33B64u,
+              clientVerifyingShareB64u: prepared.clientVerifyingShareB64u,
             },
           },
         };
@@ -712,55 +581,76 @@ function createBrowserSignerCryptoPort(workerCtx: WorkerOperationContext | undef
         );
       }
     },
-    async finalizeEcdsaClientBootstrap(input): Promise<
+    async finalizeEcdsaClientBootstrap(
+      input,
+    ): Promise<
       SignerCryptoResult<FinalizeEcdsaClientBootstrapOutput, FinalizeEcdsaClientBootstrapErrorCode>
     > {
+      if (
+        input.pendingStateBlob.kind !== 'ecdsa_role_local_pending_state_blob_v1' ||
+        input.pendingStateBlob.curve !== 'secp256k1' ||
+        input.pendingStateBlob.encoding !== 'base64url' ||
+        input.pendingStateBlob.producer !== 'signer_core'
+      ) {
+        return signerCryptoCommandFailure(
+          'invalid_pending_state',
+          'ECDSA client bootstrap pending blob envelope is invalid',
+        );
+      }
+      let relayerPublicIdentity: BrowserRelayerPublicIdentity;
       try {
-        const pending = parseBrowserPendingEcdsaStateBlob(input.pendingStateBlob);
-        let relayerPublicIdentity: BrowserReadyEcdsaStateBlobPayload['relayerPublicIdentity'];
-        try {
-          relayerPublicIdentity = parseRelayerPublicIdentity(input.relayerPublicIdentity);
-        } catch (error) {
-          return signerCryptoCommandFailure(
-            'invalid_relayer_public_identity',
-            errorMessage(error),
-          );
-        }
-        if (
-          String(relayerPublicIdentity.relayerPublicKey33B64u) ===
-          String(pending.context.hssClientSharePublicKey33B64u)
-        ) {
-          return signerCryptoCommandFailure(
-            'public_identity_mismatch',
-            'ECDSA relayer public identity matches the HSS client-share identity',
-          );
-        }
+        relayerPublicIdentity = parseRelayerPublicIdentity(input.relayerPublicIdentity);
+      } catch (error) {
+        return signerCryptoCommandFailure('invalid_relayer_public_identity', errorMessage(error));
+      }
+      if (!workerCtx) {
+        return signerCryptoInvocationFailure(
+          'unavailable',
+          'ECDSA client bootstrap worker context is unavailable',
+        );
+      }
+      try {
+        const finalized = await finalizeThresholdEcdsaHssRoleLocalClientBootstrapWasm({
+          pendingStateBlobB64u: input.pendingStateBlob.stateBlobB64u,
+          relayerKeyId: relayerPublicIdentity.relayerKeyId,
+          relayerPublicKey33B64u: relayerPublicIdentity.relayerPublicKey33B64u,
+          groupPublicKey33B64u: relayerPublicIdentity.groupPublicKey33B64u,
+          ethereumAddress: relayerPublicIdentity.ethereumAddress,
+          relayerShareRetryCounter: 0,
+          workerCtx,
+        });
         const stateBlob: EcdsaRoleLocalReadyStateBlob = {
           kind: 'ecdsa_role_local_state_blob_v1',
           curve: 'secp256k1',
           encoding: 'base64url',
           producer: 'signer_core',
-          stateBlobB64u: encodeJsonBlob({
-            kind: 'browser_ready_ecdsa_role_local_state_v1',
-            pending,
-            relayerPublicIdentity,
-          }),
+          stateBlobB64u: finalized.stateBlobB64u,
         };
         return {
           ok: true,
           value: {
             stateBlob,
             publicFacts: {
-              hssClientSharePublicKey33B64u: pending.context.hssClientSharePublicKey33B64u,
-              clientVerifyingShareB64u: pending.context.clientVerifyingShareB64u,
-              relayerPublicKey33B64u: relayerPublicIdentity.relayerPublicKey33B64u,
-              groupPublicKey33B64u: relayerPublicIdentity.groupPublicKey33B64u,
-              ethereumAddress: relayerPublicIdentity.ethereumAddress,
+              hssClientSharePublicKey33B64u: parseHssClientSharePublicKey33B64u(
+                finalized.hssClientSharePublicKey33B64u,
+              ),
+              clientVerifyingShareB64u: parsePublicKey33B64u(
+                finalized.clientVerifyingShareB64u,
+                'clientVerifyingShareB64u',
+              ),
+              relayerPublicKey33B64u: parseRelayerHssPublicKey33B64u(
+                finalized.relayerPublicKey33B64u,
+              ),
+              groupPublicKey33B64u: parsePublicKey33B64u(
+                finalized.groupPublicKey33B64u,
+                'groupPublicKey33B64u',
+              ),
+              ethereumAddress: finalized.ethereumAddress,
             },
           },
         };
       } catch (error) {
-        return signerCryptoCommandFailure('invalid_pending_state', errorMessage(error));
+        return mapSignerCryptoInvocationError(error) || mapFinalizeEcdsaCommandError(error);
       }
     },
   };
@@ -827,7 +717,9 @@ export function createBrowserPlatformRuntime(
     kind: 'browser',
     storage: createBrowserDurableRecordStore(indexedDB, deps.ecdsaSessionStore),
     secrets: createBrowserSecureSecretStore(),
-    authenticator: createBrowserAuthenticatorPort(deps.credentials || globalThis.navigator?.credentials),
+    authenticator: createBrowserAuthenticatorPort(
+      deps.credentials || globalThis.navigator?.credentials,
+    ),
     signerCrypto: createBrowserSignerCryptoPort(deps.workerCtx),
     http: createBrowserHttpTransport(deps.fetch || globalThis.fetch?.bind(globalThis)),
     clock: createBrowserClock(deps.nowMs),
